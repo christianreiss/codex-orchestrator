@@ -220,9 +220,11 @@ def _codex_probe_auth(auth_json: dict) -> dict:
     return stripped
 
 
-def _prepare_codex_env(auth_json: dict, probe_only: bool = False) -> tuple[dict, str, str]:
-    if probe_only:
-        auth_json = _codex_probe_auth(auth_json)
+def _prepare_codex_env(auth_json: dict) -> tuple[dict, str, str]:
+    # Every temp HOME this runner writes is refresh-incapable: no endpoint —
+    # verify, exec, or the skills/memories drafts — may ever spend the fleet's
+    # rotating refresh token (see _codex_probe_auth).
+    auth_json = _codex_probe_auth(auth_json)
     if DEBUG_DUMP_ENABLED:
         # Debug helper: persist the incoming auth.json so it can be inspected from the container.
         # WARNING: contains secrets; enable only when debugging runner probes.
@@ -419,11 +421,11 @@ def _claude_version(env: Optional[dict] = None) -> str:
         return "unavailable"
 
 
-def _prepare_claude_env(auth_json: dict, probe_only: bool = False) -> tuple[dict, str, str]:
+def _prepare_claude_env(auth_json: dict) -> tuple[dict, str, str]:
     """Set up a temp HOME for Claude CLI validation/execution.
 
-    probe_only writes refresh-stripped credentials so the CLI cannot rotate
-    the shared OAuth grant (see _claude_probe_credentials).
+    Always writes refresh-stripped credentials: no runner endpoint may ever
+    rotate the shared OAuth grant (see _claude_probe_credentials).
     """
     if DEBUG_DUMP_ENABLED:
         try:
@@ -459,9 +461,7 @@ def _prepare_claude_env(auth_json: dict, probe_only: bool = False) -> tuple[dict
     claude_dir = os.path.join(home_dir, ".claude")
     os.makedirs(claude_dir, exist_ok=True)
     auth_path = os.path.join(claude_dir, ".credentials.json")
-    credentials = (
-        _claude_probe_credentials(auth_json) if probe_only else _claude_native_credentials(auth_json)
-    )
+    credentials = _claude_probe_credentials(auth_json)
     try:
         with open(auth_path, "w", encoding="utf-8") as fh:
             json.dump(credentials, fh)
@@ -510,7 +510,7 @@ def _run_claude_probe(payload) -> dict:
 
     timeout = payload.timeout_seconds or DEFAULT_TIMEOUT
     if _has_claude_oauth(payload.auth_json) or token.startswith("sk-ant-oat"):
-        env, home_dir, auth_path = _prepare_claude_env(payload.auth_json, probe_only=True)
+        env, home_dir, auth_path = _prepare_claude_env(payload.auth_json)
         try:
             probe_started = time.perf_counter()
             try:
@@ -774,7 +774,7 @@ def _run_codex_exec(prompt: str, env: dict, timeout: float, model: Optional[str]
 
 
 def _run_probe(payload: VerifyRequest) -> dict:
-    env, home_dir, auth_path = _prepare_codex_env(payload.auth_json, probe_only=True)
+    env, home_dir, auth_path = _prepare_codex_env(payload.auth_json)
     try:
         timeout = payload.timeout_seconds or DEFAULT_TIMEOUT
         probe_model = os.getenv("RUNNER_CODEX_PROBE_MODEL", "gpt-5.6-terra").strip() or None
@@ -1533,7 +1533,7 @@ def _exec_prompt(payload: ExecRequest) -> dict:
         raise HTTPException(status_code=400, detail="prompt is required")
 
     engine = payload.engine
-    env, home_dir, auth_path = _prepare_engine_env(payload.auth_json, engine)
+    env, home_dir, _auth_path = _prepare_engine_env(payload.auth_json, engine)
     try:
         timeout = payload.timeout_seconds or 30.0
         image_paths = _materialize_exec_images(payload.images or [], home_dir)
@@ -1565,18 +1565,9 @@ def _exec_prompt(payload: ExecRequest) -> dict:
             "reachable": True,
         }
 
-        try:
-            with open(auth_path, "r", encoding="utf-8") as fh:
-                updated_auth = json.load(fh)
-        except Exception:
-            updated_auth = None
-        original_native_auth = (
-            _claude_native_credentials(payload.auth_json)
-            if engine == "claude"
-            else payload.auth_json
-        )
-        if isinstance(updated_auth, dict) and updated_auth != original_native_auth:
-            result["updated_auth"] = updated_auth
+        # No credential readback: exec HOMEs carry no spendable refresh
+        # material, so the CLI cannot rotate the shared grant and any temp-file
+        # rewrite carries no lineage worth returning.
 
         parsed = _parse_claude_json_result(stdout) if engine == "claude" else None
 

@@ -102,8 +102,9 @@ These are the variables consumed by `api/src/env.ts`. The file is parsed with Zo
 - `AUTH_RUNNER_URL`, `AUTH_RUNNER_SHARED_SECRET` — how the API reaches the Python runner. **Note:** the compose file passes `RUNNER_SHARED_SECRET` to the `auth-runner` container; `AUTH_RUNNER_SHARED_SECRET` is what the API reads. These are separate variables for different services.
 - `AUTH_RUNNER_CODEX_BASE_URL` — Codex auth base URL for the runner.
 - `AUTH_RUNNER_TIMEOUT` — default `8` (seconds). HTTP timeout used for calls to the runner (health checks, verify, exec).
-- `AUTH_RUNNER_VERIFY_TTL_SECONDS` — default `900`. How stale a canonical auth's stored verification verdict may get before the background auth-verification worker re-checks it.
-- `AUTH_RUNNER_VERIFY_WORKER_INTERVAL_SECONDS` — default `300`. Poll interval for the background worker (`api/src/ops/auth-verification-worker.ts`, started from `server.ts`) that replaced synchronous runner verification on the request/boot path.
+- `AUTH_RUNNER_VERIFY_TTL_SECONDS` — default `900`. Minimum re-check interval for the background auth-verification worker's dynamic schedule.
+- `AUTH_RUNNER_VERIFY_WORKER_INTERVAL_SECONDS` — default `300`. Wake-up interval for the background worker (`api/src/ops/auth-verification-worker.ts`, started from `server.ts`) that replaced synchronous runner verification on the request/boot path; a wake-up only probes when the schedule says a re-check is due.
+- `AUTH_RUNNER_VERIFY_MAX_INTERVAL_SECONDS` — default `21600`. Ceiling for the dynamic schedule: the re-check interval grows with how long the credential has been proven good, and successful gateway traffic counts as proof (probes stay idle while real traffic flows).
 - `AUTH_RUNNER_IP_BYPASS` — bool, default `false`. Bypass runner IP checks.
 - `AUTH_RUNNER_BYPASS_SUBNETS` — subnets exempt from runner IP checks (used when `AUTH_RUNNER_IP_BYPASS` is true).
 - `AUTH_RUNNER_PREFLIGHT_SECONDS` — still declared in `env.ts` (default `28800`) but no longer read anywhere in `api/src`; superseded by `AUTH_RUNNER_VERIFY_TTL_SECONDS` / `AUTH_RUNNER_VERIFY_WORKER_INTERVAL_SECONDS` above.

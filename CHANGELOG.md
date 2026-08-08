@@ -1,5 +1,33 @@
 # 2026-08-08
 
+- **The verifier burned a real completion every 15 minutes, per engine, around the clock — now it
+  probes only when it has learned nothing lately.** The worker's fixed TTL re-probed canonical
+  credentials ~192 times a day between them, and two hidden holes made it worse: a pending
+  quarantine row was probed on *every 300-second tick* with no backoff, and so was a verified row
+  whose probe outcome was `unknown` during a runner outage. The launch gate never even read the
+  timestamp — serving is verdict-based — so all that spend bought nothing but revocation-detection
+  latency. The schedule is now dynamic and stateless: the re-check interval equals the time the
+  credential has been proven good (`verification_checked_at − created_at`), clamped between the
+  TTL (900 s, unchanged as the floor) and the new `AUTH_RUNNER_VERIFY_MAX_INTERVAL_SECONDS`
+  (default 6 h) — a factor-2 ladder that survives worker restarts because it lives in two columns
+  the ledger already had. Quarantine rows and outage retries ride the same ladder via a small
+  in-process attempt memory.
+- **Real traffic now counts as verification.** Every successful gateway exec through
+  `/anthropic/v1/*` or `/v1/*` *is* a live probe — it ran a completion with the canonical
+  credential. The adapters report it (`onExecSuccess`), and a rate-limited touch advances
+  `verification_checked_at` iff the served row is still the verified canonical head, so the probe
+  ladder keeps extending while traffic flows and background probes fire only when the fleet is
+  idle. A revoked credential can't touch — its execs fail — so detection under traffic is
+  effectively real-time.
+- **No runner endpoint holds spendable refresh material anymore.** The 2026-08-08 probe stripping
+  left `/exec` (the gateways' backend) and the skills endpoints running with full credentials, and
+  the gateway adapters *discard* `updated_auth` — so a gateway call landing in an expired-access
+  window would have spent the rotating refresh token and thrown the child away, resurrecting the
+  credential-kill race in miniature. Stripping is now unconditional in both engines' temp-HOME
+  writers, and `/exec` no longer returns `updated_auth` at all. The trade-off is deliberate: such
+  a request now fails fast with a 502 instead of silently strangling the fleet's credential, and
+  the host-side watchers heal the canonical within ~30 seconds.
+
 - **The Claude refresh-race fix now covers codex too.** The deep check found the same defect class
   on the codex side with a smaller blast surface: codex access JWTs live ~10 days (vs 8 hours), the
   CLI refreshes proactively 5 minutes before expiry behind a guarded reload-from-disk, and OpenAI's

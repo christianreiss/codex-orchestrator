@@ -118,6 +118,11 @@ export interface RunnerOpenAiConfig {
    * worktree consumes it through this hook to avoid a hard import cycle.
    */
   authSnapshot?: () => Promise<unknown | null>;
+  /**
+   * Invoked once per successful runner exec — a real completion with the
+   * canonical credential — so traffic can count as auth verification.
+   */
+  onExecSuccess?: () => void;
 }
 
 export function makeRunnerConfig(env: Env): RunnerOpenAiConfig | null {
@@ -273,7 +278,10 @@ export class RunnerOpenAiAdapter {
       });
     }
     const obj = decoded as RunnerResponse & { error?: unknown; reason?: unknown; detail?: unknown };
-    if (obj.status === 'ok') return obj;
+    if (obj.status === 'ok') {
+      this.config.onExecSuccess?.();
+      return obj;
+    }
     const errorMsg =
       typeof obj.error === 'string'
         ? obj.error

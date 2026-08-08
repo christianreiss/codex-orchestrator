@@ -1315,7 +1315,9 @@ function projectNativeOauthBearer(
 // and OpenAI both rotate refresh tokens per use, and a probe-side spend races
 // host-side native refreshes of the same grant (Anthropic revokes the family
 // outright; OpenAI locks out reuse beyond a short grace).
-function unverifiableWithoutRefreshSpend(
+// Exported for the verification worker, which uses it to skip the ensure
+// round-trip before it starts.
+export function unverifiableWithoutRefreshSpend(
   identity: ReturnType<typeof inspectCredential>,
 ): boolean {
   return (

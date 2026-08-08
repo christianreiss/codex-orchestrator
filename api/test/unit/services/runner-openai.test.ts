@@ -1,5 +1,9 @@
-import { describe, expect, it } from 'vitest';
-import { makeRunnerConfig, runnerExecUrl } from '../../../src/services/adapters/runner-openai.js';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import {
+  RunnerOpenAiAdapter,
+  makeRunnerConfig,
+  runnerExecUrl,
+} from '../../../src/services/adapters/runner-openai.js';
 
 describe('runner-openai', () => {
   it('derives /exec from the shared AUTH_RUNNER_URL verify endpoint', () => {
@@ -24,5 +28,48 @@ describe('runner-openai', () => {
       sharedSecret: 'secret',
       timeoutSeconds: 12,
     });
+  });
+});
+
+describe('onExecSuccess traffic hook', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  function adapterWith(runnerBody: unknown, status = 200) {
+    const onExecSuccess = vi.fn();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(JSON.stringify(runnerBody), { status })),
+    );
+    const adapter = new RunnerOpenAiAdapter({
+      execUrl: 'http://auth-runner:8080/exec',
+      sharedSecret: 'secret',
+      timeoutSeconds: 1,
+      authSnapshot: async () => ({ tokens: { access_token: 'a' } }),
+      onExecSuccess,
+    });
+    return { adapter, onExecSuccess };
+  }
+
+  it('fires exactly once on a successful exec', async () => {
+    const { adapter, onExecSuccess } = adapterWith({ status: 'ok', output: 'pong' });
+    await adapter.chatCompletions([{ role: 'user', content: 'ping' }], 'gpt-test', {});
+    expect(onExecSuccess).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not fire on a failed exec', async () => {
+    const { adapter, onExecSuccess } = adapterWith({ status: 'fail', error: 'nope' });
+    await expect(
+      adapter.chatCompletions([{ role: 'user', content: 'ping' }], 'gpt-test', {}),
+    ).rejects.toThrow();
+    expect(onExecSuccess).not.toHaveBeenCalled();
+  });
+
+  it('does not fire on the empty-prompt short-circuit (no runner call happened)', async () => {
+    const { adapter, onExecSuccess } = adapterWith({ status: 'ok', output: 'unreachable' });
+    await adapter.chatCompletions([{ role: 'user', content: '   ' }], 'gpt-test', {});
+    expect(onExecSuccess).not.toHaveBeenCalled();
+    expect(vi.mocked(fetch)).not.toHaveBeenCalled();
   });
 });

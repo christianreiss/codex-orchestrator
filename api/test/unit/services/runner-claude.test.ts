@@ -85,3 +85,46 @@ describe('createRunnerClaudeAdapter', () => {
     expect(res.content).toEqual([{ type: 'text', text: 'pong' }]);
   });
 });
+
+describe('onExecSuccess traffic hook', () => {
+  const okFetch = (async () =>
+    new Response(JSON.stringify({ status: 'ok', output: 'pong' }), {
+      status: 200,
+    })) as unknown as typeof fetch;
+  const failFetch = (async () =>
+    new Response(JSON.stringify({ status: 'fail', error: 'nope' }), {
+      status: 200,
+    })) as unknown as typeof fetch;
+
+  it('fires exactly once on a successful exec', async () => {
+    let fired = 0;
+    const adapter = createRunnerClaudeAdapter({
+      env: { ...baseEnv, AUTH_RUNNER_URL: 'https://runner.example' },
+      getAuthSnapshot: async () => ({ token: 't' }),
+      onExecSuccess: () => {
+        fired += 1;
+      },
+      fetcher: okFetch,
+    });
+    if (!adapter) throw new Error('adapter should be configured');
+    await adapter.messages([{ role: 'user', content: 'ping' }], 'claude-test', {});
+    expect(fired).toBe(1);
+  });
+
+  it('does not fire on a failed exec', async () => {
+    let fired = 0;
+    const adapter = createRunnerClaudeAdapter({
+      env: { ...baseEnv, AUTH_RUNNER_URL: 'https://runner.example' },
+      getAuthSnapshot: async () => ({ token: 't' }),
+      onExecSuccess: () => {
+        fired += 1;
+      },
+      fetcher: failFetch,
+    });
+    if (!adapter) throw new Error('adapter should be configured');
+    await expect(
+      adapter.messages([{ role: 'user', content: 'ping' }], 'claude-test', {}),
+    ).rejects.toThrow();
+    expect(fired).toBe(0);
+  });
+});

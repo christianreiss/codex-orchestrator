@@ -97,6 +97,11 @@ const schema = z
     // stored verdict and never waits on a live runner probe.
     AUTH_RUNNER_VERIFY_TTL_SECONDS: intish(900),
     AUTH_RUNNER_VERIFY_WORKER_INTERVAL_SECONDS: intish(300),
+    // Ceiling for the worker's dynamic probe schedule: the re-check interval
+    // grows with how long the credential has been proven good (factor-2
+    // ladder starting at the TTL) and is capped here. Successful gateway
+    // traffic also counts as proof and resets the clock.
+    AUTH_RUNNER_VERIFY_MAX_INTERVAL_SECONDS: intish(21600),
     AUTH_SEED_TOKEN_TTL_SECONDS: intish(900),
 
     // Admin

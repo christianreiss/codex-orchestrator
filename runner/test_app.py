@@ -337,7 +337,10 @@ class RunnerAppTest(unittest.TestCase):
             self.assertTrue(os.path.isfile(auth_path))
             with open(auth_path, "r", encoding="utf-8") as fh:
                 written = json.load(fh)
-            self.assertEqual({"claudeAiOauth": oauth}, written)
+            # Refresh material is stripped unconditionally: no runner endpoint
+            # may hold anything spendable against the shared grant.
+            expected = {k: v for k, v in oauth.items() if k != "refreshToken"}
+            self.assertEqual({"claudeAiOauth": expected}, written)
         finally:
             shutil.rmtree(home_dir, ignore_errors=True)
 
@@ -635,7 +638,7 @@ class RunnerAppTest(unittest.TestCase):
         api_key = {"OPENAI_API_KEY": "sk-openai-x"}
         self.assertIs(api_key, runner_app._codex_probe_auth(api_key))
 
-    def test_prepare_codex_env_probe_only_writes_blanked_refresh_token(self):
+    def test_prepare_codex_env_always_writes_blanked_refresh_token(self):
         env, home_dir, auth_path = runner_app._prepare_codex_env(
             {
                 "last_refresh": "2026-06-05T00:00:00Z",
@@ -644,13 +647,34 @@ class RunnerAppTest(unittest.TestCase):
                     "refresh_token": "sk-openai-test-refresh",
                 },
             },
-            probe_only=True,
         )
         try:
             with open(auth_path, "r", encoding="utf-8") as fh:
                 written = json.load(fh)
             self.assertEqual("", written["tokens"]["refresh_token"])
             self.assertEqual("sk-openai-test-access", written["tokens"]["access_token"])
+        finally:
+            shutil.rmtree(home_dir, ignore_errors=True)
+
+    def test_prepare_claude_env_always_strips_refresh_material(self):
+        env, home_dir, auth_path = runner_app._prepare_claude_env(
+            {
+                "claudeAiOauth": {
+                    "accessToken": "sk-ant-oat01-test-token",
+                    "refreshToken": "test-refresh-token",
+                    "refreshTokenExpiresAt": 123,
+                    "expiresAt": 456,
+                },
+                "last_refresh": "2026-06-05T00:00:00Z",
+            },
+        )
+        try:
+            with open(auth_path, "r", encoding="utf-8") as fh:
+                written = json.load(fh)
+            self.assertEqual(
+                {"claudeAiOauth": {"accessToken": "sk-ant-oat01-test-token", "expiresAt": 456}},
+                written,
+            )
         finally:
             shutil.rmtree(home_dir, ignore_errors=True)
 
@@ -1075,7 +1099,9 @@ class RunnerResponseContractTest(unittest.TestCase):
     CLAUDE_HTTP_FAIL_KEYS = CLAUDE_HTTP_OK_KEYS | {"reason"}
     CLAUDE_HTTP_LIMITED_KEYS = CLAUDE_HTTP_FAIL_KEYS | {"auth_limited"}
 
-    EXEC_OK_KEYS = frozenset({"status", "output", "latency_ms", "reachable", "updated_auth"})
+    # Exec HOMEs are refresh-stripped like probe HOMEs, so /exec responses
+    # never carry updated_auth — there is no rotatable lineage to read back.
+    EXEC_OK_KEYS = frozenset({"status", "output", "latency_ms", "reachable"})
     EXEC_FAILED_KEYS = frozenset({"status", "output", "error", "latency_ms", "reachable"})
     # An exec timeout answers 504 with FastAPI's {"detail": ...}, which send()
     # lifts into `reason`.
@@ -2502,14 +2528,17 @@ class RunnerCredentialFileTest(unittest.TestCase):
         with open(auth_path, "r", encoding="utf-8") as fh:
             return json.load(fh)
 
-    def test_codex_credential_file_is_private_and_verbatim(self):
+    def test_codex_credential_file_is_private_and_refresh_stripped(self):
         home_dir, auth_path = self.prepare(runner_app._prepare_codex_env, self.CODEX_AUTH)
 
         self.assertEqual(os.path.join(home_dir, ".codex", "auth.json"), auth_path)
         self.assertPrivateCredential(home_dir, auth_path)
-        self.assertEqual(self.CODEX_AUTH, self.read_credential(auth_path))
+        # Verbatim except the refresh token, which is blanked on every endpoint.
+        self.assertEqual(
+            runner_app._codex_probe_auth(self.CODEX_AUTH), self.read_credential(auth_path)
+        )
 
-    def test_claude_credential_file_is_private_and_native_only(self):
+    def test_claude_credential_file_is_private_and_refresh_stripped(self):
         for label, auth_json in (
             ("oauth", self.CLAUDE_OAUTH_AUTH),
             ("api key", self.CLAUDE_API_KEY_AUTH),
@@ -2522,7 +2551,7 @@ class RunnerCredentialFileTest(unittest.TestCase):
                 )
                 self.assertPrivateCredential(home_dir, auth_path)
                 written = self.read_credential(auth_path)
-                self.assertEqual(runner_app._claude_native_credentials(auth_json), written)
+                self.assertEqual(runner_app._claude_probe_credentials(auth_json), written)
                 self.assertNotIn("last_refresh", written)
                 self.assertNotIn("auths", written)
 

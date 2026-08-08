@@ -31,8 +31,13 @@ new route has to be documented here before it can ship.
   `refreshToken` removed — see the engine paragraphs below), can therefore
   never rotate the shared grant, and always report
   `auth_readback:"unchanged"` with no `updated_auth`; direct API-key probes
-  use `not_applicable`. Only `/exec` (feature execution) still runs with full
-  credentials and may return `updated_auth`. A failed result is definitive only
+  use `not_applicable`. `/exec` and the skills/memories/projects endpoints run
+  from the same refresh-stripped HOMEs — no runner endpoint ever holds
+  spendable refresh material, and none returns `updated_auth`. A gateway
+  request that lands while the canonical access token is expired therefore
+  fails fast instead of silently spending the fleet's rotating refresh token;
+  hosts heal the canonical within ~30 s via their mid-session upload watchers.
+  A failed result is definitive only
   when the output explicitly identifies credential rejection; provider
   outages, quota/model errors, timeouts, and generic CLI failures remain
   retryable. Anthropic `rate_limit_error` proves the key and returns `ok` with
@@ -46,7 +51,7 @@ new route has to be documented here before it can ship.
 - `POST /skills/generate` success responses include: `status`, `latency_ms`, `reachable`, `codex_version`, the structured draft fields (`slug`, `display_name`, `description`, `tags`, `what`, `when`, `steps`), and optional `reason`.
 - `POST /skills/assist` success responses include: `status`, `latency_ms`, `reachable`, `codex_version`, `assistant_message`, the structured draft fields (`slug`, `display_name`, `description`, `tags`, `what`, `when`, `steps`), and optional `reason`.
 - `POST /projects/assist` success responses include: `status`, `latency_ms`, `reachable`, `codex_version`, `assistant_message`, the structured draft fields (`title`, `name`, `description`, `roster_markdown`), and optional `reason`.
-- `POST /exec` responses include: `status`, `latency_ms`, `reachable`, `output`, optional `updated_auth`, and `error` on failure. The `claude` engine also reports `input_tokens`, `output_tokens`, `cache_creation_input_tokens`, and `cache_read_input_tokens`.
+- `POST /exec` responses include: `status`, `latency_ms`, `reachable`, `output`, and `error` on failure — never `updated_auth` (exec HOMEs are refresh-stripped, so there is no rotatable lineage to read back). The `claude` engine also reports `input_tokens`, `output_tokens`, `cache_creation_input_tokens`, and `cache_read_input_tokens`.
 - Every engine-aware route reports `claude_version` instead of `codex_version` when the request selects `engine:"claude"`.
 - CLI probe `status` is `ok` only when the command exits `0` and stdout contains
   `banana` (case-insensitive); otherwise it is `fail`. A non-zero CLI exit alone
@@ -162,11 +167,21 @@ aliases, nested `tokens` API-key aliases, then the derived `auths` entry.
     replacement.
 - `POST /seed/auth/{token}`, `POST /admin/auth/upload`, and `/sync/bootstrap` inline `auth_candidate` call the same runner-validated store path as host `/auth`, so runner `updated_auth` can become canonical there too.
 - **Background launch-gate verification (both engines).** The API starts an
-  auth-verification worker when `AUTH_RUNNER_URL` is configured. It runs on boot
-  and then every `AUTH_RUNNER_VERIFY_WORKER_INTERVAL_SECONDS` (default `300`),
-  checking the latest Claude and Codex canonical payloads when their stored
-  verdict is older than `AUTH_RUNNER_VERIFY_TTL_SECONDS` (default `900`), or
-  immediately when a nominally verified row is not safely distributable.
+  auth-verification worker when `AUTH_RUNNER_URL` is configured. It wakes on
+  boot and then every `AUTH_RUNNER_VERIFY_WORKER_INTERVAL_SECONDS` (default
+  `300`) and re-probes each engine's canonical payload on a **dynamic
+  schedule**: the re-check interval equals the time the credential has been
+  proven good, clamped between `AUTH_RUNNER_VERIFY_TTL_SECONDS` (default
+  `900`, the minimum) and `AUTH_RUNNER_VERIFY_MAX_INTERVAL_SECONDS` (default
+  `21600`) — a factor-2 ladder (15 m → 30 m → 1 h → … → 6 h). A successful
+  gateway exec with the canonical credential counts as proof and advances the
+  same clock (see the compat gateways), so probes only fire when the fleet is
+  idle. Pending quarantine rows and attempts that end without a persisted
+  verdict (runner outage) retry on the same ladder instead of every tick, and
+  a credential whose access token has expired while its refresh token is live
+  is never probed at all (see the refresh-spend note above). A nominally
+  verified row that is not safely distributable is still repaired
+  immediately.
   `/auth retrieve` and the `/sync/bootstrap` candidate-match path do not call the
   runner inline; they surface the latest stored `verification_state`
   (`verified` | `failed` | `unknown`) plus optional `verification_reason`:
@@ -237,8 +252,9 @@ instead.
 - `AUTH_RUNNER_CODEX_BASE_URL` (API): legacy compatibility setting retained in config/setup flows; runner verification no longer sends a `base_url` field.
 - `AUTH_RUNNER_SHARED_SECRET` (API): when non-empty, API includes `X-Runner-Auth` in runner requests.
 - `AUTH_RUNNER_PREFLIGHT_SECONDS` (API): legacy preflight interval retained for old deployments. Default: `28800` (8h).
-- `AUTH_RUNNER_VERIFY_TTL_SECONDS` (API): background verification freshness. Default: `900` (15m). Within the window a prior `verified` or `failed` verdict is trusted by worker probes.
-- `AUTH_RUNNER_VERIFY_WORKER_INTERVAL_SECONDS` (API): background verifier interval. Default: `300` (5m), minimum effective interval 30s.
+- `AUTH_RUNNER_VERIFY_TTL_SECONDS` (API): minimum probe interval for the background verifier's dynamic schedule. Default: `900` (15m). Within the window a prior `verified` or `failed` verdict is always trusted.
+- `AUTH_RUNNER_VERIFY_WORKER_INTERVAL_SECONDS` (API): background verifier wake-up interval. Default: `300` (5m), minimum effective interval 30s. A wake-up only probes when the dynamic schedule says a re-check is due.
+- `AUTH_RUNNER_VERIFY_MAX_INTERVAL_SECONDS` (API): ceiling for the dynamic probe schedule. Default: `21600` (6h). The re-check interval grows with how long the credential has been proven good; successful gateway traffic also counts as proof and advances `runner_last_check*` without a probe.
 - `AUTH_RUNNER_IP_BYPASS` / `AUTH_RUNNER_BYPASS_SUBNETS` (API): controls runner CIDR IP-bypass behavior in host authentication.
 - `CODEX_SYNC_BASE_URL` (runner container): used by runner probe process; fallback in runner code is `http://api`.
 - `RUNNER_HOME_PARENT` (runner container): parent directory for isolated temp homes used by runner Codex calls. The bundled image sets this to `/dev/shm`.

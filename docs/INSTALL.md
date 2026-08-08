@@ -166,7 +166,8 @@ Prefer `bin/install.sh` to generate `.env`. If you edit manually instead:
      store is blocked), `AUTH_RUNNER_CODEX_BASE_URL` (legacy compatibility
      setting; no longer sent to the runner request body), `AUTH_RUNNER_TIMEOUT`,
      `AUTH_RUNNER_VERIFY_TTL_SECONDS`,
-     `AUTH_RUNNER_VERIFY_WORKER_INTERVAL_SECONDS`, `AUTH_RUNNER_SHARED_SECRET`
+     `AUTH_RUNNER_VERIFY_WORKER_INTERVAL_SECONDS`,
+     `AUTH_RUNNER_VERIFY_MAX_INTERVAL_SECONDS`, `AUTH_RUNNER_SHARED_SECRET`
      (required whenever `AUTH_RUNNER_URL` is set, and must equal
      `RUNNER_SHARED_SECRET`), and `AUTH_RUNNER_IP_BYPASS` +
      `AUTH_RUNNER_BYPASS_SUBNETS`.
@@ -256,7 +257,9 @@ uncommitted tree.
   Leaving it blank keeps existing verified auth readable but blocks every
   canonical-changing store. The API keeps canonical Codex/Claude auth fresh from
   a background worker (`AUTH_RUNNER_VERIFY_WORKER_INTERVAL_SECONDS`, default
-  300s) instead of blocking wrapper startup. Admin seed and admin upload paths
+  300s; probes back off dynamically to `AUTH_RUNNER_VERIFY_MAX_INTERVAL_SECONDS`,
+  default 6h, and successful gateway traffic counts as verification) instead of
+  blocking wrapper startup. Admin seed and admin upload paths
   run through the same strict runner validation as host `/auth` stores.
 - Pending migrations are applied at boot, so deploying a version that adds schema
   needs no separate step. API startup fails closed if the required

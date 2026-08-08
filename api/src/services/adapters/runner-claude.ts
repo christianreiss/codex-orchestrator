@@ -85,6 +85,11 @@ export interface RunnerClaudeAdapterDeps {
    * fails with a 503-class error in that case.
    */
   getAuthSnapshot?: () => Promise<unknown | null>;
+  /**
+   * Invoked once per successful runner exec — a real completion with the
+   * canonical credential — so traffic can count as auth verification.
+   */
+  onExecSuccess?: () => void;
   /** Override fetch for tests. */
   fetcher?: typeof fetch;
 }
@@ -182,6 +187,8 @@ export function createRunnerClaudeAdapter(deps: RunnerClaudeAdapterDeps): Runner
           type: 'api_error',
         });
       }
+
+      deps.onExecSuccess?.();
 
       const output = typeof obj.output === 'string' ? obj.output : '';
       const usage = extractUsage(obj);

@@ -52,6 +52,7 @@ import {
 } from '../../services/anthropic-compat.js';
 import { messageStreamEvents, writeSseResponse } from '../../http/stream/anthropic-sse.js';
 import { createRunnerValidationService } from '../../services/runner-validation.js';
+import { createAuthTrafficVerifier } from '../../services/auth-traffic-verification.js';
 import { ENGINE_CLAUDE } from '../../util/engine.js';
 
 interface AnthropicRouteDeps {
@@ -83,17 +84,23 @@ export async function registerAnthropicCompatRoutes(
   const killSwitch = options.killSwitch ?? createClaudeKillSwitch(ctx.db);
   const models = options.models ?? createClaudeModelsService(ctx.db);
   const runnerValidation = createRunnerValidationService({ db: ctx.db, keyring: ctx.keyring });
-  const defaultAuthSnapshot = async (): Promise<unknown | null> => {
-    const row = await runnerValidation.resolveCanonicalPayload(ENGINE_CLAUDE);
-    if (!row) return null;
-    return runnerValidation.canonicalAuthFromPayload(row);
-  };
+  // Successful gateway execs prove the canonical credential live; the traffic
+  // verifier touches its verification stamp so background probes stay idle
+  // while real traffic flows. Test overrides of getAuthSnapshot/adapter leave
+  // the touch a no-op (no served row id is ever recorded).
+  const traffic = createAuthTrafficVerifier({
+    db: ctx.db,
+    runnerValidation,
+    engine: ENGINE_CLAUDE,
+    log: app.log,
+  });
   const adapter =
     options.adapter !== undefined
       ? options.adapter
       : createRunnerClaudeAdapter({
           env: ctx.env,
-          getAuthSnapshot: options.getAuthSnapshot ?? defaultAuthSnapshot,
+          getAuthSnapshot: options.getAuthSnapshot ?? traffic.getAuthSnapshot,
+          onExecSuccess: traffic.recordExecSuccess,
         });
 
   const deps: AnthropicRouteDeps = { keyResolver, killSwitch, models, adapter };

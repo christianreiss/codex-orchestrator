@@ -22,6 +22,7 @@ import {
   buildModelObject,
 } from '../../services/openai-models.js';
 import { createRunnerValidationService } from '../../services/runner-validation.js';
+import { createAuthTrafficVerifier } from '../../services/auth-traffic-verification.js';
 import { ENGINE_CODEX } from '../../util/engine.js';
 
 /**
@@ -54,11 +55,17 @@ export async function registerOpenAiCompatRoutes(
   const runnerConfig = makeRunnerConfig(ctx.env);
   if (runnerConfig) {
     const runnerValidation = createRunnerValidationService({ db: ctx.db, keyring: ctx.keyring });
-    runnerConfig.authSnapshot = async () => {
-      const row = await runnerValidation.resolveCanonicalPayload(ENGINE_CODEX);
-      if (!row) return null;
-      return runnerValidation.canonicalAuthFromPayload(row);
-    };
+    // Successful gateway execs prove the canonical credential live; the
+    // traffic verifier touches its verification stamp so background probes
+    // stay idle while real traffic flows.
+    const traffic = createAuthTrafficVerifier({
+      db: ctx.db,
+      runnerValidation,
+      engine: ENGINE_CODEX,
+      log: app.log,
+    });
+    runnerConfig.authSnapshot = traffic.getAuthSnapshot;
+    runnerConfig.onExecSuccess = traffic.recordExecSuccess;
   }
   const adapter =
     overrides.adapter !== undefined
