@@ -222,6 +222,16 @@ Implemented in `wrappers/cxx/internal/persona/claude/lifecycle/` as `lifecycle.R
    browser flow and instead direct the operator to run `clx auth login`
    interactively.
 
+   Credential rotation is also watched outside the foreground lifecycle. The
+   per-user `cxx-agent` background worker checks the native credential digest
+   every two seconds and runs guarded `clx auth-upload` when usable bytes
+   change. This includes refreshes written by a detached `claude daemon run`
+   after its spawning clx has exited. It is installed on every Claude-capable
+   host independently of agent messaging; daily maintenance re-asserts it
+   before engine ticks, including from headless Linux cron environments without
+   pre-populated systemd-user bus variables. The foreground 30-second watcher
+   remains as a fallback for managed sessions.
+
 7. **Install target Claude CLI version** if allowed and `auto_update` is
    enabled (`claude.EnsureClaude`), then — unless this is a concurrent
    sync-paused run — reconcile the Codex persona (`peer.Reconcile`) from the

@@ -956,21 +956,23 @@ fi
 cleanup_known_relics
 ui_ok "cxx" "wrapper" "$WRAPPER_VERSION" "ready"
 
-install_agent_relay() {
-  # Keep the relay installed while the fleet switch is off. It performs no
-  # network work and starts no model in that state; the dormant service is what
-  # lets the WebUI activate a provisioned host without another human install.
-  ui_progress "cxx" "agent relay" "" "installing…"
+install_background_worker() {
+  # Keep the worker installed while agent messaging is off. It starts no model
+  # and makes no messaging requests in that state; on Claude-capable hosts it
+  # also uploads a native credential generation only when that file changes.
+  # Its presence lets the WebUI activate messaging without another install and
+  # closes the auth gap left by detached Claude daemons.
+  ui_progress "cxx" "background worker" "" "installing…"
   if "$TARGET_BIN" agent service install >"$STEP_LOG" 2>&1; then
-    ui_ok "cxx" "agent relay" "" "ready"
+    ui_ok "cxx" "background worker" "" "ready"
   else
-    ui_warn "cxx" "agent relay" "" "service unavailable"
+    ui_warn "cxx" "background worker" "" "service unavailable"
     ui_hint "Retry as the desktop user: $TARGET_BIN agent service install"
   fi
 }
 
 if [ "$INSTALL_CONTEXT" = "transition" ]; then
-  install_agent_relay
+  install_background_worker
   INSTALL_FINISHED=1
   cleanup
   trap - EXIT INT TERM
@@ -989,7 +991,7 @@ fi
 if ! bootstrap_host; then INSTALL_FAILED=1; fi
 if [ "$HAS_CODEX" = "1" ] && ! verify_engine_cli "cdx" "codex"; then INSTALL_FAILED=1; fi
 if [ "$HAS_CLAUDE" = "1" ] && ! verify_engine_cli "clx" "claude"; then INSTALL_FAILED=1; fi
-if [ "$INSTALL_FAILED" = "0" ]; then install_agent_relay; fi
+if [ "$INSTALL_FAILED" = "0" ]; then install_background_worker; fi
 # These are consumed by the installer suffix. Keep the shared transition body
 # independently ShellCheck-clean even though its successful path execs above.
 : "$BIN_ROOT_ON_PATH" "$INSTALL_FAILED"`;

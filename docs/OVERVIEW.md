@@ -191,8 +191,15 @@ Small Node 22 + Fastify + Drizzle + MySQL service that keeps canonical Codex and
      different verified canonical, never unconditionally.
    - The active-child guarantee covers processes launched through `cdx`/`clx`.
      A separately invoked raw `codex` or `claude` process does not participate
-     in wrapper leases; operators needing race-safe fleet auth should use the
-     wrappers consistently.
+     in wrapper leases, so destructive login/logout coordination still requires
+     the wrappers. Claude credential rotation is covered separately: the
+     always-on per-user `cxx-agent` worker polls the authoritative native digest
+     every two seconds and invokes guarded `clx auth-upload` when usable bytes
+     change, including changes written by a detached `claude daemon run` after
+     its parent clx exits. It starts with every Claude-capable installation,
+     independent of agent messaging, and the daily coordinator re-asserts it
+     before engine ticks. Headless Linux maintenance supplies the standard
+     `/run/user/<uid>` systemd-user bus environment when cron omitted it.
    - When a host already has an active wrapper run, the concurrent guard still
      skips managed content/update writes and peer reconciliation, but performs
      the auth freshness check and keeps API/auth/runner health visible. The

@@ -83,7 +83,11 @@ replayed spent token gets the whole grant family revoked (the historical
 daily fleet re-login). A probe therefore only proves the access token it was
 given; the API never even requests a probe for a credential whose access token
 has expired while its refresh token is still live — that state is served
-as-is and heals when a host refreshes natively and re-uploads.
+as-is and heals when a host refreshes natively and re-uploads. Managed clx
+sessions retain their 30-second foreground watcher, while the per-user
+`cxx-agent` worker watches the same native digest every two seconds even after a
+detached Claude daemon outlives its spawning wrapper. It submits changes through
+the normal guarded `clx auth-upload` path; no runner receives the refresh token.
 Genuine API keys use a
 direct Anthropic request; only HTTP 401/`authentication_error` is a definitive
 failure, while permission/model/server failures are not.

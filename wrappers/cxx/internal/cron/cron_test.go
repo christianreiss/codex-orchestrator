@@ -95,6 +95,33 @@ func TestSetEnvReplacesWithoutDuplicating(t *testing.T) {
 	}
 }
 
+func TestBackgroundWorkerRequiredForClaudeWithoutAgentMessaging(t *testing.T) {
+	tests := []struct {
+		name    string
+		configs []*config.Config
+		want    bool
+	}{
+		{name: "none"},
+		{name: "codex only", configs: []*config.Config{{Engine: config.EngineCodex}}},
+		{name: "claude auth watcher", configs: []*config.Config{{Engine: config.EngineClaude}}, want: true},
+		{
+			name: "codex messaging relay",
+			configs: []*config.Config{{
+				Engine:         config.EngineCodex,
+				AgentMessaging: config.AgentMessaging{Enabled: true},
+			}},
+			want: true,
+		},
+	}
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			if got := backgroundWorkerRequired(testCase.configs); got != testCase.want {
+				t.Fatalf("backgroundWorkerRequired() = %v, want %v", got, testCase.want)
+			}
+		})
+	}
+}
+
 func TestAuthoritativeDualToSingleRemovesOnlyDisabledEngineState(t *testing.T) {
 	dir := t.TempDir()
 	cxx := filepath.Join(dir, "cxx")

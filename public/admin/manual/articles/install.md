@@ -206,7 +206,10 @@ What the installer actually does on the target machine:
    It snapshots each crontab, removes only lines ending in an exact managed
    marker, and restores every changed crontab plus the new system entry if
    cleanup cannot complete.
-5. Prints `READY` only after the common wrapper, every CLI, and cron setup verifies. Any
+5. Installs the per-user `cxx-agent` background worker. It remains present when
+   Agent Messaging is disabled; on Claude-capable hosts it also uploads changed
+   native credential generations written by detached Claude daemons.
+6. Prints `READY` only after the common wrapper, every CLI, and cron setup verifies. Any
    partial failure prints `INCOMPLETE`, exits non-zero, and gives a direct retry;
    wrapper/config failures require minting a fresh single-use installer.
 

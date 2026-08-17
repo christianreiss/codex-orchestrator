@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"os"
@@ -81,16 +82,25 @@ var runNativeAdapter = func(c *relayClient, ctx context.Context, cfg *config.Con
 	return c.runNative(ctx, cfg, delivery, upstream, alreadyAccepted)
 }
 
-// RunWorker runs one per-user outbound relay. It never opens a listener and
-// persists only opaque IDs needed for reconnect/idempotency.
+// RunWorker runs the per-user background worker. The auth watcher remains
+// local until credentials change; the optional relay never opens a listener
+// and persists only opaque IDs needed for reconnect/idempotency.
 func RunWorker(parent context.Context, version string, stdout, stderr io.Writer) error {
 	ctx, stop := signal.NotifyContext(parent, os.Interrupt, syscall.SIGTERM)
-	defer stop()
+	authWatchDone := make(chan struct{})
+	go func() {
+		defer close(authWatchDone)
+		runPersistentClaudeAuthWatch(ctx, slog.Default())
+	}()
+	defer func() {
+		stop()
+		<-authWatchDone
+	}()
 	instanceID, err := loadOrCreateInstanceID()
 	if err != nil {
 		return err
 	}
-	fmt.Fprintln(stdout, "agent messaging relay: starting")
+	fmt.Fprintln(stdout, "cxx background worker: starting")
 	for ctx.Err() == nil {
 		configs, seed, err := loadMessagingConfigs()
 		if err != nil || seed == nil {
@@ -133,7 +143,7 @@ func RunWorker(parent context.Context, version string, stdout, stderr io.Writer)
 			break
 		}
 	}
-	fmt.Fprintln(stdout, "agent messaging relay: stopped")
+	fmt.Fprintln(stdout, "cxx background worker: stopped")
 	return nil
 }
 

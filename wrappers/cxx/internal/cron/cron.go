@@ -156,23 +156,31 @@ func Run(ctx context.Context, seed *config.Config, minimal bool, stdout, stderr 
 	if err := reconcileSchedule(ctx, canonical); err != nil {
 		return fmt.Errorf("reconcile cxx cron schedule: %w", err)
 	}
+	if backgroundWorkerRequired(configs) {
+		// Service managers are not uniformly available in SSH/headless user
+		// contexts. Keep maintenance successful and surface the exact retry.
+		// Claude auth rotation coverage must not depend on agent messaging being
+		// enabled: detached native daemons write the same credential file. Ensure
+		// it before the engine ticks so a failed auth tick cannot prevent healing.
+		if err := ensureAgentService(stdout, stderr); err != nil {
+			fmt.Fprintln(stderr, "cxx background worker service unavailable:", err)
+		}
+	}
 	runCtx, cancel := context.WithTimeout(ctx, coordinatorTimout)
 	defer cancel()
 	if err := runEnabledTicks(runCtx, canonical, engines, minimal, stdout, stderr); err != nil {
 		return err
 	}
+	return nil
+}
+
+func backgroundWorkerRequired(configs []*config.Config) bool {
 	for _, cfg := range configs {
-		if cfg != nil && cfg.AgentMessaging.Enabled {
-			// Service managers are not uniformly available in SSH/headless user
-			// contexts. Keep maintenance successful and surface the exact retry;
-			// server-side policy remains fail-closed until a relay connects.
-			if err := ensureAgentService(stdout, stderr); err != nil {
-				fmt.Fprintln(stderr, "cxx agent relay service unavailable:", err)
-			}
-			break
+		if cfg != nil && (cfg.Engine == config.EngineClaude || cfg.AgentMessaging.Enabled) {
+			return true
 		}
 	}
-	return nil
+	return false
 }
 
 func runEnabledTicks(ctx context.Context, canonical string, engines []string, minimal bool, stdout, stderr io.Writer) error {

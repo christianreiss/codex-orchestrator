@@ -13,7 +13,8 @@ orchestrator emits a POSIX `sh` installer script (`GET /install/{token}`) that
 fetches every enabled signed per-host JSON config, requires identical common
 version/SHA metadata, downloads one binary, installs the enabled aliases, then
 calls `cxx cron install` and `cxx cron run --minimal` once each for all enabled
-engine CLIs — the installer does **not** itself `exec` the wrapper. A separate, shorter
+engine CLIs and installs the per-user `cxx-agent` background worker. The
+installer does **not** itself `exec` the wrapper. A separate, shorter
 **legacy transition launcher** (`GET /wrapper/download`) exists only for
 pre-v2 shell-era hosts: it performs the same config-and-binary fetch, then
 `exec`s `cxx <engine>` with the original argv.
@@ -394,9 +395,14 @@ credential file as an optional write-only mirror. Credential upload, guarded
 materialization, logout tracking, and insecure purge failures are non-zero
 wrapper failures; required uninstall removal failures are non-zero too. Lease
 FDs are inherited by wrapper-launched children, so coordination survives a
-wrapper crash until the child exits. These leases cover wrapper-launched children only: a raw
-`codex`/`claude` invocation outside cdx/clx is an unavoidable coordination
-boundary.
+wrapper crash until the child exits. These leases cover wrapper-launched
+children only: a raw `codex`/`claude` invocation outside cdx/clx remains a
+destructive-login/logout coordination boundary. Claude refresh distribution is
+covered independently by the per-user `cxx-agent` worker: it watches the
+authoritative native digest every two seconds and invokes guarded
+`clx auth-upload` after usable changes, including refreshes from detached
+daemons. The worker is installed for Claude even when agent messaging is
+disabled, and headless cron re-asserts it before engine maintenance.
 
 Uninstall is engine-scoped at the API boundary. Each persona always cleans its
 own credentials and managed state, then trusts shared-artifact cleanup only to

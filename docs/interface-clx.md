@@ -428,7 +428,27 @@ non-zero if any required local state removal fails. The logout marker is
 deliberately retained.
 Upload, required materialization, marker, or purge errors make an otherwise
 successful clx invocation non-zero. A raw `claude` process launched outside clx
-cannot participate in these leases and is the explicit coordination boundary.
+cannot participate in these leases and remains the boundary for destructive
+login/logout coordination. It is no longer an auth-distribution blind spot:
+the managed per-user `cxx-agent` background worker watches the authoritative
+native credential digest every two seconds and runs the same guarded
+`clx auth-upload` path whenever usable bytes change. This covers detached
+`claude daemon run` processes after their spawning clx has exited. The worker
+uploads any unbound usable generation already present on start (while skipping
+an exact digest already bound to canonical storage), marks only the exact
+pre-request generation handled so a second rotation during arbitration cannot
+be lost, exponentially backs off a failed unchanged generation from five
+seconds to five minutes, and handles a newer generation immediately. The
+foreground 30-second watcher remains as an independent fallback during managed
+clx sessions.
+
+The installer keeps this worker present even when agent messaging is disabled.
+Every Claude-capable `cxx cron run` re-asserts it before engine maintenance, so
+an auth-tick failure cannot prevent service healing. On Linux, managed
+`systemctl --user` calls synthesize the standard `/run/user/<uid>` runtime and
+bus addresses when cron has no login-session environment; launchd continues to
+use the per-user LaunchAgent. The worker does no auth network work until a
+usable native generation appears or changes.
 
 Engine-specific details:
 

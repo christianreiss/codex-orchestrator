@@ -584,6 +584,8 @@ describe('wrapper transition helpers', () => {
     expect(result.status).toBe(0);
     expect(output).toContain('READY | Codex + Claude installed successfully');
     expect(output.match(/OK \| cxx \| wrapper/g)).toHaveLength(1);
+    expect(output).toContain('| cxx | background worker |');
+    expect(output).not.toContain('agent relay');
     expect(output.match(/OK \| cdx \| codex/g)).toHaveLength(1);
     expect(output.match(/OK \| clx \| claude/g)).toHaveLength(1);
     expect(result.binaryDownloads).toBe(1);

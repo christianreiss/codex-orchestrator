@@ -1,3 +1,29 @@
+# 2026-08-17
+
+- **Detached Claude daemons can no longer strand a spent fleet refresh token.**
+  The foreground clx auth watcher ended with its direct child, but Claude's
+  native `daemon run` deliberately survives that parent and refreshes the shared
+  `~/.claude/.credentials.json` roughly every eight hours. The daemon therefore
+  rotated a single-use OAuth pair with nobody left to upload it; the daily cron
+  later published that generation after other hosts had already replayed the
+  spent canonical token and reached `Login Expired`. The always-on per-user
+  `cxx-agent` worker now watches usable Claude credential generations every two
+  seconds and submits changes through the existing guarded `clx auth-upload`
+  arbitration path. On worker start it uploads an unbound local generation but
+  skips an exact digest already bound to canonical storage, preventing a
+  rollout-wide no-op store burst. It marks only the exact pre-request generation
+  handled so an in-flight second rotation is never skipped, backs off only the
+  failed unchanged generation, and handles newer rotations immediately. The
+  30-second foreground watcher remains in place.
+- **Claude auth coverage no longer depends on the messaging switch or an SSH
+  session's environment.** Every Claude-capable daily coordinator re-asserts
+  the background worker before engine ticks, even when agent messaging is off,
+  so a failing auth tick cannot prevent its own repair. Managed Linux
+  `systemctl --user` calls now fill missing `XDG_RUNTIME_DIR` and
+  `DBUS_SESSION_BUS_ADDRESS` from `/run/user/<uid>`; root cron can therefore
+  restart the lingering service instead of leaving an old deleted cxx binary
+  running indefinitely. Wrapper version bumped to `0.7.23`.
+
 # 2026-08-08
 
 - **The verifier burned a real completion every 15 minutes, per engine, around the clock — now it

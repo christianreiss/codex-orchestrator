@@ -39,7 +39,7 @@ func renderSystemdUserUnit(executable, binaryDigest string, environment map[stri
 		}
 	}
 	return `[Unit]
-Description=Codex Orchestrator agent messaging relay
+Description=Codex Orchestrator background worker
 # CXXBinarySHA256=` + binaryDigest + `
 After=network-online.target
 Wants=network-online.target
@@ -108,7 +108,7 @@ func runServiceCommand(args []string, stdout, stderr io.Writer) error {
 	return fmt.Errorf("background agent service is unsupported on %s; use cxx agent worker --foreground", runtime.GOOS)
 }
 
-// RemoveService removes the managed per-user relay during a confirmed
+// RemoveService removes the managed per-user worker during a confirmed
 // last-engine uninstall. It is exported for the shared uninstall coordinator;
 // partial or unconfirmed engine removals deliberately leave it in place.
 func RemoveService(stdout, stderr io.Writer) error {
@@ -122,7 +122,7 @@ func RemoveService(stdout, stderr io.Writer) error {
 	return os.RemoveAll(filepath.Join(home, ".cxx", "agent"))
 }
 
-// EnsureService installs and starts the managed relay idempotently.
+// EnsureService installs and starts the managed background worker idempotently.
 func EnsureService(stdout, stderr io.Writer) error {
 	return runServiceCommand([]string{"install"}, stdout, stderr)
 }
@@ -141,7 +141,7 @@ func serviceStatus() (map[string]any, error) {
 	status["path"] = path
 	var cmd *exec.Cmd
 	if runtime.GOOS == "linux" {
-		cmd = exec.Command("systemctl", "--user", "is-active", "--quiet", serviceName+".service")
+		cmd = systemdUserCommand("--user", "is-active", "--quiet", serviceName+".service")
 	} else if runtime.GOOS == "darwin" {
 		cmd = exec.Command("launchctl", "print", fmt.Sprintf("gui/%d/%s", os.Getuid(), launchLabel))
 	} else {
@@ -355,9 +355,8 @@ func writeProtectedFileIfChanged(path string, body []byte) (bool, error) {
 
 // A systemd --user unit lives inside the user's manager, which logind tears
 // down with their last login session unless lingering is enabled. Without it
-// the relay stops seconds after whichever session installed it goes away, and
-// the host silently receives no agent messages at all — the unit still reports
-// enabled, so nothing looks wrong until a message is never answered.
+// the worker stops seconds after whichever session installed it goes away, so
+// neither agent messages nor detached Claude auth rotations are handled.
 //
 // Best effort on purpose. A container without logind has no loginctl, and an
 // unprivileged user can be refused by polkit; neither should fail the install,
@@ -374,7 +373,7 @@ func enableSystemdLinger(stdout, stderr io.Writer) {
 	}
 	if err := managedServiceProcess(stdout, stderr, "loginctl", "enable-linger", name); err != nil {
 		fmt.Fprintf(stderr, "cxx agent: could not enable systemd lingering for %s: %v\n", name, err)
-		fmt.Fprintf(stderr, "cxx agent: the relay will stop when this user's last login session ends; run 'loginctl enable-linger %s' as root to receive agent messages unattended\n", name)
+		fmt.Fprintf(stderr, "cxx agent: the background worker will stop when this user's last login session ends; run 'loginctl enable-linger %s' as root for unattended operation\n", name)
 	}
 }
 
@@ -394,6 +393,9 @@ func currentUserName() string {
 
 func runServiceProcess(stdout, stderr io.Writer, name string, args ...string) error {
 	cmd := exec.Command(name, args...)
+	if runtime.GOOS == "linux" && name == "systemctl" && len(args) > 0 && args[0] == "--user" {
+		cmd.Env = systemdUserEnvironment(os.Environ(), os.Getuid())
+	}
 	cmd.Stdout, cmd.Stderr = stdout, stderr
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("%s %s: %w", name, strings.Join(args, " "), err)
@@ -473,12 +475,47 @@ func recordServiceDeployment(deploymentID string) error {
 }
 
 func detectSystemdUnitMissing(unit string) (bool, error) {
-	cmd := exec.Command("systemctl", "--user", "show", "--property=LoadState", "--value", unit)
+	cmd := systemdUserCommand("--user", "show", "--property=LoadState", "--value", unit)
 	raw, err := cmd.Output()
 	if err != nil {
 		return false, fmt.Errorf("probe systemd unit %s: %w", unit, err)
 	}
 	return strings.TrimSpace(string(raw)) == "not-found", nil
+}
+
+// systemdUserCommand makes systemctl --user usable from cron and other
+// headless contexts. Those processes commonly lack the session variables that
+// systemctl needs even though the lingering per-user manager and its bus are
+// alive under /run/user/<uid>.
+func systemdUserCommand(args ...string) *exec.Cmd {
+	cmd := exec.Command("systemctl", args...)
+	cmd.Env = systemdUserEnvironment(os.Environ(), os.Getuid())
+	return cmd
+}
+
+func systemdUserEnvironment(environment []string, uid int) []string {
+	runtimeDir := fmt.Sprintf("/run/user/%d", uid)
+	environment = setDefaultEnvironment(environment, "XDG_RUNTIME_DIR", runtimeDir)
+	return setDefaultEnvironment(environment, "DBUS_SESSION_BUS_ADDRESS", "unix:path="+runtimeDir+"/bus")
+}
+
+func setDefaultEnvironment(environment []string, key, fallback string) []string {
+	prefix := key + "="
+	value := ""
+	filtered := make([]string, 0, len(environment)+1)
+	for _, entry := range environment {
+		if strings.HasPrefix(entry, prefix) {
+			if candidate := strings.TrimSpace(strings.TrimPrefix(entry, prefix)); candidate != "" {
+				value = candidate
+			}
+			continue
+		}
+		filtered = append(filtered, entry)
+	}
+	if value == "" {
+		value = fallback
+	}
+	return append(filtered, prefix+value)
 }
 
 func detectLaunchdUnitMissing(target string) (bool, error) {

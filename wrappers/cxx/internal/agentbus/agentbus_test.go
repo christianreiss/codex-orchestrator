@@ -94,8 +94,41 @@ func TestServiceDefinitionsRunWorkerWithoutContentArguments(t *testing.T) {
 			}
 		}
 	}
+	if !strings.Contains(linux, "Description=Codex Orchestrator background worker") {
+		t.Fatalf("systemd service still describes a messaging-only process: %s", linux)
+	}
 	if !strings.Contains(darwin, "/srv/claude&amp;configs/clx.json") {
 		t.Fatalf("launchd config path was not XML escaped: %s", darwin)
+	}
+}
+
+func TestSystemdUserEnvironmentRepairsHeadlessCronContext(t *testing.T) {
+	got := systemdUserEnvironment([]string{"PATH=/usr/bin", "XDG_RUNTIME_DIR="}, 42)
+	want := map[string]string{
+		"XDG_RUNTIME_DIR":          "/run/user/42",
+		"DBUS_SESSION_BUS_ADDRESS": "unix:path=/run/user/42/bus",
+	}
+	for key, value := range want {
+		var matches []string
+		for _, entry := range got {
+			if strings.HasPrefix(entry, key+"=") {
+				matches = append(matches, strings.TrimPrefix(entry, key+"="))
+			}
+		}
+		if !reflect.DeepEqual(matches, []string{value}) {
+			t.Fatalf("%s values = %q, want %q (env %q)", key, matches, value, got)
+		}
+	}
+
+	explicit := systemdUserEnvironment([]string{
+		"XDG_RUNTIME_DIR=/custom/runtime",
+		"DBUS_SESSION_BUS_ADDRESS=unix:path=/custom/bus",
+	}, 42)
+	if !reflect.DeepEqual(explicit, []string{
+		"XDG_RUNTIME_DIR=/custom/runtime",
+		"DBUS_SESSION_BUS_ADDRESS=unix:path=/custom/bus",
+	}) {
+		t.Fatalf("explicit systemd user environment was replaced: %q", explicit)
 	}
 }
 
