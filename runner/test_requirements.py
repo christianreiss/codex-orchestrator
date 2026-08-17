@@ -77,8 +77,19 @@ def _distribution(module):
     return _normalize(DISTRIBUTION_FOR_IMPORT.get(module, module))
 
 
+def _is_local(module):
+    """A sibling module in `runner/` ships with app.py and pins nothing."""
+    return os.path.exists(os.path.join(RUNNER_DIR, f"{module}.py")) or os.path.isdir(
+        os.path.join(RUNNER_DIR, module)
+    )
+
+
 IMPORTED = _imported_modules()
-THIRD_PARTY = sorted(name for name in IMPORTED if name not in sys.stdlib_module_names)
+THIRD_PARTY = sorted(
+    name
+    for name in IMPORTED
+    if name not in sys.stdlib_module_names and not _is_local(name)
+)
 PINNED = _pinned_distributions()
 
 
@@ -95,6 +106,11 @@ class RequirementsCoverImportsTest(unittest.TestCase):
         # rather than letting every name through as third-party.
         self.assertIn("os", IMPORTED)
         self.assertNotIn("os", THIRD_PARTY)
+
+        # Same for the sibling-module filter: `runner_engines.py` sits beside
+        # app.py and is not a distribution anything could pin.
+        self.assertIn("runner_engines", IMPORTED)
+        self.assertNotIn("runner_engines", THIRD_PARTY)
 
     def test_every_third_party_import_is_pinned(self):
         missing = sorted(

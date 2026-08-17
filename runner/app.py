@@ -20,6 +20,8 @@ import httpx
 from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel, Field
 
+import runner_engines
+
 app = FastAPI()
 
 DEFAULT_TIMEOUT = 8.0
@@ -31,19 +33,21 @@ RUNNER_HOME_PARENT = os.getenv("RUNNER_HOME_PARENT", "/var/tmp").strip() or "/va
 DEBUG_DUMP_ENABLED = DEBUG_DUMP_AUTH and ALLOW_SECRET_DUMP and APP_ENV != "production"
 
 
-_CODEX_AVAILABLE = shutil.which("codex") is not None
-_CLAUDE_AVAILABLE = shutil.which("claude") is not None
+# Probed once at import: the binaries cannot appear or change version inside a
+# running container, and re-shelling out to two CLIs on every healthcheck would
+# put a 10-second worst case in front of the orchestrator's liveness probe.
+_ENGINE_RUNTIME = runner_engines.runtime_snapshot()
+_REQUIRED_ENGINES = runner_engines.required_engines()
+
+# Fail closed at import, before uvicorn binds a port. A runner that answers
+# /verify-claude without a `claude` binary reports every valid Claude credential
+# as broken, and the orchestrator quarantines the fleet's canonical auth on it.
+runner_engines.assert_required_engines(_ENGINE_RUNTIME, _REQUIRED_ENGINES)
 
 
 @app.get("/health")
 def health():
-    return {
-        "status": "ok",
-        "engines": {
-            "codex": {"available": _CODEX_AVAILABLE},
-            "claude": {"available": _CLAUDE_AVAILABLE},
-        },
-    }
+    return runner_engines.readiness_payload(_ENGINE_RUNTIME, _REQUIRED_ENGINES)
 
 
 class VerifyRequest(BaseModel):

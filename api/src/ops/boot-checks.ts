@@ -191,23 +191,53 @@ async function refreshRunnerHealth(env: Env, db: Database): Promise<void> {
   try {
     const res = await fetch(healthUrl, { signal: AbortSignal.timeout(timeoutMs) });
     const body = (await res.json().catch(() => null)) as RunnerHealthResponse | null;
-    const codexOk = res.ok && body?.status === 'ok' && body.engines?.codex?.available !== false;
-    const claudeOk = res.ok && body?.status === 'ok' && body.engines?.claude?.available !== false;
 
-    await writeRunnerState(db, 'codex', codexOk ? 'ok' : 'fail', checkedAt);
-    await writeRunnerState(db, 'claude', claudeOk ? 'ok' : 'fail', checkedAt);
+    await writeRunnerState(db, 'codex', runnerEngineState(res.ok, body, 'codex'), checkedAt);
+    await writeRunnerState(db, 'claude', runnerEngineState(res.ok, body, 'claude'), checkedAt);
   } catch {
     await writeRunnerState(db, 'codex', 'fail', checkedAt);
     await writeRunnerState(db, 'claude', 'fail', checkedAt);
   }
 }
 
+interface RunnerHealthEngine {
+  available?: boolean;
+  version?: string | null;
+  expected_version?: string | null;
+  version_matches?: boolean;
+}
+
 interface RunnerHealthResponse {
   status?: string;
+  required_engines?: string[];
   engines?: {
-    codex?: { available?: boolean };
-    claude?: { available?: boolean };
+    codex?: RunnerHealthEngine;
+    claude?: RunnerHealthEngine;
   };
+  problems?: string[];
+}
+
+/**
+ * One engine's verdict from a `/health` body.
+ *
+ * Deliberately per-engine rather than gated on the top-level `status`: the
+ * runner reports `degraded` when *any* required engine is broken, and reading
+ * that as "both engines failed" marks a perfectly healthy Codex runner dead
+ * because its Claude CLI drifted. `version_matches` counts as a failure for the
+ * engine it belongs to — a CLI that is not the one the image was verified with
+ * cannot be trusted to say whether a credential is valid.
+ */
+function runnerEngineState(
+  ok: boolean,
+  body: RunnerHealthResponse | null,
+  engine: 'codex' | 'claude',
+): 'ok' | 'fail' {
+  if (!ok || !body) return 'fail';
+  const state = body.engines?.[engine];
+  if (!state) return 'fail';
+  if (state.available === false) return 'fail';
+  if (state.version_matches === false) return 'fail';
+  return 'ok';
 }
 
 async function writeRunnerState(

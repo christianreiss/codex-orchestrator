@@ -43,7 +43,8 @@ CASE_ARM_RE = re.compile(r"^([\w*]+)\)\s*(.*)$")
 CLAIMED_TAG_RE = re.compile(r"default `([^`]+)`")
 CLAIMED_BUILD_ARGS_RE = re.compile(r"Override via build args ([^.]*)\.")
 CLAIMED_ARCHES_RE = re.compile(r"Supported `TARGETARCH` values are ([^.]*)\.")
-CLAIMED_NODE_MAJOR_RE = re.compile(r"Node\.js (\d+)")
+CLAIMED_NODE_VERSION_RE = re.compile(r"Node\.js (\d+(?:\.\d+)+)")
+CLAIMED_CLAUDE_VERSION_RE = re.compile(r"`@anthropic-ai/claude-code@([^`]+)`")
 CLAIMED_HOME_PARENT_RE = re.compile(
     r"`RUNNER_HOME_PARENT`[^.\n]*?"
     r"the bundled image (?:sets it to|defaults this to) `([^`]+)`"
@@ -146,7 +147,8 @@ class RunnerDockerfileClaimsTest(unittest.TestCase):
     def test_reads_both_files(self):
         # A regex that quietly stopped matching would pass everything below.
         self.assertIn("CODEX_TAG", ARGS)
-        self.assertIn("NODE_MAJOR", ARGS)
+        self.assertIn("NODE_VERSION", ARGS)
+        self.assertIn("CLAUDE_CODE_VERSION", ARGS)
         self.assertIn("RUNNER_HOME_PARENT", ENVS)
         self.assertNotEqual(set(), CODEX_ARCHES)
 
@@ -154,7 +156,8 @@ class RunnerDockerfileClaimsTest(unittest.TestCase):
             ("the Codex pin", CLAIMED_TAG_RE.findall(BUILD)),
             ("the overridable build args", CLAIMED_BUILD_ARGS_RE.findall(BUILD)),
             ("the supported architectures", CLAIMED_ARCHES_RE.findall(BUILD)),
-            ("the Node major", CLAIMED_NODE_MAJOR_RE.findall(BUILD)),
+            ("the Node version", CLAIMED_NODE_VERSION_RE.findall(BUILD)),
+            ("the Claude Code pin", CLAIMED_CLAUDE_VERSION_RE.findall(BUILD)),
             ("RUNNER_HOME_PARENT", CLAIMED_HOME_PARENT_RE.findall(ENVIRONMENT)),
         ):
             with self.subTest(claim=claim):
@@ -207,17 +210,103 @@ class RunnerDockerfileClaimsTest(unittest.TestCase):
             f"{', '.join(sorted(CODEX_ARCHES))}",
         )
 
-    def test_claimed_node_major_is_the_node_major_arg(self):
-        claimed = CLAIMED_NODE_MAJOR_RE.findall(BUILD)
-        declared = ARGS.get("NODE_MAJOR")
+    def test_claimed_node_version_is_the_node_version_arg(self):
+        claimed = CLAIMED_NODE_VERSION_RE.findall(BUILD)
+        declared = ARGS.get("NODE_VERSION")
 
         self.assertNotEqual([], claimed)
         self.assertEqual(
             [declared] * len(claimed),
             claimed,
             f"runner/README.md bundles Node.js {', '.join(claimed)}, but "
-            f"runner/Dockerfile declares ARG NODE_MAJOR={declared}",
+            f"runner/Dockerfile declares ARG NODE_VERSION={declared}",
         )
+
+    def test_claimed_claude_version_is_the_claude_version_arg(self):
+        claimed = CLAIMED_CLAUDE_VERSION_RE.findall(BUILD)
+        declared = ARGS.get("CLAUDE_CODE_VERSION")
+
+        self.assertNotEqual([], claimed)
+        self.assertEqual(
+            [declared] * len(claimed),
+            claimed,
+            f"runner/README.md bundles @anthropic-ai/claude-code@"
+            f"{', '.join(claimed)}, but runner/Dockerfile declares "
+            f"ARG CLAUDE_CODE_VERSION={declared}",
+        )
+
+
+class RunnerDockerfileFailsClosedTest(unittest.TestCase):
+    """The image must not be able to build without both engine CLIs.
+
+    `npm install -g @anthropic-ai/claude-code && claude --version || true` built
+    green with no `claude` at all, and the runner then reported every valid
+    Claude credential as broken. These rules are what stops that shape coming
+    back, not a style preference.
+    """
+
+    def setUp(self):
+        with open(DOCKERFILE_PATH, encoding="utf-8") as fh:
+            self.text = fh.read()
+        self.lines = _dockerfile_lines()
+
+    def test_no_swallowed_failures(self):
+        swallowed = [
+            line
+            for line in self.lines
+            if "|| true" in line and not line.startswith("#")
+        ]
+        self.assertEqual(
+            [],
+            swallowed,
+            "a `|| true` lets a failed install produce a green image",
+        )
+
+    def test_every_remote_download_is_checksum_verified(self):
+        # One `curl -o` per downloaded archive, one `sha256sum -c` per archive.
+        downloads = [line for line in self.lines if re.search(r"curl\b.*\s-o\s", line)]
+        verifications = [line for line in self.lines if "sha256sum -c" in line]
+        self.assertNotEqual([], downloads)
+        self.assertEqual(
+            len(downloads),
+            len(verifications),
+            f"{len(downloads)} downloads but {len(verifications)} sha256sum "
+            f"checks: every fetched archive must be verified before it is unpacked",
+        )
+
+    def test_checksum_args_exist_for_both_architectures(self):
+        for name in (
+            "CODEX_SHA256_AMD64",
+            "CODEX_SHA256_ARM64",
+            "NODE_SHA256_AMD64",
+            "NODE_SHA256_ARM64",
+        ):
+            with self.subTest(arg=name):
+                value = ARGS.get(name)
+                self.assertIsNotNone(value, f"runner/Dockerfile declares no ARG {name}")
+                self.assertRegex(value, r"^[0-9a-f]{64}$")
+
+    def test_both_cli_installs_assert_their_version(self):
+        for engine, arg in (("codex", "CODEX_VERSION"), ("claude", "CLAUDE_CODE_VERSION")):
+            with self.subTest(engine=engine):
+                self.assertIn(arg, ARGS)
+                self.assertIn(f'"${arg}"', self.text)
+
+    def test_base_image_is_digest_pinned(self):
+        froms = re.findall(r"^FROM\s+(\S+)", self.text, re.MULTILINE)
+        self.assertNotEqual([], froms)
+        images = [ARGS.get(ref[2:-1], ref) if ref.startswith("${") else ref for ref in froms]
+        unpinned = [image for image in images if "@sha256:" not in image]
+        self.assertEqual(
+            [],
+            unpinned,
+            f"base images must be pinned by digest, not by tag: {unpinned}",
+        )
+
+    def test_required_engines_are_baked_in(self):
+        self.assertEqual("codex,claude", ENVS.get("RUNNER_REQUIRED_ENGINES"))
+        self.assertIn("RUNNER_CODEX_VERSION", ENVS)
+        self.assertIn("RUNNER_CLAUDE_VERSION", ENVS)
 
     def test_claimed_home_parent_is_the_env(self):
         # The README states the baked-in value in the Environment section and
