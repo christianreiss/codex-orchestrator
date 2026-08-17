@@ -125,6 +125,7 @@ Code-truth operator map for `/admin/*`. Source of truth is runtime code (`api/sr
 | `hosts.activate_insecure` | yes | yes | yes | yes | — | — |
 | `settings.read` | yes | yes | yes | yes | yes | yes |
 | `settings.manage` | yes | yes | yes | — | — | — |
+| `security.manage_authorization` | yes | yes | — | — | — | — |
 | `auth.read_metadata` | yes | yes | yes | yes | yes | yes |
 | `auth.manage` | yes | yes | yes | — | — | — |
 | `auth.reveal_credential` | yes | yes | — | — | — | — |
@@ -191,12 +192,47 @@ Code-truth operator map for `/admin/*`. Source of truth is runtime code (`api/sr
 
 ### Upgrading from a session-only installation
 Before this layer, every admin route not covered by one of six hand-written
-gates was open to any authenticated, active user. On upgrade, accounts with
-`viewer`, `user`, `trusted_user`, or `fleet_operator` **lose access they had**:
-global settings, canonical auth upload, host operations, and content authoring
-each now require a capability their role may not hold. Nothing that was
-restricted became less restricted. Review your roster before upgrading and
-promote the accounts that need to keep working.
+gates was open to any authenticated, active user — 181 of the 225 governed
+routes. Enforcing the matrix under accounts created in that world would lock
+operators out of their own installation, so **enforcement has a mode, and
+upgrading does not change behavior.**
+
+| Mode | Who may do what |
+|---|---|
+| `compatible` | Exactly the pre-matrix rules: `owner` and `admin` may do everything, every other role is refused exactly the 33 routes the old gates covered and admitted to the rest. |
+| `strict` | The matrix above. |
+
+Migration `0022` sets `compatible` on any installation that already had users
+and `strict` on a fresh one, so **an upgrade is a behavioral no-op and a new
+install is secure from first boot**. `authorization-compatibility.test.ts`
+proves the no-op by exercising every role against every route rather than
+asserting it.
+
+Two capabilities are enforced under *both* modes: `auth.reveal_credential`
+(reading a stored canonical credential body back out — a privilege escalation
+with no caller in the console, the wrappers, or the runner) and
+`security.manage_authorization` (the mode itself; a posture every account could
+flip would not be one).
+
+### Moving to strict
+
+While a fleet runs in `compatible`, every request the matrix *would* have
+refused is recorded. `GET /admin/authorization` returns that list — the
+distinct role/capability/route triples, with first and last seen — so the
+question "what breaks if I switch" is answered by your own traffic instead of by
+auditing a roster. When the list holds only accounts you intend to restrict:
+
+```bash
+curl -X POST https://<host>/admin/authorization \
+  -H 'content-type: application/json' \
+  --cookie '<admin session>' \
+  -d '{"mode":"strict"}'
+```
+
+The switch is reversible with `{"mode":"compatible"}`, and both directions
+require `security.manage_authorization` — owner and admin only. Instances cache
+the mode for up to 30 seconds, so a multi-instance deployment converges within
+that window rather than instantly; no restart is needed.
 
 ## Agent Messaging Operations
 

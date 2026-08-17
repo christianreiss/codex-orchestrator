@@ -4,7 +4,7 @@
  * Every route Fastify registers under a governed prefix gets its guard looked
  * up in `security/route-capabilities.ts` at registration time, and the matching
  * preHandler attached. Three properties follow, and each is the reason this is
- * a hook rather than an argument at 299 call sites:
+ * a hook rather than an argument at 225 call sites:
  *
  * - **Nothing is ungated by omission.** A route with no inventory entry is not
  *   quietly session-only; the server refuses to start and names it. Adding a
@@ -23,6 +23,17 @@ import fp from 'fastify-plugin';
 import type { FastifyInstance, FastifyRequest, preHandlerHookHandler } from 'fastify';
 import { ForbiddenError, UnauthorizedError } from '../errors.js';
 import { capabilitiesForRole, roleHasCapability, type Capability } from '../../security/capabilities.js';
+import {
+  DEFAULT_AUTHORIZATION_MODE,
+  isAlwaysEnforced,
+  legacyAllows,
+  LEGACY_OWNER_ADMIN_ROUTES,
+  type AuthorizationMode,
+} from '../../security/authorization-mode.js';
+import {
+  createAuthorizationModeService,
+  type AuthorizationModeService,
+} from '../../services/authorization-mode.js';
 import {
   guardForRoute,
   isGovernedRoute,
@@ -54,7 +65,12 @@ declare module 'fastify' {
      * the tree — anywhere an admin session authorizes an action outside
      * `/admin/*`.
      */
-    requireCapability(capability: Capability): preHandlerHookHandler;
+    requireCapability(capability: Capability, route?: string): preHandlerHookHandler;
+    /**
+     * The mode service, or `null` where there is no database to read it from.
+     * Routes that report or change the mode read it here.
+     */
+    authorizationMode: AuthorizationModeService | null;
     /**
      * Checks a capability from inside a handler, for the rare route whose
      * sensitivity depends on the request rather than on the URL — a query
@@ -64,6 +80,9 @@ declare module 'fastify' {
      *
      * Still not an ad-hoc role check: the decision comes from the same matrix,
      * and the caller names a capability, never a role.
+     *
+     * Restricted to `ALWAYS_ENFORCED` capabilities, since a check with no route
+     * key cannot honor compatibility mode. Anything else throws.
      */
     assertCapability(req: FastifyRequest, capability: Capability): Promise<void>;
   }
@@ -73,32 +92,96 @@ declare module 'fastify' {
   }
 }
 
-export function makeCapabilitiesPlugin() {
+export interface CapabilitiesPluginOptions {
+  /**
+   * Supplies the fleet's authorization mode. Defaults to a service over
+   * `app.db`, and to permanent `strict` where there is no database — which is
+   * every narrow plugin test, and the right default for one: a test that has
+   * not set a mode is asking about the matrix.
+   */
+  service?: AuthorizationModeService | null;
+}
+
+export function makeCapabilitiesPlugin(options: CapabilitiesPluginOptions = {}) {
   return fp(
     async function capabilitiesPlugin(app: FastifyInstance) {
+      const service =
+        options.service !== undefined
+          ? options.service
+          : app.hasDecorator('db') && app.db
+            ? createAuthorizationModeService(app.db)
+            : null;
+
+      if (!app.hasDecorator('authorizationMode')) {
+        app.decorate('authorizationMode', service);
+      }
+
+      const currentMode = async (): Promise<AuthorizationMode> =>
+        service ? await service.getMode() : DEFAULT_AUTHORIZATION_MODE;
+
       /**
        * Resolves the session if an earlier preHandler has not already, then
-       * checks the capability. Idempotent on `req.admin` so stacking this
-       * behind the existing `requireAdmin` costs no second session lookup.
+       * decides. Idempotent on `req.admin` so stacking this behind the existing
+       * `requireAdmin` costs no second session lookup.
+       *
+       * `route` is the inventory key this guard was attached for, and is what
+       * lets `compatible` answer the only question it asks: would the
+       * pre-matrix installation have allowed this? A check raised from inside a
+       * handler has no route key and is always strict — see `assertCapability`.
        */
-      const enforce = async (req: FastifyRequest, capability: Capability): Promise<void> => {
+      const enforce = async (
+        req: FastifyRequest,
+        capability: Capability,
+        route: string | null,
+      ): Promise<void> => {
         if (!req.admin) {
           const ctx = await app.resolveAdmin(req);
           if (!ctx) throw new UnauthorizedError('Admin session required', 'admin_required');
           if (!ctx.user.active) throw new ForbiddenError('Account disabled', 'admin_disabled');
           req.admin = ctx;
         }
-        if (!roleHasCapability(req.admin.user.accessLevel, capability)) {
+
+        const role = req.admin.user.accessLevel;
+        const holdsCapability = roleHasCapability(role, capability);
+        const refuse = (): never => {
           throw new ForbiddenError('Insufficient access level', CAPABILITY_DENIED_CODE, {
             required_capability: capability,
           });
+        };
+
+        // Two things force the matrix regardless of posture: a capability that
+        // compatibility never relaxes, and a check with no route key — which
+        // has no pre-matrix answer to reproduce. Both leave `route` unused
+        // below, so the narrowing here is the invariant, not a convenience.
+        if (route === null || isAlwaysEnforced(capability) || (await currentMode()) === 'strict') {
+          if (!holdsCapability) refuse();
+          req.grantedCapability = capability;
+          return;
+        }
+
+        // `compatible`: the pre-matrix installation is the authority. Refuse
+        // exactly what the six old gates refused, and nothing else.
+        if (!legacyAllows(role, route)) refuse();
+        if (!holdsCapability) {
+          // Allowed here, refused under the matrix. This is the sample that
+          // turns "switch to strict and find out" into a list an operator can
+          // read before deciding.
+          void service?.recordWouldDeny({ role, capability, route });
         }
         req.grantedCapability = capability;
       };
 
-      const guardFor = (capability: Capability): TaggedHandler => {
+      const guardFor = (capability: Capability, route: string): TaggedHandler => {
         const handler: TaggedHandler = async function requireCapability(req) {
-          await enforce(req, capability);
+          await enforce(req, capability, route);
+        };
+        handler[CAPABILITY_TAG] = capability;
+        return handler;
+      };
+
+      const strictGuardFor = (capability: Capability): TaggedHandler => {
+        const handler: TaggedHandler = async function requireCapabilityStrictly(req) {
+          await enforce(req, capability, null);
         };
         handler[CAPABILITY_TAG] = capability;
         return handler;
@@ -117,23 +200,43 @@ export function makeCapabilitiesPlugin() {
        * load-bearing assumption held in another file, so the `onRoute` hook
        * below refuses to start such a route if it carries no other preHandler.
        */
-      const bootstrapGuardFor = (capability: Capability): TaggedHandler => {
+      const bootstrapGuardFor = (capability: Capability, route: string): TaggedHandler => {
         const handler: TaggedHandler = async function requireCapabilityAfterBootstrap(req) {
           const ctx = req.admin ?? (await app.resolveAdmin(req));
           if (!ctx) return;
           req.admin = ctx;
-          await enforce(req, capability);
+          await enforce(req, capability, route);
         };
         handler[CAPABILITY_TAG] = capability;
         return handler;
       };
 
-      app.decorate('requireCapability', (capability: Capability): preHandlerHookHandler => {
-        return guardFor(capability) as unknown as preHandlerHookHandler;
-      });
+      app.decorate(
+        'requireCapability',
+        (capability: Capability, route?: string): preHandlerHookHandler => {
+          // No route key means no pre-matrix behavior to reproduce: this is for
+          // routes outside the governed prefixes, which the old gates never
+          // covered and which therefore have no compatibility claim to honor.
+          return (
+            route === undefined ? strictGuardFor(capability) : guardFor(capability, route)
+          ) as unknown as preHandlerHookHandler;
+        },
+      );
 
       app.decorate('assertCapability', async (req: FastifyRequest, capability: Capability) => {
-        await enforce(req, capability);
+        if (!isAlwaysEnforced(capability)) {
+          // A mid-handler check cannot consult `compatible` — it exists
+          // precisely because the URL does not describe the sensitivity, so
+          // there is no route key whose pre-matrix answer would mean anything.
+          // Rather than silently enforcing something compatible mode was
+          // supposed to relax, refuse to be used that way at all.
+          throw new Error(
+            `assertCapability(${capability}) is not permitted: a capability checked from ` +
+              `inside a handler bypasses compatibility mode, so it must be listed in ` +
+              `ALWAYS_ENFORCED in src/security/authorization-mode.ts`,
+          );
+        }
+        await enforce(req, capability, null);
       });
 
       /** Reasons the tree cannot be served, collected across every route. */
@@ -188,10 +291,26 @@ export function makeCapabilitiesPlugin() {
         // to /admin/secrets gets the app instead of a 401 JSON body. It replies
         // and short-circuits the chain before this ever runs; an XHR asking for
         // JSON falls through to it.
+        // One key for the whole chain, so the methods must also agree on
+        // whether the pre-matrix installation gated them. They agreed on a
+        // capability above, which makes disagreement here very unlikely — and
+        // exactly the kind of unlikely that should stop the server rather than
+        // be resolved by taking the first method's answer.
+        const keys = [...new Set(methods.map((method) => routeKey(method, route.url)))];
+        const legacyStates = new Set(keys.map((key) => LEGACY_OWNER_ADMIN_ROUTES.has(key)));
+        if (legacyStates.size > 1) {
+          complaints.push(
+            `${route.url} — its methods share a capability but disagree on whether the ` +
+              `pre-matrix installation gated them, so compatibility mode cannot answer for ` +
+              `them as one route`,
+          );
+          return;
+        }
+        const key = keys[0]!;
         const handler =
           guard.kind === 'capability-after-bootstrap'
-            ? bootstrapGuardFor(guard.capability)
-            : guardFor(guard.capability);
+            ? bootstrapGuardFor(guard.capability, key)
+            : guardFor(guard.capability, key);
         route.preHandler = [...existing, handler as unknown as preHandlerHookHandler];
       });
 

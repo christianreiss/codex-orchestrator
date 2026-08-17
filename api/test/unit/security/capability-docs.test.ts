@@ -81,9 +81,24 @@ describe('published capability matrix', () => {
     }
   });
 
-  it('tells an upgrading operator that roles lose access', () => {
-    // The tightening is the point of the change and the one thing an operator
-    // cannot discover from a green deploy — a viewer simply starts getting 403s.
-    expect(adminMarkdown).toMatch(/lose access they had/i);
+  it('tells an upgrading operator that their upgrade changes nothing', () => {
+    // The previous version of this test demanded the docs warn that roles
+    // "lose access they had", because the matrix was enforced unconditionally.
+    // That was the wrong product decision, not a documentation gap: this
+    // project cannot enumerate its deployments, so an upgrade that silently
+    // strips permissions locks unknown operators out of their own installation.
+    // What the docs must now carry is the opposite promise, and the way out.
+    expect(adminMarkdown).toMatch(/upgrading does not change behavior/i);
+    expect(adminMarkdown).toMatch(/behavioral no-op/i);
+    expect(adminMarkdown).toMatch(/`compatible`/);
+    expect(adminMarkdown).toMatch(/`strict`/);
+    // The escape hatch has to be documented too, or `compatible` is just the
+    // old bug with a nicer name.
+    expect(adminMarkdown).toMatch(/GET \/admin\/authorization/);
+    expect(adminMarkdown).toMatch(/what breaks if I switch/i);
+  });
+
+  it('does not still promise the unconditional tightening it no longer does', () => {
+    expect(adminMarkdown).not.toMatch(/lose access they had/i);
   });
 });

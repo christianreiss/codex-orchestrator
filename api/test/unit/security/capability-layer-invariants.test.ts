@@ -26,6 +26,7 @@ import { sourceFiles, stripComments } from '../routes/registered-routes.js';
 import { VALID_ACCESS_LEVELS } from '../../../src/services/admin-auth.js';
 import { roleHasCapability, type Capability } from '../../../src/security/capabilities.js';
 import { guardForRoute } from '../../../src/security/route-capabilities.js';
+import { LEGACY_OWNER_ADMIN_ROUTES } from '../../../src/security/authorization-mode.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const API_SRC = resolve(HERE, '../../../src');
@@ -90,6 +91,19 @@ const ROUTE_SOURCES = sourceFiles(ROUTES_DIR, ['.ts']).map((file) => ({
   file,
   source: stripComments(readFileSync(join(ROUTES_DIR, file), 'utf8')),
 }));
+
+describe('the compatibility oracle', () => {
+  it('matches the list compatibility mode actually enforces', () => {
+    // `LEGACY_OWNER_ADMIN_ROUTES` decides what `compatible` refuses, so it is
+    // runtime policy, not test data — but this file's copy stays hand-written
+    // and independent. Sharing one list would make the no-widening check above
+    // agree with compatibility by construction, and editing either alone is
+    // exactly the mistake worth catching.
+    expect([...LEGACY_OWNER_ADMIN_ROUTES].sort()).toEqual(
+      PREVIOUSLY_OWNER_ADMIN_ONLY.map(([method, url]) => `${method} ${url}`).sort(),
+    );
+  });
+});
 
 describe('capability layer invariants', () => {
   it('reads the route tree and the roles it holds it against', () => {

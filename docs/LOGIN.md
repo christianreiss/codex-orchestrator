@@ -89,6 +89,19 @@ Setup bootstrap uses `GET /admin/setup/status` (public only while there are no u
 - The full role→capability matrix is generated into `docs/ADMIN.md` from
   `api/src/security/capabilities.ts`; that table is the authority, and a test
   fails when it drifts.
+- **Enforcement has a mode, and the matrix above describes `strict`.** An
+  installation that already had users when migration `0022` ran is in
+  `compatible`, which reproduces the rules it had before the capability layer
+  existed: `owner` and `admin` may do everything, and every other role is
+  refused exactly the 33 routes the six old hand-written gates covered — no
+  more. Upgrading is therefore a behavioral no-op; a fresh install gets
+  `strict` and is default-deny from first boot. `GET`/`POST
+  /admin/authorization` read and change it, and `GET` also returns what
+  `strict` would have refused on this fleet's own traffic. Two capabilities are
+  enforced under both modes: `auth.reveal_credential` and
+  `security.manage_authorization`. See `api/src/security/authorization-mode.ts`
+  and the route-by-route proof in
+  `api/test/integration/security/authorization-compatibility.test.ts`.
 - Four reads carry their own capability instead of the domain's `.read`,
   because each returns bearer material or private content:
   - `GET /admin/agent-portal/users/{id}/link` → `agent_portal.reveal_link`. The

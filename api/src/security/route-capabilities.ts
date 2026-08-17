@@ -184,6 +184,12 @@ export const ROUTE_CAPABILITIES: Readonly<Record<string, RouteGuard>> = {
   'POST /admin/api-keys-in-chat': cap('settings.manage'),
   'GET /admin/auto-update': cap('settings.read'),
   'POST /admin/auto-update': cap('settings.manage'),
+  // The posture itself, and the dry-run record of what `strict` would refuse.
+  // Not `settings.*`: compatibility mode grants those to every role, and a
+  // posture every account can change — including changing it back — is not a
+  // posture. Enforced under both modes via `ALWAYS_ENFORCED`.
+  'GET /admin/authorization': cap('security.manage_authorization'),
+  'POST /admin/authorization': cap('security.manage_authorization'),
   'GET /admin/cdx-silent': cap('settings.read'),
   'POST /admin/cdx-silent': cap('settings.manage'),
   'GET /admin/insecure-approval': cap('settings.read'),

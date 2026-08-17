@@ -35,8 +35,12 @@ honesty the earlier pass used.
 `requireAdmin` (`api/src/http/plugins/auth-admin.ts`) resolves the session
 cookie and requires an active user row. It has never read `access_level`. Six
 hand-written preHandlers scattered across six route files were the entire
-authorization surface, and they covered 33 routes out of **299** under
-`/admin/*` and `/cli/auth/*`.
+authorization surface. The governed tree is **225** distinct method+path entries
+under `/admin/*` and `/cli/auth/*` (about 299 Fastify registrations once the
+auto-generated `HEAD` handlers are counted; the inventory keys fold `HEAD` onto
+`GET`). Those gates covered **33** of them, **11** are deliberately public — the
+login surface, the setup probe, the CLI device flow — and the remaining **181**
+required a session and nothing more.
 
 Everything else was open to any authenticated, active account, including a
 `viewer`:
@@ -62,14 +66,14 @@ that the API has no capability system.
 | Piece | File |
 |---|---|
 | Closed capability vocabulary + role→capability matrix | `api/src/security/capabilities.ts` |
-| Route→capability inventory, all 299 governed routes | `api/src/security/route-capabilities.ts` |
+| Route→capability inventory, all 225 governed entries | `api/src/security/route-capabilities.ts` |
 | Enforcement plugin; refuses to boot on an unmapped route | `api/src/http/plugins/capabilities.ts` |
 | Generated docs table | `api/src/security/capability-docs.ts`, `api/scripts/render-capability-docs.ts` |
 | Console consumption | `frontend/src/lib/auth/capabilities.ts`, `frontend/src/lib/stores/auth.ts` |
 
 Design notes that matter for review:
 
-- **The inventory is a table, not an argument at 299 call sites.** The whole
+- **The inventory is a table, not an argument at 225 call sites.** The whole
   authorization surface is one file a reviewer reads top to bottom to answer
   "who can delete a host". The plugin's `onRoute` hook looks each route up as it
   registers and attaches the guard, collecting every miss and throwing once at
@@ -128,16 +132,42 @@ Judgment calls worth disagreeing with, stated rather than buried:
   two would have widened an existing gate; the first three are content
   authoring, not fleet operation.
 
-### Breaking change
+### Upgrade safety — why enforcement has a mode
 
-On upgrade, `viewer`, `user`, `trusted_user` and `fleet_operator` accounts
-**lose access they have today**. `fleet_operator` and `trusted_user` previously
-had no distinct meaning at all — they were legacy values accepted so old rows
-kept loading — and now they do. Nothing that was restricted became less
-restricted; the 33 previously-gated routes are pinned against widening.
+The first version of this work turned the matrix on unconditionally, and that
+was wrong. This project is deployed by people it cannot enumerate. Their
+accounts were created in a world where `access_level` decided almost nothing,
+so an installation whose whole team sits at `viewer` is the *predictable result
+of what shipped*, not a misconfiguration to be scolded for. Enforcing the
+matrix under those accounts would lock unknown operators out of their own
+orchestrator during a routine upgrade, with no warning able to reach them
+first and no way to roll it back for them. "Review your roster before
+upgrading" is not a mitigation when you do not know who the operators are.
 
-Recorded in `CHANGELOG.md` and in an upgrade note under `docs/ADMIN.md`'s
-`## Roles & Capabilities`.
+So enforcement has two postures, and the migration picks one per installation:
+
+| Mode | Rule | Chosen when |
+|---|---|---|
+| `compatible` | Exactly the pre-matrix behavior — owner/admin may do everything, every other role is refused exactly the 33 routes the old gates covered | `admin_users` has rows when `0022` runs |
+| `strict` | The matrix | fresh install |
+
+An upgrade is therefore a behavioral no-op, and a new deployment is secure from
+first boot. Turning on `strict` is an explicit, reversible operator decision.
+
+Two capabilities are enforced under both modes — `auth.reveal_credential` and
+`security.manage_authorization` — and both are exceptions that cost no existing
+user anything: the first has no caller in the console, wrappers, or runner (the
+committed manual says so explicitly), and the second guards the mode itself,
+which would otherwise be flippable in either direction by every account, since
+`compatible` grants `settings.manage` to all of them.
+
+While a fleet sits in `compatible`, every request `strict` would have refused is
+recorded — deduplicated to one row per role/capability/route per hour, so a
+polling console cannot turn it into a write amplifier. `GET /admin/authorization`
+returns that list with first/last seen. That is what replaces the roster audit:
+the operator switches when their own traffic says it is safe.
+
+Recorded in `CHANGELOG.md` and under `docs/ADMIN.md`'s `## Roles & Capabilities`.
 
 ### Gates that hold it
 
@@ -282,12 +312,12 @@ api:       npm run typecheck  — clean
            npm run lint       — 0 errors, 100 warnings (98 pre-existing; the 2
                                 new ones are console.log in a new script, which
                                 is what every other script in scripts/ does)
-           npm test           — 3225 passed, 160 skipped, 0 failed
+           npm test           — 3248 passed, 160 skipped, 0 failed
                                 (baseline before this work: 3147 passed)
-           npm run test:db    — 663 passed, 0 failed, against MySQL 8.4 with
-                                the schema baseline and all 21 migrations
-           npm run build      — dist/ + 21 migrations + pruned lockfile
-frontend:  npm run check      — svelte-check clean, 723 tests passed
+           npm run test:db    — 684 passed, 0 failed, against MySQL 8.4 with
+                                the schema baseline and all 22 migrations
+           npm run build      — dist/ + 22 migrations + pruned lockfile
+frontend:  npm run check      — svelte-check clean, 726 tests passed
            npm run build      — rebuilt; public/admin refreshed
            npm run build:portal — rebuilt
            npx playwright test — 26 passed
@@ -298,11 +328,20 @@ wrappers:  gofmt -l .         — clean
            go test ./...      — clean
 ```
 
-No schema change, so no migration was added: the capability layer reads
-`admin_users.access_level` and touches no table.
+One migration, `0022_set_authorization_mode.sql`. No schema change — it writes a
+single `versions` row choosing this installation's enforcement mode, so the
+Drizzle schema is untouched and there is nothing to backfill. It is idempotent
+in the way that matters here: the row is only ever written when absent, so an
+operator who has moved to `strict` is never returned to `compatible` by a later
+upgrade. Verified against MySQL 8.4 in all three directions — fresh install
+(no users) lands on `strict`, an installation seeded with one `viewer` lands on
+`compatible`, and an operator's subsequent switch to `strict` survives both a
+normal re-run and a forced replay with the ledger row deleted.
 
-That is *not* a reason to skip the real-MySQL tier, and skipping it on that
-reasoning was the one mistake in this pass that reached a remote. `npm test`
+An earlier version of this pass added no migration at all, and reasoned from
+that to skipping the real-MySQL tier. That reasoning was wrong independently of
+whether a migration exists, and it was the one mistake in this pass that reached
+a remote. `npm test`
 skips 160 tests without a database, and `test:db` is the only tier that builds
 an app through `test/helpers/build-app.ts` — a helper that promises "the same
 plugin stack as `src/server.ts`" and had not been given the capability plugin.
@@ -315,7 +354,7 @@ tier that would have caught a real version of that bug was blind to it. The
 helper now registers the plugin alongside `auth-admin`, and
 `build-app-with-db.test.ts` pins both that the decorators exist and that the
 `onRoute` refusal is live, so the harness cannot drift from the server again
-without a red test. The tier is green: 663 passed.
+without a red test. The tier is green: 684 passed.
 
 One note on the browser suite: it logs ten Svelte `derived_inert` warnings
 during the last two specs. They are **pre-existing** — verified by running the

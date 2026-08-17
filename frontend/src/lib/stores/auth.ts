@@ -6,7 +6,11 @@ import { writable, type Readable } from "svelte/store";
 import { browser } from "$app/environment";
 import { api, ApiError } from "../api/client";
 import type { AuthStatus, User } from "../api/types";
-import { capabilityChecker, type Capability } from "../auth/capabilities";
+import {
+  capabilityChecker,
+  type AuthorizationMode,
+  type Capability,
+} from "../auth/capabilities";
 
 export interface AuthState {
   authenticated: boolean;
@@ -21,6 +25,13 @@ export interface AuthState {
    * this says.
    */
   can: (capability: Capability) => boolean;
+  /**
+   * How the fleet enforces the capability matrix. `compatible` reproduces the
+   * pre-matrix rules so an upgrade changes nothing; `strict` applies the
+   * matrix. Surfaced so an owner can see the posture and act on it rather than
+   * discovering it from a support ticket.
+   */
+  authorizationMode: AuthorizationMode;
   loading: boolean;
   unreachable: string | null;
 }
@@ -32,6 +43,7 @@ const initial: AuthState = {
   roles: [],
   capabilities: [],
   can: capabilityChecker([]),
+  authorizationMode: "strict",
   loading: true,
   unreachable: null,
 };
@@ -57,6 +69,8 @@ async function refresh(): Promise<AuthState> {
       roles: status.roles ?? extractRoles(status.user),
       capabilities,
       can: capabilityChecker(capabilities),
+      authorizationMode:
+        status.authorization_mode === "compatible" ? "compatible" : "strict",
       loading: false,
       unreachable: null,
     };
@@ -72,6 +86,7 @@ async function refresh(): Promise<AuthState> {
         roles: [],
         capabilities: [],
         can: capabilityChecker([]),
+        authorizationMode: "strict",
         loading: false,
         unreachable: null,
       };

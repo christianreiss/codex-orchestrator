@@ -70,6 +70,9 @@ describe("refresh", () => {
       user: null,
       roles: [],
       capabilities: [],
+      // A session we could not resolve reports the strict posture: the
+      // console must never imply a fleet is more permissive than it is.
+      authorizationMode: "strict",
       loading: false,
       unreachable: null,
     });
@@ -89,6 +92,9 @@ describe("refresh", () => {
       user: null,
       roles: [],
       capabilities: [],
+      // A session we could not resolve reports the strict posture: the
+      // console must never imply a fleet is more permissive than it is.
+      authorizationMode: "strict",
       loading: false,
       unreachable: null,
     });

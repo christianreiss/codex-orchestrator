@@ -260,6 +260,49 @@ export function autoUpdateMutation(opts: MutationOpts<AutoUpdateValue, boolean> 
   });
 }
 
+/* ─────────────────── 5b. Authorization posture ───────────────────── */
+
+/** One thing `strict` would have refused while the fleet ran `compatible`. */
+export interface WouldDenyRecord {
+  role: string;
+  capability: string;
+  route: string;
+  first_seen: string;
+  last_seen: string;
+}
+
+export interface AuthorizationState {
+  mode: "compatible" | "strict";
+  updated_at: string | null;
+  would_deny: WouldDenyRecord[];
+}
+
+export const authorizationQueryKey = ["settings", "authorization"] as const;
+
+export function authorizationQuery() {
+  return createQuery<AuthorizationState>({
+    queryKey: authorizationQueryKey,
+    queryFn: () => api.get<AuthorizationState>("/admin/authorization"),
+  });
+}
+
+export function authorizationMutation(
+  opts: MutationOpts<AuthorizationState, "compatible" | "strict"> = {},
+) {
+  const qc = useQueryClient();
+  return createMutation<AuthorizationState, Error, "compatible" | "strict">({
+    mutationFn: (mode) => api.post<AuthorizationState>("/admin/authorization", { mode }),
+    ...opts,
+    onSettled: (...args) => {
+      void qc.invalidateQueries({ queryKey: authorizationQueryKey });
+      // The posture decides what the session may do, so the console's own
+      // capability list is stale the moment it changes.
+      void qc.invalidateQueries({ queryKey: ["auth", "status"] });
+      opts.onSettled?.(...args);
+    },
+  });
+}
+
 /* ────────────────────── 6. Codex silent mode ─────────────────────── */
 
 export const cdxSilentQueryKey = ["settings", "cdx-silent"] as const;

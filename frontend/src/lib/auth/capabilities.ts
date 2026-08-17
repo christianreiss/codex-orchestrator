@@ -25,6 +25,7 @@ export const CAPABILITIES = [
   "hosts.activate_insecure",
   "settings.read",
   "settings.manage",
+  "security.manage_authorization",
   "auth.read_metadata",
   "auth.manage",
   "auth.reveal_credential",
@@ -48,6 +49,17 @@ export const CAPABILITIES = [
 ] as const;
 
 export type Capability = (typeof CAPABILITIES)[number];
+
+/**
+ * How the fleet enforces the matrix.
+ *
+ * `compatible` reproduces the rules an installation had before the capability
+ * layer existed, so upgrading into it changes nothing for anyone; `strict`
+ * applies the matrix. Existing installations are migrated into `compatible`
+ * and switch when their operator decides to, which is why the console shows
+ * the posture rather than assuming one.
+ */
+export type AuthorizationMode = "compatible" | "strict";
 
 /**
  * Builds a predicate over a capability list.

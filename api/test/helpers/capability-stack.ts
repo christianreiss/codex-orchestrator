@@ -17,12 +17,22 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { ApiError } from '../../src/http/errors.js';
 import { makeCapabilitiesPlugin } from '../../src/http/plugins/capabilities.js';
 import type { AdminContext } from '../../src/http/plugins/auth-admin.js';
+import type { AuthorizationMode } from '../../src/security/authorization-mode.js';
+import type { AuthorizationModeService } from '../../src/services/authorization-mode.js';
 
 export interface CapabilityStackOptions {
   /** The signed-in role, or `null` for an anonymous caller. */
   role: string | null;
   /** Admin user id the routes will record as the actor. */
   userId?: number;
+  /**
+   * The fleet's authorization posture. Defaults to `strict`: a route test that
+   * has not said otherwise is asking about the matrix, and defaulting to the
+   * permissive mode would let a genuine matrix regression pass everywhere.
+   */
+  mode?: AuthorizationMode;
+  /** Receives every request `strict` would have refused under `compatible`. */
+  onWouldDeny?: (record: { role: string; capability: string; route: string }) => void;
 }
 
 /**
@@ -34,7 +44,7 @@ export async function registerCapabilityStack(
   app: FastifyInstance,
   options: CapabilityStackOptions,
 ): Promise<void> {
-  const { role, userId = 7 } = options;
+  const { role, userId = 7, mode = 'strict', onWouldDeny } = options;
 
   const context = (): AdminContext | null =>
     role === null
@@ -63,5 +73,14 @@ export async function registerCapabilityStack(
       { name: 'auth-admin' },
     ),
   );
-  await app.register(makeCapabilitiesPlugin());
+  // Stands in for the mode service without a database: the plugin only ever
+  // asks it for the mode and hands it the dry-run samples.
+  const service = {
+    getMode: async () => mode,
+    recordWouldDeny: async (record: { role: string; capability: string; route: string }) => {
+      onWouldDeny?.(record);
+    },
+  } as unknown as AuthorizationModeService;
+
+  await app.register(makeCapabilitiesPlugin({ service }));
 }

@@ -63,6 +63,13 @@ export const CAPABILITIES = [
 
   'settings.read',
   'settings.manage',
+  // Switching the fleet between `compatible` and `strict` authorization.
+  // Split from `settings.manage` because it is the one setting that decides
+  // how every other capability is enforced, and because `compatible` mode
+  // hands `settings.manage` to every role — a posture switch every account
+  // could flip, in either direction, would protect nothing. Enforced under
+  // both modes; see `ALWAYS_ENFORCED` in `authorization-mode.ts`.
+  'security.manage_authorization',
 
   // Reading *metadata* about stored fleet credentials — never their values.
   'auth.read_metadata',

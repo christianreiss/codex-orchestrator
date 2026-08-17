@@ -31,6 +31,10 @@ import {
 } from '../../../services/claude-models.js';
 import { API_KEYS_IN_CHAT_ALLOWED_KEY } from '../../../services/api-keys-in-chat.js';
 import {
+  AUTHORIZATION_MODES,
+  isAuthorizationMode,
+} from '../../../security/authorization-mode.js';
+import {
   AGENTS_GENERATION_MODE_KEY,
   AGENTS_GENERATION_MODES,
   normalizeAgentsGenerationMode,
@@ -527,5 +531,37 @@ export async function registerAdminSettingsRoutes(
       settings.getFlag('claude_api_disabled', false),
     ]);
     return ok({ default_model: model, max_tokens: maxTokens, disabled });
+  });
+
+  // ---------------------------------------------------------------------
+  // GET/POST /admin/authorization
+  //
+  // The fleet's authorization posture, and the record of what switching it
+  // on would refuse. Unlike every other setting here this one is not a
+  // preference — it decides how all the others are enforced — so it carries
+  // its own capability, and that capability is enforced under both modes.
+  // Otherwise a `compatible` installation would let every account flip its
+  // own posture, in either direction.
+  // ---------------------------------------------------------------------
+  app.get('/admin/authorization', { preHandler: app.requireAdmin }, async () => {
+    const service = app.authorizationMode;
+    if (!service) throw new ValidationError('Authorization mode is unavailable');
+    return ok(await service.state());
+  });
+
+  app.post('/admin/authorization', { preHandler: app.requireAdmin }, async (req) => {
+    const service = app.authorizationMode;
+    if (!service) throw new ValidationError('Authorization mode is unavailable');
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const raw = typeof body.mode === 'string' ? body.mode : '';
+    if (!isAuthorizationMode(raw)) {
+      throw new ValidationError(`mode must be one of ${AUTHORIZATION_MODES.join(', ')}`, {
+        param: 'mode',
+      });
+    }
+    const actor = req.admin!.user;
+    await service.setMode(raw, { id: actor.id, username: actor.username });
+    await recordLog(ctx, 'admin.authorization_mode', { mode: raw });
+    return ok(await service.state());
   });
 }

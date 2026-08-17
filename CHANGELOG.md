@@ -3,8 +3,11 @@
 - **Every admin mutation was open to every signed-in account; authorization is
   now a default-deny capability layer.** `requireAdmin` resolves the session
   cookie and checks that the user row is active — it never read `access_level`,
-  and six hand-written preHandlers were the only authorization in a tree of 299
-  governed routes. A `viewer` could change global settings, upload canonical
+  and six hand-written preHandlers were the only authorization across the 225
+  governed method+path entries under `/admin/*` and `/cli/auth/*`. They covered
+  33; 11 more are deliberately public (login, the setup probe, the CLI device
+  flow); the remaining **181 required a session and nothing else**. A `viewer`
+  could change global settings, upload canonical
   fleet credentials, open insecure windows, rotate host keys, author agent
   documents, and drive the runner. `api/src/security/capabilities.ts` now holds
   a closed capability vocabulary and one role→capability matrix — the only place
@@ -36,12 +39,31 @@
     route is metadata and stays readable by every role.
   - `account.self_manage` is held by every role, so losing a grant can never
     cost an operator the ability to sign out or re-secure their own account.
-  - **Breaking for existing installations.** `viewer`, `user`, `trusted_user`
-    and `fleet_operator` accounts lose access they have today —
-    `fleet_operator` and `trusted_user` had no distinct meaning before and now
-    do. Nothing that was restricted became less restricted. Review the roster
-    before upgrading; `docs/ADMIN.md` has the generated matrix and an upgrade
-    note.
+  - **Upgrading changes nothing; enabling the matrix is a decision.** Accounts
+    on existing installations were created in a world where roles decided
+    almost nothing, so an installation whose whole team sits at `viewer` is the
+    predictable result of what shipped, not a misconfiguration — and enforcing
+    the matrix under it would lock operators out of their own orchestrator.
+    Enforcement therefore has a mode. `compatible` reproduces the pre-matrix
+    rules exactly: owner and admin may do everything, every other role is
+    refused exactly the 33 routes the old gates covered and admitted to the
+    rest. `strict` applies the matrix. Migration `0022` sets `compatible` on an
+    installation that already had users and `strict` on a fresh one, so an
+    upgrade is a behavioral no-op and a new install is secure from first boot.
+    `api/test/integration/security/authorization-compatibility.test.ts` proves
+    the no-op across every role × every route rather than asserting it.
+  - **`compatible` tells you what switching would cost.** Every request the
+    matrix would have refused is recorded, deduplicated per role/capability/
+    route. `GET /admin/authorization` returns the list with first/last seen, so
+    "what breaks if I turn this on" is answered from the fleet's own traffic
+    instead of by auditing a roster. `POST /admin/authorization`
+    (`{"mode":"strict"}`) makes the switch, and it is reversible.
+  - Two capabilities are enforced under **both** modes:
+    `auth.reveal_credential` (below — a privilege escalation with no caller
+    anywhere in the tree) and the new `security.manage_authorization`, which
+    guards the mode itself. `compatible` grants `settings.manage` to every
+    role, so a posture any account could flip in either direction would not be
+    a posture. Both are owner/admin only.
   - `GET /admin/auth/status` now returns the caller's `capabilities`. The admin
     console reads them through `frontend/src/lib/auth/capabilities.ts` and
     `authStore.can()` to disable controls a `403` would meet, replacing five

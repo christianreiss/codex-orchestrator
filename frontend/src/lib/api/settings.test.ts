@@ -125,6 +125,7 @@ const KEYS = {
   quotaMode: ["settings", "quota-mode"],
   scaling: ["settings", "scaling"],
   logRetention: ["settings", "log-retention"],
+  authorization: ["settings", "authorization"],
 } as const;
 
 interface QueryCase {
@@ -138,6 +139,13 @@ interface QueryCase {
 }
 
 const QUERY_CASES: QueryCase[] = [
+  {
+    name: "authorizationQuery",
+    build: () => asQuery(settings.authorizationQuery()),
+    queryKey: KEYS.authorization,
+    method: "GET",
+    path: "/admin/authorization",
+  },
   {
     name: "apiStateQuery",
     build: () => asQuery(settings.apiStateQuery()),
@@ -268,6 +276,16 @@ interface MutationCase {
 }
 
 const MUTATION_CASES: MutationCase[] = [
+  {
+    // Switching the posture changes what this very session may do, so it has
+    // to invalidate the auth status alongside its own key or the console keeps
+    // rendering the capabilities it held a moment ago.
+    name: "authorizationMutation",
+    build: (opts) => asMutation(settings.authorizationMutation(opts)),
+    variables: "strict",
+    request: { method: "POST", path: "/admin/authorization", body: { mode: "strict" } },
+    invalidates: [KEYS.authorization, ["auth", "status"]],
+  },
   {
     name: "apiStateMutation",
     build: (opts) => asMutation(settings.apiStateMutation(opts)),
@@ -506,6 +524,9 @@ describe("module surface", () => {
     "apiStateMutation",
     "apiStateQuery",
     "apiStateQueryKey",
+    "authorizationMutation",
+    "authorizationQuery",
+    "authorizationQueryKey",
     "autoUpdateMutation",
     "autoUpdateQuery",
     "autoUpdateQueryKey",

@@ -27,6 +27,8 @@ export interface AuthStatus {
    * reads rather than assuming a permission it cannot confirm.
    */
   capabilities?: string[];
+  /** `"compatible"` or `"strict"`; see `lib/auth/capabilities.ts`. */
+  authorization_mode?: string;
 }
 
 // projects feature ↓
