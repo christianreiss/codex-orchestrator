@@ -302,8 +302,8 @@ Admin routes:
   - Version refresh: `POST /admin/versions/check`.
 - **Runner**:
   - Status: `GET /admin/runner` (enabled/url/base/timeout, last check/ok/fail, state, boot id, 24h counts, last validation/store log, canonical auth metadata).
-  - Manual Codex run: `POST /admin/runner/run`.
-  - Manual Claude run: `POST /admin/runner/run-claude`.
+  - Manual Codex run: `POST /admin/runner/run` (no body fields; runs the canonical verification pipeline and reports `verdict` / `applied` / digests).
+  - Manual Claude run: `POST /admin/runner/run-claude` (same contract).
 - **ChatGPT, Logs**:
   - ChatGPT usage snapshot: `GET /admin/chatgpt/usage` (`force` optional, cooldown is 300s unless forced).
   - ChatGPT usage history: `GET /admin/chatgpt/usage/history` (`days`, `from`, `until`, `interval=raw|hour|day`, `lane=normal|spark|both`, `window=primary|secondary|both`).

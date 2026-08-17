@@ -1,79 +1,61 @@
 import { describe, it, expect } from 'vitest';
-import { RunnerProxyService } from '../../../src/services/runner-proxy.js';
+import { ValidationError } from '../../../src/http/errors.js';
+import type { EnsureServedVerificationInput } from '../../../src/services/canonical-auth-store.js';
+import {
+  canonicalRow,
+  fakeAuthStore,
+  fakeRunnerValidation,
+  makeRunnerEnv,
+  makeRunnerProxy,
+  readyRunnerEnv,
+  recordingSeedTokens,
+} from '../../helpers/runner-proxy-factory.js';
 import type { Env } from '../../../src/env.js';
-import type { RunnerClient } from '../../../src/services/runner-client.js';
-import type { RunnerValidationService } from '../../../src/services/runner-validation.js';
-
-function makeEnv(overrides: Partial<Env> = {}): Env {
-  return {
-    AUTH_RUNNER_URL: undefined,
-    AUTH_RUNNER_SHARED_SECRET: undefined,
-    ...(overrides as object),
-  } as Env;
-}
 
 function statusFromVersions(entries: Record<string, string>) {
-  const svc = new RunnerProxyService(
-    makeEnv({
-      AUTH_RUNNER_URL: 'https://runner.example.com/verify',
-      AUTH_RUNNER_SHARED_SECRET: 'secret',
-    } as Partial<Env>),
-    undefined,
-    { versionReader: async () => new Map(Object.entries(entries)) },
-  );
+  const svc = makeRunnerProxy(readyRunnerEnv(), {
+    // Telemetry is only projected for an engine that has verified canonical
+    // auth, so both engines need a row for these to say anything.
+    runnerValidation: fakeRunnerValidation({
+      codex: canonicalRow({ id: 1, engine: 'codex' }),
+      claude: canonicalRow({ id: 2, engine: 'claude' }),
+    }),
+    readTelemetry: async () => new Map(Object.entries(entries)),
+  });
   return svc.status();
 }
 
-describe('RunnerProxyService', () => {
+describe('RunnerProxyService.status', () => {
   it('reports unconfigured when AUTH_RUNNER_URL is missing', async () => {
-    const svc = new RunnerProxyService(makeEnv());
-    const s = await svc.status();
+    const s = await makeRunnerProxy(makeRunnerEnv()).status();
     expect(s.configured).toBe(false);
     expect(s.ready).toBe(false);
   });
 
   it('reports not-ready when secret is missing', async () => {
-    const svc = new RunnerProxyService(
-      makeEnv({ AUTH_RUNNER_URL: 'https://runner.example.com' } as Partial<Env>),
-    );
-    const s = await svc.status();
+    const s = await makeRunnerProxy(
+      makeRunnerEnv({ AUTH_RUNNER_URL: 'https://runner.example.com' } as Partial<Env>),
+    ).status();
     expect(s.configured).toBe(true);
     expect(s.ready).toBe(false);
   });
 
   it('reports ready when both env vars are set', async () => {
-    const svc = new RunnerProxyService(
-      makeEnv({
-        AUTH_RUNNER_URL: 'https://runner.example.com',
-        AUTH_RUNNER_SHARED_SECRET: 'secret',
-      } as Partial<Env>),
-    );
-    const s = await svc.status();
+    const s = await makeRunnerProxy(readyRunnerEnv()).status();
     expect(s.configured).toBe(true);
     expect(s.ready).toBe(true);
   });
 
   it('hydrates status from persisted runner telemetry', async () => {
-    const svc = new RunnerProxyService(
-      makeEnv({
-        AUTH_RUNNER_URL: 'https://runner.example.com/verify',
-        AUTH_RUNNER_SHARED_SECRET: 'secret',
-      } as Partial<Env>),
-      undefined,
-      {
-        versionReader: async () =>
-          new Map([
-            ['runner_state', 'ok'],
-            ['runner_last_check', '2026-05-20T10:09:50Z'],
-            ['runner_last_ok', '2026-05-20T10:09:50Z'],
-            ['runner_state_claude', 'ok'],
-            ['runner_last_check_claude', '2026-05-20T10:09:49Z'],
-            ['runner_last_ok_claude', '2026-05-20T10:09:49Z'],
-          ]),
-      },
-    );
+    const s = await statusFromVersions({
+      runner_state: 'ok',
+      runner_last_check: '2026-05-20T10:09:50Z',
+      runner_last_ok: '2026-05-20T10:09:50Z',
+      runner_state_claude: 'ok',
+      runner_last_check_claude: '2026-05-20T10:09:49Z',
+      runner_last_ok_claude: '2026-05-20T10:09:49Z',
+    });
 
-    const s = await svc.status();
     expect(s.ready).toBe(true);
     expect(s.state).toBe('ok');
     expect(s.last_run).toBe('2026-05-20T10:09:50Z');
@@ -84,30 +66,18 @@ describe('RunnerProxyService', () => {
   });
 
   it('reports idle rather than stale OK telemetry when no canonical auth exists', async () => {
-    const runnerValidation = {
-      resolveCanonicalPayload: async () => null,
-      validateCanonicalPayload: () => null,
-      canonicalAuthFromPayload: () => null,
-    } as unknown as RunnerValidationService;
-    const svc = new RunnerProxyService(
-      makeEnv({
-        AUTH_RUNNER_URL: 'https://runner.example.com/verify',
-        AUTH_RUNNER_SHARED_SECRET: 'secret',
-      } as Partial<Env>),
-      undefined,
-      {
-        runnerValidation,
-        versionReader: async () =>
-          new Map([
-            ['runner_state', 'ok'],
-            ['runner_last_check', '2026-05-20T10:09:50Z'],
-            ['runner_last_ok', '2026-05-20T10:09:50Z'],
-            ['runner_state_claude', 'ok'],
-            ['runner_last_check_claude', '2026-05-20T10:09:49Z'],
-            ['runner_last_ok_claude', '2026-05-20T10:09:49Z'],
-          ]),
-      },
-    );
+    const svc = makeRunnerProxy(readyRunnerEnv(), {
+      runnerValidation: fakeRunnerValidation({ codex: null, claude: null }),
+      readTelemetry: async () =>
+        new Map([
+          ['runner_state', 'ok'],
+          ['runner_last_check', '2026-05-20T10:09:50Z'],
+          ['runner_last_ok', '2026-05-20T10:09:50Z'],
+          ['runner_state_claude', 'ok'],
+          ['runner_last_check_claude', '2026-05-20T10:09:49Z'],
+          ['runner_last_ok_claude', '2026-05-20T10:09:49Z'],
+        ]),
+    });
 
     const s = await svc.status();
 
@@ -118,31 +88,21 @@ describe('RunnerProxyService', () => {
   });
 
   it('preserves verified Codex telemetry while projecting missing Claude auth as idle', async () => {
-    const verified = { verificationState: 'verified' };
-    const runnerValidation = {
-      resolveCanonicalPayload: async (engine: string) => engine === 'codex' ? verified : null,
-      validateCanonicalPayload: (row: unknown) => row === verified ? { last_refresh: '2026-05-20T10:00:00Z' } : null,
-      canonicalAuthFromPayload: (row: unknown) => row === verified ? { auths: {} } : null,
-    } as unknown as RunnerValidationService;
-    const svc = new RunnerProxyService(
-      makeEnv({
-        AUTH_RUNNER_URL: 'https://runner.example.com/verify',
-        AUTH_RUNNER_SHARED_SECRET: 'secret',
-      } as Partial<Env>),
-      undefined,
-      {
-        runnerValidation,
-        versionReader: async () =>
-          new Map([
-            ['runner_state', 'ok'],
-            ['runner_last_check', '2026-05-20T10:09:50Z'],
-            ['runner_last_ok', '2026-05-20T10:09:50Z'],
-            ['runner_state_claude', 'ok'],
-            ['runner_last_check_claude', '2026-05-20T10:09:49Z'],
-            ['runner_last_ok_claude', '2026-05-20T10:09:49Z'],
-          ]),
-      },
-    );
+    const svc = makeRunnerProxy(readyRunnerEnv(), {
+      runnerValidation: fakeRunnerValidation({
+        codex: canonicalRow({ id: 1, engine: 'codex' }),
+        claude: null,
+      }),
+      readTelemetry: async () =>
+        new Map([
+          ['runner_state', 'ok'],
+          ['runner_last_check', '2026-05-20T10:09:50Z'],
+          ['runner_last_ok', '2026-05-20T10:09:50Z'],
+          ['runner_state_claude', 'ok'],
+          ['runner_last_check_claude', '2026-05-20T10:09:49Z'],
+          ['runner_last_ok_claude', '2026-05-20T10:09:49Z'],
+        ]),
+    });
 
     const s = await svc.status();
 
@@ -246,85 +206,181 @@ describe('RunnerProxyService', () => {
     });
     expect(s.last_run).toBeNull();
   });
+});
 
-  it('omits persisted fields when neither db nor versionReader is wired', async () => {
-    const svc = new RunnerProxyService(
-      makeEnv({
-        AUTH_RUNNER_URL: 'https://runner.example.com/verify',
-        AUTH_RUNNER_SHARED_SECRET: 'secret',
-      } as Partial<Env>),
-    );
-    const s = await svc.status();
-    expect(s.ready).toBe(true);
-    expect(s).not.toHaveProperty('state');
-    expect(s).not.toHaveProperty('last_run');
-    expect(s).not.toHaveProperty('last_error');
-    expect(s).not.toHaveProperty('last_result');
-    expect(s).not.toHaveProperty('engines');
-  });
-
-  it('returns unconfigured on run() when AUTH_RUNNER_URL is missing', async () => {
-    const svc = new RunnerProxyService(makeEnv());
-    const res = await svc.run({ prompt: 'hi' }, 'codex');
+describe('RunnerProxyService.run', () => {
+  it('returns unconfigured when AUTH_RUNNER_URL is missing', async () => {
+    const res = await makeRunnerProxy(makeRunnerEnv()).run({}, 'codex');
     expect(res.status).toBe('unconfigured');
-    expect(res.reachable).toBe(false);
+    expect(res.probed).toBe(false);
+    expect(res.reachable).toBeUndefined();
   });
 
-  it('verifies Claude with the latest canonical auth payload', async () => {
-    let seenAuth: Record<string, unknown> | null = null;
-    const canonicalAuth = { auths: { 'api.anthropic.com': { token: 'sk-ant-test' } } };
-    const runner = {
-      isConfigured: () => true,
-      verify: async () => {
-        throw new Error('unexpected codex verify');
-      },
-      verifyClaude: async (input) => {
-        seenAuth = input.authJson;
-        return { ok: true, status: 'ok', reachable: true, latency_ms: 12, claude_version: '1.2.3' };
-      },
-    } satisfies RunnerClient;
-    const runnerValidation = {
-      resolveCanonicalPayload: async () => ({
-        id: 42,
-        lastRefresh: '2026-05-20T10:00:00Z',
-        sha256: 'a'.repeat(64),
-        body: '{}',
-        engine: 'claude',
-        createdAt: '2026-05-20T10:00:00Z',
-        verificationState: 'verified',
-        verificationCheckedAt: '2026-05-20T10:00:00Z',
+  it('fails without probing when the engine has no usable canonical payload', async () => {
+    let called = false;
+    const svc = makeRunnerProxy(readyRunnerEnv(), {
+      runnerValidation: fakeRunnerValidation({ claude: null }),
+      authStore: fakeAuthStore({}, () => {
+        called = true;
       }),
-      validateCanonicalPayload: () => ({
-        auth: canonicalAuth,
-        digest: 'a'.repeat(64),
-        last_refresh: '2026-05-20T10:00:00Z',
-      }),
-      canonicalAuthFromPayload: () => canonicalAuth,
-      ensureAuthsFallback: (payload) => payload,
-      normalizeAuthEntries: () => [],
-      hasUsableEngineCredential: () => true,
-      canonicalizeAuthPayload: (payload) => payload,
-      calculateDigest: () => 'a'.repeat(64),
-    } satisfies RunnerValidationService;
-
-    const svc = new RunnerProxyService(
-      makeEnv({
-        AUTH_RUNNER_URL: 'https://runner.example.com/verify',
-        AUTH_RUNNER_SHARED_SECRET: 'secret',
-      } as Partial<Env>),
-      undefined,
-      { runner, runnerValidation },
-    );
+    });
 
     const res = await svc.run({}, 'claude');
-    expect(res.status).toBe('ok');
-    expect(res.canonical_digest).toBe('a'.repeat(64));
-    expect(res.payload_id).toBe(42);
-    expect(seenAuth).toEqual(canonicalAuth);
+
+    expect(res.status).toBe('fail');
+    expect(res.reason).toBe('Claude canonical auth payload unavailable or invalid');
+    expect(res.probed).toBe(false);
+    expect(called).toBe(false);
   });
 
-  it('returns queued=true from seedCommand stub', async () => {
-    const svc = new RunnerProxyService(makeEnv());
-    expect(await svc.seedCommand({})).toEqual({ status: 'ok', queued: true });
+  it('verifies through the canonical store with a forced live probe', async () => {
+    const row = canonicalRow({ id: 42, engine: 'claude' });
+    let seen: EnsureServedVerificationInput | null = null;
+    const svc = makeRunnerProxy(readyRunnerEnv(), {
+      runnerValidation: fakeRunnerValidation({ claude: row }),
+      authStore: fakeAuthStore(
+        { state: 'verified', probe: { reachable: true, definitive: true, latencyMs: 12 } },
+        (input) => {
+          seen = input as EnsureServedVerificationInput;
+        },
+      ),
+    });
+
+    const res = await svc.run({}, 'claude');
+
+    expect(seen).not.toBeNull();
+    const input = seen as unknown as EnsureServedVerificationInput;
+    expect(input.engine).toBe('claude');
+    expect(input.forceLive).toBe(true);
+    expect(input.ttlSeconds).toBe(0);
+    expect(input.auth).toEqual(row.auth);
+
+    expect(res.status).toBe('ok');
+    expect(res.verdict).toBe('verified');
+    expect(res.applied).toBe(false);
+    expect(res.probed).toBe(true);
+    expect(res.reachable).toBe(true);
+    expect(res.latency_ms).toBe(12);
+    expect(res.payload_id).toBe(42);
+    expect(res.canonical_digest_before).toBe(row.digest);
+    expect(res.canonical_digest).toBe(row.digest);
+  });
+
+  it('reports applied when the store promoted refreshed credentials', async () => {
+    const row = canonicalRow({ id: 7, engine: 'codex' });
+    const svc = makeRunnerProxy(readyRunnerEnv(), {
+      runnerValidation: fakeRunnerValidation({ codex: row }),
+      authStore: fakeAuthStore({
+        state: 'verified',
+        digest: 'b'.repeat(64),
+        lastRefresh: '2026-05-21T09:00:00Z',
+        refreshed: true,
+        probe: { reachable: true, definitive: true },
+      }),
+    });
+
+    const res = await svc.run({}, 'codex');
+
+    expect(res.applied).toBe(true);
+    expect(res.canonical_digest_before).toBe(row.digest);
+    expect(res.canonical_digest).toBe('b'.repeat(64));
+    expect(res.canonical_last_refresh).toBe('2026-05-21T09:00:00Z');
+    expect(res.detail).toContain('refreshed credentials promoted');
+  });
+
+  it('reports a quarantined payload as failed with the store reason', async () => {
+    const svc = makeRunnerProxy(readyRunnerEnv(), {
+      runnerValidation: fakeRunnerValidation({ codex: canonicalRow() }),
+      authStore: fakeAuthStore({
+        state: 'failed',
+        reason: 'provider rejected the credential',
+        probe: { reachable: true, definitive: true },
+      }),
+    });
+
+    const res = await svc.run({}, 'codex');
+
+    expect(res.status).toBe('fail');
+    expect(res.verdict).toBe('failed');
+    expect(res.applied).toBe(false);
+    expect(res.reason).toBe('provider rejected the credential');
+  });
+
+  it('does not claim unreachable when no live probe ran', async () => {
+    const svc = makeRunnerProxy(readyRunnerEnv(), {
+      runnerValidation: fakeRunnerValidation({ codex: canonicalRow() }),
+      // No `probe`: the store answered from a state that never called out.
+      authStore: fakeAuthStore({ state: 'unknown' }),
+    });
+
+    const res = await svc.run({}, 'codex');
+
+    expect(res.status).toBe('fail');
+    expect(res.verdict).toBe('unknown');
+    expect(res.probed).toBe(false);
+    expect(res.reachable).toBeUndefined();
+    expect(res.latency_ms).toBeUndefined();
+  });
+
+  it('never echoes credential material back to the caller', async () => {
+    const svc = makeRunnerProxy(readyRunnerEnv(), {
+      runnerValidation: fakeRunnerValidation({ codex: canonicalRow() }),
+      authStore: fakeAuthStore({ state: 'verified', probe: { reachable: true, definitive: true } }),
+    });
+
+    const res = await svc.run({}, 'codex');
+
+    expect(JSON.stringify(res)).not.toContain('sk-test-token');
+    expect(res).not.toHaveProperty('auth');
+    expect(res).not.toHaveProperty('updated_auth');
+  });
+});
+
+describe('the manual runner trigger accepts no parameters', () => {
+  it.each([
+    ['prompt', { prompt: 'hello' }],
+    ['model', { model: 'gpt-5.6' }],
+    ['reasoning_effort', { reasoning_effort: 'high' }],
+    ['preview', { preview: true }],
+    ['timeout_seconds', { timeout_seconds: 30 }],
+  ])('rejects the retired %s field instead of ignoring it', async (_name, body) => {
+    const svc = makeRunnerProxy(readyRunnerEnv());
+    await expect(svc.run(body as never, 'codex')).rejects.toBeInstanceOf(ValidationError);
+  });
+
+  it('accepts an empty body', async () => {
+    const svc = makeRunnerProxy(readyRunnerEnv(), {
+      runnerValidation: fakeRunnerValidation({ codex: canonicalRow() }),
+    });
+    await expect(svc.run({}, 'codex')).resolves.toMatchObject({ status: 'ok' });
+  });
+});
+
+describe('RunnerProxyService.seedCommand', () => {
+  it('issues a token and returns the command', async () => {
+    const seedTokens = recordingSeedTokens();
+    const svc = makeRunnerProxy(
+      readyRunnerEnv({ PUBLIC_BASE_URL: 'https://auth.example.com/' } as Partial<Env>),
+      { seedTokens },
+    );
+
+    const res = await svc.seedCommand({});
+
+    expect(seedTokens.issued).toHaveLength(1);
+    expect(seedTokens.purged).toHaveLength(1);
+    const issued = seedTokens.issued[0]!;
+    expect(issued.engine).toBe('codex');
+    expect(res.command).toBe(
+      `curl -fsSL "https://auth.example.com/seed/auth/${issued.token}" | bash`,
+    );
+    expect(res.expires_at).toBe(issued.expiresAt);
+  });
+
+  it('refuses to report success when no public base URL is configured', async () => {
+    const seedTokens = recordingSeedTokens();
+    const svc = makeRunnerProxy(readyRunnerEnv(), { seedTokens });
+
+    await expect(svc.seedCommand({})).rejects.toThrow(/public base URL/i);
+    expect(seedTokens.issued).toEqual([]);
   });
 });

@@ -12,14 +12,17 @@ import {
   writeRunnerTelemetry,
   type RunnerTelemetryState,
 } from '../../../src/services/runner-telemetry.js';
-import {
-  RunnerProxyService,
-  type RunnerEngineStatus,
-} from '../../../src/services/runner-proxy.js';
+import { type RunnerEngineStatus } from '../../../src/services/runner-proxy.js';
 import type { Database } from '../../../src/db/client.js';
-import type { Env } from '../../../src/env.js';
 import { ENGINE_CLAUDE, ENGINE_CODEX, type Engine } from '../../../src/util/engine.js';
 import { createDbFake, versionsTable } from '../../helpers/db-fake.js';
+import {
+  canonicalRow,
+  createRunnerTelemetryReaderForFake,
+  fakeRunnerValidation,
+  makeRunnerProxy,
+  readyRunnerEnv,
+} from '../../helpers/runner-proxy-factory.js';
 
 const dialect = new MySqlDialect();
 
@@ -55,20 +58,22 @@ function valueOf(written: WrittenVersion[], name: string): string | undefined {
   return written.find((row) => row.name === name)?.version;
 }
 
-function makeEnv(): Env {
-  return {
-    AUTH_RUNNER_URL: 'https://runner.example.com/verify',
-    AUTH_RUNNER_SHARED_SECRET: 'secret',
-  } as unknown as Env;
-}
-
 /** Feeds exactly the rows the writer produced back through the status reader. */
 async function readBackStatus(written: WrittenVersion[]): Promise<{
   codex: RunnerEngineStatus;
   claude: RunnerEngineStatus;
 }> {
   const db = createDbFake(new Map([[versionsTable, written.map((row) => ({ ...row }))]]));
-  const svc = new RunnerProxyService(makeEnv(), undefined, { db: db as unknown as Database });
+  const svc = makeRunnerProxy(readyRunnerEnv(), {
+    // Telemetry is projected only for engines that actually hold verified
+    // canonical auth, so both are present here; this suite is about the row
+    // names, not about the canonical gate.
+    runnerValidation: fakeRunnerValidation({
+      codex: canonicalRow({ id: 1, engine: ENGINE_CODEX }),
+      claude: canonicalRow({ id: 2, engine: ENGINE_CLAUDE }),
+    }),
+    readTelemetry: createRunnerTelemetryReaderForFake(db as unknown as Database),
+  });
   const status = await svc.status();
   return status.last_result as { codex: RunnerEngineStatus; claude: RunnerEngineStatus };
 }

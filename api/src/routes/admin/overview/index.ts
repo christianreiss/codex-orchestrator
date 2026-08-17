@@ -22,7 +22,13 @@ import {
 import { ChatGptUsageService } from '../../../services/chatgpt-usage.js';
 import { DashboardStatsService } from '../../../services/dashboard-stats.js';
 import { UsageScalingService } from '../../../services/usage-scaling.js';
-import { RunnerProxyService } from '../../../services/runner-proxy.js';
+import {
+  RunnerProxyService,
+  assertNoRunRequestFields,
+  createRunnerTelemetryReader,
+  createSeedTokenStore,
+  type RunnerRunRequest,
+} from '../../../services/runner-proxy.js';
 import { createRunnerClient } from '../../../services/runner-client.js';
 import { createRunnerValidationService } from '../../../services/runner-validation.js';
 import { createCanonicalAuthStoreService } from '../../../services/canonical-auth-store.js';
@@ -40,6 +46,16 @@ function intQuery(value: unknown, fallback: number): number {
 
 function stringQuery(value: unknown): string | null {
   return typeof value === 'string' && value.trim() !== '' ? value.trim() : null;
+}
+
+/**
+ * The manual runner trigger takes no parameters. A body that still carries the
+ * retired `prompt`/`model`/`reasoning_effort`/`preview`/`timeout_seconds` fields
+ * is rejected rather than accepted and dropped.
+ */
+function runRequest(body: unknown): RunnerRunRequest {
+  assertNoRunRequestFields(body);
+  return {};
 }
 
 async function recordLog(
@@ -157,16 +173,20 @@ export async function registerAdminOverviewRoutes(
   });
   const dashboard = new DashboardStatsService(ctx.db);
   const scaling = new UsageScalingService(settings);
-  const runnerProxy = new RunnerProxyService(ctx.env, app.log, {
-    db: ctx.db,
-    runner: runnerClient,
-    runnerValidation,
-  });
   const authStore = createCanonicalAuthStoreService({
     db: ctx.db,
     keyring: ctx.keyring,
     runnerValidation,
     runner: runnerClient,
+  });
+  // The manual trigger verifies through the same canonical store the worker and
+  // the `/auth` store path use, so a refresh performed on an operator's click is
+  // promoted (or quarantined) exactly like any other.
+  const runnerProxy = new RunnerProxyService(ctx.env, app.log, {
+    runnerValidation,
+    authStore,
+    seedTokens: createSeedTokenStore(ctx.db),
+    readTelemetry: createRunnerTelemetryReader(ctx.db),
   });
   const adminEventsService = createAdminEventsService(ctx.db);
 
@@ -736,12 +756,10 @@ export async function registerAdminOverviewRoutes(
     return ok({ runner: await runnerProxy.status() });
   });
   app.post('/admin/runner/run', { preHandler: app.requireAdmin }, async (req) => {
-    const result = await runnerProxy.run((req.body ?? {}) as Record<string, unknown>, 'codex');
-    return ok(result);
+    return ok(await runnerProxy.run(runRequest(req.body), 'codex'));
   });
   app.post('/admin/runner/run-claude', { preHandler: app.requireAdmin }, async (req) => {
-    const result = await runnerProxy.run((req.body ?? {}) as Record<string, unknown>, 'claude');
-    return ok(result);
+    return ok(await runnerProxy.run(runRequest(req.body), 'claude'));
   });
 
   // ── /admin/auth/seed-command ──────────────────────────────────────────────

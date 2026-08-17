@@ -4,7 +4,11 @@ import cookie from '@fastify/cookie';
 import { envelopePlugin } from '../../../src/http/plugins/envelope.js';
 import { requestIdPlugin } from '../../../src/http/plugins/request-id.js';
 import { registerAdminOverviewRoutes } from '../../../src/routes/admin/overview/index.js';
-import { RunnerProxyService } from '../../../src/services/runner-proxy.js';
+import {
+  canonicalRow,
+  fakeRunnerValidation,
+  makeRunnerProxy,
+} from '../../helpers/runner-proxy-factory.js';
 import type { Env } from '../../../src/env.js';
 import type { RouteContext } from '../../../src/routes/index.js';
 
@@ -44,7 +48,22 @@ describe('runner endpoints', () => {
     expect(body.runner.ready).toBe(false);
   });
 
-  it('POST /admin/runner/run reports unconfigured instead of the old not-wired stub', async () => {
+  it('POST /admin/runner/run reports unconfigured for an empty body', async () => {
+    app = await buildApp({ ADMIN_WS_ENABLED: false } as Env);
+    const res = await app.inject({
+      method: 'POST',
+      url: '/admin/runner/run',
+      payload: {},
+      headers: { 'content-type': 'application/json' },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as { status: string; detail?: string; probed?: boolean };
+    expect(body.status).toBe('unconfigured');
+    expect(body.detail).toContain('AUTH_RUNNER_URL');
+    expect(body.probed).toBe(false);
+  });
+
+  it('POST /admin/runner/run rejects the retired prompt field instead of ignoring it', async () => {
     app = await buildApp({ ADMIN_WS_ENABLED: false } as Env);
     const res = await app.inject({
       method: 'POST',
@@ -52,23 +71,23 @@ describe('runner endpoints', () => {
       payload: { prompt: 'hi' },
       headers: { 'content-type': 'application/json' },
     });
-    expect(res.statusCode).toBe(200);
-    const body = res.json() as { status: string; detail?: string; reachable?: boolean };
-    expect(body.status).toBe('unconfigured');
-    expect(body.detail).toContain('AUTH_RUNNER_URL');
-    expect(body.reachable).toBe(false);
+    expect(res.statusCode).toBe(422);
+    expect(res.json()).toMatchObject({ code: 'validation_failed' });
   });
 
   it('RunnerProxyService.status exposes Codex and Claude runner telemetry separately', async () => {
-    const svc = new RunnerProxyService(
+    const svc = makeRunnerProxy(
       {
         ADMIN_WS_ENABLED: false,
         AUTH_RUNNER_URL: 'http://runner:8080/verify',
         AUTH_RUNNER_SHARED_SECRET: 'secret',
       } as Env,
-      undefined,
       {
-        versionReader: async () =>
+        runnerValidation: fakeRunnerValidation({
+          codex: canonicalRow({ id: 1, engine: 'codex' }),
+          claude: canonicalRow({ id: 2, engine: 'claude' }),
+        }),
+        readTelemetry: async () =>
           new Map([
             ['runner_state', 'ok'],
             ['runner_last_check', '2026-06-05T07:00:00Z'],

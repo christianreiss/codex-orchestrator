@@ -9,7 +9,7 @@ walks `app.routes` and fails when a registered `METHOD /path` is missing from
 the list below, and when the list names a route the runner does not serve, so a
 new route has to be documented here before it can ship.
 
-- `GET /health` returns `{"status": "ok"}` plus per-engine `available` flags and is used by Docker health checks.
+- `GET /health` returns `status` (`ok` / `degraded`), `required_engines`, a `problems` list, and per-engine `available`, `binary`, `version`, `expected_version`, and `version_matches`. `available` means the binary resolved *and* answered `--version`; it is not a `which` lookup. Used by Docker health checks and by the API boot check, which reads each engine's entry on its own rather than the top-level `status` — one drifted CLI must not mark the other engine dead.
 - `POST /verify` validates Codex credentials. Body: `auth_json` (required object) and `timeout_seconds` (optional float).
 - `POST /verify-claude` validates Claude credentials. Same body as `/verify`. Native Claude Code OAuth/account-login payloads use the Claude CLI; genuine Anthropic API keys use the Messages API.
 - `POST /skills/summarize` generates a short AGENTS-safe skill summary. Body: `auth_json` (required object), `slug` (required string), `manifest` (required string), optional `engine` (`codex` | `claude`, default `codex`), and optional `timeout_seconds`. **No API caller today:** nothing under `api/src` requests this route.
@@ -223,12 +223,25 @@ aliases, nested `tokens` API-key aliases, then the derived `auths` entry.
   ported; recovery now rides on the next boot check, timer pass or manual
   trigger. Recovery failures are logged; they block new stores but do not
   invalidate a still-current verified head.
-- Manual trigger `POST /admin/runner/run` forces one Codex runner pass
-  (`trigger=manual`) and returns whether canonical digest changed (`applied`).
-  `POST /admin/runner/run-claude` verifies the latest Claude canonical payload
-  through `/verify-claude`; Claude Code OAuth/account-login payloads are checked
-  with a native Claude CLI probe instead of treating the OAuth access token as a
-  public Anthropic API key.
+- Manual trigger `POST /admin/runner/run` forces one Codex verification pass and
+  `POST /admin/runner/run-claude` one Claude pass. Both take **no request body
+  fields**; a body carrying the retired `prompt` / `model` / `reasoning_effort` /
+  `preview` / `timeout_seconds` keys is rejected with `422 validation_failed`
+  rather than accepted and ignored.
+  Both run the *same* `ensureServedVerification` pipeline as the background
+  worker and the `/auth` store path (`forceLive`, TTL 0), so a token the runner
+  refreshes during the check is normalized, structurally validated, promoted
+  under a compare-and-swap against the canonical head, and encrypted — or
+  quarantined when it cannot be used. The trigger used to probe the runner
+  directly and discard `updated_auth`.
+  The response carries `engine`, `verdict` (`verified` / `failed` / `unknown`),
+  `applied` (canonical head replaced), `probed`, `canonical_digest_before`,
+  `canonical_digest`, `canonical_last_refresh`, `payload_id`, `detail`, and —
+  only when a live probe actually ran — `reachable` and `latency_ms`. An absent
+  `reachable` means "not probed", not "unreachable". No credential bytes are
+  ever returned.
+  Claude Code OAuth/account-login payloads are checked with a native Claude CLI
+  probe instead of treating the OAuth access token as a public Anthropic API key.
 - Runner telemetry stored in `versions`: `runner_state`, `runner_last_ok`, `runner_last_fail`, `runner_last_check` (set only when the runner request was reachable or a background auth probe produced a final provider verdict), plus the Claude-suffixed equivalents. Those four are the whole set — there is no boot-id or preflight marker.
 
 ## Network and IP notes

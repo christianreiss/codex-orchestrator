@@ -122,6 +122,21 @@ export interface EnsureServedVerificationInput {
   reissueCanonical?: boolean;
 }
 
+/**
+ * What the runner actually did, when it was actually called.
+ *
+ * Absent means no live probe ran on this call — a TTL-cached verdict, a
+ * credential that cannot be probed without spending its refresh token, or a
+ * head that changed underneath. Callers that report reachability or latency to
+ * an operator must say "not probed" in that case rather than inventing a
+ * plausible-looking `reachable: false`.
+ */
+export interface VerificationProbeInfo {
+  reachable: boolean;
+  definitive: boolean;
+  latencyMs?: number;
+}
+
 export interface EnsureServedVerificationResult {
   /**
    * verified — token chain proved live (cached within TTL, or freshly probed).
@@ -135,6 +150,7 @@ export interface EnsureServedVerificationResult {
   lastRefresh: string;
   refreshed: boolean;
   reason?: string;
+  probe?: VerificationProbeInfo;
 }
 
 export interface CanonicalAuthStoreService {
@@ -855,7 +871,13 @@ export function createCanonicalAuthStoreService(deps: CanonicalAuthStoreDeps): C
     const pending = verificationInflight.get(inflightKey);
     if (pending) return pending;
 
-    const probe = withEngineStoreLock(engine, async (): Promise<EnsureServedVerificationResult> => {
+    // Set only where a runner verdict is actually obtained, and attached to
+    // whichever branch returns. Every branch below already decides the *state*;
+    // this records that a live call happened at all, so an operator-facing
+    // caller can distinguish "runner said no" from "runner was never asked".
+    let probeInfo: VerificationProbeInfo | undefined;
+
+    const attempt = withEngineStoreLock(engine, async (): Promise<EnsureServedVerificationResult> => {
       // The queue may have waited behind an upload. Never probe or rotate the
       // stale row supplied by the worker after another store became canonical.
       const selectedRow = await runnerValidation.resolveCanonicalPayload(engine);
@@ -904,6 +926,12 @@ export function createCanonicalAuthStoreService(deps: CanonicalAuthStoreDeps): C
         engine === ENGINE_CLAUDE
           ? await runner.verifyClaude({ authJson: auth })
           : await runner.verify({ authJson: auth });
+
+      probeInfo = {
+        reachable: verdict.reachable === true,
+        definitive: verdict.definitive === true,
+        ...(typeof verdict.latency_ms === 'number' ? { latencyMs: verdict.latency_ms } : {}),
+      };
 
       const now = nowIso();
       const readbackFailure = runnerReadbackFailure(verdict);
@@ -1112,6 +1140,8 @@ export function createCanonicalAuthStoreService(deps: CanonicalAuthStoreDeps): C
       }
       return { ...unchanged, state: 'verified' };
     });
+
+    const probe = attempt.then((result) => (probeInfo ? { ...result, probe: probeInfo } : result));
 
     verificationInflight.set(inflightKey, probe);
     try {

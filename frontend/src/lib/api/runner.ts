@@ -59,20 +59,31 @@ export interface RunnerStateResponse {
 
 /**
  * Mirrors {@link RunnerRunResult} in `api/src/services/runner-proxy.ts`.
- * `formatRunResult` there forwards only known-safe verdict fields — notably it
- * strips the runner's `updated_auth` credential blob — so this type must not
- * declare a field the server interface does not, which
- * `api/test/unit/contract/frontend-runner-result-fields.test.ts` enforces.
- * The index signature covers the extras the proxy adds (`ok`,
- * `canonical_digest`, `payload_id`).
+ *
+ * The trigger runs the canonical auth store's verification pipeline, so the
+ * result is a verdict about the stored credential, never credential bytes: no
+ * `auth`, no `updated_auth`. This type must not declare a field the server
+ * interface does not, which
+ * `api/test/unit/contract/frontend-runner-result-fields.test.ts` enforces —
+ * `output` used to sit here for a value the service never produced.
+ *
+ * `reachable` and `latency_ms` are present only when a live probe actually ran
+ * (`probed === true`); absent is "not probed", not "unreachable".
  */
 export interface RunnerRunResult {
   status: "ok" | "fail" | "unconfigured";
-  output?: string;
+  engine?: "codex" | "claude";
+  verdict?: "verified" | "failed" | "unknown";
+  applied?: boolean;
+  probed?: boolean;
   detail?: string;
   reason?: string;
   reachable?: boolean;
   latency_ms?: number;
+  canonical_digest_before?: string;
+  canonical_digest?: string;
+  canonical_last_refresh?: string;
+  payload_id?: number;
   [key: string]: unknown;
 }
 
