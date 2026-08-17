@@ -681,12 +681,27 @@ test("desktop shell exposes direct task navigation and the command palette", asy
     await expect(page.getByRole("navigation", { name: "Breadcrumb" }).getByText("Overview", { exact: true })).toBeVisible();
   }
 
+  // The sidebar groups its destinations and opens only the group holding the
+  // current route, so reaching another section costs one disclosure click.
+  // Assert that contract rather than a flat list: every group is present as a
+  // header, and expanding it reveals the destinations it owns. (This assertion
+  // was written against the older flat sidebar and had been failing silently
+  // since the grouped one landed — nothing ran the browser suite.)
   const primary = page.getByRole("navigation", { name: "Primary navigation" });
-  await expect(primary.getByRole("link", { name: "Engines" })).toBeVisible();
-  await expect(primary.getByRole("link", { name: "Policies" })).toBeVisible();
-  await expect(primary.getByRole("link", { name: "Agent Messaging" })).toBeVisible();
-  await expect(primary.getByRole("link", { name: "Fleet Instructions" })).toBeVisible();
-  await expect(primary.getByRole("link", { name: "Admin Users" })).toBeVisible();
+  const destinations: Array<[string, string[]]> = [
+    ["Fleet", ["Hosts", "Engines", "Policies"]],
+    ["Coordinate", ["Projects", "Agent Messaging", "Agent Portal"]],
+    ["Knowledge", ["Skills", "Fleet Instructions"]],
+    ["Access", ["Admin Users"]],
+  ];
+  for (const [group, links] of destinations) {
+    const trigger = primary.getByRole("button", { name: group, exact: true });
+    await expect(trigger).toBeVisible();
+    if ((await trigger.getAttribute("data-state")) !== "open") await trigger.click();
+    for (const link of links) {
+      await expect(primary.getByRole("link", { name: link, exact: true })).toBeVisible();
+    }
+  }
 
   await page.keyboard.press("Control+K");
   await expect(page.getByPlaceholder("Type a command or search hosts, projects, skills, users…")).toBeVisible();

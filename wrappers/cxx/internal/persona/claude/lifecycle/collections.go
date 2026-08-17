@@ -456,13 +456,6 @@ func applyCollectionResult(ctx context.Context, kind string, items []orchestrato
 	return updated, resultErr
 }
 
-// applyClaudeArtifacts writes all three collection kinds. Returns true if any
-// file changed (used to light the boot-screen dot).
-func applyClaudeArtifacts(ca *orchestrator.ClaudeArtifacts, logger *slog.Logger) bool {
-	updated, _ := applyClaudeArtifactsResult(context.Background(), ca, logger)
-	return updated
-}
-
 func applyClaudeArtifactsResult(ctx context.Context, ca *orchestrator.ClaudeArtifacts, logger *slog.Logger) (updated bool, resultErr error) {
 	if ca == nil {
 		return false, nil

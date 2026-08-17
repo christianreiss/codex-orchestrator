@@ -188,11 +188,6 @@ func hasAnyClaudeToken(doc map[string]any) bool {
 	return ok
 }
 
-func hasRunnableAnthropicAPIKey(doc map[string]any) bool {
-	kind, _, ok := runnableCredentialIdentity(doc)
-	return ok && kind == "api_key"
-}
-
 func runnableCredentialIdentity(doc map[string]any) (kind, token string, ok bool) {
 	if oauth, present := doc["claudeAiOauth"].(map[string]any); present {
 		if value, _ := oauth["accessToken"].(string); strings.TrimSpace(value) != "" {

@@ -576,17 +576,6 @@ func (g *explicitLogoutGuard) finish(success bool) (marked bool, err error) {
 	return true, nil
 }
 
-func clearLogoutIntentIfGenerationLocked(paths authFileSet, expected LogoutIntentGeneration) error {
-	current, err := logoutIntentGenerationAt(paths.logout)
-	if err != nil {
-		return err
-	}
-	if current != expected {
-		return nil
-	}
-	return clearLogoutIntentLocked(paths)
-}
-
 func restoreLogoutIntentIfGenerationLocked(paths authFileSet, expected LogoutIntentGeneration, previous []byte) error {
 	current, err := logoutIntentGenerationAt(paths.logout)
 	if err != nil {

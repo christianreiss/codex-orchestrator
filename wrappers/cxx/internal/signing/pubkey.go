@@ -6,8 +6,8 @@ package signing
 import (
 	"crypto/ed25519"
 	"crypto/x509"
-	"encoding/base64"
 	_ "embed"
+	"encoding/base64"
 	"encoding/pem"
 	"errors"
 )

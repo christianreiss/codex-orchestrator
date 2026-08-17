@@ -47,3 +47,23 @@ jobs:
       - run: npm run check
       - run: npm run test
       - run: npm run build
+      # The portal is a second Vite build served at /go by the API; `npm run
+      # build` does not produce it, so nothing was compiling it in CI.
+      - run: npm run build:portal
+      # The committed `public/admin` artifact is what the API serves. A build
+      # whose output differs from what is checked in means the console on disk
+      # is not the console in this commit.
+      - name: committed admin artifact matches a fresh build
+        working-directory: .
+        run: |
+          if ! git diff --quiet -- public/admin; then
+            echo "public/admin is stale; run 'npm run build' in frontend/ and commit the result" >&2
+            git --no-pager diff --stat -- public/admin >&2
+            exit 1
+          fi
+      # The browser suite existed but no workflow ran it, so it rotted: an
+      # assertion written against the older flat sidebar had been failing
+      # unnoticed. Browsers are installed explicitly because the runner image
+      # ships none.
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e

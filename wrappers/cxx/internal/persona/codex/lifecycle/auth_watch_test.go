@@ -17,9 +17,6 @@ type watcherHarness struct {
 	refresh   string
 	uploads   int
 	uploadErr error
-	// uploadAdvances mirrors the real store: a successful upload leaves the
-	// observed file state as the uploaded one for later polls.
-	uploadAdvances bool
 }
 
 func (h *watcherHarness) setState(hash, refresh string) {

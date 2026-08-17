@@ -117,11 +117,6 @@ type ClaimedMessage struct {
 	CreatedAt  string  `json:"created_at"`
 }
 
-type envelope[T any] struct {
-	Status string `json:"status"`
-	Data   *T     `json:"data,omitempty"`
-}
-
 type registerResponse struct {
 	Enabled      bool   `json:"enabled"`
 	SessionID    string `json:"session_id"`
@@ -628,11 +623,6 @@ func (s *Session) recoverRegistration(ctx context.Context, observedGeneration ui
 func portalErrorCode(err error, code string) bool {
 	var portalErr *PortalError
 	return errors.As(err, &portalErr) && portalErr.Code == code
-}
-
-func isPortalHTTPError(err error) bool {
-	var portalErr *PortalError
-	return errors.As(err, &portalErr)
 }
 
 func isRetryableAmbiguous(err error) bool {

@@ -21,7 +21,6 @@ import (
 
 const peerEngine = "codex"
 const peerName = "cdx"
-const ownName = "clx"
 const peerEngineCLI = "codex"
 
 // peerSpawnEnv guards against reconcile ping-pong: when a wrapper spawns the
@@ -167,14 +166,6 @@ func updateCaps(cfg *config.Config, minimal bool) ui.Caps {
 
 func shouldRunPeerCronTick(installed, enginePresent, force bool) bool {
 	return force || installed || !enginePresent
-}
-
-// peerBinaryCurrent reports whether the installed peer wrapper already matches
-// the bundle's sha256 — the short-circuit that keeps Reconcile from
-// re-downloading the peer binary on every single launch.
-func peerBinaryCurrent(expected string) bool {
-	_, ok := matchingCommonBinary(expected)
-	return ok
 }
 
 func matchingCommonBinary(expected string) (string, bool) {

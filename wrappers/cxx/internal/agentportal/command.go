@@ -176,51 +176,47 @@ func runWait(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "cxx portal:", err)
 		return 1
 	}
-	deadline := time.Now().Add(time.Duration(*seconds+5) * time.Second)
 	claimID := newUUID()
-	for {
-		remaining := time.Until(deadline)
-		if remaining <= 0 {
-			return emitJSON(stdout, stderr, map[string]any{"status": "idle", "session_id": session.ID})
-		}
-		wait := *seconds
-		if secondsLeft := int(remaining.Seconds()); wait > secondsLeft {
-			wait = secondsLeft
-		}
-		// Parked is not working: reaching the poll means the previous
-		// instruction is done, so the turn is cleared in the same beat that
-		// re-opens the relay.
-		heartbeatCtx, heartbeatCancel := context.WithTimeout(context.Background(), 8*time.Second)
-		noTurn := ""
-		if heartbeatErr := session.HeartbeatTurn(heartbeatCtx, "", "poll", &noTurn); heartbeatErr != nil {
-			heartbeatCancel()
-			fmt.Fprintln(stderr, "cxx portal:", heartbeatErr)
-			return 1
-		}
+
+	// One pass, not a retry loop. `claimWithRetry` already long-polls for the
+	// whole `--seconds` window server-side, so every branch below is terminal
+	// and the enclosing `for` never reached a second iteration — along with the
+	// deadline arithmetic that clamped a `wait` which could not exceed it.
+	// staticcheck flagged the loop (SA4004); the behaviour is unchanged.
+
+	// Parked is not working: reaching the poll means the previous instruction
+	// is done, so the turn is cleared in the same beat that re-opens the relay.
+	heartbeatCtx, heartbeatCancel := context.WithTimeout(context.Background(), 8*time.Second)
+	noTurn := ""
+	if heartbeatErr := session.HeartbeatTurn(heartbeatCtx, "", "poll", &noTurn); heartbeatErr != nil {
 		heartbeatCancel()
-		message, claimErr := claimWithRetry(session, claimID, wait)
-		if claimErr != nil {
-			if isRetryableAmbiguous(claimErr) {
-				return emitJSON(stdout, stderr, map[string]any{
-					"status": "transient_error", "session_id": session.ID,
-				})
-			}
-			fmt.Fprintln(stderr, "cxx portal:", claimErr)
-			return 1
-		}
-		if message == nil {
-			return emitJSON(stdout, stderr, map[string]any{"status": "idle", "session_id": session.ID})
-		}
-		return emitJSON(stdout, stderr, map[string]any{
-			"status":      "instruction",
-			"message_id":  message.MessageID,
-			"lease_owner": message.LeaseOwner,
-			"kind":        message.Kind,
-			"prompt_id":   message.PromptID,
-			"content":     message.Content,
-			"created_at":  message.CreatedAt,
-		})
+		fmt.Fprintln(stderr, "cxx portal:", heartbeatErr)
+		return 1
 	}
+	heartbeatCancel()
+
+	message, claimErr := claimWithRetry(session, claimID, *seconds)
+	if claimErr != nil {
+		if isRetryableAmbiguous(claimErr) {
+			return emitJSON(stdout, stderr, map[string]any{
+				"status": "transient_error", "session_id": session.ID,
+			})
+		}
+		fmt.Fprintln(stderr, "cxx portal:", claimErr)
+		return 1
+	}
+	if message == nil {
+		return emitJSON(stdout, stderr, map[string]any{"status": "idle", "session_id": session.ID})
+	}
+	return emitJSON(stdout, stderr, map[string]any{
+		"status":      "instruction",
+		"message_id":  message.MessageID,
+		"lease_owner": message.LeaseOwner,
+		"kind":        message.Kind,
+		"prompt_id":   message.PromptID,
+		"content":     message.Content,
+		"created_at":  message.CreatedAt,
+	})
 }
 
 func runAccept(args []string, stdout, stderr io.Writer) int {

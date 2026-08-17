@@ -51,15 +51,21 @@ func TestFetchWithKeyVerifiesExactSignedPayload(t *testing.T) {
 
 func TestFetchWithKeyRejectsAnotherInstallationsSignature(t *testing.T) {
 	trusted, _, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	_, otherPrivate, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	payload, err := json.Marshal(validConfig(config.EngineCodex, "https://example.invalid/cxx"))
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	sig := base64.StdEncoding.EncodeToString(ed25519.Sign(otherPrivate, payload))
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"payload": json.RawMessage(payload),
+			"payload":   json.RawMessage(payload),
 			"signature": map[string]string{"value": sig},
 		})
 	}))

@@ -325,60 +325,6 @@ func loadAnySeedConfigWithKey(pubkey ed25519.PublicKey) (*config.Config, error) 
 	return nil, fmt.Errorf("no usable signed cxx engine config found: %w", errors.Join(errs...))
 }
 
-func loadEnabledConfigs(seed *config.Config) ([]*config.Config, []string, error) {
-	pubkey, err := signing.PublicKey()
-	if err != nil {
-		return nil, nil, err
-	}
-	byEngine := map[string]*config.Config{}
-	if seed != nil {
-		byEngine[seed.Engine] = seed
-	}
-	if seed == nil {
-		for _, engine := range []string{config.EngineCodex, config.EngineClaude} {
-			path, pathErr := config.DefaultPathForEngine(engine)
-			if pathErr != nil {
-				continue
-			}
-			cfg, loadErr := config.LoadForEngine(path, pubkey, false, engine)
-			if loadErr == nil {
-				byEngine[engine] = cfg
-			}
-		}
-	}
-	if len(byEngine) == 0 {
-		return nil, nil, errors.New("no usable signed cxx engine config found")
-	}
-	var first *config.Config
-	for _, engine := range []string{config.EngineCodex, config.EngineClaude} {
-		if byEngine[engine] != nil {
-			first = byEngine[engine]
-			break
-		}
-	}
-	engines := config.EnabledEngines(first.Host, first.Engine)
-	configs := make([]*config.Config, 0, len(engines))
-	for _, engine := range engines {
-		cfg := byEngine[engine]
-		if cfg == nil {
-			path, pathErr := config.DefaultPathForEngine(engine)
-			if pathErr != nil {
-				return nil, nil, pathErr
-			}
-			cfg, err = config.LoadForEngine(path, pubkey, false, engine)
-			if err != nil {
-				return nil, nil, fmt.Errorf("enabled %s config unavailable: %w", engine, err)
-			}
-			byEngine[engine] = cfg
-		}
-		configs = append(configs, cfg)
-	}
-	if err := validateEnabledConfigs(byEngine, first, engines); err != nil {
-		return nil, nil, err
-	}
-	return configs, engines, nil
-}
-
 // validateEnabledConfigs checks identity only. Signed wrapper metadata is a
 // release hint and may legitimately lag the running cxx or differ briefly
 // across engines during a rolling config refresh.

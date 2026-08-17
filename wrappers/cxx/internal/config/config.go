@@ -48,10 +48,10 @@ type Orchestrator struct {
 }
 
 type Host struct {
-	ID                    int64    `json:"id"`
-	FQDN                  string   `json:"fqdn"`
-	Secure                bool     `json:"secure"`
-	BrowserOSMCPEnabled   bool     `json:"browseros_mcp_enabled,omitempty"`
+	ID                  int64  `json:"id"`
+	FQDN                string `json:"fqdn"`
+	Secure              bool   `json:"secure"`
+	BrowserOSMCPEnabled bool   `json:"browseros_mcp_enabled,omitempty"`
 	// AgentMessagingEnabled is the retired per-host Agent Messaging switch. It
 	// is still decoded so configs signed before the fleet switch became the
 	// only switch keep loading, but nothing reads it.

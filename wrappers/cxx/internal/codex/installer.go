@@ -222,10 +222,6 @@ func pickAssetFor(rel Release, binName, goos, goarch string) (Asset, error) {
 	return Asset{}, fmt.Errorf("no release asset matches %s for %s/%s", prefix, goos, goarch)
 }
 
-func assetPrefix(goos, goarch string) (string, error) {
-	return assetPrefixFor("codex", goos, goarch)
-}
-
 // assetPrefixFor returns the release-asset name prefix for binName on
 // goos/goarch. binName is "codex" for the CLI itself, or
 // "codex-code-mode-host" for its companion — both follow the same

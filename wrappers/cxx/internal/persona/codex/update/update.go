@@ -53,8 +53,4 @@ func SelfUpdateFrom(ctx context.Context, cfg *config.Config, binaryURL, binarySH
 	return coreupdate.Install(ctx, cfg, binaryURL, binarySHA256, targetVersion, logger)
 }
 
-func installVerifiedBinary(source, dest string) error {
-	return coreupdate.InstallVerifiedBinary(source, dest)
-}
-
 var SnapshottedArgv []string

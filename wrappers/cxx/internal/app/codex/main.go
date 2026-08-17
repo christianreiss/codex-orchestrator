@@ -1284,7 +1284,7 @@ func classifyBlockedAuthWrite(authPath string, expected codex.AuthGeneration, re
 // absent/unreadable local file may be repaired; an existing local file wins
 // over a canonical payload with no usable freshness stamp.
 func statusCanonicalAuthMayReplace(localPath string, canonical []byte) bool {
-	if codex.IsValidLocalAuth(localPath) == false {
+	if !codex.IsValidLocalAuth(localPath) {
 		return true
 	}
 	localTime, err := codex.LastRefreshOfFile(localPath)

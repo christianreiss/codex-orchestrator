@@ -26,15 +26,40 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
-          go-version: '1.25.11'
+          go-version: '1.25.13'
           cache: true
           cache-dependency-path: 'wrappers/cxx/go.sum'
+      - name: gofmt
+        working-directory: wrappers/cxx
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "gofmt would rewrite these files:" >&2
+            echo "$unformatted" >&2
+            exit 1
+          fi
       - name: go vet
         working-directory: wrappers/cxx
         run: go vet ./...
       - name: wrapper and release-metadata tests
         working-directory: wrappers
         run: make test
+      # The wrapper spawns peers, watches auth files, and runs a cron loop, so
+      # its concurrency is not incidental. `make test` runs without -race.
+      - name: race detector
+        working-directory: wrappers/cxx
+        run: go test -race ./...
+      # Waivers live in wrappers/cxx/staticcheck.conf with their reasons.
+      - name: staticcheck
+        working-directory: wrappers/cxx
+        run: |
+          go install honnef.co/go/tools/cmd/staticcheck@2025.1.1
+          "$(go env GOPATH)/bin/staticcheck" ./...
+      - name: govulncheck
+        working-directory: wrappers/cxx
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          "$(go env GOPATH)/bin/govulncheck" ./...
       # The OpenTelemetry SDK is behind the cxx_otel build tag, so the tracing
       # egress guard and span-hygiene tests do not build in the step above. The
       # build and release jobs stay untagged on purpose: the fleet artifact must
@@ -56,7 +81,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
-          go-version: '1.25.11'
+          go-version: '1.25.13'
       - name: cross-compile
         working-directory: wrappers/cxx
         env:

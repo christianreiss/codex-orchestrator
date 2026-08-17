@@ -1,0 +1,4 @@
+# Tooling the runner CI job needs but the image does not ship.
+# `runner/requirements.txt` is what `pip install` puts *inside* the container;
+# keeping these out of it means the auth-runner image carries no linter.
+ruff==0.15.14
