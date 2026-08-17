@@ -282,8 +282,10 @@ api:       npm run typecheck  — clean
            npm run lint       — 0 errors, 100 warnings (98 pre-existing; the 2
                                 new ones are console.log in a new script, which
                                 is what every other script in scripts/ does)
-           npm test           — 3222 passed, 160 skipped, 0 failed
+           npm test           — 3225 passed, 160 skipped, 0 failed
                                 (baseline before this work: 3147 passed)
+           npm run test:db    — 663 passed, 0 failed, against MySQL 8.4 with
+                                the schema baseline and all 21 migrations
            npm run build      — dist/ + 21 migrations + pruned lockfile
 frontend:  npm run check      — svelte-check clean, 723 tests passed
            npm run build      — rebuilt; public/admin refreshed
@@ -296,9 +298,24 @@ wrappers:  gofmt -l .         — clean
            go test ./...      — clean
 ```
 
-No schema change, so no migration was added and the real-MySQL tier was not
-re-run for this work: the capability layer reads `admin_users.access_level` and
-touches no table.
+No schema change, so no migration was added: the capability layer reads
+`admin_users.access_level` and touches no table.
+
+That is *not* a reason to skip the real-MySQL tier, and skipping it on that
+reasoning was the one mistake in this pass that reached a remote. `npm test`
+skips 160 tests without a database, and `test:db` is the only tier that builds
+an app through `test/helpers/build-app.ts` — a helper that promises "the same
+plugin stack as `src/server.ts`" and had not been given the capability plugin.
+Its suites therefore ran real route modules with their old gates deleted and
+nothing attached in their place, and `magic-link-e2e.test.ts` correctly failed:
+a `viewer` reveal of an agent portal magic link answered 200 where it asserts
+403. Production was never affected — `src/server.ts` registers the plugin, and
+the matrix denies `agent_portal.reveal_link` to every read-only role — but the
+tier that would have caught a real version of that bug was blind to it. The
+helper now registers the plugin alongside `auth-admin`, and
+`build-app-with-db.test.ts` pins both that the decorators exist and that the
+`onRoute` refusal is live, so the harness cannot drift from the server again
+without a red test. The tier is green: 663 passed.
 
 One note on the browser suite: it logs ten Svelte `derived_inert` warnings
 during the last two specs. They are **pre-existing** — verified by running the

@@ -6,6 +6,7 @@ import { requestIdPlugin } from '../../src/http/plugins/request-id.js';
 import { makeClientIpPlugin } from '../../src/http/plugins/client-ip.js';
 import { makeAuthHostPlugin } from '../../src/http/plugins/auth-host.js';
 import { makeAuthAdminPlugin } from '../../src/http/plugins/auth-admin.js';
+import { makeCapabilitiesPlugin } from '../../src/http/plugins/capabilities.js';
 import { makeAuthMtlsPlugin } from '../../src/http/plugins/auth-mtls.js';
 import { corsPlugin } from '../../src/http/plugins/cors.js';
 import { notFoundHandler } from '../../src/http/not-found.js';
@@ -49,13 +50,19 @@ export interface BuildAppOptions {
 /**
  * Build a Fastify app pre-wired with the same plugin stack as `src/server.ts`
  * (cookie, cors, multipart, request-id, client-ip, auth-mtls, auth-host,
- * auth-admin, envelope) but without the static handler, route
+ * auth-admin, capabilities, envelope) but without the static handler, route
  * registration, or WS server. Routes can be added by the caller via
  * `app.get(...)` etc. before invoking `inject()`.
  *
  * The plugin registration order matches production so guard hooks
- * (`requireAdmin`, `requireHost`) and the envelope error handler behave
- * exactly as they do under `node dist/server.js`.
+ * (`requireAdmin`, `requireHost`), the capability guards attached at
+ * registration time, and the envelope error handler behave exactly as they do
+ * under `node dist/server.js`.
+ *
+ * That last part is load-bearing rather than incidental: a caller registering
+ * a route under `/admin/` gets the same capability guard production would
+ * attach, and the same refusal to serve it at all if the route carries no
+ * entry in `security/route-capabilities.ts`.
  */
 export async function buildAppWithDb(
   db: Database,
@@ -86,6 +93,12 @@ export async function buildAppWithDb(
   if (!opts.minimal) {
     await app.register(makeAuthHostPlugin(db));
     await app.register(makeAuthAdminPlugin(db, env));
+    // Authorization, not just authentication. Leaving this out gave a caller
+    // that had authenticated as anyone the run of every governed route the
+    // test registered afterwards, which is the one thing a DB-backed route
+    // test is best placed to catch. It depends on `auth-admin`, so it belongs
+    // inside this branch: a `minimal` app has no session to authorize.
+    await app.register(makeCapabilitiesPlugin());
   }
   await app.register(envelopePlugin);
   installTestNotFoundHandler(app);
