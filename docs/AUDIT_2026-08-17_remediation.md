@@ -33,6 +33,15 @@ Every item below is either **done** (landed, with the gate that proves it) or
 | `RunnerRunRequest` declared five fields that reached nothing | Removed; a body still carrying them returns `422`. |
 | Frontend `RunnerRunResult.output` never produced by the service | Removed. |
 
+### Generation controls and stop reasons
+
+| Finding | Resolution |
+|---|---|
+| `temperature`, `top_p`, `top_k`, `stop_sequences` accepted, forwarded, honored by neither CLI | `api/src/services/transport-capabilities.ts` types what the CLI transport can enforce. Both compat adapters refuse a request supplying an unsupported control with `400 unsupported_generation_control` **before dispatch**, naming every offending field at once. |
+| `system` forwarded to a Codex path with nowhere to put it | `enforced` for Claude, `unsupported` for Codex, and refused on the Codex path. |
+| `max_tokens` accepted and dropped | Labelled `accepted-unenforceable`: Anthropic's Messages API requires the field, so refusing it would break the official SDK against this surface. It is forwarded, never claimed as honored, and no `max_tokens` stop reason is reported on this transport. |
+| `finish_reason: "stop"` and `stop_reason: "end_turn"` hardcoded | Both derive from what the backend actually reported. The CLI reports nothing, so both surface `null` — the protocols' own spelling for "no claim" — instead of asserting a clean completion for output a timeout may have cut short. |
+
 ### Engine selection
 
 | Finding | Resolution |
@@ -72,30 +81,27 @@ persona trees.
 
 These are real findings from the brief that this pass did **not** close.
 
-### 1. `/exec` still accepts generation controls it does not honor
+### 1. Provider-backed streaming, tools, embeddings and exact token counts
 
-`temperature`, `top_p`, `top_k` and `stop_sequences` are forwarded by
-`api/src/services/adapters/runner-{openai,claude}.ts` and reach neither CLI.
-They are now *bounded* but still ignored, which is the dishonest contract the
-brief calls out. `finish_reason` is likewise hardcoded to `"stop"` and
-`stop_reason` to `"end_turn"`.
+The compat gateways shell out to a CLI. Callers can no longer *ask* for a
+control it cannot honor (see Done, below), but the transport still cannot
+stream, round-trip tool calls, serve embeddings, or count tokens exactly. The
+brief requires real provider adapters contract-tested against the official
+OpenAI and Anthropic SDKs.
 
-Not closed because the honest fix belongs at the API layer, not the runner:
-these controls must be rejected with a stable capability error before dispatch,
-which needs the typed capability registry (brief §4.5) that nothing here has
-yet. Rejecting them at the runner alone would break the compat routes at
-runtime without giving callers a usable error.
+Not closed: neither SDK is a dependency here, and the contract tests need live
+provider credentials and billable calls. Writing adapters that cannot be run
+against a real provider would produce exactly the untested, plausible-looking
+code the brief exists to eliminate. `transport-capabilities.ts` is shaped to
+take a second transport entry when those adapters land.
 
-### 2. Provider-backed OpenAI/Anthropic transports
+### 2. Typed capability registry, generalized
 
-The compat gateways shell out to a CLI and cannot faithfully implement
-streaming, tool calls, embeddings, or exact token counts. The brief requires
-real provider adapters contract-tested against the official SDKs.
-
-Not closed: the SDKs are not dependencies here, and the contract tests require
-live provider credentials and billable calls. Writing adapters that cannot be
-executed against a real provider would produce exactly the untested,
-plausible-looking code the brief is trying to eliminate.
+`transport-capabilities.ts` covers generation controls and stop reasons for the
+one transport that exists. The brief's §4.5 wants model listings, admin UI
+enablement and documentation tables generated from that same registry, with an
+invariant proving the Codex and Claude paths cannot silently diverge. Those
+projections still have their own hand-maintained sources.
 
 ### 3. God-object decomposition
 
@@ -134,7 +140,8 @@ command. Not started.
 ## Gates run
 
 ```
-api:       npm run typecheck | npm run lint | npm test (3119 passed, 160 skipped)
+api:       npm run typecheck | npm run lint | npm test (3147 passed, 160 skipped)
+api (db):  test:db:setup | migrate (21 applied) | test:db (595 passed)
 frontend:  npm run check | npm run build | npm run build:portal | playwright (26 passed)
 runner:    ruff check | pytest (174 passed)
 wrappers:  gofmt -l | go vet | make test | make test-traced | go test -race |
@@ -142,4 +149,12 @@ wrappers:  gofmt -l | go vet | make test | make test-traced | go test -race |
 images:    podman build of the API image — runs as 10001, no .env, 34 runtime packages
 ```
 
-Not run: `npm run test:db` (real-MySQL tier) and multi-arch image builds.
+Also run since: the real-MySQL tier (`test:db:setup` + `migrate` + `test:db`) —
+21 migrations applied, 54 files / 595 tests passed, including migration
+idempotency and the advisory-lock serialization — and podman builds of both the
+API and auth-runner images. The runner image was checked end to end: both CLIs
+report their pinned versions (`codex 0.144.1 ready`, `claude 2.1.233 ready`),
+and with a deliberately drifted `RUNNER_CLAUDE_VERSION` it refuses to start
+(`refusing to start -> claude: installed 2.1.233, image was built with 9.9.9`).
+
+Not run: multi-arch (arm64) image builds and a compose-based end-to-end matrix.

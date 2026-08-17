@@ -73,3 +73,67 @@ describe('onExecSuccess traffic hook', () => {
     expect(vi.mocked(fetch)).not.toHaveBeenCalled();
   });
 });
+
+describe('generation controls codex exec cannot honor', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  function adapterRecording(bodies: Array<Record<string, unknown>>) {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string, init?: { body?: string }) => {
+        bodies.push(JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>);
+        return new Response(
+          JSON.stringify({ status: 'ok', output: 'pong', input_tokens: 1, output_tokens: 2 }),
+          { status: 200 },
+        );
+      }),
+    );
+    return new RunnerOpenAiAdapter({
+      execUrl: 'http://auth-runner:8080/exec',
+      sharedSecret: 'secret',
+      timeoutSeconds: 1,
+      authSnapshot: async () => ({ tokens: { access_token: 'a' } }),
+    });
+  }
+
+  it.each([
+    ['temperature', { temperature: 0 }],
+    ['top_p', { top_p: 0.9 }],
+    ['stop', { stop: 'END' }],
+    ['system', { system: 'be brief' }],
+  ])('refuses %s instead of forwarding it to a CLI that drops it', async (_name, params) => {
+    const bodies: Array<Record<string, unknown>> = [];
+    const adapter = adapterRecording(bodies);
+
+    await expect(
+      adapter.chatCompletions([{ role: 'user', content: 'hi' }], 'gpt-test', params),
+    ).rejects.toMatchObject({ status: 400, code: 'unsupported_generation_control' });
+
+    // Refused before dispatch — the runner never sees the request.
+    expect(bodies).toEqual([]);
+  });
+
+  it('still forwards max_tokens, which callers and the protocol expect to send', async () => {
+    const bodies: Array<Record<string, unknown>> = [];
+    const adapter = adapterRecording(bodies);
+
+    await adapter.chatCompletions([{ role: 'user', content: 'hi' }], 'gpt-test', {
+      max_tokens: 256,
+    });
+
+    expect(bodies[0]).toMatchObject({ max_tokens: 256 });
+  });
+
+  it('reports a null finish_reason rather than asserting "stop"', async () => {
+    const bodies: Array<Record<string, unknown>> = [];
+    const adapter = adapterRecording(bodies);
+
+    const chat = await adapter.chatCompletions([{ role: 'user', content: 'hi' }], 'gpt-test', {});
+    expect(chat.choices[0]?.finish_reason).toBeNull();
+
+    const completion = await adapter.completions('hi', 'gpt-test', {});
+    expect(completion.choices[0]?.finish_reason).toBeNull();
+  });
+});

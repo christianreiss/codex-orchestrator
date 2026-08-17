@@ -26,6 +26,14 @@
 import { ApiError } from '../../http/errors.js';
 import type { Env } from '../../env.js';
 import { ENGINE_CLAUDE } from '../../util/engine.js';
+import {
+  assertControlsSupported,
+  capabilitiesFor,
+  stopReasonFor,
+} from '../transport-capabilities.js';
+
+/** One transport, one engine: the runner's CLI shell-out for Claude. */
+const CAPABILITIES = capabilitiesFor('runner-cli', ENGINE_CLAUDE);
 import { runnerExecUrl } from './runner-openai.js';
 
 export interface ClaudeMessage {
@@ -64,7 +72,13 @@ export interface ClaudeMessageResponse {
   role: 'assistant';
   content: Array<{ type: 'text'; text: string }>;
   model: string;
-  stop_reason: 'end_turn' | 'max_tokens' | 'stop_sequence' | string;
+  /**
+   * `null` when the backend reported no reason. The CLI transport never does,
+   * and `'end_turn'` asserted a clean completion for output that may have been
+   * cut short by a timeout — including on the `max_tokens` this transport
+   * cannot enforce.
+   */
+  stop_reason: 'end_turn' | 'max_tokens' | 'stop_sequence' | string | null;
   stop_sequence: string | null;
   usage: ClaudeUsage;
 }
@@ -117,6 +131,23 @@ export function createRunnerClaudeAdapter(deps: RunnerClaudeAdapterDeps): Runner
         );
       }
 
+      // Refuse before dispatch: the Claude CLI has no flags for the sampling
+      // controls, so forwarding them silently dropped the caller's
+      // instructions. `max_tokens` and `system` are the two this transport can
+      // legitimately carry — see `transport-capabilities.ts` for why
+      // `max_tokens` is accepted but never claimed as enforced.
+      assertControlsSupported(
+        {
+          max_tokens: params.max_tokens,
+          temperature: params.temperature,
+          top_p: params.top_p,
+          top_k: params.top_k,
+          stop_sequences: params.stop_sequences,
+          system: params.system,
+        },
+        CAPABILITIES,
+      );
+
       const payload: Record<string, unknown> = {
         auth_json: auth,
         prompt,
@@ -125,7 +156,7 @@ export function createRunnerClaudeAdapter(deps: RunnerClaudeAdapterDeps): Runner
         engine: ENGINE_CLAUDE,
         timeout_seconds: timeoutSeconds,
       };
-      for (const k of ['max_tokens', 'temperature', 'top_p', 'top_k', 'stop_sequences', 'system'] as const) {
+      for (const k of ['max_tokens', 'system'] as const) {
         const v = params[k];
         if (v !== undefined && v !== null) payload[k] = v;
       }
@@ -199,7 +230,7 @@ export function createRunnerClaudeAdapter(deps: RunnerClaudeAdapterDeps): Runner
         role: 'assistant',
         content: [{ type: 'text', text: output }],
         model,
-        stop_reason: 'end_turn',
+        stop_reason: stopReasonFor(CAPABILITIES, stringOrUndefined(obj.stop_reason)),
         stop_sequence: null,
         usage,
       };

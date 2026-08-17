@@ -1,5 +1,11 @@
 import { randomBytes } from 'node:crypto';
 import { ApiError } from '../../http/errors.js';
+import {
+  assertControlsSupported,
+  capabilitiesFor,
+  stopReasonFor,
+} from '../transport-capabilities.js';
+import { ENGINE_CODEX } from '../../util/engine.js';
 import type { Env } from '../../env.js';
 
 /**
@@ -42,7 +48,12 @@ export interface ChatCompletionResult {
   choices: Array<{
     index: number;
     message: { role: 'assistant'; content: string };
-    finish_reason: 'stop';
+    /**
+     * `null` when the backend reported no reason. The CLI transport never
+     * does, and asserting `'stop'` claimed the model finished its turn for
+     * output that may have been cut short by a timeout or a crash.
+     */
+    finish_reason: string | null;
   }>;
   usage: {
     prompt_tokens: number;
@@ -60,7 +71,12 @@ export interface CompletionResult {
     text: string;
     index: number;
     logprobs: null;
-    finish_reason: 'stop';
+    /**
+     * `null` when the backend reported no reason. The CLI transport never
+     * does, and asserting `'stop'` claimed the model finished its turn for
+     * output that may have been cut short by a timeout or a crash.
+     */
+    finish_reason: string | null;
   }>;
   usage: {
     prompt_tokens: number;
@@ -143,6 +159,9 @@ export function runnerExecUrl(url: string): string {
   return `${trimmed}/exec`;
 }
 
+/** One transport, one engine: the runner's CLI shell-out for Codex. */
+const CAPABILITIES = capabilitiesFor('runner-cli', ENGINE_CODEX);
+
 export class RunnerOpenAiAdapter {
   constructor(private readonly config: RunnerOpenAiConfig) {}
 
@@ -163,7 +182,7 @@ export class RunnerOpenAiAdapter {
         {
           index: 0,
           message: { role: 'assistant', content: stringOrEmpty(result.output) },
-          finish_reason: 'stop',
+          finish_reason: stopReasonFor(CAPABILITIES, result.finish_reason),
         },
       ],
       usage,
@@ -196,7 +215,7 @@ export class RunnerOpenAiAdapter {
           text: stringOrEmpty(result.output),
           index: 0,
           logprobs: null,
-          finish_reason: 'stop',
+          finish_reason: stopReasonFor(CAPABILITIES, result.finish_reason),
         },
       ],
       usage,
@@ -221,6 +240,21 @@ export class RunnerOpenAiAdapter {
       );
     }
 
+    // Refuse before dispatch. `codex exec` has no flags for the sampling
+    // controls, so forwarding them produced a request whose instructions were
+    // silently dropped — a caller asking for `temperature: 0` got a sampled
+    // answer and no way to know.
+    assertControlsSupported(
+      {
+        max_tokens: params.max_tokens,
+        temperature: params.temperature,
+        top_p: params.top_p,
+        system: params.system,
+        stop_sequences: params.stop,
+      },
+      CAPABILITIES,
+    );
+
     const body: Record<string, unknown> = {
       auth_json: authPayload,
       prompt,
@@ -229,13 +263,10 @@ export class RunnerOpenAiAdapter {
       engine: 'codex',
       timeout_seconds: this.config.timeoutSeconds,
     };
+    // `max_tokens` is `accepted-unenforceable`: it is forwarded because callers
+    // and the protocol expect to be able to send it, and nothing downstream
+    // reports a `max_tokens` finish reason on this transport as a result.
     if (params.max_tokens !== undefined) body.max_tokens = params.max_tokens;
-    if (params.temperature !== undefined) body.temperature = params.temperature;
-    if (params.top_p !== undefined) body.top_p = params.top_p;
-    if (params.system !== undefined) body.system = params.system;
-    if (params.stop !== undefined) {
-      body.stop_sequences = Array.isArray(params.stop) ? params.stop : [params.stop];
-    }
 
     const headers: Record<string, string> = { 'content-type': 'application/json' };
     if (this.config.sharedSecret.trim()) {
@@ -299,6 +330,12 @@ interface RunnerResponse {
   output?: unknown;
   input_tokens?: unknown;
   output_tokens?: unknown;
+  /**
+   * The runner's `/exec` does not report one today, so this is always absent
+   * and `stopReasonFor` answers `null`. It is declared so a transport that
+   * *does* report one needs no change here.
+   */
+  finish_reason?: string | null;
 }
 
 function extractUsage(result: RunnerResponse): {
