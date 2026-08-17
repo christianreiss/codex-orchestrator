@@ -42,6 +42,11 @@ The container serves FastAPI via uvicorn on `0.0.0.0:8080`.
 - `RUNNER_SHARED_SECRET` (required) — every POST (`/verify`, `/verify-claude`, `/skills/summarize`, `/memories/summarize`, `/skills/generate`, `/skills/assist`, `/projects/assist`, and `/exec`) requires header `X-Runner-Auth` with an exact secret match. The guard fails closed: a wrong or missing header returns HTTP 401, and an unset `RUNNER_SHARED_SECRET` returns HTTP 500 rather than skipping auth. `GET /health` and the readiness GETs answer without the secret.
 - `RUNNER_HOME_PARENT` (optional) — parent directory for the isolated temporary runner `$HOME`; the bundled image sets it to `/dev/shm`, which is writable in the hardened container while still avoiding CLI homes under `/tmp`.
 - `RUNNER_REQUIRED_ENGINES` (optional) — comma-separated engines that must be installed and answering `--version` before the process serves traffic; the bundled image sets it to `codex,claude`. Unset means "whatever is installed is fine", which suits a source checkout but never an image. An unknown name here is a startup error, not a warning.
+- `RUNNER_MAX_IMAGES` (optional, default `8`) — how many images one `/exec` request may attach.
+- `RUNNER_MAX_IMAGE_BYTES` (optional, default `10485760`) — per-image ceiling. For a data URL the encoded length is checked *before* decoding, so an oversized payload is refused without being materialized in memory.
+- `RUNNER_MAX_IMAGE_TOTAL_BYTES` (optional, default `33554432`) — aggregate ceiling across one request, so many images that each fit cannot add up past it.
+
+  All three are read once at import. An unparseable or out-of-range value fails startup rather than silently restoring the default.
 - `RUNNER_CODEX_VERSION` / `RUNNER_CLAUDE_VERSION` (optional) — the versions the image installed. When set, a CLI reporting anything else is treated as unavailable, so a hand-patched container cannot silently answer probes with a different CLI than the one that was verified at build time.
 - `RUNNER_DEBUG_DUMP_AUTH=1` (optional) — enables debug dumping only when `RUNNER_ALLOW_SECRET_DUMP=1` is also set and `APP_ENV` is not `production`. Dumps land at `/tmp/last-auth.json` (Codex) and `/tmp/last-claude-auth.json` (Claude).
 - `RUNNER_ALLOW_SECRET_DUMP=1` (optional) — second explicit opt-in for debug secret dumps.

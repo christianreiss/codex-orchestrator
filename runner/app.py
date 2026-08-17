@@ -1,26 +1,19 @@
-import base64
-import binascii
-import ipaddress
 import json
-import mimetypes
 import os
 import re
 import secrets
 import shutil
-import socket
 import subprocess
 import tempfile
 import time
 from typing import Literal, Optional
-from urllib import error as urllib_error
-from urllib import parse as urllib_parse
-from urllib import request as urllib_request
 
 import httpx
 from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel, Field
 
 import runner_engines
+from images import ImageLimits, ImagePolicyError, materialize_images
 
 app = FastAPI()
 
@@ -36,6 +29,10 @@ DEBUG_DUMP_ENABLED = DEBUG_DUMP_AUTH and ALLOW_SECRET_DUMP and APP_ENV != "produ
 # Probed once at import: the binaries cannot appear or change version inside a
 # running container, and re-shelling out to two CLIs on every healthcheck would
 # put a 10-second worst case in front of the orchestrator's liveness probe.
+# Resolved at import: an unparseable RUNNER_MAX_* override is a startup error,
+# not a silent fall back to the default bound.
+IMAGE_LIMITS = ImageLimits.from_environment()
+
 _ENGINE_RUNTIME = runner_engines.runtime_snapshot()
 _REQUIRED_ENGINES = runner_engines.required_engines()
 
@@ -127,12 +124,6 @@ class ProjectAssistRequest(BaseModel):
 class ExecImageInput(BaseModel):
     url: str = Field(..., description="Image URL or data URL to attach")
     detail: Optional[str] = Field(None, description="Requested image detail level")
-
-
-DATA_URL_RE = re.compile(
-    r"^data:(?P<mime>[-\w.+/]+)?(?:;charset=[^;,]+)?;base64,(?P<data>.+)$",
-    re.IGNORECASE | re.DOTALL,
-)
 
 
 def _extract_openai_token(auth_json: dict) -> Optional[str]:
@@ -1358,160 +1349,62 @@ def summarize_memory(payload: MemorySummaryRequest, request: Request):
 # --- OpenAI-compatible prompt execution ---
 
 
+#: Every field an /exec caller controls needs a ceiling, because each one is a
+#: byte count this process holds in memory and then hands to a subprocess. The
+#: prompt bound is generous — a megabyte is far past any real prompt — but a
+#: bound that exists is the difference between a rejected request and a runner
+#: OOM-killed mid-probe, taking the fleet's credential verification with it.
+MAX_PROMPT_CHARS = 1_000_000
+MAX_SYSTEM_PROMPT_CHARS = 100_000
+MAX_MODEL_CHARS = 200
+MIN_EXEC_TIMEOUT_SECONDS = 1.0
+MAX_EXEC_TIMEOUT_SECONDS = 600.0
+
+
 class ExecRequest(BaseModel):
     auth_json: dict = Field(..., description="auth.json payload used for Codex auth")
-    prompt: str = Field(..., description="Prompt to execute")
+    prompt: str = Field(..., description="Prompt to execute", max_length=MAX_PROMPT_CHARS)
     images: list[ExecImageInput] = Field(default_factory=list, description="Optional images to attach")
-    model: Optional[str] = Field(None, description="Model to execute")
+    model: Optional[str] = Field(None, description="Model to execute", max_length=MAX_MODEL_CHARS)
     engine: Literal["codex", "claude"] = Field("codex", description="AI engine to use")
-    max_tokens: Optional[int] = Field(None, description="Maximum tokens for response")
-    temperature: Optional[float] = Field(None, description="Sampling temperature")
-    top_p: Optional[float] = Field(None, description="Nucleus sampling threshold")
-    top_k: Optional[int] = Field(None, description="Top-k sampling")
-    stop_sequences: Optional[list[str]] = Field(None, description="Stop sequences")
-    system: Optional[str] = Field(None, description="System prompt")
+    max_tokens: Optional[int] = Field(None, description="Maximum tokens for response", ge=1)
+    temperature: Optional[float] = Field(None, description="Sampling temperature", ge=0.0, le=2.0)
+    top_p: Optional[float] = Field(None, description="Nucleus sampling threshold", ge=0.0, le=1.0)
+    top_k: Optional[int] = Field(None, description="Top-k sampling", ge=1)
+    stop_sequences: Optional[list[str]] = Field(
+        None, description="Stop sequences", max_length=16
+    )
+    system: Optional[str] = Field(
+        None, description="System prompt", max_length=MAX_SYSTEM_PROMPT_CHARS
+    )
     timeout_seconds: Optional[float] = Field(
-        None, description="Timeout for the exec call (seconds)"
+        None,
+        description="Timeout for the exec call (seconds)",
+        ge=MIN_EXEC_TIMEOUT_SECONDS,
+        le=MAX_EXEC_TIMEOUT_SECONDS,
     )
 
 
-def _guess_image_suffix(mime_type: Optional[str], source_url: str) -> str:
-    mime = (mime_type or "").split(";", 1)[0].strip().lower()
-    suffix = mimetypes.guess_extension(mime) if mime else None
-    if suffix == ".jpe":
-        suffix = ".jpg"
-    if suffix:
-        return suffix
-
-    path = urllib_parse.urlparse(source_url).path
-    guessed = os.path.splitext(path)[1]
-    return guessed or ".img"
-
-
-def _materialize_data_url_image(url: str, image_dir: str, index: int) -> str:
-    match = DATA_URL_RE.match(url.strip())
-    if not match:
-        raise HTTPException(status_code=400, detail="invalid base64 image data URL")
-
-    try:
-        raw = base64.b64decode(match.group("data"), validate=True)
-    except (binascii.Error, ValueError) as exc:
-        raise HTTPException(status_code=400, detail=f"invalid base64 image data URL: {exc}")
-
-    if raw == b"":
-        raise HTTPException(status_code=400, detail="image data URL is empty")
-
-    suffix = _guess_image_suffix(match.group("mime"), url)
-    path = os.path.join(image_dir, f"image-{index}{suffix}")
-    with open(path, "wb") as fh:
-        fh.write(raw)
-    return path
-
-
-MAX_REMOTE_IMAGE_BYTES = 10 * 1024 * 1024  # 10 MiB
-
-
-class _NoRedirectHandler(urllib_request.HTTPRedirectHandler):
-    """Never follow redirects: each hop would need its own SSRF revalidation."""
-
-    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: D401
-        return None
-
-
-_NO_REDIRECT_OPENER = urllib_request.build_opener(_NoRedirectHandler)
-
-
-def _assert_public_host(hostname: Optional[str]) -> None:
-    """Block SSRF targets: loopback/private/link-local/metadata/reserved ranges."""
-    if not hostname:
-        raise HTTPException(status_code=400, detail="image URL is missing a host")
-
-    try:
-        infos = socket.getaddrinfo(hostname, None)
-    except socket.gaierror as exc:
-        raise HTTPException(status_code=400, detail=f"could not resolve image host: {exc}")
-    if not infos:
-        raise HTTPException(status_code=400, detail="could not resolve image host")
-
-    for info in infos:
-        raw_addr = info[4][0]
-        try:
-            addr = ipaddress.ip_address(raw_addr.split("%", 1)[0])
-        except ValueError:
-            raise HTTPException(status_code=400, detail="image host resolved to an invalid address")
-        if (
-            addr.is_private
-            or addr.is_loopback
-            or addr.is_link_local
-            or addr.is_multicast
-            or addr.is_reserved
-            or addr.is_unspecified
-        ):
-            raise HTTPException(status_code=400, detail="image host is not allowed")
-
-
-def _materialize_remote_image(url: str, image_dir: str, index: int) -> str:
-    parsed = urllib_parse.urlparse(url)
-    if parsed.scheme not in ("http", "https"):
-        raise HTTPException(status_code=400, detail="image URLs must use http, https, or data")
-
-    _assert_public_host(parsed.hostname)
-
-    try:
-        req = urllib_request.Request(
-            url,
-            headers={"User-Agent": "codex-orchestrator-runner/1.0"},
-        )
-        with _NO_REDIRECT_OPENER.open(req, timeout=15.0) as response:
-            status = getattr(response, "status", None) or response.getcode()
-            if status is not None and status >= 300:
-                raise HTTPException(status_code=400, detail="image download redirects are not allowed")
-            mime_type = response.headers.get_content_type()
-            chunks = []
-            total = 0
-            while True:
-                chunk = response.read(65536)
-                if not chunk:
-                    break
-                total += len(chunk)
-                if total > MAX_REMOTE_IMAGE_BYTES:
-                    raise HTTPException(status_code=400, detail="downloaded image exceeds maximum allowed size")
-                chunks.append(chunk)
-            raw = b"".join(chunks)
-    except urllib_error.HTTPError as exc:
-        raise HTTPException(status_code=400, detail=f"image download failed with HTTP {exc.code}")
-    except urllib_error.URLError as exc:
-        raise HTTPException(status_code=400, detail=f"image download failed: {exc.reason}")
-
-    if raw == b"":
-        raise HTTPException(status_code=400, detail="downloaded image is empty")
-
-    suffix = _guess_image_suffix(mime_type, url)
-    path = os.path.join(image_dir, f"image-{index}{suffix}")
-    with open(path, "wb") as fh:
-        fh.write(raw)
-    return path
-
-
 def _materialize_exec_images(images: list[ExecImageInput], home_dir: str) -> list[str]:
+    """Write the request's images into the isolated home, under `images.py` bounds.
+
+    The per-image cap, the aggregate cap, the image-count cap, the decoded-size
+    check performed *before* a data URL is decoded, the MIME allowlist with
+    magic-byte confirmation, and the DNS-rebinding-safe download all live in
+    `images.py` / `network_policy.py`. This function is the FastAPI boundary:
+    it turns a policy refusal into a 400 and nothing else.
+    """
     if not images:
         return []
 
-    image_dir = os.path.join(home_dir, "exec-images")
-    os.makedirs(image_dir, exist_ok=True)
-
-    paths = []
-    for index, image in enumerate(images, start=1):
-        url = image.url.strip()
-        if url == "":
-            raise HTTPException(status_code=400, detail="image url is required")
-
-        if url.lower().startswith("data:"):
-            paths.append(_materialize_data_url_image(url, image_dir, index))
-        else:
-            paths.append(_materialize_remote_image(url, image_dir, index))
-
-    return paths
+    try:
+        return materialize_images(
+            [image.url for image in images],
+            os.path.join(home_dir, "exec-images"),
+            IMAGE_LIMITS,
+        )
+    except ImagePolicyError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
 
 def _build_codex_exec_cmd(prompt: str, model: Optional[str], image_paths: Optional[list[str]] = None) -> list[str]:

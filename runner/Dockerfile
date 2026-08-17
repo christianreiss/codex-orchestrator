@@ -88,7 +88,7 @@ COPY requirements.txt requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app.py entrypoint.sh /app/
-COPY runner_engines.py /app/
+COPY runner_engines.py images.py network_policy.py /app/
 
 RUN chmod +x /app/entrypoint.sh
 

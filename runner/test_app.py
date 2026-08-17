@@ -6,13 +6,11 @@ import os
 import json
 import re
 import shutil
-import socket
 import stat
 import subprocess
 import tempfile
 import typing
 import unittest
-from email.message import Message
 
 from fastapi import HTTPException
 from fastapi.routing import APIRoute
@@ -20,6 +18,14 @@ from fastapi.testclient import TestClient
 from pydantic import BaseModel
 
 import app as runner_app
+from images import ImageLimits
+
+# A one-pixel PNG: the magic-byte check means test fixtures have to be real
+# images now, not `b"ABC"` with an image/png label on it.
+PNG_BYTES = base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+)
+PNG_DATA_URL = "data:image/png;base64," + base64.b64encode(PNG_BYTES).decode()
 
 # These tests are synchronous, but pytest plugins that happen to be installed in
 # the ambient environment run autouse fixtures around every test and some of
@@ -1464,367 +1470,63 @@ class RunnerResponseContractTest(unittest.TestCase):
         )
 
 
-class _FakeImageResponse:
-    """Stand-in for urllib's response object; the runner reads only these."""
-
-    def __init__(self, body=b"", status=200, content_type="image/png"):
-        self.status = status
-        self.headers = Message()
-        self.headers["Content-Type"] = content_type
-        self._body = body
-        self._offset = 0
-
-    def read(self, size):
-        chunk = self._body[self._offset : self._offset + size]
-        self._offset += len(chunk)
-        return chunk
-
-    def getcode(self):
-        return self.status
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *exc_info):
-        return False
-
-
-class _FakeOpener:
-    """Stand-in for _NO_REDIRECT_OPENER that records the request it was given."""
-
-    def __init__(self, response):
-        self.response = response
-        self.calls = []
-
-    def open(self, req, timeout=None):
-        self.calls.append((req.full_url, timeout))
-        return self.response
-
-
 class RunnerExecImageGuardTest(unittest.TestCase):
-    """/exec images are the only caller-controlled fetch the runner makes.
+    """The /exec image boundary: policy refusals must surface as HTTP 400.
 
-    _assert_public_host is what stops an /exec caller from aiming an image URL
-    at 127.0.0.1, an RFC1918 host or the 169.254.169.254 metadata endpoint and
-    reading the answer back out of the model's output; the fetch beside it
-    refuses redirects (each hop would need its own revalidation), caps the body
-    at MAX_REMOTE_IMAGE_BYTES and rejects empty downloads. Nothing here may
-    touch real DNS or the network: getaddrinfo and the opener are stubbed.
+    The policy itself — the SSRF address rules, the DNS-rebinding-safe
+    connection, the per-image/aggregate/count caps, the pre-decode data-URL
+    bound and the magic-byte MIME check — lives in `network_policy.py` and
+    `images.py`, and is covered by `test_network_policy.py` / `test_images.py`.
+    What belongs here is the wiring: that `_materialize_exec_images` delegates
+    to that policy and turns an `ImagePolicyError` into a 400, not a 500.
     """
 
-    PUBLIC_ADDR = "93.184.216.34"
-
     def setUp(self):
-        self._original_getaddrinfo = runner_app.socket.getaddrinfo
-        self._original_opener = runner_app._NO_REDIRECT_OPENER
-        self._original_b64decode = runner_app.base64.b64decode
-        self._tmp = tempfile.TemporaryDirectory()
-        self.addCleanup(self._tmp.cleanup)
-        self.image_dir = self._tmp.name
+        self.home_dir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.home_dir, True)
 
-    def tearDown(self):
-        runner_app.socket.getaddrinfo = self._original_getaddrinfo
-        runner_app._NO_REDIRECT_OPENER = self._original_opener
-        runner_app.base64.b64decode = self._original_b64decode
+    def test_no_images_touches_nothing(self):
+        self.assertEqual([], runner_app._materialize_exec_images([], self.home_dir))
+        self.assertFalse(os.path.exists(os.path.join(self.home_dir, "exec-images")))
 
-    def stub_getaddrinfo(self, addresses):
-        """Resolve every host to `addresses`, or raise it; never hit real DNS."""
-        self.resolved = []
+    def test_writes_images_under_the_isolated_home(self):
+        paths = runner_app._materialize_exec_images(
+            [runner_app.ExecImageInput(url=PNG_DATA_URL)],
+            self.home_dir,
+        )
+        expected_dir = os.path.join(self.home_dir, "exec-images")
+        self.assertEqual([os.path.join(expected_dir, "image-1.png")], paths)
+        with open(paths[0], "rb") as fh:
+            self.assertEqual(PNG_BYTES, fh.read())
 
-        def fake_getaddrinfo(host, port, *args, **kwargs):
-            self.resolved.append(host)
-            if isinstance(addresses, Exception):
-                raise addresses
-            # The runner reads only sockaddr[0] off each answer.
-            return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", (addr, 0)) for addr in addresses]
-
-        runner_app.socket.getaddrinfo = fake_getaddrinfo
-
-    def refuse_getaddrinfo(self):
-        """Fail the test if the host is resolved at all."""
-
-        def no_dns(host, port, *args, **kwargs):
-            raise AssertionError(f"resolution must not be attempted for {host!r}")
-
-        runner_app.socket.getaddrinfo = no_dns
-
-    def stub_opener(self, response):
-        """Answer the single fetch _materialize_remote_image makes."""
-        opener = _FakeOpener(response)
-        runner_app._NO_REDIRECT_OPENER = opener
-        return opener
-
-    def assertRejects(self, detail, callable_, *args):
+    def test_a_policy_refusal_becomes_a_400(self):
         with self.assertRaises(HTTPException) as caught:
-            callable_(*args)
+            runner_app._materialize_exec_images(
+                [runner_app.ExecImageInput(url="ftp://images.example.com/pic.png")],
+                self.home_dir,
+            )
         self.assertEqual(400, caught.exception.status_code)
-        self.assertEqual(detail, caught.exception.detail)
-        return caught.exception
+        self.assertIn("http, https, or data", str(caught.exception.detail))
 
-    def test_assert_public_host_rejects_every_non_public_resolution(self):
-        for kind, addr in (
-            ("loopback", "127.0.0.1"),
-            ("ipv6 loopback", "::1"),
-            ("private", "10.11.12.13"),
-            ("private", "192.168.1.7"),
-            ("link-local metadata", "169.254.169.254"),
-            ("scoped ipv6 link-local", "fe80::1%eth0"),
-            ("multicast", "224.0.0.1"),
-            ("reserved", "240.0.0.1"),
-            ("unspecified", "0.0.0.0"),
-        ):
-            with self.subTest(kind=kind, addr=addr):
-                self.stub_getaddrinfo([addr])
-
-                self.assertRejects(
-                    "image host is not allowed",
-                    runner_app._assert_public_host,
-                    "images.example.com",
-                )
-
-    def test_assert_public_host_rejects_a_host_whose_second_answer_is_private(self):
-        """Every answer is checked: one public A record must not clear the host."""
-        self.stub_getaddrinfo([self.PUBLIC_ADDR, "127.0.0.1"])
-
-        self.assertRejects(
-            "image host is not allowed",
-            runner_app._assert_public_host,
-            "images.example.com",
-        )
-
-    def test_assert_public_host_rejects_an_unresolvable_host(self):
-        self.stub_getaddrinfo(socket.gaierror("Name or service not known"))
-
-        exc = self.assertRejects(
-            "could not resolve image host: Name or service not known",
-            runner_app._assert_public_host,
-            "no-such-host.example.com",
-        )
-        self.assertEqual(400, exc.status_code)
-
-    def test_assert_public_host_rejects_an_empty_resolution(self):
-        self.stub_getaddrinfo([])
-
-        self.assertRejects(
-            "could not resolve image host",
-            runner_app._assert_public_host,
-            "images.example.com",
-        )
-
-    def test_assert_public_host_rejects_a_missing_host_without_resolving(self):
-        for hostname in (None, ""):
-            with self.subTest(hostname=hostname):
-                self.refuse_getaddrinfo()
-
-                self.assertRejects(
-                    "image URL is missing a host",
-                    runner_app._assert_public_host,
-                    hostname,
-                )
-
-    def test_assert_public_host_allows_a_public_address(self):
-        self.stub_getaddrinfo([self.PUBLIC_ADDR])
-
-        runner_app._assert_public_host("images.example.com")
-
-        self.assertEqual(["images.example.com"], self.resolved)
-
-    def test_materialize_remote_image_rejects_non_http_schemes(self):
-        for url in ("file:///etc/passwd", "ftp://example.com/pic.png", "gopher://example.com/pic"):
-            with self.subTest(url=url):
-                self.refuse_getaddrinfo()
-                opener = self.stub_opener(_FakeImageResponse(b"banana"))
-
-                self.assertRejects(
-                    "image URLs must use http, https, or data",
-                    runner_app._materialize_remote_image,
-                    url,
-                    self.image_dir,
-                    1,
-                )
-                self.assertEqual([], opener.calls)
-
-    def test_materialize_remote_image_refuses_redirects(self):
-        for status in (301, 302, 307):
-            with self.subTest(status=status):
-                self.stub_getaddrinfo([self.PUBLIC_ADDR])
-                self.stub_opener(_FakeImageResponse(b"banana", status=status))
-
-                self.assertRejects(
-                    "image download redirects are not allowed",
-                    runner_app._materialize_remote_image,
-                    "https://images.example.com/pic.png",
-                    self.image_dir,
-                    1,
-                )
-                self.assertEqual([], os.listdir(self.image_dir))
-
-    def test_materialize_remote_image_caps_the_download_size(self):
-        self.stub_getaddrinfo([self.PUBLIC_ADDR])
-        self.stub_opener(_FakeImageResponse(b"\0" * (runner_app.MAX_REMOTE_IMAGE_BYTES + 1)))
-
-        self.assertRejects(
-            "downloaded image exceeds maximum allowed size",
-            runner_app._materialize_remote_image,
-            "https://images.example.com/pic.png",
-            self.image_dir,
-            1,
-        )
-        self.assertEqual([], os.listdir(self.image_dir))
-
-    def test_materialize_remote_image_rejects_an_empty_body(self):
-        self.stub_getaddrinfo([self.PUBLIC_ADDR])
-        self.stub_opener(_FakeImageResponse(b""))
-
-        self.assertRejects(
-            "downloaded image is empty",
-            runner_app._materialize_remote_image,
-            "https://images.example.com/pic.png",
-            self.image_dir,
-            1,
-        )
-        self.assertEqual([], os.listdir(self.image_dir))
-
-    def test_materialize_remote_image_writes_the_body_with_the_mime_suffix(self):
-        body = b"\x89PNG\r\n\x1a\n" + b"banana" * 20000
-        self.stub_getaddrinfo([self.PUBLIC_ADDR])
-        opener = self.stub_opener(_FakeImageResponse(body, content_type="image/png"))
-
-        path = runner_app._materialize_remote_image(
-            "https://images.example.com/pic",
-            self.image_dir,
-            3,
-        )
-
-        self.assertEqual(os.path.join(self.image_dir, "image-3.png"), path)
-        with open(path, "rb") as fh:
-            self.assertEqual(body, fh.read())
-        self.assertEqual([("https://images.example.com/pic", 15.0)], opener.calls)
-
-    def test_materialize_data_url_image_rejects_a_malformed_data_url(self):
-        for url in (
-            "data:image/png,QUJD",
-            "data:image/png;base64,",
-            "data:base64,QUJD",
-            "notdata:image/png;base64,QUJD",
-        ):
-            with self.subTest(url=url):
-                self.assertRejects(
-                    "invalid base64 image data URL",
-                    runner_app._materialize_data_url_image,
-                    url,
-                    self.image_dir,
-                    1,
-                )
-
-    def test_materialize_data_url_image_rejects_invalid_base64(self):
+    def test_the_image_count_cap_is_enforced_at_the_boundary(self):
+        too_many = [
+            runner_app.ExecImageInput(url=PNG_DATA_URL)
+            for _ in range(runner_app.IMAGE_LIMITS.max_images + 1)
+        ]
         with self.assertRaises(HTTPException) as caught:
-            runner_app._materialize_data_url_image(
-                "data:image/png;base64,not valid base64!!",
-                self.image_dir,
-                1,
-            )
-
+            runner_app._materialize_exec_images(too_many, self.home_dir)
         self.assertEqual(400, caught.exception.status_code)
-        self.assertTrue(
-            caught.exception.detail.startswith("invalid base64 image data URL:"),
-            caught.exception.detail,
+        self.assertIn("too many images", str(caught.exception.detail))
+
+    def test_limits_are_resolved_once_at_import(self):
+        # A bad RUNNER_MAX_* override must fail startup rather than silently
+        # restore a default, so the limits object is built at import and reused.
+        self.assertIsInstance(runner_app.IMAGE_LIMITS, ImageLimits)
+        self.assertGreater(runner_app.IMAGE_LIMITS.max_images, 0)
+        self.assertGreaterEqual(
+            runner_app.IMAGE_LIMITS.max_total_bytes,
+            runner_app.IMAGE_LIMITS.max_image_bytes,
         )
-        self.assertEqual([], os.listdir(self.image_dir))
-
-    def test_materialize_data_url_image_rejects_an_empty_payload(self):
-        # Padding-only payloads decode to b"" on the runner's Python 3.12 image
-        # but are refused outright by newer strict b64 validation, so the empty
-        # guard is pinned by stubbing the decode rather than by a literal URL.
-        runner_app.base64.b64decode = lambda data, validate=False: b""
-
-        self.assertRejects(
-            "image data URL is empty",
-            runner_app._materialize_data_url_image,
-            "data:image/png;base64,=",
-            self.image_dir,
-            1,
-        )
-        self.assertEqual([], os.listdir(self.image_dir))
-
-    def test_materialize_data_url_image_writes_the_decoded_bytes(self):
-        raw = b"\x89PNG\r\n\x1a\nbanana"
-        url = "data:image/png;base64," + base64.b64encode(raw).decode("ascii")
-
-        path = runner_app._materialize_data_url_image(url, self.image_dir, 2)
-
-        self.assertEqual(os.path.join(self.image_dir, "image-2.png"), path)
-        with open(path, "rb") as fh:
-            self.assertEqual(raw, fh.read())
-
-    def test_guess_image_suffix_prefers_the_mime_type(self):
-        for mime, expected in (
-            ("image/png", ".png"),
-            ("image/jpeg", ".jpg"),
-            ("image/jpeg; charset=binary", ".jpg"),
-            ("IMAGE/WEBP", ".webp"),
-        ):
-            with self.subTest(mime=mime):
-                self.assertEqual(
-                    expected,
-                    runner_app._guess_image_suffix(mime, "https://images.example.com/pic"),
-                )
-
-    def test_guess_image_suffix_falls_back_to_the_url_then_img(self):
-        self.assertEqual(
-            ".gif",
-            runner_app._guess_image_suffix(None, "https://images.example.com/pic.gif?v=2"),
-        )
-        self.assertEqual(
-            ".img",
-            runner_app._guess_image_suffix("", "https://images.example.com/pic"),
-        )
-
-    def test_materialize_exec_images_rejects_a_blank_url(self):
-        self.assertRejects(
-            "image url is required",
-            runner_app._materialize_exec_images,
-            [runner_app.ExecImageInput(url="   ")],
-            self.image_dir,
-        )
-
-    def test_materialize_exec_images_routes_data_urls_and_remote_urls(self):
-        calls = []
-
-        def fake_data_url(url, image_dir, index):
-            calls.append(("data", url, image_dir, index))
-            return f"/data-{index}.png"
-
-        def fake_remote(url, image_dir, index):
-            calls.append(("remote", url, image_dir, index))
-            return f"/remote-{index}.png"
-
-        original_data_url = runner_app._materialize_data_url_image
-        original_remote = runner_app._materialize_remote_image
-        runner_app._materialize_data_url_image = fake_data_url
-        runner_app._materialize_remote_image = fake_remote
-        try:
-            paths = runner_app._materialize_exec_images(
-                [
-                    runner_app.ExecImageInput(url="DATA:image/png;base64,QUJD"),
-                    runner_app.ExecImageInput(url="  https://images.example.com/pic.png  "),
-                ],
-                self.image_dir,
-            )
-        finally:
-            runner_app._materialize_data_url_image = original_data_url
-            runner_app._materialize_remote_image = original_remote
-
-        expected_dir = os.path.join(self.image_dir, "exec-images")
-        self.assertEqual(["/data-1.png", "/remote-2.png"], paths)
-        self.assertEqual(
-            [
-                ("data", "DATA:image/png;base64,QUJD", expected_dir, 1),
-                ("remote", "https://images.example.com/pic.png", expected_dir, 2),
-            ],
-            calls,
-        )
-        self.assertTrue(os.path.isdir(expected_dir))
 
 
 class RunnerSkillDraftSanitizerTest(unittest.TestCase):
