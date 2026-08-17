@@ -274,17 +274,12 @@
       ?? selectedNodeFallback(selectedNodeId);
   });
 
-  const authRoles = $derived.by(() => {
-    const roles = [...$authStore.roles];
-    const accessLevel = ($authStore.user as (typeof $authStore.user & { access_level?: string }) | null)?.access_level;
-    if (accessLevel) roles.push(accessLevel);
-    return [...new Set(roles.map((role) => role.toLowerCase()))];
-  });
+  // `memory.write` is the fleet-wide grant. The per-record `capabilities` the
+  // API attaches to each node stay in the disjunction because a record can
+  // widen what its own owner may do with it; they never narrow the grant.
   const canCreate = $derived(
     $authStore.authenticated
-      && (authRoles.includes("admin")
-        || authRoles.includes("owner")
-        || memoryNodes.some((node) => node.capabilities?.create)),
+      && ($authStore.can("memory.write") || memoryNodes.some((node) => node.capabilities?.create)),
   );
 
   function nextServerPage(): void {

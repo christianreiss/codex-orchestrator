@@ -27,6 +27,11 @@ registerHooks({
   resolve(specifier, context, nextResolve) {
     if (specifier === "$app/environment") return { url: ENV_STUB, shortCircuit: true };
     if (specifier === "../api/client") return { url: CLIENT_STUB, shortCircuit: true };
+    // The store's remaining relative imports are real modules written the way
+    // the bundler resolves them — extensionless. Node needs the extension.
+    if (specifier.startsWith(".") && !/\.[a-z]+$/.test(specifier)) {
+      return nextResolve(`${specifier}.ts`, context);
+    }
     return nextResolve(specifier, context);
   },
   load(url, context, nextLoad) {
@@ -58,14 +63,17 @@ describe("refresh", () => {
       throw new ApiError({ status: 401, message: "unauthorized" });
     };
     const state = await authActions.refresh();
-    assert.deepEqual(state, {
+    const { can, ...rest } = state;
+    assert.deepEqual(rest, {
       authenticated: false,
       enforced: true,
       user: null,
       roles: [],
+      capabilities: [],
       loading: false,
       unreachable: null,
     });
+    assert.equal(can("users.manage"), false);
     assert.deepEqual(get(authStore), state);
   });
 
@@ -74,14 +82,17 @@ describe("refresh", () => {
       throw new ApiError({ status: 403, message: "forbidden" });
     };
     const state = await authActions.refresh();
-    assert.deepEqual(state, {
+    const { can, ...rest } = state;
+    assert.deepEqual(rest, {
       authenticated: false,
       enforced: true,
       user: null,
       roles: [],
+      capabilities: [],
       loading: false,
       unreachable: null,
     });
+    assert.equal(can("secrets.reveal"), false);
   });
 
   it("rethrows any other failure but clears the loading flag", async () => {
@@ -114,6 +125,50 @@ describe("refresh", () => {
     });
     const state = await authActions.refresh();
     assert.deepEqual(state.roles, ["fleet_operator", "user"]);
+  });
+
+  it("carries the server's capability list and answers `can` from it", async () => {
+    stub.get = async () => ({
+      authenticated: true,
+      enforced: true,
+      user: { id: 1, username: "root", role: "fleet_operator" },
+      capabilities: ["hosts.read", "hosts.manage", "settings.manage"],
+    });
+    const state = await authActions.refresh();
+    assert.deepEqual(state.capabilities, ["hosts.read", "hosts.manage", "settings.manage"]);
+    assert.equal(state.can("hosts.manage"), true);
+    assert.equal(state.can("users.manage"), false);
+    // Never inferred from the role name — only from what the server sent.
+    assert.equal(state.can("hosts.security_transition"), false);
+  });
+
+  it("grants nothing when the payload omits capabilities", async () => {
+    // An API that predates the capability layer, or a truncated response. The
+    // console must fall to read-only rather than assume a permission: the
+    // server would answer 403 anyway, and offering the control is the worse
+    // failure of the two.
+    stub.get = async () => ({
+      authenticated: true,
+      enforced: true,
+      user: { id: 1, username: "root", role: "owner" },
+    });
+    const state = await authActions.refresh();
+    assert.deepEqual(state.capabilities, []);
+    assert.equal(state.can("secrets.reveal"), false);
+  });
+
+  it("drops every capability on sign-out", async () => {
+    stub.get = async () => ({
+      authenticated: true,
+      enforced: true,
+      user: { id: 1, username: "root", role: "owner" },
+      capabilities: ["secrets.reveal"],
+    });
+    assert.equal((await authActions.refresh()).can("secrets.reveal"), true);
+    stub.get = async () => {
+      throw new ApiError({ status: 401, message: "unauthorized" });
+    };
+    assert.equal((await authActions.refresh()).can("secrets.reveal"), false);
   });
 
   it("falls back to the singular user.role", async () => {

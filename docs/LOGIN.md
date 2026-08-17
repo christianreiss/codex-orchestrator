@@ -67,69 +67,64 @@ Setup bootstrap uses `GET /admin/setup/status` (public only while there are no u
 - Session tokens are 64-hex random values; only `sha256(token)` is stored in `admin_sessions.token_hash`.
 - Session resolution updates `last_seen_at` and deletes expired/invalid sessions.
 
-## Roles & Role Gates
+## Roles & Capabilities
 - Role values are `VALID_ACCESS_LEVELS` in `api/src/services/admin-auth.ts`:
-  - `owner` — full access; counts toward login enforcement.
-  - `admin` — full access; counts toward login enforcement.
-  - `viewer` — nothing beyond what a session alone grants.
-  - `fleet_operator`, `trusted_user`, `user` — legacy values. They are still
-    accepted on create/update so existing rows keep loading, and they grant
-    exactly what `viewer` grants.
-- There are no named capabilities in the Node API. `requireAdmin`
-  (`api/src/http/plugins/auth-admin.ts`) only resolves the session cookie and
-  requires the user row to be active; it never reads `access_level`.
-- Role gates in the route tree — six, all `owner`-or-`admin`, all answering
-  every other role with `403` and code `admin_role_required`:
-  - `POST /admin/users`, `POST /admin/users/{id}`, `DELETE /admin/users/{id}`,
-    `POST /admin/users/wipe`.
-  - Memory Atlas writes: `POST /admin/memories/{scope}`,
-    `PATCH|DELETE /admin/memories/{scope}/{recordId}`, and
-    `POST /admin/memories/shared/{recordId}/append`.
-  - External Skill source changes: `POST /admin/skill-sources/mattpocock` and
-    `POST /admin/skill-sources/mattpocock/refresh`.
-  - Agent Portal writes and link reveal: `POST /admin/agent-portal/state`,
-    `POST /admin/agent-portal/users`, `POST /admin/agent-portal/users/{id}`,
-    `POST /admin/agent-portal/users/{id}/enabled`,
-    `POST /admin/agent-portal/users/{id}/rotate`,
-    `DELETE /admin/agent-portal/users/{id}`, and
-    `GET /admin/agent-portal/users/{id}/link` — the only gated *read* in the tree,
-    because it returns a permanent portal link, which is reusable bearer material.
-  - Agent Messaging mutations and content reveal:
-    `POST /admin/agent-messaging/state`,
-    `PATCH /admin/agent-messaging/addresses/{id}`,
-    `POST /admin/agent-messaging/addresses/{id}/enabled`,
-    `POST /admin/agent-messaging/conversations/{id}/cancel`,
-    `POST /admin/agent-messaging/messages/{id}/redrive`,
-    and `POST /admin/agent-messaging/messages/{id}/reveal`. Host
-    registration/API-key rotation and device approval
-    (`POST /admin/hosts/register`, `POST /cli/auth/approve`), host deletion,
-    and the host engine/secure-state transitions (`DELETE /admin/hosts/{id}`,
-    `POST /admin/hosts/{id}/engines`, `POST /admin/hosts/{id}/secure`) share
-    this gate because they can generation-fence or atomically revoke Agent
-    Messaging work, or — for `secure` — decide whether a host is authorized
-    outright or only inside its allowed window. There is no per-host Agent
-    Messaging gate: the fleet switch is the only switch. State,
-    address, conversation, and message listings are session-only and
-    metadata-only, so viewer/legacy roles may inspect them. Reveal is an
-    explicit audited mutation whose plaintext response is `no-store` and
-    `no-cache`.
-  - Fleet secrets writes and value reveal: `POST /admin/secrets`,
-    `PATCH /admin/secrets/{id}`, `DELETE /admin/secrets/{id}`,
-    `POST /admin/secrets/{id}/reveal`, and `POST /admin/secrets/state` — the
-    module switch is gated too, because turning a credential store on or off is
-    not a UI preference. The reveal is a `POST` rather than a `GET` precisely so
-    the sentence above stays true: it cannot be prefetched, cached by an
-    intermediary, or replayed out of browser history.
-- Every other admin route is session-only. Any authenticated, active user — a
-  `viewer` or a legacy `user` included — can open insecure windows, upload
-  canonical auth, and use settings not enumerated in a role gate above. Host
-  registration/rotation, CLI approval, deletion, and secure/engine transitions
-  are no longer in that session-only set because they can revoke or
-  generation-fence Agent Messaging work.
+  - `owner` — every capability; counts toward login enforcement.
+  - `admin` — every capability; counts toward login enforcement. Differs from
+    `owner` only in the ownership invariants in
+    `api/src/services/admin-users.ts`, which protect the last active
+    owner-like account and are properties of the target row, not of the caller.
+  - `fleet_operator` — hosts, insecure windows, global settings, and fleet
+    credentials. No account management, no reveal of any kind, and none of the
+    four host security transitions.
+  - `trusted_user` — the reads plus `hosts.activate_insecure`.
+  - `viewer` and the legacy `user` — read-only.
+- Authorization is a default-deny capability layer.
+  `requireAdmin` (`api/src/http/plugins/auth-admin.ts`) authenticates only: it
+  resolves the session cookie and requires an active user row, and never reads
+  `access_level`. The decision to admit or refuse comes from one capability per
+  route, assigned in `api/src/security/route-capabilities.ts` and enforced by
+  `api/src/http/plugins/capabilities.ts` as each route registers. A route with
+  no entry there is a startup failure, not a session-only route.
+- The full role→capability matrix is generated into `docs/ADMIN.md` from
+  `api/src/security/capabilities.ts`; that table is the authority, and a test
+  fails when it drifts.
+- Four reads carry their own capability instead of the domain's `.read`,
+  because each returns bearer material or private content:
+  - `GET /admin/agent-portal/users/{id}/link` → `agent_portal.reveal_link`. The
+    permanent portal link is a reusable credential.
+  - `POST /admin/secrets/{id}/reveal` → `secrets.reveal`. A `POST` rather than a
+    `GET` on purpose: it cannot be prefetched, cached by an intermediary, or
+    replayed out of browser history.
+  - `POST /admin/agent-messaging/messages/{id}/reveal` →
+    `agent_messaging.reveal_content`. An explicit audited mutation whose
+    plaintext response is `no-store` and `no-cache`.
+  - `GET /admin/hosts/{id}/auth?include_body=1` → `auth.reveal_credential`. The
+    response carries the canonical credential the fleet hands to its hosts.
+    Without the flag the same route is metadata and every role may read it, so
+    the requirement is raised by the handler rather than by the URL.
+  Every listing beside them is metadata-only, so a `viewer` may inspect state,
+  addresses, conversations, and message metadata without seeing content.
+- Host registration and API-key rotation (`POST /admin/hosts/register`), device
+  approval (`POST /cli/auth/approve`), deletion (`DELETE /admin/hosts/{id}`) and
+  the engine/secure-state transitions (`POST /admin/hosts/{id}/engines`,
+  `POST /admin/hosts/{id}/secure`) share `hosts.security_transition`, held by
+  `owner` and `admin` alone, because each can atomically revoke or
+  generation-fence Agent Messaging work — or, for `secure`, decide whether a
+  host is authorized outright or only inside its allowed window. There is no
+  per-host Agent Messaging gate: the fleet switch is the only switch.
+- `account.self_manage` is held by every role. Signing out, changing your own
+  password, and managing your own passkeys cannot depend on a grant an operator
+  might lose.
+- The pre-authentication surface is fixed and enumerated in
+  `api/src/security/route-capabilities.ts`: login, login-method discovery,
+  passkey assertion, password reset request and redemption, the auth status
+  probe, the three device-code lanes, and the static admin bundle. Every other
+  route under `/admin/*` and `/cli/auth/*` requires a session.
 - Without a valid session, guarded routes fail with `401` and code
   `admin_required`; a disabled account fails with `403` and code
-  `admin_disabled`.
-
+  `admin_disabled`. A session lacking the route's capability fails with `403`,
+  code `admin_role_required`, and a `required_capability` field naming it.
 ## Users & Bootstrap Flows
 - Admin users are stored in `admin_users` with: `name`, `username` (unique), `email` (unique), `password_hash`, `access_level`, `active`, `last_login_at`, `created_at`, `updated_at`.
 - User management endpoints (all require a session; once users exist, the mutating ones additionally require `owner` or `admin`):

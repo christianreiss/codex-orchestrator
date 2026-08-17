@@ -5,6 +5,8 @@ import { fileURLToPath } from 'node:url';
 import { sourceFiles } from '../routes/registered-routes.js';
 import * as worker from '../../../src/ops/agent-portal-worker.js';
 import * as portal from '../../../src/services/agent-portal.js';
+import { roleHasCapability } from '../../../src/security/capabilities.js';
+import { guardForRoute } from '../../../src/security/route-capabilities.js';
 
 /**
  * The agent portal used to fan every lifecycle event out to Matrix, each message
@@ -60,8 +62,19 @@ describe('agent portal has no outbound push channel', () => {
     // gated reveal; the portal's own `/go` surface never sees it.
     expect(publicRoutes).not.toContain('magic_url');
     expect(publicRoutes).not.toContain('revealUserLink');
-    const revealAt = routes.indexOf("'/admin/agent-portal/users/:id/link'");
-    expect(revealAt).toBeGreaterThan(-1);
-    expect(routes.slice(revealAt, revealAt + 200)).toContain('requireAgentPortalMutationRole');
+    expect(routes).toContain("'/admin/agent-portal/users/:id/link'");
+    // The reveal is a read, but the thing it returns is reusable bearer
+    // material, so it carries its own capability rather than riding on
+    // `agent_portal.read` — and that capability is owner/admin only.
+    expect(guardForRoute('GET', '/admin/agent-portal/users/:id/link')).toEqual({
+      kind: 'capability',
+      capability: 'agent_portal.reveal_link',
+    });
+    for (const role of ['viewer', 'user', 'trusted_user', 'fleet_operator']) {
+      expect(roleHasCapability(role, 'agent_portal.reveal_link')).toBe(false);
+    }
+    for (const role of ['owner', 'admin']) {
+      expect(roleHasCapability(role, 'agent_portal.reveal_link')).toBe(true);
+    }
   });
 });

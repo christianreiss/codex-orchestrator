@@ -28,6 +28,11 @@
     sortKey: SortKey;
     sortDir: SortDir;
     pendingActiveIds?: Set<number | string>;
+    /**
+     * Whether the signed-in operator holds `users.manage`. The roster itself
+     * is readable by every role — the row controls are not.
+     */
+    canManage?: boolean;
     onSort: (key: SortKey) => void;
     onToggleActive: (user: AdminUser, next: boolean) => void;
     onEdit: (user: AdminUser) => void;
@@ -43,6 +48,7 @@
     sortKey,
     sortDir,
     pendingActiveIds = new Set(),
+    canManage = false,
     onSort,
     onToggleActive,
     onEdit,
@@ -191,7 +197,7 @@
               <div class="flex items-center gap-2">
                 <Switch
                   checked={user.active}
-                  disabled={pendingActiveIds.has(user.id)}
+                  disabled={!canManage || pendingActiveIds.has(user.id)}
                   onCheckedChange={(next) => onToggleActive(user, Boolean(next))}
                   aria-label={user.active ? "Deactivate user" : "Activate user"}
                 />
@@ -216,24 +222,28 @@
             </Table.Cell>
             <Table.Cell>
               <div class="flex justify-end gap-1">
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  class="h-8 w-8"
-                  aria-label="Edit user"
-                  onclick={() => onEdit(user)}
-                >
-                  <Pencil class="h-4 w-4" />
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  class="h-8 w-8 text-destructive hover:bg-destructive/10 hover:text-destructive"
-                  aria-label="Delete user"
-                  onclick={() => onDelete(user)}
-                >
-                  <Trash2 class="h-4 w-4" />
-                </Button>
+                {#if canManage}
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    class="h-8 w-8"
+                    aria-label="Edit user"
+                    onclick={() => onEdit(user)}
+                  >
+                    <Pencil class="h-4 w-4" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    class="h-8 w-8 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                    aria-label="Delete user"
+                    onclick={() => onDelete(user)}
+                  >
+                    <Trash2 class="h-4 w-4" />
+                  </Button>
+                {:else}
+                  <span class="text-xs text-muted-foreground">read-only</span>
+                {/if}
               </div>
             </Table.Cell>
           </Table.Row>

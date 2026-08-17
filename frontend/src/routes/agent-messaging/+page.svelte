@@ -186,20 +186,12 @@
   let busyMessage = $state<string | null>(null);
   const revealGuard = { generation: 0 };
 
-  const accessLevel = $derived(
-    ($authStore.user as (typeof $authStore.user & { access_level?: string }) | null)?.access_level,
-  );
-  const canMutate = $derived(
-    [...$authStore.roles, accessLevel ?? ""]
-      .map((role) => role.trim().toLowerCase())
-      .some((role) => role === "owner" || role === "admin"),
-  );
-  const roleSignature = $derived(
-    [...$authStore.roles, accessLevel ?? ""]
-      .map((role) => role.trim().toLowerCase())
-      .sort()
-      .join("\u0000"),
-  );
+  const canMutate = $derived($authStore.can("agent_messaging.manage"));
+  const canRevealContent = $derived($authStore.can("agent_messaging.reveal_content"));
+  // Revealed content is dropped whenever the caller's grants change: a session
+  // that loses `agent_messaging.reveal_content` mid-flight must not keep a
+  // message body on screen it can no longer ask for.
+  const grantSignature = $derived([...$authStore.capabilities].sort().join("\u0000"));
   const revealFilterSignature = $derived(
     [workspaceView, conversationStatus, messageStatus, messageConversationId.trim(), String(limit)].join("\u0000"),
   );
@@ -210,7 +202,7 @@
   );
 
   $effect(() => {
-    void roleSignature;
+    void grantSignature;
     clearReveal();
   });
 
@@ -271,7 +263,7 @@
     try {
       const content = await revealAgentMessage(item.id);
       const stillListed = ($messages.data?.messages ?? []).some((message) => message.id === item.id);
-      if (generation === revealGuard.generation && canMutate && stillListed) {
+      if (generation === revealGuard.generation && canRevealContent && stillListed) {
         revealed = { messageId: item.id, content };
       }
     } catch (error) {
@@ -569,10 +561,12 @@
                   <Button class="mt-2" size="sm" variant="outline" onclick={clearReveal}>Close content</Button>
                 </div>
               {/if}
-              {#if canMutate}
+              {#if canRevealContent || canMutate}
                 <div class="mt-2 flex flex-wrap gap-2">
-                  <Button size="sm" variant="outline" disabled={busyMessage !== null} onclick={() => reveal(message)}>{busyMessage === message.id ? "Revealing…" : "Reveal content"}</Button>
-                  {#if message.status === "dead" || message.status === "ambiguous"}
+                  {#if canRevealContent}
+                    <Button size="sm" variant="outline" disabled={busyMessage !== null} onclick={() => reveal(message)}>{busyMessage === message.id ? "Revealing…" : "Reveal content"}</Button>
+                  {/if}
+                  {#if canMutate && (message.status === "dead" || message.status === "ambiguous")}
                     <Button size="sm" variant="outline" disabled={$redrive.isPending || !$stateQuery.data?.enabled} onclick={() => redriveMessage(message)}>Redrive</Button>
                   {/if}
                 </div>

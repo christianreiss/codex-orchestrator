@@ -32,16 +32,6 @@ export interface SkillSourceUpdate {
   auto_update?: boolean;
 }
 
-export function canManageMattPocockSkillsSource(
-  roles: readonly string[],
-  accessLevel?: string | null,
-): boolean {
-  const normalized = [...roles, accessLevel ?? ""]
-    .map((role) => role.trim().toLowerCase())
-    .filter(Boolean);
-  return normalized.includes("owner") || normalized.includes("admin");
-}
-
 export const mattPocockSkillsApi = {
   get(): Promise<SkillSourceState> {
     return api.get<SkillSourceState>(MATTPOCOCK_PATH);

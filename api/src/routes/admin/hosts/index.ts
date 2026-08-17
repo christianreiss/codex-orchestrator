@@ -30,7 +30,6 @@ import { parseReverseDnsModeInput, tinyintToModeString } from '../../../services
 import { hostEnginesList } from '../../../services/host-engine-policy.js';
 import { hostAuthDigests, type Host } from '../../../db/schema.js';
 import { ENGINE_CODEX, ENGINE_CLAUDE, isEngine, parseEngine, type Engine } from '../../../util/engine.js';
-import { requireAgentMessagingMutationRole } from '../../agent-messaging/index.js';
 
 // ────────────────────────────────────────────────────────────────────────────
 // Zod schemas
@@ -270,7 +269,7 @@ export async function registerAdminHostsRoutes(
   app.route({
     method: 'POST',
     url: '/admin/hosts/register',
-    preHandler: [app.requireAdmin, requireAgentMessagingMutationRole],
+    preHandler: app.requireAdmin,
     handler: async (req) => {
       const body = parseZod(registerSchema, req.body);
       let mode: 'global' | 'enabled' | 'disabled' | null = null;
@@ -343,6 +342,11 @@ export async function registerAdminHostsRoutes(
       // a caller error, not a reason to read the other engine's canonical auth.
       const engine: Engine = parseEngine(query.engine, ENGINE_CODEX);
       const includeBody = parseIncludeBody(query.include_body);
+      // Without the flag this is metadata — digests and refresh timestamps.
+      // With it, the response carries the canonical credential the fleet hands
+      // to hosts, which is a different thing to be allowed to read. The route's
+      // inventory capability is the floor; the body needs the reveal grant.
+      if (includeBody) await app.assertCapability(req, 'auth.reveal_credential');
       const host = await hostService.requireById(id);
       const view = await authView(host, engine, includeBody);
       return {
@@ -380,7 +384,7 @@ export async function registerAdminHostsRoutes(
   app.route({
     method: 'DELETE',
     url: '/admin/hosts/:id',
-    preHandler: [app.requireAdmin, requireAgentMessagingMutationRole],
+    preHandler: app.requireAdmin,
     handler: async (req) => {
       const id = parseId((req.params as { id: string }).id);
       await hostService.delete(id);
@@ -392,7 +396,7 @@ export async function registerAdminHostsRoutes(
   app.route({
     method: 'POST',
     url: '/admin/hosts/:id/engines',
-    preHandler: [app.requireAdmin, requireAgentMessagingMutationRole],
+    preHandler: app.requireAdmin,
     handler: async (req) => {
       const id = parseId((req.params as { id: string }).id);
       const body = parseZod(setEnginesSchema, req.body ?? {});
@@ -447,7 +451,7 @@ export async function registerAdminHostsRoutes(
   app.route({
     method: 'POST',
     url: '/admin/hosts/:id/secure',
-    preHandler: [app.requireAdmin, requireAgentMessagingMutationRole],
+    preHandler: app.requireAdmin,
     handler: async (req) => {
       const id = parseId((req.params as { id: string }).id);
       const body = parseZod(secureSchema, req.body);

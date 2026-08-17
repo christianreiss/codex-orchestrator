@@ -6,12 +6,21 @@ import { writable, type Readable } from "svelte/store";
 import { browser } from "$app/environment";
 import { api, ApiError } from "../api/client";
 import type { AuthStatus, User } from "../api/types";
+import { capabilityChecker, type Capability } from "../auth/capabilities";
 
 export interface AuthState {
   authenticated: boolean;
   enforced: boolean;
   user: User | null;
   roles: string[];
+  /** Capability names the server reported for this session. */
+  capabilities: string[];
+  /**
+   * Whether the signed-in operator holds a capability. Presentation only —
+   * the server re-checks every request and answers 403 regardless of what
+   * this says.
+   */
+  can: (capability: Capability) => boolean;
   loading: boolean;
   unreachable: string | null;
 }
@@ -21,6 +30,8 @@ const initial: AuthState = {
   enforced: false,
   user: null,
   roles: [],
+  capabilities: [],
+  can: capabilityChecker([]),
   loading: true,
   unreachable: null,
 };
@@ -38,11 +49,14 @@ async function refresh(): Promise<AuthState> {
   store.update((s) => ({ ...s, loading: true }));
   try {
     const status = await api.get<AuthStatus>("/admin/auth/status");
+    const capabilities = Array.isArray(status.capabilities) ? status.capabilities : [];
     const next: AuthState = {
       authenticated: Boolean(status.authenticated),
       enforced: Boolean(status.enforced),
       user: status.user ?? null,
       roles: status.roles ?? extractRoles(status.user),
+      capabilities,
+      can: capabilityChecker(capabilities),
       loading: false,
       unreachable: null,
     };
@@ -56,6 +70,8 @@ async function refresh(): Promise<AuthState> {
         enforced: true,
         user: null,
         roles: [],
+        capabilities: [],
+        can: capabilityChecker([]),
         loading: false,
         unreachable: null,
       };

@@ -1,8 +1,7 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import type { RouteContext } from '../../index.js';
-import { ApiError, ForbiddenError, UnauthorizedError, ValidationError } from '../../../http/errors.js';
-import { ROLE_ADMIN, ROLE_OWNER } from '../../../services/admin-auth.js';
+import { ApiError, ValidationError } from '../../../http/errors.js';
 import { AdminEventsService } from '../../../services/admin-events.js';
 import { SecretsService, type SecretMetadata } from '../../../services/secrets.js';
 import { adminSpaHtmlPreHandler } from '../pages/static.js';
@@ -93,13 +92,9 @@ export async function registerAdminSecretsRoutes(
   // the shell, application/json keeps the API contract.
   const adminSpa = adminSpaHtmlPreHandler(ctx);
 
-  const requireSecretMutationRole = async (req: FastifyRequest): Promise<void> => {
-    if (!req.admin) throw new UnauthorizedError('Admin session required', 'admin_required');
-    const role = req.admin.user.accessLevel;
-    if (role !== ROLE_OWNER && role !== ROLE_ADMIN) {
-      throw new ForbiddenError('Insufficient access level', 'admin_role_required');
-    }
-  };
+  // Mutation and reveal are `secrets.manage` and `secrets.reveal` in
+  // `security/route-capabilities.ts`; the plugin applies them. Reveal is split
+  // from manage because reading a value and changing one are different risks.
 
   const actor = (req: FastifyRequest): number | null => req.admin?.user.id ?? null;
 
@@ -111,7 +106,7 @@ export async function registerAdminSecretsRoutes(
 
   app.post(
     '/admin/secrets/state',
-    { preHandler: [app.requireAdmin, requireSecretMutationRole] },
+    { preHandler: app.requireAdmin },
     async (req) => {
       const parsed = stateSchema.safeParse(req.body ?? {});
       if (!parsed.success) throw badRequest(parsed.error.issues[0]);
@@ -144,7 +139,7 @@ export async function registerAdminSecretsRoutes(
 
   app.post(
     '/admin/secrets',
-    { preHandler: [app.requireAdmin, requireSecretMutationRole] },
+    { preHandler: app.requireAdmin },
     async (req, reply) => {
       const parsed = createSchema.safeParse(req.body ?? {});
       if (!parsed.success) throw badRequest(parsed.error.issues[0]);
@@ -168,7 +163,7 @@ export async function registerAdminSecretsRoutes(
 
   app.patch(
     '/admin/secrets/:id',
-    { preHandler: [app.requireAdmin, requireSecretMutationRole] },
+    { preHandler: app.requireAdmin },
     async (req) => {
       const id = idFrom((req.params as { id?: unknown }).id);
       const parsed = updateSchema.safeParse(req.body ?? {});
@@ -190,7 +185,7 @@ export async function registerAdminSecretsRoutes(
 
   app.delete(
     '/admin/secrets/:id',
-    { preHandler: [app.requireAdmin, requireSecretMutationRole] },
+    { preHandler: app.requireAdmin },
     async (req) => {
       const id = idFrom((req.params as { id?: unknown }).id);
       const deleted = await secrets.softDelete(id);
@@ -205,7 +200,7 @@ export async function registerAdminSecretsRoutes(
 
   app.post(
     '/admin/secrets/:id/reveal',
-    { preHandler: [app.requireAdmin, requireSecretMutationRole] },
+    { preHandler: app.requireAdmin },
     async (req) => {
       const id = idFrom((req.params as { id?: unknown }).id);
       const revealed = await secrets.revealById(id);

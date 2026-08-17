@@ -3,7 +3,6 @@
   import { toast } from "svelte-sonner";
   import {
     MATTPOCOCK_REPOSITORY,
-    canManageMattPocockSkillsSource,
     mattPocockSkillsApi,
     mattPocockSkillsKeys,
     type SkillSourceState,
@@ -58,13 +57,7 @@
   });
 
   const state = $derived($query.data);
-  const accessLevel = $derived(
-    ($authStore.user as (typeof $authStore.user & { access_level?: string }) | null)?.access_level,
-  );
-  const canMutate = $derived(
-    $authStore.authenticated
-      && canManageMattPocockSkillsSource($authStore.roles, accessLevel),
-  );
+  const canMutate = $derived($authStore.authenticated && $authStore.can("content.manage"));
   const busy = $derived(
     $query.isLoading || $query.isFetching || $updateMutation.isPending || $refreshMutation.isPending,
   );

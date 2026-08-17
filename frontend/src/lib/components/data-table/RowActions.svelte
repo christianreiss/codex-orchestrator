@@ -14,6 +14,11 @@
     onClick: () => void;
     destructive?: boolean;
     disabled?: boolean;
+    /**
+     * Why the action is unavailable. A greyed-out control with no explanation
+     * is a support ticket; naming the missing capability is an instruction.
+     */
+    reason?: string;
   };
 
   type Props = {
@@ -39,6 +44,7 @@
       <DropdownMenu.Item
         onclick={action.onClick}
         disabled={action.disabled}
+        title={action.reason}
         class={action.destructive
           ? "text-destructive focus:bg-destructive-muted focus:text-destructive"
           : undefined}

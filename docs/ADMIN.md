@@ -86,50 +86,117 @@ Code-truth operator map for `/admin/*`. Source of truth is runtime code (`api/sr
   Shared components use the theme tokens in `frontend/src/app.css`, including
   keyboard focus, reduced-motion, increased-contrast, and light/dark behavior.
 
-## Roles & Role Gates
+## Roles & Capabilities
 - Accepted `access_level` values are `VALID_ACCESS_LEVELS` in
-  `api/src/services/admin-auth.ts`: `owner`, `admin`, `viewer`, plus the legacy
-  values `fleet_operator`, `trusted_user`, and `user`, which are still accepted
-  so existing rows keep loading. Anything else is rejected on create/update.
-- There is no capability system in the Node API, and no per-route capability
-  names. `requireAdmin` (`api/src/http/plugins/auth-admin.ts`) resolves the
-  session cookie and requires the user row to be active — it never reads the
-  role. Everything below marked as admin-authenticated is therefore open to any
-  authenticated, active user regardless of role unless it appears in the six
-  role-gated families below; insecure windows, canonical auth upload, and
-  ungated global settings remain session-only.
-- The whole route tree contains exactly six role gates, all of which allow
-  `owner` and `admin` only and answer other roles with `403` and code
-  `admin_role_required`:
-  - Memory Atlas writes: create, update, delete, and shared append
-    (`api/src/routes/admin/memories/index.ts`).
-  - Admin user management: create, update, delete, and wipe
-    (`api/src/routes/admin/users/index.ts`).
-  - External Skill source inclusion, auto-update, and manual refresh
-    (`api/src/routes/admin/skill-sources/index.ts`).
-  - Agent Portal global/user mutations, plus the permanent-link reveal — the only
-    gated read, since the link is reusable bearer material
-    (`api/src/routes/agent-portal/admin-host.ts`).
-  - Agent Messaging global/per-host/address switches, address aliases,
-    conversation cancellation, content reveal, explicit redrive, and the host
-    registration/key-rotation, CLI approval, delete, engine, and security
-    transitions that can atomically revoke or generation-fence messaging work
-    (`api/src/routes/agent-messaging/index.ts` and
-    `api/src/routes/admin/hosts/index.ts` plus
-    `api/src/routes/cli-auth/index.ts`). The two additional endpoints are
-    `POST /admin/hosts/register` and `POST /cli/auth/approve`. Lists expose
-    metadata only; content reveal is a role-gated, audited `POST`.
-  - Fleet secrets create, update, soft-delete, value reveal, and the
-    `secrets_module_enabled` switch (`api/src/routes/admin/secrets/index.ts`).
-    Listing and per-secret metadata reads are session-only like the rest of the
-    tree; only the plaintext reveal and the mutations are gated. The direct
-    `/admin/secrets` workspace exposes the same lifecycle without ever putting
-    plaintext into a list response.
-- Every authenticated role may read Memory Atlas and the user roster. Memory
-  reads carry a per-record `capabilities` object (`read`, `create`, `update`,
-  `delete`, `append`) that mirrors the same `owner`/`admin` check for the UI.
+  `api/src/services/admin-auth.ts`: `owner`, `admin`, `viewer`, `fleet_operator`,
+  `trusted_user`, and the legacy `user`. Anything else is rejected on
+  create/update.
+- Authorization is a **default-deny capability layer**, not a session check.
+  `requireAdmin` (`api/src/http/plugins/auth-admin.ts`) authenticates — it
+  resolves the session cookie and requires an active user row — and that is all
+  it has ever done. What decides whether the caller may proceed is
+  `api/src/security/route-capabilities.ts`, which assigns one capability to
+  every route under `/admin/*` and to the session-guarded `/cli/auth/*` routes,
+  and `api/src/http/plugins/capabilities.ts`, which attaches the matching guard
+  as each route is registered.
+- **A route with no entry in that inventory is a startup failure.** The plugin
+  collects every governed route it cannot find and throws at `onReady`, naming
+  each one, so a new endpoint cannot ship session-only by omission.
+  `api/test/unit/security/route-capability-coverage.test.ts` runs the same check
+  in CI against the real route tree.
+- Denials answer `403` with code `admin_role_required` and a
+  `required_capability` field naming what was missing. Callers with no session
+  still get `401` and `admin_required`.
+- The role→capability matrix lives in `api/src/security/capabilities.ts`. The
+  table below is generated from it by `npm run docs:capabilities`;
+  `api/test/unit/security/capability-docs.test.ts` fails when the two disagree.
+
+<!-- BEGIN GENERATED: capability-matrix -->
+
+| Capability | `owner` | `admin` | `fleet_operator` | `trusted_user` | `viewer` | `user` |
+| --- | --- | --- | --- | --- | --- | --- |
+| `admin.read` | yes | yes | yes | yes | yes | yes |
+| `account.self_manage` | yes | yes | yes | yes | yes | yes |
+| `users.read` | yes | yes | yes | yes | yes | yes |
+| `users.manage` | yes | yes | — | — | — | — |
+| `hosts.read` | yes | yes | yes | yes | yes | yes |
+| `hosts.manage` | yes | yes | yes | — | — | — |
+| `hosts.security_transition` | yes | yes | — | — | — | — |
+| `hosts.activate_insecure` | yes | yes | yes | yes | — | — |
+| `settings.read` | yes | yes | yes | yes | yes | yes |
+| `settings.manage` | yes | yes | yes | — | — | — |
+| `auth.read_metadata` | yes | yes | yes | yes | yes | yes |
+| `auth.manage` | yes | yes | yes | — | — | — |
+| `auth.reveal_credential` | yes | yes | — | — | — | — |
+| `keys.manage` | yes | yes | — | — | — | — |
+| `content.read` | yes | yes | yes | yes | yes | yes |
+| `content.manage` | yes | yes | — | — | — | — |
+| `memory.read` | yes | yes | yes | yes | yes | yes |
+| `memory.write` | yes | yes | — | — | — | — |
+| `projects.read` | yes | yes | yes | yes | yes | yes |
+| `projects.manage` | yes | yes | — | — | — | — |
+| `secrets.read_metadata` | yes | yes | yes | yes | yes | yes |
+| `secrets.reveal` | yes | yes | — | — | — | — |
+| `secrets.manage` | yes | yes | — | — | — | — |
+| `agent_portal.read` | yes | yes | yes | yes | yes | yes |
+| `agent_portal.reveal_link` | yes | yes | — | — | — | — |
+| `agent_portal.manage` | yes | yes | — | — | — | — |
+| `agent_messaging.read` | yes | yes | yes | yes | yes | yes |
+| `agent_messaging.reveal_content` | yes | yes | — | — | — | — |
+| `agent_messaging.manage` | yes | yes | — | — | — | — |
+| `audit.read` | yes | yes | yes | yes | yes | yes |
+
+<!-- END GENERATED: capability-matrix -->
+
+- `owner` and `admin` hold every capability. They differ only in the ownership
+  invariants enforced in `api/src/services/admin-users.ts` — the last active
+  owner-like account cannot be demoted, deactivated, or deleted — which are
+  properties of the *target* row and so cannot be expressed as a capability of
+  the caller.
+- `fleet_operator` runs the fleet: hosts, insecure windows, global settings, and
+  fleet credentials. It holds no account management, no reveal of any kind, and
+  none of `hosts.security_transition` — deleting or registering a host, changing
+  its engines, or moving it between the secure and insecure lanes stays with
+  `owner` and `admin`, because each can atomically revoke or generation-fence
+  live Agent Messaging work.
+- `trusted_user` holds the reads plus `hosts.activate_insecure`, and nothing
+  else.
+- `viewer` and the legacy `user` are read-only.
+- Four reads are their own capability rather than part of the domain's `.read`,
+  because each returns bearer material or private content:
+  `secrets.reveal` (plaintext credential), `agent_portal.reveal_link` (a
+  reusable permanent portal link), `agent_messaging.reveal_content` (a decrypted
+  message body), and `auth.reveal_credential` (the canonical credential the
+  fleet distributes to hosts). Every listing beside them is metadata-only.
+- `auth.reveal_credential` is the one capability a route raises *itself*.
+  `GET /admin/hosts/{id}/auth` is metadata — digests and refresh timestamps —
+  until `include_body=1`, which adds the live credential body. The inventory
+  gives the route `auth.read_metadata` as its floor; the handler calls
+  `app.assertCapability(req, 'auth.reveal_credential')` when the flag is set. A
+  `fleet_operator` holds `auth.manage` and may therefore replace the fleet's
+  credential, but never read the current one back out.
+- `account.self_manage` is held by every role: signing out, changing your own
+  password, and managing your own passkeys must not depend on a grant an
+  operator can lose.
+- `GET /admin/auth/status` returns the caller's row of the matrix as
+  `capabilities`. The admin console uses it to disable the controls a `403`
+  would meet — `frontend/src/lib/auth/capabilities.ts` and the `can()` helper on
+  `authStore`. That is presentation only: the server re-checks every request,
+  and a console that lies to itself gains nothing.
+- Memory reads still carry a per-record `capabilities` object (`read`, `create`,
+  `update`, `delete`, `append`). It now derives from `memory.write` rather than
+  from a second copy of the role check.
 - Login enforcement counts active `owner` and `admin` rows only, so a fleet of
   `viewer` accounts never switches login on.
+
+### Upgrading from a session-only installation
+Before this layer, every admin route not covered by one of six hand-written
+gates was open to any authenticated, active user. On upgrade, accounts with
+`viewer`, `user`, `trusted_user`, or `fleet_operator` **lose access they had**:
+global settings, canonical auth upload, host operations, and content authoring
+each now require a capability their role may not hold. Nothing that was
+restricted became less restricted. Review your roster before upgrading and
+promote the accounts that need to keep working.
 
 ## Agent Messaging Operations
 

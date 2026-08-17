@@ -1,6 +1,5 @@
 import Fastify from 'fastify';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { ApiError } from '../../../src/http/errors.js';
 import { envelopePlugin } from '../../../src/http/plugins/envelope.js';
 import { requestIdPlugin } from '../../../src/http/plugins/request-id.js';
 import {
@@ -9,6 +8,7 @@ import {
 } from '../../../src/routes/admin/skill-sources/index.js';
 import type { RouteContext } from '../../../src/routes/index.js';
 import type { SkillSourceState } from '../../../src/services/mattpocock-skills.js';
+import { registerCapabilityStack } from '../../helpers/capability-stack.js';
 
 const apps: Array<ReturnType<typeof Fastify>> = [];
 
@@ -36,20 +36,7 @@ async function buildApp(role: string | null, service: MattPocockSkillSourceRoute
   apps.push(app);
   await app.register(requestIdPlugin);
   await app.register(envelopePlugin);
-  app.decorate('requireAdmin', async (req: import('fastify').FastifyRequest) => {
-    if (role === null) {
-      throw new ApiError('Admin session required', {
-        status: 401,
-        code: 'admin_required',
-        type: 'authentication_error',
-      });
-    }
-    req.admin = {
-      user: { id: 7, accessLevel: role, active: 1 } as never,
-      session: { id: 1 } as never,
-    };
-  });
-  app.decorate('resolveAdmin', async () => null);
+  await registerCapabilityStack(app, { role });
   await registerAdminSkillSourceRoutes(
     app,
     { db: {} as never, env: {} as never, keyring: {} as never } as RouteContext,

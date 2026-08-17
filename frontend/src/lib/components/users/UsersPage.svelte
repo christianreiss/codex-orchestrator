@@ -21,6 +21,12 @@
     createWipeUsersMutation,
   } from "$lib/api/users";
   import { USER_ROLES, type AdminUser, type AdminUserPayload } from "$lib/api/types";
+  import { authStore } from "$lib/stores/auth";
+
+  // Every role may read the roster; only `users.manage` may change it. The
+  // server refuses regardless — this keeps a viewer from filling in a form
+  // that was never going to be accepted.
+  const canManage = $derived($authStore.can("users.manage"));
 
   const usersQuery = createUsersQuery();
   const createMut = createUserCreateMutation();
@@ -241,10 +247,12 @@
         </span>
       {/if}
     </p>
-    <Button onclick={openAdd}>
-      <Plus class="h-4 w-4" />
-      Add user
-    </Button>
+    {#if canManage}
+      <Button onclick={openAdd}>
+        <Plus class="h-4 w-4" />
+        Add user
+      </Button>
+    {/if}
   </div>
 </div>
 
@@ -265,6 +273,7 @@
   {sortKey}
   {sortDir}
   {pendingActiveIds}
+  {canManage}
   onSort={handleSort}
   onToggleActive={handleToggleActive}
   onEdit={openEdit}
@@ -272,16 +281,18 @@
   onClearFilter={() => (filter = "")}
 />
 
-<DangerZone description="Permanently delete every admin user account. This cannot be undone.">
-  <Button
-    variant="destructive"
-    onclick={() => (wipeOpen = true)}
-    disabled={totalCount === 0}
-  >
-    <Trash class="h-4 w-4" />
-    Wipe all users
-  </Button>
-</DangerZone>
+{#if canManage}
+  <DangerZone description="Permanently delete every admin user account. This cannot be undone.">
+    <Button
+      variant="destructive"
+      onclick={() => (wipeOpen = true)}
+      disabled={totalCount === 0}
+    >
+      <Trash class="h-4 w-4" />
+      Wipe all users
+    </Button>
+  </DangerZone>
+{/if}
 
 <UserFormDialog
   open={formOpen}

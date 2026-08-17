@@ -45,14 +45,8 @@
   let displayName = $state("");
   /** Revealed permanent links, by portal user id. Never fetched in bulk. */
   let links = $state<Record<number, string>>({});
-  const accessLevel = $derived(
-    ($authStore.user as (typeof $authStore.user & { access_level?: string }) | null)?.access_level,
-  );
-  const canMutate = $derived(
-    [...$authStore.roles, accessLevel ?? ""]
-      .map((role) => role.trim().toLowerCase())
-      .some((role) => role === "owner" || role === "admin"),
-  );
+  const canMutate = $derived($authStore.can("agent_portal.manage"));
+  const canRevealLink = $derived($authStore.can("agent_portal.reveal_link"));
 
   // Which user a confirm dialog is currently targeting.
   let actionTarget = $state<PortalUser | null>(null);
@@ -229,21 +223,28 @@
                   {portalUser.last_used_at ? `Last portal login ${portalUser.last_used_at}` : "Never signed in"}
                 </p>
               </div>
-              {#if canMutate}
+              {#if canRevealLink || canMutate}
                 <div class="flex flex-wrap items-center gap-1.5">
-                  {#if links[portalUser.id]}
-                    <Button size="sm" variant="outline" onclick={() => hideLink(portalUser)}>Hide link</Button>
-                  {:else}
-                    <Button size="sm" variant="outline" onclick={() => showLink(portalUser)}>Show link</Button>
+                  <!-- Showing the link is `agent_portal.reveal_link`, separate
+                       from managing the account: the URL is reusable bearer
+                       material and the server gates it on its own. -->
+                  {#if canRevealLink}
+                    {#if links[portalUser.id]}
+                      <Button size="sm" variant="outline" onclick={() => hideLink(portalUser)}>Hide link</Button>
+                    {:else}
+                      <Button size="sm" variant="outline" onclick={() => showLink(portalUser)}>Show link</Button>
+                    {/if}
                   {/if}
-                  <Button size="sm" variant="outline" onclick={() => setUserEnabled(portalUser)}>{portalUser.enabled ? "Disable" : "Enable"}</Button>
-                  <RowActions
-                    label={`Actions for ${portalUser.display_name}`}
-                    actions={[
-                      { label: "Rotate link", icon: RefreshCw, onClick: () => openRotate(portalUser) },
-                      { label: "Delete", icon: Trash2, destructive: true, onClick: () => openRemove(portalUser) },
-                    ]}
-                  />
+                  {#if canMutate}
+                    <Button size="sm" variant="outline" onclick={() => setUserEnabled(portalUser)}>{portalUser.enabled ? "Disable" : "Enable"}</Button>
+                    <RowActions
+                      label={`Actions for ${portalUser.display_name}`}
+                      actions={[
+                        { label: "Rotate link", icon: RefreshCw, onClick: () => openRotate(portalUser) },
+                        { label: "Delete", icon: Trash2, destructive: true, onClick: () => openRemove(portalUser) },
+                      ]}
+                    />
+                  {/if}
                 </div>
               {/if}
             </div>

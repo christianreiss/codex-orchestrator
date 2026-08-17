@@ -1,9 +1,8 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 
-import { ForbiddenError, UnauthorizedError, ValidationError } from '../../http/errors.js';
+import { ForbiddenError, ValidationError } from '../../http/errors.js';
 import { clientGone } from '../../http/long-poll.js';
-import { ROLE_ADMIN, ROLE_OWNER } from '../../services/admin-auth.js';
 import { createAdminEventsService } from '../../services/admin-events.js';
 import {
   createAgentMessagingService,
@@ -19,13 +18,12 @@ const BRIDGE_TOKEN_HEADER = 'x-agent-bridge-token';
 const RELAY_TOKEN_HEADER = 'x-agent-relay-token';
 const JSON_OBJECT_SCHEMA = z.object({}).catchall(z.unknown());
 
-export const requireAgentMessagingMutationRole = async (req: FastifyRequest): Promise<void> => {
-  if (!req.admin) throw new UnauthorizedError('Admin session required', 'admin_required');
-  const role = req.admin.user.accessLevel;
-  if (role !== ROLE_OWNER && role !== ROLE_ADMIN) {
-    throw new ForbiddenError('Insufficient access level', 'admin_role_required');
-  }
-};
+// The mutation gate that used to live here — owner and admin only — is now
+// `agent_messaging.manage` in `security/route-capabilities.ts`, applied by the
+// capabilities plugin. The same five host and CLI-approval routes that shared
+// this gate are `hosts.security_transition` there, and reveal is its own
+// capability. `app.requireAdmin` below still authenticates; it never
+// authorized.
 
 export async function registerAgentMessagingRoutes(
   app: FastifyInstance,
@@ -43,7 +41,7 @@ export async function registerAgentMessagingRoutes(
   );
   app.post(
     '/admin/agent-messaging/state',
-    { preHandler: [app.requireAdmin, requireAgentMessagingMutationRole] },
+    { preHandler: app.requireAdmin },
     async (req) => {
       const body = z.object({ enabled: z.boolean() }).strict().parse(req.body ?? {});
       const result = await messaging.setEnabled(body.enabled);
@@ -65,7 +63,7 @@ export async function registerAgentMessagingRoutes(
   );
   app.patch(
     '/admin/agent-messaging/addresses/:id',
-    { preHandler: [app.requireAdmin, requireAgentMessagingMutationRole] },
+    { preHandler: app.requireAdmin },
     async (req) => {
       const id = stringParam(req.params, 'id');
       const body = z.object({ alias: z.string().nullable().optional() }).strict().parse(req.body ?? {});
@@ -82,7 +80,7 @@ export async function registerAgentMessagingRoutes(
   );
   app.post(
     '/admin/agent-messaging/addresses/:id/enabled',
-    { preHandler: [app.requireAdmin, requireAgentMessagingMutationRole] },
+    { preHandler: app.requireAdmin },
     async (req) => {
       const id = stringParam(req.params, 'id');
       const body = z.object({ enabled: z.boolean() }).strict().parse(req.body ?? {});
@@ -106,7 +104,7 @@ export async function registerAgentMessagingRoutes(
   });
   app.post(
     '/admin/agent-messaging/conversations/:id/cancel',
-    { preHandler: [app.requireAdmin, requireAgentMessagingMutationRole] },
+    { preHandler: app.requireAdmin },
     async (req) => {
       const id = stringParam(req.params, 'id');
       const body = z.object({ reason: z.string().nullable().optional() }).strict().parse(req.body ?? {});
@@ -131,7 +129,7 @@ export async function registerAgentMessagingRoutes(
   });
   app.post(
     '/admin/agent-messaging/messages/:id/reveal',
-    { preHandler: [app.requireAdmin, requireAgentMessagingMutationRole] },
+    { preHandler: app.requireAdmin },
     async (req, reply) => {
       const id = stringParam(req.params, 'id');
       const result = await messaging.revealMessage(id);
@@ -149,7 +147,7 @@ export async function registerAgentMessagingRoutes(
   );
   app.post(
     '/admin/agent-messaging/messages/:id/redrive',
-    { preHandler: [app.requireAdmin, requireAgentMessagingMutationRole] },
+    { preHandler: app.requireAdmin },
     async (req) => {
       const id = stringParam(req.params, 'id');
       const result = await messaging.redriveMessage(id);

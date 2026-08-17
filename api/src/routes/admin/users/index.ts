@@ -2,8 +2,8 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import type { RouteContext } from '../../index.js';
 import { ok } from '../../../http/reply.js';
-import { ForbiddenError, NotFoundError, UnauthorizedError, ValidationError } from '../../../http/errors.js';
-import { ROLE_ADMIN, ROLE_OWNER, createAdminAuthService } from '../../../services/admin-auth.js';
+import { NotFoundError, UnauthorizedError, ValidationError } from '../../../http/errors.js';
+import { createAdminAuthService } from '../../../services/admin-auth.js';
 import { createAdminEventsService } from '../../../services/admin-events.js';
 import { createAdminUsersService } from '../../../services/admin-users.js';
 import { adminSpaHtmlPreHandler } from '../pages/static.js';
@@ -47,13 +47,6 @@ export async function registerAdminUsersRoutes(
   // own. When `req.admin` is unset (the bootstrap path above), there is
   // nothing to check yet — the service layer already requires the first
   // user to be an owner/admin.
-  const requireUserManagementRole = async (req: FastifyRequest): Promise<void> => {
-    const level = req.admin?.user.accessLevel;
-    if (level !== undefined && level !== ROLE_OWNER && level !== ROLE_ADMIN) {
-      throw new ForbiddenError('Insufficient access level', 'admin_role_required');
-    }
-  };
-
   // -----------------------------------------------------------------------
   // GET /admin/users
   // -----------------------------------------------------------------------
@@ -74,7 +67,7 @@ export async function registerAdminUsersRoutes(
   });
   app.post(
     '/admin/users',
-    { preHandler: [requireAdminOrBootstrap, requireUserManagementRole] },
+    { preHandler: requireAdminOrBootstrap },
     async (req: FastifyRequest) => {
       const body = createSchema.parse((req.body ?? {}) as Record<string, unknown>);
       const input = {
@@ -98,7 +91,7 @@ export async function registerAdminUsersRoutes(
   // -----------------------------------------------------------------------
   app.post(
     '/admin/users/wipe',
-    { preHandler: [app.requireAdmin, requireUserManagementRole] },
+    { preHandler: app.requireAdmin },
     async (req: FastifyRequest) => {
       const adminCtx = req.admin;
       if (!adminCtx) throw new UnauthorizedError();
@@ -126,7 +119,7 @@ export async function registerAdminUsersRoutes(
     .strict();
   app.post(
     '/admin/users/:id',
-    { preHandler: [app.requireAdmin, requireUserManagementRole] },
+    { preHandler: app.requireAdmin },
     async (req: FastifyRequest) => {
       const params = (req.params ?? {}) as { id?: string };
       const id = Number(params.id);
@@ -153,7 +146,7 @@ export async function registerAdminUsersRoutes(
   // -----------------------------------------------------------------------
   app.delete(
     '/admin/users/:id',
-    { preHandler: [app.requireAdmin, requireUserManagementRole] },
+    { preHandler: app.requireAdmin },
     async (req: FastifyRequest) => {
       const params = (req.params ?? {}) as { id?: string };
       const id = Number(params.id);

@@ -23,6 +23,7 @@ import { requestIdPlugin } from './http/plugins/request-id.js';
 import { makeClientIpPlugin } from './http/plugins/client-ip.js';
 import { makeAuthHostPlugin } from './http/plugins/auth-host.js';
 import { makeAuthAdminPlugin } from './http/plugins/auth-admin.js';
+import { makeCapabilitiesPlugin } from './http/plugins/capabilities.js';
 import { makeAuthMtlsPlugin } from './http/plugins/auth-mtls.js';
 import { corsPlugin } from './http/plugins/cors.js';
 
@@ -90,6 +91,9 @@ export async function buildServer() {
   await app.register(makeAuthMtlsPlugin(env));
   await app.register(makeAuthHostPlugin(db));
   await app.register(makeAuthAdminPlugin(db, env));
+  // Must precede route registration: its onRoute hook only sees routes added
+  // after it, and a route it never saw is a route it never gated.
+  await app.register(makeCapabilitiesPlugin());
   await app.register(envelopePlugin);
 
   await registerAllRoutes(app, { db, env, keyring });

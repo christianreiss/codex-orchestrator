@@ -8,6 +8,7 @@ import { createAdminEventsService } from '../../../services/admin-events.js';
 import { createAdminPasskeyService } from '../../../services/admin-passkey.js';
 import { createAdminPasswordService } from '../../../services/admin-password.js';
 import { createMailer } from '../../../services/mailer.js';
+import { capabilitiesForRole } from '../../../security/capabilities.js';
 
 /**
  * `/admin/auth/*` and `/admin/passkeys/*`. The status probe is public; login,
@@ -55,6 +56,12 @@ export async function registerAdminAuthRoutes(
       enforced: adminCount > 0,
       authenticated: Boolean(session),
       user: userPayload,
+      // The caller's row of the role→capability matrix. The console uses it to
+      // disable the controls a 403 would meet, so an operator sees what they
+      // may do before they try it — and it is the console's *only* source for
+      // that, so a stale UI cannot invent a permission. The server re-checks
+      // every request regardless; this is presentation, never authority.
+      capabilities: session ? [...capabilitiesForRole(session.user.accessLevel)] : [],
       passkeys_registered: passkeysRegistered,
       passkey_login_available: anyPasskey,
     });

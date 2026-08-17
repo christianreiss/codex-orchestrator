@@ -43,7 +43,6 @@ const { calls } = (await import(clientModule)) as { calls: RecordedCall[] };
 const sourceModule: string = "./skillSources.ts";
 const skillSources = (await import(sourceModule)) as typeof import("./skillSources");
 const {
-  canManageMattPocockSkillsSource,
   mattPocockSkillsApi,
   mattPocockSkillsKeys,
 } = skillSources;
@@ -106,27 +105,10 @@ describe("mattPocockSkillsKeys", () => {
   });
 });
 
-describe("canManageMattPocockSkillsSource", () => {
-  it("allows owner/admin roles from either auth-status representation", () => {
-    assert.equal(canManageMattPocockSkillsSource(["owner"]), true);
-    assert.equal(canManageMattPocockSkillsSource(["ADMIN"]), true);
-    assert.equal(canManageMattPocockSkillsSource([], "owner"), true);
-    assert.equal(canManageMattPocockSkillsSource(["viewer"], " admin "), true);
-  });
-
-  it("keeps every read-only and legacy role read-only", () => {
-    assert.equal(canManageMattPocockSkillsSource([], null), false);
-    assert.equal(canManageMattPocockSkillsSource(["viewer"]), false);
-    assert.equal(canManageMattPocockSkillsSource(["fleet_operator"], "trusted_user"), false);
-    assert.equal(canManageMattPocockSkillsSource(["user"], "viewer"), false);
-  });
-});
-
 describe("module surface", () => {
   it("exports only the source contract, client, keys, and trusted repository", () => {
     assert.deepEqual(Object.keys(skillSources).sort(), [
       "MATTPOCOCK_REPOSITORY",
-      "canManageMattPocockSkillsSource",
       "mattPocockSkillsApi",
       "mattPocockSkillsKeys",
     ]);

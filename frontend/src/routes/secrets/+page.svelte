@@ -8,6 +8,9 @@
   import NewSecretDialog from "$lib/components/secrets/NewSecretDialog.svelte";
   import { secretsApi, secretQueryKeys } from "$lib/api/secrets";
   import type { AdminSecret, AdminSecretsModuleState } from "$lib/api/types";
+  import { authStore } from "$lib/stores/auth";
+
+  const canManage = $derived($authStore.can("secrets.manage"));
 
   let dialogOpen = $state(false);
   let editing = $state<AdminSecret | null>(null);
@@ -79,7 +82,7 @@
       ? "Module is enabled. Agents can read secrets over MCP."
       : "Module is disabled. secret_get refuses every host until this is switched back on."}
     checked={moduleEnabled}
-    disabled={$stateQuery.isLoading || $toggleMutation.isPending}
+    disabled={!canManage || $stateQuery.isLoading || $toggleMutation.isPending}
     onCheckedChange={(next) => $toggleMutation.mutate(next)}
   >
     {#snippet notice()}

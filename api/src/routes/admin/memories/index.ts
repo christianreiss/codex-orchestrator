@@ -1,7 +1,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { RouteContext } from '../../index.js';
-import { ForbiddenError, UnauthorizedError, ValidationError } from '../../../http/errors.js';
-import { ROLE_ADMIN, ROLE_OWNER } from '../../../services/admin-auth.js';
+import { UnauthorizedError, ValidationError } from '../../../http/errors.js';
+import { roleHasCapability } from '../../../security/capabilities.js';
 import { AdminMemoriesService, MEMORY_SCOPES, type MemoryScope } from '../../../services/admin-memories.js';
 
 function scopeFrom(value: unknown): MemoryScope {
@@ -18,9 +18,14 @@ function recordIdFrom(value: unknown): number {
   return id;
 }
 
+/**
+ * Whether this caller may write memory. Read responses carry a per-record
+ * `capabilities` object so the console can disable the controls it would be
+ * refused on, and it has to answer the same question the route guard does —
+ * so both read it off the same matrix.
+ */
 function canMutate(req: FastifyRequest): boolean {
-  const role = req.admin?.user.accessLevel;
-  return role === ROLE_OWNER || role === ROLE_ADMIN;
+  return roleHasCapability(req.admin?.user.accessLevel ?? '', 'memory.write');
 }
 
 function setMemoryEtag(reply: FastifyReply, memory: { etag: string }): void {
@@ -29,11 +34,6 @@ function setMemoryEtag(reply: FastifyReply, memory: { etag: string }): void {
 
 export async function registerAdminMemoriesRoutes(app: FastifyInstance, ctx: RouteContext): Promise<void> {
   const memories = new AdminMemoriesService(ctx.db);
-  const requireMutationRole = async (req: FastifyRequest): Promise<void> => {
-    if (!req.admin) throw new UnauthorizedError('Admin session required', 'admin_required');
-    if (!canMutate(req)) throw new ForbiddenError('Insufficient access level', 'admin_role_required');
-  };
-
   app.get('/admin/memories/graph', { preHandler: app.requireAdmin }, async (req) => {
     return memories.graph((req.query ?? {}) as Record<string, unknown>, canMutate(req));
   });
@@ -55,7 +55,7 @@ export async function registerAdminMemoriesRoutes(app: FastifyInstance, ctx: Rou
 
   app.post(
     '/admin/memories/shared/:recordId/append',
-    { preHandler: [app.requireAdmin, requireMutationRole] },
+    { preHandler: app.requireAdmin },
     async (req, reply) => {
       const params = req.params as { recordId?: unknown };
       const body =
@@ -76,7 +76,7 @@ export async function registerAdminMemoriesRoutes(app: FastifyInstance, ctx: Rou
 
   app.post(
     '/admin/memories/:scope',
-    { preHandler: [app.requireAdmin, requireMutationRole] },
+    { preHandler: app.requireAdmin },
     async (req, reply) => {
       const params = req.params as { scope?: unknown };
       const body =
@@ -94,7 +94,7 @@ export async function registerAdminMemoriesRoutes(app: FastifyInstance, ctx: Rou
 
   app.patch(
     '/admin/memories/:scope/:recordId',
-    { preHandler: [app.requireAdmin, requireMutationRole] },
+    { preHandler: app.requireAdmin },
     async (req, reply) => {
       const params = req.params as { scope?: unknown; recordId?: unknown };
       const body =
@@ -122,7 +122,7 @@ export async function registerAdminMemoriesRoutes(app: FastifyInstance, ctx: Rou
 
   app.delete(
     '/admin/memories/:scope/:recordId',
-    { preHandler: [app.requireAdmin, requireMutationRole] },
+    { preHandler: app.requireAdmin },
     async (req) => {
       const params = req.params as { scope?: unknown; recordId?: unknown };
       const body =

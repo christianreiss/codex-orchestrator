@@ -21,6 +21,12 @@ export interface AuthStatus {
   authenticated: boolean;
   user: User | null;
   roles?: string[];
+  /**
+   * The caller's row of the server's role→capability matrix. Absent when the
+   * API predates the capability layer; the console then offers nothing beyond
+   * reads rather than assuming a permission it cannot confirm.
+   */
+  capabilities?: string[];
 }
 
 // projects feature ↓

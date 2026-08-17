@@ -1,7 +1,6 @@
-import type { FastifyInstance, FastifyRequest } from 'fastify';
+import type { FastifyInstance } from 'fastify';
 import type { RouteContext } from '../../index.js';
-import { ForbiddenError, UnauthorizedError, ValidationError } from '../../../http/errors.js';
-import { ROLE_ADMIN, ROLE_OWNER } from '../../../services/admin-auth.js';
+import { ValidationError } from '../../../http/errors.js';
 import {
   MattPocockSkillsService,
   type SkillSourceState,
@@ -17,10 +16,6 @@ export interface AdminSkillSourceRouteOptions {
   mattPocock?: MattPocockSkillSourceRouteService;
 }
 
-function canMutate(req: FastifyRequest): boolean {
-  const role = req.admin?.user.accessLevel;
-  return role === ROLE_OWNER || role === ROLE_ADMIN;
-}
 
 function updateBody(value: unknown): { enabled?: boolean; auto_update?: boolean } {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -56,24 +51,19 @@ export async function registerAdminSkillSourceRoutes(
   options: AdminSkillSourceRouteOptions = {},
 ): Promise<void> {
   const source = options.mattPocock ?? new MattPocockSkillsService(ctx.db);
-  const requireSourceMutationRole = async (req: FastifyRequest): Promise<void> => {
-    if (!req.admin) throw new UnauthorizedError('Admin session required', 'admin_required');
-    if (!canMutate(req)) throw new ForbiddenError('Insufficient access level', 'admin_role_required');
-  };
-
   app.get('/admin/skill-sources/mattpocock', { preHandler: app.requireAdmin }, async () => {
     return source.getState();
   });
 
   app.post(
     '/admin/skill-sources/mattpocock',
-    { preHandler: [app.requireAdmin, requireSourceMutationRole] },
+    { preHandler: app.requireAdmin },
     async (req) => source.configure(updateBody(req.body)),
   );
 
   app.post(
     '/admin/skill-sources/mattpocock/refresh',
-    { preHandler: [app.requireAdmin, requireSourceMutationRole] },
+    { preHandler: app.requireAdmin },
     async (req) => {
       emptyBody(req.body);
       return source.refresh({ force: true });

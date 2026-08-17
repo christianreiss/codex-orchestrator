@@ -2,21 +2,26 @@ import { describe, it, expect } from 'vitest';
 import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { isCapability } from '../../../src/security/capabilities.js';
 
 /**
- * `docs/ADMIN.md` and `docs/LOGIN.md` used to document a four-role capability
+ * `docs/ADMIN.md` and `docs/LOGIN.md` once documented a four-role capability
  * matrix (`admin`/`fleet_operator`/`trusted_user`/`user` mapping to
- * `settings.manage`, `hosts.manage`, `hosts.activate`) and annotated roughly
- * thirty routes with those capability names. None of those strings existed
- * anywhere in `api/src`: `requireAdmin` checks a resolvable session on an
- * active user and nothing else, and the only role gates are the owner/admin
- * checks on admin memories and admin users. Documented authorization that the
- * app does not perform is the worst kind of drift, so this scan holds both docs
- * against the source.
+ * `settings.manage`, `hosts.manage`, `hosts.activate`) that no file under
+ * `api/src` implemented. That drift is what this scan was written to catch, and
+ * catching it is why both docs were rewritten to describe the session check
+ * that actually ran.
  *
- * A doc fails here when it names a capability token or a role that no file
- * under `api/src` references, or when it stops describing a role the API
- * accepts as an `access_level`.
+ * There is a capability system now, so the check tightens rather than
+ * disappears: a documented capability must be a member of `CAPABILITIES`, not
+ * merely a string that appears somewhere in the tree. A near-miss like
+ * `hosts.activate` — which reads as real, and which the removed matrix
+ * genuinely used — fails here instead of quietly promising an operator a
+ * permission the matrix cannot grant.
+ *
+ * A doc fails here when it names a capability that is not in the vocabulary or
+ * a role that no file under `api/src` references, or when it stops describing a
+ * role the API accepts as an `access_level`.
  */
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -27,7 +32,7 @@ const ADMIN_AUTH = join(API_SRC, 'services/admin-auth.ts');
 const DOC_NAMES = ['ADMIN.md', 'LOGIN.md'] as const;
 
 /** The section in both docs that describes the role model. */
-const ROLES_HEADING = '## Roles & Role Gates';
+const ROLES_HEADING = '## Roles & Capabilities';
 
 const CODE_SPAN = /`([^`\n]+)`/g;
 
@@ -125,23 +130,24 @@ describe('admin doc role and capability claims', () => {
       );
     }
     // The old matrix, as it was written, is what this scan has to catch.
-    const sample = '  - Delete host: `DELETE /admin/hosts/{id}` (`hosts.manage`).';
+    const sample = '  - Open a window: `POST /admin/hosts/{id}/insecure` (`hosts.activate`).';
     expect(codeSpans(sample).map((span) => span.token).filter((t) => CAPABILITY.test(t))).toEqual([
-      'hosts.manage',
+      'hosts.activate',
     ]);
-    expect(referenced('hosts.manage')).toBe(false);
+    expect(isCapability('hosts.activate')).toBe(false);
+    expect(isCapability('hosts.activate_insecure')).toBe(true);
     expect(referenced('trusted_user')).toBe(true);
   });
 
-  it('names no capability token the API never references', () => {
+  it('names no capability outside the vocabulary', () => {
     const invented = docs.flatMap((doc) =>
       codeSpans(doc.markdown)
-        .filter((span) => CAPABILITY.test(span.token) && !referenced(span.token))
+        .filter((span) => CAPABILITY.test(span.token) && !isCapability(span.token))
         .map((span) => `docs/${doc.name}:${span.line} documents capability ${span.token}`),
     );
     expect(
       invented,
-      'the Node API has no capability system; document the role gate that exists instead',
+      'not a member of CAPABILITIES in src/security/capabilities.ts — no role can hold it',
     ).toEqual([]);
   });
 

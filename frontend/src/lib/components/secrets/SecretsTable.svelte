@@ -22,9 +22,16 @@
   import { secretsApi, secretQueryKeys, engineScopeLabel, agentUsage, ownerLabel } from "$lib/api/secrets";
   import type { AdminSecret, AdminSecretRevealResponse } from "$lib/api/types";
   import { relativeTime } from "$lib/utils/format";
+  import { authStore } from "$lib/stores/auth";
+  import { missingCapabilityReason } from "$lib/auth/capabilities";
 
   type Props = { onEdit?: (secret: AdminSecret) => void; onCreate?: () => void };
   let { onEdit, onCreate }: Props = $props();
+
+  // Metadata is readable by every role; the plaintext and the lifecycle are
+  // two separate grants, and the server enforces both independently.
+  const canReveal = $derived($authStore.can("secrets.reveal"));
+  const canManage = $derived($authStore.can("secrets.manage"));
 
   const qc = useQueryClient();
   const listKey = secretQueryKeys.list();
@@ -228,14 +235,23 @@
                   {
                     label: "Reveal",
                     icon: Eye,
-                    disabled: $revealMutation.isPending,
+                    disabled: !canReveal || $revealMutation.isPending,
+                    reason: canReveal ? undefined : missingCapabilityReason("secrets.reveal"),
                     onClick: () => $revealMutation.mutate(secret.id),
                   },
-                  { label: "Edit", icon: Pencil, onClick: () => onEdit?.(secret) },
+                  {
+                    label: "Edit",
+                    icon: Pencil,
+                    disabled: !canManage,
+                    reason: canManage ? undefined : missingCapabilityReason("secrets.manage"),
+                    onClick: () => onEdit?.(secret),
+                  },
                   {
                     label: "Revoke",
                     icon: Trash2,
                     destructive: true,
+                    disabled: !canManage,
+                    reason: canManage ? undefined : missingCapabilityReason("secrets.manage"),
                     onClick: () => (deleteTarget = secret),
                   },
                 ]}

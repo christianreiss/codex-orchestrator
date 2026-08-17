@@ -2,7 +2,7 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import type { RouteContext } from '../index.js';
-import { ForbiddenError, UnauthorizedError, ValidationError } from '../../http/errors.js';
+import { ForbiddenError, ValidationError } from '../../http/errors.js';
 import { clientGone } from '../../http/long-poll.js';
 import { ok } from '../../http/reply.js';
 import { createAdminEventsService } from '../../services/admin-events.js';
@@ -11,7 +11,6 @@ import {
   createAgentPortalService,
   type AgentEventInput,
 } from '../../services/agent-portal.js';
-import { ROLE_ADMIN, ROLE_OWNER } from '../../services/admin-auth.js';
 import { createHostAuthService } from '../../services/host-auth.js';
 import { createInsecureWindowService } from '../../services/insecure-window.js';
 import { parseEngine } from '../../util/engine.js';
@@ -28,19 +27,14 @@ export async function registerAgentPortalAdminHostRoutes(
   const portal = createAgentPortalService(ctx.db, ctx.env, ctx.keyring);
   const messaging = createAgentMessagingService(ctx.db, ctx.env, ctx.keyring);
   const events = createAdminEventsService(ctx.db);
-  const requireAgentPortalMutationRole = async (req: FastifyRequest): Promise<void> => {
-    if (!req.admin) throw new UnauthorizedError('Admin session required', 'admin_required');
-    const role = req.admin.user.accessLevel;
-    if (role !== ROLE_OWNER && role !== ROLE_ADMIN) {
-      throw new ForbiddenError('Insufficient access level', 'admin_role_required');
-    }
-  };
+  // Now `agent_portal.manage`, with the permanent-link read carved out as
+  // `agent_portal.reveal_link` — see `security/route-capabilities.ts`.
 
   app.get('/admin/agent-portal/state', { preHandler: app.requireAdmin }, async () =>
     ok(await portal.state()),
   );
 
-  app.post('/admin/agent-portal/state', { preHandler: [app.requireAdmin, requireAgentPortalMutationRole] }, async (req) => {
+  app.post('/admin/agent-portal/state', { preHandler: app.requireAdmin }, async (req) => {
     const body = z.object({ enabled: z.boolean() }).parse(req.body ?? {});
     const result = await portal.setEnabled(body.enabled);
     await events.record({
@@ -59,7 +53,7 @@ export async function registerAgentPortalAdminHostRoutes(
     ok({ users: await portal.listUsers() }),
   );
 
-  app.post('/admin/agent-portal/users', { preHandler: [app.requireAdmin, requireAgentPortalMutationRole] }, async (req) => {
+  app.post('/admin/agent-portal/users', { preHandler: app.requireAdmin }, async (req) => {
     const body = z
       .object({ display_name: z.string(), enabled: z.boolean().optional() })
       .parse(req.body ?? {});
@@ -78,7 +72,7 @@ export async function registerAgentPortalAdminHostRoutes(
     return ok(result);
   });
 
-  app.post('/admin/agent-portal/users/:id', { preHandler: [app.requireAdmin, requireAgentPortalMutationRole] }, async (req) => {
+  app.post('/admin/agent-portal/users/:id', { preHandler: app.requireAdmin }, async (req) => {
     const id = parsePositiveId(req.params);
     const body = z
       .object({ display_name: z.string().optional() })
@@ -92,7 +86,7 @@ export async function registerAgentPortalAdminHostRoutes(
     return ok({ user });
   });
 
-  app.post('/admin/agent-portal/users/:id/enabled', { preHandler: [app.requireAdmin, requireAgentPortalMutationRole] }, async (req) => {
+  app.post('/admin/agent-portal/users/:id/enabled', { preHandler: app.requireAdmin }, async (req) => {
     const id = parsePositiveId(req.params);
     const body = z.object({ enabled: z.boolean() }).parse(req.body ?? {});
     const result = await portal.setUserEnabled(id, body.enabled);
@@ -109,7 +103,7 @@ export async function registerAgentPortalAdminHostRoutes(
     return ok(result);
   });
 
-  app.post('/admin/agent-portal/users/:id/rotate', { preHandler: [app.requireAdmin, requireAgentPortalMutationRole] }, async (req) => {
+  app.post('/admin/agent-portal/users/:id/rotate', { preHandler: app.requireAdmin }, async (req) => {
     const id = parsePositiveId(req.params);
     const result = await portal.rotateUser(id);
     await events.record({
@@ -127,7 +121,7 @@ export async function registerAgentPortalAdminHostRoutes(
   // after creation. Gated to owner/admin and audited: `GET /admin/agent-portal/
   // users` is open to every admin session, including `viewer`, and must never
   // carry bearer material.
-  app.get('/admin/agent-portal/users/:id/link', { preHandler: [app.requireAdmin, requireAgentPortalMutationRole] }, async (req) => {
+  app.get('/admin/agent-portal/users/:id/link', { preHandler: app.requireAdmin }, async (req) => {
     const id = parsePositiveId(req.params);
     const result = await portal.revealUserLink(id);
     await events.record({
@@ -137,7 +131,7 @@ export async function registerAgentPortalAdminHostRoutes(
     return ok(result);
   });
 
-  app.delete('/admin/agent-portal/users/:id', { preHandler: [app.requireAdmin, requireAgentPortalMutationRole] }, async (req) => {
+  app.delete('/admin/agent-portal/users/:id', { preHandler: app.requireAdmin }, async (req) => {
     const id = parsePositiveId(req.params);
     const result = await portal.deleteUser(id);
     await events.record({

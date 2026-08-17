@@ -24,7 +24,8 @@
     "test:fixtures": "vitest run test/unit/security",
     "drizzle:generate": "drizzle-kit generate",
     "drizzle:push": "drizzle-kit push",
-    "drizzle:studio": "drizzle-kit studio"
+    "drizzle:studio": "drizzle-kit studio",
+    "docs:capabilities": "tsx scripts/render-capability-docs.ts"
   },
   "dependencies": {
     "@fastify/cookie": "^11.0.2",

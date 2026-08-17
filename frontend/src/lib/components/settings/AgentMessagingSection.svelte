@@ -40,14 +40,7 @@
     },
   });
   const data = $derived($query.data);
-  const accessLevel = $derived(
-    ($authStore.user as (typeof $authStore.user & { access_level?: string }) | null)?.access_level,
-  );
-  const canMutate = $derived(
-    [...$authStore.roles, accessLevel ?? ""]
-      .map((role) => role.trim().toLowerCase())
-      .some((role) => role === "owner" || role === "admin"),
-  );
+  const canMutate = $derived($authStore.can("agent_messaging.manage"));
   // Deliberately unconditional. Gating this on `canMutate` would capture that
   // value once at mount, and the auth store can resolve after it — a viewer
   // promoted mid-session, or simply a slow bootstrap, would leave the query

@@ -57,8 +57,8 @@ export class UnauthorizedError extends ApiError {
 }
 
 export class ForbiddenError extends ApiError {
-  constructor(message = 'Forbidden', code = 'forbidden') {
-    super(message, { status: 403, code, type: 'permission_error' });
+  constructor(message = 'Forbidden', code = 'forbidden', extra?: Record<string, unknown>) {
+    super(message, { status: 403, code, type: 'permission_error', extra });
   }
 }
 
