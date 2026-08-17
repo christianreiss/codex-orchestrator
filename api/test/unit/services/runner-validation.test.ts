@@ -395,7 +395,8 @@ describe('runner-validation: canonicalize + digest', () => {
       withFallback,
       svc.normalizeAuthEntries(withFallback, 'claude'),
       '2026-01-01T00:00:00Z',
-    );
+'claude',
+);
     // The native object survives canonicalization with refreshToken/expiresAt/scopes
     // intact — so the host receives a real .credentials.json, not just a bearer.
     expect(canonical.claudeAiOauth).toEqual(oauth);
@@ -466,7 +467,8 @@ describe('runner-validation: canonicalize + digest', () => {
       { auths: { 'api.openai.com': { token: 'valid-openai-token-123' } }, tokens: { access_token: 'x' } },
       svc.normalizeAuthEntries({ auths: { 'api.openai.com': { token: 'valid-openai-token-123' } } }, 'codex'),
       '2026-01-01T00:00:00Z',
-    );
+'codex',
+);
     expect(canonical.claudeAiOauth).toBeUndefined();
     expect(canonical.tokens).toEqual({ access_token: 'x' });
   });

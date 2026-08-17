@@ -1439,6 +1439,7 @@ describe('CanonicalAuthStoreService', () => {
         current,
         validation.normalizeAuthEntries(current, engine),
         current.last_refresh,
+        engine,
       );
       const encoded = JSON.stringify(canonical);
       db.tables.set(authPayloads, [
@@ -1486,7 +1487,8 @@ describe('CanonicalAuthStoreService', () => {
       CLAUDE_AUTH,
       validation.normalizeAuthEntries(CLAUDE_AUTH, 'claude'),
       CLAUDE_AUTH.last_refresh,
-    );
+'claude',
+);
     const encoded = JSON.stringify(canonical);
     db.tables.set(authPayloads, [
       {
@@ -1559,7 +1561,8 @@ describe('CanonicalAuthStoreService', () => {
         current,
         validation.normalizeAuthEntries(current, 'codex'),
         ceilingStamp,
-      );
+'codex',
+);
       const encoded = JSON.stringify(canonical);
       db.tables.set(authPayloads, [
         {
@@ -1612,7 +1615,8 @@ describe('CanonicalAuthStoreService', () => {
       CODEX_AUTH,
       validationA.normalizeAuthEntries(CODEX_AUTH, 'codex'),
       CODEX_AUTH.last_refresh,
-    );
+'codex',
+);
     const encoded = JSON.stringify(canonical);
     const digest = validationA.calculateDigest(encoded);
     db.tables.set(authPayloads, [
@@ -1741,7 +1745,8 @@ describe('CanonicalAuthStoreService', () => {
       validation.ensureAuthsFallback(CODEX_AUTH, 'codex'),
       validation.normalizeAuthEntries(validation.ensureAuthsFallback(CODEX_AUTH, 'codex'), 'codex'),
       '2026-07-17T09:00:00Z',
-    );
+'codex',
+);
     const failedBody = JSON.stringify(failedAuth);
     db.tables.set(authPayloads, [
       {
@@ -1855,7 +1860,8 @@ describe('CanonicalAuthStoreService', () => {
       CODEX_AUTH,
       validation.normalizeAuthEntries(CODEX_AUTH, 'codex'),
       '2026-07-17T09:00:00Z',
-    );
+'codex',
+);
     const failedBody = JSON.stringify(failedAuth);
     db.tables.set(authPayloads, [
       {
@@ -1910,7 +1916,8 @@ describe('CanonicalAuthStoreService', () => {
       pendingWithFallback,
       validation.normalizeAuthEntries(pendingWithFallback, 'codex'),
       pendingSource.last_refresh,
-    );
+'codex',
+);
     const pendingBody = JSON.stringify(pendingAuth);
     db.tables.set(authPayloads, [
       {
@@ -1971,7 +1978,8 @@ describe('CanonicalAuthStoreService', () => {
         withFallback,
         validation.normalizeAuthEntries(withFallback, 'codex'),
         stamp,
-      );
+'codex',
+);
       const body = JSON.stringify(canonical);
       return {
         id,
@@ -2448,7 +2456,8 @@ describe('ensureServedVerification (launch-gate proof)', () => {
       CLAUDE_AUTH,
       validation.normalizeAuthEntries(CLAUDE_AUTH, 'claude'),
       CLAUDE_AUTH.last_refresh,
-    );
+'claude',
+);
     const encoded = JSON.stringify(canonical);
     const digest = validation.calculateDigest(encoded);
     db.tables.set(authPayloads, [

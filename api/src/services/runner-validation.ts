@@ -69,11 +69,18 @@ export interface RunnerValidationService {
   ensureAuthsFallback(payload: Record<string, unknown>, engine: Engine): Record<string, unknown>;
   normalizeAuthEntries(payload: Record<string, unknown>, engine: Engine): NormalizedAuthEntry[];
   hasUsableEngineCredential(payload: Record<string, unknown>, engine: Engine): boolean;
+  /**
+   * `engine` is required, not inferred. The canonical head is per engine, and
+   * guessing it from the credential shape silently filed ambiguous payloads —
+   * empty ones, and ones carrying both families — as Codex. Callers that must
+   * derive it use `inferCanonicalEngine`, which answers `null` when it cannot
+   * tell.
+   */
   canonicalizeAuthPayload(
     payload: Record<string, unknown>,
     entries: NormalizedAuthEntry[],
     lastRefresh: string,
-    engine?: Engine,
+    engine: Engine,
   ): Record<string, unknown>;
   calculateDigest(canonicalJson: string): string;
 }
@@ -307,8 +314,8 @@ export function createRunnerValidationService(deps: RunnerValidationDeps): Runne
         .some((entry) => entry.target === nativeTarget);
     },
 
-    canonicalizeAuthPayload(payload, entries, lastRefresh, requestedEngine) {
-      const engine = requestedEngine ?? inferCanonicalEngine(entries);
+    canonicalizeAuthPayload(payload, entries, lastRefresh, engine) {
+      assertCanonicalEngineConsistent(entries, engine);
       const nativeTarget = engine === ENGINE_CLAUDE ? 'api.anthropic.com' : 'api.openai.com';
       const canonical: Record<string, unknown> = {
         last_refresh: lastRefresh,
@@ -391,10 +398,49 @@ function projectNativeEntry(
   };
 }
 
-function inferCanonicalEngine(entries: NormalizedAuthEntry[]): Engine {
+/**
+ * The engine a set of normalized auth entries unambiguously belongs to.
+ *
+ * `null` means "cannot tell" — no native entry at all, or both families
+ * present — and the caller must then require an explicit engine. The previous
+ * form was `hasAnthropic && !hasOpenAi ? claude : codex`, so *every* ambiguous
+ * case became Codex: an empty payload, a payload holding both an OpenAI and an
+ * Anthropic credential, a payload holding neither. A dual-credential upload
+ * with no engine was silently filed as Codex, discarding the Anthropic half and
+ * stamping the wrong engine's canonical head.
+ */
+export function inferCanonicalEngine(entries: readonly NormalizedAuthEntry[]): Engine | null {
   const hasAnthropic = entries.some((entry) => entry.target === 'api.anthropic.com');
   const hasOpenAi = entries.some((entry) => entry.target === 'api.openai.com');
-  return hasAnthropic && !hasOpenAi ? ENGINE_CLAUDE : ENGINE_CODEX;
+  if (hasAnthropic === hasOpenAi) return null;
+  return hasAnthropic ? ENGINE_CLAUDE : ENGINE_CODEX;
+}
+
+/**
+ * Reject an engine that contradicts the credentials it is filed under.
+ *
+ * A canonical record is single-engine by construction, so an explicit engine
+ * that names one family while the entries carry the other is a mislabelled
+ * upload, not something to normalize away.
+ */
+export function assertCanonicalEngineConsistent(
+  entries: readonly NormalizedAuthEntry[],
+  engine: Engine,
+): void {
+  const foreignTarget = engine === ENGINE_CLAUDE ? 'api.openai.com' : 'api.anthropic.com';
+  if (entries.some((entry) => entry.target === foreignTarget)) {
+    throw new ValidationError(
+      `canonical payload declared engine ${engine} but carries ${foreignTarget} credentials`,
+      { param: 'engine' },
+    );
+  }
+  const inferred = inferCanonicalEngine(entries);
+  if (inferred !== null && inferred !== engine) {
+    throw new ValidationError(
+      `canonical payload declared engine ${engine} but its credentials are ${inferred}`,
+      { param: 'engine' },
+    );
+  }
 }
 
 function nativeAuthsToken(payload: Record<string, unknown>, engine: Engine): string {

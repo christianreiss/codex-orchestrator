@@ -29,7 +29,7 @@ import {
 import { parseReverseDnsModeInput, tinyintToModeString } from '../../../services/reverse-dns.js';
 import { hostEnginesList } from '../../../services/host-engine-policy.js';
 import { hostAuthDigests, type Host } from '../../../db/schema.js';
-import { ENGINE_CODEX, ENGINE_CLAUDE, isEngine, type Engine } from '../../../util/engine.js';
+import { ENGINE_CODEX, ENGINE_CLAUDE, isEngine, parseEngine, type Engine } from '../../../util/engine.js';
 import { requireAgentMessagingMutationRole } from '../../agent-messaging/index.js';
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -339,7 +339,9 @@ export async function registerAdminHostsRoutes(
     handler: async (req) => {
       const id = parseId((req.params as { id: string }).id);
       const query = (req.query ?? {}) as { engine?: string; include_body?: string };
-      const engine: Engine = isEngine(query.engine) ? query.engine : ENGINE_CODEX;
+      // Absent means Codex for compatibility; a present-but-invalid value is
+      // a caller error, not a reason to read the other engine's canonical auth.
+      const engine: Engine = parseEngine(query.engine, ENGINE_CODEX);
       const includeBody = parseIncludeBody(query.include_body);
       const host = await hostService.requireById(id);
       const view = await authView(host, engine, includeBody);

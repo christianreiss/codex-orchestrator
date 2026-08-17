@@ -303,8 +303,17 @@ describe('agents store', () => {
     await svc.store('alpha', null, 7, 'claude');
     expect((db.tables.get(agentsDocuments) ?? [])[0]).toMatchObject({ sourceHostId: 7, engine: 'claude' });
 
-    // Unknown engines fall back to codex rather than rejecting.
-    await svc.store('beta', null, null, 'gemini');
+    // An unknown engine is rejected. It used to fall back to Codex, so a typo
+    // in the engine field wrote the document against the wrong engine's fleet
+    // policy and reported success.
+    await expect(svc.store('beta', null, null, 'gemini')).rejects.toThrow(
+      /engine must be "codex" or "claude"/,
+    );
+    expect((db.tables.get(agentsDocuments) ?? []).length).toBe(1);
+
+    // Omitting the engine still means Codex, which is what the older wrappers
+    // and the admin surface both rely on.
+    await svc.store('gamma', null, null, undefined);
     expect((db.tables.get(agentsDocuments) ?? [])[0]).toMatchObject({ engine: 'codex' });
   });
 

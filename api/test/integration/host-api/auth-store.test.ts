@@ -408,7 +408,8 @@ describe('POST /auth command=retrieve quota lane shaping', () => {
       withFallback,
       validation.normalizeAuthEntries(withFallback, 'codex'),
       canonicalStamp,
-    );
+'codex',
+);
     const encoded = JSON.stringify(canonical);
     const canonicalDigest = validation.calculateDigest(encoded);
     db.tables.set(authPayloads, [
@@ -586,7 +587,8 @@ describe('POST /auth command=retrieve quota lane shaping', () => {
       withFallback,
       validation.normalizeAuthEntries(withFallback, 'claude'),
       stamp,
-    );
+'claude',
+);
     const encoded = JSON.stringify(canonical);
     db.tables.set(authPayloads, [
       {

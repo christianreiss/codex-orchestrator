@@ -94,7 +94,8 @@ function seedVerifiedCodexCanonical(
     { auths },
     validation.normalizeAuthEntries({ auths }, 'codex'),
     stamp,
-  );
+'codex',
+);
   const encoded = JSON.stringify(canonical);
   db.tables.set(authPayloads, [
     {
@@ -137,7 +138,8 @@ function seedClaudeCanonical(
     withFallback,
     validation.normalizeAuthEntries(withFallback, 'claude'),
     stamp,
-  );
+'claude',
+);
   const encoded = JSON.stringify(auth);
   const digest = createHash('sha256').update(encoded).digest('hex');
   db.tables.set(authPayloads, [
@@ -540,6 +542,7 @@ describe('POST /sync/bootstrap inlines agents + config', () => {
         'claude',
       ),
       '2026-05-20T09:00:00Z',
+      'claude',
     );
     const encoded = JSON.stringify(canonical);
     const digest = createHash('sha256').update(encoded).digest('hex');
@@ -677,7 +680,8 @@ describe('POST /sync/bootstrap inlines agents + config', () => {
       { auths: staleAuths },
       runnerValidation.normalizeAuthEntries({ auths: staleAuths }, 'codex'),
       staleStamp,
-    );
+'codex',
+);
     const encoded = JSON.stringify(canonical);
     db.tables.set(authPayloads, [
       {
@@ -784,7 +788,8 @@ describe('POST /sync/bootstrap inlines agents + config', () => {
         withFallback,
         validation.normalizeAuthEntries(withFallback, 'claude'),
         stamp,
-      );
+'claude',
+);
       const encoded = JSON.stringify(canonical);
       db.tables.set(authPayloads, [
         {
@@ -871,7 +876,8 @@ describe('POST /sync/bootstrap inlines agents + config', () => {
       withFallback,
       runnerValidation.normalizeAuthEntries(withFallback, 'claude'),
       canonicalStamp,
-    );
+'claude',
+);
     const encoded = JSON.stringify(canonical);
     db.tables.set(authPayloads, [
       {
@@ -1050,7 +1056,8 @@ describe('POST /sync/bootstrap inlines agents + config', () => {
       failedWithAuths,
       validation.normalizeAuthEntries(failedWithAuths, 'codex'),
       failedStamp,
-    );
+'codex',
+);
     const failedBody = JSON.stringify(failedCanonical);
     db.tables.set(authPayloads, [
       {

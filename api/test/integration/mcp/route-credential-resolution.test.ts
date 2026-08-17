@@ -109,8 +109,20 @@ const fallthroughBearers: Array<[string, string]> = [
 const engineHeaders: Array<[string | undefined, string]> = [
   ['codex', 'codex'],
   ['claude', 'claude'],
-  ['gemini', 'codex'],
   [undefined, 'codex'],
+];
+
+/**
+ * Values that name an engine and get it wrong. Each used to dispatch as Codex.
+ * `/auth` rejected the same strings, so one malformed header meant MCP wrote
+ * state against an engine the caller never asked for.
+ */
+const invalidEngineHeaders = ['gemini', 'clude', '', 'codex,claude', 'codex;claude'];
+
+/** Case and surrounding whitespace are normalized, exactly as `/auth` does. */
+const normalizedEngineHeaders: Array<[string, string]> = [
+  ['Codex ', 'codex'],
+  [' CLAUDE', 'claude'],
 ];
 
 describe('POST /mcp credential resolution', () => {
@@ -195,6 +207,27 @@ describe('POST /mcp credential resolution', () => {
 
     expect(r.statusCode).toBe(200);
     expect(h.contexts[0]?.engine).toBe(expected);
+    await h.app.close();
+  });
+
+  it.each(normalizedEngineHeaders)('normalizes x-engine %j to %s', async (header, expected) => {
+    const h = await buildHarness();
+    const r = await post(h.app, { 'x-api-key': HOST_KEY, 'x-engine': header });
+
+    expect(r.statusCode).toBe(200);
+    expect(h.contexts[0]?.engine).toBe(expected);
+    await h.app.close();
+  });
+
+  it.each(invalidEngineHeaders)('rejects x-engine %j instead of dispatching it as Codex', async (header) => {
+    const h = await buildHarness();
+    const r = await post(h.app, { 'x-api-key': HOST_KEY, 'x-engine': header });
+
+    expect(r.statusCode).toBe(422);
+    expect(JSON.parse(r.payload)).toMatchObject({ code: 'validation_failed' });
+    // Nothing was dispatched: the request never reached a tool with a guessed
+    // engine attached to it.
+    expect(h.contexts).toEqual([]);
     await h.app.close();
   });
 

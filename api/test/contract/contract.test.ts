@@ -183,7 +183,8 @@ function seedContractWorld(): { db: ReturnType<typeof createDbFake>; keyring: Ke
     { auths },
     validation.normalizeAuthEntries({ auths }, 'codex'),
     CANONICAL_STAMP,
-  );
+'codex',
+);
   const encoded = JSON.stringify(canonical);
   db.tables.set(authPayloads, [
     {

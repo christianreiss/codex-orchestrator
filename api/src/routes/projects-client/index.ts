@@ -22,28 +22,33 @@ import { HostClaudeArtifactsService } from '../../services/host-claude-artifacts
 import { normalizeKind } from '../../services/claude-frontmatter.js';
 import { McpMemoriesService } from '../../services/mcp-memories.js';
 import { SharedMemoriesService } from '../../services/shared-memories.js';
-import { ENGINE_CLAUDE, ENGINE_CODEX, isEngine, type Engine } from '../../util/engine.js';
+import { ENGINE_CLAUDE, ENGINE_CODEX, isEngine, parseEngine, type Engine } from '../../util/engine.js';
 import { UnauthorizedError, ValidationError } from '../../http/errors.js';
 import { assertHostEngineEnabled } from '../../services/host-engine-policy.js';
 
+/**
+ * Routing engine for a client request. An absent value is Codex for backward
+ * compatibility with wrappers that never sent one; a *present* value that is
+ * not an engine is rejected rather than quietly becoming Codex.
+ */
 function extractEngine(input: unknown): Engine {
   if (typeof input === 'object' && input !== null && !Array.isArray(input)) {
-    const e = (input as Record<string, unknown>)['engine'];
-    if (isEngine(e)) return e as Engine;
+    return parseEngine((input as Record<string, unknown>)['engine'], ENGINE_CODEX);
   }
   return ENGINE_CODEX;
 }
 
 /**
  * Engine as provenance rather than routing: shared memories are engine-agnostic,
- * so an absent/unknown engine records null instead of defaulting to Codex.
+ * so an absent engine records null instead of defaulting to Codex. A malformed
+ * one is still a caller error — recording `null` for `"clude"` would lose the
+ * provenance the caller was trying to state.
  */
 function extractEngineOrNull(input: unknown): Engine | null {
-  if (typeof input === 'object' && input !== null && !Array.isArray(input)) {
-    const e = (input as Record<string, unknown>)['engine'];
-    if (isEngine(e)) return e as Engine;
-  }
-  return null;
+  if (typeof input !== 'object' || input === null || Array.isArray(input)) return null;
+  const raw = (input as Record<string, unknown>)['engine'];
+  if (raw === undefined || raw === null || raw === '') return null;
+  return parseEngine(raw);
 }
 
 function parseSlug(raw: string): string {

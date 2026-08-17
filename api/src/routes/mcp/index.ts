@@ -18,7 +18,8 @@ import type { RouteContext } from '../index.js';
 import { raw } from '../../http/reply.js';
 import { ForbiddenError, UnauthorizedError } from '../../http/errors.js';
 import { extractApiKey, parseBearer } from '../../util/api-key-helpers.js';
-import { ENGINE_CODEX, isEngine } from '../../util/engine.js';
+import { resolveRequestEngine } from '../../util/engine-resolution.js';
+import { ENGINE_CODEX } from '../../util/engine.js';
 
 import { McpSessionService } from '../../services/mcp-session.js';
 import { McpAccessLogService } from '../../services/mcp-access-log.js';
@@ -159,8 +160,16 @@ export async function registerMcpRoutes(app: FastifyInstance, ctx: RouteContext)
     }
 
     const body = req.body;
-    const engineHeader = req.headers['x-engine'];
-    const engine = isEngine(engineHeader) ? engineHeader : ENGINE_CODEX;
+    // `isEngine(header) ? header : ENGINE_CODEX` used to live here, so
+    // `X-Engine: gemini` ran the request against Codex without a word — while
+    // `/auth` rejected that exact value. Both sides share one strict resolver
+    // now: a malformed header is a validation error, never a silent Codex.
+    //
+    // An *omitted* header still resolves to Codex, unchanged. That default is
+    // load-bearing for deployed wrappers, and a Claude-only host still gets a
+    // 403 `engine_disabled` from the check below rather than being quietly
+    // re-pointed at the engine it happens to have enabled.
+    const engine = resolveRequestEngine(req, undefined, { fallback: ENGINE_CODEX });
     assertHostEngineEnabled(host, engine);
     const result = await server.handlePayload(body, {
       host,
