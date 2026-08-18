@@ -19,6 +19,12 @@ import {
 } from './agent-security-levels.js';
 import { documentHeadings, type AgentPolicyProvenanceEntry } from './agent-policy-composer.js';
 import { RETIRED_AUTHORITY_SENTENCES_LONGEST_FIRST } from './agent-policy-legacy.js';
+import {
+  normalizeResponseVerbosityLevel,
+  renderResponseStyleOverride,
+  stripResponseStyleModule,
+  type ResponseVerbosityLevel,
+} from './agent-response-style.js';
 
 export const MANAGED_FEATURES_START = '<!-- cxx:managed-features:start -->';
 export const MANAGED_FEATURES_END = '<!-- cxx:managed-features:end -->';
@@ -56,6 +62,8 @@ export interface ManagedAgentFeatureSections {
   hard_stops: ManagedAgentFeatureSection;
   /** Absent below the levels that grant anything outright. */
   standing_authorizations: ManagedAgentFeatureSection;
+  /** Absent at verbosity level 0 (no-op) or when the response_style module is disabled. */
+  response_style: ManagedAgentFeatureSection;
   skills: ManagedAgentFeatureSection;
   memories: ManagedAgentFeatureSection;
   /** Compatibility alias for clients that consumed the former memory block. */
@@ -384,12 +392,24 @@ export function renderManagedAgentFeatures(
   context: ManagedAgentFeatureContext,
   levels?: SecurityLevels,
   baseProvenance?: readonly AgentPolicyProvenanceEntry[],
+  responseVerbosityLevel?: ResponseVerbosityLevel,
 ): RenderManagedAgentFeaturesResult {
   // Optional and defaulting to Standard so every existing call site keeps
   // compiling and keeps its current output. Posture is resolved per host by
   // the caller; a caller that does not resolve it gets today's policy.
   const resolvedLevels = levels ?? DEFAULT_SECURITY_LEVELS;
   const policy = renderSecurityPolicyMarkdown(resolvedLevels);
+
+  // Level 0 is a true no-op: no strip, no override, byte-identical to today.
+  // A non-zero level only takes effect if the static module text was actually
+  // found — an operator who disabled `response_style` entirely has nothing to
+  // override, and injecting one anyway would contradict the disabled module.
+  const resolvedVerbosity = normalizeResponseVerbosityLevel(responseVerbosityLevel ?? 0);
+  const overrideMarkdown = renderResponseStyleOverride(resolvedVerbosity);
+  const strippedBase = overrideMarkdown === null ? { body: baseBody, stripped: false } : stripResponseStyleModule(baseBody);
+  const responseStyleActive = overrideMarkdown !== null && strippedBase.stripped;
+  baseBody = strippedBase.body;
+
   const skills = skillsSection(context);
   const memory = memorySection(context);
   const projects = projectsSection(context);
@@ -419,6 +439,9 @@ export function renderManagedAgentFeatures(
     safety_floor: policySection(policy.sections.safety_floor),
     hard_stops: policySection(policy.sections.hard_stops),
     standing_authorizations: policySection(policy.sections.standing_authorizations),
+    response_style: responseStyleActive
+      ? { present: true, reason: 'level_override', sha256: sha256(overrideMarkdown as string) }
+      : { present: false, reason: overrideMarkdown === null ? 'level_0_default' : 'module_disabled' },
     skills: skillsMetadata,
     memories: memoryMetadata,
     memory_routing: memoryMetadata,
@@ -447,7 +470,8 @@ export function renderManagedAgentFeatures(
   );
   const renderedSections = presentFeatures.map((entry) => entry.section.text);
   const stripped = stripManagedContent(baseBody);
-  const policyBlock = `${MANAGED_POLICY_START}\n${policy.markdown}\n${MANAGED_POLICY_END}\n`;
+  const policyMarkdown = responseStyleActive ? `${policy.markdown}\n\n${overrideMarkdown}` : policy.markdown;
+  const policyBlock = `${MANAGED_POLICY_START}\n${policyMarkdown}\n${MANAGED_POLICY_END}\n`;
   const managedBlock = renderedSections.length === 0
     ? ''
     : `${MANAGED_FEATURES_START}\n${renderedSections.join('\n\n')}\n${MANAGED_FEATURES_END}\n`;
@@ -473,6 +497,14 @@ export function renderManagedAgentFeatures(
         headings: documentHeadings(text),
       });
     }
+  }
+  if (responseStyleActive) {
+    provenance.push({
+      key: 'policy:response_style',
+      label: 'Default Response Shape',
+      group: 'policy',
+      headings: documentHeadings(overrideMarkdown as string),
+    });
   }
   if (baseProvenance !== undefined) provenance.push(...baseProvenance.map((entry) => ({ ...entry })));
   else if (cleaned !== '') {

@@ -39,12 +39,14 @@ export const agentsApi = {
     draft: { composition: AgentPolicyComposition } | { content: string },
     engine: "codex" | "claude" = "codex",
     securityLevels?: Record<string, number>,
+    responseVerbosity?: number,
   ): Promise<AgentsRenderedDocument> {
     return api.post<AgentsRenderedDocument>("/admin/agents/render", {
       host_id: hostId,
       engine,
       ...draft,
       ...(securityLevels === undefined ? {} : { security_levels: securityLevels }),
+      ...(responseVerbosity === undefined ? {} : { response_verbosity: responseVerbosity }),
     });
   },
   store(payload: { content: string; sha256?: string | null } | { composition: AgentPolicyComposition }): Promise<AgentsStoreResult> {
@@ -74,3 +76,24 @@ export const agentsApi = {
 };
 
 export type { AgentsDocument, AgentsGenerationMode, AgentsRenderedDocument, AgentsVersion, AgentsStoreResult };
+
+export interface ResponseVerbosityLevelOption {
+  level: number;
+  label: string;
+}
+
+export interface ResponseVerbosityResponse {
+  level: number;
+  levels?: ResponseVerbosityLevelOption[];
+}
+
+export const responseVerbosityApi = {
+  /** GET /admin/response-verbosity — the fleet's saved response-length dial. */
+  get(): Promise<ResponseVerbosityResponse> {
+    return api.get<ResponseVerbosityResponse>("/admin/response-verbosity");
+  },
+  /** POST /admin/response-verbosity — persist the fleet response-length dial. */
+  set(level: number): Promise<ResponseVerbosityResponse> {
+    return api.post<ResponseVerbosityResponse>("/admin/response-verbosity", { level });
+  },
+};

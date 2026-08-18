@@ -696,3 +696,59 @@ describe('managed Agent Messaging guidance', () => {
     expect(body.slice(body.indexOf('## Agent Messaging'))).not.toMatch(/^-\s/m);
   });
 });
+
+describe('response verbosity dial', () => {
+  async function moduleBase() {
+    const { renderAgentPolicyBase, AGENT_POLICY_MODULE_IDS } = await import(
+      '../../../src/services/agent-policy-composer.js'
+    );
+    return renderAgentPolicyBase({
+      schema_version: 1,
+      template_id: 'fleet-standard',
+      template_version: 1,
+      enabled_modules: [...AGENT_POLICY_MODULE_IDS],
+      custom_instructions: '',
+    });
+  }
+
+  it('level 0 is a true no-op — byte-identical to omitting the param', async () => {
+    const base = await moduleBase();
+    const withoutLevel = renderManagedAgentFeatures(base.content, context(ENGINE_CODEX), undefined, undefined);
+    const withLevel0 = renderManagedAgentFeatures(base.content, context(ENGINE_CODEX), undefined, undefined, 0);
+    expect(withLevel0.body).toBe(withoutLevel.body);
+    expect(withLevel0.sections.response_style).toMatchObject({ present: false, reason: 'level_0_default' });
+    expect(withoutLevel.body).toContain(
+      '- Success: short and concise, with the clear result first. Less is more.',
+    );
+  });
+
+  it('a non-zero level replaces the module text exactly once, with no dangling separator', async () => {
+    const base = await moduleBase();
+    for (const level of [1, 2, 3, 4] as const) {
+      const out = renderManagedAgentFeatures(base.content, context(ENGINE_CODEX), undefined, undefined, level);
+      const headingCount = out.body.split('## Default Response Shape').length - 1;
+      expect(headingCount, `level ${level}`).toBe(1);
+      expect(out.body, `level ${level}`).not.toContain('short and concise, with the clear result first');
+      expect(out.body, `level ${level}`).not.toMatch(/---\s*---/);
+      expect(out.sections.response_style, `level ${level}`).toMatchObject({ present: true, reason: 'level_override' });
+    }
+    const minimal = renderManagedAgentFeatures(base.content, context(ENGINE_CODEX), undefined, undefined, 4);
+    expect(minimal.body).toContain('no more than 2 sentences');
+  });
+
+  it('does not inject an override when the response_style module was disabled', async () => {
+    const { renderAgentPolicyBase, AGENT_POLICY_MODULE_IDS } = await import(
+      '../../../src/services/agent-policy-composer.js'
+    );
+    const base = renderAgentPolicyBase({
+      schema_version: 1,
+      template_id: 'fleet-standard',
+      template_version: 1,
+      enabled_modules: AGENT_POLICY_MODULE_IDS.filter((id) => id !== 'response_style'),
+      custom_instructions: '',
+    });
+    const out = renderManagedAgentFeatures(base.content, context(ENGINE_CODEX), undefined, undefined, 4);
+    expect(out.body).not.toContain('## Default Response Shape');
+    expect(out.sections.response_style).toMatchObject({ present: false, reason: 'module_disabled' });
+  });
+});

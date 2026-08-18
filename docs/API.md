@@ -667,6 +667,7 @@ All `/projects*` routes require normal host API-key auth + IP binding and return
 - `GET /admin/log-retention` / `POST /admin/log-retention` — read/set log pruning: `enabled` plus `days_logs` (default 90), `days_mcp` (90), `days_events` (30), `days_graph_stats` (180), each clamped to `1..365`.
 - `GET /admin/scaling` / `POST /admin/scaling` — read the scaling status and store the scaling rules; invalid rules return `422 validation_failed` with per-rule errors. Hosts flagged `scaling_exempt` are excluded.
 - `GET /admin/reverse-dns` / `POST /admin/reverse-dns` — read/set global reverse DNS enforcement (`enabled` boolean).
+- `GET /admin/response-verbosity` / `POST /admin/response-verbosity` — read/set the fleet-wide response-verbosity dial (`level`: `0..4`, `0` default/no-op). Projected into the served AGENTS.md/CLAUDE.md `## Default Response Shape` policy text, and (for `clx` hosts) into a `verbosity-*` Claude output style via `outputStyle` in settings.json.
 - `POST /admin/prune-policy` — set inactivity prune days `{inactivity_days:0..60}`.
 - Runner: `GET /admin/runner` (config/telemetry/state/timestamps/counts/canonical metadata), `POST /admin/runner/run` (force Codex runner validation), `POST /admin/runner/run-claude` (force Claude runner validation).
 - Logs:

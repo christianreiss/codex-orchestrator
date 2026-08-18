@@ -1,7 +1,7 @@
 <script lang="ts">
   import { createQuery, createMutation, keepPreviousData, useQueryClient } from "@tanstack/svelte-query";
   import { toast } from "svelte-sonner";
-  import { agentsApi } from "$lib/api/agents";
+  import { agentsApi, responseVerbosityApi, type ResponseVerbosityLevelOption } from "$lib/api/agents";
   import { reactiveOptions } from "$lib/components/projects/reactive-options.svelte";
   import { hostEngines, hostsListQuery } from "$lib/api/hosts";
   import type {
@@ -30,6 +30,7 @@
   import Eye from "@lucide/svelte/icons/eye";
   import * as Card from "$lib/components/ui/card";
   import SecurityLevelsPanel from "$lib/components/settings/SecurityLevelsPanel.svelte";
+  import ResponseVerbosityPanel from "$lib/components/settings/ResponseVerbosityPanel.svelte";
   import {
     agentPolicyProfilesApi,
     type AgentPolicyProfile,
@@ -50,6 +51,11 @@
     queryFn: () => agentPolicyProfilesApi.list(),
   });
   const hosts = hostsListQuery();
+  // Fleet-wide, not per-document: its own query, same reasoning as posture above.
+  const verbosityQuery = createQuery({
+    queryKey: ["response-verbosity"],
+    queryFn: () => responseVerbosityApi.get(),
+  });
 
   // Editor content + hydration tracking
   let content = $state("");
@@ -86,6 +92,35 @@
     defaultProfile = data.profiles.find((p) => p.is_default) ?? null;
     draftLevels = { ...(defaultProfile?.levels ?? data.catalog.default_levels) };
     levelsHydrated = true;
+  });
+
+  let savedVerbosity = $state<number | null>(null);
+  let draftVerbosity = $state<number>(0);
+  let verbosityLevelOptions = $state<ResponseVerbosityLevelOption[]>([]);
+  let verbosityHydrated = $state(false);
+
+  $effect(() => {
+    const data = $verbosityQuery.data;
+    if (!data || verbosityHydrated) return;
+    savedVerbosity = data.level;
+    draftVerbosity = data.level;
+    verbosityLevelOptions = data.levels ?? [];
+    verbosityHydrated = true;
+  });
+
+  const verbosityDirty = $derived(savedVerbosity !== null && draftVerbosity !== savedVerbosity);
+
+  const saveVerbosityMutation = createMutation({
+    mutationFn: () => responseVerbosityApi.set(draftVerbosity),
+    onSuccess: (result) => {
+      savedVerbosity = result.level;
+      draftVerbosity = result.level;
+      toast.success("Response verbosity saved");
+      void qc.invalidateQueries({ queryKey: ["response-verbosity"] });
+    },
+    onError: (err: unknown) => {
+      toast.error(err instanceof ApiError ? err.message : "Failed to save response verbosity");
+    },
   });
 
   const levelsDirty = $derived(
@@ -401,6 +436,7 @@
   type RenderRequest = {
     draft: { composition: AgentPolicyComposition } | { content: string };
     levels: SecurityLevels | null;
+    verbosity: number;
   };
   let renderRequest = $state<RenderRequest | null>(null);
   let renderTimer: ReturnType<typeof setTimeout> | undefined;
@@ -412,6 +448,7 @@
     const next: RenderRequest = {
       draft: builderMode ? { composition: draftComposition } : { content },
       levels: draftLevels,
+      verbosity: draftVerbosity,
     };
     clearTimeout(renderTimer);
     renderTimer = setTimeout(() => (renderRequest = next), 300);
@@ -439,7 +476,7 @@
         // document sitting in the pane after the toggle moved.
         queryKey: ["agents-render", previewHostId, generationMode, JSON.stringify(request)],
         queryFn: () =>
-          agentsApi.renderDraft(hostId, request!.draft, "codex", request!.levels ?? undefined),
+          agentsApi.renderDraft(hostId, request!.draft, "codex", request!.levels ?? undefined, request!.verbosity),
         // Nothing is looking at this render while the pane shows the base and
         // the dialog is shut. Unlike the compose call — which feeds what Save
         // stores and must never be skipped — this one feeds pixels only.
@@ -735,6 +772,23 @@
                 </p>
                 <Button size="sm" onclick={() => $saveLevelsMutation.mutate()} disabled={$saveLevelsMutation.isPending}>
                   {$saveLevelsMutation.isPending ? "Saving…" : "Save posture"}
+                </Button>
+              </div>
+            {/if}
+
+            <ResponseVerbosityPanel
+              level={draftVerbosity}
+              levels={verbosityLevelOptions}
+              disabled={savedVerbosity === null || $saveVerbosityMutation.isPending}
+              onChange={(next) => (draftVerbosity = next)}
+            />
+            {#if verbosityDirty}
+              <div class="flex items-center justify-between gap-2 rounded-md border border-primary/30 bg-primary/5 px-3 py-2">
+                <p class="text-xs text-muted-foreground">
+                  Verbosity is fleet-wide and saved separately from the document.
+                </p>
+                <Button size="sm" onclick={() => $saveVerbosityMutation.mutate()} disabled={$saveVerbosityMutation.isPending}>
+                  {$saveVerbosityMutation.isPending ? "Saving…" : "Save verbosity"}
                 </Button>
               </div>
             {/if}

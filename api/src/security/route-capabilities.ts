@@ -198,6 +198,8 @@ export const ROUTE_CAPABILITIES: Readonly<Record<string, RouteGuard>> = {
   'GET /admin/log-retention': cap('settings.read'),
   'POST /admin/log-retention': cap('settings.manage'),
   'POST /admin/prune-policy': cap('settings.manage'),
+  'GET /admin/response-verbosity': cap('settings.read'),
+  'POST /admin/response-verbosity': cap('settings.manage'),
   'GET /admin/quota-mode': cap('settings.read'),
   'POST /admin/quota-mode': cap('settings.manage'),
   'GET /admin/reverse-dns': cap('settings.read'),

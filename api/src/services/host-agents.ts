@@ -33,6 +33,11 @@ import {
 import { type SecurityLevels } from './agent-security-levels.js';
 import { type AgentPolicyProvenanceEntry } from './agent-policy-composer.js';
 import { AgentPolicyProfilesService } from './agent-policy-profiles.js';
+import {
+  normalizeResponseVerbosityLevel,
+  RESPONSE_VERBOSITY_SETTINGS_KEY,
+  type ResponseVerbosityLevel,
+} from './agent-response-style.js';
 
 const STATE_ID_CODEX = 1;
 const STATE_ID_CLAUDE = 2;
@@ -78,6 +83,16 @@ export class HostAgentsService {
   }
 
   /**
+   * The fleet's response verbosity dial. Global, not per-host (see
+   * `agent-response-style.ts`) — a settings read failure degrades to level 0,
+   * the no-op default, same discipline as `generationMode()` below.
+   */
+  private async resolveResponseVerbosity(): Promise<ResponseVerbosityLevel> {
+    const raw = await this.settings.getInt(RESPONSE_VERBOSITY_SETTINGS_KEY, 0).catch(() => 0);
+    return normalizeResponseVerbosityLevel(raw);
+  }
+
+  /**
    * The fleet's AGENTS.md generation mode.
    *
    * Public because the admin render route composes the operator's draft itself
@@ -113,9 +128,11 @@ export class HostAgentsService {
     engine: Engine = ENGINE_CODEX,
     levels?: SecurityLevels,
     baseProvenance?: readonly AgentPolicyProvenanceEntry[],
+    responseVerbosityLevel?: ResponseVerbosityLevel,
   ): Promise<Record<string, unknown>> {
     const featureContext = await this.resolveManagedFeatureContext(host, engine);
-    const rendered = renderManagedAgentFeatures(baseBody, featureContext, levels, baseProvenance);
+    const verbosity = responseVerbosityLevel ?? (await this.resolveResponseVerbosity());
+    const rendered = renderManagedAgentFeatures(baseBody, featureContext, levels, baseProvenance, verbosity);
     const servedSha = createHash('sha256').update(rendered.body).digest('hex');
     return {
       status: 'ok',
@@ -175,7 +192,13 @@ export class HostAgentsService {
     const body = baseBodyForMode(await this.generationMode(), row);
     const baseSha = createHash('sha256').update(body).digest('hex');
     const featureContext = await this.resolveManagedFeatureContext(host, engine);
-    const rendered = renderManagedAgentFeatures(body, featureContext, await this.resolvePosture(host));
+    const rendered = renderManagedAgentFeatures(
+      body,
+      featureContext,
+      await this.resolvePosture(host),
+      undefined,
+      await this.resolveResponseVerbosity(),
+    );
     const served = rendered.body;
     const servedSha = createHash('sha256').update(served).digest('hex');
     return {
@@ -309,6 +332,7 @@ export class HostAgentsService {
       username: opts.username ?? null,
       agentMessagingEnabled,
       securityLevels: await this.resolvePosture(host),
+      responseVerbosityLevel: await this.resolveResponseVerbosity(),
     });
     await this.recordLog(host.id, 'claude_settings.retrieve', { sha256: rendered.sha256 });
     return {

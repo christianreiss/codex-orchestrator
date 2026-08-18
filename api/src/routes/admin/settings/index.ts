@@ -40,6 +40,11 @@ import {
   normalizeAgentsGenerationMode,
   parseAgentsGenerationMode,
 } from '../../../services/agents-generation-mode.js';
+import {
+  RESPONSE_VERBOSITY_LEVEL_DEFINITIONS,
+  RESPONSE_VERBOSITY_SETTINGS_KEY,
+  normalizeResponseVerbosityLevel,
+} from '../../../services/agent-response-style.js';
 
 /**
  * The only values `/admin/theme` accepts. The legacy palette values remain
@@ -166,6 +171,22 @@ export async function registerAdminSettingsRoutes(
     await settings.set(AGENTS_GENERATION_MODE_KEY, mode);
     await recordLog(ctx, 'admin.agents_generation_mode', { mode });
     return ok({ mode, modes: AGENTS_GENERATION_MODES });
+  });
+
+  // ── response-verbosity ───────────────────────────────────────────────────
+  // Fleet-wide response-length dial (0 = today's behavior / no-op, 4 = at most
+  // 2 sentences). Read fails open to 0 like every other posture-adjacent
+  // setting; write is strict via clampInt.
+  app.get('/admin/response-verbosity', { preHandler: app.requireAdmin }, async () => {
+    const level = normalizeResponseVerbosityLevel(await settings.getInt(RESPONSE_VERBOSITY_SETTINGS_KEY, 0));
+    return ok({ level, levels: RESPONSE_VERBOSITY_LEVEL_DEFINITIONS.map((d) => ({ level: d.level, label: d.label })) });
+  });
+  app.post('/admin/response-verbosity', { preHandler: app.requireAdmin }, async (req) => {
+    const body = (req.body ?? {}) as { level?: unknown };
+    const level = clampInt(body.level, 0, 4, 0);
+    await settings.setInt(RESPONSE_VERBOSITY_SETTINGS_KEY, level);
+    await recordLog(ctx, 'admin.response_verbosity', { level });
+    return ok({ level });
   });
 
   // ── theme ─────────────────────────────────────────────────────────────────

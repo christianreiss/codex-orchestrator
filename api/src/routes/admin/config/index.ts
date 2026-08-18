@@ -54,6 +54,7 @@ import { AgentsService } from '../../../services/agents.js';
 import { compositionForMode } from '../../../services/agents-generation-mode.js';
 import { AgentPolicyProfilesService } from '../../../services/agent-policy-profiles.js';
 import { normalizeSecurityLevels, securityLevelCatalog } from '../../../services/agent-security-levels.js';
+import { normalizeResponseVerbosityLevel } from '../../../services/agent-response-style.js';
 import { HostAgentsService } from '../../../services/host-agents.js';
 import { assertHostEngineEnabled } from '../../../services/host-engine-policy.js';
 import { ClientConfigService } from '../../../services/client-config.js';
@@ -216,7 +217,16 @@ export async function registerAdminConfigRoutes(app: FastifyInstance, ctx: Route
     },
   );
 
-  app.post<{ Body: { host_id?: unknown; engine?: unknown; composition?: unknown; content?: unknown; security_levels?: unknown } }>(
+  app.post<{
+    Body: {
+      host_id?: unknown;
+      engine?: unknown;
+      composition?: unknown;
+      content?: unknown;
+      security_levels?: unknown;
+      response_verbosity?: unknown;
+    };
+  }>(
     '/admin/agents/render',
     { preHandler: app.requireAdmin },
     async (req) => {
@@ -248,8 +258,11 @@ export async function registerAdminConfigRoutes(app: FastifyInstance, ctx: Route
       const draftLevels = body.security_levels === undefined
         ? undefined
         : normalizeSecurityLevels(body.security_levels);
+      const draftVerbosity = body.response_verbosity === undefined
+        ? undefined
+        : normalizeResponseVerbosityLevel(body.response_verbosity);
       return {
-        ...(await hostAgents.renderDraft(host, base, engine, draftLevels, composed?.provenance)),
+        ...(await hostAgents.renderDraft(host, base, engine, draftLevels, composed?.provenance, draftVerbosity)),
         host_id: host.id,
         host_fqdn: host.fqdn,
         engine,

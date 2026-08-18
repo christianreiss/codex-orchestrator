@@ -60,6 +60,10 @@ import {
 import { ENGINE_CLAUDE, ENGINE_CODEX, type Engine } from '../util/engine.js';
 import { AGENT_MESSAGING_TOOLS } from './agent-messaging-tool-names.js';
 import { securityLevelEnforcement, type SecurityLevels } from './agent-security-levels.js';
+import {
+  RESPONSE_VERBOSITY_OUTPUT_STYLE_SLUGS,
+  type ResponseVerbosityLevel,
+} from './agent-response-style.js';
 import type { Host } from '../db/schema.js';
 
 const SCALAR_KEYS: Array<keyof NormalizedSettings> = [
@@ -265,6 +269,8 @@ export interface HostRenderOptions {
   agentMessagingEnabled?: boolean;
   /** Resolved security posture for this host. Omitted leaves the template untouched. */
   securityLevels?: SecurityLevels | null;
+  /** Fleet response-verbosity level (Claude only). 0/omitted leaves `outputStyle` untouched. */
+  responseVerbosityLevel?: ResponseVerbosityLevel;
 }
 
 export function renderTomlForHost(opts: HostRenderOptions): RenderResult {
@@ -819,6 +825,17 @@ export function renderClaudeSettingsPartialForHost(
     agentMessagingEnabled: opts.agentMessagingEnabled,
   });
   const { partial, owned_paths } = renderClaudeSettingsPartial(withManaged);
+  // Component B of the response-verbosity dial: reinforce the CLAUDE.md policy
+  // text with Claude Code's own output-style mechanism. Level 0 (or unset)
+  // omits the key entirely so a host/user's manually chosen style is left
+  // alone, same as every other allowlisted key when its source input is empty.
+  const outputStyleSlug = opts.responseVerbosityLevel
+    ? RESPONSE_VERBOSITY_OUTPUT_STYLE_SLUGS[opts.responseVerbosityLevel]
+    : undefined;
+  if (outputStyleSlug) {
+    partial['outputStyle'] = outputStyleSlug;
+    owned_paths.push('outputStyle');
+  }
   const json = JSON.stringify(partial, null, 2) + '\n';
   return { partial, owned_paths, sha256: createHash('sha256').update(json).digest('hex'), clamped };
 }
