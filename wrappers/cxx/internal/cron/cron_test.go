@@ -12,6 +12,7 @@ import (
 	"os/user"
 	"path/filepath"
 	"reflect"
+	"sort"
 	"strings"
 	"syscall"
 	"testing"
@@ -157,7 +158,7 @@ func TestAuthoritativeDualToSingleRemovesOnlyDisabledEngineState(t *testing.T) {
 		fetchAuthoritative, persistAuthoritative, removeEngineConfig = oldFetch, oldPersist, oldRemove
 	})
 
-	_, engines, canonical, err := refreshAuthoritative(context.Background(), seed, cxx)
+	_, engines, canonical, err := refreshAuthoritative(context.Background(), seed, cxx, io.Discard)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -195,7 +196,7 @@ func TestAuthoritativeProbeFailurePreservesDualLayout(t *testing.T) {
 		return nil, errors.New("network down")
 	}
 	t.Cleanup(func() { fetchAuthoritative = oldFetch })
-	if _, _, _, err := refreshAuthoritative(context.Background(), seed, cxx); err == nil {
+	if _, _, _, err := refreshAuthoritative(context.Background(), seed, cxx, io.Discard); err == nil {
 		t.Fatal("network uncertainty accepted")
 	}
 	for _, alias := range []string{"cdx", "clx"} {
@@ -220,11 +221,92 @@ func TestAuthoritativeEmptyFetchFailsClosed(t *testing.T) {
 		return nil, fleetconfig.ErrEngineDisabled
 	}
 	t.Cleanup(func() { fetchAuthoritative = oldFetch })
-	if _, _, _, err := refreshAuthoritative(context.Background(), seed, cxx); err == nil || !strings.Contains(err.Error(), "empty config") {
+	if _, _, _, err := refreshAuthoritative(context.Background(), seed, cxx, io.Discard); err == nil || !strings.Contains(err.Error(), "empty config") {
 		t.Fatalf("empty authoritative result accepted: %v", err)
 	}
 	if _, err := os.Lstat(filepath.Join(dir, "cdx")); !os.IsNotExist(err) {
 		t.Fatalf("alias created after empty result: %v", err)
+	}
+}
+
+func TestAuthoritativeBothDisabledCleansUpBothAliases(t *testing.T) {
+	dir := t.TempDir()
+	cxx := filepath.Join(dir, "cxx")
+	if err := os.WriteFile(cxx, []byte("common"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, alias := range []string{"cdx", "clx"} {
+		if err := os.Symlink("cxx", filepath.Join(dir, alias)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	seed := &config.Config{Engine: config.EngineCodex, Host: config.Host{ID: 7, FQDN: "host.example.com"}}
+
+	oldFetch, oldRemove := fetchAuthoritative, removeEngineConfig
+	var removed []string
+	fetchAuthoritative = func(_ context.Context, _ *config.Config, _ string) (*fleetconfig.Fetched, error) {
+		return nil, fleetconfig.ErrEngineDisabled
+	}
+	removeEngineConfig = func(_ context.Context, engine string) error {
+		removed = append(removed, engine)
+		return nil
+	}
+	t.Cleanup(func() { fetchAuthoritative, removeEngineConfig = oldFetch, oldRemove })
+
+	_, engines, canonical, err := refreshAuthoritative(context.Background(), seed, cxx, io.Discard)
+	if err != nil {
+		t.Fatalf("both engines disabled should clean up rather than fail closed: %v", err)
+	}
+	if canonical != cxx || len(engines) != 0 {
+		t.Fatalf("canonical=%q engines=%q", canonical, engines)
+	}
+	sort.Strings(removed)
+	if !reflect.DeepEqual(removed, []string{config.EngineClaude, config.EngineCodex}) {
+		t.Fatalf("removed=%q", removed)
+	}
+	for _, alias := range []string{"cdx", "clx"} {
+		if _, err := os.Lstat(filepath.Join(dir, alias)); !os.IsNotExist(err) {
+			t.Fatalf("disabled %s alias remains: %v", alias, err)
+		}
+	}
+}
+
+func TestAuthoritativeDisabledCleanupFailureDoesNotBlockEnabledEngine(t *testing.T) {
+	dir := t.TempDir()
+	cxx := filepath.Join(dir, "cxx")
+	if err := os.WriteFile(cxx, []byte("common"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	host := config.Host{ID: 7, FQDN: "host.example.com"}
+	seed := &config.Config{Engine: config.EngineClaude, Host: host}
+	codexCfg := &config.Config{Engine: config.EngineCodex, Host: host}
+
+	oldFetch, oldPersist, oldRemove := fetchAuthoritative, persistAuthoritative, removeEngineConfig
+	fetchAuthoritative = func(_ context.Context, _ *config.Config, engine string) (*fleetconfig.Fetched, error) {
+		if engine == config.EngineClaude {
+			return nil, fleetconfig.ErrEngineDisabled
+		}
+		return &fleetconfig.Fetched{Config: codexCfg}, nil
+	}
+	persistAuthoritative = func(_ context.Context, _ *fleetconfig.Fetched) error { return nil }
+	removeEngineConfig = func(_ context.Context, _ string) error { return errors.New("disk full") }
+	t.Cleanup(func() {
+		fetchAuthoritative, persistAuthoritative, removeEngineConfig = oldFetch, oldPersist, oldRemove
+	})
+
+	var warnings strings.Builder
+	_, engines, canonical, err := refreshAuthoritative(context.Background(), seed, cxx, &warnings)
+	if err != nil {
+		t.Fatalf("disabled-engine cleanup failure must not block the enabled engine: %v", err)
+	}
+	if canonical != cxx || !reflect.DeepEqual(engines, []string{config.EngineCodex}) {
+		t.Fatalf("canonical=%q engines=%q", canonical, engines)
+	}
+	if target, err := os.Readlink(filepath.Join(dir, "cdx")); err != nil || target != "cxx" {
+		t.Fatalf("enabled cdx target=%q err=%v", target, err)
+	}
+	if !strings.Contains(warnings.String(), "disk full") {
+		t.Fatalf("cleanup failure was not surfaced as a warning: %q", warnings.String())
 	}
 }
 

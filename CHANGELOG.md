@@ -1,3 +1,54 @@
+# 2026-08-18
+
+- **Toggling an engine in Host Detail didn't install or remove it on the
+  host — an admin had to re-mint (re-run the `curl | sh` installer) every
+  time to make a toggle take effect.** The toggle itself only ever flipped
+  the `hosts.engines` DB column, which was correct — installing a binary is
+  a host-side operation. The actual bug: `peer.Reconcile()`
+  (`wrappers/cxx/internal/persona/{claude,codex}/peer/peer.go`), already
+  wired into every interactive `cdx`/`clx` invocation to install/remove the
+  *peer* engine from the server's live engine list, was failing silently
+  from three independent bugs.
+  - `claude.EnsureClaude` (`wrappers/cxx/internal/claude/installer.go`)
+    hard-failed whenever `npm` wasn't already on PATH, and no Go-side
+    Node/npm bootstrap existed anywhere in the wrapper — that logic only
+    lived in the one-shot bash installer. A host that enabled Claude without
+    ever running that bash path (e.g. a Codex-only host) could never
+    self-heal Claude's install, via cron or via peer-reconcile. Fixed by
+    porting the OS package-manager bootstrap
+    (`wrappers/cxx/internal/claude/prereqs.go`: apt-get/dnf/yum/apk/pacman/
+    zypper/brew, with the same `sudo -n` escalation already used elsewhere
+    in the wrapper) into Go. The bash installer keeps its own copy for
+    first-time bootstrap. Not ported: the bash installer's corepack-based
+    npm shim fallback for hosts with no npm package at all — a narrower
+    tertiary case left for a follow-up if it turns out to matter.
+  - `cron.Run()`'s `refreshAuthoritative()` (`wrappers/cxx/internal/cron/
+    cron.go`) aborted before running the enabled engine's maintenance tick
+    whenever cleaning up a *disabled* engine's alias/config failed for any
+    reason — one engine's disable failure silently blocked the other
+    engine's install via the daily cron. The same early-return meant
+    disabling both engines at once skipped alias cleanup for both. Cleanup
+    failures are now warned and retried on a later tick instead of aborting.
+  - The peer-reconcile forced install and removal ticks
+    (`runPeerCronTick`/`removePeer` in both `peer.go` files) discarded every
+    command failure with `_ = cmd.Run()` — an npm install or uninstall could
+    fail on every single invocation with nothing surfaced to the operator,
+    which is why it looked like nothing was happening at all. Both paths now
+    log a warning with the failed command's output.
+  - Also added a note under the Host Detail engine toggles
+    (`frontend/src/routes/hosts/[id]/+page.svelte`) that a change applies on
+    the host's next `cdx`/`clx` run or its next scheduled maintenance tick,
+    not immediately.
+  - Scope: this reuses the existing on-invocation reconciliation path rather
+    than adding a new server→host push channel. A relay push over the
+    `agentbus` long-poll was considered and rejected: that background relay
+    only runs when Claude or agent messaging is enabled, so it could never
+    bootstrap the primary case (enabling Claude on a Codex-only host with
+    messaging off). Hosts where neither `cdx` nor `clx` is ever run
+    interactively still depend on the once-daily `cxx cron run` fallback for
+    convergence — up to ~24h latency there is an accepted limitation, not
+    something this change closes further.
+
 # 2026-08-17
 
 - **Every admin mutation was open to every signed-in account; authorization is

@@ -42,7 +42,7 @@ func Reconcile(ctx context.Context, cfg *config.Config, auth *orchestrator.AuthR
 		return
 	}
 	if hasEngine(engines, peerEngine) {
-		if err := installPeer(ctx, cfg, false, minimal); err != nil {
+		if err := installPeer(ctx, cfg, false, minimal, logger); err != nil {
 			logger.Warn("peer wrapper install skipped", "engine", peerEngine, "err", err)
 		}
 		return
@@ -69,7 +69,7 @@ func EnsureForCron(ctx context.Context, cfg *config.Config, minimal bool, logger
 	// is not — skip silently then. As with interactive Reconcile we never
 	// persist the engines list locally and never remove the peer from an
 	// unattended tick.
-	if err := installPeer(ctx, cfg, true, minimal); err != nil {
+	if err := installPeer(ctx, cfg, true, minimal, logger); err != nil {
 		if errors.Is(err, errPeerEngineDisabled) {
 			return
 		}
@@ -116,7 +116,7 @@ func hasEngine(engines []string, want string) bool {
 	return false
 }
 
-func installPeer(ctx context.Context, cfg *config.Config, forceCronTick, minimal bool) error {
+func installPeer(ctx context.Context, cfg *config.Config, forceCronTick, minimal bool, logger *slog.Logger) error {
 	fetched, err := fleetconfig.Fetch(ctx, cfg, peerEngine)
 	if err != nil {
 		return err
@@ -147,7 +147,9 @@ func installPeer(ctx context.Context, cfg *config.Config, forceCronTick, minimal
 	// guarded peer tick so a single managed clx cron entry refreshes cdx and
 	// codex too.
 	if os.Getenv(coordinatedCronEnv) != "1" && shouldRunPeerCronTick(installed, peerEngineCLIPresent(), forceCronTick) {
-		runPeerCronTick(ctx, minimal)
+		if err := runPeerCronTick(ctx, minimal); err != nil {
+			logger.Warn("peer engine install tick failed", "engine", peerEngine, "err", err)
+		}
 	}
 	return nil
 }
@@ -186,16 +188,21 @@ func peerEngineCLIPresent() bool {
 	return err == nil
 }
 
-func runPeerCronTick(ctx context.Context, minimal bool) {
+func runPeerCronTick(ctx context.Context, minimal bool) error {
 	tctx, cancel := context.WithTimeout(ctx, 3*time.Minute)
 	defer cancel()
 	args := []string{"--cron", "run"}
 	if minimal {
 		args = append(args, "--minimal")
 	}
-	cmd := exec.CommandContext(tctx, peerBinaryPath(), args...)
+	path := peerBinaryPath()
+	cmd := exec.CommandContext(tctx, path, args...)
 	cmd.Env = append(os.Environ(), peerSpawnEnv+"=1")
-	_ = cmd.Run()
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("%s --cron run: %w: %s", path, err, strings.TrimSpace(string(out)))
+	}
+	return nil
 }
 
 func peerConfigPath() string {
@@ -282,7 +289,9 @@ func removePeer(ctx context.Context, logger *slog.Logger) error {
 		removeTreePath(filepath.Join(home, ".codex"), logger)
 	}
 	if npmGlobalHas("codex-cli") {
-		_ = exec.CommandContext(ctx, "npm", "uninstall", "-g", "codex-cli").Run()
+		if out, err := exec.CommandContext(ctx, "npm", "uninstall", "-g", "codex-cli").CombinedOutput(); err != nil {
+			logger.Warn("peer npm uninstall skipped", "package", "codex-cli", "err", err, "output", strings.TrimSpace(string(out)))
+		}
 	}
 	removeTreePath(legacyPeerOptPath, logger)
 	removeFilePath(legacyPeerCronPath, logger)

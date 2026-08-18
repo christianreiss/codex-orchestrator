@@ -23,7 +23,12 @@ func EnsureClaude(ctx context.Context, target string, enforceExact bool, logger 
 	}
 
 	if _, err := exec.LookPath("npm"); err != nil {
-		return errors.New("EnsureClaude: npm not available on PATH")
+		if bootstrapErr := ensurePrerequisites(ctx, logger); bootstrapErr != nil {
+			return fmt.Errorf("EnsureClaude: npm not available on PATH and prerequisite bootstrap failed: %w", bootstrapErr)
+		}
+		if _, err := exec.LookPath("npm"); err != nil {
+			return errors.New("EnsureClaude: npm not available on PATH")
+		}
 	}
 
 	current := strings.TrimSpace(Version(ctx))

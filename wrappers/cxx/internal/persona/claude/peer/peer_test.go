@@ -87,7 +87,7 @@ func TestInstallPeerRejectsBadSignature(t *testing.T) {
 	cfg.Orchestrator.BaseURL = srv.URL
 	cfg.Orchestrator.APIKey = "k"
 
-	err := installPeer(context.Background(), cfg, false, false)
+	err := installPeer(context.Background(), cfg, false, false, slog.Default())
 	if err == nil || !strings.Contains(err.Error(), "signature") {
 		t.Fatalf("want signature-invalid error, got %v", err)
 	}

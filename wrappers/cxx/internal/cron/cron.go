@@ -86,7 +86,7 @@ func Install(ctx context.Context, cfg *config.Config) error {
 	if err != nil {
 		return err
 	}
-	_, _, canonical, err := refreshAuthoritative(ctx, cfg, exe)
+	_, _, canonical, err := refreshAuthoritative(ctx, cfg, exe, os.Stderr)
 	if err != nil {
 		return err
 	}
@@ -147,7 +147,7 @@ func Run(ctx context.Context, seed *config.Config, minimal bool, stdout, stderr 
 	if err != nil {
 		return err
 	}
-	configs, engines, canonical, err := refreshAuthoritative(ctx, seed, exe)
+	configs, engines, canonical, err := refreshAuthoritative(ctx, seed, exe, stderr)
 	if err != nil {
 		return err
 	}
@@ -211,7 +211,7 @@ func IsEngineOnly() bool { return os.Getenv(EngineOnlyEnv) == "1" }
 // refreshAuthoritative probes both engines before mutating anything. Only a
 // verified 200 enables an engine and only an explicit engine_disabled response
 // disables one; transport/auth/signature uncertainty preserves the old layout.
-func refreshAuthoritative(ctx context.Context, seed *config.Config, executable string) ([]*config.Config, []string, string, error) {
+func refreshAuthoritative(ctx context.Context, seed *config.Config, executable string, warn io.Writer) ([]*config.Config, []string, string, error) {
 	if seed == nil {
 		var err error
 		seed, err = loadAnySeedConfig()
@@ -234,9 +234,6 @@ func refreshAuthoritative(ctx context.Context, seed *config.Config, executable s
 			return nil, nil, "", fmt.Errorf("authoritative %s engine probe returned an empty config", engine)
 		}
 		fetched[engine] = item
-	}
-	if len(fetched) == 0 {
-		return nil, nil, "", errors.New("authoritative engine probe returned no enabled engine")
 	}
 	configs := make([]*config.Config, 0, len(fetched))
 	engines := make([]string, 0, len(fetched))
@@ -262,15 +259,26 @@ func refreshAuthoritative(ctx context.Context, seed *config.Config, executable s
 	if err != nil {
 		return nil, nil, "", err
 	}
+	// A cleanup failure for one disabled engine must not block the other,
+	// still-enabled engine's maintenance (runEnabledTicks runs after this
+	// function returns) — warn and retry on a later tick instead of aborting.
 	for _, engine := range disabled {
 		if err := layout.RemoveAlias(ctx, filepath.Dir(canonical), engine); err != nil {
-			return nil, nil, "", fmt.Errorf("remove disabled %s alias: %w", engine, err)
+			fmt.Fprintf(warnWriter(warn), "remove disabled %s alias: %v\n", engine, err)
+			continue
 		}
 		if err := removeEngineConfig(ctx, engine); err != nil {
-			return nil, nil, "", fmt.Errorf("remove disabled %s config: %w", engine, err)
+			fmt.Fprintf(warnWriter(warn), "remove disabled %s config: %v\n", engine, err)
 		}
 	}
 	return configs, engines, canonical, nil
+}
+
+func warnWriter(w io.Writer) io.Writer {
+	if w == nil {
+		return os.Stderr
+	}
+	return w
 }
 
 func ensureEnabledAliases(ctx context.Context, executable string, engines []string, configs []*config.Config) (string, error) {

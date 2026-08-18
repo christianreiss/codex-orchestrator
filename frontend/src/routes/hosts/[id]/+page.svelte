@@ -616,6 +616,10 @@
           onchange={(v) => setHostEngine("claude", v)}
         />
       </div>
+      <p class="mt-2 text-xs text-muted-foreground">
+        Engine changes apply on the host's next <code>cdx</code>/<code>clx</code> run, or its next
+        scheduled maintenance tick if neither runs interactively.
+      </p>
     </section>
 
     <DangerZone description="Permanently remove this host from the fleet.">
