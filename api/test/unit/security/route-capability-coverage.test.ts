@@ -28,6 +28,7 @@ import { envelopePlugin } from '../../../src/http/plugins/envelope.js';
 import { requestIdPlugin } from '../../../src/http/plugins/request-id.js';
 import { makeCapabilitiesPlugin } from '../../../src/http/plugins/capabilities.js';
 import { registerAllRoutes } from '../../../src/routes/index.js';
+import { registerWsServer } from '../../../src/ws/server.js';
 import { isCapability } from '../../../src/security/capabilities.js';
 import {
   ROUTE_CAPABILITIES,
@@ -86,11 +87,18 @@ async function registeredRoutes(staticRoot = ''): Promise<Registered[]> {
     }
   });
 
+  // ADMIN_WS_ENABLED: true — the server registers the websocket route
+  // separately from registerAllRoutes (see server.ts), so a coverage boot
+  // that skipped it would never see /admin/ws and would miss exactly the
+  // class of gap this suite exists to catch, the way it did for real before
+  // this route was added to the fixture.
+  const env = { ...loadTestEnv(), STATIC_ROOT: staticRoot, ADMIN_WS_ENABLED: true } as never;
   await registerAllRoutes(app, {
     db: createDbFake() as never,
-    env: { ...loadTestEnv(), STATIC_ROOT: staticRoot } as never,
+    env,
     keyring: testKeyring(),
   });
+  await registerWsServer(app, env);
   await app.ready();
   return routes;
 }

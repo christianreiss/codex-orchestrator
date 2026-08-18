@@ -77,6 +77,7 @@ export const ROUTE_CAPABILITIES: Readonly<Record<string, RouteGuard>> = {
 
   // ── Console-wide reads ───────────────────────────────────────────────────
   'GET /admin/overview': cap('admin.read'),
+  'GET /admin/ws': cap('admin.read'),
   'GET /admin/ws/info': cap('admin.read'),
   'GET /admin/theme': cap('admin.read'),
   'GET /admin/manual/manifest': cap('admin.read'),
