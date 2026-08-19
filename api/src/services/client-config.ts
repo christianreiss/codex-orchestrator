@@ -58,6 +58,7 @@ import {
   DEFAULT_CLAUDE_PERMISSION_MODE,
 } from './config-normalizer.js';
 import { ENGINE_CLAUDE, ENGINE_CODEX, type Engine } from '../util/engine.js';
+import { versionCompare } from './wrapper-bin-registry.js';
 import { AGENT_MESSAGING_TOOLS } from './agent-messaging-tool-names.js';
 import { securityLevelEnforcement, type SecurityLevels } from './agent-security-levels.js';
 import {
@@ -801,6 +802,22 @@ export function renderClaudeSettingsPartial(
   return { partial, owned_paths: owned };
 }
 
+// The first wrapper release expected to ship `cxx claude-quota-statusline`.
+// The latest tag at the time this feature was written was v0.7.23, which
+// does NOT contain it -- so this must be the NEXT tag cut, not the current
+// one, or a host already on today's release would be wrongly judged ready.
+// A host self-reports its own installed version, so this can only ever be
+// bumped AHEAD of the actual tag by mistake, not behind it -- but it must be
+// kept in sync with the tag this feature actually ships in, or the default
+// never turns on for anyone. CONFIRM AND UPDATE at release time.
+const MIN_CLAUDE_QUOTA_STATUSLINE_VERSION = '0.7.24';
+
+function hostSupportsClaudeQuotaStatusline(wrapperVersion: string | null | undefined): boolean {
+  const trimmed = (wrapperVersion ?? '').trim();
+  if (!trimmed) return false;
+  return versionCompare(trimmed, MIN_CLAUDE_QUOTA_STATUSLINE_VERSION) >= 0;
+}
+
 /** Host-aware partial render (applies per-host claude model + managed clx MCP). */
 export function renderClaudeSettingsPartialForHost(
   opts: HostRenderOptions,
@@ -835,6 +852,27 @@ export function renderClaudeSettingsPartialForHost(
   if (outputStyleSlug) {
     partial['outputStyle'] = outputStyleSlug;
     owned_paths.push('outputStyle');
+  }
+  // Fleet default: Claude Code hands its own computed rate-limit reading
+  // (Pro/Max 5-hour + 7-day quota) to whatever statusLine command is
+  // configured, on every render. Capturing and reporting that is the only
+  // way this fleet surfaces Claude usage on the dashboard quota bar -- the
+  // server itself never holds or calls out with a Claude OAuth token, since
+  // Anthropic's Consumer ToS prohibits third-party use of a Free/Pro/Max
+  // subscription's OAuth token. An admin-configured statusLine (rendered
+  // above) always wins over this default.
+  //
+  // Gated on the host's OWN self-reported wrapper version: settings.json
+  // syncs independently of (and often before) a host's self-update, so an
+  // unconditional default would hand a host still running an older `cxx`
+  // binary a statusLine command that binary does not understand yet --
+  // exactly the version-skew incident class this fleet has broken on before
+  // (missing capability entries, stale embedded commits). The host cannot
+  // report a version it has not already updated to, so this can only ever
+  // enable the feature at or after the update, never before it.
+  if (!partial['statusLine'] && hostSupportsClaudeQuotaStatusline(opts.host?.claudeWrapperVersion)) {
+    partial['statusLine'] = { type: 'command', command: 'cxx claude-quota-statusline' };
+    owned_paths.push('statusLine');
   }
   const json = JSON.stringify(partial, null, 2) + '\n';
   return { partial, owned_paths, sha256: createHash('sha256').update(json).digest('hex'), clamped };

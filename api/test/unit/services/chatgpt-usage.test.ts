@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildChatGptHistorySeries,
+  ChatGptUsageService,
   normalizeChatGptUsageSnapshot,
   parseChatGptUsageJson,
 } from '../../../src/services/chatgpt-usage.js';
+import { createDbFake } from '../../helpers/db-fake.js';
+import type { RunnerValidationService } from '../../../src/services/runner-validation.js';
 
 describe('ChatGPT usage compatibility shape', () => {
   it('normalizes flat snapshot rows into nested quota windows', () => {
@@ -128,5 +131,75 @@ describe('ChatGPT usage compatibility shape', () => {
       sparkPrimaryUsedPercent: 1,
       sparkSecondaryUsedPercent: 2,
     });
+  });
+});
+
+describe('ChatGptUsageService.fetchAndStore', () => {
+  function fakeValidation(): RunnerValidationService {
+    return {
+      resolveCanonicalPayload: async () => ({}) as never,
+      canonicalAuthFromPayload: () => ({ tokens: { access_token: 'tok', account_id: 'acct' } }),
+    } as unknown as RunnerValidationService;
+  }
+
+  // Regression: chatgpt.com returns 429 once an account is already at its
+  // limit, but the body still carries the real rate_limit payload. Treating
+  // any non-2xx status as a bare error discarded that payload and left the
+  // dashboard showing "no data" right when the user was nearly out of quota.
+  it('keeps the parsed rate_limit payload when the HTTP status is 429 but the body is usable', async () => {
+    const db = createDbFake();
+    const service = new ChatGptUsageService(db as never, undefined, {
+      runnerValidation: fakeValidation(),
+      fetchImpl: (async () =>
+        new Response(
+          JSON.stringify({
+            plan_type: 'pro',
+            rate_limit: {
+              allowed: false,
+              limit_reached: true,
+              primary_window: {
+                used_percent: 96,
+                limit_window_seconds: 18000,
+                reset_after_seconds: 300,
+                reset_at: '2026-08-19T13:00:00Z',
+              },
+              secondary_window: {
+                used_percent: 41,
+                limit_window_seconds: 604800,
+                reset_after_seconds: 86000,
+                reset_at: '2026-08-24T13:00:00Z',
+              },
+            },
+          }),
+          { status: 429 },
+        )) as unknown as typeof fetch,
+    });
+
+    const result = await service.refresh();
+
+    expect(result.status).toBe('rate_limited');
+    expect(result.error).toBe('HTTP 429');
+    expect(result.snapshot).toMatchObject({
+      status: 'rate_limited',
+      rate_limit_reached: true,
+      primary_used_percent: 96,
+      secondary_used_percent: 41,
+    });
+  });
+
+  it('still falls back to a bare error when the non-2xx body has no usable rate_limit data', async () => {
+    const db = createDbFake();
+    const service = new ChatGptUsageService(db as never, undefined, {
+      runnerValidation: fakeValidation(),
+      fetchImpl: (async () =>
+        new Response(JSON.stringify({ error: 'invalid_token' }), { status: 401 })) as unknown as typeof fetch,
+    });
+
+    const result = await service.refresh();
+
+    expect(result.status).toBe('error');
+    expect((result.snapshot as Record<string, unknown> | null)?.['status']).toBe('error');
+    expect((result.snapshot as Record<string, unknown> | null)?.['primary_used_percent']).toBeFalsy();
+    expect((result.snapshot as Record<string, unknown> | null)?.['secondary_used_percent']).toBeFalsy();
   });
 });

@@ -52,9 +52,14 @@ const clientModule: string = CLIENT_STUB;
 const { calls } = (await import(clientModule)) as { calls: string[] };
 
 const usageModule: string = "./usage.ts";
-const { chatgptHistoryQuery, pickPrimaryChatgptSeries, usageKeys } = (await import(
-  usageModule
-)) as typeof import("./usage");
+const {
+  chatgptHistoryQuery,
+  pickPrimaryChatgptSeries,
+  chatgptWindowLabel,
+  claudeUsageQuery,
+  claudeHistoryQuery,
+  usageKeys,
+} = (await import(usageModule)) as typeof import("./usage");
 
 /** A series carrying `count` points; the values only need to differ in size. */
 function seriesOf(key: string, count: number): ChatGptHistorySeries {
@@ -110,6 +115,36 @@ describe("pickPrimaryChatgptSeries", () => {
   });
 });
 
+describe("chatgptWindowLabel", () => {
+  // Regression: the dashboard used to hardcode "5-hour window" to the
+  // primary_window field and "Weekly window" to secondary_window by
+  // position. chatgpt.com doesn't guarantee that mapping — derive the label
+  // from the window's own limit_seconds instead, like the cxx CLI does.
+  it("labels the 5-hour window by its actual duration, not its field position", () => {
+    assert.equal(chatgptWindowLabel(18000, "fallback"), "5-hour window");
+  });
+
+  it("labels the weekly window by its actual duration, not its field position", () => {
+    assert.equal(chatgptWindowLabel(604800, "fallback"), "Weekly window");
+  });
+
+  it("falls back when limit_seconds swaps the usual primary/secondary duration", () => {
+    // If chatgpt.com ever hands back a "primary_window" that is actually the
+    // weekly lane, the label must follow the duration, not the field name.
+    assert.equal(chatgptWindowLabel(604800, "5-hour window"), "Weekly window");
+  });
+
+  it("falls back to the caller-supplied label when limit_seconds is missing", () => {
+    assert.equal(chatgptWindowLabel(null, "5-hour window"), "5-hour window");
+    assert.equal(chatgptWindowLabel(undefined, "Weekly window"), "Weekly window");
+  });
+
+  it("describes other day/hour windows generically", () => {
+    assert.equal(chatgptWindowLabel(86400, "fallback"), "1-day window");
+    assert.equal(chatgptWindowLabel(3600, "fallback"), "1-hour window");
+  });
+});
+
 describe("chatgptHistoryQuery", () => {
   it("keys and requests the same day count", async () => {
     const options = queryOptions(14);
@@ -129,5 +164,48 @@ describe("chatgptHistoryQuery", () => {
 
     await options.queryFn();
     assert.equal(calls.at(-1), "/admin/chatgpt/usage/history?days=60&interval=day");
+  });
+});
+
+describe("claudeUsageQuery", () => {
+  it("keys and requests the pushed snapshot, not a fetch/refresh endpoint", async () => {
+    const options = claudeUsageQuery() as unknown as {
+      queryKey: readonly unknown[];
+      queryFn: () => Promise<unknown>;
+    };
+
+    assert.deepEqual(options.queryKey, usageKeys.claude);
+    assert.deepEqual(options.queryKey, ["usage", "claude"]);
+
+    await options.queryFn();
+    assert.equal(calls.at(-1), "/admin/claude/usage");
+  });
+});
+
+describe("claudeHistoryQuery", () => {
+  it("keys and requests the same day count", async () => {
+    const options = claudeHistoryQuery(14) as unknown as {
+      queryKey: readonly unknown[];
+      queryFn: () => Promise<unknown>;
+    };
+
+    assert.deepEqual(options.queryKey, usageKeys.claudeHistory(14));
+    assert.deepEqual(options.queryKey, ["usage", "claude", "history", 14]);
+
+    await options.queryFn();
+    assert.equal(calls.at(-1), "/admin/claude/usage/history?days=14");
+  });
+
+  it("keys and requests the same default day count", async () => {
+    const options = claudeHistoryQuery() as unknown as {
+      queryKey: readonly unknown[];
+      queryFn: () => Promise<unknown>;
+    };
+
+    assert.deepEqual(options.queryKey, usageKeys.claudeHistory());
+    assert.deepEqual(options.queryKey, ["usage", "claude", "history", 60]);
+
+    await options.queryFn();
+    assert.equal(calls.at(-1), "/admin/claude/usage/history?days=60");
   });
 });

@@ -41,6 +41,7 @@ import {
 import { createWrapperBinRegistry } from '../../services/wrapper-bin-registry.js';
 import { projectWrapperVersionSnapshot } from '../../services/wrapper-version-projection.js';
 import { ChatGptUsageService, normalizeChatGptUsageSnapshot } from '../../services/chatgpt-usage.js';
+import { ClaudeUsageService } from '../../services/claude-usage.js';
 import { assertHostEngineEnabled, hostEnginesList } from '../../services/host-engine-policy.js';
 import { inspectCredential } from '../../services/auth-generation.js';
 import { resolveAuthRequestEngine } from './engine-resolution.js';
@@ -269,6 +270,33 @@ export async function registerAuthRoutes(app: FastifyInstance, ctx: RouteContext
     out.reasons = uniqueNonEmpty(out.reasons);
     out.status = out.reasons.length === 0 ? 'ok' : 'update';
     return out;
+  });
+
+  // POST /claude/usage/report — clx's fleet-owned statusLine command pushes
+  // what Claude Code's own `rate_limits` payload just reported. This is
+  // deliberately push, never pull: the server holds no Claude OAuth token and
+  // calls no Anthropic/claude.ai endpoint to obtain this number. A report
+  // with no usable window is accepted (200) but stored nowhere.
+  app.post('/claude/usage/report', async (req) => {
+    await assertApiNotDisabled(versions);
+    const host = await hostAuth.authenticate(req);
+    assertHostEngineEnabled(host, ENGINE_CLAUDE);
+    const payload = readPayload(req.body);
+    const fiveHour = asPlainRecord(payload.five_hour);
+    const sevenDay = asPlainRecord(payload.seven_day);
+    const svc = new ClaudeUsageService(ctx.db);
+    const row = await svc.store({
+      hostId: host.id,
+      source: typeof payload.source === 'string' ? payload.source : null,
+      fiveHourUsedPercent: toFiniteNumber(fiveHour.used_percent),
+      fiveHourResetsAt: typeof fiveHour.resets_at === 'string' ? fiveHour.resets_at : null,
+      sevenDayUsedPercent: toFiniteNumber(sevenDay.used_percent),
+      sevenDayResetsAt: typeof sevenDay.resets_at === 'string' ? sevenDay.resets_at : null,
+    });
+    if (row) {
+      wsPublisher.publish('claude.usage.updated', { fetched_at: row.fetchedAt });
+    }
+    return { status: row ? 'ok' : 'ignored' };
   });
 
   // POST /sync/bootstrap — full first-run sync.
@@ -886,6 +914,16 @@ function headerString(value: string | string[] | undefined): string | undefined 
 function readPayload(body: unknown): Record<string, unknown> {
   if (body && typeof body === 'object' && !Array.isArray(body)) return body as Record<string, unknown>;
   return {};
+}
+
+function asPlainRecord(value: unknown): Record<string, unknown> {
+  if (value && typeof value === 'object' && !Array.isArray(value)) return value as Record<string, unknown>;
+  return {};
+}
+
+function toFiniteNumber(value: unknown): number | null {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return null;
+  return value;
 }
 
 function normalizeCommand(value: unknown): 'retrieve' | 'store' {

@@ -143,10 +143,10 @@ export const DEFAULT_INVALIDATIONS: WsInvalidationMap = {
   "agent_messaging.queue.changed": [["agent-messaging"]],
 
   // Usage / dashboard
-  // NB: the backend only ever publishes `chatgpt.usage.updated` (see
-  // api/src/services/chatgpt-usage.ts); there is no live push for Claude
-  // usage, so no invalidation entry is mapped for it here.
   "chatgpt.usage.updated": [["usage", "chatgpt"]],
+  // Pushed by the clx wrapper via POST /claude/usage/report, not fetched by
+  // the server — see api/src/services/claude-usage.ts.
+  "claude.usage.updated": [["usage", "claude"]],
   "insecure.approval.changed": [
     ["overview"],
     ["overview", "insecure-approvals"],

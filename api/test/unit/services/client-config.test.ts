@@ -311,6 +311,61 @@ describe('client-config: renderClaudeSettingsPartial advisorModel', () => {
 });
 
 /**
+ * The Claude usage quota bar has no other data source: the server never
+ * holds or calls out with a Claude OAuth token (Anthropic's Consumer ToS
+ * prohibits third-party use of a Free/Pro/Max subscription's OAuth token),
+ * so the fleet-owned statusLine command is the only channel that captures
+ * Claude Code's own computed `rate_limits` reading and reports it up.
+ */
+describe('client-config: renderClaudeSettingsPartialForHost statusLine default', () => {
+  const render = (
+    claudeWrapperVersion: string | null,
+    settings: Record<string, unknown> = {},
+  ) =>
+    renderClaudeSettingsPartialForHost({
+      settings,
+      host: { id: 1, secure: 1, claudeWrapperVersion } as never,
+      baseUrl: 'https://orchestrator.example',
+      apiKey: 'k'.repeat(40),
+      engine: ENGINE_CLAUDE,
+    } as never);
+
+  it('installs the fleet quota-reporting statusLine once the host self-reports a new-enough wrapper', () => {
+    const { partial, owned_paths } = render('0.7.24');
+    expect(partial.statusLine).toEqual({ type: 'command', command: 'cxx claude-quota-statusline' });
+    expect(owned_paths).toContain('statusLine');
+  });
+
+  it('a newer wrapper still gets the default', () => {
+    const { partial } = render('0.8.0');
+    expect(partial.statusLine).toEqual({ type: 'command', command: 'cxx claude-quota-statusline' });
+  });
+
+  // A host self-reports its OWN installed version, so this can only lag the
+  // actual binary, never lead it -- withholding the default here is what
+  // stops an older `cxx` (which does not understand the new statusLine
+  // command yet) from being handed a statusLine it cannot run.
+  it('withholds the default from a host on an older wrapper, to avoid handing it a command it cannot run', () => {
+    // 0.7.23 is the latest tag as of writing and does not ship this command.
+    const { partial, owned_paths } = render('0.7.23');
+    expect(partial).not.toHaveProperty('statusLine');
+    expect(owned_paths).not.toContain('statusLine');
+  });
+
+  it('withholds the default when the host has never reported a wrapper version', () => {
+    const { partial } = render(null);
+    expect(partial).not.toHaveProperty('statusLine');
+  });
+
+  it('lets an admin-configured statusLine win over the fleet default, even on a new-enough wrapper', () => {
+    const custom = { type: 'command', command: 'my-custom-statusline' };
+    const { partial, owned_paths } = render('0.7.24', { statusLine: custom });
+    expect(partial.statusLine).toEqual(custom);
+    expect(owned_paths).toContain('statusLine');
+  });
+});
+
+/**
  * Claude Code exits immediately when the resolved mode is `bypassPermissions` and it is
  * running as root, with no supported override. Serving that combination does not produce
  * a permissive agent — it produces one that cannot launch, and the failure is silent:

@@ -184,6 +184,7 @@ describe('migrations against the test baseline', () => {
       'agent_policy_profile_assignments',
       'agent_bus_conferences',
       'agent_bus_conference_members',
+      'claude_usage_snapshots',
     ]);
     expect(
       additions.filter((a) => a.column !== undefined).map((a) => `${a.table}.${a.column}`),

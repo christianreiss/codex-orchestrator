@@ -20,6 +20,7 @@ import {
   isClientVersionStale,
 } from '../../../services/client-versions.js';
 import { ChatGptUsageService } from '../../../services/chatgpt-usage.js';
+import { ClaudeUsageService, normalizeClaudeUsageSnapshot } from '../../../services/claude-usage.js';
 import { DashboardStatsService } from '../../../services/dashboard-stats.js';
 import { UsageScalingService } from '../../../services/usage-scaling.js';
 import {
@@ -171,6 +172,7 @@ export async function registerAdminOverviewRoutes(
     keyring: ctx.keyring,
     runnerValidation,
   });
+  const claudeUsage = new ClaudeUsageService(ctx.db);
   const dashboard = new DashboardStatsService(ctx.db);
   const scaling = new UsageScalingService(settings);
   const authStore = createCanonicalAuthStoreService({
@@ -690,6 +692,33 @@ export async function registerAdminOverviewRoutes(
   app.post('/admin/chatgpt/usage/refresh', { preHandler: app.requireAdmin }, async () => {
     const result = await chatgpt.refresh();
     return ok(result);
+  });
+
+  // ── /admin/claude/usage* ──────────────────────────────────────────────────
+  // Read-only: rows are pushed by the clx wrapper (see POST /claude/usage/report
+  // in routes/auth/index.ts), so there is no admin-triggerable refresh — the
+  // server has nothing of its own to re-fetch.
+  app.get('/admin/claude/usage', { preHandler: app.requireAdmin }, async () => {
+    const row = await claudeUsage.latest();
+    return ok({ snapshot: row ? normalizeClaudeUsageSnapshot(row) : null });
+  });
+
+  app.get('/admin/claude/usage/history', { preHandler: app.requireAdmin }, async (req) => {
+    const q = req.query as Record<string, unknown>;
+    const days = intQuery(q.days, 60);
+    const from = stringQuery(q.from);
+    const until = stringQuery(q.until);
+    if (from !== null && Number.isNaN(Date.parse(from))) {
+      throw new ValidationError('Invalid from timestamp', { param: 'from' });
+    }
+    if (until !== null && Number.isNaN(Date.parse(until))) {
+      throw new ValidationError('Invalid until timestamp', { param: 'until' });
+    }
+    if (from && until && Date.parse(from) > Date.parse(until)) {
+      throw new ValidationError('from must be before until', { param: 'from' });
+    }
+    const history = await claudeUsage.history({ days, from, until });
+    return ok(history);
   });
 
   // ── /admin/toasts ─────────────────────────────────────────────────────────

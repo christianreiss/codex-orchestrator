@@ -16,6 +16,7 @@ import (
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/agentportal"
 	claudeapp "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/app/claude"
 	codexapp "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/app/codex"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/claudequota"
 	hostcron "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/cron"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/signing"
 )
@@ -69,6 +70,8 @@ func runExplicit(args []string, stdout, stderr io.Writer) int {
 		return agentportal.RunCommand(args[1:], stdout, stderr)
 	case "agent":
 		return agentbus.RunCommand(args[1:], os.Stdin, stdout, stderr, Version)
+	case "claude-quota-statusline":
+		return claudequota.RunCommand(os.Stdin, stdout, stderr)
 	case "update":
 		return runHostUpdate(stdout, stderr)
 	case "sync":

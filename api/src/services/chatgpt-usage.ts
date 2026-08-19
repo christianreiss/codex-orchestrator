@@ -435,27 +435,36 @@ export class ChatGptUsageService {
         : null;
 
     const response = await this.requestUsage(accessToken, accountId);
-    if (response.error) {
+
+    // A non-2xx status (e.g. 429 once the account is already at its limit)
+    // still carries a usable rate_limit payload from chatgpt.com in most
+    // cases — discarding it here blanks out the dashboard's used_percent
+    // right when the user most needs to see it. Only fall back to a bare
+    // error when the body itself has no usable rate_limit data.
+    const usablePayload = response.json !== null && isRecord(response.json['rate_limit']);
+    if (response.error && !usablePayload) {
       return this.storeError(response.error, response.error, response.body, response.status);
     }
 
     const parsed = parseChatGptUsageJson(response.json as Record<string, unknown>);
+    const status: 'ok' | 'rate_limited' = response.error ? 'rate_limited' : 'ok';
     const row = await this.insertSnapshot({
       ...parsed,
-      status: 'ok',
+      status,
       raw: response.body,
-      error: null,
+      error: response.error ?? null,
       fetchedAt: now,
       nextEligibleAt: nextEligible,
       createdAt: now,
     });
     await this.recordGraphSnapshot(row);
-    this.log?.info?.({ status: 'ok', fetched_at: row.fetchedAt }, 'chatgpt.usage refreshed');
+    this.log?.info?.({ status, fetched_at: row.fetchedAt }, 'chatgpt.usage refreshed');
     return {
-      status: 'ok',
+      status,
       snapshot: this.normalizeSnapshot(row),
       cached: false,
       next_eligible_at: row.nextEligibleAt,
+      error: response.error ?? null,
     };
   }
 

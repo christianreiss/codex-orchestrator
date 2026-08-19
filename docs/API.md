@@ -352,6 +352,9 @@ Sets/clears host lane preference. Body: `{ "lane": "normal" | "spark" | null }` 
 - `GET /claude/{kind}` — list served artifacts of that kind: `slug`, `sha256`, `display_name`, `description`, `model`, `updated_at`, `engine`.
 - `POST /claude/{kind}/retrieve` — body: `slug` (or legacy `filename`) + optional `sha256` (64-hex). Returns `status` `missing` | `deleted` | `unchanged` | `updated`, plus the artifact body when updated.
 
+### Claude usage
+- `POST /claude/usage/report` — host reports what Claude Code's own statusLine payload said for the current `rate_limits` reading. Body: optional `five_hour`/`seven_day` objects (`used_percent`, `resets_at`), optional `source` (defaults `statusline`). Pushed by the clx wrapper's fleet-owned statusLine command on a local throttle; the server never fetches this itself (see `GET /admin/claude/usage`). A report with neither window present is accepted (200 `{status:"ignored"}`) but stored nowhere. Auth required.
+
 ### Shared memories
 Fleet-wide durable corpus (`shared://{slug}`), deliberately not host-filtered: every host reads and writes the same documents, and `engine` is recorded as provenance only. Auth required.
 - `GET /shared-memories` — recency listing; query `limit` (1–200, default 50), `offset`, `prefix`, `tags`, `include_content`. Response reports `scanned_all` when the bounded scan was exhausted.
@@ -677,6 +680,9 @@ All `/projects*` routes require normal host API-key auth + IP binding and return
   - `GET /admin/chatgpt/usage[?force=1]`
   - `GET /admin/chatgpt/usage/history?days=60[&from=&until=&interval=raw|hour|day&lane=normal|spark|both&window=primary|secondary|both]`
   - `POST /admin/chatgpt/usage/refresh`
+- Claude usage (read-only — pushed by hosts via `POST /claude/usage/report`, so there is no refresh endpoint):
+  - `GET /admin/claude/usage`
+  - `GET /admin/claude/usage/history?days=60[&from=&until=]`
 - Skills: `GET /admin/skills`, `GET /admin/skills/{slug}`, `POST /admin/skills/generate`, `POST /admin/skills/assist`, `POST /admin/skills/store`, `DELETE /admin/skills/{slug}`. `POST /admin/skills/assist` is the conversational variant of `generate`: body `{messages[], mode: "new"|"edit", skill?}` (an `edit` mode carries the current skill), and it returns `503 runner_unavailable` without a configured runner and canonical auth. `POST /admin/skills/generate` is an admin-only runner-backed draft helper that fills the skill editor but does not persist anything until `store` is called. Code-managed and source-owned skills are returned with `managed:true`; direct store/delete attempts are rejected.
 - `GET /admin/skill-sources/mattpocock` — return the Matt Pocock source state: `{source, repository, ref, enabled, auto_update, status, revision, upstream_version, skill_count, file_count, last_checked_at, last_synced_at, last_error}`. `source` is `github:mattpocock/skills`, `repository` is `https://github.com/mattpocock/skills`, `ref` is `main`, and `status` is `disabled`, `ok`, or `error`. Any authenticated admin role may read it. Inclusion defaults off and causes no outbound traffic while off.
 - `POST /admin/skill-sources/mattpocock` — owner/admin only. The non-empty body may contain either or both booleans `{enabled?, auto_update?}` and no other keys; returns the same source state. Fresh source state defaults auto-update on; a preference configured while disabled is preserved when inclusion is enabled. Disabling auto-update pins the last-known-good revision. Disabling inclusion soft-deletes the source-owned skills from served inventory but retains their rows, files, and last-known-good metadata. A later enable validates that complete cached revision and restores it without a GitHub request; a missing, incomplete, or damaged cache instead triggers a fresh import from the immutable upstream SHA.

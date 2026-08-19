@@ -2,6 +2,7 @@
   import PageHeader from "$lib/components/layout/PageHeader.svelte";
   import StatCard from "./StatCard.svelte";
   import ChatGptUsageCard from "./ChatGptUsageCard.svelte";
+  import ClaudeUsageCard from "./ClaudeUsageCard.svelte";
   import RunnerCard from "$lib/components/dashboard/RunnerCard.svelte";
   import DashboardAlerts from "./DashboardAlerts.svelte";
   import { Alert, AlertTitle, AlertDescription } from "$lib/components/ui/alert";
@@ -152,8 +153,9 @@
   <DashboardAlerts />
 
   <!-- Usage + runner cards -->
-  <div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
+  <div class="grid grid-cols-1 gap-6 lg:grid-cols-2 xl:grid-cols-3">
     <ChatGptUsageCard />
+    <ClaudeUsageCard />
     <RunnerCard />
   </div>
 </div>

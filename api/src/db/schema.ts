@@ -1055,6 +1055,28 @@ export const chatgptUsageSnapshots = mysqlTable(
   }),
 );
 
+// Pushed by the clx wrapper's fleet-owned statusLine command from Claude
+// Code's own `rate_limits` payload -- never fetched by the server itself.
+// See migrations/0024_add_claude_usage_snapshots.sql for why.
+export const claudeUsageSnapshots = mysqlTable(
+  'claude_usage_snapshots',
+  {
+    id: bigint('id', { mode: 'number', unsigned: true }).primaryKey().autoincrement(),
+    hostId: bigint('host_id', { mode: 'number', unsigned: true }),
+    source: varchar('source', { length: 32 }).notNull().default('statusline'),
+    fiveHourUsedPercent: int('five_hour_used_percent', { unsigned: true }),
+    fiveHourResetsAt: varchar('five_hour_resets_at', { length: 100 }),
+    sevenDayUsedPercent: int('seven_day_used_percent', { unsigned: true }),
+    sevenDayResetsAt: varchar('seven_day_resets_at', { length: 100 }),
+    fetchedAt: varchar('fetched_at', { length: 100 }).notNull(),
+    createdAt: varchar('created_at', { length: 100 }).notNull(),
+  },
+  (t) => ({
+    hostIdx: index('idx_claude_usage_host').on(t.hostId),
+    fetchedIdx: index('idx_claude_usage_fetched').on(t.fetchedAt),
+  }),
+);
+
 export const dashboardGraphQuotaSnapshots = mysqlTable(
   'dashboard_graph_quota_snapshots',
   {

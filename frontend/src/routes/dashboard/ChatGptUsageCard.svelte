@@ -21,6 +21,7 @@
     chatgptHistoryQuery,
     chatgptRefreshMutation,
     pickPrimaryChatgptSeries,
+    chatgptWindowLabel,
     type ChatGptUsageSummary,
   } from "$lib/api/usage";
   import { toast } from "svelte-sonner";
@@ -52,6 +53,12 @@
   const secondaryPercent = $derived(
     typeof secondaryWindow?.used_percent === "number" ? secondaryWindow.used_percent : null,
   );
+
+  // Labels are derived from each window's own limit_seconds rather than its
+  // primary/secondary position — chatgpt.com doesn't guarantee the 5-hour
+  // lane is always "primary", so trusting position mislabels the bars.
+  const primaryLabel = $derived(chatgptWindowLabel(primaryWindow?.limit_seconds, "5-hour window"));
+  const secondaryLabel = $derived(chatgptWindowLabel(secondaryWindow?.limit_seconds, "Weekly window"));
 
   const cached = $derived(($usage.data as { cached?: boolean } | undefined)?.cached === true);
 
@@ -135,13 +142,13 @@
     {:else}
       <div class="space-y-3">
         <UsageMeter
-          label="5-hour window"
+          label={primaryLabel}
           valueLabel={primaryPercent === null ? "—" : `${Math.round(primaryPercent)}%`}
           usedPercent={primaryPercent ?? 0}
           cachedPercent={cached && primaryPercent !== null ? primaryPercent : 0}
         />
         <UsageMeter
-          label="Weekly window"
+          label={secondaryLabel}
           valueLabel={secondaryPercent === null ? "—" : `${Math.round(secondaryPercent)}%`}
           usedPercent={secondaryPercent ?? 0}
           cachedPercent={cached && secondaryPercent !== null ? secondaryPercent : 0}

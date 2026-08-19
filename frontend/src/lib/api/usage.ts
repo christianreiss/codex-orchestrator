@@ -73,11 +73,53 @@ export interface ChatGptHistoryResponse {
   points?: Array<Record<string, unknown>>;
 }
 
+/* Claude ------------------------------------------------------------------
+ *
+ * Unlike ChatGPT usage, this is never fetched by the server: the orchestrator
+ * holds no Claude OAuth token and calls no Anthropic/claude.ai endpoint for
+ * it (Anthropic's Consumer ToS prohibits third-party use of a subscription's
+ * OAuth token). Rows are PUSHED by the clx wrapper's fleet-owned statusLine
+ * command from Claude Code's own already-computed `rate_limits` reading, so
+ * there is no refresh mutation here — the server has nothing of its own to
+ * re-fetch on demand. */
+
+export interface ClaudeUsageWindow {
+  used_percent?: number | null;
+  resets_at?: string | null;
+  [key: string]: unknown;
+}
+
+export interface ClaudeUsageSnapshot {
+  source?: string | null;
+  five_hour_used_percent?: number | null;
+  five_hour_resets_at?: string | null;
+  seven_day_used_percent?: number | null;
+  seven_day_resets_at?: string | null;
+  five_hour_window?: ClaudeUsageWindow | null;
+  seven_day_window?: ClaudeUsageWindow | null;
+  fetched_at?: string | null;
+  [key: string]: unknown;
+}
+
+export interface ClaudeUsageResponse {
+  snapshot?: ClaudeUsageSnapshot | null;
+  [key: string]: unknown;
+}
+
+export interface ClaudeHistoryResponse {
+  days: number;
+  from?: string;
+  until?: string;
+  series: ChatGptHistorySeries[];
+}
+
 /* Query keys ------------------------------------------------------------ */
 
 export const usageKeys = {
   chatgpt: ["usage", "chatgpt"] as const,
   chatgptHistory: (days = 60) => ["usage", "chatgpt", "history", days] as const,
+  claude: ["usage", "claude"] as const,
+  claudeHistory: (days = 60) => ["usage", "claude", "history", days] as const,
 };
 
 /* Query / mutation builders -------------------------------------------- */
@@ -108,6 +150,20 @@ export function chatgptRefreshMutation() {
   });
 }
 
+export function claudeUsageQuery() {
+  return createQuery<ClaudeUsageResponse>({
+    queryKey: usageKeys.claude,
+    queryFn: () => api.get<ClaudeUsageResponse>("/admin/claude/usage"),
+  });
+}
+
+export function claudeHistoryQuery(days = 60) {
+  return createQuery<ClaudeHistoryResponse>({
+    queryKey: usageKeys.claudeHistory(days),
+    queryFn: () => api.get<ClaudeHistoryResponse>(`/admin/claude/usage/history?days=${days}`),
+  });
+}
+
 /* Aggregations --------------------------------------------------------- */
 
 /**
@@ -122,4 +178,27 @@ export function pickPrimaryChatgptSeries(history: ChatGptHistoryResponse | undef
   const secondary = history.series.find((s) => s.key.endsWith("_secondary"));
   if (secondary && secondary.points.length > 0) return secondary;
   return history.series.find((s) => s.points.length > 0) ?? history.series[0];
+}
+
+const FIVE_HOURS_SECONDS = 5 * 60 * 60;
+const SEVEN_DAYS_SECONDS = 7 * 24 * 60 * 60;
+
+/**
+ * chatgpt.com's usage payload doesn't guarantee `primary_window` is always
+ * the 5-hour lane and `secondary_window` the weekly one — the cxx CLI
+ * wrapper already learned this the hard way and derives its label from the
+ * window's actual `limit_seconds` (see quotaWindowLabel in
+ * wrappers/cxx/internal/persona/codex/summary/summary.go) instead of
+ * trusting field position. Mirror that here so the dashboard can't mislabel
+ * a window when a window's duration doesn't match its usual slot.
+ */
+export function chatgptWindowLabel(limitSeconds: number | null | undefined, fallback: string): string {
+  if (typeof limitSeconds !== "number" || !Number.isFinite(limitSeconds) || limitSeconds <= 0) {
+    return fallback;
+  }
+  if (limitSeconds === FIVE_HOURS_SECONDS) return "5-hour window";
+  if (limitSeconds === SEVEN_DAYS_SECONDS) return "Weekly window";
+  if (limitSeconds % 86400 === 0) return `${limitSeconds / 86400}-day window`;
+  if (limitSeconds % 3600 === 0) return `${limitSeconds / 3600}-hour window`;
+  return fallback;
 }

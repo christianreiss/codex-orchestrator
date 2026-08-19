@@ -539,6 +539,19 @@ CREATE TABLE `claude_artifacts` (
 	CONSTRAINT `uq_claude_artifacts_kind_slug` UNIQUE(`kind`,`slug`)
 );
 
+CREATE TABLE `claude_usage_snapshots` (
+	`id` bigint unsigned AUTO_INCREMENT NOT NULL,
+	`host_id` bigint unsigned,
+	`source` varchar(32) NOT NULL DEFAULT 'statusline',
+	`five_hour_used_percent` int unsigned,
+	`five_hour_resets_at` varchar(100),
+	`seven_day_used_percent` int unsigned,
+	`seven_day_resets_at` varchar(100),
+	`fetched_at` varchar(100) NOT NULL,
+	`created_at` varchar(100) NOT NULL,
+	CONSTRAINT `claude_usage_snapshots_id` PRIMARY KEY(`id`)
+);
+
 CREATE TABLE `cli_auth_requests` (
 	`id` bigint unsigned AUTO_INCREMENT NOT NULL,
 	`request_id` char(64) NOT NULL,
@@ -1096,6 +1109,8 @@ CREATE INDEX `idx_chatgpt_usage_fetched` ON `chatgpt_usage_snapshots` (`fetched_
 CREATE INDEX `idx_claude_artifacts_kind` ON `claude_artifacts` (`kind`);
 CREATE INDEX `idx_claude_artifacts_updated_at` ON `claude_artifacts` (`updated_at`);
 CREATE INDEX `idx_claude_artifacts_engine` ON `claude_artifacts` (`engine`);
+CREATE INDEX `idx_claude_usage_host` ON `claude_usage_snapshots` (`host_id`);
+CREATE INDEX `idx_claude_usage_fetched` ON `claude_usage_snapshots` (`fetched_at`);
 CREATE INDEX `idx_cli_auth_user_code` ON `cli_auth_requests` (`user_code_hash`);
 CREATE INDEX `idx_cli_auth_expires` ON `cli_auth_requests` (`expires_at`);
 CREATE INDEX `idx_cli_auth_status` ON `cli_auth_requests` (`status`);

@@ -86,6 +86,8 @@ export const ROUTE_CAPABILITIES: Readonly<Record<string, RouteGuard>> = {
   'GET /admin/runner': cap('admin.read'),
   'GET /admin/chatgpt/usage': cap('admin.read'),
   'GET /admin/chatgpt/usage/history': cap('admin.read'),
+  'GET /admin/claude/usage': cap('admin.read'),
+  'GET /admin/claude/usage/history': cap('admin.read'),
 
   // ── Audit ────────────────────────────────────────────────────────────────
   'GET /admin/logs': cap('audit.read'),
