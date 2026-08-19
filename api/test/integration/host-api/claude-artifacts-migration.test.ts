@@ -1,9 +1,11 @@
+import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { sql } from 'drizzle-orm';
 import { HostClaudeArtifactsService } from '../../../src/services/host-claude-artifacts.js';
+import { RESPONSE_VERBOSITY_OUTPUT_STYLE_SLUGS } from '../../../src/services/agent-response-style.js';
 import { getTestDb, type TestDb } from '../../helpers/test-db.js';
 
 const MIGRATION = join(
@@ -86,13 +88,31 @@ describe.skipIf(!handle)('Claude artifacts migration against a real database', (
     ]);
   });
 
-  it('supports the empty Claude bootstrap artifact bundle', async () => {
+  // The bootstrap bundle used to be empty on a fresh database. Migration 0023
+  // seeds one output-style document per non-zero response-verbosity level, and
+  // `client-config.ts` points Claude Code's `outputStyle` at one of those slugs
+  // -- so the wrapper has to receive the documents before it can select one.
+  // Asserted on slugs, not bodies: the seeded text is data owned by the
+  // migration, not by this test.
+  it('bundles the seeded response-verbosity output styles for a bootstrapping host', async () => {
     const bundle = await new HostClaudeArtifactsService(db).bundle(
       { id: 0 } as never,
       'claude',
       {},
     );
 
-    expect(bundle).toEqual({ subagent: [], command: [], 'output-style': [] });
+    expect(bundle.subagent).toEqual([]);
+    expect(bundle.command).toEqual([]);
+
+    const seeded = Object.values(RESPONSE_VERBOSITY_OUTPUT_STYLE_SLUGS)
+      .filter((slug): slug is string => typeof slug === 'string')
+      .sort();
+    expect(bundle['output-style'].map((entry) => entry.slug)).toEqual(seeded);
+    for (const entry of bundle['output-style']) {
+      // A host with no digests knows none of them yet, so every one carries content.
+      expect(entry.status).toBe('updated');
+      expect(entry.sha256).toMatch(/^[a-f0-9]{64}$/);
+      expect(createHash('sha256').update(entry.content ?? '').digest('hex')).toBe(entry.sha256);
+    }
   });
 });
