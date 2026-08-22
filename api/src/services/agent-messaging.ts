@@ -937,6 +937,15 @@ export class AgentMessagingService {
    * has fully succeeded, so a join that fails validation, targets itself, or
    * finds an ineligible opener leaves the rendezvous intact. One mistyped join
    * must not burn a PIN the human is still holding.
+   *
+   * The failure names all three ways a lookup comes up empty rather than
+   * guessing between them, because nothing here can tell them apart: a swept PIN
+   * and a spent PIN both leave the same NULL, and the four-digit space is shared
+   * with conferences and re-minted constantly, so any remembered "last PIN"
+   * would sooner or later belong to a stranger. The third cause is the one worth
+   * spelling out — a human who hands one PIN to a third agent reads "not found"
+   * as a typo and re-reads the digits, when what they actually want is a
+   * conference.
    */
   private async consumeCallPinLocked(db: AgentMessagingDb, pin: string, now: string): Promise<AgentBusAddress> {
     const rows = await db
@@ -947,7 +956,10 @@ export class AgentMessagingService {
       .for('update');
     const address = rows[0];
     if (!address || address.archivedAt) {
-      throw new NotFoundError('Call PIN not found or expired', 'agent_messaging_call_pin_not_found');
+      throw new NotFoundError(
+        'Call PIN not found, expired, or already dialled. A call PIN is single-use and joins exactly two agents; for three or more, open a conference instead.',
+        'agent_messaging_call_pin_not_found',
+      );
     }
     return address;
   }

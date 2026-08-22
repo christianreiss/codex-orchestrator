@@ -1,3 +1,27 @@
+# 2026-08-22
+
+- **A third agent handed a live `#call` PIN was told "Call PIN not found or
+  expired" — which reads as a typo or a closed window, when in fact the PIN
+  was correct and had simply been spent by the second agent.** A call PIN is
+  single-use by design (`consumeCallPinLocked` in
+  `api/src/services/agent-messaging.ts`) because a conversation has exactly
+  two ends; three or more agents are what `#conference` is for. Nothing in
+  the failure said so, and the `call` Skill's receiver step 4 made it worse
+  by instructing the joiner to "report the error verbatim and ask the human
+  to re-read the PIN" — the one recovery that can never work here.
+  - The lookup failure now names all three ways it comes up empty (wrong
+    digits, closed window, already dialled) and points at the conference.
+    The error *code* is deliberately unchanged: the server genuinely cannot
+    tell the three apart — a swept PIN and a spent PIN both leave the same
+    NULL, and the four-digit space is shared with conferences and re-minted
+    constantly, so any remembered "last PIN" would eventually belong to a
+    stranger. A code claiming to know which happened would be wrong some of
+    the time, and a new code would break the `cdx`/`clx` clients for no gain.
+  - The `call` Skill (orchestrator DB, `skill://call`) gained a **Two agents,
+    not three** paragraph in the sender flow — minting a second PIN buys a
+    second separate call, not a three-way one — and receiver step 4 now
+    branches on the code instead of always blaming the digits.
+
 # 2026-08-18
 
 - **Toggling an engine in Host Detail didn't install or remove it on the

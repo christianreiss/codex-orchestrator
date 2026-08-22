@@ -186,14 +186,20 @@ describe.skipIf(!handle)('#call rendezvous against a real database', { timeout: 
     expect((joined.message as Record<string, unknown>).status).toBe('queued');
     expect(await pinOf(opener.addressId)).toBeNull();
 
-    // Single-use: the same PIN cannot be dialled twice.
+    // Single-use: the same PIN cannot be dialled twice. The wording is asserted
+    // alongside the code because the wording is what a third agent acts on: a
+    // bare "not found" reads as a typo and gets re-dialled forever, so the
+    // message has to name the spent case and point at the conference.
     await expect(
       service.joinCall(joiner.sessionId, joiner.bridgeToken, {
         pin: String(opened.pin),
         content: 'CALL/1 HELLO\nagain',
         clientMessageId: randomUUID(),
       }),
-    ).rejects.toMatchObject({ code: 'agent_messaging_call_pin_not_found' });
+    ).rejects.toMatchObject({
+      code: 'agent_messaging_call_pin_not_found',
+      message: expect.stringMatching(/already dialled[\s\S]*conference/),
+    });
   });
 
   it('leaves the PIN live when a join fails', async () => {
