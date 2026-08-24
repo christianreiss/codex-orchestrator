@@ -12,6 +12,7 @@
   import {
     gitDirectorClonesQuery,
     gitDirectorDecideMutation,
+    gitDirectorEvictMutation,
     gitDirectorKeys,
     gitDirectorStateQuery,
     type GitCloneRow,
@@ -27,6 +28,11 @@
 
   const decide = gitDirectorDecideMutation({
     onSuccess: (row) => toast.success(`Forced ${row.verdict} on ${row.target_branch}`),
+    onError: (error) => toast.error(error.message),
+  });
+
+  const evict = gitDirectorEvictMutation({
+    onSuccess: () => toast.success("Registration released; anything it was holding is free"),
     onError: (error) => toast.error(error.message),
   });
 
@@ -160,6 +166,17 @@
                     <span class="text-xs text-muted-foreground">
                       expires {relativeTime(worktree.expires_at)}
                     </span>
+                    {#if canMutate}
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        disabled={$evict.isPending}
+                        title="Release this registration and free anything it is holding"
+                        onclick={() => $evict.mutate(worktree.worktree_id)}
+                      >
+                        Release
+                      </Button>
+                    {/if}
                   </div>
                 </div>
               {/each}
@@ -223,6 +240,33 @@
                   {/each}
                 </div>
               </div>
+            {/if}
+
+            <!-- Reclaimed registrations. Shown rather than dropped: a forgotten
+                 client that simply vanished from the list would read as "nobody
+                 was ever here", which is a worse lie than a stale row. -->
+            {#if clone.stale.length > 0}
+              <details class="border-t px-4 py-2">
+                <summary class="cursor-pointer text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  Reclaimed ({clone.stale.length})
+                </summary>
+                <div class="mt-2 space-y-1.5">
+                  {#each clone.stale as row (row.worktree_id)}
+                    <div class="text-xs">
+                      <Badge variant={row.status === "abandoned" ? "destructive" : "secondary"}>
+                        {row.status === "abandoned" ? "session ended" : "went quiet"}
+                      </Badge>
+                      <span class="ml-2 font-mono">{row.worktree_path}</span>
+                      <span class="ml-2 text-muted-foreground">
+                        {row.username} · last seen {relativeTime(row.last_seen_at)}
+                      </span>
+                      {#if row.task}
+                        <p class="mt-0.5 max-w-prose text-muted-foreground italic">{row.task}</p>
+                      {/if}
+                    </div>
+                  {/each}
+                </div>
+              </details>
             {/if}
 
             <!-- Recent verdicts. A contended verdict may come from a model and is

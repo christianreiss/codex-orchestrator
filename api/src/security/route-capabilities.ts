@@ -318,6 +318,7 @@ export const ROUTE_CAPABILITIES: Readonly<Record<string, RouteGuard>> = {
   'GET /admin/git-director/state': cap('git_director.read'),
   'POST /admin/git-director/state': cap('git_director.manage'),
   'POST /admin/git-director/requests/:id/decide': cap('git_director.manage'),
+  'POST /admin/git-director/worktrees/:id/release': cap('git_director.manage'),
 
   // ── Agent portal ─────────────────────────────────────────────────────────
   'GET /admin/agent-portal/state': cap('agent_portal.read'),

@@ -108,6 +108,7 @@ export const WS_EVENT_TYPES = [
   // The two operator actions, which are audit facts as well as view changes.
   'git_director.module_toggled',
   'git_director.decision_forced',
+  'git_director.worktree_evicted',
 
   // Usage
   'chatgpt.usage.updated',

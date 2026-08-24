@@ -472,6 +472,13 @@ Auth verification worker: when `AUTH_RUNNER_URL` is configured, the API starts a
     `verdict` is `allow` or `deny`. Writes `decided_by: "operator"`, so a
     human's override is never attributed to the model that would otherwise have
     judged it.
+  - `POST /admin/git-director/worktrees/{id}/release` — evict one registration
+    and withdraw every merge request it still had outstanding. The Director
+    reclaims on its own in two cases — a bound agent whose session the fleet can
+    see has ended, and a registration that goes quiet past its TTL — so this
+    covers only the third: a registration that is technically alive but which an
+    operator already knows is finished, where waiting out a visible TTL is the
+    wrong answer.
 - `GET /admin/skills` — list stored skills (slug, sha256, display name, description, timestamps) plus canonical `uri` / `canonical_uri`, `managed`, and nullable source provenance. `description` is the persisted short summary used by the runtime AGENTS Skills block when present. Code-managed and source-owned skills are returned with `managed:true`; imported rows use `source_type:"github:mattpocock/skills"`.
 - `GET /admin/skills/{slug}` — browser/API split. Browser requests (`Accept: text/html`) receive the admin SPA shell for the dedicated skill workspace page; JSON requests (`Accept: application/json`) fetch full skill content (manifest + metadata, including canonical skill URI, invocation policy, and source provenance).
 - `POST /admin/skills/generate` — admin-only runner-backed draft generation. Body: `prompt` (required string) and optional `slug_hint`. Returns a structured skill draft (`slug`, `display_name`, `description`, `tags`, `what`, `when`, `steps`) plus a server-built canonical `manifest`. This endpoint never persists the skill; admins must still call `POST /admin/skills/store` after review. Returns `503` when canonical auth or the runner is unavailable, and `502` when the runner returns unusable output.

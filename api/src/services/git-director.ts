@@ -149,7 +149,10 @@ export function normalizeRemote(raw: string | null | undefined): string | null {
   let host = slash === -1 ? rest : rest.slice(0, slash);
   let path = slash === -1 ? '' : rest.slice(slash + 1);
   host = host.toLowerCase().replace(/:\d+$/, '');
-  path = path.replace(/\.git$/i, '').replace(/\/+$/, '').replace(/^\/+/, '');
+  // Order matters: a trailing slash has to go first, or `…/repo.git/` keeps its
+  // `.git` and stops matching the same repo cloned over ssh. Strip again after,
+  // since removing the suffix can expose another separator.
+  path = path.replace(/^\/+/, '').replace(/\/+$/, '').replace(/\.git$/i, '').replace(/\/+$/, '');
   return path ? `${host}/${path}` : host;
 }
 
@@ -289,42 +292,174 @@ export class GitDirectorService {
   // ── expiry sweep ──────────────────────────────────────────────────────────
 
   /**
-   * Retire registrations and leases whose TTL has passed. Called at the top of
-   * every read and every decision, so a crashed agent frees its clone on the
-   * next call by anybody rather than on a timer nobody can see.
+   * Reclaim what forgotten clients left behind, and record that it was forgotten
+   * rather than finished.
+   *
+   * An agent that vanishes mid-task is the normal case, not the exception: a
+   * closed terminal, a killed wrapper, a rebooted laptop, a session that simply
+   * ended. None of those call `git_release`. Left alone, that agent's
+   * registration keeps claiming a worktree it no longer occupies, and — far
+   * worse — its lease keeps a shared branch shut against everybody else. The
+   * first forgotten client that wedges a repository forever is how this feature
+   * gets switched off, so reclaiming is a first-class operation rather than
+   * cleanup.
+   *
+   * There are two independent signals, and using only the second is the mistake
+   * to avoid:
+   *
+   *  1. **Definitive death.** When Agent Messaging bound an address to the
+   *     registration, `agent_bus_addresses.current_session_id` is NULL exactly
+   *     when no wrapper lifecycle is attached — the agent is not running, and no
+   *     amount of waiting will bring this one back. That is the same liveness
+   *     the fleet already computes for `agent_list`, deliberately reused rather
+   *     than reinvented as a second heartbeat, and it reclaims in seconds
+   *     instead of waiting out a TTL.
+   *  2. **Silence.** With Agent Messaging off there is no address to consult, so
+   *     the TTL is the only signal left. It is the fallback, never the primary.
+   *
+   * Swept on read, at the top of every listing and every decision, like
+   * `sweepCallPinsLocked` in agent-messaging.ts — a timer nobody can observe is
+   * worse than work done by whoever next looks.
+   *
+   * Nothing is deleted. An expired registration keeps its row so `git_list` and
+   * the console can still show that somebody WAS here and when they were last
+   * seen; a registration that silently disappeared would read as an empty clone,
+   * which is a worse lie than a stale one.
    */
   private async sweepExpired(db: GitDirectorDb, now: string): Promise<void> {
-    const staleWorktrees = (
+    const active = (
       await db
-        .select({ id: gitWorktrees.id, expiresAt: gitWorktrees.expiresAt, status: gitWorktrees.status })
+        .select({
+          id: gitWorktrees.id,
+          expiresAt: gitWorktrees.expiresAt,
+          status: gitWorktrees.status,
+          agentBusAddressId: gitWorktrees.agentBusAddressId,
+        })
         .from(gitWorktrees)
         .where(eq(gitWorktrees.status, 'active'))
-    ).filter((row) => row.status === 'active' && isExpired(row.expiresAt, now));
-    if (staleWorktrees.length > 0) {
+    ).filter((row) => row.status === 'active');
+
+    const dead = await this.deadAddressIds(
+      db,
+      active.map((row) => row.agentBusAddressId).filter((id): id is string => Boolean(id)),
+    );
+
+    const abandoned = active.filter(
+      (row) => row.agentBusAddressId !== null && dead.has(row.agentBusAddressId),
+    );
+    // TTL only bites where there is no address to ask. A bound-but-live agent is
+    // working quietly between calls and must not be evicted for being silent.
+    const timedOut = active.filter(
+      (row) =>
+        !abandoned.includes(row) &&
+        (row.agentBusAddressId === null || !dead.has(row.agentBusAddressId)) &&
+        isExpired(row.expiresAt, now),
+    );
+
+    if (abandoned.length > 0) {
+      await db
+        .update(gitWorktrees)
+        .set({ status: 'abandoned', releasedAt: now, updatedAt: now })
+        .where(inArray(gitWorktrees.id, abandoned.map((row) => row.id)));
+    }
+    if (timedOut.length > 0) {
       await db
         .update(gitWorktrees)
         .set({ status: 'expired', releasedAt: now, updatedAt: now })
-        .where(inArray(gitWorktrees.id, staleWorktrees.map((row) => row.id)));
+        .where(inArray(gitWorktrees.id, timedOut.map((row) => row.id)));
     }
+
+    const reclaimedWorktrees = new Set([...abandoned, ...timedOut].map((row) => row.id));
 
     const liveLeases = (
       await db
         .select({
           id: gitMergeRequests.id,
+          worktreeId: gitMergeRequests.worktreeId,
           verdict: gitMergeRequests.verdict,
           completedAt: gitMergeRequests.completedAt,
           leaseExpiresAt: gitMergeRequests.leaseExpiresAt,
         })
         .from(gitMergeRequests)
         .where(eq(gitMergeRequests.verdict, 'allow'))
-    ).filter(
-      (row) => row.verdict === 'allow' && !row.completedAt && isExpired(row.leaseExpiresAt, now),
+    ).filter((row) => row.verdict === 'allow' && !row.completedAt);
+
+    // A lease whose holder is gone is released with the holder, without waiting
+    // out its own TTL. This is the case that actually hurts: everyone else on
+    // that branch is blocked behind an agent that no longer exists.
+    const orphaned = liveLeases.filter((row) => reclaimedWorktrees.has(row.worktreeId));
+    const staleLeases = liveLeases.filter(
+      (row) => !reclaimedWorktrees.has(row.worktreeId) && isExpired(row.leaseExpiresAt, now),
     );
-    if (liveLeases.length > 0) {
+
+    if (orphaned.length > 0) {
       await db
         .update(gitMergeRequests)
-        .set({ verdict: 'expired', completedAt: now, updatedAt: now })
-        .where(inArray(gitMergeRequests.id, liveLeases.map((row) => row.id)));
+        .set({
+          verdict: 'expired',
+          completedAt: now,
+          reason: 'Lease reclaimed: the holding agent is no longer registered in this clone.',
+          updatedAt: now,
+        })
+        .where(inArray(gitMergeRequests.id, orphaned.map((row) => row.id)));
+    }
+    if (staleLeases.length > 0) {
+      await db
+        .update(gitMergeRequests)
+        .set({
+          verdict: 'expired',
+          completedAt: now,
+          reason: 'Lease expired: it was never renewed with git_merge_status and never released.',
+          updatedAt: now,
+        })
+        .where(inArray(gitMergeRequests.id, staleLeases.map((row) => row.id)));
+    }
+  }
+
+  /**
+   * Which of these bound addresses no longer have a live agent behind them.
+   *
+   * `current_session_id` is the fleet's own answer to "is a wrapper attached",
+   * so this asks the existing liveness rather than adding a heartbeat the
+   * Director would have to keep accurate on its own. An archived or disabled
+   * address counts as gone for the same reason.
+   *
+   * Failing open is deliberate: if the Agent Messaging tables cannot be read —
+   * a box mid-deploy, the module never installed — no address is reported dead
+   * and every registration falls back to its TTL. Guessing "dead" on a failed
+   * read would evict live agents wholesale.
+   */
+  private async deadAddressIds(db: GitDirectorDb, ids: readonly string[]): Promise<Set<string>> {
+    const unique = [...new Set(ids)];
+    if (unique.length === 0) return new Set();
+    try {
+      const rows = await db
+        .select({
+          id: agentBusAddresses.id,
+          currentSessionId: agentBusAddresses.currentSessionId,
+          enabled: agentBusAddresses.enabled,
+          archivedAt: agentBusAddresses.archivedAt,
+          readiness: agentBusAddresses.readiness,
+        })
+        .from(agentBusAddresses)
+        .where(inArray(agentBusAddresses.id, unique))
+        .limit(Math.max(unique.length, 1));
+      const known = new Map(rows.map((row) => [row.id, row]));
+      const dead = new Set<string>();
+      for (const id of unique) {
+        const row = known.get(id);
+        // An id we bound and can no longer find has been purged; that is gone too.
+        if (!row) {
+          dead.add(id);
+          continue;
+        }
+        if (row.archivedAt || row.enabled !== 1) dead.add(id);
+        else if (!row.currentSessionId) dead.add(id);
+        else if (row.readiness === 'offline' || row.readiness === 'disabled') dead.add(id);
+      }
+      return dead;
+    } catch {
+      return new Set();
     }
   }
 
@@ -543,6 +678,7 @@ export class GitDirectorService {
         fqdn: fqdnById.get(clone.hostId) ?? null,
         worktrees: await this.worktreeWire(this.deps.db, clone.id, now),
         leases: await this.leaseWire(this.deps.db, clone.id, now),
+        stale: await this.staleWire(this.deps.db, clone.id, now),
       });
     }
     return { scope, clones: out, count: out.length };
@@ -860,6 +996,7 @@ export class GitDirectorService {
         fqdn: fqdnById.get(clone.hostId) ?? null,
         worktrees: await this.worktreeWire(this.deps.db, clone.id, now),
         leases: await this.leaseWire(this.deps.db, clone.id, now),
+        stale: await this.staleWire(this.deps.db, clone.id, now),
         recent: await this.recentWire(this.deps.db, clone.id),
       });
     }
@@ -898,6 +1035,47 @@ export class GitDirectorService {
         (row) => row.id === requestId,
       );
       return this.requestWire(updated ?? request, {});
+    });
+  }
+
+  /**
+   * Operator eviction of a forgotten registration.
+   *
+   * The automatic paths cover an agent whose session the fleet can see died, and
+   * one that went quiet past its TTL. Neither covers the case a human is
+   * actually looking at: a registration that is technically alive — a wrapper
+   * still attached, the TTL still running — belonging to something nobody
+   * believes is still working. Waiting out a TTL you can see is the wrong answer
+   * when you already know, so the console gets a direct release.
+   *
+   * Drops the registration and withdraws everything it had outstanding, so a
+   * branch it was sitting on frees immediately rather than on the lease TTL.
+   */
+  async adminEvictWorktree(worktreeId: string): Promise<Record<string, unknown>> {
+    const now = this.now();
+    return await this.deps.db.transaction(async (tx) => {
+      const rows = await tx.select().from(gitWorktrees).where(eq(gitWorktrees.id, worktreeId)).limit(1).for('update');
+      const worktree = rows.find((row) => row.id === worktreeId);
+      if (!worktree) throw new NotFoundError('Worktree not found', 'git_director_worktree_not_found');
+
+      const live = await this.liveRequestsForWorktree(tx, worktree.id, now);
+      if (live.length > 0) {
+        await tx
+          .update(gitMergeRequests)
+          .set({
+            verdict: 'withdrawn',
+            completedAt: now,
+            reason: 'Withdrawn: an operator evicted the holding registration from the console.',
+            updatedAt: now,
+          })
+          .where(inArray(gitMergeRequests.id, live.map((row) => row.id)));
+      }
+      await tx
+        .update(gitWorktrees)
+        .set({ status: 'released', releasedAt: now, updatedAt: now })
+        .where(eq(gitWorktrees.id, worktree.id));
+      wsPublisher.publish('git_director.changed', { kind: 'evict', clone_id: worktree.cloneId });
+      return { evicted: true, worktree_id: worktree.id, released: live.length };
     });
   }
 
@@ -1026,6 +1204,22 @@ export class GitDirectorService {
     return clones.find((row) => row.id === worktree.cloneId) ?? null;
   }
 
+  /**
+   * Resolve a worktree AND treat the call as proof of life.
+   *
+   * Every Director tool that names a worktree refreshes it here, which is the
+   * other half of handling forgotten clients: an agent that is still working
+   * keeps its own registration alive simply by using the tools, so the TTL only
+   * ever reaps something that genuinely stopped talking. Without this, a busy
+   * agent that went an hour between merges would be swept as abandoned while
+   * still holding the directory.
+   *
+   * A row the sweep already retired is revived rather than refused. Reaching
+   * this line is itself evidence the agent is back — a restarted session, or one
+   * whose bound address died and was rebuilt — and making it re-run
+   * `git_register` before it may ask about its own worktree would be friction
+   * that buys nothing.
+   */
   private async requireWorktree(
     tx: GitDirectorDb,
     host: Host,
@@ -1048,8 +1242,16 @@ export class GitDirectorService {
     const clones = await tx.select().from(gitClones).where(eq(gitClones.id, worktree.cloneId)).limit(1);
     const clone = clones.find((row) => row.id === worktree.cloneId);
     if (!clone) throw new NotFoundError('Clone not found', 'git_director_clone_not_found');
-    void now;
-    return { clone, worktree };
+
+    const expiresAt = isoOffsetSeconds(REGISTRATION_TTL_SECONDS, new Date(now));
+    await tx
+      .update(gitWorktrees)
+      .set({ status: 'active', heartbeatAt: now, expiresAt, releasedAt: null, updatedAt: now })
+      .where(eq(gitWorktrees.id, worktree.id));
+    return {
+      clone,
+      worktree: { ...worktree, status: 'active', heartbeatAt: now, expiresAt, releasedAt: null },
+    };
   }
 
   private async requireRequest(tx: GitDirectorDb, requestId: string, host: Host): Promise<GitMergeRequest> {
@@ -1178,6 +1380,36 @@ export class GitDirectorService {
       agent_address_bound: Boolean(row.agentBusAddressId),
       heartbeat_at: row.heartbeatAt,
       expires_at: row.expiresAt,
+    }));
+  }
+
+  /**
+   * Registrations the sweep retired, newest first.
+   *
+   * Deliberately still reported. A forgotten client that simply disappeared from
+   * the listing would read as "nobody was ever here", which is a worse lie than
+   * a stale row — a human debugging a wedged branch needs to see that an agent
+   * WAS in this worktree, when it was last seen, and whether it was reclaimed
+   * because its session died or because it went quiet.
+   */
+  private async staleWire(tx: GitDirectorDb, cloneId: string, now: string): Promise<Array<Record<string, unknown>>> {
+    void now;
+    const rows = (await tx.select().from(gitWorktrees).where(eq(gitWorktrees.cloneId, cloneId)).limit(200)).filter(
+      (row) => row.cloneId === cloneId && (row.status === 'expired' || row.status === 'abandoned'),
+    );
+    rows.sort((a, b) => ((a.releasedAt ?? '') < (b.releasedAt ?? '') ? 1 : -1));
+    return rows.slice(0, 25).map((row) => ({
+      worktree_id: row.id,
+      worktree_path: row.worktreePath,
+      username: row.username,
+      engine: row.engine,
+      branch: row.branch,
+      task: row.task,
+      // 'abandoned' means the fleet knows its session ended; 'expired' only means
+      // it stopped calling, which a live-but-quiet agent can also do.
+      status: row.status,
+      last_seen_at: row.heartbeatAt,
+      released_at: row.releasedAt,
     }));
   }
 

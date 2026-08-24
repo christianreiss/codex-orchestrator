@@ -1125,7 +1125,7 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
       definition: {
         name: 'git_register',
         description:
-          'Announce that you are working in a git worktree, BEFORE you start changing files. Gather the facts with `git rev-parse --show-toplevel --git-common-dir --abbrev-ref HEAD HEAD` and `git remote get-url origin`, then pass them here. Every linked worktree of one clone registers against the same clone, so this is how you find out who else is already in your checkout — the reply lists them. Idempotent: calling it again refreshes your registration and its TTL, and re-registering the same path under a different user is allowed and reported as rebound.',
+          'Announce that you are working in a git worktree, BEFORE you start changing files. Gather the facts with `git rev-parse --show-toplevel --git-common-dir --abbrev-ref HEAD HEAD` and `git remote get-url origin`, then pass them here. Every linked worktree of one clone registers against the same clone, so this is how you find out who else is already in your checkout — the reply lists them. Idempotent: calling it again refreshes your registration and its TTL, and re-registering the same path under a different user is allowed and reported as rebound. Registrations expire, so a long stretch without calling any git_* tool lets the Director assume you are gone and reclaim your worktree; every call that names your worktree_path counts as proof you are still there.',
         inputSchema: {
           type: 'object',
           properties: {
@@ -1151,7 +1151,7 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
       definition: {
         name: 'git_list',
         description:
-          'See who is working where. Host-scoped by default — the clones on this machine, the worktrees registered in each, what each agent said it is doing, and any live merge lease or queue. Pass scope "clone" with a worktree_path to narrow to one checkout, or scope "fleet" to see every host. Call this before creating a worktree or picking up work, so you find out about a peer in the same clone before you collide with them rather than after.',
+          'See who is working where. Host-scoped by default — the clones on this machine, the worktrees registered in each, what each agent said it is doing, and any live merge lease or queue. Pass scope "clone" with a worktree_path to narrow to one checkout, or scope "fleet" to see every host. Call this before creating a worktree or picking up work, so you find out about a peer in the same clone before you collide with them rather than after. The `stale` list on each clone is agents that were reclaimed — a session the fleet saw end, or one that went quiet — so a worktree missing from `worktrees` but present there was abandoned rather than never used.',
         inputSchema: {
           type: 'object',
           properties: {
@@ -1235,7 +1235,7 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
       definition: {
         name: 'git_release',
         description:
-          'Give back a merge lease as soon as the merge is done or abandoned, so whoever is waiting can proceed — a lease you forget about blocks the branch until its TTL runs out. Pass request_id to release one request, or worktree_path to drop everything outstanding for that worktree. Add deregister:true when you are finished in that directory entirely.',
+          'Give back a merge lease as soon as the merge is done or abandoned, so whoever is waiting can proceed — a lease you forget about blocks the branch until its TTL runs out. Pass request_id to release one request, or worktree_path to drop everything outstanding for that worktree. Add deregister:true when you are finished in that directory entirely, and do that rather than simply stopping: the Director will eventually reclaim an abandoned registration, but until it does your peers are queued behind an agent that is never coming back.',
         inputSchema: {
           type: 'object',
           properties: {

@@ -146,6 +146,7 @@ export const DEFAULT_INVALIDATIONS: WsInvalidationMap = {
   "git_director.changed": [["git-director"]],
   "git_director.module_toggled": [["git-director"]],
   "git_director.decision_forced": [["git-director"]],
+  "git_director.worktree_evicted": [["git-director"]],
 
   // Usage / dashboard
   "chatgpt.usage.updated": [["usage", "chatgpt"]],

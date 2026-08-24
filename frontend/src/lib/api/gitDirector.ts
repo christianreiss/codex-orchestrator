@@ -50,6 +50,19 @@ export interface GitRequestRow extends GitLeaseRow {
   completed_at: string | null;
 }
 
+export interface GitStaleWorktreeRow {
+  worktree_id: string;
+  worktree_path: string;
+  username: string;
+  engine: string | null;
+  branch: string | null;
+  task: string | null;
+  /** `abandoned` = the fleet saw its session end. `expired` = it just went quiet. */
+  status: "expired" | "abandoned";
+  last_seen_at: string;
+  released_at: string | null;
+}
+
 export interface GitCloneRow {
   clone_id: string;
   host_id: number;
@@ -60,6 +73,7 @@ export interface GitCloneRow {
   last_seen_at: string;
   worktrees: GitWorktreeRow[];
   leases: GitLeaseRow[];
+  stale: GitStaleWorktreeRow[];
   recent: GitRequestRow[];
 }
 
@@ -94,6 +108,18 @@ export function gitDirectorStateMutation(opts: MutationOpts<GitDirectorState, bo
   const invalidate = invalidateAll();
   return createMutation<GitDirectorState, Error, boolean>({
     mutationFn: (enabled) => api.post<GitDirectorState>("/admin/git-director/state", { enabled }),
+    ...opts,
+    onSettled: (...args) => {
+      invalidate();
+      opts.onSettled?.(...args);
+    },
+  });
+}
+
+export function gitDirectorEvictMutation(opts: MutationOpts<unknown, string> = {}) {
+  const invalidate = invalidateAll();
+  return createMutation<unknown, Error, string>({
+    mutationFn: (id) => api.post(`/admin/git-director/worktrees/${id}/release`),
     ...opts,
     onSettled: (...args) => {
       invalidate();

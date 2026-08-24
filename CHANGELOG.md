@@ -55,10 +55,28 @@
     out of its own directory until the TTL expired. The one refusal is a live
     registration that currently holds a lease — a lease must never change
     hands by re-registering.
-  - Registrations and leases both expire and are swept on read, like the
-    call-PIN sweep rather than a cron. Promotion is poll-driven: releasing a
-    lease pushes nothing, and the next `git_merge_status` re-decides against
-    the freed branch.
+  - **Forgotten clients are a first-class case, not cleanup.** An agent that
+    closes its terminal mid-merge never calls `git_release`, and until its
+    lease is reclaimed everyone else on that branch is queued behind something
+    that no longer exists. Two independent signals: a registration whose bound
+    `agent_bus_addresses` row has no live session is dropped immediately —
+    that is the liveness the fleet already computes for `agent_list`, reused
+    rather than duplicated as a second heartbeat — and one that merely goes
+    quiet expires on its TTL, which is all that is available with Agent
+    Messaging off. A lease is released with its holder either way, so a
+    vanished agent stops blocking a branch in seconds instead of on the lease
+    TTL, and the stored reason says which happened.
+  - Any call naming a worktree counts as proof of life and refreshes it, so a
+    busy agent is never reaped for going an hour between merges. Reclaimed
+    registrations are retained and reported under `stale` rather than deleted:
+    a worktree that silently disappeared would read as an empty clone, which
+    is a worse lie than a stale row.
+  - `POST /admin/git-director/worktrees/{id}/release` covers the third case
+    neither signal reaches — a registration still technically alive that an
+    operator already knows is finished. Waiting out a TTL you can see is the
+    wrong answer.
+  - Promotion is poll-driven: releasing a lease pushes nothing, and the next
+    `git_merge_status` re-decides against the freed branch.
   - New console page under Coordinate showing clones, their worktrees and
     declared tasks, the live lease and queue per branch, and recent verdicts
     with the reason each carried — plus force-allow/deny, recorded as

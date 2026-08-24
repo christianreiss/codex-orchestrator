@@ -415,6 +415,13 @@ nothing is pushed to you, so a queue only moves when you ask. Call \`git_release
 merge lands or is abandoned; a lease you forget about blocks that branch for everyone until it
 expires.
 
+**Leaving.** Call \`git_release\` with \`deregister: true\` when you are finished in a directory, rather
+than just stopping. A registration you abandon keeps claiming a worktree you have left, and an
+abandoned lease keeps a branch shut against everyone else until it times out. The Director does
+reclaim after you: it drops a registration whose session the fleet can see has ended, and expires
+anything that goes quiet for too long. Relying on that is still worse than one call, because until it
+happens your peers are waiting on an agent that is not coming back.
+
 **The verdict is advice, and this fleet expects you to take it.** Nothing prevents you merging anyway,
 which is exactly why ignoring a \`wait\` is a real failure rather than a technicality — the agent you
 would have waited for has no way to discover that you did not. If you believe a verdict is wrong, say

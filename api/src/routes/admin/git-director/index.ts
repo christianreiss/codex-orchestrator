@@ -79,6 +79,16 @@ export async function registerAdminGitDirectorRoutes(
     return { clones: await director.adminClones() };
   });
 
+  app.post('/admin/git-director/worktrees/:id/release', { preHandler: app.requireAdmin }, async (req) => {
+    const id = String((req.params as { id?: unknown }).id ?? '').trim();
+    const result = await director.adminEvictWorktree(id);
+    await events.record({
+      type: 'git_director.worktree_evicted',
+      payload: { worktree_id: id, admin_user_id: actor(req) },
+    });
+    return result;
+  });
+
   app.post('/admin/git-director/requests/:id/decide', { preHandler: app.requireAdmin }, async (req) => {
     const parsed = decideSchema.safeParse(req.body ?? {});
     if (!parsed.success) throw badRequest(parsed.error.issues[0]);
