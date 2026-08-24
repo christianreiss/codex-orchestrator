@@ -157,7 +157,8 @@ CREATE TABLE `agent_bus_conference_members` (
 	`left_at` varchar(100),
 	`created_at` varchar(100) NOT NULL,
 	`updated_at` varchar(100) NOT NULL,
-	CONSTRAINT `agent_bus_conference_members_id` PRIMARY KEY(`id`)
+	CONSTRAINT `agent_bus_conference_members_id` PRIMARY KEY(`id`),
+	CONSTRAINT `uq_agent_bus_conference_members` UNIQUE(`conference_id`,`address_id`)
 );
 
 CREATE TABLE `agent_bus_conferences` (
@@ -174,7 +175,8 @@ CREATE TABLE `agent_bus_conferences` (
 	`adjourned_at` varchar(100),
 	`created_at` varchar(100) NOT NULL,
 	`updated_at` varchar(100) NOT NULL,
-	CONSTRAINT `agent_bus_conferences_id` PRIMARY KEY(`id`)
+	CONSTRAINT `agent_bus_conferences_id` PRIMARY KEY(`id`),
+	CONSTRAINT `uq_agent_bus_conferences_pin` UNIQUE(`pin`)
 );
 
 CREATE TABLE `agent_bus_conversations` (
@@ -706,6 +708,75 @@ CREATE TABLE `dashboard_graph_quota_snapshots` (
 	CONSTRAINT `uniq_dashboard_graph_quota_fetched` UNIQUE(`fetched_at`)
 );
 
+CREATE TABLE `git_clones` (
+	`id` char(36) NOT NULL,
+	`host_id` bigint unsigned NOT NULL,
+	`clone_key` char(64) NOT NULL,
+	`clone_dir` varchar(1024) NOT NULL,
+	`repo_root` varchar(1024) NOT NULL,
+	`remote_url` varchar(1024),
+	`remote_key` char(64),
+	`default_branch` varchar(255),
+	`first_seen_at` varchar(100) NOT NULL,
+	`last_seen_at` varchar(100) NOT NULL,
+	`archived_at` varchar(100),
+	`created_at` varchar(100) NOT NULL,
+	`updated_at` varchar(100) NOT NULL,
+	CONSTRAINT `git_clones_id` PRIMARY KEY(`id`),
+	CONSTRAINT `uq_git_clones_host_clone` UNIQUE(`host_id`,`clone_key`)
+);
+
+CREATE TABLE `git_merge_requests` (
+	`id` char(36) NOT NULL,
+	`clone_id` char(36) NOT NULL,
+	`worktree_id` char(36) NOT NULL,
+	`client_request_id` varchar(191) NOT NULL,
+	`target_branch` varchar(255) NOT NULL,
+	`base_sha` varchar(64),
+	`head_sha` varchar(64),
+	`changed_paths` json,
+	`verdict` varchar(16) NOT NULL,
+	`decided_by` varchar(16) NOT NULL,
+	`reason` text,
+	`overlap` json,
+	`holder_worktree_id` char(36),
+	`model` varchar(128),
+	`lease_expires_at` varchar(100),
+	`requested_at` varchar(100) NOT NULL,
+	`decided_at` varchar(100) NOT NULL,
+	`renewed_at` varchar(100),
+	`completed_at` varchar(100),
+	`created_at` varchar(100) NOT NULL,
+	`updated_at` varchar(100) NOT NULL,
+	CONSTRAINT `git_merge_requests_id` PRIMARY KEY(`id`),
+	CONSTRAINT `uq_git_merge_requests_client` UNIQUE(`worktree_id`,`client_request_id`)
+);
+
+CREATE TABLE `git_worktrees` (
+	`id` char(36) NOT NULL,
+	`clone_id` char(36) NOT NULL,
+	`host_id` bigint unsigned NOT NULL,
+	`worktree_path` varchar(1024) NOT NULL,
+	`worktree_hash` char(64) NOT NULL,
+	`username` varchar(255) NOT NULL,
+	`engine` varchar(16),
+	`agent_bus_address_id` char(36),
+	`branch` varchar(255),
+	`head_sha` varchar(64),
+	`task` text,
+	`declared_paths` json,
+	`target_branch` varchar(255),
+	`status` varchar(16) NOT NULL DEFAULT 'active',
+	`registered_at` varchar(100) NOT NULL,
+	`heartbeat_at` varchar(100) NOT NULL,
+	`expires_at` varchar(100) NOT NULL,
+	`released_at` varchar(100),
+	`created_at` varchar(100) NOT NULL,
+	`updated_at` varchar(100) NOT NULL,
+	CONSTRAINT `git_worktrees_id` PRIMARY KEY(`id`),
+	CONSTRAINT `uq_git_worktrees_clone_path` UNIQUE(`clone_id`,`worktree_hash`)
+);
+
 CREATE TABLE `host_auth_digests` (
 	`id` bigint unsigned AUTO_INCREMENT NOT NULL,
 	`host_id` bigint unsigned NOT NULL,
@@ -1066,6 +1137,11 @@ CREATE INDEX `idx_admin_webauthn_challenges_expires` ON `admin_webauthn_challeng
 CREATE INDEX `idx_agent_bus_addresses_discovery` ON `agent_bus_addresses` (`enabled`,`archived_at`,`engine`,`host_id`);
 CREATE INDEX `idx_agent_bus_addresses_native` ON `agent_bus_addresses` (`host_id`,`engine`,`username`,`last_upstream_session_id`);
 CREATE INDEX `idx_agent_bus_addresses_cwd` ON `agent_bus_addresses` (`host_id`,`engine`,`username`,`cwd_hash`);
+CREATE INDEX `idx_agent_bus_conference_members_address` ON `agent_bus_conference_members` (`address_id`,`state`);
+CREATE INDEX `idx_agent_bus_conference_members_dispatch` ON `agent_bus_conference_members` (`state`,`dispatch_deadline_at`);
+CREATE INDEX `idx_agent_bus_conference_members_conversation` ON `agent_bus_conference_members` (`conversation_id`);
+CREATE INDEX `idx_agent_bus_conferences_owner` ON `agent_bus_conferences` (`owner_address_id`,`status`);
+CREATE INDEX `idx_agent_bus_conferences_status` ON `agent_bus_conferences` (`status`,`deadline_at`);
 CREATE INDEX `idx_agent_bus_conversations_a` ON `agent_bus_conversations` (`address_a_id`,`status`,`last_activity_at`);
 CREATE INDEX `idx_agent_bus_conversations_b` ON `agent_bus_conversations` (`address_b_id`,`status`,`last_activity_at`);
 CREATE INDEX `idx_agent_bus_conversations_status` ON `agent_bus_conversations` (`status`,`last_activity_at`);
@@ -1133,6 +1209,13 @@ CREATE INDEX `idx_coord_projects_updated_at` ON `coord_projects` (`updated_at`);
 CREATE INDEX `idx_coord_projects_archived_at` ON `coord_projects` (`archived_at`);
 CREATE INDEX `idx_snapshot` ON `dashboard_graph_claude_quota_snapshots` (`snapshot_at`);
 CREATE INDEX `idx_dashboard_graph_quota_updated` ON `dashboard_graph_quota_snapshots` (`updated_at`);
+CREATE INDEX `idx_git_clones_remote` ON `git_clones` (`remote_key`);
+CREATE INDEX `idx_git_clones_host` ON `git_clones` (`host_id`,`archived_at`,`last_seen_at`);
+CREATE INDEX `idx_git_merge_requests_lease` ON `git_merge_requests` (`clone_id`,`target_branch`,`verdict`,`completed_at`);
+CREATE INDEX `idx_git_merge_requests_worktree` ON `git_merge_requests` (`worktree_id`,`requested_at`);
+CREATE INDEX `idx_git_merge_requests_recent` ON `git_merge_requests` (`clone_id`,`requested_at`);
+CREATE INDEX `idx_git_worktrees_clone` ON `git_worktrees` (`clone_id`,`status`,`expires_at`);
+CREATE INDEX `idx_git_worktrees_address` ON `git_worktrees` (`agent_bus_address_id`);
 CREATE INDEX `idx_auth_digest_host` ON `host_auth_digests` (`host_id`);
 CREATE INDEX `idx_auth_digest_host_engine` ON `host_auth_digests` (`host_id`,`engine`);
 CREATE INDEX `idx_host_users_host` ON `host_users` (`host_id`);

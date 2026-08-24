@@ -36,6 +36,7 @@ const ALL_DEPS = {
   resources: {},
   fs: {},
   secrets: {},
+  gitDirector: {},
 } as unknown as ToolDeps;
 
 // 'operator' sees the host tools too, so this is the whole registry.
@@ -61,6 +62,8 @@ const NON_TOOL_TOKENS: Record<string, string> = {
   expected_sha256: 'the optimistic-concurrency argument of shared_memory_write, not a tool',
   display_name: 'optional skill_store display metadata, not a tool',
   message_id: 'the inbound delivery id agent_reply answers and agent_message_get reads, not a tool',
+  changed_paths:
+    'the git_merge_request argument carrying `git diff --name-only base...head`, not a tool',
 };
 
 interface Mention {
@@ -93,6 +96,7 @@ const CONTENT: Array<{ source: string; text: string }> = [
       secrets: { ...enabled, count: 1 },
       apiKeysInChat: enabled,
       agentMessaging: enabled,
+      gitDirector: { ...enabled, count: 1 },
     }).body,
   })),
   {

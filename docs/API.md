@@ -713,6 +713,11 @@ All `/projects*` routes require normal host API-key auth + IP binding and return
   - `PATCH /admin/secrets/{id}` — update `{name?, value?, description?, engine?, tags?}`. `slug` is immutable, since it is the key agents hold. The response carries `rotated`, true only when the value actually changed.
   - `DELETE /admin/secrets/{id}` — soft delete; takes effect on the next `secret_get` with no wrapper involvement.
   - `POST /admin/secrets/{id}/reveal` — the only endpoint that returns a plaintext value. A `POST` deliberately: a `GET` could be prefetched, cached by an intermediary, or replayed out of browser history.
+- Git Director (registry of which agent is working in which git clone, plus an advisory arbiter over merges into shared branches; forcing a verdict and the module switch require the owner, admin, or fleet role):
+  - `GET /admin/git-director/state` — module switch, the model used for contended verdicts, and live clone/worktree counts.
+  - `POST /admin/git-director/state` — `{enabled}` flips `git_director_enabled`. While it is off the `git_*` MCP tools serve disabled status/capabilities and the managed AGENTS.md block is not rendered; existing registrations are retained rather than dropped.
+  - `GET /admin/git-director` — every live clone with its worktrees, the current lease and queue per branch, and recent verdicts with the reason each carried. Shares its URL with the client route, so a `text/html` Accept serves the SPA instead.
+  - `POST /admin/git-director/requests/{id}/decide` — `{verdict, reason?}` forces `allow` or `deny` on one merge request, recorded as `decided_by: "operator"` so a human's call is never attributed to the model.
 - Manual: `GET /admin/manual/manifest`, `GET /admin/manual/search?q=`, `GET /admin/manual/article/{slug}` — the admin UI's in-app manual (article set bundled under `STATIC_ROOT`). Unknown slugs return `404`.
 - Config builder: `GET /admin/config`, `POST /admin/config/render`, `POST /admin/config/store`.
 

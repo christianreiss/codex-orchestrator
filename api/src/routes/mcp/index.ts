@@ -32,6 +32,13 @@ import { McpToolsRegistry, type Capability } from '../../services/mcp-tools.js';
 import { McpFsTools } from '../../services/mcp-fs.js';
 import { McpResourcesService } from '../../services/mcp-resources.js';
 import { McpServer } from '../../services/mcp-server.js';
+import { GitDirectorService } from '../../services/git-director.js';
+import { createRunnerGitDirectorJudge } from '../../services/git-director-judge.js';
+import { createRunnerClaudeAdapter } from '../../services/adapters/runner-claude.js';
+import { createRunnerValidationService } from '../../services/runner-validation.js';
+import { createAuthTrafficVerifier } from '../../services/auth-traffic-verification.js';
+import { SettingsService } from '../../services/settings.js';
+import { ENGINE_CLAUDE } from '../../util/engine.js';
 import { assertHostEngineEnabled } from '../../services/host-engine-policy.js';
 import type { Host } from '../../db/schema.js';
 
@@ -64,6 +71,30 @@ export async function registerMcpRoutes(app: FastifyInstance, ctx: RouteContext)
   // generic tools/call row McpServer logs on a best-effort basis.
   const secrets = new SecretsService({ db: ctx.db, keyring: ctx.keyring, accessLog });
 
+  // Git Director. The judge is deliberately allowed to be null: with no runner
+  // configured `createRunnerClaudeAdapter` returns null, the factory below
+  // returns null in turn, and every contended decision falls back to the
+  // deterministic verdict. A fleet with no inference reachable still arbitrates
+  // merges — it just does it by policy alone.
+  const runnerValidation = createRunnerValidationService({ db: ctx.db, keyring: ctx.keyring });
+  const gitDirectorTraffic = createAuthTrafficVerifier({
+    db: ctx.db,
+    runnerValidation,
+    engine: ENGINE_CLAUDE,
+    log: app.log,
+  });
+  const gitDirector = new GitDirectorService({
+    db: ctx.db,
+    settings: new SettingsService(ctx.db),
+    judge: createRunnerGitDirectorJudge({
+      adapter: createRunnerClaudeAdapter({
+        env: ctx.env,
+        getAuthSnapshot: gitDirectorTraffic.getAuthSnapshot,
+        onExecSuccess: gitDirectorTraffic.recordExecSuccess,
+      }),
+    }),
+  });
+
   const resources = new McpResourcesService({ memories, sharedMemories, projects, skills });
   const tools = new McpToolsRegistry({
     memories,
@@ -73,6 +104,7 @@ export async function registerMcpRoutes(app: FastifyInstance, ctx: RouteContext)
     resources,
     fs: fsTools,
     secrets,
+    gitDirector,
   });
   const server = new McpServer(tools, resources, accessLog);
 

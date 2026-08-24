@@ -185,6 +185,9 @@ describe('migrations against the test baseline', () => {
       'agent_bus_conferences',
       'agent_bus_conference_members',
       'claude_usage_snapshots',
+      'git_clones',
+      'git_worktrees',
+      'git_merge_requests',
     ]);
     expect(
       additions.filter((a) => a.column !== undefined).map((a) => `${a.table}.${a.column}`),

@@ -34,6 +34,7 @@ function context(overrides: Record<string, unknown> = {}) {
     secrets: { ...on, count: 2 },
     apiKeysInChat: on,
     agentMessaging: on,
+    gitDirector: { ...on, count: 2 },
     ...overrides,
   } as never;
 }

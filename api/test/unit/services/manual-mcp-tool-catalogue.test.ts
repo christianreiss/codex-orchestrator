@@ -32,6 +32,7 @@ const GROUPS = [
   'Memory',
   'Shared memory',
   'Secrets',
+  'Git Director',
   'Filesystem (operator only)',
   'Resources',
   'Skills',
@@ -89,12 +90,15 @@ const ALL_DEPS = {
   resources: {},
   fs: {},
   secrets: {},
+  gitDirector: {},
 } as unknown as ToolDeps;
 
 /** The same registry with the shared-memory service left out, as `ToolDeps` allows. */
 const NO_SHARED_DEPS = { ...ALL_DEPS, sharedMemories: undefined } as ToolDeps;
 /** Likewise without the secrets service. */
 const NO_SECRETS_DEPS = { ...ALL_DEPS, secrets: undefined } as ToolDeps;
+/** Likewise without the Git Director service. */
+const NO_GIT_DIRECTOR_DEPS = { ...ALL_DEPS, gitDirector: undefined } as ToolDeps;
 
 function registeredNames(deps: ToolDeps): string[] {
   // 'operator' sees the host tools too, so this is the whole registry.
@@ -166,6 +170,17 @@ describe('manual mcp article tool catalogue', () => {
     // not advertise a credential tool it cannot serve.
     for (const name of ['secret_list', 'secret_search', 'secret_get', 'secret_store', 'secret_delete']) {
       expect(registeredNames(NO_SECRETS_DEPS)).not.toContain(name);
+    }
+  });
+
+  it('flags the Git Director group as conditional, the way the registry is', () => {
+    expect(catalogue.get('Git Director')!.heading).toContain(
+      'only when the Git Director service is wired',
+    );
+    // Absent, not merely refused: a registry built without the service must not
+    // advertise an arbiter it has no way to consult.
+    for (const name of ['git_register', 'git_list', 'git_join', 'git_merge_request', 'git_merge_status', 'git_release']) {
+      expect(registeredNames(NO_GIT_DIRECTOR_DEPS)).not.toContain(name);
     }
   });
 });

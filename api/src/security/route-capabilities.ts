@@ -311,6 +311,14 @@ export const ROUTE_CAPABILITIES: Readonly<Record<string, RouteGuard>> = {
   'DELETE /admin/secrets/:id': cap('secrets.manage'),
   'POST /admin/secrets/state': cap('secrets.manage'),
 
+  // Git Director. Reading the registry is a fleet read; forcing a verdict
+  // overrides an arbiter other agents are waiting on, and the module switch
+  // turns it off fleet-wide, so both are manage.
+  'GET /admin/git-director': cap('git_director.read'),
+  'GET /admin/git-director/state': cap('git_director.read'),
+  'POST /admin/git-director/state': cap('git_director.manage'),
+  'POST /admin/git-director/requests/:id/decide': cap('git_director.manage'),
+
   // ── Agent portal ─────────────────────────────────────────────────────────
   'GET /admin/agent-portal/state': cap('agent_portal.read'),
   'GET /admin/agent-portal/users': cap('agent_portal.read'),

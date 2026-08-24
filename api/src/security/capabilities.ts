@@ -112,6 +112,11 @@ export const CAPABILITIES = [
   'agent_messaging.reveal_content',
   'agent_messaging.manage',
 
+  'git_director.read',
+  // Forcing a verdict overrides an arbiter other agents are relying on, and the
+  // module switch turns the registry off fleet-wide, so both sit behind manage.
+  'git_director.manage',
+
   'audit.read',
 ] as const;
 
@@ -146,6 +151,7 @@ const READ_ONLY: readonly Capability[] = [
   'secrets.read_metadata',
   'agent_portal.read',
   'agent_messaging.read',
+  'git_director.read',
   'audit.read',
 ];
 
@@ -163,6 +169,9 @@ const FLEET_OPERATOR: readonly Capability[] = [
   'hosts.activate_insecure',
   'settings.manage',
   'auth.manage',
+  // Arbitrating merges between running agents is fleet operation, not content
+  // authorship: it sits with the role that already keeps the fleet running.
+  'git_director.manage',
 ];
 
 /**

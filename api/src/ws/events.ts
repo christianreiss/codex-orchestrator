@@ -100,6 +100,15 @@ export const WS_EVENT_TYPES = [
   'agent_messaging.relay.changed',
   'agent_messaging.queue.changed',
 
+  // Git Director. One type for every change — a clone appearing, a worktree
+  // registering or expiring, a verdict, a release — because the console renders
+  // them as one live view and splitting the type would only make the frontend
+  // invalidate the same query key from five places.
+  'git_director.changed',
+  // The two operator actions, which are audit facts as well as view changes.
+  'git_director.module_toggled',
+  'git_director.decision_forced',
+
   // Usage
   'chatgpt.usage.updated',
   'claude.usage.updated',

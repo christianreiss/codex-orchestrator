@@ -15,6 +15,7 @@ import type { HostSkillsService } from './host-skills.js';
 import type { McpFsTools } from './mcp-fs.js';
 import type { McpResourcesService } from './mcp-resources.js';
 import type { SecretsService } from './secrets.js';
+import type { GitDirectorService } from './git-director.js';
 import { ENGINE_CODEX, isEngine, type Engine } from '../util/engine.js';
 import { PROJECT_FEEDBACK_TYPES } from './project-feedback-types.js';
 
@@ -54,6 +55,12 @@ export interface ToolDeps {
    * serve, while this only decides whether the tools exist at all.
    */
   secrets?: SecretsService;
+  /**
+   * Git Director. Optional like `secrets`: when omitted the git_* tools are
+   * neither listed nor callable. The runtime switch `git_director_enabled` is
+   * separate and gates what the service will serve.
+   */
+  gitDirector?: GitDirectorService;
 }
 
 export type ToolResult =
@@ -152,6 +159,23 @@ function secretCapabilities(enabled: boolean): Record<string, boolean> {
   };
 }
 
+/**
+ * Mirrors `secretCapabilities`: an agent must be able to tell "the Director is
+ * off" from "the Director is on and nobody has registered yet" without guessing
+ * from an empty list.
+ */
+function gitDirectorCapabilities(enabled: boolean): Record<string, boolean> {
+  return {
+    register: enabled,
+    list: enabled,
+    join: enabled,
+    merge_request: enabled,
+    merge_status: enabled,
+    release: enabled,
+    enforce_merges: false,
+  };
+}
+
 export function wrapContent(data: unknown, isError = false): ToolResult {
   if (
     data !== null &&
@@ -216,6 +240,14 @@ function normalizeArgs(toolName: string, args: unknown): Record<string, unknown>
     case 'skill_retrieve':
     case 'skill_delete':
       return { slug: scalar };
+    case 'git_register':
+    case 'git_join':
+    case 'git_release':
+      return { worktree_path: scalar };
+    case 'git_merge_status':
+      return { request_id: scalar };
+    case 'git_list':
+      return { scope: scalar };
     default:
       return { value: scalar };
   }
@@ -1065,6 +1097,158 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
         },
       },
       handler: async (args, host) => deps.resources!.delete(String(args['uri'] ?? ''), host),
+    });
+  }
+
+  // Git Director — clone/worktree registry and the advisory merge arbiter.
+  // Optional like `secrets`: absent means the git_* tools are neither listed nor
+  // callable. The runtime switch is separate — `git_director_enabled` gates what
+  // the service will serve, this only decides whether the tools exist at all.
+  if (deps.gitDirector) {
+    const director = deps.gitDirector;
+    const directorStatus = async (): Promise<Record<string, unknown>> => {
+      const enabled = await director.getEnabled();
+      return {
+        status: enabled ? 'available' : 'disabled',
+        capabilities: gitDirectorCapabilities(enabled),
+      };
+    };
+    const requireEnabled = async (): Promise<void> => {
+      if (!(await director.getEnabled())) {
+        throw new Error(
+          'The Git Director is not enabled for this fleet. An operator turns it on in the console under Git Director.',
+        );
+      }
+    };
+
+    inputs.push({
+      definition: {
+        name: 'git_register',
+        description:
+          'Announce that you are working in a git worktree, BEFORE you start changing files. Gather the facts with `git rev-parse --show-toplevel --git-common-dir --abbrev-ref HEAD HEAD` and `git remote get-url origin`, then pass them here. Every linked worktree of one clone registers against the same clone, so this is how you find out who else is already in your checkout — the reply lists them. Idempotent: calling it again refreshes your registration and its TTL, and re-registering the same path under a different user is allowed and reported as rebound.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            worktree_path: { type: 'string' },
+            clone_dir: { type: 'string' },
+            repo_root: { type: 'string' },
+            remote_url: { type: 'string' },
+            branch: { type: 'string' },
+            head_sha: { type: 'string' },
+            username: { type: 'string' },
+            engine: { type: 'string' },
+          },
+          required: ['worktree_path'],
+        },
+      },
+      handler: async (args, host) => {
+        await requireEnabled();
+        return await director.register(args, host);
+      },
+    });
+
+    inputs.push({
+      definition: {
+        name: 'git_list',
+        description:
+          'See who is working where. Host-scoped by default — the clones on this machine, the worktrees registered in each, what each agent said it is doing, and any live merge lease or queue. Pass scope "clone" with a worktree_path to narrow to one checkout, or scope "fleet" to see every host. Call this before creating a worktree or picking up work, so you find out about a peer in the same clone before you collide with them rather than after.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            scope: { type: 'string', enum: ['host', 'clone', 'fleet'] },
+            worktree_path: { type: 'string' },
+          },
+        },
+      },
+      handler: async (args, host) => {
+        const state = await directorStatus();
+        if (state['status'] === 'disabled') return { ...state, clones: [], count: 0 };
+        return { ...state, ...(await director.list(args, host)) };
+      },
+    });
+
+    inputs.push({
+      definition: {
+        name: 'git_join',
+        description:
+          'Declare what you are about to do in a worktree you have already registered: the task, the branch you intend to merge into, and the paths you expect to write. Registration is where you are; this is what you plan to change. The paths matter — they are what lets the Director tell a later requester exactly which files you are both touching instead of just making them wait.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            worktree_path: { type: 'string' },
+            task: { type: 'string' },
+            target_branch: { type: 'string' },
+            paths: { type: 'array', items: { type: 'string' } },
+          },
+          required: ['worktree_path'],
+        },
+      },
+      handler: async (args, host) => {
+        await requireEnabled();
+        return await director.join(args, host);
+      },
+    });
+
+    inputs.push({
+      definition: {
+        name: 'git_merge_request',
+        description:
+          'Ask permission to merge into a shared branch, and honor the answer. Pass changed_paths from `git diff --name-only base...head` — without it the Director can only tell you to wait, with it the answer names the files you and the holder both touch. Verdicts are "allow" (you hold the lease; call git_release when done), "wait" (retry with git_merge_status; the reason names who holds it and why) or "deny". client_request_id must be a value you generate once per real request and reuse on any retry, so a retried call returns the original verdict instead of queueing you twice.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            worktree_path: { type: 'string' },
+            target_branch: { type: 'string' },
+            client_request_id: { type: 'string' },
+            base_sha: { type: 'string' },
+            head_sha: { type: 'string' },
+            changed_paths: { type: 'array', items: { type: 'string' } },
+          },
+          required: ['worktree_path', 'target_branch', 'client_request_id'],
+        },
+      },
+      handler: async (args, host) => {
+        await requireEnabled();
+        return await director.requestMerge(args, host);
+      },
+    });
+
+    inputs.push({
+      definition: {
+        name: 'git_merge_status',
+        description:
+          'Poll a waiting merge request, or renew a lease you are still using. A "wait" is re-decided against current state each time you call, so this is how a queued request is promoted once the holder releases — nothing is pushed to you. If you hold an "allow" and your merge is taking a while, call this to extend the lease before it expires.',
+        inputSchema: {
+          type: 'object',
+          additionalProperties: false,
+          properties: { request_id: { type: 'string' } },
+          required: ['request_id'],
+        },
+      },
+      handler: async (args, host) => {
+        await requireEnabled();
+        return await director.mergeStatus(args, host);
+      },
+    });
+
+    inputs.push({
+      definition: {
+        name: 'git_release',
+        description:
+          'Give back a merge lease as soon as the merge is done or abandoned, so whoever is waiting can proceed — a lease you forget about blocks the branch until its TTL runs out. Pass request_id to release one request, or worktree_path to drop everything outstanding for that worktree. Add deregister:true when you are finished in that directory entirely.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            request_id: { type: 'string' },
+            worktree_path: { type: 'string' },
+            deregister: { type: 'boolean' },
+          },
+        },
+      },
+      handler: async (args, host) => {
+        await requireEnabled();
+        return await director.release(args, host);
+      },
     });
   }
 

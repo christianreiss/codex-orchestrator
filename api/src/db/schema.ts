@@ -1612,6 +1612,127 @@ export const agentBusRelays = mysqlTable(
 );
 
 // ────────────────────────────────────────────────────────────────────────────
+// Git Director — clone/worktree registry and the advisory merge arbiter
+//
+// The orchestrator has no filesystem access to any host, so every git fact
+// below is reported by the agent that owns the worktree rather than observed.
+// The arbitration unit is the clone on a host (`git rev-parse --git-common-dir`),
+// which collapses every linked worktree of one checkout to a single row.
+// ────────────────────────────────────────────────────────────────────────────
+
+export const gitClones = mysqlTable(
+  'git_clones',
+  {
+    id: char('id', { length: 36 }).primaryKey(),
+    hostId: bigint('host_id', { mode: 'number', unsigned: true }).notNull(),
+    /** sha256 of the realpath'd `--git-common-dir`. Every worktree of one clone shares it. */
+    cloneKey: char('clone_key', { length: 64 }).notNull(),
+    cloneDir: varchar('clone_dir', { length: 1024 }).notNull(),
+    repoRoot: varchar('repo_root', { length: 1024 }).notNull(),
+    remoteUrl: varchar('remote_url', { length: 1024 }),
+    /** sha256 of the NORMALIZED remote, so ssh and https spellings group together. */
+    remoteKey: char('remote_key', { length: 64 }),
+    defaultBranch: varchar('default_branch', { length: 255 }),
+    firstSeenAt: varchar('first_seen_at', { length: 100 }).notNull(),
+    lastSeenAt: varchar('last_seen_at', { length: 100 }).notNull(),
+    archivedAt: varchar('archived_at', { length: 100 }),
+    createdAt: varchar('created_at', { length: 100 }).notNull(),
+    updatedAt: varchar('updated_at', { length: 100 }).notNull(),
+  },
+  (t) => ({
+    hostCloneUnique: uniqueIndex('uq_git_clones_host_clone').on(t.hostId, t.cloneKey),
+    remoteIdx: index('idx_git_clones_remote').on(t.remoteKey),
+    hostIdx: index('idx_git_clones_host').on(t.hostId, t.archivedAt, t.lastSeenAt),
+  }),
+);
+
+/**
+ * One registered worktree. The actor identity is the worktree PATH: `POST /mcp`
+ * authenticates a host, and every agent on that box shares one API key, so the
+ * credential cannot tell two worktrees apart.
+ *
+ * `agentBusAddressId` is enrichment and never a requirement — resolved by
+ * joining `agent_bus_addresses` on (host_id, cwd_hash) when Agent Messaging is
+ * on, which supplies liveness without a second heartbeat, and left NULL when it
+ * is off.
+ */
+export const gitWorktrees = mysqlTable(
+  'git_worktrees',
+  {
+    id: char('id', { length: 36 }).primaryKey(),
+    cloneId: char('clone_id', { length: 36 }).notNull(),
+    hostId: bigint('host_id', { mode: 'number', unsigned: true }).notNull(),
+    worktreePath: varchar('worktree_path', { length: 1024 }).notNull(),
+    worktreeHash: char('worktree_hash', { length: 64 }).notNull(),
+    username: varchar('username', { length: 255 }).notNull(),
+    engine: varchar('engine', { length: 16 }),
+    agentBusAddressId: char('agent_bus_address_id', { length: 36 }),
+    branch: varchar('branch', { length: 255 }),
+    headSha: varchar('head_sha', { length: 64 }),
+    task: text('task'),
+    declaredPaths: json('declared_paths'),
+    targetBranch: varchar('target_branch', { length: 255 }),
+    status: varchar('status', { length: 16 }).notNull().default('active'),
+    registeredAt: varchar('registered_at', { length: 100 }).notNull(),
+    heartbeatAt: varchar('heartbeat_at', { length: 100 }).notNull(),
+    expiresAt: varchar('expires_at', { length: 100 }).notNull(),
+    releasedAt: varchar('released_at', { length: 100 }),
+    createdAt: varchar('created_at', { length: 100 }).notNull(),
+    updatedAt: varchar('updated_at', { length: 100 }).notNull(),
+  },
+  (t) => ({
+    clonePathUnique: uniqueIndex('uq_git_worktrees_clone_path').on(t.cloneId, t.worktreeHash),
+    cloneIdx: index('idx_git_worktrees_clone').on(t.cloneId, t.status, t.expiresAt),
+    addressIdx: index('idx_git_worktrees_address').on(t.agentBusAddressId),
+  }),
+);
+
+/**
+ * A merge request and, once granted, the lease itself. There is deliberately no
+ * separate lease table: the live lease on (clone_id, target_branch) is the row
+ * with `verdict='allow'`, `completedAt` NULL and `leaseExpiresAt` in the future.
+ * MySQL has no partial unique index, so exclusivity is held by a
+ * `SELECT … FOR UPDATE` transaction on the clone row.
+ *
+ * `uq_git_merge_requests_client` is the retry guard — MCP calls get retried, and
+ * without it a retry mints a phantom second contender.
+ */
+export const gitMergeRequests = mysqlTable(
+  'git_merge_requests',
+  {
+    id: char('id', { length: 36 }).primaryKey(),
+    cloneId: char('clone_id', { length: 36 }).notNull(),
+    worktreeId: char('worktree_id', { length: 36 }).notNull(),
+    clientRequestId: varchar('client_request_id', { length: 191 }).notNull(),
+    targetBranch: varchar('target_branch', { length: 255 }).notNull(),
+    baseSha: varchar('base_sha', { length: 64 }),
+    headSha: varchar('head_sha', { length: 64 }),
+    changedPaths: json('changed_paths'),
+    /** allow | wait | deny | expired | withdrawn */
+    verdict: varchar('verdict', { length: 16 }).notNull(),
+    /** policy | llm | operator */
+    decidedBy: varchar('decided_by', { length: 16 }).notNull(),
+    reason: text('reason'),
+    overlap: json('overlap'),
+    holderWorktreeId: char('holder_worktree_id', { length: 36 }),
+    model: varchar('model', { length: 128 }),
+    leaseExpiresAt: varchar('lease_expires_at', { length: 100 }),
+    requestedAt: varchar('requested_at', { length: 100 }).notNull(),
+    decidedAt: varchar('decided_at', { length: 100 }).notNull(),
+    renewedAt: varchar('renewed_at', { length: 100 }),
+    completedAt: varchar('completed_at', { length: 100 }),
+    createdAt: varchar('created_at', { length: 100 }).notNull(),
+    updatedAt: varchar('updated_at', { length: 100 }).notNull(),
+  },
+  (t) => ({
+    clientUnique: uniqueIndex('uq_git_merge_requests_client').on(t.worktreeId, t.clientRequestId),
+    leaseIdx: index('idx_git_merge_requests_lease').on(t.cloneId, t.targetBranch, t.verdict, t.completedAt),
+    worktreeIdx: index('idx_git_merge_requests_worktree').on(t.worktreeId, t.requestedAt),
+    recentIdx: index('idx_git_merge_requests_recent').on(t.cloneId, t.requestedAt),
+  }),
+);
+
+// ────────────────────────────────────────────────────────────────────────────
 // Migration ledger
 // ────────────────────────────────────────────────────────────────────────────
 
@@ -1669,3 +1790,6 @@ export type Log = typeof logs.$inferSelect;
 export type Version = typeof versions.$inferSelect;
 export type SchemaMigration = typeof schemaMigrations.$inferSelect;
 export type CliAuthRequest = typeof cliAuthRequests.$inferSelect;
+export type GitClone = typeof gitClones.$inferSelect;
+export type GitWorktree = typeof gitWorktrees.$inferSelect;
+export type GitMergeRequest = typeof gitMergeRequests.$inferSelect;

@@ -1,0 +1,1 @@
+import{o as e,s as t}from"./CpTjFNj2.js";import"./xihTtKlq.js";import{t as n}from"./BrJj_AwI.js";function r(r,i){let a=e(i,[`$$slots`,`$$events`,`$$legacy`]),o=[[`circle`,{cx:`18`,cy:`18`,r:`3`}],[`circle`,{cx:`6`,cy:`6`,r:`3`}],[`path`,{d:`M6 21V9a9 9 0 0 0 9 9`}]];n(r,t({name:`git-merge`},()=>a,{get iconNode(){return o}}))}export{r as t};

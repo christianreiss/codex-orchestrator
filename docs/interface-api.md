@@ -446,6 +446,32 @@ Auth verification worker: when `AUTH_RUNNER_URL` is configured, the API starts a
     value, as `{secret, value}`. A `POST` deliberately: a `GET` can be
     prefetched by a browser, cached by an intermediary, and replayed out of
     history. Records a non-broadcast `secret.revealed` admin event.
+- **Git Director** — a registry of which agent is working in which git clone,
+  plus an advisory arbiter over merges into shared branches. The arbitration
+  unit is the clone on a host (`git rev-parse --git-common-dir`), so every
+  linked worktree of one checkout contends as one; clones sharing a normalized
+  remote are grouped across hosts for visibility but never arbitrated together.
+  Delivery to hosts is MCP-only (`git_register`, `git_list`, `git_join`,
+  `git_merge_request`, `git_merge_status`, `git_release`). The orchestrator has
+  no filesystem access to any host, so every git fact is reported by the calling
+  agent and the verdict is advice it can ignore — nothing is enforced and no
+  hooks are installed. The module switch and forcing a verdict require the
+  owner, admin, or fleet role.
+  - `GET /admin/git-director/state` — `{enabled, model, clones, worktrees,
+    updated_at}` for the `git_director_enabled` switch.
+  - `POST /admin/git-director/state` — `{enabled}` (boolean, `0`/`1`, or
+    `"true"`/`"false"`). While the module is off the `git_*` MCP tools serve
+    disabled status/capabilities and the managed AGENTS.md block is not
+    rendered; registrations already recorded are retained, not dropped.
+  - `GET /admin/git-director` — `{clones:[…]}`, each with its live worktrees,
+    the current lease and queue per target branch, and the 25 most recent
+    verdicts carrying `decided_by` and the reason. Shares its URL with the
+    client route, so an `Accept: text/html` request is served the SPA shell
+    instead of this JSON.
+  - `POST /admin/git-director/requests/{id}/decide` — `{verdict, reason?}` where
+    `verdict` is `allow` or `deny`. Writes `decided_by: "operator"`, so a
+    human's override is never attributed to the model that would otherwise have
+    judged it.
 - `GET /admin/skills` — list stored skills (slug, sha256, display name, description, timestamps) plus canonical `uri` / `canonical_uri`, `managed`, and nullable source provenance. `description` is the persisted short summary used by the runtime AGENTS Skills block when present. Code-managed and source-owned skills are returned with `managed:true`; imported rows use `source_type:"github:mattpocock/skills"`.
 - `GET /admin/skills/{slug}` — browser/API split. Browser requests (`Accept: text/html`) receive the admin SPA shell for the dedicated skill workspace page; JSON requests (`Accept: application/json`) fetch full skill content (manifest + metadata, including canonical skill URI, invocation policy, and source provenance).
 - `POST /admin/skills/generate` — admin-only runner-backed draft generation. Body: `prompt` (required string) and optional `slug_hint`. Returns a structured skill draft (`slug`, `display_name`, `description`, `tags`, `what`, `when`, `steps`) plus a server-built canonical `manifest`. This endpoint never persists the skill; admins must still call `POST /admin/skills/store` after review. Returns `503` when canonical auth or the runner is unavailable, and `502` when the runner returns unusable output.

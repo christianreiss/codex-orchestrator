@@ -17,6 +17,7 @@ import { HostSkillsService } from './host-skills.js';
 import { ProjectsService } from './projects.js';
 import { SecretsService } from './secrets.js';
 import { SettingsService } from './settings.js';
+import { GitDirectorService, GIT_DIRECTOR_ENABLED_FLAG } from './git-director.js';
 import { AGENT_MESSAGING_ENABLED_KEY } from './agent-messaging.js';
 import { API_KEYS_IN_CHAT_ALLOWED_KEY } from './api-keys-in-chat.js';
 import {
@@ -51,6 +52,7 @@ export class HostAgentsService {
   private readonly projects: ProjectsService;
   private readonly secrets: SecretsService;
   private readonly settings: SettingsService;
+  private readonly gitDirector: GitDirectorService;
   private readonly profiles: AgentPolicyProfilesService;
 
   constructor(
@@ -67,6 +69,11 @@ export class HostAgentsService {
     // many secrets can this engine see?". Rendering guidance must not be able
     // to touch ciphertext, and omitting the keyring makes that structural.
     this.secrets = new SecretsService({ db });
+    // No judge, for the same reason the SecretsService above gets no keyring:
+    // this instance only ever answers "is the module on, and how many clones can
+    // this host see?". Rendering a guidance block must not be able to reach a
+    // model, and omitting the judge makes that structural rather than a promise.
+    this.gitDirector = new GitDirectorService({ db, settings: this.settings });
     this.profiles = new AgentPolicyProfilesService(db);
   }
 
@@ -366,6 +373,8 @@ export class HostAgentsService {
       secretCount,
       apiKeysInChatEnabled,
       agentMessagingEnabled,
+      gitDirectorEnabled,
+      gitDirectorCloneCount,
     ] = await Promise.all([
       this.db
         .select()
@@ -382,6 +391,8 @@ export class HostAgentsService {
       this.secrets.availableCount(engine).catch(() => null),
       this.settings.getFlag(API_KEYS_IN_CHAT_ALLOWED_KEY, false).catch(() => null),
       this.settings.getFlag(AGENT_MESSAGING_ENABLED_KEY, false).catch(() => null),
+      this.settings.getFlag(GIT_DIRECTOR_ENABLED_FLAG, false).catch(() => null),
+      this.gitDirector.availableCount(host).catch(() => null),
     ]);
     // db-fake ignores WHERE, so do not borrow another engine's row in tests.
     const configRow = configRows.find((candidate) => candidate.engine === engine) ?? null;
@@ -473,7 +484,32 @@ export class HostAgentsService {
           ? state(false, 'host_inactive')
           : state(true, 'ok');
 
-    return { engine, skills, memory, projects, browseros, secrets, apiKeysInChat, agentMessaging };
+    // Unlike Agent Messaging, this one DOES require `mcp.enabled`: the `git_*`
+    // tools are served by the orchestrator's own MCP entry, so a host whose
+    // managed MCP configuration never reached it has no Director to call and
+    // must not be told otherwise. An empty registry still needs the guidance —
+    // being first into a clone is the normal case, and the count is diagnostic
+    // metadata rather than an activation gate.
+    const gitDirector =
+      gitDirectorEnabled === null || gitDirectorCloneCount === null
+        ? state(false, 'service_unavailable')
+        : !mcp.enabled
+          ? state(false, mcp.reason)
+          : !gitDirectorEnabled
+            ? state(false, 'git_director_disabled')
+            : state(true, 'ok', gitDirectorCloneCount);
+
+    return {
+      engine,
+      skills,
+      memory,
+      projects,
+      browseros,
+      secrets,
+      apiKeysInChat,
+      agentMessaging,
+      gitDirector,
+    };
   }
 
   private async resolveServedDocument(

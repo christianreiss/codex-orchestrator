@@ -46,6 +46,7 @@ export interface ManagedAgentFeatureContext {
   secrets: ManagedFeatureState;
   apiKeysInChat: ManagedFeatureState;
   agentMessaging: ManagedFeatureState;
+  gitDirector: ManagedFeatureState;
 }
 
 export interface ManagedAgentFeatureSection {
@@ -73,6 +74,7 @@ export interface ManagedAgentFeatureSections {
   secrets: ManagedAgentFeatureSection;
   api_keys_in_chat: ManagedAgentFeatureSection;
   agent_messaging: ManagedAgentFeatureSection;
+  git_director: ManagedAgentFeatureSection;
 }
 
 export interface RenderManagedAgentFeaturesResult {
@@ -109,6 +111,10 @@ const FEATURE_SECTION_LABELS: Partial<Record<keyof ManagedAgentFeatureSections, 
   // A fleet setting, not a host capability: there is deliberately no per-host
   // Agent Messaging switch, so the console's jump-to-setting link is correct.
   agent_messaging: 'Agent Messaging (fleet setting)',
+  // Also a fleet setting rather than a per-host capability: one switch in the
+  // console turns the Director on for every host, so the jump-to-setting link
+  // points at a control that exists.
+  git_director: 'Git Director (fleet setting)',
 };
 
 interface RenderedSection {
@@ -362,6 +368,61 @@ round.`,
   );
 }
 
+/**
+ * One text for both engines. Nothing here is engine-specific: the `git_*` tools
+ * are the same orchestrator MCP surface on both, and the block names no Skill.
+ *
+ * This section is the entire enforcement mechanism. The Director is advisory —
+ * any agent with a shell can merge regardless — so a paragraph that merely
+ * announces the capability buys nothing. What works is naming the moment: the
+ * triggers below are tied to "before you create a worktree", "before you merge
+ * or push", because a tool an agent remembers only after the collision is a tool
+ * that never fired. The same lesson the Secrets block encodes with "call
+ * `secret_list` first — before asking the human".
+ *
+ * The closing paragraph is deliberate too. An advisory system whose verdicts can
+ * be ignored silently decays into one nobody calls; saying out loud that
+ * ignoring a `wait` is a reportable choice is cheaper than any hook.
+ *
+ * No line may begin with `- `: `managed-agents-features.test.ts` slices the body
+ * from `## Secrets` to the end and asserts no bullet list follows.
+ */
+function gitDirectorSection(context: ManagedAgentFeatureContext): RenderedSection | null {
+  if (!context.gitDirector.enabled) return null;
+  return present(
+    context.gitDirector,
+    `## Git Director
+
+Several agents work this fleet's repositories at once, often in separate worktrees of one checkout.
+The Director is how they see each other: it keeps a registry of who is working in which clone and
+arbitrates merges into shared branches. It is reachable only through MCP and it never touches your
+worktree — you run every git command yourself and report what you did.
+
+**Before you start work in a repository.** Call \`git_list\` **first — before creating a worktree, and
+before picking up work in a directory you have not registered**. It names the other agents already in
+your clone and what each said it is doing. Then \`git_register\` with the facts from
+\`git rev-parse --show-toplevel --git-common-dir --abbrev-ref HEAD HEAD\` and
+\`git remote get-url origin\`, and \`git_join\` to declare your task, the branch you mean to merge into,
+and the paths you expect to write. Every linked worktree of one clone registers against that one
+clone, so registering is what makes you visible to the peer three directories over.
+
+**Before you merge or push to a shared branch.** Call \`git_merge_request\` and honor the verdict —
+before \`git merge\`, before \`git push\`, before anything that moves a branch others share. Pass
+\`changed_paths\` from \`git diff --name-only base...head\`: without it the Director can only tell you to
+wait, and with it the answer names the exact files you and the current holder both touch. An \`allow\`
+hands you a lease. Poll a \`wait\` with \`git_merge_status\`, which re-decides against current state —
+nothing is pushed to you, so a queue only moves when you ask. Call \`git_release\` the moment your
+merge lands or is abandoned; a lease you forget about blocks that branch for everyone until it
+expires.
+
+**The verdict is advice, and this fleet expects you to take it.** Nothing prevents you merging anyway,
+which is exactly why ignoring a \`wait\` is a real failure rather than a technicality — the agent you
+would have waited for has no way to discover that you did not. If you believe a verdict is wrong, say
+so plainly in your report instead of working around it quietly.`,
+    'mcp',
+  );
+}
+
 function stripManagedContent(body: string): { body: string; changed: boolean } {
   let stripped = body.replace(OWN_POLICY_BLOCK, '');
   stripped = stripped.replace(OWN_BLOCK, '');
@@ -417,6 +478,7 @@ export function renderManagedAgentFeatures(
   const secrets = secretsSection(context);
   const apiKeysInChat = apiKeysInChatSection(context);
   const agentMessaging = agentMessagingSection(context);
+  const gitDirector = gitDirectorSection(context);
 
   const skillsMetadata = skills?.metadata ?? absent(context.skills);
   const memoryMetadata = memory?.metadata ?? absent(context.memory);
@@ -450,6 +512,7 @@ export function renderManagedAgentFeatures(
     secrets: secrets?.metadata ?? absent(context.secrets),
     api_keys_in_chat: apiKeysInChat?.metadata ?? absent(context.apiKeysInChat),
     agent_messaging: agentMessaging?.metadata ?? absent(context.agentMessaging),
+    git_director: gitDirector?.metadata ?? absent(context.gitDirector),
   };
 
   // Appended last on purpose: provider order is part of `managed_sha256`, so
@@ -463,6 +526,7 @@ export function renderManagedAgentFeatures(
     { key: 'secrets', section: secrets },
     { key: 'api_keys_in_chat', section: apiKeysInChat },
     { key: 'agent_messaging', section: agentMessaging },
+    { key: 'git_director', section: gitDirector },
   ];
   const presentFeatures = orderedFeatures.filter(
     (entry): entry is { key: keyof ManagedAgentFeatureSections; section: RenderedSection } =>

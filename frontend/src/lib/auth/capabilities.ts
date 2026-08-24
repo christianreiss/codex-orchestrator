@@ -45,6 +45,8 @@ export const CAPABILITIES = [
   "agent_messaging.read",
   "agent_messaging.reveal_content",
   "agent_messaging.manage",
+  "git_director.read",
+  "git_director.manage",
   "audit.read",
 ] as const;
 

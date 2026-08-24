@@ -1,3 +1,74 @@
+# 2026-08-24
+
+- **Several agents working one repository at once could not see each other,
+  so a merge collision was discovered at merge time, by hand.**
+  `agent_bus_addresses` has recorded every agent's `cwd` since Agent
+  Messaging shipped, but nothing resolved a directory to a repository and no
+  agent could learn that a peer three worktrees over was about to push the
+  same branch. The new **Git Director** is a registry plus an advisory merge
+  arbiter, off by default behind `git_director_enabled`.
+  - Six MCP tools on the orchestrator server: `git_register` (announce a
+    worktree), `git_list` (who else is in this clone — host-scoped by
+    default), `git_join` (declare the task, target branch and expected write
+    paths), `git_merge_request` (ask, and get `allow`/`wait`/`deny` with the
+    reason), `git_merge_status` (poll a wait, renew a lease) and
+    `git_release`. Three tables in `0025_add_git_director.sql`.
+  - **The arbitration unit is the clone on a host**, keyed by
+    `git rev-parse --git-common-dir`, which collapses every linked worktree
+    of one checkout onto one row — that is the contention that actually
+    exists. Clones are grouped across hosts by *normalized* remote URL
+    (`git@host:org/repo.git` and `https://host/org/repo` hash the same) for
+    visibility only; a local merge on one machine must never block another.
+  - **It is advisory and says so.** The orchestrator has no filesystem access
+    to any host, so it cannot merge, cannot read an index, and cannot verify
+    anything an agent reports. No git hooks are installed. The managed
+    `## Git Director` block in AGENTS.md/CLAUDE.md is therefore the whole
+    enforcement mechanism, and it is written as triggers tied to the moments
+    that matter — before creating a worktree, before merging or pushing a
+    shared branch — because
+    `shared://agents-ignore-mcp-memory-unless-steered` already showed that a
+    paragraph merely announcing a capability gets ignored.
+  - **Verdicts come from a model, but only when there is something to
+    judge.** No live lease and no path overlap answers `allow` deterministically
+    without any inference at all — the common case, instant and reproducible.
+    Only a genuine contention builds a brief and asks. `createRunnerClaudeAdapter`
+    already returns `null` when no runner is configured, so the fallback
+    branch came for free: no arbiter, a timeout, or a verdict outside the enum
+    all fall through to a deterministic `wait`. **A model outage never blocks
+    a merge**, which is the failure mode that would get the feature switched
+    off.
+  - The brief carries agent-authored `task` text into a prompt whose output is
+    a permission decision, so those fields are fenced and labelled as data,
+    the verdict is constrained to the enum by `normalizeJudgeVerdict`, and the
+    overlap the reason must cite is computed by the service from reported
+    paths rather than taken from prose.
+  - `git_merge_request` requires a caller-generated `client_request_id` and is
+    idempotent on it (`uq_git_merge_requests_client`, the same shape as
+    `uq_agent_bus_messages_sender_client`). MCP calls get retried; without it
+    a retry queues a second row for the same worktree and shows the arbiter a
+    contender that does not exist.
+  - Re-registering a worktree under a different user is **allowed** and
+    reported as `rebound`, deliberately unlike
+    `assertAddressRegistration`'s refusal in `agent-messaging.ts`: that
+    strictness protects a durable message queue bound to an address, a
+    worktree registration has none, and throwing would lock a restarted agent
+    out of its own directory until the TTL expired. The one refusal is a live
+    registration that currently holds a lease — a lease must never change
+    hands by re-registering.
+  - Registrations and leases both expire and are swept on read, like the
+    call-PIN sweep rather than a cron. Promotion is poll-driven: releasing a
+    lease pushes nothing, and the next `git_merge_status` re-decides against
+    the freed branch.
+  - New console page under Coordinate showing clones, their worktrees and
+    declared tasks, the live lease and queue per branch, and recent verdicts
+    with the reason each carried — plus force-allow/deny, recorded as
+    `decided_by: "operator"` so a human's call is never attributed to the
+    model. Capabilities `git_director.read` (every authenticated role) and
+    `git_director.manage` (owner, admin, fleet).
+  - Adding the feature section moves `features_sha256` and `managed_sha256`
+    for hosts that have it enabled; `base.sha256` and `policy_sha256` are
+    unchanged, since the policy composer was not touched.
+
 # 2026-08-22
 
 - **A third agent handed a live `#call` PIN was told "Call PIN not found or

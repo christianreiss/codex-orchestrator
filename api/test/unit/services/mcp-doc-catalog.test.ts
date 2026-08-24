@@ -26,6 +26,7 @@ const GROUPS = [
   'Fleet-wide shared memory',
   'Projects module enabled',
   'Fleet secrets store',
+  'Git Director',
   'Operator/internal filesystem helpers',
 ];
 

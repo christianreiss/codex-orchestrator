@@ -30,6 +30,7 @@ const ICON_NAMES = [
   "Fingerprint",
   "FolderKanban",
   "GitBranch",
+  "GitMerge",
   "HelpCircle",
   "Keyboard",
   "KeyRound",

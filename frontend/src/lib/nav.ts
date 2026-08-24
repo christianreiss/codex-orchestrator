@@ -13,6 +13,7 @@ import {
   Brain,
   FileText,
   FolderKanban,
+  GitMerge,
   KeyRound,
   LayoutDashboard,
   Link,
@@ -97,6 +98,10 @@ const REGISTRY: NavDefinition[] = [
   {
     id: "agent-messaging", group: "Coordinate", route: "/agent-messaging", label: "Agent Messaging",
     description: "Addresses, conversations, and deliveries", keywords: ["agents", "codex", "claude", "relay"], icon: MessageSquareShare,
+  },
+  {
+    id: "git-director", group: "Coordinate", route: "/git-director", label: "Git Director",
+    description: "Clone registry and merge arbitration", keywords: ["git", "worktree", "merge", "branch", "lease", "clone"], icon: GitMerge,
   },
   {
     id: "agent-portal", group: "Coordinate", route: "/agent-portal", label: "Agent Portal",

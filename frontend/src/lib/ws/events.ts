@@ -142,6 +142,11 @@ export const DEFAULT_INVALIDATIONS: WsInvalidationMap = {
   "agent_messaging.relay.changed": [["agent-messaging"]],
   "agent_messaging.queue.changed": [["agent-messaging"]],
 
+  // Git Director
+  "git_director.changed": [["git-director"]],
+  "git_director.module_toggled": [["git-director"]],
+  "git_director.decision_forced": [["git-director"]],
+
   // Usage / dashboard
   "chatgpt.usage.updated": [["usage", "chatgpt"]],
   // Pushed by the clx wrapper via POST /claude/usage/report, not fetched by
