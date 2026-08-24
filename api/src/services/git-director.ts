@@ -649,10 +649,31 @@ export class GitDirectorService {
    */
   async list(args: Record<string, unknown>, host: Host): Promise<Record<string, unknown>> {
     const now = this.now();
-    await this.sweepExpired(this.deps.db, now);
     const scopeRaw = String(args.scope ?? 'host').trim().toLowerCase();
     const scope = scopeRaw === 'fleet' || scopeRaw === 'clone' ? scopeRaw : 'host';
     const worktreePath = optionalString(args, 'worktree_path');
+
+    // Watching counts as working. An agent that polls git_list to see whether a
+    // peer has appeared is plainly still alive, and reaping it for "going quiet"
+    // while it is looking straight at us would be the exact failure this feature
+    // is supposed to prevent. Heartbeat first, THEN sweep, so the refresh cannot
+    // lose a race with the reaper it is meant to outrun. Any scope: an agent
+    // asking a fleet-wide question is no less present than one asking about its
+    // own clone.
+    if (worktreePath) {
+      const normalized = normalizePath(worktreePath);
+      try {
+        await this.deps.db.transaction(async (tx) => {
+          await this.requireWorktree(tx, host, normalized, now);
+        });
+      } catch {
+        // An unregistered path is not an error here — git_list is how an agent
+        // looks around BEFORE it registers, and refusing that would invert the
+        // order the guidance tells it to work in.
+      }
+    }
+
+    await this.sweepExpired(this.deps.db, now);
 
     const allClones = await this.deps.db.select().from(gitClones);
     const hostRows = await this.deps.db.select({ id: hosts.id, fqdn: hosts.fqdn }).from(hosts);
@@ -704,11 +725,52 @@ export class GitDirectorService {
     const headSha = optionalString(args, 'head_sha', 64);
     const changedPaths = cleanPaths(args.changed_paths);
 
+    return await this.decideAndRecord({
+      host,
+      now,
+      worktreePath,
+      targetBranch,
+      clientRequestId,
+      baseSha,
+      headSha,
+      changedPaths,
+    });
+  }
+
+  /**
+   * Decide one merge request and write the outcome.
+   *
+   * Shared by `requestMerge` (which inserts a new row) and `mergeStatus`
+   * (which re-decides an existing `wait` **in place**, via `updateRequestId`).
+   * Polling used to insert a fresh row per call, which was wrong twice over: the
+   * caller's `request_id` changed underneath them, and every poll counted as
+   * another queued contender — so the queue the arbiter was shown grew the
+   * longer somebody waited, describing a crowd that did not exist.
+   */
+  private async decideAndRecord(input: {
+    host: Host;
+    now: string;
+    worktreePath: string;
+    targetBranch: string;
+    clientRequestId: string;
+    baseSha: string | null;
+    headSha: string | null;
+    changedPaths: string[];
+    updateRequestId?: string;
+  }): Promise<Record<string, unknown>> {
+    const { host, worktreePath, targetBranch, clientRequestId, baseSha, headSha, changedPaths } = input;
+    const now = input.now;
+    const updateRequestId = input.updateRequestId ?? null;
+
     const decision = await this.deps.db.transaction(async (tx) => {
       await this.sweepExpired(tx, now);
       const { clone, worktree } = await this.requireWorktree(tx, host, worktreePath, now);
 
-      const replay = (
+      // Skipped when re-deciding: the row we are about to update carries this
+      // very `client_request_id`, so the retry guard would find itself and
+      // short-circuit into "replayed" — a poll that could never change its own
+      // verdict.
+      const replay = updateRequestId !== null ? undefined : (
         await tx
           .select()
           .from(gitMergeRequests)
@@ -732,7 +794,7 @@ export class GitDirectorService {
       await tx.select().from(gitClones).where(eq(gitClones.id, clone.id)).limit(1).for('update');
 
       const holderRow = await this.liveLeaseForClone(tx, clone.id, targetBranch, now);
-      const queued = await this.queuedForClone(tx, clone.id, targetBranch, now);
+      const queued = await this.queuedForClone(tx, clone.id, targetBranch, now, updateRequestId);
       const holderWorktree = holderRow
         ? (await tx.select().from(gitWorktrees).where(eq(gitWorktrees.id, holderRow.worktreeId)).limit(1)).find(
             (row) => row.id === holderRow.worktreeId,
@@ -802,7 +864,7 @@ export class GitDirectorService {
 
       // Re-read under the lock: the holder may have released while the judge ran.
       const holderRow = await this.liveLeaseForClone(tx, clone.id, targetBranch, now2);
-      const queued = await this.queuedForClone(tx, clone.id, targetBranch, now2);
+      const queued = await this.queuedForClone(tx, clone.id, targetBranch, now2, updateRequestId);
       const holderWorktree = holderRow
         ? (await tx.select().from(gitWorktrees).where(eq(gitWorktrees.id, holderRow.worktreeId)).limit(1)).find(
             (row) => row.id === holderRow.worktreeId,
@@ -813,6 +875,13 @@ export class GitDirectorService {
         : [];
       const overlap = overlappingPaths(changedPaths, holderPaths);
 
+      const existing =
+        updateRequestId === null
+          ? null
+          : (
+              await tx.select().from(gitMergeRequests).where(eq(gitMergeRequests.id, updateRequestId)).limit(1)
+            ).find((row) => row.id === updateRequestId) ?? null;
+
       const resolved = resolveVerdict({
         holderPresent: Boolean(holderRow),
         overlap,
@@ -820,7 +889,7 @@ export class GitDirectorService {
         judgeConsulted: Boolean(decision.brief),
       });
 
-      const id = randomUUID();
+      const id = updateRequestId ?? randomUUID();
       const leaseExpiresAt =
         resolved.verdict === 'allow' ? isoOffsetSeconds(LEASE_TTL_SECONDS, new Date(now2)) : null;
       const row = {
@@ -839,13 +908,45 @@ export class GitDirectorService {
         holderWorktreeId: holderRow?.worktreeId ?? null,
         model: resolved.decidedBy === 'llm' ? model : null,
         leaseExpiresAt,
-        requestedAt: now2,
+        // On a re-decide this is only used for the response; the UPDATE below
+        // deliberately does not write it, so "waiting since" stays the first ask.
+        requestedAt: existing?.requestedAt ?? now2,
         decidedAt: now2,
-        renewedAt: null,
+        renewedAt: updateRequestId === null ? null : now2,
         completedAt: null,
-        createdAt: now2,
+        createdAt: existing?.createdAt ?? now2,
         updatedAt: now2,
       };
+      if (updateRequestId !== null) {
+        // Re-decide in place. `requestedAt` is deliberately preserved: it is when
+        // the caller first asked, which is what queue order and "how long has
+        // this been waiting" both depend on.
+        await tx
+          .update(gitMergeRequests)
+          .set({
+            verdict: resolved.verdict,
+            decidedBy: resolved.decidedBy,
+            reason: resolved.reason,
+            overlap: overlap.length > 0 ? overlap : null,
+            holderWorktreeId: holderRow?.worktreeId ?? null,
+            model: resolved.decidedBy === 'llm' ? model : null,
+            leaseExpiresAt,
+            decidedAt: now2,
+            renewedAt: now2,
+            updatedAt: now2,
+          })
+          .where(eq(gitMergeRequests.id, updateRequestId));
+        await tx
+          .update(gitWorktrees)
+          .set({ heartbeatAt: now2, updatedAt: now2 })
+          .where(eq(gitWorktrees.id, worktree.id));
+        wsPublisher.publish('git_director.changed', { kind: 'merge_request', clone_id: clone.id });
+        return this.requestWire(row as unknown as GitMergeRequest, {
+          replayed: false,
+          holder: holderWorktree,
+          queueDepth: queued.length,
+        });
+      }
       try {
         await tx.insert(gitMergeRequests).values(row);
       } catch {
@@ -910,23 +1011,27 @@ export class GitDirectorService {
       return this.requestWire(current as GitMergeRequest, { renewed: current.renewed });
     }
 
-    // A waiting request re-runs the full decision against current state.
+    // A waiting request re-runs the full decision against current state, and
+    // writes the answer back onto the SAME row. Polling must not mint rows: the
+    // caller's `request_id` would change underneath them, and each poll would
+    // count as another queued contender — inflating the queue the arbiter is
+    // shown the longer somebody waits.
     const worktree = (
       await this.deps.db.select().from(gitWorktrees).where(eq(gitWorktrees.id, current.worktreeId)).limit(1)
     ).find((row) => row.id === current.worktreeId);
     if (!worktree) throw new NotFoundError('Worktree is no longer registered', 'git_director_worktree_not_found');
 
-    return await this.requestMerge(
-      {
-        worktree_path: worktree.worktreePath,
-        target_branch: current.targetBranch,
-        client_request_id: `${current.clientRequestId}:retry:${now}`,
-        base_sha: current.baseSha,
-        head_sha: current.headSha,
-        changed_paths: readPaths(current.changedPaths),
-      },
+    return await this.decideAndRecord({
       host,
-    );
+      now,
+      worktreePath: worktree.worktreePath,
+      targetBranch: current.targetBranch,
+      clientRequestId: current.clientRequestId,
+      baseSha: current.baseSha,
+      headSha: current.headSha,
+      changedPaths: readPaths(current.changedPaths),
+      updateRequestId: current.id,
+    });
   }
 
   /** Release a lease, a queued request, or the registration itself. */
@@ -1329,11 +1434,19 @@ export class GitDirectorService {
     );
   }
 
+  /**
+   * Everyone else waiting on this branch.
+   *
+   * `excludeRequestId` drops the row currently being re-decided: a poller is not
+   * its own rival, and counting it would report a queue one deeper than reality
+   * to both the caller and the arbiter.
+   */
   private async queuedForClone(
     tx: GitDirectorDb,
     cloneId: string,
     targetBranch: string,
     now: string,
+    excludeRequestId: string | null = null,
   ): Promise<GitMergeRequest[]> {
     void now;
     const rows = await tx
@@ -1346,7 +1459,8 @@ export class GitDirectorService {
         row.cloneId === cloneId &&
         row.verdict === 'wait' &&
         row.targetBranch === targetBranch &&
-        !row.completedAt,
+        !row.completedAt &&
+        row.id !== excludeRequestId,
     );
   }
 

@@ -261,6 +261,35 @@ describe.skipIf(!handle)('git director against a real database', () => {
       await exec(`DELETE FROM agent_bus_addresses WHERE id = '${addressId}'`);
     });
 
+    it('keeps an agent alive while it only watches, which is what polling looks like', async () => {
+      await register(MAIN_WT);
+      const past = new Date(Date.now() - 86_400_000).toISOString();
+      await exec(`UPDATE git_worktrees SET expires_at = '${past}' WHERE worktree_path = '${MAIN_WT}'`);
+
+      // The shape this feature exists for: an agent mid-task polling git_list to
+      // notice a peer. It touches no other tool for an hour, and reaping it for
+      // "silence" while it is looking straight at us would be exactly wrong.
+      const listed = (await svc.list({ scope: 'host', worktree_path: MAIN_WT }, host)) as Record<string, unknown>;
+      const clone = (listed['clones'] as Array<Record<string, unknown>>)[0]!;
+      expect((clone['worktrees'] as unknown[])).toHaveLength(1);
+
+      const row = rowsOf(
+        await exec(`SELECT status, expires_at FROM git_worktrees WHERE worktree_path = '${MAIN_WT}'`),
+      )[0]!;
+      expect(row['status']).toBe('active');
+      expect(String(row['expires_at']) > past).toBe(true);
+    });
+
+    it('lets an unregistered path look around without erroring', async () => {
+      // git_list is how an agent looks BEFORE it registers; refusing an unknown
+      // worktree_path would invert the order the guidance tells it to work in.
+      const listed = (await svc.list({ scope: 'host', worktree_path: '/srv/ztest-gd/never-seen' }, host)) as Record<
+        string,
+        unknown
+      >;
+      expect(listed['scope']).toBe('host');
+    });
+
     it('keeps a live-but-quiet agent alive: any call is proof of life', async () => {
       await register(MAIN_WT);
       const past = new Date(Date.now() - 86_400_000).toISOString();
@@ -313,6 +342,34 @@ describe.skipIf(!handle)('git director against a real database', () => {
       const next = (await requestMerge(LINKED_WT, ['api/a.ts'])) as Record<string, unknown>;
       expect(next['verdict']).toBe('allow');
     });
+  });
+
+  it('re-decides a waiting request in place instead of minting a row per poll', async () => {
+    await register(MAIN_WT);
+    await register(LINKED_WT);
+    await requestMerge(MAIN_WT, ['api/a.ts']);
+    const waiting = (await requestMerge(LINKED_WT, ['api/a.ts'])) as Record<string, unknown>;
+    const requestId = String(waiting['request_id']);
+
+    const first = (await svc.mergeStatus({ request_id: requestId }, host)) as Record<string, unknown>;
+    const second = (await svc.mergeStatus({ request_id: requestId }, host)) as Record<string, unknown>;
+
+    // The id the caller was handed has to stay valid, or an agent following the
+    // tool description polls a row that stops being updated.
+    expect(first['request_id']).toBe(requestId);
+    expect(second['request_id']).toBe(requestId);
+    expect(second['verdict']).toBe('wait');
+
+    // And each poll must not read as another contender. Left unchecked, the
+    // queue shown to the arbiter grew the longer somebody waited.
+    const rows = rowsOf(
+      await exec(
+        `SELECT id FROM git_merge_requests
+          WHERE worktree_id = (SELECT id FROM git_worktrees WHERE worktree_path = '${LINKED_WT}')`,
+      ),
+    );
+    expect(rows).toHaveLength(1);
+    expect(Number(second['queue_depth'] ?? 0)).toBe(0);
   });
 
   it('refuses to hand a held lease to a different agent by re-registering', async () => {

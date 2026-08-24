@@ -66,8 +66,17 @@
     Messaging off. A lease is released with its holder either way, so a
     vanished agent stops blocking a branch in seconds instead of on the lease
     TTL, and the stored reason says which happened.
-  - Any call naming a worktree counts as proof of life and refreshes it, so a
-    busy agent is never reaped for going an hour between merges. Reclaimed
+  - Any call naming a worktree counts as proof of life and refreshes it —
+    `git_list` very much included, because an agent mid-task watching for a
+    peer touches nothing else, and reaping it for "silence" while it is
+    looking straight at us would be precisely the failure this exists to
+    prevent. It heartbeats before the sweep, so the refresh cannot lose a race
+    with the reaper it is meant to outrun.
+  - `git_merge_status` re-decides a waiting request **in place** rather than
+    inserting a row per poll. Minting rows was wrong twice: the caller's
+    `request_id` changed underneath them, and every poll counted as another
+    queued contender — so the queue shown to the arbiter grew the longer
+    somebody waited, describing a crowd that did not exist. Reclaimed
     registrations are retained and reported under `stale` rather than deleted:
     a worktree that silently disappeared would read as an empty clone, which
     is a worse lie than a stale row.

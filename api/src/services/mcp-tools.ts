@@ -1151,7 +1151,7 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
       definition: {
         name: 'git_list',
         description:
-          'See who is working where. Host-scoped by default — the clones on this machine, the worktrees registered in each, what each agent said it is doing, and any live merge lease or queue. Pass scope "clone" with a worktree_path to narrow to one checkout, or scope "fleet" to see every host. Call this before creating a worktree or picking up work, so you find out about a peer in the same clone before you collide with them rather than after. The `stale` list on each clone is agents that were reclaimed — a session the fleet saw end, or one that went quiet — so a worktree missing from `worktrees` but present there was abandoned rather than never used.',
+          'See who is working where. Host-scoped by default — the clones on this machine, the worktrees registered in each, what each agent said it is doing, and any live merge lease or queue. Pass scope "clone" with a worktree_path to narrow to one checkout, or scope "fleet" to see every host. Always pass your own worktree_path once you have registered, at any scope: it tells the Director you are still here, so polling this while you work keeps your registration alive instead of letting it expire out from under you. Call this before creating a worktree or picking up work, so you find out about a peer in the same clone before you collide with them rather than after. The `stale` list on each clone is agents that were reclaimed — a session the fleet saw end, or one that went quiet — so a worktree missing from `worktrees` but present there was abandoned rather than never used.',
         inputSchema: {
           type: 'object',
           properties: {
@@ -1217,7 +1217,7 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
       definition: {
         name: 'git_merge_status',
         description:
-          'Poll a waiting merge request, or renew a lease you are still using. A "wait" is re-decided against current state each time you call, so this is how a queued request is promoted once the holder releases — nothing is pushed to you. If you hold an "allow" and your merge is taking a while, call this to extend the lease before it expires.',
+          'Poll a waiting merge request, or renew a lease you are still using. A "wait" is re-decided against current state each time you call and the answer is written back to the same request_id, so keep polling the id you were given — this is how a queued request is promoted once the holder releases, since nothing is pushed to you. If you hold an "allow" and your merge is taking a while, call this to extend the lease before it expires.',
         inputSchema: {
           type: 'object',
           additionalProperties: false,
