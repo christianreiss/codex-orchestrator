@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -420,4 +421,122 @@ func TestReexecArgvHostFormOmitsPersonaToken(t *testing.T) {
 	if !reflect.DeepEqual(persona, []string{exe, EngineCodex, "sync"}) {
 		t.Fatalf("persona form = %v, want the engine token preserved", persona)
 	}
+}
+
+// A legacy transition install: the real artifact sits in a data directory that
+// is not on PATH, and the only PATH-visible fleet command is the cdx shim.
+func newShimInstall(t *testing.T) (data, binDir, canonical string) {
+	t.Helper()
+	root := t.TempDir()
+	data = filepath.Join(root, "data")
+	binDir = filepath.Join(root, "bin")
+	for _, dir := range []string{data, binDir} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	canonical = filepath.Join(data, "cxx")
+	if err := os.WriteFile(canonical, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(binDir, "cdx"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", binDir)
+	return data, binDir, canonical
+}
+
+func TestEnsurePathVisiblePublishesShimInstall(t *testing.T) {
+	data, binDir, canonical := newShimInstall(t)
+	// The running process is the versioned artifact the shim exec'd into.
+	running := filepath.Join(data, "cdx-0.7.23")
+	if err := os.WriteFile(running, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	link, err := EnsurePathVisible(context.Background(), running)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := filepath.Join(binDir, "cxx"); link != want {
+		t.Fatalf("link=%q want=%q", link, want)
+	}
+	// Absolute, not the relative "cxx" ensureAlias writes: a same-named
+	// relative link in another directory would point at itself.
+	target, err := os.Readlink(link)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if target != canonical {
+		t.Fatalf("readlink=%q want=%q", target, canonical)
+	}
+	if resolved, err := exec.LookPath("cxx"); err != nil || resolved != link {
+		t.Fatalf("LookPath=%q err=%v; cxx must resolve on PATH", resolved, err)
+	}
+
+	// Idempotent: a healthy host is left alone rather than rewritten.
+	again, err := EnsurePathVisible(context.Background(), running)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again != "" {
+		t.Fatalf("second publish reported %q, want no-op", again)
+	}
+}
+
+func TestEnsurePathVisibleKeepsRealInstall(t *testing.T) {
+	data, binDir, _ := newShimInstall(t)
+	// Another account's real cxx already owns the PATH name.
+	real := filepath.Join(binDir, "cxx")
+	if err := os.WriteFile(real, []byte("real binary"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link, err := EnsurePathVisible(context.Background(), filepath.Join(data, "cxx"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if link != "" {
+		t.Fatalf("published %q over a regular file", link)
+	}
+	body, err := os.ReadFile(real)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(body) != "real binary" {
+		t.Fatalf("regular file replaced: %q", body)
+	}
+}
+
+func TestEnsurePathVisibleSkipsHostAlreadyOnPath(t *testing.T) {
+	dir := t.TempDir()
+	canonical := filepath.Join(dir, "cxx")
+	if err := os.WriteFile(canonical, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("cxx", filepath.Join(dir, "cdx")); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir)
+	link, err := EnsurePathVisible(context.Background(), canonical)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if link != "" {
+		t.Fatalf("published %q on a host whose cxx already resolves", link)
+	}
+}
+
+func TestRemoveSharedClearsPublishedPathLink(t *testing.T) {
+	data, binDir, canonical := newShimInstall(t)
+	link, err := EnsurePathVisible(context.Background(), canonical)
+	if err != nil || link == "" {
+		t.Fatalf("publish link=%q err=%v", link, err)
+	}
+	if err := RemoveShared(context.Background(), filepath.Join(data, "cxx")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(link); !os.IsNotExist(err) {
+		t.Fatalf("published link survived uninstall: err=%v", err)
+	}
+	_ = binDir
 }

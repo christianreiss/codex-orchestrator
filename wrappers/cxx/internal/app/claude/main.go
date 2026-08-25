@@ -381,6 +381,13 @@ func run(args []string, stdout, stderr io.Writer) (code int) {
 		if _, layoutErr := layout.EnsureAliases(ctx, exe, []string{config.EngineClaude}); layoutErr != nil {
 			logger.Warn("cxx layout reconcile skipped", "engine", config.EngineClaude, "err", layoutErr)
 		}
+		// A legacy transition install keeps the artifact off PATH, where the
+		// managed `cxx-agent` MCP command cannot resolve it.
+		if link, pathErr := layout.EnsurePathVisible(ctx, exe); pathErr != nil {
+			logger.Warn("cxx PATH publish skipped", "err", pathErr)
+		} else if link != "" {
+			logger.Info("cxx published on PATH", "link", link)
+		}
 	}
 
 	// Commands that exchange auth own a session so API-authoritative host

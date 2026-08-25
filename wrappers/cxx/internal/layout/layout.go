@@ -156,6 +156,115 @@ func EnsureAliasesForSHA(ctx context.Context, executable string, engines []strin
 	return canonical, err
 }
 
+// EnsurePathVisible makes the canonical cxx reachable by its bare name from
+// PATH, and reports the link it had to create (empty when nothing was needed).
+//
+// A host installed by the legacy transition launcher keeps the real binary in
+// $XDG_DATA_HOME/codex-orchestrator/bin and leaves only a shell shim named cdx
+// or clx in a PATH directory. EnsureAliases writes aliases beside the canonical
+// artifact, so on such a host nothing ever publishes the name `cxx` anywhere
+// PATH can see it. Every fleet-managed reference to the bare command then
+// fails: the `cxx-agent` MCP entry aborts with "No such file or directory" and
+// the agent_* tools disappear without the agent being told why.
+//
+// The healing link is absolute and lands beside the PATH-visible shim -- the
+// same directory peerBinaryPath() already treats as the fleet's binary home.
+// Nothing else is touched. The shim keeps working, and a host that already
+// resolves cxx is left exactly as it is.
+func EnsurePathVisible(ctx context.Context, executable string) (string, error) {
+	canonical, err := CanonicalExecutable(executable)
+	if err != nil {
+		return "", err
+	}
+	// Only an install that has completed its migration has a name to publish.
+	if filepath.Base(canonical) != "cxx" {
+		return "", nil
+	}
+	if info, statErr := os.Stat(canonical); statErr != nil || info.IsDir() {
+		return "", nil
+	}
+	if pathResolvesTo(canonical) {
+		return "", nil
+	}
+	dir := pathVisibleFleetDir(canonical)
+	if dir == "" {
+		return "", nil
+	}
+	link := filepath.Join(dir, "cxx")
+	// A regular file of that name in a PATH directory is somebody else's real
+	// install, not our stale link. Replacing it with a symlink into one user's
+	// data directory would break every other account on the host.
+	if info, statErr := os.Lstat(link); statErr == nil && info.Mode().IsRegular() {
+		return "", nil
+	}
+	if err := WithTargetLock(ctx, canonical, func() error {
+		return ensureAbsLink(link, canonical)
+	}); err != nil {
+		return "", err
+	}
+	return link, nil
+}
+
+// pathResolvesTo reports whether a bare `cxx` already reaches this artifact.
+// The comparison follows symlinks on both sides: the link text alone cannot
+// distinguish a healthy install from one pointing at a different binary.
+func pathResolvesTo(canonical string) bool {
+	found, err := exec.LookPath("cxx")
+	if err != nil || found == "" {
+		return false
+	}
+	return samePath(found, canonical)
+}
+
+func samePath(a, b string) bool {
+	resolve := func(p string) string {
+		if r, err := filepath.EvalSymlinks(p); err == nil {
+			return filepath.Clean(r)
+		}
+		return filepath.Clean(p)
+	}
+	return resolve(a) == resolve(b)
+}
+
+// pathVisibleFleetDir returns the PATH directory that already holds a fleet
+// persona command. LookPath only searches PATH, so whatever it finds is by
+// construction somewhere a bare command name resolves.
+func pathVisibleFleetDir(canonical string) string {
+	home := filepath.Dir(canonical)
+	for _, name := range []string{"cdx", "clx"} {
+		found, err := exec.LookPath(name)
+		if err != nil || found == "" {
+			continue
+		}
+		if dir := filepath.Dir(found); !samePath(dir, home) {
+			return dir
+		}
+	}
+	return ""
+}
+
+// pathVisibleLinks lists the PATH-published links that point at this artifact.
+// Only links whose text is exactly the canonical path are ours; a relative
+// alias or an unrelated symlink belongs to someone else.
+func pathVisibleLinks(canonical string) []string {
+	var out []string
+	seen := make(map[string]struct{})
+	for _, dir := range filepath.SplitList(os.Getenv("PATH")) {
+		if dir == "" {
+			continue
+		}
+		link := filepath.Join(dir, "cxx")
+		if _, ok := seen[link]; ok {
+			continue
+		}
+		seen[link] = struct{}{}
+		if target, err := os.Readlink(link); err == nil && target == canonical {
+			out = append(out, link)
+		}
+	}
+	return out
+}
+
 // CanonicalExecutable returns the cxx target when it exists beside a legacy
 // regular cdx/clx path, otherwise the resolved running executable. This keeps
 // self-update from replacing a multicall symlink with a regular file.
@@ -263,8 +372,17 @@ func RemoveShared(ctx context.Context, executable string) error {
 			}
 		}
 		if filepath.Base(canonical) == "cxx" {
+			// Collect before removing: the link is what EnsurePathVisible
+			// published into a PATH directory for a legacy transition install,
+			// and it would otherwise outlive the artifact it names.
+			stale := pathVisibleLinks(canonical)
 			if removeErr := removeFile(canonical); removeErr != nil {
 				errs = append(errs, removeErr)
+			}
+			for _, link := range stale {
+				if removeErr := removeFile(link); removeErr != nil {
+					errs = append(errs, removeErr)
+				}
 			}
 		}
 		if legacyRegular != "" {
@@ -398,6 +516,69 @@ func ensureAlias(dir, name string) error {
 	if err := os.Rename(tmp, alias); err != nil {
 		_ = os.Remove(tmp)
 		return sudoAlias(alias, err)
+	}
+	return nil
+}
+
+// ensureAbsLink points name at an absolute target in another directory. It is
+// deliberately not ensureAlias: that one writes the relative text "cxx" and
+// short-circuits on it, which across directories would produce a cxx symlink
+// naming itself. The self-reference resolves to nothing, and unlike the missing
+// file it replaces, PATH lookup would then succeed and the failure would arrive
+// as ELOOP from the engine instead of a plain ENOENT.
+func ensureAbsLink(link, target string) error {
+	if info, err := os.Lstat(link); err == nil {
+		if info.IsDir() {
+			return fmt.Errorf("wrapper path link %s is a directory", link)
+		}
+		if info.Mode().IsRegular() {
+			return fmt.Errorf("wrapper path link %s is a regular file", link)
+		}
+		if current, readErr := os.Readlink(link); readErr == nil && current == target {
+			return nil
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	dir := filepath.Dir(link)
+	tmp := filepath.Join(dir, "."+filepath.Base(link)+".cxx-path-"+strconv.Itoa(os.Getpid()))
+	_ = os.Remove(tmp)
+	if err := os.Symlink(target, tmp); err != nil {
+		return sudoAbsLink(link, target, err)
+	}
+	if err := os.Rename(tmp, link); err != nil {
+		_ = os.Remove(tmp)
+		return sudoAbsLink(link, target, err)
+	}
+	return nil
+}
+
+func sudoAbsLink(link, target string, cause error) error {
+	if _, err := exec.LookPath("sudo"); err != nil {
+		return cause
+	}
+	if info, err := os.Lstat(link); err == nil && info.IsDir() {
+		return fmt.Errorf("wrapper path link %s is a directory", link)
+	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	tmp, err := privilegedTempPath(link, "path")
+	if err != nil {
+		return fmt.Errorf("%v; allocate sudo path-link staging path: %w", cause, err)
+	}
+	out, err := runSudo("ln", "-s", target, tmp)
+	if err != nil {
+		return fmt.Errorf("%v; sudo path link failed: %w: %s", cause, err, strings.TrimSpace(string(out)))
+	}
+	defer runSudo("rm", "-f", tmp)
+	mvArgs := []string{"mv", "-f"}
+	if runtime.GOOS == "linux" {
+		mvArgs = append(mvArgs, "-T")
+	}
+	mvArgs = append(mvArgs, tmp, link)
+	out, err = runSudo(mvArgs...)
+	if err != nil {
+		return fmt.Errorf("%v; sudo atomic path-link move failed: %w: %s", cause, err, strings.TrimSpace(string(out)))
 	}
 	return nil
 }

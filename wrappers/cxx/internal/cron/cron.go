@@ -282,6 +282,20 @@ func warnWriter(w io.Writer) io.Writer {
 }
 
 func ensureEnabledAliases(ctx context.Context, executable string, engines []string, configs []*config.Config) (string, error) {
+	canonical, err := convergeAliases(ctx, executable, engines, configs)
+	if err != nil {
+		return canonical, err
+	}
+	// Cron is the only thing that runs on a host nobody logs into, so it is
+	// also the only chance a legacy transition install gets to publish cxx
+	// where PATH can find it.
+	if _, pathErr := layout.EnsurePathVisible(ctx, executable); pathErr != nil {
+		fmt.Fprintf(warnWriter(nil), "publish cxx on PATH: %v\n", pathErr)
+	}
+	return canonical, nil
+}
+
+func convergeAliases(ctx context.Context, executable string, engines []string, configs []*config.Config) (string, error) {
 	for _, cfg := range configs {
 		if cfg != nil && coreupdate.VerifyChecksum(executable, cfg.Wrapper.BinarySHA256) == nil {
 			return layout.EnsureAliasesForSHA(ctx, executable, engines, cfg.Wrapper.BinarySHA256)

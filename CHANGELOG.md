@@ -1,3 +1,28 @@
+# 2026-08-25
+
+- **On a host installed by the legacy transition launcher, the `cxx-agent`
+  MCP server never started, and no update could fix it.** Every session
+  opened with `MCP client for cxx-agent failed to start: MCP startup failed:
+  No such file or directory (os error 2)` and the whole `agent_*` toolset —
+  messaging, calls, conferences — was silently absent.
+  - The cause is where the binary lives. A launcher generated before
+    `fdeb98ac` sets `BIN_ROOT="$XDG_DATA_HOME/codex-orchestrator/bin"`, so
+    the real artifact and its `cxx` name sit in a directory that is not on
+    `PATH`; only a shell shim named `cdx` or `clx` is. The managed MCP entry
+    invokes the bare command `cxx` (`client-config.ts`), which therefore
+    resolves to nothing. The generator has emitted the shim's own directory
+    since `fdeb98ac`, but that script is written once at install time and is
+    never regenerated, so an affected host stays affected forever.
+  - `layout.EnsurePathVisible` now publishes the canonical artifact under its
+    bare name into the PATH directory that already holds the persona shim —
+    the same directory `peerBinaryPath()` has always treated as the fleet's
+    binary home. It runs on every engine start and every cron tick, so an
+    idle host heals too.
+  - The link is absolute and additive. The shim is left alone, a `cxx` that
+    already resolves is left alone, and a *regular file* of that name in a
+    PATH directory is another account's real install and is never replaced.
+    Uninstall removes the published link with the artifact it names.
+
 # 2026-08-24
 
 - **Several agents working one repository at once could not see each other,

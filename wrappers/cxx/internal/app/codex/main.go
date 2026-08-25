@@ -403,6 +403,13 @@ func run(args []string, stdout, stderr io.Writer) (exitCode int) {
 		if _, layoutErr := layout.EnsureAliases(ctx, exe, []string{config.EngineCodex}); layoutErr != nil {
 			logger.Warn("cxx layout reconcile skipped", "engine", config.EngineCodex, "err", layoutErr)
 		}
+		// A legacy transition install keeps the artifact off PATH, where the
+		// managed `cxx-agent` MCP command cannot resolve it.
+		if link, pathErr := layout.EnsurePathVisible(ctx, exe); pathErr != nil {
+			logger.Warn("cxx PATH publish skipped", "err", pathErr)
+		} else if link != "" {
+			logger.Info("cxx published on PATH", "link", link)
+		}
 	}
 
 	// Every config-backed invocation participates in the same Codex-home keyed
