@@ -71,6 +71,15 @@ def main() -> int:
                 raise SystemExit(f"rollback payload changed for {platform}")
             if (platform_dir / "v0.7.1" / "cxx").read_bytes() != b"second:" + platform.encode():
                 raise SystemExit(f"current payload missing for {platform}")
+            # The API container reads this tree under its own uid. A private
+            # version directory makes the payload unreadable there, and the
+            # release is then declined at boot with no error anywhere.
+            for path in (platform_dir, platform_dir / "v0.7.0", platform_dir / "v0.7.1"):
+                if not path.stat().st_mode & 0o055 == 0o055:
+                    raise SystemExit(f"published directory is not world-traversable: {path}")
+            for path in (platform_dir / "manifest.json", platform_dir / "v0.7.1" / "cxx"):
+                if not path.stat().st_mode & 0o044 == 0o044:
+                    raise SystemExit(f"published file is not world-readable: {path}")
 
         # A malformed destination manifest must fail before any platform gets
         # the new immutable payload; the four-platform publication is atomic at

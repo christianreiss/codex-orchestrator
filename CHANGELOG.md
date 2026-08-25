@@ -23,6 +23,17 @@
     PATH directory is another account's real install and is never replaced.
     Uninstall removes the published link with the artifact it names.
 
+- **Publishing a wrapper release left every host on the previous version, with
+  no error anywhere.** `publish-release.py` stages each version directory with
+  `tempfile.mkdtemp`, which hardcodes `0700`, and renamed it into the served
+  store at that mode. The API container reads that tree under its own uid, so
+  the payload was unreadable there: `binaryMatchesBuild` swallowed the `EACCES`,
+  the four-platform matrix looked incomplete, and `refreshWrapperVersions` kept
+  the previous pointers on purpose. All four manifests read `current: 0.7.24`
+  while `/versions` kept offering 0.7.23. The staged directory and the platform
+  directory are now explicitly `0755`, and the publish test asserts the whole
+  published tree is world-readable under a `077` umask.
+
 # 2026-08-24
 
 - **Several agents working one repository at once could not see each other,

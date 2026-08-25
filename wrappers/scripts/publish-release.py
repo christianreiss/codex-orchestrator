@@ -94,6 +94,9 @@ def publish_payload(destination: Path, item: dict[str, object], version: str) ->
     platform_dir = destination / "cxx" / str(item["platform"])
     target = platform_dir / f"v{version}"
     platform_dir.mkdir(parents=True, exist_ok=True)
+    # mkdir honours the publishing operator's umask, and this tree is read by
+    # the API container under a different uid.
+    platform_dir.chmod(0o755)
     if target.exists():
         target_binary = target / "cxx"
         if not target.is_dir() or not target_binary.is_file() or sha256(target_binary) != item["sha256"]:
@@ -104,6 +107,13 @@ def publish_payload(destination: Path, item: dict[str, object], version: str) ->
 
     temporary = Path(tempfile.mkdtemp(prefix=f".v{version}.", suffix=".new", dir=platform_dir))
     try:
+        # mkdtemp hardcodes 0700, and this directory is renamed into place as
+        # the published version directory. Left private it makes the payload
+        # unreadable to the API container, which then silently declines to
+        # project the release: binaryMatchesBuild swallows the EACCES, the
+        # matrix looks incomplete, and boot-checks keeps the previous pointers.
+        # Every host is then offered the old version with no error anywhere.
+        temporary.chmod(0o755)
         target_binary = temporary / "cxx"
         shutil.copyfile(Path(item["binary"]), target_binary)
         if target_binary.stat().st_size != item["size"] or sha256(target_binary) != item["sha256"]:
