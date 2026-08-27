@@ -23,12 +23,17 @@ import {
   coordProjectMemories,
   coordProjectNotes,
   coordProjectTodos,
+  coordProjectBoards,
+  coordProjectBoardColumns,
+  coordProjectCards,
   coordProjects,
   versions,
 } from '../db/schema.js';
 import { ConflictError, NotFoundError, ValidationError } from '../http/errors.js';
 import { nowIso } from '../util/timestamp.js';
 import { wsPublisher } from '../ws/publisher.js';
+import { ProjectBoardService, type ProjectTodoWire } from './project-board.js';
+import { HostProjectsService } from './host-projects.js';
 
 const PROJECTS_ENABLED_FLAG = 'projects_module_enabled';
 const SLUG_RE = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
@@ -103,8 +108,41 @@ function buildSummary(project: typeof coordProjects.$inferSelect): ProjectSummar
   };
 }
 
+/**
+ * The board renders todos snake_case, the way the host API has always spelled
+ * them; the admin API has always spelled them camelCase. Neither is worth
+ * changing under a feature that is not about wire shapes.
+ */
+export function toTodoView(todo: ProjectTodoWire): TodoView {
+  return {
+    id: todo.id,
+    projectId: todo.project_id,
+    title: todo.title,
+    detail: todo.detail,
+    done: todo.done,
+    doneAt: todo.done_at,
+    sourceHostId: todo.source_host_id,
+    createdAt: todo.created_at ?? '',
+    updatedAt: todo.updated_at ?? '',
+  };
+}
+
 export class ProjectsService {
   constructor(private readonly db: Database) {}
+
+  /**
+   * The board `detail` reads todos through, built on first use so that
+   * `new ProjectsService(db)` still means the same thing at every construction
+   * site. `HostProjectsService` is a stateless wrapper over the same `db`.
+   */
+  private board(): ProjectBoardService {
+    this.boardService ??= new ProjectBoardService({
+      db: this.db,
+      projects: new HostProjectsService(this.db),
+    });
+    return this.boardService;
+  }
+  private boardService: ProjectBoardService | null = null;
 
   /**
    * Read the projects_module_enabled flag from the `versions` table.
@@ -263,8 +301,15 @@ export class ProjectsService {
   async deleteBySlug(rawSlug: string, _sourceHostId: number | null = null): Promise<{ deleted: string }> {
     const project = await this.requireProject(rawSlug);
     // Cascades: notes, todos, files, feedback, memories, events are FK-attached;
-    // delete in dependency order, all-or-nothing.
+    // delete in dependency order, all-or-nothing. The board tables declare no
+    // foreign keys — like the agent-bus and git-director tables, integrity lives
+    // here — so they must be named explicitly or a deleted project silently
+    // leaves its cards behind, still counted by `adminState` and reachable by
+    // nothing.
     await this.db.transaction(async (tx) => {
+      await tx.delete(coordProjectCards).where(eq(coordProjectCards.projectId, project.id));
+      await tx.delete(coordProjectBoardColumns).where(eq(coordProjectBoardColumns.projectId, project.id));
+      await tx.delete(coordProjectBoards).where(eq(coordProjectBoards.projectId, project.id));
       await tx.delete(coordProjectNotes).where(eq(coordProjectNotes.projectId, project.id));
       await tx.delete(coordProjectTodos).where(eq(coordProjectTodos.projectId, project.id));
       await tx.delete(coordProjectFiles).where(eq(coordProjectFiles.projectId, project.id));
@@ -281,18 +326,18 @@ export class ProjectsService {
 
   async detail(rawSlug: string): Promise<ProjectDetail> {
     const project = await this.requireProject(rawSlug);
+    // Todos come from the project board, not `coord_project_todos`: migration
+    // 0026 moved them onto cards and this service must not be the one surface
+    // still reading the frozen copy. See ProjectContentService.
     const [notes, todos, files, feedback, recentChanges] = await Promise.all([
       this.db.select().from(coordProjectNotes).where(eq(coordProjectNotes.projectId, project.id)).orderBy(desc(coordProjectNotes.updatedAt)),
-      this.db.select().from(coordProjectTodos).where(eq(coordProjectTodos.projectId, project.id)).orderBy(desc(coordProjectTodos.updatedAt)),
+      this.board().todoRowsFor(project.id),
       this.db.select().from(coordProjectFiles).where(eq(coordProjectFiles.projectId, project.id)).orderBy(asc(coordProjectFiles.storedName)),
       this.db.select().from(coordProjectFeedback).where(eq(coordProjectFeedback.projectId, project.id)).orderBy(desc(coordProjectFeedback.updatedAt)),
       this.db.select().from(coordProjectEvents).where(eq(coordProjectEvents.projectId, project.id)).orderBy(desc(coordProjectEvents.seq)).limit(20),
     ]);
 
-    const todoViews: TodoView[] = todos.map((t) => ({
-      ...t,
-      done: Boolean(t.done),
-    }));
+    const todoViews: TodoView[] = todos.map(toTodoView);
     const fileViews = files.map(formatFile);
     return {
       project: {

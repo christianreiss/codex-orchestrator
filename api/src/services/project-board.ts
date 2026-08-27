@@ -1109,7 +1109,19 @@ export class ProjectBoardService {
     const boards: Record<string, unknown>[] = [];
     for (const each of slugs) {
       try {
-        boards.push(await this.withBoard(each, actor, (ctx) => this.renderBoard(ctx, filters)));
+        // A named project gets the full frame — provision, renew, sweep — because
+        // the caller is about to act on it. The fleet-wide listing does NOT: this
+        // is the tool every agent calls first in every session, and taking a
+        // write transaction and a `FOR UPDATE` on every project in the fleet to
+        // answer "what is there" would make the cheapest call the most expensive
+        // one. Nothing is lost by reading: `claimIsLive` is computed at render
+        // time, so a claim that ran out still renders as expired whether or not
+        // anybody has reclaimed the row yet.
+        boards.push(
+          slug
+            ? await this.withBoard(each, actor, (ctx) => this.renderBoard(ctx, filters))
+            : await this.readBoard(each, actor, filters),
+        );
       } catch (error) {
         // A project deleted between listing and rendering is not an error for a
         // discovery call; an explicitly named one still is.
@@ -1123,6 +1135,41 @@ export class ProjectBoardService {
       boards,
       count: boards.length,
     };
+  }
+
+  /**
+   * Render one board without provisioning, renewing or sweeping. Used only by
+   * the fleet-wide listing; a project whose board has not been provisioned yet
+   * renders as an empty board rather than being created by somebody looking at
+   * it, which is the read-only half of "polling must not mint rows".
+   */
+  private async readBoard(
+    slug: string,
+    actor: CardActor,
+    filters: { column: string | null; role: string | null; mine: boolean; unclaimed: boolean },
+  ): Promise<Record<string, unknown>> {
+    const project = await this.deps.projects.requireProject(slug);
+    const boards = await this.deps.db
+      .select({ id: coordProjectBoards.id })
+      .from(coordProjectBoards)
+      .where(
+        and(eq(coordProjectBoards.projectId, project.id), eq(coordProjectBoards.slug, DEFAULT_BOARD_SLUG)),
+      )
+      .limit(1);
+    const boardId = boards[0]?.id;
+    const columns = boardId ? await this.fetchColumns(this.deps.db, boardId) : [];
+    return await this.renderBoard(
+      {
+        tx: this.deps.db,
+        project,
+        boardId: boardId ?? '',
+        columns,
+        now: this.now(),
+        actor,
+        publishes: [],
+      },
+      filters,
+    );
   }
 
   private async projectSlugs(): Promise<string[]> {

@@ -28,7 +28,7 @@ import { createHash } from 'node:crypto';
 import { isProjectFeedbackType, projectFeedbackTypeList } from './project-feedback-types.js';
 import { managedCocoBootstrapGuidance } from './managed-coco-skill.js';
 import { parseTags, sortedLowercase, sortedAssoc } from './memory-tags.js';
-import { ProjectBoardService } from './project-board.js';
+import { ProjectBoardService, type ProjectTodoWire } from './project-board.js';
 
 const SLUG_RE = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
 const STORED_NAME_RE = /^[^\0]+$/;
@@ -87,17 +87,12 @@ interface NoteRow {
   updated_at: string | null;
 }
 
-interface TodoRow {
-  id: number;
-  project_id: number;
-  title: string;
-  detail: string;
-  done: boolean;
-  done_at: string | null;
-  source_host_id: number | null;
-  created_at: string | null;
-  updated_at: string | null;
-}
+/**
+ * Todos are a view of the project board now, so their row shape is the board's.
+ * Aliased rather than redeclared: two structurally identical interfaces are two
+ * places for the wire shape to drift.
+ */
+type TodoRow = ProjectTodoWire;
 
 interface FileRow {
   id: number;
@@ -1056,20 +1051,6 @@ export class HostProjectsService {
       project_id: Number(row.projectId),
       header: row.header,
       body: row.body,
-      source_host_id: row.sourceHostId ?? null,
-      created_at: row.createdAt,
-      updated_at: row.updatedAt,
-    };
-  }
-
-  private hydrateTodo(row: typeof coordProjectTodos.$inferSelect): TodoRow {
-    return {
-      id: Number(row.id),
-      project_id: Number(row.projectId),
-      title: row.title,
-      detail: row.detail,
-      done: Boolean(row.done),
-      done_at: row.doneAt ?? null,
       source_host_id: row.sourceHostId ?? null,
       created_at: row.createdAt,
       updated_at: row.updatedAt,

@@ -18,9 +18,9 @@ import {
 import { NotFoundError, ValidationError } from '../http/errors.js';
 import { nowIso } from '../util/timestamp.js';
 import { wsPublisher } from '../ws/publisher.js';
-import { ProjectsService, formatFile, type ProjectFileView, type TodoView } from './projects.js';
+import { ProjectsService, formatFile, toTodoView, type ProjectFileView, type TodoView } from './projects.js';
 import { isProjectFeedbackType, projectFeedbackTypeList } from './project-feedback-types.js';
-import { ProjectBoardService, type ProjectTodoWire } from './project-board.js';
+import { ProjectBoardService } from './project-board.js';
 import { HostProjectsService } from './host-projects.js';
 
 function trimStr(value: unknown): string {
@@ -95,25 +95,6 @@ function normalizeFeedback(payload: Record<string, unknown>): { type: string; ti
   if (title === '') throw new ValidationError('title is required', { param: 'title' });
   if (body === '') throw new ValidationError('body is required', { param: 'body' });
   return { type, title, body };
-}
-
-/**
- * The board renders todos snake_case, the way the host API has always spelled
- * them; the admin API has always spelled them camelCase. Neither is worth
- * changing under a feature that is not about wire shapes.
- */
-function toTodoView(todo: ProjectTodoWire): TodoView {
-  return {
-    id: todo.id,
-    projectId: todo.project_id,
-    title: todo.title,
-    detail: todo.detail,
-    done: todo.done,
-    doneAt: todo.done_at,
-    sourceHostId: todo.source_host_id,
-    createdAt: todo.created_at ?? '',
-    updatedAt: todo.updated_at ?? '',
-  };
 }
 
 export class ProjectContentService {

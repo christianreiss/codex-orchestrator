@@ -13,6 +13,9 @@ import {
   coordProjectNotes,
   coordProjects,
   coordProjectTodos,
+  coordProjectBoards,
+  coordProjectBoardColumns,
+  coordProjectCards,
   versions,
 } from '../../../src/db/schema.js';
 import { ApiError, ConflictError, NotFoundError } from '../../../src/http/errors.js';
@@ -358,6 +361,39 @@ describe('ProjectsService.deleteBySlug', () => {
 });
 
 /** A project with 25 events, so detail()'s LIMIT 20 has something to cut. */
+const BOARD_ID = '11111111-1111-4111-8111-111111111111';
+const BACKLOG_ID = '22222222-2222-4222-8222-222222222222';
+const DONE_ID = '33333333-3333-4333-8333-333333333333';
+
+/** A card row with the columns `todoRowsFor` reads, and nothing else. */
+function card(over: Record<string, unknown>): Record<string, unknown> {
+  return {
+    projectId: 1,
+    boardId: BOARD_ID,
+    detail: '',
+    labels: null,
+    priority: 0,
+    blockedReason: null,
+    sourceTodoId: null,
+    createdByHostId: null,
+    claimRole: null,
+    claimedByHostId: null,
+    claimedByUsername: null,
+    claimedWorktreePath: null,
+    claimedWorktreeHash: null,
+    claimedAgentBusAddressId: null,
+    claimClientRequestId: null,
+    claimedAt: null,
+    claimExpiresAt: null,
+    claimReleasedAt: null,
+    claimReleaseReason: null,
+    enteredColumnAt: NOW,
+    archivedAt: null,
+    createdAt: NOW,
+    ...over,
+  };
+}
+
 function seedBusyProject(db: DbFake): void {
   db.tables.set(coordProjects, [{
     id: 1,
@@ -373,10 +409,20 @@ function seedBusyProject(db: DbFake): void {
     { id: 1, projectId: 1, header: 'a', body: 'a', createdAt: NOW, updatedAt: NOW },
     { id: 2, projectId: 1, header: 'b', body: 'b', createdAt: NOW, updatedAt: LATER },
   ]);
-  db.tables.set(coordProjectTodos, [
-    { id: 1, projectId: 1, title: 'open', detail: '', done: 0, createdAt: NOW, updatedAt: NOW },
-    { id: 2, projectId: 1, title: 'also open', detail: '', done: 0, createdAt: NOW, updatedAt: NOW },
-    { id: 3, projectId: 1, title: 'done', detail: '', done: 1, doneAt: LATER, createdAt: NOW, updatedAt: LATER },
+  // Todos are cards since migration 0026, and `done` is whether the card sits in
+  // the terminal lane rather than a flag on the row. Seeding
+  // `coord_project_todos` here would pass against storage nothing reads.
+  db.tables.set(coordProjectBoards, [
+    { id: BOARD_ID, projectId: 1, slug: 'default', title: 'Board', nextCardNumber: 4, claimTtlSeconds: null, archivedAt: null, createdAt: NOW, updatedAt: NOW },
+  ]);
+  db.tables.set(coordProjectBoardColumns, [
+    { id: BACKLOG_ID, boardId: BOARD_ID, projectId: 1, columnKey: 'backlog', title: 'Backlog', position: 0, wipLimit: null, allowedRoles: null, defaultNextColumnId: DONE_ID, isIntake: 1, isTerminal: 0, isBlocked: 0, createdAt: NOW, updatedAt: NOW },
+    { id: DONE_ID, boardId: BOARD_ID, projectId: 1, columnKey: 'done', title: 'Done', position: 1, wipLimit: null, allowedRoles: null, defaultNextColumnId: null, isIntake: 0, isTerminal: 1, isBlocked: 0, createdAt: NOW, updatedAt: NOW },
+  ]);
+  db.tables.set(coordProjectCards, [
+    card({ id: 'card-1', cardNumber: 1, title: 'open', columnId: BACKLOG_ID, updatedAt: NOW }),
+    card({ id: 'card-2', cardNumber: 2, title: 'also open', columnId: BACKLOG_ID, updatedAt: NOW }),
+    card({ id: 'card-3', cardNumber: 3, title: 'done', columnId: DONE_ID, updatedAt: LATER }),
   ]);
   db.tables.set(coordProjectFiles, [
     { id: 1, projectId: 1, storedName: 'a.md', description: null, content: 'body', contentSha256: 'x'.repeat(64), mimeType: null, createdAt: NOW, updatedAt: NOW },
