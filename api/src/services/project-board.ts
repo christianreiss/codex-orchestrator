@@ -1224,19 +1224,41 @@ export class ProjectBoardService {
       })
       .map((card) => this.cardWire(card, ctx.columns, ctx.now, ctx.actor, labels));
 
-    // What the sweep took back, so an agent that lost a card to a reclaim can
-    // see why rather than finding it mysteriously free.
-    const reclaimed = cards
-      .filter((card) => card.claimReleaseReason !== null && card.claimReleasedAt !== null)
-      .sort((a, b) => String(b.claimReleasedAt).localeCompare(String(a.claimReleasedAt)))
-      .slice(0, 10)
-      .map((card) => ({
-        id: card.id,
-        number: Number(card.cardNumber),
-        title: card.title,
-        released_at: card.claimReleasedAt,
-        reason: card.claimReleaseReason,
-      }));
+    // What the SWEEP took back, so an agent that lost a card can see why rather
+    // than finding it mysteriously free.
+    //
+    // Read from the event log rather than from `claim_release_reason`, which
+    // every ordinary release also sets: filtering cards on "has a reason" listed
+    // a card that finished normally as reclaimed, under a heading that says its
+    // agent stopped without releasing. `claim_expired` is written by nothing but
+    // the sweep, so it answers the question exactly.
+    const reclaimed = (
+      await ctx.tx
+        .select({
+          entityId: coordProjectEvents.entityId,
+          payload: coordProjectEvents.payloadJson,
+          createdAt: coordProjectEvents.createdAt,
+        })
+        .from(coordProjectEvents)
+        .where(
+          and(
+            eq(coordProjectEvents.projectId, ctx.project.id),
+            eq(coordProjectEvents.entityType, 'card'),
+            eq(coordProjectEvents.action, 'claim_expired'),
+          ),
+        )
+        .orderBy(desc(coordProjectEvents.seq))
+        .limit(10)
+    ).map((event) => {
+      const payload = (event.payload ?? {}) as Record<string, unknown>;
+      return {
+        id: event.entityId,
+        number: Number(payload['card_number'] ?? 0),
+        title: String(payload['title'] ?? ''),
+        released_at: event.createdAt,
+        reason: payload['reason'] === undefined ? null : String(payload['reason']),
+      };
+    });
 
     return {
       project: ctx.project.slug,

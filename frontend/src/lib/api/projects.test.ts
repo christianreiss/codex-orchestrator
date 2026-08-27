@@ -67,6 +67,9 @@ const ENCODED = "a%2Fb%20c-%C3%BC";
 
 /** The row id every id-bearing path is exercised with. */
 const ID = 7;
+/** Cards are addressed by their uuid in the admin API, not by their number. */
+const CARD_ID = "3f2504e0-4f89-41d3-9a0c-0305e82c3301";
+const COLUMN_ID = "11111111-1111-4111-8111-111111111111";
 
 const ABOUT: ProjectAbout = { title: "Atlas", description: "the coordination project" };
 const CREATE_PAYLOAD: CreateProjectPayload = {
@@ -274,6 +277,80 @@ const BUILDER_CASES: BuilderCase[] = [
     slugged: true,
   },
   {
+    name: "fetchBoard",
+    call: () => projects.fetchBoard(SLUG),
+    method: "GET",
+    path: `/admin/projects/${ENCODED}/board`,
+    body: undefined,
+    slugged: true,
+  },
+  {
+    name: "fetchBoardState",
+    call: () => projects.fetchBoardState(),
+    // Outside /admin/projects/… on purpose: `board` there would be a slug.
+    method: "GET",
+    path: "/admin/project-board/state",
+    body: undefined,
+    slugged: false,
+  },
+  {
+    name: "setBoardEnabled",
+    call: () => projects.setBoardEnabled(true),
+    method: "POST",
+    path: "/admin/project-board/state",
+    body: { enabled: true },
+    slugged: false,
+  },
+  {
+    name: "createCard",
+    call: () => projects.createCard(SLUG, { title: "t" }),
+    method: "POST",
+    path: `/admin/projects/${ENCODED}/board/cards`,
+    body: { title: "t" },
+    slugged: true,
+  },
+  {
+    name: "updateCard",
+    call: () => projects.updateCard(SLUG, CARD_ID, { title: "t" }),
+    method: "POST",
+    path: `/admin/projects/${ENCODED}/board/cards/${CARD_ID}`,
+    body: { title: "t" },
+    slugged: true,
+  },
+  {
+    name: "moveCard",
+    call: () => projects.moveCard(SLUG, CARD_ID, "coding"),
+    method: "POST",
+    path: `/admin/projects/${ENCODED}/board/cards/${CARD_ID}/move`,
+    // No `note` key at all when none was given, rather than an explicit null.
+    body: { column: "coding" },
+    slugged: true,
+  },
+  {
+    name: "releaseCard",
+    call: () => projects.releaseCard(SLUG, CARD_ID, "wedged"),
+    method: "POST",
+    path: `/admin/projects/${ENCODED}/board/cards/${CARD_ID}/release`,
+    body: { reason: "wedged" },
+    slugged: true,
+  },
+  {
+    name: "deleteCard",
+    call: () => projects.deleteCard(SLUG, CARD_ID),
+    method: "DELETE",
+    path: `/admin/projects/${ENCODED}/board/cards/${CARD_ID}`,
+    body: undefined,
+    slugged: true,
+  },
+  {
+    name: "updateColumn",
+    call: () => projects.updateColumn(SLUG, COLUMN_ID, { wip_limit: 3 }),
+    method: "POST",
+    path: `/admin/projects/${ENCODED}/board/columns/${COLUMN_ID}`,
+    body: { wip_limit: 3 },
+    slugged: true,
+  },
+  {
     name: "fetchFiles",
     call: () => projects.fetchFiles(SLUG),
     method: "GET",
@@ -342,7 +419,7 @@ describe("slug encoding", () => {
   const SLUGGED_CASES = BUILDER_CASES.filter((builderCase) => builderCase.slugged);
 
   it("covers every builder that takes a slug", () => {
-    assert.equal(SLUGGED_CASES.length, 21);
+    assert.equal(SLUGGED_CASES.length, 28);
   });
 
   for (const builderCase of SLUGGED_CASES) {
@@ -436,10 +513,14 @@ describe("module surface", () => {
     "createNote",
     "createProject",
     "createTodo",
+    "createCard",
+    "deleteCard",
     "deleteFile",
     "deleteNote",
     "deleteProject",
     "deleteTodo",
+    "fetchBoard",
+    "fetchBoardState",
     "fetchChanges",
     "fetchFeedback",
     "fetchFiles",
@@ -450,14 +531,19 @@ describe("module surface", () => {
     "fetchTodos",
     "markTodoDone",
     "markTodoUndone",
+    "moveCard",
     "projectKeys",
+    "releaseCard",
+    "setBoardEnabled",
+    "updateCard",
+    "updateColumn",
     "updateAbout",
     "updateNote",
     "updateProjectsState",
     "updateRoster",
     "updateTodo",
     "upsertFile",
-  ];
+  ].sort();
 
   it("exports exactly the documented surface", () => {
     assert.deepEqual(Object.keys(projects).sort(), EXPECTED_EXPORTS);

@@ -25,6 +25,7 @@ import type { HostSkillsService } from '../../../src/services/host-skills.js';
 import type { McpFsTools } from '../../../src/services/mcp-fs.js';
 import type { McpMemoriesService } from '../../../src/services/mcp-memories.js';
 import type { SharedMemoriesService } from '../../../src/services/shared-memories.js';
+import type { ProjectBoardService } from '../../../src/services/project-board.js';
 
 /**
  * Tool handlers are lazy closures, so registration only cares that a dep is
@@ -37,7 +38,14 @@ const deps = {
   skills: {} as unknown as HostSkillsService,
 };
 const resources = new McpResourcesService(deps);
-const registry = new McpToolsRegistry({ ...deps, resources, fs: {} as unknown as McpFsTools });
+const registry = new McpToolsRegistry({
+  ...deps,
+  resources,
+  fs: {} as unknown as McpFsTools,
+  // The skill tells agents to call the board first, so the board surface has to
+  // be present for that instruction to be checkable at all.
+  board: {} as unknown as ProjectBoardService,
+});
 
 /** Host capability: that is who reads #coco and calls its tools. */
 const registeredTools = registry.list().map((t) => t.name);

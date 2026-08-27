@@ -1,0 +1,1 @@
+import{t as e}from"../chunks/BG4XFETP.js";export{e as component};

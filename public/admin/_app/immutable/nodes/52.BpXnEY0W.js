@@ -1,0 +1,1 @@
+import{Vt as e}from"../chunks/CpTjFNj2.js";import{c as t}from"../chunks/oJMNv-xT.js";import{t as n}from"../chunks/BSbAcFFD.js";var r=e({load:()=>i}),i=({params:e})=>{n(307,`${t}/projects/${encodeURIComponent(e.slug)}/board`)};export{r as universal};

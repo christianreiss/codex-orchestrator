@@ -256,6 +256,29 @@ describe.skipIf(!handle)('project board against a real database', () => {
     expect((await cardRow(1))['claim_released_at']).toBeNull();
   });
 
+  it('lists only sweep reclaims as reclaimed, not cards that finished normally', async () => {
+    // `claim_release_reason` is set by every ordinary release too, so filtering
+    // cards on "has a reason" listed a card that finished cleanly under a
+    // heading saying its agent stopped without releasing.
+    await claim(1, 'code', agent('chris', '/srv/a'));
+    await board.releaseCard({ slug: SLUG, card: 1, resolution: 'done' }, host);
+    const clean = (await board.listBoards({ slug: SLUG }, host)) as {
+      boards: Array<{ reclaimed_recently: unknown[] }>;
+    };
+    expect(clean.boards[0]!.reclaimed_recently).toEqual([]);
+
+    await board.moveCard({ slug: SLUG, card: 1, column: 'backlog' }, host);
+    await claim(1, 'code', agent('chris', '/srv/a'));
+    const past = new Date(Date.now() - 60_000).toISOString().replace(/\.\d{3}Z$/, 'Z');
+    await exec(`UPDATE coord_project_cards SET claim_expires_at = '${past}' WHERE project_id = ${projectId} AND card_number = 1`);
+    const swept = (await board.listBoards({ slug: SLUG }, host)) as {
+      boards: Array<{ reclaimed_recently: Array<Record<string, unknown>> }>;
+    };
+    expect(swept.boards[0]!.reclaimed_recently).toHaveLength(1);
+    expect(swept.boards[0]!.reclaimed_recently[0]!['number']).toBe(1);
+    expect(String(swept.boards[0]!.reclaimed_recently[0]!['reason'])).toContain('never renewed');
+  });
+
   it('renews a claim before the reaper can take it', async () => {
     await claim(1, 'code', agent('chris', '/srv/a'));
     // One second of life left. The holder calls; renewal runs before the sweep,

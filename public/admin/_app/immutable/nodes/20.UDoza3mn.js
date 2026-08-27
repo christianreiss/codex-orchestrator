@@ -1,1 +1,0 @@
-import{t as e}from"../chunks/CrBxip33.js";export{e as component};

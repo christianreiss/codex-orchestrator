@@ -1,1 +1,0 @@
-import{t as e}from"../chunks/DEaK8_zK.js";export{e as component};

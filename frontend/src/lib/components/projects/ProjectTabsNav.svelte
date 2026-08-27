@@ -15,9 +15,9 @@
       match: (p: string) => p.startsWith(`${root}/notes`),
     },
     {
-      label: "Todos",
-      href: `${root}/todos`,
-      match: (p: string) => p.startsWith(`${root}/todos`),
+      label: "Board",
+      href: `${root}/board`,
+      match: (p: string) => p.startsWith(`${root}/board`),
     },
     {
       label: "Files",

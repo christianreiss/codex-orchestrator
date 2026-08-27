@@ -82,6 +82,86 @@ export interface ProjectNote {
   updated_at?: string | null;
 }
 
+/**
+ * Project board. Todos are a view of the same cards since migration 0026 — a
+ * todo id is its card number — so `ProjectTodo` above is the narrower window
+ * onto these rows, not a separate kind of thing.
+ */
+export type ProjectBoardRole = "plan" | "code" | "review" | "verify" | "ops";
+
+export interface BoardCardClaim {
+  held: boolean;
+  role?: string | null;
+  username?: string | null;
+  host_id?: number | null;
+  host?: string | null;
+  worktree_path?: string | null;
+  claimed_at?: string | null;
+  expires_at?: string | null;
+  agent_address_bound?: boolean;
+  /** True when the claim belongs to the caller. Always false in the console. */
+  yours?: boolean;
+  released_at?: string | null;
+  release_reason?: string | null;
+}
+
+export interface BoardCard {
+  id: string;
+  number: number;
+  title: string;
+  detail: string;
+  labels: string[];
+  priority: number;
+  blocked_reason: string | null;
+  column: { id: string; key: string; title: string } | null;
+  claim: BoardCardClaim | null;
+  entered_column_at: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface BoardColumn {
+  id: string;
+  key: string;
+  title: string;
+  position: number;
+  wip_limit: number | null;
+  allowed_roles: string[] | null;
+  default_next_column_id: string | null;
+  is_intake: boolean;
+  is_terminal: boolean;
+  is_blocked: boolean;
+  card_count: number;
+  over_wip: boolean;
+  cards: BoardCard[];
+  truncated: boolean;
+}
+
+export interface BoardReclaimed {
+  id: string;
+  number: number;
+  title: string;
+  released_at: string | null;
+  reason: string | null;
+}
+
+export interface BoardResponse {
+  project: string;
+  board_slug: string;
+  latest_seq: number;
+  columns: BoardColumn[];
+  your_claims: BoardCard[];
+  reclaimed_recently: BoardReclaimed[];
+}
+
+export interface ProjectBoardModuleState {
+  enabled: boolean;
+  boards: number;
+  cards: number;
+  claimed: number;
+  updated_at: string | null;
+}
+
 export interface ProjectTodo {
   id: number;
   title: string;

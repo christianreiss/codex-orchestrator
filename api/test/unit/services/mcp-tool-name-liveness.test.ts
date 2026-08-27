@@ -37,6 +37,7 @@ const ALL_DEPS = {
   fs: {},
   secrets: {},
   gitDirector: {},
+  board: {},
 } as unknown as ToolDeps;
 
 // 'operator' sees the host tools too, so this is the whole registry.
@@ -64,6 +65,8 @@ const NON_TOOL_TOKENS: Record<string, string> = {
   message_id: 'the inbound delivery id agent_reply answers and agent_message_get reads, not a tool',
   changed_paths:
     'the git_merge_request argument carrying `git diff --name-only base...head`, not a tool',
+  worktree_path:
+    'the caller-identity argument shared by git_register and project_card_claim, not a tool',
 };
 
 interface Mention {

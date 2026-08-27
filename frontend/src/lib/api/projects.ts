@@ -18,6 +18,10 @@ import type {
   ProjectNote,
   ProjectSummary,
   ProjectTodo,
+  BoardResponse,
+  BoardCard,
+  BoardColumn,
+  ProjectBoardModuleState,
 } from "./types";
 
 const BASE = "/admin/projects";
@@ -130,6 +134,69 @@ export const markTodoUndone = (slug: string, id: number) =>
 export const deleteTodo = (slug: string, id: number) =>
   api.delete<{ project: string; deleted: number }>(`${BASE}/${encodeSlug(slug)}/todos/${id}`);
 
+// ─────────────────────────── Board ──────────────────────────────────────
+//
+// The module switch lives outside `/admin/projects/…` because that tree routes
+// `/admin/projects/{slug}` and a project named `board` would shadow it.
+
+export const fetchBoard = (slug: string): Promise<BoardResponse> =>
+  api.get(`${BASE}/${encodeSlug(slug)}/board`);
+
+export const fetchBoardState = (): Promise<ProjectBoardModuleState> =>
+  api.get("/admin/project-board/state");
+
+export const setBoardEnabled = (enabled: boolean): Promise<ProjectBoardModuleState> =>
+  api.post("/admin/project-board/state", { enabled });
+
+export interface CardPayload {
+  title: string;
+  detail?: string;
+  column?: string;
+  labels?: string[];
+  priority?: number;
+}
+
+export const createCard = (slug: string, payload: CardPayload) =>
+  api.post<{ project: string; card: BoardCard }>(`${BASE}/${encodeSlug(slug)}/board/cards`, payload);
+
+export const updateCard = (slug: string, id: string, payload: Partial<CardPayload> & { blocked_reason?: string | null }) =>
+  api.post<{ project: string; card: BoardCard }>(
+    `${BASE}/${encodeSlug(slug)}/board/cards/${encodeURIComponent(id)}`,
+    payload,
+  );
+
+export const moveCard = (slug: string, id: string, column: string, note?: string) =>
+  api.post<{ project: string; card: BoardCard; advisories: { code: string; message: string }[] }>(
+    `${BASE}/${encodeSlug(slug)}/board/cards/${encodeURIComponent(id)}/move`,
+    note ? { column, note } : { column },
+  );
+
+/** Takes a claim back on the operator's behalf; it does not move the card. */
+export const releaseCard = (slug: string, id: string, reason?: string) =>
+  api.post<{ released: boolean; project: string; card: BoardCard }>(
+    `${BASE}/${encodeSlug(slug)}/board/cards/${encodeURIComponent(id)}/release`,
+    reason ? { reason } : {},
+  );
+
+export const deleteCard = (slug: string, id: string) =>
+  api.delete<{ project: string; deleted: number }>(
+    `${BASE}/${encodeSlug(slug)}/board/cards/${encodeURIComponent(id)}`,
+  );
+
+export interface ColumnPayload {
+  title?: string;
+  wip_limit?: number | null;
+  allowed_roles?: string[] | null;
+  position?: number;
+  default_next_column_id?: string | null;
+}
+
+export const updateColumn = (slug: string, id: string, payload: ColumnPayload) =>
+  api.post<{ project: string; column: BoardColumn }>(
+    `${BASE}/${encodeSlug(slug)}/board/columns/${encodeURIComponent(id)}`,
+    payload,
+  );
+
 // ─────────────────────────── Files ──────────────────────────────────────
 
 export const fetchFiles = (slug: string): Promise<{ project: string; files: ProjectFile[] }> =>
@@ -175,6 +242,11 @@ export const projectKeys = {
   detail: (slug: string) => ["project", slug] as const,
   notes: (slug: string) => ["project", slug, "notes"] as const,
   todos: (slug: string) => ["project", slug, "todos"] as const,
+  // Matches the key `projectDetailSubKey` builds for every project.card.* and
+  // project.board.* websocket event; a mismatch here silently stops the board
+  // updating when another agent moves a card.
+  board: (slug: string) => ["project", slug, "board"] as const,
+  boardState: ["projects", "board", "state"] as const,
   files: (slug: string) => ["project", slug, "files"] as const,
   feedback: (slug: string) => ["project", slug, "feedback"] as const,
   changes: (slug: string) => ["project", slug, "changes"] as const,

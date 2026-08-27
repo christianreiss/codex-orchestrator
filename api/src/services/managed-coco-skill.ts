@@ -22,8 +22,15 @@ CoCo coordination state is project-only — projects carry notes, todos, files, 
 - Start by reading project_bootstrap for the active slug.
 - Use project_list or project_create to find or create shared workspaces.
 - Use project_detail and project_changes to refresh context before acting.
-- Write durable handoffs with project_note_upsert, project_todo_create, project_todo_update, project_todo_done, project_todo_undone, project_file_upsert, project_memory_upsert, and project_feedback_create.
+- Write durable handoffs with project_note_upsert, project_file_upsert, project_memory_upsert, and project_feedback_create.
 - Read shared artifacts with project_file_list, project_file_read, project_memory_list, project_memory_get, project://{slug}, project://{slug}/files/{stored_name}, and project://{slug}/memory/{key}.
+
+Coordinated work lives on the project board, not in a list. Call project_board_list **first** — it needs no arguments and tells you which columns exist, which cards are free, and who holds what:
+- Claim a card with project_card_claim and the role you are working in (plan, code, review, verify, ops) BEFORE you start. Pass worktree_path and username: they bind the claim to this session, and without them a card you abandon stays stuck for half an hour instead of being freed the moment the session ends.
+- Move it with project_card_move as it progresses, and project_card_release the moment you stop rather than simply stopping. Releasing advances the card to the next column on its own, so you do not have to know what comes next; pass resolution "blocked" with a note when you are stuck, or "handoff" to leave it where it is for somebody else.
+- Any call naming a card renews your claim, so a long task keeps its card. project_card_get is the cheapest way to do that and also shows the card's recent history.
+- Claims and moves are advice, not locks. Nothing stops you working on a card somebody else holds — but unclaimed work is invisible to every other agent, and that is the whole cost. A move into a column your role does not cover still happens and comes back with an advisory.
+- project_todo_* still works and writes the same cards: a todo id is its card number. It sees only "done or not", so prefer the board when the pipeline matters.
 
 Pick the right memory substrate — there are three and they are not interchangeable:
 - project_memory_* — short durable facts belonging to THIS workstream. Project-scoped, visible from every host, one fact per key.
@@ -108,12 +115,13 @@ export function managedCocoBootstrapGuidance(): {
       managed: true,
     },
     instructions:
-      'Use #coco with project_* MCP tools and project:// resources for coordination. Keep handoffs in project notes, todos, files, memories, feedback, and changes; host-scoped memory:// entries are not shared CoCo state. Use project_memory_* for facts about this workstream, and shared_memory_* for fleet-wide reference documents that outlive it.',
+      'Use #coco with project_* MCP tools and project:// resources for coordination. Coordinated work lives on the project board — call project_board_list first, claim a card with your role before starting, and release it when you stop. Keep handoffs in project notes, files, memories, feedback, and changes; host-scoped memory:// entries are not shared CoCo state. Use project_memory_* for facts about this workstream, and shared_memory_* for fleet-wide reference documents that outlive it.',
     quickstart: [
       'Read project_bootstrap for the slug before acting.',
       'Use project_changes since the last known seq to catch up.',
       'Use project_memory_list to enumerate durable project memory without guessing search terms.',
-      'Write durable results with project_note_upsert, project_todo_* tools, project_file_upsert, project_memory_upsert, or project_feedback_create.',
+      'Call project_board_list before picking up work: it needs no arguments and shows which cards are free and who holds the rest. Claim one with project_card_claim and your role, passing worktree_path and username, and project_card_release it the moment you stop.',
+      'Write durable results with project_note_upsert, project_file_upsert, project_memory_upsert, or project_feedback_create.',
       'For knowledge that is not specific to this project, use shared_memory_list to see what the fleet already knows, then shared_memory_write or shared_memory_append.',
       'If anything you read turns out to be wrong, correct it before you finish. Before replacing an existing shared document through shared_memory_write or resource_create/resource_update on shared://, reconstruct the complete body from offset 0 through every next_offset with one stable memory.sha256, preserve unaffected content, and pass it as expected_sha256. Use shared_memory_delete or resource_delete on shared:// only when the whole record is invalid or superseded. Do not leave the correction sitting next to the stale record.',
     ],
