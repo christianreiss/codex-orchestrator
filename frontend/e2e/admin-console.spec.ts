@@ -245,6 +245,8 @@ function fixture(pathname: string): Record<string, unknown> {
       return { requests: [] };
     case "/admin/projects/state":
       return { enabled: true };
+    case "/admin/project-board/state":
+      return { enabled: false, boards: 7, cards: 6, claimed: 1, updated_at: "2026-08-27T09:00:00Z" };
     case "/admin/projects":
       return {
         projects: [{ slug: "fleet-console", title: "Fleet console", description: "Admin redesign", updated_at: "2026-08-01T08:00:00Z", latest_seq: 4 }],
@@ -1042,6 +1044,36 @@ test("a setting and the text it produces are visually linked, both ways", async 
   await preview.getByRole("heading", { name: "Hard Stop Lines" }).hover();
   await expect(page.getByRole("group", { name: "Working without asking" })).toHaveClass(/ring-2/);
   await expect(page.getByRole("group", { name: "Skipping verification" })).toHaveClass(/ring-2/);
+});
+
+test("the Projects page carries both module switches, board included", async ({ page }) => {
+  // The board shipped once with its API, its client functions and its tests all
+  // present and NOTHING rendering the switch — so the only way to enable it was
+  // SQL, while the MCP error told operators to use the console. Nothing caught
+  // that, because every layer below the page was green.
+  // The POST has to actually move the stored value, or the optimistic update
+  // reverts on the refetch and the assertion below would pass for the wrong
+  // reason — or flake.
+  let boardOn = false;
+  await installFixtures(page, (pathname, body) => {
+    if (pathname !== "/admin/project-board/state") return undefined;
+    const sent = (body ?? {}) as { enabled?: boolean };
+    if (typeof sent.enabled === "boolean") boardOn = sent.enabled;
+    return { enabled: boardOn, boards: 7, cards: 6, claimed: 1, updated_at: "2026-08-27T09:00:00Z" };
+  });
+
+  await page.goto("/admin/projects");
+  await expect(page.getByLabel("Project coordination")).toBeChecked();
+
+  const board = page.getByLabel("Project board");
+  await expect(board).toBeVisible();
+  await expect(board).not.toBeChecked();
+  // Says what turning it off does NOT do, which is the surprising part.
+  await expect(page.getByText(/Todos keep working either way/)).toBeVisible();
+
+  await board.click();
+  await expect(board).toBeChecked();
+  await expect(page.getByText(/6 cards, 1 currently held/)).toBeVisible();
 });
 
 test("operator tables use the full workspace and the mobile menu retains all routes", async ({ page }) => {

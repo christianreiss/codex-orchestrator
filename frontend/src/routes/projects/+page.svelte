@@ -23,9 +23,11 @@
   import { ApiError } from "$lib/api/client";
   import {
     deleteProject,
+    fetchBoardState,
     fetchProjects,
     fetchProjectsState,
     projectKeys,
+    setBoardEnabled,
     updateProjectsState,
   } from "$lib/api/projects";
   import type { ProjectSummary } from "$lib/api/types";
@@ -70,6 +72,33 @@
     },
   });
 
+  const boardStateQuery = createQuery({
+    queryKey: projectKeys.boardState,
+    queryFn: fetchBoardState,
+  });
+
+  const boardStateMutation = createMutation({
+    mutationFn: (enabled: boolean) => setBoardEnabled(enabled),
+    onMutate: async (enabled) => {
+      await qc.cancelQueries({ queryKey: projectKeys.boardState });
+      const previous = qc.getQueryData(projectKeys.boardState);
+      qc.setQueryData(projectKeys.boardState, (prev: unknown) =>
+        prev && typeof prev === "object" ? { ...(prev as object), enabled } : { enabled },
+      );
+      return { previous };
+    },
+    onError: (err, _v, context) => {
+      if (context?.previous !== undefined) {
+        qc.setQueryData(projectKeys.boardState, context.previous);
+      }
+      toast.error(err instanceof ApiError ? err.message : "Could not update the board module");
+    },
+    onSuccess: () => toast.success("Module state updated"),
+    onSettled: () => {
+      void qc.invalidateQueries({ queryKey: projectKeys.boardState });
+    },
+  });
+
   const deleteMutation = createMutation({
     mutationFn: (project: ProjectSummary) => deleteProject(project.slug),
     onSuccess: (_data, project) => {
@@ -85,6 +114,14 @@
   });
 
   const enabled = $derived(($stateQuery.data?.enabled ?? false) === true);
+  const boardEnabled = $derived(($boardStateQuery.data?.enabled ?? false) === true);
+  /** Counts only when there is something to count, so an empty fleet reads cleanly. */
+  const boardSummary = $derived.by(() => {
+    const cards = $boardStateQuery.data?.cards ?? 0;
+    const claimed = $boardStateQuery.data?.claimed ?? 0;
+    if (cards === 0) return "";
+    return ` — ${cards} card${cards === 1 ? "" : "s"}, ${claimed} currently held`;
+  });
   const projects = $derived($listQuery.data?.projects ?? []);
   const deleteTitle = $derived(projectToDelete?.title || projectToDelete?.slug || "this project");
   let search = $state("");
@@ -154,6 +191,24 @@
   checked={enabled}
   disabled={$stateQuery.isLoading || $stateMutation.isPending}
   onCheckedChange={(next) => $stateMutation.mutate(next)}
+/>
+
+<!--
+  The board is switched separately from project coordination because it grants
+  agents something coordination alone does not: the ability to claim a card and
+  have every other agent see it held. The description says what turning it off
+  does NOT do, because that is the surprising part — todos have been a view of
+  the same cards since migration 0026, and no switch puts that back.
+-->
+<ModuleSwitchRow
+  id="project-board-enabled"
+  label="Project board"
+  description={boardEnabled
+    ? `Enabled. Agents can claim, move and release cards${boardSummary}.`
+    : "Disabled. The board's MCP tools are unavailable and its page is read-only. Todos keep working either way — they are a view of the same cards."}
+  checked={boardEnabled}
+  disabled={$boardStateQuery.isLoading || $boardStateMutation.isPending}
+  onCheckedChange={(next) => $boardStateMutation.mutate(next)}
   class="mb-6"
 />
 
