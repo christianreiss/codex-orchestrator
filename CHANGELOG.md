@@ -1,3 +1,86 @@
+# 2026-08-27
+
+- **A todo could not say who was working on it, and nobody found out when
+  that agent died.** `coord_project_todos` is a checkbox per row: it records
+  that work exists and whether it is finished, and nothing else. Two agents
+  could pick up the same item without either learning about the other, and an
+  agent that closed its terminal mid-task left no trace at all — the item just
+  sat there looking available forever, or looking taken forever, depending on
+  which convention that fleet had agreed on that week.
+  - The project board replaces it. A card carries a claim: a declared role, a
+    holder, the worktree that holder is working in, and an expiry. Claiming a
+    card somebody else holds is the only thing on this whole surface that
+    refuses, and it refuses to record the claim rather than to permit the work
+    — the reply names the holder, their host and when their claim runs out.
+  - Reclaiming is the point, not the housekeeping. Where Agent Messaging bound
+    an address to the claim, `agent_bus_addresses.current_session_id` going NULL
+    frees the card in seconds; with the module off, the 30-minute TTL is the
+    fallback. A bound agent that is merely quiet is never evicted — it is
+    working between calls, and its next call renews the claim before the sweep
+    runs. That ordering is deliberate: a reaper that ran first would take a card
+    away in the same transaction that proved its holder alive.
+  - Migration 0026 adds three tables and no more. There is no lease table — the
+    live claim IS the card row, the same choice `git_merge_requests` makes — and
+    no card-history table, because every create, move, claim, release and
+    reclaim is a `coord_project_events` row with `entity_type='card'`. That is
+    what lets board activity reach the `project_changes` poll agents already run
+    without a second sync surface for anyone to forget to call.
+  - MCP gets `project_board_list` — no required arguments, so it answers before
+    an agent knows anything, and it never fails: with the module off it says
+    `status: "disabled"`, which is distinguishable from a board that is empty —
+    plus `project_card_create|claim|move|release|update|get`. Releasing
+    auto-advances the card to the next lane, so an agent that finishes coding
+    does not have to know that review comes next.
+
+- **Todos did not go away; they became a view of the same cards.** The backfill
+  moves every row onto a card **and keeps its id as the card number**, so
+  `project_todo_done(4711)` still resolves to the work item it always did.
+  `project_todo_*`, the host `/projects/:slug/todos` routes and the admin todo
+  routes all read and write cards now, with the same signatures and the same
+  wire shape; `coord_project_todos` is retained but no longer written. One work
+  item is one row, so there is nothing to reconcile and no way for the two views
+  to disagree about what is finished.
+  - `project_todo_undone` is a no-op on a card that is not in the terminal lane.
+    The old contract is "not finished", which a card sitting in Coding already
+    satisfies, and sending it back to Backlog would have silently thrown away
+    its place in the pipeline.
+  - The board module flag gates none of this. Todos predate it, and switching a
+    module off has never been a reason for an older API to start failing.
+
+- **Three things that only a real database could have caught, all found before
+  this shipped.** The unit suites are green against `db-fake`, which has neither
+  transactions nor row locks, so the properties that matter most are exactly the
+  ones it cannot judge.
+  - `withBoard` takes `SELECT … FOR UPDATE` on the `coord_projects` row as its
+    first statement. Relying on the event recorder to take it would leave the
+    refusal path unserialised: a refused claim writes no event, so it would lock
+    nothing, and two agents could each read an unclaimed card before either
+    wrote. Refusals also consume no sequence number at all, so an agent polling
+    a busy card cannot fill its project's change log with its own rejections.
+  - `HostProjectsService.recordEvent` was split into a transaction-scoped
+    `_recordEventTx`. Calling the original from inside a transaction that
+    already holds the project row does not deadlock and does not error — it
+    blocks on a different pool connection for the full
+    `innodb_lock_wait_timeout`, 50 seconds, intermittently, under exactly the
+    contention this feature exists to handle. Eight concurrent claim-and-move
+    chains now finish in about four seconds, and a test says so.
+  - `ProjectsService.detail` and `deleteBySlug` were the two surfaces that would
+    have kept reading and orphaning the old table: the admin overview would have
+    shown todos frozen at the migration while the tab beside it showed cards,
+    and deleting a project would have left every card it owned behind, still
+    counted by the module state.
+
+- **Two smaller corrections, both found by using the thing.** Smoke-testing the
+  live MCP endpoint showed `role_not_allowed` firing on almost every healthy
+  release: the auto-advance lands a card in the NEXT lane, which by construction
+  belongs to a different role, so passing the holder's role asserted something
+  nobody claimed. A release asserts no role now; a WIP advisory still fires,
+  because the destination really would be over its limit. And rendering the page
+  showed a card that had finished cleanly listed under "Recently reclaimed",
+  because that list filtered on having a release reason — which every ordinary
+  release sets. It reads the `claim_expired` events instead, which nothing but
+  the sweep writes.
+
 # 2026-08-25
 
 - **On a host installed by the legacy transition launcher, the `cxx-agent`
