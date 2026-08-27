@@ -292,6 +292,98 @@ function fixture(pathname: string): Record<string, unknown> {
           },
         ],
       };
+    case "/admin/projects/fleet-console/board":
+      return {
+        project: "fleet-console",
+        board_slug: "default",
+        latest_seq: 4,
+        columns: [
+          {
+            id: "col-backlog",
+            key: "backlog",
+            title: "Backlog",
+            position: 0,
+            wip_limit: null,
+            allowed_roles: null,
+            default_next_column_id: "col-coding",
+            is_intake: true,
+            is_terminal: false,
+            is_blocked: false,
+            card_count: 1,
+            over_wip: false,
+            truncated: false,
+            cards: [
+              {
+                id: "card-1",
+                number: 1,
+                title: "Refresh runner image",
+                detail: "Verify the new image on a staging host.",
+                labels: [],
+                priority: 0,
+                blocked_reason: null,
+                column: { id: "col-backlog", key: "backlog", title: "Backlog" },
+                claim: null,
+                entered_column_at: "2026-08-01T08:00:00Z",
+                created_at: "2026-08-01T08:00:00Z",
+                updated_at: "2026-08-01T08:00:00Z",
+              },
+            ],
+          },
+          {
+            id: "col-coding",
+            key: "coding",
+            title: "Coding",
+            position: 1,
+            wip_limit: 1,
+            allowed_roles: ["code"],
+            default_next_column_id: null,
+            is_intake: false,
+            is_terminal: false,
+            is_blocked: false,
+            card_count: 2,
+            over_wip: true,
+            truncated: false,
+            cards: [
+              {
+                id: "card-2",
+                number: 2,
+                title: "Capture baseline",
+                detail: "",
+                labels: ["infra"],
+                priority: 0,
+                blocked_reason: null,
+                column: { id: "col-coding", key: "coding", title: "Coding" },
+                // A held card, so the claim badge and the holder line are
+                // exercised rather than only the empty state.
+                claim: {
+                  held: true,
+                  role: "code",
+                  username: "chris",
+                  host: "crane.example",
+                  worktree_path: "/srv/fleet-console",
+                  claimed_at: "2026-08-01T08:00:00Z",
+                  expires_at: "2099-01-01T00:00:00Z",
+                  agent_address_bound: true,
+                  yours: false,
+                },
+                entered_column_at: "2026-08-01T08:00:00Z",
+                created_at: "2026-08-01T08:00:00Z",
+                updated_at: "2026-08-01T08:00:00Z",
+              },
+            ],
+          },
+        ],
+        your_claims: [],
+        reclaimed_recently: [
+          {
+            id: "card-9",
+            number: 9,
+            title: "Rotate the signer",
+            released_at: "2026-08-01T09:00:00Z",
+            reason: "Claim reclaimed: the holding agent is no longer running.",
+          },
+        ],
+      };
     case "/admin/projects/fleet-console/notes":
       return {
         project: "fleet-console",
@@ -1109,10 +1201,19 @@ test("host detail uses one ordered operational workspace", async ({ page }) => {
 });
 
 test("project peer views keep records dense, readable, and inspectable", async ({ page }) => {
+  // Todos became the board in migration 0026. The old URL is kept as a redirect
+  // rather than a 404: it is in browser history and in muscle memory, and a
+  // missing page reads as the work having disappeared.
   await page.goto("/admin/projects/fleet-console/todos");
-  await expect(page.getByRole("heading", { name: "Open · 1", level: 2 })).toBeVisible();
-  await expect(page.getByText("Refresh runner image", { exact: true })).toBeVisible();
-  await expect(page.getByText("Capture baseline", { exact: true })).toBeVisible();
+  await expect(page).toHaveURL(/\/admin\/projects\/fleet-console\/board$/);
+  await expect(page.getByRole("region", { name: "Backlog" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Refresh runner image", level: 4 })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Capture baseline", level: 4 })).toBeVisible();
+  // A lane says which role it expects, and shows the holder of a claimed card —
+  // the two things the board exists to make visible that a todo list could not.
+  await expect(page.getByText("expects code", { exact: true })).toBeVisible();
+  await expect(page.getByText(/code · chris on crane\.example/)).toBeVisible();
+  await expect(page.getByText(/Claim reclaimed/)).toBeVisible();
 
   await page.goto("/admin/projects/fleet-console/notes");
   await expect(page.getByRole("heading", { name: "1 note", level: 2 })).toBeVisible();
