@@ -37,6 +37,7 @@ const GROUPS = [
   'Resources',
   'Skills',
   'Projects',
+  'Project board',
 ];
 
 const SECTION = '## Tool catalogue';
@@ -91,6 +92,7 @@ const ALL_DEPS = {
   fs: {},
   secrets: {},
   gitDirector: {},
+  board: {},
 } as unknown as ToolDeps;
 
 /** The same registry with the shared-memory service left out, as `ToolDeps` allows. */
@@ -99,6 +101,8 @@ const NO_SHARED_DEPS = { ...ALL_DEPS, sharedMemories: undefined } as ToolDeps;
 const NO_SECRETS_DEPS = { ...ALL_DEPS, secrets: undefined } as ToolDeps;
 /** Likewise without the Git Director service. */
 const NO_GIT_DIRECTOR_DEPS = { ...ALL_DEPS, gitDirector: undefined } as ToolDeps;
+/** Likewise without the project board service. */
+const NO_BOARD_DEPS = { ...ALL_DEPS, board: undefined } as ToolDeps;
 
 function registeredNames(deps: ToolDeps): string[] {
   // 'operator' sees the host tools too, so this is the whole registry.
@@ -181,6 +185,32 @@ describe('manual mcp article tool catalogue', () => {
     // advertise an arbiter it has no way to consult.
     for (const name of ['git_register', 'git_list', 'git_join', 'git_merge_request', 'git_merge_status', 'git_release']) {
       expect(registeredNames(NO_GIT_DIRECTOR_DEPS)).not.toContain(name);
+    }
+  });
+
+  it('flags the project board group as conditional, the way the registry is', () => {
+    expect(catalogue.get('Project board')!.heading).toContain(
+      'only when the project board service is wired',
+    );
+    for (const name of [
+      'project_board_list',
+      'project_card_create',
+      'project_card_claim',
+      'project_card_move',
+      'project_card_release',
+      'project_card_update',
+      'project_card_get',
+    ]) {
+      expect(registeredNames(NO_BOARD_DEPS)).not.toContain(name);
+    }
+  });
+
+  // The board moved where todos are stored; it must never have moved whether
+  // they are reachable. A registry with no board service still serves them.
+  it('keeps the todo tools registered with no board service wired', () => {
+    const withoutBoard = registeredNames(NO_BOARD_DEPS);
+    for (const name of ['project_todo_create', 'project_todo_update', 'project_todo_done', 'project_todo_undone']) {
+      expect(withoutBoard).toContain(name);
     }
   });
 });

@@ -52,6 +52,7 @@ export const WS_EVENT_TYPES = [
   'project.card.deleted',
   'project.board.updated',
   'project_board.module_toggled',
+  'project_board.claim_force_released',
   'project.memory.created',
   'project.memory.updated',
   'project.memory.deleted',

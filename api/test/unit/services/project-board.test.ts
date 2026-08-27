@@ -153,6 +153,19 @@ describe('columnAdvisories', () => {
     expect(over.map((a) => a.code)).toEqual(['wip_limit_exceeded']);
   });
 
+  // A release auto-advances into the next lane, which belongs to a different
+  // role by construction. The service passes no role there for exactly this
+  // reason; if it ever passes the holder's role again, a role advisory fires on
+  // every healthy handoff and readers learn to ignore the whole field.
+  it('says nothing about a role on a handoff into the next role\'s lane', () => {
+    const review = { key: 'review', title: 'Review', allowedRoles: ['review'], wipLimit: 2 };
+    expect(columnAdvisories({ role: null, column: review, occupancy: 0 })).toEqual([]);
+    // …but a genuine WIP problem still surfaces, role or no role.
+    expect(columnAdvisories({ role: null, column: review, occupancy: 2 }).map((a) => a.code)).toEqual([
+      'wip_limit_exceeded',
+    ]);
+  });
+
   it('reports both problems at once', () => {
     const limited = { ...lane, wipLimit: 1 };
     const advisories = columnAdvisories({ role: 'plan', column: limited, occupancy: 5 });

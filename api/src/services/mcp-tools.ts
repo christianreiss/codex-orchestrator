@@ -16,6 +16,8 @@ import type { McpFsTools } from './mcp-fs.js';
 import type { McpResourcesService } from './mcp-resources.js';
 import type { SecretsService } from './secrets.js';
 import type { GitDirectorService } from './git-director.js';
+import type { ProjectBoardService } from './project-board.js';
+import { PROJECT_BOARD_ROLES } from './project-board-roles.js';
 import { ENGINE_CODEX, isEngine, type Engine } from '../util/engine.js';
 import { PROJECT_FEEDBACK_TYPES } from './project-feedback-types.js';
 
@@ -55,6 +57,14 @@ export interface ToolDeps {
    * serve, while this only decides whether the tools exist at all.
    */
   secrets?: SecretsService;
+  /**
+   * Project board. Optional like `secrets`: when omitted the board tools are
+   * neither listed nor callable. The runtime switch `project_board_enabled` is
+   * separate and gates what the service will serve. Note the `project_todo_*`
+   * tools go on working either way — they are a view of the same cards, and
+   * they predate the module.
+   */
+  board?: ProjectBoardService;
   /**
    * Git Director. Optional like `secrets`: when omitted the git_* tools are
    * neither listed nor callable. The runtime switch `git_director_enabled` is
@@ -173,6 +183,24 @@ function gitDirectorCapabilities(enabled: boolean): Record<string, boolean> {
     merge_status: enabled,
     release: enabled,
     enforce_merges: false,
+  };
+}
+
+/**
+ * Same contract as `gitDirectorCapabilities`, plus the two lines that say out
+ * loud what the board does NOT do. An agent should not have to discover by
+ * experiment that a role mismatch is advice rather than a refusal.
+ */
+function projectBoardCapabilities(enabled: boolean): Record<string, boolean> {
+  return {
+    list: true,
+    create: enabled,
+    claim: enabled,
+    move: enabled,
+    release: enabled,
+    update: enabled,
+    enforce_roles: false,
+    enforce_wip: false,
   };
 }
 
@@ -1097,6 +1125,191 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
         },
       },
       handler: async (args, host) => deps.resources!.delete(String(args['uri'] ?? ''), host),
+    });
+  }
+
+
+  // Project board — cards as the unit of coordinated work. Optional like
+  // `secrets`: absent means these tools are neither listed nor callable. The
+  // runtime switch is separate — `project_board_enabled` gates what the service
+  // will serve, this only decides whether the tools exist at all. The
+  // `project_todo_*` tools above are unaffected either way: they are a view of
+  // the same cards and they predate the module.
+  if (deps.board) {
+    const board = deps.board;
+    const requireBoard = async (): Promise<void> => {
+      if (!(await board.getEnabled())) {
+        throw new Error(
+          'The project board is not enabled for this fleet. An operator turns it on in the console under Projects. `project_todo_*` works regardless.',
+        );
+      }
+    };
+
+    inputs.push({
+      definition: {
+        name: 'project_board_list',
+        description:
+          'See the work and who holds it. Call this FIRST — every argument is optional, so it answers before you know anything: which projects have boards, which columns those boards have, which cards are free, who is holding what and until when, and which of them are yours. Pass `slug` for one project. Filter with `column`, `role`, `mine` or `unclaimed`. Pass `worktree_path` and `username` so your own claims are recognised as yours and so that polling this keeps them from expiring — watching a board you are working on counts as proof of life. `your_claims` is what you currently hold anywhere on that board; `reclaimed_recently` is what was taken back from agents that stopped without releasing, with the reason attached. Never fails when the module is off: it answers `status: "disabled"` so you can tell that apart from a board with nothing on it.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            slug: { type: 'string' },
+            column: { type: 'string' },
+            role: { type: 'string', enum: [...PROJECT_BOARD_ROLES] },
+            mine: { type: 'boolean' },
+            unclaimed: { type: 'boolean' },
+            worktree_path: { type: 'string' },
+            username: { type: 'string' },
+          },
+        },
+      },
+      // Deliberately no requireBoard(): a discovery tool that throws when the
+      // module is off teaches an agent nothing, and `status` already says so.
+      handler: async (args, host, engine) =>
+        await board.listBoards({ ...args, engine: engine ?? args['engine'] }, host),
+    });
+
+    inputs.push({
+      definition: {
+        name: 'project_card_create',
+        description:
+          'Put a new piece of work on the board. Without `column` it lands in the intake lane, which is where work waits to be picked up. `role` records who you think should do it and is advice, not an assignment — claiming is what actually takes a card. Use `priority` to sort a lane (higher first) and `labels` to group. Returns the card, including the short number every other tool accepts.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            slug: { type: 'string' },
+            title: { type: 'string' },
+            detail: { type: 'string' },
+            column: { type: 'string' },
+            role: { type: 'string', enum: [...PROJECT_BOARD_ROLES] },
+            labels: { type: 'array', items: { type: 'string' } },
+            priority: { type: 'integer' },
+          },
+          required: ['slug', 'title'],
+        },
+      },
+      handler: async (args, host, engine) => {
+        await requireBoard();
+        return await board.createCard({ ...args, engine: engine ?? args['engine'] }, host);
+      },
+    });
+
+    inputs.push({
+      definition: {
+        name: 'project_card_claim',
+        description:
+          'Take a card before you start working on it, declaring the role you are working in. `card` accepts the short number or the card id. Pass `worktree_path` and `username`: they are what binds the claim to your agent session, and WITHOUT them a claim you abandon stays stuck until its 30-minute TTL runs out instead of being freed the moment your session ends. Any later call naming this card renews the claim, so an agent that keeps working keeps its card. Pass `client_request_id` and a retry returns your original claim instead of reading as a second contender. If somebody else holds it you get `claimed: false` with their name, host and expiry — that is the board declining to record the claim, not stopping you: nothing prevents you working on it, but unclaimed work is invisible to every other agent.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            slug: { type: 'string' },
+            card: { type: ['string', 'integer'] },
+            role: { type: 'string', enum: [...PROJECT_BOARD_ROLES] },
+            worktree_path: { type: 'string' },
+            username: { type: 'string' },
+            note: { type: 'string' },
+            client_request_id: { type: 'string' },
+          },
+          required: ['slug', 'card', 'role'],
+        },
+      },
+      handler: async (args, host, engine) => {
+        await requireBoard();
+        return await board.claimCard(args, host, engine ?? null);
+      },
+    });
+
+    inputs.push({
+      definition: {
+        name: 'project_card_move',
+        description:
+          'Move a card to another column, naming it by column key or title. This never refuses: moving into a lane your role does not match, or past a WIP limit, still moves the card and comes back with an `advisories` list saying so, which is also recorded. Moving into the terminal lane releases your claim, because a card nobody is working on should not keep a lease that has to expire on its own. Prefer `project_card_release` when you are finishing a step — it advances the card for you.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            slug: { type: 'string' },
+            card: { type: ['string', 'integer'] },
+            column: { type: 'string' },
+            role: { type: 'string', enum: [...PROJECT_BOARD_ROLES] },
+            note: { type: 'string' },
+          },
+          required: ['slug', 'card', 'column'],
+        },
+      },
+      handler: async (args, host, engine) => {
+        await requireBoard();
+        return await board.moveCard({ ...args, engine: engine ?? args['engine'] }, host);
+      },
+    });
+
+    inputs.push({
+      definition: {
+        name: 'project_card_release',
+        description:
+          'Give the card back the moment you stop working on it, rather than simply stopping — a claim you forget blocks that card for everyone until it expires. Releasing ADVANCES the card on its own, so you do not have to know what comes next. Where it lands, highest precedence first: (1) `column`, if you name one; (2) where it already is, if `resolution` is "handoff" — a handoff means somebody picks it up where it is, not that the work moved on; (3) the blocked lane, if `resolution` is "blocked", with `note` recorded as the reason; (4) the terminal lane, if `resolution` is "done"; (5) otherwise the next column this lane points at, which is what a bare release does; (6) and if this lane points nowhere, it stays put.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            slug: { type: 'string' },
+            card: { type: ['string', 'integer'] },
+            column: { type: 'string' },
+            resolution: { type: 'string', enum: ['done', 'blocked', 'handoff'] },
+            note: { type: 'string' },
+          },
+          required: ['slug', 'card'],
+        },
+      },
+      handler: async (args, host, engine) => {
+        await requireBoard();
+        return await board.releaseCard({ ...args, engine: engine ?? args['engine'] }, host);
+      },
+    });
+
+    inputs.push({
+      definition: {
+        name: 'project_card_update',
+        description:
+          'Edit a card in place: its title, its detail, its labels, its priority, or the reason it is blocked. Only the fields you pass change. This does not move the card and does not touch its claim.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            slug: { type: 'string' },
+            card: { type: ['string', 'integer'] },
+            title: { type: 'string' },
+            detail: { type: 'string' },
+            labels: { type: 'array', items: { type: 'string' } },
+            priority: { type: 'integer' },
+            blocked_reason: { type: 'string' },
+          },
+          required: ['slug', 'card'],
+        },
+      },
+      handler: async (args, host, engine) => {
+        await requireBoard();
+        return await board.updateCard({ ...args, engine: engine ?? args['engine'] }, host);
+      },
+    });
+
+    inputs.push({
+      definition: {
+        name: 'project_card_get',
+        description:
+          'One card in full: its content, its current column, who holds it and until when, and the last twenty things that happened to it. Also the renew surface — calling it as the holder pushes your claim out again, so a long task can poll this instead of losing the card. Pass `worktree_path` and `username` for that to work.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            slug: { type: 'string' },
+            card: { type: ['string', 'integer'] },
+            worktree_path: { type: 'string' },
+            username: { type: 'string' },
+          },
+          required: ['slug', 'card'],
+        },
+      },
+      handler: async (args, host, engine) => {
+        await requireBoard();
+        return await board.getCard({ ...args, engine: engine ?? args['engine'] }, host);
+      },
     });
   }
 

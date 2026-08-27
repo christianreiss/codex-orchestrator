@@ -446,6 +446,51 @@ Auth verification worker: when `AUTH_RUNNER_URL` is configured, the API starts a
     value, as `{secret, value}`. A `POST` deliberately: a `GET` can be
     prefetched by a browser, cached by an intermediary, and replayed out of
     history. Records a non-broadcast `secret.revealed` admin event.
+- **Project board** — cards as the unit of coordinated work on a project, with
+  claim/lease semantics mirroring the Git Director. A card carries a role, a
+  holder and an expiry; a claim is reclaimed when its holder's agent session
+  ends, or when it goes unrenewed past its TTL. Delivery to hosts is MCP-only
+  (`project_board_list`, `project_card_create`, `project_card_claim`,
+  `project_card_move`, `project_card_release`, `project_card_update`,
+  `project_card_get`). Advisory throughout: a role that does not match a lane
+  and an exceeded WIP limit both attach an advisory to a move that still
+  happens, and the only refusal is recording a claim somebody else holds. Reads
+  need `projects.read`, mutations `projects.manage`.
+  - `GET /admin/project-board/state` — `{enabled, boards, cards, claimed,
+    updated_at}` for the `project_board_enabled` switch. It lives outside
+    `/admin/projects/…` because that tree routes `/admin/projects/{slug}` and a
+    project named `board` would shadow it.
+  - `POST /admin/project-board/state` — `{enabled}` (boolean, `0`/`1`, or
+    `"true"`/`"false"`). While the module is off, `project_board_list` answers
+    disabled status/capabilities and the rest of the board tools throw; nothing
+    is dropped. `project_todo_*` keeps working either way — since migration 0026
+    todos are a view of the same cards, keyed by the card number, which is the
+    id the todo already had.
+  - `GET /admin/projects/{slug}/board` — the lanes with their WIP limits and
+    role gates, the cards in each, the live claims with holder and expiry, and
+    the recently reclaimed cards with the reason each carried. Shares its URL
+    with the client route, so an `Accept: text/html` request is served the SPA
+    shell instead of this JSON.
+  - `POST /admin/projects/{slug}/board/cards` — `{title, detail?, column?,
+    labels?, priority?}`; without `column` the card lands in the lane flagged
+    intake. Attributed to the operator rather than to a host.
+  - `POST /admin/projects/{slug}/board/cards/{id}` — `{title?, detail?, labels?,
+    priority?, blocked_reason?}` in place. Moves nothing, touches no claim.
+  - `POST /admin/projects/{slug}/board/cards/{id}/move` — `{column, note?}`,
+    naming the lane by key or title. Never refuses; violations come back in
+    `advisories` and are written to the log.
+  - `POST /admin/projects/{slug}/board/cards/{id}/release` — `{reason?}` takes a
+    claim back on the operator's behalf. The board reclaims on its own in two
+    cases — a bound agent whose session the fleet can see has ended, and a claim
+    that goes unrenewed past its TTL — so this covers only the third: a holder
+    that is unreachable but not detectably dead.
+  - `DELETE /admin/projects/{slug}/board/cards/{id}` — archives the card rather
+    than deleting it, so its `coord_project_events` history keeps a row to point
+    at.
+  - `POST /admin/projects/{slug}/board/columns/{id}` — `{title?, wip_limit?,
+    allowed_roles?, position?, default_next_column_id?}`. There is deliberately
+    no create or delete: 0026 seeds the seven lanes, and deleting one would have
+    to answer what becomes of the cards in it.
 - **Git Director** — a registry of which agent is working in which git clone,
   plus an advisory arbiter over merges into shared branches. The arbitration
   unit is the clone on a host (`git rev-parse --git-common-dir`), so every

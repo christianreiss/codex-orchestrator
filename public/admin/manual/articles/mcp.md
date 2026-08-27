@@ -63,7 +63,16 @@ Defined in `api/src/services/mcp-tools.ts`. What you get at runtime depends on c
 - `project_file_list`, `project_file_read`, `project_file_upsert`, `project_file_delete`
 - `project_memory_list`, `project_memory_get`, `project_memory_upsert`, `project_memory_delete`, `project_memory_search` — project-scoped memory (see *Project memory tools* below)
 
+**Project board** (both capabilities — registered only when the project board service is wired)
+- `project_board_list`, `project_card_create`, `project_card_claim`, `project_card_move`, `project_card_release`, `project_card_update`, `project_card_get`
+
 These tools are unconditional: `McpToolsRegistry` (`mcp-tools.ts`) registers them the same way it registers `memory_*`/`skill_*`, with no dependency on the Projects module toggle (`projects_module_enabled`). What *is* gated by that toggle is the managed `coco` skill (`api/src/services/managed-coco-skill.ts`, `skill://coco`) — see [Projects](/admin/manual/projects) — which onboards agents onto the `project_*` workflow. Disabling the module removes the skill, not the tools.
+
+The board tools are the exception to that paragraph: they are registered only when the API wires a `ProjectBoardService` into the registry, and they additionally check `project_board_enabled` at call time. `project_board_list` is the discovery entry point and never fails — with the module off it answers `status: "disabled"` and an empty list, which an agent can tell apart from a board that simply has nothing on it. The rest throw with a message naming where an operator turns it on.
+
+`project_todo_*` is not gated by any of that, and did not change shape when the board arrived. Migration 0026 moved every todo onto a card **and kept its id as the card number**, so `project_todo_done(4711)` resolves to the work item it always did; the todo tools now read and write cards, where `done` means the card sits in a lane flagged terminal. There is one row per work item, so the two views cannot disagree.
+
+Claims are advisory, like every other verdict this orchestrator issues about a machine it cannot see. Moving a card into a lane whose `allowed_roles` do not include yours still moves it and returns an `advisories` list; exceeding a WIP limit does the same. The only refusal is `project_card_claim` against a card somebody else holds, and it declines to *record* the claim rather than to permit the work — the reply names the holder, their host and their expiry. Claims last 30 minutes and are renewed implicitly by any call naming the card. Passing `worktree_path` and `username` binds a claim to the calling agent session, which is what lets an abandoned card be freed the moment that session ends rather than waiting out the TTL.
 
 Use `tools/list` at runtime for the authoritative set; what you see depends on who is calling.
 

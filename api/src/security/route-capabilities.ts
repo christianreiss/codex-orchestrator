@@ -314,6 +314,15 @@ export const ROUTE_CAPABILITIES: Readonly<Record<string, RouteGuard>> = {
   // Git Director. Reading the registry is a fleet read; forcing a verdict
   // overrides an arbiter other agents are waiting on, and the module switch
   // turns it off fleet-wide, so both are manage.
+  'GET /admin/project-board/state': cap('projects.read'),
+  'POST /admin/project-board/state': cap('projects.manage'),
+  'GET /admin/projects/:slug/board': cap('projects.read'),
+  'POST /admin/projects/:slug/board/cards': cap('projects.manage'),
+  'POST /admin/projects/:slug/board/cards/:id': cap('projects.manage'),
+  'POST /admin/projects/:slug/board/cards/:id/move': cap('projects.manage'),
+  'POST /admin/projects/:slug/board/cards/:id/release': cap('projects.manage'),
+  'DELETE /admin/projects/:slug/board/cards/:id': cap('projects.manage'),
+  'POST /admin/projects/:slug/board/columns/:id': cap('projects.manage'),
   'GET /admin/git-director': cap('git_director.read'),
   'GET /admin/git-director/state': cap('git_director.read'),
   'POST /admin/git-director/state': cap('git_director.manage'),

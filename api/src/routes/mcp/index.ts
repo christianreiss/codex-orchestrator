@@ -38,6 +38,7 @@ import { createRunnerClaudeAdapter } from '../../services/adapters/runner-claude
 import { createRunnerValidationService } from '../../services/runner-validation.js';
 import { createAuthTrafficVerifier } from '../../services/auth-traffic-verification.js';
 import { SettingsService } from '../../services/settings.js';
+import { ProjectBoardService } from '../../services/project-board.js';
 import { ENGINE_CLAUDE } from '../../util/engine.js';
 import { assertHostEngineEnabled } from '../../services/host-engine-policy.js';
 import type { Host } from '../../db/schema.js';
@@ -95,6 +96,15 @@ export async function registerMcpRoutes(app: FastifyInstance, ctx: RouteContext)
     }),
   });
 
+  // Shares the `projects` instance above, so the board and the `project_todo_*`
+  // tools resolve the same projects and allocate event sequences through the
+  // same recorder.
+  const board = new ProjectBoardService({
+    db: ctx.db,
+    projects,
+    settings: new SettingsService(ctx.db),
+  });
+
   const resources = new McpResourcesService({ memories, sharedMemories, projects, skills });
   const tools = new McpToolsRegistry({
     memories,
@@ -105,6 +115,7 @@ export async function registerMcpRoutes(app: FastifyInstance, ctx: RouteContext)
     fs: fsTools,
     secrets,
     gitDirector,
+    board,
   });
   const server = new McpServer(tools, resources, accessLog);
 

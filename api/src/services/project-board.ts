@@ -1613,7 +1613,14 @@ export class ProjectBoardService {
               ctx,
               card,
               target,
-              card.claimRole,
+              // No role is asserted by a release. The auto-advance lands the card
+              // in the NEXT lane, which by construction belongs to a different
+              // role — handing work to review is not a claim to be a reviewer.
+              // Passing the holder's role here made a role advisory fire on
+              // almost every healthy handoff, which is the fastest way to teach
+              // a reader that advisories mean nothing. A WIP advisory still
+              // applies: the destination really would be over its limit.
+              null,
               note,
               resolution === 'blocked' ? (note ?? 'Blocked without a stated reason.') : null,
             );
