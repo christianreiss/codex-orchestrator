@@ -729,6 +729,131 @@ export const coordProjectEvents = mysqlTable(
 );
 
 // ────────────────────────────────────────────────────────────────────────────
+// coord_project_boards + children (the project board)
+// ────────────────────────────────────────────────────────────────────────────
+
+/**
+ * The Kanban board over a project's cards. See
+ * `migrations/0026_add_project_board.sql`, which is the source of truth for
+ * this table's DDL and carries the reasoning.
+ *
+ * `next_card_number` allocates the per-project card number under the same
+ * `coord_projects` row lock the event-seq allocator takes, so it can neither
+ * skip nor collide.
+ */
+export const coordProjectBoards = mysqlTable(
+  'coord_project_boards',
+  {
+    id: char('id', { length: 36 }).primaryKey(),
+    projectId: bigint('project_id', { mode: 'number', unsigned: true }).notNull(),
+    slug: varchar('slug', { length: 64 }).notNull().default('default'),
+    title: varchar('title', { length: 255 }).notNull(),
+    nextCardNumber: bigint('next_card_number', { mode: 'number', unsigned: true })
+      .notNull()
+      .default(1),
+    claimTtlSeconds: int('claim_ttl_seconds', { unsigned: true }),
+    archivedAt: varchar('archived_at', { length: 100 }),
+    createdAt: varchar('created_at', { length: 100 }).notNull(),
+    updatedAt: varchar('updated_at', { length: 100 }).notNull(),
+  },
+  (t) => ({
+    slugUnique: uniqueIndex('uq_coord_project_boards_slug').on(t.projectId, t.slug),
+    projectIdx: index('idx_coord_project_boards_project').on(t.projectId, t.archivedAt),
+  }),
+);
+
+/**
+ * One column (lane) of a board. `allowedRoles` and `wipLimit` are ADVISORY: a
+ * move that violates either still happens and carries an advisory instead. NULL
+ * `allowedRoles` means any role, which is how intake/terminal/blocked stay open.
+ *
+ * `defaultNextColumnId` is what lets `project_card_release` advance a card
+ * without the agent naming a destination; NULL ends the chain.
+ */
+export const coordProjectBoardColumns = mysqlTable(
+  'coord_project_board_columns',
+  {
+    id: char('id', { length: 36 }).primaryKey(),
+    boardId: char('board_id', { length: 36 }).notNull(),
+    projectId: bigint('project_id', { mode: 'number', unsigned: true }).notNull(),
+    columnKey: varchar('column_key', { length: 64 }).notNull(),
+    title: varchar('title', { length: 255 }).notNull(),
+    position: int('position', { unsigned: true }).notNull(),
+    wipLimit: int('wip_limit', { unsigned: true }),
+    allowedRoles: json('allowed_roles'),
+    defaultNextColumnId: char('default_next_column_id', { length: 36 }),
+    isIntake: tinyint('is_intake').notNull().default(0),
+    isTerminal: tinyint('is_terminal').notNull().default(0),
+    isBlocked: tinyint('is_blocked').notNull().default(0),
+    createdAt: varchar('created_at', { length: 100 }).notNull(),
+    updatedAt: varchar('updated_at', { length: 100 }).notNull(),
+  },
+  (t) => ({
+    keyUnique: uniqueIndex('uq_coord_project_board_columns_key').on(t.boardId, t.columnKey),
+    orderIdx: index('idx_coord_project_board_columns_order').on(t.boardId, t.position),
+  }),
+);
+
+/**
+ * A card AND, when claimed, the claim itself — there is deliberately no
+ * separate lease table, mirroring `git_merge_requests`. A live claim is this row
+ * with `claimReleasedAt` NULL and `claimExpiresAt` in the future.
+ *
+ * `cardNumber` matches `coordProjectTodos.id`'s width because the 0026 backfill
+ * reuses todo ids as card numbers, so the `project_todo_*` shim keeps resolving
+ * the same integer to the same work item.
+ *
+ * `claimedAgentBusAddressId` is enrichment, never a requirement: with Agent
+ * Messaging off it stays NULL and the TTL becomes the only reclaim signal.
+ */
+export const coordProjectCards = mysqlTable(
+  'coord_project_cards',
+  {
+    id: char('id', { length: 36 }).primaryKey(),
+    projectId: bigint('project_id', { mode: 'number', unsigned: true }).notNull(),
+    boardId: char('board_id', { length: 36 }).notNull(),
+    columnId: char('column_id', { length: 36 }).notNull(),
+    cardNumber: bigint('card_number', { mode: 'number', unsigned: true }).notNull(),
+    title: varchar('title', { length: 255 }).notNull(),
+    detail: longtext('detail').notNull(),
+    labels: json('labels'),
+    priority: int('priority').notNull().default(0),
+    blockedReason: varchar('blocked_reason', { length: 500 }),
+    sourceTodoId: bigint('source_todo_id', { mode: 'number', unsigned: true }),
+    createdByHostId: bigint('created_by_host_id', { mode: 'number', unsigned: true }),
+    claimRole: varchar('claim_role', { length: 32 }),
+    claimedByHostId: bigint('claimed_by_host_id', { mode: 'number', unsigned: true }),
+    claimedByUsername: varchar('claimed_by_username', { length: 255 }),
+    claimedWorktreePath: varchar('claimed_worktree_path', { length: 1024 }),
+    claimedWorktreeHash: char('claimed_worktree_hash', { length: 64 }),
+    claimedAgentBusAddressId: char('claimed_agent_bus_address_id', { length: 36 }),
+    claimClientRequestId: varchar('claim_client_request_id', { length: 191 }),
+    claimedAt: varchar('claimed_at', { length: 100 }),
+    claimExpiresAt: varchar('claim_expires_at', { length: 100 }),
+    claimReleasedAt: varchar('claim_released_at', { length: 100 }),
+    claimReleaseReason: varchar('claim_release_reason', { length: 255 }),
+    enteredColumnAt: varchar('entered_column_at', { length: 100 }).notNull(),
+    archivedAt: varchar('archived_at', { length: 100 }),
+    createdAt: varchar('created_at', { length: 100 }).notNull(),
+    updatedAt: varchar('updated_at', { length: 100 }).notNull(),
+  },
+  (t) => ({
+    numberUnique: uniqueIndex('uq_coord_project_cards_number').on(t.projectId, t.cardNumber),
+    todoUnique: uniqueIndex('uq_coord_project_cards_todo').on(t.projectId, t.sourceTodoId),
+    columnIdx: index('idx_coord_project_cards_column').on(t.columnId, t.priority, t.enteredColumnAt),
+    projectIdx: index('idx_coord_project_cards_project').on(
+      t.projectId,
+      t.archivedAt,
+      t.updatedAt,
+    ),
+    claimIdx: index('idx_coord_project_cards_claim').on(
+      t.claimedAgentBusAddressId,
+      t.claimExpiresAt,
+    ),
+  }),
+);
+
+// ────────────────────────────────────────────────────────────────────────────
 // shared_memories + children
 // ────────────────────────────────────────────────────────────────────────────
 
@@ -1781,6 +1906,9 @@ export type AgentPolicyProfile = typeof agentPolicyProfiles.$inferSelect;
 export type AgentPolicyProfileAssignment = typeof agentPolicyProfileAssignments.$inferSelect;
 export type ClientConfigDocument = typeof clientConfigDocuments.$inferSelect;
 export type CoordProject = typeof coordProjects.$inferSelect;
+export type CoordProjectBoard = typeof coordProjectBoards.$inferSelect;
+export type CoordProjectBoardColumn = typeof coordProjectBoardColumns.$inferSelect;
+export type CoordProjectCard = typeof coordProjectCards.$inferSelect;
 export type SharedMemory = typeof sharedMemories.$inferSelect;
 export type SharedMemoryChunk = typeof sharedMemoryChunks.$inferSelect;
 export type SharedMemoryRevision = typeof sharedMemoryRevisions.$inferSelect;

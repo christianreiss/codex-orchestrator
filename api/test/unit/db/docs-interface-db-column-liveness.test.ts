@@ -28,6 +28,8 @@ const DOC = resolve(import.meta.dirname, '../../../../docs/interface-db.md');
  */
 const NOT_A_COLUMN = new Set<string>([
   'auth_canonical_heads.auth_generation_ledger_v1', // A `versions` marker key.
+  'coord_project_board_columns.project_card_release', // An MCP tool name, not a column.
+  'coord_project_cards.project_changes', // An MCP tool name, not a column.
   'coord_project_memories.deleted_at', // Names the column this table deliberately lacks.
   'coord_project_memories.utf8mb4_unicode_ci', // A MySQL collation.
   'secrets.secret_get', // An MCP tool name, not a column.

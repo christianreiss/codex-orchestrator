@@ -20,6 +20,8 @@ import { nowIso } from '../util/timestamp.js';
 import { wsPublisher } from '../ws/publisher.js';
 import { ProjectsService, formatFile, type ProjectFileView, type TodoView } from './projects.js';
 import { isProjectFeedbackType, projectFeedbackTypeList } from './project-feedback-types.js';
+import { ProjectBoardService, type ProjectTodoWire } from './project-board.js';
+import { HostProjectsService } from './host-projects.js';
 
 function trimStr(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
@@ -93,6 +95,25 @@ function normalizeFeedback(payload: Record<string, unknown>): { type: string; ti
   if (title === '') throw new ValidationError('title is required', { param: 'title' });
   if (body === '') throw new ValidationError('body is required', { param: 'body' });
   return { type, title, body };
+}
+
+/**
+ * The board renders todos snake_case, the way the host API has always spelled
+ * them; the admin API has always spelled them camelCase. Neither is worth
+ * changing under a feature that is not about wire shapes.
+ */
+function toTodoView(todo: ProjectTodoWire): TodoView {
+  return {
+    id: todo.id,
+    projectId: todo.project_id,
+    title: todo.title,
+    detail: todo.detail,
+    done: todo.done,
+    doneAt: todo.done_at,
+    sourceHostId: todo.source_host_id,
+    createdAt: todo.created_at ?? '',
+    updatedAt: todo.updated_at ?? '',
+  };
 }
 
 export class ProjectContentService {
@@ -186,104 +207,63 @@ export class ProjectContentService {
 
   // ── todos ────────────────────────────────────────────────────────────────
 
+  /**
+   * Todos are a view of the project board — migration 0026 moved every one onto
+   * a card and kept its id as the card number, so these methods kept their
+   * signatures, their `TodoView` shape and their ids while the storage under
+   * them changed. `coord_project_todos` is no longer written; one work item is
+   * one row.
+   *
+   * The board module flag deliberately does not gate any of this: todos predate
+   * it, and switching the board off hides its tools and its page rather than
+   * breaking an API that has always worked.
+   */
+  private board(): ProjectBoardService {
+    // Built here rather than injected so no construction site or test has to
+    // learn that todos moved. `HostProjectsService` is a stateless wrapper over
+    // the same `db`, so a second one costs nothing and owns nothing.
+    this.boardService ??= new ProjectBoardService({
+      db: this.db,
+      projects: new HostProjectsService(this.db),
+    });
+    return this.boardService;
+  }
+  private boardService: ProjectBoardService | null = null;
+
   async listTodos(slug: string): Promise<{ project: string; todos: TodoView[] }> {
     const project = await this.projects._resolveProject(slug);
-    const todos = await this.db
-      .select()
-      .from(coordProjectTodos)
-      .where(eq(coordProjectTodos.projectId, project.id))
-      .orderBy(desc(coordProjectTodos.updatedAt));
-    const views: TodoView[] = todos.map((t) => ({ ...t, done: Boolean(t.done) }));
-    return { project: project.slug, todos: views };
+    const todos = await this.board().todoRowsFor(project.id);
+    return { project: project.slug, todos: todos.map(toTodoView) };
   }
 
   async createTodo(slug: string, payload: Record<string, unknown>, sourceHostId: number | null = null): Promise<{ project: string; todo: TodoView }> {
-    const project = await this.projects._resolveProject(slug);
     const { title, detail } = normalizeTodo(payload);
-    const nowTs = nowIso();
-    const inserted = await this.db.insert(coordProjectTodos).values({
-      projectId: project.id,
-      title,
-      detail,
-      done: 0,
-      doneAt: null,
-      sourceHostId,
-      createdAt: nowTs,
-      updatedAt: nowTs,
-    }).$returningId();
-    const savedId = inserted[0]?.id ?? 0;
-    const rows = await this.db.select().from(coordProjectTodos).where(eq(coordProjectTodos.id, savedId)).limit(1);
-    const todo = rows[0]!;
-    const view: TodoView = { ...todo, done: Boolean(todo.done) };
-
-    await this.projects._recordEvent(project.id, 'todo', 'create', 'todo', savedId, { ...view }, sourceHostId);
-    wsPublisher.publish('project.todo.created', { slug: project.slug, todo_id: savedId });
-    wsPublisher.publish('project.changed', { slug: project.slug });
-    return { project: project.slug, todo: view };
+    const result = await this.board().todoCreate(slug, { title, detail }, sourceHostId);
+    wsPublisher.publish('project.todo.created', { slug: result.project, todo_id: result.todo.id });
+    wsPublisher.publish('project.changed', { slug: result.project });
+    return { project: result.project, todo: toTodoView(result.todo) };
   }
 
   async updateTodo(slug: string, id: number, payload: Record<string, unknown>, sourceHostId: number | null = null): Promise<{ project: string; todo: TodoView }> {
-    const project = await this.projects._resolveProject(slug);
     const { title, detail } = normalizeTodo(payload);
-    const existing = await this.db
-      .select()
-      .from(coordProjectTodos)
-      .where(and(eq(coordProjectTodos.projectId, project.id), eq(coordProjectTodos.id, id)))
-      .limit(1);
-    if (!existing[0]) throw new NotFoundError('Todo not found', 'todo_not_found');
-
-    const nowTs = nowIso();
-    await this.db
-      .update(coordProjectTodos)
-      .set({ title, detail, sourceHostId, updatedAt: nowTs })
-      .where(eq(coordProjectTodos.id, id));
-    const rows = await this.db.select().from(coordProjectTodos).where(eq(coordProjectTodos.id, id)).limit(1);
-    const todo = rows[0]!;
-    const view: TodoView = { ...todo, done: Boolean(todo.done) };
-
-    await this.projects._recordEvent(project.id, 'todo', 'update', 'todo', id, { ...view }, sourceHostId);
-    wsPublisher.publish('project.todo.updated', { slug: project.slug, todo_id: id });
-    wsPublisher.publish('project.changed', { slug: project.slug });
-    return { project: project.slug, todo: view };
+    const result = await this.board().todoUpdate(slug, id, { title, detail }, sourceHostId);
+    wsPublisher.publish('project.todo.updated', { slug: result.project, todo_id: id });
+    wsPublisher.publish('project.changed', { slug: result.project });
+    return { project: result.project, todo: toTodoView(result.todo) };
   }
 
   async setTodoDone(slug: string, id: number, done: boolean, sourceHostId: number | null = null): Promise<{ project: string; todo: TodoView }> {
-    const project = await this.projects._resolveProject(slug);
-    const existing = await this.db
-      .select()
-      .from(coordProjectTodos)
-      .where(and(eq(coordProjectTodos.projectId, project.id), eq(coordProjectTodos.id, id)))
-      .limit(1);
-    if (!existing[0]) throw new NotFoundError('Todo not found', 'todo_not_found');
-
-    const nowTs = nowIso();
-    await this.db
-      .update(coordProjectTodos)
-      .set({ done: done ? 1 : 0, doneAt: done ? nowTs : null, sourceHostId, updatedAt: nowTs })
-      .where(eq(coordProjectTodos.id, id));
-    const rows = await this.db.select().from(coordProjectTodos).where(eq(coordProjectTodos.id, id)).limit(1);
-    const todo = rows[0]!;
-    const view: TodoView = { ...todo, done: Boolean(todo.done) };
-
-    await this.projects._recordEvent(project.id, 'todo', done ? 'mark_done' : 'mark_undone', 'todo', id, { ...view }, sourceHostId);
-    wsPublisher.publish('project.todo.updated', { slug: project.slug, todo_id: id, done });
-    wsPublisher.publish('project.changed', { slug: project.slug });
-    return { project: project.slug, todo: view };
+    const result = await this.board().todoSetDone(slug, id, done, sourceHostId);
+    wsPublisher.publish('project.todo.updated', { slug: result.project, todo_id: id, done });
+    wsPublisher.publish('project.changed', { slug: result.project });
+    return { project: result.project, todo: toTodoView(result.todo) };
   }
 
   async deleteTodo(slug: string, id: number, sourceHostId: number | null = null): Promise<{ project: string; deleted: number }> {
-    const project = await this.projects._resolveProject(slug);
-    const existing = await this.db
-      .select({ id: coordProjectTodos.id })
-      .from(coordProjectTodos)
-      .where(and(eq(coordProjectTodos.projectId, project.id), eq(coordProjectTodos.id, id)))
-      .limit(1);
-    if (!existing[0]) throw new NotFoundError('Todo not found', 'todo_not_found');
-    await this.db.delete(coordProjectTodos).where(eq(coordProjectTodos.id, id));
-    await this.projects._recordEvent(project.id, 'todo', 'delete', 'todo', id, { id }, sourceHostId);
-    wsPublisher.publish('project.todo.deleted', { slug: project.slug, todo_id: id });
-    wsPublisher.publish('project.changed', { slug: project.slug });
-    return { project: project.slug, deleted: id };
+    const result = await this.board().todoDelete(slug, id, sourceHostId);
+    wsPublisher.publish('project.todo.deleted', { slug: result.project, todo_id: id });
+    wsPublisher.publish('project.changed', { slug: result.project });
+    return { project: result.project, deleted: result.deleted };
   }
 
   // ── files ────────────────────────────────────────────────────────────────

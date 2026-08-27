@@ -41,6 +41,17 @@ export const WS_EVENT_TYPES = [
   'project.file.updated',
   'project.file.deleted',
   'project.feedback.created',
+  // Project board. Per-entity rather than one `project.board.changed`, because
+  // the SPA routes `project.*` by prefix and a single type would bypass
+  // `projectDetailSubKey` and invalidate the whole project on every card move.
+  'project.card.created',
+  'project.card.updated',
+  'project.card.moved',
+  'project.card.claimed',
+  'project.card.released',
+  'project.card.deleted',
+  'project.board.updated',
+  'project_board.module_toggled',
   'project.memory.created',
   'project.memory.updated',
   'project.memory.deleted',

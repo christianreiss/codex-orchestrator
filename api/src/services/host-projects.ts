@@ -28,6 +28,7 @@ import { createHash } from 'node:crypto';
 import { isProjectFeedbackType, projectFeedbackTypeList } from './project-feedback-types.js';
 import { managedCocoBootstrapGuidance } from './managed-coco-skill.js';
 import { parseTags, sortedLowercase, sortedAssoc } from './memory-tags.js';
+import { ProjectBoardService } from './project-board.js';
 
 const SLUG_RE = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
 const STORED_NAME_RE = /^[^\0]+$/;
@@ -44,6 +45,15 @@ const MEMORY_MAX_TAG_LENGTH = 64;
 const MEMORY_PREVIEW_CHARS = 280;
 const MEMORY_BOOTSTRAP_LIMIT = 8;
 const MEMORY_LIST_MAX = 500;
+
+/**
+ * A transaction handle, in the shape `_recordEventTx` needs. Same narrowing
+ * `GitDirectorDb` uses in `git-director.ts`: `db.transaction` hands its callback
+ * an object that carries the query builders but not `transaction` itself, and
+ * spelling that out here is what lets a caller pass either the pool or its own
+ * open transaction.
+ */
+export type ProjectEventTx = Pick<Database, 'insert' | 'update' | 'select' | 'delete'>;
 
 export interface ProjectSummary {
   slug: string;
@@ -375,78 +385,53 @@ export class HostProjectsService {
     return { project: project.slug, deleted: id };
   }
 
+  // ── todos, which are now a view of the project board ──────────────────────
+  //
+  // Migration 0026 moved every todo onto a card and kept its id as the card
+  // number, so these five methods kept their signatures, their wire shape and
+  // their ids while the storage underneath them changed. What they no longer do
+  // is write `coord_project_todos`: one work item is one row, and a second store
+  // kept in step with the first is where the reconciliation bugs live.
+  //
+  // The board module flag does NOT gate any of this. Todos predate it, and
+  // switching the board off hides its tools and its page rather than breaking an
+  // API that has always worked.
+
   async listTodos(slug: string, host: Host): Promise<unknown> {
     const project = await this.requireProject(slug);
-    const todos = await this.fetchTodos(project.id);
+    const todos = await this.board().todoRowsFor(project.id);
     await this.recordLog(host.id, 'project.todos.list', { slug: project.slug, count: todos.length });
     return { project: project.slug, todos };
   }
 
   async createTodo(slug: string, payload: Record<string, unknown>, host: Host): Promise<unknown> {
-    const project = await this.requireProject(slug);
     const { title, detail } = this.normalizeTodoPayload(payload);
-    const now = nowIso();
-    const result = await this.db.insert(coordProjectTodos).values({
-      projectId: project.id,
-      title,
-      detail,
-      done: 0,
-      doneAt: null,
-      sourceHostId: host.id,
-      createdAt: now,
-      updatedAt: now,
-    });
-    const insertId = Number((result[0] as { insertId?: number })?.insertId ?? 0);
-    const todoRow = await this.fetchTodoById(project.id, insertId);
-    await this.recordEvent(project, 'todo', 'create', 'todo', String(insertId), todoRow as unknown as Record<string, unknown>, host.id);
-    await this.recordLog(host.id, 'project.todo.create', { slug: project.slug, todo_id: insertId });
-    wsPublisher.publish('project.todo.created', { slug: project.slug, todo_id: insertId, source_host_id: host.id });
-    return { project: project.slug, todo: todoRow };
+    const result = await this.board().todoCreate(slug, { title, detail }, host.id);
+    await this.recordLog(host.id, 'project.todo.create', { slug: result.project, todo_id: result.todo.id });
+    wsPublisher.publish('project.todo.created', { slug: result.project, todo_id: result.todo.id, source_host_id: host.id });
+    return result;
   }
 
   async updateTodo(slug: string, id: number, payload: Record<string, unknown>, host: Host): Promise<unknown> {
-    const project = await this.requireProject(slug);
-    const existing = await this.fetchTodoById(project.id, id);
-    if (!existing) throw new NotFoundError('Todo not found');
     const { title, detail } = this.normalizeTodoPayload(payload);
-    const now = nowIso();
-    await this.db
-      .update(coordProjectTodos)
-      .set({ title, detail, sourceHostId: host.id, updatedAt: now })
-      .where(and(eq(coordProjectTodos.projectId, project.id), eq(coordProjectTodos.id, id)));
-    const todoRow = await this.fetchTodoById(project.id, id);
-    await this.recordEvent(project, 'todo', 'update', 'todo', String(id), todoRow as unknown as Record<string, unknown>, host.id);
-    await this.recordLog(host.id, 'project.todo.update', { slug: project.slug, todo_id: id });
-    wsPublisher.publish('project.todo.updated', { slug: project.slug, todo_id: id, source_host_id: host.id });
-    return { project: project.slug, todo: todoRow };
+    const result = await this.board().todoUpdate(slug, id, { title, detail }, host.id);
+    await this.recordLog(host.id, 'project.todo.update', { slug: result.project, todo_id: id });
+    wsPublisher.publish('project.todo.updated', { slug: result.project, todo_id: id, source_host_id: host.id });
+    return result;
   }
 
   async setTodoDone(slug: string, id: number, done: boolean, host: Host): Promise<unknown> {
-    const project = await this.requireProject(slug);
-    const existing = await this.fetchTodoById(project.id, id);
-    if (!existing) throw new NotFoundError('Todo not found');
-    const now = nowIso();
-    await this.db
-      .update(coordProjectTodos)
-      .set({ done: done ? 1 : 0, doneAt: done ? now : null, sourceHostId: host.id, updatedAt: now })
-      .where(and(eq(coordProjectTodos.projectId, project.id), eq(coordProjectTodos.id, id)));
-    const todoRow = await this.fetchTodoById(project.id, id);
-    const action = done ? 'mark_done' : 'mark_undone';
-    await this.recordEvent(project, 'todo', action, 'todo', String(id), todoRow as unknown as Record<string, unknown>, host.id);
-    await this.recordLog(host.id, 'project.todo.done', { slug: project.slug, todo_id: id, done });
-    wsPublisher.publish('project.todo.updated', { slug: project.slug, todo_id: id, done, source_host_id: host.id });
-    return { project: project.slug, todo: todoRow };
+    const result = await this.board().todoSetDone(slug, id, done, host.id);
+    await this.recordLog(host.id, 'project.todo.done', { slug: result.project, todo_id: id, done });
+    wsPublisher.publish('project.todo.updated', { slug: result.project, todo_id: id, done, source_host_id: host.id });
+    return result;
   }
 
   async deleteTodo(slug: string, id: number, host: Host): Promise<unknown> {
-    const project = await this.requireProject(slug);
-    const existing = await this.fetchTodoById(project.id, id);
-    if (!existing) throw new NotFoundError('Todo not found');
-    await this.db.delete(coordProjectTodos).where(and(eq(coordProjectTodos.projectId, project.id), eq(coordProjectTodos.id, id)));
-    await this.recordEvent(project, 'todo', 'delete', 'todo', String(id), { id }, host.id);
-    await this.recordLog(host.id, 'project.todo.delete', { slug: project.slug, todo_id: id });
-    wsPublisher.publish('project.todo.deleted', { slug: project.slug, todo_id: id, source_host_id: host.id });
-    return { project: project.slug, deleted: id };
+    const result = await this.board().todoDelete(slug, id, host.id);
+    await this.recordLog(host.id, 'project.todo.delete', { slug: result.project, todo_id: id });
+    wsPublisher.publish('project.todo.deleted', { slug: result.project, todo_id: id, source_host_id: host.id });
+    return result;
   }
 
   async listFiles(slug: string, host: Host): Promise<unknown> {
@@ -821,6 +806,22 @@ export class HostProjectsService {
     return rows[0] ? this.hydrateProject(rows[0]) : null;
   }
 
+  /**
+   * The board this service's todo methods write through, built on first use.
+   *
+   * It is constructed here rather than injected so that no construction site or
+   * test has to learn that todos moved: `new HostProjectsService(db)` still
+   * means the same thing. `this` escaping into it is deliberate and safe — the
+   * board only calls back into `requireProject` and `_recordEventTx`, and never
+   * during construction. It carries no settings service because the shim is not
+   * gated by the board module flag.
+   */
+  private board(): ProjectBoardService {
+    this.boardService ??= new ProjectBoardService({ db: this.db, projects: this });
+    return this.boardService;
+  }
+  private boardService: ProjectBoardService | null = null;
+
   async requireProject(slug: string): Promise<ProjectRow> {
     const normalized = this.normalizeSlug(slug);
     const found = await this.findBySlug(normalized);
@@ -874,21 +875,7 @@ export class HostProjectsService {
   }
 
   private async fetchTodos(projectId: number): Promise<TodoRow[]> {
-    const rows = await this.db
-      .select()
-      .from(coordProjectTodos)
-      .where(eq(coordProjectTodos.projectId, projectId))
-      .orderBy(desc(coordProjectTodos.updatedAt), desc(coordProjectTodos.id));
-    return rows.map((r) => this.hydrateTodo(r));
-  }
-
-  private async fetchTodoById(projectId: number, id: number): Promise<TodoRow | null> {
-    const rows = await this.db
-      .select()
-      .from(coordProjectTodos)
-      .where(and(eq(coordProjectTodos.projectId, projectId), eq(coordProjectTodos.id, id)))
-      .limit(1);
-    return rows[0] ? this.hydrateTodo(rows[0]) : null;
+    return await this.board().todoRowsFor(projectId);
   }
 
   private async fetchFiles(projectId: number): Promise<FileRow[]> {
@@ -955,6 +942,74 @@ export class HostProjectsService {
     return rows.map((r) => this.hydrateEvent(r));
   }
 
+  /**
+   * Allocate an event seq and record the event INSIDE a transaction the caller
+   * already owns, returning the seq. Does not publish — see
+   * `_publishProjectChanged`, which must run after the commit.
+   *
+   * This exists because `recordEvent` below opens its own transaction and takes
+   * `SELECT … FOR UPDATE` on the `coord_projects` row. Calling it from inside a
+   * transaction that already holds that lock does not deadlock and does not
+   * error: the inner transaction runs on a *different* pool connection and
+   * simply waits, for the full `innodb_lock_wait_timeout` — 50 seconds,
+   * intermittent, and only under the concurrency the project board exists to
+   * handle. Anything that locks the project row itself, as every card mutation
+   * in `project-board.ts` does, must allocate through here.
+   */
+  async _recordEventTx(
+    tx: ProjectEventTx,
+    project: ProjectRow,
+    eventType: string,
+    action: string,
+    entityType: string | null,
+    entityId: string | null,
+    payload: Record<string, unknown> | null,
+    sourceHostId: number | null,
+    now: string = nowIso(),
+  ): Promise<number> {
+    if (project.id <= 0) throw new ConflictError('Project event requires a stored project');
+    // Lock the project row for the duration of the transaction so concurrent
+    // mutations on the same project can't allocate the same seq (mirrors
+    // ProjectsService#recordEvent in projects.ts). Re-locking a row this
+    // transaction already holds is free.
+    const lockedRows = await tx
+      .select({ seq: coordProjects.latestEventSeq })
+      .from(coordProjects)
+      .where(eq(coordProjects.id, project.id))
+      .for('update');
+    const nextSeq = (lockedRows[0]?.seq ?? 0) + 1;
+
+    await tx
+      .update(coordProjects)
+      .set({ latestEventSeq: nextSeq, updatedAt: now })
+      .where(eq(coordProjects.id, project.id));
+
+    await tx.insert(coordProjectEvents).values({
+      projectId: project.id,
+      seq: nextSeq,
+      eventType,
+      action,
+      entityType,
+      entityId,
+      payloadJson: payload,
+      sourceHostId,
+      createdAt: now,
+    });
+
+    return nextSeq;
+  }
+
+  /** The post-commit half of `_recordEventTx`. Never call it inside the tx. */
+  _publishProjectChanged(
+    project: ProjectRow,
+    seq: number,
+    eventType: string,
+    action: string,
+    sourceHostId: number | null,
+  ): void {
+    wsPublisher.publish('project.changed', { slug: project.slug, seq, event_type: eventType, action, source_host_id: sourceHostId });
+  }
+
   private async recordEvent(
     project: ProjectRow,
     eventType: string,
@@ -964,39 +1019,11 @@ export class HostProjectsService {
     payload: Record<string, unknown> | null,
     sourceHostId: number | null,
   ): Promise<void> {
-    if (project.id <= 0) throw new ConflictError('Project event requires a stored project');
     const now = nowIso();
-    // Lock the project row for the duration of the transaction so concurrent
-    // mutations on the same project can't allocate the same seq (mirrors
-    // ProjectsService#recordEvent in projects.ts).
-    const seq = await this.db.transaction(async (tx) => {
-      const lockedRows = await tx
-        .select({ seq: coordProjects.latestEventSeq })
-        .from(coordProjects)
-        .where(eq(coordProjects.id, project.id))
-        .for('update');
-      const nextSeq = (lockedRows[0]?.seq ?? 0) + 1;
-
-      await tx
-        .update(coordProjects)
-        .set({ latestEventSeq: nextSeq, updatedAt: now })
-        .where(eq(coordProjects.id, project.id));
-
-      await tx.insert(coordProjectEvents).values({
-        projectId: project.id,
-        seq: nextSeq,
-        eventType,
-        action,
-        entityType,
-        entityId,
-        payloadJson: payload,
-        sourceHostId,
-        createdAt: now,
-      });
-
-      return nextSeq;
-    });
-    wsPublisher.publish('project.changed', { slug: project.slug, seq, event_type: eventType, action, source_host_id: sourceHostId });
+    const seq = await this.db.transaction(async (tx) =>
+      this._recordEventTx(tx, project, eventType, action, entityType, entityId, payload, sourceHostId, now),
+    );
+    this._publishProjectChanged(project, seq, eventType, action, sourceHostId);
   }
 
   private async recordLog(hostId: number | null, action: string, details: Record<string, unknown>): Promise<void> {

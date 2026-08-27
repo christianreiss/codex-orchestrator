@@ -188,6 +188,9 @@ describe('migrations against the test baseline', () => {
       'git_clones',
       'git_worktrees',
       'git_merge_requests',
+      'coord_project_boards',
+      'coord_project_board_columns',
+      'coord_project_cards',
     ]);
     expect(
       additions.filter((a) => a.column !== undefined).map((a) => `${a.table}.${a.column}`),

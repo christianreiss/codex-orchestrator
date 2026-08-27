@@ -51,6 +51,14 @@ export const DEFAULT_INVALIDATIONS: WsInvalidationMap = {
   "project.file.updated": [["projects"]],
   "project.file.deleted": [["projects"]],
   "project.feedback.created": [["projects"]],
+  "project.card.created": [["projects"]],
+  "project.card.updated": [["projects"]],
+  "project.card.moved": [["projects"]],
+  "project.card.claimed": [["projects"]],
+  "project.card.released": [["projects"]],
+  "project.card.deleted": [["projects"]],
+  "project.board.updated": [["projects"]],
+  "project_board.module_toggled": [["projects"], ["projects", "board", "state"]],
 
   // Authoring (the authoring pages query the bare ["agents"]/["skills"]/["memories"] keys)
   "agents.stored": [["agents"]],
@@ -209,6 +217,13 @@ const PROJECT_SCOPED_EVENTS = new Set<string>([
   "project.file.updated",
   "project.file.deleted",
   "project.feedback.created",
+  "project.card.created",
+  "project.card.updated",
+  "project.card.moved",
+  "project.card.claimed",
+  "project.card.released",
+  "project.card.deleted",
+  "project.board.updated",
 ]);
 
 function projectDetailSubKey(eventType: string): string | null {
@@ -216,6 +231,7 @@ function projectDetailSubKey(eventType: string): string | null {
   if (eventType.startsWith("project.todo")) return "todos";
   if (eventType.startsWith("project.file")) return "files";
   if (eventType.startsWith("project.feedback")) return "feedback";
+  if (eventType.startsWith("project.card") || eventType.startsWith("project.board")) return "board";
   return null;
 }
 

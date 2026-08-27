@@ -589,6 +589,72 @@ CREATE TABLE `client_config_documents` (
 	CONSTRAINT `client_config_documents_id` PRIMARY KEY(`id`)
 );
 
+CREATE TABLE `coord_project_board_columns` (
+	`id` char(36) NOT NULL,
+	`board_id` char(36) NOT NULL,
+	`project_id` bigint unsigned NOT NULL,
+	`column_key` varchar(64) NOT NULL,
+	`title` varchar(255) NOT NULL,
+	`position` int unsigned NOT NULL,
+	`wip_limit` int unsigned,
+	`allowed_roles` json,
+	`default_next_column_id` char(36),
+	`is_intake` tinyint NOT NULL DEFAULT 0,
+	`is_terminal` tinyint NOT NULL DEFAULT 0,
+	`is_blocked` tinyint NOT NULL DEFAULT 0,
+	`created_at` varchar(100) NOT NULL,
+	`updated_at` varchar(100) NOT NULL,
+	CONSTRAINT `coord_project_board_columns_id` PRIMARY KEY(`id`),
+	CONSTRAINT `uq_coord_project_board_columns_key` UNIQUE(`board_id`,`column_key`)
+);
+
+CREATE TABLE `coord_project_boards` (
+	`id` char(36) NOT NULL,
+	`project_id` bigint unsigned NOT NULL,
+	`slug` varchar(64) NOT NULL DEFAULT 'default',
+	`title` varchar(255) NOT NULL,
+	`next_card_number` bigint unsigned NOT NULL DEFAULT 1,
+	`claim_ttl_seconds` int unsigned,
+	`archived_at` varchar(100),
+	`created_at` varchar(100) NOT NULL,
+	`updated_at` varchar(100) NOT NULL,
+	CONSTRAINT `coord_project_boards_id` PRIMARY KEY(`id`),
+	CONSTRAINT `uq_coord_project_boards_slug` UNIQUE(`project_id`,`slug`)
+);
+
+CREATE TABLE `coord_project_cards` (
+	`id` char(36) NOT NULL,
+	`project_id` bigint unsigned NOT NULL,
+	`board_id` char(36) NOT NULL,
+	`column_id` char(36) NOT NULL,
+	`card_number` bigint unsigned NOT NULL,
+	`title` varchar(255) NOT NULL,
+	`detail` longtext NOT NULL,
+	`labels` json,
+	`priority` int NOT NULL DEFAULT 0,
+	`blocked_reason` varchar(500),
+	`source_todo_id` bigint unsigned,
+	`created_by_host_id` bigint unsigned,
+	`claim_role` varchar(32),
+	`claimed_by_host_id` bigint unsigned,
+	`claimed_by_username` varchar(255),
+	`claimed_worktree_path` varchar(1024),
+	`claimed_worktree_hash` char(64),
+	`claimed_agent_bus_address_id` char(36),
+	`claim_client_request_id` varchar(191),
+	`claimed_at` varchar(100),
+	`claim_expires_at` varchar(100),
+	`claim_released_at` varchar(100),
+	`claim_release_reason` varchar(255),
+	`entered_column_at` varchar(100) NOT NULL,
+	`archived_at` varchar(100),
+	`created_at` varchar(100) NOT NULL,
+	`updated_at` varchar(100) NOT NULL,
+	CONSTRAINT `coord_project_cards_id` PRIMARY KEY(`id`),
+	CONSTRAINT `uq_coord_project_cards_number` UNIQUE(`project_id`,`card_number`),
+	CONSTRAINT `uq_coord_project_cards_todo` UNIQUE(`project_id`,`source_todo_id`)
+);
+
 CREATE TABLE `coord_project_events` (
 	`id` bigint unsigned AUTO_INCREMENT NOT NULL,
 	`project_id` bigint unsigned NOT NULL,
@@ -1192,6 +1258,11 @@ CREATE INDEX `idx_cli_auth_expires` ON `cli_auth_requests` (`expires_at`);
 CREATE INDEX `idx_cli_auth_status` ON `cli_auth_requests` (`status`);
 CREATE INDEX `idx_client_config_documents_updated_at` ON `client_config_documents` (`updated_at`);
 CREATE INDEX `idx_client_config_engine` ON `client_config_documents` (`engine`);
+CREATE INDEX `idx_coord_project_board_columns_order` ON `coord_project_board_columns` (`board_id`,`position`);
+CREATE INDEX `idx_coord_project_boards_project` ON `coord_project_boards` (`project_id`,`archived_at`);
+CREATE INDEX `idx_coord_project_cards_column` ON `coord_project_cards` (`column_id`,`priority`,`entered_column_at`);
+CREATE INDEX `idx_coord_project_cards_project` ON `coord_project_cards` (`project_id`,`archived_at`,`updated_at`);
+CREATE INDEX `idx_coord_project_cards_claim` ON `coord_project_cards` (`claimed_agent_bus_address_id`,`claim_expires_at`);
 CREATE INDEX `idx_coord_project_events_project` ON `coord_project_events` (`project_id`);
 CREATE INDEX `idx_coord_project_events_created_at` ON `coord_project_events` (`created_at`);
 CREATE INDEX `idx_coord_project_feedback_project` ON `coord_project_feedback` (`project_id`);
