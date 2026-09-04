@@ -1,5 +1,49 @@
 # 2026-09-04
 
+- **One fleet, two logins.** The console could watch agents but never speak to
+  them: sending an instruction meant leaving /admin, opening /go, and
+  authenticating a second time as an `agent_portal_users` row — a different
+  identity table from the `admin_users` row already signed in on the same
+  origin, behind the same Fastify process. The split was never a deployment
+  boundary. It was one NOT NULL column.
+  - Migration `0027` makes `agent_messages.portal_user_id` nullable and adds
+    `admin_user_id`, exactly one set. That column carried three jobs and all
+    three had to survive: authorship (the agent's own timeline names who asked),
+    message idempotency (a `client_message_id` replayed by a *different* actor
+    must conflict, so the actor KIND is compared and not a bare number — admin
+    #3 is not portal user #3), and delivery-time revocation.
+  - That last one is the property worth naming. `claimMessage` re-reads the
+    author as an agent reaches for a message and cancels it if that account is
+    gone, so revoking someone kills their queued instructions at delivery rather
+    than whenever a sweep next runs. The admin branch checks `admin_users.active`
+    for the same reason, which covers deactivate, delete and wipe without
+    hooking any of the three.
+  - The console page is now interactive: a composer, prompt answering, **Ask to
+    close** and **Force close**. It is the portal's own `Composer` and
+    `Timeline`, hoisted rather than reimplemented, so the two surfaces cannot
+    drift on what "can I send right now" means.
+  - `/go` accepts a console session too, so the magic link is optional for
+    anyone who already has a console account rather than mandatory for everyone.
+    A valid portal cookie still wins; a stale one falls through to the admin
+    session while preserving the portal's own expiry code for its re-login path.
+    Nothing was deleted — the link remains the way in for someone with no
+    console account, which is the whole reason that identity exists.
+  - The `/go` routes carry no capability inventory entry, so the admin fallback
+    asserts one explicitly: `agent_portal.manage` for the writes,
+    `agent_portal.reveal_transcript` for timelines and the stream. Without it a
+    `viewer` refused at /admin could have written through /go. Both are
+    always-enforced, which is exactly what makes them checkable off a route key
+    — the reason yesterday's change put them there is what made today's work.
+  - The SSE loop re-authorizes on every tick for both identities. The portal
+    branch already did; the admin branch had to be made to, because a stream
+    outlives the check that opened it and an account can be disabled while it is
+    still connected. The source-level test that pinned this was rewritten to
+    assert the property rather than the old spelling.
+  - The migration is re-appliable, like every other one here: MySQL has no
+    `ADD COLUMN IF NOT EXISTS`, so it uses the same information_schema-guarded
+    procedure 0005 does. The first draft was not, and
+    `test/integration/db-migrations` caught it against a real database.
+
 - **The console could not see the fleet it was managing.** Every running `cdx`
   and `clx` wrapper registers a session, heartbeats every 15 seconds, and has
   its liveness derived honestly in `AgentPortalService.listAgents()` — presence,

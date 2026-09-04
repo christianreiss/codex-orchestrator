@@ -528,7 +528,15 @@ Auth verification worker: when `AUTH_RUNNER_URL` is configured, the API starts a
     wrong answer.
 - Live agent sessions (`agent_portal.*`). The console half of the surface the
   phone portal at `/go` already served; the projection is the portal's, not a
-  second one.
+  second one. Since the actor widening the traffic runs both ways: every
+  `/go/api/*` route accepts an admin session as well as a portal magic-link
+  browser session, so an operator signed in to the console reaches the portal
+  without exchanging a second credential. A portal cookie still wins when it is
+  valid. The `/go` routes carry no capability inventory entry of their own, so
+  the admin fallback asserts one explicitly — `agent_portal.manage` for the
+  writes and `agent_portal.reveal_transcript` for the timelines and the stream,
+  both of which are always-enforced and therefore checkable without a route key.
+  Without that, a `viewer` refused at `/admin` could have written through `/go`.
   - `GET /admin/agent-sessions` — `{enabled, timings, sessions:[…]}`. Each
     session carries the derived `presence` (`working` / `listening` / `idle` /
     `offline` / `ended`), `active_turn_started_at`, `last_event_at`, any
@@ -547,16 +555,27 @@ Auth verification worker: when `AUTH_RUNNER_URL` is configured, the API starts a
   - `GET /admin/agent-sessions/events` — the same events fleet-wide as SSE,
     mirroring `GET /go/api/events`: `event: agent` frames with `Last-Event-ID`
     resume and a 15s heartbeat comment. Same capability, same payloads.
+  - `POST /admin/agent-sessions/{id}/messages` — `{client_message_id, content}`;
+    queues an instruction for the agent, `202`. Requires a live session and a
+    ready relay, exactly as the portal does — the service owns those rules and
+    these routes are a thin shell over it.
+  - `POST /admin/agent-sessions/{id}/prompts/{promptId}/answer` —
+    `{client_message_id, answer, version?}`, `202`. Answering also clears the
+    session's outstanding attention notice.
+  - `POST /admin/agent-sessions/{id}/close` — `{client_message_id, note?}`;
+    queues a cooperative close for the agent to honour, `202`.
   - `POST /admin/agent-sessions/{id}/close/force` — `{client_message_id, note?}`;
-    ends a session now. This is the only operator write on the console side. The
-    cooperative paths — sending a message, answering a prompt, requesting a
-    close — insert into `agent_messages`, whose `portal_user_id` is NOT NULL and
-    also carries the message idempotency identity, so an admin cannot author one
-    without a schema change; force writes an event and a terminal state and no
-    queue row. It is also the one that still works when the agent is offline and
-    can no longer accept a cooperative close, which is when an operator reaches
-    for it. Idempotent: a second call on an ended session answers
-    `{forced:false, already_ended:true}`.
+    ends a session now, without asking the agent. Unlike the three above it
+    writes no queue row, so it is the one that still works when the agent has
+    gone offline and can no longer accept a cooperative close — which is exactly
+    when an operator reaches for it. Idempotent: a second call on an ended
+    session answers `{forced:false, already_ended:true}`.
+  - All four author as the signed-in admin. `agent_messages` carries a nullable
+    `portal_user_id` and a nullable `admin_user_id` with exactly one set
+    (migration `0027`), and the pair is the message's idempotency identity as
+    well as its authorship — so a `client_message_id` replayed by a *different*
+    actor is a conflict rather than a silent no-op. Delivery re-reads the author
+    and cancels the message if that account has since been disabled or deleted.
 - `GET /admin/skills` — list stored skills (slug, sha256, display name, description, timestamps) plus canonical `uri` / `canonical_uri`, `managed`, and nullable source provenance. `description` is the persisted short summary used by the runtime AGENTS Skills block when present. Code-managed and source-owned skills are returned with `managed:true`; imported rows use `source_type:"github:mattpocock/skills"`.
 - `GET /admin/skills/{slug}` — browser/API split. Browser requests (`Accept: text/html`) receive the admin SPA shell for the dedicated skill workspace page; JSON requests (`Accept: application/json`) fetch full skill content (manifest + metadata, including canonical skill URI, invocation policy, and source provenance).
 - `POST /admin/skills/generate` — admin-only runner-backed draft generation. Body: `prompt` (required string) and optional `slug_hint`. Returns a structured skill draft (`slug`, `display_name`, `description`, `tags`, `what`, `when`, `steps`) plus a server-built canonical `manifest`. This endpoint never persists the skill; admins must still call `POST /admin/skills/store` after review. Returns `503` when canonical auth or the runner is unavailable, and `502` when the runner returns unusable output.

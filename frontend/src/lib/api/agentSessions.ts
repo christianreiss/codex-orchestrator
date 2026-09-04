@@ -101,6 +101,57 @@ export function sessionEventsQuery(sessionId: () => string | null) {
   });
 }
 
+/**
+ * Send an instruction, or answer the agent's open question.
+ *
+ * The branch mirrors the portal's: with a prompt open, what the operator types
+ * IS the answer, because a plain message would leave the agent still blocked on
+ * a question it had already been given the reply to.
+ */
+export function sendMutation(
+  opts: MutationOpts<unknown, { id: string; content: string; prompt?: { id: string; version: number } | null }> = {},
+) {
+  const client = useQueryClient();
+  return createMutation<unknown, Error, { id: string; content: string; prompt?: { id: string; version: number } | null }>({
+    mutationFn: ({ id, content, prompt }) => {
+      const clientMessageId = crypto.randomUUID();
+      const session = encodeURIComponent(id);
+      return prompt
+        ? api.post(`/admin/agent-sessions/${session}/prompts/${encodeURIComponent(prompt.id)}/answer`, {
+            client_message_id: clientMessageId,
+            answer: content,
+            version: prompt.version,
+          })
+        : api.post(`/admin/agent-sessions/${session}/messages`, {
+            client_message_id: clientMessageId,
+            content,
+          });
+    },
+    ...opts,
+    onSettled: (...args) => {
+      void client.invalidateQueries({ queryKey: agentSessionKeys.all });
+      opts.onSettled?.(...args);
+    },
+  });
+}
+
+/** Ask the agent to wrap up. Queued for it to honour; see force for the rest. */
+export function requestCloseMutation(opts: MutationOpts<unknown, { id: string; note?: string }> = {}) {
+  const client = useQueryClient();
+  return createMutation<unknown, Error, { id: string; note?: string }>({
+    mutationFn: ({ id, note }) =>
+      api.post(`/admin/agent-sessions/${encodeURIComponent(id)}/close`, {
+        client_message_id: crypto.randomUUID(),
+        note,
+      }),
+    ...opts,
+    onSettled: (...args) => {
+      void client.invalidateQueries({ queryKey: agentSessionKeys.all });
+      opts.onSettled?.(...args);
+    },
+  });
+}
+
 export function forceCloseMutation(opts: MutationOpts<ForceCloseResult, { id: string; note?: string }> = {}) {
   const client = useQueryClient();
   return createMutation<ForceCloseResult, Error, { id: string; note?: string }>({

@@ -276,7 +276,8 @@ CREATE TABLE `agent_messages` (
 	`id` bigint unsigned AUTO_INCREMENT NOT NULL,
 	`message_id` char(36) NOT NULL,
 	`session_id` char(36) NOT NULL,
-	`portal_user_id` bigint unsigned NOT NULL,
+	`portal_user_id` bigint unsigned,
+	`admin_user_id` bigint unsigned,
 	`kind` varchar(16) NOT NULL DEFAULT 'message',
 	`prompt_id` char(36),
 	`client_message_id` char(36) NOT NULL,
@@ -1223,6 +1224,7 @@ CREATE INDEX `idx_agent_events_session_cursor` ON `agent_events` (`session_id`,`
 CREATE INDEX `idx_agent_events_type` ON `agent_events` (`event_type`,`created_at`);
 CREATE INDEX `idx_agent_messages_dispatch` ON `agent_messages` (`session_id`,`status`,`next_attempt_at`,`id`);
 CREATE INDEX `idx_agent_messages_user` ON `agent_messages` (`portal_user_id`,`status`);
+CREATE INDEX `idx_agent_messages_admin_user` ON `agent_messages` (`admin_user_id`,`status`);
 CREATE INDEX `idx_agent_policy_profile_assignments_profile` ON `agent_policy_profile_assignments` (`profile_id`);
 CREATE INDEX `idx_agent_policy_profiles_is_default` ON `agent_policy_profiles` (`is_default`);
 CREATE INDEX `idx_agent_portal_browser_sessions_user` ON `agent_portal_browser_sessions` (`user_id`);

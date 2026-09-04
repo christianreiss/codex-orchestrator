@@ -216,7 +216,7 @@ describe.skipIf(!handle)('agent portal lifecycle edges', { timeout: 120_000 }, (
       const world = await makeWorld();
       await staleRelay(world.sessionId);
       await expect(
-        world.service.requestClose(world.identity, {
+        world.service.requestClose({ kind: 'portal', identity: world.identity }, {
           sessionId: world.sessionId,
           clientMessageId: randomUUID(),
         }),
@@ -227,7 +227,7 @@ describe.skipIf(!handle)('agent portal lifecycle edges', { timeout: 120_000 }, (
   describe('a message is never discarded in silence', () => {
     it('emits message_canceled when a queued instruction is cancelled undelivered', async () => {
       const world = await makeWorld();
-      const queued = await world.service.enqueueMessage(world.identity, {
+      const queued = await world.service.enqueueMessage({ kind: 'portal', identity: world.identity }, {
         sessionId: world.sessionId,
         clientMessageId: randomUUID(),
         content: 'please stop',
@@ -248,7 +248,7 @@ describe.skipIf(!handle)('agent portal lifecycle edges', { timeout: 120_000 }, (
 
     it('announces an undelivered message when the session is force-ended', async () => {
       const world = await makeWorld();
-      await world.service.enqueueMessage(world.identity, {
+      await world.service.enqueueMessage({ kind: 'portal', identity: world.identity }, {
         sessionId: world.sessionId,
         clientMessageId: randomUUID(),
         content: 'still queued',
@@ -294,7 +294,7 @@ describe.skipIf(!handle)('agent portal lifecycle edges', { timeout: 120_000 }, (
       await beginTurn(world);
       await staleRelay(world.sessionId);
 
-      const queued = await world.service.enqueueMessage(world.identity, {
+      const queued = await world.service.enqueueMessage({ kind: 'portal', identity: world.identity }, {
         sessionId: world.sessionId,
         clientMessageId: randomUUID(),
         content: 'one more thing',
@@ -308,7 +308,7 @@ describe.skipIf(!handle)('agent portal lifecycle edges', { timeout: 120_000 }, (
       await staleRelay(world.sessionId);
 
       await expect(
-        world.service.enqueueMessage(world.identity, {
+        world.service.enqueueMessage({ kind: 'portal', identity: world.identity }, {
           sessionId: world.sessionId,
           clientMessageId: randomUUID(),
           content: 'too late',

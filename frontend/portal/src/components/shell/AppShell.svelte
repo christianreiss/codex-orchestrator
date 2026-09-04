@@ -3,7 +3,7 @@
   import { presenceView } from "$lib/portal/presence";
   import type { Portal } from "../../lib/portal-state.svelte";
   import CenterState from "../state/CenterState.svelte";
-  import Composer from "../composer/Composer.svelte";
+  import Composer from "$lib/components/portal/Composer.svelte";
   import CloseChannelDialog from "../modal/CloseChannelDialog.svelte";
   import ClosingBar from "../thread/ClosingBar.svelte";
   import ThreadHeader from "../thread/ThreadHeader.svelte";

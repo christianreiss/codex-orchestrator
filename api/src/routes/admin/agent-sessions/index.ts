@@ -3,7 +3,7 @@ import { z } from 'zod';
 import type { RouteContext } from '../../index.js';
 import { ApiError } from '../../../http/errors.js';
 import { AdminEventsService } from '../../../services/admin-events.js';
-import { createAgentPortalService } from '../../../services/agent-portal.js';
+import { createAgentPortalService, type PortalActor } from '../../../services/agent-portal.js';
 import { emptyWork, loadSessionWork, type SessionWorkInput } from '../../../services/agent-session-work.js';
 
 /**
@@ -50,10 +50,21 @@ function stringParam(params: unknown, key: string): string {
   return String((params as Record<string, unknown> | undefined)?.[key] ?? '').trim();
 }
 
-/** The admin's own name is what the agent's timeline shows as the author. */
-function actorName(req: FastifyRequest): string {
+/**
+ * The console operator as a message author.
+ *
+ * The id reaches `agent_messages.admin_user_id`, so revoking the account kills
+ * anything it queued; the name is what the agent's own timeline shows.
+ * `requireAdmin` has already resolved the session, and the service re-reads the
+ * row under its write lock rather than trusting this.
+ */
+function adminActor(req: FastifyRequest): PortalActor {
   const user = req.admin?.user;
-  return user?.name?.trim() || user?.username?.trim() || 'Console operator';
+  if (!user) throw new ApiError('Admin session required', { status: 401, code: 'admin_required', type: 'invalid_request_error' });
+  return {
+    kind: 'admin',
+    user: { id: user.id, displayName: user.name?.trim() || user.username?.trim() || 'Console operator' },
+  };
 }
 
 function delay(ms: number): Promise<void> {
@@ -63,6 +74,17 @@ function delay(ms: number): Promise<void> {
 const forceSchema = z.object({
   client_message_id: z.string(),
   note: z.string().max(4000).optional(),
+});
+
+const messageSchema = z.object({
+  client_message_id: z.string(),
+  content: z.string(),
+});
+
+const answerSchema = z.object({
+  client_message_id: z.string(),
+  answer: z.string(),
+  version: z.number().int().positive().optional(),
 });
 
 export async function registerAdminAgentSessionsRoutes(
@@ -162,12 +184,59 @@ export async function registerAdminAgentSessionsRoutes(
     );
   });
 
+  // The cooperative writes. All three insert into `agent_messages`, which is
+  // what 0027 made reachable from a console session; before it they existed
+  // only at /go and only for a magic-link user. The service still owns every
+  // rule they obey -- relay readiness, live session, idempotency, delivery-time
+  // revocation -- so these routes stay a thin, audited shell over it.
+  app.post('/admin/agent-sessions/:id/messages', { preHandler: app.requireAdmin }, async (req, reply) => {
+    const parsed = messageSchema.safeParse(req.body ?? {});
+    if (!parsed.success) throw badRequest(parsed.error.issues[0]);
+    reply.code(202);
+    return await portal.enqueueMessage(adminActor(req), {
+      sessionId: stringParam(req.params, 'id'),
+      clientMessageId: parsed.data.client_message_id,
+      content: parsed.data.content,
+    });
+  });
+
+  app.post(
+    '/admin/agent-sessions/:id/prompts/:promptId/answer',
+    { preHandler: app.requireAdmin },
+    async (req, reply) => {
+      const parsed = answerSchema.safeParse(req.body ?? {});
+      if (!parsed.success) throw badRequest(parsed.error.issues[0]);
+      reply.code(202);
+      return await portal.answerPrompt(adminActor(req), {
+        sessionId: stringParam(req.params, 'id'),
+        promptId: stringParam(req.params, 'promptId'),
+        clientMessageId: parsed.data.client_message_id,
+        answer: parsed.data.answer,
+        version: parsed.data.version,
+      });
+    },
+  );
+
+  // Cooperative close: queued for the agent to pick up and honour. Distinct
+  // from force below, which is what an operator reaches for once the agent can
+  // no longer pick anything up.
+  app.post('/admin/agent-sessions/:id/close', { preHandler: app.requireAdmin }, async (req, reply) => {
+    const parsed = forceSchema.safeParse(req.body ?? {});
+    if (!parsed.success) throw badRequest(parsed.error.issues[0]);
+    reply.code(202);
+    return await portal.requestClose(adminActor(req), {
+      sessionId: stringParam(req.params, 'id'),
+      clientMessageId: parsed.data.client_message_id,
+      note: parsed.data.note,
+    });
+  });
+
   app.post('/admin/agent-sessions/:id/close/force', { preHandler: app.requireAdmin }, async (req) => {
     const parsed = forceSchema.safeParse(req.body ?? {});
     if (!parsed.success) throw badRequest(parsed.error.issues[0]);
     const sessionId = stringParam(req.params, 'id');
     const result = await portal.forceClose(
-      { kind: 'admin', displayName: actorName(req) },
+      adminActor(req),
       { sessionId, clientMessageId: parsed.data.client_message_id, note: parsed.data.note },
     );
     // Recorded even when `forced` is false: a second Force on an already-ended

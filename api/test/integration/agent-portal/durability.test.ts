@@ -154,7 +154,7 @@ describe.skipIf(!handle)('agent portal durability against a real database', { ti
       },
       world.host.id,
     );
-    const answer = await world.service.answerPrompt(world.identity, {
+    const answer = await world.service.answerPrompt({ kind: 'portal', identity: world.identity }, {
       sessionId: world.sessionId,
       promptId,
       clientMessageId: randomUUID(),
@@ -239,7 +239,7 @@ describe.skipIf(!handle)('agent portal durability against a real database', { ti
     it('clears once the operator sends a message', async () => {
       const world = await makeWorld();
       await raiseAttention(world, 'Need a decision');
-      await world.service.enqueueMessage(world.identity, {
+      await world.service.enqueueMessage({ kind: 'portal', identity: world.identity }, {
         sessionId: world.sessionId,
         clientMessageId: randomUUID(),
         content: 'go ahead',
@@ -259,7 +259,7 @@ describe.skipIf(!handle)('agent portal durability against a real database', { ti
     it('re-raises for a notice newer than the last reply', async () => {
       const world = await makeWorld();
       await raiseAttention(world, 'first');
-      await world.service.enqueueMessage(world.identity, {
+      await world.service.enqueueMessage({ kind: 'portal', identity: world.identity }, {
         sessionId: world.sessionId,
         clientMessageId: randomUUID(),
         content: 'ok',
@@ -277,7 +277,7 @@ describe.skipIf(!handle)('agent portal durability against a real database', { ti
 
   describe('operator-initiated close', () => {
     const requestClose = async (world: World, note?: string) =>
-      await world.service.requestClose(world.identity, {
+      await world.service.requestClose({ kind: 'portal', identity: world.identity }, {
         sessionId: world.sessionId,
         clientMessageId: randomUUID(),
         note,
@@ -351,12 +351,12 @@ describe.skipIf(!handle)('agent portal durability against a real database', { ti
     it('is idempotent for a repeated client_message_id', async () => {
       const world = await makeWorld();
       const clientMessageId = randomUUID();
-      const first = await world.service.requestClose(world.identity, {
+      const first = await world.service.requestClose({ kind: 'portal', identity: world.identity }, {
         sessionId: world.sessionId,
         clientMessageId,
         note: 'same note',
       });
-      const second = await world.service.requestClose(world.identity, {
+      const second = await world.service.requestClose({ kind: 'portal', identity: world.identity }, {
         sessionId: world.sessionId,
         clientMessageId,
         note: 'same note',
@@ -378,9 +378,9 @@ describe.skipIf(!handle)('agent portal durability against a real database', { ti
     it('rejects a reused client_message_id carrying a different note', async () => {
       const world = await makeWorld();
       const clientMessageId = randomUUID();
-      await world.service.requestClose(world.identity, { sessionId: world.sessionId, clientMessageId, note: 'one' });
+      await world.service.requestClose({ kind: 'portal', identity: world.identity }, { sessionId: world.sessionId, clientMessageId, note: 'one' });
       await expect(
-        world.service.requestClose(world.identity, { sessionId: world.sessionId, clientMessageId, note: 'two' }),
+        world.service.requestClose({ kind: 'portal', identity: world.identity }, { sessionId: world.sessionId, clientMessageId, note: 'two' }),
       ).rejects.toMatchObject({ code: 'client_message_id_conflict' });
     });
 
@@ -430,7 +430,7 @@ describe.skipIf(!handle)('agent portal durability against a real database', { ti
 
     it('cancels pending work on the way out', async () => {
       const world = await makeWorld();
-      await world.service.enqueueMessage(world.identity, {
+      await world.service.enqueueMessage({ kind: 'portal', identity: world.identity }, {
         sessionId: world.sessionId,
         clientMessageId: randomUUID(),
         content: 'still queued',
@@ -558,7 +558,7 @@ describe.skipIf(!handle)('agent portal durability against a real database', { ti
 
   it('redelivers an active lease to the same claim id without incrementing attempts', async () => {
     const world = await makeWorld();
-    const queued = await world.service.enqueueMessage(world.identity, {
+    const queued = await world.service.enqueueMessage({ kind: 'portal', identity: world.identity }, {
       sessionId: world.sessionId,
       clientMessageId: randomUUID(),
       content: 'Continue safely',
@@ -596,7 +596,7 @@ describe.skipIf(!handle)('agent portal durability against a real database', { ti
 
   it('rolls back message acceptance when its visible event cannot commit', async () => {
     const world = await makeWorld();
-    const queued = await world.service.enqueueMessage(world.identity, {
+    const queued = await world.service.enqueueMessage({ kind: 'portal', identity: world.identity }, {
       sessionId: world.sessionId,
       clientMessageId: randomUUID(),
       content: 'Atomic acknowledgement',

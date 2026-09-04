@@ -4,17 +4,73 @@ import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { z } from 'zod';
 import type { RouteContext } from '../index.js';
-import { ApiError, ForbiddenError, ServiceUnavailableError, ValidationError } from '../../http/errors.js';
+import { ApiError, ForbiddenError, ServiceUnavailableError, UnauthorizedError, ValidationError } from '../../http/errors.js';
 import { ok } from '../../http/reply.js';
-import { createAgentPortalService } from '../../services/agent-portal.js';
+import { createAgentPortalService, type PortalActor } from '../../services/agent-portal.js';
+import type { Capability } from '../../security/capabilities.js';
 
 export async function registerAgentPortalPublicRoutes(
   app: FastifyInstance,
   ctx: RouteContext,
 ): Promise<void> {
   const portal = createAgentPortalService(ctx.db, ctx.env, ctx.keyring);
-  const identityFor = async (req: FastifyRequest) =>
-    await portal.authenticateBrowser(req.cookies[ctx.env.AGENT_PORTAL_COOKIE]);
+  /**
+   * Either identity may drive the portal.
+   *
+   * The magic link is no longer the only way in: an operator already signed in
+   * to the console is already authenticated to this origin -- /go and /admin are
+   * one Fastify process behind one `PUBLIC_BASE_URL` -- and making them exchange
+   * a second credential for the same fleet was the friction this removes. The
+   * link stays for anyone who has no console account.
+   *
+   * A portal cookie wins when it is valid, because it is the explicit choice.
+   * When it is present but stale the original error is preserved unless an admin
+   * session can take over, so the portal app keeps seeing its own
+   * `agent_portal_session_expired` and its own re-login path.
+   *
+   * `capability` is what keeps this from being a hole. The /go routes carry no
+   * inventory entry, so an admin arriving here would otherwise bypass the gates
+   * the console enforces -- a `viewer` could message agents through the portal
+   * having been refused at /admin. Both capabilities named by callers below are
+   * always-enforced, which is precisely what makes them checkable off a route
+   * key; `agent_portal.read` needs no check because every authenticated role
+   * holds it.
+   */
+  const actorFor = async (req: FastifyRequest, capability?: Capability): Promise<PortalActor> => {
+    const adminActor = async (): Promise<PortalActor | null> => {
+      const admin = await app.resolveAdmin(req);
+      if (!admin) return null;
+      if (capability) await app.assertCapability(req, capability);
+      return {
+        kind: 'admin',
+        user: {
+          id: admin.user.id,
+          displayName: admin.user.name?.trim() || admin.user.username?.trim() || 'Console operator',
+        },
+      };
+    };
+    const raw = req.cookies[ctx.env.AGENT_PORTAL_COOKIE];
+    if (raw) {
+      try {
+        return { kind: 'portal', identity: await portal.authenticateBrowser(raw) };
+      } catch (error) {
+        const fallback = await adminActor();
+        if (!fallback) throw error;
+        return fallback;
+      }
+    }
+    const admin = await adminActor();
+    if (!admin) throw new UnauthorizedError('Portal login required', 'agent_portal_login_required');
+    return admin;
+  };
+
+  /** The signed-in viewer, whichever identity table they came from. */
+  const viewerFor = async (req: FastifyRequest): Promise<{ id: number; display_name: string; kind: string }> => {
+    const actor = await actorFor(req);
+    return actor.kind === 'portal'
+      ? { id: actor.identity.user.id, display_name: actor.identity.user.display_name, kind: 'portal' }
+      : { id: actor.user.id, display_name: actor.user.displayName, kind: 'admin' };
+  };
 
   app.get('/go/api/state', async (req, reply) => {
     assertPortalOrigin(req, ctx, false);
@@ -58,20 +114,20 @@ export async function registerAgentPortalPublicRoutes(
   app.get('/go/api/me', async (req, reply) => {
     assertPortalOrigin(req, ctx, false);
     portalHeaders(reply);
-    return ok({ user: (await identityFor(req)).user });
+    return ok({ user: await viewerFor(req) });
   });
 
   app.get('/go/api/agents', async (req, reply) => {
     assertPortalOrigin(req, ctx, false);
     portalHeaders(reply);
-    await identityFor(req);
+    await actorFor(req);
     return ok({ agents: await portal.listAgents() });
   });
 
   app.get('/go/api/agents/:id/events', async (req, reply) => {
     assertPortalOrigin(req, ctx, false);
     portalHeaders(reply);
-    await identityFor(req);
+    await actorFor(req, 'agent_portal.reveal_transcript');
     const query = z
       .object({
         after: z.coerce.number().int().min(0).optional(),
@@ -85,13 +141,13 @@ export async function registerAgentPortalPublicRoutes(
   app.post('/go/api/agents/:id/messages', async (req, reply) => {
     assertPortalOrigin(req, ctx, true);
     portalHeaders(reply);
-    const identity = await identityFor(req);
+    const actor = await actorFor(req, 'agent_portal.manage');
     const body = z
       .object({ client_message_id: z.string(), content: z.string() })
       .parse(req.body ?? {});
     reply.code(202);
     return ok(
-      await portal.enqueueMessage(identity, {
+      await portal.enqueueMessage(actor, {
         sessionId: stringParam(req.params, 'id'),
         clientMessageId: body.client_message_id,
         content: body.content,
@@ -102,7 +158,7 @@ export async function registerAgentPortalPublicRoutes(
   app.post('/go/api/agents/:id/prompts/:promptId/answer', async (req, reply) => {
     assertPortalOrigin(req, ctx, true);
     portalHeaders(reply);
-    const identity = await identityFor(req);
+    const actor = await actorFor(req, 'agent_portal.manage');
     const params = req.params as Record<string, unknown>;
     const body = z
       .object({
@@ -113,7 +169,7 @@ export async function registerAgentPortalPublicRoutes(
       .parse(req.body ?? {});
     reply.code(202);
     return ok(
-      await portal.answerPrompt(identity, {
+      await portal.answerPrompt(actor, {
         sessionId: stringParam(params, 'id'),
         promptId: stringParam(params, 'promptId'),
         clientMessageId: body.client_message_id,
@@ -126,13 +182,13 @@ export async function registerAgentPortalPublicRoutes(
   app.post('/go/api/agents/:id/close', async (req, reply) => {
     assertPortalOrigin(req, ctx, true);
     portalHeaders(reply);
-    const identity = await identityFor(req);
+    const actor = await actorFor(req, 'agent_portal.manage');
     const body = z
       .object({ client_message_id: z.string(), note: z.string().optional() })
       .parse(req.body ?? {});
     reply.code(202);
     return ok(
-      await portal.requestClose(identity, {
+      await portal.requestClose(actor, {
         sessionId: stringParam(req.params, 'id'),
         clientMessageId: body.client_message_id,
         note: body.note,
@@ -143,12 +199,12 @@ export async function registerAgentPortalPublicRoutes(
   app.post('/go/api/agents/:id/close/force', async (req, reply) => {
     assertPortalOrigin(req, ctx, true);
     portalHeaders(reply);
-    const identity = await identityFor(req);
+    const actor = await actorFor(req, 'agent_portal.manage');
     const body = z
       .object({ client_message_id: z.string(), note: z.string().optional() })
       .parse(req.body ?? {});
     return ok(
-      await portal.forceClose({ kind: 'portal', identity }, {
+      await portal.forceClose(actor, {
         sessionId: stringParam(req.params, 'id'),
         clientMessageId: body.client_message_id,
         note: body.note,
@@ -160,7 +216,27 @@ export async function registerAgentPortalPublicRoutes(
     assertPortalOrigin(req, ctx, false);
     portalHeaders(reply);
     const browserToken = req.cookies[ctx.env.AGENT_PORTAL_COOKIE];
-    await portal.authenticateBrowser(browserToken);
+    const streamActor = await actorFor(req, 'agent_portal.reveal_transcript');
+    /**
+     * One page of events, re-authorizing first.
+     *
+     * The portal branch is unchanged: `listEventsAfterAuthenticated` re-reads
+     * the browser session inside its own transaction on every tick, so revoking
+     * a portal user stops their stream mid-flight rather than at the next
+     * reconnect. The admin branch has to reproduce that rather than trusting the
+     * check made when the connection opened -- a stream is long-lived and an
+     * account can be disabled or demoted while it is open.
+     */
+    const nextPage = async (from: number) => {
+      if (streamActor.kind === 'portal') {
+        return await portal.listEventsAfterAuthenticated(browserToken, from, 250);
+      }
+      await actorFor(req, 'agent_portal.reveal_transcript');
+      if (!(await portal.isEnabled())) {
+        throw new ServiceUnavailableError('Agent portal is disabled', 'agent_portal_disabled');
+      }
+      return await portal.listEventsAfter(from, 250);
+    };
     const query = z
       .object({ after: z.coerce.number().int().min(0).optional() })
       .parse(req.query ?? {});
@@ -186,7 +262,7 @@ export async function registerAgentPortalPublicRoutes(
     let lastHeartbeat = Date.now();
     while (!closed && !reply.raw.destroyed) {
       try {
-        const page = await portal.listEventsAfterAuthenticated(browserToken, cursor, 250);
+        const page = await nextPage(cursor);
         for (const event of page.events) {
           cursor = Number(event.cursor ?? cursor);
           if (!reply.raw.write(`id: ${cursor}\nevent: agent\ndata: ${JSON.stringify(event)}\n\n`)) {

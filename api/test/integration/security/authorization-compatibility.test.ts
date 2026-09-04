@@ -266,8 +266,8 @@ describe('the exceptions are exceptions, not holes', () => {
     // is pinned: that set records the gates as they stood at `13b4093f` and can
     // never grow, so *every* route added afterwards is open to every role under
     // `compatible` unless its capability is always-enforced. For a timeline that
-    // is the fleet's conversations, and for force-close it is ending someone
-    // else's running agent.
+    // is the fleet's conversations, and for the writes it is instructing, or
+    // ending, someone else's running agent.
     expect([...ALWAYS_ENFORCED_ROUTES].sort()).toEqual([
       'DELETE /admin/agent-portal/users/:id',
       'GET /admin/agent-sessions/:id/events',
@@ -278,7 +278,10 @@ describe('the exceptions are exceptions, not holes', () => {
       'POST /admin/agent-portal/users/:id',
       'POST /admin/agent-portal/users/:id/enabled',
       'POST /admin/agent-portal/users/:id/rotate',
+      'POST /admin/agent-sessions/:id/close',
       'POST /admin/agent-sessions/:id/close/force',
+      'POST /admin/agent-sessions/:id/messages',
+      'POST /admin/agent-sessions/:id/prompts/:promptId/answer',
       'POST /admin/authorization',
     ]);
   });

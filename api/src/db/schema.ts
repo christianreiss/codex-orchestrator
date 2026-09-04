@@ -1501,7 +1501,15 @@ export const agentMessages = mysqlTable(
     id: bigint('id', { mode: 'number', unsigned: true }).primaryKey().autoincrement(),
     messageId: char('message_id', { length: 36 }).notNull(),
     sessionId: char('session_id', { length: 36 }).notNull(),
-    portalUserId: bigint('portal_user_id', { mode: 'number', unsigned: true }).notNull(),
+    /**
+     * Who authored this message. Exactly one of these is set — see
+     * `0027_agent_messages_admin_actor.sql` for why the invariant lives in
+     * `agent-portal.ts` rather than in a CHECK constraint. `portalUserId` points
+     * at a magic-link `agent_portal_users` row, `adminUserId` at the
+     * `admin_users` row behind a console session.
+     */
+    portalUserId: bigint('portal_user_id', { mode: 'number', unsigned: true }),
+    adminUserId: bigint('admin_user_id', { mode: 'number', unsigned: true }),
     kind: varchar('kind', { length: 16 }).notNull().default('message'),
     promptId: char('prompt_id', { length: 36 }),
     clientMessageId: char('client_message_id', { length: 36 }).notNull(),
@@ -1523,6 +1531,7 @@ export const agentMessages = mysqlTable(
     clientIdUnique: uniqueIndex('uq_agent_messages_session_client').on(t.sessionId, t.clientMessageId),
     dispatchIdx: index('idx_agent_messages_dispatch').on(t.sessionId, t.status, t.nextAttemptAt, t.id),
     userIdx: index('idx_agent_messages_user').on(t.portalUserId, t.status),
+    adminUserIdx: index('idx_agent_messages_admin_user').on(t.adminUserId, t.status),
   }),
 );
 

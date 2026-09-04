@@ -98,10 +98,31 @@ describe('agent portal browser boundary', () => {
       source.indexOf("app.get('/go/api/events'"),
       source.indexOf('const portalRoot'),
     );
-    expect(stream).toContain('await portal.listEventsAfterAuthenticated(browserToken, cursor, 250);');
+    // The invariant is that a page is re-authorized on every tick, never once
+    // when the connection opened -- a stream outlives the check that started it,
+    // and a revoked account must stop mid-flight. It used to be spelled as one
+    // call inside the loop; since /go accepts a console session too, the two
+    // identities re-authorize differently and the call sits behind `nextPage`.
+    // What is asserted is still the property: the fetch happens inside the loop,
+    // and each branch re-checks before it reads.
+    expect(stream).toContain('const page = await nextPage(cursor);');
     expect(stream.indexOf('while (!closed')).toBeLessThan(
-      stream.indexOf('await portal.listEventsAfterAuthenticated(browserToken, cursor, 250);'),
+      stream.indexOf('const page = await nextPage(cursor);'),
     );
+
+    const nextPage = stream.slice(
+      stream.indexOf('const nextPage = async'),
+      stream.indexOf('const query = z'),
+    );
+    // Portal branch: the service re-reads the browser session in its own
+    // transaction, which is what makes revocation land mid-stream.
+    expect(nextPage).toContain('portal.listEventsAfterAuthenticated(browserToken, from, 250)');
+    // Admin branch: the unauthenticated reader is only ever reached after the
+    // session and its capability have been resolved again on this same tick.
+    expect(nextPage.indexOf("await actorFor(req, 'agent_portal.reveal_transcript')")).toBeLessThan(
+      nextPage.indexOf('portal.listEventsAfter(from, 250)'),
+    );
+    expect(nextPage).toContain('portal.isEnabled()');
   });
 
   it('allows only safe engine events and derives their source on the server', () => {

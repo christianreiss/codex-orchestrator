@@ -23,6 +23,7 @@ import {
   agentPortalUsers,
   agentPrompts,
   agentSessions,
+  adminUsers,
   hosts,
   versions,
   type AgentMessage,
@@ -159,17 +160,34 @@ export interface PortalIdentity {
 /**
  * Who is acting on a session.
  *
- * The portal authenticates a magic-link `agent_portal_users` row; the admin
- * console authenticates an `admin_users` row over its own session cookie. Those
- * are separate identity tables, which is why this union stops at `forceClose`:
- * every other operator write inserts into `agent_messages`, whose
- * `portal_user_id` is NOT NULL and also carries the idempotency identity. Force
- * writes an event and a terminal state and no queue row, so the only thing it
- * needs from an actor is the display name the agent's own timeline renders.
+ * The portal authenticates a magic-link `agent_portal_users` row; the console
+ * authenticates an `admin_users` row over its own session cookie. They are
+ * separate identity tables, and `0027_agent_messages_admin_actor.sql` is what
+ * lets both reach the message queue: `agent_messages` now carries a nullable
+ * column for each, exactly one set.
+ *
+ * The kind travels with the id everywhere, and that is not decoration. Message
+ * idempotency compares the author, so comparing bare numbers across two tables
+ * would let admin #3 silently satisfy a retry authored by portal user #3.
  */
 export type PortalActor =
   | { kind: 'portal'; identity: PortalIdentity }
-  | { kind: 'admin'; displayName: string };
+  | { kind: 'admin'; user: { id: number; displayName: string } };
+
+/** An actor resolved against its own identity table, inside the write's lock. */
+interface ResolvedActor {
+  kind: 'portal' | 'admin';
+  id: number;
+  /** What the agent's own timeline shows as the author of the message. */
+  displayName: string;
+}
+
+/** The `agent_messages` author columns for an actor; exactly one is non-null. */
+function actorColumns(actor: ResolvedActor): { portalUserId: number | null; adminUserId: number | null } {
+  return actor.kind === 'admin'
+    ? { portalUserId: null, adminUserId: actor.id }
+    : { portalUserId: actor.id, adminUserId: null };
+}
 
 export interface RegisterAgentInput {
   engine: Engine;
@@ -1003,18 +1021,18 @@ export class AgentPortalService {
     return rows[0]?.id ?? 0;
   }
 
-  async enqueueMessage(identity: PortalIdentity, input: { sessionId: string; clientMessageId: string; content: string }): Promise<Record<string, unknown>> {
+  async enqueueMessage(actor: PortalActor, input: { sessionId: string; clientMessageId: string; content: string }): Promise<Record<string, unknown>> {
     const content = normalizeMessage(input.content);
     const clientMessageId = normalizeUuid(input.clientMessageId, 'client_message_id');
     const messageId = randomUUID();
     const now = nowIso();
     const inserted = await this.db.transaction(async (tx) => {
       await this.requirePortalEnabledLocked(tx);
-      const user = await this.requireIdentityLocked(tx, identity, now);
+      const user = await this.requireActorLocked(tx, actor, now);
       const session = await this.requireVisibleSessionLocked(tx, input.sessionId, now);
       const raced = await this.findMessageByClientId(input.sessionId, clientMessageId, tx, true);
       if (raced) {
-        this.assertMessageIdempotency(raced, user.id, 'message', null, content);
+        this.assertMessageIdempotency(raced, user, 'message', null, content);
         return raced;
       }
       this.assertLiveSession(session);
@@ -1022,7 +1040,7 @@ export class AgentPortalService {
       await tx.insert(agentMessages).values({
         messageId,
         sessionId: input.sessionId,
-        portalUserId: user.id,
+        ...actorColumns(user),
         kind: 'message',
         promptId: null,
         clientMessageId,
@@ -1052,18 +1070,18 @@ export class AgentPortalService {
     return messageView(inserted);
   }
 
-  async answerPrompt(identity: PortalIdentity, input: { sessionId: string; promptId: string; clientMessageId: string; answer: string; version?: number }): Promise<Record<string, unknown>> {
+  async answerPrompt(actor: PortalActor, input: { sessionId: string; promptId: string; clientMessageId: string; answer: string; version?: number }): Promise<Record<string, unknown>> {
     const answer = normalizeMessage(input.answer);
     const clientMessageId = normalizeUuid(input.clientMessageId, 'client_message_id');
     const messageId = randomUUID();
     const now = nowIso();
     const inserted = await this.db.transaction(async (tx) => {
       await this.requirePortalEnabledLocked(tx);
-      const user = await this.requireIdentityLocked(tx, identity, now);
+      const user = await this.requireActorLocked(tx, actor, now);
       const session = await this.requireVisibleSessionLocked(tx, input.sessionId, now);
       const raced = await this.findMessageByClientId(input.sessionId, clientMessageId, tx, true);
       if (raced) {
-        this.assertMessageIdempotency(raced, user.id, 'answer', input.promptId, answer);
+        this.assertMessageIdempotency(raced, user, 'answer', input.promptId, answer);
         return raced;
       }
       this.assertLiveSession(session);
@@ -1088,7 +1106,7 @@ export class AgentPortalService {
       await tx.insert(agentMessages).values({
         messageId,
         sessionId: input.sessionId,
-        portalUserId: user.id,
+        ...actorColumns(user),
         kind: 'answer',
         promptId: input.promptId,
         clientMessageId,
@@ -1137,7 +1155,7 @@ export class AgentPortalService {
    * `forceClose` is the escalation when the relay is shut or the agent is gone.
    */
   async requestClose(
-    identity: PortalIdentity,
+    actor: PortalActor,
     input: { sessionId: string; clientMessageId: string; note?: string },
   ): Promise<Record<string, unknown>> {
     const note = normalizeCloseNote(input.note);
@@ -1146,11 +1164,11 @@ export class AgentPortalService {
     const now = nowIso();
     const result = await this.db.transaction(async (tx) => {
       await this.requirePortalEnabledLocked(tx);
-      const user = await this.requireIdentityLocked(tx, identity, now);
+      const user = await this.requireActorLocked(tx, actor, now);
       const session = await this.requireVisibleSessionLocked(tx, input.sessionId, now);
       const raced = await this.findMessageByClientId(input.sessionId, clientMessageId, tx, true);
       if (raced) {
-        this.assertMessageIdempotency(raced, user.id, 'close', null, note);
+        this.assertMessageIdempotency(raced, user, 'close', null, note);
         return { row: raced, requestedAt: session.closeRequestedAt ?? raced.createdAt };
       }
       this.assertLiveSession(session);
@@ -1158,7 +1176,7 @@ export class AgentPortalService {
       await tx.insert(agentMessages).values({
         messageId,
         sessionId: input.sessionId,
-        portalUserId: user.id,
+        ...actorColumns(user),
         kind: 'close',
         promptId: null,
         clientMessageId,
@@ -1263,7 +1281,11 @@ export class AgentPortalService {
     const authenticated = await this.authenticateBridge(sessionId, bridgeToken, hostId);
     for (;;) {
       const candidateRows = await this.db
-        .select({ id: agentMessages.id, portalUserId: agentMessages.portalUserId })
+        .select({
+          id: agentMessages.id,
+          portalUserId: agentMessages.portalUserId,
+          adminUserId: agentMessages.adminUserId,
+        })
         .from(agentMessages)
         .where(and(eq(agentMessages.sessionId, sessionId), inArray(agentMessages.status, ['queued', 'leased'])))
         .orderBy(asc(agentMessages.id))
@@ -1271,16 +1293,7 @@ export class AgentPortalService {
       const candidate = candidateRows[0];
       const result = await this.db.transaction(async (tx): Promise<ClaimedMessage | null | 'retry'> => {
         await this.requirePortalEnabledLocked(tx);
-        let user: AgentPortalUser | undefined;
-        if (candidate) {
-          const users = await tx
-            .select()
-            .from(agentPortalUsers)
-            .where(eq(agentPortalUsers.id, candidate.portalUserId))
-            .limit(1)
-            .for('update');
-          user = users[0];
-        }
+        const authorLive = candidate ? await this.authorDeliverableLocked(tx, candidate) : false;
         const session = await this.requireBridgeSessionLocked(
           tx,
           sessionId,
@@ -1302,7 +1315,7 @@ export class AgentPortalService {
           .for('update');
         const row = rows[0];
         if (!row || row.sessionId !== sessionId || (row.status !== 'queued' && row.status !== 'leased')) return 'retry';
-        if (!user || user.enabled !== 1 || user.deletedAt) {
+        if (!authorLive) {
           await tx
             .update(agentMessages)
             .set({ status: 'canceled', canceledAt: now, leaseOwner: null, leaseUntil: null, updatedAt: now })
@@ -1779,13 +1792,66 @@ export class AgentPortalService {
    * browser session must not be able to end an agent -- while an admin arrives
    * already authenticated by `requireAdmin` and capability-gated at the route.
    */
+  /**
+   * May this queued message still be delivered?
+   *
+   * Delivery re-reads the author instead of trusting the queue row, so revoking
+   * an account kills its undelivered instructions at the moment an agent
+   * reaches for one -- not merely whenever a sweep next runs. That is the
+   * property, and since 0027 it has two branches: a portal user must still be
+   * enabled and undeleted, an admin must still be active.
+   *
+   * A row with neither column set cannot happen through this service, so it is
+   * the shape a bug would produce -- and the safe reading of "no identifiable
+   * author" is that nobody may act on it.
+   */
+  private async authorDeliverableLocked(
+    db: AgentPortalDb,
+    row: { portalUserId: number | null; adminUserId: number | null },
+  ): Promise<boolean> {
+    if (row.adminUserId != null) {
+      const rows = await db
+        .select({ active: adminUsers.active })
+        .from(adminUsers)
+        .where(eq(adminUsers.id, row.adminUserId))
+        .limit(1)
+        .for('update');
+      return rows[0]?.active === 1;
+    }
+    if (row.portalUserId == null) return false;
+    const rows = await db
+      .select({ enabled: agentPortalUsers.enabled, deletedAt: agentPortalUsers.deletedAt })
+      .from(agentPortalUsers)
+      .where(eq(agentPortalUsers.id, row.portalUserId))
+      .limit(1)
+      .for('update');
+    const user = rows[0];
+    return Boolean(user && user.enabled === 1 && !user.deletedAt);
+  }
+
   private async requireActorLocked(
     db: AgentPortalDb,
     actor: PortalActor,
     now: string,
-  ): Promise<{ displayName: string }> {
-    if (actor.kind === 'admin') return { displayName: actor.displayName };
-    return await this.requireIdentityLocked(db, actor.identity, now);
+  ): Promise<ResolvedActor> {
+    if (actor.kind === 'admin') {
+      // Re-read under the write's lock rather than trusting the request's
+      // `requireAdmin`, which resolved the session before this transaction
+      // opened. An account deactivated in between must not get one last
+      // instruction through.
+      const rows = await db
+        .select({ id: adminUsers.id, name: adminUsers.name, username: adminUsers.username, active: adminUsers.active })
+        .from(adminUsers)
+        .where(eq(adminUsers.id, actor.user.id))
+        .limit(1)
+        .for('update');
+      const admin = rows[0];
+      if (!admin) throw new NotFoundError('Admin user not found', 'admin_user_not_found');
+      if (admin.active !== 1) throw new ForbiddenError('Admin account is disabled', 'admin_disabled');
+      return { kind: 'admin', id: admin.id, displayName: admin.name || admin.username };
+    }
+    const user = await this.requireIdentityLocked(db, actor.identity, now);
+    return { kind: 'portal', id: user.id, displayName: user.displayName };
   }
 
   private async requireIdentityLocked(db: AgentPortalDb, identity: PortalIdentity, now: string): Promise<AgentPortalUser> {
@@ -1953,15 +2019,23 @@ export class AgentPortalService {
     return rows[0] ?? null;
   }
 
+  /**
+   * A retried `client_message_id` must be the same message or a conflict. The
+   * author is part of that identity, and since 0027 two identity tables can
+   * author -- so the comparison is against the actor's columns rather than a
+   * bare number, or admin #3 would silently satisfy portal user #3's retry.
+   */
   private assertMessageIdempotency(
     row: AgentMessage,
-    portalUserId: number,
+    actor: ResolvedActor,
     kind: 'message' | 'answer' | 'close',
     promptId: string | null,
     content: string,
   ): void {
+    const expected = actorColumns(actor);
     if (
-      row.portalUserId !== portalUserId ||
+      row.portalUserId !== expected.portalUserId ||
+      row.adminUserId !== expected.adminUserId ||
       row.kind !== kind ||
       row.promptId !== promptId ||
       this.decodeText(row.contentEnc) !== content

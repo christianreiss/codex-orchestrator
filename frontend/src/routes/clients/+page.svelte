@@ -6,6 +6,7 @@
   import { toast } from "svelte-sonner";
   import { base } from "$app/paths";
   import PageHeader from "$lib/components/layout/PageHeader.svelte";
+  import Composer from "$lib/components/portal/Composer.svelte";
   import EngineAvatar from "$lib/components/portal/EngineAvatar.svelte";
   import PresenceDot from "$lib/components/portal/PresenceDot.svelte";
   import Timeline from "$lib/components/portal/Timeline.svelte";
@@ -21,6 +22,8 @@
     agentSessionKeys,
     agentSessionsQuery,
     forceCloseMutation,
+    requestCloseMutation,
+    sendMutation,
     sessionEventsQuery,
     type AgentSessionRow,
   } from "$lib/api/agentSessions";
@@ -144,6 +147,47 @@
         : toast.success("Session ended"),
     onError: (error) => toast.error(error.message),
   });
+
+  const cooperativeClose = requestCloseMutation({
+    onSuccess: () => toast.success("Close requested; the agent will pick it up"),
+    onError: (error) => toast.error(error.message),
+  });
+
+  // The draft is keyed by session so switching panes does not hand one agent's
+  // half-written instruction to another, and never cleared on failure -- losing
+  // the text along with the send leaves nothing to retry.
+  let drafts = $state<Record<string, string>>({});
+  let composerInput = $state<HTMLTextAreaElement | null>(null);
+  const draft = $derived(selectedId ? (drafts[selectedId] ?? "") : "");
+
+  const send = sendMutation({
+    onError: (error) => toast.error(error.message),
+  });
+
+  async function submit(text: string): Promise<boolean> {
+    if (!selected) return false;
+    const prompt = selected.pending_prompt;
+    try {
+      await $send.mutateAsync({
+        id: selected.id,
+        content: text,
+        prompt: prompt ? { id: prompt.id, version: prompt.version } : null,
+      });
+      drafts = { ...drafts, [selected.id]: "" };
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /** Timeline affordances: an option answers directly, no option focuses the box. */
+  function onreply(option?: string) {
+    if (option) {
+      void submit(option);
+      return;
+    }
+    composerInput?.focus();
+  }
 
   function refresh() {
     void client.invalidateQueries({ queryKey: agentSessionKeys.all });
@@ -274,15 +318,32 @@
               {/if}
             </div>
             {#if canManage && !selected.ended_at}
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={$force.isPending}
-                title="End this session now. Works even when the agent is offline and cannot accept a cooperative close."
-                onclick={() => $force.mutate({ id: selected.id })}
-              >
-                Force close
-              </Button>
+              <div class="flex shrink-0 gap-2">
+                <!-- Ask first, insist second. A cooperative close is queued for
+                     the agent to honour and needs an open relay; force needs
+                     nothing, which is why it is the one that still works on a
+                     session that has gone quiet. -->
+                {#if view.canSend && !selected.close}
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={$cooperativeClose.isPending}
+                    title="Ask the agent to wrap up and exit when it reaches a stopping point."
+                    onclick={() => $cooperativeClose.mutate({ id: selected.id })}
+                  >
+                    Ask to close
+                  </Button>
+                {/if}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={$force.isPending}
+                  title="End this session now. Works even when the agent is offline and cannot accept a cooperative close."
+                  onclick={() => $force.mutate({ id: selected.id })}
+                >
+                  Force close
+                </Button>
+              </div>
             {/if}
           </header>
 
@@ -305,10 +366,21 @@
               Failed to load the timeline: {$events.error?.message ?? "unknown error"}
             </p>
           {:else}
-            <!-- Read-only: answering writes an agent_messages row, which is keyed
-                 to a portal user rather than an admin. The portal at /go is where
-                 a reply comes from. -->
-            <Timeline portal={timelineSource} agent={selected} readonly />
+            <Timeline portal={timelineSource} agent={selected} {onreply} readonly={!canManage} />
+          {/if}
+
+          {#if canReadTranscript && canManage}
+            <!-- The same composer the portal uses, so the two surfaces cannot
+                 drift on what "can I send right now" means. -->
+            <Composer
+              agent={selected}
+              {now}
+              sending={$send.isPending}
+              {draft}
+              ondraft={(text) => (drafts = { ...drafts, [selected.id]: text })}
+              onsend={submit}
+              bind:input={composerInput}
+            />
           {/if}
         </div>
       {/if}

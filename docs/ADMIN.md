@@ -323,12 +323,29 @@ Admin routes:
   Agent Messaging address for the worktree it is sitting in. The page is empty
   whenever the master switch is off — registration is discarded server-side —
   and says so rather than showing a bare list.
-- The console view is deliberately read-only apart from **Force close**.
-  Messaging an agent and answering its prompts insert into `agent_messages`,
-  whose `portal_user_id` is NOT NULL and also carries the message idempotency
-  identity, so an admin account cannot author one; `/go` remains where a reply
-  comes from. Force-close writes an event and a terminal state and no queue row,
-  and it is the only close that still works once the agent has gone offline.
+- The console view is fully interactive: send an instruction, answer an open
+  prompt, ask an agent to close, or force it. Migration `0027` is what made that
+  possible — `agent_messages.portal_user_id` was NOT NULL and pointed at the
+  portal's own identity table, so before it an operator signed in to the console
+  had to authenticate a second time at `/go` to send a single line. The column is
+  now a pair, `portal_user_id` or `admin_user_id`, exactly one set.
+- **Ask to close** is queued for the agent to honour and needs an open relay;
+  **Force close** writes an event and a terminal state and no queue row, which is
+  why it is the only one that still works once the agent has gone offline. A
+  second Force on an ended session is a no-op, not an error.
+- Revoking an account stops its queued instructions. Delivery re-reads the
+  author as an agent reaches for a message and cancels it when that account has
+  since been disabled or deleted, so a deactivated admin's pending instruction
+  never lands. The account is also re-checked, under the write's own lock, when
+  the message is composed.
+- The magic link is no longer the only way into `/go`. Every `/go/api/*` route
+  now accepts a console session as well, so an operator with a console account
+  reaches the portal on a phone without a link; the link remains for anyone who
+  has no console account, and a valid portal cookie still wins. Those routes
+  carry no capability inventory entry of their own, so the admin path asserts
+  `agent_portal.manage` for writes and `agent_portal.reveal_transcript` for
+  timelines and the event stream explicitly — otherwise a role refused in the
+  console could have acted through the portal.
 - Reading a session timeline needs `agent_portal.reveal_transcript`, separate
   from `agent_portal.read` because the events carry the message bodies rather
   than metadata about them. That capability and `agent_portal.manage` are both

@@ -123,6 +123,72 @@ describe.skipIf(!handle)('agent portal magic link end to end', { timeout: 120_00
     await handle?.pool.end();
   });
 
+  /**
+   * The portal now admits a console session as well as a magic link, which is
+   * the whole point of the integration -- an operator already signed in should
+   * not exchange a second credential to reach the same fleet. The risk it
+   * introduces is that /go carries no capability inventory entry, so an admin
+   * arriving here would bypass the gates the console enforces unless the
+   * fallback asserts them itself. These tests are that assertion: a `viewer`
+   * refused at /admin must be refused here for the same actions.
+   */
+  describe('a console session as an alternative to the magic link', () => {
+    const go = (method: 'GET' | 'POST', url: string, cookie: string, payload?: Record<string, unknown>) =>
+      app.inject({
+        method,
+        url,
+        headers: { cookie, origin: ORIGIN, 'sec-fetch-site': 'same-origin' },
+        payload,
+      });
+
+    it('lets an owner in with no portal cookie at all', async () => {
+      const me = await go('GET', '/go/api/me', ownerCookie);
+      expect(me.statusCode).toBe(200);
+      expect(JSON.parse(me.payload).user).toMatchObject({ kind: 'admin' });
+
+      const agents = await go('GET', '/go/api/agents', ownerCookie);
+      expect(agents.statusCode).toBe(200);
+    });
+
+    it('still refuses a request carrying neither identity', async () => {
+      const anonymous = await app.inject({
+        method: 'GET',
+        url: '/go/api/agents',
+        headers: { origin: ORIGIN, 'sec-fetch-site': 'same-origin' },
+      });
+      expect(anonymous.statusCode).toBe(401);
+    });
+
+    it('admits a viewer to the agent listing, which is metadata every role reads', async () => {
+      const agents = await go('GET', '/go/api/agents', viewerCookie);
+      expect(agents.statusCode).toBe(200);
+    });
+
+    it('refuses a viewer the timeline, which carries message bodies', async () => {
+      const events = await go('GET', `/go/api/agents/${randomUUID()}/events`, viewerCookie);
+      expect(events.statusCode).toBe(403);
+    });
+
+    it('refuses a viewer every write, so /go is not a way around /admin', async () => {
+      const id = randomUUID();
+      const writes = await Promise.all([
+        go('POST', `/go/api/agents/${id}/messages`, viewerCookie, {
+          client_message_id: randomUUID(),
+          content: 'let me in',
+        }),
+        go('POST', `/go/api/agents/${id}/close`, viewerCookie, { client_message_id: randomUUID() }),
+        go('POST', `/go/api/agents/${id}/close/force`, viewerCookie, { client_message_id: randomUUID() }),
+        go('POST', `/go/api/agents/${id}/prompts/${randomUUID()}/answer`, viewerCookie, {
+          client_message_id: randomUUID(),
+          answer: 'no',
+        }),
+      ]);
+      // 403 on the capability, never 404 on the session id -- being refused for
+      // the right reason is what distinguishes a gate from an accident.
+      expect(writes.map((response) => response.statusCode)).toEqual([403, 403, 403, 403]);
+    });
+  });
+
   const createPortalUser = async (label: string) => {
     const response = await app.inject({
       method: 'POST',

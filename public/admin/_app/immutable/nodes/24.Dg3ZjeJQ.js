@@ -1,0 +1,1 @@
+import{t as e}from"../chunks/BGH1tMUT.js";export{e as component};
