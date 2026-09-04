@@ -3,7 +3,8 @@
   import { browser } from "$app/environment";
   import type { Readable } from "svelte/store";
   import type { WsEvent } from "$lib/ws/client";
-  import { insecureApprovalsQuery } from "$lib/api/insecure";
+  import { insecureApprovalsQuery, insecureSummaryQuery } from "$lib/api/insecure";
+  import { hostsSummary } from "$lib/stores/hosts-summary";
   import InsecureApprovalsDialog from "./InsecureApprovalsDialog.svelte";
 
   /**
@@ -30,6 +31,15 @@
 
   const approvals = insecureApprovalsQuery();
   const pendingCount = $derived($approvals.data?.requests?.length ?? 0);
+
+  // This component is mounted in the root layout, which makes it the only place
+  // that can keep the TopBar honest about a fleet-wide auto-allow from every
+  // route -- the hosts page, the store's other writer, is usually not mounted.
+  const summary = insecureSummaryQuery();
+  $effect(() => {
+    const fleet = $summary.data?.fleet_window;
+    hostsSummary.setFleetWindowUntil(fleet?.open ? (fleet.until ?? null) : null);
+  });
   const newestFqdn = $derived(
     $approvals.data?.requests?.[$approvals.data.requests.length - 1]?.fqdn,
   );

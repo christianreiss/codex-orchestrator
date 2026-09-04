@@ -20,7 +20,8 @@ import {
   logs,
 } from '../db/schema.js';
 import type { Host } from '../db/schema.js';
-import { nowIso } from '../util/timestamp.js';
+import { isoOffsetSeconds, nowIso } from '../util/timestamp.js';
+import { wsPublisher } from '../ws/publisher.js';
 import { NotFoundError, ValidationError, ConflictError } from '../http/errors.js';
 import type { AdminEventsWriter } from './admin-events-writer.js';
 import {
@@ -28,6 +29,16 @@ import {
   computeGraceUntil,
   DEFAULT_INSECURE_WINDOW_MINUTES,
 } from './host-management.js';
+import { SettingsService } from './settings.js';
+import {
+  approveAllPendingInsecureRequests,
+  clampFleetWindowMinutes,
+  closeAllInsecureAccess,
+  INSECURE_FLEET_WINDOW_KEY,
+  readFleetWindow,
+  stampAllInsecureHosts,
+  type FleetWindowState,
+} from './insecure-fleet-window.js';
 
 const PENDING_APPROVAL_TTL_MS = 5 * 60_000;
 
@@ -99,6 +110,12 @@ export class InsecureWindowAdminService {
     return this.opts.events;
   }
 
+  private get settings(): SettingsService {
+    this.settingsCache ??= new SettingsService(this.opts.db);
+    return this.settingsCache;
+  }
+  private settingsCache: SettingsService | undefined;
+
   private async writeLog(
     hostId: number | null,
     action: string,
@@ -167,6 +184,144 @@ export class InsecureWindowAdminService {
     }
   }
 
+  // ────────── fleet-wide window ──────────
+
+  /** Read-only view of the fleet window, for the admin summary and the UI. */
+  async fleetWindowState(): Promise<FleetWindowState> {
+    return readFleetWindow(this.settings);
+  }
+
+  /**
+   * Open (or re-set) the fleet window for `durationMinutes`.
+   *
+   * Re-opening replaces the deadline rather than adding to it, unlike the
+   * per-host `enable()` which is deliberately additive: "until 17:00" has to
+   * keep meaning 17:00 however many times an operator presses the button.
+   */
+  async openFleetWindow(durationMinutes: number | null): Promise<{
+    until: Date;
+    windowMinutes: number;
+    hostsOpened: number;
+    approvalsResolved: number;
+  }> {
+    const minutes = clampFleetWindowMinutes(durationMinutes ?? undefined);
+    const raw = isoOffsetSeconds(minutes * 60);
+    const until = new Date(raw);
+
+    await this.settings.set(INSECURE_FLEET_WINDOW_KEY, raw);
+    const stamped = await stampAllInsecureHosts(this.db, until);
+    const approved = await approveAllPendingInsecureRequests(this.db);
+
+    await this.writeLog(null, 'admin.insecure.fleet_window_open', {
+      enabled_until: raw,
+      window_minutes: minutes,
+      hosts_opened: stamped.length,
+      approvals_resolved: approved.length,
+    });
+    for (const req of approved) {
+      await this.writeLog(req.hostId, 'admin.insecure.approval', {
+        request_id: req.id,
+        source: 'fleet_window',
+      });
+    }
+    for (const host of stamped) {
+      wsPublisher.publish('host.updated', { id: host.id });
+    }
+
+    await this.events.appendAndPublish(
+      'insecure.approval.changed',
+      {
+        action: 'fleet_window_opened',
+        enabled_until: raw,
+        window_minutes: minutes,
+        hosts_opened: stamped.length,
+        approvals_resolved: approved.length,
+      },
+      {
+        wsType: 'insecure.approval.changed',
+        wsPayload: { source: 'fleet_window_opened', enabled_until: raw },
+      },
+    );
+
+    return {
+      until,
+      windowMinutes: minutes,
+      hostsOpened: stamped.length,
+      approvalsResolved: approved.length,
+    };
+  }
+
+  /**
+   * Close the fleet window and everything standing behind it.
+   *
+   * Order is load-bearing: sweep, then audit, then compare-and-delete the key.
+   * The key is the retry token — while it survives, the next worker tick knows
+   * work is owed, so a crash at any point recovers within one tick. Deleting
+   * first would discard that token and could leave the fleet open indefinitely.
+   *
+   * `deleteIf` elects a single closer. If it loses — an operator opened a fresh
+   * window in the moment between our read and our sweep — the sweep just cleared
+   * that new window's host stamps, so they are written back rather than left for
+   * `enforce()` to repair one host at a time.
+   */
+  async closeFleetWindow(reason: 'manual' | 'expired'): Promise<{
+    closed: boolean;
+    hosts: number;
+    domains: number;
+  }> {
+    const state = await this.fleetWindowState();
+    const counts = await closeAllInsecureAccess(this.db, async (host) => {
+      await this.writeLog(host.id, 'admin.host.insecure_disable', {
+        fqdn: host.fqdn,
+        source: `fleet_window_${reason}`,
+      });
+      wsPublisher.publish('host.updated', { id: host.id });
+    });
+
+    if (state.raw === null) {
+      // No window was stored; the sweep still ran, which is what "disable all"
+      // means on its own. Nothing to retract.
+      return { closed: false, hosts: counts.hosts, domains: counts.domains };
+    }
+
+    await this.writeLog(null, 'admin.insecure.fleet_window_close', {
+      reason,
+      hosts_disabled: counts.hosts,
+      domains_expired: counts.domains,
+      enabled_until: state.raw,
+    });
+
+    const won = await this.settings.deleteIf(INSECURE_FLEET_WINDOW_KEY, state.raw);
+    if (!won) {
+      const fresh = await this.fleetWindowState();
+      if (fresh.open && fresh.until) await stampAllInsecureHosts(this.db, fresh.until);
+      return { closed: false, hosts: counts.hosts, domains: counts.domains };
+    }
+
+    await this.events.appendAndPublish(
+      'insecure.approval.changed',
+      {
+        action: 'fleet_window_closed',
+        reason,
+        hosts_disabled: counts.hosts,
+        domains_expired: counts.domains,
+      },
+      {
+        wsType: 'insecure.approval.changed',
+        wsPayload: { source: 'fleet_window_closed', reason },
+      },
+    );
+    return { closed: true, hosts: counts.hosts, domains: counts.domains };
+  }
+
+  /** Close the window if its deadline has passed. The worker's whole job. */
+  async sweepIfLapsed(): Promise<boolean> {
+    const state = await this.fleetWindowState();
+    if (!state.lapsed) return false;
+    const result = await this.closeFleetWindow('expired');
+    return result.closed;
+  }
+
   // ────────── enable / disable ──────────
 
   async enable(hostId: number, durationMinutes: number | null): Promise<Host> {
@@ -223,6 +378,16 @@ export class InsecureWindowAdminService {
 
   async disable(hostId: number): Promise<Host> {
     const host = await this.findHost(hostId);
+    // Refuse rather than lie. With the fleet window open, `enforce()` re-stamps
+    // this host on its very next request, so clearing the columns here would
+    // report success and change nothing for more than a few seconds.
+    const fleet = await this.fleetWindowState();
+    if (fleet.open) {
+      throw new ConflictError(
+        'Fleet insecure window is open; close it first',
+        'insecure_fleet_window_open',
+      );
+    }
     await this.db
       .update(hosts)
       .set({

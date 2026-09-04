@@ -621,7 +621,9 @@ All `/projects*` routes require normal host API-key auth + IP binding and return
 - `POST /admin/hosts/{id}/insecure/enable` — insecure hosts only; opens/extends window. Optional `duration_minutes` (`0..480`); if omitted uses stored/default 10.
 - `POST /admin/hosts/{id}/insecure/disable` — closes window immediately and clears grace.
 - `POST /admin/hosts/insecure/extend` — for active insecure hosts, resets each active window to `now + insecure_window_minutes` (with grace recalculated).
-- `POST /admin/hosts/insecure/disable-all` — closes all active insecure windows.
+- `POST /admin/hosts/insecure/disable-all` — closes all active insecure windows, expires active domain auto-allows, and retracts the fleet window if one is open.
+- `POST /admin/hosts/insecure/window` — open the fleet-wide insecure window. Optional `duration_minutes` (`5..1440`, default 480); re-opening replaces the deadline rather than extending it. Stamps every insecure host with the deadline, resolves all pending approval requests as approved, and returns `fleet_window` with `until`, `window_minutes`, `hosts_opened`, `approvals_resolved`.
+- `POST /admin/hosts/insecure/window/close` — close the fleet window: clears every insecure host's window and grace, pulls active domain auto-allows back to now (rows survive unrevoked), and deletes the stored deadline. Returns `fleet_window` with `hosts_disabled` and `domains_expired`.
 - `GET /admin/insecure-approval` / `POST /admin/insecure-approval` — read/set insecure approval gate (`enabled` boolean).
 - `GET /admin/insecure-approvals/pending` — list unresolved insecure approval requests for the admin queue. Returns `requests[]` with `id`, `host_id`, `fqdn`, `request_ip`, `requested_at`, `updated_at`, and `status`.
 - `POST /admin/insecure-approvals/{id}/allow-domain` — approve pending request and add/update parent-domain auto-allow; optional `duration_minutes`.

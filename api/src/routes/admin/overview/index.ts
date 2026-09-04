@@ -15,6 +15,8 @@ import { ok } from '../../../http/reply.js';
 import { ValidationError, NotFoundError } from '../../../http/errors.js';
 import { adminEvents, hosts, insecureDomainAllows, logs } from '../../../db/schema.js';
 import { SettingsService } from '../../../services/settings.js';
+import { makeAdminEventsWriter } from '../../../services/admin-events-writer.js';
+import { InsecureWindowAdminService } from '../../../services/insecure-window-admin.js';
 import {
   ClientVersionsService,
   isClientVersionStale,
@@ -164,6 +166,11 @@ export async function registerAdminOverviewRoutes(
 ): Promise<void> {
   const adminSpa = adminSpaHtmlPreHandler(ctx);
   const settings = new SettingsService(ctx.db);
+  const insecureAdmin = new InsecureWindowAdminService({
+    db: ctx.db,
+    env: ctx.env,
+    events: makeAdminEventsWriter(ctx.db),
+  });
   const clientVersions = new ClientVersionsService(settings, app.log);
   const runnerValidation = createRunnerValidationService({ db: ctx.db, keyring: ctx.keyring });
   const runnerClient = createRunnerClient({ env: ctx.env });
@@ -512,6 +519,10 @@ export async function registerAdminOverviewRoutes(
 
   // ── /admin/hosts/insecure ─────────────────────────────────────────────────
   app.get('/admin/hosts/insecure', { preHandler: app.requireAdmin }, async () => {
+    // Close a lapsed fleet window here as well as in the worker, so the answer
+    // this endpoint gives is true even if the worker is wedged.
+    await insecureAdmin.sweepIfLapsed();
+    const fleetWindow = await insecureAdmin.fleetWindowState();
     const allHosts = await ctx.db.select().from(hosts);
     const nowMs = Date.now();
     const items: Array<{
@@ -575,12 +586,23 @@ export async function registerAdminOverviewRoutes(
       hosts: items,
       domains,
       domains_active: domainsActive,
+      fleet_window: {
+        open: fleetWindow.open,
+        until: fleetWindow.until ? fleetWindow.until.toISOString() : null,
+        opened_at: fleetWindow.openedAt,
+      },
     });
   });
 
   app.post('/admin/hosts/insecure/extend', { preHandler: app.requireAdmin }, async () => {
     const allHosts = await ctx.db.select().from(hosts);
     const nowMs = Date.now();
+    // An open fleet window is a floor here. Without it, extending a fleet that
+    // is open until this evening would pull every host back to its own stored
+    // window -- ten minutes, for most -- which is a shortening dressed up as an
+    // extension.
+    const fleetWindow = await insecureAdmin.fleetWindowState();
+    const fleetFloorMs = fleetWindow.open && fleetWindow.until ? fleetWindow.until.getTime() : 0;
     let extended = 0;
     for (const h of allHosts) {
       if (h.secure === 1) continue;
@@ -588,7 +610,7 @@ export async function registerAdminOverviewRoutes(
       if (enabledUntilMs <= nowMs) continue;
       const minutesRaw = h.insecureWindowMinutes ?? 60;
       const minutes = Math.max(5, Math.min(1440, minutesRaw));
-      const newUntil = new Date(nowMs + minutes * 60_000);
+      const newUntil = new Date(Math.max(nowMs + minutes * 60_000, fleetFloorMs));
       await ctx.db
         .update(hosts)
         .set({ insecureEnabledUntil: newUntil, updatedAt: nowIso() })
@@ -604,24 +626,12 @@ export async function registerAdminOverviewRoutes(
     return ok({ extended });
   });
 
+  // The panic button. It goes through the fleet-window close because clearing
+  // the host columns while the fleet window is still stored would be a no-op
+  // with a delay: `enforce()` re-stamps every host on its next request.
   app.post('/admin/hosts/insecure/disable-all', { preHandler: app.requireAdmin }, async () => {
-    const allHosts = await ctx.db.select().from(hosts);
-    const nowMs = Date.now();
-    let disabled = 0;
-    for (const h of allHosts) {
-      if (h.secure === 1) continue;
-      const enabledUntilMs = h.insecureEnabledUntil ? new Date(h.insecureEnabledUntil).getTime() : 0;
-      const graceUntilMs = h.insecureGraceUntil ? new Date(h.insecureGraceUntil).getTime() : 0;
-      if (enabledUntilMs <= nowMs && graceUntilMs <= nowMs) continue;
-      await ctx.db
-        .update(hosts)
-        .set({ insecureEnabledUntil: null, insecureGraceUntil: null, updatedAt: nowIso() })
-        .where(eq(hosts.id, h.id));
-      await recordLog(ctx, 'admin.host.insecure_disable', { fqdn: h.fqdn });
-      wsPublisher.publish('host.updated', { id: Number(h.id) });
-      disabled += 1;
-    }
-    return ok({ disabled });
+    const result = await insecureAdmin.closeFleetWindow('manual');
+    return ok({ disabled: result.hosts, domains_expired: result.domains });
   });
 
   // ── /admin/logs ───────────────────────────────────────────────────────────

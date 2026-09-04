@@ -4122,8 +4122,13 @@ export function messagingHostEligible(
  * drizzle's `datetime` column maps it through `toISOString()`, matching how
  * the window was stored. Passing an ISO string here would compare the `T`/`Z`
  * form against a MySQL DATETIME and silently return the wrong host set.
+ *
+ * Exported so the fleet-window suite can assert against the real predicate:
+ * being SQL, it cannot consult the fleet-window settings key and is only right
+ * if the deadline stamped on the host row is right, which is precisely what a
+ * DB-less fake cannot check.
  */
-function messagingHostEligibleSql(now: Date = new Date()) {
+export function messagingHostEligibleSql(now: Date = new Date()) {
   return and(
     eq(hosts.status, 'active'),
     or(eq(hosts.secure, 1), gt(hosts.insecureEnabledUntil, now)),

@@ -153,7 +153,9 @@ Review endpoints:
 - `POST /admin/insecure-approvals/{id}/allow-domain` — add the requester's domain to the trusted list.
 - `POST /admin/insecure-domain-allows/{id}/revoke` — reverse a previous domain allow.
 - `POST /admin/hosts/insecure/extend` — re-extend the active window for every currently-open insecure host by its stored `insecure_window_minutes` (falls back to 60 if unset, clamped to 5–1440).
-- `POST /admin/hosts/insecure/disable-all` — close every insecure window at once.
+- `POST /admin/hosts/insecure/disable-all` — close every insecure window at once. Also expires active domain allows and retracts the fleet window, since either one would otherwise re-open the hosts on their next poll.
+- `POST /admin/hosts/insecure/window` — open the fleet-wide window ("work hours"): optional `duration_minutes` (5–1440, default 480). Every insecure host is auto-allowed until the deadline, and the pending approval queue is resolved as approved. Re-opening replaces the deadline rather than extending it.
+- `POST /admin/hosts/insecure/window/close` — close it. Closing — by this route, by *Disable all*, or when the deadline passes — clears every insecure host's window and grace and pulls active domain allows back to now (the rows survive unrevoked, so they can be re-armed).
 
 ## Pruning stale hosts
 
@@ -163,6 +165,8 @@ Review endpoints:
 
 - `api/src/routes/admin/hosts/index.ts` — every `/admin/hosts/*` mutation, insecure approvals
 - `api/src/routes/admin/overview/index.ts` — `GET /admin/hosts` (fleet list), `GET /admin/hosts/{id}/detail`, `GET /admin/hosts/insecure`, `POST /admin/hosts/insecure/extend`, `POST /admin/hosts/insecure/disable-all`
+- `api/src/services/insecure-fleet-window.ts` — the fleet-wide window: its `versions` key, the stamp, and the close sweep
+- `api/src/ops/insecure-fleet-window-worker.ts` — closes the fleet window when its deadline passes
 - `api/src/routes/admin/settings/index.ts` — `POST /admin/prune-policy`
 - `api/src/services/host-auth.ts` — `authenticate`, IP binding, `pruneInactiveHosts`
 - `api/src/services/host-management.ts` — registration, mutations, insecure-window clamps

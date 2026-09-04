@@ -374,6 +374,8 @@ Admin routes:
   - List insecure hosts + domain auto-allows: `GET /admin/hosts/insecure`.
   - Bulk extend active insecure windows: `POST /admin/hosts/insecure/extend`.
   - Bulk disable active insecure windows: `POST /admin/hosts/insecure/disable-all`.
+  - Open the fleet-wide window ("work hours"): `POST /admin/hosts/insecure/window` with optional `duration_minutes` (5–1440, default 480).
+  - Close it: `POST /admin/hosts/insecure/window/close`. Closing — by button or when the deadline passes — clears every insecure host's window and grace and expires active domain auto-allows.
   - Approval queue actions:
     - Approve/deny: `POST /admin/insecure-approvals/{id}/approve|deny`.
     - Approve + allow parent domain: `POST /admin/insecure-approvals/{id}/allow-domain`.

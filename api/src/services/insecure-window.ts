@@ -7,6 +7,8 @@ import {
 } from '../db/schema.js';
 import type { Database } from '../db/client.js';
 import type { Env } from '../env.js';
+import { readFleetWindow } from './insecure-fleet-window.js';
+import { SettingsService } from './settings.js';
 import { ForbiddenError, LockedError } from '../http/errors.js';
 import { isoOffsetSeconds, nowIso } from '../util/timestamp.js';
 import { wsPublisher } from '../ws/publisher.js';
@@ -25,6 +27,9 @@ import { wsPublisher } from '../ws/publisher.js';
  *     IP, and reverse-DNS authentication. It neither requires nor extends the
  *     retrieve window; runner validation still gates canonical persistence.
  *   - a matching `insecure_domain_allows` row opens the window automatically.
+ *   - an open fleet window (`insecure-fleet-window.ts`) admits every insecure
+ *     host and is checked before all of the above, so nothing below can shorten
+ *     the fleet deadline or turn it into an approval prompt.
  */
 
 const MIN_WINDOW = 0;
@@ -75,6 +80,9 @@ export interface InsecureWindowDeps {
 
 export function createInsecureWindowService(deps: InsecureWindowDeps): InsecureWindowService {
   const { db, env } = deps;
+  // `SettingsService` needs only a `Database`, so the fleet window is reachable
+  // from here without changing any of the five construction sites.
+  const settings = new SettingsService(db);
 
   return {
     async enforce(host, command) {
@@ -87,6 +95,35 @@ export function createInsecureWindowService(deps: InsecureWindowDeps): InsecureW
       if (command === 'store') return host;
 
       const now = new Date();
+
+      // The fleet window, checked before anything else.
+      //
+      // Placing it first is what makes "auto-allow all" true rather than
+      // approximately true. Everything below writes
+      // `now + clampWindow(host.insecureWindowMinutes)` with no ceiling — the
+      // ordinary slide, and the domain-allow branch independently — so an
+      // 8-hour fleet grant would collapse to this host's stored default (10
+      // minutes, or 0 for a host whose window is set to zero) on its very next
+      // request. Coming first also means a host with no window at all is
+      // admitted instead of opening an approval request, and that the
+      // 60-second deny cooldown cannot punch a hole in an open window.
+      const fleet = await readFleetWindow(settings, now);
+      if (fleet.open && fleet.until) {
+        const current = parseDate(host.insecureEnabledUntil ?? null);
+        if (!current || current.getTime() < fleet.until.getTime()) {
+          await db
+            .update(hostsTable)
+            .set({
+              insecureEnabledUntil: fleet.until,
+              insecureGraceUntil: null,
+              updatedAt: nowIso(),
+            })
+            .where(eq(hostsTable.id, host.id));
+          return { ...host, insecureEnabledUntil: fleet.until, insecureGraceUntil: null };
+        }
+        return host;
+      }
+
       const enabledUntil = parseDate(host.insecureEnabledUntil ?? null);
       const enabledActive = enabledUntil !== null && enabledUntil >= now;
       const hostId = host.id;

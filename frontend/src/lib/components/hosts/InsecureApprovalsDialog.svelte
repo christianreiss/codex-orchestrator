@@ -15,8 +15,11 @@
     createDenyInsecureMutation,
     createAllowDomainMutation,
     createRevokeDomainMutation,
+    createOpenFleetWindowMutation,
+    createCloseFleetWindowMutation,
   } from "$lib/api/insecure";
   import InsecureCountdown from "./InsecureCountdown.svelte";
+  import FleetInsecureWindowCard from "./FleetInsecureWindowCard.svelte";
   import InsecureWindowPopover from "./InsecureWindowPopover.svelte";
   import ShieldOff from "@lucide/svelte/icons/shield-off";
   import Globe from "@lucide/svelte/icons/globe";
@@ -42,6 +45,14 @@
   const deny = createDenyInsecureMutation(qc);
   const allowDomain = createAllowDomainMutation(qc);
   const revokeDomain = createRevokeDomainMutation(qc);
+  const openFleetWindow = createOpenFleetWindowMutation(qc);
+  const closeFleetWindow = createCloseFleetWindowMutation(qc);
+
+  // The fleet window is stored state, not a count of rows: it can be open
+  // before any host has been stamped, so the card must never inherit the
+  // `!hosts.length` guard the bulk buttons below carry.
+  const fleetWindow = $derived($summary.data?.fleet_window);
+  const fleetWindowOpen = $derived(fleetWindow?.open === true);
 
   function handleOpenChange(value: boolean): void {
     open = value;
@@ -87,6 +98,14 @@
     </Dialog.Header>
 
     <div class="max-h-[70vh] space-y-6 overflow-y-auto py-2">
+      <FleetInsecureWindowCard
+        window={fleetWindow}
+        openHostCount={$summary.data?.hosts.length ?? 0}
+        openDomainCount={$summary.data?.domains_active ?? 0}
+        onOpen={(minutes) => $openFleetWindow.mutateAsync({ duration_minutes: minutes })}
+        onClose={() => $closeFleetWindow.mutateAsync()}
+      />
+
       {#if notifPermission === "default"}
         <div
           class="flex items-center justify-between gap-3 rounded-md border border-warning/25 bg-warning-muted px-3 py-2 text-xs"
@@ -163,7 +182,7 @@
             <Button
               size="sm"
               variant="ghost"
-              disabled={!$summary.data?.hosts.length}
+              disabled={!$summary.data?.hosts.length && !fleetWindowOpen}
               onclick={() => run("All windows disabled", $disableAll.mutateAsync())}
             >
               <ShieldOff class="h-3.5 w-3.5" /> Disable all
@@ -202,6 +221,10 @@
                   <Button
                     size="sm"
                     variant="ghost"
+                    disabled={fleetWindowOpen}
+                    title={fleetWindowOpen
+                      ? "Close the fleet window first — this host would be re-opened on its next request"
+                      : undefined}
                     onclick={() => run("Window closed", $disableHost.mutateAsync({ id: h.id }))}
                   >
                     Close

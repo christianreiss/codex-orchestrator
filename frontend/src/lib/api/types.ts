@@ -829,12 +829,19 @@ export interface InsecureDomainAllowItem {
   window_minutes: number | null;
 }
 
+export interface InsecureFleetWindow {
+  open: boolean;
+  until: string | null;
+  opened_at: string | null;
+}
+
 export interface InsecureSummaryResponse {
   count: number;
   active: number;
   hosts: HostInsecureWindowItem[];
   domains: InsecureDomainAllowItem[];
   domains_active: number;
+  fleet_window?: InsecureFleetWindow;
 }
 
 export interface InsecureApprovalRequest {

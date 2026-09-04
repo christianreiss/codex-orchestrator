@@ -1,3 +1,74 @@
+# 2026-09-04
+
+- **There was no way to say "I am at my desk, let them all through until this
+  evening."** An insecure host is bounded by a sliding window on its own row —
+  ten minutes by default — and outside it every request either opens an approval
+  request or is refused. That is the right posture for an unattended fleet and
+  the wrong one for a working day. The three tools an operator had were all
+  per-event: approve one popup at a time, click *Extend all* (which skips every
+  host whose window is already shut, so it never reaches the ones that need it),
+  or open each host by hand. The way out people actually took was marking hosts
+  secure, which is worse than the problem.
+  - The fleet window is one deadline in the `versions` row
+    `insecure_fleet_window_until`, opened with a duration between 5 minutes and
+    24 hours and defaulting to eight. An **absolute instant**, not a minute
+    count: the per-host clamp caps minutes at 480, and a working day routed
+    through it would have been silently truncated at exactly eight hours by the
+    machinery meant to serve it.
+  - The grant is stamped onto `hosts.insecure_enabled_until` rather than checked
+    beside it at each gate. `insecureWindowActive()` is a synchronous predicate
+    over a projected row subset and `messagingHostEligibleSql` is a fragment
+    MySQL executes — neither can consult a settings key, and the additive design
+    would have had to thread a flag through ten call sites, two of them SQL.
+    Denormalizing keeps all of them right and changes no signature, at the
+    honest cost that the column now means "the effective grant, whatever opened
+    it" — which the sliding, domain-allow and provisioning paths already made
+    true.
+  - **`enforce()` consults it before anything else, and that ordering is the
+    whole feature.** Three separate branches below write
+    `now + clampWindow(insecure_window_minutes)` with no ceiling, so an
+    eight-hour grant would have collapsed to a host's stored ten minutes — or to
+    zero, for a host whose window is set to 0 — on its very next request. The
+    domain-allow branch does it independently, which is a second door onto the
+    same bug and the one a reviewer would not think to check. Coming first also
+    means a host that registers mid-window is admitted instead of queueing an
+    approval, and that the 60-second deny cooldown cannot punch a hole in an
+    open window.
+
+- **Closing had to mean closed, which took more than clearing the columns.**
+  Turning the window off — by button, by *Disable all*, or by the deadline
+  passing — clears every insecure host's window and grace, and pulls active
+  `insecure_domain_allows` back to now. Without that last part the close was a
+  lie: `enforce()`'s domain branch is reached exactly when a host's own window
+  is shut, which is the state the sweep just created, so those hosts came
+  straight back on the next poll. The rows survive with `revoked_at` still NULL
+  — this expires an allow, it does not revoke it, and one can be re-armed from
+  the approvals dialog.
+  - `POST /admin/hosts/insecure/disable-all` now goes through the same close, so
+    the panic button retracts the fleet window instead of being a no-op with a
+    delay. `POST /admin/hosts/:id/insecure/disable` returns 409
+    `insecure_fleet_window_open` while the window is open, rather than reporting
+    a success that `enforce()` undoes seconds later.
+  - Expiry gets a 30-second worker, against this repo's usual preference for
+    sweeping on read. That preference assumes whoever next looks can do the
+    work; here the readers are a synchronous predicate and a SQL fragment, and
+    neither can. "Work hours ended" should not wait for the fleet to send
+    traffic. The close orders itself sweep → audit → compare-and-delete, because
+    the key is the retry token: while it survives, the next tick knows work is
+    owed. Deleting first would have been the tempting inversion and could leave
+    the fleet open indefinitely.
+
+- **The switch says what it turns on.** An open insecure window is load-bearing
+  in three places past the obvious gate — insecure hosts skip reverse-DNS
+  enforcement, may rebind their IP instead of being refused, and become eligible
+  for Agent Messaging — so doing it to the whole fleet with one click says so on
+  the card and in `docs/SECURITY.md`. The card sits at the top of the insecure
+  approvals dialog with hour presets and an *until end of day*, and names how
+  many host windows and domain allows a close will shut. The TopBar carries the
+  countdown from every route, not just `/hosts`: a fleet-wide auto-allow is the
+  one piece of this state an operator should not have to be on the right page to
+  notice.
+
 # 2026-08-27
 
 - **A todo could not say who was working on it, and nobody found out when

@@ -162,10 +162,13 @@ export const DEFAULT_INVALIDATIONS: WsInvalidationMap = {
   // Pushed by the clx wrapper via POST /claude/usage/report, not fetched by
   // the server — see api/src/services/claude-usage.ts.
   "claude.usage.updated": [["usage", "claude"]],
+  // Also carries the fleet-window open/close, which restamps or clears every
+  // insecure host row -- so the hosts list has to refresh, not just the summary.
   "insecure.approval.changed": [
     ["overview"],
     ["overview", "insecure-approvals"],
     ["insecure-approvals"],
+    ["hosts"],
     ["hosts", "insecure"],
   ],
 

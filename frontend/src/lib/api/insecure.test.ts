@@ -194,6 +194,38 @@ const MUTATION_CASES: MutationCase[] = [
     invalidates: [KEYS.hosts, KEYS.summary],
   },
   {
+    name: "createOpenFleetWindowMutation",
+    label: "createOpenFleetWindowMutation with a duration",
+    build: (qc) => asMutation(insecure.createOpenFleetWindowMutation(qc)),
+    variables: { duration_minutes: 480 },
+    request: {
+      method: "POST",
+      path: "/admin/hosts/insecure/window",
+      body: { duration_minutes: 480 },
+    },
+    // Opening resolves the pending queue too, so the approvals key rides along.
+    invalidates: [KEYS.hosts, KEYS.summary, KEYS.approvals],
+  },
+  {
+    name: "createOpenFleetWindowMutation",
+    label: "createOpenFleetWindowMutation without a duration",
+    build: (qc) => asMutation(insecure.createOpenFleetWindowMutation(qc)),
+    variables: {},
+    request: {
+      method: "POST",
+      path: "/admin/hosts/insecure/window",
+      body: { duration_minutes: undefined },
+    },
+    invalidates: [KEYS.hosts, KEYS.summary, KEYS.approvals],
+  },
+  {
+    name: "createCloseFleetWindowMutation",
+    build: (qc) => asMutation(insecure.createCloseFleetWindowMutation(qc)),
+    variables: undefined,
+    request: { method: "POST", path: "/admin/hosts/insecure/window/close", body: undefined },
+    invalidates: [KEYS.hosts, KEYS.summary, KEYS.approvals],
+  },
+  {
     name: "createDisableAllInsecureMutation",
     build: (qc) => asMutation(insecure.createDisableAllInsecureMutation(qc)),
     variables: undefined,
@@ -390,11 +422,13 @@ describe("module surface", () => {
   const EXPECTED_EXPORTS = [
     "createAllowDomainMutation",
     "createApproveInsecureMutation",
+    "createCloseFleetWindowMutation",
     "createDenyInsecureMutation",
     "createDisableAllInsecureMutation",
     "createDisableInsecureMutation",
     "createEnableInsecureMutation",
     "createExtendAllInsecureMutation",
+    "createOpenFleetWindowMutation",
     "createRevokeDomainMutation",
     "insecureApprovalsQuery",
     "insecureKeys",

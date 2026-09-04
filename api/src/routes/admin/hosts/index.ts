@@ -23,6 +23,11 @@ import {
 } from '../../../services/host-management.js';
 import { InsecureWindowAdminService } from '../../../services/insecure-window-admin.js';
 import {
+  DEFAULT_FLEET_WINDOW_MINUTES,
+  MIN_FLEET_WINDOW_MINUTES,
+  MAX_FLEET_WINDOW_MINUTES,
+} from '../../../services/insecure-fleet-window.js';
+import {
   createRunnerValidationService,
   type RunnerValidationService,
 } from '../../../services/runner-validation.js';
@@ -68,6 +73,23 @@ const durationMinutesSchema = z
   })
   .optional()
   .nullable();
+
+const fleetDurationMinutesSchema = z
+  .union([z.string(), z.number()])
+  .transform((v) => {
+    const n = typeof v === 'number' ? v : Number.parseInt(String(v).trim(), 10);
+    if (!Number.isFinite(n)) {
+      throw new Error('duration_minutes must be an integer');
+    }
+    return n;
+  })
+  .refine((n) => n >= MIN_FLEET_WINDOW_MINUTES && n <= MAX_FLEET_WINDOW_MINUTES, {
+    message: `duration_minutes must be between ${MIN_FLEET_WINDOW_MINUTES} and ${MAX_FLEET_WINDOW_MINUTES}`,
+  })
+  .optional()
+  .nullable();
+
+const fleetWindowOpenSchema = z.object({ duration_minutes: fleetDurationMinutesSchema });
 
 const enginesSchema = z
   .union([z.string(), z.array(z.string())])
@@ -535,6 +557,49 @@ export async function registerAdminHostsRoutes(
       const id = parseId((req.params as { id: string }).id);
       const host = await insecure.disable(id);
       return { host: hostToWire(host) };
+    },
+  });
+
+  // ─── #25 POST /admin/hosts/insecure/window ───
+  // Open (or re-set) the fleet-wide window. Re-opening replaces the deadline
+  // rather than extending it, so pressing the button twice cannot drift past
+  // the end of the working day.
+  app.route({
+    method: 'POST',
+    url: '/admin/hosts/insecure/window',
+    preHandler: [app.requireAdmin],
+    handler: async (req) => {
+      const body = parseZod(fleetWindowOpenSchema, req.body);
+      const result = await insecure.openFleetWindow(
+        body.duration_minutes ?? DEFAULT_FLEET_WINDOW_MINUTES,
+      );
+      return {
+        fleet_window: {
+          open: true,
+          until: result.until.toISOString(),
+          window_minutes: result.windowMinutes,
+          hosts_opened: result.hostsOpened,
+          approvals_resolved: result.approvalsResolved,
+        },
+      };
+    },
+  });
+
+  // ─── #26 POST /admin/hosts/insecure/window/close ───
+  app.route({
+    method: 'POST',
+    url: '/admin/hosts/insecure/window/close',
+    preHandler: [app.requireAdmin],
+    handler: async () => {
+      const result = await insecure.closeFleetWindow('manual');
+      return {
+        fleet_window: {
+          open: false,
+          closed: result.closed,
+          hosts_disabled: result.hosts,
+          domains_expired: result.domains,
+        },
+      };
     },
   });
 

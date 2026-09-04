@@ -234,6 +234,19 @@ function makeMocks() {
         windowMinutes: 30,
       };
     },
+    openFleetWindow: async (durationMinutes: number | null) => {
+      calls.push({ method: 'insecure.openFleetWindow', args: [durationMinutes] });
+      return {
+        until: new Date('2024-01-01T08:00:00Z'),
+        windowMinutes: durationMinutes ?? 480,
+        hostsOpened: 3,
+        approvalsResolved: 2,
+      };
+    },
+    closeFleetWindow: async (reason: string) => {
+      calls.push({ method: 'insecure.closeFleetWindow', args: [reason] });
+      return { closed: true, hosts: 3, domains: 1 };
+    },
     revokeDomain: async (id: number) => {
       calls.push({ method: 'insecure.revokeDomain', args: [id] });
       return {
@@ -794,6 +807,63 @@ describe('admin hosts routes', () => {
       const ids = calls.filter((c) => c.method === 'setAgentsDocumentOverride').map((c) => c.args[1]);
       expect(ids).toEqual(['17', null]);
       await app.close();
+    });
+  });
+  describe('fleet insecure window', () => {
+    it('opens with the requested duration and reports what it touched', async () => {
+      const { app, calls } = await build({ authenticated: true });
+      const r = await app.inject({
+        method: 'POST',
+        url: '/admin/hosts/insecure/window',
+        payload: { duration_minutes: 600 },
+      });
+
+      expect(r.statusCode).toBe(200);
+      expect(calls).toContainEqual({ method: 'insecure.openFleetWindow', args: [600] });
+      expect(r.json().fleet_window).toMatchObject({
+        open: true,
+        window_minutes: 600,
+        hosts_opened: 3,
+        approvals_resolved: 2,
+      });
+    });
+
+    it('falls back to a working day when no duration is given', async () => {
+      const { app, calls } = await build({ authenticated: true });
+      const r = await app.inject({ method: 'POST', url: '/admin/hosts/insecure/window' });
+
+      expect(r.statusCode).toBe(200);
+      expect(calls).toContainEqual({ method: 'insecure.openFleetWindow', args: [480] });
+    });
+
+    it('rejects a duration past the 24-hour ceiling', async () => {
+      const { app } = await build({ authenticated: true });
+      const r = await app.inject({
+        method: 'POST',
+        url: '/admin/hosts/insecure/window',
+        payload: { duration_minutes: 5000 },
+      });
+
+      expect(r.statusCode).toBe(422);
+    });
+
+    it('closes and says how much it shut', async () => {
+      const { app, calls } = await build({ authenticated: true });
+      const r = await app.inject({ method: 'POST', url: '/admin/hosts/insecure/window/close' });
+
+      expect(r.statusCode).toBe(200);
+      expect(calls).toContainEqual({ method: 'insecure.closeFleetWindow', args: ['manual'] });
+      expect(r.json().fleet_window).toMatchObject({
+        open: false,
+        hosts_disabled: 3,
+        domains_expired: 1,
+      });
+    });
+
+    it('needs an admin session like every other mutation here', async () => {
+      const { app } = await build({ authenticated: false });
+      const r = await app.inject({ method: 'POST', url: '/admin/hosts/insecure/window' });
+      expect(r.statusCode).toBe(401);
     });
   });
 });

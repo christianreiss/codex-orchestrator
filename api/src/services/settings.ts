@@ -7,7 +7,7 @@
  * Every mutation publishes a `settings.changed` WS event.
  */
 
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import type { Database } from '../db/client.js';
 import { versions } from '../db/schema.js';
 import { wsPublisher } from '../ws/publisher.js';
@@ -110,5 +110,30 @@ export class SettingsService {
     if (options.publish !== false) {
       wsPublisher.publish('settings.changed', { key });
     }
+  }
+
+  /**
+   * Compare-and-delete: removes the key only if it still holds `expected`.
+   * Returns true when this caller is the one that removed it.
+   *
+   * The insecure fleet window uses this to elect a single closer. Two sweepers
+   * can observe the same lapsed deadline, and an unconditional delete would let
+   * the loser wipe a *fresh* window an operator opened in between, leaving every
+   * host row carrying a deadline with no key left to close it.
+   */
+  async deleteIf(
+    key: string,
+    expected: string,
+    options: { publish?: boolean } = {},
+  ): Promise<boolean> {
+    const result = await this.db
+      .delete(versions)
+      .where(and(eq(versions.name, key), eq(versions.version, expected)));
+    // mysql2 returns [{ affectedRows }]; the count is what elects the winner.
+    const removed = Number((result as Array<{ affectedRows?: number }>)[0]?.affectedRows ?? 0) > 0;
+    if (removed && options.publish !== false) {
+      wsPublisher.publish('settings.changed', { key });
+    }
+    return removed;
   }
 }

@@ -5,7 +5,9 @@
  *   - per-host insecure windows (open via /admin/hosts/{id}/insecure/{enable,disable})
  *   - pending operator approvals at /admin/insecure-approvals/pending
  *   - domain allow-lists at /admin/insecure-domain-allows/{id}/revoke
- * Plus the bulk extend / disable-all under /admin/hosts/insecure/*.
+ * Plus the bulk extend / disable-all under /admin/hosts/insecure/*, and the
+ * fleet-wide window at /admin/hosts/insecure/window{,/close} — one deadline
+ * that auto-allows every insecure host, and whose close shuts all of them.
  */
 import {
   createQuery,
@@ -85,6 +87,31 @@ export function createDisableAllInsecureMutation(qc: QueryClient) {
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["hosts"] });
       void qc.invalidateQueries({ queryKey: insecureKeys.summary() });
+    },
+  });
+}
+
+export function createOpenFleetWindowMutation(qc: QueryClient) {
+  return createMutation<unknown, ApiError, { duration_minutes?: number }>({
+    mutationFn: ({ duration_minutes }) =>
+      api.post("/admin/hosts/insecure/window", {
+        duration_minutes: duration_minutes ?? undefined,
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["hosts"] });
+      void qc.invalidateQueries({ queryKey: insecureKeys.summary() });
+      void qc.invalidateQueries({ queryKey: insecureKeys.approvals() });
+    },
+  });
+}
+
+export function createCloseFleetWindowMutation(qc: QueryClient) {
+  return createMutation<unknown, ApiError, void>({
+    mutationFn: () => api.post("/admin/hosts/insecure/window/close"),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["hosts"] });
+      void qc.invalidateQueries({ queryKey: insecureKeys.summary() });
+      void qc.invalidateQueries({ queryKey: insecureKeys.approvals() });
     },
   });
 }

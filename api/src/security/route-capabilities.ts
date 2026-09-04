@@ -145,6 +145,8 @@ export const ROUTE_CAPABILITIES: Readonly<Record<string, RouteGuard>> = {
   'POST /admin/hosts/:id/insecure/disable': cap('hosts.activate_insecure'),
   'POST /admin/hosts/insecure/extend': cap('hosts.activate_insecure'),
   'POST /admin/hosts/insecure/disable-all': cap('hosts.activate_insecure'),
+  'POST /admin/hosts/insecure/window': cap('hosts.activate_insecure'),
+  'POST /admin/hosts/insecure/window/close': cap('hosts.activate_insecure'),
   'POST /admin/insecure-approvals/:id/approve': cap('hosts.activate_insecure'),
   'POST /admin/insecure-approvals/:id/deny': cap('hosts.activate_insecure'),
   'POST /admin/insecure-approvals/:id/allow-domain': cap('hosts.activate_insecure'),

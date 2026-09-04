@@ -142,6 +142,8 @@ The four `/admin/setup/*` routes are the noted exception to the session rule: th
 | POST | `/admin/hosts/:id/agents-version` | api/src/routes/admin/hosts/index.ts |
 | POST | `/admin/hosts/insecure/extend` | api/src/routes/admin/overview/index.ts |
 | POST | `/admin/hosts/insecure/disable-all` | api/src/routes/admin/overview/index.ts |
+| POST | `/admin/hosts/insecure/window` | api/src/routes/admin/hosts/index.ts |
+| POST | `/admin/hosts/insecure/window/close` | api/src/routes/admin/hosts/index.ts |
 | GET | `/admin/insecure-approvals/pending` | api/src/routes/admin/hosts/index.ts |
 | POST | `/admin/insecure-approvals/:id/allow-domain` | api/src/routes/admin/hosts/index.ts |
 | POST | `/admin/insecure-approvals/:id/approve` | api/src/routes/admin/hosts/index.ts |
