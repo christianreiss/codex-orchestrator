@@ -1,7 +1,7 @@
 <script lang="ts">
   import LoaderIcon from "@lucide/svelte/icons/loader-circle";
   import type { Agent } from "$lib/portal/types";
-  import { clockTime, shortAge } from "../../lib/browser";
+  import { clockTime, shortAge } from "$lib/portal/browser";
 
   let { agent, now, busy, onforce }: { agent: Agent; now: number; busy: boolean; onforce: () => void } = $props();
 

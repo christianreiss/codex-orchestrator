@@ -526,6 +526,37 @@ Auth verification worker: when `AUTH_RUNNER_URL` is configured, the API starts a
     covers only the third: a registration that is technically alive but which an
     operator already knows is finished, where waiting out a visible TTL is the
     wrong answer.
+- Live agent sessions (`agent_portal.*`). The console half of the surface the
+  phone portal at `/go` already served; the projection is the portal's, not a
+  second one.
+  - `GET /admin/agent-sessions` — `{enabled, timings, sessions:[…]}`. Each
+    session carries the derived `presence` (`working` / `listening` / `idle` /
+    `offline` / `ended`), `active_turn_started_at`, `last_event_at`, any
+    outstanding `attention` notice and `pending_prompt`, plus a `work` block
+    joining the Git Director task, branch and declared paths for the worktree
+    the session's `cwd` resolved into, and the Agent Messaging address a peer
+    would reach it on. Read `presence`, never `status`: the latter is written
+    once at registration and never corrected. `enabled` travels with the rows
+    because an empty list otherwise cannot be told apart from the module being
+    off, in which case registration is discarded server-side and no wrapper can
+    ever appear.
+  - `GET /admin/agent-sessions/{id}/events` — one session's timeline, paged with
+    `after` / `limit` / `tail`. Carries `user_message` and `assistant_message`
+    bodies, so it needs `agent_portal.reveal_transcript` rather than
+    `agent_portal.read`.
+  - `GET /admin/agent-sessions/events` — the same events fleet-wide as SSE,
+    mirroring `GET /go/api/events`: `event: agent` frames with `Last-Event-ID`
+    resume and a 15s heartbeat comment. Same capability, same payloads.
+  - `POST /admin/agent-sessions/{id}/close/force` — `{client_message_id, note?}`;
+    ends a session now. This is the only operator write on the console side. The
+    cooperative paths — sending a message, answering a prompt, requesting a
+    close — insert into `agent_messages`, whose `portal_user_id` is NOT NULL and
+    also carries the message idempotency identity, so an admin cannot author one
+    without a schema change; force writes an event and a terminal state and no
+    queue row. It is also the one that still works when the agent is offline and
+    can no longer accept a cooperative close, which is when an operator reaches
+    for it. Idempotent: a second call on an ended session answers
+    `{forced:false, already_ended:true}`.
 - `GET /admin/skills` — list stored skills (slug, sha256, display name, description, timestamps) plus canonical `uri` / `canonical_uri`, `managed`, and nullable source provenance. `description` is the persisted short summary used by the runtime AGENTS Skills block when present. Code-managed and source-owned skills are returned with `managed:true`; imported rows use `source_type:"github:mattpocock/skills"`.
 - `GET /admin/skills/{slug}` — browser/API split. Browser requests (`Accept: text/html`) receive the admin SPA shell for the dedicated skill workspace page; JSON requests (`Accept: application/json`) fetch full skill content (manifest + metadata, including canonical skill URI, invocation policy, and source provenance).
 - `POST /admin/skills/generate` — admin-only runner-backed draft generation. Body: `prompt` (required string) and optional `slug_hint`. Returns a structured skill draft (`slug`, `display_name`, `description`, `tags`, `what`, `when`, `steps`) plus a server-built canonical `manifest`. This endpoint never persists the skill; admins must still call `POST /admin/skills/store` after review. Returns `503` when canonical auth or the runner is unavailable, and `502` when the runner returns unusable output.

@@ -1,5 +1,62 @@
 # 2026-09-04
 
+- **The console could not see the fleet it was managing.** Every running `cdx`
+  and `clx` wrapper registers a session, heartbeats every 15 seconds, and has
+  its liveness derived honestly in `AgentPortalService.listAgents()` — presence,
+  the age of the turn it is executing, its last event, any outstanding attention
+  notice. All of it was reachable from exactly one place: `GET /go/api/agents`,
+  behind a portal magic-link browser session. An operator already signed in to
+  the admin console had to open a different app under a second identity to find
+  out whether anything was running at all.
+  - New **Active Clients** page at `/admin/clients`, in the Monitor group, over
+    four admin-authenticated routes (`GET /admin/agent-sessions`, that session's
+    `/events`, a fleet-wide SSE `/events` mirroring `GET /go/api/events`, and
+    `POST /admin/agent-sessions/{id}/close/force`). The projection is not
+    reimplemented: the route calls the portal service, and the page renders the
+    tested `presenceView` / `groupAgents` ladder from `$lib/portal/presence`.
+    Deriving presence a second time is precisely the drift that
+    `services/agent-presence.ts` exists to end.
+  - Rows now answer *what* an agent is working on, not just whether it is alive.
+    `services/agent-session-work.ts` joins the Git Director task, branch and
+    declared paths, plus the Agent Messaging address a peer would reach it on. A
+    worktree registration is identified only by its path, and an agent routinely
+    works from a directory below the one it registered — so the join hashes
+    every ancestor of the session's `cwd` and takes the deepest match, the same
+    containment rule `overlappingPaths` already uses to arbitrate merges.
+    Matching the `cwd` alone would have missed most of the fleet. The enrichment
+    is additive throughout: nothing declared renders as absent, never an error.
+  - `/go` is not replaced and not duplicated. Twelve components — the timeline,
+    its cards, the presence dot and engine avatar — moved to
+    `frontend/src/lib/components/portal/`, joining the pure helpers that were
+    already hoisted into `src/lib/portal/`, and both apps now import one
+    implementation. `Timeline` no longer takes the portal's whole state object:
+    it declares the six members it actually reads as `TimelineSource`, which the
+    portal's `Portal` satisfies structurally and the console supplies from
+    svelte-query. The portal CSS bundle is byte-identical after the move.
+  - The write half stops at force-close, and the reason is a NOT NULL column.
+    Sending a message, answering a prompt and requesting a cooperative close all
+    insert into `agent_messages`, whose `portal_user_id` also carries the message
+    idempotency identity — an admin is a row in a different table and cannot
+    author one without a migration. Force-close writes an event and a terminal
+    state and no queue row, so it needed only an actor union carrying a display
+    name. It is also the only close that works on a session that has already
+    gone offline, which is when an operator reaches for it.
+  - Timelines carry message bodies, so they are gated on a new
+    `agent_portal.reveal_transcript` rather than on `agent_portal.read`, matching
+    how this fleet already splits `secrets.reveal`, `auth.reveal_credential`,
+    `agent_portal.reveal_link` and `agent_messaging.reveal_content` from the
+    listings around them. A `viewer` sees who is running and gets a 403 on the
+    conversation.
+  - That capability and `agent_portal.manage` are now in `ALWAYS_ENFORCED`.
+    `LEGACY_OWNER_ADMIN_ROUTES` is pinned to the gates as they stood at
+    `13b4093f` and can never grow, which means every route added after it is open
+    to every role under `compatible` mode. `agent_portal.manage` had been out of
+    reach there only because all of its routes happened to predate the pin — one
+    new force-close route silently made the whole capability reachable, and the
+    compatibility test caught it. Naming both here restores exactly the behavior
+    installations have today and stops the next agent-portal route re-opening it
+    by accident.
+
 - **`agent_list(online: true)` returned agents that had been dead for a month,
   and the Git Director held their branches for a quarter of an hour.** Both
   filtered on the stored `agent_bus_addresses.readiness` string with no

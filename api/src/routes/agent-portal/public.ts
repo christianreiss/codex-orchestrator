@@ -148,7 +148,7 @@ export async function registerAgentPortalPublicRoutes(
       .object({ client_message_id: z.string(), note: z.string().optional() })
       .parse(req.body ?? {});
     return ok(
-      await portal.forceClose(identity, {
+      await portal.forceClose({ kind: 'portal', identity }, {
         sessionId: stringParam(req.params, 'id'),
         clientMessageId: body.client_message_id,
         note: body.note,

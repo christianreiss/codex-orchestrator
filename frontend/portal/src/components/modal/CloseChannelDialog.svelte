@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { Agent } from "$lib/portal/types";
-  import { shortPath } from "../../lib/browser";
+  import { shortPath } from "$lib/portal/browser";
   import Modal from "./Modal.svelte";
 
   let {

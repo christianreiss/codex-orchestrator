@@ -409,7 +409,7 @@ describe.skipIf(!handle)('agent portal durability against a real database', { ti
 
   describe('force close', () => {
     const forceClose = async (world: World, note?: string, clientMessageId = randomUUID()) =>
-      await world.service.forceClose(world.identity, { sessionId: world.sessionId, clientMessageId, note });
+      await world.service.forceClose({ kind: 'portal', identity: world.identity }, { sessionId: world.sessionId, clientMessageId, note });
 
     // The whole point of the fallback: it must not depend on the agent.
     it('ends a session whose heartbeat is stale and relay is shut', async () => {

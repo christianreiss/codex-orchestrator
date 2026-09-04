@@ -5,7 +5,7 @@
   import TriangleAlertIcon from "@lucide/svelte/icons/triangle-alert";
   import { titleFor } from "$lib/portal/unread";
   import { createPortal } from "./lib/portal-state.svelte";
-  import { paintFavicon } from "./lib/browser";
+  import { paintFavicon } from "$lib/portal/browser";
   import AppShell from "./components/shell/AppShell.svelte";
   import CenterState from "./components/state/CenterState.svelte";
   import LoadingScreen from "./components/state/LoadingScreen.svelte";

@@ -13,7 +13,7 @@ import {
 } from "$lib/portal/outcomes";
 import * as api from "./api";
 import { ApiFailure } from "./api";
-import { notify } from "./browser";
+import { notify } from "$lib/portal/browser";
 
 /** Only these can change server-derived agent state, so only these refetch. */
 const AGENT_STATE_EVENTS = new Set([

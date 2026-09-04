@@ -45,6 +45,7 @@ const ICON_NAMES = [
   "Plug",
   "Plus",
   "Palette",
+  "RadioTower",
   "Server",
   "ScrollText",
   "Settings",

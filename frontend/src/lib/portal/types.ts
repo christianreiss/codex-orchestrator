@@ -84,4 +84,28 @@ export interface EventRow {
   created_at: string;
 }
 
+/**
+ * What `Timeline` needs from whatever is driving it.
+ *
+ * The portal hands it the whole `Portal` state object, which satisfies this
+ * structurally. The admin console drives the same component from entirely
+ * different plumbing -- svelte-query against `/admin/agent-sessions` rather than
+ * the portal's own poller and SSE loop -- so naming the six members the
+ * component actually reads is what lets one timeline serve both surfaces
+ * without either app having to import the other's state machine.
+ */
+export interface TimelineSource {
+  /** Events for the selected session, oldest first. */
+  timeline: EventRow[];
+  /** Host-ticked wall clock, so relative ages re-render without their own timer. */
+  now: number;
+  /** Whether the scroller is currently pinned to the bottom. */
+  atBottom: boolean;
+  /** Events that arrived while the reader was scrolled away. */
+  missed: number;
+  setAtBottom(value: boolean): void;
+  /** Hands the host a scroll-to-bottom callback to invoke when events land. */
+  setScroller(fn: (smooth: boolean) => void): void;
+}
+
 export type Phase = "loading" | "ready" | "disabled" | "login" | "error";

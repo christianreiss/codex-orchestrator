@@ -342,6 +342,17 @@ export const ROUTE_CAPABILITIES: Readonly<Record<string, RouteGuard>> = {
   'POST /admin/agent-portal/users/:id/enabled': cap('agent_portal.manage'),
   'POST /admin/agent-portal/users/:id/rotate': cap('agent_portal.manage'),
 
+  // Live agent sessions. The listing is metadata -- who is running, where, and
+  // whether they are stuck -- so it reads at `agent_portal.read`. The timelines
+  // carry message bodies, which is content and gets the reveal grant; both the
+  // per-session page and the fleet stream serve the same payloads, so gating
+  // only one of them would gate neither. Force-close ends someone else's
+  // running agent and sits with manage.
+  'GET /admin/agent-sessions': cap('agent_portal.read'),
+  'GET /admin/agent-sessions/events': cap('agent_portal.reveal_transcript'),
+  'GET /admin/agent-sessions/:id/events': cap('agent_portal.reveal_transcript'),
+  'POST /admin/agent-sessions/:id/close/force': cap('agent_portal.manage'),
+
   // ── Agent messaging ──────────────────────────────────────────────────────
   'GET /admin/agent-messaging': cap('agent_messaging.read'),
   'GET /admin/agent-messaging/state': cap('agent_messaging.read'),

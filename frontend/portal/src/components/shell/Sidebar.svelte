@@ -9,7 +9,7 @@
     notificationPermission,
     requestNotificationPermission,
     setNotifyBrokenHandler,
-  } from "../../lib/browser";
+  } from "$lib/portal/browser";
   import ChatListItem from "./ChatListItem.svelte";
 
   let { portal, onselect }: { portal: Portal; onselect: (id: string) => void } = $props();

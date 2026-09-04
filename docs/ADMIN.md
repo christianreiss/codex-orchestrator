@@ -57,7 +57,7 @@ Code-truth operator map for `/admin/*`. Source of truth is runtime code (`api/sr
 ## Navigation & Presentation
 - One registry (`frontend/src/lib/nav.ts`) drives navigation, mobile Menu, the
   command palette, title, breadcrumb, and active state. Its direct groups are
-  **Monitor** (Overview, Activity), **Fleet** (Hosts, Engines, Policies),
+  **Monitor** (Overview, Active Clients, Activity), **Fleet** (Hosts, Engines, Policies),
   **Coordinate** (Projects, Agent Messaging, Agent Portal), **Knowledge**
   (Skills, Fleet Instructions, Memories, Subagents, Commands, Output Styles),
   and **Access** (API Access, Secrets, Admin Users). Manual and Account stay in
@@ -141,6 +141,7 @@ Code-truth operator map for `/admin/*`. Source of truth is runtime code (`api/sr
 | `secrets.manage` | yes | yes | — | — | — | — |
 | `agent_portal.read` | yes | yes | yes | yes | yes | yes |
 | `agent_portal.reveal_link` | yes | yes | — | — | — | — |
+| `agent_portal.reveal_transcript` | yes | yes | — | — | — | — |
 | `agent_portal.manage` | yes | yes | — | — | — | — |
 | `agent_messaging.read` | yes | yes | yes | yes | yes | yes |
 | `agent_messaging.reveal_content` | yes | yes | — | — | — | — |
@@ -314,6 +315,28 @@ Admin routes:
 - `relay_ready` is the operator-visible truth for writability: it requires a
   live wrapper heartbeat and fresh cooperative `#afk` polling. A registered
   process without that poll loop remains visible but cannot accept commands.
+- **Active Clients** (`/admin/clients`) is the same session view over the admin
+  session cookie instead of a portal magic link, so an operator already signed
+  in to the console does not need a second identity to see what the fleet is
+  doing. It lists every wrapper with its derived presence, the age of the turn
+  it is running, its outstanding attention notice, and the Git Director task and
+  Agent Messaging address for the worktree it is sitting in. The page is empty
+  whenever the master switch is off — registration is discarded server-side —
+  and says so rather than showing a bare list.
+- The console view is deliberately read-only apart from **Force close**.
+  Messaging an agent and answering its prompts insert into `agent_messages`,
+  whose `portal_user_id` is NOT NULL and also carries the message idempotency
+  identity, so an admin account cannot author one; `/go` remains where a reply
+  comes from. Force-close writes an event and a terminal state and no queue row,
+  and it is the only close that still works once the agent has gone offline.
+- Reading a session timeline needs `agent_portal.reveal_transcript`, separate
+  from `agent_portal.read` because the events carry the message bodies rather
+  than metadata about them. That capability and `agent_portal.manage` are both
+  on the always-enforced list in `api/src/security/authorization-mode.ts`, so
+  `compatible` mode does not relax either. Without that, every role would reach
+  both: the legacy owner/admin route set in the same file is pinned to the gates
+  as they stood before the capability layer and can never grow, which leaves
+  every route added afterwards open under that mode.
 
 ## API Kill Switch
 - `POST /admin/api/state` stores `api_disabled` in `versions`.

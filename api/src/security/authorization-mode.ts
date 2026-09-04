@@ -112,8 +112,8 @@ export const LEGACY_OWNER_ADMIN_ROUTES: ReadonlySet<string> = new Set([
  * The capabilities `compatible` does not relax.
  *
  * Compatibility is a promise about *workflows an installation already had*, so
- * it is worth being precise about what these two are not: neither has ever had
- * a caller to preserve.
+ * it is worth being precise about what these are not: none has ever had a
+ * caller to preserve.
  *
  * - `auth.reveal_credential` guards `?include_body=1` on the host auth read,
  *   which returns the canonical credential the fleet distributes to its hosts.
@@ -125,11 +125,26 @@ export const LEGACY_OWNER_ADMIN_ROUTES: ReadonlySet<string> = new Set([
  *   relaxed it, every account could switch the fleet's posture — including
  *   switching it back — and the mode would protect nothing.
  *
+ * - `agent_portal.reveal_transcript` guards the session timelines, which carry
+ *   the message bodies agents and operators exchanged. The routes are new, so
+ *   there is no prior workflow to keep; and because `LEGACY_OWNER_ADMIN_ROUTES`
+ *   is pinned to the gates as they stood at `13b4093f`, a route added after it
+ *   is open to every role under `compatible` unless it is named here. Left out,
+ *   this mode would hand a `viewer` every conversation the fleet has had.
+ * - `agent_portal.manage` is the same trap seen from the other side. Every
+ *   route carrying it happened to sit in the legacy set, which is the only
+ *   reason `compatible` did not reach it; adding one route outside that set --
+ *   force-closing a session -- silently made the whole capability reachable.
+ *   Naming it here restores exactly the behavior installations have today and
+ *   stops the next agent-portal route re-opening it by accident.
+ *
  * Enforced under both modes, and `assertCapability` refuses anything else.
  */
 export const ALWAYS_ENFORCED: readonly Capability[] = [
   'auth.reveal_credential',
   'security.manage_authorization',
+  'agent_portal.reveal_transcript',
+  'agent_portal.manage',
 ];
 
 export function isAlwaysEnforced(capability: Capability): boolean {

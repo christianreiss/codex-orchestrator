@@ -186,7 +186,7 @@ describe.skipIf(!handle)('agent portal lifecycle edges', { timeout: 120_000 }, (
       await raiseAttention(world, 'needs a decision');
       expect(await agentOf(world)).toMatchObject({ attention: { summary: 'needs a decision' } });
 
-      await world.service.forceClose(world.identity, {
+      await world.service.forceClose({ kind: 'portal', identity: world.identity }, {
         sessionId: world.sessionId,
         clientMessageId: randomUUID(),
       });
@@ -203,7 +203,7 @@ describe.skipIf(!handle)('agent portal lifecycle edges', { timeout: 120_000 }, (
       await world.service.heartbeatAgent(world.sessionId, world.bridgeToken, { relayAction: 'close' }, host.id);
       expect(await agentOf(world)).toMatchObject({ presence: 'idle' });
 
-      const forced = await world.service.forceClose(world.identity, {
+      const forced = await world.service.forceClose({ kind: 'portal', identity: world.identity }, {
         sessionId: world.sessionId,
         clientMessageId: randomUUID(),
       });
@@ -253,7 +253,7 @@ describe.skipIf(!handle)('agent portal lifecycle edges', { timeout: 120_000 }, (
         clientMessageId: randomUUID(),
         content: 'still queued',
       });
-      await world.service.forceClose(world.identity, {
+      await world.service.forceClose({ kind: 'portal', identity: world.identity }, {
         sessionId: world.sessionId,
         clientMessageId: randomUUID(),
       });

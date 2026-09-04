@@ -156,6 +156,21 @@ export interface PortalIdentity {
   browserSessionId: number;
 }
 
+/**
+ * Who is acting on a session.
+ *
+ * The portal authenticates a magic-link `agent_portal_users` row; the admin
+ * console authenticates an `admin_users` row over its own session cookie. Those
+ * are separate identity tables, which is why this union stops at `forceClose`:
+ * every other operator write inserts into `agent_messages`, whose
+ * `portal_user_id` is NOT NULL and also carries the idempotency identity. Force
+ * writes an event and a terminal state and no queue row, so the only thing it
+ * needs from an actor is the display name the agent's own timeline renders.
+ */
+export type PortalActor =
+  | { kind: 'portal'; identity: PortalIdentity }
+  | { kind: 'admin'; displayName: string };
+
 export interface RegisterAgentInput {
   engine: Engine;
   username: string;
@@ -1191,7 +1206,7 @@ export class AgentPortalService {
    * relay is the entire point of the fallback.
    */
   async forceClose(
-    identity: PortalIdentity,
+    actor: PortalActor,
     input: { sessionId: string; clientMessageId: string; note?: string },
   ): Promise<Record<string, unknown>> {
     const note = normalizeCloseNote(input.note);
@@ -1201,7 +1216,7 @@ export class AgentPortalService {
     const expiresAt = isoOffsetSeconds(this.env.AGENT_PORTAL_RETENTION_HOURS * 3600);
     return await this.db.transaction(async (tx) => {
       await this.requirePortalEnabledLocked(tx);
-      const user = await this.requireIdentityLocked(tx, identity, now);
+      const user = await this.requireActorLocked(tx, actor, now);
       const session = await this.requireVisibleSessionLocked(tx, input.sessionId, now);
       const existing = await tx
         .select({ id: agentEvents.id })
@@ -1756,6 +1771,21 @@ export class AgentPortalService {
     const session = await this.requireVisibleSession(id);
     if (session.endedAt || !LIVE_SESSION_STATE_SET.has(session.status)) throw new ConflictError('Agent session is read-only', 'agent_session_finished');
     return session;
+  }
+
+  /**
+   * Narrows whichever identity table the actor came from to the one field a
+   * non-queue write needs. The portal branch keeps the full check -- a revoked
+   * browser session must not be able to end an agent -- while an admin arrives
+   * already authenticated by `requireAdmin` and capability-gated at the route.
+   */
+  private async requireActorLocked(
+    db: AgentPortalDb,
+    actor: PortalActor,
+    now: string,
+  ): Promise<{ displayName: string }> {
+    if (actor.kind === 'admin') return { displayName: actor.displayName };
+    return await this.requireIdentityLocked(db, actor.identity, now);
   }
 
   private async requireIdentityLocked(db: AgentPortalDb, identity: PortalIdentity, now: string): Promise<AgentPortalUser> {

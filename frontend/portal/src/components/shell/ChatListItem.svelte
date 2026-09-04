@@ -3,9 +3,9 @@
   import { presenceView } from "$lib/portal/presence";
   import { unreadBadge } from "$lib/portal/unread";
   import type { ReadRecord } from "$lib/portal/unread";
-  import { clockTime, shortAge, shortPath } from "../../lib/browser";
-  import EngineAvatar from "./EngineAvatar.svelte";
-  import PresenceDot from "./PresenceDot.svelte";
+  import { clockTime, shortAge, shortPath } from "$lib/portal/browser";
+  import EngineAvatar from "$lib/components/portal/EngineAvatar.svelte";
+  import PresenceDot from "$lib/components/portal/PresenceDot.svelte";
 
   let {
     agent,

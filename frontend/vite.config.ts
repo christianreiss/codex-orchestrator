@@ -16,8 +16,14 @@ import type { IncomingMessage } from "node:http";
 // signal that's actually reliable: lib/api/client.ts always sets
 // `Accept: application/json` on every real backend call, and nothing else
 // in dev — page navigations, module/asset fetches, HMR — sends that.
+//
+// SSE is the one backend call that cannot carry that header: EventSource sends
+// `Accept: text/event-stream` and offers no way to change it. It is just as
+// reliable a signal — nothing in Vite's dev space asks for an event stream — so
+// it is admitted alongside JSON rather than being answered by the dev server.
 function bypassNonApi(req: IncomingMessage): string | undefined {
-  const isApiCall = (req.headers.accept ?? "").includes("application/json");
+  const accept = req.headers.accept ?? "";
+  const isApiCall = accept.includes("application/json") || accept.includes("text/event-stream");
   return isApiCall ? undefined : req.url;
 }
 

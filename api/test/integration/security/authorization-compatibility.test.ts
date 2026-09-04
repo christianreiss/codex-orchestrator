@@ -261,8 +261,24 @@ describe('the exceptions are exceptions, not holes', () => {
     // The failure this prevents: `security.manage_authorization` folded into
     // `settings.manage`, which compatible mode grants to everyone — leaving a
     // viewer able to flip the fleet to compatible and back.
+    //
+    // The agent-session routes are here for the reason `LEGACY_OWNER_ADMIN_ROUTES`
+    // is pinned: that set records the gates as they stood at `13b4093f` and can
+    // never grow, so *every* route added afterwards is open to every role under
+    // `compatible` unless its capability is always-enforced. For a timeline that
+    // is the fleet's conversations, and for force-close it is ending someone
+    // else's running agent.
     expect([...ALWAYS_ENFORCED_ROUTES].sort()).toEqual([
+      'DELETE /admin/agent-portal/users/:id',
+      'GET /admin/agent-sessions/:id/events',
+      'GET /admin/agent-sessions/events',
       'GET /admin/authorization',
+      'POST /admin/agent-portal/state',
+      'POST /admin/agent-portal/users',
+      'POST /admin/agent-portal/users/:id',
+      'POST /admin/agent-portal/users/:id/enabled',
+      'POST /admin/agent-portal/users/:id/rotate',
+      'POST /admin/agent-sessions/:id/close/force',
       'POST /admin/authorization',
     ]);
   });

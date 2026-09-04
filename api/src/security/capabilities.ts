@@ -105,6 +105,13 @@ export const CAPABILITIES = [
   // A permanent portal link is reusable bearer material, so reading one is its
   // own capability rather than part of `agent_portal.read`.
   'agent_portal.reveal_link',
+  // Session transcripts -- the `user_message` / `assistant_message` bodies in a
+  // session timeline. Split from `agent_portal.read` on the same grounds as
+  // every other reveal here: the listing is metadata about who is running and
+  // whether they are stuck, while the timeline is the content of the work
+  // itself. A viewer who may see that the fleet is busy has not thereby been
+  // granted every conversation it is having.
+  'agent_portal.reveal_transcript',
   'agent_portal.manage',
 
   'agent_messaging.read',
@@ -134,9 +141,9 @@ export function isCapability(value: string): value is Capability {
  * nothing else.
  *
  * Note what is *not* here: `secrets.reveal`, `auth.reveal_credential`,
- * `agent_portal.reveal_link` and `agent_messaging.reveal_content`. Each returns
- * bearer material or private content, so each is a grant of its own even though
- * all four read.
+ * `agent_portal.reveal_link`, `agent_portal.reveal_transcript` and
+ * `agent_messaging.reveal_content`. Each returns bearer material or private
+ * content, so each is a grant of its own even though all five read.
  */
 const READ_ONLY: readonly Capability[] = [
   'admin.read',

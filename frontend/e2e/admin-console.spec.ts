@@ -118,6 +118,7 @@ const BUILDER_CATALOG = {
  */
 const CANONICAL_DESTINATIONS = [
   { path: "/dashboard", heading: "Overview", title: "Overview" },
+  { path: "/clients", heading: "Active Clients", title: "Active Clients" },
   { path: "/logs/events", heading: "Activity", title: "Activity / Audit trail" },
   { path: "/hosts", heading: "Hosts", title: "Hosts" },
   { path: "/engines", heading: "Engines", title: "Engines" },
@@ -146,6 +147,50 @@ function fixture(pathname: string): Record<string, unknown> {
       return { setup_complete: true, critical_complete: true, checks: [], next_actions: [] };
     case "/admin/ws/info":
       return { enabled: false };
+    case "/admin/agent-sessions":
+      // One working agent, so the page renders its grouped list rather than
+      // either empty state. `enabled` is what separates "nobody is running"
+      // from "the module is off"; both are real and only one is a problem.
+      return {
+        enabled: true,
+        timings: { heartbeat_fresh_seconds: 45, relay_fresh_seconds: 60, retention_hours: 24 },
+        sessions: [
+          {
+            id: "11111111-1111-4111-8111-111111111111",
+            engine: "claude",
+            host: "biest.example",
+            host_id: 1,
+            username: "chris",
+            cwd: "/srv/repo/api",
+            invocation_kind: "interactive",
+            upstream_session_id: null,
+            status: "active",
+            presence: "working",
+            relay_ready: true,
+            active_turn_id: "turn-1",
+            active_turn_started_at: new Date(Date.now() - 60_000).toISOString(),
+            started_at: new Date(Date.now() - 600_000).toISOString(),
+            heartbeat_at: new Date().toISOString(),
+            last_event_at: new Date().toISOString(),
+            attention: null,
+            ended_at: null,
+            expires_at: null,
+            close_requested_at: null,
+            close: null,
+            read_only: false,
+            pending_prompt: null,
+            work: {
+              task: "Mirror the portal read surface into the console",
+              branch: "feat/console-agent-sessions",
+              target_branch: "main",
+              declared_paths: ["api/src"],
+              worktree_path: "/srv/repo",
+              address: "zt-demo",
+              address_alias: "crisp-otter",
+            },
+          },
+        ],
+      };
     case "/admin/theme":
       return { theme: "auto" };
     case "/admin/openai/keys":

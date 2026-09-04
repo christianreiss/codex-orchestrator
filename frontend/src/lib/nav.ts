@@ -19,6 +19,7 @@ import {
   Link,
   MessageSquareShare,
   Palette,
+  RadioTower,
   Server,
   Settings,
   ShieldCheck,
@@ -71,6 +72,11 @@ const REGISTRY: NavDefinition[] = [
     id: "overview", group: "Monitor", route: "/dashboard", label: "Overview",
     description: "Fleet health and exceptions", keywords: ["home", "health", "usage"], icon: LayoutDashboard,
     mobilePriority: 1,
+  },
+  {
+    id: "clients", group: "Monitor", route: "/clients", label: "Active Clients",
+    description: "Running agents and what they are working on",
+    keywords: ["agents", "sessions", "wrappers", "live", "presence", "working", "cdx", "clx"], icon: RadioTower,
   },
   {
     id: "activity", group: "Monitor", route: "/logs/events", label: "Activity",

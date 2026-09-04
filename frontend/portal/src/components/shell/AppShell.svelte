@@ -7,7 +7,7 @@
   import CloseChannelDialog from "../modal/CloseChannelDialog.svelte";
   import ClosingBar from "../thread/ClosingBar.svelte";
   import ThreadHeader from "../thread/ThreadHeader.svelte";
-  import Timeline from "../thread/Timeline.svelte";
+  import Timeline from "$lib/components/portal/Timeline.svelte";
   import Sidebar from "./Sidebar.svelte";
 
   let { portal }: { portal: Portal } = $props();

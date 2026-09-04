@@ -3,9 +3,9 @@
   import XIcon from "@lucide/svelte/icons/x";
   import type { Agent } from "$lib/portal/types";
   import { presenceView } from "$lib/portal/presence";
-  import { clockTime, shortAge, shortPath } from "../../lib/browser";
-  import EngineAvatar from "../shell/EngineAvatar.svelte";
-  import PresenceDot from "../shell/PresenceDot.svelte";
+  import { clockTime, shortAge, shortPath } from "$lib/portal/browser";
+  import EngineAvatar from "$lib/components/portal/EngineAvatar.svelte";
+  import PresenceDot from "$lib/components/portal/PresenceDot.svelte";
 
   let {
     agent,
