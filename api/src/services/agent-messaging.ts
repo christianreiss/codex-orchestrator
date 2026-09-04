@@ -51,6 +51,12 @@ import { decrypt, encrypt } from '../security/secret-box.js';
 import { ENGINE_CLAUDE, ENGINE_CODEX, type Engine } from '../util/engine.js';
 import { isoOffsetSeconds, nowIso } from '../util/timestamp.js';
 import { wsPublisher } from '../ws/publisher.js';
+import {
+  AGENT_PRESENCE_RANK,
+  deriveAddressPresence,
+  isPresent,
+  type AgentAddressPresence,
+} from './agent-presence.js';
 import { hostEnginesList } from './host-engine-policy.js';
 import { insecureWindowActive } from './insecure-window.js';
 import { isTruthyFlagValue, SettingsService } from './settings.js';
@@ -64,6 +70,12 @@ export const AGENT_MESSAGING_MAX_DELIVERY_ATTEMPTS = 12;
 export const AGENT_MESSAGING_LEASE_SECONDS = 60;
 export const AGENT_MESSAGING_RELAY_TOKEN_SECONDS = 15 * 60;
 export const AGENT_MESSAGING_RECEIVE_FRESH_SECONDS = 45;
+/**
+ * Most addresses a single `agent_list` will return. Reachable peers are ranked
+ * first, so this only ever truncates the dead tail; the reply carries `total`
+ * and `truncated` so a caller is never quietly shown a partial fleet.
+ */
+export const AGENT_MESSAGING_LIST_LIMIT = 50;
 export const AGENT_MESSAGING_WAIT_PAGE_SIZE = 100;
 export const AGENT_MESSAGING_CALL_PIN_TTL_SECONDS = 10 * 60;
 export const AGENT_MESSAGING_CALL_PIN_MIN_TTL_SECONDS = 60;
@@ -821,17 +833,47 @@ export class AgentMessagingService {
       const current = await this.requireAddressLocked(tx, currentAddressId);
       await this.assertSessionAddressLocked(tx, authenticated.session.id, current);
       return await tx
-        .select({ address: agentBusAddresses, fqdn: hosts.fqdn, hostEngines: hosts.engines })
+        .select({
+          address: agentBusAddresses,
+          fqdn: hosts.fqdn,
+          hostEngines: hosts.engines,
+          // Left, not inner: an address whose binding was reaped has no session
+          // row to join, and that absence is itself the answer.
+          session: { heartbeatAt: agentSessions.heartbeatAt, endedAt: agentSessions.endedAt },
+        })
         .from(agentBusAddresses)
         .innerJoin(hosts, eq(hosts.id, agentBusAddresses.hostId))
+        .leftJoin(agentSessions, eq(agentSessions.id, agentBusAddresses.currentSessionId))
         .where(and(...predicates))
         .orderBy(asc(agentBusAddresses.address));
     });
+    const freshAfter = isoOffsetSeconds(-this.env.AGENT_PORTAL_HEARTBEAT_FRESH_SECONDS);
+    const ranked = rows
+      .filter((row) => hostEnginesList(row.hostEngines).includes(row.address.engine as Engine))
+      .map((row) => ({ ...row, presence: deriveAddressPresence(row.address, row.session, freshAfter) }))
+      // `online: true` reaches here as `includeOffline: false`. It filters on
+      // derived presence, not on `readiness`: that column is a registration
+      // latch, so the old blocklist reported a peer as reachable for as long as
+      // its row survived — a month, in the worst case observed live.
+      .filter((row) => filters.includeOffline !== false || isPresent(row.presence))
+      // Reachable first, then most recently seen. The old ordering was
+      // alphabetical by address, which is a UUID — so truncating it would have
+      // cut at random. Ranking is what makes the cap below safe.
+      .sort(
+        (a, b) =>
+          AGENT_PRESENCE_RANK[a.presence] - AGENT_PRESENCE_RANK[b.presence] ||
+          (a.address.lastSeenAt < b.address.lastSeenAt ? 1 : a.address.lastSeenAt > b.address.lastSeenAt ? -1 : 0),
+      );
+    // An address is never deleted when its agent exits, so this list is a
+    // history that only grows: 201 rows fleet-wide, 104 on one host, and 92 KB
+    // of JSON that overflowed the context of the agent that asked. Live peers
+    // number in the handful, so a ranked cap loses nothing a caller can act on
+    // — and says so rather than silently truncating.
+    const addresses = ranked.slice(0, AGENT_MESSAGING_LIST_LIMIT);
     return {
-      addresses: rows
-        .filter((row) => hostEnginesList(row.hostEngines).includes(row.address.engine as Engine))
-        .filter((row) => filters.includeOffline !== false || !['offline', 'disabled'].includes(row.address.readiness))
-        .map((row) => publicAddress(row.address, row.fqdn)),
+      addresses: addresses.map((row) => publicAddress(row.address, row.fqdn, row.presence)),
+      total: ranked.length,
+      ...(ranked.length > addresses.length ? { truncated: true } : {}),
     };
   }
 
@@ -4007,7 +4049,15 @@ function errorMessageOf(error: unknown): string {
   return typeof message === 'string' ? message : 'Delivery failed';
 }
 
-function publicAddress(address: AgentBusAddress, fqdn?: string): Record<string, unknown> {
+/**
+ * `presence` is supplied only by the surfaces that enumerate peers, because it
+ * is the one field here that cannot be read off the address row — deriving it
+ * needs the joined session. Point payloads (a registration ack, the peer on a
+ * call) omit it rather than guess: an absent field is honest, a stale one is
+ * the bug this whole change removes. `readiness` is retained on the wire for
+ * compatibility and carries no liveness meaning for a non-relay session.
+ */
+function publicAddress(address: AgentBusAddress, fqdn?: string, presence?: AgentAddressPresence): Record<string, unknown> {
   return {
     id: address.id,
     address: address.address,
@@ -4019,6 +4069,7 @@ function publicAddress(address: AgentBusAddress, fqdn?: string): Record<string, 
     cwd: address.cwd,
     enabled: address.enabled === 1,
     continuity: address.continuity,
+    ...(presence ? { presence } : {}),
     readiness: address.readiness,
     adapter_protocol: address.adapterProtocol,
     adapter_capabilities: jsonRecord(address.adapterCapabilities),

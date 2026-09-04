@@ -1,5 +1,53 @@
 # 2026-09-04
 
+- **`agent_list(online: true)` returned agents that had been dead for a month,
+  and the Git Director held their branches for a quarter of an hour.** Both
+  filtered on the stored `agent_bus_addresses.readiness` string with no
+  wall-clock window at all. That column only moves when a caller passes
+  `receive_capable`, which only the `agent_listen` bind path ever does — so for
+  an ordinary interactive session it is written once at registration as
+  `resumable` and not again until finish, which writes `resumable` too. It reads
+  identically whether an agent is working or was SIGKILLed weeks ago. Measured
+  live on the fleet: 201 addresses, of which `agent_list(online: true,
+  engine: "claude")` returned six, three last seen 2026-08-04, 2026-08-06 and
+  2026-08-26. Meanwhile `/admin/agent-messaging/state` computed `live_addresses`
+  by wall clock over the same rows — so a crashed agent read online to its peers
+  and offline to the operator.
+  - This is the same failure the Agent Portal fixed for itself on 2026-08-01,
+    when `agent_sessions.status` was found to report `active` for the life of a
+    wrapper process whether or not it could be reached. Presence has to be
+    derived from a recent timestamp, never stored as a state: a stored flag
+    latches on its last write, and the write that would clear it is exactly the
+    one you never get on a hard kill, a slept laptop or a dropped SSH.
+  - New `services/agent-presence.ts` derives `listening` / `online` /
+    `resumable` / `offline` / `disabled` from the *bound session's* heartbeat
+    against `AGENT_PORTAL_HEARTBEAT_FRESH_SECONDS`. Deliberately not from
+    `agent_bus_addresses.last_seen_at`, which looks like a contact stamp and is
+    not: it is bumped on state change, and one of those writers is
+    `finishSession` — a logout stamping a liveness field. Going through
+    `current_session_id` also makes a clean exit instant, because finish nulls
+    it.
+  - `listAddresses` and the Director's `deadAddressIds` now share that one
+    helper rather than each spelling out a `readiness` blocklist. For the
+    Director this closes a real hole: the only path that cleared
+    `current_session_id` after a crash was the binding reap on
+    `bridge_expires_at` — 900s, restamped every 15s — so a killed agent kept a
+    shared branch locked for roughly fifteen minutes. It is now reclaimed inside
+    one 45s window, `abandoned` rather than `expired`, with its merge lease
+    released. Tightening a reclaim is the direction that can do damage, so both
+    directions are pinned: a stopped heartbeat is reclaimed, and a heartbeating
+    holder is left alone however quiet it has been.
+  - `agent_list` is now ranked reachable-first, then most-recently-seen, and
+    capped at 50 with `total` and `truncated`. Addresses are never deleted when
+    an agent exits, so the list is a history that only grows — 104 rows on one
+    host, 92 KB of JSON, enough to overflow the context of the agent that asked.
+    The previous ordering was alphabetical by UUID, so a cap would have cut at
+    random; ranking is what makes truncation safe.
+  - `readiness` stays on the wire, and `ready` — a value the API has always been
+    able to return — was missing from the frontend union entirely. Both it and
+    the new `presence` are typed now, with `readiness` documented as carrying no
+    liveness meaning, the same way `status` was retired as a signal in August.
+
 - **The ChatGPT usage card showed two bars both labelled "Weekly window", the
   second one empty.** It was rendering one meter per *slot* rather than one per
   window the provider actually reported. chatgpt.com reshaped its payload on

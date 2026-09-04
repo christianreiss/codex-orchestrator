@@ -87,6 +87,7 @@ export async function registerMcpRoutes(app: FastifyInstance, ctx: RouteContext)
   const gitDirector = new GitDirectorService({
     db: ctx.db,
     settings: new SettingsService(ctx.db),
+    freshSeconds: ctx.env.AGENT_PORTAL_HEARTBEAT_FRESH_SECONDS,
     judge: createRunnerGitDirectorJudge({
       adapter: createRunnerClaudeAdapter({
         env: ctx.env,

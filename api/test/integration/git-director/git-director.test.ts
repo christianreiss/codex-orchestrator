@@ -55,6 +55,10 @@ describe.skipIf(!handle)('git director against a real database', () => {
   let host: Host;
 
   const exec = async (q: string) => db.execute(sql.raw(q));
+  // Server-authored stamps drop milliseconds; presence compares these strings
+  // lexically, and '…00.000Z' sorts before '…00Z', so a millisecond-precision
+  // fixture would read as older than it is.
+  const isoSeconds = (d: Date) => d.toISOString().replace(/\.\d{3}Z$/, 'Z');
   const rowsOf = (res: unknown): Array<Record<string, unknown>> => {
     const first = Array.isArray(res) ? (res[0] as unknown) : res;
     return Array.isArray(first) ? (first as Array<Record<string, unknown>>) : [];
@@ -259,6 +263,100 @@ describe.skipIf(!handle)('git director against a real database', () => {
       expect(String(reclaimed['reason'])).toContain('no longer registered');
 
       await exec(`DELETE FROM agent_bus_addresses WHERE id = '${addressId}'`);
+    });
+
+    /**
+     * The two halves of derived liveness, which `current_session_id` alone
+     * could not tell apart.
+     *
+     * A registered session keeps `current_session_id` set and leaves
+     * `readiness` at the 'resumable' it was given at registration — nothing
+     * moves that column unless the agent calls `agent_listen`. So before
+     * presence was derived, a hard-killed wrapper was indistinguishable from a
+     * working one, and its branch stayed locked until the binding was reaped on
+     * `bridge_expires_at`: 900s, restamped every 15s. These two cases pin both
+     * directions of the fix, because a reclaim that is merely *eager* would be
+     * a worse bug than the one it replaces.
+     */
+    const bindLiveSession = async (heartbeatAt: string) => {
+      const addressId = randomUUID();
+      const sessionId = randomUUID();
+      const now = isoSeconds(new Date());
+      await exec(
+        `INSERT INTO agent_bus_addresses
+           (id, address, host_id, engine, username, cwd, cwd_hash, enabled, readiness,
+            current_session_id, last_seen_at, created_at, updated_at)
+         VALUES ('${addressId}', 'agent:${addressId}', ${host.id}, 'claude', 'chris', '${MAIN_WT}',
+                 SHA2('${MAIN_WT}', 256), 1, 'resumable', '${sessionId}', '${now}', '${now}', '${now}')`,
+      );
+      await exec(
+        `INSERT INTO agent_sessions
+           (id, host_id, engine, username, cwd, agent_bus_address_id, invocation_kind, status,
+            host_auth_fingerprint, bridge_token_hash, bridge_expires_at, started_at, heartbeat_at,
+            created_at, updated_at)
+         VALUES ('${sessionId}', ${host.id}, 'claude', 'chris', '${MAIN_WT}', '${addressId}',
+                 'interactive', 'active', SHA2('fp', 256), SHA2('tok', 256),
+                 '${isoSeconds(new Date(Date.now() + 900_000))}', '${now}', '${heartbeatAt}',
+                 '${now}', '${now}')`,
+      );
+      await exec(
+        `UPDATE git_worktrees SET agent_bus_address_id = '${addressId}' WHERE worktree_path = '${MAIN_WT}'`,
+      );
+      return { addressId, sessionId };
+    };
+
+    const cleanupBinding = async (ids: { addressId: string; sessionId: string }) => {
+      await exec(`DELETE FROM agent_sessions WHERE id = '${ids.sessionId}'`);
+      await exec(`DELETE FROM agent_bus_addresses WHERE id = '${ids.addressId}'`);
+    };
+
+    it('reclaims a bound holder whose heartbeat stopped, without waiting out the TTL', async () => {
+      await register(MAIN_WT);
+      await register(LINKED_WT);
+      const granted = (await requestMerge(MAIN_WT, ['api/a.ts'])) as Record<string, unknown>;
+      expect(granted['verdict']).toBe('allow');
+
+      // Registered and still bound — `current_session_id` is set and `readiness`
+      // reads 'resumable' — but the wrapper died ten minutes ago. The old
+      // blocklist called this alive and held the branch.
+      const ids = await bindLiveSession(isoSeconds(new Date(Date.now() - 600_000)));
+
+      const after = (await requestMerge(LINKED_WT, ['api/a.ts'])) as Record<string, unknown>;
+      expect(after['verdict']).toBe('allow');
+
+      const holder = rowsOf(
+        await exec(`SELECT status FROM git_worktrees WHERE worktree_path = '${MAIN_WT}'`),
+      )[0]!;
+      // 'abandoned', not 'expired': the fleet saw the agent go, it did not
+      // merely run out of clock. The two words mean different things in `stale`.
+      expect(holder['status']).toBe('abandoned');
+      const reclaimed = rowsOf(
+        await exec(`SELECT verdict, reason FROM git_merge_requests WHERE id = '${granted['request_id']}'`),
+      )[0]!;
+      expect(reclaimed['verdict']).toBe('expired');
+      expect(String(reclaimed['reason'])).toContain('no longer registered');
+
+      await cleanupBinding(ids);
+    });
+
+    it('leaves a heartbeating holder alone, however quiet it has been', async () => {
+      await register(MAIN_WT);
+      await register(LINKED_WT);
+      await requestMerge(MAIN_WT, ['api/a.ts']);
+
+      // Same shape, one field different: the wrapper is still ticking. An agent
+      // thinking its way through a long tool call must not lose its branch.
+      const ids = await bindLiveSession(isoSeconds(new Date()));
+
+      const after = (await requestMerge(LINKED_WT, ['api/a.ts'])) as Record<string, unknown>;
+      expect(after['verdict']).toBe('wait');
+
+      const holder = rowsOf(
+        await exec(`SELECT status FROM git_worktrees WHERE worktree_path = '${MAIN_WT}'`),
+      )[0]!;
+      expect(holder['status']).toBe('active');
+
+      await cleanupBinding(ids);
     });
 
     it('keeps an agent alive while it only watches, which is what polling looks like', async () => {

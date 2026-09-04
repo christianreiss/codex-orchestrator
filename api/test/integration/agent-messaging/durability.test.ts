@@ -409,6 +409,41 @@ describe.skipIf(!handle)('agent messaging durability against a real database', {
     expect(sent.message).toMatchObject({ status: 'queued' });
   });
 
+  it('drops a peer from the online listing the moment its heartbeat goes stale', async () => {
+    const source = await register('codex', 'presence-source');
+    const target = await register('claude', 'presence-target');
+
+    const onlineAddresses = async () => {
+      const listed = await service.listAddresses(source.sessionId, source.bridgeToken, {
+        includeOffline: false,
+      });
+      return (listed.addresses as Array<{ address: string }>).map((row) => row.address);
+    };
+
+    expect(await onlineAddresses()).toContain(target.address);
+
+    // The crash. Nothing tells the server a wrapper died: `readiness` still
+    // reads what registration wrote and `current_session_id` is still bound, so
+    // every stored signal says this agent is fine. Only the heartbeat knows.
+    await db
+      .update(agentSessions)
+      .set({ heartbeatAt: new Date(Date.now() - 600_000).toISOString().replace(/\.\d{3}Z$/, 'Z') })
+      .where(eq(agentSessions.id, target.sessionId));
+
+    // Before presence was derived this still listed as a reachable peer, and a
+    // message to it queued for the full 24h TTL against nobody.
+    expect(await onlineAddresses()).not.toContain(target.address);
+
+    // The row stays discoverable unfiltered — it is history, not a lie — and
+    // now carries the honest answer alongside the latched `readiness`.
+    const all = await service.listAddresses(source.sessionId, source.bridgeToken);
+    const row = (all.addresses as Array<Record<string, unknown>>).find(
+      (r) => r['address'] === target.address,
+    );
+    expect(row?.['presence']).toBe('offline');
+    expect(row?.['readiness']).toBe('ready');
+  });
+
   it('denies an insecure host once its allowed window has closed, without canceling queued work', async () => {
     const source = await register('codex', 'window-closed-source');
     const target = await register('claude', 'window-closed-target');

@@ -655,7 +655,18 @@ the engine over its private Unix socket.
 Session-bound operations require `X-Agent-Bridge-Token`:
 
 - `POST /host/agent-sessions/{id}/agent-messaging/list` — discover eligible
-  peer addresses, optionally filtered by engine or host.
+  peer addresses, optionally filtered by engine or host. Each address carries a
+  derived `presence` (`listening` | `online` | `resumable` | `offline` |
+  `disabled`), computed from the bound session's heartbeat against
+  `AGENT_PORTAL_HEARTBEAT_FRESH_SECONDS`, not from the stored `readiness`
+  column. `include_offline: false` (the `online: true` MCP argument) filters on
+  that derived value, so only `listening` and `online` — an address with a
+  wrapper actually behind it — are returned; `resumable` means a session ended
+  and could be resumed, not that anyone is home. `readiness` remains on the wire
+  for compatibility and is **not** a liveness signal: for a session that never
+  calls `agent_listen` it is written once at registration and not again until
+  finish. Results are ranked reachable-first then most-recently-seen and capped
+  at 50, with `total` and `truncated` reporting anything beyond the cap.
 - `POST /host/agent-sessions/{id}/agent-messaging/send` — enqueue a new message
   or request. Body includes `to`, UTF-8 `content`, UUID `client_message_id`, and
   optional `conversation_id`, `ttl_seconds`, and `kind` (`message|request`).

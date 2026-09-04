@@ -29,6 +29,7 @@ import { and, desc, eq, inArray, isNull } from 'drizzle-orm';
 import type { Database } from '../db/client.js';
 import {
   agentBusAddresses,
+  agentSessions,
   gitClones,
   gitMergeRequests,
   gitWorktrees,
@@ -39,6 +40,7 @@ import {
   type Host,
 } from '../db/schema.js';
 import { ConflictError, NotFoundError, ValidationError } from '../http/errors.js';
+import { AGENT_PRESENCE_FRESH_SECONDS, deriveAddressPresence, isPresent } from './agent-presence.js';
 import { nowIso, isoOffsetSeconds, parseIso } from '../util/timestamp.js';
 import { isEngine } from '../util/engine.js';
 import type { SettingsService } from './settings.js';
@@ -112,6 +114,13 @@ export interface GitDirectorServiceDeps {
   settings: SettingsService;
   judge?: GitDirectorJudge | null;
   now?: () => string;
+  /**
+   * Liveness window for the addresses this Director consumes, in seconds.
+   * Callers that can reach env should pass `AGENT_PORTAL_HEARTBEAT_FRESH_SECONDS`
+   * so the Director and Agent Messaging cannot disagree about who is alive;
+   * without it both fall back to the same shared default.
+   */
+  freshSeconds?: number;
 }
 
 // ── pure helpers (exported for unit tests) ───────────────────────────────────
@@ -342,6 +351,7 @@ export class GitDirectorService {
     const dead = await this.deadAddressIds(
       db,
       active.map((row) => row.agentBusAddressId).filter((id): id is string => Boolean(id)),
+      now,
     );
 
     const abandoned = active.filter(
@@ -419,17 +429,22 @@ export class GitDirectorService {
   /**
    * Which of these bound addresses no longer have a live agent behind them.
    *
-   * `current_session_id` is the fleet's own answer to "is a wrapper attached",
-   * so this asks the existing liveness rather than adding a heartbeat the
-   * Director would have to keep accurate on its own. An archived or disabled
-   * address counts as gone for the same reason.
+   * This asks the fleet's own liveness rather than adding a heartbeat the
+   * Director would have to keep accurate on its own — but it asks the *derived*
+   * answer, not the stored one. `readiness` alone said a peer was alive for as
+   * long as its row survived, because for a session that never calls
+   * `agent_listen` the column is written once at registration and not again
+   * until finish. A crashed agent therefore held a shared branch until its
+   * binding was reaped on `bridge_expires_at` — 900s, restamped every 15s, so
+   * roughly a quarter hour. Deriving from the session heartbeat reclaims it
+   * inside one freshness window instead.
    *
    * Failing open is deliberate: if the Agent Messaging tables cannot be read —
    * a box mid-deploy, the module never installed — no address is reported dead
    * and every registration falls back to its TTL. Guessing "dead" on a failed
    * read would evict live agents wholesale.
    */
-  private async deadAddressIds(db: GitDirectorDb, ids: readonly string[]): Promise<Set<string>> {
+  private async deadAddressIds(db: GitDirectorDb, ids: readonly string[], now: string): Promise<Set<string>> {
     const unique = [...new Set(ids)];
     if (unique.length === 0) return new Set();
     try {
@@ -437,14 +452,27 @@ export class GitDirectorService {
         .select({
           id: agentBusAddresses.id,
           currentSessionId: agentBusAddresses.currentSessionId,
+          lastUpstreamSessionId: agentBusAddresses.lastUpstreamSessionId,
+          receiveHeartbeatAt: agentBusAddresses.receiveHeartbeatAt,
           enabled: agentBusAddresses.enabled,
           archivedAt: agentBusAddresses.archivedAt,
           readiness: agentBusAddresses.readiness,
+          // Left, not inner: a reaped binding has no session row, and that
+          // absence is the answer rather than a reason to drop the address.
+          session: { heartbeatAt: agentSessions.heartbeatAt, endedAt: agentSessions.endedAt },
         })
         .from(agentBusAddresses)
+        .leftJoin(agentSessions, eq(agentSessions.id, agentBusAddresses.currentSessionId))
         .where(inArray(agentBusAddresses.id, unique))
         .limit(Math.max(unique.length, 1));
       const known = new Map(rows.map((row) => [row.id, row]));
+      // From the sweep's own clock, not wall time: `sweepExpired` is driven by
+      // an injectable `now`, and a freshness window that ignored it would make
+      // this branch untestable at the exact boundary it exists to enforce.
+      const freshAfter = isoOffsetSeconds(
+        -(this.deps.freshSeconds ?? AGENT_PRESENCE_FRESH_SECONDS),
+        parseIso(now) ?? new Date(),
+      );
       const dead = new Set<string>();
       for (const id of unique) {
         const row = known.get(id);
@@ -453,9 +481,7 @@ export class GitDirectorService {
           dead.add(id);
           continue;
         }
-        if (row.archivedAt || row.enabled !== 1) dead.add(id);
-        else if (!row.currentSessionId) dead.add(id);
-        else if (row.readiness === 'offline' || row.readiness === 'disabled') dead.add(id);
+        if (!isPresent(deriveAddressPresence(row, row.session, freshAfter))) dead.add(id);
       }
       return dead;
     } catch {

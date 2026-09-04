@@ -56,7 +56,18 @@ export interface AgentAddress {
   cwd: string;
   enabled: boolean;
   continuity: "native" | "reset" | string;
-  readiness: "live" | "resumable" | "offline" | "disabled" | string;
+  /**
+   * Derived liveness, supplied by the surfaces that enumerate peers. Prefer
+   * this over `readiness` for anything that means "is anyone there".
+   */
+  presence?: "listening" | "online" | "resumable" | "offline" | "disabled";
+  /**
+   * Stored registration state, retained for compatibility. NOT a liveness
+   * signal: for a session that never calls `agent_listen` it is written once at
+   * registration and not again until finish, so it reads the same whether the
+   * agent is working or was killed a month ago. `ready` was missing here.
+   */
+  readiness: "live" | "ready" | "resumable" | "offline" | "disabled" | string;
   adapter_protocol: string | null;
   adapter_capabilities: Record<string, unknown> | null;
   binding_generation: number;
