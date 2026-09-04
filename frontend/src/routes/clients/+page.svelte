@@ -71,7 +71,11 @@
    * resumes from `Last-Event-ID` on its own.
    */
   $effect(() => {
-    if (!canReadTranscript) return;
+    // Only while a timeline is actually open. The stream costs the server a
+    // one-second read-and-decrypt over the whole fleet's events per connected
+    // tab, and an admin parked on this page with nothing selected would pay
+    // that for frames it discards -- the list has its own 15s poll.
+    if (!canReadTranscript || !selectedId) return;
     // Absolute, not base-prefixed: `lib/api/client.ts` addresses the backend
     // at /admin/* directly, and SvelteKit's base happens to be the same
     // string -- prefixing it would ask for /admin/admin/...
@@ -81,6 +85,8 @@
       if (pending) return;
       pending = setTimeout(() => {
         pending = null;
+        // Any frame is evidence presence moved, so the list refreshes ahead of
+        // its poll; the timeline only when the frame belongs to this session.
         void client.invalidateQueries({ queryKey: agentSessionKeys.list });
         if (sessionId && sessionId === selectedId) {
           void client.invalidateQueries({ queryKey: agentSessionKeys.events(sessionId) });
