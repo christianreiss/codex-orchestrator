@@ -165,15 +165,19 @@
   });
 
   async function submit(text: string): Promise<boolean> {
-    if (!selected) return false;
-    const prompt = selected.pending_prompt;
+    // Pin the target before awaiting. Reading `selected` again afterwards would
+    // clear whichever session the operator had switched to in the meantime --
+    // wiping a draft they were already typing, while the sent one kept its own.
+    const target = selected;
+    if (!target) return false;
+    const { id, pending_prompt: prompt } = target;
     try {
       await $send.mutateAsync({
-        id: selected.id,
+        id,
         content: text,
         prompt: prompt ? { id: prompt.id, version: prompt.version } : null,
       });
-      drafts = { ...drafts, [selected.id]: "" };
+      drafts = { ...drafts, [id]: "" };
       return true;
     } catch {
       return false;
