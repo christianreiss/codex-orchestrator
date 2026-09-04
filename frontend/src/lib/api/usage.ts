@@ -58,6 +58,11 @@ export interface ChatGptHistorySeriesPoint {
 export interface ChatGptHistorySeries {
   key: string;
   label: string;
+  /** Present on ChatGPT quota series; the Claude history reuses this shape without them. */
+  lane?: "normal" | "spark";
+  window?: "primary" | "secondary";
+  /** The window length this slot currently measures against, from the newest point that reports one. */
+  limit_seconds?: number | null;
   points: ChatGptHistorySeriesPoint[];
 }
 
@@ -166,18 +171,50 @@ export function claudeHistoryQuery(days = 60) {
 
 /* Aggregations --------------------------------------------------------- */
 
+function seriesLane(series: ChatGptHistorySeries): "normal" | "spark" {
+  return series.lane ?? (series.key.startsWith("spark") ? "spark" : "normal");
+}
+
 /**
- * Pick the ChatGPT series the dashboard charts. Nothing is compared by
- * magnitude: a series whose key ends in `_secondary` wins as long as it has
- * points, else the first series that has any points, else `series[0]` — which
- * is empty whenever every series is.
+ * Rank a series for the sparkline: the normal lane always outranks spark, and
+ * within a lane the longer window wins. A series with no reported window
+ * length ranks last inside its lane, which leaves the declaration order
+ * (primary before secondary) as the tiebreak.
+ */
+function chatgptSeriesRank(series: ChatGptHistorySeries): number {
+  const laneWeight = seriesLane(series) === "normal" ? 1_000_000_000 : 0;
+  const limit =
+    typeof series.limit_seconds === "number" && series.limit_seconds > 0 ? series.limit_seconds : 0;
+  return laneWeight + limit;
+}
+
+/**
+ * Pick the ChatGPT series the dashboard charts: of the series that actually
+ * have points, the highest-ranked one.
+ *
+ * This used to take the first series whose key ended `_secondary` — the same
+ * trust-the-field-position reasoning `chatgptWindowLabel` below exists to
+ * undo. chatgpt.com moved the normal lane's weekly quota into
+ * `primary_window` on 2026-07-11 and stopped sending a secondary window at
+ * all, so that rule kept selecting `normal_secondary`: a lane whose newest
+ * point predates the change, drawn as if it were current.
  */
 export function pickPrimaryChatgptSeries(history: ChatGptHistoryResponse | undefined): ChatGptHistorySeries | null {
   if (!history || !history.series || history.series.length === 0) return null;
-  // Prefer secondary (weekly) over primary (5h) when both exist; users care more about it.
-  const secondary = history.series.find((s) => s.key.endsWith("_secondary"));
-  if (secondary && secondary.points.length > 0) return secondary;
-  return history.series.find((s) => s.points.length > 0) ?? history.series[0];
+  const withPoints = history.series.filter((s) => s.points.length > 0);
+  if (withPoints.length === 0) return history.series[0];
+  return withPoints.reduce((best, s) => (chatgptSeriesRank(s) > chatgptSeriesRank(best) ? s : best));
+}
+
+/**
+ * Label one history series for the chart legend. Falls back to the server's
+ * own label whenever the series reports no window length — there is nothing
+ * more truthful to say than what the server already said.
+ */
+export function chatgptSeriesLabel(series: ChatGptHistorySeries): string {
+  if (typeof series.limit_seconds !== "number" || series.limit_seconds <= 0) return series.label;
+  const lane = seriesLane(series) === "spark" ? "Spark" : "Normal";
+  return `${lane} · ${chatgptWindowLabel(series.limit_seconds, series.label)}`;
 }
 
 const FIVE_HOURS_SECONDS = 5 * 60 * 60;
@@ -201,4 +238,80 @@ export function chatgptWindowLabel(limitSeconds: number | null | undefined, fall
   if (limitSeconds % 86400 === 0) return `${limitSeconds / 86400}-day window`;
   if (limitSeconds % 3600 === 0) return `${limitSeconds / 3600}-hour window`;
   return fallback;
+}
+
+/* Quota rows ------------------------------------------------------------ */
+
+/** One quota bar on the ChatGPT card: a window the provider actually reported. */
+export interface ChatGptQuotaRow {
+  key: "normal_primary" | "normal_secondary" | "spark_primary" | "spark_secondary";
+  lane: "normal" | "spark";
+  label: string;
+  usedPercent: number;
+}
+
+/**
+ * Build one row per quota window chatgpt.com actually reported, in the order
+ * the cxx CLI prints them.
+ *
+ * A slot is skipped when its window carries no `used_percent`, mirroring
+ * `addRow` in wrappers/cxx/internal/persona/codex/summary/summary.go, which
+ * returns early on a nil `used`. That guard is the whole point: chatgpt.com
+ * dropped the normal lane's 5-hour window on 2026-07-11 and now sends
+ * `secondary_window: null`, so a card rendering one meter per slot drew a bar
+ * for a window that no longer exists — and with no `limit_seconds` to read it
+ * fell back to the positional label, duplicating the "Weekly window" above it.
+ *
+ * The check is `typeof … === "number"` rather than a truthiness test on
+ * purpose: a window sitting at exactly 0% is real and still gets a bar. Both
+ * Spark windows normally are.
+ */
+export function chatgptQuotaRows(summary: ChatGptUsageSummary | null | undefined): ChatGptQuotaRow[] {
+  if (!summary) return [];
+  const spark = summary.spark_window ?? null;
+  const slots: Array<{
+    key: ChatGptQuotaRow["key"];
+    lane: ChatGptQuotaRow["lane"];
+    window: ChatGptWindow | null | undefined;
+    fallback: string;
+  }> = [
+    {
+      key: "normal_primary",
+      lane: "normal",
+      window: summary.primary_window ?? summary.normal_window?.primary_window,
+      fallback: "5-hour window",
+    },
+    {
+      key: "normal_secondary",
+      lane: "normal",
+      window: summary.secondary_window ?? summary.normal_window?.secondary_window,
+      fallback: "Weekly window",
+    },
+    {
+      key: "spark_primary",
+      lane: "spark",
+      window: spark?.primary_window,
+      fallback: "5-hour window",
+    },
+    {
+      key: "spark_secondary",
+      lane: "spark",
+      window: spark?.secondary_window,
+      fallback: "Weekly window",
+    },
+  ];
+
+  const rows: ChatGptQuotaRow[] = [];
+  for (const slot of slots) {
+    const used = slot.window?.used_percent;
+    if (typeof used !== "number" || !Number.isFinite(used)) continue;
+    const label = chatgptWindowLabel(slot.window?.limit_seconds, slot.fallback);
+    rows.push({
+      key: slot.key,
+      lane: slot.lane,
+      label: slot.lane === "spark" ? `Spark · ${label}` : label,
+      usedPercent: used,
+    });
+  }
+  return rows;
 }

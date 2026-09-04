@@ -1,5 +1,43 @@
 # 2026-09-04
 
+- **The ChatGPT usage card showed two bars both labelled "Weekly window", the
+  second one empty.** It was rendering one meter per *slot* rather than one per
+  window the provider actually reported. chatgpt.com reshaped its payload on
+  2026-07-11: the normal lane lost its 5-hour window and its weekly quota moved
+  into `primary_window`, leaving `secondary_window` null. The card drew that
+  absent window anyway, and with no `limit_seconds` to read, `chatgptWindowLabel`
+  fell back to the slot's usual name — which is how one lane ended up printed
+  twice.
+  - `chatgptQuotaRows()` now builds the bars, and a window with no
+    `used_percent` gets none. It mirrors `addRow` in the cxx wrapper's
+    `summary.go`, which returns early on a nil `used` — the CLI has shown one
+    correct bar this whole time while the web card showed two. The guard is a
+    `typeof` check, not a truthiness test: a window sitting at exactly 0% is a
+    real window and still gets a bar.
+  - The Spark lane is rendered now, prefixed `Spark · `. It was in the response
+    and drawn by the CLI all along; the card had simply never looked at
+    `spark_window`. On a pro plan today that turns one lonely bar into three.
+  - A snapshot whose every window is empty says so, instead of leaving a
+    timestamp and a sparkline floating over blank space.
+- **The card's sparkline was plotting a lane that died two months ago.**
+  `pickPrimaryChatgptSeries` took the first series whose key ended `_secondary`
+  and had any points — the same trust-the-field-position reasoning
+  `chatgptWindowLabel` exists to undo. After the July change that rule kept
+  choosing `normal_secondary`, whose newest point predates it, over the live
+  weekly numbers arriving on `normal_primary`. Ranking now runs on what a series
+  *is*: the normal lane outranks Spark, and inside a lane the longer window wins.
+- **The history modal had the same defect at the source.** Its series labels
+  were hardcoded `'Normal 5-hour'` → `primary_used_percent` and `'Normal weekly'`
+  → `secondary_used_percent`, so after July the first label sat on the weekly
+  lane and the second described an empty line. Each series now carries the
+  `limit_seconds` its slot currently measures and is labelled from that, series
+  with no points are dropped from the chart, and — because `primary_used_percent`
+  holds 5-hour readings before the cutover and weekly readings after — a point
+  only joins a series whose window it was actually measured against. A 60-day
+  range spanning 2026-07-11 was drawing two different windows as one line.
+
+# 2026-09-04
+
 - **There was no way to say "I am at my desk, let them all through until this
   evening."** An insecure host is bounded by a sliding window on its own row —
   ten minutes by default — and outside it every request either opens an approval

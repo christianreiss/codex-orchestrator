@@ -55,11 +55,21 @@ interface ChatGptHistoryPoint {
   secondary_used_percent: number | null;
   spark_primary_used_percent: number | null;
   spark_secondary_used_percent: number | null;
+  // Optional so a caller holding older point rows still type-checks; a point
+  // that reports no window length is admitted to whichever series claims it.
+  primary_limit_seconds?: number | null;
+  secondary_limit_seconds?: number | null;
+  spark_primary_limit_seconds?: number | null;
+  spark_secondary_limit_seconds?: number | null;
 }
 
 interface ChatGptHistorySeries {
   key: string;
   label: string;
+  lane: 'normal' | 'spark';
+  window: 'primary' | 'secondary';
+  /** Window length this slot currently measures, from the newest point reporting one. */
+  limit_seconds: number | null;
   points: Array<{ ts: string; value: number }>;
 }
 
@@ -174,6 +184,7 @@ export function buildChatGptHistorySeries(
     lane: 'normal' | 'spark';
     window: 'primary' | 'secondary';
     field: keyof ChatGptHistoryPoint;
+    limitField: keyof ChatGptHistoryPoint;
   }> = [
     {
       key: 'normal_primary',
@@ -181,6 +192,7 @@ export function buildChatGptHistorySeries(
       lane: 'normal',
       window: 'primary',
       field: 'primary_used_percent',
+      limitField: 'primary_limit_seconds',
     },
     {
       key: 'normal_secondary',
@@ -188,6 +200,7 @@ export function buildChatGptHistorySeries(
       lane: 'normal',
       window: 'secondary',
       field: 'secondary_used_percent',
+      limitField: 'secondary_limit_seconds',
     },
     {
       key: 'spark_primary',
@@ -195,6 +208,7 @@ export function buildChatGptHistorySeries(
       lane: 'spark',
       window: 'primary',
       field: 'spark_primary_used_percent',
+      limitField: 'spark_primary_limit_seconds',
     },
     {
       key: 'spark_secondary',
@@ -202,24 +216,80 @@ export function buildChatGptHistorySeries(
       lane: 'spark',
       window: 'secondary',
       field: 'spark_secondary_used_percent',
+      limitField: 'spark_secondary_limit_seconds',
     },
   ];
+
+  const reference = latestReadingPoint(points);
 
   return candidates
     .filter(
       (candidate) =>
         (lane === 'both' || lane === candidate.lane) && (window === 'both' || window === candidate.window),
     )
-    .map((candidate) => ({
-      key: candidate.key,
-      label: candidate.label,
-      points: points
-        .map((point) => {
-          const value = point[candidate.field];
-          return typeof value === 'number' ? { ts: point.fetched_at, value } : null;
-        })
-        .filter((point): point is { ts: string; value: number } => point !== null),
-    }));
+    .map((candidate) => {
+      // A slot the provider has stopped filling is retired: it leaves the
+      // chart rather than lingering as a flat line labelled the same as the
+      // window that replaced it. chatgpt.com stopped sending the normal
+      // lane's secondary window on 2026-07-11, and its weekly quota now
+      // arrives in the primary slot — so both normal series would otherwise
+      // resolve to "weekly" and print the same legend entry twice.
+      if (reference !== null && typeof reference[candidate.field] !== 'number') {
+        return {
+          key: candidate.key,
+          label: candidate.label,
+          lane: candidate.lane,
+          window: candidate.window,
+          limit_seconds: null,
+          points: [],
+        };
+      }
+
+      // Which window a live slot measures is not fixed either, for the same
+      // reason: `primary_used_percent` holds 5-hour readings before that date
+      // and weekly readings after. Take the slot's window length from the
+      // reference reading and admit only the points measured against it —
+      // otherwise a range spanning the change draws two windows as one line.
+      const referenceLimit = reference?.[candidate.limitField];
+      const limitSeconds = typeof referenceLimit === 'number' && referenceLimit > 0 ? referenceLimit : null;
+      const seriesPoints: Array<{ ts: string; value: number }> = [];
+      for (const point of points) {
+        const value = point[candidate.field];
+        if (typeof value !== 'number') continue;
+        const limit = point[candidate.limitField];
+        if (limitSeconds !== null && typeof limit === 'number' && limit !== limitSeconds) continue;
+        seriesPoints.push({ ts: point.fetched_at, value });
+      }
+      return {
+        key: candidate.key,
+        label: candidate.label,
+        lane: candidate.lane,
+        window: candidate.window,
+        limit_seconds: limitSeconds,
+        points: seriesPoints,
+      };
+    });
+}
+
+const READING_FIELDS = [
+  'primary_used_percent',
+  'secondary_used_percent',
+  'spark_primary_used_percent',
+  'spark_secondary_used_percent',
+] as const;
+
+/**
+ * The newest point that recorded any reading at all — the state of the world
+ * a series is judged current against. Snapshots that recorded nothing are
+ * skipped so a single unavailable fetch at the end of a range cannot retire
+ * every series and blank the chart.
+ */
+function latestReadingPoint(points: ChatGptHistoryPoint[]): ChatGptHistoryPoint | null {
+  for (let i = points.length - 1; i >= 0; i -= 1) {
+    const point = points[i];
+    if (point && READING_FIELDS.some((field) => typeof point[field] === 'number')) return point;
+  }
+  return null;
 }
 
 export function parseChatGptUsageJson(json: Record<string, unknown>): Partial<ChatGptSnapshotInsert> {
@@ -359,6 +429,10 @@ export class ChatGptUsageService {
         secondaryUsedPercent: chatgptUsageSnapshots.secondaryUsedPercent,
         sparkPrimaryUsedPercent: chatgptUsageSnapshots.sparkPrimaryUsedPercent,
         sparkSecondaryUsedPercent: chatgptUsageSnapshots.sparkSecondaryUsedPercent,
+        primaryLimitSeconds: chatgptUsageSnapshots.primaryLimitSeconds,
+        secondaryLimitSeconds: chatgptUsageSnapshots.secondaryLimitSeconds,
+        sparkPrimaryLimitSeconds: chatgptUsageSnapshots.sparkPrimaryLimitSeconds,
+        sparkSecondaryLimitSeconds: chatgptUsageSnapshots.sparkSecondaryLimitSeconds,
       })
       .from(chatgptUsageSnapshots)
       .where(
@@ -372,6 +446,10 @@ export class ChatGptUsageService {
       secondary_used_percent: r.secondaryUsedPercent ?? null,
       spark_primary_used_percent: r.sparkPrimaryUsedPercent ?? null,
       spark_secondary_used_percent: r.sparkSecondaryUsedPercent ?? null,
+      primary_limit_seconds: r.primaryLimitSeconds ?? null,
+      secondary_limit_seconds: r.secondaryLimitSeconds ?? null,
+      spark_primary_limit_seconds: r.sparkPrimaryLimitSeconds ?? null,
+      spark_secondary_limit_seconds: r.sparkSecondaryLimitSeconds ?? null,
     }));
 
     return {

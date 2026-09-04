@@ -21,7 +21,8 @@
     chatgptHistoryQuery,
     chatgptRefreshMutation,
     pickPrimaryChatgptSeries,
-    chatgptWindowLabel,
+    chatgptQuotaRows,
+    chatgptSeriesLabel,
     type ChatGptUsageSummary,
   } from "$lib/api/usage";
   import { toast } from "svelte-sonner";
@@ -41,24 +42,16 @@
     return snapshot as ChatGptUsageSummary;
   });
 
-  const primaryWindow = $derived(summary?.primary_window ?? summary?.normal_window?.primary_window ?? null);
-  const secondaryWindow = $derived(summary?.secondary_window ?? summary?.normal_window?.secondary_window ?? null);
   const planType = $derived(summary?.plan_type ?? "—");
   const fetchedAt = $derived(summary?.fetched_at ?? null);
   const rateLimited = $derived(summary?.rate_limit_reached === true);
 
-  const primaryPercent = $derived(
-    typeof primaryWindow?.used_percent === "number" ? primaryWindow.used_percent : null,
-  );
-  const secondaryPercent = $derived(
-    typeof secondaryWindow?.used_percent === "number" ? secondaryWindow.used_percent : null,
-  );
-
-  // Labels are derived from each window's own limit_seconds rather than its
-  // primary/secondary position — chatgpt.com doesn't guarantee the 5-hour
-  // lane is always "primary", so trusting position mislabels the bars.
-  const primaryLabel = $derived(chatgptWindowLabel(primaryWindow?.limit_seconds, "5-hour window"));
-  const secondaryLabel = $derived(chatgptWindowLabel(secondaryWindow?.limit_seconds, "Weekly window"));
+  // One bar per window chatgpt.com actually reported — never one per slot.
+  // The provider stopped sending the normal lane's secondary window on
+  // 2026-07-11, and a meter per slot drew that absent window as a second
+  // "Weekly window" bar reading "—". Labels come from each window's own
+  // limit_seconds rather than its primary/secondary position.
+  const quotaRows = $derived(chatgptQuotaRows(summary));
 
   const cached = $derived(($usage.data as { cached?: boolean } | undefined)?.cached === true);
 
@@ -67,12 +60,16 @@
     (primarySeries?.points ?? []).map((p) => ({ ts: p.ts, value: p.value })),
   );
 
-  // Build datasets for the full-history modal.
+  // Build datasets for the full-history modal. Series with no points are
+  // dropped rather than charted as an empty legend entry — a lane the
+  // provider has stopped reporting should leave the chart, not linger in it.
   const chartSeries = $derived(
-    ($history.data?.series ?? []).map((s) => ({
-      label: s.label,
-      data: s.points.map((p) => ({ x: p.ts, y: p.value })),
-    })),
+    ($history.data?.series ?? [])
+      .filter((s) => s.points.length > 0)
+      .map((s) => ({
+        label: chatgptSeriesLabel(s),
+        data: s.points.map((p) => ({ x: p.ts, y: p.value })),
+      })),
   );
 
   function handleRefresh() {
@@ -140,20 +137,22 @@
         No usage recorded yet — connect your first host or click Refresh.
       </div>
     {:else}
-      <div class="space-y-3">
-        <UsageMeter
-          label={primaryLabel}
-          valueLabel={primaryPercent === null ? "—" : `${Math.round(primaryPercent)}%`}
-          usedPercent={primaryPercent ?? 0}
-          cachedPercent={cached && primaryPercent !== null ? primaryPercent : 0}
-        />
-        <UsageMeter
-          label={secondaryLabel}
-          valueLabel={secondaryPercent === null ? "—" : `${Math.round(secondaryPercent)}%`}
-          usedPercent={secondaryPercent ?? 0}
-          cachedPercent={cached && secondaryPercent !== null ? secondaryPercent : 0}
-        />
-      </div>
+      {#if quotaRows.length === 0}
+        <div class="rounded-md border bg-muted/30 p-4 text-sm text-muted-foreground">
+          No quota windows reported in the latest snapshot.
+        </div>
+      {:else}
+        <div class="space-y-3">
+          {#each quotaRows as row (row.key)}
+            <UsageMeter
+              label={row.label}
+              valueLabel={`${Math.round(row.usedPercent)}%`}
+              usedPercent={row.usedPercent}
+              cachedPercent={cached ? row.usedPercent : 0}
+            />
+          {/each}
+        </div>
+      {/if}
 
       {#if rateLimited}
         <Alert variant="warning">

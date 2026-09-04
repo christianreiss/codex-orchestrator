@@ -56,16 +56,22 @@ const {
   chatgptHistoryQuery,
   pickPrimaryChatgptSeries,
   chatgptWindowLabel,
+  chatgptQuotaRows,
+  chatgptSeriesLabel,
   claudeUsageQuery,
   claudeHistoryQuery,
   usageKeys,
 } = (await import(usageModule)) as typeof import("./usage");
 
+const FIVE_HOURS = 18000;
+const ONE_WEEK = 604800;
+
 /** A series carrying `count` points; the values only need to differ in size. */
-function seriesOf(key: string, count: number): ChatGptHistorySeries {
+function seriesOf(key: string, count: number, limitSeconds?: number): ChatGptHistorySeries {
   return {
     key,
     label: key,
+    ...(limitSeconds === undefined ? {} : { limit_seconds: limitSeconds }),
     points: Array.from({ length: count }, (_, i) => ({
       ts: `2026-07-0${i + 1}T00:00:00Z`,
       value: i,
@@ -92,19 +98,44 @@ describe("pickPrimaryChatgptSeries", () => {
     assert.equal(pickPrimaryChatgptSeries(historyOf([])), null);
   });
 
-  it("prefers a secondary series with points over an earlier, longer primary", () => {
+  it("prefers the longer window in the normal lane", () => {
+    const fiveHour = seriesOf("normal_primary", 5, FIVE_HOURS);
+    const weekly = seriesOf("normal_secondary", 1, ONE_WEEK);
+
+    assert.equal(pickPrimaryChatgptSeries(historyOf([fiveHour, weekly])), weekly);
+  });
+
+  it("does not follow the field position when the weekly window moves to primary", () => {
+    // Regression: chatgpt.com moved the normal lane's weekly quota into
+    // primary_window on 2026-07-11 and stopped sending a secondary window.
+    // The old rule took the first key ending `_secondary` that had any
+    // points, so it kept charting a lane whose newest point predated the
+    // change while the live weekly numbers arrived on normal_primary.
+    const weekly = seriesOf("normal_primary", 40, ONE_WEEK);
+    const dead = seriesOf("normal_secondary", 3, FIVE_HOURS);
+
+    assert.equal(pickPrimaryChatgptSeries(historyOf([weekly, dead])), weekly);
+  });
+
+  it("prefers the normal lane over a longer spark window", () => {
+    const normal = seriesOf("normal_primary", 2, FIVE_HOURS);
+    const spark = seriesOf("spark_secondary", 9, ONE_WEEK);
+
+    assert.equal(pickPrimaryChatgptSeries(historyOf([normal, spark])), normal);
+  });
+
+  it("skips series with no points, whatever their rank", () => {
+    const empty = seriesOf("normal_secondary", 0, ONE_WEEK);
+    const spark = seriesOf("spark_primary", 3, FIVE_HOURS);
+
+    assert.equal(pickPrimaryChatgptSeries(historyOf([empty, spark])), spark);
+  });
+
+  it("falls back to declaration order when no series reports a window length", () => {
     const primary = seriesOf("normal_primary", 5);
     const secondary = seriesOf("normal_secondary", 1);
 
-    assert.equal(pickPrimaryChatgptSeries(historyOf([primary, secondary])), secondary);
-  });
-
-  it("falls through to the first series with points when the secondary is empty", () => {
-    const empty = seriesOf("normal_primary", 0);
-    const primary = seriesOf("spark_primary", 3);
-    const secondary = seriesOf("normal_secondary", 0);
-
-    assert.equal(pickPrimaryChatgptSeries(historyOf([empty, secondary, primary])), primary);
+    assert.equal(pickPrimaryChatgptSeries(historyOf([primary, secondary])), primary);
   });
 
   it("returns the first series — empty and all — when no series has points", () => {
@@ -112,6 +143,17 @@ describe("pickPrimaryChatgptSeries", () => {
     const secondary = seriesOf("normal_secondary", 0);
 
     assert.equal(pickPrimaryChatgptSeries(historyOf([first, secondary])), first);
+  });
+});
+
+describe("chatgptSeriesLabel", () => {
+  it("names the lane and the window's real duration", () => {
+    assert.equal(chatgptSeriesLabel(seriesOf("normal_primary", 1, ONE_WEEK)), "Normal · Weekly window");
+    assert.equal(chatgptSeriesLabel(seriesOf("spark_primary", 1, FIVE_HOURS)), "Spark · 5-hour window");
+  });
+
+  it("keeps the server's own label when the series reports no window length", () => {
+    assert.equal(chatgptSeriesLabel(seriesOf("normal_secondary", 1)), "normal_secondary");
   });
 });
 
@@ -142,6 +184,102 @@ describe("chatgptWindowLabel", () => {
   it("describes other day/hour windows generically", () => {
     assert.equal(chatgptWindowLabel(86400, "fallback"), "1-day window");
     assert.equal(chatgptWindowLabel(3600, "fallback"), "1-hour window");
+  });
+});
+
+describe("chatgptQuotaRows", () => {
+  // Verbatim `/admin/chatgpt/usage` snapshot for a pro plan, taken from
+  // production on 2026-09-04. Since 2026-07-11 chatgpt.com sends the normal
+  // lane one window — the weekly one, in the *primary* slot — and a null
+  // secondary; the Spark lane still carries both of its windows, at 0%.
+  const liveShape = {
+    plan_type: "pro",
+    primary_window: {
+      used_percent: 24,
+      limit_seconds: 604800,
+      reset_after_seconds: 249774,
+      reset_at: null,
+      resets_at: null,
+    },
+    secondary_window: {
+      used_percent: null,
+      limit_seconds: null,
+      reset_after_seconds: null,
+      reset_at: null,
+      resets_at: null,
+    },
+    spark_window: {
+      primary_window: { used_percent: 0, limit_seconds: 18000, reset_after_seconds: 18000 },
+      secondary_window: { used_percent: 0, limit_seconds: 604800, reset_after_seconds: 604800 },
+    },
+  };
+
+  it("renders no bar for a window the provider stopped reporting", () => {
+    // Regression: the card drew one meter per slot, so the absent secondary
+    // window became a second bar reading "—", labelled from its positional
+    // fallback — which duplicated the "Weekly window" above it.
+    const rows = chatgptQuotaRows({ ...liveShape, spark_window: null });
+
+    assert.deepEqual(
+      rows.map((row) => row.label),
+      ["Weekly window"],
+    );
+    assert.equal(rows[0]?.usedPercent, 24);
+  });
+
+  it("keeps a window sitting at exactly 0%", () => {
+    // A truthiness check here would drop both Spark bars, silently: they are
+    // normally at 0 and would simply never appear.
+    const rows = chatgptQuotaRows(liveShape);
+
+    assert.deepEqual(
+      rows.map((row) => row.label),
+      ["Weekly window", "Spark · 5-hour window", "Spark · Weekly window"],
+    );
+    assert.deepEqual(
+      rows.map((row) => row.usedPercent),
+      [24, 0, 0],
+    );
+  });
+
+  it("labels each window by its own duration, not its slot", () => {
+    const rows = chatgptQuotaRows({
+      primary_window: { used_percent: 7, limit_seconds: 604800 },
+      secondary_window: { used_percent: 9, limit_seconds: 18000 },
+    });
+
+    assert.deepEqual(
+      rows.map((row) => row.label),
+      ["Weekly window", "5-hour window"],
+    );
+  });
+
+  it("falls back to the slot's usual duration when the window reports none", () => {
+    const rows = chatgptQuotaRows({
+      primary_window: { used_percent: 1 },
+      secondary_window: { used_percent: 2 },
+    });
+
+    assert.deepEqual(
+      rows.map((row) => row.label),
+      ["5-hour window", "Weekly window"],
+    );
+  });
+
+  it("returns no rows when every window is absent", () => {
+    assert.deepEqual(chatgptQuotaRows({ plan_type: "pro" }), []);
+    assert.deepEqual(chatgptQuotaRows(null), []);
+  });
+
+  it("reads the normal lane from normal_window when the flat fields are missing", () => {
+    const rows = chatgptQuotaRows({
+      normal_window: { primary_window: { used_percent: 12, limit_seconds: 604800 } },
+    });
+
+    assert.deepEqual(
+      rows.map((row) => [row.key, row.label]),
+      [["normal_primary", "Weekly window"]],
+    );
   });
 });
 

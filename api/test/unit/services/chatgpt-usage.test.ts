@@ -88,6 +88,95 @@ describe('ChatGPT usage compatibility shape', () => {
     ]);
   });
 
+  it("carries each slot's current window length and drops readings from a different window", () => {
+    // chatgpt.com moved the normal lane's weekly quota out of
+    // secondary_window and into primary_window on 2026-07-11. Without this
+    // the 5-hour readings from before that date and the weekly readings from
+    // after it are drawn as one continuous `normal_primary` line.
+    const series = buildChatGptHistorySeries(
+      [
+        {
+          fetched_at: '2026-07-10T09:00:00Z',
+          primary_used_percent: 41,
+          secondary_used_percent: 12,
+          spark_primary_used_percent: null,
+          spark_secondary_used_percent: null,
+          primary_limit_seconds: 18000,
+          secondary_limit_seconds: 604800,
+        },
+        {
+          fetched_at: '2026-07-13T09:00:00Z',
+          primary_used_percent: 24,
+          secondary_used_percent: null,
+          spark_primary_used_percent: null,
+          spark_secondary_used_percent: null,
+          primary_limit_seconds: 604800,
+          secondary_limit_seconds: null,
+        },
+      ],
+      { lane: 'normal', window: 'both' },
+    );
+
+    const primary = series.find((item) => item.key === 'normal_primary');
+    expect(primary?.limit_seconds).toBe(604800);
+    expect(primary?.lane).toBe('normal');
+    expect(primary?.window).toBe('primary');
+    expect(primary?.points).toEqual([{ ts: '2026-07-13T09:00:00Z', value: 24 }]);
+
+    // The slot the provider stopped filling leaves the chart entirely. Left
+    // in, it would resolve to the weekly window too and print a second legend
+    // entry reading exactly the same as the live one.
+    const secondary = series.find((item) => item.key === 'normal_secondary');
+    expect(secondary?.limit_seconds).toBeNull();
+    expect(secondary?.points).toEqual([]);
+  });
+
+  it('does not retire every slot when the newest snapshot recorded nothing', () => {
+    // 70 production snapshots carry no readings at all. One of those landing
+    // at the end of a range must not blank the chart.
+    const series = buildChatGptHistorySeries(
+      [
+        {
+          fetched_at: '2026-09-03T09:00:00Z',
+          primary_used_percent: 24,
+          secondary_used_percent: null,
+          spark_primary_used_percent: null,
+          spark_secondary_used_percent: null,
+          primary_limit_seconds: 604800,
+        },
+        {
+          fetched_at: '2026-09-03T15:07:36Z',
+          primary_used_percent: null,
+          secondary_used_percent: null,
+          spark_primary_used_percent: null,
+          spark_secondary_used_percent: null,
+        },
+      ],
+      { lane: 'normal', window: 'primary' },
+    );
+
+    expect(series[0]?.limit_seconds).toBe(604800);
+    expect(series[0]?.points).toEqual([{ ts: '2026-09-03T09:00:00Z', value: 24 }]);
+  });
+
+  it('keeps every point when no window length was ever recorded', () => {
+    const series = buildChatGptHistorySeries(
+      [
+        {
+          fetched_at: '2026-05-20T09:00:00Z',
+          primary_used_percent: 2,
+          secondary_used_percent: null,
+          spark_primary_used_percent: null,
+          spark_secondary_used_percent: null,
+        },
+      ],
+      { lane: 'normal', window: 'primary' },
+    );
+
+    expect(series[0]?.limit_seconds).toBeNull();
+    expect(series[0]?.points).toEqual([{ ts: '2026-05-20T09:00:00Z', value: 2 }]);
+  });
+
   it('parses ChatGPT wham usage payloads including the Spark lane', () => {
     const parsed = parseChatGptUsageJson({
       plan_type: 'pro',

@@ -56,14 +56,16 @@ Codex CLI updates do not produce a dashboard alert: managed hosts update automat
 
 `ChatGptUsageCard` calls `chatgptUsageQuery()` (`GET /admin/chatgpt/usage`) and `chatgptHistoryQuery(60)` (`GET /admin/chatgpt/usage/history?days=60&interval=day`) for the history series. It renders:
 
-- `primary_window.used_percent` and `secondary_window.used_percent` as `UsageMeter` progress bars labeled "5-hour window" and "Weekly window".
-- An inline `Sparkline` of recent usage, drawn from whichever history series has data (weekly preferred over 5-hour when both exist).
+- One `UsageMeter` progress bar per quota window the snapshot actually reports, built by `chatgptQuotaRows()` in `frontend/src/lib/api/usage.ts`. A window carrying no `used_percent` gets no bar — the card never renders a meter for a slot the provider left empty. A window at exactly `0` is reported and does get a bar.
+- Each bar is labeled from its own `limit_seconds` ("5-hour window", "Weekly window", or a generic "N-day"/"N-hour window"), never from its `primary`/`secondary` position; the positional name is only a fallback for a window that reports no duration. Spark-lane bars are prefixed `Spark · `.
+- An inline `Sparkline` of recent usage, drawn from the highest-ranked history series that has points: the normal lane outranks Spark, and within a lane the longer window wins.
 - "cached" appended to the card description (next to the plan type) when the response was served from cache — this is plain text, not a separate badge component.
 - A "Rate limit reached" warning alert when `rate_limit_reached` is true, showing the next-eligible time when known.
-- A "View history" button that opens a modal containing a full `TrendChart`.
+- A "View history" button that opens a modal containing a full `TrendChart`. Series with no points are left out of the chart, and each remaining series is labeled from its own window length.
 - An explicit refresh button that posts to `POST /admin/chatgpt/usage/refresh`.
+- "No quota windows reported in the latest snapshot." when a snapshot exists but every window is empty — distinct from the "No usage recorded yet" state, which means no snapshot at all.
 
-There are no separate "normal lane" vs "Spark lane" meters in the rendered card — only `primary_window` and `secondary_window` from the unified summary are displayed.
+Both lanes are rendered when the provider reports both. What chatgpt.com returns is not fixed: on 2026-07-11 it dropped the normal lane's 5-hour window and moved the weekly one into `primary_window`, leaving `secondary_window` null. That is why nothing here is keyed to a slot's usual meaning.
 
 ## Runner
 
