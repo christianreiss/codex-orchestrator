@@ -19,23 +19,24 @@ import { createHash } from 'node:crypto';
 import { CODEX_WEB_SEARCH_VALUES, type CodexWebSearch } from './agent-security-levels.js';
 
 /** Fleet defaults for new Codex configs and OpenAI-compatible requests. */
-export const DEFAULT_CODEX_MODEL = 'gpt-5.6-terra';
+export const DEFAULT_CODEX_MODEL = 'gpt-6-astra';
 export const DEFAULT_CODEX_REASONING_EFFORT = 'medium';
 
 export const FORCE_UPGRADE_MODEL = DEFAULT_CODEX_MODEL;
 export const FORCE_UPGRADE_REASONING_EFFORT = 'high';
 
 export const SUPPORTED_MODELS: readonly string[] = [
+  'gpt-6-astra',
   'gpt-5.6-sol',
   'gpt-5.6-terra',
   'gpt-5.6-luna',
   'gpt-5.5',
-  'gpt-5.4',
   'gpt-5.4-mini',
   'gpt-5.3-codex-spark',
 ];
 
 export const LEGACY_MODEL_UPGRADES: Readonly<Record<string, string>> = {
+  'gpt-5.4': FORCE_UPGRADE_MODEL,
   'gpt-5.3-codex': FORCE_UPGRADE_MODEL,
   'gpt-5.2': FORCE_UPGRADE_MODEL,
   'gpt-5.2-codex': FORCE_UPGRADE_MODEL,
@@ -83,22 +84,22 @@ export const REASONING_EFFORTS: readonly string[] = [
 ];
 
 export const MODEL_REASONING_EFFORTS: Readonly<Record<string, readonly string[]>> = {
+  'gpt-6-astra': ['low', 'medium', 'high', 'xhigh', 'max'],
   'gpt-5.6-sol': ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
   'gpt-5.6-terra': ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
   'gpt-5.6-luna': ['low', 'medium', 'high', 'xhigh', 'max'],
   'gpt-5.5': ['low', 'medium', 'high', 'xhigh'],
-  'gpt-5.4': ['low', 'medium', 'high', 'xhigh'],
   'gpt-5.4-mini': ['low', 'medium', 'high', 'xhigh'],
   'gpt-5.3-codex-spark': ['low', 'medium', 'high', 'xhigh'],
 };
 
 /** Defaults reported by the current Codex CLI model catalog. */
 export const CODEX_MODEL_DEFAULT_REASONING_EFFORTS: Readonly<Record<string, string>> = {
+  'gpt-6-astra': 'medium',
   'gpt-5.6-sol': 'medium',
   'gpt-5.6-terra': 'medium',
   'gpt-5.6-luna': 'medium',
   'gpt-5.5': 'medium',
-  'gpt-5.4': 'medium',
   'gpt-5.4-mini': 'medium',
   'gpt-5.3-codex-spark': 'high',
 };

@@ -121,13 +121,13 @@ describe('admin-content routes registration', () => {
     const r = await app.inject({
       method: 'POST',
       url: '/admin/config/render',
-      payload: { settings: { model: 'gpt-5.4', model_reasoning_effort: 'high' } },
+      payload: { settings: { model: 'gpt-6-astra', model_reasoning_effort: 'high' } },
       headers: { 'content-type': 'application/json' },
     });
     expect(r.statusCode).toBe(200);
     const body = JSON.parse(r.payload);
     expect(body.status).toBe('ok');
-    expect(body.content).toContain('model = "gpt-5.4"');
+    expect(body.content).toContain('model = "gpt-6-astra"');
     expect(body.sha256).toMatch(/^[0-9a-f]{64}$/);
     await app.close();
   });

@@ -28,9 +28,14 @@ describe('/admin/model-defaults/:engine', () => {
     expect(JSON.parse(response.payload)).toMatchObject({
       status: 'ok',
       engine: 'codex',
-      model: 'gpt-5.6-terra',
+      model: 'gpt-6-astra',
       reasoning_effort: 'medium',
       catalog: expect.arrayContaining([
+        {
+          model: 'gpt-6-astra',
+          persistent_efforts: ['low', 'medium', 'high', 'xhigh', 'max'],
+          default_effort: 'medium',
+        },
         {
           model: 'gpt-5.6-sol',
           persistent_efforts: ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],

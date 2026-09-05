@@ -48,7 +48,7 @@ func TestLaunchArgsForAuthUsesEffectiveLaneWithoutGuessingOffline(t *testing.T) 
 		Status: "valid",
 		Host:   &orchestrator.HostInfo{LanePreference: "normal"},
 	})
-	if len(normal) < 2 || normal[0] != "--model" || normal[1] != "gpt-5.6-terra" {
+	if len(normal) < 2 || normal[0] != "--model" || normal[1] != "gpt-6-astra" {
 		t.Fatalf("normal lane args = %v", normal)
 	}
 	spark := launchArgsForAuth(base, &orchestrator.AuthRetrieveResponse{

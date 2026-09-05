@@ -31,8 +31,8 @@ Server-owned `config.toml` with per-host baking, delivered by `cdx`. This doc is
 4. `cdx` writes the baked file to effective `CODEX_HOME/config.toml` during the pre-run sync phase and deletes it when `status:missing`. If an active-run lock skips sync (without `--allow-concurrent-sync`), that invocation does not refresh config.
 
 Default notice mappings:
-- Builder defaults include `notice.model_migrations` entries for retired models (`gpt-5.1-codex-max`, `gpt-5.1-codex-mini`, `gpt-5.2-codex`, `gpt-5.2`, `gpt-5.3-codex`) to `gpt-5.6-terra` so Codex upgrade prompts can be auto-resolved from fleet-managed config. This is the intended state, not necessarily the stored one — `notice.model_migrations` is operator-entered template data, not code-derived, so it drifts silently when the default model changes and nobody revisits it. **Found drifted 2026-08-08**: the live template mapped 3 of these 5 to `gpt-5.4` (itself now upstream-deprecated in favor of `gpt-5.6-terra`) instead of the current default, was missing the `gpt-5.2` and `gpt-5.3-codex` entries entirely, and additionally carried a wrong `gpt-5.3-codex-spark` → `gpt-5.4` entry — `gpt-5.3-codex-spark` is not retired (it's live in `SUPPORTED_MODELS`), so that entry was actively steering a valid model's users onto a deprecated one. Fix tracked the same way as the `code_mode_host` drift: a one-off admin-API write to the stored template, not a code change (there is no code-level default to fix).
-- New top-level config drafts default to `gpt-5.6-terra` with its native `medium` reasoning effort.
+- Builder defaults include `notice.model_migrations` entries for retired models (`gpt-5.1-codex-max`, `gpt-5.1-codex-mini`, `gpt-5.2-codex`, `gpt-5.2`, `gpt-5.3-codex`, `gpt-5.4`) to `gpt-6-astra` so Codex upgrade prompts can be auto-resolved from fleet-managed config. This is the intended state, not necessarily the stored one — `notice.model_migrations` is operator-entered template data, not code-derived, so it drifts silently when the default model changes and nobody revisits it. **Found drifted 2026-08-08**: the live template mapped 3 of the then-retired IDs to `gpt-5.4` instead of the then-current default, was missing `gpt-5.2` and `gpt-5.3-codex`, and additionally carried a wrong `gpt-5.3-codex-spark` → `gpt-5.4` entry. Fix stored template drift with a one-off admin-API write; there is no code-level template default to repair.
+- New top-level config drafts default to `gpt-6-astra` with its native `medium` reasoning effort.
 
 ## Managed MCP entry
 
@@ -163,7 +163,7 @@ Recognized OTEL input keys are `environment`, `exporter`, `endpoint`, `protocol`
   ```bash
   curl -s "$BASE/admin/config/render" \
     -H "Content-Type: application/json" \
-    -d '{"settings":{"model":"gpt-5.6-terra","model_reasoning_effort":"medium","approval_policy":"on-request"}}' | jq .
+    -d '{"settings":{"model":"gpt-6-astra","model_reasoning_effort":"medium","approval_policy":"on-request"}}' | jq .
   ```
 - Fetch baked config for a host:
   ```bash

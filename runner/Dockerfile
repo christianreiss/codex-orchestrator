@@ -16,7 +16,7 @@ RUN apt-get update \
 # --- Codex CLI (multi-arch, checksum-verified) ---
 # Keep in step with the fleet's codex target: the probe must run the same
 # model catalog as real hosts. 0.125.0 predated the GPT-5.6 default probe
-# model (gpt-5.6-terra) and rejected every VALID fresh login as
+# model (gpt-6-astra) and rejected every VALID fresh login as
 # "failed live verification", pinning the fleet canonical on a dead token.
 #
 # The SHA256s are the release assets' published digests. A tag can be moved;

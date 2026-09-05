@@ -14,7 +14,7 @@ import (
 // Mapping (mirroring the legacy bash wrapper):
 //
 //	spark  → --model gpt-5.3-codex-spark
-//	normal → --model gpt-5.6-terra
+//	normal → --model gpt-6-astra
 //
 // If the user already supplied --model or --profile we leave args alone.
 func applyLaneAndProfile(cfg *config.Config, args []string) []string {
@@ -69,7 +69,7 @@ func LaneModel(lane string) string {
 	case "spark":
 		return "gpt-5.3-codex-spark"
 	case "normal":
-		return "gpt-5.6-terra"
+		return "gpt-6-astra"
 	default:
 		return ""
 	}

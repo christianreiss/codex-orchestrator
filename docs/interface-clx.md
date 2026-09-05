@@ -667,7 +667,7 @@ this run.
   but remains read-only; until an operator saves, a host receives neither key and
   inherits Claude Code's own defaults. The first POST creates the canonical row
   and subsequent syncs explicitly bake both keys. The Codex `model` (for example
-  `gpt-5.6-terra`) and `model_reasoning_effort` must never leak into
+  `gpt-6-astra`) and `model_reasoning_effort` must never leak into
   `settings.json`.
 - **`mcpServers.<name>` is the one exception to the settings.json destination:**
   Claude Code reads user-scope MCP servers from the **top level of

@@ -15,7 +15,7 @@ import { presetLevels } from '../../../src/services/agent-security-levels.js';
 describe('client-config: renderToml', () => {
   it('renders root scalars in the legacy order', () => {
     const s = normalizeSettings({
-      model: 'gpt-5.4',
+      model: 'gpt-5.5',
       profile: 'workhorse',
       personality: 'friendly',
       approval_policy: 'on-request',
@@ -24,7 +24,7 @@ describe('client-config: renderToml', () => {
     });
     const toml = renderToml(s);
     const lines = toml.split('\n');
-    expect(lines[0]).toBe('model = "gpt-5.4"');
+    expect(lines[0]).toBe('model = "gpt-5.5"');
     expect(toml).toContain('profile = "workhorse"');
     expect(toml).toContain('personality = "friendly"');
     expect(toml).toContain('approval_policy = "on-request"');
@@ -58,7 +58,7 @@ describe('client-config: renderToml', () => {
   it('emits named profile tables sorted by name', () => {
     const s = normalizeSettings({
       profiles: [
-        { name: 'workhorse', model: 'gpt-5.4', model_reasoning_effort: 'high' },
+        { name: 'workhorse', model: 'gpt-5.5', model_reasoning_effort: 'high' },
         { name: 'fast', model: 'gpt-5.4-mini' },
       ],
     });
@@ -247,13 +247,13 @@ describe('client-config: renderToml', () => {
         ],
       },
       host: {
-        modelOverride: 'gpt-5.4',
+        modelOverride: 'gpt-5.5',
         reasoningEffortOverride: null,
       } as never,
       baseUrl: null,
       apiKey: null,
     });
-    expect(switched.content).toContain('model = "gpt-5.4"');
+    expect(switched.content).toContain('model = "gpt-5.5"');
     expect(switched.content).toContain('model_reasoning_effort = "medium"');
     expect(switched.content).not.toContain('model_reasoning_effort = "ultra"');
     expect(switched.content).toContain('[profiles.workhorse]');
@@ -275,7 +275,7 @@ describe('client-config: renderToml', () => {
 
     const inheritedProfileModel = renderTomlForHost({
       settings: {
-        model: 'gpt-5.4',
+        model: 'gpt-5.5',
         model_reasoning_effort: 'high',
         profile: 'work',
         profiles: [{ name: 'work' }],

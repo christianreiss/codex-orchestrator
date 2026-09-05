@@ -39,11 +39,11 @@ export const CLAUDE_MODELS: ModelOption[] = [
 // api/src/services/config-normalizer.ts. No "inherit" sentinel here: the
 // per-host override picker injects its own "Standard (global)" clear option.
 export const CODEX_MODELS: ModelOption[] = [
-  { label: "GPT-5.6 Terra", value: "gpt-5.6-terra" },
+  { label: "GPT-6 Astra", value: "gpt-6-astra" },
   { label: "GPT-5.6 Sol", value: "gpt-5.6-sol" },
+  { label: "GPT-5.6 Terra", value: "gpt-5.6-terra" },
   { label: "GPT-5.6 Luna", value: "gpt-5.6-luna" },
   { label: "GPT-5.5", value: "gpt-5.5" },
-  { label: "GPT-5.4", value: "gpt-5.4" },
   { label: "GPT-5.4 mini", value: "gpt-5.4-mini" },
   { label: "GPT-5.3 Codex Spark", value: "gpt-5.3-codex-spark" },
 ];

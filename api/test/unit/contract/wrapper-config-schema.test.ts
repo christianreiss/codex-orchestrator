@@ -117,7 +117,7 @@ function fakeHost(): Host {
     expiresAt: null,
     vip: 0,
     lanePreference: null,
-    modelOverride: 'gpt-5.4',
+    modelOverride: 'gpt-6-astra',
     reasoningEffortOverride: 'high',
     autoUpdateOverride: null,
     lastCronCheck: null,

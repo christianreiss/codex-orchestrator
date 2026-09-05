@@ -56,7 +56,7 @@ class RunnerAppTest(unittest.TestCase):
     def test_build_codex_exec_cmd_places_options_before_prompt(self):
         cmd = runner_app._build_codex_exec_cmd(
             "Describe the image.",
-            "gpt-5.4",
+            "gpt-6-astra",
             ["/tmp/image-1.png"],
         )
 
@@ -65,7 +65,7 @@ class RunnerAppTest(unittest.TestCase):
                 "/usr/local/bin/codex",
                 "exec",
                 "--model",
-                "gpt-5.4",
+                "gpt-6-astra",
                 "--image",
                 "/tmp/image-1.png",
                 "-s",
@@ -97,7 +97,7 @@ class RunnerAppTest(unittest.TestCase):
         original_run = runner_app.subprocess.run
         runner_app.subprocess.run = fake_run
         try:
-            runner_app._run_codex_exec("Reply Banana if this works.", {"HOME": "/tmp/home"}, 2.0, "gpt-5.4")
+            runner_app._run_codex_exec("Reply Banana if this works.", {"HOME": "/tmp/home"}, 2.0, "gpt-6-astra")
         finally:
             runner_app.subprocess.run = original_run
 
@@ -106,7 +106,7 @@ class RunnerAppTest(unittest.TestCase):
                 "/usr/local/bin/codex",
                 "exec",
                 "--model",
-                "gpt-5.4",
+                "gpt-6-astra",
                 "-s",
                 "read-only",
                 "--skip-git-repo-check",

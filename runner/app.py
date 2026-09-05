@@ -772,7 +772,7 @@ def _run_probe(payload: VerifyRequest) -> dict:
     env, home_dir, auth_path = _prepare_codex_env(payload.auth_json)
     try:
         timeout = payload.timeout_seconds or DEFAULT_TIMEOUT
-        probe_model = os.getenv("RUNNER_CODEX_PROBE_MODEL", "gpt-5.6-terra").strip() or None
+        probe_model = os.getenv("RUNNER_CODEX_PROBE_MODEL", "gpt-6-astra").strip() or None
         probe_started = time.perf_counter()
         try:
             proc, latency_ms = _run_codex_exec("Reply Banana if this works.", env, timeout, probe_model)

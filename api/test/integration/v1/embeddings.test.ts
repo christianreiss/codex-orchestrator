@@ -71,7 +71,7 @@ describe('/v1/embeddings', () => {
       method: 'POST',
       url: '/v1/embeddings',
       headers: { authorization: `Bearer ${key}` },
-      payload: { input: 'hello', model: 'gpt-5.4' },
+      payload: { input: 'hello', model: 'gpt-6-astra' },
     });
     // A 501 (>=500) was retried by the OpenAI SDK against a permanently
     // unsupported endpoint and leaked the non-OpenAI `not_implemented` type.

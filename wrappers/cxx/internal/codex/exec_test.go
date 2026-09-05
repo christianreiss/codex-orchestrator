@@ -16,7 +16,7 @@ import (
 )
 
 func TestBuildEnvIncludesOverrides(t *testing.T) {
-	model := "gpt-5.4"
+	model := "gpt-6-astra"
 	effort := "high"
 	cfg := &config.Config{
 		Orchestrator: config.Orchestrator{
@@ -38,7 +38,7 @@ func TestBuildEnvIncludesOverrides(t *testing.T) {
 	for _, want := range []string{
 		"OPENAI_BASE_URL=https://orch.example.com/v1",
 		"OPENAI_API_KEY=sk-codex-abc",
-		"CDX_MODEL=gpt-5.4",
+		"CDX_MODEL=gpt-6-astra",
 		"CDX_REASONING_EFFORT=high",
 		"CDX_HOST_FQDN=h.example.com",
 		"CDX_HOST_ID=1",

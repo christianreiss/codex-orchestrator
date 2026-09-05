@@ -242,7 +242,7 @@ Small Node 22 + Fastify + Drizzle + MySQL service that keeps canonical Codex and
      `/auth` sends an explicit `status:"unavailable"` quota object rather than
      omitting the evidence.
    - A non-null persisted Codex lane also selects the actual launch model: `normal`
-     injects `gpt-5.6-terra`; `spark` injects `gpt-5.3-codex-spark`, high effort,
+     injects `gpt-6-astra`; `spark` injects `gpt-5.3-codex-spark`, high effort,
      and disabled reasoning summaries. Explicit per-run model/profile flags win
      over that mapping, and the at-a-glance card mirrors the resulting choice.
      Clearing the lane leaves the signed fleet/per-host model in charge; only
@@ -319,7 +319,7 @@ Small Node 22 + Fastify + Drizzle + MySQL service that keeps canonical Codex and
   short-lived bearer). The task-oriented console deliberately exposes the
   supported model controls only in `/admin/engines`, so it never creates a
   second generic config/settings owner. New advanced payloads default to
-  `model = "gpt-5.6-terra"` with `model_reasoning_effort = "medium"`,
+  `model = "gpt-6-astra"` with `model_reasoning_effort = "medium"`,
   `personality = "friendly"`, `[features].apps = true`,
   `[features].fast_mode = true`, `[features].memories = true`, and
   `[features].multi_agent = true`; `guardian_approval`, `js_repl`,

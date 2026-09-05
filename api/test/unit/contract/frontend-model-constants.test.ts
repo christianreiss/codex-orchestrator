@@ -135,7 +135,7 @@ describe('frontend model constants', () => {
     // would pass every comparison below vacuously.
     for (const { constant, frontend } of CHECKS) expect(frontend, constant).not.toEqual([]);
     expect(optionValues('CLAUDE_MODEL_OPTIONS')).toContain('claude-sonnet-5');
-    expect(optionValues('CODEX_MODELS')).toContain('gpt-5.6-terra');
+    expect(optionValues('CODEX_MODELS')[0]).toBe('gpt-6-astra');
     expect(optionValues('CLAUDE_PERMISSION_MODES')).toContain('bypassPermissions');
     // The sentinel is resolved through its identifier, then dropped.
     expect(optionValues('ADVISOR_MODELS')).toContain(ADVISOR_OFF);

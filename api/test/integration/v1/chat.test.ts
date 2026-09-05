@@ -200,7 +200,7 @@ describe('/v1/chat/completions', () => {
     const body = JSON.parse(r.payload);
     expect(body.object).toBe('chat.completion');
     expect(body.choices[0].message.content).toBe('pong');
-    expect(body.model).toBe('gpt-5.6-terra');
+    expect(body.model).toBe('gpt-6-astra');
   });
 
   it('returns 400 with param=messages when missing messages', async () => {
@@ -239,7 +239,7 @@ describe('/v1/chat/completions', () => {
       payload: { model: 'gpt-5.3-codex', messages: [{ role: 'user', content: 'x' }] },
     });
     expect(r.statusCode).toBe(200);
-    expect(JSON.parse(r.payload).model).toBe('gpt-5.6-terra');
+    expect(JSON.parse(r.payload).model).toBe('gpt-6-astra');
   });
 
   it('returns 503 with code=api_disabled when kill switch is on', async () => {

@@ -25,10 +25,15 @@ describe('ModelDefaultsService', () => {
     const codex = await service.get(ENGINE_CODEX);
     expect(codex).toMatchObject({
       engine: 'codex',
-      model: 'gpt-5.6-terra',
+      model: 'gpt-6-astra',
       reasoning_effort: 'medium',
     });
     expect(codex.catalog).toEqual([
+      {
+        model: 'gpt-6-astra',
+        persistent_efforts: ['low', 'medium', 'high', 'xhigh', 'max'],
+        default_effort: 'medium',
+      },
       {
         model: 'gpt-5.6-sol',
         persistent_efforts: ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
@@ -46,11 +51,6 @@ describe('ModelDefaultsService', () => {
       },
       {
         model: 'gpt-5.5',
-        persistent_efforts: ['low', 'medium', 'high', 'xhigh'],
-        default_effort: 'medium',
-      },
-      {
-        model: 'gpt-5.4',
         persistent_efforts: ['low', 'medium', 'high', 'xhigh'],
         default_effort: 'medium',
       },
@@ -180,7 +180,7 @@ describe('ModelDefaultsService', () => {
 
     await expect(
       service.set(ENGINE_CODEX, {
-        model: 'gpt-5.4',
+        model: 'gpt-6-astra',
         reasoning_effort: 'ultra',
       }),
     ).rejects.toMatchObject({ status: 422, param: 'reasoning_effort' });
@@ -209,7 +209,7 @@ describe('ModelDefaultsService', () => {
     ).rejects.toMatchObject({ status: 422, param: 'model' });
     await expect(
       service.set(ENGINE_CODEX, {
-        model: 'gpt-5.4',
+        model: 'gpt-6-astra',
         extra: true,
       }),
     ).rejects.toMatchObject({ status: 422, param: 'extra' });

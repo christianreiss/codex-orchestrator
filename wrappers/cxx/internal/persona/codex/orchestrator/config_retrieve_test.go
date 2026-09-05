@@ -23,7 +23,7 @@ func captureConfigRequest(t *testing.T, digest string) (method, path string, bod
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"status": "ok",
-			"data":   map[string]any{"status": "updated", "content": "model = \"gpt-5.4\"\n"},
+			"data":   map[string]any{"status": "updated", "content": "model = \"gpt-6-astra\"\n"},
 		})
 	})
 	if _, err := c.RetrieveConfig(context.Background(), digest); err != nil {

@@ -30,7 +30,7 @@ func TestBuildEnvOrchestratorValuesOutrankAmbientCopies(t *testing.T) {
 	t.Setenv("CDX_MODEL", "gpt-ambient")
 	t.Setenv("CDX_HOST_FQDN", "ambient.example.com")
 
-	model := "gpt-5.4"
+	model := "gpt-6-astra"
 	cfg := &config.Config{
 		Orchestrator: config.Orchestrator{
 			BaseURL: "https://orch.example.com",
@@ -45,7 +45,7 @@ func TestBuildEnvOrchestratorValuesOutrankAmbientCopies(t *testing.T) {
 	for _, tc := range []struct{ name, want string }{
 		{"OPENAI_BASE_URL", "https://orch.example.com/v1"},
 		{"OPENAI_API_KEY", "sk-codex-abc"},
-		{"CDX_MODEL", "gpt-5.4"},
+		{"CDX_MODEL", "gpt-6-astra"},
 		{"CDX_HOST_FQDN", "h.example.com"},
 	} {
 		got, ok := lastEnvValue(env, tc.name)

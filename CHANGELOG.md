@@ -1,3 +1,12 @@
+# 2026-09-05
+
+- **Codex model catalog:** Added `gpt-6-astra` as the fleet, OpenAI-compatible
+  API, normal-lane, and auth-runner probe default at `medium` effort. The
+  selectable catalog now contains only the seven current Codex models:
+  Astra, the three GPT-5.6 variants, GPT-5.5, GPT-5.4 mini, and GPT-5.3 Codex
+  Spark. Retired `gpt-5.4` selections normalize to Astra with the existing
+  migration effort policy.
+
 # 2026-09-04
 
 - **One fleet, two logins.** The console could watch agents but never speak to

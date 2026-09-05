@@ -22,7 +22,7 @@ func TestSyncBootstrap_TypedRoundTrip(t *testing.T) {
 			"status":"ok",
 			"auth":{"status":"valid","versions":{"client_version":"1.2.3"}},
 			"agents":"# AGENTS.md\n",
-			"config":"model=\"gpt-5.4\"\n"
+			"config":"model=\"gpt-6-astra\"\n"
 		}`))
 	})
 	resp, err := c.SyncBootstrap(context.Background(), BundleRequest{
@@ -46,7 +46,7 @@ func TestSyncBootstrap_TypedRoundTrip(t *testing.T) {
 	if string(resp.Agents) != "# AGENTS.md\n" {
 		t.Errorf("agents: %q", string(resp.Agents))
 	}
-	if string(resp.Config) != "model=\"gpt-5.4\"\n" {
+	if string(resp.Config) != "model=\"gpt-6-astra\"\n" {
 		t.Errorf("config: %q", string(resp.Config))
 	}
 	for _, want := range []string{`"engine":"codex"`, `"include_auth":true`, `"auth_digest":"deadbeef"`, `"agents":"a1"`, `"home":"/home/me"`, `"username":"me"`} {
@@ -114,7 +114,7 @@ func TestSyncBootstrap_UnwrapsStandardEnvelope(t *testing.T) {
 				"status":"ok",
 				"auth":{"status":"valid","canonical_last_refresh":"2026-07-08T08:00:00Z"},
 				"agents":{"status":"updated","content":"# AGENTS.md\n"},
-				"config":{"status":"updated","content":"model=\"gpt-5.4\"\n"}
+				"config":{"status":"updated","content":"model=\"gpt-6-astra\"\n"}
 			}
 		}`))
 	})
@@ -131,7 +131,7 @@ func TestSyncBootstrap_UnwrapsStandardEnvelope(t *testing.T) {
 	if string(resp.Agents) != "# AGENTS.md\n" {
 		t.Errorf("agents: %q", string(resp.Agents))
 	}
-	if string(resp.Config) != "model=\"gpt-5.4\"\n" {
+	if string(resp.Config) != "model=\"gpt-6-astra\"\n" {
 		t.Errorf("config: %q", string(resp.Config))
 	}
 }

@@ -62,7 +62,7 @@ The config:
   },
   "engine_options": {
     "silent": false,
-    "model_override": "gpt-5.6-terra",
+    "model_override": "gpt-6-astra",
     "reasoning_effort_override": "high",
     "admin_theme_hint": "auto"
   },
@@ -202,14 +202,15 @@ Codex CLI model and its model-dependent persistent effort. The endpoint writes
 Codex's native top-level `config.toml` keys, `model` and
 `model_reasoning_effort`, into the canonical Codex config document; this matches
 the official Codex config schema rather than introducing wrapper-only names.
-The fleet starts on `gpt-5.6-terra` at its native `medium` effort.
+The fleet starts on `gpt-6-astra` at its native `medium` effort.
 
 | Models | Persistent efforts | Default effort |
 |---|---|---|
+| `gpt-6-astra` | `low`, `medium`, `high`, `xhigh`, `max` | `medium` |
 | `gpt-5.6-sol` | `low`, `medium`, `high`, `xhigh`, `max`, `ultra` | `medium` |
 | `gpt-5.6-terra` | `low`, `medium`, `high`, `xhigh`, `max`, `ultra` | `medium` |
 | `gpt-5.6-luna` | `low`, `medium`, `high`, `xhigh`, `max` | `medium` |
-| `gpt-5.5`, `gpt-5.4`, `gpt-5.4-mini` | `low`, `medium`, `high`, `xhigh` | `medium` |
+| `gpt-5.5`, `gpt-5.4-mini` | `low`, `medium`, `high`, `xhigh` | `medium` |
 | `gpt-5.3-codex-spark` | `low`, `medium`, `high`, `xhigh` | `high` |
 
 The GET response's `catalog` is the machine-readable source of truth for these
@@ -230,7 +231,7 @@ server bakes effective `CODEX_HOME/config.toml`.
 | `login` | Run upstream login, then upload every successful non-status result with usable auth, even when its bytes match the pre-login file. Logout intent is superseded only after the server accepts the exact auth + marker snapshot. |
 | `login status` | Read-only upstream login probe. It never uploads credentials or acknowledges logout intent. |
 | `logout` | Wrapper-owned, pre-journaled logout. With no peer session it holds exclusive session + active-child writer leases across native logout; with any peer it records intent and defers native removal until the final session exits. |
-| `lane [normal\|spark\|clear] [--persist]` | Inspect the effective quota lane, set a persistent host preference, or clear it back to the inherited default (`/host/lane`). `--persist` is retained as a compatibility no-op; explicit selections always persist. A stored `normal` selects `gpt-5.6-terra`; stored `spark` selects `gpt-5.3-codex-spark` with high effort and reasoning summaries disabled. Clearing the preference preserves the signed fleet/per-host launch model while quota policy falls back to `normal`. An explicit per-run model/profile flag wins. |
+| `lane [normal\|spark\|clear] [--persist]` | Inspect the effective quota lane, set a persistent host preference, or clear it back to the inherited default (`/host/lane`). `--persist` is retained as a compatibility no-op; explicit selections always persist. A stored `normal` selects `gpt-6-astra`; stored `spark` selects `gpt-5.3-codex-spark` with high effort and reasoning summaries disabled. Clearing the preference preserves the signed fleet/per-host launch model while quota policy falls back to `normal`. An explicit per-run model/profile flag wins. |
 | `ls` | Shorthand for `cdx lane spark` |
 | `profile <name>` | Forward `--profile <name>` to the upstream `codex` CLI |
 | `<profile-name>` | Shorthand for `cdx profile <name>` when `[profiles.<name>]` exists in the synced `config.toml` and the token is not a wrapper-owned or reserved-Codex subcommand |
@@ -294,7 +295,7 @@ response with no readable snapshot carries `chatgpt.status="unavailable"`, so
 absence is visible as unknown health instead of being treated as a green check.
 
 A non-null persisted lane affects execution as well as quota selection and display:
-`normal` prepends `--model gpt-5.6-terra`; `spark` selects
+`normal` prepends `--model gpt-6-astra`; `spark` selects
 `gpt-5.3-codex-spark` with `model_reasoning_effort=high` and
 `model_reasoning_summary=none`. Explicit `--model`/`-m` or `--profile`/`-p`
 arguments suppress lane injection and are shown as the effective launch choice.

@@ -32,11 +32,11 @@ import {
 describe('config-normalizer constants', () => {
   it('exposes the supported model list', () => {
     expect(SUPPORTED_MODELS).toEqual([
+      'gpt-6-astra',
       'gpt-5.6-sol',
       'gpt-5.6-terra',
       'gpt-5.6-luna',
       'gpt-5.5',
-      'gpt-5.4',
       'gpt-5.4-mini',
       'gpt-5.3-codex-spark',
     ]);
@@ -48,20 +48,20 @@ describe('config-normalizer constants', () => {
 
   it('matches the current Codex CLI model effort catalog and defaults', () => {
     expect(MODEL_REASONING_EFFORTS).toEqual({
+      'gpt-6-astra': ['low', 'medium', 'high', 'xhigh', 'max'],
       'gpt-5.6-sol': ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
       'gpt-5.6-terra': ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
       'gpt-5.6-luna': ['low', 'medium', 'high', 'xhigh', 'max'],
       'gpt-5.5': ['low', 'medium', 'high', 'xhigh'],
-      'gpt-5.4': ['low', 'medium', 'high', 'xhigh'],
       'gpt-5.4-mini': ['low', 'medium', 'high', 'xhigh'],
       'gpt-5.3-codex-spark': ['low', 'medium', 'high', 'xhigh'],
     });
     expect(CODEX_MODEL_DEFAULT_REASONING_EFFORTS).toEqual({
+      'gpt-6-astra': 'medium',
       'gpt-5.6-sol': 'medium',
       'gpt-5.6-terra': 'medium',
       'gpt-5.6-luna': 'medium',
       'gpt-5.5': 'medium',
-      'gpt-5.4': 'medium',
       'gpt-5.4-mini': 'medium',
       'gpt-5.3-codex-spark': 'high',
     });
@@ -75,6 +75,7 @@ describe('config-normalizer constants', () => {
     expect(LEGACY_MODEL_UPGRADES['gpt-5.1-codex-max']).toBe(FORCE_UPGRADE_MODEL);
     expect(LEGACY_MODEL_UPGRADES['gpt-5.3-codex']).toBe(FORCE_UPGRADE_MODEL);
     expect(LEGACY_MODEL_UPGRADES['gpt-5.2']).toBe(FORCE_UPGRADE_MODEL);
+    expect(LEGACY_MODEL_UPGRADES['gpt-5.4']).toBe(FORCE_UPGRADE_MODEL);
     expect(LEGACY_MODEL_UPGRADES['gpt-5.3-codex-spark']).toBeUndefined();
   });
 
@@ -109,11 +110,13 @@ describe('config-normalizer constants', () => {
 
 describe('normalizeStoredModel', () => {
   it('passes through supported models', () => {
+    expect(normalizeStoredModel('gpt-6-astra')).toBe('gpt-6-astra');
     expect(normalizeStoredModel('gpt-5.6-terra')).toBe('gpt-5.6-terra');
     expect(normalizeStoredModel('gpt-5.3-codex-spark')).toBe('gpt-5.3-codex-spark');
   });
 
   it('upgrades legacy models', () => {
+    expect(normalizeStoredModel('gpt-5.4')).toBe(FORCE_UPGRADE_MODEL);
     expect(normalizeStoredModel('gpt-5.1-codex-max')).toBe(FORCE_UPGRADE_MODEL);
     expect(isLegacyModelUpgrade('gpt-5.1-codex-max')).toBe(true);
     expect(normalizeStoredModel('gpt-5.3-codex')).toBe(FORCE_UPGRADE_MODEL);
@@ -234,6 +237,8 @@ describe('normalizeReasoningEffort', () => {
     expect(normalizeReasoningEffort('minimal')).toBeNull();
   });
   it('restricts effort to those supported by model', () => {
+    expect(normalizeReasoningEffortForModel('max', 'gpt-6-astra')).toBe('max');
+    expect(normalizeReasoningEffortForModel('ultra', 'gpt-6-astra')).toBeNull();
     expect(normalizeReasoningEffortForModel('high', 'gpt-5.5')).toBe('high');
     expect(normalizeReasoningEffortForModel('xhigh', 'gpt-5.3-codex-spark')).toBe('xhigh');
     expect(normalizeReasoningEffortForModel('ultra', 'gpt-5.6-terra')).toBe('ultra');
@@ -243,6 +248,7 @@ describe('normalizeReasoningEffort', () => {
   });
 
   it('returns each model native Codex default effort', () => {
+    expect(defaultCodexReasoningEffortForModel('gpt-6-astra')).toBe('medium');
     expect(defaultCodexReasoningEffortForModel('gpt-5.6-sol')).toBe('medium');
     expect(defaultCodexReasoningEffortForModel('gpt-5.6-terra')).toBe('medium');
     expect(defaultCodexReasoningEffortForModel('gpt-5.3-codex-spark')).toBe('high');
@@ -264,7 +270,7 @@ describe('normalizeSettings()', () => {
   it('produces the legacy default structure', () => {
     const s = normalizeSettings({});
     expect(s.personality).toBe('friendly');
-    expect(s.model).toBe('gpt-5.6-terra');
+    expect(s.model).toBe('gpt-6-astra');
     expect(s.model_reasoning_effort).toBe('medium');
     expect(s.notify).toEqual([]);
     expect(s.orchestrator_mcp_enabled).toBe(true);

@@ -75,7 +75,7 @@ function fakeHost(overrides: Partial<Host> = {}): Host {
     expiresAt: null,
     vip: 0,
     lanePreference: null,
-    modelOverride: 'gpt-5.4',
+    modelOverride: 'gpt-6-astra',
     reasoningEffortOverride: 'high',
     autoUpdateOverride: null,
     lastCronCheck: null,
@@ -341,7 +341,7 @@ describe('wrapper-config', () => {
     expect(result.payload.orchestrator.base_url).toBe('https://api.example.com');
     expect(result.payload.host.id).toBe(7);
     expect(result.payload.host.fqdn).toBe('host01.example.com');
-    expect(result.payload.engine_options.model_override).toBe('gpt-5.4');
+    expect(result.payload.engine_options.model_override).toBe('gpt-6-astra');
     expect(result.payload.wrapper.version).toBe('1.0.1');
     expect(result.payload.wrapper.binary_url).toContain('/wrapper/v2/bin/cxx/linux-amd64/v1.0.1/cxx');
 

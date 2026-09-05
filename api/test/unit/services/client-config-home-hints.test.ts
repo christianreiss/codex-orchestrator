@@ -21,7 +21,7 @@ const CLAUDE_OPTS = {
 
 const CODEX_OPTS = {
   settings: {
-    model: 'gpt-5.4',
+    model: 'gpt-6-astra',
     mcp_servers: [{ name: 'user-custom', command: '/bin/echo' }],
   },
   host: HOST,

@@ -301,7 +301,7 @@ func TestRetrieveConfigUnwrapsContentAndSendsSha(t *testing.T) {
 			"data": map[string]any{
 				"status":  "updated",
 				"sha256":  "def",
-				"content": "model = \"gpt-5.4\"\n",
+				"content": "model = \"gpt-6-astra\"\n",
 			},
 		})
 	})
@@ -309,7 +309,7 @@ func TestRetrieveConfigUnwrapsContentAndSendsSha(t *testing.T) {
 	if err != nil {
 		t.Fatalf("config: %v", err)
 	}
-	if string(body) != "model = \"gpt-5.4\"\n" {
+	if string(body) != "model = \"gpt-6-astra\"\n" {
 		t.Fatalf("body = %q", string(body))
 	}
 	if !strings.Contains(requestBody, `"sha256":"abc"`) {

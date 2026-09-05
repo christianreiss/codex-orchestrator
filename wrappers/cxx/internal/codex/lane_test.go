@@ -9,7 +9,7 @@ import (
 
 func TestApplyLanePreference(t *testing.T) {
 	base := []string{"resume", "abc"}
-	if got := ApplyLanePreference(base, "normal"); !reflect.DeepEqual(got, []string{"--model", "gpt-5.6-terra", "resume", "abc"}) {
+	if got := ApplyLanePreference(base, "normal"); !reflect.DeepEqual(got, []string{"--model", "gpt-6-astra", "resume", "abc"}) {
 		t.Fatalf("normal lane args = %v", got)
 	}
 	spark := ApplyLanePreference(base, "spark")

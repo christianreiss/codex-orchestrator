@@ -13,7 +13,7 @@ function sampleCompletion(overrides: Record<string, unknown> = {}): Record<strin
   return {
     id: 'chatcmpl-abc',
     created: 1_700_000_000,
-    model: 'gpt-5.4',
+    model: 'gpt-6-astra',
     choices: [
       { index: 0, message: { role: 'assistant', content: 'hello' }, finish_reason: 'stop' },
     ],
