@@ -13,8 +13,20 @@ import { ApiError } from '../http/errors.js';
 
 export const CLAUDE_DEFAULT_MODEL = 'claude-sonnet-5';
 
-/** Current models first, followed by supported pinned predecessors. */
+/**
+ * Current models first, followed by supported pinned predecessors.
+ *
+ * `claude-fable-5-1` is Anthropic's most capable widely released model and was
+ * missing here: this list predates it, so the gate 404'd an id the fleet's own
+ * `claude` CLI resolves. Confirmed live on claude-cli 2.1.261, 2026-09-06
+ * (`claude --model claude-fable-5-1 -p ...` answers) and present in the CLI
+ * binary's own id table.
+ *
+ * `claude-mythos-5-1` is deliberately absent — it is a restricted-access model
+ * (Project Glasswing), not something a general fleet picker should offer.
+ */
 export const CLAUDE_SUPPORTED_MODELS = [
+  'claude-fable-5-1',
   'claude-fable-5',
   'claude-opus-5',
   'claude-opus-4-8',
@@ -57,6 +69,7 @@ export const CLAUDE_MODEL_METADATA: Record<
   ClaudeModel,
   { displayName: string; maxInputTokens: number; maxTokens: number }
 > = {
+  'claude-fable-5-1': { displayName: 'Claude Fable 5.1', maxInputTokens: 1_000_000, maxTokens: 128_000 },
   'claude-fable-5': { displayName: 'Claude Fable 5', maxInputTokens: 1_000_000, maxTokens: 128_000 },
   'claude-opus-5': { displayName: 'Claude Opus 5', maxInputTokens: 1_000_000, maxTokens: 128_000 },
   'claude-opus-4-8': { displayName: 'Claude Opus 4.8', maxInputTokens: 1_000_000, maxTokens: 128_000 },

@@ -169,23 +169,36 @@ func isProfileShorthand(sub string) bool {
 // reservedCodexSubcommands lists the Codex subcommands the wrapper must never
 // interpret as profile shorthand and whose `--help` invocations are passed
 // straight through to the upstream codex CLI.
+//
+// Re-synced against `codex --help` on codex-cli 0.153.4, 2026-09-06. `update`
+// and `doctor` are absent on purpose: both are wrapperOwnedSubcommands above,
+// because the fleet pins the Codex version and cdx runs its own doctor.
 var reservedCodexSubcommands = map[string]bool{
-	"exec":       true,
-	"review":     true,
-	"login":      true,
-	"logout":     true,
-	"mcp":        true,
-	"mcp-server": true,
-	"app-server": true,
-	"completion": true,
-	"sandbox":    true,
-	"debug":      true,
-	"apply":      true,
-	"resume":     true,
-	"fork":       true,
-	"cloud":      true,
-	"features":   true,
-	"help":       true,
+	"exec":             true,
+	"review":           true,
+	"login":            true,
+	"logout":           true,
+	"mcp":              true,
+	"mcp-server":       true,
+	"app-server":       true,
+	"completion":       true,
+	"sandbox":          true,
+	"debug":            true,
+	"apply":            true,
+	"resume":           true,
+	"fork":             true,
+	"cloud":            true,
+	"features":         true,
+	"help":             true,
+	"agents":           true,
+	"archive":          true,
+	"unarchive":        true,
+	"delete":           true,
+	"queue":            true,
+	"plugin":           true,
+	"remote-control":   true,
+	"exec-server":      true,
+	"migrate-rollouts": true,
 }
 
 // isHelpPassthrough returns true when argv requests upstream Codex help text.

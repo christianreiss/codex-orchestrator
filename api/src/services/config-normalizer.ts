@@ -25,17 +25,36 @@ export const DEFAULT_CODEX_REASONING_EFFORT = 'medium';
 export const FORCE_UPGRADE_MODEL = DEFAULT_CODEX_MODEL;
 export const FORCE_UPGRADE_REASONING_EFFORT = 'high';
 
+/**
+ * Codex model ids the fleet offers. Derived from the CLI's own catalog
+ * (`codex debug models`): an entry belongs here iff `visibility == "list"` and
+ * `upgrade == null`. `gpt-reserve` and `codex-auto-review` are `visibility:
+ * hide` and stay out; a model that grows an `upgrade` block has been retired
+ * upstream and moves to LEGACY_MODEL_UPGRADES below.
+ *
+ * Deliberately NOT filtered on the catalog's `supported_in_api` flag: that
+ * describes OpenAI's platform API, and this list also feeds `/v1/models`, which
+ * is served by the codex runner shelling out to `codex exec` under ChatGPT
+ * auth. `gpt-5.3-codex-spark` is `supported_in_api: false` yet fully servable
+ * on that path.
+ *
+ * Verified against codex-cli 0.153.4, 2026-09-06.
+ */
 export const SUPPORTED_MODELS: readonly string[] = [
   'gpt-6-astra',
   'gpt-5.6-sol',
   'gpt-5.6-terra',
   'gpt-5.6-luna',
   'gpt-5.5',
-  'gpt-5.4-mini',
   'gpt-5.3-codex-spark',
 ];
 
 export const LEGACY_MODEL_UPGRADES: Readonly<Record<string, string>> = {
+  // Retired upstream 2026-08-31 (`retirement_at` on its catalog `upgrade`
+  // block). Unlike the rows below it does NOT go to FORCE_UPGRADE_MODEL: the
+  // catalog names `gpt-5.6-luna` as the replacement, so honour that. The forced
+  // `high` effort isLegacyModelUpgrade applies is valid on Luna.
+  'gpt-5.4-mini': 'gpt-5.6-luna',
   'gpt-5.4': FORCE_UPGRADE_MODEL,
   'gpt-5.3-codex': FORCE_UPGRADE_MODEL,
   'gpt-5.2': FORCE_UPGRADE_MODEL,
@@ -84,28 +103,50 @@ export const REASONING_EFFORTS: readonly string[] = [
 ];
 
 export const MODEL_REASONING_EFFORTS: Readonly<Record<string, readonly string[]>> = {
-  'gpt-6-astra': ['low', 'medium', 'high', 'xhigh', 'max'],
+  'gpt-6-astra': ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
   'gpt-5.6-sol': ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
   'gpt-5.6-terra': ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
   'gpt-5.6-luna': ['low', 'medium', 'high', 'xhigh', 'max'],
   'gpt-5.5': ['low', 'medium', 'high', 'xhigh'],
-  'gpt-5.4-mini': ['low', 'medium', 'high', 'xhigh'],
   'gpt-5.3-codex-spark': ['low', 'medium', 'high', 'xhigh'],
 };
 
-/** Defaults reported by the current Codex CLI model catalog. */
+/**
+ * `default_reasoning_level` as reported by the Codex CLI model catalog.
+ * Verified against `codex debug models` on codex-cli 0.153.4, 2026-09-06.
+ */
 export const CODEX_MODEL_DEFAULT_REASONING_EFFORTS: Readonly<Record<string, string>> = {
   'gpt-6-astra': 'medium',
-  'gpt-5.6-sol': 'medium',
+  'gpt-5.6-sol': 'low',
   'gpt-5.6-terra': 'medium',
   'gpt-5.6-luna': 'medium',
   'gpt-5.5': 'medium',
-  'gpt-5.4-mini': 'medium',
   'gpt-5.3-codex-spark': 'high',
 };
 
-/** Claude Code effort levels that may be persisted in settings.json per model. */
+/**
+ * Claude Code effort levels that may be persisted in settings.json per model.
+ *
+ * The ceiling is `xhigh`, NOT `max`. Re-confirmed 2026-09-06 by reading the
+ * settings schema out of the claude-cli 2.1.261 binary:
+ *
+ *   effortLevel: X(["low","medium","high","xhigh"]).optional().catch(void 0)
+ *     .describe("Persisted effort level for supported models.")
+ *
+ * `max` is session-scoped only — the CLI's `--effort` flag accepts it (its
+ * choices are `low, medium, high, xhigh, max`) and the model API's
+ * `output_config.effort` accepts it, but the persisted key does not, and the
+ * CLI says so itself: "<level> is session-scoped and won't reach the remote
+ * process. Use low, medium, high, or xhigh instead."
+ *
+ * Do not "fix" this by adding `max` from the CLI flag's or the API's level set:
+ * the `.catch(void 0)` above means an out-of-enum value is silently dropped
+ * rather than rejected, so a live `claude --settings '{"effortLevel":"max"}'`
+ * probe exits 0 and proves nothing. Sonnet 4.6 stops at `high` because `xhigh`
+ * arrived with Opus 4.7; Haiku 4.5 has no effort control at all.
+ */
 export const CLAUDE_MODEL_REASONING_EFFORTS: Readonly<Record<string, readonly string[]>> = {
+  'claude-fable-5-1': ['low', 'medium', 'high', 'xhigh'],
   'claude-fable-5': ['low', 'medium', 'high', 'xhigh'],
   'claude-opus-5': ['low', 'medium', 'high', 'xhigh'],
   'claude-opus-4-8': ['low', 'medium', 'high', 'xhigh'],
@@ -117,6 +158,7 @@ export const CLAUDE_MODEL_REASONING_EFFORTS: Readonly<Record<string, readonly st
 
 /** Fleet defaults used when an operator selects a Claude model without an effort. */
 export const CLAUDE_MODEL_DEFAULT_REASONING_EFFORTS: Readonly<Record<string, string | null>> = {
+  'claude-fable-5-1': 'high',
   'claude-fable-5': 'high',
   'claude-opus-5': 'high',
   'claude-opus-4-8': 'high',
@@ -154,6 +196,36 @@ export const DROPPED_FEATURE_KEYS: readonly string[] = [
   'js_repl',
   'tui_app_server',
   'voice_transcription',
+  // Reached stage `removed` between 0.147.0 and codex-cli 0.153.4; re-read from
+  // `codex features list` on 2026-09-06. Only `removed` keys belong here —
+  // `deprecated` ones (use_legacy_landlock, web_search_cached,
+  // web_search_request) still do something and are left alone. Note the filter
+  // below is exact-match, so the long-standing `request_permissions` entry is
+  // inert: the real upstream flag is `request_permissions_tool`, which is
+  // `under development` and must NOT be dropped.
+  'apply_patch_freeform',
+  'apps_mcp_path_override',
+  'code_mode_buffered_exec',
+  'codex_git_commit',
+  'enable_fanout',
+  'external_migration',
+  'image_detail_original',
+  'item_ids',
+  'js_repl_tools_only',
+  'local_thread_store_shared_compression',
+  'multi_agent_mode',
+  'plugin_hooks',
+  'remote_control',
+  'resize_all_images',
+  'send_async_message',
+  'skill_env_var_dependency_prompt',
+  'terminal_resize_reflow',
+  'tool_search',
+  'tool_search_always_defer_mcp_tools',
+  'unavailable_dummy_tools',
+  'undo',
+  'unified_exec_zsh_fork',
+  'workspace_owner_usage_nudge',
 ];
 
 export interface NormalizedSettings {
@@ -450,7 +522,8 @@ export function normalizeSettings(
  * not a pinned full id, so the experimental advisor tracks the latest model.
  * `fable` confirmed as a live `--model` alias against claude-cli 2.1.224,
  * 2026-08-08 (`claude --model fable -p ...` resolves and answers) — it was
- * missing here because this list predates the Fable tier.
+ * missing here because this list predates the Fable tier. Alias set re-checked
+ * on claude-cli 2.1.261, 2026-09-06: still these four.
  */
 export const ADVISOR_MODEL_ALIASES = ['opus', 'sonnet', 'haiku', 'fable'] as const;
 
@@ -492,8 +565,8 @@ export function normalizeClaudePermissions(
 }
 
 // The `--permission-mode` / `permissions.defaultMode` choices the upstream
-// `claude` CLI accepts. Re-verified against claude-cli 2.1.224, 2026-08-08:
-// `claude --help` now lists `acceptEdits, auto, bypassPermissions, manual,
+// `claude` CLI accepts. Re-verified against claude-cli 2.1.261, 2026-09-06:
+// `claude --help` lists `acceptEdits, auto, bypassPermissions, manual,
 // dontAsk, plan` — `manual` replaces the old `default` label there. `default`
 // is kept because it still passes live (`claude --permission-mode default -p
 // ...` exits 0 with a real answer, unlike a genuinely rejected value), so any

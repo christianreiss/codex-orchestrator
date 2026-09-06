@@ -208,7 +208,7 @@ cdx status --minimal
 ```
 
 Passing flags through to Codex works the same way you’d pass them to `codex`; `cdx` forwards your args to the Codex CLI.
-Known Codex subcommands (`exec`, `review`, `login`, `logout`, `mcp`, `mcp-server`, `app-server`, `completion`, `sandbox`, `debug`, `apply`, `resume`, `fork`, `cloud`, `features`, `help`) are reserved by the wrapper and always treated as commands. If a profile uses one of those names, run it explicitly with `cdx --profile <name> ...`.
+Known Codex subcommands (`exec`, `review`, `login`, `logout`, `mcp`, `mcp-server`, `app-server`, `completion`, `sandbox`, `debug`, `apply`, `resume`, `fork`, `cloud`, `features`, `help`, `agents`, `archive`, `unarchive`, `delete`, `queue`, `plugin`, `remote-control`, `exec-server`, `migrate-rollouts`) are reserved by the wrapper and always treated as commands. If a profile uses one of those names, run it explicitly with `cdx --profile <name> ...`.
 
 `resume` is additionally wrapper-owned: `cdx resume` runs through the full startup lifecycle (auth sync, boot screen, lane model) rather than bypassing it, and `cdx --resume <session>` is an alias for it — upstream `codex` has no `--resume` flag of its own.
 

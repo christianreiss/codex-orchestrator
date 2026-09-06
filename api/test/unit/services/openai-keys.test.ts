@@ -120,7 +120,8 @@ describe('openai-models', () => {
     expect(resolveRequestedModel('gpt-5.6-terra')).toBe('gpt-5.6-terra');
     expect(resolveRequestedModel('gpt-5.6-luna')).toBe('gpt-5.6-luna');
     expect(resolveRequestedModel('gpt-5.5')).toBe('gpt-5.5');
-    expect(resolveRequestedModel('gpt-5.4-mini')).toBe('gpt-5.4-mini');
+    // Retired upstream 2026-08-31: heals to the replacement the catalog names.
+    expect(resolveRequestedModel('gpt-5.4-mini')).toBe('gpt-5.6-luna');
     expect(resolveRequestedModel('gpt-5.3-codex-spark')).toBe('gpt-5.3-codex-spark');
   });
 
@@ -137,7 +138,6 @@ describe('openai-models', () => {
       'gpt-5.6-terra',
       'gpt-5.6-luna',
       'gpt-5.5',
-      'gpt-5.4-mini',
       'gpt-5.3-codex-spark',
     ]);
     for (const m of list.data) {

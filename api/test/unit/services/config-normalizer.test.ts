@@ -31,13 +31,17 @@ import {
 
 describe('config-normalizer constants', () => {
   it('exposes the supported model list', () => {
+    // `gpt-5.4-mini` is absent on purpose: its catalog entry carries an
+    // `upgrade` block with `retirement_at` 2026-08-31, so it moved to
+    // LEGACY_MODEL_UPGRADES. `gpt-5.3-codex-spark` stays despite the catalog's
+    // `supported_in_api: false` — /v1 is served by the runner driving
+    // `codex exec`, not OpenAI's platform API.
     expect(SUPPORTED_MODELS).toEqual([
       'gpt-6-astra',
       'gpt-5.6-sol',
       'gpt-5.6-terra',
       'gpt-5.6-luna',
       'gpt-5.5',
-      'gpt-5.4-mini',
       'gpt-5.3-codex-spark',
     ]);
   });
@@ -47,22 +51,22 @@ describe('config-normalizer constants', () => {
   });
 
   it('matches the current Codex CLI model effort catalog and defaults', () => {
+    // Mirrors `codex debug models` on codex-cli 0.153.4, 2026-09-06.
     expect(MODEL_REASONING_EFFORTS).toEqual({
-      'gpt-6-astra': ['low', 'medium', 'high', 'xhigh', 'max'],
+      'gpt-6-astra': ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
       'gpt-5.6-sol': ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
       'gpt-5.6-terra': ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
       'gpt-5.6-luna': ['low', 'medium', 'high', 'xhigh', 'max'],
       'gpt-5.5': ['low', 'medium', 'high', 'xhigh'],
-      'gpt-5.4-mini': ['low', 'medium', 'high', 'xhigh'],
       'gpt-5.3-codex-spark': ['low', 'medium', 'high', 'xhigh'],
     });
     expect(CODEX_MODEL_DEFAULT_REASONING_EFFORTS).toEqual({
       'gpt-6-astra': 'medium',
-      'gpt-5.6-sol': 'medium',
+      // Sol's catalog `default_reasoning_level` is `low`, not `medium`.
+      'gpt-5.6-sol': 'low',
       'gpt-5.6-terra': 'medium',
       'gpt-5.6-luna': 'medium',
       'gpt-5.5': 'medium',
-      'gpt-5.4-mini': 'medium',
       'gpt-5.3-codex-spark': 'high',
     });
   });
@@ -76,6 +80,11 @@ describe('config-normalizer constants', () => {
     expect(LEGACY_MODEL_UPGRADES['gpt-5.3-codex']).toBe(FORCE_UPGRADE_MODEL);
     expect(LEGACY_MODEL_UPGRADES['gpt-5.2']).toBe(FORCE_UPGRADE_MODEL);
     expect(LEGACY_MODEL_UPGRADES['gpt-5.4']).toBe(FORCE_UPGRADE_MODEL);
+    // Retired 2026-08-31. Unlike the rows above it targets the replacement the
+    // CLI catalog names, not the fleet default.
+    expect(LEGACY_MODEL_UPGRADES['gpt-5.4-mini']).toBe('gpt-5.6-luna');
+    // The forced migration effort must be one the replacement accepts.
+    expect(MODEL_REASONING_EFFORTS['gpt-5.6-luna']).toContain(FORCE_UPGRADE_REASONING_EFFORT);
     expect(LEGACY_MODEL_UPGRADES['gpt-5.3-codex-spark']).toBeUndefined();
   });
 
@@ -87,7 +96,11 @@ describe('config-normalizer constants', () => {
   });
 
   it('exposes Claude persistent effort capabilities and defaults', () => {
+    // Ceiling is `xhigh`: the claude-cli settings schema declares
+    // effortLevel as X(["low","medium","high","xhigh"]). `max` is
+    // session-scoped (the --effort flag only) and must never be persisted.
     expect(CLAUDE_MODEL_REASONING_EFFORTS).toEqual({
+      'claude-fable-5-1': ['low', 'medium', 'high', 'xhigh'],
       'claude-fable-5': ['low', 'medium', 'high', 'xhigh'],
       'claude-opus-5': ['low', 'medium', 'high', 'xhigh'],
       'claude-opus-4-8': ['low', 'medium', 'high', 'xhigh'],
@@ -97,6 +110,7 @@ describe('config-normalizer constants', () => {
       'claude-haiku-4-5-20251001': [],
     });
     expect(CLAUDE_MODEL_DEFAULT_REASONING_EFFORTS).toEqual({
+      'claude-fable-5-1': 'high',
       'claude-fable-5': 'high',
       'claude-opus-5': 'high',
       'claude-opus-4-8': 'high',
@@ -238,7 +252,8 @@ describe('normalizeReasoningEffort', () => {
   });
   it('restricts effort to those supported by model', () => {
     expect(normalizeReasoningEffortForModel('max', 'gpt-6-astra')).toBe('max');
-    expect(normalizeReasoningEffortForModel('ultra', 'gpt-6-astra')).toBeNull();
+    // Astra gained `ultra` in the CLI catalog.
+    expect(normalizeReasoningEffortForModel('ultra', 'gpt-6-astra')).toBe('ultra');
     expect(normalizeReasoningEffortForModel('high', 'gpt-5.5')).toBe('high');
     expect(normalizeReasoningEffortForModel('xhigh', 'gpt-5.3-codex-spark')).toBe('xhigh');
     expect(normalizeReasoningEffortForModel('ultra', 'gpt-5.6-terra')).toBe('ultra');
@@ -249,7 +264,7 @@ describe('normalizeReasoningEffort', () => {
 
   it('returns each model native Codex default effort', () => {
     expect(defaultCodexReasoningEffortForModel('gpt-6-astra')).toBe('medium');
-    expect(defaultCodexReasoningEffortForModel('gpt-5.6-sol')).toBe('medium');
+    expect(defaultCodexReasoningEffortForModel('gpt-5.6-sol')).toBe('low');
     expect(defaultCodexReasoningEffortForModel('gpt-5.6-terra')).toBe('medium');
     expect(defaultCodexReasoningEffortForModel('gpt-5.3-codex-spark')).toBe('high');
     expect(defaultCodexReasoningEffortForModel('unknown')).toBeNull();
@@ -280,7 +295,7 @@ describe('normalizeSettings()', () => {
   });
 
   it('uses the selected Codex model default when effort is absent or incompatible', () => {
-    expect(normalizeSettings({ model: 'gpt-5.6-sol' }).model_reasoning_effort).toBe('medium');
+    expect(normalizeSettings({ model: 'gpt-5.6-sol' }).model_reasoning_effort).toBe('low');
     expect(normalizeSettings({
       model: 'gpt-5.5',
       model_reasoning_effort: 'minimal',
@@ -363,7 +378,13 @@ describe('normalizeSettings()', () => {
     });
     expect(s.profiles).toEqual([
       { name: 'max', model: 'gpt-5.6-terra', model_reasoning_effort: 'xhigh' },
-      { name: 'tiny', model: 'gpt-5.4-mini', model_reasoning_effort: 'xhigh' },
+      // A stored profile on the retired mini heals to its replacement, and
+      // takes the retained `high` migration effort rather than its own.
+      {
+        name: 'tiny',
+        model: 'gpt-5.6-luna',
+        model_reasoning_effort: FORCE_UPGRADE_REASONING_EFFORT,
+      },
     ]);
   });
 });

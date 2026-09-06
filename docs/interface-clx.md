@@ -616,8 +616,8 @@ this run.
 - `/admin/engines` and `GET/POST /admin/model-defaults/claude` own the fleet
   `model` / `effortLevel` pair. POST accepts strict
   `{model, reasoning_effort?: string|null}` but translates that common API field
-  to Claude Code's native `effortLevel` key on disk. Fable 5, Opus 5, Opus 4.8,
-  and Sonnet 5 persist `low|medium|high|xhigh` and default to `high`; Opus 4.7
+  to Claude Code's native `effortLevel` key on disk. Fable 5.1, Fable 5, Opus 5,
+  Opus 4.8, and Sonnet 5 persist `low|medium|high|xhigh` and default to `high`; Opus 4.7
   persists the same set and defaults to `xhigh`; Sonnet 4.6 persists
   `low|medium|high` and defaults to `high`; Haiku 4.5 has no effort control, so
   selecting it removes `effortLevel`. This follows Claude Code's documented

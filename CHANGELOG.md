@@ -1,3 +1,56 @@
+# 2026-09-06
+
+- **Engine audit: re-synced against the binaries the fleet actually runs.**
+  Read the ground truth out of codex-cli 0.153.4 (`codex debug models`,
+  `codex features list`, `codex --help`) and claude-cli 2.1.261 (`claude --help`,
+  the settings schema inside the binary, live `--model` / `--permission-mode`
+  probes) instead of trusting the hand-maintained tables, which were last
+  verified against 0.147.0 / 2.1.224 a month earlier.
+  - **`gpt-5.4-mini` is retired.** Its catalog entry carries an `upgrade` block
+    with `retirement_at` 2026-08-31 — six days past. It leaves `SUPPORTED_MODELS`
+    and the picker and enters `LEGACY_MODEL_UPGRADES`, mapped to `gpt-5.6-luna`
+    because that is the replacement the vendor's own catalog names. It is the
+    first row in that map that does *not* go to the fleet default; the retained
+    `high` migration effort is valid on Luna, which is asserted rather than
+    assumed.
+  - **`gpt-6-astra` gained `ultra`**, and **`gpt-5.6-sol`'s native default effort
+    is `low`, not `medium`** — both were simply wrong, so the fleet was refusing a
+    real effort level on its own default model and reporting the wrong default for
+    Sol.
+  - **`claude-fable-5-1` was missing from the Claude gate.** Anthropic's most
+    capable widely released model 404'd at `resolveRequestedModel` while the
+    fleet's own `claude` binary resolved it fine. Added with 1M/128K metadata and
+    `high` default effort. `claude-mythos-5-1` stays out on purpose: restricted
+    access, not a general fleet choice.
+  - **23 more feature flags reached stage `removed`** upstream and are now
+    normalized away instead of being rendered into every host's `[features]`
+    block. Only `removed` was taken — `deprecated` flags still do something.
+    Recorded while there: the long-standing `request_permissions` entry has never
+    matched an upstream flag (the real one is `request_permissions_tool`, which is
+    live and must not be dropped); it is inert rather than harmful because the
+    filter is exact-match.
+  - **Both wrappers were rejecting real subcommands.** `clx` hard-failed
+    `agents`, `attach`, `auto-mode`, `gateway`, `import`, `logs`, `plugin(s)`,
+    `project`, `respawn`, `rm`, `setup-token`, `stop`/`kill` and `ultrareview`
+    with `unknown subcommand` (exit 2), and `cdx` did the same for `agents`,
+    `archive`, `unarchive`, `delete`, `queue`, `plugin`, `remote-control`,
+    `exec-server` and `migrate-rollouts` — every one of them a command the
+    installed binary has. Both reserved maps are re-synced, and `clx`'s runtime
+    auth overlay list grew the background-session commands so the `--settings`
+    overlay still lands ahead of the subcommand rather than inside its operands.
+    `install`/`update`/`upgrade` stay deliberately unforwarded: the orchestrator
+    pins engine versions fleet-wide and forwarding them would walk straight past
+    that pin.
+  - **Two things were checked and deliberately left alone.** The `default`
+    permission mode still passes live on 2.1.261 despite being gone from
+    `--help`, so stored overrides keep working. And `effortLevel` still stops at
+    `xhigh`: the CLI's own settings schema declares
+    `X(["low","medium","high","xhigh"])` with `.catch(void 0)`, so `max` — valid
+    for the `--effort` flag and for the model API — is silently dropped when
+    persisted. That `.catch` is why a live `--settings '{"effortLevel":"max"}'`
+    probe exits 0 and proves nothing; the comment now says so, to stop the next
+    audit "fixing" it.
+
 # 2026-09-05
 
 - **Codex model catalog:** Added `gpt-6-astra` as the fleet, OpenAI-compatible

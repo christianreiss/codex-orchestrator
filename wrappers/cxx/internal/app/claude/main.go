@@ -135,15 +135,40 @@ type flags struct {
 // deliberately absent: Claude has no such subcommand, so passing it through
 // made `clx sessions` hang as a literal prompt. Failing fast with "unknown
 // subcommand" is the honest answer.
+//
+// Re-synced against `claude --help` on claude-cli 2.1.261, 2026-09-06. Every
+// name below is one the upstream binary really parses — `config`, `login` and
+// `logout` no longer appear in its Commands list but still resolve and exit 0,
+// so they stay for operators who type them.
+//
+// `install`, `update` and `upgrade` are deliberately NOT here: the orchestrator
+// pins the Claude version fleet-wide (the `client_version_lock_claude` setting)
+// and clx owns `update` itself. Forwarding them would let a host install an
+// arbitrary build straight past that pin.
 var reservedClaudeSubcommands = map[string]bool{
-	"auth":   true,
-	"login":  true,
-	"logout": true,
-	"mcp":    true,
-	"config": true,
-	"doctor": true,
-	"resume": true,
-	"help":   true,
+	"auth":        true,
+	"login":       true,
+	"logout":      true,
+	"mcp":         true,
+	"config":      true,
+	"doctor":      true,
+	"resume":      true,
+	"help":        true,
+	"agents":      true,
+	"attach":      true,
+	"auto-mode":   true,
+	"gateway":     true,
+	"import":      true,
+	"logs":        true,
+	"plugin":      true,
+	"plugins":     true,
+	"project":     true,
+	"respawn":     true,
+	"rm":          true,
+	"setup-token": true,
+	"stop":        true,
+	"kill":        true,
+	"ultrareview": true,
 }
 
 var wrapperOwnedSubcommands = map[string]bool{
