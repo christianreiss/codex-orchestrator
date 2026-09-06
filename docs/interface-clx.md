@@ -50,6 +50,22 @@ Mirrors `docs/interface-cdx.md` with engine-specific deltas called out explicitl
 | `sync` | Write fleet-managed `CLAUDE.md`, `settings.json` (deep merge), `~/.claude.json` MCP servers, `~/.claude/{agents,commands,output-styles}/`, and `~/.claude/skills/<slug>/SKILL.md` without launching Claude and without touching the binary. Runs the same lock, FQDN guard, `POST /sync/bootstrap`, decision matrix, collections, and skills work an interactive run performs, then stops before the portal session and the launch. Always headless. Exit 0 on success, 1 on a refused host — including a host with no usable Claude credential, which exits 1 even though `bootstrap` already wrote the managed content, keeping parity with `run`. Trust-loss teardown (`stripManagedSettings`/`stripClaudeCollections`/`stripClaudeSkills`) still runs on an explicit server refusal. Self-update is deliberately suppressed here |
 | `uninstall` / `--uninstall` | Take the native-auth exclusive maintenance lease, remove Claude-local credentials/state, and request engine-scoped server deletion. An authoritative response with Codex remaining removes only `clx` and retains `cxx`, `cdx`, and the shared cron; confirmed last-engine removal deletes both aliases, `cxx`, and the cron. Offline, non-2xx, or malformed responses preserve every shared artifact. Refuses while another clx auth session is active, on a known multi-user host without sudo, or when user lookup fails without root/passwordless-sudo fallback. |
 
+### Wrapper-only flags
+
+Consumed by the wrapper and never forwarded to the upstream `claude` binary.
+`clx --wrapper-help` renders the same set; `wrapper-flag-surface.test.ts` pins
+both against `parseFlags`, so a flag added to one is added to all three.
+
+| Flag | Effect |
+|---|---|
+| `--minimal` / `--minimal-output` | Compact, ANSI-free ASCII wrapper output; also selected automatically on redirects, dumb/narrow terminals, and `NO_COLOR` |
+| `--silent` | Suppress the boot screen and all non-error wrapper logging |
+| `--skip-boot` / `--no-banner` | Launch without the boot screen or exit footer |
+| `--debug` / `--verbose` | Detailed wrapper diagnostics on stderr |
+| `-4` / `--ipv4` | Force wrapper-managed network traffic (sync, update, download) through IPv4; exports `CLAUDE_FORCE_IPV4=1` |
+| `--allow-concurrent-sync` | Perform managed writes without the single-instance run lock, instead of entering `SYNC PAUSED`. Visibly announced; see the startup sequence below |
+| `--config <path>` | Load a specific signed wrapper configuration instead of the installed one. Used by the cron tick; an operator escape hatch otherwise |
+
 Fresh-install binaries embed the installation-specific verification key via
 the `PUBLIC_KEY_FILE` build path used by `bin/install.sh`; the tracked fallback
 PEM is not edited. Claude and Codex aliases therefore share the same unique

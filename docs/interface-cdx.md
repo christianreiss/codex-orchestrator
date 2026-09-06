@@ -253,6 +253,22 @@ server bakes effective `CODEX_HOME/config.toml`.
 | `sync` | Write fleet-managed `AGENTS.md`, `config.toml`, and the skills fingerprint without launching Codex and without touching the binary. Runs the same lock, FQDN guard, `POST /sync/bootstrap`, decision matrix, skills probe, and peer reconciliation an interactive run performs, then stops before the quota gate and the launch. Always headless: a host with no usable credential fails closed with the reason instead of opening a `codex login` wizard. Exit 0 on success, 1 on a refused host (same reason text as `run`). Self-update is deliberately suppressed here, so a sync can never install and re-exec from inside itself. On an insecure host the run's own auth session still purges credentials on exit, exactly as `run` does |
 | `uninstall` / `--uninstall` | Take the effective-`CODEX_HOME` exclusive auth-maintenance lease, remove Codex-local credentials/state, and request engine-scoped server deletion. An authoritative response with Claude remaining removes only `cdx` and retains `cxx`, `clx`, and the shared cron; confirmed last-engine removal deletes both aliases, `cxx`, and the cron. Offline, non-2xx, or malformed responses preserve every shared artifact. Refuses while another cdx auth session is active and on multi-user hosts without sudo. |
 
+### Wrapper-only flags
+
+Consumed by the wrapper and never forwarded to the upstream `codex` binary.
+`cdx --wrapper-help` renders the same set; `wrapper-flag-surface.test.ts` pins
+both against `parseFlags`, so a flag added to one is added to all three.
+
+| Flag | Effect |
+|---|---|
+| `--minimal` / `--minimal-output` | Compact, ANSI-free ASCII wrapper output; also selected automatically on redirects, dumb/narrow terminals, and `NO_COLOR` |
+| `--silent` | Suppress the boot screen and all non-error wrapper logging |
+| `--skip-boot` / `--no-banner` | Launch without the boot screen or exit footer; quota warnings still reach stderr |
+| `--debug` / `--verbose` | Detailed wrapper diagnostics on stderr |
+| `-4` / `--ipv4` | Force wrapper-managed network traffic (sync, update, download) through IPv4; exports `CODEX_FORCE_IPV4=1` |
+| `--allow-concurrent-sync` | Perform managed writes without the single-instance run lock, instead of entering `SYNC PAUSED`. Visibly announced; see the startup sequence below |
+| `--config <path>` | Load a specific signed wrapper configuration instead of the installed one. Used by the cron tick; an operator escape hatch otherwise |
+
 Fresh-install binaries embed the installation-specific verification key via
 the `PUBLIC_KEY_FILE` build path used by `bin/install.sh`; the tracked fallback
 PEM is not edited. A config signed by another installation therefore fails the

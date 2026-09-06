@@ -15,7 +15,7 @@ var cdxHelpCommands = []wrapperHelpItem{
 	{"cdx [run] [args...]", "Sync managed state, then launch Codex."},
 	{"cdx resume [session] [prompt]", "Sync, then reopen a Codex session; omit the session for the picker."},
 	{"cdx exec -- <args...>", "Run Codex directly after local preflight, without the managed sync screen."},
-	{"cdx --execute <prompt>", "Run a headless, read-only one-shot prompt through the managed lifecycle."},
+	{"cdx --execute <prompt>", "Run a headless one-shot prompt through the managed lifecycle, under the fleet sandbox and approval policy."},
 	{"cdx status", "Show host context, wrapper/Codex versions, auth/runner health, and quota."},
 	{"cdx doctor", "Check dependencies, paths, auth, API reachability, config, and cron."},
 	{"cdx auth-upload", "Validate and upload local Codex credentials to the fleet store."},

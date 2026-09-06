@@ -1,3 +1,36 @@
+# 2026-09-06 (3)
+
+- **Polished both wrapper personas.** Started by diffing each wrapper's real
+  flag surface against what it advertises. `cdx --wrapper-help` and
+  `clx --wrapper-help` turned out to be complete and in sync — the interesting
+  finding was that *nothing kept them that way*, and one claim was outright
+  wrong.
+  - **`cdx --execute` was advertised as "read-only". It is not.** The wrapper
+    used to pin `--sandbox read-only -a untrusted` for headless runs and
+    deliberately stopped: under any active sandbox Codex demands approval for
+    every MCP tool call, and a headless run has nobody to approve, so it
+    silently disabled the entire orchestrator MCP surface — memory, skills and
+    projects alike. The code comment explaining that removal has been there all
+    along; the help string and `docs/USAGE.md` still promised the sandbox. On a
+    fleet pinning `sandbox_mode = "danger-full-access"` and
+    `approval_policy = "never"`, `cdx --execute` runs with full access. Both now
+    say so, and say why.
+  - **The operator interface docs never listed the wrapper's own flags.**
+    `--silent`, `--debug`/`--verbose`, `-4`/`--ipv4` and `--config` appeared
+    *zero* times in `docs/interface-cdx.md`, despite all four being accepted and
+    documented in `--wrapper-help`. Both docs gained a "Wrapper-only flags"
+    table covering everything `parseFlags` accepts.
+  - **New `wrapper-flag-surface.test.ts` pins all three surfaces together** —
+    `parseFlags` -> `cdxHelpFlags`/`clxHelpFlags` -> the operator doc — so a flag
+    added to the parser can no longer reach operators only if whoever added it
+    remembered two other files. It reads the help table's `usage` column only,
+    never the description, because descriptions contain hyphenated prose
+    ("non-error", "signing-key") that scans as a short flag. Both directions of
+    the guard were mutation-tested: injecting an undocumented flag, and deleting
+    a doc row, each fail with a message naming the exact file and constant to fix.
+  - Its sibling `wrapper-cli-surface.test.ts` already tied subcommands to those
+    docs; flags were the half nobody had covered.
+
 # 2026-09-06 (2)
 
 - **Claude settings audit: seven managed surfaces, checked against the binary

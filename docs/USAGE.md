@@ -189,8 +189,13 @@ cdx auth-upload
 # Claude uses the same guarded lifecycle around its native credentials
 clx auth-upload
 
-# One-shot, script-friendly execution (managed auth/resource sync still runs;
-# Codex itself runs headless with a read-only sandbox)
+# One-shot, script-friendly execution (managed auth/resource sync still runs).
+# NOTE: this is NOT sandboxed to read-only. The wrapper deliberately does not
+# force `--sandbox read-only -a untrusted` -- doing so required an approval for
+# every MCP tool call, and a headless run has nobody to approve, so it silently
+# disabled the whole orchestrator MCP surface. The effective sandbox and
+# approval policy are whatever the fleet config.toml pins (`sandbox_mode`,
+# `approval_policy`), which on a permissive fleet means full access.
 cdx --execute "explain what this repo does in 5 bullets"
 
 # Force IPv4 for wrapper network calls (sync/update/download)
