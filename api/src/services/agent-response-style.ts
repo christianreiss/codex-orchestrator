@@ -20,12 +20,45 @@ export const DEFAULT_RESPONSE_VERBOSITY_LEVEL: ResponseVerbosityLevel = 0;
 /** SettingsService key for the fleet-wide level (versions table, like `admin_theme`). */
 export const RESPONSE_VERBOSITY_SETTINGS_KEY = 'response_verbosity_level';
 
-/** Claude output-style slug per non-zero level (Component B). Level 0 omits the key entirely. */
+/**
+ * Claude `outputStyle` value per non-zero level (Component B). Level 0 omits the
+ * key entirely.
+ *
+ * These are the artifacts' frontmatter `name` values, NOT their slugs, because
+ * that is what Claude Code keys its output-style registry by. From the
+ * claude-cli 2.1.263 loader:
+ *
+ *   let D = ass(d).replace(/\.md$/, ""),                    // filename slug
+ *       N = (f.name != null ? String(f.name) : void 0) || D  // frontmatter name wins
+ *   ... d[D.name] = {...}                                    // registry keyed by N
+ *
+ * and the lookup is an exact, unnormalised object index:
+ *
+ *   let d = Sn()?.outputStyle || cw; return e[d] ?? null
+ *
+ * The seeded artifacts (migration 0023) carry both a slug (`verbosity-minimal`)
+ * and a frontmatter name (`Verbosity Minimal`). Emitting the slug therefore
+ * resolved to nothing and silently applied no output style at all — the key is
+ * a free-form string upstream, so nothing anywhere reported the miss.
+ * `outputStyle-name-parity.test.ts` pins these to migration 0023's names.
+ */
+/**
+ * Artifact slug per non-zero level — the output-style artifact's identity in the
+ * fleet (and its filename on a host: `~/.claude/output-styles/<slug>.md`).
+ * Distinct from the NAMES map below, which is what settings.json must reference.
+ */
 export const RESPONSE_VERBOSITY_OUTPUT_STYLE_SLUGS: Partial<Record<ResponseVerbosityLevel, string>> = {
   1: 'verbosity-trimmed',
   2: 'verbosity-concise',
   3: 'verbosity-brief',
   4: 'verbosity-minimal',
+};
+
+export const RESPONSE_VERBOSITY_OUTPUT_STYLE_NAMES: Partial<Record<ResponseVerbosityLevel, string>> = {
+  1: 'Verbosity Trimmed',
+  2: 'Verbosity Concise',
+  3: 'Verbosity Brief',
+  4: 'Verbosity Minimal',
 };
 
 export function normalizeResponseVerbosityLevel(input: unknown): ResponseVerbosityLevel {

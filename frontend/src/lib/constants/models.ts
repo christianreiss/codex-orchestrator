@@ -66,7 +66,6 @@ export const ADVISOR_MODELS: ModelOption[] = [
   { label: "Off", value: ADVISOR_OFF },
   { label: "Opus", value: "opus" },
   { label: "Sonnet", value: "sonnet" },
-  { label: "Haiku", value: "haiku" },
   { label: "Fable", value: "fable" },
 ];
 
@@ -119,14 +118,23 @@ export const REASONING_EFFORT_OPTIONS: Array<{ value: string; label: string }> =
   { value: "ultra", label: "Ultra" },
 ];
 
-/** Hook event names supported by the Claude settings hooks block. */
+/**
+ * Hook event names offered by the fleet hooks editor. A deliberate subset of the
+ * 33 events claude-cli 2.1.263 accepts (its `wy` array) — these are the ones a
+ * fleet-wide hook makes sense on. `SessionEnd` and `PostCompact` were missing
+ * purely by omission: their counterparts `SessionStart` and `PreCompact` were
+ * already offered, so a fleet could open a session or a compaction but never
+ * close one.
+ */
 export const HOOK_EVENTS = [
   "PreToolUse",
   "PostToolUse",
   "UserPromptSubmit",
   "SessionStart",
+  "SessionEnd",
   "Stop",
   "Notification",
   "SubagentStop",
   "PreCompact",
+  "PostCompact",
 ] as const;

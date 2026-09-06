@@ -507,8 +507,13 @@ export function normalizeSettings(
   if (permissionMode) out.permissionMode = permissionMode;
   const env = normalizeClaudeEnv(settings.env);
   if (env) out.env = env;
+  // Drop an advisor the session model cannot actually use. Shipping it would
+  // put a key on every host that the CLI silently ignores (see
+  // claudeAdvisorPairIsValid for the two gates and what they log).
   const advisorModel = normalizeClaudeAdvisorModel(settings.advisorModel);
-  if (advisorModel) out.advisorModel = advisorModel;
+  if (advisorModel && claudeAdvisorPairIsValid(settings.model, advisorModel)) {
+    out.advisorModel = advisorModel;
+  }
   const effortLevel = normalizeClaudeEffortLevel(settings.effortLevel, model);
   if (effortLevel) out.effortLevel = effortLevel;
 
@@ -525,7 +530,74 @@ export function normalizeSettings(
  * missing here because this list predates the Fable tier. Alias set re-checked
  * on claude-cli 2.1.261, 2026-09-06: still these four.
  */
-export const ADVISOR_MODEL_ALIASES = ['opus', 'sonnet', 'haiku', 'fable'] as const;
+export const ADVISOR_MODEL_ALIASES = ['opus', 'sonnet', 'fable'] as const;
+
+/**
+ * `advisor_rank` exactly as baked into the claude-cli model catalog (read out of
+ * the 2.1.263 binary, 2026-09-06). The CLI uses it for two separate gates:
+ *
+ *   var fZr = 2
+ *   function Mtn(e){ ...; let t = HXe(e); return t !== void 0 && t >= fZr }
+ *     -> a model may act as an advisor at all only when its rank is >= 2.
+ *   function _ue(e,t){ ...; let r = UXe(e), o = HXe(t); ...; return r <= o }
+ *     -> rank(session model) must be <= rank(advisor).
+ *
+ * Fail either and `z0e` logs "[AdvisorTool] Skipping advisor - ..." and silently
+ * runs with no advisor. Nothing surfaces to the operator, which is why the fleet
+ * validates the pair here instead of shipping a setting that quietly does nothing.
+ */
+export const CLAUDE_ADVISOR_RANKS: Readonly<Record<string, number>> = {
+  'claude-haiku-4-5': 1,
+  'claude-haiku-4-5-20251001': 1,
+  'claude-sonnet-4-6': 2,
+  'claude-sonnet-5': 3,
+  'claude-opus-4-6': 3,
+  'claude-opus-4-7': 4,
+  'claude-opus-4-8': 4,
+  'claude-opus-5': 4,
+  'claude-fable-5': 5,
+  'claude-fable-5-1': 5,
+};
+
+/** Minimum `advisor_rank` to be usable as an advisor at all (the CLI's `fZr`). */
+export const CLAUDE_MIN_ADVISOR_RANK = 2;
+
+/**
+ * Tier alias -> concrete model, as the CLI's own catalog resolves them
+ * (`aliases:{opus:{default:"claude-opus-5"},sonnet:{default:"claude-sonnet-5"},
+ * fable:{default:"claude-fable-5-1"}}`). `haiku` is deliberately absent from
+ * ADVISOR_MODEL_ALIASES above: it resolves to claude-haiku-4-5, whose
+ * advisor_rank is 1, so `Mtn` rejects it outright — and the CLI's own advisor
+ * picker list is `["fable","opus","sonnet"]`, with no haiku either.
+ */
+export const CLAUDE_ADVISOR_ALIAS_TARGETS: Readonly<Record<string, string>> = {
+  opus: 'claude-opus-5',
+  sonnet: 'claude-sonnet-5',
+  fable: 'claude-fable-5-1',
+};
+
+function advisorRank(model: string | null): number | undefined {
+  if (model === null) return undefined;
+  const resolved = modelEntry(CLAUDE_ADVISOR_ALIAS_TARGETS, model) ?? model;
+  return modelEntry(CLAUDE_ADVISOR_RANKS, resolved);
+}
+
+/**
+ * Whether `advisorModel` can actually advise a session running `model`.
+ * Unknown ids on either side return true — the CLI's own gates bail open when a
+ * rank is missing (`if (r === void 0 || o === void 0) return !0`), so a model
+ * this table has not learned about yet must not be rejected here either.
+ */
+export function claudeAdvisorPairIsValid(model: unknown, advisorModel: unknown): boolean {
+  const advisor = normalizeString(advisorModel);
+  if (advisor === null) return true;
+  const advisorRankValue = advisorRank(advisor);
+  if (advisorRankValue === undefined) return true;
+  if (advisorRankValue < CLAUDE_MIN_ADVISOR_RANK) return false;
+  const baseRankValue = advisorRank(normalizeString(model));
+  if (baseRankValue === undefined) return true;
+  return baseRankValue <= advisorRankValue;
+}
 
 /**
  * Claude settings.json `advisorModel` key (experimental advisor tool). Restricts
@@ -599,10 +671,30 @@ export function normalizeClaudePermissionMode(value: unknown): string | null {
   return (CLAUDE_PERMISSION_MODES as readonly string[]).includes(s) ? s : null;
 }
 
-/** Claude settings.json `statusLine` block: passed through verbatim. */
+/**
+ * Claude settings.json `statusLine` block.
+ *
+ * NOT a verbatim pass-through: claude-cli 2.1.263 declares
+ *
+ *   statusLine: c({ type: C("command"), command: s(), padding: w().optional(),
+ *                   refreshInterval: w().min(1).optional().catch(void 0), ... })
+ *              .optional().describe("Custom status line display configuration")
+ *
+ * so `type` must be the literal "command" and `command` a string. An object
+ * failing that is dropped by the CLI — and because the fleet suppresses its own
+ * `cxx claude-quota-statusline` default whenever any statusLine is present, a
+ * malformed admin value used to take the host's Claude quota telemetry offline
+ * with nothing reporting it. Rejecting here means the fleet default survives.
+ *
+ * The optional siblings the CLI accepts (`padding`, `refreshInterval`,
+ * `hideVimModeIndicator`) are preserved when present rather than stripped.
+ */
 export function normalizeClaudeStatusLine(value: unknown): Record<string, unknown> | null {
   const rec = asRecord(value);
-  return Object.keys(rec).length > 0 ? rec : null;
+  if (Object.keys(rec).length === 0) return null;
+  if (rec.type !== 'command') return null;
+  if (typeof rec.command !== 'string' || rec.command.trim() === '') return null;
+  return rec;
 }
 
 /** Claude settings.json `hooks` block (event -> matcher[]): passed through verbatim. */

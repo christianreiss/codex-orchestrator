@@ -62,7 +62,7 @@ import { versionCompare } from './wrapper-bin-registry.js';
 import { AGENT_MESSAGING_TOOLS } from './agent-messaging-tool-names.js';
 import { securityLevelEnforcement, type SecurityLevels } from './agent-security-levels.js';
 import {
-  RESPONSE_VERBOSITY_OUTPUT_STYLE_SLUGS,
+  RESPONSE_VERBOSITY_OUTPUT_STYLE_NAMES,
   type ResponseVerbosityLevel,
 } from './agent-response-style.js';
 import type { Host } from '../db/schema.js';
@@ -846,11 +846,11 @@ export function renderClaudeSettingsPartialForHost(
   // text with Claude Code's own output-style mechanism. Level 0 (or unset)
   // omits the key entirely so a host/user's manually chosen style is left
   // alone, same as every other allowlisted key when its source input is empty.
-  const outputStyleSlug = opts.responseVerbosityLevel
-    ? RESPONSE_VERBOSITY_OUTPUT_STYLE_SLUGS[opts.responseVerbosityLevel]
+  const outputStyleName = opts.responseVerbosityLevel
+    ? RESPONSE_VERBOSITY_OUTPUT_STYLE_NAMES[opts.responseVerbosityLevel]
     : undefined;
-  if (outputStyleSlug) {
-    partial['outputStyle'] = outputStyleSlug;
+  if (outputStyleName) {
+    partial['outputStyle'] = outputStyleName;
     owned_paths.push('outputStyle');
   }
   // Fleet default: Claude Code hands its own computed rate-limit reading

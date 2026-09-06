@@ -629,9 +629,17 @@ this run.
 - `permissions.defaultMode` is the startup permission mode every managed Claude
   host runs in. It is **always** emitted: when the fleet settings pin no value it
   defaults to `auto` (Claude Code auto-approves tool calls with its background
-  safety checks). Accepted values are exactly the upstream `claude
-  --permission-mode` choices — `default`, `acceptEdits`, `plan`, `auto`,
-  `dontAsk`, `bypassPermissions`; anything else falls back to the `auto` default.
+  safety checks). Accepted values are `default`, `manual`, `acceptEdits`,
+  `plan`, `auto`, `dontAsk`, `bypassPermissions`; anything else falls back to the
+  `auto` default. This is deliberately NOT the same list as the `claude
+  --permission-mode` flag, which differs in both directions: the flag's choices
+  omit `default` and include `manual`, while the settings schema does the reverse
+  — `defaultMode` is `ai(pp, K([...t$]))` over `t$ = ["acceptEdits","auto",
+  "bypassPermissions","default","dontAsk","plan"]`, piped through
+  `pp(e){return e==="manual"?"default":e}`. So in settings.json `manual` is an
+  accepted *alias* the CLI rewrites to `default`, and `default` is the canonical
+  stored spelling — the opposite of the flag's vocabulary. Verified against
+  claude-cli 2.1.263, 2026-09-06.
   Claude Code ignores a top-level `permissionMode` key, so the wrapper writes the
   nested `permissions.defaultMode` form (a plain scalar leaf — it rides the
   generic dotted merge, not the allow/ask/deny union special-case).

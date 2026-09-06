@@ -620,8 +620,23 @@ export interface ClaudeStatusLine {
   [key: string]: unknown;
 }
 
+/** One command inside a hook entry, as claude-cli's `Et()` schema declares it. */
+export interface ClaudeHookCommand {
+  type: "command";
+  command: string;
+  timeout?: number;
+  [key: string]: unknown;
+}
+
+/**
+ * A hook entry. `hooks` is the array claude-cli requires; `commands` is the
+ * pre-2026-09-06 shape this fleet used to write, kept optional so stored fleet
+ * documents still parse and get migrated on the next save.
+ */
 export interface ClaudeHookEntry {
   matcher?: string;
+  hooks?: ClaudeHookCommand[];
+  /** @deprecated Not a key claude-cli accepts; read-only, for migrating old docs. */
   commands?: string[];
   [key: string]: unknown;
 }

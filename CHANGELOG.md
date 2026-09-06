@@ -1,3 +1,75 @@
+# 2026-09-06 (2)
+
+- **Claude settings audit: seven managed surfaces, checked against the binary
+  rather than against our own comments.** A 31-agent fan-out audited every
+  settings.json key and CLI flag the orchestrator writes, against claude-cli
+  2.1.263's embedded zod schema; each claimed defect then went to an adversarial
+  verifier instructed to auto-reject anything resting on a live `-p` probe. 24
+  claims, 11 survived. `effortLevel`, `env`, `mcpServers`, the permission modes
+  and the model gate came back clean.
+  - **`outputStyle` was writing a value that matched nothing.** Claude Code keys
+    its output-style registry by each artifact's frontmatter `name`, not its
+    slug — `N = (f.name != null ? String(f.name) : void 0) || D`, then
+    `d[D.name] = ...` — and looks it up with an exact, unnormalised
+    `e[d] ?? null`. We emitted `verbosity-minimal`; the registry holds
+    `Verbosity Minimal`. Every non-zero response-verbosity level has therefore
+    been applying **no output style at all**, silently, because the key is a
+    free-form string upstream and nothing reports a miss. Component A (the
+    CLAUDE.md policy text) was unaffected, so the dial looked like it worked.
+  - **Every operator-authored fleet hook was inert, and could take settings.json
+    down with it.** The console's hooks editor wrote
+    `{matcher, commands: string[]}`; the CLI accepts `{matcher?, hooks:
+    [{type:"command", command}]}`. That is worse than a dropped field: the key is
+    declared `hooks: DG().optional()` with **no `.catch(void 0)`** — unlike
+    `effortLevel` — so a malformed entry fails the parse of the whole settings
+    object rather than degrading to "no hooks". The editor keeps its UX; it now
+    serializes the real shape and still reads the old one back, so stored
+    documents migrate on the next save. The server-injected agent-messaging hooks
+    were always correctly shaped and were never affected.
+  - **`advisorModel` — the answer to "can it be prod ready?" is: it is still
+    experimental upstream, but two of our four choices were broken.** The CLI
+    gates the advisor behind `tengu_sage_compass2` /
+    `CLAUDE_CODE_ENABLE_EXPERIMENTAL_ADVISOR_TOOL`, so the "experimental" label
+    stays honest. What was wrong is the value set: `haiku` resolves to
+    claude-haiku-4-5, whose catalog `advisor_rank` is 1, and `Mtn` requires
+    `>= fZr` (2) — the CLI's own advisor picker is `["fable","opus","sonnet"]`,
+    with no haiku. It is dropped. And fleet `model` and `advisorModel` were set
+    by two independent endpoints with no cross-check, so a rank-inverted pair
+    (e.g. model Opus 5, advisor `sonnet`) saved fine and landed on hosts as a
+    silently disabled advisor. `claudeAdvisorPairIsValid` now enforces the
+    binary's own rule, `rank(model) <= rank(advisor)`, bailing open on unknown
+    ids exactly as upstream does.
+  - **`statusLine` was a verbatim pass-through of a schema-constrained key.** The
+    CLI requires literal `type:"command"` plus a string `command`. Because the
+    fleet suppresses its own `cxx claude-quota-statusline` default whenever any
+    statusLine is present, one malformed admin value took that host's Claude
+    quota telemetry offline with nothing reporting it. Now validated, and the
+    optional siblings the CLI accepts (`padding`, `refreshInterval`,
+    `hideVimModeIndicator`) survive a save instead of being rebuilt away.
+  - **clx mis-parsed argv around five flags.** `--autocompact`, `--environment`,
+    `--permission-prompts`, `--remote-control-session-name-prefix` and
+    `--system-prompt-snapshot` all take a required value and were missing from
+    `claudeGlobalOptionsWithValue`, so `claudeSubcommandIndex` read each flag's
+    value as the first positional, bailed, and appended the `--settings` auth
+    overlay after the subcommand — where Claude treats it as one of that
+    subcommand's operands instead of the highest-precedence auth source. The
+    optional-value flags (`-d/--debug`, `--from-pr`, `--teleport`, `--cloud`,
+    `--remote-control`, `--prompt-suggestions`) are deliberately NOT added: a
+    boolean map cannot express their arity, and skipping their next token would
+    swallow a real subcommand.
+  - `HOOK_EVENTS` gained `SessionEnd` and `PostCompact` — their counterparts
+    `SessionStart` and `PreCompact` were already offered, so a fleet could open a
+    session or a compaction but never close one.
+  - Docs: Fable 5.1 added to the model catalogs in `API.md`, `interface-api.md`
+    and the operator manual; Sol's default effort corrected to `low` there too
+    (the code changed in the previous commit, this prose had not); and
+    `permissions.defaultMode` now states the truth that it is **not** the same
+    value set as the `--permission-mode` flag — the flag omits `default` and
+    accepts `manual`, the settings schema does the reverse and rewrites `manual`
+    to `default` via `pp()`.
+  - New `output-style-name-parity.test.ts` ties the emitted names to migration
+    0023's seeded frontmatter, so this specific silent failure cannot return.
+
 # 2026-09-06
 
 - **Engine audit: re-synced against the binaries the fleet actually runs.**

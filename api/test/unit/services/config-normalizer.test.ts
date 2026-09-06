@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   ADVISOR_MODEL_ALIASES,
+  claudeAdvisorPairIsValid,
   CLAUDE_LEGACY_MODEL_UPGRADES,
   CLAUDE_MODEL_DEFAULT_REASONING_EFFORTS,
   CLAUDE_MODEL_REASONING_EFFORTS,
@@ -182,12 +183,40 @@ describe('normalizeClaudeModel', () => {
 
 describe('normalizeClaudeAdvisorModel', () => {
   it('exposes the tier alias allowlist', () => {
-    expect(ADVISOR_MODEL_ALIASES).toEqual(['opus', 'sonnet', 'haiku', 'fable']);
+    // `haiku` is deliberately absent: it resolves to claude-haiku-4-5, whose
+    // catalog advisor_rank is 1, and the CLI requires >= 2 (`fZr`) for a model
+    // to act as an advisor at all. Its own picker list is ["fable","opus","sonnet"].
+    expect(ADVISOR_MODEL_ALIASES).toEqual(['opus', 'sonnet', 'fable']);
   });
   it('accepts the tier aliases case-insensitively and trims', () => {
     expect(normalizeClaudeAdvisorModel('opus')).toBe('opus');
     expect(normalizeClaudeAdvisorModel('  Sonnet ')).toBe('sonnet');
-    expect(normalizeClaudeAdvisorModel('HAIKU')).toBe('haiku');
+    expect(normalizeClaudeAdvisorModel('FABLE')).toBe('fable');
+    // Dropped: the CLI silently discards it, so the fleet must not offer it.
+    expect(normalizeClaudeAdvisorModel('HAIKU')).toBeNull();
+  });
+
+  it('rejects an advisor the session model outranks', () => {
+    // rank(base) must be <= rank(advisor); unknown ids bail open, as upstream does.
+    expect(claudeAdvisorPairIsValid('claude-sonnet-5', 'opus')).toBe(true);
+    expect(claudeAdvisorPairIsValid('claude-sonnet-5', 'fable')).toBe(true);
+    expect(claudeAdvisorPairIsValid('claude-sonnet-4-6', 'sonnet')).toBe(true);
+    // opus-5 (rank 4) cannot be advised by sonnet-5 (rank 3).
+    expect(claudeAdvisorPairIsValid('claude-opus-5', 'sonnet')).toBe(false);
+    // fable-5-1 (rank 5) outranks opus-5 (rank 4).
+    expect(claudeAdvisorPairIsValid('claude-fable-5-1', 'opus')).toBe(false);
+    // Below the minimum advisor rank entirely.
+    expect(claudeAdvisorPairIsValid('claude-sonnet-5', 'claude-haiku-4-5')).toBe(false);
+    // Unknown on either side -> allowed, matching the CLI's open bail-out.
+    expect(claudeAdvisorPairIsValid('claude-future-9', 'opus')).toBe(true);
+    expect(claudeAdvisorPairIsValid('claude-opus-5', 'claude-future-9')).toBe(true);
+  });
+
+  it('drops an advisorModel the session model cannot use', () => {
+    expect(normalizeSettings({ model: 'claude-sonnet-5', advisorModel: 'opus' },
+      { applyCodexDefaults: false }).advisorModel).toBe('opus');
+    expect(normalizeSettings({ model: 'claude-opus-5', advisorModel: 'sonnet' },
+      { applyCodexDefaults: false }).advisorModel).toBeUndefined();
   });
   it('rejects non-alias values and empty/off (-> null)', () => {
     expect(normalizeClaudeAdvisorModel('claude-opus-4-8')).toBeNull();

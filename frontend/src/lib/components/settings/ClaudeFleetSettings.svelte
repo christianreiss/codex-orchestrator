@@ -38,6 +38,8 @@
   let deny = $state<string[]>([]);
   let permissionMode = $state(DEFAULT_CLAUDE_PERMISSION_MODE);
   let statusLineCommand = $state("");
+  /** The statusLine object as loaded, so unmanaged sibling keys survive a save. */
+  let loadedStatusLine = $state<Record<string, unknown> | null>(null);
   let advisorModel = $state(ADVISOR_OFF);
   let hooks = $state<HooksMap>({});
   let serverSha = $state<string | null>(null);
@@ -53,10 +55,21 @@
     const out: HooksMap = {};
     if (!raw) return out;
     for (const [event, entries] of Object.entries(raw)) {
-      out[event] = (entries ?? []).map((e) => ({
-        matcher: typeof e.matcher === "string" ? e.matcher : "",
-        commands: Array.isArray(e.commands) ? e.commands.map((c) => String(c)) : [],
-      }));
+      out[event] = (entries ?? []).map((e) => {
+        // `hooks` is the shape claude-cli accepts; `commands` is the old fleet
+        // shape, read so existing documents survive and are rewritten correctly.
+        const commands = Array.isArray(e.hooks)
+          ? e.hooks
+              .filter((h) => h?.type === "command" && typeof h.command === "string")
+              .map((h) => h.command)
+          : Array.isArray(e.commands)
+            ? e.commands.map((c) => String(c))
+            : [];
+        return {
+          ...(typeof e.matcher === "string" && e.matcher !== "" ? { matcher: e.matcher } : {}),
+          hooks: commands.map((command) => ({ type: "command" as const, command })),
+        };
+      });
     }
     return out;
   }
@@ -74,6 +87,7 @@
     deny = [...(s.permissions?.deny ?? [])];
     permissionMode = s.permissionMode || DEFAULT_CLAUDE_PERMISSION_MODE;
     statusLineCommand = typeof s.statusLine?.command === "string" ? s.statusLine.command : "";
+    loadedStatusLine = s.statusLine ? { ...s.statusLine } : null;
     advisorModel = s.advisorModel || ADVISOR_OFF;
     hooks = hooksFromConfig(s.hooks);
     hydrated = true;
@@ -104,17 +118,22 @@
     if (permissionMode) out.permissionMode = permissionMode;
 
     if (statusLineCommand.trim()) {
-      out.statusLine = { type: "command", command: statusLineCommand.trim() };
+      // Preserve the optional siblings claude-cli accepts (`padding`,
+      // `refreshInterval`, `hideVimModeIndicator`). Rebuilding the object from
+      // scratch used to destroy anything set through the API the next time an
+      // admin saved any Claude setting.
+      const { type: _type, command: _command, ...extras } = loadedStatusLine ?? {};
+      out.statusLine = { ...extras, type: "command", command: statusLineCommand.trim() };
     }
 
     const hooksObj: NonNullable<ClaudeConfigSettings["hooks"]> = {};
     for (const [event, rows] of Object.entries(hooks)) {
       const cleaned = rows
         .map((r) => ({
-          matcher: r.matcher,
-          commands: r.commands.filter((c) => c.trim() !== ""),
+          ...(r.matcher && r.matcher.trim() !== "" ? { matcher: r.matcher.trim() } : {}),
+          hooks: (r.hooks ?? []).filter((h) => h.command.trim() !== ""),
         }))
-        .filter((r) => r.matcher.trim() !== "" || r.commands.length > 0);
+        .filter((r) => r.hooks.length > 0);
       if (cleaned.length) hooksObj[event] = cleaned;
     }
     if (Object.keys(hooksObj).length) out.hooks = hooksObj;

@@ -45,39 +45,59 @@ var claudeTopLevelSubcommands = map[string]struct{}{
 	"upgrade":     {},
 }
 
+// claudeGlobalOptionsWithValue lists root flags that consume the NEXT argv token,
+// so claudeSubcommandIndex can skip that token instead of mistaking it for the
+// first positional. Miss one and the scan bails at its value and never finds the
+// subcommand that follows, which puts the `--settings` auth overlay after the
+// subcommand — where Claude reads it as one of that subcommand's operands rather
+// than as the highest-precedence auth source.
+//
+// Re-synced against `claude --help` on claude-cli 2.1.263, 2026-09-06.
+//
+// ONLY required-value flags (`--flag <value>`) belong here. Commander's
+// optional-value flags (`--flag [value]`) must NOT be added: `-d/--debug`,
+// `--from-pr`, `--teleport`, `--cloud`, `--remote-control`,
+// `--prompt-suggestions`. For those the next token is a value only sometimes, so
+// unconditionally skipping it would swallow a real subcommand — `clx --debug
+// agents` would lose `agents`. They are deliberately absent.
 var claudeGlobalOptionsWithValue = map[string]struct{}{
-	"--add-dir":              {},
-	"--agent":                {},
-	"--agents":               {},
-	"--allowed-tools":        {},
-	"--allowedTools":         {},
-	"--append-system-prompt": {},
-	"--betas":                {},
-	"--debug-file":           {},
-	"--disallowed-tools":     {},
-	"--disallowedTools":      {},
-	"--effort":               {},
-	"--fallback-model":       {},
-	"--file":                 {},
-	"--input-format":         {},
-	"--json-schema":          {},
-	"--max-budget-usd":       {},
-	"--mcp-config":           {},
-	"--model":                {},
-	"--name":                 {},
-	"--output-format":        {},
-	"--permission-mode":      {},
-	"--plugin-dir":           {},
-	"--plugin-url":           {},
-	"--resume":               {},
-	"--session-id":           {},
-	"--setting-sources":      {},
-	"--settings":             {},
-	"--system-prompt":        {},
-	"--tools":                {},
-	"--worktree":             {},
-	"-n":                     {},
-	"-r":                     {},
+	"--add-dir":                            {},
+	"--agent":                              {},
+	"--agents":                             {},
+	"--allowed-tools":                      {},
+	"--allowedTools":                       {},
+	"--append-system-prompt":               {},
+	"--autocompact":                        {},
+	"--betas":                              {},
+	"--debug-file":                         {},
+	"--disallowed-tools":                   {},
+	"--disallowedTools":                    {},
+	"--effort":                             {},
+	"--environment":                        {},
+	"--fallback-model":                     {},
+	"--file":                               {},
+	"--input-format":                       {},
+	"--json-schema":                        {},
+	"--max-budget-usd":                     {},
+	"--mcp-config":                         {},
+	"--model":                              {},
+	"--name":                               {},
+	"--output-format":                      {},
+	"--permission-mode":                    {},
+	"--permission-prompts":                 {},
+	"--plugin-dir":                         {},
+	"--plugin-url":                         {},
+	"--resume":                             {},
+	"--remote-control-session-name-prefix": {},
+	"--session-id":                         {},
+	"--setting-sources":                    {},
+	"--settings":                           {},
+	"--system-prompt":                      {},
+	"--system-prompt-snapshot":             {},
+	"--tools":                              {},
+	"--worktree":                           {},
+	"-n":                                   {},
+	"-r":                                   {},
 }
 
 // prepareRuntimeAuthSettings adds a highest-precedence CLI settings overlay

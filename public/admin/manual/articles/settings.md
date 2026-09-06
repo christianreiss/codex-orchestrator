@@ -115,6 +115,7 @@ The former `/authoring/settings` route permanently redirects to `/settings?tab=c
 
 | Model | Persistent effort choices | Default |
 |---|---|---|
+| Fable 5.1 | `low`, `medium`, `high`, `xhigh` | `high` |
 | Fable 5 | `low`, `medium`, `high`, `xhigh` | `high` |
 | Opus 5 | `low`, `medium`, `high`, `xhigh` | `high` |
 | Opus 4.8 | `low`, `medium`, `high`, `xhigh` | `high` |
