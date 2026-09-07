@@ -39,6 +39,16 @@ func EnsureCodex(ctx context.Context, target string, enforceExact bool, logger *
 	if logger == nil {
 		logger = slog.Default()
 	}
+	// Once maintenance selects a private release, explicit updates must advance
+	// that same cache rather than update a global binary that launches no longer use.
+	if strings.TrimSpace(os.Getenv("CDX_CODEX_BIN")) == "" {
+		if home, err := os.UserHomeDir(); err == nil {
+			root := filepath.Join(home, ".cxx", "engines", "codex")
+			if cli, err := FindCLI(); err == nil && strings.HasPrefix(cli, root+string(os.PathSeparator)) {
+				return EnsureCodexBackground(ctx, target, enforceExact, logger)
+			}
+		}
+	}
 
 	current := strings.TrimSpace(Version(ctx))
 	if !enforceExact && current != "" && current != "unknown" && target != "" {
@@ -338,6 +348,20 @@ func ensureCodexGitHub(ctx context.Context, target string, enforceExact bool, cu
 	if err != nil {
 		return rel, err
 	}
+	dest := resolveCodexDest()
+	installErr := installVerifiedReleaseAsset(ctx, rel, asset, "codex", dest, logger)
+	if installErr == nil {
+		_ = cacheCodex(dest)
+	}
+	return rel, installErr
+}
+
+// installVerifiedReleaseAsset shares the verified release pipeline between
+// explicit installs and unpublished background destinations.
+func installVerifiedReleaseAsset(ctx context.Context, rel Release, asset Asset, name, dest string, logger *slog.Logger) error {
+	if filepath.Base(asset.Name) != asset.Name {
+		return fmt.Errorf("invalid release asset name %q", asset.Name)
+	}
 	// NOTE: asset.Digest comes from the same GitHub release JSON as the
 	// download URL, so this only guards against transport corruption, not a
 	// compromised/malicious release (an attacker able to replace the binary
@@ -347,44 +371,41 @@ func ensureCodexGitHub(ctx context.Context, target string, enforceExact bool, cu
 	// does not currently publish and which is out of scope here.
 	expected := strings.TrimPrefix(asset.Digest, "sha256:")
 	if len(expected) != 64 {
-		return rel, fmt.Errorf("codex release %s: asset %s has no sha256 digest", rel.TagName, asset.Name)
+		return fmt.Errorf("%s release %s: asset %s has no sha256 digest", name, rel.TagName, asset.Name)
 	}
 
 	tmpDir, err := os.MkdirTemp("", "cdx-codex-*")
 	if err != nil {
-		return rel, err
+		return err
 	}
 	defer os.RemoveAll(tmpDir)
 
 	dlPath := filepath.Join(tmpDir, asset.Name)
 	if err := downloadFile(ctx, asset.DownloadURL, dlPath); err != nil {
-		return rel, err
+		return err
 	}
 	gotSHA, err := sha256File(dlPath)
 	if err != nil {
-		return rel, err
+		return err
 	}
 	if !strings.EqualFold(gotSHA, expected) {
-		return rel, fmt.Errorf("codex release %s: sha mismatch (want %s, got %s)", rel.TagName, expected, gotSHA)
+		return fmt.Errorf("%s release %s: sha mismatch (want %s, got %s)", name, rel.TagName, expected, gotSHA)
 	}
 
-	dest := resolveCodexDest()
 	logger.Debug("EnsureCodex: installing", "version", rel.TagName, "asset", asset.Name, "dest", dest)
 
 	var installErr error
 	if strings.HasSuffix(asset.Name, ".tar.gz") || strings.HasSuffix(asset.Name, ".tgz") {
-		installErr = installFromTarball(dlPath, dest)
+		stem := strings.TrimSuffix(strings.TrimSuffix(asset.Name, ".tar.gz"), ".tgz")
+		installErr = installFromTarballNamed(dlPath, dest, []string{name, stem}, name)
 	} else {
 		// Raw binary.
 		if err := chmodExec(dlPath); err != nil {
-			return rel, err
+			return err
 		}
 		installErr = installBinary(dlPath, dest)
 	}
-	if installErr == nil {
-		_ = cacheCodex(dest)
-	}
-	return rel, installErr
+	return installErr
 }
 
 func releaseVersion(rel Release) string {

@@ -161,18 +161,10 @@ engine-specific deltas are called out in [clx](/admin/manual/clx):
    `claude auth login` directly, without an extra wrapper-owned `[y/N]`
    question. Headless clx callers do not open a browser flow and instead print
    the exact `clx auth login` action.
-7. **Self-update, engine update, and peer reconciliation** — if
-   `dec.Allowed`: `maybeEnsureWrapper` compares the running wrapper binary
-   version to the server-declared target; if they differ it downloads the new
-   binary and re-execs it before the engine CLI launches. cdx bridges its
-   shared auth lease and purge-request IDs into the replacement process; clx
-   finalizes its current auth session before re-exec. Then
-   `maybeEnsureCodex` / `maybeEnsureClaude` auto-updates the upstream engine
-   CLI to its server-declared target version. If not running in concurrent
-   mode, `peer.Reconcile` then installs/updates or removes the *other*
-   engine's wrapper + CLI on this host (see "Peer engine reconciliation"
-   below). For cdx, a `QUOTA_HARD_FAIL=0` env override can also be checked
-   here to bypass a hard ChatGPT-quota refusal.
+7. **Queue background maintenance if due** and continue with the installed
+   engine. A detached shared coordinator handles upgrades and peer provisioning;
+   startup and session exit never wait for an installer or wrapper re-exec.
+   Codex's normal quota gate remains independent of maintenance.
 8. **Skills fingerprint check** — Codex uses `GET /skills?engine=codex`; Claude
    reuses the verified native skills bootstrap result and lists only when an
    older server omits that bundle. For the list path, compare the
@@ -295,29 +287,35 @@ an HTTP 2xx API response.
 
 ## Peer engine reconciliation
 
-Each persona can provision and keep its peer engine current on the same host
-(`wrappers/cxx/internal/persona/*/peer/`). On a successful launch (step 7 above) or a
-cron tick, the wrapper reads the desired engine set from the auth response's
-`host.engines_list` (falling back to the locally cached config):
-
-- If the peer engine is enabled, it fetches `GET /wrapper/v2/config?engine=<peer>`,
-  **verifies the bundle's detached Ed25519 signature against the embedded
-  fleet key before trusting anything in it** — closing an MITM/RCE vector,
-  since `binary_url`/`binary_sha256` ride in that same payload — verifies its
-  host identity and engine membership, writes `<peer>.json{,.sig}`, and
-  verifies the server's fresh target bytes by SHA while converging canonical
-  `cxx` plus relative aliases. A stale previously cached peer target does not
-  block that refresh.
-- If the peer engine is disabled, it performs local-only cleanup of the
-  peer's alias, config, managed state directory, and npm-installed CLI package
-  — never touching the host row or the shared cron needed by the remaining
-  engine.
-- Interactive `run` invocations reconcile only when the peer was just
-  installed or its engine CLI binary is missing, keeping normal launches
-  lightweight. Cron does not spawn a peer cron recursively: the host-wide
-  coordinator runs each enabled persona tick exactly once.
+Peer engine provisioning and updates run in shared background maintenance,
+outside interactive startup and session exit. The coordinator verifies both
+signed engine configs and their host membership before refreshing configs or
+retiring disabled aliases. It runs each enabled engine tick once, without
+recursive peer jobs; a failed tick does not suppress the other engine.
 
 ## Host-wide auto-update
+
+From cxx 0.8.2, a session uses the installed engine immediately after its normal
+auth/content checks. It can queue detached maintenance without waiting for
+network requests, npm, or a wrapper restart. Cron checks every 15 minutes at a
+host-specific offset. One nonblocking coordinator lease prevents duplicate
+jobs; successful checks cool down for 15 minutes, failures retry after five
+minutes when another trigger arrives. `cxx cron run` forces a check;
+`cxx cron run --due` observes the cooldown. Coordinated network/engine work has a 12-minute deadline; legacy schedule
+helper commands are individually capped at 20 seconds.
+
+New engines are staged in private `~/.cxx/engines/codex` and
+`~/.cxx/engines/claude` directories, validated, and activated with an atomic CLI
+cache change. Existing sessions keep their old version files; successful old
+prefixes are retained, including after uninstall; no automatic pruning can
+remove files a direct native process may still use. Explicit CLI path overrides
+are respected. Disabling
+auto-update leaves scheduled content/auth sync and future policy checks active.
+
+Inspect `~/.cxx/maintenance.json` for outcome and retry time, and
+`~/.cxx/cron.log` for detached output. `CXX_BACKGROUND_MAINTENANCE=0` disables only
+launch-triggered jobs. `cxx cron install` repairs the schedule; missing native
+CLIs fail with a direct repair command instead of installing before a session.
 
 `cdx --cron ...` and `clx --cron ...` are compatibility entrypoints into
 `cxx cron [install|remove|run]`. The coordinator verifies signed configs belong

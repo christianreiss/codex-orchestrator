@@ -147,20 +147,25 @@ or put it into its temporary auth settings overlay. Claude's normal
 state, preventing an otherwise valid synchronized login from reopening the
 first-run theme or login flow.
 
-On normal startup, managed hosts install the server-advertised `clx` wrapper
-artifact first, finalize that invocation's auth session (including any final
-insecure purge), re-exec the original argv after a successful swap, then repair a
-stale Claude Code CLI; an already matching Claude Code version is a no-op even
-when the fleet policy is an exact pin. Root-owned wrapper installs use the same verified
-temp-file plus `sudo -n install` fallback as explicit `--update` and cron runs.
-Update activity for the wrapper, Claude CLI, and peer `cdx` install uses the
-compact `↻` / `✓` / `✗` status line; it is coloured only on interactive
-terminals, stays escape-free with `NO_COLOR`, and uses width-bounded ASCII when
-redirected, on `TERM=dumb`, or under explicit `--minimal` (including an update
-initiated while reconciling the peer wrapper). After `npm install -g`, `clx`
-verifies that the Claude executable is runnable. If npm left the package's
-postinstall fallback stub in place, `clx` runs the package's documented
-`install.cjs` recovery hook and fails the update if no usable CLI results.
+Normal startup and session exit never download or install wrapper, Claude, or
+peer binaries. A launch uses the installed Claude CLI and can queue detached
+maintenance after acquiring its auth session. Explicit `clx --update` and
+`cxx cron run` remain visible maintenance commands. Missing Claude fails quickly
+with an installation command; it does not start a foreground npm repair.
+
+The shared background coordinator checks both enabled engines, honors the
+fleet/host auto-update policy, verifies wrapper SHA256, and stages Claude with
+`npm install --prefix <private-stage> --global=false @anthropic-ai/claude-code@<target>`.
+It validates the runnable version before atomically publishing its cached CLI
+path. Successful previous prefixes under `~/.cxx/engines/claude` are retained so
+running sessions keep their original files. These staged prefixes are retained
+after uninstall too; there is no automatic pruning. Every clx-launched Claude process suppresses native automatic updates; private
+managed installations also disable Claude's manual self-update path. `CLX_CLAUDE_BIN` remains authoritative and skips
+managed replacement. Failed staging leaves the current executable selected.
+No unattended prerequisite package-manager or global npm mutation runs.
+
+See [shared background maintenance](interface-cdx.md#background-maintenance)
+for cadence, cooldowns, logs, and recovery commands.
 
 ## Environment variables
 
@@ -177,13 +182,16 @@ but this table omits fails the API suite.
 | `CDX_CONFIG_PATH` | Peer reconciliation reads the same override as `cdx` when deciding where to write the peer's signed `cdx.json` |
 
 There is no `CLX_CLAUDE_INSTALL_DIR` counterpart to cdx's
-`CDX_CODEX_INSTALL_DIR`: Claude Code is installed through `npm install -g`, so
-its location follows the npm prefix. Other variables affecting a run are
+`CDX_CODEX_INSTALL_DIR`: unattended Claude installs use private versioned npm
+prefixes under `~/.cxx/engines/claude`. Other variables affecting a run are
 engine-level rather than wrapper-owned: `CLAUDE_ALLOW_FQDN_MISMATCH`,
 `CLAUDE_FORCE_IPV4` / `CODEX_FORCE_IPV4`, `ANTHROPIC_MODEL` (runtime model
 fallback), the inherited `CLAUDE_CONFIG_DIR` the wrapper strips,
 `CODEX_ORCH_PEER_SPAWN`, and the usual `NO_COLOR` / `TERM` / `COLUMNS`
 presentation variables.
+
+`CXX_BACKGROUND_MAINTENANCE=0` disables launch-triggered detached maintenance
+only; scheduled and explicit cron still run.
 
 The shared cron coordinator sets `CXX_CRON_COORDINATED` and
 `CXX_CRON_ENGINE_ONLY` only on its own persona children to prevent recursive

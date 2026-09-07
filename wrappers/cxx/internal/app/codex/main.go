@@ -27,6 +27,7 @@ import (
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/ipc"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/layout"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/log"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/maintenance"
 	enginecron "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/codex/cron"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/codex/lifecycle"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/codex/orchestrator"
@@ -427,17 +428,25 @@ func run(args []string, stdout, stderr io.Writer) (exitCode int) {
 	if sub == "auth-upload-auto" {
 		return cmdAuthUploadAuto(ctx, cfg, stdout, stderr)
 	}
+	if sub == "run" || sub == "resume" || sub == "execute" || sub == "exec" || sub == "profile" || (isProfileShorthand(sub) && codex.HasProfile(sub)) {
+		if _, err := codex.FindCLI(); err != nil {
+			printBoundedPlain(stderr, "cdx: "+err.Error(), f.minimal)
+			return 127
+		}
+	}
 	if exe, exeErr := os.Executable(); exeErr == nil {
+		layoutCtx, layoutCancel := context.WithTimeout(ctx, 150*time.Millisecond)
+		defer layoutCancel()
 		// Startup proves only the selected persona. The signed host engine list
 		// may be stale while an admin enable/disable is propagating; authoritative
 		// auth/peer reconciliation owns the other alias.
-		if _, layoutErr := layout.EnsureAliases(ctx, exe, []string{config.EngineCodex}); layoutErr != nil {
-			logger.Warn("cxx layout reconcile skipped", "engine", config.EngineCodex, "err", layoutErr)
+		if _, layoutErr := layout.EnsureAliases(layoutCtx, exe, []string{config.EngineCodex}); layoutErr != nil {
+			logger.Debug("cxx layout reconcile skipped", "engine", config.EngineCodex, "err", layoutErr)
 		}
 		// A legacy transition install keeps the artifact off PATH, where the
 		// managed `cxx-agent` MCP command cannot resolve it.
-		if link, pathErr := layout.EnsurePathVisible(ctx, exe); pathErr != nil {
-			logger.Warn("cxx PATH publish skipped", "err", pathErr)
+		if link, pathErr := layout.EnsurePathVisible(layoutCtx, exe); pathErr != nil {
+			logger.Debug("cxx PATH publish skipped", "err", pathErr)
 		} else if link != "" {
 			logger.Info("cxx published on PATH", "link", link)
 		}
@@ -449,7 +458,8 @@ func run(args []string, stdout, stderr io.Writer) (exitCode int) {
 	// durable purge request makes the outermost process the final arbiter.
 	// Explicit update only uploads existing pending auth. Its replacement sync
 	// owns the next auth session; maintenance failure must not add a purge request.
-	if sub != "uninstall" && sub != "logout" && sub != "update" {
+	maintenanceCron := sub == "cron" && (len(subArgs) == 0 || subArgs[0] == "run")
+	if sub != "uninstall" && sub != "logout" && sub != "update" && !maintenanceCron {
 		outerSession, leaseErr := codex.StartAuthSession(!cfg.Host.Secure)
 		if leaseErr != nil {
 			fmt.Fprintln(stderr, "cdx: acquire auth session lease:", leaseErr)
@@ -464,6 +474,11 @@ func run(args []string, stdout, stderr io.Writer) (exitCode int) {
 				fmt.Fprintln(stderr, "cdx: insecure-host credentials purged")
 			}
 		}()
+		if sub == "run" || sub == "resume" || sub == "execute" || sub == "exec" || sub == "profile" {
+			if err := maintenance.Request(config.EngineCodex, f.configPath); err != nil {
+				logger.Debug("background maintenance request deferred", "err", err)
+			}
+		}
 	}
 
 	// Legacy shorthand: `cdx ls` ↔ `cdx lane spark` — give frequent
@@ -478,6 +493,9 @@ func run(args []string, stdout, stderr io.Writer) (exitCode int) {
 	// `[profiles.<name>]` section and the token is not one of our internal
 	// subcommands. Mirrors fe70ac3:bin/cdx.d/05-main-46-entry.sh.
 	if isProfileShorthand(sub) && codex.HasProfile(sub) {
+		if err := maintenance.Request(config.EngineCodex, f.configPath); err != nil {
+			logger.Debug("background maintenance request deferred", "err", err)
+		}
 		profileArgs := append([]string{sub}, append(subArgs, passthrough...)...)
 		return cmdProfile(ctx, cfg, profileArgs, stderr)
 	}
@@ -1647,7 +1665,7 @@ func formatCronResult(r enginecron.Result, minimal bool) string {
 	}
 	switch {
 	case r.WrapperAction == "disable":
-		return "cron: auto-update disabled by server; cron job removed"
+		return fmt.Sprintf("cron: automatic binary updates disabled; content sync reported=%t%s", r.Reported, suffix)
 	case r.WrapperAction == "updated":
 		return fmt.Sprintf("cron: wrapper updated %s %s %s (re-exec)", r.WrapperVersion, arrow, r.WrapperTarget)
 	case r.CodexAction == "updated":

@@ -13,7 +13,6 @@ import (
 	"os"
 	"os/user"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -25,12 +24,11 @@ import (
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/claude"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/ipc"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/maintenance"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/observability/tracing"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/claude/orchestrator"
-	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/claude/peer"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/claude/summary"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/claude/ui"
-	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/claude/update"
 )
 
 type Options struct {
@@ -44,7 +42,7 @@ type Options struct {
 	Resumed             bool
 	AllowConcurrentSync bool
 	// SyncOnly performs the managed-content half of a run and stops: bootstrap,
-	// skills, collections, peer reconciliation, then the same auth gate an
+	// skills, collections, then the same auth gate an
 	// interactive run applies — but no PreExec, no portal session, no Claude.
 	// This is what `clx sync`, the post-update pass, and the cron tick use to
 	// converge fleet-managed content without launching an engine.
@@ -65,13 +63,11 @@ var localProbe = orchestrator.LocalAuthProbe{
 	IsFresh: claude.IsFresh,
 }
 
-var wrapperSelfUpdate = update.SelfUpdateFrom
-var wrapperReExec = update.ReExecAfterUpdate
-
 const authLoginRequiredReason = "Claude authentication required; run `clx auth login` interactively."
 
 var errAuthRecoveryNonInteractive = errors.New(authLoginRequiredReason)
 var lifecycleIsTerminal = term.IsTerminal
+var requestBackgroundMaintenance = maintenance.Request
 
 type presentedError struct{ err error }
 
@@ -148,6 +144,12 @@ func Run(ctx context.Context, opts Options) (exitCode int, retErr error) {
 		return 1, err
 	}
 
+	if !opts.SyncOnly {
+		if _, err := claude.FindCLI(); err != nil {
+			return 127, fmt.Errorf("Claude CLI unavailable: %w; run `clx --cron run` to install or repair it, or set CLX_CLAUDE_BIN to an existing executable", err)
+		}
+	}
+
 	// Every lifecycle holds a shared auth lease without serializing interactive
 	// sessions. An insecure invocation records purge intent; whichever process
 	// proves it is the last active lease holder performs the purge, regardless of
@@ -167,6 +169,12 @@ func Run(ctx context.Context, opts Options) (exitCode int, retErr error) {
 			logger.Debug("purged insecure Claude credentials after last active session")
 		}
 	}()
+
+	if !opts.SyncOnly {
+		if err := requestBackgroundMaintenance(config.EngineClaude, cfg.SourcePath()); err != nil {
+			logger.Debug("background maintenance request skipped", "err", err)
+		}
+	}
 
 	concurrent := false
 	lock, err := ipc.Acquire("clx")
@@ -287,31 +295,10 @@ func Run(ctx context.Context, opts Options) (exitCode int, retErr error) {
 			}
 		}
 
-		// PR-2: keep the local wrapper within range of the server-declared
-		// target version when auto-update is enabled. Never blocks launch.
-		// The Claude engine itself updates post-session (see maybeEnsureClaude
-		// below) so a version bump never delays an interactive launch.
-		if dec.Allowed {
-			// A sync-only pass is already running the freshly installed binary —
-			// `update` re-execs into it. Re-entering self-update from in here
-			// would install and exec a second time from inside a sync, burning
-			// restart depth for nothing. On the `cxx update` path this is load
-			// bearing: that exec sets only CODEX_WRAPPER_RESTARTED, so the guard
-			// inside maybeEnsureWrapper would still be cold for the claude leg.
-			if !opts.SyncOnly {
-				if err := maybeEnsureWrapper(ctx, cfg, authResp, currentWrapperVersion(opts, cfg), concurrent, opts.Minimal, logger, authSession); err != nil {
-					return 1, fmt.Errorf("restart after wrapper update: %w", err)
-				}
-			}
-			if !concurrent {
-				peer.Reconcile(ctx, cfg, authResp, opts.Minimal, logger)
-				// Fresh hosts: minted credentials alone don't stop Claude's
-				// first-start login wizard — ~/.claude.json must carry the
-				// onboarding flag too.
-				if claude.HasUsableAuth() {
-					ensureOnboardingState(logger)
-				}
-			}
+		// Routine binary and peer maintenance belongs to the background tick.
+		// Foreground launches retain only local onboarding required by Claude.
+		if dec.Allowed && !concurrent && claude.HasUsableAuth() {
+			ensureOnboardingState(logger)
 		}
 
 		// The native bundle already checks and applies the complete skill set.
@@ -490,15 +477,6 @@ func Run(ctx context.Context, opts Options) (exitCode int, retErr error) {
 	closePortal(portalStatus, portalSummary)
 
 	authStatus, authTone := maybePostRunAuthUpload(client, logger, before, authSession)
-
-	// Upload native rotations before a potentially slow npm update: canonical
-	// credentials must converge as soon as the child releases its final write.
-	// Post-session Claude engine update (best-effort). Runs after the user's
-	// work is done instead of before it starts, so a version bump never
-	// delays an interactive launch — the new version lands on the next run.
-	if dec.Allowed {
-		maybeEnsureClaude(ctx, cfg, client, authResp, currentWrapperVersion(opts, cfg), concurrent, opts.Minimal, logger)
-	}
 
 	if authTone == ui.ToneFail {
 		if exitCode == 0 {
@@ -1653,14 +1631,6 @@ func themeFromConfig(cfg *config.Config) string {
 	return *cfg.EngineOptions.AdminThemeHint
 }
 
-func updateCaps(cfg *config.Config, minimal bool) ui.Caps {
-	caps := ui.DetectCaps(themeFromConfig(cfg))
-	if minimal {
-		return ui.MinimalCaps(caps)
-	}
-	return caps
-}
-
 // concurrentNote picks the right "Concurrent" row text for the boot screen.
 // The note makes clear that only managed writes are paused; credential
 // freshness is still checked before launch.
@@ -1694,161 +1664,6 @@ func currentWrapperVersion(opts Options, cfg *config.Config) string {
 	return wrapperVersion(cfg)
 }
 
-// freshClientTarget re-resolves the engine target against the server right
-// before installing it.
-//
-// The /auth snapshot the caller holds was fetched before the session started,
-// so on a long session it names a release that is no longer current. /cron/check
-// answers the same question in one round trip, and `probe` tells the server this
-// is not the cron job so it leaves last_cron_check alone.
-//
-// Returns "" when the install should be skipped, and the caller's fallback
-// unchanged when the server cannot be reached — an offline host still installs
-// the pre-session target rather than nothing.
-func freshClientTarget(ctx context.Context, client *orchestrator.Client, current, wrapperVersion, fallback string, fallbackExact bool, logger *slog.Logger) (string, bool) {
-	if client == nil {
-		return fallback, fallbackExact
-	}
-	check, err := client.CronCheck(ctx, orchestrator.CronCheckRequest{
-		Engine:         "claude",
-		ClientVersion:  current,
-		WrapperVersion: wrapperVersion,
-		Probe:          true,
-	})
-	if err != nil || check == nil {
-		logger.Debug("claude target re-resolve failed; using pre-session target", "err", err, "target", fallback)
-		return fallback, fallbackExact
-	}
-	switch check.Action {
-	case "update":
-		if check.TargetVersion == "" {
-			return fallback, fallbackExact
-		}
-		if check.TargetVersion != fallback {
-			logger.Debug("claude target moved during session", "pre_session", fallback, "fresh", check.TargetVersion)
-		}
-		return check.TargetVersion, check.EnforceExact
-	case "no_update":
-		// Already at the current target; the pre-session value was stale in the
-		// other direction (an install happened elsewhere, or the pin moved down).
-		return "", fallbackExact
-	case "disable":
-		// Auto-update was switched off mid-session. Removing the cron schedule
-		// stays cron's job — this path only declines to install.
-		logger.Debug("claude auto-update disabled by server; skipping post-session install")
-		return "", fallbackExact
-	}
-	return fallback, fallbackExact
-}
-
-// maybeEnsureClaude repairs the local Claude CLI when the orchestrator
-// reports auto-update enabled and the local version differs from target.
-// Failures are logged but never fatal — a transient install error just
-// leaves the current version in place for next time.
-//
-// Called after the Claude session has already exited (see Run), so the
-// install never delays an interactive launch; the user only pays for it
-// once, on their way out, and the new version takes effect on the next run.
-//
-// Returns the post-install Claude version when an install actually ran,
-// empty otherwise. The lifecycle independently re-measures the installed
-// version for the exit footer.
-func maybeEnsureClaude(ctx context.Context, cfg *config.Config, client *orchestrator.Client, auth *orchestrator.AuthRetrieveResponse, wrapperVersion string, concurrent, minimal bool, logger *slog.Logger) string {
-	if concurrent || auth == nil || auth.Versions == nil {
-		return ""
-	}
-	v := auth.Versions
-	if !v.AutoUpdateEnabled {
-		return ""
-	}
-	if v.ClientVersion == nil || *v.ClientVersion == "" {
-		return ""
-	}
-	target := *v.ClientVersion
-	if v.ClientVersionOverride != nil && *v.ClientVersionOverride != "" {
-		target = *v.ClientVersionOverride
-	}
-	enforceExact := v.ClientVersionEnforceExact
-	current := strings.TrimSpace(claude.Version(ctx))
-	// `auth` was retrieved before the session launched, so `target` is as old as
-	// the session — an hour of work meant installing whatever was newest an hour
-	// ago and reporting a fresh update on the very next launch, which read as a
-	// stepwise updater walking releases one at a time. Re-resolve first.
-	target, enforceExact = freshClientTarget(ctx, client, current, wrapperVersion, target, enforceExact, logger)
-	// Defer "latest" alias upgrades to cron — must be before the semver guards.
-	if target == "" || target == "latest" {
-		return ""
-	}
-	if current == target {
-		logger.Debug("claude auto-update skipped: already at target", "version", current)
-		return ""
-	}
-	if claude.IsDowngrade(current, target) {
-		logger.Debug("skipping downgrade", "current", current, "target", target)
-		return ""
-	}
-	caps := updateCaps(cfg, minimal)
-	fmt.Fprintln(os.Stderr, ui.UpdateProgress(caps, "clx", "claude", current, target))
-	if err := claude.EnsureClaude(ctx, target, enforceExact, logger); err != nil {
-		logger.Warn("claude auto-update skipped", "err", err, "target", target, "current", current)
-		fmt.Fprintln(os.Stderr, ui.UpdateFailure(caps, "clx", "claude", target, err))
-		return ""
-	}
-	post := strings.TrimSpace(claude.Version(ctx))
-	if post == "" || post == "unknown" {
-		post = target
-	}
-	fmt.Fprintln(os.Stderr, ui.UpdateComplete(caps, "clx", "claude", post, false))
-	return post
-}
-
-func maybeEnsureWrapper(ctx context.Context, cfg *config.Config, auth *orchestrator.AuthRetrieveResponse, current string, concurrent, minimal bool, logger *slog.Logger, authSession *claude.AuthSession) error {
-	if concurrent || cfg == nil || auth == nil || auth.Versions == nil {
-		return nil
-	}
-	v := auth.Versions
-	if !v.AutoUpdateEnabled || v.WrapperVersion == nil || *v.WrapperVersion == "" {
-		return nil
-	}
-	target := *v.WrapperVersion
-	if current == target {
-		return nil
-	}
-	if current != "" && current != "unknown" && !semverGT(target, current) {
-		logger.Warn("skipping wrapper downgrade", "current", current, "target", target)
-		return nil
-	}
-	if os.Getenv("CLAUDE_WRAPPER_RESTARTED") == "1" {
-		logger.Warn("wrapper auto-update skipped after restart", "current", current, "target", target)
-		return nil
-	}
-	if v.WrapperURL == nil || *v.WrapperURL == "" || v.WrapperSHA256 == nil || *v.WrapperSHA256 == "" {
-		logger.Warn("wrapper auto-update skipped: missing artifact metadata", "current", current, "target", target)
-		return nil
-	}
-	caps := updateCaps(cfg, minimal)
-	fmt.Fprintln(os.Stderr, ui.UpdateProgress(caps, "clx", "wrapper", current, target))
-	exe, err := wrapperSelfUpdate(ctx, cfg, *v.WrapperURL, *v.WrapperSHA256, target, logger)
-	if err != nil {
-		logger.Warn("wrapper auto-update skipped", "err", err, "target", target, "current", current)
-		fmt.Fprintln(os.Stderr, ui.UpdateFailure(caps, "clx", "wrapper", target, err))
-		return nil
-	}
-	fmt.Fprintln(os.Stderr, ui.UpdateComplete(caps, "clx", "wrapper", target, true))
-	if authSession == nil {
-		return errors.New("auth session unavailable for wrapper restart")
-	}
-	if err := authSession.FinalizeForReexec(); err != nil {
-		return fmt.Errorf("finalize auth session before re-exec: %w", err)
-	}
-	if err := wrapperReExec(exe, update.SnapshottedArgv); err != nil {
-		logger.Warn("wrapper restart after update failed", "err", err)
-		fmt.Fprintln(os.Stderr, ui.UpdateFailure(caps, "clx", "wrapper", target, err))
-		return err
-	}
-	return nil
-}
-
 func buildSessionCounts(fs *orchestrator.FleetSessions) *summary.SessionCounts {
 	if fs == nil {
 		return nil
@@ -1859,42 +1674,6 @@ func buildSessionCounts(fs *orchestrator.FleetSessions) *summary.SessionCounts {
 		Today:    fs.Today,
 		Month:    fs.Month,
 	}
-}
-
-// semverGT returns true when a > b using simple X.Y.Z numeric comparison.
-// Returns false (not greater) when either string cannot be parsed.
-func semverGT(a, b string) bool {
-	parse := func(s string) (maj, min, pat int, ok bool) {
-		p := strings.SplitN(strings.SplitN(s, "+", 2)[0], ".", 3)
-		if len(p) != 3 {
-			return
-		}
-		var err error
-		if maj, err = strconv.Atoi(p[0]); err != nil {
-			return
-		}
-		if min, err = strconv.Atoi(p[1]); err != nil {
-			return
-		}
-		pre := strings.SplitN(p[2], "-", 2)[0]
-		if pat, err = strconv.Atoi(pre); err != nil {
-			return
-		}
-		ok = true
-		return
-	}
-	aMaj, aMin, aPat, aOk := parse(a)
-	bMaj, bMin, bPat, bOk := parse(b)
-	if !aOk || !bOk {
-		return false
-	}
-	if aMaj != bMaj {
-		return aMaj > bMaj
-	}
-	if aMin != bMin {
-		return aMin > bMin
-	}
-	return aPat > bPat
 }
 
 func caBundlePath(cfg *config.Config) string {

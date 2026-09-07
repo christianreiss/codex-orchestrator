@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"sort"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
@@ -21,7 +22,239 @@ import (
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/fleetconfig"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/maintenance"
 )
+
+func stubCoordinator(t *testing.T) {
+	t.Helper()
+	t.Setenv("HOME", t.TempDir())
+	oldRefresh, oldSchedule, oldService, oldTick := refreshRunConfigs, reconcileRunSchedule, ensureAgentService, runEngineTick
+	t.Cleanup(func() {
+		refreshRunConfigs, reconcileRunSchedule, ensureAgentService, runEngineTick = oldRefresh, oldSchedule, oldService, oldTick
+	})
+	refreshRunConfigs = func(ctx context.Context, _ *config.Config, _ string, _ io.Writer) ([]*config.Config, []string, string, error) {
+		deadline, ok := ctx.Deadline()
+		if !ok || time.Until(deadline) > coordinatorTimout || time.Until(deadline) < coordinatorTimout-time.Minute {
+			t.Errorf("authoritative config refresh did not receive coordinator deadline: %v", deadline)
+		}
+		return []*config.Config{{Engine: config.EngineCodex}, {Engine: config.EngineClaude}}, []string{config.EngineCodex, config.EngineClaude}, "/fixture/cxx", nil
+	}
+	reconcileRunSchedule = func(context.Context, string) error { return nil }
+	ensureAgentService = func(context.Context, string, io.Writer, io.Writer) error { return nil }
+	runEngineTick = func(context.Context, string, []string, []string, io.Writer, io.Writer) error { return nil }
+}
+
+func TestCoordinatorContinuesAfterScheduleServiceAndFirstEngineFailures(t *testing.T) {
+	stubCoordinator(t)
+	var calls []string
+	reconcileRunSchedule = func(context.Context, string) error {
+		calls = append(calls, "schedule")
+		return errors.New("crontab unavailable")
+	}
+	ensureAgentService = func(context.Context, string, io.Writer, io.Writer) error {
+		calls = append(calls, "service")
+		return errors.New("service manager unavailable")
+	}
+	runEngineTick = func(_ context.Context, _ string, args, _ []string, _, _ io.Writer) error {
+		calls = append(calls, args[0])
+		if args[0] == config.EngineCodex {
+			return errors.New("Codex download failed")
+		}
+		return nil
+	}
+	var warnings strings.Builder
+	err := Run(context.Background(), nil, false, io.Discard, &warnings)
+	for _, want := range []string{"crontab unavailable", "service manager unavailable", "Codex download failed"} {
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Fatalf("missing failure %q from %v", want, err)
+		}
+	}
+	if !reflect.DeepEqual(calls, []string{"schedule", "service", "codex", "claude", "service"}) {
+		t.Fatalf("maintenance did not continue or refresh updated worker: %q", calls)
+	}
+	if !strings.Contains(warnings.String(), "crontab unavailable") || !strings.Contains(warnings.String(), "service manager unavailable") {
+		t.Fatalf("repair failures were hidden: %q", warnings.String())
+	}
+	if err := RunDue(context.Background(), nil, false, io.Discard, io.Discard); err != nil || len(calls) != 5 {
+		t.Fatalf("failed coordinator was not throttled: calls=%q err=%v", calls, err)
+	}
+}
+
+func TestCoordinatorDueCooldownAndBusyLeaseSkipExpensiveWork(t *testing.T) {
+	stubCoordinator(t)
+	refresh := refreshRunConfigs
+	refreshCalls := 0
+	refreshRunConfigs = func(ctx context.Context, cfg *config.Config, exe string, warnings io.Writer) ([]*config.Config, []string, string, error) {
+		refreshCalls++
+		return refresh(ctx, cfg, exe, warnings)
+	}
+	lease, err := maintenance.Begin(context.Background(), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := RunDue(context.Background(), nil, false, io.Discard, io.Discard); err != nil || refreshCalls != 0 {
+		t.Fatalf("busy coordinator performed work: calls=%d err=%v", refreshCalls, err)
+	}
+	if err := lease.Finish(nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := RunDue(context.Background(), nil, false, io.Discard, io.Discard); err != nil || refreshCalls != 0 {
+		t.Fatalf("cooldown coordinator performed work: calls=%d err=%v", refreshCalls, err)
+	}
+	if err := Run(context.Background(), nil, false, io.Discard, io.Discard); err != nil || refreshCalls != 1 {
+		t.Fatalf("explicit maintenance did not bypass cooldown: calls=%d err=%v", refreshCalls, err)
+	}
+}
+
+func TestCoordinatorRefreshFailureDoesNotRunUnverifiedEngines(t *testing.T) {
+	stubCoordinator(t)
+	refreshRunConfigs = func(context.Context, *config.Config, string, io.Writer) ([]*config.Config, []string, string, error) {
+		return nil, nil, "", errors.New("signature unavailable")
+	}
+	runEngineTick = func(context.Context, string, []string, []string, io.Writer, io.Writer) error {
+		t.Error("engine ran despite unverified configuration")
+		return nil
+	}
+	reconcileRunSchedule = func(context.Context, string) error {
+		t.Error("schedule was repaired without a trusted seed")
+		return nil
+	}
+	ensureAgentService = func(context.Context, string, io.Writer, io.Writer) error {
+		t.Error("service was repaired without a trusted seed")
+		return nil
+	}
+	if err := Run(context.Background(), nil, false, io.Discard, io.Discard); err == nil || !strings.Contains(err.Error(), "signature unavailable") {
+		t.Fatalf("uncertain configuration was accepted: %v", err)
+	}
+}
+
+func TestCoordinatorOutageRepairsScheduleAndWorkerFromVerifiedSeedOnly(t *testing.T) {
+	stubCoordinator(t)
+	refreshRunConfigs = func(context.Context, *config.Config, string, io.Writer) ([]*config.Config, []string, string, error) {
+		return nil, nil, "", errors.New("API unavailable")
+	}
+	var calls []string
+	reconcileRunSchedule = func(context.Context, string) error {
+		calls = append(calls, "schedule")
+		return nil
+	}
+	ensureAgentService = func(context.Context, string, io.Writer, io.Writer) error {
+		calls = append(calls, "service")
+		return nil
+	}
+	runEngineTick = func(context.Context, string, []string, []string, io.Writer, io.Writer) error {
+		t.Error("local fallback authorized an engine update")
+		return nil
+	}
+	seed := &config.Config{Engine: config.EngineClaude}
+	if err := Run(context.Background(), seed, false, io.Discard, io.Discard); err == nil || !strings.Contains(err.Error(), "API unavailable") {
+		t.Fatalf("outage was hidden after local repair: %v", err)
+	}
+	if !reflect.DeepEqual(calls, []string{"schedule", "service"}) {
+		t.Fatalf("outage blocked local repair or started an engine: %q", calls)
+	}
+}
+
+func TestCronCadenceRunsEveryFifteenMinutesWithStableHostOffset(t *testing.T) {
+	for _, host := range []string{"", "alpha.example.com", "beta.example.com", "macbook.example.com"} {
+		minute, _ := deterministicTime(host)
+		if minute < 0 || minute > 14 {
+			t.Fatalf("host %q offset outside 0..14: %d", host, minute)
+		}
+		again, _ := deterministicTime(host)
+		if again != minute {
+			t.Fatal("host cadence changed across probes")
+		}
+		parts := strings.Split(cronMinutes(minute), ",")
+		if len(parts) != 4 {
+			t.Fatalf("cadence = %q", parts)
+		}
+		for i, part := range parts {
+			got, err := strconv.Atoi(part)
+			if err != nil || got != minute+i*15 {
+				t.Fatalf("nonuniform cadence %q", parts)
+			}
+		}
+	}
+}
+
+func TestScheduleReadFailureCannotReplaceExistingCrontab(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("PATH", dir)
+	t.Setenv("SUDO_USER", "")
+	if err := os.WriteFile(filepath.Join(dir, "crontab"), []byte("#!/bin/sh\necho 'permission denied reading crontab' >&2\nexit 1\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := installUserCron("/fixture/cxx", 1, 0); err == nil || !strings.Contains(err.Error(), "permission denied") {
+		t.Fatalf("failed read was treated as an empty crontab: %v", err)
+	}
+}
+
+func TestServiceRepairIsBoundedByCoordinatorCancellation(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "cxx")
+	if err := os.WriteFile(path, []byte("#!/bin/sh\nsleep 60 &\nwait\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	started := time.Now()
+	if err := defaultEnsureAgentService(ctx, path, io.Discard, io.Discard); err == nil {
+		t.Fatal("service repair ignored cancellation")
+	}
+	if elapsed := time.Since(started); elapsed > time.Second {
+		t.Fatalf("service repair outlived coordinator cancellation: %s", elapsed)
+	}
+}
+
+func TestCoordinatorInterruptCancelsChildTicksAndFinalizesState(t *testing.T) {
+	if ready := os.Getenv("CXX_TEST_CRON_INTERRUPT_READY"); ready != "" {
+		stubCoordinator(t)
+		runEngineTick = func(ctx context.Context, _ string, _ []string, _ []string, _, _ io.Writer) error {
+			if err := os.WriteFile(ready, nil, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			<-ctx.Done()
+			return ctx.Err()
+		}
+		if err := Run(context.Background(), nil, false, io.Discard, io.Discard); !errors.Is(err, context.Canceled) {
+			t.Fatalf("interrupted maintenance result=%v", err)
+		}
+		raw, err := os.ReadFile(filepath.Join(os.Getenv("HOME"), ".cxx", "maintenance.json"))
+		var state maintenance.State
+		if err != nil || json.Unmarshal(raw, &state) != nil || state.Outcome != "failed" || state.FinishedAt.IsZero() {
+			t.Fatalf("interrupted maintenance did not finalize retry state: outcome=%q err=%v", state.Outcome, err)
+		}
+		return
+	}
+	ready := filepath.Join(t.TempDir(), "ready")
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestCoordinatorInterruptCancelsChildTicksAndFinalizesState$")
+	cmd.Env = append(os.Environ(), "CXX_TEST_CRON_INTERRUPT_READY="+ready)
+	var output strings.Builder
+	cmd.Stdout, cmd.Stderr = &output, &output
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	for {
+		if _, err := os.Stat(ready); err == nil {
+			break
+		}
+		if ctx.Err() != nil {
+			_ = cmd.Wait()
+			t.Fatal("coordinator never entered its child tick")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	if err := cmd.Process.Signal(os.Interrupt); err != nil {
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+		t.Fatal(err)
+	}
+	if err := cmd.Wait(); err != nil {
+		t.Fatalf("interrupt bypassed coordinator cleanup: %v: %s", err, output.String())
+	}
+}
 
 func TestStripManagedMigratesAllWrapperMarkers(t *testing.T) {
 	body := strings.Join([]string{
@@ -83,7 +316,7 @@ func TestCanWriteBinaryDoesNotOpenExecutingStyleFileForWrite(t *testing.T) {
 
 func TestBuildCronLineUsesCanonicalCommandAndMarker(t *testing.T) {
 	got := buildCronLine(17, 2, "/opt/cxx bin/cxx", "/tmp/cxx cron.log", nil)
-	for _, want := range []string{"17 2 * * *", "'/opt/cxx bin/cxx' cron run", "# cxx-managed-cron"} {
+	for _, want := range []string{"2,17,32,47 * * * *", "'/opt/cxx bin/cxx' cron run --due", "# cxx-managed-cron"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("line=%q missing %q", got, want)
 		}
@@ -341,7 +574,7 @@ func TestSystemCronBodyPinsQuotedOverridesAndInstallUser(t *testing.T) {
 		"HOME='/home/a b'",
 		"CDX_CONFIG_PATH='/home/a b/cdx.json'",
 		"CLX_CONFIG_PATH='/home/a b/clx.json'",
-		"7 3 * * * alice CODEX_HOME='/srv/account b' '/opt/cxx bin/cxx' cron run",
+		"7,22,37,52 * * * * alice CODEX_HOME='/srv/account b' '/opt/cxx bin/cxx' cron run --due",
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("body missing %q:\n%s", want, body)

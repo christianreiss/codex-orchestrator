@@ -3,10 +3,12 @@ package cron
 import (
 	"context"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -41,10 +43,67 @@ func TestResolveURL(t *testing.T) {
 	}
 }
 
+func TestTickHonorsConfiguredCAForCheckAndReport(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("CODEX_HOME", t.TempDir())
+	t.Setenv("CDX_CODEX_BIN", "/does/not/exist")
+	t.Setenv("CXX_CRON_COORDINATED", "1")
+	stubManagedSync(t)
+	var checks, reports atomic.Int32
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/cron/check":
+			checks.Add(1)
+			_, _ = w.Write([]byte(`{"action":"no_update"}`))
+		case "/cron/report":
+			reports.Add(1)
+			_, _ = w.Write([]byte(`{"recorded":true}`))
+		default:
+			t.Errorf("unexpected maintenance request %s", r.URL.Path)
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	bundle := filepath.Join(t.TempDir(), "ca.pem")
+	if err := os.WriteFile(bundle, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: server.Certificate().Raw}), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := minimalCfg(t, server.URL)
+	cfg.Orchestrator.CABundlePath = &bundle
+	res, err := Tick(context.Background(), cfg)
+	if err != nil || !res.Reported || checks.Load() != 1 || reports.Load() != 1 {
+		t.Fatalf("custom-CA maintenance=%+v checks=%d reports=%d err=%v", res, checks.Load(), reports.Load(), err)
+	}
+}
+
+func TestTickRejectsNativeUpdateWithoutTarget(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("CDX_CODEX_BIN", "/does/not/exist")
+	stubManagedSync(t)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/cron/check" {
+			t.Errorf("malformed update continued to %s", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"action":"update"}`))
+	}))
+	defer server.Close()
+	res, err := Tick(context.Background(), minimalCfg(t, server.URL))
+	if err == nil || !strings.Contains(err.Error(), "without target") || res.CodexAction == "updated" || res.Reported {
+		t.Fatalf("missing native target=%+v err=%v", res, err)
+	}
+}
+
 // minimalCfg is a hand-crafted config struct that bypasses the loader and
 // signature verification — it's only used to drive Tick against an httptest
 // server.
-func minimalCfg(baseURL string) *config.Config {
+func minimalCfg(t *testing.T, baseURL string) *config.Config {
+	t.Helper()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("CODEX_HOME", filepath.Join(home, ".codex"))
+	t.Setenv("XDG_RUNTIME_DIR", filepath.Join(home, "run"))
 	return &config.Config{
 		SchemaVersion: config.SchemaVersion,
 		Engine:        config.EngineCodex,
@@ -87,7 +146,7 @@ func TestTickNoUpdateReportsAndReturns(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 
-	cfg := minimalCfg(srv.URL)
+	cfg := minimalCfg(t, srv.URL)
 	stubManagedSync(t)
 	res, err := Tick(context.Background(), cfg)
 	if err != nil {
@@ -101,16 +160,9 @@ func TestTickNoUpdateReportsAndReturns(t *testing.T) {
 	}
 }
 
-func TestTickDisableRemovesCron(t *testing.T) {
+func TestTickDisableStillSyncsAndReportsWithoutRemovingSchedule(t *testing.T) {
 	t.Setenv("CDX_CODEX_BIN", "/does/not/exist")
 	t.Setenv("PATH", "")
-	previousRemoveSchedule := removeSchedule
-	removeCalls := 0
-	removeSchedule = func() error {
-		removeCalls++
-		return nil
-	}
-	t.Cleanup(func() { removeSchedule = previousRemoveSchedule })
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/cron/check", func(w http.ResponseWriter, r *http.Request) {
@@ -122,12 +174,12 @@ func TestTickDisableRemovesCron(t *testing.T) {
 		})
 	})
 	mux.HandleFunc("/cron/report", func(w http.ResponseWriter, r *http.Request) {
-		t.Fatalf("report should not be called when disabled")
+		_, _ = w.Write([]byte(`{"recorded":true}`))
 	})
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 
-	cfg := minimalCfg(srv.URL)
+	cfg := minimalCfg(t, srv.URL)
 	stubManagedSync(t)
 	res, err := Tick(context.Background(), cfg)
 	if err != nil {
@@ -136,8 +188,8 @@ func TestTickDisableRemovesCron(t *testing.T) {
 	if res.WrapperAction != "disable" || res.CodexAction != "disable" {
 		t.Errorf("expected disabled actions; got %+v", res)
 	}
-	if removeCalls != 1 {
-		t.Errorf("remove calls = %d, want 1", removeCalls)
+	if !res.Reported {
+		t.Fatal("disabled engine did not report its content maintenance")
 	}
 }
 
@@ -161,7 +213,7 @@ func TestTickWrapperUpdateLoopGuard(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 
-	cfg := minimalCfg(srv.URL)
+	cfg := minimalCfg(t, srv.URL)
 	stubManagedSync(t)
 	_, err := Tick(context.Background(), cfg)
 	if err == nil {
@@ -191,7 +243,7 @@ func TestTickWrapperUpdateRefusesIncompleteMetadata(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 
-	cfg := minimalCfg(srv.URL)
+	cfg := minimalCfg(t, srv.URL)
 	stubManagedSync(t)
 	_, err := Tick(context.Background(), cfg)
 	if err == nil {
@@ -224,7 +276,7 @@ func TestTickReportRetriesThenFails(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 
-	cfg := minimalCfg(srv.URL)
+	cfg := minimalCfg(t, srv.URL)
 	// Shorten time.After by using a cancellable context that completes after
 	// the second attempt. The 2s retry sleep will be cut short by ctx.
 	ctx, cancel := context.WithCancel(context.Background())
@@ -285,7 +337,7 @@ func TestTickSyncsManagedContentAfterEngineUpdate(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 
-	res, err := Tick(context.Background(), minimalCfg(srv.URL))
+	res, err := Tick(context.Background(), minimalCfg(t, srv.URL))
 	if err != nil {
 		t.Fatalf("Tick: %v", err)
 	}
@@ -297,9 +349,8 @@ func TestTickSyncsManagedContentAfterEngineUpdate(t *testing.T) {
 	}
 }
 
-// TestTickSurvivesFailedContentSync: an auth-refused host must not turn the
-// whole maintenance tick red, but the failure has to stay visible.
-func TestTickSurvivesFailedContentSync(t *testing.T) {
+// A failed content sync must be retryable while installed versions are still reported.
+func TestTickReportsVersionsAndFailsWhenContentSyncFails(t *testing.T) {
 	t.Setenv("CDX_CODEX_BIN", "/does/not/exist")
 	t.Setenv("PATH", "")
 	previous := syncManagedContent
@@ -323,9 +374,9 @@ func TestTickSurvivesFailedContentSync(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 
-	res, err := Tick(context.Background(), minimalCfg(srv.URL))
-	if err != nil {
-		t.Fatalf("failed content sync turned the tick red: %v", err)
+	res, err := Tick(context.Background(), minimalCfg(t, srv.URL))
+	if err == nil || !strings.Contains(err.Error(), "managed content sync") {
+		t.Fatalf("failed content sync reported success: %v", err)
 	}
 	if res.SyncAction != "failed" {
 		t.Fatalf("SyncAction = %q, want failed", res.SyncAction)
@@ -364,7 +415,7 @@ func TestTickSkipsSyncWhenWrapperUpdatePathTaken(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 
-	if _, err := Tick(context.Background(), minimalCfg(srv.URL)); err == nil {
+	if _, err := Tick(context.Background(), minimalCfg(t, srv.URL)); err == nil {
 		t.Fatal("expected the restart-loop guard to fail the tick")
 	}
 	if calls != 0 {

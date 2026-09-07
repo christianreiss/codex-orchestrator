@@ -10,6 +10,14 @@ import (
 	"time"
 )
 
+func prepareRuntimeAuthSettings(args []string) ([]string, func(), error) {
+	return prepareRuntimeAuthSettingsForCLI(args, "")
+}
+
+func runtimeAuthSettingsJSON(args []string) ([]byte, error) {
+	return runtimeAuthSettingsJSONForCLI(args, "")
+}
+
 func runtimeAuthHome(t *testing.T, credentials string) string {
 	t.Helper()
 	home := t.TempDir()

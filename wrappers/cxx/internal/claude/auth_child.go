@@ -112,7 +112,7 @@ func RunHelpPassthrough(
 		return 1, errors.New("Claude help argv is empty")
 	}
 	cmd := exec.CommandContext(ctx, path, argv[1:]...)
-	cmd.Env = env
+	cmd.Env = managedClaudeEnv(path, env)
 	cmd.Stdin = stdin
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr

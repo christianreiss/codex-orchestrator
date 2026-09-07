@@ -1,3 +1,24 @@
+# 2026-09-08
+
+- **cxx 0.8.2:** removed routine wrapper, engine, and peer upgrades from cdx/clx
+  startup and session exit. Launches use the installed engine and can queue
+  detached maintenance without waiting for downloads, npm, or a wrapper restart.
+  Wrapped native CLIs also suppress their own startup update checks.
+- One shared coordinator serializes manual, scheduled, and launch-triggered work.
+  Cron checks every 15 minutes with a host-specific offset; successful work has
+  a 15-minute cooldown, failures are retryable after five minutes, and abandoned
+  jobs recover automatically. Explicit `cxx cron run` bypasses the cooldown.
+- Background engine upgrades install into private, separate directories and
+  activate a validated executable atomically. Running sessions retain their
+  existing installation; previous successful versions are retained. Explicit
+  CLI overrides remain authoritative. Auth generation and pending-upload guards
+  continue to protect credentials during maintenance.
+- Disabling auto-update preserves the shared schedule and content/auth sync, so
+  re-enabling works without another install. Maintenance repairs its schedule
+  and background worker, reports failures, and carries custom CA configuration
+  through both engine checks. Dashboard and wrapper manuals describe the new
+  background behavior.
+
 # 2026-09-07
 
 - **cxx 0.8.1:** hardened Codex and Claude auth across startup, running sessions,

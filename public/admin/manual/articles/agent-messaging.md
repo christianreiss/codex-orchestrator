@@ -59,8 +59,8 @@ authority, and the `#call` PIN rendezvous with its turn-holding rule. Without it
 an agent receives ten peer-messaging tools and nothing explaining them. The
 served file is replaced **whole** on the host — there is no separate managed
 block on disk — so a host picks the change up on its next wrapper launch, or on
-its nightly cron tick between 00:00 and 03:59, and a host with a session already
-running is skipped until that session ends. Disabling removes the section on the
+a successful background maintenance check, scheduled every 15 minutes. Managed
+content writes wait while another session holds the sync lock. Disabling removes the section on the
 same schedule, which means an agent can briefly hold instructions for tools that
 no longer answer.
 

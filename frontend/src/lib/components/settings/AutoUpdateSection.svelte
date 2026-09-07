@@ -10,7 +10,7 @@
 
   const description = $derived.by(() => {
     const base =
-      "When enabled, hosts pull and apply the latest pinned engine version automatically on their next sync.";
+      "When enabled, hosts install the fleet target in the background. Maintenance checks every 15 minutes; starting a session never waits for an upgrade.";
     if ($query.isPending) return `${base} Loading…`;
     return $query.data?.enabled
       ? `${base} Hosts will auto-apply the pinned version.`

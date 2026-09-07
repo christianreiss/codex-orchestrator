@@ -27,6 +27,7 @@ import (
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/fleetconfig"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/layout"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/log"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/maintenance"
 	enginecron "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/claude/cron"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/claude/lifecycle"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/claude/orchestrator"
@@ -409,16 +410,18 @@ func run(args []string, stdout, stderr io.Writer) (code int) {
 		return cmdSessionAuthSync(ctx, cfg, logger, stderr)
 	}
 	if exe, exeErr := os.Executable(); exeErr == nil {
+		layoutCtx, layoutCancel := context.WithTimeout(ctx, 150*time.Millisecond)
+		defer layoutCancel()
 		// Startup proves only the selected persona. The signed host engine list
 		// may be stale while an admin enable/disable is propagating; authoritative
 		// auth/peer reconciliation owns the other alias.
-		if _, layoutErr := layout.EnsureAliases(ctx, exe, []string{config.EngineClaude}); layoutErr != nil {
-			logger.Warn("cxx layout reconcile skipped", "engine", config.EngineClaude, "err", layoutErr)
+		if _, layoutErr := layout.EnsureAliases(layoutCtx, exe, []string{config.EngineClaude}); layoutErr != nil {
+			logger.Debug("cxx layout reconcile skipped", "engine", config.EngineClaude, "err", layoutErr)
 		}
 		// A legacy transition install keeps the artifact off PATH, where the
 		// managed `cxx-agent` MCP command cannot resolve it.
-		if link, pathErr := layout.EnsurePathVisible(ctx, exe); pathErr != nil {
-			logger.Warn("cxx PATH publish skipped", "err", pathErr)
+		if link, pathErr := layout.EnsurePathVisible(layoutCtx, exe); pathErr != nil {
+			logger.Debug("cxx PATH publish skipped", "err", pathErr)
 		} else if link != "" {
 			logger.Info("cxx published on PATH", "link", link)
 		}
@@ -473,6 +476,9 @@ func run(args []string, stdout, stderr io.Writer) (code int) {
 		printLifecycleError(stderr, "clx resume", err)
 		return exit
 	case "exec":
+		if err := maintenance.Request(config.EngineClaude, cfg.SourcePath()); err != nil {
+			logger.Debug("background maintenance request skipped", "err", err)
+		}
 		exit, err := claude.RunWithAuthSession(ctx, cfg, append(subArgs, passthrough...), commandSession)
 		if err != nil {
 			fmt.Fprintln(stderr, ui.PlainInline("clx exec: "+err.Error()))
@@ -534,6 +540,11 @@ func run(args []string, stdout, stderr io.Writer) (code int) {
 }
 
 func commandOwnsAuthSession(sub string, subArgs []string) bool {
+	// A maintenance tick first confirms pending native credentials without a
+	// new purge obligation. Its managed sync owns the eventual auth session.
+	if sub == "cron" && (len(subArgs) == 0 || subArgs[0] == "run") {
+		return true
+	}
 	switch sub {
 	// sync enters lifecycle.Run, which starts its own session; an outer lease
 	// here would only fight it over purge-on-last-exit.
@@ -1535,11 +1546,13 @@ func formatCronResult(r enginecron.Result, minimal bool) string {
 	}
 	switch {
 	case r.WrapperAction == "disable":
-		return "cron: auto-update disabled by server; cron job removed"
+		return fmt.Sprintf("cron: binary updates disabled; managed sync retained (reported=%t)%s", r.Reported, suffix)
 	case r.WrapperAction == "updated":
 		return fmt.Sprintf("cron: wrapper updated %s %s %s (re-exec)", r.WrapperVersion, arrow, r.WrapperTarget)
 	case r.CodexAction == "updated":
 		return fmt.Sprintf("cron: claude updated %s %s %s (wrapper %s, reported=%t)%s", r.CodexBefore, arrow, r.CodexVersion, r.WrapperVersion, r.Reported, suffix)
+	case r.CodexAction == "skipped_override":
+		return fmt.Sprintf("cron: Claude update skipped (CLX_CLAUDE_BIN override, reported=%t)%s", r.Reported, suffix)
 	default:
 		return fmt.Sprintf("cron: ok (wrapper %s, claude %s, no updates, reported=%t)%s", r.WrapperVersion, r.CodexVersion, r.Reported, suffix)
 	}

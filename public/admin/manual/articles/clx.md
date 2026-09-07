@@ -227,17 +227,16 @@ Implemented in `wrappers/cxx/internal/persona/claude/lifecycle/` as `lifecycle.R
    every two seconds and runs guarded `clx auth-upload` when usable bytes
    change. This includes refreshes written by a detached `claude daemon run`
    after its spawning clx has exited. It is installed on every Claude-capable
-   host independently of agent messaging; daily maintenance re-asserts it
+   host independently of agent messaging; background maintenance re-asserts it
    before engine ticks, including from headless Linux cron environments without
    pre-populated systemd-user bus variables. The foreground 30-second watcher
    remains as a fallback for managed sessions.
 
-7. **Install target Claude CLI version** if allowed and `auto_update` is
-   enabled (`claude.EnsureClaude`), then — unless this is a concurrent
-   sync-paused run — reconcile the Codex persona (`peer.Reconcile`) from the
-   server's `engines_list`. This fetches the signed peer config and converges
-   the same `cxx` binary plus relative aliases; it does not install a second
-   wrapper artifact. See [wrappers](/admin/manual/wrappers).
+7. **Queue detached background maintenance if due**, then continue with the
+   installed Claude CLI. No npm install, wrapper re-exec, or peer upgrade runs
+   inline. Shared maintenance stages new Claude versions in private npm prefixes
+   and validates them before selecting them for future launches; running sessions
+   keep their existing installation. See [wrappers](/admin/manual/wrappers).
 
 8. **Check resource outcomes and print the responsive outcome-first boot card.**
    cxx 0.8.0 shares its complete terminal renderer with Codex, using a violet
@@ -389,14 +388,16 @@ persona schedules with this one shared schedule. The Claude tick:
 
 1. Calls `POST /cron/check` to ask the orchestrator whether a new wrapper
    version is available (a server response of `action: "disable"` — driven by
-   the host's `auto_update_enabled` being off — removes the cron entry and
-   stops here).
+   the host's `auto_update_enabled` being off — skips binary updates while
+   retaining content/auth sync and the shared schedule).
 2. If a wrapper update is offered: verifies SHA256, downloads, self-replaces,
    explicitly finalizes the current auth session/purge request, then re-execs
    via atomic rename + re-exec (`CLAUDE_WRAPPER_RESTART_DEPTH` env var, capped
    at 2).
 3. Ensures the `claude` CLI version matches the server-declared target
-   (`claude.EnsureClaude`).
+   with a private staged npm install and atomic CLI-cache activation. Failed
+   staging leaves the installed version selected; prior successful prefixes
+   remain available to running sessions.
 4. Reconciles the common `cxx` layout and enabled aliases/CLIs on dual-engine
    hosts without spawning another coordinator.
 5. Reports the installed `claude` version to `POST /cron/report` (a **separate**

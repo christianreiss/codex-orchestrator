@@ -104,8 +104,8 @@ var claudeGlobalOptionsWithValue = map[string]struct{}{
 // that neutralizes auth sources loaded later from user/project settings. The
 // key, when native API-key mode is selected, lives only in a mode-0600 settings
 // file and never in argv. Named files keep this path portable to Windows.
-func prepareRuntimeAuthSettings(args []string) ([]string, func(), error) {
-	raw, err := runtimeAuthSettingsJSON(args)
+func prepareRuntimeAuthSettingsForCLI(args []string, cli string) ([]string, func(), error) {
+	raw, err := runtimeAuthSettingsJSONForCLI(args, cli)
 	if err != nil {
 		return args, func() {}, err
 	}
@@ -147,7 +147,7 @@ func runtimeAuthSettingsDir() (string, error) {
 	return filepath.Join(home, ".clx", "state", "runtime-auth"), nil
 }
 
-func runtimeAuthSettingsJSON(args []string) ([]byte, error) {
+func runtimeAuthSettingsJSONForCLI(args []string, cli string) ([]byte, error) {
 	env := make(map[string]string, len(runtimeAuthOverrideEnv))
 	for _, name := range runtimeAuthOverrideEnv {
 		// CLAUDE_CONFIG_DIR has to be stripped from the inherited process so a
@@ -164,6 +164,14 @@ func runtimeAuthSettingsJSON(args []string) ([]byte, error) {
 		env[name] = "0"
 	}
 	env["ANTHROPIC_BASE_URL"] = officialAnthropicBaseURL
+	// Routine native self-update must never add work to a wrapped launch,
+	// including an already-current global install or explicit CLI override.
+	env["DISABLE_AUTOUPDATER"] = "1"
+	if isManagedClaudeCLI(cli) {
+		// These are documented native controls. Managed npm prefixes are
+		// immutable once published; fleet maintenance owns the next version.
+		env["DISABLE_UPDATES"] = "1"
+	}
 	if mode, key := managedRuntimeAuth(); mode == "api_key" && !isInteractiveAuthLogin(args) {
 		env["ANTHROPIC_API_KEY"] = key
 	}

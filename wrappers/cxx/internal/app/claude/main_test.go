@@ -1535,6 +1535,17 @@ func TestSyncDoesNotTakeAnOuterAuthSession(t *testing.T) {
 	}
 }
 
+func TestCronRunDoesNotCreatePurgeRequestBeforePendingAuthGuard(t *testing.T) {
+	for _, args := range [][]string{nil, {"run"}} {
+		if !commandOwnsAuthSession("cron", args) {
+			t.Fatalf("cron %v still creates an outer purge-capable auth session", args)
+		}
+	}
+	if commandOwnsAuthSession("cron", []string{"install"}) {
+		t.Fatal("explicit cron installation lost its existing auth-session cleanup")
+	}
+}
+
 // TestSyncConflictsWithOtherWrapperActions: `clx sync --update` is ambiguous and
 // must be rejected before any config load or network call.
 func TestSyncConflictsWithOtherWrapperActions(t *testing.T) {

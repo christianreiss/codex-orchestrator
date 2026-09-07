@@ -143,45 +143,6 @@ func TestSyncOnlyWritesManagedContentAndStopsBeforeLaunch(t *testing.T) {
 	}
 }
 
-// TestSyncOnlyNeverSelfUpdatesOrReExecs is the invariant that keeps the restart
-// depth cap intact: the post-update pass is already the new binary, so a sync
-// that self-updated would install and exec a second time from inside a sync.
-func TestSyncOnlyNeverSelfUpdatesOrReExecs(t *testing.T) {
-	sha := strings.Repeat("a", 64)
-	cfg, _ := syncOnlyHost(t, `,"versions":{"auto_update_enabled":true,"wrapper_version":"9.9.9","wrapper_url":"https://updates.invalid/cxx","wrapper_sha256":"`+sha+`"}`)
-	t.Setenv("CODEX_WRAPPER_RESTARTED", "")
-
-	oldUpdate, oldExec := wrapperSelfUpdate, wrapperReExec
-	t.Cleanup(func() {
-		wrapperSelfUpdate = oldUpdate
-		wrapperReExec = oldExec
-	})
-	updates, execs := 0, 0
-	wrapperSelfUpdate = func(context.Context, *config.Config, string, string, string, *slog.Logger) (string, error) {
-		updates++
-		return "/tmp/cxx-updated", nil
-	}
-	wrapperReExec = func(string, []string) error {
-		execs++
-		return nil
-	}
-
-	exit, err := Run(context.Background(), Options{
-		Config:         cfg,
-		SyncOnly:       true,
-		Headless:       true,
-		SkipBoot:       true,
-		Logger:         slog.New(slog.NewTextHandler(io.Discard, nil)),
-		WrapperVersion: "0.7.0",
-	})
-	if exit != 0 || err != nil {
-		t.Fatalf("Run(SyncOnly) = (%d, %v), want (0, nil)", exit, err)
-	}
-	if updates != 0 || execs != 0 {
-		t.Fatalf("sync-only pass self-updated: installs=%d execs=%d", updates, execs)
-	}
-}
-
 // TestSyncOnlyStopsBeforeQuotaGate keeps quota where it belongs: it governs
 // launching Codex, and a content sync consumes none of it.
 func TestSyncOnlyStopsBeforeQuotaGate(t *testing.T) {

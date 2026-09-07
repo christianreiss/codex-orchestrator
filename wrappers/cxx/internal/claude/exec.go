@@ -33,6 +33,10 @@ func claudeBinCachePath() (string, error) {
 
 // cacheClaude persists the resolved claude binary path for future runs.
 func cacheClaude(path string) error {
+	return cacheClaudeContext(context.Background(), path)
+}
+
+func cacheClaudeContext(ctx context.Context, path string) error {
 	p, err := claudeBinCachePath()
 	if err != nil {
 		return err
@@ -40,7 +44,38 @@ func cacheClaude(path string) error {
 	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 		return err
 	}
-	return os.WriteFile(p, []byte(path), 0o644)
+	unlock, err := lockClaudeInstall(ctx, p+".lock")
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	return atomicWriteLocked(p, []byte(path), 0o644)
+}
+
+// cacheDiscoveredClaude resolves the cold-cache race with background staging.
+// It never waits: a busy publisher leaves this launch using its PATH candidate.
+// A publisher that already won is authoritative over the earlier PATH lookup.
+func cacheDiscoveredClaude(path string) string {
+	p, err := claudeBinCachePath()
+	if err != nil {
+		return path
+	}
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		return path
+	}
+	f, err := os.OpenFile(p+".lock", os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return path
+	}
+	defer f.Close()
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		return path
+	}
+	if current := cachedClaudeBin(); current != "" && !isWrapperSelf(current) {
+		return current
+	}
+	_ = atomicWriteLocked(p, []byte(path), 0o644)
+	return path
 }
 
 // cachedClaudeBin returns the previously cached claude binary path, or "" if
@@ -88,8 +123,7 @@ func FindCLI() (string, error) {
 			if isWrapperSelf(path) {
 				continue
 			}
-			_ = cacheClaude(path)
-			return path, nil
+			return cacheDiscoveredClaude(path), nil
 		}
 	}
 	return "", errors.New("claude CLI not found on PATH (install it or set CLX_CLAUDE_BIN)")
@@ -201,11 +235,12 @@ func runCaptureWithHeldAuthLeaseUsing(
 		fmt.Fprintln(os.Stderr, "clx: --bare ignores subscription OAuth; using --safe-mode so verified Claude login remains active.")
 	}
 	env := buildEnv(cfg, args)
+	env = managedClaudeEnv(cli, env)
 	if !stdoutIsTTY || !stdinIsTTY {
 		env = append(env, "PROMPT_TOOLKIT_NO_CPR=1")
 	}
 
-	args, cleanupRuntimeAuth, err := prepareRuntimeAuthSettings(args)
+	args, cleanupRuntimeAuth, err := prepareRuntimeAuthSettingsForCLI(args, cli)
 	if err != nil {
 		if closeChildLease {
 			_ = childLease.Close()

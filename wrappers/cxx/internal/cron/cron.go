@@ -13,6 +13,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"os/signal"
 	"os/user"
 	"path/filepath"
 	"runtime"
@@ -23,10 +24,10 @@ import (
 
 	"golang.org/x/sys/unix"
 
-	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/agentbus"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/fleetconfig"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/layout"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/maintenance"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/signing"
 	coreupdate "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/update"
 )
@@ -76,7 +77,9 @@ var (
 	lookupCrontabUser      = user.Lookup
 	currentCrontabUser     = user.Current
 	resolveCronIdentity    = resolveSystemCronIdentity
-	ensureAgentService     = agentbus.EnsureService
+	ensureAgentService     = defaultEnsureAgentService
+	refreshRunConfigs      = refreshAuthoritative
+	reconcileRunSchedule   = reconcileSchedule
 )
 
 // Install reconciles aliases first, then writes exactly one cxx schedule and
@@ -143,35 +146,108 @@ func removeSchedulesLocked(allUsers bool) error {
 // executes each persona tick once in a deterministic order. Child ticks are
 // marked engine-only so alias forwarding cannot recurse.
 func Run(ctx context.Context, seed *config.Config, minimal bool, stdout, stderr io.Writer) error {
+	return run(ctx, seed, minimal, false, stdout, stderr)
+}
+
+// RunDue shares the coordinator with explicit maintenance, but skips work while
+// another coordinator owns the lease or a successful/retry cooldown is active.
+func RunDue(ctx context.Context, seed *config.Config, minimal bool, stdout, stderr io.Writer) error {
+	return run(ctx, seed, minimal, true, stdout, stderr)
+}
+
+func run(ctx context.Context, seed *config.Config, minimal, due bool, stdout, stderr io.Writer) (runErr error) {
+	signalCtx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	runCtx, cancel := context.WithTimeout(signalCtx, coordinatorTimout)
+	defer cancel()
+	lease, err := maintenance.Begin(runCtx, due)
+	if errors.Is(err, maintenance.ErrBusy) || errors.Is(err, maintenance.ErrNotDue) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	defer func() { runErr = errors.Join(runErr, lease.Finish(runErr)) }()
+
 	exe, err := os.Executable()
 	if err != nil {
 		return err
 	}
-	configs, engines, canonical, err := refreshAuthoritative(ctx, seed, exe, stderr)
+	configs, engines, canonical, err := refreshRunConfigs(runCtx, seed, exe, stderr)
 	if err != nil {
-		return err
+		// A signed local seed remains sufficient to repair our schedule and
+		// auth worker during an API outage. It cannot authorize engine changes:
+		// return the refresh failure after repair, without any persona tick or
+		// speculative alias/config retirement.
+		var repairErrors []error
+		repairErrors = append(repairErrors, err)
+		fallback := seed
+		if fallback == nil {
+			fallback, err = loadAnySeedConfig()
+			if err != nil {
+				return errors.Join(append(repairErrors, err)...)
+			}
+		}
+		canonical, err = layout.CanonicalExecutable(exe)
+		if err != nil {
+			return errors.Join(append(repairErrors, err)...)
+		}
+		if err := reconcileRunSchedule(runCtx, canonical); err != nil {
+			failure := fmt.Errorf("reconcile cxx cron schedule: %w", err)
+			fmt.Fprintln(warnWriter(stderr), failure)
+			repairErrors = append(repairErrors, failure)
+		}
+		if backgroundWorkerRequired([]*config.Config{fallback}) {
+			if err := ensureAgentService(runCtx, canonical, stdout, stderr); err != nil {
+				failure := fmt.Errorf("cxx background worker service unavailable: %w", err)
+				fmt.Fprintln(warnWriter(stderr), failure)
+				repairErrors = append(repairErrors, failure)
+			}
+		}
+		return errors.Join(repairErrors...)
 	}
 	// A legacy cdx/clx schedule reaches this path first. Collapse both old
 	// markers/files into the one cxx schedule before any child tick can recurse.
-	if err := reconcileSchedule(ctx, canonical); err != nil {
-		return fmt.Errorf("reconcile cxx cron schedule: %w", err)
+	var errs []error
+	if err := reconcileRunSchedule(runCtx, canonical); err != nil {
+		failure := fmt.Errorf("reconcile cxx cron schedule: %w", err)
+		fmt.Fprintln(warnWriter(stderr), failure)
+		errs = append(errs, failure)
 	}
-	if backgroundWorkerRequired(configs) {
+	workerRequired := backgroundWorkerRequired(configs)
+	ensureWorker := func() {
 		// Service managers are not uniformly available in SSH/headless user
-		// contexts. Keep maintenance successful and surface the exact retry.
+		// contexts. Keep the engine ticks running and surface the exact retry.
 		// Engine auth rotation coverage must not depend on agent messaging being
 		// enabled: detached native daemons write the same credential file. Ensure
 		// it before the engine ticks so a failed auth tick cannot prevent healing.
-		if err := ensureAgentService(stdout, stderr); err != nil {
-			fmt.Fprintln(stderr, "cxx background worker service unavailable:", err)
+		if err := ensureAgentService(runCtx, canonical, stdout, stderr); err != nil {
+			failure := fmt.Errorf("cxx background worker service unavailable: %w", err)
+			fmt.Fprintln(warnWriter(stderr), failure)
+			errs = append(errs, failure)
 		}
 	}
-	runCtx, cancel := context.WithTimeout(ctx, coordinatorTimout)
-	defer cancel()
-	if err := runEnabledTicks(runCtx, canonical, engines, minimal, stdout, stderr); err != nil {
-		return err
+	if workerRequired {
+		ensureWorker()
 	}
-	return nil
+	if err := runEnabledTicks(runCtx, canonical, engines, minimal, stdout, stderr); err != nil {
+		errs = append(errs, err)
+	}
+	// A child may have atomically replaced cxx. Reconcile the service using the
+	// installed executable so a long-running worker picks up that release too.
+	if workerRequired {
+		ensureWorker()
+	}
+	return errors.Join(errs...)
+}
+
+func defaultEnsureAgentService(ctx context.Context, canonical string, stdout, stderr io.Writer) error {
+	serviceCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(serviceCtx, canonical, "agent", "service", "install")
+	boundCommandChildren(cmd)
+	cmd.Stdout, cmd.Stderr = stdout, stderr
+	return cmd.Run()
 }
 
 func backgroundWorkerRequired(configs []*config.Config) bool {
@@ -200,6 +276,7 @@ func runEnabledTicks(ctx context.Context, canonical string, engines []string, mi
 
 func defaultRunEngineTick(ctx context.Context, canonical string, args, env []string, stdout, stderr io.Writer) error {
 	cmd := exec.CommandContext(ctx, canonical, args...)
+	boundCommandChildren(cmd)
 	cmd.Env = env
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
@@ -494,14 +571,14 @@ func resolveSystemCronIdentity() (systemCronIdentity, error) {
 	}, nil
 }
 
-func buildSystemCronBody(bin, cdxPath, clxPath, logFile, userName, home, codexHome string, minute, hour int) string {
+func buildSystemCronBody(bin, cdxPath, clxPath, logFile, userName, home, codexHome string, minute, _ int) string {
 	if strings.TrimSpace(userName) == "" {
 		userName = "root"
 	}
 	// Assign through the shell, whose quoting handles embedded quote characters;
 	// cron's environment-line parser is not a shell parser. Escape percent only
 	// after constructing the command, since cron processes it before /bin/sh.
-	command := fmt.Sprintf("CODEX_HOME=%s %s cron run >> %s 2>&1", shellEscape(codexHome), shellEscape(bin), shellEscape(logFile))
+	command := fmt.Sprintf("CODEX_HOME=%s %s cron run --due >> %s 2>&1", shellEscape(codexHome), shellEscape(bin), shellEscape(logFile))
 	command = strings.ReplaceAll(command, "%", `\%`)
 	return fmt.Sprintf(`# cxx-managed-cron - host-wide wrapper and engine maintenance. Do not edit by hand.
 SHELL=/bin/sh
@@ -509,8 +586,8 @@ PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 HOME=%s
 CDX_CONFIG_PATH=%s
 CLX_CONFIG_PATH=%s
-%d %d * * * %s %s
-`, shellEscape(home), shellEscape(cdxPath), shellEscape(clxPath), minute, hour, userName, command)
+%s * * * * %s %s
+`, shellEscape(home), shellEscape(cdxPath), shellEscape(clxPath), cronMinutes(minute), userName, command)
 }
 
 func resolveCronCodexHome(home string) (string, error) {
@@ -623,16 +700,16 @@ func installUserContext() (string, string) {
 	return "", home
 }
 
-func buildCronLine(minute, hour int, bin, logFile string, environment map[string]string) string {
+func buildCronLine(minute, _ int, bin, logFile string, environment map[string]string) string {
 	assignments := []string{cronPATHEnv}
 	for _, key := range []string{"CDX_CONFIG_PATH", "CLX_CONFIG_PATH", "CODEX_HOME"} {
 		if value, ok := environment[key]; ok {
 			assignments = append(assignments, key+"="+shellEscape(value))
 		}
 	}
-	cmd := fmt.Sprintf("%s %s cron run >> %s 2>&1", strings.Join(assignments, " "), shellEscape(bin), shellEscape(logFile))
+	cmd := fmt.Sprintf("%s %s cron run --due >> %s 2>&1", strings.Join(assignments, " "), shellEscape(bin), shellEscape(logFile))
 	cmd = strings.ReplaceAll(cmd, "%", `\%`)
-	return fmt.Sprintf("%d %d * * * %s %s", minute, hour, cmd, Marker)
+	return fmt.Sprintf("%s * * * * %s %s", cronMinutes(minute), cmd, Marker)
 }
 
 func stripManaged(body string) []string {
@@ -850,27 +927,31 @@ func stripUserManaged() error {
 }
 
 func readCrontab() (string, error) {
-	cmd := exec.Command("crontab", crontabArgs("-l")...)
-	out, err := cmd.Output()
+	cmd, cancel := boundedCronCommand("crontab", crontabArgs("-l")...)
+	defer cancel()
+	cmd.Env = setEnv(setEnv(os.Environ(), "LC_ALL", "C"), "LANG", "C")
+	out, err := cmd.CombinedOutput()
 	if err != nil {
 		var exitErr *exec.ExitError
-		if errors.As(err, &exitErr) {
+		if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 && strings.Contains(strings.ToLower(string(out)), "no crontab for") {
 			return "", nil
 		}
-		return "", err
+		return "", fmt.Errorf("read crontab: %w: %s", err, strings.TrimSpace(string(out)))
 	}
 	return string(out), nil
 }
 
 func writeCrontab(body string) error {
-	cmd := exec.Command("crontab", crontabArgs("-")...)
+	cmd, cancel := boundedCronCommand("crontab", crontabArgs("-")...)
+	defer cancel()
 	cmd.Stdin = strings.NewReader(body)
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
 }
 
 func readCrontabForUser(userName string) (string, error) {
-	cmd := crontabCommandForUser(userName, "-l")
+	cmd, cancel := crontabCommandForUser(userName, "-l")
+	defer cancel()
 	out, err := cmd.CombinedOutput()
 	if err == nil {
 		return string(out), nil
@@ -883,7 +964,8 @@ func readCrontabForUser(userName string) (string, error) {
 }
 
 func writeCrontabForUser(userName, body string) error {
-	cmd := crontabCommandForUser(userName, "-")
+	cmd, cancel := crontabCommandForUser(userName, "-")
+	defer cancel()
 	cmd.Stdin = strings.NewReader(body)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
@@ -892,11 +974,36 @@ func writeCrontabForUser(userName, body string) error {
 	return nil
 }
 
-func crontabCommandForUser(userName string, args ...string) *exec.Cmd {
+func crontabCommandForUser(userName string, args ...string) (*exec.Cmd, context.CancelFunc) {
 	name, commandArgs := crontabCommandSpecFor(os.Geteuid(), userName, args...)
-	cmd := exec.Command(name, commandArgs...)
+	cmd, cancel := boundedCronCommand(name, commandArgs...)
 	cmd.Env = setEnv(setEnv(os.Environ(), "LC_ALL", "C"), "LANG", "C")
-	return cmd
+	return cmd, cancel
+}
+
+func boundedCronCommand(name string, args ...string) (*exec.Cmd, context.CancelFunc) {
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	cmd := exec.CommandContext(ctx, name, args...)
+	boundCommandChildren(cmd)
+	return cmd, cancel
+}
+
+// A canceled maintenance child may have started npm, a shell, or systemctl.
+// Cancel its own process group so descendants cannot keep an installer alive or
+// leave inherited output pipes blocking Wait after the coordinator deadline.
+func boundCommandChildren(cmd *exec.Cmd) {
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.WaitDelay = time.Second
+	cmd.Cancel = func() error {
+		if cmd.Process == nil {
+			return os.ErrProcessDone
+		}
+		err := syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+		if errors.Is(err, syscall.ESRCH) {
+			return os.ErrProcessDone
+		}
+		return err
+	}
 }
 
 func crontabCommandSpecFor(euid int, userName string, args ...string) (string, []string) {
@@ -960,11 +1067,15 @@ func passwordlessSudo() bool {
 	if _, err := exec.LookPath("sudo"); err != nil {
 		return false
 	}
-	return exec.Command("sudo", "-n", "true").Run() == nil
+	cmd, cancel := boundedCronCommand("sudo", "-n", "true")
+	defer cancel()
+	return cmd.Run() == nil
 }
 
 var runCronSudo = func(args ...string) ([]byte, error) {
-	return exec.Command("sudo", append([]string{"-n"}, args...)...).CombinedOutput()
+	cmd, cancel := boundedCronCommand("sudo", append([]string{"-n"}, args...)...)
+	defer cancel()
+	return cmd.CombinedOutput()
 }
 
 func writeManagedFileAtomic(path string, body []byte, privileged bool) error {
@@ -1044,7 +1155,12 @@ func deterministicTime(host string) (int, int) {
 	for _, b := range []byte(host) {
 		sum = sum*33 + uint32(b)
 	}
-	return int(sum % 60), int((sum / 60) % 4)
+	return int(sum % 15), 0
+}
+
+func cronMinutes(minute int) string {
+	offset := (minute%15 + 15) % 15
+	return fmt.Sprintf("%d,%d,%d,%d", offset, offset+15, offset+30, offset+45)
 }
 
 func setEnv(env []string, key, value string) []string {

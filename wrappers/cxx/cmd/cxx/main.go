@@ -99,32 +99,23 @@ func setPersonaBuildInfo() {
 }
 
 func runHostCron(args []string, stdout, stderr io.Writer) int {
-	action := "run"
-	if len(args) > 0 {
-		action = args[0]
-		args = args[1:]
-	}
-	minimal := false
-	for _, arg := range args {
-		if arg == "--minimal" || arg == "--minimal-output" {
-			minimal = true
-			continue
-		}
-		fmt.Fprintf(stderr, "cxx cron: unknown argument %q\n", arg)
+	action, minimal, due, err := parseHostCronArgs(args)
+	if err != nil {
+		fmt.Fprintln(stderr, "cxx cron:", err)
 		return 2
 	}
 	ctx := context.Background()
-	var err error
 	switch action {
 	case "install":
 		err = hostcron.Install(ctx, nil)
 	case "remove":
 		err = hostcron.Remove(ctx)
 	case "run":
-		err = hostcron.Run(ctx, nil, minimal, stdout, stderr)
-	default:
-		fmt.Fprintf(stderr, "cxx cron: unknown action %q\n", action)
-		return 2
+		if due {
+			err = hostcron.RunDue(ctx, nil, minimal, stdout, stderr)
+		} else {
+			err = hostcron.Run(ctx, nil, minimal, stdout, stderr)
+		}
 	}
 	if err != nil {
 		fmt.Fprintf(stderr, "cxx cron %s: %v\n", action, err)
@@ -135,6 +126,31 @@ func runHostCron(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stdout, "cron: %s\n", pastTense[action])
 	}
 	return 0
+}
+
+func parseHostCronArgs(args []string) (action string, minimal, due bool, err error) {
+	action = "run"
+	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
+		action = args[0]
+		args = args[1:]
+	}
+	if action != "run" && action != "install" && action != "remove" {
+		return "", false, false, fmt.Errorf("unknown action %q", action)
+	}
+	for _, arg := range args {
+		switch arg {
+		case "--minimal", "--minimal-output":
+			minimal = true
+		case "--due":
+			due = true
+		default:
+			return "", false, false, fmt.Errorf("unknown argument %q", arg)
+		}
+	}
+	if due && action != "run" {
+		return "", false, false, fmt.Errorf("--due is only valid for cron run")
+	}
+	return action, minimal, due, nil
 }
 
 // runHostUpdate selects an installed persona only to authenticate the common
@@ -295,7 +311,7 @@ func printSelectorHelp(w io.Writer) {
 	fmt.Fprintln(w, "  cxx claude [clx arguments]")
 	fmt.Fprintln(w, "  cxx update")
 	fmt.Fprintln(w, "  cxx sync")
-	fmt.Fprintln(w, "  cxx cron [install|remove|run]")
+	fmt.Fprintln(w, "  cxx cron [install|remove|run [--due]]")
 	fmt.Fprintln(w, "  cxx portal [status|notify|say|ask|wait|accept|leave]")
 	fmt.Fprintln(w, "  cxx agent [list|send|request|wait|reply|message|cancel|status|service]")
 	fmt.Fprintln(w, "  cxx --version")

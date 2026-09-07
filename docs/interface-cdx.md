@@ -391,7 +391,7 @@ but this table omits fails the API suite.
 |---|---|
 | `CDX_CONFIG_PATH` | Absolute path of the signed host config, ahead of `$XDG_CONFIG_HOME/codex-orchestrator/cdx.json` and the `~/.config/...` default. The detached signature is still read from `<path>.sig` |
 | `CDX_CODEX_BIN` | Absolute path of the upstream `codex` CLI, used ahead of the path cache and `PATH`. An inaccessible value is an error, not a fallback |
-| `CDX_CODEX_INSTALL_DIR` | Directory that managed Codex CLI installs/updates write `codex` into, instead of `/usr/local/bin` (or the `~/.local/bin` fallback) |
+| `CDX_CODEX_INSTALL_DIR` | Destination for the legacy explicit Codex installer. Unattended upgrades use private versioned prefixes under `~/.cxx/engines/codex` |
 | `CDX_SKIP_BANNER` | `1` forces the compact ASCII boot screen even on a rich interactive terminal |
 | `CDX_AUTH_SESSION_HANDOFF` | Internal, wrapper-set: the encoded session + purge-request leases handed to the re-exec'd binary after a self-update. It is consumed and unset on startup; operators do not set it |
 | `CLX_CONFIG_PATH` | Peer reconciliation reads the same override as `clx` when deciding where to write the peer's signed `clx.json` |
@@ -400,6 +400,9 @@ Other variables affecting a run are engine-level rather than wrapper-owned and
 are documented where they apply: `CODEX_HOME`, `CODEX_ALLOW_FQDN_MISMATCH`,
 `QUOTA_HARD_FAIL`, `CODEX_ORCH_PEER_SPAWN`, and the usual `NO_COLOR` / `TERM` /
 `COLUMNS` presentation variables.
+
+`CXX_BACKGROUND_MAINTENANCE=0` disables launch-triggered detached maintenance
+only; scheduled and explicit cron still run.
 
 The shared cron coordinator sets `CXX_CRON_COORDINATED` and
 `CXX_CRON_ENGINE_ONLY` only on its own persona children to prevent recursive
@@ -415,21 +418,52 @@ and verifies each requested CLI explicitly. It invokes `cxx cron install` and
 and one coordinated bootstrap. The final `READY` result is fail-closed across
 both engines.
 
-After a successful startup sync, `cdx` reads the host `engines_list`. If Claude is
-enabled, `cdx` fetches the signed `clx` config from
-`/wrapper/v2/config?engine=claude`, verifies its detached signature and
-host/engine identity, writes `clx.json{,.sig}`, then verifies the server's fresh
-target bytes by SHA while converging the shared `cxx` binary plus `cdx`/`clx`
-aliases. A stale peer config target does not block reconciliation. If Claude is disabled, `cdx` performs
-local-only Claude cleanup (the `clx` alias/config, managed `~/.clx`/Claude
-state, and the npm global Claude Code package when detected) without deleting
-the host row; the shared schedule stays in place for Codex. `cdx --cron run`
-forwards to the common coordinator unless it is already an engine-only child.
-The coordinator verifies signed config host/engine membership, converges `cxx`
-plus its relative aliases, and runs Codex then Claude once without recursion.
-It does not compare possibly stale per-config wrapper targets. Explicit
-minimal mode propagates through coordinated ticks, while unattended cron
-remains non-interactive and escape-free through terminal detection.
+Peer reconciliation runs in shared maintenance, outside foreground startup and
+exit. The coordinator fetches and verifies both signed engine configs before
+changing host membership or retiring disabled aliases/configs. It validates
+host/engine identity while allowing per-config wrapper metadata to differ during
+rolling refresh. Each enabled engine tick runs once, Codex then Claude, without
+recursive peer cron. A failed engine tick does not prevent the other tick.
+
+## Background maintenance
+
+From cxx 0.8.2, normal `cdx`/`clx` launches use the installed engine and only queue
+a detached `cxx cron run --due --minimal`. No installer, peer upgrade, or wrapper
+re-exec runs inline before or after a session. Auth and managed-content sync
+remain part of launch. Missing native executables fail promptly with a repair
+command. Explicit `--update` remains an operator-requested foreground action.
+
+One nonblocking per-user lease serializes the full coordinator, including child
+re-execs. The shared schedule runs every 15 minutes at a host-derived minute
+offset, replacing legacy daily jobs. Successful maintenance cools down for 15
+minutes; failures become eligible after five minutes (on the next scheduled tick
+or launch). A queued child that never starts becomes eligible after 30 seconds;
+a crashed coordinator releases its kernel lease and follows the retry cooldown.
+Clock corrections and malformed state cannot postpone work indefinitely.
+`cxx cron run` explicitly bypasses cooldown, while `--due` respects it. Coordinated network/engine work has a 12-minute deadline; legacy schedule
+helper commands are individually capped at 20 seconds, including during rollback. Schedule/service failures remain visible
+and do not suppress the enabled engine ticks. Auto-update off skips binary
+replacement while retaining the shared schedule and content/auth sync.
+
+Unattended Codex installs verified GitHub assets into a separate private prefix
+under `~/.cxx/engines/codex`, including its matching code-mode companion, validates
+them, then atomically publishes the CLI cache path. Running sessions retain their
+old files; successful previous versions are retained, including after uninstall.
+No automatic pruning removes a prefix that a direct native process may use. `CDX_CODEX_BIN` remains an
+authoritative override. Claude follows the same activation contract using npm
+and its own private prefixes. Pending local auth is guarded before sync; a failed
+maintenance request never authorizes a credential purge.
+
+`~/.cxx/maintenance.json` records start/finish, outcome, and next eligible time
+without credentials or provider error text. Detached output goes to private
+`~/.cxx/cron.log`; launch-triggered work rotates a log of at least 4 MiB to `.1`.
+Set `CXX_BACKGROUND_MAINTENANCE=0` to disable only launch-triggered jobs; scheduled
+and explicit maintenance remain available. Explicit `--config` and inherited
+engine config/home overrides propagate to the detached child. `status`, `doctor`,
+help, internal auth hooks, and maintenance commands do not enqueue another job.
+
+Repair or inspect with `cxx cron install`, `cxx cron run --minimal`, and
+`cat ~/.cxx/maintenance.json`; a background failure does not delay native launch.
 
 ## Auth generation, logout, and insecure cleanup
 
@@ -521,10 +555,13 @@ participate in these leases and is the explicit coordination boundary.
    an overwrite; only `candidate_rejected_definitive:true` together with
    verified canonical bytes can do that.
 5. Skills probe (`GET /skills?engine=codex`) — fingerprints the response using the complete bundle digest, so a source-owned support-file change is visible even when `SKILL.md` is unchanged. A successful unchanged probe is green, a changed fingerprint gets the updated marker, and request/cache-write failures warn instead of being presented as healthy. The config marker applies the same checked/updated/failed/skipped contract to the combined AGENTS/config write. When managed MCP was injected, that config also disables the built-in `skill-creator` by exact name. Skills themselves are served via MCP `resource_read skill://<slug>` and support files via `resource_read skill://<slug>/<path>`; on first boot of each wrapper version, the legacy on-disk caches (`~/.agents/skills`, effective `CODEX_HOME/skills`, and effective `CODEX_HOME/prompts`) are pruned so they don't shadow MCP.
-6. Wrapper and Codex CLI version reconciliation — normal `cdx` startup updates the wrapper from the server-declared artifact when `versions.auto_update_enabled` is true, re-execs the original argv, then keeps the local Codex CLI on the server's declared target. `latest` is resolved against GitHub before download so current hosts do not redownload on every launch. Update activity uses the compact `↻` / `✓` / `✗` status line for wrapper, Codex, and peer-wrapper installs; it is coloured only on an interactive terminal, stays escape-free with `NO_COLOR`, and uses width-bounded ASCII when redirected, on `TERM=dumb`, or under explicit `--minimal`. The boot summary uses the same policy: non-exact latest/floor targets only show an arrow when the resolved target is newer than the local CLI. Never blocks launch.
-6a. `cdx sync` (and the post-`update` re-exec, and the cron tick) runs steps 2–5 and then stops: no quota
-   gate, no PreExec, no portal session, no Codex, and — unlike a normal launch — no wrapper self-update in
-   step 6, because a sync pass is already the freshly installed binary.
+6. Queue background maintenance if due; continue with the installed engine.
+   No wrapper download/re-exec, native installer, or peer update runs inline.
+   Version target metadata in the boot summary remains informational. The final
+   native argv adds `-c check_for_update_on_startup=false` after other overrides
+   and before `--`, suppressing the native startup update check and popup.
+6a. `cdx sync` (including post-update and cron sync) runs steps 2–5 and stops:
+   no quota gate, PreExec, portal session, native CLI, or inline installer.
 7. Snapshot the content-bound `auth.json` generation; acquire shared session +
    active-child leases; pass duplicate descriptors into upstream `codex`;
    start/wait while forwarding stdio and signals; release only after exit.

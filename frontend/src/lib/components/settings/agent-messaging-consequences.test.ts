@@ -85,6 +85,6 @@ describe("agentMessagingConfirmCopy", () => {
     // Hosts keep the section until their next successful sync, so an agent can
     // briefly hold instructions for tools that no longer answer.
     const text = agentMessagingConfirmCopy(false, radius()).consequences.join("\n");
-    assert.match(text, /next-launch-or-nightly schedule/);
+    assert.match(text, /next-launch or background-maintenance schedule/);
   });
 });

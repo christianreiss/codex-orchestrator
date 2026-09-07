@@ -21,6 +21,7 @@ func Version(ctx context.Context) string {
 func versionFromCLI(ctx context.Context, cli string) string {
 	for _, flag := range []string{"--version", "-V"} {
 		cmd := exec.CommandContext(ctx, cli, flag)
+		cmd.Env = managedClaudeEnv(cli, nil)
 		var out bytes.Buffer
 		cmd.Stdout = &out
 		cmd.Stderr = &out

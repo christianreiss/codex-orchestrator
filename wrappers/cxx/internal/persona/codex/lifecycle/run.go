@@ -15,7 +15,6 @@ import (
 	"os"
 	"os/user"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -28,10 +27,8 @@ import (
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/ipc"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/observability/tracing"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/codex/orchestrator"
-	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/codex/peer"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/codex/summary"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/codex/ui"
-	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/codex/update"
 )
 
 type Options struct {
@@ -51,7 +48,7 @@ type Options struct {
 	// is held, continue with normal sync writes instead of pausing managed writes.
 	AllowConcurrentSync bool
 	// SyncOnly performs the managed-content half of a run and stops: bootstrap,
-	// skills, peer reconciliation, then the same auth gate an interactive run
+	// skills, then the same auth gate an interactive run
 	// applies — but no quota gate, no PreExec, no portal session, no Codex.
 	// This is what `cdx sync`, the post-update pass, and the cron tick use to
 	// converge fleet-managed content without launching an engine.
@@ -67,11 +64,6 @@ var localProbe = orchestrator.LocalAuthProbe{
 	IsFresh:     codex.IsFresh,
 	LastRefresh: codex.LastRefreshOfFile,
 }
-
-// Indirected so tests can prove a sync-only pass never self-updates or
-// re-execs; mirrors the claude lifecycle's seams.
-var wrapperSelfUpdate = update.SelfUpdateFrom
-var wrapperReExec = update.ReExecAfterUpdate
 
 var errAuthRecoveryDeclined = errors.New("Codex authentication was not refreshed")
 var errAuthRecoveryNonInteractive = errors.New("Codex authentication refresh requires an interactive terminal")
@@ -229,7 +221,7 @@ func Run(ctx context.Context, opts Options) (exitCode int, runErr error) {
 
 	// Runtime FQDN guard, run BEFORE any sync so a cloned/mis-deployed host
 	// refuses up front — before bootstrap persists fleet auth/config, before a
-	// self-update, and before peer.Reconcile (which can prune Claude state).
+	// any host configuration is synchronized.
 	// PreExec keeps a second copy as defense-in-depth. Honors
 	// CODEX_ALLOW_FQDN_MISMATCH=1.
 	if err := codex.GuardFQDN(cfg); err != nil {
@@ -344,23 +336,7 @@ func Run(ctx context.Context, opts Options) (exitCode int, runErr error) {
 			}
 		}
 
-		// PR-2: keep the local wrapper within range of the server-declared
-		// target version when auto-update is enabled. Never blocks launch.
-		// The Codex engine itself updates post-session (see maybeEnsureCodex
-		// below) so a version bump never delays an interactive launch.
-		if dec.Allowed {
-			// A sync-only pass is already running the freshly installed binary —
-			// `update` re-execs into it. Re-entering self-update from in here
-			// would install and exec a second time from inside a sync, burning
-			// restart depth for nothing. peer.Reconcile stays: it reconciles
-			// content and aliases and never re-execs.
-			if !opts.SyncOnly {
-				maybeEnsureWrapper(ctx, cfg, authResp, currentWrapperVersion(opts, cfg), concurrent, opts.Minimal, logger)
-			}
-			if !concurrent {
-				peer.Reconcile(ctx, cfg, authResp, opts.Minimal, logger)
-			}
-		}
+		// Binary upgrades and peer provisioning belong to background maintenance.
 
 		// Skills are MCP-served in v2; we still ping /skills to detect
 		// fingerprint changes (lights the boot-screen "skills" dot) and
@@ -567,12 +543,6 @@ func Run(ctx context.Context, opts Options) (exitCode int, runErr error) {
 	if postAuthErr != nil {
 		postAuthErr = fmt.Errorf("final credential sync failed; any required insecure-host cleanup still applies: %w", postAuthErr)
 		exitCode, runErr = mergeLifecycleFailure(exitCode, runErr, postAuthErr)
-	}
-
-	// Upload the final native rotation before any potentially slow download.
-	// Engine updates remain best-effort and apply to the next native run.
-	if dec.Allowed {
-		maybeEnsureCodex(ctx, cfg, client, authResp, currentWrapperVersion(opts, cfg), concurrent, opts.Minimal, logger)
 	}
 
 	// Exit footer.
@@ -1671,170 +1641,6 @@ func themeFromConfig(cfg *config.Config) string {
 	return *cfg.EngineOptions.AdminThemeHint
 }
 
-func updateCaps(cfg *config.Config, minimal bool) ui.Caps {
-	caps := ui.DetectCaps(themeFromConfig(cfg))
-	if minimal {
-		return ui.MinimalCaps(caps)
-	}
-	return caps
-}
-
-// freshClientTarget re-resolves the engine target against the server right
-// before installing it.
-//
-// The /auth snapshot the caller holds was fetched before the session started,
-// so on a long session it names a release that is no longer current. /cron/check
-// answers the same question in one round trip, and `probe` tells the server this
-// is not the cron job so it leaves last_cron_check alone.
-//
-// Returns "" when the install should be skipped, and the caller's fallback
-// unchanged when the server cannot be reached — an offline host still installs
-// the pre-session target rather than nothing.
-func freshClientTarget(ctx context.Context, client *orchestrator.Client, current, wrapperVersion, fallback string, fallbackExact bool, logger *slog.Logger) (string, bool) {
-	if client == nil {
-		return fallback, fallbackExact
-	}
-	check, err := client.CronCheck(ctx, orchestrator.CronCheckRequest{
-		Engine:         "codex",
-		ClientVersion:  current,
-		WrapperVersion: wrapperVersion,
-		Probe:          true,
-	})
-	if err != nil || check == nil {
-		logger.Debug("codex target re-resolve failed; using pre-session target", "err", err, "target", fallback)
-		return fallback, fallbackExact
-	}
-	switch check.Action {
-	case "update":
-		if check.TargetVersion == "" {
-			return fallback, fallbackExact
-		}
-		if check.TargetVersion != fallback {
-			logger.Debug("codex target moved during session", "pre_session", fallback, "fresh", check.TargetVersion)
-		}
-		return check.TargetVersion, check.EnforceExact
-	case "no_update":
-		// Already at the current target; the pre-session value was stale in the
-		// other direction (an install happened elsewhere, or the pin moved down).
-		return "", fallbackExact
-	case "disable":
-		// Auto-update was switched off mid-session. Removing the cron schedule
-		// stays cron's job — this path only declines to install.
-		logger.Debug("codex auto-update disabled by server; skipping post-session install")
-		return "", fallbackExact
-	}
-	return fallback, fallbackExact
-}
-
-// maybeEnsureCodex repairs the local Codex CLI when the orchestrator says
-// auto-update is enabled, a target version is known, and the local CLI
-// version differs from that target. Failures are logged but never fatal —
-// a transient install error just leaves the current version in place for
-// next time.
-//
-// Called after the Codex session has already exited (see Run), so the
-// install never delays an interactive launch; the user only pays for it
-// once, on their way out, and the new version takes effect on the next run.
-//
-// Returns the post-install version when an install actually ran successfully,
-// empty string otherwise (no-op cases + failures). The lifecycle independently
-// re-measures the installed version for the exit footer.
-//
-// This is a no-op when concurrent managed sync is paused, when auth retrieval
-// failed, or when AutoUpdateEnabled is false.
-func maybeEnsureCodex(ctx context.Context, cfg *config.Config, client *orchestrator.Client, auth *orchestrator.AuthRetrieveResponse, wrapperVersion string, concurrent, minimal bool, logger *slog.Logger) string {
-	if concurrent || auth == nil || auth.Versions == nil {
-		return ""
-	}
-	v := auth.Versions
-	if !v.AutoUpdateEnabled {
-		return ""
-	}
-	if v.ClientVersion == nil || *v.ClientVersion == "" {
-		return ""
-	}
-	target := *v.ClientVersion
-	if v.ClientVersionOverride != nil && *v.ClientVersionOverride != "" {
-		target = *v.ClientVersionOverride
-	}
-	enforceExact := v.ClientVersionEnforceExact
-	current := strings.TrimSpace(codex.Version(ctx))
-	// `auth` was retrieved before the session launched, so `target` is as old as
-	// the session — an hour of work meant installing whatever was newest an hour
-	// ago and reporting a fresh update on the very next launch, which read as a
-	// stepwise updater walking releases one at a time. Re-resolve first.
-	target, enforceExact = freshClientTarget(ctx, client, current, wrapperVersion, target, enforceExact, logger)
-	// Defer "latest" (and empty) alias upgrades to cron — must be before the semver guards.
-	if target == "" || target == "latest" {
-		return ""
-	}
-	if current == target {
-		return ""
-	}
-	if !enforceExact {
-		if current != "" && current != "unknown" && !semverGT(target, current) {
-			logger.Warn("skipping downgrade", "current", current, "target", target)
-			return ""
-		}
-	}
-	// EnsureCodex is a 5-10s blocking operation when an install actually
-	// downloads from GitHub. Surface a single human-readable progress line
-	// on stderr so the user knows what's happening — the structured-log
-	// emissions inside the installer are at Debug now.
-	caps := updateCaps(cfg, minimal)
-	fmt.Fprintln(os.Stderr, ui.UpdateProgress(caps, "cdx", "codex", current, target))
-	if err := codex.EnsureCodex(ctx, target, enforceExact, logger); err != nil {
-		logger.Warn("codex auto-update skipped", "err", err, "target", target, "current", current)
-		fmt.Fprintln(os.Stderr, ui.UpdateFailure(caps, "cdx", "codex", target, err))
-		return ""
-	}
-	post := strings.TrimSpace(codex.Version(ctx))
-	if post == "" || post == "unknown" {
-		post = target
-	}
-	fmt.Fprintln(os.Stderr, ui.UpdateComplete(caps, "cdx", "codex", post, false))
-	return post
-}
-
-func maybeEnsureWrapper(ctx context.Context, cfg *config.Config, auth *orchestrator.AuthRetrieveResponse, current string, concurrent, minimal bool, logger *slog.Logger) {
-	if concurrent || cfg == nil || auth == nil || auth.Versions == nil {
-		return
-	}
-	v := auth.Versions
-	if !v.AutoUpdateEnabled || v.WrapperVersion == nil || *v.WrapperVersion == "" {
-		return
-	}
-	target := *v.WrapperVersion
-	if current == target {
-		return
-	}
-	if current != "" && current != "unknown" && !semverGT(target, current) {
-		logger.Warn("skipping wrapper downgrade", "current", current, "target", target)
-		return
-	}
-	if os.Getenv("CODEX_WRAPPER_RESTARTED") == "1" {
-		logger.Warn("wrapper auto-update skipped after restart", "current", current, "target", target)
-		return
-	}
-	if v.WrapperURL == nil || *v.WrapperURL == "" || v.WrapperSHA256 == nil || *v.WrapperSHA256 == "" {
-		logger.Warn("wrapper auto-update skipped: missing artifact metadata", "current", current, "target", target)
-		return
-	}
-	caps := updateCaps(cfg, minimal)
-	fmt.Fprintln(os.Stderr, ui.UpdateProgress(caps, "cdx", "wrapper", current, target))
-	exe, err := wrapperSelfUpdate(ctx, cfg, *v.WrapperURL, *v.WrapperSHA256, target, logger)
-	if err != nil {
-		logger.Warn("wrapper auto-update skipped", "err", err, "target", target, "current", current)
-		fmt.Fprintln(os.Stderr, ui.UpdateFailure(caps, "cdx", "wrapper", target, err))
-		return
-	}
-	fmt.Fprintln(os.Stderr, ui.UpdateComplete(caps, "cdx", "wrapper", target, true))
-	if err := wrapperReExec(exe, update.SnapshottedArgv); err != nil {
-		logger.Warn("wrapper restart after update failed", "err", err)
-		fmt.Fprintln(os.Stderr, ui.UpdateFailure(caps, "cdx", "wrapper", target, err))
-	}
-}
-
 // buildSessionCounts merges the wrapper-side local count (this host's
 // concurrent cdx processes, walked from /proc) with the fleet aggregates the
 // server returned in the /sync/bootstrap response. When the server omitted
@@ -1851,40 +1657,4 @@ func buildSessionCounts(fs *orchestrator.FleetSessions) *summary.SessionCounts {
 		Today:    fs.Today,
 		Month:    fs.Month,
 	}
-}
-
-// semverGT returns true when a > b using simple X.Y.Z numeric comparison.
-// Returns false (not greater) when either string cannot be parsed.
-func semverGT(a, b string) bool {
-	parse := func(s string) (maj, min, pat int, ok bool) {
-		p := strings.SplitN(strings.SplitN(s, "+", 2)[0], ".", 3)
-		if len(p) != 3 {
-			return
-		}
-		var err error
-		if maj, err = strconv.Atoi(p[0]); err != nil {
-			return
-		}
-		if min, err = strconv.Atoi(p[1]); err != nil {
-			return
-		}
-		pre := strings.SplitN(p[2], "-", 2)[0]
-		if pat, err = strconv.Atoi(pre); err != nil {
-			return
-		}
-		ok = true
-		return
-	}
-	aMaj, aMin, aPat, aOk := parse(a)
-	bMaj, bMin, bPat, bOk := parse(b)
-	if !aOk || !bOk {
-		return false
-	}
-	if aMaj != bMaj {
-		return aMaj > bMaj
-	}
-	if aMin != bMin {
-		return aMin > bMin
-	}
-	return aPat > bPat
 }

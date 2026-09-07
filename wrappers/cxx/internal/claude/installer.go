@@ -1,6 +1,7 @@
 // Package claude includes installer.go which installs or updates the
 // `@anthropic-ai/claude-code` npm package. Unlike cdx, there is no GitHub
-// release pipeline for the Claude CLI — npm-global is the only path.
+// release pipeline for the Claude CLI. Unattended installs use private npm
+// prefixes; this legacy entry point retains global npm for unmanaged installs.
 package claude
 
 import (
@@ -18,6 +19,9 @@ import (
 // version (or just installed at all). enforceExact=true allows downgrades to
 // the pinned version; an already-matching local version is always a no-op.
 func EnsureClaude(ctx context.Context, target string, enforceExact bool, logger *slog.Logger) error {
+	if isManagedClaudeCLI(cachedClaudeBin()) {
+		return EnsureClaudeBackground(ctx, target, enforceExact, logger)
+	}
 	if logger == nil {
 		logger = slog.Default()
 	}

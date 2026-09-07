@@ -4,6 +4,7 @@ package cron
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -18,9 +19,6 @@ import (
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/codex/peer"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/codex/update"
 )
-
-// Indirected for tests.
-var removeSchedule = func() error { return hostcron.Remove(context.Background()) }
 
 // syncManagedContent converges fleet-managed AGENTS.md, config.toml and the
 // skills fingerprint without launching Codex. Indirected for tests.
@@ -62,7 +60,7 @@ type Result struct {
 	WrapperTarget  string // target version if updated
 	CodexVersion   string // version after the tick (post-update)
 	CodexBefore    string // version before the tick
-	CodexAction    string // "no_update" | "updated"
+	CodexAction    string // "no_update" | "updated" | "disable"
 	CodexTarget    string // target version if updated
 	SyncAction     string // "" when managed content converged | "failed"
 	Reported       bool   // /cron/report succeeded
@@ -87,10 +85,15 @@ func TickWithOptions(ctx context.Context, cfg *config.Config, minimal bool) (Res
 		WrapperAction:  "no_update",
 		CodexAction:    "no_update",
 	}
+	caBundle := ""
+	if cfg.Orchestrator.CABundlePath != nil {
+		caBundle = *cfg.Orchestrator.CABundlePath
+	}
 	client, err := orchestrator.New(orchestrator.Options{
 		BaseURL:       cfg.Orchestrator.BaseURL,
 		APIKey:        cfg.Orchestrator.APIKey,
 		AllowInsecure: cfg.Orchestrator.AllowInsecure,
+		CABundlePath:  caBundle,
 		Logger:        logger,
 	})
 	if err != nil {
@@ -110,17 +113,15 @@ func TickWithOptions(ctx context.Context, cfg *config.Config, minimal bool) (Res
 	}
 
 	if check.Action == "disable" {
-		logger.Info("cron: auto-update disabled by server; removing cron job")
-		_ = removeSchedule()
+		logger.Info("cron: automatic binary updates disabled; continuing managed content sync")
 		res.WrapperAction = "disable"
 		res.CodexAction = "disable"
-		return res, nil
 	}
 
 	// Wrapper self-update first: if the server wants us on a newer wrapper,
 	// download/verify/swap/re-exec before touching the Codex CLI. The re-exec
 	// guarantees the second pass runs with the freshly installed code.
-	if check.Wrapper != nil && check.Wrapper.Action == "update" {
+	if check.Action != "disable" && check.Wrapper != nil && check.Wrapper.Action == "update" {
 		if os.Getenv("CODEX_WRAPPER_RESTARTED") == "1" {
 			return res, fmt.Errorf("cron: wrapper update loop detected for target %s", check.Wrapper.TargetVersion)
 		}
@@ -130,15 +131,24 @@ func TickWithOptions(ctx context.Context, cfg *config.Config, minimal bool) (Res
 		if !codex.SemverGT(check.Wrapper.TargetVersion, WrapperVersion) {
 			logger.Warn("cron: skipping wrapper downgrade", "current", WrapperVersion, "target", check.Wrapper.TargetVersion)
 		} else {
+			if err := protectPendingMaintenanceAuth(ctx, client, logger); err != nil {
+				return res, err
+			}
 			downloadURL := resolveURL(cfg.Orchestrator.BaseURL, check.Wrapper.URL)
 			exe, err := update.SelfUpdateFrom(ctx, cfg, downloadURL, check.Wrapper.SHA256, check.Wrapper.TargetVersion, logger)
 			if err != nil {
 				return res, fmt.Errorf("cron: wrapper self-update: %w", err)
 			}
+			if err := protectPendingMaintenanceAuth(ctx, client, logger); err != nil {
+				return res, err
+			}
 			logger.Info("cron: wrapper updated; re-exec'ing", "target", check.Wrapper.TargetVersion)
 			res.WrapperAction = "updated"
 			res.WrapperTarget = check.Wrapper.TargetVersion
 			reexecArgs := []string{"--cron", "run"}
+			if source := cfg.SourcePath(); source != "" {
+				reexecArgs = append(reexecArgs, "--config", source)
+			}
 			if minimal {
 				reexecArgs = append(reexecArgs, "--minimal")
 			}
@@ -151,20 +161,24 @@ func TickWithOptions(ctx context.Context, cfg *config.Config, minimal bool) (Res
 		}
 	}
 
-	// Codex CLI install/update. Server signals via top-level `action=update` +
-	// `target_version`. We honour both: if there's a target, ensure it; if the
-	// top-level action is no_update we still pass-through Version() and let
-	// EnsureCodex short-circuit when current matches.
+	// Only an explicit server update action stages a new private CLI release.
+	// Existing executables and their companions remain available to live sessions.
 	targetClient := check.TargetVersion
 	if targetClient == "" {
 		targetClient = check.ClientVersion
 	}
-	if check.Action == "update" && targetClient != "" {
+	if check.Action == "update" {
+		if strings.TrimSpace(targetClient) == "" {
+			return res, errors.New("cron: Codex update requested without target version")
+		}
 		logger.Info("cron: Codex update", "from", codexVer, "to", targetClient, "enforce_exact", check.EnforceExact)
-		res.CodexAction = "updated"
 		res.CodexTarget = targetClient
-		if err := codex.EnsureCodex(ctx, targetClient, check.EnforceExact, logger); err != nil {
+		beforeCLI, _ := codex.FindCLI()
+		if err := codex.EnsureCodexBackground(ctx, targetClient, check.EnforceExact, logger); err != nil {
 			return res, fmt.Errorf("cron: codex update: %w", err)
+		}
+		if afterCLI, _ := codex.FindCLI(); afterCLI != beforeCLI {
+			res.CodexAction = "updated"
 		}
 	}
 	if err := codex.EnsureShellAliases(); err != nil {
@@ -175,10 +189,14 @@ func TickWithOptions(ctx context.Context, cfg *config.Config, minimal bool) (Res
 	// nobody ever starts a session — drifts from fleet config indefinitely,
 	// since bootstrap otherwise only runs on a launch. Placed after the
 	// wrapper-update branch above, which either returns or execs, so a sync
-	// never runs with pre-update code. Best-effort like every other content
-	// step here: an auth-refused host must not turn the whole tick red.
-	if err := syncManagedContent(ctx, cfg, minimal); err != nil {
-		logger.Warn("cron: managed content sync skipped", "err", err)
+	// never runs with pre-update code. A failed sync still reports installed
+	// versions, then returns an error so the maintenance scheduler can retry.
+	syncErr := protectPendingMaintenanceAuth(ctx, client, logger)
+	if syncErr == nil {
+		syncErr = syncManagedContent(ctx, cfg, minimal)
+	}
+	if syncErr != nil {
+		logger.Warn("cron: managed content sync failed", "err", syncErr)
 		res.SyncAction = "failed"
 	}
 
@@ -204,6 +222,9 @@ func TickWithOptions(ctx context.Context, cfg *config.Config, minimal bool) (Res
 		reportErr = client.CronReport(ctx, report)
 		if reportErr == nil {
 			res.Reported = true
+			if syncErr != nil {
+				return res, fmt.Errorf("cron: managed content sync: %w", syncErr)
+			}
 			return res, nil
 		}
 		logger.Warn("cron: /cron/report attempt failed", "attempt", attempt, "err", reportErr)
@@ -215,7 +236,16 @@ func TickWithOptions(ctx context.Context, cfg *config.Config, minimal bool) (Res
 			}
 		}
 	}
-	return res, fmt.Errorf("cron: /cron/report failed after retry: %w", reportErr)
+	return res, errors.Join(syncErr, fmt.Errorf("cron: /cron/report failed after retry: %w", reportErr))
+}
+
+func protectPendingMaintenanceAuth(ctx context.Context, client *orchestrator.Client, logger *slog.Logger) error {
+	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	if err := lifecycle.UploadPendingAuthBeforeUpdate(ctx, client, logger); err != nil {
+		return fmt.Errorf("cron: preserve pending native credentials: %w", err)
+	}
+	return nil
 }
 
 func ensureCronPath() {

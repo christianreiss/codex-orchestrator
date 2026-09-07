@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync"
 	"syscall"
+	"time"
 
 	"golang.org/x/term"
 
@@ -35,6 +36,12 @@ func codexBinCachePath() (string, error) {
 
 // cacheCodex persists the resolved codex binary path for future runs.
 func cacheCodex(path string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	return cacheCodexContext(ctx, path)
+}
+
+func cacheCodexContext(ctx context.Context, path string) error {
 	p, err := codexBinCachePath()
 	if err != nil {
 		return err
@@ -42,7 +49,43 @@ func cacheCodex(path string) error {
 	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 		return err
 	}
-	return os.WriteFile(p, []byte(path), 0o644)
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		lock, err := ipc.TryAcquireExclusivePath(p + ".lock")
+		if err == nil {
+			defer lock.Release()
+			return atomicWriteFile(p, []byte(path), 0o644)
+		}
+		if !errors.Is(err, ipc.ErrHeld) {
+			return err
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(25 * time.Millisecond):
+		}
+	}
+}
+
+// Cache discovery never waits for a publisher. A release published after this
+// launch's initial cache miss wins over its older PATH discovery.
+func cacheDiscoveredCodex(path string) string {
+	p, err := codexBinCachePath()
+	if err != nil {
+		return path
+	}
+	lock, err := ipc.TryAcquireExclusivePath(p + ".lock")
+	if err != nil {
+		return path
+	}
+	defer lock.Release()
+	if current := cachedCodexBin(); current != "" && !isWrapperSelf(current) {
+		return current
+	}
+	_ = atomicWriteFile(p, []byte(path), 0o644)
+	return path
 }
 
 // cachedCodexBin returns the previously cached codex binary path, or "" if
@@ -87,13 +130,12 @@ func FindCLI() (string, error) {
 	}
 	path, err := exec.LookPath("codex")
 	if err != nil {
-		return "", errors.New("codex CLI not found on PATH (install it or set CDX_CODEX_BIN)")
+		return "", errors.New("codex CLI not found on PATH; run `cdx cron run` to install the managed version, or install Codex and set CDX_CODEX_BIN")
 	}
 	if isWrapperSelf(path) {
 		return "", errors.New("resolved \"codex\" to the cdx wrapper itself; set CDX_CODEX_BIN to the real Codex CLI")
 	}
-	_ = cacheCodex(path)
-	return path, nil
+	return cacheDiscoveredCodex(path), nil
 }
 
 // isWrapperSelf reports whether path resolves (through symlinks) to this running
@@ -198,6 +240,7 @@ func runCapturePreparedWithHeldLeases(ctx context.Context, cfg *config.Config, a
 
 	args = applyLaneAndProfile(cfg, args)
 	args = applyDangerousBypass(cfg, args)
+	args = disableStartupUpdateCheck(args)
 
 	stdoutIsTTY := term.IsTerminal(int(os.Stdout.Fd()))
 	stdinIsTTY := term.IsTerminal(int(os.Stdin.Fd()))
@@ -260,6 +303,24 @@ func runCapturePreparedWithHeldLeases(ctx context.Context, cfg *config.Config, a
 		return exitErr.ExitCode(), captured, nil
 	}
 	return 1, captured, waitErr
+}
+
+// Codex rust-v0.153.4 documents this option for centrally managed updates;
+// tui/src/updates.rs gates both version requests and update prompts on it.
+// Global -c overrides are applied in order, so put ours last before the prompt
+// sentinel without changing any prompt bytes or the caller's argument slice.
+func disableStartupUpdateCheck(args []string) []string {
+	boundary := len(args)
+	for i, arg := range args {
+		if arg == "--" {
+			boundary = i
+			break
+		}
+	}
+	out := make([]string, 0, len(args)+2)
+	out = append(out, args[:boundary]...)
+	out = append(out, "-c", "check_for_update_on_startup=false")
+	return append(out, args[boundary:]...)
 }
 
 // ringBuffer is a thread-safe append-only buffer that drops oldest bytes once

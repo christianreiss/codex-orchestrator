@@ -4,6 +4,7 @@ package cron
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -34,9 +35,6 @@ func Install(cfg *config.Config) error {
 func Remove() error {
 	return hostcron.Remove(context.Background())
 }
-
-// Schedule mutations are indirected so Tick tests never touch a real crontab.
-var removeSchedule = func() error { return hostcron.Remove(context.Background()) }
 
 // syncManagedContent converges fleet-managed CLAUDE.md, settings, MCP servers,
 // collections and native skills without launching Claude. Indirected for tests.
@@ -85,6 +83,7 @@ func TickWithOptions(ctx context.Context, cfg *config.Config, minimal bool) (Res
 	client, err := orchestrator.New(orchestrator.Options{
 		BaseURL:       cfg.Orchestrator.BaseURL,
 		APIKey:        cfg.Orchestrator.APIKey,
+		CABundlePath:  caBundlePath(cfg),
 		AllowInsecure: cfg.Orchestrator.AllowInsecure,
 		Logger:        logger,
 	})
@@ -104,17 +103,21 @@ func TickWithOptions(ctx context.Context, cfg *config.Config, minimal bool) (Res
 		return res, fmt.Errorf("cron check: %w", err)
 	}
 
-	if check.Action == "disable" {
-		logger.Info("cron: auto-update disabled by server; removing cron job")
-		if err := removeSchedule(); err != nil {
-			logger.Warn("cron: failed to fully remove cron job", "err", err)
-		}
+	disabled := check.Action == "disable"
+	switch check.Action {
+	case "no_update", "update", "disable":
+	default:
+		return res, fmt.Errorf("cron check returned unsupported action %q", check.Action)
+	}
+	if disabled {
+		// The switch controls binary maintenance, not the shared schedule or
+		// managed auth/config upkeep. Other enabled engines still need ticks.
+		logger.Debug("cron: binary updates disabled by server")
 		res.WrapperAction = "disable"
 		res.CodexAction = "disable"
-		return res, nil
 	}
 
-	if check.Wrapper != nil && check.Wrapper.Action == "update" {
+	if !disabled && check.Wrapper != nil && check.Wrapper.Action == "update" {
 		if os.Getenv("CLAUDE_WRAPPER_RESTARTED") == "1" {
 			return res, fmt.Errorf("cron: wrapper update loop detected for target %s", check.Wrapper.TargetVersion)
 		}
@@ -124,10 +127,16 @@ func TickWithOptions(ctx context.Context, cfg *config.Config, minimal bool) (Res
 		if !claude.SemverGT(check.Wrapper.TargetVersion, WrapperVersion) {
 			logger.Warn("cron: skipping wrapper downgrade", "current", WrapperVersion, "target", check.Wrapper.TargetVersion)
 		} else {
+			if err := protectPendingMaintenanceAuth(ctx, client, logger); err != nil {
+				return res, err
+			}
 			downloadURL := resolveURL(cfg.Orchestrator.BaseURL, check.Wrapper.URL)
 			exe, err := update.SelfUpdateFrom(ctx, cfg, downloadURL, check.Wrapper.SHA256, check.Wrapper.TargetVersion, logger)
 			if err != nil {
 				return res, fmt.Errorf("cron: wrapper self-update: %w", err)
+			}
+			if err := protectPendingMaintenanceAuth(ctx, client, logger); err != nil {
+				return res, err
 			}
 			logger.Info("cron: wrapper updated; re-exec'ing", "target", check.Wrapper.TargetVersion)
 			res.WrapperAction = "updated"
@@ -147,12 +156,20 @@ func TickWithOptions(ctx context.Context, cfg *config.Config, minimal bool) (Res
 	if targetClient == "" {
 		targetClient = check.ClientVersion
 	}
-	if check.Action == "update" && targetClient != "" {
+	if check.Action == "update" {
+		if strings.TrimSpace(targetClient) == "" {
+			return res, errors.New("cron: Claude update requested without a target version")
+		}
 		logger.Info("cron: Claude update", "from", claudeVer, "to", targetClient, "enforce_exact", check.EnforceExact)
-		res.CodexAction = "updated"
 		res.CodexTarget = targetClient
-		if err := claude.EnsureClaude(ctx, targetClient, check.EnforceExact, logger); err != nil {
+		if err := claude.EnsureClaudeBackground(ctx, targetClient, check.EnforceExact, logger); errors.Is(err, claude.ErrClaudeCLIOverride) {
+			res.CodexAction = "skipped_override"
+			logger.Info("cron: Claude update skipped for CLX_CLAUDE_BIN override")
+		} else if err != nil {
+			res.CodexAction = "failed"
 			return res, fmt.Errorf("cron: claude update: %w", err)
+		} else {
+			res.CodexAction = "updated"
 		}
 	}
 	if err := claude.EnsureShellAliases(); err != nil {
@@ -163,11 +180,16 @@ func TickWithOptions(ctx context.Context, cfg *config.Config, minimal bool) (Res
 	// nobody ever starts a session — drifts from fleet config indefinitely,
 	// since bootstrap otherwise only runs on a launch. Placed after the
 	// wrapper-update branch above, which either returns or execs, so a sync
-	// never runs with pre-update code. Best-effort like every other content
-	// step here: an auth-refused host must not turn the whole tick red.
-	if err := syncManagedContent(ctx, cfg, minimal); err != nil {
-		logger.Warn("cron: managed content sync skipped", "err", err)
+	// never runs with pre-update code. Report versions even when managed sync
+	// fails, but keep that failure visible to the coordinator for retry.
+	syncErr := protectPendingMaintenanceAuth(ctx, client, logger)
+	if syncErr == nil {
+		syncErr = syncManagedContent(ctx, cfg, minimal)
+	}
+	if syncErr != nil {
+		logger.Warn("cron: managed content sync failed", "err", syncErr)
 		res.SyncAction = "failed"
+		syncErr = fmt.Errorf("cron: managed content sync failed: %w", syncErr)
 	}
 
 	// Keep the peer wrapper + engine current too: a dual-engine host must have
@@ -190,7 +212,7 @@ func TickWithOptions(ctx context.Context, cfg *config.Config, minimal bool) (Res
 		reportErr = client.CronReport(ctx, report)
 		if reportErr == nil {
 			res.Reported = true
-			return res, nil
+			return res, syncErr
 		}
 		logger.Warn("cron: /cron/report attempt failed", "attempt", attempt, "err", reportErr)
 		if attempt < 2 {
@@ -201,7 +223,16 @@ func TickWithOptions(ctx context.Context, cfg *config.Config, minimal bool) (Res
 			}
 		}
 	}
-	return res, fmt.Errorf("cron: /cron/report failed after retry: %w", reportErr)
+	return res, errors.Join(syncErr, fmt.Errorf("cron: /cron/report failed after retry: %w", reportErr))
+}
+
+func protectPendingMaintenanceAuth(ctx context.Context, client *orchestrator.Client, logger *slog.Logger) error {
+	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	if err := lifecycle.UploadPendingAuthBeforeUpdate(ctx, client, logger); err != nil {
+		return fmt.Errorf("cron: preserve pending native credentials: %w", err)
+	}
+	return nil
 }
 
 func ensureCronPath() {
@@ -236,4 +267,11 @@ func resolveURL(base, abs string) string {
 		abs = "/" + abs
 	}
 	return base + abs
+}
+
+func caBundlePath(cfg *config.Config) string {
+	if cfg == nil || cfg.Orchestrator.CABundlePath == nil {
+		return ""
+	}
+	return *cfg.Orchestrator.CABundlePath
 }
