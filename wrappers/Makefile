@@ -2,7 +2,7 @@
 SHELL := /bin/bash
 .SHELLFLAGS := -eu -o pipefail -c
 
-VERSION ?= 0.7.27
+VERSION ?= 0.8.0
 COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
 DATE    ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 
@@ -29,7 +29,7 @@ endif
 # Platform matrix kept in sync with .github/workflows/wrappers.yml.
 PLATFORMS := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64
 
-.PHONY: all build cxx cxx-traced cdx clx test test-traced vet lint clean release publish-release pubkey
+.PHONY: all build cxx cxx-traced cdx clx terminal-preview test-terminal test test-traced vet lint clean release publish-release pubkey
 
 all: cxx
 
@@ -49,6 +49,12 @@ cxx-traced:
 
 # Compatibility build targets intentionally converge on the same artifact.
 cdx clx: cxx
+
+terminal-preview:
+	cd cxx && $(GO) build -o ../bin/terminal-preview ./cmd/terminal-preview
+
+test-terminal: terminal-preview
+	PYTHONDONTWRITEBYTECODE=1 $(PYTHON) scripts/check-terminal-ui.py --binary bin/terminal-preview
 
 test:
 	cd cxx && $(GO) test ./...

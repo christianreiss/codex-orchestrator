@@ -410,14 +410,30 @@ describe('HostAgentsService Agent Messaging guidance', () => {
 describe('HostAgentsService config surfaces', () => {
   const codexConfig = configRow(1, ENGINE_CODEX, { model: 'gpt-5.6-terra' });
 
-  it('falls back to the codex client_config for a non-codex engine', async () => {
+  it('does not serve Codex settings through the full Claude config endpoint', async () => {
     const db = makeDb([[clientConfigDocuments, [codexConfig]]]);
 
     const out = await makeService(db).retrieveConfig(null, makeHost(), ENGINE_CLAUDE);
 
+    expect(out).toEqual({ status: 'missing' });
+    expect(logDetails(db, 'config.retrieve')).toEqual([{ status: 'missing' }]);
+  });
+
+  it('serves and deduplicates the selected engine full config when both exist', async () => {
+    const db = makeDb([[clientConfigDocuments, [
+      configRow(2, ENGINE_CLAUDE, { model: 'claude-opus-5' }),
+      codexConfig,
+    ]]]);
+    const service = makeService(db);
+
+    const out = await service.retrieveConfig(null, makeHost(), ENGINE_CLAUDE);
     expect(out['status']).toBe('updated');
-    expect(out['version_id']).toBe(1);
-    expect(String(out['content'])).toContain('gpt-5.6-terra');
+    expect(out['version_id']).toBe(2);
+    expect(JSON.parse(String(out['content']))).toMatchObject({ model: 'claude-opus-5' });
+    expect(String(out['content'])).not.toContain('gpt-5.6-terra');
+    const unchanged = await service.retrieveConfig(String(out['sha256']), makeHost(), ENGINE_CLAUDE);
+    expect(unchanged['status']).toBe('unchanged');
+    expect(unchanged).not.toHaveProperty('content');
   });
 
   it('never borrows the codex model for the Claude settings partial', async () => {

@@ -37,6 +37,10 @@ func ensureOnboardingState(logger *slog.Logger) {
 			logger.Warn("skipping onboarding seed; user .claude.json unparseable", "path", path, "err", err)
 			return
 		}
+		if root == nil {
+			logger.Warn("skipping onboarding seed; user .claude.json must be a JSON object", "path", path)
+			return
+		}
 	}
 	if v, ok := root["hasCompletedOnboarding"].(bool); ok && v {
 		return

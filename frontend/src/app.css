@@ -58,7 +58,15 @@
     background: hsl(var(--sidebar-bg));
     color: hsl(var(--sidebar-fg));
   }
-  .app-main { scrollbar-gutter: stable; background: hsl(var(--background)); }
+  .app-main {
+    scrollbar-gutter: stable;
+    scroll-padding-top: 1.5rem;
+    overscroll-behavior-y: contain;
+    background: hsl(var(--background));
+    padding-bottom: calc(6rem + env(safe-area-inset-bottom, 0px));
+  }
+  .shell-icon-button { @apply grid h-11 w-11 shrink-0 place-items-center rounded-md text-muted-foreground outline-none transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring sm:h-9 sm:w-9; }
+  .keyboard-key { @apply inline-flex min-w-5 items-center justify-center rounded border bg-background px-1 py-0.5 font-mono text-[10px] leading-none text-muted-foreground; }
   .standalone-surface { background: hsl(var(--background)); }
   .eyebrow, .section-label { @apply text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground; }
   .section-rule { @apply my-6 border-t border-border; }
@@ -69,6 +77,10 @@
   .setting-boundary__head p { @apply mt-1 text-sm text-muted-foreground; }
 }
 
+@media (min-width: 768px) {
+  .app-main { padding-bottom: 2rem; }
+}
+
 * { scrollbar-width: thin; scrollbar-color: hsl(var(--muted-foreground) / .35) transparent; }
 *::-webkit-scrollbar { width: 10px; height: 10px; }
 *::-webkit-scrollbar-thumb { border: 3px solid transparent; border-radius: 999px; background-clip: padding-box; background-color: hsl(var(--muted-foreground) / .32); }
@@ -76,4 +88,3 @@
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: 1ms !important; animation-iteration-count: 1 !important; transition-duration: 1ms !important; }
 }
-

@@ -376,17 +376,18 @@ func Run(ctx context.Context, opts Options) (exitCode int, runErr error) {
 	// rendered screen we still want the derived QuotaWarn text so headless
 	// callers (cron, --execute) see the warning on stderr.
 	state := summary.Build(ctx, summary.Inputs{
-		Config:         cfg,
-		WrapperVersion: currentWrapperVersion(opts, cfg),
-		Auth:           authResp,
-		AuthErr:        authErr,
-		Concurrent:     concurrent,
-		ConcurrentNote: concurrentNote(concurrent, dec),
-		SkillsSync:     skillsSync,
-		ConfigSync:     combineResourceSync(agentsSync, configSync),
-		AuthSynced:     authSynced,
-		LaunchArgs:     opts.ExtraArgs,
-		Sessions:       buildSessionCounts(fleetSessions),
+		Config:           cfg,
+		WrapperVersion:   currentWrapperVersion(opts, cfg),
+		SkipVersionProbe: opts.SkipBoot,
+		Auth:             authResp,
+		AuthErr:          authErr,
+		Concurrent:       concurrent,
+		ConcurrentNote:   concurrentNote(concurrent, dec),
+		SkillsSync:       skillsSync,
+		ConfigSync:       combineResourceSync(agentsSync, configSync),
+		AuthSynced:       authSynced,
+		LaunchArgs:       opts.ExtraArgs,
+		Sessions:         buildSessionCounts(fleetSessions),
 	})
 	if !dec.Allowed && dec.Reason != "" {
 		state.ResultLabel = dec.Reason
@@ -428,6 +429,18 @@ func Run(ctx context.Context, opts Options) (exitCode int, runErr error) {
 	// quota governs launching Codex, and a sync consumes none of it.
 	if opts.SyncOnly {
 		printBoot()
+		// Cached auth permits an interactive launch, but it does not prove a
+		// successful sync. Cron and explicit sync callers need a retryable
+		// failure when content was skipped or could not be applied.
+		if concurrent {
+			return 1, errors.New("managed sync paused by an active session; retry when it finishes or use --allow-concurrent-sync")
+		}
+		if err := errors.Join(authErr, agentsSync.Err, configSync.Err, skillsSync.Err); err != nil {
+			return 1, fmt.Errorf("managed sync incomplete: %w", err)
+		}
+		if strings.EqualFold(dec.Status, "offline") {
+			return 1, errors.New("managed sync incomplete: API offline; cached credentials do not confirm content is current")
+		}
 		return 0, nil
 	}
 

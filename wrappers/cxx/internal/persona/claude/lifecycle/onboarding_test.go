@@ -58,18 +58,22 @@ func TestEnsureOnboardingStateSkipsUnreadableFile(t *testing.T) {
 }
 
 func TestEnsureOnboardingStateSkipsUnparseableFile(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	path := filepath.Join(home, ".claude.json")
-	original := []byte("{broken json\n")
-	if err := os.WriteFile(path, original, 0o600); err != nil {
-		t.Fatal(err)
-	}
+	for _, raw := range []string{"{broken json\n", "null", "[]"} {
+		t.Run(raw, func(t *testing.T) {
+			home := t.TempDir()
+			t.Setenv("HOME", home)
+			path := filepath.Join(home, ".claude.json")
+			original := []byte(raw)
+			if err := os.WriteFile(path, original, 0o600); err != nil {
+				t.Fatal(err)
+			}
 
-	ensureOnboardingState(slog.Default())
+			ensureOnboardingState(slog.Default())
 
-	if !bytesEqual(readFile(t, path), original) {
-		t.Fatal("unparseable user .claude.json MUST be left byte-identical")
+			if !bytesEqual(readFile(t, path), original) {
+				t.Fatal("unparseable user .claude.json MUST be left byte-identical")
+			}
+		})
 	}
 }
 

@@ -27,7 +27,7 @@
   let model = $state("");
   let reasoningEffort = $state("");
   let lastSavedAt = $state<Date | null>(null);
-  let initialized = false;
+  let baseline = $state<{ model: string; effort: string } | null>(null);
 
   const catalog = $derived($query.data?.catalog ?? []);
   const selectedEntry = $derived(
@@ -35,6 +35,10 @@
   );
   const efforts = $derived(selectedEntry?.persistent_efforts ?? []);
   const supportsReasoningEffort = $derived(efforts.length > 0);
+  const dirty = $derived(baseline !== null && (model !== baseline.model || reasoningEffort !== baseline.effort));
+  const remoteChanged = $derived(baseline !== null && $query.data !== undefined && (
+    $query.data.model !== baseline.model || responseEffort($query.data) !== baseline.effort
+  ));
 
   function defaultEffort(entry: ModelDefaultsCatalogEntry | null): string {
     if (!entry) return "";
@@ -44,19 +48,26 @@
     return entry.persistent_efforts[0] ?? "";
   }
 
-  function applyResponse(value: ModelDefaultsValue) {
-    model = value.model;
+  function responseEffort(value: ModelDefaultsValue): string {
     const entry = value.catalog.find((item) => item.model === value.model) ?? null;
-    reasoningEffort =
-      value.reasoning_effort && entry?.persistent_efforts.includes(value.reasoning_effort)
+    return value.reasoning_effort && entry?.persistent_efforts.includes(value.reasoning_effort)
         ? value.reasoning_effort
         : defaultEffort(entry);
-    initialized = true;
+  }
+
+  function applyResponse(value: ModelDefaultsValue) {
+    model = value.model;
+    reasoningEffort = responseEffort(value);
+    baseline = { model, effort: reasoningEffort };
   }
 
   $effect(() => {
     const data = $query.data;
-    if (data && !initialized) applyResponse(data);
+    if (data) untrack(() => {
+      // Live invalidations may arrive while an operator is editing. Adopt
+      // remote defaults only while pristine; keep drafts visible otherwise.
+      if (!baseline || !dirty) applyResponse(data);
+    });
   });
 
   const mutation = modelDefaultsMutation(stableEngine, {
@@ -86,7 +97,7 @@
   const status = $derived.by(() => {
     if ($mutation.isPending) return "saving" as const;
     if ($mutation.isError) return "error" as const;
-    if ($mutation.isSuccess) return "saved" as const;
+    if ($mutation.isSuccess && !dirty) return "saved" as const;
     return "idle" as const;
   });
 </script>
@@ -94,14 +105,23 @@
 <SectionCard
   id={`${stableEngine}-model-defaults`}
   title={`${engineLabel} fleet defaults`}
-  description={`Default model and reasoning effort for managed ${engineLabel} clients.`}
+  description={`Default model and ${stableEngine === "claude" ? "effort level" : "reasoning effort"} for managed ${engineLabel} clients.`}
   {status}
   savedAt={lastSavedAt}
   error={$mutation.error?.message}
   {headingLevel}
 >
   {#if $query.isError}
-    <p class="text-sm text-destructive">{$query.error.message}</p>
+    <div class="flex flex-wrap items-center gap-2 text-sm text-destructive" role="alert">
+      <p>{$query.error.message}</p>
+      <Button variant="outline" size="sm" onclick={() => $query.refetch()} disabled={$query.isFetching}>Retry {engineLabel} defaults</Button>
+    </div>
+  {/if}
+  {#if remoteChanged}
+    <div class="rounded-md border border-warning/30 bg-warning/10 p-3 text-sm" role="status">
+      Fleet defaults changed elsewhere. Your edits are preserved; saving will replace the current fleet defaults.
+      <Button variant="outline" size="sm" class="mt-2" onclick={() => $query.data && applyResponse($query.data)} disabled={$mutation.isPending}>Load latest defaults</Button>
+    </div>
   {/if}
 
   <div class="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] sm:items-end">
@@ -127,7 +147,7 @@
     </div>
 
     <div class="grid min-w-0 gap-1.5">
-      <Label for={`${stableEngine}-fleet-reasoning-effort`}>Reasoning effort</Label>
+      <Label for={`${stableEngine}-fleet-reasoning-effort`}>{stableEngine === "claude" ? "Effort level" : "Reasoning effort"}</Label>
       {#if supportsReasoningEffort}
         <Select.Root
           type="single"
@@ -135,7 +155,7 @@
           onValueChange={(value) => {
             if (typeof value === "string") reasoningEffort = value;
           }}
-          disabled={$query.isPending || $mutation.isPending}
+          disabled={$query.isPending || $query.isError || $mutation.isPending}
         >
           <Select.Trigger id={`${stableEngine}-fleet-reasoning-effort`}>
             <Select.Value placeholder="Select effort">{reasoningEffort}</Select.Value>
@@ -149,7 +169,7 @@
       {:else}
         <Input
           id={`${stableEngine}-fleet-reasoning-effort`}
-          value="Not supported by this model"
+          value={$query.isPending ? "Loading effort options…" : "Not supported by this model"}
           disabled
         />
       {/if}
@@ -160,7 +180,16 @@
       onclick={save}
       disabled={$query.isPending || $query.isError || $mutation.isPending || !selectedEntry}
     >
-      Save defaults
+      {$mutation.isPending ? "Saving…" : "Save defaults"}
     </Button>
+  </div>
+  <div class="flex min-h-7 flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+    <span>{stableEngine === "claude" ? "Synced to Claude Code settings. Host overrides take precedence." : "Synced to Codex configuration. Host overrides take precedence."}</span>
+    {#if dirty}
+      <div class="flex items-center gap-2" role="status">
+        <span class="font-medium text-foreground">Unsaved changes</span>
+        <Button variant="ghost" size="sm" disabled={$mutation.isPending} onclick={() => $query.data && applyResponse($query.data)}>Discard changes</Button>
+      </div>
+    {/if}
   </div>
 </SectionCard>

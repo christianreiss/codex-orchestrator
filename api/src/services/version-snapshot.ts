@@ -13,8 +13,8 @@ import { isSemanticVersion, normalizeVersion } from './client-versions.js';
  * worker — the served target is therefore only as fresh as `CACHE_TTL_SECONDS`
  * in `client-versions.ts` allows, which `client_version_fetched_at` reports.
  *
- * Engine-aware: keys are looked up with a `_codex` or `_claude` suffix first,
- * falling back to unsuffixed keys for legacy rows.
+ * Client targets are engine-specific; only Codex can inherit its legacy
+ * unsuffixed client target. Wrapper metadata can use the shared cxx fallback.
  *
  * `VersionSnapshot` is what `GET /versions` serves, so its keys are mirrored in
  * the `GET /versions` bullet of `docs/interface-api.md`; changing them here
@@ -112,6 +112,17 @@ export function applyHostClientVersionPin<T extends VersionSnapshot>(
   return { ...snapshot, client_version_override: pin, client_version_enforce_exact: true };
 }
 
+/** Apply the host's shared update policy and engine-specific version pin. */
+export function applyHostVersionPolicy<T extends VersionSnapshot>(
+  snapshot: T,
+  host: (HostClientVersionPin & { autoUpdateOverride?: number | null }) | null | undefined,
+  engine: Engine,
+): T {
+  const pinned = applyHostClientVersionPin(snapshot, host, engine);
+  if (host?.autoUpdateOverride === null || host?.autoUpdateOverride === undefined) return pinned;
+  return { ...pinned, auto_update_enabled: host.autoUpdateOverride === 1 };
+}
+
 export function createVersionSnapshotService(deps: VersionSnapshotDeps): VersionSnapshotService {
   const { db, installationId } = deps;
 
@@ -170,12 +181,15 @@ export function createVersionSnapshotService(deps: VersionSnapshotDeps): Version
       let map = await readMap();
       const suffix = engine === ENGINE_CLAUDE ? '_claude' : '_codex';
       const get = (k: string) => map.get(k);
-      let rawClient = get(`client_version${suffix}`) ?? get('client_version') ?? null;
+      const clientTarget = () => get(`client_version${suffix}`)
+        ?? (engine === ENGINE_CODEX ? get('client_version') : undefined)
+        ?? null;
+      let rawClient = clientTarget();
       const usesReleaseCache = isLatestAlias(rawClient);
       if (usesReleaseCache && deps.refreshLatestClientVersion) {
         await deps.refreshLatestClientVersion(engine);
         map = await readMap();
-        rawClient = get(`client_version${suffix}`) ?? get('client_version') ?? null;
+        rawClient = clientTarget();
       }
       const exactLock =
         engine === ENGINE_CODEX
@@ -196,7 +210,7 @@ export function createVersionSnapshotService(deps: VersionSnapshotDeps): Version
         wrapper_version: get(`wrapper_version${suffix}`) ?? get('wrapper_version') ?? null,
         wrapper_sha256: get(`wrapper_sha256${suffix}`) ?? get('wrapper_sha256') ?? null,
         wrapper_url: get(`wrapper_url${suffix}`) ?? get('wrapper_url') ?? null,
-        runner_state: get('runner_state') ?? null,
+        runner_state: get(engine === ENGINE_CLAUDE ? 'runner_state_claude' : 'runner_state') ?? null,
         api_disabled: flagValue(get('api_disabled'), false),
         auto_update_enabled: flagValue(get('auto_update_enabled'), false),
         cdx_silent: flagValue(get('cdx_silent'), false),

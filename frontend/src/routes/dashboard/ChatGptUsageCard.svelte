@@ -37,7 +37,7 @@
   const summary = $derived.by<ChatGptUsageSummary | null>(() => {
     const data = $usage.data;
     if (!data) return null;
-    const snapshot = (data.snapshot ?? data) as Record<string, unknown> | null;
+    const snapshot = ("snapshot" in data ? data.snapshot : data) as Record<string, unknown> | null;
     if (!snapshot || typeof snapshot !== "object") return null;
     return snapshot as ChatGptUsageSummary;
   });
@@ -80,11 +80,12 @@
   }
 </script>
 
-<Card class="flex flex-col">
+<Card class="flex min-w-0 flex-col border-t-2 border-t-persona-codex">
   <CardHeader class="flex flex-row items-start justify-between gap-3 space-y-0">
     <div>
       <CardTitle>ChatGPT usage</CardTitle>
       <CardDescription>
+        Codex ·
         {#if planType && planType !== "—"}
           Plan <span class="font-mono">{planType}</span>
         {/if}
@@ -98,9 +99,9 @@
         variant="ghost"
         size="sm"
         onclick={() => (historyOpen = true)}
-        disabled={!$history.data}
-        aria-label="View history"
-        title="View history"
+        disabled={$history.isPending}
+        aria-label="View ChatGPT usage history"
+        title="View ChatGPT usage history"
       >
         <LineChart class="h-4 w-4" />
         <span class="hidden sm:inline">History</span>
@@ -130,13 +131,22 @@
       <Alert variant="destructive">
         <AlertTriangle class="h-4 w-4" />
         <AlertTitle>Could not load ChatGPT usage</AlertTitle>
-        <AlertDescription>{$usage.error?.message ?? "Unknown error"}</AlertDescription>
+        <AlertDescription>
+          {$usage.error?.message ?? "Unknown error"}
+          <Button variant="outline" size="sm" class="mt-2" onclick={() => $usage.refetch()} disabled={$usage.isFetching}>Retry ChatGPT usage</Button>
+        </AlertDescription>
       </Alert>
     {:else if !summary}
       <div class="rounded-md border bg-muted/30 p-4 text-sm text-muted-foreground">
         No usage recorded yet — connect your first host or click Refresh.
       </div>
     {:else}
+      {#if $usage.isError}
+        <Alert variant="warning">
+          <AlertTitle>ChatGPT usage could not refresh</AlertTitle>
+          <AlertDescription>Showing the last received snapshot. <Button variant="outline" size="sm" class="mt-2" onclick={() => $usage.refetch()} disabled={$usage.isFetching}>Retry ChatGPT usage</Button></AlertDescription>
+        </Alert>
+      {/if}
       {#if quotaRows.length === 0}
         <div class="rounded-md border bg-muted/30 p-4 text-sm text-muted-foreground">
           No quota windows reported in the latest snapshot.
@@ -202,6 +212,7 @@
       <Alert variant="destructive">
         <AlertTitle>Failed to load history</AlertTitle>
         <AlertDescription>{$history.error?.message ?? "Unknown error"}</AlertDescription>
+        <Button variant="outline" size="sm" class="mt-2" onclick={() => $history.refetch()} disabled={$history.isFetching}>Retry history</Button>
       </Alert>
     {:else if chartSeries.length === 0}
       <p class="py-12 text-center text-sm text-muted-foreground">

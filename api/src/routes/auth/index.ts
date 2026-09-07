@@ -20,7 +20,7 @@ import { createHostAuthService } from '../../services/host-auth.js';
 import { createInsecureWindowService } from '../../services/insecure-window.js';
 import { SettingsService } from '../../services/settings.js';
 import {
-  applyHostClientVersionPin,
+  applyHostVersionPolicy,
   createVersionSnapshotService,
   type VersionSnapshot,
 } from '../../services/version-snapshot.js';
@@ -41,7 +41,7 @@ import {
 import { createWrapperBinRegistry } from '../../services/wrapper-bin-registry.js';
 import { projectWrapperVersionSnapshot } from '../../services/wrapper-version-projection.js';
 import { ChatGptUsageService, normalizeChatGptUsageSnapshot } from '../../services/chatgpt-usage.js';
-import { ClaudeUsageService } from '../../services/claude-usage.js';
+import { ClaudeUsageService, normalizeClaudeUsageSnapshot } from '../../services/claude-usage.js';
 import { assertHostEngineEnabled, hostEnginesList } from '../../services/host-engine-policy.js';
 import { inspectCredential } from '../../services/auth-generation.js';
 import { resolveAuthRequestEngine } from './engine-resolution.js';
@@ -82,7 +82,7 @@ export async function registerAuthRoutes(app: FastifyInstance, ctx: RouteContext
     const platform = resolveWrapperPlatform(req.headers);
     const publicBaseUrl = resolvePublicBaseUrl(req, ctx.env.PUBLIC_BASE_URL);
     return async (engine, submittedWrapperVersion) =>
-      applyHostClientVersionPin(
+      applyHostVersionPolicy(
         await projectWrapperVersionSnapshot({
           snapshot: await versions.summary(engine),
           engine,
@@ -482,6 +482,8 @@ async function handleRetrieve(
   };
   if (engine === ENGINE_CODEX) {
     baseResponse.chatgpt = await readChatgptSnapshot(ctx, host.lanePreference);
+  } else if (engine === ENGINE_CLAUDE) {
+    baseResponse.claude_usage = await readClaudeSnapshot(ctx);
   }
 
   if (!canonicalRow || !canonicalDigest) {
@@ -589,6 +591,8 @@ async function buildRetrieveBaseResponse(
   };
   if (engine === ENGINE_CODEX) {
     baseResponse.chatgpt = await readChatgptSnapshot(ctx, host.lanePreference);
+  } else if (engine === ENGINE_CLAUDE) {
+    baseResponse.claude_usage = await readClaudeSnapshot(ctx);
   }
   return baseResponse;
 }
@@ -889,6 +893,8 @@ async function handleStore(
   };
   if (engine === ENGINE_CODEX) {
     response.chatgpt = await readChatgptSnapshot(ctx, host.lanePreference);
+  } else if (engine === ENGINE_CLAUDE) {
+    response.claude_usage = await readClaudeSnapshot(ctx);
   }
   return response;
 }
@@ -1085,4 +1091,16 @@ async function readChatgptSnapshot(
   } catch {
     return unavailable;
   }
+}
+
+async function readClaudeSnapshot(ctx: RouteContext): Promise<Record<string, unknown>> {
+  // Statusline reports are already computed by Claude Code. A startup read
+  // never polls the provider or renews fetched_at on an old observation.
+  try {
+    const row = await new ClaudeUsageService(ctx.db).latest();
+    if (row) return { status: 'ok', ...normalizeClaudeUsageSnapshot(row) };
+  } catch {
+    // Usage telemetry is advisory; an unavailable snapshot must not break auth.
+  }
+  return { status: 'unavailable' };
 }

@@ -1,7 +1,8 @@
-// Package lifecycle — skills.go drives the orchestrator-side skills sync.
+// Package lifecycle — skills.go handles the legacy skill fingerprint fallback.
 //
-// v2 skills are read live via MCP (`resource_read skill://<slug>`) so the
-// wrapper never persists the manifest bodies to disk. What it does is:
+// Current servers send the complete native Claude skill set in /sync/bootstrap;
+// collections.go checks and applies those files before launch. Older servers
+// that omit claude_skills use the fingerprint probe below instead:
 //
 //  1. Probe `GET /skills?engine=claude` once per run, hash the
 //     (slug, sha256) fingerprint of the list, and compare against

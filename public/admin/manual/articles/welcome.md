@@ -22,19 +22,21 @@ Once at least one admin exists (`AdminAuthService.countAdmins`), a valid session
 
 The admin is a single-page SvelteKit app whose HTML shell is returned by the Fastify static handler (`adminSpaHtmlPreHandler` in `api/src/routes/admin/pages/static.ts`). On boot the SPA hydrates by calling `GET /admin/auth/status` to learn who (if anyone) is signed in. The root route waits for that answer before forwarding to `/dashboard`, and stands down entirely when the installation is unclaimed — then the layout gate owns the navigation and sends you to the setup wizard at `/setup` instead. Redirecting immediately used to race that gate, so a brand-new install opened on a dashboard full of 401s.
 
-The left rail contains seven top-level navigation items:
+The desktop sidebar groups destinations by task:
 
-- **Dashboard** — at `/dashboard`, fed by `GET /admin/overview`. Displays fleet status cards, a DashboardAlerts row, the ChatGPT quota card, and a RunnerCard.
-- **Hosts** — fleet management at `/hosts`. Each host has its own detail page.
-- **Projects** — top-level project management at `/projects`.
-- **API Keys** — API key management at `/api-keys`.
-- **Authoring** — skills and memories at `/authoring`.
-- **Logs** — at `/logs/mcp` (matches any `/logs/*` path); tabs for **MCP** invocations and **Events** (the admin audit trail).
-- **Settings** — operator configuration at `/settings`.
+| Group | Destinations |
+|---|---|
+| **Monitor** | Overview, Active Clients, Activity |
+| **Fleet** | Hosts, Engines, Policies |
+| **Coordinate** | Projects, Agent Messaging, Git Director, Agent Portal |
+| **Knowledge** | Skills, Fleet Instructions, Memories, Subagents, Commands, Output Styles |
+| **Access** | API Access, Secrets, Admin Users |
 
-The sidebar footer contains a **Keyboard shortcuts** button and a **Help & Manual** link to `/manual`; neither is a primary nav item. Below that, an account dropdown (shown once signed in) holds password change, passkey management, and the sign-out action.
+Groups start expanded. Collapse any group to shorten the list; navigating into it opens it again. The active destination and breadcrumb identify your current location. **Overview** contains engine coverage, Codex and Claude usage, and runner verification. **Engines** holds fleet model and update controls; **Policies** holds fleet operational rules. Subagents, Commands, and Output Styles are Claude-native collections.
 
-Theme selection (Light / Dark / System) lives separately, in the icon menu at the right of the top bar (`TopBar.svelte`), alongside the command-palette launcher and the live-connection indicator. A keyboard-shortcut modal opens on `[?]`. The registered global shortcuts (`frontend/src/lib/utils/shortcuts.ts`, bound in the root `+layout.svelte`) are: `Mod+K` (toggle the command palette), `/` (open the search modal), `?` (show the shortcuts list), `n` (open the new-host sheet), and `Esc` (close the command palette).
+The footer provides **Manual**, **Account**, **Shortcuts**, and an account menu for password, passkeys, appearance, and sign-out. On phones, Overview, Hosts, Projects, and Activity stay in the bottom bar; **Menu** opens the remaining destinations and account actions. Menu is highlighted when the current page belongs to that group.
+
+Theme selection (Light / Dark / System) lives in the icon menu at the right of the top bar, alongside fleet search and the desktop live-update indicator. Press `Ctrl`/`Cmd`+`K` or `/` to open the command palette, `?` for keyboard help, `n` to register a host, and `Esc` to close an overlay. Single-key shortcuts pause while you type in a form or editor. The palette includes destination descriptions and can find shared engine controls by either **Codex** or **Claude**.
 
 ## The reading path we suggest
 

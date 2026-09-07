@@ -67,7 +67,7 @@
     <Dialog.Header>
       <Dialog.Title>Keyboard shortcuts</Dialog.Title>
       <Dialog.Description>
-        Every shortcut available in the admin workspace.
+        Move around the fleet without leaving the keyboard.
       </Dialog.Description>
     </Dialog.Header>
 
@@ -101,5 +101,6 @@
         </div>
       {/each}
     </div>
+    <p class="border-t pt-3 text-xs leading-relaxed text-muted-foreground">Single-key shortcuts are paused while you type in a form or editor.</p>
   </Dialog.Content>
 </Dialog.Root>

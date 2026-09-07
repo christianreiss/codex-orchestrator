@@ -426,7 +426,11 @@ describe('dynamic probe schedule', () => {
     expect(memory.get('claude')).toBeUndefined();
   });
 
-  it('skips the probe entirely when it could only pass by spending refresh material', async () => {
+  it('skips the probe entirely when it could only pass by spending refresh material', async (ctx) => {
+    // nowMs controls scheduling only; credential expiry uses the wall clock.
+    // Keep the fixture's refresh token live independently of the calendar.
+    const wallClock = vi.spyOn(Date, 'now').mockReturnValue(T0);
+    ctx.onTestFinished(() => wallClock.mockRestore());
     const writes: Array<{ engine: Engine; state: 'ok' | 'fail' }> = [];
     const ensureServedVerification = vi.fn();
     const expiredOauth = {
@@ -466,7 +470,9 @@ describe('dynamic probe schedule', () => {
     expect(writes).toEqual([{ engine: 'claude', state: 'ok' }]);
   });
 
-  it('writes no telemetry when skipping an unverifiable pending row', async () => {
+  it('writes no telemetry when skipping an unverifiable pending row', async (ctx) => {
+    const wallClock = vi.spyOn(Date, 'now').mockReturnValue(T0);
+    ctx.onTestFinished(() => wallClock.mockRestore());
     const writes: Array<{ engine: Engine; state: 'ok' | 'fail' }> = [];
     const ensureServedVerification = vi.fn();
     const expiredOauth = {

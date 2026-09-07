@@ -33,6 +33,9 @@ type Inputs struct {
 	// StatusOnly suppresses resource-sync markers because `cdx status` probes
 	// /auth only and must not present unprobed skills/config as healthy.
 	StatusOnly bool
+	// SkipVersionProbe avoids spawning the native CLI for an unrendered screen.
+	// Quota and auth decisions are still derived from the supplied response.
+	SkipVersionProbe bool
 	// Sessions carries the historical API `sessions` block. Its fleet values
 	// are recent-host / managed-sync activity, not proven engine launches.
 	// Nil hides the block; LocalNow is computed wrapper-side.
@@ -62,7 +65,10 @@ func Build(ctx context.Context, in Inputs) ui.ScreenInput {
 	cfg := in.Config
 	auth := in.Auth
 
-	codexVer := codex.Version(ctx)
+	codexVer := "unknown"
+	if !in.SkipVersionProbe {
+		codexVer = codex.Version(ctx)
+	}
 	codexTone := ui.ToneOK
 	if unknownVersion(codexVer) {
 		codexTone = ui.ToneWarn
@@ -110,6 +116,8 @@ func Build(ctx context.Context, in Inputs) ui.ScreenInput {
 	result := "Ready — all systems operational."
 	if in.StatusOnly {
 		result = "API and auth checks passed."
+	} else if !in.SkillsSync.Checked || !in.ConfigSync.Checked {
+		result = "Ready to launch; managed resources not checked."
 	}
 	resultTone := ui.ToneOK
 
@@ -197,7 +205,9 @@ func Build(ctx context.Context, in Inputs) ui.ScreenInput {
 	}
 	if blockText != "" {
 		if auth != nil && auth.QuotaHardFail {
-			result = "Quota blocked; refusing to launch unless QUOTA_HARD_FAIL=0."
+			if resultTone != ui.ToneFail {
+				result = "Quota blocked; refusing to launch unless QUOTA_HARD_FAIL=0."
+			}
 			resultTone = ui.ToneFail
 		} else {
 			warnText = blockText
@@ -268,7 +278,7 @@ func Build(ctx context.Context, in Inputs) ui.ScreenInput {
 }
 
 func quotaWarningResult(warning string) string {
-	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(warning)), "chatgpt quota telemetry") {
+	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(warning)), "chatgpt quota telemetry") || strings.HasPrefix(strings.ToLower(strings.TrimSpace(warning)), "chatgpt quota window") {
 		return "Quota telemetry needs attention."
 	}
 	return "Quota is approaching the configured limit."
@@ -324,13 +334,14 @@ func sessionRows(s *SessionCounts) []ui.SessionRow {
 }
 
 func buildDots(auth *orchestrator.AuthRetrieveResponse, in Inputs) []ui.HealthDot {
+	status := strings.ToLower(strings.TrimSpace(auth.Status))
 	apiTone := ui.ToneOK
-	if auth.Status == "" || auth.Status == "error" || auth.Status == "offline" {
+	if status == "" || status == "error" || status == "offline" {
 		apiTone = ui.ToneFail
 	}
 
 	authTone := ui.ToneOK
-	switch strings.ToLower(auth.Status) {
+	switch status {
 	case "valid", "ok", "current", "unchanged":
 		authTone = ui.ToneOK
 	case "outdated", "updated":
@@ -341,9 +352,9 @@ func buildDots(auth *orchestrator.AuthRetrieveResponse, in Inputs) []ui.HealthDo
 		}
 	case "missing", "upload_required":
 		authTone = ui.ToneWarn
-	case "disabled", "invalid", "insecure-denied":
+	case "disabled", "invalid", "insecure-denied", "insecure_denied":
 		authTone = ui.ToneFail
-	case "insecure":
+	case "insecure", "insecure_pending":
 		authTone = ui.ToneWarn
 	default:
 		// Fail closed: "offline"/"error"/"" and any status this wrapper
@@ -354,13 +365,21 @@ func buildDots(auth *orchestrator.AuthRetrieveResponse, in Inputs) []ui.HealthDo
 	// A live-verification failure overrides the digest-derived tone: the token
 	// the host would launch with does not authenticate, so the dot must read red
 	// even when the digest status alone looked green.
-	if strings.EqualFold(strings.TrimSpace(auth.VerificationState), "failed") {
+	switch strings.ToLower(strings.TrimSpace(auth.VerificationState)) {
+	case "failed":
+		authTone = ui.ToneFail
+	case "unknown", "pending", "stale":
+		if authTone == ui.ToneOK {
+			authTone = ui.ToneWarn
+		}
+	}
+	if in.AuthErr != nil {
 		authTone = ui.ToneFail
 	}
 
 	dots := []ui.HealthDot{
 		{Name: "api", Tone: apiTone},
-		{Name: "auth", Tone: authTone, Updated: in.AuthSynced},
+		{Name: "auth", Tone: authTone, Updated: in.AuthSynced && in.AuthErr == nil && authTone == ui.ToneOK},
 	}
 	if !in.StatusOnly {
 		dots = append(dots,
@@ -431,12 +450,13 @@ func buildQuota(auth *orchestrator.AuthRetrieveResponse) ([]ui.QuotaRow, string,
 	if q == nil {
 		return nil, "", ""
 	}
-	telemetryWarning := quotaTelemetryWarning(q, time.Now())
+	now := time.Now()
+	telemetryWarning := quotaTelemetryWarning(q, now)
 	activeLane := effectiveQuotaLane(auth)
 	rows := []ui.QuotaRow{}
 	limitPct := 100
 	if auth.QuotaLimitPercent != nil {
-		limitPct = *auth.QuotaLimitPercent
+		limitPct = max(50, min(100, *auth.QuotaLimitPercent))
 	}
 	warnAt := limitPct - 10
 	if warnAt < 50 {
@@ -444,8 +464,21 @@ func buildQuota(auth *orchestrator.AuthRetrieveResponse) ([]ui.QuotaRow, string,
 	}
 
 	var warnText, blockText string
-	addRow := func(fallbackLabel string, used *int, lim, resetAfter *int64, lane string) {
+	activeWindowStale := false
+	addRow := func(fallbackLabel string, used *int, lim, resetAfter *int64, resetAt, lane string) {
+		remaining, resetSec, windowStale, note := quotaWindowClock(q.FetchedAt, resetAfter, resetAt, lim, now)
+		if windowStale && lane == activeLane {
+			activeWindowStale = true
+			warnText = "ChatGPT quota window needs a new report: " + note
+		}
 		if used == nil {
+			return
+		}
+		if *used < 0 || *used > 100 {
+			if lane == activeLane {
+				activeWindowStale = true
+				warnText = "ChatGPT quota telemetry contains an invalid percentage"
+			}
 			return
 		}
 		label := quotaWindowLabel(fallbackLabel, lim, lane)
@@ -456,19 +489,18 @@ func buildQuota(auth *orchestrator.AuthRetrieveResponse) ([]ui.QuotaRow, string,
 			WarnAtPct:  warnAt,
 			BlockAtPct: limitPct,
 		}
-		if resetAfter != nil && *resetAfter > 0 {
-			row.ResetAfter = time.Duration(*resetAfter) * time.Second
-		}
-		var resetSec int64
-		if resetAfter != nil {
-			resetSec = *resetAfter
+		row.ResetAfter = remaining
+		row.Note = note
+		row.Stale = telemetryWarning != "" || windowStale
+		if row.Stale && row.Note == "" {
+			row.Note = "last reported usage"
 		}
 		var limSec int64
 		if lim != nil {
 			limSec = *lim
 		}
-		if telemetryWarning == "" {
-			row.Projection = quotaProjectionNote(*used, limSec, resetSec)
+		if !row.Stale {
+			row.Projection = quotaProjectionNoteAt(*used, limSec, resetSec, int64(row.ResetAfter/time.Second))
 		}
 		if row.Projection != "" {
 			row.ProjectionTone = ui.ToneDim
@@ -483,7 +515,7 @@ func buildQuota(auth *orchestrator.AuthRetrieveResponse) ([]ui.QuotaRow, string,
 
 		// Inactive-lane saturation is useful context, not a launch gate for the
 		// lane this host will actually use.
-		if telemetryWarning != "" || lane != activeLane {
+		if row.Stale || lane != activeLane {
 			return
 		}
 		if *used >= limitPct && blockText == "" {
@@ -493,10 +525,10 @@ func buildQuota(auth *orchestrator.AuthRetrieveResponse) ([]ui.QuotaRow, string,
 		}
 	}
 
-	addRow("5h", q.PrimaryUsed, q.PrimaryLimitSec, q.PrimaryResetAfter, "normal")
-	addRow("weekly", q.SecondaryUsed, q.SecondaryLimitSec, q.SecondaryResetAfter, "normal")
-	addRow("5h", q.SparkPrimaryUsed, q.SparkPrimaryLimitSec, q.SparkPrimaryResetAfter, "spark")
-	addRow("weekly", q.SparkSecondaryUsed, q.SparkSecondaryLimitSec, q.SparkSecondaryResetAfter, "spark")
+	addRow("5h", q.PrimaryUsed, q.PrimaryLimitSec, q.PrimaryResetAfter, q.PrimaryResetAt, "normal")
+	addRow("weekly", q.SecondaryUsed, q.SecondaryLimitSec, q.SecondaryResetAfter, q.SecondaryResetAt, "normal")
+	addRow("5h", q.SparkPrimaryUsed, q.SparkPrimaryLimitSec, q.SparkPrimaryResetAfter, q.SparkPrimaryResetAt, "spark")
+	addRow("weekly", q.SparkSecondaryUsed, q.SparkSecondaryLimitSec, q.SparkSecondaryResetAfter, q.SparkSecondaryResetAt, "spark")
 
 	// Stale, malformed, or unavailable quota telemetry remains useful as
 	// last-known context, but it must never warn/block from percentage,
@@ -504,7 +536,7 @@ func buildQuota(auth *orchestrator.AuthRetrieveResponse) ([]ui.QuotaRow, string,
 	if telemetryWarning != "" {
 		return rows, telemetryWarning, ""
 	}
-	if blockText == "" && (providerQuotaBlocked(q, activeLane) || quotaStatusBlocked(q.Status)) {
+	if blockText == "" && !activeWindowStale && (providerQuotaBlocked(q, activeLane) || quotaStatusBlocked(q.Status)) {
 		blockText = fmt.Sprintf("%s lane quota reached (provider reported limit)", activeLane)
 	}
 	return rows, warnText, blockText
@@ -602,10 +634,12 @@ func quotaTelemetryWarning(q *orchestrator.ChatGPTQuota, now time.Time) string {
 		return "ChatGPT quota telemetry unavailable"
 	}
 	if strings.TrimSpace(q.FetchedAt) == "" {
+		// Legacy Codex payloads omitted fetched_at. Preserve their existing
+		// quota-gate behavior; absence alone does not disable a launch gate.
 		return ""
 	}
 	fetchedAt, err := time.Parse(time.RFC3339, q.FetchedAt)
-	if err != nil {
+	if err != nil || fetchedAt.After(now.Add(time.Minute)) {
 		return "ChatGPT quota telemetry timestamp is invalid"
 	}
 	if now.Sub(fetchedAt) > 30*time.Minute {
@@ -615,6 +649,10 @@ func quotaTelemetryWarning(q *orchestrator.ChatGPTQuota, now time.Time) string {
 }
 
 func quotaProjectionNote(used int, limSec, resetSec int64) string {
+	return quotaProjectionNoteAt(used, limSec, resetSec, resetSec)
+}
+
+func quotaProjectionNoteAt(used int, limSec, resetSec, remainingSec int64) string {
 	if used <= 0 || !ui.ProjectionReady(limSec, resetSec) {
 		return ""
 	}
@@ -623,8 +661,9 @@ func quotaProjectionNote(used int, limSec, resetSec int64) string {
 		return ""
 	}
 	eta := ui.ProjectETA(used, limSec, resetSec)
-	if eta > 0 {
-		return fmt.Sprintf("~%d%% at reset; 100%% in %s", projected, ui.DurationShort(eta))
+	observationAge := time.Duration(max(0, resetSec-remainingSec)) * time.Second
+	if eta > observationAge {
+		return fmt.Sprintf("~%d%% at reset; 100%% in %s", projected, ui.DurationShort(eta-observationAge))
 	}
 	return fmt.Sprintf("~%d%% at reset", projected)
 }

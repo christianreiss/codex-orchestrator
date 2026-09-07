@@ -1,0 +1,1 @@
+import{t as e}from"../chunks/KVSy8Fv-2.js";export{e as component};

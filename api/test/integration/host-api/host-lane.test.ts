@@ -75,6 +75,45 @@ function makeKeyring(): Keyring {
   } as unknown as Parameters<typeof Keyring.fromEnv>[0]);
 }
 
+describe('Codex-only lane policy', () => {
+  it.each(['GET', 'POST'] as const)('rejects Claude requests on %s /host/lane without changing the lane', async (method) => {
+    const db = createDbFake();
+    setupHost(db);
+    db.tables.get(hostsTable)![0]!['engines'] = 'codex,claude';
+    const app = await buildHostApiTestApp({ db: db as never, env, keyring: makeKeyring() });
+    try {
+      const response = await app.inject({
+        method, url: '/host/lane',
+        headers: { authorization: `Bearer ${apiKey}`, 'x-engine': 'claude' },
+        ...(method === 'POST' ? { payload: { lane: 'spark' } } : {}),
+      });
+      expect(response.statusCode).toBe(422);
+      expect(response.body).toContain('Quota lanes are supported only');
+      expect(db.tables.get(hostsTable)![0]!['lanePreference']).toBeNull();
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('refuses an unlabelled lane mutation when Codex is disabled on the host', async () => {
+    const db = createDbFake();
+    setupHost(db);
+    db.tables.get(hostsTable)![0]!['engines'] = 'claude';
+    const app = await buildHostApiTestApp({ db: db as never, env, keyring: makeKeyring() });
+    try {
+      const response = await app.inject({
+        method: 'POST', url: '/host/lane',
+        headers: { authorization: `Bearer ${apiKey}` }, payload: { lane: 'spark' },
+      });
+      expect(response.statusCode).toBe(403);
+      expect(response.json().code).toBe('engine_disabled');
+      expect(db.tables.get(hostsTable)![0]!['lanePreference']).toBeNull();
+    } finally {
+      await app.close();
+    }
+  });
+});
+
 describe('GET /host/lane', () => {
   it('returns lane_preference + effective_lane', async () => {
     const db = createDbFake();

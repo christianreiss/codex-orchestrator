@@ -312,14 +312,15 @@ func Run(ctx context.Context, opts Options) (exitCode int, retErr error) {
 			}
 		}
 
-		// Skills are MCP-served in v2; we still ping /skills?engine=claude
-		// to detect fingerprint changes (lights the boot-screen "skills"
-		// dot) and purge bash-era on-disk caches once per wrapper version
-		// so they don't shadow MCP resolution. Both best-effort.
+		// The native bundle already checks and applies the complete skill set.
+		// Only older servers that omit it need a separate fingerprint request.
+		// Preserve native write failures and one-shot legacy cleanup outcomes.
 		if !concurrent {
-			skillsSync = syncSkills(ctx, client, logger)
+			skillsSync = nativeSkillsSync
+			if !nativeSkillsSync.Checked {
+				skillsSync = combineOptionalResourceSync(syncSkills(ctx, client, logger), nativeSkillsSync)
+			}
 			skillsSync = combineResourceSync(skillsSync, pruneLegacySkillDirs(wrapperVersion(cfg), logger))
-			skillsSync = combineOptionalResourceSync(skillsSync, nativeSkillsSync)
 		}
 	}
 
@@ -337,6 +338,7 @@ func Run(ctx context.Context, opts Options) (exitCode int, retErr error) {
 	state := summary.Build(ctx, summary.Inputs{
 		Config:            cfg,
 		WrapperVersion:    currentWrapperVersion(opts, cfg),
+		SkipVersionProbe:  opts.SkipBoot,
 		Auth:              authResp,
 		AuthErr:           authErr,
 		Concurrent:        concurrent,
@@ -344,6 +346,7 @@ func Run(ctx context.Context, opts Options) (exitCode int, retErr error) {
 		SkillsSync:        skillsSync,
 		ConfigSync:        combineResourceSync(agentsSync, configSync),
 		AuthSynced:        authSynced,
+		LaunchArgs:        opts.ExtraArgs,
 		BypassPermissions: opts.DangerouslySkipPermissions,
 		Sessions:          buildSessionCounts(fleetSessions),
 	})
@@ -367,9 +370,11 @@ func Run(ctx context.Context, opts Options) (exitCode int, retErr error) {
 		} else {
 			ui.PrintBootScreen(os.Stderr, state)
 		}
+	} else if state.QuotaWarn != "" {
+		// Suppressed startup screens still need advisory usage in cron/CI logs.
+		fmt.Fprintln(os.Stderr, "clx: "+state.QuotaWarn)
+		logger.Warn("quota approaching limit", "warn", state.QuotaWarn)
 	}
-	// Claude has no quota bars in this orchestrator (see clx/internal/persona/claude/ui/screen.go);
-	// there is therefore no headless QuotaWarn emission to make here.
 
 	if !opts.SkipAuthSync && !dec.Allowed {
 		// On an explicit server refusal (not a transient outage), surgically
@@ -397,6 +402,18 @@ func Run(ctx context.Context, opts Options) (exitCode int, retErr error) {
 	// rendered above and the trust gate has had its say. Stop before the portal
 	// session and PreExec so a sync never opens a phantom session row.
 	if opts.SyncOnly {
+		// Cached auth permits an interactive launch, but it does not prove a
+		// successful sync. Cron and explicit sync callers need a retryable
+		// failure when content was skipped or could not be applied.
+		if concurrent {
+			return 1, errors.New("managed sync paused by an active session; retry when it finishes or use --allow-concurrent-sync")
+		}
+		if err := errors.Join(authErr, agentsSync.Err, configSync.Err, skillsSync.Err); err != nil {
+			return 1, fmt.Errorf("managed sync incomplete: %w", err)
+		}
+		if strings.EqualFold(dec.Status, "offline") {
+			return 1, errors.New("managed sync incomplete: API offline; cached credentials do not confirm content is current")
+		}
 		return 0, nil
 	}
 

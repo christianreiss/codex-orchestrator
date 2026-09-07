@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { createHash } from 'node:crypto';
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -9,6 +9,7 @@ import { hosts as hostsTable, versions as versionsTable } from '../../../src/db/
 import { Keyring } from '../../../src/security/keyring.js';
 import { hashApiKey } from '../../../src/util/api-key-helpers.js';
 import { assertContract } from '../../helpers/contract-schema.js';
+import { wsPublisher } from '../../../src/ws/publisher.js';
 
 const env = {
   INSTALLATION_ID: 'inst-test',
@@ -20,6 +21,40 @@ const env = {
 } as unknown as Parameters<typeof buildHostApiTestApp>[0]['env'];
 
 describe('GET /versions', () => {
+  it.each([
+    { url: '/versions?engine=claude', headers: {} },
+    { url: '/versions', headers: { 'x-engine': 'claude' } },
+  ])('serves the requested Claude snapshot via $url / $headers', async ({ url, headers }) => {
+    const db = createDbFake();
+    db.tables.set(versionsTable, [
+      { name: 'client_version_codex', version: '0.132.0' },
+      { name: 'client_version_claude', version: '2.1.200' },
+      { name: 'runner_state', version: 'ok' },
+      { name: 'runner_state_claude', version: 'fail' },
+    ]);
+    const app = await buildHostApiTestApp({ db: db as never, env, keyring: makeKeyring() });
+    try {
+      const response = await app.inject({ method: 'GET', url, headers });
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toMatchObject({ engine: 'claude', client_version: '2.1.200', runner_state: 'fail' });
+    } finally {
+      await app.close();
+    }
+  });
+
+  it.each([
+    { url: '/versions?engine=other', headers: {} },
+    { url: '/versions?engine=codex', headers: { 'x-engine': 'claude' } },
+  ])('rejects malformed or conflicting public engine hints', async ({ url, headers }) => {
+    const db = createDbFake();
+    const app = await buildHostApiTestApp({ db: db as never, env, keyring: makeKeyring() });
+    try {
+      expect((await app.inject({ method: 'GET', url, headers })).statusCode).toBe(422);
+    } finally {
+      await app.close();
+    }
+  });
+
   it('returns the version snapshot when api_disabled is off', async () => {
     const db = createDbFake();
     db.tables.set(versionsTable, [
@@ -54,6 +89,58 @@ describe('GET /versions', () => {
 });
 
 describe('POST /cron/check', () => {
+  it('does not send a legacy Codex pin to a Claude client with no recorded version', async () => {
+    const db = createDbFake();
+    const apiKey = 'sk-claude-target-isolation-test';
+    db.tables.set(hostsTable, [{ ...hostRow(apiKey), engines: 'codex,claude' }]);
+    db.tables.set(versionsTable, [
+      { name: 'client_version', version: '0.137.0' },
+      { name: 'auto_update_enabled', version: '1' },
+    ]);
+    const app = await buildHostApiTestApp({ db: db as never, env, keyring: makeKeyring() });
+    try {
+      const response = await app.inject({
+        method: 'POST', url: '/cron/check',
+        headers: { authorization: `Bearer ${apiKey}`, 'x-engine': 'claude' },
+        payload: {},
+      });
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toMatchObject({ action: 'no_update' });
+      expect(response.json()).not.toHaveProperty('target_version');
+    } finally {
+      await app.close();
+    }
+  });
+
+  it.each(['codex', 'claude'] as const)('honors host auto-update enable/disable/inherit for %s', async (engine) => {
+    for (const fleetEnabled of [true, false]) {
+      for (const override of [null, 0, 1]) {
+        const db = createDbFake();
+        const apiKey = 'sk-host-update-policy-test';
+        db.tables.set(hostsTable, [{ ...hostRow(apiKey), engines: 'codex,claude', autoUpdateOverride: override }]);
+        db.tables.set(versionsTable, [
+          { name: 'client_version_codex', version: '0.132.0' },
+          { name: 'client_version_claude', version: '2.1.200' },
+          { name: 'auto_update_enabled', version: fleetEnabled ? '1' : '0' },
+        ]);
+        const app = await buildHostApiTestApp({ db: db as never, env, keyring: makeKeyring() });
+        try {
+          const response = await app.inject({
+            method: 'POST', url: '/cron/check',
+            headers: { authorization: `Bearer ${apiKey}`, 'x-engine': engine },
+            payload: { client_version: engine === 'claude' ? '2.1.100' : '0.130.0' },
+          });
+          expect(response.statusCode).toBe(200);
+          const enabled = override === null ? fleetEnabled : override === 1;
+          expect(response.json().action).toBe(enabled ? 'update' : 'disable');
+          if (enabled) expect(response.json().target_version).toBe(engine === 'claude' ? '2.1.200' : '0.132.0');
+        } finally {
+          await app.close();
+        }
+      }
+    }
+  });
+
   it('normalizes labeled codex-cli versions before deciding client updates', async () => {
     const db = createDbFake();
     const apiKey = 'sk-codex-cron-test';
@@ -536,6 +623,56 @@ describe('POST /cron/check (claude engine)', () => {
       wrapper: { action: 'no_update' },
     });
     await app.close();
+  });
+});
+
+describe('cron engine routing', () => {
+  it.each(['/cron/check', '/cron/report'])('rejects conflicting engine hints on %s before recording versions or cron activity', async (url) => {
+    const db = createDbFake();
+    const apiKey = 'sk-engine-routing-test';
+    db.tables.set(hostsTable, [{ ...hostRow(apiKey), engines: 'codex,claude' }]);
+    const app = await buildHostApiTestApp({ db: db as never, env, keyring: makeKeyring() });
+    try {
+      const response = await app.inject({
+        method: 'POST', url,
+        headers: { authorization: `Bearer ${apiKey}`, 'x-engine': 'claude' },
+        payload: { engine: 'codex', client_version: '2.1.200' },
+      });
+      expect(response.statusCode).toBe(422);
+      expect(db.tables.get(hostsTable)?.[0]).toMatchObject({
+        clientVersion: null, claudeClientVersion: null, lastCronCheck: null,
+      });
+    } finally {
+      await app.close();
+    }
+  });
+
+  it.each([
+    { headers: { 'x-engine': 'claude' }, url: '/cron/report' },
+    { headers: { 'user-agent': 'clx/2.0.0' }, url: '/cron/report' },
+    { headers: {}, url: '/cron/report?engine=claude' },
+  ])('records header, query and legacy Claude reports only in Claude columns', async ({ headers, url }) => {
+    const db = createDbFake();
+    const apiKey = 'sk-engine-report-test';
+    db.tables.set(hostsTable, [{ ...hostRow(apiKey), engines: 'codex,claude', clientVersion: '0.132.0', wrapperVersion: '1.0.0' }]);
+    const app = await buildHostApiTestApp({ db: db as never, env, keyring: makeKeyring() });
+    const publish = vi.spyOn(wsPublisher, 'publish');
+    try {
+      const response = await app.inject({
+        method: 'POST', url,
+        headers: { authorization: `Bearer ${apiKey}`, ...headers },
+        payload: { client_version: '2.1.200', wrapper_version: '2.0.0' },
+      });
+      expect(response.statusCode).toBe(200);
+      expect(db.tables.get(hostsTable)?.[0]).toMatchObject({
+        clientVersion: '0.132.0', wrapperVersion: '1.0.0',
+        claudeClientVersion: '2.1.200', claudeWrapperVersion: '2.0.0',
+      });
+      expect(publish).toHaveBeenCalledWith('host.updated', { id: 11, fqdn: 'cron.example' });
+    } finally {
+      publish.mockRestore();
+      await app.close();
+    }
   });
 });
 

@@ -27,7 +27,7 @@
 
 <div
   class={cn(
-    "rounded-md border border-border/75 bg-card p-3",
+    "rounded-lg border border-border/75 bg-card p-4 sm:p-5",
     className,
   )}
 >
@@ -37,17 +37,17 @@
       <span class="text-muted-foreground">{@render icon()}</span>
     {/if}
   </div>
-  <div class="mt-2 flex items-end justify-between gap-3">
+  <div class="mt-3 flex items-end justify-between gap-3">
     {#if loading}
       <div class="h-7 w-16 animate-pulse rounded bg-muted"></div>
     {:else}
-      <span class="text-2xl font-semibold tabular-nums leading-none">{value}</span>
+      <span class="min-w-0 break-all text-2xl font-semibold tabular-nums leading-none tracking-tight">{value}</span>
     {/if}
     {#if breakdown}
       <div class="shrink-0">{@render breakdown()}</div>
     {/if}
   </div>
   {#if hint}
-    <p class="mt-1 text-xs text-muted-foreground">{hint}</p>
+    <p class="mt-2 text-xs text-muted-foreground">{hint}</p>
   {/if}
 </div>

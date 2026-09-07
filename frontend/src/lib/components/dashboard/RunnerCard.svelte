@@ -32,6 +32,7 @@
     type RunnerStatus,
   } from "$lib/api/runner";
   import { toast } from "svelte-sonner";
+  import { relativeTime } from "$lib/utils/format";
 
   const state = createRunnerStateQuery();
   const runCodex = createRunCodexRunnerMutation();
@@ -48,6 +49,7 @@
     actionLabel: string;
     token: string;
     variant: BadgeVariant;
+    status: RunnerEngineStatus | null;
   }
 
   const sharedToken = $derived.by<string>(() => {
@@ -67,23 +69,20 @@
     buildEngineRow("claude", "Claude"),
   ]);
 
-  // Note: the backend only ever persists `state: 'idle' | 'ok' | 'fail'` for
-  // runner engines (see `RunnerProxyService.run`), so `row.token === "running"`
-  // never actually occurs — /admin/runner/run(-claude) are synchronous calls
-  // that resolve only once the sidecar verification finishes. Gate on the
-  // client-side mutation pending flags instead so triggering one engine's
-  // verification also disables the other engine's button while in flight.
+  // Both synchronous verification endpoints share a sidecar. The mutation
+  // state supplies the in-flight label and prevents overlapping manual runs.
   const anyEngineRunning = $derived(pending("codex") || pending("claude"));
 
   function buildEngineRow(engine: EngineKey, label: string): EngineRow {
     const status = engineStatus(engine);
-    const token = engineToken(status);
+    const token = pending(engine) ? "running" : engineToken(status);
     return {
       engine,
       label,
       actionLabel: "Run verification",
       token,
       variant: badgeVariant(token),
+      status,
     };
   }
 
@@ -124,11 +123,12 @@
   }
 
   function actionDisabled(row: EngineRow): boolean {
-    return pending(row.engine) || anyEngineRunning || !runner?.ready;
+    return pending(row.engine) || anyEngineRunning || !runner?.ready || $state.isError || $state.isPending;
   }
 
   function tokenLabel(token: string): string {
     if (token === "unconfigured") return "not configured";
+    if (token === "idle") return "not checked";
     return token === "ok" ? "OK" : token;
   }
 
@@ -186,7 +186,9 @@
           stale
         </Badge>
       {/if}
-      <Badge variant={sharedVariant}>{sharedLabel}</Badge>
+      {#if !$state.isPending && !($state.isError && !runner)}
+        <Badge variant={sharedVariant}>{sharedLabel}</Badge>
+      {/if}
     </div>
   </CardHeader>
   <CardContent class="flex flex-1 flex-col gap-4">
@@ -200,13 +202,25 @@
       <Alert variant="destructive">
         <AlertTriangle class="h-4 w-4" />
         <AlertTitle>Could not load runner state</AlertTitle>
-        <AlertDescription>{$state.error?.message ?? "Unknown error"}</AlertDescription>
+        <AlertDescription>
+          {$state.error?.message ?? "Unknown error"}
+          <Button variant="outline" size="sm" class="mt-2" onclick={() => $state.refetch()} disabled={$state.isFetching}>Retry runner state</Button>
+        </AlertDescription>
       </Alert>
     {:else if !runner}
       <div class="rounded-md border bg-muted/30 p-4 text-sm text-muted-foreground">
         No runner status reported.
       </div>
     {:else}
+      {#if $state.isError}
+        <Alert variant="warning">
+          <AlertTitle>Runner status could not refresh</AlertTitle>
+          <AlertDescription>
+            Showing the last received result. Refresh status before starting another verification.
+            <Button variant="outline" size="sm" class="ml-2 mt-2" onclick={() => $state.refetch()} disabled={$state.isFetching}>Retry runner state</Button>
+          </AlertDescription>
+        </Alert>
+      {/if}
       <dl class="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 text-sm">
         <dt class="text-muted-foreground">Detail</dt>
         <dd class="min-w-0 break-words">{runner.detail || "—"}</dd>
@@ -214,10 +228,13 @@
 
       <div class="grid gap-3 md:grid-cols-2">
         {#each engineRows as row (row.engine)}
-          <div class="rounded-md border bg-muted/20 p-3">
+          <section class="flex min-w-0 flex-col rounded-lg border bg-muted/20 p-4" aria-label={`${row.label} verification`}>
             <div class="flex items-start justify-between gap-3">
               <div class="min-w-0">
-                <div class="text-sm font-medium">{row.label}</div>
+                <h3 class="flex items-center gap-2 text-sm font-semibold">
+                  <span class="h-2 w-2 rounded-full {row.engine === 'codex' ? 'bg-persona-codex' : 'bg-persona-claude'}" aria-hidden="true"></span>
+                  {row.label}
+                </h3>
               </div>
               <Badge variant={row.variant} class="shrink-0">
                 {#if row.token === "running"}
@@ -227,8 +244,18 @@
               </Badge>
             </div>
 
+            <dl class="my-4 grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-2 text-xs">
+              <dt class="text-muted-foreground">Last check</dt>
+              <dd class="text-right" title={row.status?.last_check ?? row.status?.last_run ?? undefined}>{row.status?.last_check || row.status?.last_run ? relativeTime(row.status.last_check ?? row.status.last_run) : "No checks recorded"}</dd>
+              <dt class="text-muted-foreground">Last success</dt>
+              <dd class="text-right" title={row.status?.last_ok ?? undefined}>{row.status?.last_ok ? relativeTime(row.status.last_ok) : "No success recorded"}</dd>
+            </dl>
+            {#if row.status?.last_error && row.token === "fail"}
+              <p class="mb-4 break-words rounded-md border border-destructive/20 bg-destructive/5 p-3 text-xs text-destructive">{row.status.last_error}</p>
+            {/if}
+
             <Button
-              class="mt-3 w-full justify-center"
+              class="mt-auto w-full justify-center"
               size="sm"
               variant="outline"
               onclick={actionFor(row.engine)}
@@ -240,9 +267,9 @@
               {:else}
                 <PlayCircle class="h-4 w-4" />
               {/if}
-              <span>{row.actionLabel}</span>
+              <span>{pending(row.engine) ? "Verifying…" : row.actionLabel}</span>
             </Button>
-          </div>
+          </section>
         {/each}
       </div>
     {/if}

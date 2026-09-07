@@ -12,27 +12,28 @@ import (
 // AuthRetrieveResponse mirrors POST /auth?engine=claude. The orchestrator may
 // add fields freely; unknown fields are tolerated.
 type AuthRetrieveResponse struct {
-	Status                      string          `json:"status"`
-	Action                      string          `json:"action,omitempty"`
-	Message                     string          `json:"message,omitempty"`
-	Digest                      string          `json:"digest,omitempty"`
-	CanonicalDigest             string          `json:"canonical_digest,omitempty"`
-	CanonicalLastRefresh        string          `json:"canonical_last_refresh,omitempty"`
-	CanonicalGeneration         int64           `json:"canonical_generation,omitempty"`
-	CandidateResult             string          `json:"candidate_result,omitempty"`
-	Auth                        json.RawMessage `json:"auth,omitempty"`
-	APICalls                    int64           `json:"api_calls,omitempty"`
-	Versions                    *VersionSummary `json:"versions,omitempty"`
-	Host                        *HostInfo       `json:"host,omitempty"`
-	QuotaHardFail               bool            `json:"quota_hard_fail,omitempty"`
-	QuotaLimitPercent           *int            `json:"quota_limit_percent,omitempty"`
-	Engine                      string          `json:"engine,omitempty"`
-	VerificationState           string          `json:"verification_state,omitempty"`
-	RunnerApplied               bool            `json:"runner_applied,omitempty"`
-	RunnerSkippedReason         string          `json:"runner_skipped_reason,omitempty"`
-	CandidateRejectedDefinitive bool            `json:"candidate_rejected_definitive,omitempty"`
-	CandidateCredentialRejected bool            `json:"candidate_credential_rejected,omitempty"`
-	CandidateMatchesFailedHead  *bool           `json:"candidate_matches_failed_canonical,omitempty"`
+	Status                      string               `json:"status"`
+	Action                      string               `json:"action,omitempty"`
+	Message                     string               `json:"message,omitempty"`
+	Digest                      string               `json:"digest,omitempty"`
+	CanonicalDigest             string               `json:"canonical_digest,omitempty"`
+	CanonicalLastRefresh        string               `json:"canonical_last_refresh,omitempty"`
+	CanonicalGeneration         int64                `json:"canonical_generation,omitempty"`
+	CandidateResult             string               `json:"candidate_result,omitempty"`
+	Auth                        json.RawMessage      `json:"auth,omitempty"`
+	APICalls                    int64                `json:"api_calls,omitempty"`
+	Versions                    *VersionSummary      `json:"versions,omitempty"`
+	Host                        *HostInfo            `json:"host,omitempty"`
+	QuotaHardFail               bool                 `json:"quota_hard_fail,omitempty"`
+	QuotaLimitPercent           *int                 `json:"quota_limit_percent,omitempty"`
+	ClaudeUsage                 *ClaudeUsageSnapshot `json:"claude_usage,omitempty"`
+	Engine                      string               `json:"engine,omitempty"`
+	VerificationState           string               `json:"verification_state,omitempty"`
+	RunnerApplied               bool                 `json:"runner_applied,omitempty"`
+	RunnerSkippedReason         string               `json:"runner_skipped_reason,omitempty"`
+	CandidateRejectedDefinitive bool                 `json:"candidate_rejected_definitive,omitempty"`
+	CandidateCredentialRejected bool                 `json:"candidate_credential_rejected,omitempty"`
+	CandidateMatchesFailedHead  *bool                `json:"candidate_matches_failed_canonical,omitempty"`
 }
 
 // HostSecurity reports API-authoritative host security when present. Insecure

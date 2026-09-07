@@ -5,27 +5,27 @@ verified: 2026-07-29
 sources: frontend/src/routes/settings/+page.svelte, frontend/src/routes/authoring/+page.svelte, frontend/src/routes/authoring/settings/+page.ts, frontend/src/lib/components/authoring/MattPocockSkillsSource.svelte, frontend/src/lib/api/skillSources.ts, frontend/src/lib/components/settings/ModelDefaultsSection.svelte, frontend/src/lib/components/settings/ClaudeFleetSettings.svelte, frontend/src/lib/components/command-palette/commands.ts, api/src/routes/admin/settings/index.ts, api/src/routes/admin/config/index.ts, api/src/routes/admin/skill-sources/index.ts, api/src/services/mattpocock-skills.ts, api/src/ops/mattpocock-skills-worker.ts, api/src/services/model-defaults.ts, api/src/services/agents.ts, api/src/services/skills.ts, api/src/services/skill-provenance.ts, api/src/services/mcp-resources.ts, api/src/services/memories.ts, api/src/services/client-config.ts, api/src/services/config-normalizer.ts, api/src/services/client-versions.ts, api/src/services/host-auth.ts, api/src/db/migrations/0007_add_skill_provenance.sql, wrappers/cxx/internal/persona/claude/lifecycle/collections.go
 ---
 
-Configuration in Codex Orchestrator is spread across several distinct routes. This article covers the **Settings page** (`/settings`) and distinguishes it from the separate admin routes that handle users, agents, skills, memories, and projects. A final section documents environment variables that can only be set at deployment time and are not accessible through the admin UI.
+Configuration is organized under **Engines**, **Policies**, and **API Access**, with separate destinations for users, instructions, skills, memories, and projects. This article describes their controls and the environment variables that require deployment configuration.
 
 All write operations require an authenticated admin session (`app.requireAdmin`). Settings-service mutations publish a `settings.changed` WebSocket event and log an `admin.*` audit row. Saving the Claude fleet editor goes through `ClientConfigService`, publishes the same event for actual config changes, and uses sha256 conflict detection.
 
 ---
 
-## The /settings page
+## Finding configuration controls
 
-The Settings page is split into three URL-addressable tabs:
+Use these canonical destinations from the sidebar or command palette:
 
-| Tab | URL | Contents |
+| Destination | URL | Contents |
 |---|---|---|
-| **General** | `/settings?tab=general` | API state, auto-update, reverse DNS, insecure approval, prune policy, and log retention. |
-| **Codex** | `/settings?tab=codex` | Codex engine, fleet model and effort, Codex version, silent mode, quotas, and usage scaling. |
-| **Claude** | `/settings?tab=claude` | Claude engine, fleet model and effort, API proxy defaults, Claude Code version, and the fleet `settings.json` editor. |
+| **Engines** | `/engines` | Codex and Claude fleet models, effort, CLI versions, Codex silent mode, quota and scaling, and Claude client settings. |
+| **Policies** | `/policies` | Auto-update, reverse DNS, insecure approvals, host lifecycle, and log retention. |
+| **API Access** | `/api-keys` | Service availability, engine proxy settings, endpoints, and issued keys. |
 
-A missing or invalid `tab` value opens **General**. The active tab follows browser history, and the panes remain mounted during tab changes so unsaved form input is preserved. Existing section hashes such as `#codex-version` select the matching tab before scrolling. The command palette exposes direct entries for Settings / General, Codex, and Claude.
+The **Engines** page has jump links for **Codex**, **Claude**, **Quota and scaling**, and **Claude client**. These scroll within the page, preserving open forms. **Host overrides** opens Hosts, where individual model and version choices take precedence over fleet defaults.
 
-On wide screens, related settings cards are arranged in two columns; narrow screens keep a single-column flow. Save status appears only while saving or after a save, so idle cards do not reserve an empty status row.
+Both model-default forms display **Unsaved changes** while edited. Background updates adopt new fleet settings when the form is unchanged; an active draft is preserved. If fleet defaults changed elsewhere, the form shows a notice and **Load latest defaults**. **Discard changes** also loads the latest received settings. Saving a preserved draft replaces current fleet defaults. A failed read offers **Retry** and disables saving until settings can be read again.
 
-The former `/authoring/settings` route permanently redirects to `/settings?tab=claude#claude-fleet-settings`; it is retained only as a compatibility path for old bookmarks.
+Old `/settings` bookmarks redirect to the corresponding destination. `/authoring/settings` redirects to `/engines#claude-client`.
 
 ### General
 
@@ -69,14 +69,15 @@ The former `/authoring/settings` route permanently redirects to `/settings?tab=c
 
 #### Fleet model and effort
 
-`GET /admin/model-defaults/{engine}`, `POST /admin/model-defaults/{engine}` with `engine=codex` — read or set the fleet-wide Codex CLI model together with its model-dependent persistent effort. POST accepts strict `{ model, reasoning_effort? }`; leaving effort unset selects the model default. The canonical config uses Codex's native `model` and `model_reasoning_effort` keys. The default is `gpt-5.6-terra` at `medium`; the endpoint's returned `catalog` supplies the allowed efforts for every model.
+`GET /admin/model-defaults/{engine}`, `POST /admin/model-defaults/{engine}` with `engine=codex` — read or set the fleet-wide Codex CLI model together with its model-dependent persistent effort. POST accepts strict `{ model, reasoning_effort? }`; leaving effort unset selects the model default. The canonical config uses Codex's native `model` and `model_reasoning_effort` keys. The fleet default is `gpt-6-astra` at `medium`; the endpoint's returned `catalog` supplies each model's available efforts and selection default.
 
 | Model | Persistent effort choices | Default |
 |---|---|---|
-| GPT-5.6 Sol | `low`, `medium`, `high`, `xhigh`, `max`, `ultra` | `medium` |
+| GPT-6 Astra | `low`, `medium`, `high`, `xhigh`, `max`, `ultra` | `medium` |
+| GPT-5.6 Sol | `low`, `medium`, `high`, `xhigh`, `max`, `ultra` | `low` |
 | GPT-5.6 Terra | `low`, `medium`, `high`, `xhigh`, `max`, `ultra` | `medium` |
 | GPT-5.6 Luna | `low`, `medium`, `high`, `xhigh`, `max` | `medium` |
-| GPT-5.5, GPT-5.4, GPT-5.4 mini | `low`, `medium`, `high`, `xhigh` | `medium` |
+| GPT-5.5 | `low`, `medium`, `high`, `xhigh` | `medium` |
 | GPT-5.3 Codex Spark | `low`, `medium`, `high`, `xhigh` | `high` |
 
 #### Codex version
@@ -147,7 +148,7 @@ This endpoint controls only API proxy behaviour. It is independent from the flee
 
 #### Fleet settings.json
 
-The editor at `/settings?tab=claude#claude-fleet-settings` builds and publishes the `settings.json` partial delivered to all Claude Code hosts. It is separate from the Claude API proxy defaults above.
+The **Claude client** editor at `/engines#claude-client` builds and publishes the `settings.json` partial delivered to Claude Code hosts. The wrapper deep-merges fleet-owned settings while preserving user-authored settings outside those paths. It is separate from the Claude API proxy defaults above.
 
 **Endpoints:** `GET /admin/claude/config` (read current config) and `POST /admin/claude/config/store` (write). Writes are tracked by sha256 for conflict detection.
 
@@ -166,9 +167,9 @@ A live read-only preview of the rendered `settings.json` is shown alongside the 
 
 ---
 
-## Separate admin routes (not part of /settings)
+## Other configuration destinations
 
-The following areas each live at their own route and are not sub-sections of the Settings page.
+The following areas each have their own sidebar destination.
 
 ### /users — User management
 
@@ -180,7 +181,7 @@ Full CRUD for admin accounts (`api/src/routes/admin/users/index.ts`):
 - `DELETE /admin/users/{id}` — delete (refuses if this would leave zero active `owner`/`admin` accounts).
 - `POST /admin/users/wipe` — delete all users and reopen the first-run flow.
 
-### /authoring/agents — Canonical AGENTS.md
+### /instructions — Fleet Instructions
 
 Served to hosts via `POST /agents/retrieve`. Endpoints in `api/src/routes/admin/config/index.ts`:
 
@@ -194,7 +195,7 @@ Served to hosts via `POST /agents/retrieve`. Endpoints in `api/src/routes/admin/
 
 `AgentsService` (`api/src/services/agents.ts`) reconciles serve mode, latest version, and canonical content hash.
 
-### /authoring/skills — Skills library
+### /skills — Skills library
 
 Skills are the canonical command library, served over MCP as `skill://{slug}` resources. Endpoints in `api/src/routes/admin/config/index.ts`:
 
@@ -262,7 +263,7 @@ those fleet-owned directories at its next bootstrap. The cached server
 rows/files and last-known-good metadata remain for re-enable; unrelated Skills
 are untouched.
 
-### /authoring/memories — MCP memories
+### /memories — MCP memories
 
 MCP memories stored by hosts. `GET /admin/mcp/memories` lists everything across the fleet; `DELETE /admin/mcp/memories/{id}` drops a row by id. The read/write surface for hosts is the MCP `memory_*` tools (see [mcp](/admin/manual/mcp)).
 
@@ -309,11 +310,15 @@ The following variables are read from the process environment at startup. They c
 
 ## Source references
 
-- `frontend/src/routes/settings/+page.svelte` — tab routing, section placement, hash compatibility
+- frontend/src/routes/engines/+page.svelte (engine jump links and grouped controls)
+- frontend/src/routes/policies/+page.svelte (fleet operational policies)
+- frontend/src/lib/legacy-admin-routes.ts (compatibility redirects)
+
+- `frontend/src/routes/settings/+page.ts` — redirects legacy Settings bookmarks
 - `frontend/src/routes/authoring/settings/+page.ts` — legacy redirect to the Claude fleet editor
 - `frontend/src/lib/components/settings/ClaudeFleetSettings.svelte` — fleet `settings.json` editor
-- `frontend/src/lib/components/command-palette/commands.ts` — direct Settings tab commands
-- `api/src/routes/admin/settings/index.ts` — all /settings page endpoints
+- `frontend/src/lib/components/command-palette/commands.ts` — configuration destinations and actions
+- `api/src/routes/admin/settings/index.ts` — settings API endpoints
 - `api/src/services/model-defaults.ts` — engine catalogs and model/effort persistence
 - `api/src/routes/admin/config/index.ts` — agents, skills, memories, profile builder, fleet Claude config
 - `api/src/routes/admin/users/index.ts`

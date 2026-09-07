@@ -13,6 +13,23 @@ Small Node 22 + Fastify + Drizzle + MySQL service that keeps canonical Codex and
 
 ## Contract guardrails
 
+Engine control and sync keep provider-specific state separate: engine hints are
+resolved consistently across auth, version, cron, and resource endpoints; Claude
+config and runner state never borrow Codex values. Host auto-update overrides
+apply to both startup and scheduled updates. Codex quota lanes remain Codex-only,
+while Claude settings retain native deep-merge and user-owned key preservation.
+
+Explicit `cdx sync` and `clx sync` return success only after an online managed sync
+completes. Failed writes, offline fallback, and concurrent-run pauses return 1;
+normal interactive sessions retain their existing cached-auth fallback.
+
+The admin Overview displays reported engine coverage, provider usage, and
+per-engine verification history. Failed refreshes preserve the last snapshot
+with an explicit stale notice and retry; unavailable data is never presented as
+zero usage or a healthy fleet. Engines provides section links and draft-aware
+model defaults: remote changes update pristine forms, while unsaved edits stay
+visible with a choice to load the latest values or discard the draft.
+
 - Critical host-facing response contracts are machine-readable under `docs/contracts/`:
   - `auth-retrieve.schema.json`
   - `auth-store.schema.json`
@@ -211,6 +228,13 @@ Small Node 22 + Fastify + Drizzle + MySQL service that keeps canonical Codex and
    - Wrapper post-run auth upload now compares both `last_refresh` and local `auth.json` SHA-256; content changes with unchanged timestamps are still pushed so fleet hosts can consume updated auth promptly.
    - Wrapper self-update re-exec preserves original argv for subcommands (for example `cdx resume`) and snapshots original argc separately, so empty-argv restarts fall back cleanly without `set -u` empty-array crashes on older bash builds such as CentOS 7 / XCP-NG hosts.
    - `cdx` and `clx` share one responsive terminal dashboard: outcome, host/security/model context, local-to-target versions, semantic health glyphs, quota/activity, and the final result fit within the detected width. Redirects, dumb/narrow terminals, and `--minimal` use stable ANSI-free ASCII; explicit minimal mode also covers wrapper help, status, doctor, cron/peer-update progress, and the measured exit footer. Wrapper-only presentation flags are consumed before an upstream help passthrough. Boot/status result text is control-sequence stripped, width-bounded, and capped at three lines; diagnostic causes/paths are bounded separately, and narrow update rows preserve the outcome before version metadata.
+   - cxx 0.8.0 consolidates both terminal renderers in `internal/terminalui`:
+     one visual system, amber/configured pink for Codex and violet for Claude.
+     Hidden boot reports skip presentation-only CLI version probes. Claude
+     reuses verified bundled skills for health, retaining the list fallback
+     for older servers. Stored Claude quota reports now reach boot/status
+     displays through auth, with advisory usage, explicit unavailable/stale
+     states, and no new provider requests or quota launch refusal.
    - Both wrappers show the same optional `ACTIVITY` section: `local procs` is
      the same-UID wrapper process count; `hosts 30m` is the number of distinct
      hosts with an `agents.retrieve` event in the prior 30 minutes; `syncs UTC

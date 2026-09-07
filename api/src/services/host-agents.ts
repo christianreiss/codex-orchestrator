@@ -235,16 +235,9 @@ export class HostAgentsService {
       .where(eq(clientConfigDocuments.engine, engine))
       .orderBy(desc(clientConfigDocuments.id))
       .limit(1);
-    let row = rows[0];
-    if (!row && engine !== ENGINE_CODEX) {
-      const fallback = await this.db
-        .select()
-        .from(clientConfigDocuments)
-        .where(eq(clientConfigDocuments.engine, ENGINE_CODEX))
-        .orderBy(desc(clientConfigDocuments.id))
-        .limit(1);
-      row = fallback[0];
-    }
+    // Native engine settings are not interchangeable: borrowing Codex's base
+    // would send a GPT model and Codex-only options to Claude.
+    const row = rows.find((candidate) => candidate.engine === engine);
     if (!row) {
       await this.recordLog(host.id, 'config.retrieve', { status: 'missing' });
       return { status: 'missing' };

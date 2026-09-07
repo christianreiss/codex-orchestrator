@@ -336,6 +336,48 @@
         "cdx_silent": {
           "type": "boolean"
         },
+        "claude_usage": {
+          "description": "Stored Claude Code statusline telemetry; fetched_at is the original report receipt time, not the response time.",
+          "type": "object",
+          "required": ["status"],
+          "properties": {
+            "status": { "enum": ["ok", "unavailable"] },
+            "id": { "type": "integer" },
+            "host_id": { "type": ["integer", "null"] },
+            "source": { "type": ["string", "null"] },
+            "fetched_at": { "type": "string", "format": "date-time" },
+            "five_hour_used_percent": { "type": ["integer", "null"], "minimum": 0, "maximum": 100 },
+            "five_hour_resets_at": { "type": ["string", "null"] },
+            "seven_day_used_percent": { "type": ["integer", "null"], "minimum": 0, "maximum": 100 },
+            "seven_day_resets_at": { "type": ["string", "null"] },
+            "five_hour_window": {
+              "type": "object",
+              "required": ["used_percent", "resets_at"],
+              "properties": {
+                "used_percent": { "type": ["integer", "null"], "minimum": 0, "maximum": 100 },
+                "resets_at": { "type": ["string", "null"] }
+              },
+              "additionalProperties": true
+            },
+            "seven_day_window": {
+              "type": "object",
+              "required": ["used_percent", "resets_at"],
+              "properties": {
+                "used_percent": { "type": ["integer", "null"], "minimum": 0, "maximum": 100 },
+                "resets_at": { "type": ["string", "null"] }
+              },
+              "additionalProperties": true
+            }
+          },
+          "allOf": [{
+            "if": { "properties": { "status": { "const": "ok" } }, "required": ["status"] },
+            "then": {
+              "properties": { "fetched_at": {}, "five_hour_window": {}, "seven_day_window": {} },
+              "required": ["fetched_at", "five_hour_window", "seven_day_window"]
+            }
+          }],
+          "additionalProperties": true
+        },
         "chatgpt": {
           "type": "object"
         }

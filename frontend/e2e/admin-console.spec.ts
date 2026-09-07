@@ -820,12 +820,8 @@ test("desktop shell exposes direct task navigation and the command palette", asy
     await expect(page.getByRole("navigation", { name: "Breadcrumb" }).getByText("Overview", { exact: true })).toBeVisible();
   }
 
-  // The sidebar groups its destinations and opens only the group holding the
-  // current route, so reaching another section costs one disclosure click.
-  // Assert that contract rather than a flat list: every group is present as a
-  // header, and expanding it reveals the destinations it owns. (This assertion
-  // was written against the older flat sidebar and had been failing silently
-  // since the grouped one landed — nothing ran the browser suite.)
+  // Groups start expanded for discoverability and remain collapsible. Every
+  // destination stays reachable after an operator changes those disclosures.
   const primary = page.getByRole("navigation", { name: "Primary navigation" });
   const destinations: Array<[string, string[]]> = [
     ["Fleet", ["Hosts", "Engines", "Policies"]],
@@ -843,7 +839,7 @@ test("desktop shell exposes direct task navigation and the command palette", asy
   }
 
   await page.keyboard.press("Control+K");
-  await expect(page.getByPlaceholder("Type a command or search hosts, projects, skills, users…")).toBeVisible();
+  await expect(page.getByRole("combobox", { name: "Search fleet and commands" })).toBeVisible();
   await expect(page.getByText("Agent Portal", { exact: true })).toBeVisible();
 });
 
@@ -1308,6 +1304,170 @@ test("project peer views keep records dense, readable, and inspectable", async (
   await page.getByRole("button", { name: /todo\.updated/ }).click();
   await expect(page.getByText("Entity:", { exact: true })).toBeVisible();
   await expectNoSeriousAxeFindings(page);
+});
+
+/** Populated provider and fleet fixtures for the operational dashboard. */
+function controlFixture(path: string): Record<string, unknown> | undefined {
+  const now = new Date().toISOString();
+  switch (path) {
+    case "/admin/overview":
+      return {
+        totals: { hosts: 12 }, last_refresh: now,
+        versions: { cdx_version_available: "0.125.0", claude_version_available: "2.1.170", cdx_version_checked_at: now, claude_version_checked_at: now },
+        version_distribution: { codex: [{ version: "0.125.0", count: 9 }], claude: [{ version: "2.1.170", count: 8 }], install: { both: 6, codex_only: 3, claude_only: 2, neither: 1 } },
+      };
+    case "/admin/chatgpt/usage":
+      return { snapshot: { plan_type: "pro", fetched_at: now, primary_window: { used_percent: 42, limit_seconds: 604800 }, spark_window: { primary_window: { used_percent: 18, limit_seconds: 18000 } } } };
+    case "/admin/claude/usage":
+      return { snapshot: { source: "statusline", fetched_at: now, five_hour_used_percent: 27, seven_day_used_percent: 61 } };
+    case "/admin/chatgpt/usage/history":
+    case "/admin/claude/usage/history":
+      return { days: 60, series: [] };
+    case "/admin/runner":
+      return { runner: { configured: true, ready: true, detail: "Verification sidecar is available", engines: { codex: { state: "ok", last_check: now, last_ok: now }, claude: { state: "fail", last_check: now, last_error: "Canonical credentials need verification" } } } };
+    default:
+      return undefined;
+  }
+}
+
+test("control dashboard is accessible with both engines at desktop and mobile sizes", async ({ page }, info) => {
+  test.setTimeout(90_000);
+  await installFixtures(page, controlFixture);
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  for (const [width, scheme] of [[1440, "light"], [1440, "dark"], [768, "light"], [390, "light"], [390, "dark"]] as const) {
+    await page.emulateMedia({ colorScheme: scheme });
+    await page.setViewportSize({ width, height: 1000 });
+    await page.goto("/admin/dashboard");
+    await expect(page.getByRole("heading", { name: "Overview", level: 1 })).toBeVisible({ timeout: 15_000 });
+    const coverage = page.getByRole("region", { name: "Engine coverage" });
+    await expect(coverage.getByText("Both engines", { exact: true })).toBeVisible();
+    await expect(coverage.locator("dd").first()).toContainText("6");
+    await expect(page.getByRole("region", { name: "Claude verification" })).toContainText("Canonical credentials need verification");
+    await expect(page.getByRole("meter")).toHaveCount(4);
+    await expect.poll(() => page.evaluate(() => {
+      const main = document.querySelector("main")!;
+      return main.scrollWidth <= main.clientWidth && document.documentElement.scrollWidth <= innerWidth;
+    })).toBe(true);
+    await expectNoSeriousAxeFindings(page);
+    await page.screenshot({ path: info.outputPath(`dashboard-${width}-${scheme}.png`), fullPage: true });
+  }
+  expect(errors).toEqual([]);
+});
+
+test("control overview distinguishes unavailable, stale, and recovered snapshots", async ({ page }) => {
+  await installFixtures(page, controlFixture);
+  let failed = true;
+  await page.route("**/admin/overview", async (route) => route.fulfill({
+    status: failed ? 503 : 200, contentType: "application/json",
+    body: JSON.stringify(failed ? { status: "error", message: "Snapshot temporarily unavailable" } : controlFixture("/admin/overview")),
+  }));
+  await page.goto("/admin/dashboard");
+  await expect(page.getByText("Could not load fleet overview", { exact: true })).toBeVisible();
+  await expect(page.getByText("Fleet counts and releases are unavailable.", { exact: false })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Engine coverage" })).toContainText("unavailable");
+  failed = false;
+  await page.getByRole("button", { name: "Retry overview", exact: true }).click();
+  await expect(page.getByRole("region", { name: "Engine coverage" })).toContainText("Both engines");
+  failed = true;
+  await page.getByRole("button", { name: "Refresh overview", exact: true }).click();
+  await expect(page.getByText("Overview could not refresh", { exact: true })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Engine coverage" }).locator("dd").first()).toContainText("6");
+  failed = false;
+  await page.getByRole("button", { name: "Retry overview", exact: true }).click();
+  await expect(page.getByText("Overview could not refresh", { exact: true })).toHaveCount(0);
+});
+
+test("control usage preserves missing windows and bounds over-limit meter semantics", async ({ page }) => {
+  await installFixtures(page, (path) => {
+    if (path === "/admin/chatgpt/usage") return { snapshot: null };
+    if (path === "/admin/claude/usage") return { snapshot: { five_hour_used_percent: 108, seven_day_used_percent: null } };
+    return controlFixture(path);
+  });
+  await page.goto("/admin/dashboard");
+  await expect(page.getByText("No usage recorded yet", { exact: false })).toBeVisible();
+  await expect(page.getByRole("meter")).toHaveCount(1);
+  await expect(page.getByRole("meter")).toHaveAttribute("aria-valuenow", "100");
+  await expect(page.getByRole("meter")).toHaveAttribute("aria-valuetext", "108%");
+  await page.getByRole("button", { name: "View Claude usage history" }).click();
+  await expect(page.getByRole("dialog")).toContainText("No history points recorded yet.");
+});
+
+for (const engine of ["codex", "claude"] as const) {
+  test(`control ${engine} verification stays engine-scoped and prevents overlapping runs`, async ({ page }) => {
+    await installFixtures(page, controlFixture);
+    const label = engine === "codex" ? "Codex" : "Claude";
+    const other = engine === "codex" ? "Claude" : "Codex";
+    const endpoint = engine === "codex" ? "run" : "run-claude";
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    await page.route(`**/admin/runner/${endpoint}`, async (route) => {
+      expect(route.request().method()).toBe("POST");
+      await gate;
+      await route.fulfill({ contentType: "application/json", body: JSON.stringify({ status: "fail", engine, reason: `${label} credential rejected` }) });
+    });
+    await page.goto("/admin/dashboard");
+    await page.getByRole("button", { name: `Run ${label} runner verification` }).click();
+    await expect(page.getByRole("region", { name: `${label} verification` })).toContainText("Verifying…");
+    await expect(page.getByRole("button", { name: `Run ${other} runner verification` })).toBeDisabled();
+    release();
+    await expect(page.getByText(`${label} credential rejected`, { exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: `Run ${other} runner verification` })).toBeEnabled();
+  });
+}
+
+test("control defaults follow live updates while preserving an operator draft for either engine", async ({ page }) => {
+  let emit: ((data: string) => void) | undefined;
+  const defaults = {
+    codex: { engine: "codex", model: "gpt-6-astra", reasoning_effort: "medium", catalog: [{ model: "gpt-6-astra", persistent_efforts: ["medium", "high", "xhigh"], default_effort: "medium" }] },
+    claude: { engine: "claude", model: "claude-opus-4-1", reasoning_effort: "medium", catalog: [{ model: "claude-opus-4-1", persistent_efforts: ["medium", "high", "xhigh"], default_effort: "medium" }] },
+  };
+  await page.routeWebSocket("**/control-ws", (ws) => { emit = (data) => ws.send(data); });
+  await installFixtures(page, (path) => {
+    if (path === "/admin/ws/info") return { enabled: true, url: "ws://127.0.0.1:4173/control-ws" };
+    if (path === "/admin/model-defaults/codex") return defaults.codex;
+    if (path === "/admin/model-defaults/claude") return defaults.claude;
+  });
+  await page.goto("/admin/engines");
+  await expect.poll(() => Boolean(emit)).toBe(true);
+  for (const engine of ["codex", "claude"] as const) {
+    const section = page.locator(`#${engine}-model-defaults`);
+    const effort = page.locator(`#${engine}-fleet-reasoning-effort`);
+    await expect(effort).toContainText("medium");
+    defaults[engine].reasoning_effort = "high";
+    emit!(JSON.stringify({ type: "settings.changed", payload: {}, ts: new Date().toISOString() }));
+    await expect(effort).toContainText("high");
+    await effort.click();
+    await page.locator('[data-select-content][data-state="open"]').getByRole("option", { name: "medium", exact: true }).click();
+    await expect(section).toContainText("Unsaved changes");
+    defaults[engine].reasoning_effort = "xhigh";
+    emit!(JSON.stringify({ type: "settings.changed", payload: {}, ts: new Date().toISOString() }));
+    await expect(section).toContainText("Fleet defaults changed elsewhere");
+    await expect(effort).toContainText("medium");
+    // Returning to the old baseline must not hide a concurrent remote edit.
+    await effort.click();
+    await page.locator('[data-select-content][data-state="open"]').getByRole("option", { name: "high", exact: true }).click();
+    await expect(section).toContainText("Fleet defaults changed elsewhere");
+    await section.getByRole("button", { name: "Load latest defaults" }).click();
+    await expect(effort).toContainText("xhigh");
+    await expect(section.getByText("Unsaved changes", { exact: true })).toHaveCount(0);
+  }
+});
+
+test("control navigation keeps collapsed groups stable and highlights mobile account destinations", async ({ page }) => {
+  await page.goto("/admin/dashboard");
+  const primary = page.getByRole("navigation", { name: "Primary navigation" });
+  const fleet = primary.getByRole("button", { name: "Fleet", exact: true });
+  await expect(fleet).toHaveAttribute("data-state", "open");
+  await fleet.click();
+  await expect(fleet).toHaveAttribute("data-state", "closed");
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/admin/account/theme");
+  const menu = page.getByRole("button", { name: "Open navigation menu" });
+  await expect(menu).toHaveAttribute("aria-current", "true");
+  await menu.click();
+  await expect(page.getByRole("dialog").getByRole("link", { name: "Password", exact: true })).toBeVisible();
+  await expect(page.getByRole("dialog").getByRole("link", { name: "Appearance", exact: true })).toBeVisible();
 });
 
 test("Agent Messaging uses peer URL-backed operational views", async ({ page }) => {

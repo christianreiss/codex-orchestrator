@@ -44,6 +44,10 @@ describe("route registry", () => {
     assert.equal(isActive(item("activity"), "/logs/mcp"), true);
     assert.equal(isActive(item("activity"), "/logsx"), false);
     assert.equal(isActive(item("engines"), "/engines#claude-client"), false);
+    assert.equal(isActive(item("account"), "/account/password"), true);
+    assert.equal(isActive(item("account"), "/account/passkeys"), true);
+    assert.equal(isActive(item("account"), "/account/theme"), true);
+    assert.equal(isActive(item("account"), "/accounting"), false);
   });
 
   it("keeps exactly four frequent destinations in the mobile bar", () => {

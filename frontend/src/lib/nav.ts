@@ -90,7 +90,7 @@ const REGISTRY: NavDefinition[] = [
   },
   {
     id: "engines", group: "Fleet", route: "/engines", label: "Engines",
-    description: "Codex and Claude defaults", keywords: ["models", "versions", "quota", "claude"], icon: Settings,
+    description: "Codex and Claude defaults", keywords: ["models", "versions", "quota", "codex", "claude", "sync"], icon: Settings,
   },
   {
     id: "policies", group: "Fleet", route: "/policies", label: "Policies",
@@ -119,7 +119,7 @@ const REGISTRY: NavDefinition[] = [
   },
   {
     id: "instructions", group: "Knowledge", route: "/instructions", label: "Fleet Instructions",
-    description: "Shared AGENTS instructions", keywords: ["agents.md", "instructions", "guidance"], icon: FileText,
+    description: "Shared AGENTS.md and CLAUDE.md instructions", keywords: ["agents.md", "claude.md", "codex", "claude", "instructions", "guidance"], icon: FileText,
   },
   {
     id: "memories", group: "Knowledge", route: "/memories", label: "Memories",
@@ -156,6 +156,7 @@ const REGISTRY: NavDefinition[] = [
   {
     id: "account", group: "Utilities", route: "/account/password", label: "Account",
     description: "Password, passkeys, and appearance", keywords: ["password", "passkeys", "appearance"], icon: Users,
+    match: /^\/account(?:\/|$)/,
   },
 ];
 

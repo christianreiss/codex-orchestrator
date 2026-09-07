@@ -28,6 +28,39 @@ const env = {
   PUBLIC_BASE_URL: 'https://o.example',
 } as unknown as Parameters<typeof buildHostApiTestApp>[0]['env'];
 
+describe('host update policy across startup surfaces', () => {
+  it.each(['/auth', '/sync/status', '/sync/bootstrap'])('%s serves the effective host override for both engines', async (url) => {
+    for (const engine of ['codex', 'claude']) {
+      for (const override of [0, 1]) {
+        const db = createDbFake();
+        const apiKey = 'sk-startup-update-policy';
+        db.tables.set(hostsTable, [hostRow(apiKey, { engines: 'codex,claude', autoUpdateOverride: override })]);
+        db.tables.set(versionsTable, [
+          { name: 'auto_update_enabled', version: override === 1 ? '0' : '1' },
+          { name: 'runner_state', version: 'ok' },
+          { name: 'runner_state_claude', version: 'fail' },
+        ]);
+        const app = await buildHostApiTestApp({ db: db as never, env, keyring: makeKeyring() });
+        try {
+          const response = await app.inject({
+            method: 'POST', url,
+            headers: { authorization: `Bearer ${apiKey}` },
+            payload: { engine, include_auth: false },
+          });
+          expect(response.statusCode).toBe(200);
+          expect(response.json().versions).toMatchObject({
+            engine,
+            auto_update_enabled: override === 1,
+            runner_state: engine === 'claude' ? 'fail' : 'ok',
+          });
+        } finally {
+          await app.close();
+        }
+      }
+    }
+  });
+});
+
 function makeKeyring(): Keyring {
   return Keyring.fromEnv({
     ENCRYPTION_ACTIVE_KEY: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',

@@ -196,7 +196,7 @@ var ErrUserSettingsUnparseable = errors.New("user settings.json is not valid JSO
 func MergeSettings(userRaw []byte, partial map[string]any, ownedPaths []string, prev managedState) ([]byte, managedState, error) {
 	merged := map[string]any{}
 	if strings.TrimSpace(string(userRaw)) != "" {
-		if err := json.Unmarshal(userRaw, &merged); err != nil {
+		if err := json.Unmarshal(userRaw, &merged); err != nil || merged == nil {
 			return nil, prev, ErrUserSettingsUnparseable
 		}
 	}
@@ -286,10 +286,16 @@ func applyManagedSettingsResult(cs *orchestrator.ClaudeSettings, logger *slog.Lo
 		logger.Debug("claude_settings partial decode failed", "err", err)
 		return false, err
 	}
+	if partial == nil {
+		return false, errors.New("claude_settings partial must be a JSON object; refusing to remove managed settings")
+	}
+	path := settingsPath()
+	userRaw, readErr := os.ReadFile(path)
+	if readErr != nil && !os.IsNotExist(readErr) {
+		return false, fmt.Errorf("read user settings: %w", readErr)
+	}
 	mcpServers, ownedPaths := splitMcpOwned(partial, cs.OwnedPaths)
 	mcpChanged, mcpErr := applyUserMcpServersResult(mcpServers, logger)
-	path := settingsPath()
-	userRaw, _ := os.ReadFile(path)
 	merged, newState, err := MergeSettings(userRaw, partial, ownedPaths, loadManagedState())
 	if err != nil {
 		// Fail safe: leave the user's settings.json untouched this run.
@@ -309,19 +315,28 @@ func applyManagedSettingsResult(cs *orchestrator.ClaudeSettings, logger *slog.Lo
 			logger.Debug("merged settings write failed", "err", err)
 			return mcpChanged, errors.Join(mcpErr, err)
 		}
-		if home, herr := os.UserHomeDir(); herr == nil {
-			mirrorPath := filepath.Join(home, ".clx", "config", "settings.json")
-			mirrorMode := os.FileMode(0o600)
-			if fi, serr := os.Stat(mirrorPath); serr == nil {
-				mirrorMode = fi.Mode().Perm()
-			}
-			if err := atomicWrite(mirrorPath, merged, mirrorMode); err != nil {
-				logger.Debug("mirrored settings write failed", "err", err)
-				return true, errors.Join(mcpErr, err)
-			}
-		} else {
-			return true, errors.Join(mcpErr, herr)
+	}
+	// Reconcile the mirror independently: a previous mirror write can have
+	// failed after the primary was already updated, or the mirror was removed.
+	home, herr := os.UserHomeDir()
+	if herr != nil {
+		return changed || mcpChanged, errors.Join(mcpErr, herr)
+	}
+	mirrorPath := filepath.Join(home, ".clx", "config", "settings.json")
+	mirrorRaw, mirrorErr := os.ReadFile(mirrorPath)
+	if mirrorErr != nil && !os.IsNotExist(mirrorErr) {
+		return changed || mcpChanged, errors.Join(mcpErr, fmt.Errorf("read settings mirror: %w", mirrorErr))
+	}
+	if !bytesEqual(mirrorRaw, merged) {
+		mirrorMode := os.FileMode(0o600)
+		if fi, serr := os.Stat(mirrorPath); serr == nil {
+			mirrorMode = fi.Mode().Perm()
 		}
+		if err := atomicWrite(mirrorPath, merged, mirrorMode); err != nil {
+			logger.Debug("mirrored settings write failed", "err", err)
+			return changed || mcpChanged, errors.Join(mcpErr, err)
+		}
+		changed = true
 	}
 	if serr := saveManagedState(newState); serr != nil {
 		logger.Debug("managed-keys state write failed", "err", serr)

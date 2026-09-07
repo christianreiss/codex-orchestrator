@@ -191,6 +191,21 @@ describe("STATIC_COMMANDS", () => {
     assert.ok(labels.includes("Go to Agent Messaging"));
     assert.ok(labels.includes("Go to Agent Portal"));
   });
+
+  it("explains destinations and makes shared controls searchable for either engine", () => {
+    const engines = STATIC_COMMANDS.find((command) => command.id === "nav:/engines");
+    const instructions = STATIC_COMMANDS.find((command) => command.id === "nav:/instructions");
+    assert.ok(engines);
+    assert.ok(instructions);
+    for (const engine of ["codex", "claude"]) {
+      assert.ok(engines.keywords?.includes(engine));
+      assert.ok(instructions.keywords?.includes(engine));
+    }
+    assert.match(instructions.description ?? "", /AGENTS\.md.*CLAUDE\.md/);
+    for (const destination of NAV) {
+      assert.ok(STATIC_COMMANDS.find((command) => command.id === `nav:${destination.route}`)?.description);
+    }
+  });
 });
 
 describe("deep-link navigation commands", () => {

@@ -18,5 +18,6 @@ Contract guardrails:
   - `auth-retrieve.schema.json`, `auth-store.schema.json` — `auth-store.test.ts`
   - `sync-bootstrap.schema.json` — `sync-bootstrap.test.ts`
   - `sync-status.schema.json` — `sync-bootstrap.test.ts`
+  - `auth-retrieve.schema.json`, `auth-store.schema.json`, `sync-bootstrap.schema.json`, `sync-status.schema.json` — `claude-usage-snapshot.test.ts`
   - `versions.schema.json` — `versions.test.ts`
 - `api/test/unit/contract/contracts-doc-schema-assertions.test.ts` reads the list above and holds it both ways: every suite named there must exist under `api/test/integration/host-api/` and carry the `assertContract` call it is credited with, every schema in this directory must be listed, and every `assertContract` call site under `api/test/integration/` must be attributed to its file here — so a dropped call or a renamed suite cannot leave a schema documented as live-checked with nothing checking it.

@@ -1,11 +1,12 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { eq } from 'drizzle-orm';
 import { join, resolve } from 'node:path';
-import { hosts as hostsTable, logs as logsTable } from '../../db/schema.js';
+import { hosts as hostsTable, logs as logsTable, type Host } from '../../db/schema.js';
 import type { RouteContext } from '../index.js';
 import { ApiError, ValidationError } from '../../http/errors.js';
 import { nowIso } from '../../util/timestamp.js';
-import { parseEngine } from '../../util/engine.js';
+import { ENGINE_CODEX } from '../../util/engine.js';
+import { resolveRequestEngine } from '../../util/engine-resolution.js';
 import { resolveWrapperPlatform } from '../../util/wrapper-platform.js';
 import { wsPublisher } from '../../ws/publisher.js';
 
@@ -15,7 +16,7 @@ import { createInsecureWindowService } from '../../services/insecure-window.js';
 import { createHostSyncService } from '../../services/host-sync.js';
 import { SettingsService } from '../../services/settings.js';
 import {
-  applyHostClientVersionPin,
+  applyHostVersionPolicy,
   createVersionSnapshotService,
 } from '../../services/version-snapshot.js';
 import { isLegacyShellWrapperVersion } from '../../services/wrapper-transition.js';
@@ -49,11 +50,11 @@ export async function registerHostRoutes(app: FastifyInstance, ctx: RouteContext
     : resolve(import.meta.dirname, '..', '..', '..', '..', 'storage', 'wrapper', 'v2', 'bin');
   const binaries = createWrapperBinRegistry({ binRoot });
 
-  app.get('/versions', async () => {
+  app.get('/versions', async (req) => {
     if (await versions.flag('api_disabled', false)) {
       throw new ApiError('API disabled by administrator', { status: 503, code: 'api_disabled' });
     }
-    return versions.summary();
+    return versions.summary(resolveRequestEngine(req, undefined, { fallback: ENGINE_CODEX }));
   });
 
   // POST /host/users — record username/hostname combos for uninstall cleanup.
@@ -69,6 +70,7 @@ export async function registerHostRoutes(app: FastifyInstance, ctx: RouteContext
   // GET /host/lane — current lane preference + effective lane.
   app.get('/host/lane', async (req) => {
     const host0 = await hostAuth.authenticate(req);
+    assertCodexLaneRequest(req, host0);
     const host = host0.secure === 1 ? host0 : await insecure.enforce(host0, 'host_lane_get');
     const lanePreference = normalizeLane(host.lanePreference);
     return {
@@ -82,6 +84,7 @@ export async function registerHostRoutes(app: FastifyInstance, ctx: RouteContext
   // POST /host/lane — set lane preference.
   app.post('/host/lane', async (req) => {
     const host0 = await hostAuth.authenticate(req);
+    assertCodexLaneRequest(req, host0);
     const host = host0.secure === 1 ? host0 : await insecure.enforce(host0, 'host_lane_set');
     const body = (req.body && typeof req.body === 'object' ? req.body : null) as Record<string, unknown> | null;
     if (!body || !('lane' in body)) throw new ValidationError('lane is required (set null to clear)', { param: 'lane' });
@@ -116,7 +119,7 @@ export async function registerHostRoutes(app: FastifyInstance, ctx: RouteContext
   app.post('/cron/check', async (req) => {
     const host = await hostAuth.authenticate(req);
     const body = (req.body && typeof req.body === 'object' ? req.body : {}) as Record<string, unknown>;
-    const engine = parseEngine(body.engine);
+    const engine = resolveRequestEngine(req, body, { legacyUserAgentInference: true, fallback: ENGINE_CODEX });
     assertHostEngineEnabled(host, engine);
     const submittedClient = typeof body.client_version === 'string' ? body.client_version : null;
     const submittedWrapper = typeof body.wrapper_version === 'string' ? body.wrapper_version : null;
@@ -127,7 +130,7 @@ export async function registerHostRoutes(app: FastifyInstance, ctx: RouteContext
     const probe = body.probe === true;
     const requestedPlatform = resolveWrapperPlatform(req.headers);
     const baseUrl = resolvePublicBaseUrl(req, ctx.env.PUBLIC_BASE_URL);
-    const summary = applyHostClientVersionPin(
+    const summary = applyHostVersionPolicy(
       await projectWrapperVersionSnapshot({
         snapshot: await versions.summary(engine),
         engine,
@@ -215,7 +218,7 @@ export async function registerHostRoutes(app: FastifyInstance, ctx: RouteContext
     if (!clientVersion && !wrapperVersion) {
       throw new ValidationError('client_version or wrapper_version is required');
     }
-    const engine = parseEngine(body.engine);
+    const engine = resolveRequestEngine(req, body, { legacyUserAgentInference: true, fallback: ENGINE_CODEX });
     assertHostEngineEnabled(host, engine);
     const patch =
       engine === 'claude'
@@ -233,15 +236,25 @@ export async function registerHostRoutes(app: FastifyInstance, ctx: RouteContext
     await ctx.db.insert(logsTable).values({
       hostId: host.id,
       action: 'cron.update_reported',
-      details: JSON.stringify({ client: { reported: clientVersion }, wrapper: { reported: wrapperVersion } }),
+      details: JSON.stringify({ engine, client: { reported: clientVersion }, wrapper: { reported: wrapperVersion } }),
       createdAt: nowIso(),
     });
+    wsPublisher.publish('host.updated', { id: host.id, fqdn: host.fqdn });
     return { recorded: true };
   });
 
   // /agents/retrieve and /config/retrieve are owned by the projects-client
   // worktree (Phase 2.6) via its host-agents service. Registration moved
   // there to avoid Fastify duplicate-route errors at boot.
+}
+
+function assertCodexLaneRequest(req: FastifyRequest, host: Host): void {
+  const body = req.body && typeof req.body === 'object' ? req.body as Record<string, unknown> : undefined;
+  const engine = resolveRequestEngine(req, body, { legacyUserAgentInference: true, fallback: ENGINE_CODEX });
+  if (engine !== ENGINE_CODEX) {
+    throw new ValidationError('Quota lanes are supported only for engine "codex"', { param: 'engine' });
+  }
+  assertHostEngineEnabled(host, engine);
 }
 
 function headerString(value: string | string[] | undefined): string | undefined {

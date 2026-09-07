@@ -53,7 +53,8 @@
   <div
     class="relative h-2.5 w-full overflow-hidden rounded-full bg-muted"
     role="meter"
-    aria-valuenow={Math.round(clamped)}
+    aria-valuenow={Math.round(Math.min(100, clamped))}
+    aria-valuetext={valueLabel ?? `${Math.round(clamped)}% used`}
     aria-valuemin={0}
     aria-valuemax={100}
     aria-label={label ?? "usage"}

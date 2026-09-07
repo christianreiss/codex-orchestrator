@@ -3,6 +3,7 @@ package lifecycle
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -229,6 +230,8 @@ func TestMergeRefusesToClobberUnparseableUserSettings(t *testing.T) {
 		`{"a":1,}`,
 		"\xef\xbb\xbf{\"a\":1}", // BOM
 		"not json at all",
+		"null",
+		"[]",
 	} {
 		_, _, err := MergeSettings([]byte(bad), map[string]any{"model": "sonnet"}, []string{"model"}, emptyState())
 		if err == nil {
@@ -255,6 +258,77 @@ func TestApplyManagedSettingsLeavesUnparseableFileUntouched(t *testing.T) {
 	}
 	if !bytesEqual(readFile(t, settingsFile), original) {
 		t.Fatal("unparseable user settings.json MUST be left byte-identical")
+	}
+}
+
+func TestApplyManagedSettingsRepairsMirrorWithoutPrimaryChanges(t *testing.T) {
+	for _, stale := range []bool{false, true} {
+		t.Run(fmt.Sprint("stale=", stale), func(t *testing.T) {
+			home := t.TempDir()
+			t.Setenv("HOME", home)
+			cs := &orchestrator.ClaudeSettings{Partial: json.RawMessage(`{"model":"sonnet"}`), OwnedPaths: []string{"model"}}
+			if _, err := applyManagedSettingsResult(cs, slog.Default()); err != nil {
+				t.Fatal(err)
+			}
+			mirror := filepath.Join(home, ".clx", "config", "settings.json")
+			if stale {
+				if err := os.WriteFile(mirror, []byte(`{"model":"old"}`), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			} else if err := os.Remove(mirror); err != nil {
+				t.Fatal(err)
+			}
+			changed, err := applyManagedSettingsResult(cs, slog.Default())
+			if !changed || err != nil {
+				t.Fatalf("mirror repair = (%t, %v), want changed success", changed, err)
+			}
+			if !bytesEqual(readFile(t, settingsPath()), readFile(t, mirror)) {
+				t.Fatal("settings mirror did not converge with unchanged primary")
+			}
+			if changed, err := applyManagedSettingsResult(cs, slog.Default()); changed || err != nil {
+				t.Fatalf("converged sync = (%t, %v), want unchanged success", changed, err)
+			}
+		})
+	}
+}
+
+func TestApplyManagedSettingsPreservesUnreadableFile(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	path := settingsPath()
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	// A symlink loop produces a read error even when tests run as root;
+	// treating that as an absent file would replace the user's path.
+	if err := os.Symlink(path, path); err != nil {
+		t.Fatal(err)
+	}
+	cs := &orchestrator.ClaudeSettings{Partial: json.RawMessage(`{"model":"sonnet"}`), OwnedPaths: []string{"model"}}
+	if changed, err := applyManagedSettingsResult(cs, slog.Default()); changed || err == nil {
+		t.Fatalf("unreadable settings = (%t, %v), want unchanged error", changed, err)
+	}
+	if _, err := os.Readlink(path); err != nil {
+		t.Fatalf("unreadable settings path was overwritten: %v", err)
+	}
+	if _, err := os.Stat(managedStatePath()); !os.IsNotExist(err) {
+		t.Fatalf("failed read persisted ownership: %v", err)
+	}
+}
+
+func TestApplyManagedSettingsRejectsNullFleetPartial(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	cs := &orchestrator.ClaudeSettings{Partial: json.RawMessage(`{"model":"sonnet"}`), OwnedPaths: []string{"model"}}
+	if _, err := applyManagedSettingsResult(cs, slog.Default()); err != nil {
+		t.Fatal(err)
+	}
+	previous := readFile(t, settingsPath())
+	state := readFile(t, managedStatePath())
+	cs.Partial = json.RawMessage(`null`)
+	if changed, err := applyManagedSettingsResult(cs, slog.Default()); changed || err == nil {
+		t.Fatalf("null fleet partial = (%t, %v), want unchanged error", changed, err)
+	}
+	if !bytesEqual(previous, readFile(t, settingsPath())) || !bytesEqual(state, readFile(t, managedStatePath())) {
+		t.Fatal("malformed fleet partial changed settings or ownership")
 	}
 }
 

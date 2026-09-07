@@ -240,6 +240,13 @@ Implemented in `wrappers/cxx/internal/persona/claude/lifecycle/` as `lifecycle.R
    wrapper artifact. See [wrappers](/admin/manual/wrappers).
 
 8. **Check resource outcomes and print the responsive outcome-first boot card.**
+   cxx 0.8.0 shares its complete terminal renderer with Codex, using a violet
+   Claude accent. A verified native skills bundle supplies skills health without
+   a redundant list request; older servers retain the list fallback. Hidden
+   boot screens skip the version subprocess used only for presentation.
+   Stored Claude usage reports provide advisory 5h/weekly meters: zero is a
+   valid reading, missing percentages do not become bars, and stale/expired
+   readings are last-known context without forecasts or quota launch refusal.
    A successful unchanged skills/config check is green, a real local write gets
    the updated marker, failures warn, and deliberately skipped checks are dim.
    Applying bundled `claude_skills` contributes to the skills marker, not the
@@ -299,10 +306,12 @@ object, and parses `.claude.json` for the exact non-empty
 green only for HTTP 2xx; HTTP errors remain failures, and a request that never
 connected also fails the latency row instead of showing a green `-`.
 
-The boot context mirrors runtime precedence: a signed
-`claude_model_override` wins over inherited `ANTHROPIC_MODEL`; the environment
-is only the fallback when the signed override is absent. Response/local
-`model` and `effortLevel` values then fill fields still unset. The shared
+The boot context mirrors native launch selections: explicit `--model` wins
+over signed `claude_model_override`, inherited `ANTHROPIC_MODEL`, and local
+defaults. Claude has no `-m` alias. Explicit `--effort` overrides settings;
+a valid inherited `CLAUDE_CODE_EFFORT_LEVEL` has native precedence, with
+`auto`/`unset` clearing the hint. Native `--` protects literal prompt text.
+Response/local values fill fields still unset. The shared
 `ACTIVITY` section uses the API's historical `sessions` compatibility object:
 `local procs` is the same-UID `clx` wrapper process count, `hosts 30m` is distinct
 hosts with an `agents.retrieve` event in the prior 30 minutes, and `syncs UTC

@@ -16,6 +16,7 @@ import (
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/claude"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/ipc"
 )
 
 // TestSyncOnlyRejectsSkipAuthSync pins the one combination that would otherwise
@@ -58,6 +59,11 @@ func syncOnlyHost(t *testing.T, extra string) (*config.Config, string) {
 	}
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/skills" {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, `{"skills":[]}`)
+			return
+		}
 		if r.URL.Path != "/sync/bootstrap" {
 			http.NotFound(w, r)
 			return
@@ -71,6 +77,46 @@ func syncOnlyHost(t *testing.T, extra string) (*config.Config, string) {
 		Orchestrator: config.Orchestrator{BaseURL: server.URL, APIKey: "test-key"},
 		Host:         config.Host{Secure: true},
 	}, home
+}
+
+func TestSyncOnlyFailsWhenManagedWriteFails(t *testing.T) {
+	cfg, home := syncOnlyHost(t, "")
+	if err := os.Mkdir(filepath.Join(home, ".claude", "CLAUDE.md"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	exit, err := Run(context.Background(), Options{Config: cfg, SyncOnly: true, Headless: true, SkipBoot: true, Logger: slog.New(slog.NewTextHandler(io.Discard, nil))})
+	if exit != 1 || err == nil || !strings.Contains(err.Error(), "managed sync incomplete") {
+		t.Fatalf("failed policy write reported sync success: exit=%d err=%v", exit, err)
+	}
+}
+
+func TestSyncOnlyFailsWhenManagedWritesArePaused(t *testing.T) {
+	cfg, home := syncOnlyHost(t, "")
+	lock, err := ipc.Acquire("clx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lock.Release()
+	exit, err := Run(context.Background(), Options{Config: cfg, SyncOnly: true, Headless: true, SkipBoot: true, Logger: slog.New(slog.NewTextHandler(io.Discard, nil))})
+	if exit != 1 || err == nil || !strings.Contains(err.Error(), "paused") {
+		t.Fatalf("paused sync reported success: exit=%d err=%v", exit, err)
+	}
+	if _, err := os.Stat(filepath.Join(home, ".claude", "CLAUDE.md")); !os.IsNotExist(err) {
+		t.Fatalf("paused sync wrote managed content: %v", err)
+	}
+}
+
+func TestSyncOnlyFailsOnOfflineFallback(t *testing.T) {
+	cfg, _ := syncOnlyHost(t, "")
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "temporarily unavailable", http.StatusBadGateway)
+	}))
+	defer server.Close()
+	cfg.Orchestrator.BaseURL = server.URL
+	exit, err := Run(context.Background(), Options{Config: cfg, SyncOnly: true, Headless: true, SkipBoot: true, Logger: slog.New(slog.NewTextHandler(io.Discard, nil))})
+	if exit != 1 || err == nil || !strings.Contains(err.Error(), "managed sync incomplete") {
+		t.Fatalf("offline fallback reported sync success: exit=%d err=%v", exit, err)
+	}
 }
 
 // TestSyncOnlyWritesManagedContentAndStopsBeforeLaunch is the whole point of

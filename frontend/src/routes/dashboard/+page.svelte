@@ -16,6 +16,8 @@
   import { Button } from "$lib/components/ui/button";
   import { base } from "$app/paths";
   import OnboardingCard from "./OnboardingCard.svelte";
+  import FleetCoverage from "./FleetCoverage.svelte";
+  import RefreshCw from "@lucide/svelte/icons/refresh-cw";
 
   const overview = overviewQuery();
 
@@ -23,7 +25,7 @@
   const stats = $derived.by(() => {
     const data = $overview.data;
     if (!data) return null;
-    const hosts = data.totals?.hosts ?? 0;
+    const hosts = data.totals?.hosts ?? null;
     const lastRefresh = data.last_refresh ?? null;
     return { hosts, lastRefresh };
   });
@@ -82,6 +84,9 @@
   subtitle="Fleet health, upstream releases, provider usage, and runner readiness at a glance."
 >
   {#snippet actions()}
+    <Button variant="outline" onclick={() => $overview.refetch()} disabled={$overview.isFetching}>
+      <RefreshCw class="h-4 w-4 {$overview.isFetching ? 'animate-spin' : ''}" /> Refresh overview
+    </Button>
     <Button variant="outline" href={`${base}/logs/events`}>
       <Activity class="h-4 w-4" /> Activity
     </Button>
@@ -93,11 +98,22 @@
 
 <div class="flex flex-col gap-6">
   <OnboardingCard />
+  {#if $overview.isError}
+    <Alert variant={$overview.data ? "warning" : "destructive"}>
+      <AlertTriangle class="h-4 w-4" />
+      <AlertTitle>{$overview.data ? "Overview could not refresh" : "Could not load fleet overview"}</AlertTitle>
+      <AlertDescription>
+        {$overview.data ? "Showing the last received snapshot. " : "Fleet counts and releases are unavailable. "}
+        {$overview.error?.message}
+        <Button variant="outline" size="sm" class="ml-2 mt-2" onclick={() => $overview.refetch()} disabled={$overview.isFetching}>Retry overview</Button>
+      </AlertDescription>
+    </Alert>
+  {/if}
   <!-- Fleet + latest-version stat cards -->
-  <div class="grid grid-cols-1 gap-3 sm:grid-cols-3">
+  <div class="grid grid-cols-1 gap-3 lg:grid-cols-3">
     <StatCard
       label="Hosts"
-      value={stats?.hosts ?? 0}
+      value={stats?.hosts ?? "—"}
       hint={refreshHint}
       loading={$overview.isPending}
     >
@@ -152,10 +168,12 @@
   <!-- Alerts row -->
   <DashboardAlerts />
 
+  <FleetCoverage distribution={$overview.data?.version_distribution} loading={$overview.isPending} />
+
   <!-- Usage + runner cards -->
-  <div class="grid grid-cols-1 gap-6 lg:grid-cols-2 xl:grid-cols-3">
+  <div class="grid grid-cols-1 gap-4 xl:grid-cols-2">
     <ChatGptUsageCard />
     <ClaudeUsageCard />
-    <RunnerCard />
   </div>
+  <RunnerCard />
 </div>

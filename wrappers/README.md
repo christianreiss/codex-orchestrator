@@ -11,6 +11,8 @@ Layout:
 - `cxx/internal/app/{codex,claude}` — compatibility CLI personas.
 - `cxx/internal/{config,cron,ipc,ipv4,layout,log,signing,uninstall,update}` — shared host primitives.
 - `cxx/internal/persona/{codex,claude}` — intentionally different engine lifecycle behavior.
+- `cxx/internal/terminalui` — shared terminal layout, semantic states, width handling,
+  and sanitization; persona UI adapters supply engine identity and supported data.
 - `schemas/host-config-v1.json` — JSON Schema for the per-host config blob.
 - `testdata/` — golden baked configs and their detached signatures, asserted
   byte-for-byte by the TypeScript baker test and loaded for real by
@@ -26,6 +28,7 @@ make publish-release # explicitly publish the staged VERSION to the served store
 
 make cxx-traced   # opt-in OpenTelemetry build -> wrappers/bin/cxx-traced
 make test-traced  # vet + test under -tags cxx_otel
+make test-terminal # production renderers in real PTYs and redirected output
 ```
 
 OpenTelemetry is behind the `cxx_otel` build tag, and `all`, `release` and the CI
@@ -48,3 +51,19 @@ make release PUBLIC_KEY_FILE=/path/to/installation-signing.ed25519.pub
 ```
 
 See `docs/wrapper-v2-architecture.md`.
+
+For visual review without contacting a fleet or reading credentials:
+
+```
+make terminal-preview
+bin/terminal-preview -engine codex -scene startup
+bin/terminal-preview -engine claude -scene attention
+python3 scripts/check-terminal-ui.py --binary bin/terminal-preview --output /tmp/cxx-terminal-review
+```
+
+Open `/tmp/cxx-terminal-review/index.html` for a standalone review gallery with
+engine pairs and width/scene selectors. The driver uses deterministic sample data
+through the production renderers; it is not shipped as a `cxx` subcommand.
+The matrix checks both engines at 20, 39, 40, 48, 64, 80, and 120 columns, plus
+`NO_COLOR`, dumb terminals, ASCII locales, explicit minimal mode, and pipes.
+ANSI/text captures and a manifest accompany the gallery for regressions.

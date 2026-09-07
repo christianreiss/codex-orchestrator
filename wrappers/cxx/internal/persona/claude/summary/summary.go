@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/claude"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
@@ -22,9 +23,13 @@ type Inputs struct {
 	SkillsSync     ResourceSync
 	ConfigSync     ResourceSync
 	AuthSynced     bool
+	LaunchArgs     []string // actual native argv, after wrapper flag parsing
 	// StatusOnly suppresses resource-sync markers because `clx status` probes
 	// /auth only and must not present unprobed skills/config as healthy.
 	StatusOnly bool
+	// SkipVersionProbe avoids spawning the native CLI for an unrendered screen.
+	// Quota and auth decisions are still derived from the supplied response.
+	SkipVersionProbe bool
 	// BypassPermissions mirrors --dangerously-skip-permissions for this run;
 	// lights the boot-screen warning badge only, never persisted.
 	BypassPermissions bool
@@ -51,7 +56,10 @@ func Build(ctx context.Context, in Inputs) ui.ScreenInput {
 	cfg := in.Config
 	auth := in.Auth
 
-	claudeVer := claude.Version(ctx)
+	claudeVer := "unknown"
+	if !in.SkipVersionProbe {
+		claudeVer = claude.Version(ctx)
+	}
 	claudeTone := ui.ToneOK
 	if unknownVersion(claudeVer) {
 		claudeTone = ui.ToneWarn
@@ -92,9 +100,13 @@ func Build(ctx context.Context, in Inputs) ui.ScreenInput {
 
 	var apiCalls int64
 	var dots []ui.HealthDot
+	var quotaRows []ui.QuotaRow
+	var quotaWarning string
 	result := "Ready — all systems operational."
 	if in.StatusOnly {
 		result = "API and auth checks passed."
+	} else if !in.SkillsSync.Checked || !in.ConfigSync.Checked {
+		result = "Ready to launch; managed resources not checked."
 	}
 	resultTone := ui.ToneOK
 
@@ -123,6 +135,7 @@ func Build(ctx context.Context, in Inputs) ui.ScreenInput {
 			}
 		}
 		dots = buildDots(auth, in)
+		quotaRows, quotaWarning = buildQuota(auth, time.Now())
 	} else {
 		dots = []ui.HealthDot{
 			{Name: "api", Tone: ui.ToneFail},
@@ -140,6 +153,17 @@ func Build(ctx context.Context, in Inputs) ui.ScreenInput {
 			effort = localEffort
 		}
 	}
+	if launchModel, launchEffort := claude.LaunchPreferences(in.LaunchArgs); launchModel != "" || launchEffort != "" {
+		if launchModel != "" {
+			model = launchModel
+		}
+		if launchEffort != "" {
+			effort = launchEffort
+		}
+	}
+	if envEffort, present := inheritedClaudeEffort(); present {
+		effort = envEffort
+	}
 
 	if in.AuthErr != nil {
 		result = fmt.Sprintf("Sync failed: %s.", in.AuthErr.Error())
@@ -156,6 +180,16 @@ func Build(ctx context.Context, in Inputs) ui.ScreenInput {
 		result = "Attention — resource sync incomplete; launch continuing."
 		resultTone = ui.ToneWarn
 	}
+	if quotaWarning != "" && resultTone == ui.ToneOK {
+		result = "Claude quota report needs attention; launch remains available."
+		resultTone = ui.ToneWarn
+	}
+	for _, row := range quotaRows {
+		if row.ProjectionTone == ui.ToneWarn && resultTone == ui.ToneOK {
+			result = "Claude quota forecast crosses the configured limit; advisory only."
+			resultTone = ui.ToneWarn
+		}
+	}
 	worst := worstTone(dots, claudeTone, wrapperTone)
 	switch worst {
 	case ui.ToneFail:
@@ -170,7 +204,11 @@ func Build(ctx context.Context, in Inputs) ui.ScreenInput {
 		}
 	}
 	if in.BypassPermissions && resultTone != ui.ToneFail {
-		result = "Ready with permission prompts bypassed for this run."
+		if resultTone == ui.ToneOK {
+			result = "Ready with permission prompts bypassed for this run."
+		} else {
+			result += " Permission prompts bypassed for this run."
+		}
 		resultTone = ui.ToneWarn
 	}
 
@@ -194,6 +232,8 @@ func Build(ctx context.Context, in Inputs) ui.ScreenInput {
 		Concurrent:        in.Concurrent,
 		ConcurrentNote:    in.ConcurrentNote,
 		Dots:              dots,
+		QuotaRows:         quotaRows,
+		QuotaWarn:         quotaWarning,
 		SessionRows:       sessionRows(in.Sessions),
 		ResultLabel:       result,
 		ResultTone:        resultTone,
@@ -248,13 +288,14 @@ func unknownVersion(version string) bool {
 }
 
 func buildDots(auth *orchestrator.AuthRetrieveResponse, in Inputs) []ui.HealthDot {
+	status := strings.ToLower(strings.TrimSpace(auth.Status))
 	apiTone := ui.ToneOK
-	if auth.Status == "" || auth.Status == "error" || auth.Status == "offline" {
+	if status == "" || status == "error" || status == "offline" {
 		apiTone = ui.ToneFail
 	}
 
 	authTone := ui.ToneOK
-	switch strings.ToLower(auth.Status) {
+	switch status {
 	case "valid", "ok", "current", "unchanged":
 		authTone = ui.ToneOK
 	case "outdated", "updated":
@@ -265,9 +306,9 @@ func buildDots(auth *orchestrator.AuthRetrieveResponse, in Inputs) []ui.HealthDo
 		}
 	case "missing", "upload_required":
 		authTone = ui.ToneWarn
-	case "disabled", "invalid", "insecure-denied":
+	case "disabled", "invalid", "insecure-denied", "insecure_denied":
 		authTone = ui.ToneFail
-	case "insecure":
+	case "insecure", "insecure_pending":
 		authTone = ui.ToneWarn
 	default:
 		authTone = ui.ToneFail
@@ -275,13 +316,21 @@ func buildDots(auth *orchestrator.AuthRetrieveResponse, in Inputs) []ui.HealthDo
 	// A live-verification failure overrides the digest-derived tone: the token
 	// the host would launch with does not authenticate, so the dot must read red
 	// even when the digest status alone looked green.
-	if strings.EqualFold(strings.TrimSpace(auth.VerificationState), "failed") {
+	switch strings.ToLower(strings.TrimSpace(auth.VerificationState)) {
+	case "failed":
+		authTone = ui.ToneFail
+	case "unknown", "pending", "stale":
+		if authTone == ui.ToneOK {
+			authTone = ui.ToneWarn
+		}
+	}
+	if in.AuthErr != nil {
 		authTone = ui.ToneFail
 	}
 
 	dots := []ui.HealthDot{
 		{Name: "api", Tone: apiTone},
-		{Name: "auth", Tone: authTone, Updated: in.AuthSynced},
+		{Name: "auth", Tone: authTone, Updated: in.AuthSynced && in.AuthErr == nil && authTone == ui.ToneOK},
 	}
 	if !in.StatusOnly {
 		dots = append(dots,

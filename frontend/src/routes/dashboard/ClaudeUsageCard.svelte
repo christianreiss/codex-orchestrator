@@ -46,7 +46,7 @@
   );
 
   const chartSeries = $derived(
-    ($history.data?.series ?? []).map((s) => ({
+    ($history.data?.series ?? []).filter((s) => s.points.length > 0).map((s) => ({
       label: s.label,
       data: s.points.map((p) => ({ x: p.ts, y: p.value })),
     })),
@@ -58,7 +58,7 @@
   }
 </script>
 
-<Card class="flex flex-col">
+<Card class="flex min-w-0 flex-col border-t-2 border-t-persona-claude">
   <CardHeader class="flex flex-row items-start justify-between gap-3 space-y-0">
     <div>
       <CardTitle>Claude usage</CardTitle>
@@ -75,9 +75,9 @@
         variant="ghost"
         size="sm"
         onclick={() => (historyOpen = true)}
-        disabled={!$history.data}
-        aria-label="View history"
-        title="View history"
+        disabled={$history.isPending}
+        aria-label="View Claude usage history"
+        title="View Claude usage history"
       >
         <LineChart class="h-4 w-4" />
         <span class="hidden sm:inline">History</span>
@@ -88,6 +88,7 @@
         onclick={handleRefresh}
         disabled={$usage.isFetching}
         aria-label="Refresh Claude usage"
+        title="Reload the latest host report; Claude Code supplies new usage while running"
       >
         <RefreshCw class="h-4 w-4 {$usage.isFetching ? 'animate-spin' : ''}" />
         <span class="hidden sm:inline">Refresh</span>
@@ -106,24 +107,40 @@
     {:else if $usage.isError && !snapshot}
       <Alert variant="destructive">
         <AlertTitle>Could not load Claude usage</AlertTitle>
-        <AlertDescription>{$usage.error?.message ?? "Unknown error"}</AlertDescription>
+        <AlertDescription>
+          {$usage.error?.message ?? "Unknown error"}
+          <Button variant="outline" size="sm" class="mt-2" onclick={() => $usage.refetch()} disabled={$usage.isFetching}>Retry Claude usage</Button>
+        </AlertDescription>
       </Alert>
     {:else if !snapshot}
       <div class="rounded-md border bg-muted/30 p-4 text-sm text-muted-foreground">
         No usage reported yet — run <span class="font-mono">clx</span> on a host to start reporting.
       </div>
     {:else}
+      {#if $usage.isError}
+        <Alert variant="warning">
+          <AlertTitle>Claude usage could not refresh</AlertTitle>
+          <AlertDescription>Showing the last received host report. <Button variant="outline" size="sm" class="mt-2" onclick={() => $usage.refetch()} disabled={$usage.isFetching}>Retry Claude usage</Button></AlertDescription>
+        </Alert>
+      {/if}
       <div class="space-y-3">
+        {#if fiveHourPercent !== null}
         <UsageMeter
           label="5-hour window"
           valueLabel={fiveHourPercent === null ? "—" : `${Math.round(fiveHourPercent)}%`}
           usedPercent={fiveHourPercent ?? 0}
         />
+        {/if}
+        {#if sevenDayPercent !== null}
         <UsageMeter
           label="Weekly window"
           valueLabel={sevenDayPercent === null ? "—" : `${Math.round(sevenDayPercent)}%`}
           usedPercent={sevenDayPercent ?? 0}
         />
+        {/if}
+        {#if fiveHourPercent === null && sevenDayPercent === null}
+          <p class="rounded-md border bg-muted/30 p-4 text-sm text-muted-foreground">No quota windows reported in the latest snapshot.</p>
+        {/if}
       </div>
 
       <div class="flex items-end justify-between gap-3 pt-1">
@@ -156,6 +173,7 @@
       <Alert variant="destructive">
         <AlertTitle>Failed to load history</AlertTitle>
         <AlertDescription>{$history.error?.message ?? "Unknown error"}</AlertDescription>
+        <Button variant="outline" size="sm" class="mt-2" onclick={() => $history.refetch()} disabled={$history.isFetching}>Retry history</Button>
       </Alert>
     {:else if chartSeries.length === 0}
       <p class="py-12 text-center text-sm text-muted-foreground">No history points recorded yet.</p>

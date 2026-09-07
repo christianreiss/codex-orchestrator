@@ -250,7 +250,7 @@ server bakes effective `CODEX_HOME/config.toml`.
 | `cron [install\|remove\|run]` / `--cron [install\|remove\|run]` | Forward to the host-wide `cxx cron` coordinator. It owns one optional schedule (`# cxx-managed-cron`, system fallback `/etc/cron.d/cxx-managed`), removes both historical persona schedules, validates each signed config's host/engine membership, and runs each enabled engine tick exactly once. Config wrapper metadata may legitimately differ during rolling refresh and is not a coordinator gate. The first upgraded legacy cron tick migrates itself to the one shared schedule. Privileged system install/remove discovers every actual owner represented in the standard cron spools. A strictly validated spool filename remains authoritative when the static wrapper's Go `os/user` lookup cannot resolve an NSS/SSSD-only account; config-owner/sudo/current/root safeguards remain lookup-validated. The coordinator snapshots each crontab, removes only lines ending in an exact cxx/cdx/clx managed marker, and restores every changed crontab if cross-user or legacy-system cleanup fails; install also removes its new system entry. The Codex tick reports the upstream CLI as a normalized semantic version even when `codex --version` prints a label such as `codex-cli 0.130.0`. Explicit minimal mode stays ASCII throughout. |
 | `--version` / `-V` / `--wrapper-version` / `-W` | Print version + commit + embedded pubkey status |
 | `update` / `--update` | Self-update now (verifies SHA256 before swapping), then re-exec the freshly installed binary into `sync` so managed content is written by the new code rather than the one being replaced. `cdx update` re-execs into `cdx sync`; `cxx update` re-execs into `cxx sync`, which covers every installed engine. The restart uses one unit of restart depth and the second pass never re-enters `update`. If the exec itself fails, the new binary is installed but content is unsynced and the wrapper says so and exits 1 |
-| `sync` | Write fleet-managed `AGENTS.md`, `config.toml`, and the skills fingerprint without launching Codex and without touching the binary. Runs the same lock, FQDN guard, `POST /sync/bootstrap`, decision matrix, skills probe, and peer reconciliation an interactive run performs, then stops before the quota gate and the launch. Always headless: a host with no usable credential fails closed with the reason instead of opening a `codex login` wizard. Exit 0 on success, 1 on a refused host (same reason text as `run`). Self-update is deliberately suppressed here, so a sync can never install and re-exec from inside itself. On an insecure host the run's own auth session still purges credentials on exit, exactly as `run` does |
+| `sync` | Write fleet-managed `AGENTS.md`, `config.toml`, and the skills fingerprint without launching Codex and without touching the binary. Runs the same lock, FQDN guard, `POST /sync/bootstrap`, decision matrix, skills probe, and peer reconciliation an interactive run performs, then stops before the quota gate and the launch. Always headless: a host with no usable credential fails closed with the reason instead of opening a `codex login` wizard. Exit 0 only after online managed sync succeeds; exit 1 on a refused host, failed managed-file write/probe, offline fallback, or a concurrent-run pause (with the reason printed). Normal interactive cached-auth fallback is unchanged. Self-update is deliberately suppressed here, so a sync can never install and re-exec from inside itself. On an insecure host the run's own auth session still purges credentials on exit, exactly as `run` does |
 | `uninstall` / `--uninstall` | Take the effective-`CODEX_HOME` exclusive auth-maintenance lease, remove Codex-local credentials/state, and request engine-scoped server deletion. An authoritative response with Claude remaining removes only `cdx` and retains `cxx`, `clx`, and the shared cron; confirmed last-engine removal deletes both aliases, `cxx`, and the cron. Offline, non-2xx, or malformed responses preserve every shared artifact. Refuses while another cdx auth session is active and on multi-user hosts without sudo. |
 
 ### Wrapper-only flags
@@ -276,6 +276,12 @@ same signature check as any other untrusted payload.
 
 ### Terminal presentation
 
+From **cxx 0.8.0**, both personas use the same `internal/terminalui` renderer.
+Codex retains its amber identity (pink when selected by the managed theme);
+Claude uses violet. Layout, spacing, semantic state markers, help, diagnostics,
+updates, and session results share one implementation. Engine-specific controls
+remain engine-specific: Codex lanes/profiles do not appear in Claude help.
+
 Interactive terminals at least 40 columns wide receive the responsive CDX card:
 outcome and context first, versions and health next, then quota/activity and the
 result. Status is never colour-only (`✓`, `!`, `×`, and update arrows remain
@@ -289,6 +295,10 @@ startup, and the exit footer rather than depending on terminal auto-detection.
 For upstream help passthrough, the wrapper consumes that presentation flag and
 executes Codex with only its supported help argv.
 
+Suppressed boot screens skip the native CLI version subprocess used solely for
+presentation. Auth, quota, config, skills, and update policy still run; visible
+status/boot reports continue to inspect the installed version.
+
 The context model/effort first reflects an explicit launch model/profile and
 the signed/host overrides. Any field still absent falls back to the parsed
 top-level `model` / `model_reasoning_effort` in effective `CODEX_HOME/config.toml`, so the
@@ -300,6 +310,13 @@ Quota rows derive their window labels from the provider's `limit_seconds`
 (`5h`, `weekly`, or the corresponding day/hour/minute duration), preserve a
 real `0%` reading, and make warning/block copy say `reset unknown` when the
 provider supplies no reset.
+Cached reset countdowns age from `fetched_at`, with an absolute `reset_at`
+taking precedence. A known expired or inconsistent window becomes dim
+last-known context and cannot block from its stored percentage or ambiguous
+provider flags; another current window can still enforce its limit. Forecast
+burn rates use the observation time, while time-to-limit counts down from now.
+Older responses without `fetched_at` retain their existing compatibility path;
+malformed timestamps and clocks more than one minute in the future are untrusted.
 Forecast text wraps onto a continuation line instead of being clipped. A
 forecast that approaches or crosses the configured threshold raises an
 advisory attention outcome but is not current exhaustion and never hard-blocks

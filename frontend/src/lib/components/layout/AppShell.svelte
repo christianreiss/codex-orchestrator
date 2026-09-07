@@ -16,9 +16,9 @@
     <main
       id="main-content"
       tabindex="-1"
-      class="app-main min-h-0 flex-1 overflow-y-auto px-4 pb-28 pt-5 focus:outline-none sm:px-6 md:px-8 md:pb-8"
+      class="app-main min-h-0 flex-1 overflow-y-auto px-4 pt-6 focus:outline-none sm:px-6 md:px-8 md:pt-8"
     >
-      <div class="w-full">
+      <div class="mx-auto w-full max-w-[1600px]">
         {@render children?.()}
       </div>
     </main>

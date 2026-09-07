@@ -16,13 +16,13 @@
 
 <header
   class={cn(
-    "mb-5 flex flex-col gap-3 border-b pb-4 sm:flex-row sm:items-start sm:justify-between",
+    "mb-6 flex flex-col gap-4 border-b pb-5 lg:flex-row lg:items-start lg:justify-between",
     className,
   )}
 >
   <SectionHead {title} {subtitle} {eyebrow} {headingLevel} class="min-w-0 flex-1" />
   {#if actions}
-    <div class="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:flex-nowrap">
+    <div class="flex w-full shrink-0 flex-wrap items-center gap-2 lg:w-auto lg:justify-end">
       {@render actions()}
     </div>
   {/if}

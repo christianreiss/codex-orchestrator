@@ -2,6 +2,7 @@ import { eq } from 'drizzle-orm';
 import { describe, expect, it } from 'vitest';
 import {
   applyHostClientVersionPin,
+  applyHostVersionPolicy,
   createVersionSnapshotService,
 } from '../../../src/services/version-snapshot.js';
 
@@ -33,6 +34,21 @@ function makeDb(rows: Array<{ name: string; version: string }>) {
 }
 
 describe('version-snapshot', () => {
+  it.each(['codex', 'claude'] as const)('reads only %s runner telemetry', async (engine) => {
+    const db = makeDb([
+      { name: 'runner_state', version: 'ok' },
+      { name: 'runner_state_claude', version: 'fail' },
+    ]);
+    const service = createVersionSnapshotService({ db, installationId: null });
+    expect((await service.summary(engine)).runner_state).toBe(engine === 'claude' ? 'fail' : 'ok');
+  });
+
+  it('does not report Codex runner success for an unprobed Claude runner', async () => {
+    const db = makeDb([{ name: 'runner_state', version: 'ok' }]);
+    const service = createVersionSnapshotService({ db, installationId: null });
+    expect((await service.summary('claude')).runner_state).toBeNull();
+  });
+
   it('returns engine-suffixed values when present', async () => {
     const db = makeDb([
       { name: 'client_version_codex', version: '0.42.0' },
@@ -50,16 +66,31 @@ describe('version-snapshot', () => {
     expect(s.engine).toBe('codex');
   });
 
-  it('falls back to unsuffixed values when engine-specific are missing', async () => {
+  it('keeps legacy Codex client targets isolated while sharing wrapper metadata', async () => {
     const db = makeDb([
       { name: 'client_version', version: '0.9.9' },
       { name: 'wrapper_version', version: '0.5.0' },
     ]);
     const svc = createVersionSnapshotService({ db, installationId: null });
-    const s = await svc.summary('claude');
-    expect(s.client_version).toBe('0.9.9');
-    expect(s.wrapper_version).toBe('0.5.0');
-    expect(s.engine).toBe('claude');
+    const codex = await svc.summary('codex');
+    const claude = await svc.summary('claude');
+    expect(codex.client_version).toBe('0.9.9');
+    expect(claude.client_version).toBeNull();
+    expect(claude.wrapper_version).toBe('0.5.0');
+    expect(claude.engine).toBe('claude');
+  });
+
+  it('honors a Claude exact lock without inheriting an unrelated legacy target', async () => {
+    const db = makeDb([
+      { name: 'client_version', version: '0.137.0' },
+      { name: 'client_version_lock_claude', version: '2.1.200' },
+    ]);
+    const svc = createVersionSnapshotService({ db, installationId: null });
+    expect(await svc.summary('claude')).toMatchObject({
+      client_version: null,
+      client_version_override: '2.1.200',
+      client_version_enforce_exact: true,
+    });
   });
 
   it('resolves latest codex alias from cached release metadata', async () => {
@@ -141,6 +172,30 @@ describe('version-snapshot', () => {
     ]);
     const svc = createVersionSnapshotService({ db, installationId: null });
     expect((await svc.summary('claude')).client_version_fetched_at).toBeNull();
+  });
+});
+
+describe('applyHostVersionPolicy', () => {
+  it.each(['codex', 'claude'] as const)('applies host enable/disable/inherit for %s without losing its version pin', (engine) => {
+    for (const fleetEnabled of [true, false]) {
+      for (const override of [null, undefined, 0, 1]) {
+        const snapshot = {
+          auto_update_enabled: fleetEnabled,
+          client_version_override: null,
+          client_version_enforce_exact: false,
+        } as Parameters<typeof applyHostVersionPolicy>[0];
+        const result = applyHostVersionPolicy(snapshot, {
+          autoUpdateOverride: override,
+          clientVersionOverride: '0.132.0',
+          claudeClientVersionOverride: '2.1.200',
+        }, engine);
+        expect(result.auto_update_enabled).toBe(override == null ? fleetEnabled : override === 1);
+        expect(result.client_version_override).toBe(engine === 'claude' ? '2.1.200' : '0.132.0');
+        expect(result.client_version_enforce_exact).toBe(true);
+        expect(snapshot.auto_update_enabled).toBe(fleetEnabled);
+        expect(snapshot.client_version_override).toBeNull();
+      }
+    }
   });
 });
 

@@ -22,20 +22,31 @@ import { HostClaudeArtifactsService } from '../../services/host-claude-artifacts
 import { normalizeKind } from '../../services/claude-frontmatter.js';
 import { McpMemoriesService } from '../../services/mcp-memories.js';
 import { SharedMemoriesService } from '../../services/shared-memories.js';
-import { ENGINE_CLAUDE, ENGINE_CODEX, isEngine, parseEngine, type Engine } from '../../util/engine.js';
+import { ENGINE_CLAUDE, ENGINE_CODEX, parseEngine, type Engine } from '../../util/engine.js';
+import { resolveRequestEngine } from '../../util/engine-resolution.js';
 import { UnauthorizedError, ValidationError } from '../../http/errors.js';
 import { assertHostEngineEnabled } from '../../services/host-engine-policy.js';
 
 /**
- * Routing engine for a client request. An absent value is Codex for backward
- * compatibility with wrappers that never sent one; a *present* value that is
- * not an engine is rejected rather than quietly becoming Codex.
+ * Resolve body, query and header together, matching the startup sync surface.
+ * Claude-native routes have an unambiguous engine even without a hint.
  */
-function extractEngine(input: unknown): Engine {
-  if (typeof input === 'object' && input !== null && !Array.isArray(input)) {
-    return parseEngine((input as Record<string, unknown>)['engine'], ENGINE_CODEX);
+function extractEngine(req: FastifyRequest, fallback: Engine = ENGINE_CODEX): Engine {
+  const payload = typeof req.body === 'object' && req.body !== null && !Array.isArray(req.body)
+    ? req.body as Record<string, unknown>
+    : undefined;
+  return resolveRequestEngine(req, payload, {
+    fallback,
+    legacyUserAgentInference: fallback === ENGINE_CODEX,
+  });
+}
+
+function requireClaudeHost(req: FastifyRequest) {
+  const engine = extractEngine(req, ENGINE_CLAUDE);
+  if (engine !== ENGINE_CLAUDE) {
+    throw new ValidationError('Claude artifacts require engine "claude"', { param: 'engine' });
   }
-  return ENGINE_CODEX;
+  return requireEngineHost(req, engine);
 }
 
 /**
@@ -238,19 +249,19 @@ export async function registerProjectsClientRoutes(app: FastifyInstance, ctx: Ro
 
   // ─── Skills ───────────────────────────────────────────────────────────
   app.get('/skills', { preHandler: auth }, async (req) => {
-    const engine = extractEngine(req.query);
+    const engine = extractEngine(req);
     return ok(await skills.listSkills(requireEngineHost(req, engine), engine));
   });
   app.post('/skills/retrieve', { preHandler: auth }, async (req) => {
     const payload = (req.body as Record<string, unknown>) ?? {};
     const slug = String(payload['slug'] ?? payload['filename'] ?? '');
     const sha = typeof payload['sha256'] === 'string' ? (payload['sha256'] as string) : null;
-    const engine = extractEngine(payload);
+    const engine = extractEngine(req);
     return ok(await skills.retrieve(slug, sha, requireEngineHost(req, engine), engine));
   });
   app.post('/skills/store', { preHandler: auth }, async (req) => {
     const payload = (req.body as Record<string, unknown>) ?? {};
-    const engine = extractEngine(payload);
+    const engine = extractEngine(req);
     return ok(await skills.store(payload, requireEngineHost(req, engine)));
   });
 
@@ -258,14 +269,14 @@ export async function registerProjectsClientRoutes(app: FastifyInstance, ctx: Ro
   app.post('/agents/retrieve', { preHandler: auth }, async (req) => {
     const payload = (req.body as Record<string, unknown>) ?? {};
     const sha = typeof payload['sha256'] === 'string' ? (payload['sha256'] as string) : null;
-    const engine = extractEngine(payload);
+    const engine = extractEngine(req);
     const result = await agents.retrieve(sha, requireEngineHost(req, engine), engine);
     return ok({ ...result, engine });
   });
   app.post('/config/retrieve', { preHandler: auth }, async (req) => {
     const payload = (req.body as Record<string, unknown>) ?? {};
     const sha = typeof payload['sha256'] === 'string' ? (payload['sha256'] as string) : null;
-    const engine = extractEngine(payload);
+    const engine = extractEngine(req);
     const result = await agents.retrieveConfig(sha, requireEngineHost(req, engine), engine, {
       home: typeof payload['home'] === 'string' ? payload['home'] : null,
       username: typeof payload['username'] === 'string' ? payload['username'] : null,
@@ -276,15 +287,14 @@ export async function registerProjectsClientRoutes(app: FastifyInstance, ctx: Ro
   // ─── Claude artifacts (subagents / commands / output-styles) ──────────
   app.get('/claude/:kind', { preHandler: auth }, async (req) => {
     const kind = normalizeKind((req.params as { kind: string }).kind);
-    const engine = extractEngine(req.query);
-    return ok(await claudeArtifacts.list(kind, requireEngineHost(req, engine), engine));
+    return ok(await claudeArtifacts.list(kind, requireClaudeHost(req), ENGINE_CLAUDE));
   });
   app.post('/claude/:kind/retrieve', { preHandler: auth }, async (req) => {
     const kind = normalizeKind((req.params as { kind: string }).kind);
     const payload = (req.body as Record<string, unknown>) ?? {};
     const slug = String(payload['slug'] ?? payload['filename'] ?? '');
     const sha = typeof payload['sha256'] === 'string' ? (payload['sha256'] as string) : null;
-    return ok(await claudeArtifacts.retrieve(kind, slug, sha, requireEngineHost(req, ENGINE_CLAUDE)));
+    return ok(await claudeArtifacts.retrieve(kind, slug, sha, requireClaudeHost(req)));
   });
   // No host-originated store: Claude artifacts are admin-authored fleet-wide.
   // The host surface is read-only (list / retrieve / bundle).

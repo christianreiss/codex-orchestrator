@@ -1,0 +1,1 @@
+import{nt as e,wt as t}from"./CBPujJnS.js";import"./Q3Bpndka.js";function n(n){let r=t(n());return e(()=>{r.set(n())}),{subscribe:r.subscribe}}export{n as t};

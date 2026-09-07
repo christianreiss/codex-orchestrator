@@ -1,5 +1,21 @@
 # Wrapper bakery v2 — architecture
 
+## Terminal presentation
+
+`wrappers/cxx/internal/terminalui` is the shared renderer for both personas.
+Engine adapters retain the public persona input structures and command tables;
+the shared package owns layout, terminal capabilities, safe text, health, quota,
+doctor, help, update, approval, and exit rendering. Terminal width comes from the
+destination file descriptor, with portable output for redirected streams.
+Engine-specific policy remains in the lifecycle and summary packages.
+
+`make -C wrappers test-terminal` exercises production rendering in real PTYs,
+including narrow windows and degraded modes. The developer-only
+`cmd/terminal-preview` supplies fixed sample data without loading config or
+credentials; its gallery exporter records exact ANSI and plain-text output.
+
+## Bakery components
+
 The v2 bakery replaces the v1 "concatenate-bash-fragments + strtr placeholders"
 pipeline with:
 

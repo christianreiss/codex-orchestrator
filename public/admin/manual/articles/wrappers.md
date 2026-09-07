@@ -173,7 +173,9 @@ engine-specific deltas are called out in [clx](/admin/manual/clx):
    engine's wrapper + CLI on this host (see "Peer engine reconciliation"
    below). For cdx, a `QUOTA_HARD_FAIL=0` env override can also be checked
    here to bypass a hard ChatGPT-quota refusal.
-8. **Skills fingerprint check** — `GET /skills?engine=<engine>`, compare the
+8. **Skills fingerprint check** — Codex uses `GET /skills?engine=codex`; Claude
+   reuses the verified native skills bootstrap result and lists only when an
+   older server omits that bundle. For the list path, compare the
    slug+SHA256 hash against
    `~/.cache/codex-orchestrator/skills-digest`. A successful unchanged check is
    green, a changed digest gets the updated marker, failures warn, and an
@@ -191,7 +193,12 @@ engine-specific deltas are called out in [clx](/admin/manual/clx):
     are consumed before an upstream help passthrough. Boot/status results are
     sanitized and capped at three rendered lines; diagnostic causes/paths are
     bounded separately, and narrow update rows keep the outcome visible before
-    version metadata.
+    version metadata. cxx 0.8.0 uses one renderer for both engines, with an
+    amber/configured pink Codex accent and violet Claude accent. Hidden boot
+    reports skip the native CLI version subprocess used only for display.
+    Claude quota reports now appear beside the same health/activity layout;
+    missing percentages stay absent, stale reports are labeled, and Claude
+    quota warnings remain advisory.
 10. **Exec** — launch the upstream `codex` (or `claude`) CLI with the prepared
     env, forwarding stdio and signals. A separate auth-path-keyed shared
     active-child lease is acquired before any credential is read or copied and
@@ -239,6 +246,12 @@ environment is a fallback, and response/`~/.claude/settings.json` values fill
 fields still unset.
 
 ### Codex quota card
+
+Cached reset countdowns now age from the report timestamp instead of restarting
+on every auth read. Expired or inconsistent windows remain visible as dim
+last-known context and cannot refuse launch; another current window can still
+enforce its quota. Absolute reset times take precedence, and forecast rates use
+the time the usage was observed.
 
 `cdx` derives each quota label from the provider's `limit_seconds`, so a
 seven-day primary window is shown as `weekly` rather than the old hard-coded

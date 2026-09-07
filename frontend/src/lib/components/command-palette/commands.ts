@@ -62,6 +62,7 @@ export type CommandGroup = (typeof COMMAND_GROUPS)[number];
 export interface PaletteCommand {
   id: string;
   label: string;
+  description?: string;
   hint?: string;
   group: CommandGroup;
   icon?: Component;
@@ -81,10 +82,12 @@ function navigateCommand(
   label: string,
   icon: Component,
   extraKeywords: string[] = [],
+  description?: string,
 ): PaletteCommand {
   return {
     id: `nav:${href}`,
     label: `Go to ${label}`,
+    description,
     group: "Navigation",
     icon,
     keywords: ["go", "navigate", "open", label.toLowerCase(), ...extraKeywords],
@@ -126,7 +129,7 @@ const DEEP_NAV: Array<{ href: string; label: string; icon: Component; keywords?:
 function buildNavigationCommands(): PaletteCommand[] {
   const cmds: PaletteCommand[] = [];
   for (const n of NAV) {
-    cmds.push(navigateCommand(n.route, n.label, n.icon, n.keywords));
+    cmds.push(navigateCommand(n.route, n.label, n.icon, n.keywords, n.description));
   }
   for (const d of DEEP_NAV) {
     cmds.push({
@@ -149,6 +152,7 @@ function buildActionCommands(): PaletteCommand[] {
     {
       id: "action:new-host",
       label: "New host",
+      description: "Register a machine and configure its engines",
       group: "Actions",
       icon: Plus,
       keywords: ["host", "add", "register", "create"],
@@ -163,6 +167,7 @@ function buildActionCommands(): PaletteCommand[] {
     {
       id: "action:quick-vm",
       label: "Quick VM",
+      description: "Create a temporary host for a short-lived machine",
       group: "Actions",
       icon: Zap,
       keywords: ["vm", "quick", "temporary", "host"],
@@ -178,6 +183,7 @@ function buildActionCommands(): PaletteCommand[] {
     {
       id: "action:new-project",
       label: "New project",
+      description: "Create a shared coordination workspace",
       group: "Actions",
       icon: Plus,
       keywords: ["project", "create", "new"],
@@ -189,6 +195,7 @@ function buildActionCommands(): PaletteCommand[] {
     {
       id: "action:new-api-key",
       label: "New API key",
+      description: "Issue a key for the OpenAI or Anthropic compatible API",
       group: "Actions",
       icon: Plus,
       keywords: ["api", "key", "openai", "claude", "create"],
@@ -205,10 +212,10 @@ function buildActionCommands(): PaletteCommand[] {
       icon: Keyboard,
       keywords: ["shortcuts", "help", "keys", "keyboard"],
       run() {
+        commandPalette.close();
         if (typeof window !== "undefined") {
           window.dispatchEvent(new CustomEvent("codex:open-shortcuts"));
         }
-        commandPalette.close();
       },
     },
     {

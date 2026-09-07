@@ -44,6 +44,9 @@ jobs:
       - name: wrapper and release-metadata tests
         working-directory: wrappers
         run: make test
+      - name: terminal presentation matrix (real PTYs)
+        working-directory: wrappers
+        run: make test-terminal
       # The wrapper spawns peers, watches auth files, and runs a cron loop, so
       # its concurrency is not incidental. `make test` runs without -race.
       - name: race detector

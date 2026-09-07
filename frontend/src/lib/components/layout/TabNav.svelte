@@ -68,10 +68,10 @@
   <a
     href={item.href}
     class={cn(
-      "inline-flex min-h-9 shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded px-3 py-1.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+      "inline-flex min-h-11 shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded border px-3 py-2 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring sm:min-h-9 sm:py-1.5",
       active
-        ? "bg-card text-foreground"
-        : "text-muted-foreground hover:bg-card/50 hover:text-foreground",
+        ? "border-border bg-card text-foreground shadow-sm"
+        : "border-transparent text-muted-foreground hover:bg-card/50 hover:text-foreground",
     )}
     aria-current={active ? "page" : undefined}
   >

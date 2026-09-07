@@ -1,6 +1,6 @@
 ---
 title: Dashboard
-summary: KPIs, ChatGPT quota windows, runner state, and how the charts are fed.
+summary: Reported engine coverage, Codex and Claude usage, runner verification, and refresh recovery.
 section: Admin workspace
 verified: 2026-08-03
 sources: api/src/routes/admin/overview/index.ts, api/src/routes/admin/setup/index.ts, api/src/services/setup-status.ts, api/src/services/setup-wizard.ts, api/src/services/chatgpt-usage.ts, api/src/services/dashboard-stats.ts, api/src/services/usage-scaling.ts, api/src/db/schema.ts, frontend/src/routes/dashboard/+page.svelte, frontend/src/routes/dashboard/OnboardingCard.svelte, frontend/src/lib/api/setup.ts, frontend/src/routes/dashboard/StatCard.svelte, frontend/src/routes/dashboard/ChatGptUsageCard.svelte, frontend/src/routes/dashboard/DashboardAlerts.svelte, frontend/src/lib/components/dashboard/RunnerCard.svelte, frontend/src/lib/api/overview.ts, frontend/src/lib/api/runner.ts
@@ -8,12 +8,13 @@ sources: api/src/routes/admin/overview/index.ts, api/src/routes/admin/setup/inde
 
 # Dashboard
 
-The dashboard combines host health, ChatGPT quota windows, runner state, and version status.
+The **Overview** page combines reported host installations, upstream CLI versions, Codex and Claude quota usage, and runner verification. Use **Refresh overview** to reload fleet counts and release information; each usage card has its own refresh control.
 
 ## Data sources
 
 - **Overview** — `GET /admin/overview` (registered in `api/src/routes/admin/overview/index.ts`, alongside `/admin/logs`, `/admin/chatgpt/usage*`, `/admin/runner/*`, and `/admin/toasts` — other admin route groups such as hosts, settings, config, auth, and users are registered from sibling files under `api/src/routes/admin/`) returns host totals, versions, quota settings, and the cached ChatGPT summary.
 - **ChatGPT quota** — `ChatGptUsageService` (`api/src/services/chatgpt-usage.ts`) reads canonical Codex auth and stores quota snapshots. The dashboard card surfaces `primary_window` and `secondary_window` from the unified summary.
+- **Claude usage** — `GET /admin/claude/usage` returns the latest host report; Claude Code's statusline supplies new usage while the client runs. `GET /admin/claude/usage/history` provides its history.
 - **Graph stats** — `dashboard_graph_quota_snapshots` is a compact quota-history table, kept separate from the verbose raw `logs` table. `ChatGptUsageService` writes a row to it on every quota fetch (`recordGraphSnapshot()`). `DashboardStatsService` (`api/src/services/dashboard-stats.ts`) exposes a `quotaSnapshots()` reader over the same table, but nothing in the current API or frontend calls it — the "View history" chart in the ChatGPT usage card reads `chatgpt_usage_snapshots` directly via `ChatGptUsageService.history()` instead.
 
 ## Overview endpoint
@@ -43,9 +44,11 @@ The dashboard renders three stat cards sourced from a single `overviewQuery()` c
 
 The Hosts card displays a relative-time hint derived from `last_refresh` (e.g. "no refreshes yet", "<1h since last refresh"). Its Codex count is `both + codex_only`; its Claude count is `both + claude_only`. If install telemetry is absent, the split shows `—` instead of inventing zero installs. The two "latest" cards show a "checked Xm/h/d ago" hint derived from `versions.cdx_version_checked_at` / `versions.claude_version_checked_at` (both are 1-hour-cached upstream lookups refreshed as a side effect of loading `/admin/overview`). Concrete installed client versions come from the host-reported `version_distribution`; policy aliases such as `latest` are never presented as installed versions.
 
+**Engine coverage** shows four exclusive groups: Both engines, Codex only, Claude only, and No version reported. Counts and percentages come from reported CLI versions. They describe installation coverage, not host health, successful authentication, or current connectivity. **Configure engines** opens the fleet defaults and version controls.
+
 ## Alerts
 
-`DashboardAlerts` renders between the stat cards and the usage cards. Up to three banners are shown conditionally:
+`DashboardAlerts` renders below the stat cards. Its banners are conditional:
 
 - **Insecure approvals** (warning) — `insecureApprovalsPendingQuery()` counts hosts awaiting insecure-window approval. When the count is non-zero a warning banner lists the count and links to `/hosts?insecure=1` ("Review").
 - **Could not check insecure approvals** (destructive) — shown instead of the warning banner when that query itself errors, with a "Retry" button.
@@ -67,17 +70,25 @@ Codex CLI updates do not produce a dashboard alert: managed hosts update automat
 
 Both lanes are rendered when the provider reports both. What chatgpt.com returns is not fixed: on 2026-07-11 it dropped the normal lane's 5-hour window and moved the weekly one into `primary_window`, leaving `secondary_window` null. That is why nothing here is keyed to a slot's usual meaning.
 
+## Claude usage card
+
+The Claude card shows only reported 5-hour and weekly quota windows; an absent window is omitted, while a reported zero remains visible. **History** opens the usage chart, excluding series with no points. **Refresh** reloads the latest stored host report and history; run `clx` to produce new reports. The last-report time helps distinguish older data from a fresh report.
+
 ## Runner
 
-The Runner state card polls `GET /admin/runner` every 15 seconds — there are no WebSocket events for runner state changes today, so polling is the only refresh trigger. It reads `runner.engines.codex` and `runner.engines.claude` and renders one row per engine showing only the current per-engine status badge (`idle` / `OK` / `fail` / `not configured`; `running` is a defined-but-unused state because `POST /admin/runner/run` and `POST /admin/runner/run-claude` are synchronous calls that only resolve once the sidecar verification finishes) and a "Run verification" button. A separate overall badge in the card header (`idle` / `ready` / `fail` / `not configured`) summarizes `runner.configured` / `runner.ready`. The Codex row triggers `POST /admin/runner/run`; the Claude row triggers `POST /admin/runner/run-claude`. Triggering one engine also disables the other engine's button while that mutation is in flight. After a trigger the query is explicitly invalidated to reflect the updated state.
+The **Runner state** card polls `GET /admin/runner` every 15 seconds and shows separate Codex and Claude panels. Each contains its verification status, last check, last successful verification, any reported failure detail, and a **Run verification** button. A missing success is shown as **No success recorded**; the latest attempt is not treated as proof of success. **Not checked** represents an idle engine. The overall badge describes the shared runner's configuration and readiness.
+
+The Codex button calls `POST /admin/runner/run`; the Claude button calls `POST /admin/runner/run-claude`. While either request runs, its panel shows **Verifying…** and both buttons are disabled to prevent overlapping manual checks from this page. Completion refreshes runner state. If status cannot refresh, the last result stays visible with a stale warning and **Retry runner state**; verification buttons remain disabled until state can be read successfully.
 
 ## Refresh
 
-There is no keyboard shortcut for refreshing the dashboard. ChatGPT quota refreshes are explicit (the refresh button posts to `/admin/chatgpt/usage/refresh`) because they hit the upstream usage page; most other reads are local-table lookups that re-run on the normal query lifecycle.
+**Refresh overview** reloads the fleet snapshot. ChatGPT's separate refresh button posts to `/admin/chatgpt/usage/refresh`; Claude's reloads the most recent host report. There is no global dashboard refresh shortcut.
+
+Failed first loads show an error and a retry control rather than a successful zero reading. Failed background refreshes retain the last received overview, usage, or runner snapshot with a warning. Use the affected panel's **Retry** control to recover; **History** remains available after a history-load error and offers its own retry.
 
 ## Host management
 
-**New Host** and **Quick VM** are not on the dashboard. Both controls live on the Hosts page (`/hosts`). Quick VM creates an insecure temporary `tmp-*` host via `POST /admin/hosts/quick-register`.
+**Register host** opens the new-host dialog on the Hosts page (`/hosts`). **Activity** opens the audit trail. **Quick VM** is available on Hosts and through the command palette; it creates an insecure temporary `tmp-*` host via `POST /admin/hosts/quick-register`.
 
 ## Source references
 
@@ -91,6 +102,8 @@ There is no keyboard shortcut for refreshing the dashboard. ChatGPT quota refres
 - frontend/src/lib/api/setup.ts (`setupStatusQuery`, wizard mutation, `invalidateSetup`)
 - api/src/services/setup-status.ts, api/src/services/setup-wizard.ts (checks, next actions, progress blob)
 - frontend/src/routes/dashboard/ChatGptUsageCard.svelte
+- frontend/src/routes/dashboard/ClaudeUsageCard.svelte
+- frontend/src/routes/dashboard/FleetCoverage.svelte
 - frontend/src/routes/dashboard/DashboardAlerts.svelte
 - frontend/src/lib/components/dashboard/RunnerCard.svelte
 - frontend/src/lib/api/overview.ts, frontend/src/lib/api/runner.ts (query/mutation builders + response shapes)

@@ -1,3 +1,47 @@
+# 2026-09-07
+
+- **cxx 0.8.0:** overhauled cdx/clx terminal output around one shared renderer
+  with engine accents, responsive hierarchy, semantic health, quota meters,
+  diagnostics, help, updates, approval, and measured session results. Portable
+  ASCII, terminal-control sanitization, narrow widths, and engine-specific
+  commands remain supported. Added a real-PTY verification matrix and a local
+  visual review gallery using deterministic sample data.
+- Removed presentation-only CLI version probes when boot output is hidden,
+  and Claude's redundant skills-list request after verified bundle sync.
+- Added stored Claude quota reports to auth/bootstrap/status and terminal
+  summaries, preserving missing/zero data and original report age. Claude
+  quota warnings remain advisory; stale and expired readings cannot project
+  future usage. No new provider requests are introduced.
+- Fixed Codex cached reset countdowns and quota gating after an observed window
+  expires. Absolute reset times win; independent current windows still enforce
+  limits, and forecasts retain the original observation time. Both engines
+  distinguish unknown auth verification and skipped/failed resource checks.
+- Claude's model/effort header now reflects explicit native launch arguments
+  and supported effort environment precedence. Session footers show inspected
+  CLI versions as neutral metadata instead of implying an update occurred.
+- Fixed engine selection across version, cron, and managed-resource routes:
+  Claude requests no longer silently use Codex state, invalid or conflicting
+  hints fail explicitly, and Claude-native artifacts reject Codex requests.
+  Codex quota lanes reject Claude hints and Codex-disabled hosts.
+- Applied per-host auto-update overrides to auth, startup sync, and cron for
+  both engines. Cron reports now refresh host views through the shared event map.
+- Isolated Claude config, client update targets, and runner telemetry from
+  Codex fallback values.
+- **cxx 0.7.28:** explicit `cdx sync` / `clx sync` now exit nonzero on failed
+  managed writes, offline fallback, and concurrent-run pauses. Claude preserves
+  unreadable/non-object settings and MCP files, rejects null fleet partials,
+  and repairs missing or stale settings mirrors.
+- Refined the admin shell, page hierarchy, command search, and mobile navigation.
+  All navigation groups are discoverable on first load, account routes remain
+  highlighted, and keyboard/search state no longer leaks across palette openings.
+- Added reported engine coverage and per-engine runner check/success/error
+  details to Overview, with balanced provider usage panels, explicit unavailable
+  and stale states, and retries. Missing quota windows stay absent, and
+  over-limit meters expose valid accessible values.
+- Added engine settings section navigation, unsaved-change indicators and
+  discard/reload controls. Live default changes refresh pristine forms and
+  preserve active drafts for both Codex and Claude.
+
 # 2026-09-06 (3)
 
 - **Polished both wrapper personas.** Started by diffing each wrapper's real

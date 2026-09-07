@@ -11,6 +11,32 @@ import (
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/claude/orchestrator"
 )
 
+func TestMergeUserMcpServersRejectsNonObject(t *testing.T) {
+	for _, raw := range []string{"null", "[]", `"text"`} {
+		if _, _, err := MergeUserMcpServers([]byte(raw), map[string]any{"clx": map[string]any{"url": "https://fleet.test/mcp"}}, nil); !errors.Is(err, ErrUserConfigUnparseable) {
+			t.Fatalf("non-object config %q merge = %v, want refusal", raw, err)
+		}
+	}
+}
+
+func TestApplyUserMcpServersPreservesUnreadableFile(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	path := userConfigPath()
+	if err := os.Symlink(path, path); err != nil {
+		t.Fatal(err)
+	}
+	servers := map[string]any{"clx": map[string]any{"url": "https://fleet.test/mcp"}}
+	if changed, err := applyUserMcpServersResult(servers, slog.Default()); changed || err == nil {
+		t.Fatalf("unreadable config = (%t, %v), want unchanged error", changed, err)
+	}
+	if _, err := os.Readlink(path); err != nil {
+		t.Fatalf("unreadable user config was overwritten: %v", err)
+	}
+	if _, err := os.Stat(managedMcpStatePath()); !os.IsNotExist(err) {
+		t.Fatalf("failed read persisted MCP ownership: %v", err)
+	}
+}
+
 func TestSplitMcpOwned(t *testing.T) {
 	partial := map[string]any{
 		"model": "sonnet",

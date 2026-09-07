@@ -104,7 +104,7 @@ var ErrUserConfigUnparseable = errors.New("user .claude.json is not valid JSON; 
 func MergeUserMcpServers(userRaw []byte, servers map[string]any, prevNames []string) ([]byte, []string, error) {
 	root := map[string]any{}
 	if strings.TrimSpace(string(userRaw)) != "" {
-		if err := json.Unmarshal(userRaw, &root); err != nil {
+		if err := json.Unmarshal(userRaw, &root); err != nil || root == nil {
 			return nil, nil, ErrUserConfigUnparseable
 		}
 	}
@@ -149,7 +149,10 @@ func applyUserMcpServersResult(servers map[string]any, logger *slog.Logger) (boo
 		return false, nil
 	}
 	path := userConfigPath()
-	userRaw, _ := os.ReadFile(path)
+	userRaw, readErr := os.ReadFile(path)
+	if readErr != nil && !os.IsNotExist(readErr) {
+		return false, fmt.Errorf("read user MCP config: %w", readErr)
+	}
 	merged, names, err := MergeUserMcpServers(userRaw, servers, prev.Names)
 	if err != nil {
 		// Fail safe: leave the user's .claude.json untouched this run.
