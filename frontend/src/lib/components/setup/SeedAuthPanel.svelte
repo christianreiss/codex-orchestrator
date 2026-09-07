@@ -218,6 +218,8 @@
     <AlertDescription>
       {#if result.state === "verified"}
         Stored and confirmed against the live provider. This engine is ready.
+        Managed sessions running cxx 0.8.1 or newer check for updated credentials
+        during the session; the native client can reload them on token refresh or auth recovery.
       {:else if result.state === "failed"}
         The runner rejected these credentials. They are stored but will not be served —
         check the value and upload again.

@@ -105,6 +105,24 @@ func IsValidLocalAuth(path string) bool {
 	return isValidAuthRaw(raw)
 }
 
+// IsValidAuthPayload applies the native credential selectors to a server
+// envelope before a caller treats it as a usable arbitration winner.
+func IsValidAuthPayload(raw []byte) bool {
+	return isValidAuthRaw(raw)
+}
+
+// SameAuthCredentials compares the credentials selected by native Codex,
+// ignoring envelope normalization such as auths projections or last_refresh.
+func SameAuthCredentials(left, right []byte) bool {
+	var leftDoc, rightDoc map[string]any
+	if json.Unmarshal(left, &leftDoc) != nil || json.Unmarshal(right, &rightDoc) != nil {
+		return false
+	}
+	leftAuth, leftOK := resolveNativeAuth(leftDoc)
+	rightAuth, rightOK := resolveNativeAuth(rightDoc)
+	return leftOK && rightOK && leftAuth == rightAuth
+}
+
 func isValidAuthRaw(raw []byte) bool {
 	var doc map[string]any
 	if err := json.Unmarshal(raw, &doc); err != nil {

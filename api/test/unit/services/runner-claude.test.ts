@@ -98,17 +98,21 @@ describe('onExecSuccess traffic hook', () => {
 
   it('fires exactly once on a successful exec', async () => {
     let fired = 0;
+    const auth = { token: 't' };
+    let verifiedSnapshot: unknown;
     const adapter = createRunnerClaudeAdapter({
       env: { ...baseEnv, AUTH_RUNNER_URL: 'https://runner.example' },
-      getAuthSnapshot: async () => ({ token: 't' }),
-      onExecSuccess: () => {
+      getAuthSnapshot: async () => auth,
+      onExecSuccess: (snapshot) => {
         fired += 1;
+        verifiedSnapshot = snapshot;
       },
       fetcher: okFetch,
     });
     if (!adapter) throw new Error('adapter should be configured');
     await adapter.messages([{ role: 'user', content: 'ping' }], 'claude-test', {});
     expect(fired).toBe(1);
+    expect(verifiedSnapshot).toBe(auth);
   });
 
   it('does not fire on a failed exec', async () => {

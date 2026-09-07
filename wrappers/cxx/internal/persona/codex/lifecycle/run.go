@@ -155,6 +155,10 @@ func finishAuthSession(logger *slog.Logger, sessionLease *codex.AuthSession, con
 }
 
 func updateAuthSessionSecurity(resp *orchestrator.AuthRetrieveResponse) error {
+	return updateAuthSessionSecurityContext(context.Background(), resp)
+}
+
+func updateAuthSessionSecurityContext(ctx context.Context, resp *orchestrator.AuthRetrieveResponse) error {
 	if resp == nil {
 		return nil
 	}
@@ -163,7 +167,7 @@ func updateAuthSessionSecurity(resp *orchestrator.AuthRetrieveResponse) error {
 		value := resp.Host.Secure
 		secure = &value
 	}
-	return codex.UpdateActiveAuthSessionSecurity(resp.Status, secure)
+	return codex.UpdateActiveAuthSessionSecurityContext(ctx, resp.Status, secure)
 }
 
 // Run executes one full Codex session and returns the upstream exit code.
@@ -232,10 +236,15 @@ func Run(ctx context.Context, opts Options) (exitCode int, runErr error) {
 		return 1, err
 	}
 
+	caBundle := ""
+	if cfg.Orchestrator.CABundlePath != nil {
+		caBundle = *cfg.Orchestrator.CABundlePath
+	}
 	client, err := orchestrator.New(orchestrator.Options{
 		BaseURL:       cfg.Orchestrator.BaseURL,
 		APIKey:        cfg.Orchestrator.APIKey,
 		AllowInsecure: cfg.Orchestrator.AllowInsecure,
+		CABundlePath:  caBundle,
 		Logger:        logger,
 	})
 	if err != nil {
@@ -551,19 +560,19 @@ func Run(ctx context.Context, opts Options) (exitCode int, runErr error) {
 	portalStatus, portalSummary := portalExit(exitCode, runErr)
 	closePortal(portalStatus, portalSummary)
 
-	// Post-session Codex engine update (best-effort). Runs after the user's
-	// work is done instead of before it starts, so a version bump never
-	// delays an interactive launch — the new version lands on the next run.
-	if dec.Allowed {
-		maybeEnsureCodex(ctx, cfg, client, authResp, currentWrapperVersion(opts, cfg), concurrent, opts.Minimal, logger)
-	}
-
 	// Post-exec auth upload (required when changed, 15s budget). A `codex login`
 	// mid-run rotates tokens; the bounded auth+intent transaction pushes that
 	// exact generation without racing explicit logout.
 	authStatus, authTone, postAuthErr := maybePostRunAuthUpload(client, logger, authPath, beforeHash, beforeRefresh)
 	if postAuthErr != nil {
+		postAuthErr = fmt.Errorf("final credential sync failed; any required insecure-host cleanup still applies: %w", postAuthErr)
 		exitCode, runErr = mergeLifecycleFailure(exitCode, runErr, postAuthErr)
+	}
+
+	// Upload the final native rotation before any potentially slow download.
+	// Engine updates remain best-effort and apply to the next native run.
+	if dec.Allowed {
+		maybeEnsureCodex(ctx, cfg, client, authResp, currentWrapperVersion(opts, cfg), concurrent, opts.Minimal, logger)
 	}
 
 	// Exit footer.
@@ -930,19 +939,37 @@ func pushAuthCandidate(ctx context.Context, client *orchestrator.Client, logger 
 // server accepts the request. The returned generation is the CAS base for any
 // authoritative writeback.
 func storeCurrentAuthCandidate(ctx context.Context, client *orchestrator.Client, acknowledgeLogout bool) (*orchestrator.AuthRetrieveResponse, codex.AuthGeneration, error) {
-	upload, err := codex.BeginAuthUpload(acknowledgeLogout)
+	upload, err := codex.BeginAuthUploadContext(ctx, acknowledgeLogout)
 	if err != nil {
 		return nil, codex.AuthGeneration{}, err
 	}
+	return storeAuthCandidateLease(ctx, client, upload, true)
+}
+
+func storeAutomaticAuthCandidate(ctx context.Context, client *orchestrator.Client) (*orchestrator.AuthRetrieveResponse, codex.AuthGeneration, error) {
+	upload, err := codex.BeginAutomaticAuthUpload(ctx)
+	if err != nil {
+		return nil, codex.AuthGeneration{}, err
+	}
+	return storeAuthCandidateLease(ctx, client, upload, false)
+}
+
+func storeAuthCandidateLease(ctx context.Context, client *orchestrator.Client, upload *codex.AuthUploadLease, updateSecurity bool) (*orchestrator.AuthRetrieveResponse, codex.AuthGeneration, error) {
 	expected := upload.Generation()
 	resp, err := client.AuthStore(ctx, upload.Payload())
 	if err != nil {
 		_ = upload.Close()
 		return resp, expected, err
 	}
+	if resp != nil && resp.Engine != "" && !strings.EqualFold(strings.TrimSpace(resp.Engine), "codex") {
+		return nil, expected, errors.Join(errors.New("auth store response belongs to another engine"), upload.Close())
+	}
 	if !resp.AuthCandidateAccepted() {
 		closeErr := upload.Close()
-		securityErr := updateAuthSessionSecurity(resp)
+		var securityErr error
+		if updateSecurity {
+			securityErr = updateAuthSessionSecurityContext(ctx, resp)
+		}
 		status := ""
 		if resp != nil {
 			status = resp.Status
@@ -965,8 +992,10 @@ func storeCurrentAuthCandidate(ctx context.Context, client *orchestrator.Client,
 	if err := upload.Close(); err != nil {
 		return resp, expected, fmt.Errorf("release accepted auth upload transaction: %w", err)
 	}
-	if err := updateAuthSessionSecurity(resp); err != nil {
-		return resp, expected, fmt.Errorf("update auth session security state: %w", err)
+	if updateSecurity {
+		if err := updateAuthSessionSecurityContext(ctx, resp); err != nil {
+			return resp, expected, fmt.Errorf("update auth session security state: %w", err)
+		}
 	}
 	return resp, expected, nil
 }
@@ -1433,8 +1462,34 @@ func extractLastRefresh(raw []byte) string {
 
 // maybePostRunAuthUpload pushes the local file back when either the SHA or
 // last_refresh changed during the run (codex login mid-session, token rotation).
-// Best-effort: any failure is logged at debug and never aborts the run.
+// An unacknowledged rotation fails the lifecycle before required host cleanup.
 func maybePostRunAuthUpload(client *orchestrator.Client, logger *slog.Logger, path, beforeHash, beforeRefresh string) (string, ui.Tone, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	var status string
+	var tone ui.Tone
+	var err error
+	for attempt := 0; attempt < 3; attempt++ {
+		if attempt > 0 {
+			timer := time.NewTimer(time.Duration(attempt) * 200 * time.Millisecond)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				return status, tone, errors.Join(err, ctx.Err())
+			case <-timer.C:
+			}
+		}
+		attemptCtx, stop := context.WithTimeout(ctx, 5*time.Second)
+		status, tone, err = postRunAuthUploadAttempt(attemptCtx, client, logger, path, beforeHash, beforeRefresh)
+		stop()
+		if err == nil || ctx.Err() != nil {
+			return status, tone, err
+		}
+	}
+	return status, tone, err
+}
+
+func postRunAuthUploadAttempt(ctx context.Context, client *orchestrator.Client, logger *slog.Logger, path, beforeHash, beforeRefresh string) (string, ui.Tone, error) {
 	if path == "" {
 		return "not checked", ui.ToneDim, nil
 	}
@@ -1457,9 +1512,17 @@ func maybePostRunAuthUpload(client *orchestrator.Client, logger *slog.Logger, pa
 		return "not found", ui.ToneWarn, nil
 	}
 	if afterHash == beforeHash && afterRefresh == beforeRefresh {
-		return "unchanged", ui.ToneOK, nil
+		known, err := codex.IsCanonicalAuthGeneration(codex.AuthGeneration{Exists: true, Digest: afterHash})
+		if err != nil {
+			return "acknowledgement check failed", ui.ToneFail, fmt.Errorf("inspect unchanged auth acknowledgement: %w", err)
+		}
+		// Offline fallback can launch an unsubmitted native login. Even if it
+		// never rotates, the final upload must retry before insecure cleanup.
+		if known {
+			return "unchanged", ui.ToneOK, nil
+		}
 	}
-	upload, err := codex.BeginAuthUpload(false)
+	upload, err := codex.BeginAuthUploadContext(ctx, false)
 	if err != nil {
 		if errors.Is(err, codex.ErrLogoutIntentActive) {
 			return "logged out", ui.ToneWarn, nil
@@ -1473,9 +1536,11 @@ func maybePostRunAuthUpload(client *orchestrator.Client, logger *slog.Logger, pa
 	// fleet must not lose — give the upload room and make failure visible. The
 	// auth lock deliberately stays held across this bounded request so explicit
 	// logout orders wholly before or after the store boundary.
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	resp, err := client.AuthStore(ctx, upload.Payload())
-	cancel()
+	if resp != nil && resp.Engine != "" && !strings.EqualFold(strings.TrimSpace(resp.Engine), "codex") {
+		err = errors.Join(err, errors.New("post-run auth response belongs to another engine"))
+		resp = nil
+	}
 	if err == nil && !resp.AuthCandidateAccepted() {
 		status := ""
 		if resp != nil {
@@ -1494,7 +1559,7 @@ func maybePostRunAuthUpload(client *orchestrator.Client, logger *slog.Logger, pa
 		}
 	}
 	releaseErr := upload.Close()
-	securityErr := updateAuthSessionSecurity(resp)
+	securityErr := updateAuthSessionSecurityContext(ctx, resp)
 	if err != nil {
 		logger.Warn("post-run auth upload failed", "err", err)
 		return "upload failed", ui.ToneFail, errors.Join(fmt.Errorf("upload changed local auth: %w", err), releaseErr, securityErr)
@@ -1505,7 +1570,7 @@ func maybePostRunAuthUpload(client *orchestrator.Client, logger *slog.Logger, pa
 	if securityErr != nil {
 		return "security update failed", ui.ToneFail, fmt.Errorf("update auth session security state: %w", securityErr)
 	}
-	latestIntent, intentErr := codex.CurrentLogoutIntentGeneration()
+	latestIntent, intentErr := codex.CurrentLogoutIntentGenerationContext(ctx)
 	if intentErr != nil {
 		return "logout check failed", ui.ToneFail, fmt.Errorf("inspect logout intent after upload: %w", intentErr)
 	}
@@ -1514,15 +1579,44 @@ func maybePostRunAuthUpload(client *orchestrator.Client, logger *slog.Logger, pa
 		return "logged out", ui.ToneWarn, nil
 	}
 	keptNewer := false
+	materialized := false
 	if resp != nil && len(resp.Auth) > 0 {
-		_, kept, err := applyServerAuth(logger, path, resp, false, expected)
-		if err != nil {
-			logger.Warn("post-run accepted auth writeback failed", "err", err)
-			return "writeback failed", ui.ToneFail, fmt.Errorf("write accepted auth response: %w", err)
+		if localAuthFresherThan(path, resp.Auth) && !resp.CandidateRejectedDefinitive {
+			keptNewer = true
+		} else {
+			// Another native process may still be running after this child exits.
+			// Do not use pre-launch convergence to retry over its login or deletion.
+			wrote, err := codex.WriteSessionAuthIfCurrent(ctx, resp.Auth, expected)
+			if err != nil {
+				logger.Warn("post-run accepted auth writeback failed", "err", err)
+				return "writeback failed", ui.ToneFail, fmt.Errorf("write accepted auth response: %w", err)
+			}
+			materialized = wrote.Written
+			keptNewer = !wrote.Written
 		}
-		keptNewer = kept
+	}
+	if !materialized {
+		acknowledged, err := codex.AcknowledgeCanonicalAuthGeneration(ctx, expected)
+		if err != nil {
+			return "acknowledgement failed", ui.ToneFail, fmt.Errorf("acknowledge accepted post-run auth: %w", err)
+		}
+		keptNewer = keptNewer || !acknowledged
 	}
 	logger.Debug("post-run auth uploaded", "hash_changed", beforeHash != afterHash, "refresh_changed", beforeRefresh != afterRefresh)
+	current, err := codex.CurrentAuthGeneration()
+	if err != nil {
+		return "confirmation failed", ui.ToneFail, fmt.Errorf("inspect final local generation: %w", err)
+	}
+	if !current.Exists {
+		return "logged out", ui.ToneWarn, nil
+	}
+	known, err := codex.IsCanonicalAuthGeneration(current)
+	if err != nil {
+		return "confirmation failed", ui.ToneFail, fmt.Errorf("inspect final local acknowledgement: %w", err)
+	}
+	if !known {
+		return "newer auth pending", ui.ToneWarn, errors.New("native credentials changed during final upload; newer generation remains unconfirmed")
+	}
 	if keptNewer {
 		return "uploaded; newer local kept", ui.ToneOK, nil
 	}

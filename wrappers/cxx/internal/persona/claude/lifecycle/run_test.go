@@ -1406,7 +1406,7 @@ func TestPostRunABLoginRacePreservesBWhenAResponseArrivesLast(t *testing.T) {
 		requestSeen <- string(body)
 		<-releaseA
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"status":"updated","auth":{"last_refresh":"2026-07-17T10:00:00Z","claudeAiOauth":{"accessToken":"login-a"}}}`))
+		_, _ = w.Write([]byte(`{"status":"updated","verification_state":"verified","auth":{"last_refresh":"2026-07-17T10:00:00Z","claudeAiOauth":{"accessToken":"login-a"}}}`))
 	}))
 	defer server.Close()
 	client, err := orchestrator.New(orchestrator.Options{BaseURL: server.URL, APIKey: "test"})
@@ -1419,7 +1419,7 @@ func TestPostRunABLoginRacePreservesBWhenAResponseArrivesLast(t *testing.T) {
 	}
 	done := make(chan result, 1)
 	go func() {
-		status, tone := maybePostRunAuthUpload(client, slog.New(slog.NewTextHandler(io.Discard, nil)), before, nil)
+		status, tone := postRunAuthUploadAttempt(context.Background(), client, slog.New(slog.NewTextHandler(io.Discard, nil)), before, nil)
 		done <- result{status: status, tone: tone}
 	}()
 	body := <-requestSeen
@@ -1433,7 +1433,7 @@ func TestPostRunABLoginRacePreservesBWhenAResponseArrivesLast(t *testing.T) {
 	}
 	close(releaseA)
 	got := <-done
-	if got.tone != ui.ToneOK || got.status != "newer local kept" {
+	if got.tone != ui.ToneWarn || got.status != "newer local kept" {
 		t.Fatalf("post-run result = (%q,%v)", got.status, got.tone)
 	}
 	raw, err := os.ReadFile(authPath)
@@ -1590,7 +1590,7 @@ func TestPostRunStoreUpdatesSessionFromAPIAuthoritativeSecurity(t *testing.T) {
 	}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"status":"updated","host":{"secure":false}}`))
+		_, _ = w.Write([]byte(`{"status":"updated","verification_state":"verified","host":{"secure":false}}`))
 	}))
 	defer server.Close()
 	client, err := orchestrator.New(orchestrator.Options{BaseURL: server.URL, APIKey: "test"})

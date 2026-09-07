@@ -173,7 +173,8 @@ var reservedClaudeSubcommands = map[string]bool{
 
 var wrapperOwnedSubcommands = map[string]bool{
 	"run": true, "resume": true, "status": true, "doctor": true,
-	"auth-upload": true, "update": true, "uninstall": true,
+	"auth-upload": true, "auth-upload-auto": true,
+	"auth-sync": true, "update": true, "uninstall": true,
 	"cron": true, "execute": true, "exec": true, "sync": true,
 }
 
@@ -399,6 +400,14 @@ func run(args []string, stdout, stderr io.Writer) (code int) {
 	}
 
 	logger := log.Setup(f.silent, f.debug)
+	if sub == "auth-upload-auto" {
+		return cmdAutomaticAuthUpload(ctx, cfg, logger, stderr)
+	}
+	if sub == "auth-sync" {
+		// Internal worker primitive: no alias reconciliation, CLI startup,
+		// managed config sync, or new insecure purge request.
+		return cmdSessionAuthSync(ctx, cfg, logger, stderr)
+	}
 	if exe, exeErr := os.Executable(); exeErr == nil {
 		// Startup proves only the selected persona. The signed host engine list
 		// may be stale while an admin enable/disable is propagating; authoritative
@@ -491,43 +500,7 @@ func run(args []string, stdout, stderr io.Writer) (code int) {
 	case "auth-upload":
 		return cmdAuthUpload(ctx, cfg, stdout, stderr)
 	case "update":
-		theme := ""
-		if cfg.EngineOptions.AdminThemeHint != nil {
-			theme = *cfg.EngineOptions.AdminThemeHint
-		}
-		errCaps := commandCaps(ui.DetectCapsFor(stderr, theme), f.minimal)
-		artifact, err := resolveWrapperUpdateArtifact(ctx, cfg, Version, commandSession)
-		if err != nil {
-			fmt.Fprintln(stderr, ui.UpdateFailure(errCaps, "clx", "wrapper", Version, err))
-			return 1
-		}
-		fmt.Fprintln(stderr, ui.UpdateProgress(errCaps, "clx", "wrapper", Version, artifact.Version))
-		exe, err := update.SelfUpdateFrom(ctx, cfg, artifact.URL, artifact.SHA256, artifact.Version, logger)
-		if err != nil {
-			fmt.Fprintln(stderr, ui.UpdateFailure(errCaps, "clx", "wrapper", artifact.Version, err))
-			return 1
-		}
-		// A new binary alone leaves the host stale: CLAUDE.md, settings, MCP
-		// servers, collections and skills only ever converge inside a lifecycle.
-		// Re-exec into the freshly installed wrapper and sync there, so managed
-		// content is written by the new code rather than the one being replaced.
-		// syscall.Exec never returns on success, so announce the restart first.
-		outCaps := commandCaps(ui.DetectCapsFor(stdout, theme), f.minimal)
-		fmt.Fprintln(stdout, ui.UpdateComplete(outCaps, "clx", "wrapper", artifact.Version, true))
-		// The claude re-exec carries no auth-session handoff (unlike codex), so
-		// settle this command's lease here instead of letting syscall.Exec drop
-		// it silently. CloseAndPurgeIfLast is idempotent, so the deferred close
-		// above becomes a no-op.
-		if err := commandSession.FinalizeForReexec(); err != nil {
-			fmt.Fprintln(stderr, "clx update: finalize auth session before restart:", err)
-			return 1
-		}
-		if err := update.ReExecAfterUpdateAs(exe, postUpdateSyncEngine(), postUpdateSyncArgv(f)); err != nil {
-			fmt.Fprintln(stderr, ui.UpdateFailure(errCaps, "clx", "wrapper", artifact.Version, err))
-			fmt.Fprintln(stderr, "clx update: the new wrapper is installed but managed content was not synced; run `clx sync`")
-			return 1
-		}
-		return 0
+		return cmdWrapperUpdate(ctx, cfg, f, logger, stdout, stderr)
 	case "uninstall":
 		if err := uninstall.Run(ctx, cfg, stdout, stderr); err != nil {
 			fmt.Fprintln(stderr, "clx uninstall:", err)
@@ -564,7 +537,7 @@ func commandOwnsAuthSession(sub string, subArgs []string) bool {
 	switch sub {
 	// sync enters lifecycle.Run, which starts its own session; an outer lease
 	// here would only fight it over purge-on-last-exit.
-	case "run", "resume", "sync", "execute", "status", "auth-upload", "uninstall":
+	case "run", "resume", "sync", "execute", "status", "auth-upload", "uninstall", "update":
 		return true
 	}
 	if reservedClaudeSubcommands[sub] {
@@ -776,6 +749,7 @@ func uploadCurrentClaudeAuth(ctx context.Context, cfg *config.Config, session *c
 	client, err := orchestrator.New(orchestrator.Options{
 		BaseURL:       cfg.Orchestrator.BaseURL,
 		APIKey:        cfg.Orchestrator.APIKey,
+		CABundlePath:  caBundlePath(cfg),
 		AllowInsecure: cfg.Orchestrator.AllowInsecure,
 	})
 	if err != nil {
@@ -866,6 +840,9 @@ func uploadCurrentClaudeAuth(ctx context.Context, cfg *config.Config, session *c
 }
 
 func updateCommandAuthSessionSecurity(session *claude.AuthSession, resp *orchestrator.AuthRetrieveResponse) error {
+	if resp != nil && resp.Engine != "" && !strings.EqualFold(strings.TrimSpace(resp.Engine), "claude") {
+		return errors.New("auth response belongs to another engine")
+	}
 	secure, known := resp.HostSecurity()
 	if !known || session == nil {
 		return nil
@@ -991,18 +968,21 @@ func boundedPlain(value string, width int) string {
 }
 
 type wrapperUpdateArtifact struct {
-	Version string
-	URL     string
-	SHA256  string
+	Version    string
+	URL        string
+	SHA256     string
+	HostSecure *bool
 }
 
 func resolveWrapperUpdateArtifact(ctx context.Context, cfg *config.Config, current string, session *claude.AuthSession) (wrapperUpdateArtifact, error) {
 	if cfg == nil {
 		return wrapperUpdateArtifact{}, fmt.Errorf("wrapper config unavailable")
 	}
+	var hostSecure *bool
 	client, err := orchestrator.New(orchestrator.Options{
 		BaseURL:       cfg.Orchestrator.BaseURL,
 		APIKey:        cfg.Orchestrator.APIKey,
+		CABundlePath:  caBundlePath(cfg),
 		AllowInsecure: cfg.Orchestrator.AllowInsecure,
 	})
 	if err == nil {
@@ -1010,7 +990,13 @@ func resolveWrapperUpdateArtifact(ctx context.Context, cfg *config.Config, curre
 			if securityErr := updateCommandAuthSessionSecurity(session, resp); securityErr != nil {
 				return wrapperUpdateArtifact{}, fmt.Errorf("persist API host security state: %w", securityErr)
 			}
+			if secure, known := resp.HostSecurity(); known {
+				hostSecure = &secure
+			}
 			if artifact, ok := artifactFromVersionSummary(resp.Versions); ok {
+				if secure, known := resp.HostSecurity(); known {
+					artifact.HostSecure = &secure
+				}
 				return validateWrapperUpdateArtifact(artifact, current)
 			}
 			switch strings.ToLower(strings.TrimSpace(resp.Status)) {
@@ -1022,9 +1008,10 @@ func resolveWrapperUpdateArtifact(ctx context.Context, cfg *config.Config, curre
 		}
 	}
 	return validateWrapperUpdateArtifact(wrapperUpdateArtifact{
-		Version: cfg.Wrapper.Version,
-		URL:     cfg.Wrapper.BinaryURL,
-		SHA256:  cfg.Wrapper.BinarySHA256,
+		Version:    cfg.Wrapper.Version,
+		URL:        cfg.Wrapper.BinaryURL,
+		SHA256:     cfg.Wrapper.BinarySHA256,
+		HostSecure: hostSecure,
 	}, current)
 }
 
@@ -1306,6 +1293,7 @@ func cmdStatus(ctx context.Context, cfg *config.Config, wrapperVersion string, s
 	client, err := orchestrator.New(orchestrator.Options{
 		BaseURL:       cfg.Orchestrator.BaseURL,
 		APIKey:        cfg.Orchestrator.APIKey,
+		CABundlePath:  caBundlePath(cfg),
 		AllowInsecure: cfg.Orchestrator.AllowInsecure,
 	})
 	if err != nil {
@@ -1435,6 +1423,60 @@ func cmdAuthUpload(ctx context.Context, cfg *config.Config, stdout, stderr io.Wr
 	return 0
 }
 
+func cmdSessionAuthSync(ctx context.Context, cfg *config.Config, logger *slog.Logger, stderr io.Writer) (code int) {
+	active, err := claude.HasActiveAuthChild()
+	if err != nil {
+		fmt.Fprintln(stderr, "auth-sync: inspect active Claude child:", err)
+		return 1
+	}
+	if !active {
+		return 0
+	}
+	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	session, err := claude.StartAuthSessionContext(ctx, false)
+	if err != nil {
+		fmt.Fprintln(stderr, "auth-sync: start auth session:", err)
+		return 1
+	}
+	defer func() {
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), time.Second)
+		defer cleanupCancel()
+		if _, err := session.CloseAndPurgeIfLastContext(cleanupCtx); err != nil {
+			fmt.Fprintln(stderr, "auth-sync: finalize auth session:", err)
+			code = 1
+		}
+	}()
+	active, err = claude.HasActiveAuthChild()
+	if err != nil || !active {
+		if err != nil {
+			fmt.Fprintln(stderr, "auth-sync: inspect active Claude child:", err)
+			return 1
+		}
+		return 0
+	}
+	opts := orchestrator.Options{BaseURL: cfg.Orchestrator.BaseURL, APIKey: cfg.Orchestrator.APIKey, AllowInsecure: cfg.Orchestrator.AllowInsecure, Logger: logger}
+	if cfg.Orchestrator.CABundlePath != nil {
+		opts.CABundlePath = *cfg.Orchestrator.CABundlePath
+	}
+	client, err := orchestrator.New(opts)
+	if err != nil {
+		fmt.Fprintln(stderr, "auth-sync:", err)
+		return 1
+	}
+	syncCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	result, err := lifecycle.SyncSessionAuth(syncCtx, client, logger)
+	if result.HostSecure != nil {
+		err = errors.Join(err, session.SetPurgeOnLastExitContext(syncCtx, !*result.HostSecure))
+	}
+	if err != nil {
+		fmt.Fprintln(stderr, ui.PlainInline("auth-sync: "+err.Error()))
+		return 1
+	}
+	return 0
+}
+
 func cmdCron(ctx context.Context, cfg *config.Config, args []string, stdout, stderr io.Writer, minimal bool) int {
 	action := "run"
 	if len(args) > 0 {
@@ -1501,4 +1543,11 @@ func formatCronResult(r enginecron.Result, minimal bool) string {
 	default:
 		return fmt.Sprintf("cron: ok (wrapper %s, claude %s, no updates, reported=%t)%s", r.WrapperVersion, r.CodexVersion, r.Reported, suffix)
 	}
+}
+
+func caBundlePath(cfg *config.Config) string {
+	if cfg == nil || cfg.Orchestrator.CABundlePath == nil {
+		return ""
+	}
+	return *cfg.Orchestrator.CABundlePath
 }

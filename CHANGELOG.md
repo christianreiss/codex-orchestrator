@@ -1,5 +1,20 @@
 # 2026-09-07
 
+- **cxx 0.8.1:** hardened Codex and Claude auth across startup, running sessions,
+  session exit, detached children, and updates. Both engines upload native
+  rotations on a two-second cadence, retrieve canonical changes during active
+  sessions, retry transient failures promptly, and preserve concurrent native
+  writes and logout intent. Final auth upload precedes engine maintenance and
+  retries unsent startup credentials even when native bytes stayed unchanged.
+  Claude preserves local MCP credentials without syncing them across hosts.
+- Extended the background auth worker to Codex and guarded active-session pulls
+  for both engines. Custom Codex homes remain consistent across services, cron,
+  and MCP. Credential-change notices reach each managed agent through supported
+  prompt/MCP boundaries, acknowledged only after successful output.
+- Fixed gateway traffic verification crediting a different auth generation than
+  the request used, and prevented stale completions from reporting failed or
+  superseded credentials as healthy. Claude runner debug captures now strip
+  refresh material before writing, matching native execution protection.
 - **cxx 0.8.0:** overhauled cdx/clx terminal output around one shared renderer
   with engine accents, responsive hierarchy, semantic health, quota meters,
   diagnostics, help, updates, approval, and measured session results. Portable

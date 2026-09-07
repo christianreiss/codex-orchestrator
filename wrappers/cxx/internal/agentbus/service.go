@@ -15,6 +15,7 @@ import (
 	"runtime"
 	"strings"
 
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/codex"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
 )
 
@@ -33,7 +34,7 @@ var (
 
 func renderSystemdUserUnit(executable, binaryDigest string, environment map[string]string) string {
 	var environmentLines strings.Builder
-	for _, key := range []string{"CDX_CONFIG_PATH", "CLX_CONFIG_PATH"} {
+	for _, key := range []string{"CDX_CONFIG_PATH", "CLX_CONFIG_PATH", "CODEX_HOME"} {
 		if value := strings.TrimSpace(environment[key]); value != "" {
 			environmentLines.WriteString("Environment=" + systemdQuote(key+"="+value) + "\n")
 		}
@@ -59,7 +60,7 @@ WantedBy=default.target
 
 func renderLaunchAgent(executable, binaryDigest string, environment map[string]string) string {
 	var environmentXML strings.Builder
-	for _, key := range []string{"CDX_CONFIG_PATH", "CLX_CONFIG_PATH"} {
+	for _, key := range []string{"CDX_CONFIG_PATH", "CLX_CONFIG_PATH", "CODEX_HOME"} {
 		if value := strings.TrimSpace(environment[key]); value != "" {
 			environmentXML.WriteString("    <key>" + key + "</key><string>" + html.EscapeString(value) + "</string>\n")
 		}
@@ -404,7 +405,7 @@ func runServiceProcess(stdout, stderr io.Writer, name string, args ...string) er
 }
 
 func serviceConfigEnvironment() (map[string]string, error) {
-	environment := make(map[string]string, 2)
+	environment := make(map[string]string, 3)
 	for _, item := range []struct {
 		key    string
 		engine string
@@ -425,6 +426,21 @@ func serviceConfigEnvironment() (map[string]string, error) {
 		}
 		environment[item.key] = path
 	}
+	// A detached service does not inherit the invoking shell. Pin the same
+	// credential store as the wrapper, including its default, so the service
+	// manager cannot supply a different account's CODEX_HOME on the next start.
+	home, err := codex.CodexHome()
+	if err != nil {
+		return nil, err
+	}
+	home, err = filepath.Abs(home)
+	if err != nil {
+		return nil, fmt.Errorf("resolve CODEX_HOME: %w", err)
+	}
+	if strings.ContainsAny(home, "\x00\r\n") {
+		return nil, errors.New("CODEX_HOME contains an invalid character")
+	}
+	environment["CODEX_HOME"] = home
 	return environment, nil
 }
 

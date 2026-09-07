@@ -124,19 +124,21 @@ type flags struct {
 // these must never be re-routed as profile shorthand even if a matching
 // [profiles.NAME] section exists in config.toml.
 var wrapperOwnedSubcommands = map[string]bool{
-	"run":         true,
-	"status":      true,
-	"doctor":      true,
-	"auth-upload": true,
-	"lane":        true,
-	"profile":     true,
-	"update":      true,
-	"uninstall":   true,
-	"cron":        true,
-	"execute":     true,
-	"sync":        true,
-	"ls":          true,
-	"resume":      true,
+	"run":              true,
+	"status":           true,
+	"doctor":           true,
+	"auth-upload":      true,
+	"auth-sync":        true, // internal active-session convergence, not CLI launch
+	"auth-upload-auto": true, // internal upload, never an explicit login
+	"lane":             true,
+	"profile":          true,
+	"update":           true,
+	"uninstall":        true,
+	"cron":             true,
+	"execute":          true,
+	"sync":             true,
+	"ls":               true,
+	"resume":           true,
 }
 
 // resumeArgs builds the upstream argv for a resume request. Codex spells resume
@@ -387,6 +389,16 @@ func run(args []string, stdout, stderr io.Writer) (exitCode int) {
 	// is unavailable; every other command fails concisely without starting any
 	// lifecycle work.
 	sub, subArgs := resolveCommand(f, positional)
+	if sub == "auth-sync" {
+		active, probeErr := codex.HasActiveAuthChild()
+		if probeErr != nil {
+			fmt.Fprintln(stderr, "auth-sync: active session probe:", probeErr)
+			return 1
+		}
+		if !active {
+			return 0
+		}
+	}
 
 	if f.configPath == "" {
 		f.configPath = config.DefaultPath()
@@ -409,6 +421,12 @@ func run(args []string, stdout, stderr io.Writer) (exitCode int) {
 	}
 
 	logger := log.Setup(f.silent, f.debug)
+	if sub == "auth-sync" {
+		return cmdAuthSync(ctx, cfg, stdout, stderr)
+	}
+	if sub == "auth-upload-auto" {
+		return cmdAuthUploadAuto(ctx, cfg, stdout, stderr)
+	}
 	if exe, exeErr := os.Executable(); exeErr == nil {
 		// Startup proves only the selected persona. The signed host engine list
 		// may be stale while an admin enable/disable is propagating; authoritative
@@ -425,11 +443,13 @@ func run(args []string, stdout, stderr io.Writer) (exitCode int) {
 		}
 	}
 
-	// Every config-backed invocation participates in the same Codex-home keyed
-	// session set, including doctor/update/cron/lane and reserved passthroughs.
+	// Config-backed invocations participate in the same Codex-home keyed
+	// session set, including doctor/cron/lane and reserved passthroughs.
 	// Nested lifecycle/exec/auth calls may take additional shared leases; the
 	// durable purge request makes the outermost process the final arbiter.
-	if sub != "uninstall" && sub != "logout" {
+	// Explicit update only uploads existing pending auth. Its replacement sync
+	// owns the next auth session; maintenance failure must not add a purge request.
+	if sub != "uninstall" && sub != "logout" && sub != "update" {
 		outerSession, leaseErr := codex.StartAuthSession(!cfg.Host.Secure)
 		if leaseErr != nil {
 			fmt.Fprintln(stderr, "cdx: acquire auth session lease:", leaseErr)
@@ -540,6 +560,10 @@ func run(args []string, stdout, stderr io.Writer) (exitCode int) {
 			theme = *cfg.EngineOptions.AdminThemeHint
 		}
 		errCaps := commandCaps(ui.DetectCapsFor(stderr, theme), f.minimal)
+		if err := protectUpdateAuth(ctx, cfg, logger); err != nil {
+			fmt.Fprintln(stderr, ui.UpdateFailure(errCaps, "cdx", "wrapper", Version, err))
+			return 1
+		}
 		artifact, err := resolveWrapperUpdateArtifact(ctx, cfg, Version)
 		if err != nil {
 			fmt.Fprintln(stderr, ui.UpdateFailure(errCaps, "cdx", "wrapper", Version, err))
@@ -549,6 +573,11 @@ func run(args []string, stdout, stderr io.Writer) (exitCode int) {
 		exe, err := update.SelfUpdateFrom(ctx, cfg, artifact.URL, artifact.SHA256, artifact.Version, logger)
 		if err != nil {
 			fmt.Fprintln(stderr, ui.UpdateFailure(errCaps, "cdx", "wrapper", artifact.Version, err))
+			return 1
+		}
+		if err := protectUpdateAuth(ctx, cfg, logger); err != nil {
+			fmt.Fprintln(stderr, ui.UpdateFailure(errCaps, "cdx", "wrapper", artifact.Version, err))
+			fmt.Fprintln(stderr, "cdx update: the new wrapper is installed; credentials retained, run `cdx sync` after connectivity recovers")
 			return 1
 		}
 		// A new binary alone leaves the host stale: AGENTS.md, config.toml and
@@ -873,6 +902,7 @@ func resolveWrapperUpdateArtifact(ctx context.Context, cfg *config.Config, curre
 		BaseURL:       cfg.Orchestrator.BaseURL,
 		APIKey:        cfg.Orchestrator.APIKey,
 		AllowInsecure: cfg.Orchestrator.AllowInsecure,
+		CABundlePath:  configuredCABundle(cfg),
 	})
 	if err == nil {
 		if resp, rerr := client.AuthRetrieve(ctx, ""); rerr == nil && resp != nil {
@@ -1174,6 +1204,7 @@ func cmdStatus(ctx context.Context, cfg *config.Config, wrapperVersion string, s
 		BaseURL:       cfg.Orchestrator.BaseURL,
 		APIKey:        cfg.Orchestrator.APIKey,
 		AllowInsecure: cfg.Orchestrator.AllowInsecure,
+		CABundlePath:  configuredCABundle(cfg),
 	})
 	if err != nil {
 		fmt.Fprintln(stderr, "cdx status:", err)
@@ -1323,6 +1354,7 @@ func cmdLane(ctx context.Context, cfg *config.Config, args []string, stdout, std
 		BaseURL:       cfg.Orchestrator.BaseURL,
 		APIKey:        cfg.Orchestrator.APIKey,
 		AllowInsecure: cfg.Orchestrator.AllowInsecure,
+		CABundlePath:  configuredCABundle(cfg),
 	})
 	if err != nil {
 		fmt.Fprintln(stderr, "lane:", err)
@@ -1467,6 +1499,7 @@ func cmdAuthUpload(ctx context.Context, cfg *config.Config, stdout, stderr io.Wr
 		BaseURL:       cfg.Orchestrator.BaseURL,
 		APIKey:        cfg.Orchestrator.APIKey,
 		AllowInsecure: cfg.Orchestrator.AllowInsecure,
+		CABundlePath:  configuredCABundle(cfg),
 	})
 	if err != nil {
 		fmt.Fprintln(stderr, "auth-upload:", err)
@@ -1475,7 +1508,7 @@ func cmdAuthUpload(ctx context.Context, cfg *config.Config, stdout, stderr io.Wr
 	storeCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 	for attempt := 0; attempt < 2; attempt++ {
-		upload, err := codex.BeginAuthUpload(true)
+		upload, err := codex.BeginAuthUploadContext(storeCtx, true)
 		if err != nil {
 			fmt.Fprintln(stderr, "auth-upload:", err)
 			return 1

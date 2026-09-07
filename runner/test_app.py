@@ -11,6 +11,7 @@ import subprocess
 import tempfile
 import typing
 import unittest
+from unittest.mock import patch
 
 from fastapi import HTTPException
 from fastapi.routing import APIRoute
@@ -683,6 +684,71 @@ class RunnerAppTest(unittest.TestCase):
             )
         finally:
             shutil.rmtree(home_dir, ignore_errors=True)
+
+    def test_debug_auth_dumps_never_keep_refresh_material(self):
+        cases = [
+            (
+                runner_app._prepare_codex_env,
+                "/tmp/last-auth.json",
+                {
+                    "tokens": {
+                        "access_token": "test-access",
+                        "refresh_token": "test-refresh-secret",
+                    },
+                },
+                {"tokens": {"access_token": "test-access", "refresh_token": ""}},
+            ),
+            (
+                runner_app._prepare_claude_env,
+                "/tmp/last-claude-auth.json",
+                {
+                    "last_refresh": "2026-09-07T00:00:00Z",
+                    "claudeAiOauth": {
+                        "accessToken": "sk-ant-oat01-test-access",
+                        "refreshToken": "test-refresh-secret",
+                        "refreshTokenExpiresAt": 123,
+                        "expiresAt": 456,
+                    },
+                },
+                {
+                    "claudeAiOauth": {
+                        "accessToken": "sk-ant-oat01-test-access",
+                        "expiresAt": 456,
+                    },
+                },
+            ),
+        ]
+        original_open = open
+        original_chmod = os.chmod
+        for prepare, debug_path, source, expected in cases:
+            with self.subTest(debug_path=debug_path), tempfile.TemporaryDirectory() as debug_dir:
+                # Redirect only the optional persistent dump; never overwrite a
+                # developer's real debug capture while testing synthetic tokens.
+                captured_path = os.path.join(debug_dir, "auth.json")
+
+                def debug_open(path, *args, **kwargs):
+                    return original_open(captured_path if path == debug_path else path, *args, **kwargs)
+
+                def debug_chmod(path, mode):
+                    return original_chmod(captured_path if path == debug_path else path, mode)
+
+                original_source = json.dumps(source, sort_keys=True)
+                with (
+                    patch.object(runner_app, "DEBUG_DUMP_ENABLED", True),
+                    patch.object(runner_app, "open", debug_open, create=True),
+                    patch.object(runner_app.os, "chmod", debug_chmod),
+                ):
+                    _, home_dir, auth_path = prepare(source)
+                try:
+                    for path in (captured_path, auth_path):
+                        with original_open(path, "r", encoding="utf-8") as fh:
+                            written = json.load(fh)
+                        self.assertEqual(expected, written)
+                        self.assertNotIn("test-refresh-secret", json.dumps(written))
+                        self.assertEqual(0o600, stat.S_IMODE(os.stat(path).st_mode))
+                    self.assertEqual(original_source, json.dumps(source, sort_keys=True))
+                finally:
+                    shutil.rmtree(home_dir, ignore_errors=True)
 
     def test_claude_probe_credentials_strips_only_refresh_material(self):
         projected = runner_app._claude_probe_credentials(

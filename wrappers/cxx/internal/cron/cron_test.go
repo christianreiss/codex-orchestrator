@@ -9,6 +9,7 @@ import (
 	"errors"
 	"io"
 	"os"
+	"os/exec"
 	"os/user"
 	"path/filepath"
 	"reflect"
@@ -38,7 +39,7 @@ func TestStripManagedMigratesAllWrapperMarkers(t *testing.T) {
 func TestFirstRunScheduleCollapseProducesOneSharedEntry(t *testing.T) {
 	legacy := "1 1 * * * cdx --cron run # cdx-managed-cron\n2 2 * * * clx --cron run # clx-managed-cron\n"
 	lines := stripManaged(legacy)
-	lines = append(lines, buildCronLine(3, 1, "/usr/local/bin/cxx", "/tmp/cxx.log"))
+	lines = append(lines, buildCronLine(3, 1, "/usr/local/bin/cxx", "/tmp/cxx.log", nil))
 	body := strings.Join(lines, "\n")
 	if strings.Count(body, Marker) != 1 || strings.Contains(body, "cdx-managed-cron") || strings.Contains(body, "clx-managed-cron") {
 		t.Fatalf("collapsed schedule=%q", body)
@@ -81,7 +82,7 @@ func TestCanWriteBinaryDoesNotOpenExecutingStyleFileForWrite(t *testing.T) {
 }
 
 func TestBuildCronLineUsesCanonicalCommandAndMarker(t *testing.T) {
-	got := buildCronLine(17, 2, "/opt/cxx bin/cxx", "/tmp/cxx cron.log")
+	got := buildCronLine(17, 2, "/opt/cxx bin/cxx", "/tmp/cxx cron.log", nil)
 	for _, want := range []string{"17 2 * * *", "'/opt/cxx bin/cxx' cron run", "# cxx-managed-cron"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("line=%q missing %q", got, want)
@@ -96,14 +97,14 @@ func TestSetEnvReplacesWithoutDuplicating(t *testing.T) {
 	}
 }
 
-func TestBackgroundWorkerRequiredForClaudeWithoutAgentMessaging(t *testing.T) {
+func TestBackgroundWorkerRequiredForBothEnginesWithoutAgentMessaging(t *testing.T) {
 	tests := []struct {
 		name    string
 		configs []*config.Config
 		want    bool
 	}{
 		{name: "none"},
-		{name: "codex only", configs: []*config.Config{{Engine: config.EngineCodex}}},
+		{name: "codex auth watcher", configs: []*config.Config{{Engine: config.EngineCodex}}, want: true},
 		{name: "claude auth watcher", configs: []*config.Config{{Engine: config.EngineClaude}}, want: true},
 		{
 			name: "codex messaging relay",
@@ -335,12 +336,12 @@ func TestRunEnabledTicksContinuesAfterFirstFailureAndRunsEachOnce(t *testing.T) 
 }
 
 func TestSystemCronBodyPinsQuotedOverridesAndInstallUser(t *testing.T) {
-	body := buildSystemCronBody("/opt/cxx bin/cxx", "/home/a b/cdx.json", "/home/a b/clx.json", "/home/a b/.cxx/cron.log", "alice", "/home/a b", 7, 3)
+	body := buildSystemCronBody("/opt/cxx bin/cxx", "/home/a b/cdx.json", "/home/a b/clx.json", "/home/a b/.cxx/cron.log", "alice", "/home/a b", "/srv/account b", 7, 3)
 	for _, want := range []string{
 		"HOME='/home/a b'",
 		"CDX_CONFIG_PATH='/home/a b/cdx.json'",
 		"CLX_CONFIG_PATH='/home/a b/clx.json'",
-		"7 3 * * * alice '/opt/cxx bin/cxx' cron run",
+		"7 3 * * * alice CODEX_HOME='/srv/account b' '/opt/cxx bin/cxx' cron run",
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("body missing %q:\n%s", want, body)
@@ -349,7 +350,7 @@ func TestSystemCronBodyPinsQuotedOverridesAndInstallUser(t *testing.T) {
 }
 
 func TestSystemCronBodyEscapesPercentInCommandPaths(t *testing.T) {
-	body := buildSystemCronBody("/opt/50% cxx/cxx", "/home/a/cdx.json", "/home/a/clx.json", "/home/a/50% cron.log", "alice", "/home/a", 7, 3)
+	body := buildSystemCronBody("/opt/50% cxx/cxx", "/home/a/cdx.json", "/home/a/clx.json", "/home/a/50% cron.log", "alice", "/home/a", "/srv/codex", 7, 3)
 	if strings.Count(body, `\%`) != 2 {
 		t.Fatalf("command percents were not escaped:\n%s", body)
 	}
@@ -367,6 +368,85 @@ func TestResolveCronConfigPathsPreservesOverridesAndInfersPeer(t *testing.T) {
 	}
 	if cdx != "/srv/cxx config/cdx.json" || clx != "/srv/cxx config/clx.json" {
 		t.Fatalf("cdx=%q clx=%q", cdx, clx)
+	}
+}
+
+func TestCronCodexHomePinsAbsoluteEffectiveStore(t *testing.T) {
+	for _, configured := range []string{"", "  relative account  ", "/srv/isolated account"} {
+		t.Run(configured, func(t *testing.T) {
+			t.Setenv("CODEX_HOME", configured)
+			t.Setenv("HOME", "/different/service/home")
+			got, err := resolveCronCodexHome("/install/user")
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := strings.TrimSpace(configured)
+			if want == "" {
+				want = "/install/user/.codex"
+			}
+			want, err = filepath.Abs(want)
+			if err != nil || got != want {
+				t.Fatalf("resolved home=%q, want %q, err=%v", got, want, err)
+			}
+		})
+	}
+	t.Setenv("CODEX_HOME", "/safe\n* * * * * unwanted-command")
+	if _, err := resolveCronCodexHome("/install/user"); err == nil {
+		t.Fatal("line-breaking credential path accepted into cron")
+	}
+	t.Setenv("CDX_CONFIG_PATH", "/safe\n* * * * * unwanted-command")
+	t.Setenv("CLX_CONFIG_PATH", "")
+	if _, _, err := resolveCronConfigPaths("/install/user"); err == nil {
+		t.Fatal("line-breaking config path accepted into cron")
+	}
+}
+
+func TestCronCommandsPreserveCredentialStoreWithoutShellExpansion(t *testing.T) {
+	for _, mode := range []string{"user", "system"} {
+		t.Run(mode, func(t *testing.T) {
+			dir := t.TempDir()
+			bin := filepath.Join(dir, "cxx fixture")
+			logPath := filepath.Join(dir, "cron.log")
+			if err := os.WriteFile(bin, []byte("#!/bin/sh\nprintf '%s\\n' \"$CODEX_HOME\" \"$CDX_CONFIG_PATH\" \"$CLX_CONFIG_PATH\"\n"), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			// These are literal directory names, never shell command fragments.
+			environment := map[string]string{
+				"CODEX_HOME":      filepath.Join(dir, "account ' \" & $(false) `false` 50%"),
+				"CDX_CONFIG_PATH": filepath.Join(dir, "codex ' \" $(false) 25%.json"),
+				"CLX_CONFIG_PATH": filepath.Join(dir, "claude ' \" `false` 75%.json"),
+			}
+			var command string
+			if mode == "user" {
+				line := buildCronLine(7, 3, bin, logPath, environment)
+				command = strings.SplitN(line, " ", 6)[5]
+			} else {
+				body := buildSystemCronBody(bin, "/codex.json", "/claude.json", logPath, "alice", dir, environment["CODEX_HOME"], 7, 3)
+				lines := strings.Split(strings.TrimSpace(body), "\n")
+				command = strings.SplitN(lines[len(lines)-1], " ", 7)[6]
+			}
+			// The cron daemon unescapes percent before passing the command to sh.
+			command = strings.ReplaceAll(command, `\%`, "%")
+			cmd := exec.Command("/bin/sh", "-c", command)
+			cmd.Env = []string{"PATH=/usr/bin:/bin", "CODEX_HOME=/wrong-account", "CDX_CONFIG_PATH=/wrong-codex.json", "CLX_CONFIG_PATH=/wrong-claude.json"}
+			if mode == "system" {
+				// System cron supplies the existing config variables from its
+				// environment rows; user cron must override all three itself.
+				cmd.Env = setEnv(cmd.Env, "CDX_CONFIG_PATH", environment["CDX_CONFIG_PATH"])
+				cmd.Env = setEnv(cmd.Env, "CLX_CONFIG_PATH", environment["CLX_CONFIG_PATH"])
+			}
+			if raw, err := cmd.CombinedOutput(); err != nil {
+				t.Fatalf("execute cron command: %v, %s", err, raw)
+			}
+			raw, err := os.ReadFile(logPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := environment["CODEX_HOME"] + "\n" + environment["CDX_CONFIG_PATH"] + "\n" + environment["CLX_CONFIG_PATH"] + "\n"
+			if string(raw) != want {
+				t.Fatalf("scheduled environment=%q, want %q", raw, want)
+			}
+		})
 	}
 }
 

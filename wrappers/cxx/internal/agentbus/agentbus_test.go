@@ -78,6 +78,7 @@ func TestServiceDefinitionsRunWorkerWithoutContentArguments(t *testing.T) {
 	environment := map[string]string{
 		"CDX_CONFIG_PATH": "/srv/codex configs/cdx.json",
 		"CLX_CONFIG_PATH": "/srv/claude&configs/clx.json",
+		"CODEX_HOME":      "/srv/isolated & 50% \"account\"",
 	}
 	linux := renderSystemdUserUnit("/opt/cxx", "deadbeef", environment)
 	darwin := renderLaunchAgent("/opt/cxx", "deadbeef", environment)
@@ -88,7 +89,7 @@ func TestServiceDefinitionsRunWorkerWithoutContentArguments(t *testing.T) {
 		if strings.Contains(body, "content") || strings.Contains(body, "message-id") {
 			t.Fatalf("%s service carries delivery data in argv: %s", name, body)
 		}
-		for _, key := range []string{"CDX_CONFIG_PATH", "CLX_CONFIG_PATH"} {
+		for _, key := range []string{"CDX_CONFIG_PATH", "CLX_CONFIG_PATH", "CODEX_HOME"} {
 			if !strings.Contains(body, key) {
 				t.Fatalf("%s service omitted %s: %s", name, key, body)
 			}
@@ -99,6 +100,41 @@ func TestServiceDefinitionsRunWorkerWithoutContentArguments(t *testing.T) {
 	}
 	if !strings.Contains(darwin, "/srv/claude&amp;configs/clx.json") {
 		t.Fatalf("launchd config path was not XML escaped: %s", darwin)
+	}
+	if !strings.Contains(linux, `Environment="CODEX_HOME=/srv/isolated & 50%% \"account\""`) {
+		t.Fatalf("systemd credential store was not quoted safely: %s", linux)
+	}
+	if !strings.Contains(darwin, `<key>CODEX_HOME</key><string>/srv/isolated &amp; 50% &#34;account&#34;</string>`) {
+		t.Fatalf("launchd credential store was not XML escaped: %s", darwin)
+	}
+}
+
+func TestServiceEnvironmentPinsEffectiveCodexHome(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	for _, configured := range []string{"", "  relative-account  ", filepath.Join(home, "custom account")} {
+		t.Run(configured, func(t *testing.T) {
+			t.Setenv("CODEX_HOME", configured)
+			environment, err := serviceConfigEnvironment()
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := strings.TrimSpace(configured)
+			if want == "" {
+				want = filepath.Join(home, ".codex")
+			}
+			want, err = filepath.Abs(want)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := environment["CODEX_HOME"]; got != want {
+				t.Fatalf("CODEX_HOME=%q, want %q", got, want)
+			}
+		})
+	}
+	t.Setenv("CODEX_HOME", "/safe\nEnvironment=OTHER_ACCOUNT")
+	if _, err := serviceConfigEnvironment(); err == nil {
+		t.Fatal("line-breaking credential path accepted into service definition")
 	}
 }
 

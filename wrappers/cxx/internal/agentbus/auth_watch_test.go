@@ -5,30 +5,316 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
-	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/claude"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
 )
 
 type authWatchHarness struct {
 	mu       sync.Mutex
-	snapshot claude.AuthSnapshot
-	uploads  chan claude.AuthGeneration
-	fail     map[claude.AuthGeneration]error
+	snapshot persistentAuthSnapshot
+	uploads  chan persistentAuthGeneration
+	fail     map[persistentAuthGeneration]error
 }
 
-func newAuthWatchHarness(snapshot claude.AuthSnapshot) *authWatchHarness {
-	return &authWatchHarness{
-		snapshot: snapshot,
-		uploads:  make(chan claude.AuthGeneration, 16),
-		fail:     make(map[claude.AuthGeneration]error),
+func persistentAuthFiles(t *testing.T, engine string) (authPath, markerPath string) {
+	t.Helper()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("CODEX_HOME", filepath.Join(home, ".codex"))
+	t.Setenv("CDX_CONFIG_PATH", filepath.Join(home, "cdx.json"))
+	t.Setenv("CLX_CONFIG_PATH", filepath.Join(home, "clx.json"))
+	configPath, err := config.DefaultPathForEngine(engine)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(configPath, []byte(`{}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(home, ".codex", "auth.json")
+	marker := filepath.Join(home, ".codex", ".cdx-logout-intent.json")
+	raw := `{"tokens":{"access_token":"existing-native"}}`
+	if engine == config.EngineClaude {
+		path = filepath.Join(home, ".claude", ".credentials.json")
+		marker = filepath.Join(home, ".clx", "auth", "logout-intent.json")
+		raw = `{"claudeAiOauth":{"accessToken":"existing-native"}}`
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(marker), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(raw), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path, marker
+}
+
+func TestPersistentAuthSnapshotSkipsAnyLogoutIntentWithoutChangingNativeCredentials(t *testing.T) {
+	for _, engine := range []string{config.EngineCodex, config.EngineClaude} {
+		t.Run(engine, func(t *testing.T) {
+			path, marker := persistentAuthFiles(t, engine)
+			before, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			snap, err := persistentAuthSnapshotForEngine(context.Background(), engine)
+			if err != nil || !snap.Usable {
+				t.Fatalf("ordinary native generation was unavailable: usable=%v err=%v", snap.Usable, err)
+			}
+			// A durable marker may govern retained native bytes or precede a
+			// late native rotation. The idle worker has no explicit-login authority.
+			if err := os.WriteFile(marker, []byte(`{"nonce":"explicit-logout"}`), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			snap, err = persistentAuthSnapshotForEngine(context.Background(), engine)
+			if err != nil || snap.Usable {
+				t.Fatalf("logged-out credentials became an automatic candidate: usable=%v err=%v", snap.Usable, err)
+			}
+			after, err := os.ReadFile(path)
+			if err != nil || string(after) != string(before) {
+				t.Fatalf("read-only snapshot changed retained native credentials: err=%v", err)
+			}
+			if _, err := os.Stat(marker); err != nil {
+				t.Fatalf("read-only snapshot acknowledged logout: %v", err)
+			}
+		})
 	}
 }
 
-func (h *authWatchHarness) read() (claude.AuthSnapshot, error) {
+func TestPersistentAuthWatchUsesAutomaticUploadCommand(t *testing.T) {
+	original := runPersistentAuthCommand
+	t.Cleanup(func() { runPersistentAuthCommand = original })
+	for _, engine := range []string{config.EngineCodex, config.EngineClaude} {
+		t.Run(engine, func(t *testing.T) {
+			persistentAuthFiles(t, engine)
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			defer cancel()
+			called := false
+			runPersistentAuthCommand = func(_ context.Context, gotEngine, command string) error {
+				called = true
+				cancel()
+				if gotEngine != engine || command != "auth-upload-auto" {
+					t.Errorf("idle command = %s %s, want %s auth-upload-auto", gotEngine, command, engine)
+				}
+				return nil
+			}
+			runPersistentAuthWatch(ctx, engine, slog.New(slog.NewTextHandler(io.Discard, nil)))
+			if !called {
+				t.Fatal("pending native generation never reached automatic upload")
+			}
+		})
+	}
+}
+
+func TestPersistentAuthWatchArbitratesUnboundActiveCredentials(t *testing.T) {
+	for _, engine := range []string{"codex", "claude"} {
+		t.Run(engine, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			harness := newAuthWatchHarness(usableAuthGeneration("unsent-local"))
+			converged := make(chan struct{}, 1)
+			done := make(chan struct{})
+			go func() {
+				defer close(done)
+				runPersistentAuthWatchWithDeps(ctx, persistentAuthWatchDeps{
+					engine: engine, snapshot: harness.read, upload: harness.upload,
+					active: func() (bool, error) { return true, nil },
+					sync: func(context.Context) error {
+						winner := usableAuthGeneration("verified-canonical-winner")
+						winner.ServerDigest = "canonical-binding"
+						harness.set(winner)
+						converged <- struct{}{}
+						return nil
+					},
+					interval: time.Millisecond, syncInterval: time.Hour,
+				})
+			}()
+			select {
+			case <-converged:
+			case <-time.After(time.Second):
+				cancel()
+				t.Fatal("active local candidate never reached canonical arbitration")
+			}
+			assertNoAuthUpload(t, harness.uploads)
+			cancel()
+			select {
+			case <-done:
+			case <-time.After(time.Second):
+				t.Fatal("watcher did not stop")
+			}
+		})
+	}
+}
+
+func TestPersistentAuthWatchOffersUnboundGenerationAfterActiveSyncBecomesIdle(t *testing.T) {
+	for _, engine := range []string{"codex", "claude"} {
+		t.Run(engine, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
+			harness := newAuthWatchHarness(usableAuthGeneration("unsent-local"))
+			var active atomic.Bool
+			active.Store(true)
+			done := make(chan struct{})
+			go func() {
+				defer close(done)
+				runPersistentAuthWatchWithDeps(ctx, persistentAuthWatchDeps{
+					engine: engine, snapshot: harness.read, upload: harness.upload,
+					active: func() (bool, error) { return active.Load(), nil },
+					sync: func(context.Context) error {
+						// The native child exits after the parent activity check;
+						// auth-sync sees an idle host and successfully does nothing.
+						active.Store(false)
+						return nil
+					},
+					interval: time.Millisecond, syncInterval: time.Hour,
+					backoff: 5 * time.Millisecond, maxDelay: 5 * time.Millisecond,
+					logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+				})
+			}()
+			t.Cleanup(func() {
+				cancel()
+				select {
+				case <-done:
+				case <-time.After(time.Second):
+					t.Fatal("persistent auth watcher did not stop")
+				}
+			})
+			if got := awaitAuthUpload(t, harness.uploads); got != usableAuthGeneration("unsent-local").Generation {
+				t.Fatalf("idle upload = %+v, want original unbound generation", got)
+			}
+			assertNoAuthUpload(t, harness.uploads)
+		})
+	}
+}
+
+func TestPersistentAuthWatchRetriesDeferredActiveGenerationWithBackoff(t *testing.T) {
+	for _, engine := range []string{"codex", "claude"} {
+		t.Run(engine, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
+			harness := newAuthWatchHarness(usableAuthGeneration("unsent-local"))
+			synced := make(chan persistentAuthGeneration, 8)
+			done := make(chan struct{})
+			go func() {
+				defer close(done)
+				runPersistentAuthWatchWithDeps(ctx, persistentAuthWatchDeps{
+					engine: engine, snapshot: harness.read, upload: harness.upload,
+					active: func() (bool, error) { return true, nil },
+					sync: func(context.Context) error {
+						snap, _ := harness.read()
+						synced <- snap.Generation
+						return nil // Deferred success leaves no accepted binding.
+					},
+					interval: time.Millisecond, syncInterval: time.Hour,
+					backoff: 80 * time.Millisecond, maxDelay: 80 * time.Millisecond,
+					logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+				})
+			}()
+			t.Cleanup(func() {
+				cancel()
+				select {
+				case <-done:
+				case <-time.After(time.Second):
+					t.Fatal("persistent auth watcher did not stop")
+				}
+			})
+			first := awaitAuthUpload(t, synced)
+			assertNoAuthUpload(t, synced)
+			if got := awaitAuthUpload(t, synced); got != first {
+				t.Fatalf("retry generation = %+v, want %+v", got, first)
+			}
+			assertNoAuthUpload(t, harness.uploads)
+		})
+	}
+}
+
+func TestPersistentAuthSyncRequiresActiveChildAndRetainsPollingUnchangedGeneration(t *testing.T) {
+	for _, engine := range []string{"codex", "claude"} {
+		t.Run(engine, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			var active atomic.Bool
+			synced := make(chan struct{}, 8)
+			done := make(chan struct{})
+			go func() {
+				defer close(done)
+				runPersistentAuthWatchWithDeps(ctx, persistentAuthWatchDeps{
+					engine: engine,
+					snapshot: func() (persistentAuthSnapshot, error) {
+						return persistentAuthSnapshot{Generation: persistentAuthGeneration{Exists: true, Digest: "known"}, Usable: true, ServerDigest: "canonical"}, nil
+					},
+					upload:   func(context.Context) error { t.Error("known canonical uploaded"); return nil },
+					active:   func() (bool, error) { return active.Load(), nil },
+					sync:     func(context.Context) error { synced <- struct{}{}; return nil },
+					interval: time.Millisecond, syncInterval: 5 * time.Millisecond,
+				})
+			}()
+			select {
+			case <-synced:
+				t.Fatal("idle credentials triggered network sync")
+			case <-time.After(15 * time.Millisecond):
+			}
+			active.Store(true)
+			for i := 0; i < 2; i++ {
+				select {
+				case <-synced:
+				case <-time.After(time.Second):
+					t.Fatal("unchanged active generation stopped polling")
+				}
+			}
+			cancel()
+			select {
+			case <-done:
+			case <-time.After(time.Second):
+				t.Fatal("watcher did not stop")
+			}
+		})
+	}
+}
+
+func TestPersistentAuthSyncCancellationDrainsInFlightRequest(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	entered := make(chan struct{})
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		runPersistentAuthWatchWithDeps(ctx, persistentAuthWatchDeps{
+			snapshot: func() (persistentAuthSnapshot, error) {
+				return persistentAuthSnapshot{Generation: persistentAuthGeneration{Exists: true, Digest: "known"}, Usable: true, ServerDigest: "canonical"}, nil
+			},
+			active: func() (bool, error) { return true, nil },
+			sync:   func(ctx context.Context) error { close(entered); <-ctx.Done(); return ctx.Err() },
+		})
+	}()
+	select {
+	case <-entered:
+	case <-time.After(time.Second):
+		cancel()
+		t.Fatal("sync not started")
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("cancel left auth subprocess running")
+	}
+}
+
+func newAuthWatchHarness(snapshot persistentAuthSnapshot) *authWatchHarness {
+	return &authWatchHarness{
+		snapshot: snapshot,
+		uploads:  make(chan persistentAuthGeneration, 16),
+		fail:     make(map[persistentAuthGeneration]error),
+	}
+}
+
+func (h *authWatchHarness) read() (persistentAuthSnapshot, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	return h.snapshot, nil
@@ -43,15 +329,15 @@ func (h *authWatchHarness) upload(context.Context) error {
 	return err
 }
 
-func (h *authWatchHarness) set(snapshot claude.AuthSnapshot) {
+func (h *authWatchHarness) set(snapshot persistentAuthSnapshot) {
 	h.mu.Lock()
 	h.snapshot = snapshot
 	h.mu.Unlock()
 }
 
-func usableAuthGeneration(digest string) claude.AuthSnapshot {
-	return claude.AuthSnapshot{
-		Generation: claude.AuthGeneration{Exists: true, Digest: digest},
+func usableAuthGeneration(digest string) persistentAuthSnapshot {
+	return persistentAuthSnapshot{
+		Generation: persistentAuthGeneration{Exists: true, Digest: digest},
 		Usable:     true,
 	}
 }
@@ -62,7 +348,7 @@ func startAuthWatch(t *testing.T, harness *authWatchHarness, backoff time.Durati
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		runPersistentClaudeAuthWatchWithDeps(ctx, persistentClaudeAuthWatchDeps{
+		runPersistentAuthWatchWithDeps(ctx, persistentAuthWatchDeps{
 			snapshot: harness.read,
 			upload:   harness.upload,
 			interval: time.Millisecond,
@@ -83,18 +369,18 @@ func startAuthWatch(t *testing.T, harness *authWatchHarness, backoff time.Durati
 	return cancel, done
 }
 
-func awaitAuthUpload(t *testing.T, uploads <-chan claude.AuthGeneration) claude.AuthGeneration {
+func awaitAuthUpload(t *testing.T, uploads <-chan persistentAuthGeneration) persistentAuthGeneration {
 	t.Helper()
 	select {
 	case generation := <-uploads:
 		return generation
 	case <-time.After(time.Second):
 		t.Fatal("timed out waiting for persistent auth upload")
-		return claude.AuthGeneration{}
+		return persistentAuthGeneration{}
 	}
 }
 
-func assertNoAuthUpload(t *testing.T, uploads <-chan claude.AuthGeneration) {
+func assertNoAuthUpload(t *testing.T, uploads <-chan persistentAuthGeneration) {
 	t.Helper()
 	select {
 	case generation := <-uploads:
@@ -103,7 +389,7 @@ func assertNoAuthUpload(t *testing.T, uploads <-chan claude.AuthGeneration) {
 	}
 }
 
-func TestPersistentClaudeAuthWatchUploadsExistingAndChangedGenerations(t *testing.T) {
+func TestPersistentAuthWatchUploadsExistingAndChangedGenerations(t *testing.T) {
 	first := usableAuthGeneration("first")
 	second := usableAuthGeneration("second")
 	harness := newAuthWatchHarness(first)
@@ -121,7 +407,7 @@ func TestPersistentClaudeAuthWatchUploadsExistingAndChangedGenerations(t *testin
 	assertNoAuthUpload(t, harness.uploads)
 }
 
-func TestPersistentClaudeAuthWatchSkipsUnusableGenerationUntilUsable(t *testing.T) {
+func TestPersistentAuthWatchSkipsUnusableGenerationUntilUsable(t *testing.T) {
 	snapshot := usableAuthGeneration("login")
 	snapshot.Usable = false
 	harness := newAuthWatchHarness(snapshot)
@@ -135,7 +421,7 @@ func TestPersistentClaudeAuthWatchSkipsUnusableGenerationUntilUsable(t *testing.
 	}
 }
 
-func TestPersistentClaudeAuthWatchSkipsServerBoundStartupButUploadsNativeChange(t *testing.T) {
+func TestPersistentAuthWatchSkipsServerBoundStartupButUploadsNativeChange(t *testing.T) {
 	canonical := usableAuthGeneration("canonical")
 	canonical.ServerDigest = strings.Repeat("a", 64)
 	refreshed := usableAuthGeneration("native-refresh")
@@ -149,18 +435,18 @@ func TestPersistentClaudeAuthWatchSkipsServerBoundStartupButUploadsNativeChange(
 	}
 }
 
-func TestPersistentClaudeAuthWatchDoesNotLoseGenerationChangedDuringUpload(t *testing.T) {
+func TestPersistentAuthWatchDoesNotLoseGenerationChangedDuringUpload(t *testing.T) {
 	local := usableAuthGeneration("local")
 	canonical := usableAuthGeneration("server-canonical")
 	harness := newAuthWatchHarness(local)
 	harnessUpload := harness.upload
-	harness.uploads = make(chan claude.AuthGeneration, 16)
+	harness.uploads = make(chan persistentAuthGeneration, 16)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		runPersistentClaudeAuthWatchWithDeps(ctx, persistentClaudeAuthWatchDeps{
+		runPersistentAuthWatchWithDeps(ctx, persistentAuthWatchDeps{
 			snapshot: harness.read,
 			upload: func(ctx context.Context) error {
 				err := harnessUpload(ctx)
@@ -192,7 +478,7 @@ func TestPersistentClaudeAuthWatchDoesNotLoseGenerationChangedDuringUpload(t *te
 	assertNoAuthUpload(t, harness.uploads)
 }
 
-func TestPersistentClaudeAuthWatchBacksOffFailedGenerationButHandlesNewerOne(t *testing.T) {
+func TestPersistentAuthWatchBacksOffFailedGenerationButHandlesNewerOne(t *testing.T) {
 	failed := usableAuthGeneration("failed")
 	newer := usableAuthGeneration("newer")
 	harness := newAuthWatchHarness(failed)
@@ -210,7 +496,7 @@ func TestPersistentClaudeAuthWatchBacksOffFailedGenerationButHandlesNewerOne(t *
 	}
 }
 
-func TestPersistentClaudeAuthWatchBackoffIsBounded(t *testing.T) {
+func TestPersistentAuthWatchBackoffIsBounded(t *testing.T) {
 	tests := []struct {
 		attempts int
 		want     time.Duration

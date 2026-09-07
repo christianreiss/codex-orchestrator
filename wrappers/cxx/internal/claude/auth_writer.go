@@ -1,6 +1,7 @@
 package claude
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -55,6 +56,7 @@ type generationState struct {
 	Digest          string `json:"digest"`
 	LastRefresh     string `json:"last_refresh"`
 	CanonicalDigest string `json:"canonical_digest,omitempty"`
+	AccountDigest   string `json:"account_digest,omitempty"`
 }
 
 func (s AuthSnapshot) DigestForServer() string {
@@ -136,7 +138,11 @@ func ReadAuthForUploadSnapshot() (AuthSnapshot, error) {
 // structurally usable. Invalid JSON therefore remains replaceable by verified
 // canonical auth instead of aborting bootstrap during upload normalization.
 func ReadAuthForRetrieveSnapshot() (AuthSnapshot, error) {
-	paths, unlock, err := lockAuthFiles()
+	return ReadAuthForRetrieveSnapshotContext(context.Background())
+}
+
+func ReadAuthForRetrieveSnapshotContext(ctx context.Context) (AuthSnapshot, error) {
+	paths, unlock, err := lockAuthFilesContext(ctx)
 	if err != nil {
 		return AuthSnapshot{}, err
 	}
@@ -186,7 +192,7 @@ func ReadAuthForUploadState() (AuthSnapshot, LogoutIntentGeneration, error) {
 // returned unchanged because a later explicitly accepted login may acknowledge
 // it with ClearLogoutIntentIfUnchanged.
 func BeginAuthUploadState() (AuthSnapshot, LogoutIntentGeneration, func(), error) {
-	return beginAuthUploadState()
+	return BeginChangedAuthUploadStateContext(context.Background())
 }
 
 // BeginChangedAuthUploadState is the automatic candidate/post-run spelling.
@@ -194,22 +200,37 @@ func BeginAuthUploadState() (AuthSnapshot, LogoutIntentGeneration, func(), error
 // generation must be uploaded and may acknowledge the exact marker after the
 // server accepts it.
 func BeginChangedAuthUploadState() (AuthSnapshot, LogoutIntentGeneration, func(), error) {
-	return beginAuthUploadState()
+	return BeginChangedAuthUploadStateContext(context.Background())
 }
 
-func beginAuthUploadState() (AuthSnapshot, LogoutIntentGeneration, func(), error) {
-	paths, unlock, err := lockAuthFiles()
+func BeginChangedAuthUploadStateContext(ctx context.Context) (AuthSnapshot, LogoutIntentGeneration, func(), error) {
+	return beginAuthUploadStateContext(ctx, false)
+}
+
+// BeginIdleAuthUploadStateContext refuses any explicit logout before even
+// normalizing native auth. Only an interactive/explicit login may acknowledge
+// that user intent; an unattended worker can never clear it.
+func BeginIdleAuthUploadStateContext(ctx context.Context) (AuthSnapshot, LogoutIntentGeneration, func(), error) {
+	return beginAuthUploadStateContext(ctx, true)
+}
+
+func beginAuthUploadStateContext(ctx context.Context, rejectLogout bool) (AuthSnapshot, LogoutIntentGeneration, func(), error) {
+	paths, unlock, err := lockAuthFilesContext(ctx)
 	if err != nil {
 		return AuthSnapshot{}, LogoutIntentGeneration{}, nil, err
 	}
 	var once sync.Once
 	release := func() { once.Do(unlock) }
-	snap, err := readAuthSnapshotLocked(paths, true)
+	intent, err := logoutIntentGenerationAt(paths.logout)
 	if err != nil {
 		release()
 		return AuthSnapshot{}, LogoutIntentGeneration{}, nil, err
 	}
-	intent, err := logoutIntentGenerationAt(paths.logout)
+	if rejectLogout && intent.Exists {
+		release()
+		return AuthSnapshot{}, intent, nil, ErrAuthUploadBlockedByLogout
+	}
+	snap, err := readAuthSnapshotLocked(paths, true)
 	if err != nil {
 		release()
 		return AuthSnapshot{}, LogoutIntentGeneration{}, nil, err
@@ -238,7 +259,12 @@ func ReadAuthForUploadFromPath(path string) (json.RawMessage, error) {
 // concurrent reader of identical native content therefore uploads one stable
 // generation rather than independently inventing "now".
 func ReadAuthSnapshot(forUpload bool) (AuthSnapshot, error) {
-	paths, unlock, err := lockAuthFiles()
+	return ReadAuthSnapshotContext(context.Background(), forUpload)
+}
+
+// ReadAuthSnapshotContext includes auth-lock contention in the caller deadline.
+func ReadAuthSnapshotContext(ctx context.Context, forUpload bool) (AuthSnapshot, error) {
+	paths, unlock, err := lockAuthFilesContext(ctx)
 	if err != nil {
 		return AuthSnapshot{}, err
 	}
@@ -262,7 +288,7 @@ func readAuthSnapshotLocked(paths authFileSet, forUpload bool) (AuthSnapshot, er
 	if stamp, err := LastRefreshFromRaw(raw); err == nil {
 		snap.LastRefresh = stamp
 	}
-	if state := readGenerationState(paths.generation); state.Digest == digest {
+	if state := readGenerationState(paths.generation); state.Digest == digest || (state.AccountDigest != "" && state.AccountDigest == accountDigest(raw)) {
 		if validDigest(state.CanonicalDigest) {
 			snap.ServerDigest = state.CanonicalDigest
 		}
@@ -280,7 +306,11 @@ func readAuthSnapshotLocked(paths authFileSet, forUpload bool) (AuthSnapshot, er
 	if err != nil {
 		return AuthSnapshot{}, err
 	}
-	snap.Upload, err = withLastRefresh(json.RawMessage(raw), stamp)
+	account, err := extractClaudeFormat(json.RawMessage(raw))
+	if err != nil {
+		return AuthSnapshot{}, err
+	}
+	snap.Upload, err = withLastRefresh(account, stamp)
 	if err != nil {
 		return AuthSnapshot{}, err
 	}
@@ -408,7 +438,7 @@ func readNative(path string) ([]byte, os.FileInfo, error) {
 }
 
 func WriteAuth(payload json.RawMessage) error {
-	_, err := writeAuth(payload, "", nil, false)
+	_, err := writeAuth(payload, "", nil, false, false)
 	return err
 }
 
@@ -418,13 +448,13 @@ func WriteAuth(payload json.RawMessage) error {
 // stable last_refresh is strictly newer. Raw native logins never have that
 // canonical provenance and therefore still win response-order races.
 func WriteAuthIfCurrent(payload json.RawMessage, expected AuthGeneration) (bool, error) {
-	return writeAuth(payload, "", &expected, false)
+	return writeAuth(payload, "", &expected, false, false)
 }
 
 // WriteAuthIfCurrentWithDigest is WriteAuthIfCurrent plus the API's canonical
 // digest, which is persisted only for the matching native generation.
 func WriteAuthIfCurrentWithDigest(payload json.RawMessage, canonicalDigest string, expected AuthGeneration) (bool, error) {
-	return writeAuth(payload, canonicalDigest, &expected, false)
+	return writeAuth(payload, canonicalDigest, &expected, false, false)
 }
 
 // WriteVerifiedServerAuthIfCurrentWithDigest applies a server canonical only
@@ -442,12 +472,64 @@ func WriteVerifiedServerAuthIfCurrentWithDigest(
 	if !strings.EqualFold(strings.TrimSpace(verificationState), "verified") {
 		return false, nil
 	}
-	return writeAuth(payload, canonicalDigest, &expected, true)
+	return writeAuth(payload, canonicalDigest, &expected, true, false)
 }
 
-func writeAuth(payload json.RawMessage, canonicalDigest string, expected *AuthGeneration, allowLogoutRecovery bool) (bool, error) {
+// WriteSessionAuthIfCurrentWithDigest adopts a verified canonical during an
+// existing session. Unlike launch recovery, it never clears logout intent or
+// retries over any changed native generation, including deletion or corruption.
+func WriteSessionAuthIfCurrentWithDigest(ctx context.Context, payload json.RawMessage, canonicalDigest, verificationState string, expected AuthGeneration) (AuthGeneration, bool, error) {
+	if !expected.Exists || !strings.EqualFold(strings.TrimSpace(verificationState), "verified") {
+		return AuthGeneration{}, false, nil
+	}
+	return writeAuthContext(ctx, payload, canonicalDigest, &expected, false, true)
+}
+
+// AcknowledgeAuthGeneration binds an accepted upload to its canonical digest
+// without rewriting the native file. A native refresh/login or logout that
+// raced the request must remain unacknowledged for the next upload attempt.
+func AcknowledgeAuthGeneration(ctx context.Context, expected AuthGeneration, canonicalDigest string) (bool, error) {
+	if !expected.Exists || !validDigest(canonicalDigest) {
+		return false, nil
+	}
+	paths, unlock, err := lockAuthFilesContext(ctx)
+	if err != nil {
+		return false, err
+	}
+	defer unlock()
+	current, err := readAuthSnapshotLocked(paths, true)
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if current.Generation != expected || !current.Usable {
+		return false, nil
+	}
+	intent, err := logoutIntentGenerationAt(paths.logout)
+	if err != nil || intent.Exists {
+		return false, err
+	}
+	state := generationState{
+		Version: generationStateVersion, Digest: current.Generation.Digest,
+		LastRefresh: current.LastRefresh.UTC().Format(time.RFC3339Nano), CanonicalDigest: canonicalDigest, AccountDigest: accountDigest(current.Raw),
+	}
+	raw, err := json.Marshal(state)
+	if err != nil {
+		return false, err
+	}
+	return true, atomicWriteLocked(paths.generation, raw, 0o600)
+}
+
+func writeAuth(payload json.RawMessage, canonicalDigest string, expected *AuthGeneration, allowLogoutRecovery, strictExpected bool) (bool, error) {
+	_, applied, err := writeAuthContext(context.Background(), payload, canonicalDigest, expected, allowLogoutRecovery, strictExpected)
+	return applied, err
+}
+
+func writeAuthContext(ctx context.Context, payload json.RawMessage, canonicalDigest string, expected *AuthGeneration, allowLogoutRecovery, strictExpected bool) (AuthGeneration, bool, error) {
 	if len(payload) == 0 {
-		return false, errors.New("empty auth payload")
+		return AuthGeneration{}, false, errors.New("empty auth payload")
 	}
 	// Claude Code reads ~/.claude/.credentials.json and expects ONLY the
 	// claudeAiOauth block. The orchestrator payload may also carry legacy
@@ -456,23 +538,23 @@ func writeAuth(payload json.RawMessage, canonicalDigest string, expected *AuthGe
 	toWrite, err := extractClaudeFormat(payload)
 	if err != nil {
 		if errors.Is(err, ErrUnusableServerAuth) {
-			return false, err
+			return AuthGeneration{}, false, err
 		}
-		return false, fmt.Errorf("auth payload not valid JSON: %w", err)
+		return AuthGeneration{}, false, fmt.Errorf("auth payload not valid JSON: %w", err)
 	}
 	if !isUsableAuth(toWrite) {
-		return false, ErrUnusableServerAuth
+		return AuthGeneration{}, false, ErrUnusableServerAuth
 	}
-	paths, unlock, err := lockAuthFiles()
+	paths, unlock, err := lockAuthFilesContext(ctx)
 	if err != nil {
-		return false, err
+		return AuthGeneration{}, false, err
 	}
 	defer unlock()
 	var childLease *authChildLease
 	if expected == nil {
 		childLease, err = tryAcquireAuthChildWriter()
 		if err != nil {
-			return false, err
+			return AuthGeneration{}, false, err
 		}
 		defer childLease.Close() //nolint:errcheck
 	}
@@ -480,24 +562,27 @@ func writeAuth(payload json.RawMessage, canonicalDigest string, expected *AuthGe
 	incomingStamp := lastRefreshFromPayload(payload)
 	current, err := generationAt(paths.claude)
 	if err != nil {
-		return false, err
+		return AuthGeneration{}, false, err
 	}
 	commitExpected := expected
 	if expected != nil {
 		intent, err := logoutIntentGenerationAt(paths.logout)
 		if err != nil {
-			return false, err
+			return AuthGeneration{}, false, err
 		}
 		if intent.Exists {
 			incomingNativeDigest := digestBytes(toWrite)
-			if !allowLogoutRecovery || !validDigest(intent.PreviousDigest) || incomingNativeDigest == intent.PreviousDigest {
-				return false, nil
+			if !allowLogoutRecovery || !validDigest(intent.PreviousDigest) || incomingNativeDigest == intent.PreviousDigest || (intent.PreviousAccountDigest != "" && accountDigest(toWrite) == intent.PreviousAccountDigest) {
+				return AuthGeneration{}, false, nil
 			}
 		}
 		if current != *expected {
+			if strictExpected {
+				return AuthGeneration{}, false, nil
+			}
 			state := readGenerationState(paths.generation)
 			if state.Digest != current.Digest || !validDigest(state.CanonicalDigest) || !refreshStrictlyAfter(incomingStamp, state.LastRefresh) {
-				return false, nil
+				return AuthGeneration{}, false, nil
 			}
 			// Another response for the same request generation committed first.
 			// Advance only from that exact wrapper-materialized native generation;
@@ -507,6 +592,24 @@ func writeAuth(payload json.RawMessage, canonicalDigest string, expected *AuthGe
 		}
 	}
 
+	if current.Exists {
+		existing, readErr := os.ReadFile(paths.claude)
+		if readErr != nil {
+			return AuthGeneration{}, false, readErr
+		}
+		if digestBytes(existing) != current.Digest {
+			return AuthGeneration{}, false, nil
+		}
+		toWrite, err = mergeNativeAccount(existing, toWrite)
+		if err != nil {
+			return AuthGeneration{}, false, err
+		}
+		// Even unconditional writes must protect extras changed while staging.
+		if commitExpected == nil {
+			observed := current
+			commitExpected = &observed
+		}
+	}
 	stamp := incomingStamp
 	if stamp == "" {
 		stamp = stableTimestamp(time.Now().UTC(), "", false)
@@ -514,22 +617,22 @@ func writeAuth(payload json.RawMessage, canonicalDigest string, expected *AuthGe
 	if !validDigest(canonicalDigest) {
 		canonicalDigest = digestBytes(payload)
 	}
-	state := generationState{Version: generationStateVersion, Digest: digestBytes(toWrite), LastRefresh: stamp, CanonicalDigest: canonicalDigest}
+	state := generationState{Version: generationStateVersion, Digest: digestBytes(toWrite), LastRefresh: stamp, CanonicalDigest: canonicalDigest, AccountDigest: accountDigest(toWrite)}
 	stateRaw, err := json.Marshal(state)
 	if err != nil {
-		return false, err
+		return AuthGeneration{}, false, err
 	}
 	applied, err := commitAuthPairLocked(paths, toWrite, stateRaw, commitExpected)
 	if err != nil {
-		return false, err
+		return AuthGeneration{}, false, err
 	}
 	if !applied {
-		return false, nil
+		return AuthGeneration{}, false, nil
 	}
 	if err := clearLogoutIntentLocked(paths); err != nil {
-		return false, err
+		return AuthGeneration{}, false, err
 	}
-	return true, nil
+	return AuthGeneration{Exists: true, Digest: digestBytes(toWrite)}, true, nil
 }
 
 func refreshStrictlyAfter(candidate, current string) bool {
@@ -566,13 +669,13 @@ func validDigest(value string) bool {
 }
 
 func stableLastRefreshLocked(paths authFileSet, raw []byte, info os.FileInfo, digest string) (string, error) {
-	if stamp := lastRefreshFromPayload(raw); stamp != "" {
-		return stamp, nil
-	}
 	previous := readGenerationState(paths.generation)
-	if previous.Digest == digest && validGenerationStateRefresh(previous) {
-		if previous.Version != generationStateVersion {
+	account := accountDigest(raw)
+	if (previous.Digest == digest || (account != "" && previous.AccountDigest == account)) && validGenerationStateRefresh(previous) {
+		if previous.Version != generationStateVersion || previous.Digest != digest || previous.AccountDigest != account {
 			previous.Version = generationStateVersion
+			previous.Digest = digest
+			previous.AccountDigest = account
 			stateRaw, err := json.Marshal(previous)
 			if err != nil {
 				return "", err
@@ -583,6 +686,9 @@ func stableLastRefreshLocked(paths authFileSet, raw []byte, info os.FileInfo, di
 		}
 		return previous.LastRefresh, nil
 	}
+	if stamp := lastRefreshFromPayload(raw); stamp != "" {
+		return stamp, nil
+	}
 	previousStamp := ""
 	trustPrevious := false
 	if validGenerationStateRefresh(previous) {
@@ -590,7 +696,7 @@ func stableLastRefreshLocked(paths authFileSet, raw []byte, info os.FileInfo, di
 		trustPrevious = trustedGenerationState(previous)
 	}
 	stamp := stableTimestamp(info.ModTime().UTC(), previousStamp, trustPrevious)
-	stateRaw, err := json.Marshal(generationState{Version: generationStateVersion, Digest: digest, LastRefresh: stamp})
+	stateRaw, err := json.Marshal(generationState{Version: generationStateVersion, Digest: digest, LastRefresh: stamp, AccountDigest: account})
 	if err != nil {
 		return "", err
 	}
@@ -689,7 +795,11 @@ func AuthMatchesCanonical(path string, payload json.RawMessage) bool {
 		return false
 	}
 	var localDoc, canonicalDoc any
-	if err := json.Unmarshal(local, &localDoc); err != nil {
+	localAccount, err := extractClaudeFormat(local)
+	if err != nil {
+		return false
+	}
+	if err := json.Unmarshal(localAccount, &localDoc); err != nil {
 		return false
 	}
 	if err := json.Unmarshal(normalized, &canonicalDoc); err != nil {
@@ -721,7 +831,7 @@ func extractClaudeFormat(payload json.RawMessage) (json.RawMessage, error) {
 	// Remove a present-but-empty native OAuth object before considering a
 	// genuine API-key fallback. Leaving it in the native file can make upstream
 	// Claude prefer a known-logged-out account shape over the exported key.
-	delete(doc, "claudeAiOauth")
+	doc = anthropicKeyFields(doc)
 	if !hasAnyClaudeToken(doc) {
 		return nil, ErrUnusableServerAuth
 	}
@@ -730,6 +840,83 @@ func extractClaudeFormat(payload json.RawMessage) (json.RawMessage, error) {
 		return nil, err
 	}
 	return out, nil
+}
+
+func accountDigest(raw json.RawMessage) string {
+	account, err := extractClaudeFormat(raw)
+	if err != nil {
+		return ""
+	}
+	return digestBytes(account)
+}
+
+// anthropicKeyFields keeps only credential shapes already consumed by PreExec.
+// OAuth uses its complete native block instead; MCP credentials never travel
+// through the fleet account store.
+func anthropicKeyFields(doc map[string]any) map[string]any {
+	out := map[string]any{}
+	for _, key := range []string{"api_key", "anthropic_api_key", "ANTHROPIC_API_KEY"} {
+		if value, ok := doc[key]; ok {
+			out[key] = value
+		}
+	}
+	if tokens, ok := doc["tokens"].(map[string]any); ok {
+		selected := map[string]any{}
+		for _, key := range []string{"anthropic_api_key", "ANTHROPIC_API_KEY"} {
+			if value, ok := tokens[key]; ok {
+				selected[key] = value
+			}
+		}
+		if len(selected) > 0 {
+			out["tokens"] = selected
+		}
+	}
+	if auths, ok := doc["auths"].(map[string]any); ok {
+		if entry, ok := auths["api.anthropic.com"]; ok {
+			out["auths"] = map[string]any{"api.anthropic.com": entry}
+		}
+	}
+	return out
+}
+
+// mergeNativeAccount preserves independent credentials from this host only.
+// Incoming account bytes were normalized first, so another host's MCP tokens
+// and arbitrary server envelope fields can never be imported here.
+func mergeNativeAccount(existing, account json.RawMessage) (json.RawMessage, error) {
+	var local, managed map[string]any
+	if json.Unmarshal(existing, &local) != nil || local == nil {
+		return account, nil
+	}
+	if err := json.Unmarshal(account, &managed); err != nil {
+		return nil, err
+	}
+	for _, key := range []string{"claudeAiOauth", "api_key", "anthropic_api_key", "ANTHROPIC_API_KEY", "last_refresh"} {
+		delete(local, key)
+	}
+	for parent, owned := range map[string][]string{"tokens": {"anthropic_api_key", "ANTHROPIC_API_KEY"}, "auths": {"api.anthropic.com"}} {
+		if entries, ok := local[parent].(map[string]any); ok {
+			for _, key := range owned {
+				delete(entries, key)
+			}
+			if len(entries) == 0 {
+				delete(local, parent)
+			}
+		}
+	}
+	for key, value := range managed {
+		if key == "tokens" || key == "auths" {
+			if entries, ok := local[key].(map[string]any); ok {
+				if incoming, ok := value.(map[string]any); ok {
+					for name, entry := range incoming {
+						entries[name] = entry
+					}
+					continue
+				}
+			}
+		}
+		local[key] = value
+	}
+	return json.Marshal(local)
 }
 
 // HasUsableAuth reports whether Claude Code's authoritative native credential
@@ -787,6 +974,13 @@ func authFiles() (authFileSet, error) {
 }
 
 func lockAuthFiles() (authFileSet, func(), error) {
+	return lockAuthFilesContext(context.Background())
+}
+
+func lockAuthFilesContext(ctx context.Context) (authFileSet, func(), error) {
+	if err := ctx.Err(); err != nil {
+		return authFileSet{}, nil, err
+	}
 	paths, err := authFiles()
 	if err != nil {
 		return authFileSet{}, nil, err
@@ -798,9 +992,27 @@ func lockAuthFiles() (authFileSet, func(), error) {
 	if err != nil {
 		return authFileSet{}, nil, err
 	}
-	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
-		_ = f.Close()
-		return authFileSet{}, nil, err
+	for {
+		if err := ctx.Err(); err != nil {
+			_ = f.Close()
+			return authFileSet{}, nil, err
+		}
+		err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
+		if err == nil {
+			break
+		}
+		if !errors.Is(err, syscall.EWOULDBLOCK) && !errors.Is(err, syscall.EAGAIN) && !errors.Is(err, syscall.EINTR) {
+			_ = f.Close()
+			return authFileSet{}, nil, err
+		}
+		timer := time.NewTimer(10 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			_ = f.Close()
+			return authFileSet{}, nil, ctx.Err()
+		case <-timer.C:
+		}
 	}
 	return paths, func() {
 		_ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN)

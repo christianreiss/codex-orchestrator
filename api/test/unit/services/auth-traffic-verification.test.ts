@@ -26,13 +26,14 @@ function recordingDb() {
   const updates: Array<{ vals: Record<string, unknown> }> = [];
   const executes: unknown[] = [];
   let failUpdates = false;
+  let affectedRows = 1;
   const db = {
     update: () => ({
       set: (vals: Record<string, unknown>) => ({
         where: () => {
           if (failUpdates) return Promise.reject(new Error('db down'));
           updates.push({ vals });
-          return Promise.resolve([{ affectedRows: 1 }]);
+          return Promise.resolve([{ affectedRows }]);
         },
       }),
     }),
@@ -47,6 +48,9 @@ function recordingDb() {
     executes,
     setFailUpdates: (v: boolean) => {
       failUpdates = v;
+    },
+    setAffectedRows: (v: number) => {
+      affectedRows = v;
     },
   };
 }
@@ -76,8 +80,9 @@ describe('createAuthTrafficVerifier', () => {
       nowMs: () => 1_000_000,
     });
 
-    expect(await verifier.getAuthSnapshot()).toEqual(AUTH);
-    verifier.recordExecSuccess();
+    const snapshot = await verifier.getAuthSnapshot();
+    expect(snapshot).toEqual(AUTH);
+    verifier.recordExecSuccess(snapshot);
     await settle();
 
     expect(updates).toEqual([{ vals: { verificationCheckedAt: '2026-08-08T13:00:00Z' } }]);
@@ -94,15 +99,15 @@ describe('createAuthTrafficVerifier', () => {
       engine: 'claude',
       nowMs: () => nowMs,
     });
-    await verifier.getAuthSnapshot();
+    const snapshot = await verifier.getAuthSnapshot();
 
-    verifier.recordExecSuccess();
-    verifier.recordExecSuccess();
+    verifier.recordExecSuccess(snapshot);
+    verifier.recordExecSuccess(snapshot);
     await settle();
     expect(updates.length).toBe(1);
 
     nowMs += 61_000;
-    verifier.recordExecSuccess();
+    verifier.recordExecSuccess(snapshot);
     await settle();
     expect(updates.length).toBe(2);
   });
@@ -116,10 +121,10 @@ describe('createAuthTrafficVerifier', () => {
       engine: 'claude',
       nowMs: () => 1_000_000,
     });
-    await verifier.getAuthSnapshot();
+    const snapshot = await verifier.getAuthSnapshot();
 
     head = row(8); // a newer upload superseded the served row
-    verifier.recordExecSuccess();
+    verifier.recordExecSuccess(snapshot);
     await settle();
     expect(updates.length).toBe(0);
   });
@@ -133,10 +138,10 @@ describe('createAuthTrafficVerifier', () => {
       engine: 'claude',
       nowMs: () => 1_000_000,
     });
-    await verifier.getAuthSnapshot();
+    const snapshot = await verifier.getAuthSnapshot();
 
     state = 'failed';
-    verifier.recordExecSuccess();
+    verifier.recordExecSuccess(snapshot);
     await settle();
     expect(updates.length).toBe(0);
   });
@@ -150,8 +155,9 @@ describe('createAuthTrafficVerifier', () => {
       nowMs: () => 1_000_000,
     });
 
-    expect(await verifier.getAuthSnapshot()).toBeNull();
-    verifier.recordExecSuccess();
+    const snapshot = await verifier.getAuthSnapshot();
+    expect(snapshot).toBeNull();
+    verifier.recordExecSuccess(snapshot);
     await settle();
     expect(updates.length).toBe(0);
   });
@@ -166,14 +172,81 @@ describe('createAuthTrafficVerifier', () => {
       nowMs: () => 1_000_000,
       log: { debug },
     });
-    await verifier.getAuthSnapshot();
+    const snapshot = await verifier.getAuthSnapshot();
     setFailUpdates(true);
 
-    verifier.recordExecSuccess();
+    verifier.recordExecSuccess(snapshot);
     await settle();
     expect(debug).toHaveBeenCalledWith(
       expect.objectContaining({ engine: 'claude' }),
       'traffic verification touch failed',
     );
+  });
+
+  it.each(['codex', 'claude'] as const)(
+    'does not credit an overlapping %s request with another request\'s generation',
+    async (engine) => {
+      const { db, updates, executes } = recordingDb();
+      let head = row(7);
+      const verifier = createAuthTrafficVerifier({
+        db,
+        runnerValidation: validation(() => head),
+        engine,
+        nowMs: () => 1_000_000,
+      });
+      const olderRequest = await verifier.getAuthSnapshot();
+      head = row(8);
+      const newerRequest = await verifier.getAuthSnapshot();
+
+      // Request A completes after B loaded the replacement credential. A's
+      // success proves only the old generation, even while B is still running.
+      verifier.recordExecSuccess(olderRequest);
+      await settle();
+      expect(updates).toHaveLength(0);
+      expect(executes).toHaveLength(0);
+
+      // Rejected stale proof must not consume the new generation's throttle.
+      verifier.recordExecSuccess(newerRequest);
+      await settle();
+      expect(updates).toHaveLength(1);
+      expect(executes).toHaveLength(3);
+    },
+  );
+
+  it('ignores credentials that did not come from this verifier', async () => {
+    const { db, updates, executes } = recordingDb();
+    const verifier = createAuthTrafficVerifier({
+      db,
+      runnerValidation: validation(() => row(7)),
+      engine: 'claude',
+      nowMs: () => 1_000_000,
+    });
+    const snapshot = await verifier.getAuthSnapshot();
+    verifier.recordExecSuccess(structuredClone(snapshot));
+    await settle();
+    expect(updates).toHaveLength(0);
+    expect(executes).toHaveLength(0);
+
+    verifier.recordExecSuccess(snapshot);
+    await settle();
+    expect(updates).toHaveLength(1);
+  });
+
+  it('does not report runner OK when the row loses eligibility before the touch', async () => {
+    const { db, updates, executes, setAffectedRows } = recordingDb();
+    const verifier = createAuthTrafficVerifier({
+      db,
+      runnerValidation: validation(() => row(7)),
+      engine: 'claude',
+      nowMs: () => 1_000_000,
+    });
+    const snapshot = await verifier.getAuthSnapshot();
+    // A worker verdict or a superseding store wins after the head read; the
+    // conditional UPDATE then affects no eligible row.
+    setAffectedRows(0);
+    verifier.recordExecSuccess(snapshot);
+    await settle();
+    expect(updates).toHaveLength(1);
+    expect(executes).toHaveLength(0);
   });
 });

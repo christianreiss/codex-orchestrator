@@ -19,6 +19,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 	"unicode/utf8"
@@ -83,19 +84,17 @@ var runNativeAdapter = func(c *relayClient, ctx context.Context, cfg *config.Con
 }
 
 // RunWorker runs the per-user background worker. The auth watcher remains
-// local until credentials change; the optional relay never opens a listener
+// local until credentials change or a managed child is active; the optional
+// relay never opens a listener
 // and persists only opaque IDs needed for reconnect/idempotency.
 func RunWorker(parent context.Context, version string, stdout, stderr io.Writer) error {
 	ctx, stop := signal.NotifyContext(parent, os.Interrupt, syscall.SIGTERM)
-	authWatchDone := make(chan struct{})
-	go func() {
-		defer close(authWatchDone)
-		runPersistentClaudeAuthWatch(ctx, slog.Default())
-	}()
-	defer func() {
-		stop()
-		<-authWatchDone
-	}()
+	var authWatchDone sync.WaitGroup
+	for _, engine := range []string{config.EngineCodex, config.EngineClaude} {
+		authWatchDone.Add(1)
+		go func() { defer authWatchDone.Done(); runPersistentAuthWatch(ctx, engine, slog.Default()) }()
+	}
+	defer func() { stop(); authWatchDone.Wait() }()
 	instanceID, err := loadOrCreateInstanceID()
 	if err != nil {
 		return err

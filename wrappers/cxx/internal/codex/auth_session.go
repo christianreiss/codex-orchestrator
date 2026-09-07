@@ -1,6 +1,7 @@
 package codex
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/hex"
@@ -12,6 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/ipc"
@@ -312,21 +314,41 @@ func adoptAuthSessionHandoff(session *AuthSession, oldIDs []string) (bool, error
 
 // SetPurgeOnLastExit revises only this session's persisted request.
 func (s *AuthSession) SetPurgeOnLastExit(enabled bool) error {
+	return s.setPurgeOnLastExitContext(context.Background(), enabled)
+}
+
+func (s *AuthSession) setPurgeOnLastExitContext(ctx context.Context, enabled bool) error {
 	if s == nil {
 		return errors.New("nil Codex auth session")
 	}
-	s.mu.Lock()
+	if ctx.Done() == nil {
+		s.mu.Lock()
+	} else {
+		for !s.mu.TryLock() {
+			timer := time.NewTimer(10 * time.Millisecond)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				return ctx.Err()
+			case <-timer.C:
+			}
+		}
+	}
 	defer s.mu.Unlock()
 	if s.lease == nil || s.id == "" {
 		return errAuthSessionClosed
 	}
-	return updatePurgeRequest(s.home, s.id, enabled)
+	return updatePurgeRequestContext(ctx, s.home, s.id, enabled)
 }
 
 // SetActiveAuthSessionsPurgeOnLastExit applies one live host-security
 // observation to every nested session in this process and this Codex home.
 // Other processes have different persisted IDs and remain untouched.
 func SetActiveAuthSessionsPurgeOnLastExit(enabled bool) error {
+	return setActiveAuthSessionsPurgeOnLastExitContext(context.Background(), enabled)
+}
+
+func setActiveAuthSessionsPurgeOnLastExitContext(ctx context.Context, enabled bool) error {
 	home, err := CodexHome()
 	if err != nil {
 		return err
@@ -343,7 +365,7 @@ func SetActiveAuthSessionsPurgeOnLastExit(enabled bool) error {
 	activeAuthSessions.Unlock()
 	var joined error
 	for _, session := range sessions {
-		if err := session.SetPurgeOnLastExit(enabled); err != nil && !errors.Is(err, errAuthSessionClosed) {
+		if err := session.setPurgeOnLastExitContext(ctx, enabled); err != nil && !errors.Is(err, errAuthSessionClosed) {
 			joined = errors.Join(joined, err)
 		}
 	}
@@ -355,20 +377,26 @@ func SetActiveAuthSessionsPurgeOnLastExit(enabled bool) error {
 // the host block; their insecure status is still authoritative and must not be
 // mistaken for the secure value baked into an older wrapper config.
 func UpdateActiveAuthSessionSecurity(status string, hostSecure *bool) error {
+	return UpdateActiveAuthSessionSecurityContext(context.Background(), status, hostSecure)
+}
+
+// UpdateActiveAuthSessionSecurityContext keeps session polling cancellation
+// bounded even when another process holds the writer lock during an upload.
+func UpdateActiveAuthSessionSecurityContext(ctx context.Context, status string, hostSecure *bool) error {
 	if hostSecure != nil {
-		return SetActiveAuthSessionsPurgeOnLastExit(!*hostSecure)
+		return setActiveAuthSessionsPurgeOnLastExitContext(ctx, !*hostSecure)
 	}
 	switch strings.ToLower(strings.TrimSpace(status)) {
 	case "insecure", "insecure-denied":
-		return SetActiveAuthSessionsPurgeOnLastExit(true)
+		return setActiveAuthSessionsPurgeOnLastExitContext(ctx, true)
 	default:
 		return nil
 	}
 }
 
-func updatePurgeRequest(home, id string, enabled bool) error {
+func updatePurgeRequestContext(ctx context.Context, home, id string, enabled bool) error {
 	authPath := filepath.Join(home, "auth.json")
-	return withAuthLockAt(authPath, func(string) error {
+	return withAuthLockAtContext(ctx, authPath, func(string) error {
 		path := authStatePathForHome(home, authPurgeRequestFile)
 		state, err := readPurgeRequests(path)
 		if err != nil {
@@ -432,6 +460,31 @@ func AcquireActiveChild() (*ipc.Lock, error) {
 		return nil, err
 	}
 	return ipc.AcquireSharedPath(path)
+}
+
+// HasActiveAuthChild probes the existing native-child lease without creating
+// state. Detached native children retain this lease after their wrapper exits;
+// the mere presence of auth.json or an old lock file is not activity evidence.
+func HasActiveAuthChild() (bool, error) {
+	path, err := authStatePath(activeChildLeaseFile)
+	if err != nil {
+		return false, err
+	}
+	f, err := os.OpenFile(path, os.O_RDWR|syscall.O_NOFOLLOW, 0)
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	defer f.Close()
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		if errors.Is(err, syscall.EWOULDBLOCK) || errors.Is(err, syscall.EAGAIN) {
+			return true, nil
+		}
+		return false, err
+	}
+	return false, syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
 }
 
 // AttachAuthLeaseFiles passes duplicate session/child descriptors into an

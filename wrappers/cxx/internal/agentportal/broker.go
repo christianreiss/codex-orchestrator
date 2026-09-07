@@ -14,6 +14,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/authnotice"
 )
 
 const brokerBodyLimit = 256 * 1024
@@ -226,6 +228,7 @@ func (b *Broker) ActivateEnvironment() func() {
 	if b == nil {
 		return func() {}
 	}
+	_ = authnotice.Prime(b.session.Engine, b.session.ID)
 	return swapPortalEnvironment(map[string]*string{
 		envSocket:        &b.socketPath,
 		envSessionID:     &b.session.ID,
@@ -279,10 +282,12 @@ func (b *Broker) CodexMCPOverrides(headless bool) []string {
 		// "invalid transport in `mcp_servers.\"cxx-agent\"`". Bare merges into
 		// the baked `[mcp_servers.cxx-agent]` and only adds `env`.
 		fmt.Sprintf(
-			"mcp_servers.%s.env={%s=%s,%s=%s}",
+			"mcp_servers.%s.env={%s=%s,%s=%s,%s=%s,%s=%s}",
 			mcpServerName,
 			envSocket, tomlQuote(b.socketPath),
 			envSessionID, tomlQuote(b.session.ID),
+			envEngine, tomlQuote(b.session.Engine),
+			"CODEX_HOME", tomlQuote(os.Getenv("CODEX_HOME")),
 		),
 	)
 }

@@ -23,6 +23,12 @@ Explicit `cdx sync` and `clx sync` return success only after an online managed s
 completes. Failed writes, offline fallback, and concurrent-run pauses return 1;
 normal interactive sessions retain their existing cached-auth fallback.
 
+cxx 0.8.1 also synchronizes credentials during active sessions and before update
+maintenance, with generation/logout guards and notices to running agents through
+supported hooks/MCP boundaries. Both engine stores have independent background
+coverage. See [credential resilience](auth-resilience.md) for timing, cancellation,
+insecure cleanup, and the limits of native cross-host refresh coordination.
+
 The admin Overview displays reported engine coverage, provider usage, and
 per-engine verification history. Failed refreshes preserve the last snapshot
 with an explicit stale notice and retry; unavailable data is never presented as

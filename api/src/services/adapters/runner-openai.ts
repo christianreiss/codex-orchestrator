@@ -136,9 +136,10 @@ export interface RunnerOpenAiConfig {
   authSnapshot?: () => Promise<unknown | null>;
   /**
    * Invoked once per successful runner exec — a real completion with the
-   * canonical credential — so traffic can count as auth verification.
+   * canonical credential — with the exact snapshot used for that execution,
+   * so overlapping requests can count as verification of their own generation.
    */
-  onExecSuccess?: () => void;
+  onExecSuccess?: (authSnapshot: unknown) => void;
 }
 
 export function makeRunnerConfig(env: Env): RunnerOpenAiConfig | null {
@@ -310,7 +311,7 @@ export class RunnerOpenAiAdapter {
     }
     const obj = decoded as RunnerResponse & { error?: unknown; reason?: unknown; detail?: unknown };
     if (obj.status === 'ok') {
-      this.config.onExecSuccess?.();
+      this.config.onExecSuccess?.(authPayload);
       return obj;
     }
     const errorMsg =

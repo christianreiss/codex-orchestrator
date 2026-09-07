@@ -20,7 +20,7 @@ Mirrors `docs/interface-cdx.md` with engine-specific deltas called out explicitl
 ## Build + Publish
 
 - `clx` is the Claude persona of the static `cxx` Go binary built from `wrappers/cxx/cmd/cxx`; the installed `clx` path is a relative `clx -> cxx` symlink. During legacy self-update migration, a `clx-<major>.<minor>.<patch>` filename selects the same persona.
-- The current source version is **cxx 0.8.0** (see `wrappers/Makefile`).
+- The current source version is **cxx 0.8.1** (see `wrappers/Makefile`).
 - Build locally with `cd wrappers && make cxx`; `cd wrappers && make release` only stages the complete cross-platform matrix under `wrappers/bin/release`.
 - Publish that staged matrix explicitly with `cd wrappers && make publish-release`; set `OUTROOT` for an extracted CI release fragment and `PUBLISH_ROOT` for a non-default served store. Publication validates the complete incoming matrix before its first served payload write.
 - New publication writes only `storage/wrapper/v2/bin/cxx/<os>-<arch>/v<version>/cxx`. On compatible old per-engine URLs, exact historical split bytes win when present; otherwise the URL may stream the matching published `cxx` bytes for pre-migration clients.
@@ -449,8 +449,9 @@ native bytes still exist: those exact bytes are unusable for launch/upload. It
 may restore a verified canonical only when that canonical is a different
 credential generation; otherwise it starts login recovery. A blocked write
 fails closed when native auth is missing/unusable.
-Explicit `clx logout` / `clx auth logout`, plus logout detected inside a managed
-session, records nonce-bearing durable intent before native removal. A
+Explicit `clx logout` / `clx auth logout` records nonce-bearing durable intent
+before native removal. Native logout inside a managed session is detected and
+journaled after the native client removes its credentials. A
 standalone wrapper-owned logout runs the upstream command only while it owns an
 exclusive auth session and active-child writer. If any peer auth session exists
 (even between sync and child start), intent is journaled and destructive native
@@ -474,23 +475,31 @@ cannot participate in these leases and remains the boundary for destructive
 login/logout coordination. It is no longer an auth-distribution blind spot:
 the managed per-user `cxx-agent` background worker watches the authoritative
 native credential digest every two seconds and runs the same guarded
-`clx auth-upload` path whenever usable bytes change. This covers detached
+`clx auth-upload-auto` path for idle native changes, or `auth-sync` while an active
+child permits canonical adoption. This covers detached
 `claude daemon run` processes after their spawning clx has exited. The worker
 uploads any unbound usable generation already present on start (while skipping
 an exact digest already bound to canonical storage), marks only the exact
 pre-request generation handled so a second rotation during arbitration cannot
 be lost, exponentially backs off a failed unchanged generation from five
-seconds to five minutes, and handles a newer generation immediately. The
-foreground 30-second watcher remains as an independent fallback during managed
-clx sessions.
+seconds to one minute, and handles a newer generation immediately. The
+foreground watcher checks native changes every two seconds and retrieves
+canonical state every 30 seconds during managed clx sessions. Verified store
+responses use the same exact-generation and logout guards as retrieval.
 
 The installer keeps this worker present even when agent messaging is disabled.
-Every Claude-capable `cxx cron run` re-asserts it before engine maintenance, so
+Every Codex/Claude-capable `cxx cron run` re-asserts it before engine maintenance, so
 an auth-tick failure cannot prevent service healing. On Linux, managed
 `systemctl --user` calls synthesize the standard `/run/user/<uid>` runtime and
 bus addresses when cron has no login-session environment; launchd continues to
-use the per-user LaunchAgent. The worker does no auth network work until a
-usable native generation appears or changes.
+use the per-user LaunchAgent. The worker uploads usable native changes and
+retrieves canonical updates while a retained native-child lease proves an
+active session. Idle or purged credentials do not trigger downloads.
+
+See [credential resilience](auth-resilience.md) for cancellation, pre-update
+arbitration, upload-before-maintenance ordering, running-agent notices, and the
+remaining cross-host refresh boundary. The internal `auth-sync` command requires
+an active child and existing credentials; it never starts a native CLI.
 
 Engine-specific details:
 
@@ -534,9 +543,10 @@ Engine-specific details:
   `updated` and `valid` acknowledge the uploaded candidate. An `outdated`
   response carrying authoritative auth is a successful arbitration outcome, but
   explicitly does not acknowledge that candidate or clear logout intent.
-  Explicit login/auth-upload converges to that canonical when no logout marker
-  is pending, but exits non-zero instead of claiming that the submitted login
-  was accepted.
+  Explicit login/auth-upload can recover to a verified different credential
+  and clear an older marker; the exact logged-out account remains forbidden.
+  `auth-upload` reports successful arbitration with an explicit
+  restored-canonical message; it does not claim the submitted login was accepted.
   `runner_updated_auth_invalid` is a hard failure even
   if old local bytes look usable. On legacy fallback, only validation-shaped
   400/422 plus an already-retrieved verified canonical authorizes older

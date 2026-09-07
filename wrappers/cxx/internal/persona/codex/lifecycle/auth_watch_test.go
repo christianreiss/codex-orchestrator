@@ -179,3 +179,101 @@ func TestAuthWatcherTreatsLogoutIntentAsHandled(t *testing.T) {
 		t.Fatalf("logout-blocked state retried: %d uploads", got)
 	}
 }
+
+func TestAuthWatcherImmediatelyPullsThenPollsWithoutReuploadingAdoptedBytes(t *testing.T) {
+	h := &watcherHarness{hash: "initial", refresh: "initial-refresh"}
+	deps := h.deps(5 * time.Millisecond)
+	deps.pullInterval = 30 * time.Millisecond
+	var calls, notices int
+	var mu sync.Mutex
+	deps.syncAuth = func(context.Context) (SessionAuthSyncResult, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		calls++
+		if calls == 1 {
+			h.setState("adopted", "new-refresh")
+			return SessionAuthSyncResult{Generation: codex.AuthGeneration{Exists: true, Digest: "adopted"}, Adopted: true}, nil
+		}
+		return SessionAuthSyncResult{Generation: codex.AuthGeneration{Exists: true, Digest: "adopted"}}, nil
+	}
+	deps.onAdopted = func(g codex.AuthGeneration) {
+		mu.Lock()
+		defer mu.Unlock()
+		notices++
+		if g.Digest != "adopted" {
+			t.Error("notice identified a different generation")
+		}
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { defer close(done); runAuthUploadWatcher(ctx, deps, "initial", "initial-refresh") }()
+	waitFor(t, time.Second, func() bool { mu.Lock(); defer mu.Unlock(); return calls >= 2 })
+	cancel()
+	<-done
+	mu.Lock()
+	defer mu.Unlock()
+	if calls > 3 || notices != 1 {
+		t.Fatalf("adopted generation produced repeated sync/notices: calls=%d notices=%d", calls, notices)
+	}
+}
+
+func TestAuthWatcherCancellationDrainsInflightSync(t *testing.T) {
+	h := &watcherHarness{hash: "h", refresh: "r"}
+	deps := h.deps(time.Second)
+	deps.pullInterval = time.Hour
+	started := make(chan struct{})
+	drained := make(chan struct{})
+	deps.syncAuth = func(ctx context.Context) (SessionAuthSyncResult, error) {
+		close(started)
+		<-ctx.Done()
+		close(drained)
+		return SessionAuthSyncResult{}, ctx.Err()
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { defer close(done); runAuthUploadWatcher(ctx, deps, "h", "r") }()
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("initial pull did not start")
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("watcher did not drain cancelled request")
+	}
+	select {
+	case <-drained:
+	default:
+		t.Fatal("watcher exited before request drained")
+	}
+}
+
+func TestAuthWatcherRetriesBackOffExponentiallyAndCap(t *testing.T) {
+	h := &watcherHarness{hash: "h", refresh: "r"}
+	deps := h.deps(8 * time.Millisecond)
+	deps.maxBackoff = 24 * time.Millisecond
+	deps.pullInterval = time.Hour
+	var mu sync.Mutex
+	var attempts []time.Time
+	deps.syncAuth = func(context.Context) (SessionAuthSyncResult, error) {
+		mu.Lock()
+		attempts = append(attempts, time.Now())
+		mu.Unlock()
+		return SessionAuthSyncResult{}, errors.New("temporarily unavailable")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { defer close(done); runAuthUploadWatcher(ctx, deps, "h", "r") }()
+	waitFor(t, time.Second, func() bool { mu.Lock(); defer mu.Unlock(); return len(attempts) >= 5 })
+	cancel()
+	<-done
+	mu.Lock()
+	defer mu.Unlock()
+	for i, want := range []time.Duration{8 * time.Millisecond, 16 * time.Millisecond, 24 * time.Millisecond, 24 * time.Millisecond} {
+		if gap := attempts[i+1].Sub(attempts[i]); gap < want || gap > 150*time.Millisecond {
+			t.Fatalf("retry gap%d=%s, expected >=%s with bounded scheduling slack", i, gap, want)
+		}
+	}
+}

@@ -958,10 +958,10 @@ ui_ok "cxx" "wrapper" "$WRAPPER_VERSION" "ready"
 
 install_background_worker() {
   # Keep the worker installed while agent messaging is off. It starts no model
-  # and makes no messaging requests in that state; on Claude-capable hosts it
-  # also uploads a native credential generation only when that file changes.
-  # Its presence lets the WebUI activate messaging without another install and
-  # closes the auth gap left by detached Claude daemons.
+  # and makes no messaging requests in that state. Both engines upload native
+  # credential changes and retrieve canonical updates while a managed child is
+  # active. Detached native writers retain upload coverage after wrapper exit.
+  # Its presence also lets the WebUI activate messaging without another install.
   ui_progress "cxx" "background worker" "" "installing…"
   if "$TARGET_BIN" agent service install >"$STEP_LOG" 2>&1; then
     ui_ok "cxx" "background worker" "" "ready"

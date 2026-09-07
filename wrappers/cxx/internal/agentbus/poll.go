@@ -34,6 +34,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/authnotice"
 )
 
 const (
@@ -104,7 +106,7 @@ func runPoll(args []string, stdout, stderr io.Writer) error {
 	// of those are the user's problem mid-turn, and a hook that reports them
 	// would put a wrapper diagnostic in front of unrelated work every time.
 	if err != nil || box == nil {
-		return nil
+		box = &mailbox{}
 	}
 	return emitHook(stdout, event, box)
 }
@@ -125,22 +127,44 @@ func peekMailbox(timeout time.Duration) (*mailbox, error) {
 
 func emitHook(stdout io.Writer, event string, box *mailbox) error {
 	fresh, ledger := unrung(event, box)
-	if len(fresh) == 0 {
+	var authContext string
+	var authDelivery *authnotice.Delivery
+	if event == hookEventPrompt {
+		if delivery, err := authnotice.Prepare("claude", os.Getenv(envSessionID)); err == nil && delivery != nil {
+			authDelivery = delivery
+			authContext = delivery.Notice.Message()
+		}
+	}
+	defer authDelivery.Abort()
+	if len(fresh) == 0 && authContext == "" {
 		return nil
 	}
 	summary := ringSummary(fresh)
+	if authContext != "" {
+		if summary.context != "" {
+			summary.context += "\n\n"
+		}
+		if summary.human != "" {
+			summary.human += "\n"
+		}
+		summary.context += authContext
+		summary.human += "Claude credentials updated"
+	}
 	// Only commit the ledger once the ring is certain to be emitted, so a write
 	// that fails here cannot silently swallow a call.
 	ledger.commit()
 
 	if event == hookEventPrompt {
-		return writeJSON(stdout, map[string]any{
+		if err := writeJSON(stdout, map[string]any{
 			"hookSpecificOutput": map[string]any{
 				"hookEventName":     hookEventPrompt,
 				"additionalContext": summary.context,
 			},
 			"systemMessage": summary.human,
-		})
+		}); err != nil {
+			return err
+		}
+		return authDelivery.Commit()
 	}
 	// Stop blocks, because that is the whole point: informing the agent after
 	// the turn has already ended reaches nobody until the next prompt, which

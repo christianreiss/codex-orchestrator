@@ -81,6 +81,25 @@ func TestAuthChildLeaseCloseIsSafeOnNilAndRepeated(t *testing.T) {
 	}
 }
 
+func TestActiveAuthChildProbeRequiresAHeldLease(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	if active, err := HasActiveAuthChild(); err != nil || active {
+		t.Fatalf("missing lease treated as active: %t %v", active, err)
+	}
+	lease, err := acquireAuthChildShared()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lease.Close()
+	if active, err := HasActiveAuthChild(); err != nil || !active {
+		t.Fatalf("held lease not detected: %t %v", active, err)
+	}
+	_ = lease.Close()
+	if active, err := HasActiveAuthChild(); err != nil || active {
+		t.Fatalf("stale lease file treated as active: %t %v", active, err)
+	}
+}
+
 func TestDuplicateLeaseFileRejectsNilFile(t *testing.T) {
 	dup, err := duplicateLeaseFile(nil, "clx-auth-active-child")
 	if dup != nil {

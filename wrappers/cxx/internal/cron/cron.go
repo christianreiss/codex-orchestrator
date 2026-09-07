@@ -159,7 +159,7 @@ func Run(ctx context.Context, seed *config.Config, minimal bool, stdout, stderr 
 	if backgroundWorkerRequired(configs) {
 		// Service managers are not uniformly available in SSH/headless user
 		// contexts. Keep maintenance successful and surface the exact retry.
-		// Claude auth rotation coverage must not depend on agent messaging being
+		// Engine auth rotation coverage must not depend on agent messaging being
 		// enabled: detached native daemons write the same credential file. Ensure
 		// it before the engine ticks so a failed auth tick cannot prevent healing.
 		if err := ensureAgentService(stdout, stderr); err != nil {
@@ -176,7 +176,7 @@ func Run(ctx context.Context, seed *config.Config, minimal bool, stdout, stderr 
 
 func backgroundWorkerRequired(configs []*config.Config) bool {
 	for _, cfg := range configs {
-		if cfg != nil && (cfg.Engine == config.EngineClaude || cfg.AgentMessaging.Enabled) {
+		if cfg != nil && (cfg.Engine == config.EngineClaude || cfg.Engine == config.EngineCodex || cfg.AgentMessaging.Enabled) {
 			return true
 		}
 	}
@@ -369,7 +369,18 @@ func installUserCron(bin string, minute, hour int) error {
 		return err
 	}
 	body, _ := stripManagedBody(cur)
-	home, _ := os.UserHomeDir()
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return err
+	}
+	cdxPath, clxPath, err := resolveCronConfigPaths(home)
+	if err != nil {
+		return err
+	}
+	codexHome, err := resolveCronCodexHome(home)
+	if err != nil {
+		return err
+	}
 	logFile := filepath.Join(home, ".cxx", "cron.log")
 	if err := os.MkdirAll(filepath.Dir(logFile), 0o700); err != nil {
 		return err
@@ -377,7 +388,11 @@ func installUserCron(bin string, minute, hour int) error {
 	if body != "" && !strings.HasSuffix(body, "\n") {
 		body += "\n"
 	}
-	body += buildCronLine(minute, hour, bin, logFile) + "\n"
+	body += buildCronLine(minute, hour, bin, logFile, map[string]string{
+		"CDX_CONFIG_PATH": cdxPath,
+		"CLX_CONFIG_PATH": clxPath,
+		"CODEX_HOME":      codexHome,
+	}) + "\n"
 	return writeCrontab(body)
 }
 
@@ -440,16 +455,17 @@ func installSystemCron(bin string, minute, hour int) error {
 	if err := ensureCronLog(identity.logFile, identity.home); err != nil {
 		return fmt.Errorf("prepare cxx cron log: %w", err)
 	}
-	body := buildSystemCronBody(bin, identity.cdxPath, identity.clxPath, identity.logFile, identity.userName, identity.home, minute, hour)
+	body := buildSystemCronBody(bin, identity.cdxPath, identity.clxPath, identity.logFile, identity.userName, identity.home, identity.codexHome, minute, hour)
 	return writeManagedFileAtomic(systemCronPath, []byte(body), privileged)
 }
 
 type systemCronIdentity struct {
-	userName string
-	home     string
-	cdxPath  string
-	clxPath  string
-	logFile  string
+	userName  string
+	home      string
+	codexHome string
+	cdxPath   string
+	clxPath   string
+	logFile   string
 }
 
 func resolveSystemCronIdentity() (systemCronIdentity, error) {
@@ -459,25 +475,33 @@ func resolveSystemCronIdentity() (systemCronIdentity, error) {
 		return systemCronIdentity{}, err
 	}
 	home = inferConfigHome(home, cdxPath, clxPath)
+	codexHome, err := resolveCronCodexHome(home)
+	if err != nil {
+		return systemCronIdentity{}, err
+	}
 	userName = inferHomeOwner(userName, home)
 	if strings.TrimSpace(userName) == "" {
 		userName = "root"
 	}
 	logFile := filepath.Join(home, ".cxx", "cron.log")
 	return systemCronIdentity{
-		userName: userName,
-		home:     home,
-		cdxPath:  cdxPath,
-		clxPath:  clxPath,
-		logFile:  logFile,
+		userName:  userName,
+		home:      home,
+		codexHome: codexHome,
+		cdxPath:   cdxPath,
+		clxPath:   clxPath,
+		logFile:   logFile,
 	}, nil
 }
 
-func buildSystemCronBody(bin, cdxPath, clxPath, logFile, userName, home string, minute, hour int) string {
+func buildSystemCronBody(bin, cdxPath, clxPath, logFile, userName, home, codexHome string, minute, hour int) string {
 	if strings.TrimSpace(userName) == "" {
 		userName = "root"
 	}
-	command := fmt.Sprintf("%s cron run >> %s 2>&1", shellEscape(bin), shellEscape(logFile))
+	// Assign through the shell, whose quoting handles embedded quote characters;
+	// cron's environment-line parser is not a shell parser. Escape percent only
+	// after constructing the command, since cron processes it before /bin/sh.
+	command := fmt.Sprintf("CODEX_HOME=%s %s cron run >> %s 2>&1", shellEscape(codexHome), shellEscape(bin), shellEscape(logFile))
 	command = strings.ReplaceAll(command, "%", `\%`)
 	return fmt.Sprintf(`# cxx-managed-cron - host-wide wrapper and engine maintenance. Do not edit by hand.
 SHELL=/bin/sh
@@ -487,6 +511,21 @@ CDX_CONFIG_PATH=%s
 CLX_CONFIG_PATH=%s
 %d %d * * * %s %s
 `, shellEscape(home), shellEscape(cdxPath), shellEscape(clxPath), minute, hour, userName, command)
+}
+
+func resolveCronCodexHome(home string) (string, error) {
+	configured := strings.TrimSpace(os.Getenv("CODEX_HOME"))
+	if configured == "" {
+		configured = filepath.Join(home, ".codex")
+	}
+	resolved, err := filepath.Abs(configured)
+	if err != nil {
+		return "", fmt.Errorf("resolve cron CODEX_HOME: %w", err)
+	}
+	if strings.ContainsAny(resolved, "\x00\r\n") {
+		return "", errors.New("cron CODEX_HOME contains an invalid character")
+	}
+	return resolved, nil
 }
 
 func resolveCronConfigPaths(home string) (string, string, error) {
@@ -514,6 +553,9 @@ func resolveCronConfigPaths(home string) (string, string, error) {
 	}
 	if !filepath.IsAbs(cdxOverride) || !filepath.IsAbs(clxOverride) {
 		return "", "", errors.New("cron config paths must be absolute")
+	}
+	if strings.ContainsAny(cdxOverride+clxOverride, "\x00\r\n") {
+		return "", "", errors.New("cron config paths contain an invalid character")
 	}
 	return cdxOverride, clxOverride, nil
 }
@@ -581,8 +623,14 @@ func installUserContext() (string, string) {
 	return "", home
 }
 
-func buildCronLine(minute, hour int, bin, logFile string) string {
-	cmd := fmt.Sprintf("%s %s cron run >> %s 2>&1", cronPATHEnv, shellEscape(bin), shellEscape(logFile))
+func buildCronLine(minute, hour int, bin, logFile string, environment map[string]string) string {
+	assignments := []string{cronPATHEnv}
+	for _, key := range []string{"CDX_CONFIG_PATH", "CLX_CONFIG_PATH", "CODEX_HOME"} {
+		if value, ok := environment[key]; ok {
+			assignments = append(assignments, key+"="+shellEscape(value))
+		}
+	}
+	cmd := fmt.Sprintf("%s %s cron run >> %s 2>&1", strings.Join(assignments, " "), shellEscape(bin), shellEscape(logFile))
 	cmd = strings.ReplaceAll(cmd, "%", `\%`)
 	return fmt.Sprintf("%d %d * * * %s %s", minute, hour, cmd, Marker)
 }

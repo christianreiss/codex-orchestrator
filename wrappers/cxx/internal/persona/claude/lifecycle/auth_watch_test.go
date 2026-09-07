@@ -220,3 +220,52 @@ func TestAuthWatcherFollowsNewerUploadedGeneration(t *testing.T) {
 		t.Fatalf("already-uploaded generation re-uploaded: %d uploads", got)
 	}
 }
+
+func TestAuthWatcherPullsImmediatelyThenAtBoundedCadence(t *testing.T) {
+	h := &watcherHarness{}
+	h.setSnapshot(usableSnapshot("known"), nil)
+	deps := h.deps(time.Millisecond)
+	deps.pullInterval = 10 * time.Millisecond
+	pulls := 0
+	deps.pull = func(context.Context) (claude.AuthSnapshot, error) {
+		h.mu.Lock()
+		defer h.mu.Unlock()
+		pulls++
+		return h.snap, nil
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { defer close(done); runAuthUploadWatcher(ctx, deps, generation("known")) }()
+	waitFor(t, time.Second, func() bool { h.mu.Lock(); defer h.mu.Unlock(); return pulls >= 2 })
+	cancel()
+	<-done
+	if h.uploadCount() != 0 {
+		t.Fatal("unchanged generation was uploaded while pulling")
+	}
+}
+
+func TestAuthWatcherDoesNotPullOverFailedNativeCandidate(t *testing.T) {
+	h := &watcherHarness{}
+	h.setSnapshot(usableSnapshot("pending"), nil)
+	h.setUpload(claude.AuthSnapshot{}, errors.New("API unavailable"))
+	deps := h.deps(time.Hour)
+	deps.pull = func(context.Context) (claude.AuthSnapshot, error) {
+		t.Error("failed native candidate was bypassed by a pull")
+		return claude.AuthSnapshot{}, nil
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { defer close(done); runAuthUploadWatcher(ctx, deps, generation("old")) }()
+	waitFor(t, time.Second, func() bool { return h.uploadCount() == 1 })
+	settle()
+	cancel()
+	<-done
+}
+
+func TestAuthRetryDelayIsExponentialAndBounded(t *testing.T) {
+	for attempts, want := range []time.Duration{5, 10, 20, 40, 60, 60, 60} {
+		if got := authRetryDelay(5*time.Second, time.Minute, attempts+1); got != want*time.Second {
+			t.Fatalf("attempt %d delay=%s want=%s", attempts+1, got, want*time.Second)
+		}
+	}
+}

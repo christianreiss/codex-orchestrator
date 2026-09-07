@@ -1,5 +1,24 @@
 # cdx Wrapper Interface (Source of Truth)
 
+## Session credential resilience
+
+cxx 0.8.1 checks native changes every two seconds, uploads new usable generations,
+and retrieves canonical state every 30 seconds during active sessions. Verified
+store and retrieve responses use exact-generation/logout guards; changed or
+removed native files win over in-flight responses. Failed generations retry
+from five seconds to one minute, with newer generations handled immediately.
+Final upload runs before optional native updates, and wrapper updates arbitrate
+pending credentials before maintenance cleanup.
+
+The background worker now covers both engines, including Codex-only hosts with
+messaging disabled. Downloads require an active native-child lease and existing
+usable credentials; custom `CODEX_HOME` is preserved in service/cron/MCP contexts.
+The internal `auth-upload-auto` path respects logout intent and preserves an
+unsaved candidate on failure. `auth-sync` starts no native CLI and cannot recreate purged
+auth. Actual adoptions produce a per-session notice at the next agent MCP tool
+result. See [credential resilience](auth-resilience.md) for delivery, cancellation,
+insecure cleanup, native reload semantics, and the cross-host refresh boundary.
+
 ## Build + Publish
 - `cdx` is the Codex persona of the static `cxx` Go binary built from `wrappers/cxx/cmd/cxx`; the installed `cdx` path is a relative `cdx -> cxx` symlink. During legacy self-update migration, a `cdx-<major>.<minor>.<patch>` filename selects the same persona.
 - Build locally with `cd wrappers && make cxx`; `cd wrappers && make release` only stages the complete cross-platform matrix under `wrappers/bin/release`.

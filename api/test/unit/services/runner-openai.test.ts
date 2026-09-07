@@ -38,6 +38,7 @@ describe('onExecSuccess traffic hook', () => {
 
   function adapterWith(runnerBody: unknown, status = 200) {
     const onExecSuccess = vi.fn();
+    const auth = { tokens: { access_token: 'a' } };
     vi.stubGlobal(
       'fetch',
       vi.fn(async () => new Response(JSON.stringify(runnerBody), { status })),
@@ -46,16 +47,17 @@ describe('onExecSuccess traffic hook', () => {
       execUrl: 'http://auth-runner:8080/exec',
       sharedSecret: 'secret',
       timeoutSeconds: 1,
-      authSnapshot: async () => ({ tokens: { access_token: 'a' } }),
+      authSnapshot: async () => auth,
       onExecSuccess,
     });
-    return { adapter, onExecSuccess };
+    return { adapter, onExecSuccess, auth };
   }
 
   it('fires exactly once on a successful exec', async () => {
-    const { adapter, onExecSuccess } = adapterWith({ status: 'ok', output: 'pong' });
+    const { adapter, onExecSuccess, auth } = adapterWith({ status: 'ok', output: 'pong' });
     await adapter.chatCompletions([{ role: 'user', content: 'ping' }], 'gpt-test', {});
     expect(onExecSuccess).toHaveBeenCalledTimes(1);
+    expect(onExecSuccess.mock.calls[0]?.[0]).toBe(auth);
   });
 
   it('does not fire on a failed exec', async () => {

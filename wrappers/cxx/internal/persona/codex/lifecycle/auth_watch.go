@@ -1,12 +1,6 @@
-// Mid-session auth upload watcher. With the runner's verification probes now
-// refresh-stripped, the first codex process to touch an expired-access
-// credential is the fleet's refresher — and OpenAI rotates the refresh token
-// per use, locking out replays beyond a short grace. Until the rotated pair
-// reaches the orchestrator, every other host that launches is handed the
-// spent parent and will replay it. The post-run upload alone leaves that gap
-// open for the whole session, so this watcher polls the native auth.json
-// while the child runs and uploads each new generation within one interval
-// of its mint.
+// Mid-session auth convergence. Native rotations are offered promptly, while
+// verified canonical changes are periodically adopted for native recovery and
+// refresh. The wrapper never spends a provider refresh token itself.
 package lifecycle
 
 import (
@@ -16,17 +10,17 @@ import (
 	"sync"
 	"time"
 
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/authnotice"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/codex"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/codex/orchestrator"
 )
 
 const (
-	authWatchInterval      = 30 * time.Second
+	authWatchInterval      = 2 * time.Second
+	authWatchPullInterval  = 30 * time.Second
 	authWatchUploadTimeout = 15 * time.Second
-	// A generation whose upload failed is retried, but not on every tick: the
-	// next poll would hit the same server state, and the post-run upload is
-	// still behind it as a backstop.
-	authWatchRetryBackoff = 5 * time.Minute
+	authWatchRetryBackoff  = 5 * time.Second
+	authWatchMaxBackoff    = time.Minute
 )
 
 type authWatchDeps struct {
@@ -35,11 +29,15 @@ type authWatchDeps struct {
 	snapshot func() (hash string, refresh string)
 	// upload runs the bounded store-candidate transaction (no local
 	// write-back: the running child owns the credential file).
-	upload   func(context.Context) error
-	interval time.Duration
-	backoff  time.Duration
-	timeout  time.Duration
-	logger   *slog.Logger
+	upload       func(context.Context) error
+	syncAuth     func(context.Context) (SessionAuthSyncResult, error)
+	onAdopted    func(codex.AuthGeneration)
+	interval     time.Duration
+	pullInterval time.Duration
+	backoff      time.Duration
+	maxBackoff   time.Duration
+	timeout      time.Duration
+	logger       *slog.Logger
 }
 
 // startMidSessionAuthUpload launches the watcher goroutine and returns an
@@ -54,14 +52,20 @@ func startMidSessionAuthUpload(
 ) (stop func()) {
 	deps := authWatchDeps{
 		snapshot: func() (string, string) { return snapshotAuth(authPath) },
-		upload: func(uctx context.Context) error {
-			_, _, err := storeCurrentAuthCandidate(uctx, client, false)
-			return err
+		syncAuth: func(uctx context.Context) (SessionAuthSyncResult, error) {
+			return SyncSessionAuth(uctx, client, logger)
 		},
-		interval: authWatchInterval,
-		backoff:  authWatchRetryBackoff,
-		timeout:  authWatchUploadTimeout,
-		logger:   logger,
+		onAdopted: func(generation codex.AuthGeneration) {
+			if err := authnotice.Publish("codex", generation.Digest); err != nil {
+				logger.Debug("session auth adoption notice deferred", "err", err)
+			}
+		},
+		interval:     authWatchInterval,
+		pullInterval: authWatchPullInterval,
+		backoff:      authWatchRetryBackoff,
+		maxBackoff:   authWatchMaxBackoff,
+		timeout:      authWatchUploadTimeout,
+		logger:       logger,
 	}
 	watchCtx, cancel := context.WithCancel(ctx)
 	var wg sync.WaitGroup
@@ -82,31 +86,48 @@ func startMidSessionAuthUpload(
 func runAuthUploadWatcher(ctx context.Context, deps authWatchDeps, beforeHash, beforeRefresh string) {
 	stateKey := func(hash, refresh string) string { return hash + "\x00" + refresh }
 	lastHandled := stateKey(beforeHash, beforeRefresh)
+	lastHandledGeneration := ""
 	var failedState string
-	var failedAt time.Time
+	var retryAt time.Time
+	var retryDelay time.Duration
+	nextPull := time.Now()
+	immediate := deps.syncAuth != nil
 	ticker := time.NewTicker(deps.interval)
 	defer ticker.Stop()
 	for {
-		select {
-		case <-ctx.Done():
+		if !immediate {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+			}
+		}
+		immediate = false
+		if ctx.Err() != nil {
 			return
-		case <-ticker.C:
 		}
 		hash, refresh := deps.snapshot()
 		if hash == "" {
-			// Absent or unreadable credentials are the post-run handler's
-			// business (logout tracking), never the watcher's.
+			// Never repopulate auth removed by native logout or final purge.
 			continue
 		}
 		observed := stateKey(hash, refresh)
-		if observed == lastHandled {
+		now := time.Now()
+		pullDue := deps.syncAuth != nil && !now.Before(nextPull)
+		if !pullDue && (observed == lastHandled || hash == lastHandledGeneration) {
 			continue
 		}
-		if observed == failedState && time.Since(failedAt) < deps.backoff {
+		if observed == failedState && now.Before(retryAt) {
 			continue
 		}
 		uctx, cancel := context.WithTimeout(ctx, deps.timeout)
-		err := deps.upload(uctx)
+		var result SessionAuthSyncResult
+		var err error
+		if deps.syncAuth != nil {
+			result, err = deps.syncAuth(uctx)
+		} else {
+			err = deps.upload(uctx)
+		}
 		cancel()
 		if err != nil {
 			if errors.Is(err, codex.ErrLogoutIntentActive) {
@@ -116,9 +137,14 @@ func runAuthUploadWatcher(ctx context.Context, deps authWatchDeps, beforeHash, b
 			if ctx.Err() != nil {
 				return
 			}
+			if failedState != observed || retryDelay == 0 {
+				retryDelay = deps.backoff
+			} else if deps.maxBackoff > 0 && retryDelay < deps.maxBackoff {
+				retryDelay = min(retryDelay*2, deps.maxBackoff)
+			}
 			failedState = observed
-			failedAt = time.Now()
-			deps.logger.Warn("mid-session auth upload failed; will retry", "err", err)
+			retryAt = time.Now().Add(retryDelay)
+			deps.logger.Debug("mid-session auth sync failed; will retry", "err", err, "retry_in", retryDelay)
 			continue
 		}
 		// The store snapshots the file under its own transaction and may have
@@ -126,6 +152,13 @@ func runAuthUploadWatcher(ctx context.Context, deps authWatchDeps, beforeHash, b
 		// the observed state handled means a mid-upload rotation is re-offered
 		// next tick, where the server cheaply answers "valid".
 		lastHandled = observed
-		deps.logger.Debug("mid-session auth generation uploaded")
+		lastHandledGeneration = result.Generation.Digest
+		failedState = ""
+		retryDelay = 0
+		nextPull = time.Now().Add(deps.pullInterval)
+		if result.Adopted && deps.onAdopted != nil {
+			deps.onAdopted(result.Generation)
+		}
+		deps.logger.Debug("mid-session auth synchronized", "uploaded", result.Uploaded, "adopted", result.Adopted, "deferred", result.Deferred)
 	}
 }

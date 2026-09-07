@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/authnotice"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/signing"
 )
@@ -362,8 +363,16 @@ func runMCPProtocol(client *sessionClient, channel bool, stdin io.Reader, stdout
 			continue
 		}
 		response := handleMCPRequest(ctx, client, req, channel, channelState)
+		var authDelivery *authnotice.Delivery
+		if req.Method == "tools/call" {
+			authDelivery = prepareAuthNotice(response, os.Getenv("CXX_AGENT_PORTAL_ENGINE"), client.id)
+		}
 		if err := output.send(response); err != nil {
+			authDelivery.Abort()
 			return err
+		}
+		if err := authDelivery.Commit(); err != nil {
+			fmt.Fprintln(stderr, "cxx auth notice acknowledgement failed; notice remains pending")
 		}
 		if req.Method == "initialize" {
 			initialized = true
@@ -372,9 +381,26 @@ func runMCPProtocol(client *sessionClient, channel bool, stdin io.Reader, stdout
 	return scanner.Err()
 }
 
+// Keep the native tool result intact and add a local credential-change notice
+// at a boundary both engines support. The caller acknowledges successful output.
+func prepareAuthNotice(response map[string]any, engine, session string) *authnotice.Delivery {
+	result, ok := response["result"].(map[string]any)
+	if !ok {
+		return nil
+	}
+	content, ok := result["content"].([]map[string]any)
+	if !ok {
+		return nil
+	}
+	delivery, err := authnotice.Prepare(engine, session)
+	if err != nil || delivery == nil {
+		return nil
+	}
+	result["content"] = append(content, map[string]any{"type": "text", "text": delivery.Notice.Message()})
+	return delivery
+}
+
 // messageKindFor maps a tool name to the wire `kind` the server accepts.
-// `agent_send` posts an ordinary message; only `agent_request` asks the server
-// to correlate a reply. The server's enum is exactly {message, request}.
 func messageKindFor(tool string) string {
 	if tool == "agent_request" {
 		return "request"

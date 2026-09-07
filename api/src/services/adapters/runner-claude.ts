@@ -101,9 +101,10 @@ export interface RunnerClaudeAdapterDeps {
   getAuthSnapshot?: () => Promise<unknown | null>;
   /**
    * Invoked once per successful runner exec — a real completion with the
-   * canonical credential — so traffic can count as auth verification.
+   * canonical credential — with the exact snapshot used for that execution,
+   * so overlapping requests can count as verification of their own generation.
    */
-  onExecSuccess?: () => void;
+  onExecSuccess?: (authSnapshot: unknown) => void;
   /** Override fetch for tests. */
   fetcher?: typeof fetch;
 }
@@ -219,7 +220,7 @@ export function createRunnerClaudeAdapter(deps: RunnerClaudeAdapterDeps): Runner
         });
       }
 
-      deps.onExecSuccess?.();
+      deps.onExecSuccess?.(auth);
 
       const output = typeof obj.output === 'string' ? obj.output : '';
       const usage = extractUsage(obj);

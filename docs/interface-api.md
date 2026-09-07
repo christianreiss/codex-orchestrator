@@ -35,6 +35,12 @@
   quarantines that replacement and atomically marks the same-lineage head
   failed only if that exact row is still selected. Unrelated credentials and a
   different concurrent compare-and-swap winner remain distributable.
+- Gateway traffic verification credits the exact canonical snapshot executed
+  by that request. Concurrent completions cannot verify a replacement, revive
+  a failed/superseded generation, or rate-limit evidence for a newer head.
+  Runner native files contain no spendable refresh material; Claude debug
+  captures use the same stripped projection. See [session credential
+  resilience](auth-resilience.md) for wrapper propagation and agent notices.
 - `/auth` engine/timestamp compatibility: invalid explicit body/query/header
   engine hints return validation errors instead of falling back to Codex.
   RFC3339 values are calendar-validated, retain up to nine fractional digits,

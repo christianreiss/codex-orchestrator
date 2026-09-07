@@ -2,6 +2,7 @@ package codex
 
 import (
 	"bytes"
+	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
@@ -332,11 +333,27 @@ type AuthUploadLease struct {
 // upload. Explicit login/auth-upload passes true and may acknowledge only the
 // exact marker returned by IntentGeneration after the server accepts it.
 func BeginAuthUpload(acknowledgeLogout bool) (*AuthUploadLease, error) {
+	return BeginAuthUploadContext(context.Background(), acknowledgeLogout)
+}
+
+// BeginAuthUploadContext also bounds waiting for a competing wrapper's upload
+// lease, so watcher cancellation cannot stall behind an unrelated request.
+func BeginAuthUploadContext(ctx context.Context, acknowledgeLogout bool) (*AuthUploadLease, error) {
+	return beginAuthUploadContext(ctx, acknowledgeLogout, false)
+}
+
+// BeginAutomaticAuthUpload never infers a new login from changed native bytes.
+// Any explicit logout blocks automatic traffic before normalization or upload.
+func BeginAutomaticAuthUpload(ctx context.Context) (*AuthUploadLease, error) {
+	return beginAuthUploadContext(ctx, false, true)
+}
+
+func beginAuthUploadContext(ctx context.Context, acknowledgeLogout, requireNoLogout bool) (*AuthUploadLease, error) {
 	path, err := AuthPath()
 	if err != nil {
 		return nil, err
 	}
-	lock, err := acquireAuthLockAt(path)
+	lock, err := acquireAuthLockAtContext(ctx, path)
 	if err != nil {
 		return nil, err
 	}
@@ -344,6 +361,10 @@ func BeginAuthUpload(acknowledgeLogout bool) (*AuthUploadLease, error) {
 	if err != nil {
 		_ = releaseAuthLock(lock)
 		return nil, err
+	}
+	if requireNoLogout && initialIntent.Exists {
+		_ = releaseAuthLock(lock)
+		return nil, ErrLogoutIntentActive
 	}
 	initialAuth, err := authGenerationAt(path)
 	if err != nil {
@@ -537,6 +558,19 @@ func WriteAuthIfCurrentDetailed(payload json.RawMessage, expected AuthGeneration
 	return writeAuthPayload(payload, &expected)
 }
 
+// WriteSessionAuthIfCurrent is a single guarded replacement of an existing
+// session credential. Missing originals and unusable server payloads are never
+// eligible; native changes are not retried as pre-launch recovery.
+func WriteSessionAuthIfCurrent(ctx context.Context, payload json.RawMessage, expected AuthGeneration) (AuthWriteResult, error) {
+	if !expected.Exists || expected.Digest == "" {
+		return AuthWriteResult{}, nil
+	}
+	if !isValidAuthRaw(payload) {
+		return AuthWriteResult{}, errors.New("session canonical auth has no usable credentials")
+	}
+	return writeAuthPayloadContext(ctx, payload, &expected)
+}
+
 // ConvergeAuthIfCurrent applies a verified canonical response monotonically.
 // Two concurrent requests may share expected: if an older canonical lands
 // first, a later/newer response CASes over it; an older/equal response never
@@ -625,6 +659,10 @@ func ConvergeAuthIfCurrent(payload json.RawMessage, expected AuthGeneration) (Au
 }
 
 func writeAuthPayload(payload json.RawMessage, expected *AuthGeneration) (AuthWriteResult, error) {
+	return writeAuthPayloadContext(context.Background(), payload, expected)
+}
+
+func writeAuthPayloadContext(ctx context.Context, payload json.RawMessage, expected *AuthGeneration) (AuthWriteResult, error) {
 	if len(payload) == 0 {
 		return AuthWriteResult{}, errors.New("empty auth payload")
 	}
@@ -634,7 +672,7 @@ func writeAuthPayload(payload json.RawMessage, expected *AuthGeneration) (AuthWr
 		return AuthWriteResult{}, fmt.Errorf("auth payload not valid JSON: %w", err)
 	}
 	result := AuthWriteResult{}
-	err := withAuthLock(func(path string) error {
+	err := withAuthLockContext(ctx, func(path string) error {
 		if expected != nil {
 			current, err := authGenerationAt(path)
 			if err != nil {
@@ -739,6 +777,48 @@ func rememberCanonicalGenerationLocked(authPath string, payload []byte) error {
 func canonicalGenerationKnownAt(authPath string, generation AuthGeneration) (bool, error) {
 	known, _, _, err := authGenerationMetadataAt(authPath, generation)
 	return known, err
+}
+
+// IsCanonicalAuthGeneration reports whether this exact content generation was
+// materialized from, or acknowledged as, verified canonical auth. A native
+// login/rotation is unbound until the server accepts it.
+func IsCanonicalAuthGeneration(generation AuthGeneration) (bool, error) {
+	path, err := AuthPath()
+	if err != nil {
+		return false, err
+	}
+	return canonicalGenerationKnownAt(path, generation)
+}
+
+// AcknowledgeCanonicalAuthGeneration binds an exact locally submitted generation
+// after a verified successful store, including responses without an auth body.
+// Callers must establish server acceptance first. Concurrent login/logout or a
+// native rotation wins; this operation never writes credentials.
+func AcknowledgeCanonicalAuthGeneration(ctx context.Context, expected AuthGeneration) (bool, error) {
+	acknowledged := false
+	err := withAuthLockContext(ctx, func(path string) error {
+		current, err := authGenerationAt(path)
+		if err != nil || current != expected || !current.Exists {
+			return err
+		}
+		active, err := logoutIntentActiveLocked(path)
+		if err != nil || active {
+			return err
+		}
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		if generationOf(raw) != expected || !isValidAuthRaw(raw) {
+			return nil
+		}
+		if err := rememberCanonicalGenerationLocked(path, raw); err != nil {
+			return err
+		}
+		acknowledged = true
+		return nil
+	})
+	return acknowledged, err
 }
 
 func trustedGenerationKnownAt(authPath string, generation AuthGeneration) (bool, error) {
@@ -912,8 +992,13 @@ func MarkLogoutIntent(expected AuthGeneration) (bool, error) {
 // rotate auth after logout. Only an explicitly accepted login/auth-upload may
 // acknowledge the marker through ClearLogoutIntentIfUnchanged.
 func LogoutIntentActive() (bool, error) {
+	return LogoutIntentActiveContext(context.Background())
+}
+
+// LogoutIntentActiveContext bounds waiting behind an in-flight upload.
+func LogoutIntentActiveContext(ctx context.Context) (bool, error) {
 	active := false
-	err := withAuthLock(func(path string) error {
+	err := withAuthLockContext(ctx, func(path string) error {
 		var err error
 		active, err = logoutIntentActiveLocked(path)
 		return err
@@ -1030,8 +1115,13 @@ func logoutIntentGenerationAt(authPath string) (LogoutIntentGeneration, error) {
 // automatic new-login clearing policy. Explicit login uses it to decide that
 // even byte-identical credentials must be re-accepted before old intent clears.
 func CurrentLogoutIntentGeneration() (LogoutIntentGeneration, error) {
+	return CurrentLogoutIntentGenerationContext(context.Background())
+}
+
+// CurrentLogoutIntentGenerationContext bounds snapshots behind upload leases.
+func CurrentLogoutIntentGenerationContext(ctx context.Context) (LogoutIntentGeneration, error) {
 	var generation LogoutIntentGeneration
-	err := withAuthLock(func(path string) error {
+	err := withAuthLockContext(ctx, func(path string) error {
 		var err error
 		generation, err = logoutIntentGenerationAt(path)
 		return err
@@ -1049,6 +1139,26 @@ func withAuthLock(fn func(authPath string) error) error {
 		return err
 	}
 	return withAuthLockAt(authPath, fn)
+}
+
+func withAuthLockContext(ctx context.Context, fn func(authPath string) error) error {
+	path, err := AuthPath()
+	if err != nil {
+		return err
+	}
+	return withAuthLockAtContext(ctx, path, fn)
+}
+
+func withAuthLockAtContext(ctx context.Context, path string, fn func(authPath string) error) error {
+	if ctx.Done() == nil {
+		return withAuthLockAt(path, fn)
+	}
+	lock, err := acquireAuthLockAtContext(ctx, path)
+	if err != nil {
+		return err
+	}
+	defer releaseAuthLock(lock) //nolint:errcheck
+	return fn(path)
 }
 
 func withAuthLockAt(authPath string, fn func(authPath string) error) error {
@@ -1075,6 +1185,38 @@ func acquireAuthLockAt(authPath string) (*os.File, error) {
 		return nil, fmt.Errorf("lock auth state: %w", err)
 	}
 	return lock, nil
+}
+
+func acquireAuthLockAtContext(ctx context.Context, authPath string) (*os.File, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	dir := filepath.Dir(authPath)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return nil, err
+	}
+	lock, err := os.OpenFile(filepath.Join(dir, ".cdx-auth.lock"), os.O_CREATE|os.O_RDWR|syscall.O_NOFOLLOW, 0o600)
+	if err != nil {
+		return nil, fmt.Errorf("open auth lock: %w", err)
+	}
+	for {
+		err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
+		if err == nil {
+			return lock, nil
+		}
+		if !errors.Is(err, syscall.EWOULDBLOCK) && !errors.Is(err, syscall.EAGAIN) {
+			_ = lock.Close()
+			return nil, fmt.Errorf("lock auth state: %w", err)
+		}
+		timer := time.NewTimer(10 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			_ = lock.Close()
+			return nil, ctx.Err()
+		case <-timer.C:
+		}
+	}
 }
 
 func releaseAuthLock(lock *os.File) error {

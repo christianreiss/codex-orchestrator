@@ -422,11 +422,14 @@ def _prepare_claude_env(auth_json: dict) -> tuple[dict, str, str]:
     Always writes refresh-stripped credentials: no runner endpoint may ever
     rotate the shared OAuth grant (see _claude_probe_credentials).
     """
+    # Apply the same projection to optional debug captures as to the CLI HOME.
+    # A persistent debug file must not retain the fleet's spendable refresh grant.
+    credentials = _claude_probe_credentials(auth_json)
     if DEBUG_DUMP_ENABLED:
         try:
             debug_path = "/tmp/last-claude-auth.json"
             with open(debug_path, "w", encoding="utf-8") as fh:
-                json.dump(auth_json, fh, indent=2)
+                json.dump(credentials, fh, indent=2)
             os.chmod(debug_path, 0o600)
         except Exception:
             pass
@@ -447,7 +450,7 @@ def _prepare_claude_env(auth_json: dict) -> tuple[dict, str, str]:
     env["TMP"] = tmp_dir
     env["TEMP"] = tmp_dir
 
-    # Store the credentials so callers can detect rotation (same pattern as Codex).
+    # Store only the refresh-incapable native credentials for CLI execution.
     # Native Claude Code account-login credentials are *not* public Anthropic API
     # keys. The orchestrator envelope also carries last_refresh/auths metadata;
     # never put those wrapper/server fields in Claude's native credential file.
@@ -456,7 +459,6 @@ def _prepare_claude_env(auth_json: dict) -> tuple[dict, str, str]:
     claude_dir = os.path.join(home_dir, ".claude")
     os.makedirs(claude_dir, exist_ok=True)
     auth_path = os.path.join(claude_dir, ".credentials.json")
-    credentials = _claude_probe_credentials(auth_json)
     try:
         with open(auth_path, "w", encoding="utf-8") as fh:
             json.dump(credentials, fh)

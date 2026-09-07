@@ -87,7 +87,7 @@ export async function registerAnthropicCompatRoutes(
   // Successful gateway execs prove the canonical credential live; the traffic
   // verifier touches its verification stamp so background probes stay idle
   // while real traffic flows. Test overrides of getAuthSnapshot/adapter leave
-  // the touch a no-op (no served row id is ever recorded).
+  // the touch a no-op (their snapshots have no recorded canonical row).
   const traffic = createAuthTrafficVerifier({
     db: ctx.db,
     runnerValidation,

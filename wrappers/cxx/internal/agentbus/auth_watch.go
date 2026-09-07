@@ -2,110 +2,177 @@ package agentbus
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
 	"os"
 	"os/exec"
+	"strings"
 	"time"
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/claude"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/codex"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
 )
 
 const (
 	// Detached Claude daemons can outlive the clx process that spawned them and
 	// rotate the shared OAuth pair long after the foreground watcher has exited.
-	// Keep this poll local and cheap; network traffic happens only when the
-	// credential generation changes.
-	persistentClaudeAuthWatchInterval = 2 * time.Second
-	persistentClaudeAuthUploadTimeout = 20 * time.Second
-	persistentClaudeAuthRetryBackoff  = 5 * time.Second
-	persistentClaudeAuthRetryMax      = 5 * time.Minute
+	// Keep this poll local and cheap; network traffic happens when credentials
+	// change or a managed child needs its periodic canonical refresh.
+	persistentAuthWatchInterval = 2 * time.Second
+	persistentAuthUploadTimeout = 20 * time.Second
+	persistentAuthRetryBackoff  = 5 * time.Second
+	persistentAuthRetryMax      = time.Minute
+	persistentAuthSyncInterval  = 30 * time.Second
 )
 
-type persistentClaudeAuthWatchDeps struct {
-	snapshot func() (claude.AuthSnapshot, error)
-	upload   func(context.Context) error
-	interval time.Duration
-	backoff  time.Duration
-	maxDelay time.Duration
-	timeout  time.Duration
-	logger   *slog.Logger
+type persistentAuthGeneration struct {
+	Exists bool
+	Digest string
+}
+type persistentAuthSnapshot struct {
+	Generation   persistentAuthGeneration
+	Usable       bool
+	ServerDigest string
 }
 
-var runClaudeAuthUpload = func(ctx context.Context) error {
+type persistentAuthWatchDeps struct {
+	engine       string
+	sync         func(context.Context) error
+	active       func() (bool, error)
+	syncInterval time.Duration
+	snapshot     func() (persistentAuthSnapshot, error)
+	upload       func(context.Context) error
+	interval     time.Duration
+	backoff      time.Duration
+	maxDelay     time.Duration
+	timeout      time.Duration
+	logger       *slog.Logger
+}
+
+var runPersistentAuthCommand = func(ctx context.Context, engine, command string) error {
 	executable, err := os.Executable()
 	if err != nil {
 		return err
 	}
-	cmd := exec.CommandContext(ctx, executable, "claude", "auth-upload")
-	cmd.Stdout = io.Discard
-	cmd.Stderr = io.Discard
+	cmd := exec.CommandContext(ctx, executable, engine, command)
+	cmd.Stdout, cmd.Stderr = io.Discard, io.Discard
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("clx auth-upload: %w", err)
+		return fmt.Errorf("%s %s: %w", engine, command, err)
 	}
 	return nil
 }
 
-// runPersistentClaudeAuthWatch closes the lifecycle hole left by native
-// `claude daemon run` processes. The foreground clx watcher remains the fast
-// path for ordinary sessions; this per-user worker covers credential writers
-// that survive their parent wrapper or were launched outside it.
-func runPersistentClaudeAuthWatch(ctx context.Context, logger *slog.Logger) {
-	if logger == nil {
-		logger = slog.Default()
+// Keep each engine independent: an upload failure or a blocked native writer
+// in one credential store cannot delay a rotation in the other.
+func runPersistentAuthWatch(ctx context.Context, engine string, logger *slog.Logger) {
+	active := codex.HasActiveAuthChild
+	if engine == config.EngineClaude {
+		active = claude.HasActiveAuthChild
 	}
-	runPersistentClaudeAuthWatchWithDeps(ctx, persistentClaudeAuthWatchDeps{
-		snapshot: persistentClaudeAuthSnapshot,
-		upload:   runClaudeAuthUpload,
-		interval: persistentClaudeAuthWatchInterval,
-		backoff:  persistentClaudeAuthRetryBackoff,
-		maxDelay: persistentClaudeAuthRetryMax,
-		timeout:  persistentClaudeAuthUploadTimeout,
+	runPersistentAuthWatchWithDeps(ctx, persistentAuthWatchDeps{
+		engine:   engine,
+		snapshot: func() (persistentAuthSnapshot, error) { return persistentAuthSnapshotForEngine(ctx, engine) },
+		upload:   func(ctx context.Context) error { return runPersistentAuthCommand(ctx, engine, "auth-upload-auto") },
+		sync:     func(ctx context.Context) error { return runPersistentAuthCommand(ctx, engine, "auth-sync") },
+		active:   active,
 		logger:   logger,
 	})
 }
 
-func persistentClaudeAuthSnapshot() (claude.AuthSnapshot, error) {
-	configPath, err := config.DefaultPathForEngine(config.EngineClaude)
+func persistentAuthSnapshotForEngine(ctx context.Context, engine string) (persistentAuthSnapshot, error) {
+	path, err := config.DefaultPathForEngine(engine)
 	if err != nil {
-		return claude.AuthSnapshot{}, err
+		return persistentAuthSnapshot{}, err
 	}
-	if _, err := os.Stat(configPath); err != nil {
+	if _, err := os.Stat(path); err != nil {
 		if os.IsNotExist(err) {
-			return claude.AuthSnapshot{}, nil
+			return persistentAuthSnapshot{}, nil
 		}
-		return claude.AuthSnapshot{}, err
+		return persistentAuthSnapshot{}, err
 	}
-	return claude.ReadAuthSnapshot(false)
+	if engine == config.EngineClaude {
+		intent, err := claude.CurrentLogoutIntentGenerationContext(ctx)
+		if err != nil || intent.Exists {
+			return persistentAuthSnapshot{}, err
+		}
+		snap, err := claude.ReadAuthSnapshotContext(ctx, false)
+		return persistentAuthSnapshot{Generation: persistentAuthGeneration{Exists: snap.Generation.Exists, Digest: snap.Generation.Digest}, Usable: snap.Usable, ServerDigest: snap.ServerDigest}, err
+	}
+	if engine != config.EngineCodex {
+		return persistentAuthSnapshot{}, fmt.Errorf("unknown auth engine")
+	}
+	intent, err := codex.CurrentLogoutIntentGenerationContext(ctx)
+	if err != nil || intent.Exists {
+		return persistentAuthSnapshot{}, err
+	}
+	path, err = codex.AuthPath()
+	if err != nil {
+		return persistentAuthSnapshot{}, err
+	}
+	raw, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return persistentAuthSnapshot{}, nil
+	}
+	if err != nil {
+		return persistentAuthSnapshot{}, err
+	}
+	var auth struct {
+		Key    string `json:"OPENAI_API_KEY"`
+		Tokens struct {
+			Access string `json:"access_token"`
+		} `json:"tokens"`
+		Auths map[string]json.RawMessage `json:"auths"`
+	}
+	if err := json.Unmarshal(raw, &auth); err != nil {
+		return persistentAuthSnapshot{}, err
+	}
+	sum := sha256.Sum256(raw)
+	generation := codex.AuthGeneration{Exists: true, Digest: hex.EncodeToString(sum[:])}
+	bound, err := codex.IsCanonicalAuthGeneration(generation)
+	if err != nil {
+		return persistentAuthSnapshot{}, err
+	}
+	snap := persistentAuthSnapshot{Generation: persistentAuthGeneration{Exists: true, Digest: generation.Digest}, Usable: strings.TrimSpace(auth.Key) != "" || strings.TrimSpace(auth.Tokens.Access) != "" || len(auth.Auths) > 0}
+	if bound {
+		snap.ServerDigest = generation.Digest
+	}
+	return snap, nil
 }
 
-func runPersistentClaudeAuthWatchWithDeps(ctx context.Context, deps persistentClaudeAuthWatchDeps) {
+func runPersistentAuthWatchWithDeps(ctx context.Context, deps persistentAuthWatchDeps) {
 	if deps.interval <= 0 {
-		deps.interval = persistentClaudeAuthWatchInterval
+		deps.interval = persistentAuthWatchInterval
 	}
 	if deps.backoff <= 0 {
-		deps.backoff = persistentClaudeAuthRetryBackoff
+		deps.backoff = persistentAuthRetryBackoff
 	}
 	if deps.maxDelay <= 0 {
-		deps.maxDelay = persistentClaudeAuthRetryMax
+		deps.maxDelay = persistentAuthRetryMax
 	}
 	if deps.maxDelay < deps.backoff {
 		deps.maxDelay = deps.backoff
 	}
 	if deps.timeout <= 0 {
-		deps.timeout = persistentClaudeAuthUploadTimeout
+		deps.timeout = persistentAuthUploadTimeout
+	}
+	if deps.syncInterval <= 0 {
+		deps.syncInterval = persistentAuthSyncInterval
 	}
 	if deps.logger == nil {
 		deps.logger = slog.Default()
 	}
 
-	var lastHandled claude.AuthGeneration
-	var failedGeneration claude.AuthGeneration
+	var lastHandled persistentAuthGeneration
+	var failedGeneration persistentAuthGeneration
 	var failedAt time.Time
 	failedAttempts := 0
-	initialized := false
+	var nextSync time.Time
+	syncFailures := 0
 	timer := time.NewTimer(0)
 	defer timer.Stop()
 	for {
@@ -120,27 +187,75 @@ func runPersistentClaudeAuthWatchWithDeps(ctx context.Context, deps persistentCl
 		if err != nil || !snap.Usable || !snap.Generation.Exists {
 			continue
 		}
-		if !initialized {
-			initialized = true
-			// A valid server binding proves this exact native digest was already
-			// materialized from canonical storage. Avoid a fleet-wide no-op store
-			// burst whenever a new wrapper restarts every worker. A native refresh
-			// changes the digest, so the binding disappears and is uploaded below.
-			if snap.ServerDigest != "" {
-				lastHandled = snap.Generation
-				continue
-			}
+		if snap.ServerDigest != "" {
+			lastHandled = snap.Generation
 		}
 		if snap.Generation == lastHandled {
+			if deps.sync == nil || deps.active == nil || time.Now().Before(nextSync) {
+				continue
+			}
+			active, err := deps.active()
+			if err != nil || !active {
+				continue
+			}
+			syncCtx, cancel := context.WithTimeout(ctx, deps.timeout)
+			err = deps.sync(syncCtx)
+			cancel()
+			if err != nil {
+				if ctx.Err() != nil {
+					return
+				}
+				syncFailures++
+				nextSync = time.Now().Add(exponentialBackoff(deps.backoff, deps.maxDelay, syncFailures))
+				deps.logger.Warn("active-session auth sync failed; will retry", "engine", deps.engine)
+			} else {
+				syncFailures = 0
+				nextSync = time.Now().Add(deps.syncInterval)
+			}
 			continue
 		}
+
 		if snap.Generation == failedGeneration && time.Since(failedAt) < exponentialBackoff(deps.backoff, deps.maxDelay, failedAttempts) {
 			continue
 		}
 
 		uploadCtx, cancel := context.WithTimeout(ctx, deps.timeout)
-		uploadErr := deps.upload(uploadCtx)
+		var uploadErr error
+		active := false
+		if deps.active != nil && deps.sync != nil {
+			active, uploadErr = deps.active()
+		}
+		if uploadErr == nil {
+			if active {
+				// Active convergence offers local bytes first and adopts a verified
+				// canonical winner. Idle uploads deliberately avoid materializing
+				// credentials, so they cannot heal this running session.
+				uploadErr = deps.sync(uploadCtx)
+			} else {
+				uploadErr = deps.upload(uploadCtx)
+			}
+		}
 		cancel()
+		if uploadErr == nil && active {
+			// auth-sync can exit successfully after the child became idle or
+			// acceptance was deferred. Only an exact local/server binding proves
+			// that this unbound candidate has actually converged.
+			current, snapshotErr := deps.snapshot()
+			if snapshotErr != nil {
+				uploadErr = snapshotErr
+			} else if current.Generation != snap.Generation {
+				// Leave a concurrent native rotation for the next tick. A bound
+				// canonical replacement is also discovered there, but need not
+				// immediately repeat the active-session poll we just completed.
+				if current.ServerDigest != "" {
+					syncFailures = 0
+					nextSync = time.Now().Add(deps.syncInterval)
+				}
+				continue
+			} else if current.ServerDigest == "" {
+				uploadErr = fmt.Errorf("active auth sync left candidate unbound")
+			}
+		}
 		if uploadErr != nil {
 			if ctx.Err() != nil {
 				return
@@ -152,7 +267,7 @@ func runPersistentClaudeAuthWatchWithDeps(ctx context.Context, deps persistentCl
 			}
 			failedGeneration = snap.Generation
 			failedAt = time.Now()
-			deps.logger.Warn("persistent Claude auth upload failed; will retry", "err", uploadErr)
+			deps.logger.Warn("persistent auth upload failed; will retry", "engine", deps.engine)
 			continue
 		}
 
@@ -163,10 +278,14 @@ func runPersistentClaudeAuthWatchWithDeps(ctx context.Context, deps persistentCl
 		// harmless follow-up no-op upload, while a genuinely newer local branch is
 		// guaranteed to be offered.
 		lastHandled = snap.Generation
-		failedGeneration = claude.AuthGeneration{}
+		failedGeneration = persistentAuthGeneration{}
 		failedAt = time.Time{}
 		failedAttempts = 0
-		deps.logger.Debug("persistent Claude auth generation uploaded")
+		if active {
+			syncFailures = 0
+			nextSync = time.Now().Add(deps.syncInterval)
+		}
+		deps.logger.Debug("persistent auth generation uploaded", "engine", deps.engine)
 	}
 }
 

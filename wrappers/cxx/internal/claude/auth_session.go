@@ -1,6 +1,7 @@
 package claude
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -15,6 +16,7 @@ import (
 
 type logoutIntent struct {
 	PreviousDigest        string `json:"previous_digest"`
+	PreviousAccountDigest string `json:"previous_account_digest,omitempty"`
 	CreatedAt             string `json:"created_at"`
 	Nonce                 string `json:"nonce,omitempty"`
 	NativeRemovalDeferred bool   `json:"native_removal_deferred,omitempty"`
@@ -24,9 +26,10 @@ type logoutIntent struct {
 // upload generation. It prevents a successful in-flight store from clearing a
 // newer logout marker, even if the native credential digest stayed identical.
 type LogoutIntentGeneration struct {
-	Exists         bool
-	Digest         string
-	PreviousDigest string
+	Exists                bool
+	Digest                string
+	PreviousDigest        string
+	PreviousAccountDigest string
 }
 
 // Blocks reports whether this marker still names the supplied native
@@ -39,7 +42,7 @@ func (g LogoutIntentGeneration) Blocks(s AuthSnapshot) bool {
 	if !s.Generation.Exists || !s.Usable || g.PreviousDigest == "" {
 		return true
 	}
-	return s.Generation.Digest == g.PreviousDigest
+	return s.Generation.Digest == g.PreviousDigest || (g.PreviousAccountDigest != "" && g.PreviousAccountDigest == accountDigest(s.Raw))
 }
 
 type explicitLogoutGuard struct {
@@ -68,7 +71,11 @@ var ErrAuthSessionsActive = errors.New("active CLX auth sessions prevent mainten
 var ErrAuthMaintenanceActive = errors.New("CLX auth maintenance is active")
 
 func StartAuthSession(purgeOnLastExit bool) (*AuthSession, error) {
-	return startAuthSession(purgeOnLastExit, false)
+	return StartAuthSessionContext(context.Background(), purgeOnLastExit)
+}
+
+func StartAuthSessionContext(ctx context.Context, purgeOnLastExit bool) (*AuthSession, error) {
+	return startAuthSessionContext(ctx, purgeOnLastExit, false)
 }
 
 // StartExplicitLogoutSession attempts to become the exclusive auth-session
@@ -92,6 +99,10 @@ func StartExplicitLogoutSession(purgeOnLastExit bool) (*AuthSession, bool, error
 }
 
 func startAuthSession(purgeOnLastExit, exclusive bool) (*AuthSession, error) {
+	return startAuthSessionContext(context.Background(), purgeOnLastExit, exclusive)
+}
+
+func startAuthSessionContext(ctx context.Context, purgeOnLastExit, exclusive bool) (*AuthSession, error) {
 	paths, err := authFiles()
 	if err != nil {
 		return nil, err
@@ -124,7 +135,7 @@ func startAuthSession(purgeOnLastExit, exclusive bool) (*AuthSession, error) {
 		return nil, err
 	}
 	session := &AuthSession{f: f, id: id, exclusive: exclusive}
-	if err := session.SetPurgeOnLastExit(purgeOnLastExit); err != nil {
+	if err := session.SetPurgeOnLastExitContext(ctx, purgeOnLastExit); err != nil {
 		_ = session.Close()
 		return nil, err
 	}
@@ -143,6 +154,10 @@ func newSessionID() (string, error) {
 // Requests from earlier/concurrent insecure sessions remain sticky until the
 // fleet's final shared session exits and performs the purge.
 func (s *AuthSession) SetPurgeOnLastExit(enabled bool) error {
+	return s.SetPurgeOnLastExitContext(context.Background(), enabled)
+}
+
+func (s *AuthSession) SetPurgeOnLastExitContext(ctx context.Context, enabled bool) error {
 	if s == nil {
 		return errors.New("nil Claude auth session")
 	}
@@ -151,7 +166,7 @@ func (s *AuthSession) SetPurgeOnLastExit(enabled bool) error {
 	if s.f == nil || s.id == "" {
 		return errors.New("Claude auth session already closed")
 	}
-	paths, unlock, err := lockAuthFiles()
+	paths, unlock, err := lockAuthFilesContext(ctx)
 	if err != nil {
 		return err
 	}
@@ -207,6 +222,10 @@ func writePurgeRequestsLocked(path string, state purgeRequests) error {
 // only if it can prove that no other CLX lifecycle still holds a shared lease.
 // It returns purged=false when another session remains active.
 func (s *AuthSession) CloseAndPurgeIfLast() (purged bool, err error) {
+	return s.CloseAndPurgeIfLastContext(context.Background())
+}
+
+func (s *AuthSession) CloseAndPurgeIfLastContext(ctx context.Context) (purged bool, err error) {
 	if s == nil {
 		return false, nil
 	}
@@ -230,7 +249,7 @@ func (s *AuthSession) CloseAndPurgeIfLast() (purged bool, err error) {
 		}
 	}
 	defer syscall.Flock(int(f.Fd()), syscall.LOCK_UN) //nolint:errcheck
-	paths, unlock, err := lockAuthFiles()
+	paths, unlock, err := lockAuthFilesContext(ctx)
 	if err != nil {
 		return false, err
 	}
@@ -380,7 +399,11 @@ func syncExistingDir(dir string) error {
 // usable login is preserved, but any pre-existing intent remains until the
 // server accepts that generation.
 func MarkLogoutIfCurrent(before AuthGeneration) (bool, error) {
-	paths, unlock, err := lockAuthFiles()
+	return MarkLogoutIfCurrentContext(context.Background(), before)
+}
+
+func MarkLogoutIfCurrentContext(ctx context.Context, before AuthGeneration) (bool, error) {
+	paths, unlock, err := lockAuthFilesContext(ctx)
 	if err != nil {
 		return false, err
 	}
@@ -595,8 +618,15 @@ func recordLogoutIntentLocked(paths authFileSet, before AuthGeneration, nativeRe
 	if err != nil {
 		return false, err
 	}
+	previousAccount := ""
+	if raw, err := os.ReadFile(paths.claude); err == nil && digestBytes(raw) == before.Digest {
+		previousAccount = accountDigest(raw)
+	} else if state := readGenerationState(paths.generation); state.Digest == before.Digest {
+		previousAccount = state.AccountDigest
+	}
 	marker, err := json.Marshal(logoutIntent{
 		PreviousDigest:        before.Digest,
+		PreviousAccountDigest: previousAccount,
 		CreatedAt:             time.Now().UTC().Format(time.RFC3339Nano),
 		Nonce:                 nonce,
 		NativeRemovalDeferred: nativeRemovalDeferred,
@@ -636,7 +666,11 @@ func LogoutIntentActive() (bool, error) {
 // interpreting them. Explicit login/upload uses this alongside the auth
 // generation for a post-store compare-and-swap.
 func CurrentLogoutIntentGeneration() (LogoutIntentGeneration, error) {
-	paths, unlock, err := lockAuthFiles()
+	return CurrentLogoutIntentGenerationContext(context.Background())
+}
+
+func CurrentLogoutIntentGenerationContext(ctx context.Context) (LogoutIntentGeneration, error) {
+	paths, unlock, err := lockAuthFilesContext(ctx)
 	if err != nil {
 		return LogoutIntentGeneration{}, err
 	}
@@ -648,7 +682,11 @@ func CurrentLogoutIntentGeneration() (LogoutIntentGeneration, error) {
 // only when both native auth and marker bytes are exactly what the request saw.
 // A concurrently replaced same-generation marker therefore survives.
 func ClearLogoutIntentIfUnchanged(expected AuthGeneration, expectedIntent LogoutIntentGeneration) (bool, error) {
-	paths, unlock, err := lockAuthFiles()
+	return ClearLogoutIntentIfUnchangedContext(context.Background(), expected, expectedIntent)
+}
+
+func ClearLogoutIntentIfUnchangedContext(ctx context.Context, expected AuthGeneration, expectedIntent LogoutIntentGeneration) (bool, error) {
+	paths, unlock, err := lockAuthFilesContext(ctx)
 	if err != nil {
 		return false, err
 	}
@@ -685,7 +723,7 @@ func logoutIntentGenerationAt(path string) (LogoutIntentGeneration, error) {
 	}
 	var marker logoutIntent
 	_ = json.Unmarshal(raw, &marker)
-	return LogoutIntentGeneration{Exists: true, Digest: digestBytes(raw), PreviousDigest: marker.PreviousDigest}, nil
+	return LogoutIntentGeneration{Exists: true, Digest: digestBytes(raw), PreviousDigest: marker.PreviousDigest, PreviousAccountDigest: marker.PreviousAccountDigest}, nil
 }
 
 func HasLogoutIntent() bool {

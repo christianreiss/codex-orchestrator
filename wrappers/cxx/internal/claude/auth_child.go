@@ -198,6 +198,30 @@ func tryAcquireAuthChildWriter() (*authChildLease, error) {
 	return &authChildLease{f: f}, nil
 }
 
+// HasActiveAuthChild proves a wrapped Claude child still holds its inherited
+// shared lease. It does not create files or infer activity from credentials.
+func HasActiveAuthChild() (bool, error) {
+	paths, err := authFiles()
+	if err != nil {
+		return false, err
+	}
+	f, err := os.OpenFile(paths.childLease, os.O_RDWR, 0)
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	defer f.Close()
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		if errors.Is(err, syscall.EWOULDBLOCK) || errors.Is(err, syscall.EAGAIN) {
+			return true, nil
+		}
+		return false, err
+	}
+	return false, syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+}
+
 func (l *authChildLease) Close() error {
 	if l == nil || l.f == nil {
 		return nil

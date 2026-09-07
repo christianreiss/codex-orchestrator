@@ -855,14 +855,15 @@ func (f roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) 
 // silently, as far as Codex's own logs are concerned. Handing it the address
 // on the command line is the only place those per-lifecycle values exist.
 func TestCodexMCPOverridesCarryTheBrokerAddress(t *testing.T) {
-	b := &Broker{socketPath: "/tmp/cxx-agent-portal-7/portal.sock", session: &Session{ID: "s-123"}}
+	t.Setenv("CODEX_HOME", "/tmp/custom-codex")
+	b := &Broker{socketPath: "/tmp/cxx-agent-portal-7/portal.sock", session: &Session{ID: "s-123", Engine: "codex"}}
 
 	args := b.CodexMCPOverrides(false)
 
 	if len(args) != 2 || args[0] != "-c" {
 		t.Fatalf("expected a single -c override, got %q", args)
 	}
-	want := `mcp_servers.cxx-agent.env={CXX_AGENT_PORTAL_SOCKET="/tmp/cxx-agent-portal-7/portal.sock",CXX_AGENT_PORTAL_SESSION_ID="s-123"}`
+	want := `mcp_servers.cxx-agent.env={CXX_AGENT_PORTAL_SOCKET="/tmp/cxx-agent-portal-7/portal.sock",CXX_AGENT_PORTAL_SESSION_ID="s-123",CXX_AGENT_PORTAL_ENGINE="codex",CODEX_HOME="/tmp/custom-codex"}`
 	if args[1] != want {
 		t.Fatalf("override mismatch:\n got %s\nwant %s", args[1], want)
 	}
