@@ -1,5 +1,9 @@
 # 2026-09-08
 
+- Both WebUIs now show one prominent **Needs you** banner above the composer
+  for current attention or an unanswered question. It disappears when nothing
+  needs a reply; historical attention and resolution strips no longer clutter
+  the conversation, while their events remain in the stored record.
 - **AFK relay / cxx 0.8.4:** opening `#afk` now starts listening quietly instead
   of raising a false "Needs you" notice. Status updates use ordinary messages;
   attention is reserved for an action the user actually needs to take.

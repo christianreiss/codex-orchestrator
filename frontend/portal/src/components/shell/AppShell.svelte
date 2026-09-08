@@ -4,6 +4,7 @@
   import type { Portal } from "../../lib/portal-state.svelte";
   import CenterState from "../state/CenterState.svelte";
   import Composer from "$lib/components/portal/Composer.svelte";
+  import AttentionCard from "$lib/components/portal/AttentionCard.svelte";
   import CloseChannelDialog from "../modal/CloseChannelDialog.svelte";
   import ClosingBar from "../thread/ClosingBar.svelte";
   import ThreadHeader from "../thread/ThreadHeader.svelte";
@@ -135,7 +136,9 @@
     {/if}
 
     {#if agent}
-      <Timeline {portal} {agent} onreply={reply} />
+      <Timeline {portal} {agent} />
+
+      <AttentionCard {agent} now={portal.now} onreply={reply} busy={portal.sending} />
 
       <Composer
         {agent}

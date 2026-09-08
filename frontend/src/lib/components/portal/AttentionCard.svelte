@@ -1,64 +1,47 @@
 <script lang="ts">
   import AlertTriangleIcon from "@lucide/svelte/icons/triangle-alert";
-  import type { EventRow } from "$lib/portal/types";
-  import { eventText } from "$lib/portal/grouping";
-  import { clockTime, shortAge } from "$lib/portal/browser";
+  import type { Agent, PresenceTimings } from "$lib/portal/types";
+  import { presenceView } from "$lib/portal/presence";
+  import { shortAge } from "$lib/portal/browser";
 
-  let {
-    event,
-    outstanding,
-    now,
-    onreply,
-    readonly = false,
-  }: {
-    event: EventRow;
-    outstanding: boolean;
+  let { agent, now, onreply, readonly = false, busy = false, timings }: {
+    agent: Agent;
     now: number;
     onreply: (option?: string) => void;
-    /**
-     * Console surfaces can see a notice but cannot answer it: replying writes an
-     * `agent_messages` row, which is keyed to a portal user. `outstanding` stays
-     * truthful either way -- demoting the styling instead would hide the one
-     * event that most needs a human from the operator most able to find one.
-     */
     readonly?: boolean;
+    busy?: boolean;
+    timings?: PresenceTimings;
   } = $props();
+
+  const needed = $derived(!agent.ended_at && agent.presence !== "ended" && Boolean(agent.attention || agent.pending_prompt));
+  const prompt = $derived(agent.pending_prompt);
+  const summary = $derived(agent.attention?.summary);
+  const since = $derived(prompt?.created_at ?? agent.attention?.since);
+  const canReply = $derived(!readonly && presenceView(agent, now, timings).canSend);
 </script>
 
-{#if outstanding}
-  <!--
-    Full width, not a bubble, not centred, not dashed. The previous rendering
-    put this in the same grey dashed centred style as `progress`, which is why
-    the one event that demands a human looked like background noise.
-  -->
-  <article
-    class="my-4 rounded-xl border border-destructive/25 border-l-4 border-l-destructive
-           bg-destructive-muted p-4 shadow-pop"
-  >
-    <p class="flex flex-wrap items-center gap-x-2 text-[11px] font-semibold uppercase tracking-[0.08em]
-              text-destructive-muted-foreground">
-      <AlertTriangleIcon class="h-3.5 w-3.5" />
-      Needs you
-      <span class="font-normal normal-case tracking-normal opacity-80">
-        {clockTime(event.created_at)} · still waiting {shortAge(event.created_at, now)}
-      </span>
-    </p>
-    <p class="mt-2 whitespace-pre-wrap text-body font-medium">{eventText(event)}</p>
-    {#if !readonly}
-      <button
-        type="button"
-        class="mt-3 rounded-md bg-destructive px-3 py-1.5 text-caption font-semibold text-destructive-foreground
-               transition hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        onclick={() => onreply()}
-      >Reply</button>
+{#if needed}
+  <section aria-label="Needs you" class="max-h-44 shrink-0 overflow-y-auto border-t border-destructive/25 border-l-4 border-l-destructive bg-destructive-muted px-4 py-3">
+    <div class="flex flex-wrap items-center gap-x-2 gap-y-1 text-destructive-muted-foreground">
+      <AlertTriangleIcon class="h-5 w-5 shrink-0" aria-hidden="true" />
+      <h3 class="text-sm font-semibold">Needs you</h3>
+      {#if since}<span class="text-[11px] opacity-80">Waiting {shortAge(since, now)}</span>{/if}
+      {#if canReply}
+        <button type="button" class="ml-auto rounded-md bg-destructive px-3 py-1.5 text-xs font-semibold text-destructive-foreground transition hover:opacity-90 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" disabled={busy} onclick={() => onreply()}>{prompt ? "Write an answer" : "Reply"}</button>
+      {/if}
+    </div>
+    {#if summary && summary !== prompt?.question}<p class="mt-2 whitespace-pre-wrap text-sm text-destructive-muted-foreground">{summary}</p>{/if}
+    {#if prompt}
+      <p class="mt-2 whitespace-pre-wrap text-sm font-medium text-destructive-muted-foreground">{prompt.question}</p>
+      {#if canReply && prompt.options.length}
+        <div class="mt-2 flex flex-wrap gap-2">
+          {#each prompt.options as option (option)}
+            <button type="button" class="rounded-md border border-destructive/25 bg-background px-3 py-1.5 text-xs font-medium transition hover:bg-muted disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" disabled={busy} onclick={() => onreply(option)}>{option}</button>
+          {/each}
+        </div>
+      {/if}
+    {:else if !summary}
+      <p class="mt-2 text-sm text-destructive-muted-foreground">The agent is waiting for your response.</p>
     {/if}
-  </article>
-{:else}
-  <!-- Already dealt with: keep it in the record, stop it shouting. -->
-  <article class="my-3 border-l-2 border-border bg-muted/40 py-2 pl-3 pr-2">
-    <p class="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
-      Needed you · {clockTime(event.created_at)}
-    </p>
-    <p class="mt-1 whitespace-pre-wrap text-body-sm text-muted-foreground">{eventText(event)}</p>
-  </article>
+  </section>
 {/if}

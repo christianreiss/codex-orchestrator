@@ -34,10 +34,12 @@ be confirmed keeps its draft and original question; retry confirms that same
 request rather than creating a duplicate. Only the current question has active
 answer buttons. On a phone, **Clients** returns from the detail pane to the directory.
 
-When the agent resolves an attention notice, **Attention resolved** stays in the
-timeline as a calm record and the next client snapshot clears the current
-attention indicator. This does not answer or dismiss an outstanding question;
-its current answer buttons remain available while the client can receive replies.
+A prominent **Needs you** banner above the composer shows current attention and
+unanswered questions, with reply controls while the client can receive them.
+It disappears when the authoritative client snapshot confirms there is no
+outstanding notice or question. Resolving a notice does not answer a question.
+Historical attention and resolution events remain stored but no longer appear
+as status strips in the conversation.
 
 Sending and closing require the appropriate admin capability. **Ask to close**
 needs a reachable relay; **Force close** ends the recorded session even when its

@@ -31,10 +31,10 @@
 
   // Attention outranks presence: an agent that went offline while waiting on an
   // answer still needs you, so the row must not be greyed out.
-  const needsYou = $derived(Boolean(agent.attention));
+  const needsYou = $derived(!agent.ended_at && agent.presence !== "ended" && Boolean(agent.attention || agent.pending_prompt));
 
   const subtitle = $derived.by(() => {
-    if (agent.attention) return agent.attention.summary ?? "Waiting for you";
+    if (needsYou) return agent.pending_prompt?.question ?? agent.attention?.summary ?? "Waiting for you";
     if (view.presence === "offline") return `Offline · last beat ${shortAge(agent.heartbeat_at, now)} ago`;
     if (view.presence === "ended") return `Ended ${agent.ended_at ? clockTime(agent.ended_at) : ""}`.trim();
     if (view.presence === "idle") return view.detail;
@@ -76,9 +76,9 @@
       class="mt-0.5 line-clamp-2 block text-caption
              {needsYou ? 'font-medium text-destructive-muted-foreground' : 'text-muted-foreground'}"
     >{subtitle}</span>
-    {#if agent.attention}
+    {#if needsYou}
       <span class="mt-0.5 block text-[11px] text-destructive-muted-foreground">
-        waiting {shortAge(agent.attention.since, now)}
+        waiting {shortAge(agent.pending_prompt?.created_at ?? agent.attention!.since, now)}
       </span>
     {/if}
   </span>

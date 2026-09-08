@@ -67,7 +67,7 @@ export function pruneReadRecord(record: ReadRecord, liveIds: Iterable<string>): 
 export type UnreadBadge = { kind: "attention" } | { kind: "dot" } | { kind: "count"; value: number } | null;
 
 export function unreadBadge(agent: Agent, record: ReadRecord, counted: number | undefined): UnreadBadge {
-  if (agent.attention) return { kind: "attention" };
+  if (!agent.ended_at && agent.presence !== "ended" && (agent.attention || agent.pending_prompt)) return { kind: "attention" };
   if (counted && counted > 0) return { kind: "count", value: counted };
   const seen = record[agent.id];
   if (!agent.last_event_at) return null;

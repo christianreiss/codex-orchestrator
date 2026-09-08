@@ -70,6 +70,11 @@ describe("pruneReadRecord", () => {
 });
 
 describe("unreadBadge", () => {
+  it("keeps unanswered questions prominent but never gives ended sessions an attention badge", () => {
+    const pending = agent({ pending_prompt: { id: "p", version: 1, question: "Continue?", options: [], created_at: "2026-08-01T11:00:00.000Z" } });
+    assert.deepEqual(unreadBadge(pending, {}, 0), { kind: "attention" });
+    assert.notDeepEqual(unreadBadge({ ...pending, ended_at: "2026-08-01T12:00:00Z" }, {}, 0), { kind: "attention" });
+  });
   it("ranks attention above any unread count", () => {
     const needy = agent({ attention: { since: "2026-08-01T11:00:00.000Z", summary: "Approve?" } });
     assert.deepEqual(unreadBadge(needy, {}, 9), { kind: "attention" });

@@ -458,6 +458,10 @@ Availability and progress do not request user attention: `say` publishes status,
 needs to take. From cxx 0.8.4, `cxx portal resolve --summary TEXT` withdraws a
 mistaken or resolved attention notice, retaining timeline evidence without
 changing relay readiness, active work, or unanswered prompts.
+Both WebUIs surface current attention and unanswered questions in one prominent
+**Needs you** banner above the composer, which disappears when neither remains.
+Historical attention/resolution events are retained by the API but hidden from
+the conversation; resolving a notice never answers an outstanding question.
 Only a live `wait` iteration opens the relay: `cxx portal notify`
 deliberately does not, because notifying is the last thing an agent does before
 its turn ends, and opening the relay there left the portal advertising

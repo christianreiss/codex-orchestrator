@@ -216,6 +216,7 @@ test("an expired delivery response preserves the unsent draft", async ({ page })
 
 for (const engine of ["codex", "claude"] as const) {
   test(`${engine} resolved attention follows the snapshot and leaves its question actionable`, async ({ page }) => {
+    await page.setViewportSize(engine === "codex" ? { width: 1440, height: 1000 } : { width: 390, height: 844 });
     const state = await fixtures(page);
     const target = state.sessions.find((row) => row.engine === engine)!;
     const raised = new Date(Date.now() - 1000).toISOString();
@@ -227,20 +228,54 @@ for (const engine of ["codex", "claude"] as const) {
       { cursor: 2, session_id: target.id, type: "waiting_input", source: "engine", payload: { prompt_id: question, prompt_version: 3, question: "Keep this question open?", options: ["Answer current question"] }, created_at: raised },
     ];
     await open(page); await page.locator(`#client-${target.id}`).click();
-    await expect(page.getByRole("button", { name: "Reply", exact: true })).toBeVisible();
+    const banner = page.getByRole("region", { name: "Needs you", exact: true });
+    await expect(banner).toBeVisible();
+    await expect(banner).toContainText("Local acknowledgment needed");
+    await page.getByLabel("Message this agent").fill("Keep my unrelated draft");
+    await page.locator("#client-detail").screenshot({ path: `/tmp/needs-you-active-${engine === "codex" ? "desktop" : "mobile"}.png` });
     const resolution = { cursor: 3, session_id: target.id, type: "attention_resolved", source: "engine", payload: { summary: "Acknowledged locally" }, created_at: new Date().toISOString() };
     state.events.push(resolution);
     const before = state.calls.filter((call) => call === "GET /admin/agent-sessions").length;
     await stream(page, "agent", JSON.stringify(resolution));
     await expect.poll(() => state.calls.filter((call) => call === "GET /admin/agent-sessions").length).toBeGreaterThan(before);
-    await expect(page.getByText(/Attention resolved — Acknowledged locally/)).toBeVisible();
+    await expect(page.getByRole("region", { name: "Session timeline" })).not.toContainText(/Needed you|Attention resolved|Local acknowledgment needed/);
     // The event alone must not invent a cleared server projection.
-    await expect(page.getByRole("button", { name: "Reply", exact: true })).toBeVisible();
+    await expect(banner).toContainText("Local acknowledgment needed");
     target.attention = null;
     await stream(page, "agent", JSON.stringify(resolution));
-    await expect(page.getByRole("button", { name: "Reply", exact: true })).toHaveCount(0);
-    await expect(page.getByRole("button", { name: /Needs attention 0/ })).toBeVisible();
+    await expect(banner).not.toContainText("Local acknowledgment needed");
+    await expect(banner).toContainText("Keep this question open?");
+    if (engine === "codex") await expect(page.getByRole("button", { name: /Needs attention 1/ })).toBeVisible();
     await page.getByRole("button", { name: "Answer current question", exact: true }).click();
     await expect.poll(() => state.bodies.some((entry) => entry.path.endsWith(`/prompts/${question}/answer`) && entry.body.version === 3)).toBe(true);
+    await expect(page.getByLabel("Message this agent")).toHaveValue("Keep my unrelated draft");
+    target.pending_prompt = null;
+    await stream(page, "agent", JSON.stringify(resolution));
+    await expect(banner).toHaveCount(0);
+    await expect(page.getByRole("region", { name: "Session timeline" })).not.toContainText(/Needed you|Attention resolved/);
+    await page.locator("#client-detail").screenshot({ path: `/tmp/needs-you-resolved-${engine === "codex" ? "desktop" : "mobile"}.png` });
   });
 }
+
+test("a current attention bar disappears on resolution without leaving chat notices", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  const state = await fixtures(page);
+  const raised = new Date().toISOString();
+  state.sessions[0].attention = { since: raised, summary: "Check the local result" };
+  // The current bar must work even when its original event is outside the tail.
+  await open(page); await page.locator(`#client-${CODEX}`).click();
+  const banner = page.getByRole("region", { name: "Needs you", exact: true });
+  await expect(banner).toContainText("Check the local result");
+  await page.getByLabel("Message this agent").fill("Draft stays with me");
+  await banner.getByRole("button", { name: "Reply", exact: true }).click();
+  await expect(page.getByLabel("Message this agent")).toBeFocused();
+  state.sessions[0].attention = null;
+  state.events = [
+    { cursor: 1, session_id: CODEX, type: "attention", source: "engine", payload: { summary: "Check the local result" }, created_at: raised },
+    { cursor: 2, session_id: CODEX, type: "attention_resolved", source: "engine", payload: { summary: "Done" }, created_at: new Date().toISOString() },
+  ];
+  await stream(page, "agent", JSON.stringify(state.events[1]));
+  await expect(banner).toHaveCount(0);
+  await expect(page.getByRole("region", { name: "Session timeline" })).not.toContainText(/Needed you|Attention resolved|Check the local result/);
+  await expect(page.getByLabel("Message this agent")).toHaveValue("Draft stays with me");
+});

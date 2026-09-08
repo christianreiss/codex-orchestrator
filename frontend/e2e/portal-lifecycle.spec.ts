@@ -58,6 +58,7 @@ interface StubOptions {
   /** Error code the close endpoint should reject with, if any. */
   closeError?: string;
   events?: Array<Record<string, unknown>>;
+  beforeAgents?: () => Promise<number | void>;
 }
 
 interface Stub {
@@ -85,7 +86,9 @@ async function stubPortal(page: Page, options: StubOptions = {}): Promise<Stub> 
     }
     if (path.endsWith("/api/me")) return json(route, { status: "ok", data: { user: USER } });
     if (path.endsWith("/api/agents")) {
-      return json(route, { status: "ok", data: { agents: [agent(options.agent)], generated_at: new Date().toISOString() } });
+      const snapshot = { agents: [agent(options.agent)], generated_at: new Date().toISOString() };
+      const status = await options.beforeAgents?.() ?? 200;
+      return status === 200 ? json(route, { status: "ok", data: snapshot }) : json(route, { status: "error", code: "temporarily_unavailable", message: "Old snapshot failed" }, status);
     }
     if (path.includes("/events") && !path.endsWith("/api/events")) {
       return json(route, { status: "ok", data: { events: options.events ?? [], next_cursor: 0 } });
@@ -269,7 +272,10 @@ for (const engine of ["codex", "claude"] as const) {
       ],
     };
     const stub = await stubPortal(page, options); await openPortal(page);
-    await expect(page.getByRole("button", { name: "Reply", exact: true })).toBeVisible();
+    const banner = page.getByRole("region", { name: "Needs you", exact: true });
+    await expect(banner).toBeVisible();
+    await expect(banner).toContainText("Local acknowledgment needed");
+    await page.getByLabel("Message this agent").fill("Keep my unrelated draft");
     const resolution = { cursor: 3, session_id: SESSION_ID, type: "attention_resolved", source: "engine", payload: { summary: "Acknowledged locally" }, created_at: new Date().toISOString() };
     const emit = () => page.evaluate((event) => {
       (window as unknown as { portalFeeds: EventTarget[] }).portalFeeds.at(-1)?.dispatchEvent(new MessageEvent("agent", { data: JSON.stringify(event) }));
@@ -277,13 +283,47 @@ for (const engine of ["codex", "claude"] as const) {
     const before = stub.calls.filter((call) => call === "GET /go/api/agents").length;
     await emit();
     await expect.poll(() => stub.calls.filter((call) => call === "GET /go/api/agents").length).toBeGreaterThan(before);
-    await expect(page.getByText(/Attention resolved — Acknowledged locally/)).toBeVisible();
-    await expect(page.getByRole("button", { name: "Reply", exact: true })).toBeVisible();
+    await expect(page.getByRole("region", { name: "Session timeline" })).not.toContainText(/Needed you|Attention resolved|Local acknowledgment needed/);
+    await expect(banner).toContainText("Local acknowledgment needed");
     options.agent!.attention = null;
     await emit();
-    await expect(page.getByRole("button", { name: "Reply", exact: true })).toHaveCount(0);
+    await expect(banner).not.toContainText("Local acknowledgment needed");
+    await expect(banner).toContainText("Keep this question open?");
     await page.getByRole("button", { name: "Answer current question", exact: true }).click();
     await expect.poll(() => stub.bodies.some((body) => body.answer === "Answer current question" && body.version === 3)).toBe(true);
     expect(stub.calls.some((call) => call.endsWith(`/prompts/${question}/answer`))).toBe(true);
+    await expect(page.getByLabel("Message this agent")).toHaveValue("Keep my unrelated draft");
+    options.agent!.pending_prompt = null;
+    await emit();
+    await expect(banner).toHaveCount(0);
+    await expect(page.getByRole("region", { name: "Session timeline" })).not.toContainText(/Needed you|Attention resolved/);
+  });
+}
+
+for (const lateStatus of [200, 503]) {
+  test(`an older ${lateStatus} portal snapshot cannot restore a resolved banner`, async ({ page }) => {
+    await page.addInitScript(() => {
+      window.EventSource = class extends EventTarget { close() {} } as unknown as typeof EventSource;
+    });
+    const options: StubOptions = { agent: { attention: { since: new Date().toISOString(), summary: "Old attention" } } };
+    const stub = await stubPortal(page, options); await openPortal(page);
+    const banner = page.getByRole("region", { name: "Needs you", exact: true });
+    await expect(banner).toBeVisible();
+    let release!: (status: number) => void;
+    options.beforeAgents = () => {
+      options.beforeAgents = undefined;
+      return new Promise<number>((resolve) => (release = resolve));
+    };
+    const before = stub.calls.filter((call) => call === "GET /go/api/agents").length;
+    await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
+    await expect.poll(() => stub.calls.filter((call) => call === "GET /go/api/agents").length).toBe(before + 1);
+    options.agent!.attention = null;
+    await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
+    await expect(banner).toHaveCount(0);
+    const oldResponse = page.waitForResponse((response) => new URL(response.url()).pathname === "/go/api/agents" && response.status() === lateStatus);
+    release(lateStatus); await oldResponse;
+    await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+    await expect(banner).toHaveCount(0);
+    await expect(page.getByText("Old snapshot failed", { exact: true })).toHaveCount(0);
   });
 }

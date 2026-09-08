@@ -170,7 +170,7 @@ export function groupFor(agent: Agent, now: number): GroupKey {
   // terminal session and this is the same rule applied locally, which also
   // covers the poll interval during which the client still holds the old row.
   if (presence === "ended") return "ended";
-  if (agent.attention) return "attention";
+  if (agent.attention || agent.pending_prompt) return "attention";
   return presence;
 }
 

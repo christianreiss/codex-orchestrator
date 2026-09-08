@@ -71,10 +71,11 @@ export function createPortal() {
   let readWriteTimer: ReturnType<typeof setTimeout> | null = null;
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   let reconnectAttempt = 0;
+  let agentsRequest = 0;
   let scrollToBottom: ((smooth: boolean) => void) | null = null;
 
   const selected = $derived(agents.find((agent) => agent.id === selectedId) ?? null);
-  const needsYou = $derived(agents.filter((agent) => agent.attention).length);
+  const needsYou = $derived(agents.filter((agent) => !agent.ended_at && agent.presence !== "ended" && (agent.attention || agent.pending_prompt)).length);
   const unreadTotal = $derived(
     agents.reduce((sum, agent) => sum + (agent.id === selectedId ? 0 : (unreadCounts[agent.id] ?? 0)), 0),
   );
@@ -128,7 +129,17 @@ export function createPortal() {
   /* ── loading ───────────────────────────────────────────────────────────── */
 
   async function refreshAgents(): Promise<void> {
-    const result = await api.fetchAgents();
+    const request = ++agentsRequest;
+    let result: Awaited<ReturnType<typeof api.fetchAgents>>;
+    try {
+      result = await api.fetchAgents();
+    } catch (reason) {
+      if (request !== agentsRequest) return;
+      throw reason;
+    }
+    // Polling and stream recovery can overlap. An older snapshot must not
+    // restore resolved attention or replace a newer pending question.
+    if (request !== agentsRequest) return;
     const generated = result.generated_at ? Date.parse(result.generated_at) : NaN;
     if (Number.isFinite(generated)) serverClockOffset = generated - Date.now();
     now = Date.now() + serverClockOffset;
@@ -309,6 +320,7 @@ export function createPortal() {
   async function send(text: string): Promise<boolean> {
     const agent = selected;
     const content = text.trim();
+    const draftBefore = draft;
     if (!agent || sending || !content) return false;
     sending = true;
     error = "";
@@ -323,7 +335,7 @@ export function createPortal() {
         await api.sendMessage(agent.id, clientMessageId, content);
       }
       markSelectedRead();
-      draft = "";
+      if (selectedId === agent.id && draft === draftBefore && draft.trim() === content) draft = "";
       return true;
     } catch (reason) {
       const failure = reason as ApiFailure;
@@ -331,7 +343,7 @@ export function createPortal() {
       // Hand the text back. Losing the bubble AND the textarea left the
       // operator with a banner and nothing to retry, so the only recovery was
       // retyping from memory.
-      draft = content;
+      if (selectedId === agent.id && draft === draftBefore && !draft) draft = content;
       error = sendFailureMessage(failure, failure instanceof ApiFailure);
       announcement = "Message not sent.";
       return false;
@@ -452,6 +464,7 @@ export function createPortal() {
   }
 
   function teardown(): void {
+    agentsRequest++;
     stream?.close();
     for (const timer of [pollTimer, tickTimer]) if (timer) clearInterval(timer);
     for (const timer of [agentsDebounce, readWriteTimer, reconnectTimer]) if (timer) clearTimeout(timer);

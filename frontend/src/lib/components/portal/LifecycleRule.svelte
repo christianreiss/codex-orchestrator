@@ -3,8 +3,8 @@
   import { eventText } from "$lib/portal/grouping";
   import { clockTime } from "$lib/portal/browser";
 
-  // Session boundaries and resolved attention stay visible as calm timeline
-  // markers, even when nearby routine progress collapses.
+  // Session boundaries stay visible as calm timeline markers, even when
+  // nearby routine progress collapses.
   let { event }: { event: EventRow } = $props();
 
   const tone = $derived(

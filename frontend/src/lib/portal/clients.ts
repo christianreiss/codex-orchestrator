@@ -24,7 +24,7 @@ export function clientCounts(rows: AgentSessionRow[], now: number, timings: Pres
     counts[row.engine]++;
     if (presence === "ended") counts.ended++;
     else {
-      if (row.attention) counts.attention++;
+      if (row.attention || row.pending_prompt) counts.attention++;
       if (presence === "offline") counts.offline++;
       else counts.online++;
     }
@@ -44,7 +44,7 @@ export function visibleClients(
     const presence = livePresence(row, now, timings);
     if (options.filter === "active" && presence === "ended") return false;
     if (options.filter === "online" && (presence === "ended" || presence === "offline")) return false;
-    if (options.filter === "attention" && (!row.attention || presence === "ended")) return false;
+    if (options.filter === "attention" && (!(row.attention || row.pending_prompt) || presence === "ended")) return false;
     if (!["all", "active", "online", "attention"].includes(options.filter) && presence !== options.filter) return false;
     const text = [row.id, row.engine, row.username, row.host, row.cwd, row.invocation_kind,
       row.work.task, row.work.branch, row.work.target_branch, row.work.worktree_path,
@@ -54,7 +54,7 @@ export function visibleClients(
   const order = { working: 1, listening: 2, idle: 3, offline: 4, ended: 5 };
   const priority = (row: AgentSessionRow) => {
     const presence = livePresence(row, now, timings);
-    return row.attention && presence !== "ended" ? 0 : order[presence];
+    return (row.attention || row.pending_prompt) && presence !== "ended" ? 0 : order[presence];
   };
   const activity = (row: AgentSessionRow) => Date.parse(row.last_event_at ?? row.started_at) || 0;
   return filtered.sort((a, b) => {

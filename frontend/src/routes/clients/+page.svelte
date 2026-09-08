@@ -15,6 +15,7 @@
   import { base } from "$app/paths";
   import PageHeader from "$lib/components/layout/PageHeader.svelte";
   import Composer from "$lib/components/portal/Composer.svelte";
+  import AttentionCard from "$lib/components/portal/AttentionCard.svelte";
   import EngineAvatar from "$lib/components/portal/EngineAvatar.svelte";
   import PresenceDot from "$lib/components/portal/PresenceDot.svelte";
   import Timeline from "$lib/components/portal/Timeline.svelte";
@@ -27,6 +28,7 @@
   import { authStore } from "$lib/stores/auth";
   import { shortAge, shortPath } from "$lib/portal/browser";
   import { presenceView } from "$lib/portal/presence";
+  import { visibleTimeline } from "$lib/portal/grouping";
   import { clientClock, clientCounts, snapshotIsStale, visibleClients, type ClientFilter, type ClientSort } from "$lib/portal/clients";
   import { watchClientEvents, type ClientFeedState } from "$lib/portal/client-events";
   import type { TimelineSource } from "$lib/portal/types";
@@ -121,7 +123,7 @@
     const changedSession = id !== lastTimelineSession;
     const follow = changedSession || untrack(() => atBottom);
     if (!changedSession && !follow && tail > lastCursor) {
-      const count = data.events.filter((event) => event.cursor > lastCursor).length;
+      const count = visibleTimeline(data.events, selected?.pending_prompt ?? null).filter((event) => event.cursor > lastCursor).length;
       missed = untrack(() => missed) + count;
     }
     lastTimelineSession = id;
@@ -280,8 +282,9 @@
                 <div class="flex flex-wrap items-center justify-between gap-2 border-b px-4 py-2 text-[11px] text-muted-foreground"><span>{feedState === "live" ? "Live timeline updates" : feedState === "connecting" ? "Connecting to live updates…" : "Live updates reconnecting"}</span><span>{feedState !== "live" ? "Polling every 15s" : "Polling fallback enabled"}</span></div>
                 {#if $events.isError}<div role="status" class="flex items-center justify-between gap-2 border-b border-warning/20 bg-warning-muted px-4 py-2 text-xs"><span>{$events.data ? "Timeline refresh failed. Showing saved messages." : "Timeline could not be loaded."}</span><Button variant="ghost" size="sm" onclick={() => $events.refetch()} disabled={$events.isFetching}>Retry timeline</Button></div>{/if}
                 {#if $events.isPending && !$events.data}<div class="space-y-2 p-4" role="status" aria-label="Loading timeline">{#each Array(4) as _, i (i)}<Skeleton class="h-12 w-full rounded-md" />{/each}</div>
-                {:else if $events.data}{#key selected.id}<Timeline portal={timelineSource} agent={selected} {onreply} readonly={!canManage || actionsUnavailable || !selectedView.canSend} />{/key}
+                {:else if $events.data}{#key selected.id}<Timeline portal={timelineSource} agent={selected} />{/key}
                 {:else}<div class="flex-1"></div>{/if}
+                <AttentionCard agent={selected} now={serverNow} {timings} {onreply} busy={$send.isPending} readonly={!canManage || actionsUnavailable} />
                 {#if canManage}{#if retryingDraft}<p class="border-t bg-warning-muted px-4 py-2 text-xs text-muted-foreground">A previous send was not confirmed. Sending this draft again retries the same request.</p>{/if}<Composer agent={selected} now={serverNow} {timings} sending={$send.isPending} {draft} {disabledReason} ondraft={(text) => (drafts = { ...drafts, [selected.id]: text })} onsend={submit} bind:input={composerInput} />{/if}
               {/if}
             </div>
@@ -297,7 +300,7 @@
   <button id="client-{row.id}" type="button" aria-pressed={row.id === selectedId} aria-controls={selected ? "client-detail" : undefined} onclick={() => selectClient(row.id)}
     class="group flex w-full items-start gap-3 rounded-xl border p-3.5 text-left transition-colors hover:border-foreground/25 hover:bg-muted/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring {row.id === selectedId ? 'border-primary bg-primary/5 ring-1 ring-primary/15' : 'bg-card'}">
     <EngineAvatar engine={row.engine} presence={view.presence} size="sm" />
-    <span class="min-w-0 flex-1"><span class="flex flex-wrap items-center justify-between gap-x-3 gap-y-1"><span class="truncate text-xs font-semibold">{row.host ?? `host ${row.host_id}`}</span><span class="flex items-center gap-1.5 text-[11px] text-muted-foreground"><PresenceDot presence={view.presence} />{view.label}</span></span><span class="mt-1 block truncate text-[11px] text-muted-foreground">{row.engine === "codex" ? "Codex" : "Claude"} · {row.username}{row.work.branch ? ` · ${row.work.branch}` : ""}</span><span class="mt-1.5 block truncate font-mono text-[11px]" title={row.work.worktree_path ?? row.cwd}>{place(row)}</span>{#if row.work.task}<span class="mt-1 block line-clamp-2 text-xs leading-relaxed text-muted-foreground">{row.work.task}</span>{/if}<span class="mt-2 flex flex-wrap items-center justify-between gap-2 border-t border-border/60 pt-2">{#if row.attention && view.presence !== "ended"}<Badge variant="destructive">Needs you</Badge>{:else}<span class="text-[10px] text-muted-foreground">{row.read_only ? "Read-only session" : row.invocation_kind}</span>{/if}<span class="text-[10px] text-muted-foreground" title={exactTime(row.heartbeat_at)}>Heartbeat {age(row.heartbeat_at)} ago</span></span></span>
+    <span class="min-w-0 flex-1"><span class="flex flex-wrap items-center justify-between gap-x-3 gap-y-1"><span class="truncate text-xs font-semibold">{row.host ?? `host ${row.host_id}`}</span><span class="flex items-center gap-1.5 text-[11px] text-muted-foreground"><PresenceDot presence={view.presence} />{view.label}</span></span><span class="mt-1 block truncate text-[11px] text-muted-foreground">{row.engine === "codex" ? "Codex" : "Claude"} · {row.username}{row.work.branch ? ` · ${row.work.branch}` : ""}</span><span class="mt-1.5 block truncate font-mono text-[11px]" title={row.work.worktree_path ?? row.cwd}>{place(row)}</span>{#if row.work.task}<span class="mt-1 block line-clamp-2 text-xs leading-relaxed text-muted-foreground">{row.work.task}</span>{/if}<span class="mt-2 flex flex-wrap items-center justify-between gap-2 border-t border-border/60 pt-2">{#if (row.attention || row.pending_prompt) && view.presence !== "ended"}<Badge variant="destructive">Needs you</Badge>{:else}<span class="text-[10px] text-muted-foreground">{row.read_only ? "Read-only session" : row.invocation_kind}</span>{/if}<span class="text-[10px] text-muted-foreground" title={exactTime(row.heartbeat_at)}>Heartbeat {age(row.heartbeat_at)} ago</span></span></span>
   </button>
 {/snippet}
 

@@ -5,7 +5,7 @@ import type { EventRow } from "./types";
 // `node --test` strips types but resolves specifiers verbatim, so the runtime
 // import needs the ".ts" extension TypeScript rejects on a static import.
 const groupingModule: string = "./grouping.ts";
-const { buildTimeline, dayLabel, eventText, roleFor } = (await import(groupingModule)) as typeof import("./grouping");
+const { buildTimeline, dayLabel, eventText, roleFor, visibleTimeline } = (await import(groupingModule)) as typeof import("./grouping");
 
 let cursor = 0;
 function event(type: string, at: string, payload: Record<string, unknown> = {}): EventRow {
@@ -49,6 +49,18 @@ describe("eventText", () => {
 });
 
 describe("buildTimeline", () => {
+  it("hides attention records and the current question without altering stored events", () => {
+    const prompt = { id: "current", version: 2, question: "Continue?", options: ["Yes"], created_at: T(2) };
+    const events = [
+      event("attention", T(0)), event("attention_resolved", T(1)),
+      event("waiting_input", T(2), { prompt_id: "current", prompt_version: 1 }),
+      event("waiting_input", T(3), { prompt_id: "current", prompt_version: 2 }),
+    ];
+    assert.deepEqual(visibleTimeline(events, prompt), [events[2]]);
+    assert.deepEqual(visibleTimeline(events, null), [events[2], events[3]]);
+    assert.equal(events.length, 4);
+    assert.deepEqual(buildTimeline(visibleTimeline(events.slice(0, 2), null)), []);
+  });
   it("opens with a day separator and labels today and yesterday", () => {
     const now = new Date("2026-08-01T13:00:00.000Z");
     const items = buildTimeline([event("assistant_message", T(0), { text: "a" })], now);

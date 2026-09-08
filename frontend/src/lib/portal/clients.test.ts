@@ -11,6 +11,12 @@ function row(id: string, overrides: Partial<AgentSessionRow> = {}): AgentSession
 }
 const options = { search: "", engine: "all" as const, filter: "all" as const, sort: "status" as const };
 describe("client directory", () => {
+  it("keeps an unanswered prompt in needs-you counts after a notice resolves", () => {
+    const pending = row("prompt", { pending_prompt: { id: "p", version: 1, question: "Continue?", options: [], created_at: new Date(NOW).toISOString() } });
+    assert.equal(clientCounts([pending], NOW).attention, 1);
+    assert.deepEqual(visibleClients([pending], { ...options, filter: "attention" }, NOW), [pending]);
+    assert.equal(clientCounts([{ ...pending, ended_at: new Date(NOW).toISOString() }], NOW).attention, 0);
+  });
   it("searches across work identity and filters both engines without mutating source rows", () => {
     const rows = [row("codex"), row("claude", { engine: "claude" })];
     assert.deepEqual(visibleClients(rows, { ...options, search: "QUIET-FOX api/auth", engine: "claude" }, NOW).map((r) => r.id), ["claude"]);
