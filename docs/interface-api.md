@@ -586,7 +586,8 @@ Auth verification worker: when `AUTH_RUNNER_URL` is configured, the API starts a
     the admin stream's SQL read to one session while preserving global cursors.
     Same capability, same payloads. Both streams follow the response socket's
     lifetime and recheck current identity/capabilities while connected; losing
-    access ends the stream. The admin event stream uses a read-only session
+    access ends the stream. API shutdown ends open streams and refuses late
+    stream admission; browser reconnects resume after restart. The admin event stream uses a read-only session
     check; normal authenticated requests retain their existing session renewal.
     Metadata-only WebSocket `agent_portal.sessions.changed` events invalidate
     the client query after lifecycle, relay, and timeline changes; heartbeat

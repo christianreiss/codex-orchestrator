@@ -1,3 +1,4 @@
+import { createSseLifecycle } from '../../../http/sse-lifecycle.js';
 import { setTimeout as delay } from 'node:timers/promises';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
@@ -81,6 +82,7 @@ export async function registerAdminAgentSessionsRoutes(
   ctx: RouteContext,
 ): Promise<void> {
   const portal = createAgentPortalService(ctx.db, ctx.env, ctx.keyring);
+  const trackStream = createSseLifecycle(app);
   const events = new AdminEventsService(ctx.db);
   const auth = new AdminAuthService(ctx.db, ctx.env);
 
@@ -133,10 +135,11 @@ export async function registerAdminAgentSessionsRoutes(
       });
       const disconnected = new AbortController();
       let closed = false;
-      reply.raw.once('close', () => {
+      const stopStream = trackStream(reply, () => {
         closed = true;
         disconnected.abort();
       });
+      if (closed) return;
       reply.raw.flushHeaders();
       let lastHeartbeat = Date.now();
       while (!closed && !reply.raw.destroyed) {
@@ -167,12 +170,14 @@ export async function registerAdminAgentSessionsRoutes(
           }
         } catch (error) {
           const code = error instanceof ApiError ? error.code : 'stream_error';
+          if (!closed && !reply.raw.destroyed && !reply.raw.writableEnded) {
           reply.raw.write(`event: unavailable\ndata: ${JSON.stringify({ code })}\n\n`);
+        }
           break;
         }
         if (!closed) await delay(1000, undefined, { signal: disconnected.signal }).catch(() => {});
       }
-      reply.raw.end();
+      stopStream();
     },
   );
 

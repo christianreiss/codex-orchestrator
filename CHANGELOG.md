@@ -16,7 +16,8 @@
 - Presence and instruction delivery now reject expired or revoked bridges,
   inactive hosts, disabled engines, and invalid heartbeat timestamps. Both
   event streams survive healthy HTTP request completion, cancel disconnected
-  readers, and recheck current session access while streaming.
+  readers, and recheck current session access while streaming. API shutdown
+  explicitly closes active streams so a connected console cannot stall restart.
 - Both engines recover transient initial client registration failures using the
   original session identity. Heartbeats have bounded, cancellable retries;
   permanent authorization failures stop recovery, and session shutdown cannot

@@ -1,6 +1,6 @@
 import cookie from '@fastify/cookie';
 import fp from 'fastify-plugin';
-import Fastify, { type FastifyInstance } from 'fastify';
+import Fastify, { type FastifyInstance, type FastifyReply } from 'fastify';
 import { get, type ClientRequest, type IncomingMessage } from 'node:http';
 import { setTimeout as delay } from 'node:timers/promises';
 import { resolve } from 'node:path';
@@ -38,6 +38,10 @@ async function fixture() {
     next_cursor: after + 1,
   }));
   const app = Fastify({ logger: false });
+  let responseRaw: FastifyReply['raw'] | undefined;
+  let closing = false;
+  app.addHook('onRequest', async (_req, reply) => { responseRaw = reply.raw; });
+  app.addHook('preClose', async () => { closing = true; });
   apps.push(app);
   await app.register(cookie);
   await app.register(fp(async (authApp) => {
@@ -56,7 +60,7 @@ async function fixture() {
   await registerAdminAgentSessionsRoutes(app, ctx);
   await registerAgentPortalPublicRoutes(app, ctx);
   const origin = await app.listen({ host: '127.0.0.1', port: 0 });
-  return { origin, read, auth, setAdmin: (value: AdminContext | null) => { admin = value; }, demote: () => {
+  return { app, origin, read, auth, response: () => responseRaw!, isClosing: () => closing, setAdmin: (value: AdminContext | null) => { admin = value; }, demote: () => {
     admin = { ...admin!, user: { ...admin!.user, accessLevel: 'viewer' } };
   } };
 }
@@ -87,6 +91,46 @@ describe.each(['/admin/agent-sessions/events', '/go/api/events'])('real HTTP str
     const reads = f.read.mock.calls.length;
     await delay(1100);
     expect(f.read).toHaveBeenCalledTimes(reads);
+  });
+
+  it('closes an open stream during server shutdown within one second', async () => {
+    const f = await fixture();
+    const stream = await open(`${f.origin}${path}?after=0`);
+    await vi.waitFor(() => expect(stream.body()).toContain('page-1'));
+    const closed = await Promise.race([f.app.close().then(() => true), delay(750).then(() => false)]);
+    expect(closed).toBe(true);
+    await vi.waitFor(() => expect(stream.response.complete).toBe(true));
+  });
+
+  it('ends a stream immediately with a DB read pending and suppresses its late error write', async () => {
+    const f = await fixture();
+    let rejectRead!: (error: Error) => void;
+    f.read.mockImplementationOnce(() => new Promise((_resolve, reject) => { rejectRead = reject; }));
+    const stream = await open(`${f.origin}${path}?after=0`);
+    await vi.waitFor(() => expect(rejectRead).toBeTypeOf('function'));
+    const write = vi.spyOn(f.response(), 'write');
+    const end = vi.spyOn(f.response(), 'end');
+    expect(await Promise.race([f.app.close().then(() => true), delay(750).then(() => false)])).toBe(true);
+    rejectRead(new Error('database closed during shutdown'));
+    await delay(20);
+    expect(write).not.toHaveBeenCalled();
+    expect(end).toHaveBeenCalledTimes(1);
+    expect(stream.body()).not.toContain('unavailable');
+  });
+
+  it('does not open a new endless stream when initial cursor lookup finishes after preClose', async () => {
+    const f = await fixture();
+    let resolveCursor!: (cursor: number) => void;
+    vi.mocked(AgentPortalService.prototype.latestEventCursor).mockImplementationOnce(() => new Promise((resolve) => { resolveCursor = resolve; }));
+    const opening = open(`${f.origin}${path}`);
+    await vi.waitFor(() => expect(resolveCursor).toBeTypeOf('function'));
+    const closing = f.app.close();
+    await vi.waitFor(() => expect(f.isClosing()).toBe(true));
+    resolveCursor(0);
+    const stream = await opening;
+    expect(await Promise.race([closing.then(() => true), delay(750).then(() => false)])).toBe(true);
+    expect(f.read).not.toHaveBeenCalled();
+    expect(stream.body()).toBe('');
   });
 
   it('establishes an empty stream immediately and resumes with Last-Event-ID', async () => {

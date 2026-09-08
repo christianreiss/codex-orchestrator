@@ -1,3 +1,4 @@
+import { createSseLifecycle } from '../../http/sse-lifecycle.js';
 import { setTimeout as delay } from 'node:timers/promises';
 import fastifyStatic from '@fastify/static';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
@@ -15,6 +16,7 @@ export async function registerAgentPortalPublicRoutes(
   ctx: RouteContext,
 ): Promise<void> {
   const portal = createAgentPortalService(ctx.db, ctx.env, ctx.keyring);
+  const trackStream = createSseLifecycle(app);
   /**
    * Either identity may drive the portal.
    *
@@ -260,10 +262,11 @@ export async function registerAgentPortalPublicRoutes(
     });
     const disconnected = new AbortController();
     let closed = false;
-    reply.raw.once('close', () => {
+    const stopStream = trackStream(reply, () => {
       closed = true;
       disconnected.abort();
     });
+    if (closed) return;
     reply.raw.flushHeaders();
     let lastHeartbeat = Date.now();
     while (!closed && !reply.raw.destroyed) {
@@ -285,12 +288,14 @@ export async function registerAgentPortalPublicRoutes(
         }
       } catch (error) {
         const code = error instanceof ApiError ? error.code : 'stream_error';
+        if (!closed && !reply.raw.destroyed && !reply.raw.writableEnded) {
         reply.raw.write(`event: unavailable\ndata: ${JSON.stringify({ code })}\n\n`);
+      }
         break;
       }
       if (!closed) await delay(1000, undefined, { signal: disconnected.signal }).catch(() => {});
     }
-    reply.raw.end();
+    stopStream();
   });
 
   const portalRoot = resolve(
