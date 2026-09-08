@@ -1,0 +1,1 @@
+import{B as e,R as t,ht as n,mt as r}from"../chunks/CF3ccWRX.js";import"../chunks/xihTtKlq.js";import"../chunks/CT911tYm.js";import{t as i}from"../chunks/DxydcPyr.js";import{t as a}from"../chunks/JBXmYWrm.js";var o=e(`<!> <!>`,1);function s(e){var s=o(),c=r(s);i(c,{title:`Subagents`,subtitle:`Claude-native agent definitions.`}),a(n(c,2),{}),t(e,s)}export{s as component};

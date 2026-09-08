@@ -824,7 +824,7 @@ A confirmed last-engine uninstall removes the service, while partial or
 unconfirmed uninstall leaves it intact. Managed units preserve non-default
 `CDX_CONFIG_PATH` and `CLX_CONFIG_PATH` values.
 
-## Agent portal lifecycle (cxx 0.7.7)
+## Agent portal lifecycle (cxx 0.8.3)
 
 Claude has parity with Codex for the permanent `/go` portal. When the persistent
 master switch is on, interactive and human-started execute/resume root sessions
@@ -836,7 +836,8 @@ excluded. Heartbeats and the terminal completed/failed transition are
 best-effort and cannot block a local Claude run.
 
 The shared `cxx portal status|notify|wait|accept|say|ask|leave` helper is the
-sole relay surface. `notify` opens the relay before queuing the notice. `wait`
+sole relay surface. `notify` queues a notice without opening the relay; only a
+live `wait` loop advertises listening. `wait`
 leases the oldest message without acknowledging it; `accept` commits receipt
 after the message reaches the root agent, so an unacknowledged lease is safely
 redelivered. Ambiguous claims reuse one claim UUID, and claim/event/accept/
@@ -852,3 +853,13 @@ Claude process or model turn that has already stopped, and `relay_ready` ages
 false when active polling ceases. The relay, socket capability, and environment
 are torn down immediately when the Claude child exits, before post-run updater
 or auth work begins.
+
+Transient initial registration failures retain the same session ID and bearer
+in the wrapper, start its private broker, and retry while the native child runs.
+Heartbeat attempts are cancellable and bounded, with 15–60 second failure
+backoff. Permanent authorization or session failures stop recovery; a revoked
+or unknown bridge is never blindly recreated. Recognized expiry/binding renewal
+still rechecks current host and engine eligibility. Shutdown cancels normal
+requests before finalization, and a failed final report cannot restart the local
+session. The admin Active Clients page distinguishes fresh wrapper contact from
+an open relay and shows stale connections without claiming work has stopped.

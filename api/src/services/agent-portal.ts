@@ -44,7 +44,8 @@ import { decrypt, encrypt } from '../security/secret-box.js';
 import { randomHex, sha256 } from '../security/hash.js';
 import type { Keyring } from '../security/keyring.js';
 import { isTruthyFlagValue, SettingsService } from './settings.js';
-import { isoOffsetSeconds, nowIso, parseIso } from '../util/timestamp.js';
+import { isFreshPresenceTimestamp } from './agent-presence.js';
+import { isoOffsetSeconds, nowIso, parseIso, parseRfc3339Millis } from '../util/timestamp.js';
 import { ENGINE_CLAUDE, ENGINE_CODEX, type Engine } from '../util/engine.js';
 import { wsPublisher } from '../ws/publisher.js';
 import { hostEnginesList } from './host-engine-policy.js';
@@ -276,10 +277,11 @@ export class AgentPortalService {
    * The freshness windows the browser needs to age presence between polls
    * without duplicating the numbers. They used to be literals on both sides.
    */
-  timings(): { heartbeat_fresh_seconds: number; relay_fresh_seconds: number; retention_hours: number } {
+  timings(): { heartbeat_fresh_seconds: number; relay_fresh_seconds: number; working_fresh_seconds: number; retention_hours: number } {
     return {
       heartbeat_fresh_seconds: this.env.AGENT_PORTAL_HEARTBEAT_FRESH_SECONDS,
       relay_fresh_seconds: this.env.AGENT_PORTAL_RELAY_FRESH_SECONDS,
+      working_fresh_seconds: this.workingMaxSeconds(),
       retention_hours: this.env.AGENT_PORTAL_RETENTION_HOURS,
     };
   }
@@ -586,6 +588,19 @@ export class AgentPortalService {
     const fingerprint = hostAuthFingerprint(host);
     const registered = await this.db.transaction(async (tx) => {
       if (!(await this.portalEnabledLocked(tx))) return false;
+      // Authentication preceded this transaction. A delayed registration must
+      // not cross host revocation while it waits for the coordinator lock.
+      const hostRows = await tx.select().from(hosts).where(eq(hosts.id, host.id)).limit(1).for('update');
+      const currentHost = hostRows[0];
+      if (!currentHost || currentHost.status !== 'active') {
+        throw new ForbiddenError('Agent bridge host is inactive', 'agent_bridge_host_inactive');
+      }
+      if (!hostEnginesList(currentHost.engines).includes(input.engine)) {
+        throw new ForbiddenError(`Engine ${input.engine} is disabled for this host`, 'engine_disabled');
+      }
+      if (!safeHashEqual(hostAuthFingerprint(currentHost), fingerprint)) {
+        throw new UnauthorizedError('Host credential changed during registration', 'agent_bridge_host_auth_changed');
+      }
       const existing = await tx
         .select()
         .from(agentSessions)
@@ -647,6 +662,7 @@ export class AgentPortalService {
       source: 'bridge',
       payload: { summary: input.resumed ? 'Agent resumed' : 'Agent started' },
     });
+    wsPublisher.publish('agent_portal.sessions.changed', { session_id: sessionId });
     return { enabled: true, session_id: sessionId, bridge_token: bridgeToken, expires_at: expiresAt };
   }
 
@@ -683,11 +699,17 @@ export class AgentPortalService {
       }
       await tx.update(agentSessions).set(patch).where(eq(agentSessions.id, sessionId));
       return {
+        changed: (patch.relayEnabled !== undefined && patch.relayEnabled !== locked.relayEnabled) ||
+          (patch.activeTurnId !== undefined && patch.activeTurnId !== locked.activeTurnId) ||
+          !isFreshPresenceTimestamp(locked.heartbeatAt, Date.now() - this.env.AGENT_PORTAL_HEARTBEAT_FRESH_SECONDS * 1000, Date.now()) ||
+          (input.relayAction === 'poll' && !isFreshPresenceTimestamp(locked.relayHeartbeatAt, Date.now() - this.env.AGENT_PORTAL_RELAY_FRESH_SECONDS * 1000, Date.now())),
         status,
         relay_active: input.relayAction === 'close' ? false : input.relayAction === 'poll' || locked.relayEnabled === 1,
       };
     });
-    return { enabled: true, expires_at: expiresAt, ...result };
+    const { changed, ...response } = result;
+    if (changed) wsPublisher.publish('agent_portal.sessions.changed', { session_id: sessionId });
+    return { enabled: true, expires_at: expiresAt, ...response };
   }
 
   async addAgentEvent(sessionId: string, bridgeToken: string, input: AgentEventInput, hostId?: number): Promise<Record<string, unknown>> {
@@ -712,10 +734,14 @@ export class AgentPortalService {
     return { ...event, status: input.status, expires_at: expiresAt };
   }
 
-  async listAgents(): Promise<Array<Record<string, unknown>>> {
-    const now = nowIso();
+  async listAgents(snapshotTime?: number): Promise<Array<Record<string, unknown>>> {
+    return (await this.listAgentsSnapshot(snapshotTime)).sessions;
+  }
+
+  async listAgentsSnapshot(at?: number): Promise<{ generated_at: string; sessions: Array<Record<string, unknown>> }> {
+    const now = new Date(at ?? Date.now()).toISOString();
     const rows = await this.db
-      .select({ session: agentSessions, fqdn: hosts.fqdn })
+      .select({ session: agentSessions, host: hosts })
       .from(agentSessions)
       .innerJoin(hosts, eq(hosts.id, agentSessions.hostId))
       .where(or(isNull(agentSessions.endedAt), gt(agentSessions.expiresAt, now)))
@@ -811,15 +837,19 @@ export class AgentPortalService {
       if (!closeBySession.has(row.sessionId)) closeBySession.set(row.sessionId, row);
     }
 
-    const offlineBefore = Date.now() - this.env.AGENT_PORTAL_HEARTBEAT_FRESH_SECONDS * 1000;
-    const relayBefore = Date.now() - this.env.AGENT_PORTAL_RELAY_FRESH_SECONDS * 1000;
-    const workingBefore = Date.now() - this.workingMaxSeconds() * 1000;
-    return rows.map(({ session, fqdn }) => {
-      const heartbeat = parseIso(session.heartbeatAt)?.getTime() ?? 0;
-      const heartbeatFresh = heartbeat >= offlineBefore;
+    // A heartbeat can commit while the reads await MySQL. Observe after those
+    // reads so valid new contact is not mistaken for a future timestamp. Tests
+    // may supply a fixed observation instant to exercise exact boundaries.
+    const snapshotTime = at ?? Date.now();
+    const offlineBefore = snapshotTime - this.env.AGENT_PORTAL_HEARTBEAT_FRESH_SECONDS * 1000;
+    const relayBefore = snapshotTime - this.env.AGENT_PORTAL_RELAY_FRESH_SECONDS * 1000;
+    const workingBefore = snapshotTime - this.workingMaxSeconds() * 1000;
+    const sessions = rows.map(({ session, host }) => {
+      const heartbeatFresh = bridgeHostAvailable(session, host, snapshotTime) &&
+        isFreshPresenceTimestamp(session.heartbeatAt, offlineBefore, snapshotTime);
       const effectiveStatus = LIVE_SESSION_STATE_SET.has(session.status) && !heartbeatFresh ? 'offline' : session.status;
-      const relayHeartbeat = parseIso(session.relayHeartbeatAt ?? '')?.getTime() ?? 0;
-      const relayReady = !session.endedAt && heartbeatFresh && session.relayEnabled === 1 && relayHeartbeat >= relayBefore;
+      const relayReady = !session.endedAt && heartbeatFresh && session.relayEnabled === 1 &&
+        isFreshPresenceTimestamp(session.relayHeartbeatAt, relayBefore, snapshotTime);
 
       // A session with no events yet (registered, `server:started` not committed)
       // produces no aggregate row at all.
@@ -836,11 +866,11 @@ export class AgentPortalService {
         ? detailById.get(Number(stats?.turnStartedId ?? 0))
         : undefined;
       const turnStartedAt = turnStartedEvent?.createdAt ?? null;
-      const turnStarted = parseIso(turnStartedAt ?? '')?.getTime() ?? 0;
       // An unknown start time cannot be aged out, so treat it as expired rather
       // than as a turn that has been running forever.
       const working =
-        !session.endedAt && heartbeatFresh && Boolean(session.activeTurnId) && turnStarted >= workingBefore;
+        !session.endedAt && heartbeatFresh && Boolean(session.activeTurnId) &&
+        isFreshPresenceTimestamp(turnStartedAt, workingBefore, snapshotTime);
 
       const presence: AgentPresence = session.endedAt
         ? 'ended'
@@ -869,7 +899,7 @@ export class AgentPortalService {
       return {
         id: session.id,
         engine: session.engine,
-        host: fqdn,
+        host: host.fqdn,
         host_id: session.hostId,
         username: session.username,
         cwd: session.cwd,
@@ -880,6 +910,8 @@ export class AgentPortalService {
         status: effectiveStatus,
         presence,
         relay_ready: relayReady,
+        relay_enabled: session.relayEnabled === 1,
+        relay_heartbeat_at: session.relayHeartbeatAt,
         active_turn_id: session.activeTurnId,
         active_turn_started_at: working ? turnStartedAt : null,
         started_at: session.startedAt,
@@ -904,6 +936,7 @@ export class AgentPortalService {
         pending_prompt: promptBySession.get(session.id) ?? null,
       };
     });
+    return { generated_at: new Date(snapshotTime).toISOString(), sessions };
   }
 
   async listEvents(sessionId: string, after = 0, limit = 250, tail = false): Promise<{ events: Array<Record<string, unknown>>; next_cursor: number }> {
@@ -944,12 +977,15 @@ export class AgentPortalService {
     return { events, next_cursor: rows.at(-1)?.id ?? Math.max(0, Math.trunc(after)) };
   }
 
-  async listEventsAfter(after = 0, limit = 250): Promise<{ events: Array<Record<string, unknown>>; next_cursor: number }> {
+  async listEventsAfter(after = 0, limit = 250, sessionId?: string): Promise<{ events: Array<Record<string, unknown>>; next_cursor: number }> {
     const bounded = Math.max(1, Math.min(500, Math.trunc(limit)));
     const rows = await this.db
       .select()
       .from(agentEvents)
-      .where(gt(agentEvents.id, Math.max(0, Math.trunc(after))))
+      .where(and(
+        gt(agentEvents.id, Math.max(0, Math.trunc(after))),
+        sessionId ? eq(agentEvents.sessionId, sessionId) : undefined,
+      ))
       .orderBy(asc(agentEvents.id))
       .limit(bounded);
     const events = rows.map((event) => ({
@@ -1067,6 +1103,7 @@ export class AgentPortalService {
       if (!rows[0]) throw new ServiceUnavailableError('Message queue insert was not readable', 'agent_message_write_failed');
       return rows[0];
     });
+    wsPublisher.publish('agent_portal.sessions.changed', { session_id: input.sessionId });
     return messageView(inserted);
   }
 
@@ -1144,6 +1181,7 @@ export class AgentPortalService {
       if (!rows[0]) throw new ServiceUnavailableError('Answer queue insert was not readable', 'agent_message_write_failed');
       return rows[0];
     });
+    wsPublisher.publish('agent_portal.sessions.changed', { session_id: input.sessionId });
     return messageView(inserted);
   }
 
@@ -1211,6 +1249,7 @@ export class AgentPortalService {
       if (!rows[0]) throw new ServiceUnavailableError('Close request insert was not readable', 'agent_message_write_failed');
       return { row: rows[0], requestedAt };
     });
+    wsPublisher.publish('agent_portal.sessions.changed', { session_id: input.sessionId });
     return {
       ...messageView(result.row),
       close_requested_at: result.requestedAt,
@@ -1232,7 +1271,7 @@ export class AgentPortalService {
     const eventId = `portal:close-force:${clientMessageId}`;
     const now = nowIso();
     const expiresAt = isoOffsetSeconds(this.env.AGENT_PORTAL_RETENTION_HOURS * 3600);
-    return await this.db.transaction(async (tx) => {
+    const result = await this.db.transaction(async (tx) => {
       await this.requirePortalEnabledLocked(tx);
       const user = await this.requireActorLocked(tx, actor, now);
       const session = await this.requireVisibleSessionLocked(tx, input.sessionId, now);
@@ -1274,6 +1313,8 @@ export class AgentPortalService {
         expires_at: expiresAt,
       };
     });
+    wsPublisher.publish('agent_portal.sessions.changed', { session_id: input.sessionId });
+    return result;
   }
 
   async claimMessage(sessionId: string, bridgeToken: string, claimId: string, hostId?: number): Promise<ClaimedMessage | null> {
@@ -1440,6 +1481,7 @@ export class AgentPortalService {
       const refreshed = await tx.select().from(agentMessages).where(eq(agentMessages.id, row.id)).limit(1);
       return refreshed[0]!;
     });
+    wsPublisher.publish('agent_portal.sessions.changed', { session_id: sessionId });
     return messageView(updated);
   }
 
@@ -1591,6 +1633,7 @@ export class AgentPortalService {
       }
       return { row, payload: normalized.payload };
     });
+    wsPublisher.publish('agent_portal.sessions.changed', { session_id: sessionId });
     return eventView(result.row, result.payload);
   }
 
@@ -1909,17 +1952,17 @@ export class AgentPortalService {
       .where(and(eq(agentEvents.sessionId, session.id), eq(agentEvents.eventType, 'message_accepted')))
       .orderBy(desc(agentEvents.id))
       .limit(1);
-    const startedAt = parseIso(rows[0]?.createdAt ?? '')?.getTime() ?? 0;
-    return startedAt >= Date.now() - this.workingMaxSeconds() * 1000;
+    const now = Date.now();
+    return isFreshPresenceTimestamp(rows[0]?.createdAt, now - this.workingMaxSeconds() * 1000, now);
   }
 
   private async assertRelayReady(session: AgentSession, db: AgentPortalDb = this.db): Promise<void> {
-    const heartbeat = parseIso(session.heartbeatAt)?.getTime() ?? 0;
-    const relayHeartbeat = parseIso(session.relayHeartbeatAt ?? '')?.getTime() ?? 0;
-    const heartbeatFresh = heartbeat >= Date.now() - this.env.AGENT_PORTAL_HEARTBEAT_FRESH_SECONDS * 1000;
-    const relayFresh =
-      session.relayEnabled === 1 &&
-      relayHeartbeat >= Date.now() - this.env.AGENT_PORTAL_RELAY_FRESH_SECONDS * 1000;
+    const now = Date.now();
+    const hostRows = await db.select().from(hosts).where(eq(hosts.id, session.hostId)).limit(1);
+    const heartbeatFresh = bridgeHostAvailable(session, hostRows[0], now) &&
+      isFreshPresenceTimestamp(session.heartbeatAt, now - this.env.AGENT_PORTAL_HEARTBEAT_FRESH_SECONDS * 1000, now);
+    const relayFresh = session.relayEnabled === 1 &&
+      isFreshPresenceTimestamp(session.relayHeartbeatAt, now - this.env.AGENT_PORTAL_RELAY_FRESH_SECONDS * 1000, now);
     if (heartbeatFresh && relayFresh) return;
     // An agent mid-turn stops polling while it executes, so a strict relay check
     // would refuse an instruction the agent is about to come back and claim.
@@ -2571,4 +2614,13 @@ function eventView(row: typeof agentEvents.$inferSelect, payload: Record<string,
 
 function backoffSeconds(attempts: number): number {
   return Math.min(300, Math.max(2, 2 ** Math.min(8, Math.max(1, attempts))));
+}
+
+/** The same host/bridge gates used by delivery, without exposing credential material. */
+function bridgeHostAvailable(session: AgentSession, host: Host | undefined, nowMs: number): boolean {
+  const expiresAt = parseRfc3339Millis(session.bridgeExpiresAt);
+  return Boolean(host && host.status === 'active' &&
+    hostEnginesList(host.engines).includes(session.engine as Engine) &&
+    safeHashEqual(hostAuthFingerprint(host), session.hostAuthFingerprint) &&
+    expiresAt != null && expiresAt > nowMs);
 }

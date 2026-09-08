@@ -555,10 +555,14 @@ Auth verification worker: when `AUTH_RUNNER_URL` is configured, the API starts a
   writes and `agent_portal.reveal_transcript` for the timelines and the stream,
   both of which are always-enforced and therefore checkable without a route key.
   Without that, a `viewer` refused at `/admin` could have written through `/go`.
-  - `GET /admin/agent-sessions` — `{enabled, timings, sessions:[…]}`. Each
+  - `GET /admin/agent-sessions` — `{enabled, generated_at, timings, sessions:[…]}`.
+    `generated_at` is the server instant used for the entire presence snapshot.
+    `timings` includes `heartbeat_fresh_seconds`, `relay_fresh_seconds`,
+    `working_fresh_seconds` (ten relay windows), and `retention_hours`. Each
     session carries the derived `presence` (`working` / `listening` / `idle` /
     `offline` / `ended`), `active_turn_started_at`, `last_event_at`, any
-    outstanding `attention` notice and `pending_prompt`, plus a `work` block
+    outstanding `attention` notice and `pending_prompt`, `relay_enabled` and
+    `relay_heartbeat_at` for independent relay aging, plus a `work` block
     joining the Git Director task, branch and declared paths for the worktree
     the session's `cwd` resolved into, and the Agent Messaging address a peer
     would reach it on. Read `presence`, never `status`: the latter is written
@@ -566,13 +570,28 @@ Auth verification worker: when `AUTH_RUNNER_URL` is configured, the API starts a
     because an empty list otherwise cannot be told apart from the module being
     off, in which case registration is discarded server-side and no wrapper can
     ever appear.
+    A fresh heartbeat proves online contact only while the host, engine, bridge
+    credential, and bridge expiry remain eligible. Missing, malformed, or future
+    heartbeats fail closed. Listening additionally needs a fresh enabled relay;
+    working needs a recent accepted turn. The same eligibility gates protect
+    queued instruction delivery, so a revoked bridge cannot appear writable.
   - `GET /admin/agent-sessions/{id}/events` — one session's timeline, paged with
     `after` / `limit` / `tail`. Carries `user_message` and `assistant_message`
     bodies, so it needs `agent_portal.reveal_transcript` rather than
     `agent_portal.read`.
   - `GET /admin/agent-sessions/events` — the same events fleet-wide as SSE,
     mirroring `GET /go/api/events`: `event: agent` frames with `Last-Event-ID`
-    resume and a 15s heartbeat comment. Same capability, same payloads.
+    resume and a 15s heartbeat comment plus an observable `event: heartbeat`
+    frame. Optional `session_id=<uuid>` restricts
+    the admin stream's SQL read to one session while preserving global cursors.
+    Same capability, same payloads. Both streams follow the response socket's
+    lifetime and recheck current identity/capabilities while connected; losing
+    access ends the stream. The admin event stream uses a read-only session
+    check; normal authenticated requests retain their existing session renewal.
+    Metadata-only WebSocket `agent_portal.sessions.changed` events invalidate
+    the client query after lifecycle, relay, and timeline changes; heartbeat
+    freshness still uses polling and local aging. A reconnect rereads snapshots
+    because the admin WebSocket bus does not retain a replay log.
   - `POST /admin/agent-sessions/{id}/messages` — `{client_message_id, content}`;
     queues an instruction for the agent, `202`. Requires a live session and a
     ready relay, exactly as the portal does — the service owns those rules and
@@ -897,9 +916,9 @@ Public shell and browser API:
 - `POST /go/api/auth/exchange` — exchange `{public_id, token}` for the Secure, HttpOnly, SameSite=Strict portal cookie.
 - `POST /go/api/logout` — revoke the current browser session and clear its cookie.
 - `GET /go/api/me` — current portal identity.
-- `GET /go/api/agents` — active and retained eligible agents for the chat list. `presence` is the liveness signal (`listening` accepts instructions, `idle` is alive but has no open relay, `offline` has not heartbeat within 45s, `ended` is read-only); `status` is retained for compatibility only and reads `active` for the life of the wrapper process, so it must not be used for liveness. `attention` is derived from event cursors with no stored read state — a notice stays outstanding until the same session receives a `user_message` (a plain message or a prompt answer) or a `close_requested`. `close` reports the operator close lifecycle (`pending`, `acknowledged`, `undeliverable`) read from the close note's own queue row.
+- `GET /go/api/agents` — `{generated_at, agents:[…]}` with active and retained eligible agents and the server projection clock for the chat list. `presence` is the liveness signal: `listening` has an open relay, `working` has a recent accepted turn, `idle` has fresh wrapper contact without an open relay, `offline` lacks fresh contact or an eligible bridge, and `ended` is read-only. Freshness windows come from `/go/api/state`; `status` remains a compatibility field and must not be used for liveness. `attention` is derived from event cursors with no stored read state — a notice stays outstanding until the same session receives a `user_message` (a plain message or a prompt answer) or a `close_requested`. `close` reports the operator close lifecycle (`pending`, `acknowledged`, `undeliverable`) read from the close note's own queue row.
 - `GET /go/api/agents/{id}/events[?after=&limit=&tail=1]` — encrypted-at-rest safe timeline, returned in cursor order; `tail=1` returns the latest bounded page.
-- `GET /go/api/events[?after=]` — authenticated SSE stream with resumable event IDs and heartbeats. Cookie/global/user authorization is rechecked transactionally for every page; a slow client is closed and resumes from `Last-Event-ID` instead of accumulating an unbounded buffer.
+- `GET /go/api/events[?after=]` — authenticated SSE stream with resumable event IDs and 15s heartbeat comments plus observable `event: heartbeat` frames carrying `{server_time}`. Cookie/global/user authorization is rechecked transactionally for every page; a slow client is closed and resumes from `Last-Event-ID` instead of accumulating an unbounded buffer.
 - `POST /go/api/agents/{id}/messages` — enqueue ordinary user text with a client idempotency UUID; returns 202. New work requires a fresh live relay, while an exact retry returns the committed row even if the session finished. Reusing an ID for another user/kind/prompt/body conflicts. A portal message never grants approvals or new authority.
 - `POST /go/api/agents/{id}/prompts/{promptId}/answer` — enqueue an answer under a locked first-answer-wins transaction; later answers conflict. Only one open prompt is retained per agent session.
 - `POST /go/api/agents/{id}/close` — ask the agent to wind down, delivering the operator's note through the instruction queue as a `close`-kind message so it can finish cleanly; returns 202. Requires a live relay, because an undeliverable note would leave the operator believing the channel is closing. The note is capped at 1000 bytes and is idempotent on `client_message_id`. Sets `close_requested_at`, which is never cleared.
@@ -909,7 +928,7 @@ Host and scoped bridge API:
 
 - `GET /host/agent-portal/state` — host-authenticated master-switch probe.
 - `POST /host/agent-sessions` — host-authenticated registration for an eligible interactive or human-started execute session. The wrapper retains the short-lived bridge bearer and gives the engine only a private Unix-socket path/session ID; inherited portal variables are scrubbed.
-- `POST /host/agent-sessions/{id}/heartbeat` — scoped-bearer heartbeat/rolling expiry renewal. `relay_action=poll` opens/touches the instruction relay and `relay_action=close``relay_action=close` closes it and cancels undelivered session work, except a `close`-kind note the agent has already leased: `cxx portal leave` is how an agent acts on a close, so its own leave must not cancel the instruction it is obeying.
+- `POST /host/agent-sessions/{id}/heartbeat` — scoped-bearer heartbeat/rolling expiry renewal. `relay_action=poll` opens/touches the instruction relay and `relay_action=close` closes it and cancels undelivered session work, except a `close`-kind note the agent has already leased: `cxx portal leave` is how an agent acts on a close, so its own leave must not cancel the instruction it is obeying.
 - `POST /host/agent-sessions/{id}/events` — scoped-bearer idempotent safe event publish. The server forces `source=engine` and accepts only assistant/progress/waiting/terminal-block/attention types; answerable waits require a stable prompt UUID.
 - `POST /host/agent-sessions/{id}/finish` — idempotent, atomic completed/failed event + terminal transition + pending-work cancellation; makes the session read-only.
 - `POST /host/agent-sessions/{id}/commands/claim` — strict FIFO long poll with `{wait_seconds?: 0..25, claim_id: UUID}` and a retryable 30-second lease; repeating the same `claim_id` while its lease is live returns the same item without incrementing attempts. Older leases/backoff always block newer work.

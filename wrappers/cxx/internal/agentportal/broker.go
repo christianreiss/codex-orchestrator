@@ -124,7 +124,9 @@ func (b *Broker) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeBrokerError(w, http.StatusForbidden, "broker_receive_forbidden", "Receive-side operations are disabled by signed policy")
 		return
 	}
-	requestCtx, cancel := context.WithCancel(b.ctx)
+	// Long polls may wait 25 seconds. A 35-second ceiling also bounds a
+	// response that sends headers and then stalls its body indefinitely.
+	requestCtx, cancel := context.WithTimeout(b.ctx, 35*time.Second)
 	b.requestMu.Lock()
 	b.requestSeq++
 	requestID := b.requestSeq

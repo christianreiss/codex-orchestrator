@@ -18,6 +18,9 @@ export type WsInvalidationMap = Record<string, QueryKey[]>;
 
 /** Default invalidation map. */
 export const DEFAULT_INVALIDATIONS: WsInvalidationMap = {
+  // A reconnect has no durable WS replay; resample retained client snapshots.
+  "transport.connected": [["agent-sessions"]],
+  "agent_portal.sessions.changed": [["agent-sessions"]],
   // Logs
   "log.created": [["logs"], ["logs", "api"], ["logs", "events"]],
   "log.updated": [["logs"], ["logs", "events"]],

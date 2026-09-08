@@ -1,7 +1,9 @@
+import { setTimeout as delay } from 'node:timers/promises';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import type { RouteContext } from '../../index.js';
-import { ApiError } from '../../../http/errors.js';
+import { ApiError, ServiceUnavailableError, UnauthorizedError } from '../../../http/errors.js';
+import { AdminAuthService } from '../../../services/admin-auth.js';
 import { AdminEventsService } from '../../../services/admin-events.js';
 import { createAgentPortalService, type PortalActor } from '../../../services/agent-portal.js';
 import { emptyWork, loadSessionWork, type SessionWorkInput } from '../../../services/agent-session-work.js';
@@ -16,19 +18,10 @@ import { emptyWork, loadSessionWork, type SessionWorkInput } from '../../../serv
  * console adds is the work context — the Git Director task and the Agent
  * Messaging address — which the portal has no reason to show a phone.
  *
- * The write half deliberately stops at force-close. Every other operator write
- * inserts into `agent_messages`, whose `portal_user_id` is NOT NULL and also
- * carries the message idempotency identity, so an admin cannot author one
- * without a schema change. Force writes an event and a terminal state and no
- * queue row, which is why it is reachable here — and it is the action an
- * operator actually needs from a console, because it is the only one that works
- * on the offline session a cooperative close can never reach.
- *
- * Liveness on this surface is SSE plus polling, and bypasses the WS
- * invalidation map on purpose: nothing publishes a WS event when a session
- * registers, heartbeats or appends an event, and emitting one per wrapper per
- * 15 seconds would be traffic no one reads. The single force-close event is the
- * exception, and it is in the map.
+ * Cooperative messages, prompt answers and close requests share the portal's
+ * durable queue; force-close remains available when the wrapper is unreachable.
+ * SSE carries transcript events, while snapshot polling and metadata-only WS
+ * invalidations keep derived presence current.
  */
 
 /** Portal retention keeps ended sessions readable, so the feed is never empty by design. */
@@ -67,10 +60,6 @@ function adminActor(req: FastifyRequest): PortalActor {
   };
 }
 
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
 const forceSchema = z.object({
   client_message_id: z.string(),
   note: z.string().max(4000).optional(),
@@ -93,13 +82,15 @@ export async function registerAdminAgentSessionsRoutes(
 ): Promise<void> {
   const portal = createAgentPortalService(ctx.db, ctx.env, ctx.keyring);
   const events = new AdminEventsService(ctx.db);
+  const auth = new AdminAuthService(ctx.db, ctx.env);
 
   app.get('/admin/agent-sessions', { preHandler: app.requireAdmin }, async () => {
     // `enabled` travels with the rows because an empty list has two very
     // different meanings: nobody is running, or the module is off and
     // `registerAgent` has been discarding every registration. The page cannot
     // tell those apart from the rows alone, and the second one reads as a bug.
-    const [enabled, sessions] = await Promise.all([portal.isEnabled(), portal.listAgents()]);
+    const [enabled, snapshot] = await Promise.all([portal.isEnabled(), portal.listAgentsSnapshot()]);
+    const { sessions } = snapshot;
     const inputs = sessions.map((session) => ({
       id: String(session.id),
       host_id: Number(session.host_id),
@@ -108,6 +99,7 @@ export async function registerAdminAgentSessionsRoutes(
     const work = await loadSessionWork(ctx.db, inputs);
     return {
       enabled,
+      generated_at: snapshot.generated_at,
       timings: portal.timings(),
       sessions: sessions.map((session) => ({
         ...session,
@@ -120,7 +112,10 @@ export async function registerAdminAgentSessionsRoutes(
     '/admin/agent-sessions/events',
     { preHandler: app.requireAdmin },
     async (req, reply) => {
-      const query = z.object({ after: z.coerce.number().int().min(0).optional() }).parse(req.query ?? {});
+      const query = z.object({
+        after: z.coerce.number().int().min(0).optional(),
+        session_id: z.string().uuid().optional(),
+      }).parse(req.query ?? {});
       const rawHeaderCursor = req.headers['last-event-id'];
       const headerCursor = Number(Array.isArray(rawHeaderCursor) ? rawHeaderCursor[0] : rawHeaderCursor);
       let cursor =
@@ -136,14 +131,27 @@ export async function registerAdminAgentSessionsRoutes(
         'X-Accel-Buffering': 'no',
         'Referrer-Policy': 'no-referrer',
       });
+      const disconnected = new AbortController();
       let closed = false;
-      req.raw.on('close', () => {
+      reply.raw.once('close', () => {
         closed = true;
+        disconnected.abort();
       });
+      reply.raw.flushHeaders();
       let lastHeartbeat = Date.now();
       while (!closed && !reply.raw.destroyed) {
         try {
-          const page = await portal.listEventsAfter(cursor, 250);
+          // A stream can outlive logout, revocation or a role change. Resolve
+          // afresh without extending the session's lifetime on every SSE tick.
+          const admin = await auth.resolveSession(req.cookies?.[ctx.env.ADMIN_SESSION_COOKIE]);
+          if (!admin) throw new UnauthorizedError('Admin session required', 'admin_required');
+          req.admin = admin;
+          await app.assertCapability(req, 'agent_portal.reveal_transcript');
+          if (!(await portal.isEnabled())) {
+            throw new ServiceUnavailableError('Agent portal is disabled', 'agent_portal_disabled');
+          }
+          const page = await portal.listEventsAfter(cursor, 250, query.session_id);
+          if (closed) break;
           for (const event of page.events) {
             cursor = Number(event.cursor ?? cursor);
             if (!reply.raw.write(`id: ${cursor}\nevent: agent\ndata: ${JSON.stringify(event)}\n\n`)) {
@@ -154,7 +162,7 @@ export async function registerAdminAgentSessionsRoutes(
             }
           }
           if (!closed && Date.now() - lastHeartbeat >= 15_000) {
-            if (!reply.raw.write(`: heartbeat ${Date.now()}\n\n`)) closed = true;
+            if (!reply.raw.write(`: heartbeat ${Date.now()}\n\nevent: heartbeat\ndata: ${JSON.stringify({ server_time: new Date().toISOString() })}\n\n`)) closed = true;
             lastHeartbeat = Date.now();
           }
         } catch (error) {
@@ -162,7 +170,7 @@ export async function registerAdminAgentSessionsRoutes(
           reply.raw.write(`event: unavailable\ndata: ${JSON.stringify({ code })}\n\n`);
           break;
         }
-        await delay(1000);
+        if (!closed) await delay(1000, undefined, { signal: disconnected.signal }).catch(() => {});
       }
       reply.raw.end();
     },
@@ -173,7 +181,7 @@ export async function registerAdminAgentSessionsRoutes(
       .object({
         after: z.coerce.number().int().min(0).optional(),
         limit: z.coerce.number().int().min(1).max(EVENT_PAGE_MAX).optional(),
-        tail: z.coerce.boolean().optional(),
+        tail: z.enum(['true', 'false', '1', '0']).transform((value) => value === 'true' || value === '1').optional(),
       })
       .parse(req.query ?? {});
     return await portal.listEvents(

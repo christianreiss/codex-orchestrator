@@ -16,6 +16,12 @@ export type Engine = "codex" | "claude";
  */
 export type Presence = "listening" | "working" | "idle" | "offline" | "ended";
 
+export interface PresenceTimings {
+  heartbeat_fresh_seconds?: number;
+  relay_fresh_seconds?: number;
+  working_fresh_seconds?: number;
+}
+
 /** Lifecycle of an operator close note, read off its queue row server-side. */
 export type CloseState = "pending" | "acknowledged" | "undeliverable";
 
@@ -42,6 +48,8 @@ export interface Agent {
   status: string;
   presence: Presence;
   relay_ready: boolean;
+  relay_heartbeat_at?: string | null;
+  relay_enabled?: boolean;
   /**
    * When the turn the agent is currently executing was accepted. Null unless
    * presence is "working" — the server withholds it once the turn outlives its

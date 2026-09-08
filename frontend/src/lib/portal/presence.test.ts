@@ -181,3 +181,39 @@ describe("the ended sentence follows the served retention", () => {
     assert.equal(presenceView(ending, NOW).detail, "Finished");
   });
 });
+
+describe("conservative presence evidence", () => {
+  it("never treats malformed, missing, or future heartbeat timestamps as online", () => {
+    for (const heartbeat_at of ["", "not-a-date", "2026-08-01T12:00:01.000Z"]) {
+      assert.equal(livePresence(agent({ heartbeat_at }), NOW), "offline", heartbeat_at);
+    }
+  });
+
+  it("treats ended_at as terminal even with a stale server presence label", () => {
+    assert.equal(livePresence(agent({ ended_at: "2026-08-01T11:59:59Z" }), NOW), "ended");
+  });
+
+  it("cannot promote a server-offline verdict using a young heartbeat", () => {
+    assert.equal(livePresence(agent({ presence: "offline" }), NOW), "offline");
+  });
+
+  it("keeps read-only working and listening sessions visible without enabling sends", () => {
+    for (const presence of ["working", "listening"] as const) {
+      assert.equal(presenceView(agent({ presence, read_only: true }), NOW).canSend, false);
+    }
+  });
+
+  it("ages relay readiness separately from the client heartbeat", () => {
+    const row = agent({ relay_enabled: true, relay_heartbeat_at: "2026-08-01T11:59:20Z" });
+    assert.equal(livePresence(row, NOW, { relay_fresh_seconds: 30 }), "idle");
+    assert.equal(livePresence(row, NOW, { relay_fresh_seconds: 60 }), "listening");
+    assert.equal(livePresence(agent({ relay_enabled: false }), NOW), "idle");
+  });
+
+  it("expires working only on the configured ceiling and fresh relay evidence", () => {
+    const row = agent({ presence: "working", active_turn_started_at: "2026-08-01T11:58:00Z", relay_enabled: true, relay_heartbeat_at: "2026-08-01T11:59:50Z" });
+    assert.equal(livePresence(row, NOW, { working_fresh_seconds: 180 }), "working");
+    assert.equal(livePresence(row, NOW, { working_fresh_seconds: 60 }), "listening");
+    assert.equal(livePresence({ ...row, relay_heartbeat_at: "2026-08-01T11:50:00Z" }, NOW, { working_fresh_seconds: 60 }), "idle");
+  });
+});

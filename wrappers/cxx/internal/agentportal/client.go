@@ -87,8 +87,14 @@ type Session struct {
 	listenAllowed          bool
 	localBroker            bool
 	mu                     sync.Mutex
-	recoverMu              sync.Mutex
+	finishMu               sync.Mutex
+	recoveryDone           chan struct{}
+	pendingRegistration    bool
+	closing                bool
 	finished               bool
+	terminalErr            error
+	requestContext         context.Context
+	cancelRequests         context.CancelFunc
 	retryAttemptTimeout    time.Duration
 }
 
@@ -133,8 +139,9 @@ type claimResponse struct {
 }
 
 // Start registers the current root lifecycle. A disabled portal is a normal
-// no-op; connectivity failures are returned so the wrapper can log them while
-// still allowing the local agent to start.
+// no-op. Transient startup failures return both a pending Session and an error:
+// the existing private broker and heartbeat can admit that same identity later
+// while the wrapper logs the outage and starts the local agent normally.
 func Start(parent context.Context, cfg *config.Config, input StartInput) (*Session, error) {
 	if cfg == nil {
 		return nil, errors.New("agent portal: wrapper config is nil")
@@ -181,43 +188,13 @@ func Start(parent context.Context, cfg *config.Config, input StartInput) (*Sessi
 	}
 	body["session_id"] = sessionID
 	body["bridge_token"] = bridgeToken
-	var response registerResponse
-	var registerErr error
-	for attempt := 0; attempt < 2; attempt++ {
-		ctx, cancel := context.WithTimeout(parent, 8*time.Second)
-		registerErr = doJSON(ctx, client, strings.TrimRight(cfg.Orchestrator.BaseURL, "/"), http.MethodPost, "/host/agent-sessions", body, cfg.Orchestrator.APIKey, "", &response)
-		cancel()
-		if registerErr == nil {
-			break
-		}
-		if attempt == 0 {
-			select {
-			case <-parent.Done():
-				return nil, parent.Err()
-			case <-time.After(150 * time.Millisecond):
-			}
-		}
-	}
-	if registerErr != nil {
-		return nil, registerErr
-	}
-	if !response.Enabled {
-		return nil, nil
-	}
-	if response.SessionID == "" || response.BridgeToken == "" {
-		return nil, errors.New("agent portal: registration returned an incomplete bridge credential")
-	}
-	if response.AgentAddress != nil && response.AgentAddress.Address != "" {
-		body["agent_address"] = response.AgentAddress.Address
-		body["binding_generation"] = response.AgentAddress.BindingGeneration
-	}
 	ca := ""
 	if cfg.Orchestrator.CABundlePath != nil {
 		ca = strings.TrimSpace(*cfg.Orchestrator.CABundlePath)
 	}
-	return &Session{
-		ID:                     response.SessionID,
-		BridgeToken:            response.BridgeToken,
+	session := &Session{
+		ID:                     sessionID,
+		BridgeToken:            bridgeToken,
 		BaseURL:                strings.TrimRight(cfg.Orchestrator.BaseURL, "/"),
 		CABundlePath:           ca,
 		AllowInsecure:          cfg.Orchestrator.AllowInsecure,
@@ -232,7 +209,46 @@ func Start(parent context.Context, cfg *config.Config, input StartInput) (*Sessi
 		// engine and policy, never from child-provided environment or MCP input.
 		channelReceiveAllowed: signedChannelReceiveAllowed(cfg, input.Engine),
 		listenAllowed:         signedListenAllowed(cfg),
-	}, nil
+	}
+
+	var response registerResponse
+	var registerErr error
+	for attempt := 0; attempt < 2; attempt++ {
+		ctx, cancel := context.WithTimeout(parent, 8*time.Second)
+		registerErr = doJSON(ctx, client, strings.TrimRight(cfg.Orchestrator.BaseURL, "/"), http.MethodPost, "/host/agent-sessions", body, cfg.Orchestrator.APIKey, "", &response)
+		cancel()
+		if registerErr == nil || !isRetryableAmbiguous(registerErr) {
+			break
+		}
+		if attempt == 0 {
+			select {
+			case <-parent.Done():
+				return nil, parent.Err()
+			case <-time.After(150 * time.Millisecond):
+			}
+		}
+	}
+	if registerErr != nil {
+		if parent.Err() == nil && isRetryableAmbiguous(registerErr) {
+			// Preserve the preallocated identity after an ambiguous or transient
+			// startup failure. Only the supervisor can retry host registration;
+			// the native child receives the same private broker as a healthy run.
+			session.pendingRegistration = true
+			return session, registerErr
+		}
+		return nil, registerErr
+	}
+	if !response.Enabled {
+		return nil, nil
+	}
+	if response.SessionID != sessionID || response.BridgeToken != bridgeToken {
+		return nil, errors.New("agent portal: registration returned a different bridge credential")
+	}
+	if response.AgentAddress != nil && response.AgentAddress.Address != "" {
+		body["agent_address"] = response.AgentAddress.Address
+		body["binding_generation"] = response.AgentAddress.BindingGeneration
+	}
+	return session, nil
 }
 
 func signedChannelReceiveAllowed(cfg *config.Config, sessionEngine string) bool {
@@ -256,6 +272,10 @@ func signedListenAllowed(cfg *config.Config) bool {
 // StartHeartbeat keeps the scoped bridge alive and makes offline detection
 // useful without turning heartbeat failures into local-agent failures.
 func (s *Session) StartHeartbeat(parent context.Context) func() {
+	return s.startHeartbeat(parent, 15*time.Second)
+}
+
+func (s *Session) startHeartbeat(parent context.Context, interval time.Duration) func() {
 	if s == nil {
 		return func() {}
 	}
@@ -263,16 +283,29 @@ func (s *Session) StartHeartbeat(parent context.Context) func() {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		ticker := time.NewTicker(15 * time.Second)
-		defer ticker.Stop()
+		delay := interval
 		for {
+			if ctx.Err() != nil {
+				return
+			}
+			heartbeatCtx, heartbeatCancel := context.WithTimeout(ctx, 6*time.Second)
+			err := s.Heartbeat(heartbeatCtx, "", "")
+			heartbeatCancel()
+			if ctx.Err() != nil || s.isInactive() || isTerminalBridgeError(err) {
+				return
+			}
+			if err == nil {
+				delay = interval
+			}
+			timer := time.NewTimer(delay)
 			select {
 			case <-ctx.Done():
+				timer.Stop()
 				return
-			case <-ticker.C:
-				heartbeatCtx, heartbeatCancel := context.WithTimeout(context.Background(), 6*time.Second)
-				_ = s.Heartbeat(heartbeatCtx, "", "")
-				heartbeatCancel()
+			case <-timer.C:
+			}
+			if err != nil && delay < 4*interval {
+				delay *= 2
 			}
 		}
 	}()
@@ -297,6 +330,17 @@ func (s *Session) Heartbeat(ctx context.Context, status, relayAction string) err
 // the only signal separating "working on your instruction" from "stopped
 // polling"; without it the portal calls both of them "Not listening".
 func (s *Session) HeartbeatTurn(ctx context.Context, status, relayAction string, activeTurnID *string) error {
+	if s != nil && strings.TrimSpace(relayAction) == "close" {
+		s.mu.Lock()
+		pending := s.pendingRegistration
+		s.mu.Unlock()
+		if pending {
+			// The lifecycle closes its relay before Finish. A session that never
+			// completed admission must not register solely to close that relay;
+			// Finish can still end an ambiguously accepted initial registration.
+			return nil
+		}
+	}
 	body := map[string]any{}
 	if strings.TrimSpace(status) != "" {
 		body["status"] = strings.TrimSpace(status)
@@ -365,10 +409,16 @@ func (s *Session) Finish(status, summary string) error {
 	if s == nil {
 		return nil
 	}
+	s.finishMu.Lock()
+	defer s.finishMu.Unlock()
 	s.mu.Lock()
 	if s.finished {
 		s.mu.Unlock()
 		return nil
+	}
+	s.closing = true
+	if s.cancelRequests != nil {
+		s.cancelRequests()
 	}
 	s.mu.Unlock()
 	body := map[string]any{"status": status, "summary": summary}
@@ -415,17 +465,36 @@ func (s *Session) bridgeJSON(ctx context.Context, method, path string, body, out
 	if s.localBroker {
 		return doJSON(ctx, s.http, s.BaseURL, method, path, body, "", "", out)
 	}
-	s.mu.Lock()
-	generation := s.registrationGeneration
-	s.mu.Unlock()
-	err := doJSON(ctx, s.http, s.BaseURL, method, path, body, "", s.BridgeToken, out)
-	if !s.canRecoverBridgeError(err) {
+	finishing := method == http.MethodPost && path == "/host/agent-sessions/"+url.PathEscape(s.ID)+"/finish"
+	ctx, cancel, err := s.beginBridgeRequest(ctx, finishing)
+	if err != nil {
 		return err
 	}
-	if recoverErr := s.recoverRegistration(ctx, generation); recoverErr != nil {
+	defer cancel()
+	s.mu.Lock()
+	generation, pending := s.registrationGeneration, s.pendingRegistration
+	s.mu.Unlock()
+	if pending && !finishing {
+		if err := s.recoverRegistration(ctx, generation, false); err != nil {
+			s.rememberTerminal(err)
+			return err
+		}
+		s.mu.Lock()
+		generation = s.registrationGeneration
+		s.mu.Unlock()
+	}
+	err = doJSON(ctx, s.http, s.BaseURL, method, path, body, "", s.BridgeToken, out)
+	if !s.canRecoverBridgeError(err) || (finishing && pending) {
+		s.rememberTerminal(err)
+		return err
+	}
+	if recoverErr := s.recoverRegistration(ctx, generation, finishing); recoverErr != nil {
+		s.rememberTerminal(recoverErr)
 		return recoverErr
 	}
-	return doJSON(ctx, s.http, s.BaseURL, method, path, body, "", s.BridgeToken, out)
+	err = doJSON(ctx, s.http, s.BaseURL, method, path, body, "", s.BridgeToken, out)
+	s.rememberTerminal(err)
+	return err
 }
 
 func (s *Session) canRecoverBridgeError(err error) bool {
@@ -578,20 +647,28 @@ func doJSON(ctx context.Context, client *http.Client, baseURL, method, path stri
 	return nil
 }
 
-func (s *Session) recoverRegistration(ctx context.Context, observedGeneration uint64) error {
+func (s *Session) recoverRegistration(ctx context.Context, observedGeneration uint64, finishing bool) error {
 	if s == nil || s.localBroker || s.hostAPIKey == "" {
 		return errors.New("agent portal: bridge recovery is unavailable")
 	}
-	s.recoverMu.Lock()
-	defer s.recoverMu.Unlock()
+	release, err := s.acquireRecovery(ctx)
+	if err != nil {
+		return err
+	}
+	defer release()
 	s.mu.Lock()
 	if len(s.registrationBody) == 0 {
 		s.mu.Unlock()
 		return errors.New("agent portal: bridge recovery is unavailable")
 	}
-	if s.finished {
+	if s.terminalErr != nil {
+		err := s.terminalErr
 		s.mu.Unlock()
-		return errors.New("agent portal: finished session cannot recover")
+		return err
+	}
+	if s.finished || (s.closing && !finishing) {
+		s.mu.Unlock()
+		return sessionFinishedError()
 	}
 	if s.registrationGeneration != observedGeneration {
 		s.mu.Unlock()
@@ -606,16 +683,24 @@ func (s *Session) recoverRegistration(ctx context.Context, observedGeneration ui
 	if err := doJSON(ctx, s.http, s.BaseURL, http.MethodPost, "/host/agent-sessions", registrationBody, s.hostAPIKey, "", &response); err != nil {
 		return err
 	}
-	if !response.Enabled || response.SessionID != s.ID || response.BridgeToken != s.BridgeToken {
-		return errors.New("agent portal: bridge recovery returned a different session credential")
+	if !response.Enabled {
+		return &PortalError{Status: http.StatusServiceUnavailable, Code: "agent_portal_disabled", Message: "Agent portal is disabled"}
+	}
+	if response.SessionID != s.ID || response.BridgeToken != s.BridgeToken {
+		return &PortalError{Status: http.StatusConflict, Code: "agent_session_conflict", Message: "Bridge recovery returned a different session credential"}
 	}
 	s.mu.Lock()
+	if s.finished || (s.closing && !finishing) {
+		s.mu.Unlock()
+		return sessionFinishedError()
+	}
 	if response.AgentAddress != nil && response.AgentAddress.Address != "" {
 		registrationBody["agent_address"] = response.AgentAddress.Address
 		registrationBody["binding_generation"] = response.AgentAddress.BindingGeneration
 	}
 	s.registrationBody = registrationBody
 	s.registrationGeneration++
+	s.pendingRegistration = false
 	s.mu.Unlock()
 	return nil
 }
@@ -626,7 +711,7 @@ func portalErrorCode(err error, code string) bool {
 }
 
 func isRetryableAmbiguous(err error) bool {
-	if err == nil {
+	if err == nil || isTerminalBridgeError(err) {
 		return false
 	}
 	var portalErr *PortalError
@@ -634,7 +719,11 @@ func isRetryableAmbiguous(err error) bool {
 		return true
 	}
 	return portalErr.Code == "broker_upstream_unavailable" ||
+		portalErr.Status == http.StatusRequestTimeout ||
+		portalErr.Status == http.StatusTooManyRequests ||
+		portalErr.Status == http.StatusInternalServerError ||
 		portalErr.Status == http.StatusBadGateway ||
+		portalErr.Status == http.StatusServiceUnavailable ||
 		portalErr.Status == http.StatusGatewayTimeout
 }
 

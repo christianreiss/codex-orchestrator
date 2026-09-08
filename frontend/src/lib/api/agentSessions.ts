@@ -6,16 +6,16 @@
  * one contract serves both apps, and the presence ladder both render is the
  * tested one in `$lib/portal/presence`.
  *
- * Liveness is polling plus SSE, and deliberately does not go through the
- * WebSocket invalidation map. Nothing publishes a WS event when a wrapper
- * registers, heartbeats, or appends an event -- and emitting one per agent per
- * 15 seconds would be traffic nobody reads. `agent_portal.session.force_closed`
- * is the single exception and does have a map entry, because ending an agent is
- * something every other open console should see.
+ * Presence uses15s polling and the selected timeline uses scoped SSE with a
+ * polling fallback. Shared WebSocket invalidation refreshes administrative
+ * metadata changes and reconnects; transport state never proves client liveness.
  */
 import { createMutation, createQuery, useQueryClient, type CreateMutationOptions } from "@tanstack/svelte-query";
+import { get, toStore } from "svelte/store";
 import { api } from "./client";
-import type { Agent, EventRow } from "$lib/portal/types";
+import { authStore } from "../stores/auth";
+import { createSessionWriter } from "./session-write";
+import type { Agent, EventRow, PresenceTimings } from "$lib/portal/types";
 
 /** What the Git Director and Agent Messaging know about a session's work. */
 export interface SessionWork {
@@ -47,7 +47,8 @@ export interface AgentSessionsResponse {
    * registration is discarded server-side and no wrapper can ever appear.
    */
   enabled: boolean;
-  timings: { heartbeat_fresh_seconds: number; relay_fresh_seconds: number; retention_hours: number };
+  generated_at?: string;
+  timings: PresenceTimings & { retention_hours: number };
   sessions: AgentSessionRow[];
 }
 
@@ -75,9 +76,10 @@ export const agentSessionKeys = {
 export function agentSessionsQuery() {
   return createQuery<AgentSessionsResponse>({
     queryKey: agentSessionKeys.list,
-    queryFn: () => api.get<AgentSessionsResponse>("/admin/agent-sessions"),
+    queryFn: ({ signal }) => boundedGet<AgentSessionsResponse>("/admin/agent-sessions", signal),
     // Heartbeats land every 15s, so anything faster reports the same rows back.
     refetchInterval: 15_000,
+    retry: 1,
   });
 }
 
@@ -87,18 +89,44 @@ export function agentSessionsQuery() {
  * which is the intended split, not an error to surface loudly.
  */
 export function sessionEventsQuery(sessionId: () => string | null) {
-  return createQuery<SessionEventsResponse>({
-    get queryKey() {
-      return agentSessionKeys.events(sessionId() ?? "");
-    },
-    get enabled() {
-      return Boolean(sessionId());
-    },
-    queryFn: () =>
-      api.get<SessionEventsResponse>(
-        `/admin/agent-sessions/${encodeURIComponent(sessionId() ?? "")}/events?tail=true&limit=250`,
+  // svelte-query 5 expects a store for changing options. Getters on a plain
+  // object are read once, leaving the first null selection disabled forever.
+  return createQuery<SessionEventsResponse>(toStore(() => ({
+    queryKey: agentSessionKeys.events(sessionId() ?? ""),
+    enabled: Boolean(sessionId()),
+    queryFn: ({ queryKey, signal }) =>
+      boundedGet<SessionEventsResponse>(
+        `/admin/agent-sessions/${encodeURIComponent(String(queryKey[2]))}/events?tail=true&limit=250`,
+        signal,
       ),
-  });
+    // Keep the selected timeline moving when SSE is blocked or reconnecting.
+    refetchInterval: 15_000,
+    retry: 1,
+  })));
+}
+
+async function boundedGet<T>(path: string, signal: AbortSignal): Promise<T> {
+  const timeout = AbortSignal.timeout(10_000);
+  try {
+    const combined = AbortSignal.any([signal, timeout]);
+    const result = await api.get<T>(path, { signal: combined });
+    combined.throwIfAborted();
+    return result;
+  } catch (error) {
+    if (timeout.aborted && !signal.aborted) throw new Error("The request timed out. Retry to reconnect.");
+    throw error;
+  }
+}
+
+function sessionWriter() {
+  return createSessionWriter({ actor: () => {
+    const auth = get(authStore);
+    return auth.authenticated && auth.user ? String(auth.user.id) : null;
+  }, confirmed: (result) => {
+    const row = result as Record<string, unknown>;
+    return (typeof row.message_id === "string" && Boolean(row.message_id))
+      || (typeof row.forced === "boolean" && typeof row.already_ended === "boolean" && typeof row.status === "string");
+  } });
 }
 
 /**
@@ -112,20 +140,20 @@ export function sendMutation(
   opts: MutationOpts<unknown, { id: string; content: string; prompt?: { id: string; version: number } | null }> = {},
 ) {
   const client = useQueryClient();
+  const write = sessionWriter();
   return createMutation<unknown, Error, { id: string; content: string; prompt?: { id: string; version: number } | null }>({
     mutationFn: ({ id, content, prompt }) => {
-      const clientMessageId = crypto.randomUUID();
       const session = encodeURIComponent(id);
-      return prompt
+      return write(JSON.stringify(["send", id, content, prompt ?? null]), (clientMessageId, signal) => prompt
         ? api.post(`/admin/agent-sessions/${session}/prompts/${encodeURIComponent(prompt.id)}/answer`, {
             client_message_id: clientMessageId,
             answer: content,
             version: prompt.version,
-          })
+          }, { signal })
         : api.post(`/admin/agent-sessions/${session}/messages`, {
             client_message_id: clientMessageId,
             content,
-          });
+          }, { signal }));
     },
     ...opts,
     onSettled: (...args) => {
@@ -138,12 +166,13 @@ export function sendMutation(
 /** Ask the agent to wrap up. Queued for it to honour; see force for the rest. */
 export function requestCloseMutation(opts: MutationOpts<unknown, { id: string; note?: string }> = {}) {
   const client = useQueryClient();
+  const write = sessionWriter();
   return createMutation<unknown, Error, { id: string; note?: string }>({
     mutationFn: ({ id, note }) =>
-      api.post(`/admin/agent-sessions/${encodeURIComponent(id)}/close`, {
-        client_message_id: crypto.randomUUID(),
+      write(JSON.stringify(["close", id, note ?? null]), (clientMessageId, signal) => api.post(`/admin/agent-sessions/${encodeURIComponent(id)}/close`, {
+        client_message_id: clientMessageId,
         note,
-      }),
+      }, { signal })),
     ...opts,
     onSettled: (...args) => {
       void client.invalidateQueries({ queryKey: agentSessionKeys.all });
@@ -154,12 +183,13 @@ export function requestCloseMutation(opts: MutationOpts<unknown, { id: string; n
 
 export function forceCloseMutation(opts: MutationOpts<ForceCloseResult, { id: string; note?: string }> = {}) {
   const client = useQueryClient();
+  const write = sessionWriter();
   return createMutation<ForceCloseResult, Error, { id: string; note?: string }>({
     mutationFn: ({ id, note }) =>
-      api.post<ForceCloseResult>(`/admin/agent-sessions/${encodeURIComponent(id)}/close/force`, {
-        client_message_id: crypto.randomUUID(),
+      write(JSON.stringify(["force", id, note ?? null]), (clientMessageId, signal) => api.post<ForceCloseResult>(`/admin/agent-sessions/${encodeURIComponent(id)}/close/force`, {
+        client_message_id: clientMessageId,
         note,
-      }),
+      }, { signal })),
     ...opts,
     onSettled: (...args) => {
       void client.invalidateQueries({ queryKey: agentSessionKeys.all });

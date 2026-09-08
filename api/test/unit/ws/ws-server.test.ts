@@ -232,6 +232,42 @@ describe('/admin/ws connection', () => {
     expect(socket.closed).toBe(1);
   });
 
+  it('closes safely if heartbeat authorization fails during an API dependency outage', async () => {
+    const { socket, resolveAdmin } = await connect();
+    resolveAdmin.mockRejectedValueOnce(new Error('database temporarily unavailable'));
+    await vi.advanceTimersByTimeAsync(HEARTBEAT_MS);
+    expect(socket.closed).toBe(1);
+    socket.readyState = 1;
+    wsPublisher.publish('host.updated', { id: 1 });
+    await vi.advanceTimersByTimeAsync(HEARTBEAT_MS * 3);
+    expect(resolveAdmin).toHaveBeenCalledTimes(1);
+    expect(socket.frames()).toEqual([{ type: 'hello', ts: NOW }]);
+  });
+
+  it('does not overlap slow authorization checks or send their result after disconnect', async () => {
+    const { socket, resolveAdmin } = await connect();
+    let finish!: (value: AdminContext) => void;
+    resolveAdmin.mockImplementationOnce(() => new Promise<AdminContext>((resolve) => { finish = resolve; }));
+    await vi.advanceTimersByTimeAsync(HEARTBEAT_MS * 3);
+    expect(resolveAdmin).toHaveBeenCalledTimes(1);
+    socket.emit('close');
+    finish(ADMIN);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(socket.frames()).toEqual([{ type: 'hello', ts: NOW }]);
+  });
+
+  it('disconnects a subscriber when authorization never settles', async () => {
+    const { socket, resolveAdmin } = await connect();
+    resolveAdmin.mockImplementationOnce(() => new Promise<AdminContext>(() => {}));
+    await vi.advanceTimersByTimeAsync(HEARTBEAT_MS + 10_000);
+    expect(socket.closed).toBe(1);
+    socket.readyState = 1;
+    wsPublisher.publish('host.updated', { id: 1 });
+    await vi.advanceTimersByTimeAsync(HEARTBEAT_MS * 3);
+    expect(resolveAdmin).toHaveBeenCalledTimes(1);
+    expect(socket.frames()).toEqual([{ type: 'hello', ts: NOW }]);
+  });
+
   it.each(['close', 'error'])('clears the heartbeat and unsubscribes on %s', async (event) => {
     const { socket, resolveAdmin } = await connect();
     socket.emit(event);

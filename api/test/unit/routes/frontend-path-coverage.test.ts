@@ -52,6 +52,7 @@ const NON_ROUTE_ENDPOINTS: Record<string, string> = {};
 
 /** Files that call a path built at runtime, and what feeds that path. */
 const RUNTIME_PATH_CALLERS: Record<string, string> = {
+  'frontend/src/lib/api/agentSessions.ts': 'A shared bounded GET helper receives the literal session list and encoded session timeline paths from the query builders; browser tests cover both routes and selection changes.',
   'frontend/src/lib/api/client.ts':
     'the client itself — every wrapper forwards the path its caller passed',
   'frontend/src/lib/api/memories.ts':

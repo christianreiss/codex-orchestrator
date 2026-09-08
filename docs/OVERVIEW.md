@@ -430,6 +430,17 @@ history; there is no automatic Agent Messaging purge.
 
 ## Permanent Agent Portal
 
+The admin **Active Clients** page and `/go` use the same session projection.
+Presence requires a valid host/engine/bridge and a fresh wrapper heartbeat;
+listening additionally requires a fresh instruction relay, while working tracks
+an accepted turn with a bounded freshness window. Admin snapshots carry their
+server timestamp and freshness windows so a browser can age them consistently.
+The client directory provides search, engine/status filters, retained stale
+data with retry controls, and a selected-session event stream. WebSocket state
+invalidations contain metadata only; reconnects reload authoritative snapshots.
+Both stream surfaces revalidate access while connected and stop on response
+disconnect. Heartbeat traffic does not fan out a fleet-wide event per client.
+
 The optional `/go` portal gives each configured user one permanent, revocable
 magic link. After fragment-token exchange it presents tabs for every eligible
 active Codex and Claude root agent in the fleet. Users can send ordered ordinary
@@ -456,6 +467,14 @@ say` and `cxx portal ask`; there is no raw PTY or hidden tool-output stream.
 As soon as the engine child exits, cxx closes relay writability, removes the
 socket capability from the environment, finalizes the portal session, and only
 then runs post-session updater/auth work.
+From cxx 0.8.3, a transient initial registration failure retains its original
+identity and private broker so the running Codex or Claude session can register
+when service returns. Heartbeat attempts are bounded and cancellable, with
+15–60 second failure backoff. Explicit revocation, inactive-host, disabled-engine,
+and terminal-session failures stop recovery; only recognized renewable bridge
+expiry/binding failures use the existing host-authenticated renewal path.
+Stopping a session cancels ordinary requests before finalization, preventing
+late renewals from restarting its local heartbeat after the child has exited.
 This is a cooperative live-turn relay, not an out-of-band wake mechanism: once
 the engine process or model turn stops polling, `relay_ready` becomes false and
 the portal is read-only until a fresh eligible relay is active. Because that is

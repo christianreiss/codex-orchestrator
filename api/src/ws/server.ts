@@ -33,8 +33,11 @@ export async function registerWsServer(app: FastifyInstance, env: Env): Promise<
     },
     (socket: Socket, req: FastifyRequest) => {
       socket.send(JSON.stringify({ type: 'hello', ts: nowIso() }));
+      let closed = false;
+      let checking = false;
+      let authDeadline: ReturnType<typeof setTimeout> | undefined;
       const unsub = wsPublisher.subscribe((evt) => {
-        if (socket.readyState !== 1) return;
+        if (closed || socket.readyState !== 1) return;
         try {
           socket.send(JSON.stringify(evt));
         } catch {
@@ -42,28 +45,43 @@ export async function registerWsServer(app: FastifyInstance, env: Env): Promise<
         }
       });
       const interval = setInterval(() => {
-        if (socket.readyState !== 1) return;
+        if (closed || checking || socket.readyState !== 1) return;
+        checking = true;
+        authDeadline = setTimeout(() => {
+          cleanup();
+          try { socket.close(); } catch { /* already gone */ }
+        }, 10_000);
         void (async () => {
-          const ctx = await app.resolveAdmin?.(req);
-          if (!ctx) {
-            socket.close();
-            return;
-          }
           try {
+            const ctx = await app.resolveAdmin?.(req);
+            if (closed || socket.readyState !== 1) return;
+            if (!ctx) {
+              cleanup();
+              socket.close();
+              return;
+            }
             socket.send(JSON.stringify({ type: 'ping', ts: nowIso() }));
           } catch {
-            /* drop */
+            // A database outage during re-auth must neither keep an unchecked
+            // subscriber live nor become an unhandled rejection in the API.
+            cleanup();
+            try { socket.close(); } catch { /* already gone */ }
+          } finally {
+            clearTimeout(authDeadline);
+            authDeadline = undefined;
+            checking = false;
           }
         })();
       }, (env.ADMIN_WS_HEARTBEAT_SECONDS ?? 30) * 1000);
-      socket.on('close', () => {
+      function cleanup(): void {
+        closed = true;
         clearInterval(interval);
+        clearTimeout(authDeadline);
+        authDeadline = undefined;
         unsub();
-      });
-      socket.on('error', () => {
-        clearInterval(interval);
-        unsub();
-      });
+      }
+      socket.on('close', cleanup);
+      socket.on('error', cleanup);
     },
   );
 }

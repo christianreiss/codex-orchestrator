@@ -10,6 +10,35 @@ sources: api/src/routes/admin/overview/index.ts, api/src/routes/admin/setup/inde
 
 The **Overview** page combines reported host installations, upstream CLI versions, Codex and Claude quota usage, and runner verification. Use **Refresh overview** to reload fleet counts and release information; each usage card has its own refresh control.
 
+## Active Clients
+
+Open **Active Clients** for the session directory across Codex and Claude. The
+summary counts distinguish online clients, outstanding attention, offline
+clients, and recently ended history. Search by host, user, task, branch, or
+working directory, then filter by engine and state. Selecting a client opens
+its work details, heartbeat and relay timestamps, and permitted timeline.
+
+**Online** means the wrapper recently contacted the server. **Listening** means
+its instruction relay is open; **Working** means it accepted an instruction.
+An online client that is not listening needs `#afk` in its local session before
+it can receive portal input. Offline means current work is unconfirmed, not
+that the local engine has necessarily stopped. Revoked or expired credentials
+and disabled engines also make a client unavailable.
+
+Status checks run every 15 seconds and use the server's clock. During an outage,
+the last known clients and per-session drafts stay visible, with a retry action;
+refresh status before sending. Reconnected timelines catch up automatically and
+preserve your position when you are reading older messages. The detail pane
+shows whether its timeline stream is live or reconnecting. A send that cannot
+be confirmed keeps its draft and original question; retry confirms that same
+request rather than creating a duplicate. Only the current question has active
+answer buttons. On a phone, **Clients** returns from the detail pane to the directory.
+
+Sending and closing require the appropriate admin capability. **Ask to close**
+needs a reachable relay; **Force close** ends the recorded session even when its
+client is offline, but does not kill a remote native process. Completed history
+remains readable until the configured retention period expires.
+
 ## Data sources
 
 - **Overview** — `GET /admin/overview` (registered in `api/src/routes/admin/overview/index.ts`, alongside `/admin/logs`, `/admin/chatgpt/usage*`, `/admin/runner/*`, and `/admin/toasts` — other admin route groups such as hosts, settings, config, auth, and users are registered from sibling files under `api/src/routes/admin/`) returns host totals, versions, quota settings, and the cached ChatGPT summary.

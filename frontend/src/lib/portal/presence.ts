@@ -1,4 +1,4 @@
-import type { Agent, Presence } from "./types";
+import type { Agent, Presence, PresenceTimings } from "./types";
 
 /**
  * Fallback for AGENT_PORTAL_HEARTBEAT_FRESH_SECONDS. The API serves the real
@@ -9,6 +9,12 @@ export const HEARTBEAT_FRESH_MS = 45_000;
 
 /** Set from the served timings once bootstrap completes. */
 let heartbeatFreshMs = HEARTBEAT_FRESH_MS;
+let configuredTimings: PresenceTimings = {};
+
+export function setPresenceTimings(timings: PresenceTimings | undefined): void {
+  configuredTimings = timings ?? {};
+  setHeartbeatFreshMs(timings?.heartbeat_fresh_seconds);
+}
 
 export function setHeartbeatFreshMs(seconds: number | undefined): void {
   if (typeof seconds === "number" && Number.isFinite(seconds) && seconds > 0) {
@@ -34,11 +40,28 @@ export interface PresenceView {
  * wall-clock time. Without this the UI would keep claiming an agent is
  * listening for up to a full poll interval after it stopped.
  */
-export function livePresence(agent: Agent, now: number): Presence {
-  if (agent.presence === "ended") return "ended";
-  const beat = Date.parse(agent.heartbeat_at);
-  if (Number.isFinite(beat) && now - beat > heartbeatFreshMs) return "offline";
+export function livePresence(agent: Agent, now: number, timings: PresenceTimings = configuredTimings): Presence {
+  if (agent.presence === "ended" || agent.ended_at) return "ended";
+  const freshMs = positiveWindow(timings.heartbeat_fresh_seconds, heartbeatFreshMs);
+  if (!timestampFresh(agent.heartbeat_at, now, freshMs)) return "offline";
+  const relayFresh = agent.relay_enabled !== false && (agent.relay_heartbeat_at === undefined
+    ? agent.relay_ready
+    : timestampFresh(agent.relay_heartbeat_at, now, positiveWindow(timings.relay_fresh_seconds, 60_000)));
+  if (agent.presence === "listening" && !relayFresh) return "idle";
+  if (agent.presence === "working" && typeof timings.working_fresh_seconds === "number"
+      && !timestampFresh(agent.active_turn_started_at, now, positiveWindow(timings.working_fresh_seconds, 0))) {
+    return relayFresh ? "listening" : "idle";
+  }
   return agent.presence;
+}
+
+function positiveWindow(seconds: number | undefined, fallback: number): number {
+  return typeof seconds === "number" && Number.isFinite(seconds) && seconds > 0 ? seconds * 1000 : fallback;
+}
+
+function timestampFresh(value: string | null, now: number, freshMs: number): boolean {
+  const at = value ? Date.parse(value) : NaN;
+  return Number.isFinite(at) && Number.isFinite(now) && at <= now && now - at <= freshMs;
 }
 
 /**
@@ -84,11 +107,11 @@ export function endedDetail(agent: Agent, now: number): string {
   return `Finished — readable for ${hours} more ${hours === 1 ? "hour" : "hours"}`;
 }
 
-export function presenceView(agent: Agent, now: number): PresenceView {
-  const presence = livePresence(agent, now);
+export function presenceView(agent: Agent, now: number, timings: PresenceTimings = configuredTimings): PresenceView {
+  const presence = livePresence(agent, now, timings);
   switch (presence) {
     case "listening":
-      return { presence, label: "Listening", detail: "You can reply", canSend: true };
+      return { presence, label: "Listening", detail: agent.read_only ? "This session is read-only" : "Relay open — you can reply", canSend: !agent.read_only };
     case "working": {
       const age = coarseAge(agent.active_turn_started_at, now);
       return {
@@ -98,7 +121,7 @@ export function presenceView(agent: Agent, now: number): PresenceView {
         // picks the queue up then. Refusing here would be the old behaviour,
         // where a busy agent looked unreachable.
         detail: age ? `Running your instruction — started ${age} ago` : "Running your instruction",
-        canSend: true,
+        canSend: !agent.read_only,
       };
     }
     case "idle":
@@ -107,7 +130,7 @@ export function presenceView(agent: Agent, now: number): PresenceView {
       return {
         presence,
         label: "Offline",
-        detail: "No heartbeat — the session can only be ended from here",
+        detail: "No confirmed connection. The client may reconnect; running work is unconfirmed.",
         canSend: false,
       };
     case "ended":

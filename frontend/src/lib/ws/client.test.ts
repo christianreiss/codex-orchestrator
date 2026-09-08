@@ -104,6 +104,8 @@ const real = {
   random: Math.random,
   WebSocket: g.WebSocket,
   window: g.window,
+  document: g.document,
+  now: Date.now,
 };
 
 /** Answered by every `/admin/ws/info` call; reassign between connects. */
@@ -141,7 +143,8 @@ function lastSocket(): FakeSocket {
 beforeEach(() => {
   FakeSocket.instances = [];
   timers.clear();
-  g.window = {};
+  g.window = new EventTarget();
+  g.document = Object.assign(new EventTarget(), { visibilityState: "visible" });
   g.WebSocket = FakeSocket;
   g.fetch = async () => infoResponse(currentInfo);
   g.setTimeout = (fn: () => void, delay: number) => schedule("timeout", fn, delay);
@@ -163,6 +166,9 @@ afterEach(() => {
   if (real.window === undefined) delete g.window;
   else g.window = real.window;
   Math.random = real.random;
+  Date.now = real.now;
+  if (real.document === undefined) delete g.document;
+  else g.document = real.document;
 });
 
 describe("backoffMs", () => {
@@ -197,13 +203,58 @@ describe("createWsClient discovery", () => {
     assert.equal(get(client.status), "disabled");
     assert.equal(FakeSocket.instances.length, 0);
     assert.equal(pending("timeout").length, 0);
+    (g.window as EventTarget).dispatchEvent(new Event("online"));
+    await flush();
+    assert.equal(FakeSocket.instances.length, 0);
+    assert.equal(pending("timeout").length, 0);
+    client.stop();
   });
 
-  it("goes disabled without opening a socket when the info carries no url", async () => {
+  it("retries missing URL metadata and opens after valid discovery returns", async () => {
     const client = await start({ enabled: true });
 
-    assert.equal(get(client.status), "disabled");
+    assert.equal(get(client.status), "closed");
     assert.equal(FakeSocket.instances.length, 0);
+    assert.equal(pending("timeout").length, 1);
+    currentInfo = { enabled: true, url: "wss://host/admin/ws" };
+    fire("timeout");
+    await flush();
+    lastSocket().handshake();
+    assert.equal(get(client.status), "open");
+    client.stop();
+  });
+
+  for (const [label, raw, status] of [
+    ["no-content response", null, 204],
+    ["invalid JSON", "{", 200],
+    ["null metadata", "null", 200],
+    ["primitive metadata", "42", 200],
+    ["array metadata", "[]", 200],
+    ["missing enabled flag", JSON.stringify({ url: "wss://host/admin/ws" }), 200],
+    ["non-string URL", JSON.stringify({ enabled: true, url: 42 }), 200],
+    ["blank URL", JSON.stringify({ enabled: true, url: "   " }), 200],
+  ] as const) {
+    it(`retries ${label} instead of throwing or disabling updates`, async () => {
+      g.fetch = async () => new Response(raw, { status, headers: { "content-type": "application/json" } });
+      const client = createWsClient();
+      await flush();
+      assert.equal(get(client.status), "closed");
+      assert.equal(FakeSocket.instances.length, 0);
+      assert.equal(pending("timeout").length, 1);
+      g.fetch = async () => infoResponse({ enabled: true, url: "wss://recovered/admin/ws" });
+      fire("timeout");
+      await flush();
+      lastSocket().handshake();
+      assert.equal(get(client.status), "open");
+      client.stop();
+    });
+  }
+
+  it("allows enabled:false without a URL as an explicit disabled response", async () => {
+    const client = await start({ enabled: false });
+    assert.equal(get(client.status), "disabled");
+    assert.equal(pending("timeout").length, 0);
+    client.stop();
   });
 
   it("appends last_event_id with '?' on a bare url", async () => {
@@ -257,12 +308,13 @@ describe("createWsClient frames", () => {
     const client = await start({ enabled: true, url: "wss://host/admin/ws" });
     const socket = lastSocket();
     socket.handshake();
+    const connected = get(client.events);
 
     socket.emit("message", { data: "{not json" });
     socket.emit("message", { data: new ArrayBuffer(4) });
     socket.emit("message", { data: JSON.stringify({ payload: { slug: "acme" }, ts: "now" }) });
 
-    assert.equal(get(client.events), null);
+    assert.deepEqual(get(client.events), connected);
   });
 
   it("pings on the heartbeat interval while the socket is open", async () => {
@@ -285,6 +337,132 @@ describe("createWsClient frames", () => {
 });
 
 describe("createWsClient lifecycle", () => {
+  it("respects a 600-second server heartbeat instead of retiring the socket early", async () => {
+    let now = 0;
+    Date.now = () => now;
+    const client = await start({ enabled: true, url: "wss://host/admin/ws", heartbeat_seconds: 600 });
+    const socket = lastSocket();
+    socket.handshake();
+    assert.equal(pending("interval")[0]?.delay, 600_000);
+    now = 600_000;
+    fire("interval");
+    assert.equal(get(client.status), "open");
+    assert.equal(socket.closeCalls, 0);
+    socket.emit("message", { data: JSON.stringify({ type: "ping", ts: "now" }) });
+    now = 1_200_000;
+    fire("interval");
+    assert.equal(get(client.status), "open");
+    now = 2_400_000;
+    fire("interval");
+    assert.equal(get(client.status), "closed");
+    assert.equal(socket.closeCalls, 1);
+    client.stop();
+  });
+  it("refreshes the client snapshot on each successful connection", async () => {
+    const client = await start({ enabled: true, url: "wss://host/admin/ws" });
+    const frames: string[] = [];
+    const unsubscribe = client.events.subscribe((event) => { if (event) frames.push(event.type); });
+    lastSocket().handshake();
+    lastSocket().emit("close");
+    fire("timeout");
+    await flush();
+    lastSocket().handshake();
+    assert.deepEqual(frames, ["transport.connected", "transport.connected"]);
+    unsubscribe();
+    client.stop();
+  });
+
+  it("retires a silent socket even when the browser never reports a close", async () => {
+    let now = 0;
+    Date.now = () => now;
+    const client = await start({ enabled: true, url: "wss://host/admin/ws", heartbeat_seconds: 20 });
+    const stale = lastSocket();
+    stale.handshake();
+    now = 60_000;
+    fire("interval");
+    assert.equal(get(client.status), "closed");
+    assert.equal(stale.closeCalls, 1);
+    assert.equal(pending("timeout").length, 1);
+    // Late callbacks cannot revive it or schedule a duplicate reconnect.
+    stale.handshake();
+    stale.emit("error");
+    stale.emit("close");
+    assert.equal(get(client.status), "closed");
+    assert.equal(pending("interval").length, 0);
+    assert.equal(pending("timeout").length, 1);
+    client.stop();
+  });
+
+  it("server heartbeat frames keep an otherwise idle connection alive", async () => {
+    let now = 0;
+    Date.now = () => now;
+    const client = await start({ enabled: true, url: "wss://host/admin/ws", heartbeat_seconds: 20 });
+    const socket = lastSocket();
+    socket.handshake();
+    now = 40_000;
+    socket.emit("message", { data: JSON.stringify({ type: "ping", ts: "now" }) });
+    now = 60_000;
+    fire("interval");
+    assert.equal(get(client.status), "open");
+    assert.equal(socket.closeCalls, 0);
+    client.stop();
+  });
+
+  it("aborts stalled discovery and ignores its late result", async () => {
+    let resolve!: (response: Response) => void;
+    let signal: AbortSignal | undefined;
+    g.fetch = async (_url: string, options: RequestInit) => {
+      signal = options.signal ?? undefined;
+      return new Promise<Response>((done) => { resolve = done; });
+    };
+    const client = createWsClient();
+    await flush();
+    fire("timeout");
+    assert.equal(signal?.aborted, true);
+    assert.equal(get(client.status), "closed");
+    resolve(infoResponse({ enabled: true, url: "wss://late/admin/ws" }));
+    await flush();
+    assert.equal(FakeSocket.instances.length, 0);
+    assert.equal(pending("timeout").length, 1);
+    client.stop();
+  });
+
+  it("times out an incomplete socket handshake and ignores retired frames", async () => {
+    const client = await start({ enabled: true, url: "wss://host/admin/ws" });
+    const old = lastSocket();
+    fire("timeout");
+    assert.equal(old.closeCalls, 1);
+    fire("timeout");
+    await flush();
+    const replacement = lastSocket();
+    replacement.handshake();
+    const event = get(client.events);
+    old.emit("message", { data: JSON.stringify({ type: "host.deleted", payload: {} }) });
+    old.emit("close");
+    assert.deepEqual(get(client.events), event);
+    assert.equal(get(client.status), "open");
+    assert.equal(pending("timeout").length, 0);
+    client.stop();
+  });
+
+  it("reconnects on waking from sleep and removes wake listeners on stop", async () => {
+    let now = 0;
+    Date.now = () => now;
+    const client = await start({ enabled: true, url: "wss://host/admin/ws", heartbeat_seconds: 20 });
+    const socket = lastSocket();
+    socket.handshake();
+    now = 90_000;
+    (g.document as EventTarget).dispatchEvent(new Event("visibilitychange"));
+    await flush();
+    assert.equal(FakeSocket.instances.length, 2);
+    assert.equal(socket.closeCalls, 1);
+    client.stop();
+    (g.window as EventTarget).dispatchEvent(new Event("online"));
+    await flush();
+    assert.equal(FakeSocket.instances.length, 2);
+    assert.equal(pending("timeout").length, 0);
+  });
+
   it("reconnects after a close", async () => {
     const client = await start({ enabled: true, url: "wss://host/admin/ws" });
     lastSocket().handshake();

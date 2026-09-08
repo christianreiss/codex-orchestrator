@@ -654,7 +654,7 @@ leaves it intact. `CDX_CONFIG_PATH` and `CLX_CONFIG_PATH` are copied into the
 managed service definition when set so non-default signed config paths survive
 background startup.
 
-## Agent portal lifecycle (cxx 0.7.7)
+## Agent portal lifecycle (cxx 0.8.3)
 
 When the persistent portal master switch is on, an interactive Codex root run
 or a human-started `--execute`/resume registers through
@@ -670,7 +670,7 @@ prevents the local Codex run.
 The internal `cxx portal` surface is intentionally narrow:
 
 - `cxx portal status` reports whether this process has an active scoped session.
-- `cxx portal notify --summary TEXT` opens the relay before publishing a bounded attention event, so a fast click cannot race the first poll.
+- `cxx portal notify --summary TEXT` publishes a bounded attention event without opening the relay. Only a live `wait` loop advertises listening.
 - `cxx portal wait --seconds N` long-polls and leases the oldest ordered item without acknowledging it. Ambiguous responses retry with the same claim UUID, so a lost response returns the existing lease instead of waiting for expiry.
 - `cxx portal accept --message-id ID --lease-owner OWNER` acknowledges an item only after its tool result reached the root agent; an unacknowledged lease is redelivered. Ambiguous acceptance retries are automatic and preserve the same lease/body.
 - `cxx portal say --text TEXT` publishes safe user-facing assistant text.
@@ -690,3 +690,13 @@ Skill cooperatively keeps the existing root turn polling; the notice it publishe
 lands in the portal and is not pushed anywhere. It cannot wake a Codex process or
 model turn that has already stopped; `relay_ready` becomes false when fresh
 polling ceases.
+
+Transient initial registration failures retain the same session ID and bearer
+in the wrapper, start its private broker, and retry while the native child runs.
+Heartbeat attempts are cancellable and bounded, with 15–60 second failure
+backoff. Permanent authorization or session failures stop recovery; a revoked
+or unknown bridge is never blindly recreated. Recognized expiry/binding renewal
+still rechecks current host and engine eligibility. Shutdown cancels normal
+requests before finalization, and a failed final report cannot restart the local
+session. The admin Active Clients page distinguishes fresh wrapper contact from
+an open relay and shows stale connections without claiming work has stopped.

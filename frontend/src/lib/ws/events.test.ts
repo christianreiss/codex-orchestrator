@@ -85,6 +85,11 @@ function emit(type: string, payload?: unknown): void {
   events.set({ type, payload, ts: "2026-01-01T00:00:00.000Z" });
 }
 
+it("resamples client snapshots and selected timelines after WS reconnect", () => {
+  emit("transport.connected");
+  assert.deepEqual(qc.keys, [["agent-sessions"]]);
+});
+
 describe("toast events", () => {
   it("maps each level onto the matching sonner call", () => {
     for (const [level, expected] of [

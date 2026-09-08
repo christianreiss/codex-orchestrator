@@ -84,7 +84,7 @@ async function stubPortal(page: Page, options: StubOptions = {}): Promise<Stub> 
     }
     if (path.endsWith("/api/me")) return json(route, { status: "ok", data: { user: USER } });
     if (path.endsWith("/api/agents")) {
-      return json(route, { status: "ok", data: { agents: [agent(options.agent)] } });
+      return json(route, { status: "ok", data: { agents: [agent(options.agent)], generated_at: new Date().toISOString() } });
     }
     if (path.includes("/events") && !path.endsWith("/api/events")) {
       return json(route, { status: "ok", data: { events: options.events ?? [], next_cursor: 0 } });
@@ -105,7 +105,7 @@ async function stubPortal(page: Page, options: StubOptions = {}): Promise<Stub> 
       }
       return json(route, {
         status: "ok",
-        data: { close_requested_at: new Date().toISOString(), close: { requested_at: new Date().toISOString(), state: "pending" } },
+        data: { message_id: "close-fixture", close_requested_at: new Date().toISOString(), close: { requested_at: new Date().toISOString(), state: "pending" } },
       });
     }
     if (path.endsWith("/messages") || path.includes("/prompts/")) {
@@ -194,7 +194,7 @@ test.describe("prompt options are answers", () => {
           session_id: SESSION_ID,
           type: "waiting_input",
           source: "engine",
-          payload: { question: "Deploy now?", allow_answer: true, prompt_id: promptId, options: ["Yes", "No"] },
+          payload: { question: "Deploy now?", allow_answer: true, prompt_id: promptId, prompt_version: 1, options: ["Yes", "No"] },
           created_at: new Date().toISOString(),
         },
       ],
@@ -234,4 +234,14 @@ test("the portal has no serious Axe findings", async ({ page }) => {
     .analyze();
   const serious = results.violations.filter((violation) => ["serious", "critical"].includes(violation.impact ?? ""));
   expect(serious.map((violation) => violation.id)).toEqual([]);
+});
+
+
+test("server snapshot clock preserves presence on a slow browser clock", async ({ page }) => {
+  await page.clock.setFixedTime(new Date(Date.now() - 2 * 3_600_000));
+  await stubPortal(page);
+  await openPortal(page);
+  await expect(page.getByText("Listening", { exact: true }).first()).toBeVisible();
+  await page.getByRole("textbox", { name: "Message this agent" }).fill("Clock-safe instruction");
+  await expect(page.getByRole("button", { name: "Send", exact: true })).toBeEnabled();
 });

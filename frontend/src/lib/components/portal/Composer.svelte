@@ -1,6 +1,6 @@
 <script lang="ts">
   import SendIcon from "@lucide/svelte/icons/arrow-up";
-  import type { Agent } from "$lib/portal/types";
+  import type { Agent, PresenceTimings } from "$lib/portal/types";
   import { presenceView } from "$lib/portal/presence";
 
   let {
@@ -11,6 +11,8 @@
     ondraft,
     onsend,
     input = $bindable(null),
+    disabledReason = "",
+    timings,
   }: {
     agent: Agent;
     now: number;
@@ -20,9 +22,12 @@
     ondraft: (text: string) => void;
     onsend: (text: string) => Promise<boolean>;
     input?: HTMLTextAreaElement | null;
+    /** A stale admin snapshot must not authorize replies using old relay state. */
+    disabledReason?: string;
+    timings?: PresenceTimings;
   } = $props();
 
-  const view = $derived(presenceView(agent, now));
+  const view = $derived(presenceView(agent, now, timings));
   const closing = $derived(agent.close?.state === "pending");
 
   const placeholder = $derived(
@@ -38,12 +43,12 @@
    */
   function submit() {
     const value = draft.trim();
-    if (!value || sending || !view.canSend) return;
+    if (!value || sending || !view.canSend || disabledReason) return;
     void onsend(value);
   }
 
   function onKeydown(event: KeyboardEvent) {
-    if (event.key === "Enter" && !event.shiftKey) {
+    if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
       event.preventDefault();
       submit();
     }
@@ -61,7 +66,9 @@
       used to be replaced outright by this sentence, so a presence flip while
       someone was typing destroyed what they had written.
     -->
-    {#if !view.canSend}
+    {#if disabledReason}
+      <p class="pb-2 text-center text-body-sm text-muted-foreground">{disabledReason}</p>
+    {:else if !view.canSend}
       <p class="pb-2 text-center text-body-sm text-muted-foreground">
         <strong class="font-semibold text-foreground">{view.label}.</strong> {view.detail}
       </p>
@@ -90,7 +97,7 @@
         class="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-primary text-primary-foreground
                transition hover:bg-primary-hover disabled:opacity-40 focus:outline-none
                focus-visible:ring-2 focus-visible:ring-ring"
-        disabled={sending || !draft.trim() || !view.canSend}
+        disabled={sending || !draft.trim() || !view.canSend || Boolean(disabledReason)}
         aria-label="Send"
       ><SendIcon class="h-5 w-5" /></button>
     </form>

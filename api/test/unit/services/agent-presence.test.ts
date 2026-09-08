@@ -90,6 +90,19 @@ describe('deriveAddressPresence', () => {
     expect(deriveAddressPresence(address(), session({ heartbeatAt: FRESH_AFTER }), FRESH_AFTER)).toBe('offline');
   });
 
+  it('compares RFC3339 instants rather than timestamp text', () => {
+    // Fractional seconds at the cutoff are newer even though '.' sorts before 'Z'.
+    expect(deriveAddressPresence(address(), session({ heartbeatAt: '2026-09-04T12:00:00.500Z' }), FRESH_AFTER)).toBe('online');
+    // A positive offset can sort later while describing an older instant.
+    expect(deriveAddressPresence(address(), session({ heartbeatAt: '2026-09-04T12:30:00+01:00' }), FRESH_AFTER)).toBe('offline');
+  });
+
+  it.each(['invalid', '2026-02-30T12:00:00Z', '2026-09-04T12:01:00Z'])('rejects invalid or future contact %s', (heartbeatAt) => {
+    const now = Date.parse(FRESH);
+    expect(deriveAddressPresence(address(), session({ heartbeatAt }), FRESH_AFTER, now)).toBe('offline');
+    expect(deriveAddressPresence(address({ receiveHeartbeatAt: heartbeatAt }), session(), FRESH_AFTER, now)).toBe('online');
+  });
+
   it('reports disabled for every way an address can be switched off', () => {
     expect(deriveAddressPresence(address({ readiness: 'disabled' }), session(), FRESH_AFTER)).toBe('disabled');
     expect(deriveAddressPresence(address({ enabled: 0 }), session(), FRESH_AFTER)).toBe('disabled');

@@ -1,3 +1,4 @@
+import { setTimeout as delay } from 'node:timers/promises';
 import fastifyStatic from '@fastify/static';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { existsSync, readFileSync } from 'node:fs';
@@ -40,6 +41,7 @@ export async function registerAgentPortalPublicRoutes(
     const adminActor = async (): Promise<PortalActor | null> => {
       const admin = await app.resolveAdmin(req);
       if (!admin) return null;
+      req.admin = admin;
       if (capability) await app.assertCapability(req, capability);
       return {
         kind: 'admin',
@@ -121,7 +123,8 @@ export async function registerAgentPortalPublicRoutes(
     assertPortalOrigin(req, ctx, false);
     portalHeaders(reply);
     await actorFor(req);
-    return ok({ agents: await portal.listAgents() });
+    const snapshot = await portal.listAgentsSnapshot();
+    return ok({ generated_at: snapshot.generated_at, agents: snapshot.sessions });
   });
 
   app.get('/go/api/agents/:id/events', async (req, reply) => {
@@ -255,14 +258,18 @@ export async function registerAgentPortalPublicRoutes(
       'X-Accel-Buffering': 'no',
       'Referrer-Policy': 'no-referrer',
     });
+    const disconnected = new AbortController();
     let closed = false;
-    req.raw.on('close', () => {
+    reply.raw.once('close', () => {
       closed = true;
+      disconnected.abort();
     });
+    reply.raw.flushHeaders();
     let lastHeartbeat = Date.now();
     while (!closed && !reply.raw.destroyed) {
       try {
         const page = await nextPage(cursor);
+        if (closed) break;
         for (const event of page.events) {
           cursor = Number(event.cursor ?? cursor);
           if (!reply.raw.write(`id: ${cursor}\nevent: agent\ndata: ${JSON.stringify(event)}\n\n`)) {
@@ -273,7 +280,7 @@ export async function registerAgentPortalPublicRoutes(
           }
         }
         if (!closed && Date.now() - lastHeartbeat >= 15_000) {
-          if (!reply.raw.write(`: heartbeat ${Date.now()}\n\n`)) closed = true;
+          if (!reply.raw.write(`: heartbeat ${Date.now()}\n\nevent: heartbeat\ndata: ${JSON.stringify({ server_time: new Date().toISOString() })}\n\n`)) closed = true;
           lastHeartbeat = Date.now();
         }
       } catch (error) {
@@ -281,7 +288,7 @@ export async function registerAgentPortalPublicRoutes(
         reply.raw.write(`event: unavailable\ndata: ${JSON.stringify({ code })}\n\n`);
         break;
       }
-      await delay(1000);
+      if (!closed) await delay(1000, undefined, { signal: disconnected.signal }).catch(() => {});
     }
     reply.raw.end();
   });
@@ -368,8 +375,4 @@ function portalHeaders(reply: FastifyReply): void {
 function requestIp(req: FastifyRequest): string | null {
   const decorated = (req as FastifyRequest & { clientIp?: string }).clientIp;
   return decorated ?? req.ip ?? null;
-}
-
-function delay(ms: number): Promise<void> {
-  return new Promise((resolveDelay) => setTimeout(resolveDelay, ms));
 }

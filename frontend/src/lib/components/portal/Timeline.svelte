@@ -19,11 +19,7 @@
     agent: Agent;
     /** An option answers directly; no option means focus the composer. */
     onreply?: (option?: string) => void;
-    /**
-     * The console renders this timeline without a composer: answering writes an
-     * `agent_messages` row keyed to a portal user, which an admin session is
-     * not. Events still render in full; only the reply affordances go.
-     */
+    /** Events remain visible when capability or current presence forbids replies. */
     readonly?: boolean;
   } = $props();
 
@@ -50,11 +46,14 @@
 </script>
 
 <div class="relative min-h-0 flex-1">
+  <!-- svelte-ignore a11y_no_noninteractive_tabindex (The scrollable timeline needs keyboard focus for arrow and PageDown scrolling.) -->
   <div
     bind:this={scroller}
     onscroll={onScroll}
-    class="h-full overflow-y-auto px-3 py-4 sm:px-6"
-    tabindex="-1"
+    class="h-full overflow-y-auto px-3 py-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring sm:px-6"
+    tabindex="0"
+    role="region"
+    aria-label="Session timeline"
   >
     {#if items.length === 0}
       <div class="grid h-full place-content-center text-center text-muted-foreground">
@@ -77,7 +76,7 @@
           {readonly}
         />
       {:else if item.role === "prompt"}
-        <PromptCard event={item.event} active={Boolean(agent.pending_prompt)} onanswer={onreply} {readonly} />
+        <PromptCard event={item.event} active={Boolean(agent.pending_prompt && item.event.payload.prompt_id === agent.pending_prompt.id && item.event.payload.prompt_version === agent.pending_prompt.version)} onanswer={onreply} {readonly} />
       {:else if item.role === "close"}
         <CloseNotice event={item.event} />
       {:else if item.role === "lifecycle"}

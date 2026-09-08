@@ -323,6 +323,20 @@ Admin routes:
   Agent Messaging address for the worktree it is sitting in. The page is empty
   whenever the master switch is off — registration is discarded server-side —
   and says so rather than showing a bare list.
+- The directory separates **Online** (fresh wrapper contact) from **Listening**
+  (an open instruction relay) and **Working** (a recently accepted instruction).
+  Search host, user, task, branch, or directory; filter both engines and session
+  states; open the detail pane for heartbeat and relay timestamps. Presence
+  indicators use the same styling in the console and phone portal.
+- Status refreshes every 15 seconds and ages against the server snapshot clock.
+  A failed refresh preserves the last rows and selected timeline, labels them
+  as last known, and disables instruction actions until status recovers. Drafts
+  stay with their session, including after a failed send. Timeline reconnection
+  rereads current state; incoming events do not pull a reader away from older
+  messages. Browser wake and missed WebSocket/stream heartbeats trigger
+  reconnection. Only the current prompt version has active answer buttons.
+  An uncertain send keeps its original request identity and question context
+  so retrying after a lost response cannot become a duplicate plain message.
 - The console view is fully interactive: send an instruction, answer an open
   prompt, ask an agent to close, or force it. Migration `0027` is what made that
   possible — `agent_messages.portal_user_id` was NOT NULL and pointed at the

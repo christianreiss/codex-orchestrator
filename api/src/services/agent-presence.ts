@@ -1,3 +1,5 @@
+import { parseRfc3339Millis } from '../util/timestamp.js';
+
 /**
  * Derived presence for an Agent Messaging address.
  *
@@ -68,9 +70,8 @@ export interface PresenceSession {
 
 /**
  * `freshAfter` is an ISO instant; anything stamped at or before it is stale.
- * Server-authored timestamps are fixed-width second-precision UTC
- * (`util/timestamp.ts`), so lexical comparison is ordering — the same idiom the
- * delivery gate and the `live_addresses` metric already use.
+ * Compare instants, not strings: historical rows may include fractional seconds
+ * or offsets. Invalid or future timestamps are never evidence of liveness.
  *
  * A missing session means the binding is gone: `finishSession` nulls
  * `current_session_id`, so a clean exit drops presence on the next read rather
@@ -80,16 +81,18 @@ export function deriveAddressPresence(
   address: PresenceAddress,
   session: PresenceSession | null | undefined,
   freshAfter: string,
+  nowMs = Date.now(),
 ): AgentAddressPresence {
+  const cutoff = parseRfc3339Millis(freshAfter);
   if (address.readiness === 'disabled' || address.enabled !== 1 || address.archivedAt) return 'disabled';
   const live =
     address.currentSessionId != null &&
     session != null &&
     session.endedAt == null &&
-    session.heartbeatAt != null &&
-    session.heartbeatAt > freshAfter;
+    cutoff != null &&
+    isFreshPresenceTimestamp(session.heartbeatAt, cutoff, nowMs);
   if (live) {
-    const receiving = address.receiveHeartbeatAt != null && address.receiveHeartbeatAt > freshAfter;
+    const receiving = isFreshPresenceTimestamp(address.receiveHeartbeatAt, cutoff!, nowMs);
     return receiving ? 'listening' : 'online';
   }
   return address.lastUpstreamSessionId ? 'resumable' : 'offline';
@@ -103,3 +106,9 @@ export const AGENT_PRESENCE_RANK: Record<AgentAddressPresence, number> = {
   offline: 3,
   disabled: 4,
 };
+
+/** A timestamp proves contact only within the observation window, never ahead of it. */
+export function isFreshPresenceTimestamp(value: string | null | undefined, cutoffMs: number, nowMs: number): boolean {
+  const instant = typeof value === 'string' ? parseRfc3339Millis(value) : null;
+  return instant != null && instant > cutoffMs && instant <= nowMs;
+}

@@ -1,5 +1,5 @@
 import type { Agent, EventRow, Phase, PortalUser } from "$lib/portal/types";
-import { livePresence, setHeartbeatFreshMs } from "$lib/portal/presence";
+import { livePresence, setPresenceTimings } from "$lib/portal/presence";
 import { notable, parseReadRecord, pruneReadRecord, PREFS_KEY, READ_KEY, shouldAdvanceRead, type ReadRecord } from "$lib/portal/unread";
 import { optimisticEvent, reconcileOptimistic } from "$lib/portal/delivery";
 import {
@@ -57,6 +57,7 @@ export function createPortal() {
   let announcement = $state("");
   /** Ticks so "waiting 4m" and the stale-heartbeat downgrade stay truthful. */
   let now = $state(Date.now());
+  let serverClockOffset = 0;
   let atBottom = $state(true);
   let missed = $state(0);
   let readRecord = $state<ReadRecord>({});
@@ -128,6 +129,9 @@ export function createPortal() {
 
   async function refreshAgents(): Promise<void> {
     const result = await api.fetchAgents();
+    const generated = result.generated_at ? Date.parse(result.generated_at) : NaN;
+    if (Number.isFinite(generated)) serverClockOffset = generated - Date.now();
+    now = Date.now() + serverClockOffset;
     agents = result.agents;
     readRecord = pruneReadRecord(readRecord, agents.map((agent) => agent.id));
     if (!selectedId || !agents.some((agent) => agent.id === selectedId)) {
@@ -411,7 +415,7 @@ export function createPortal() {
       // itself, and it used to do that against a literal typed on both sides.
       try {
         const state = await api.fetchState();
-        setHeartbeatFreshMs(state.timings?.heartbeat_fresh_seconds);
+        setPresenceTimings(state.timings);
       } catch {
         // Non-fatal: the built-in fallback window is still correct by default.
       }
@@ -433,7 +437,7 @@ export function createPortal() {
       pollTimer = setInterval(() => {
         if (document.visibilityState === "visible") void refreshAgentsSafe();
       }, POLL_MS);
-      tickTimer = setInterval(() => (now = Date.now()), TICK_MS);
+      tickTimer = setInterval(() => (now = Date.now() + serverClockOffset), TICK_MS);
       document.addEventListener("visibilitychange", onVisibility);
     } catch (reason) {
       const failure = reason as ApiFailure;

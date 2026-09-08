@@ -1,5 +1,27 @@
 # 2026-09-08
 
+- **Active Clients / cxx 0.8.3:** rebuilt the client directory with online,
+  attention, offline, and ended counts; engine/status filters and search; and
+  responsive session details with visible presence indicators. Heartbeat,
+  instruction relay, and reported work are shown separately using server time.
+- Failed refreshes retain clients, history, and per-session drafts, with clear
+  retry controls and stale-status protection for actions. Timeline reconnects
+  catch up from fresh snapshots and preserve the reader's scroll position.
+  Silent WebSocket and timeline streams recover after missed heartbeats; browser
+  wake reconnects stale sockets. Selecting a client now enables its timeline
+  query correctly. Historical prompt buttons cannot answer a newer question.
+- Instruction and close requests have bounded response deadlines and retain
+  their request identity across uncertain retries. Drafts and their original
+  question context survive a lost response, avoiding duplicate instructions.
+- Presence and instruction delivery now reject expired or revoked bridges,
+  inactive hosts, disabled engines, and invalid heartbeat timestamps. Both
+  event streams survive healthy HTTP request completion, cancel disconnected
+  readers, and recheck current session access while streaming.
+- Both engines recover transient initial client registration failures using the
+  original session identity. Heartbeats have bounded, cancellable retries;
+  permanent authorization failures stop recovery, and session shutdown cannot
+  revive a finished client through a late registration response.
+
 - **cxx 0.8.2:** removed routine wrapper, engine, and peer upgrades from cdx/clx
   startup and session exit. Launches use the installed engine and can queue
   detached maintenance without waiting for downloads, npm, or a wrapper restart.

@@ -101,10 +101,10 @@ export const WS_EVENT_TYPES = [
   'agent_portal.user.rotated',
   'agent_portal.user.link_revealed',
   'agent_portal.user.deleted',
-  // The one live-session event. Sessions register, heartbeat and append
-  // events without publishing anything -- the console polls for those --
-  // but an operator ending someone else's agent is worth pushing.
+  // Live-session heartbeat traffic is polled; lifecycle and relay changes publish metadata
+  // so open consoles refresh without exposing transcript bodies on this bus.
   'agent_portal.session.force_closed',
+  'agent_portal.sessions.changed',
 
   // Agent messaging
   'agent_messaging.state.changed',
