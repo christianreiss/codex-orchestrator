@@ -670,7 +670,8 @@ prevents the local Codex run.
 The internal `cxx portal` surface is intentionally narrow:
 
 - `cxx portal status` reports whether this process has an active scoped session.
-- `cxx portal notify --summary TEXT` publishes a bounded attention event without opening the relay. Only a live `wait` loop advertises listening.
+- `cxx portal notify --summary TEXT` publishes a bounded attention event when the operator is needed, without opening the relay. Routine status updates belong in `say`. Only a live `wait` loop advertises listening.
+- `cxx portal resolve --summary TEXT` retracts this session's earlier attention notices with an explicit `attention_resolved` timeline event (summary: 1–1000 bytes). It preserves the relay, active turn and pending prompt; it neither asks the user for action nor answers a question. It reports success only after a confirmed publish; automatic retries preserve the event ID when delivery is uncertain.
 - `cxx portal wait --seconds N` long-polls and leases the oldest ordered item without acknowledging it. Ambiguous responses retry with the same claim UUID, so a lost response returns the existing lease instead of waiting for expiry.
 - `cxx portal accept --message-id ID --lease-owner OWNER` acknowledges an item only after its tool result reached the root agent; an unacknowledged lease is redelivered. Ambiguous acceptance retries are automatic and preserve the same lease/body.
 - `cxx portal say --text TEXT` publishes safe user-facing assistant text.

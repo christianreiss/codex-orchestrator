@@ -31,6 +31,14 @@ describe('managed #afk portal skill', () => {
     expect(skill.manifest).toMatch(/first portal answer wins/i);
   });
 
+  it('opens quietly and distinguishes status from a real attention request', () => {
+    expect(skill.manifest).toContain('Enter the relay loop below directly');
+    expect(skill.manifest).toMatch(/Do not run `cxx portal notify` merely to\s+announce availability, progress, completion/);
+    expect(skill.manifest).toContain('entering AFK mode needs no notice');
+    expect(skill.manifest).toContain('cxx portal resolve --summary');
+    expect(skill.manifest).toMatch(/without closing the relay or answering any outstanding question/);
+  });
+
   it('is stable, engine-agnostic, and code-owned', () => {
     expect(skill.slug).toBe(MANAGED_AFK_SKILL_SLUG);
     expect(skill.engine).toBeNull();

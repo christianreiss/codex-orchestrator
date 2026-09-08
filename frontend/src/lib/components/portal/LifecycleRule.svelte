@@ -3,8 +3,8 @@
   import { eventText } from "$lib/portal/grouping";
   import { clockTime } from "$lib/portal/browser";
 
-  // Session boundaries are structural, so they read as a rule across the
-  // thread rather than another line of chatter. Never collapsed.
+  // Session boundaries and resolved attention stay visible as calm timeline
+  // markers, even when nearby routine progress collapses.
   let { event }: { event: EventRow } = $props();
 
   const tone = $derived(

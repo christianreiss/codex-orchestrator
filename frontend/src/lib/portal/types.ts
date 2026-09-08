@@ -78,6 +78,7 @@ export type EventType =
   | "terminal_block"
   | "message_accepted"
   | "attention"
+  | "attention_resolved"
   | "close_requested"
   | "message_canceled"
   | "failed"

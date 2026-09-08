@@ -1,12 +1,14 @@
 package agentportal
 
 import (
+	"bytes"
 	"encoding/json"
 	"io"
 	"net"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 )
@@ -25,6 +27,8 @@ type portalStub struct {
 	calls   []recordedCall
 	claim   map[string]any
 	claimed bool
+	// A fixed event failure exercises command retries without changing state.
+	eventStatus int
 }
 
 func (s *portalStub) record(path string, body map[string]any) {
@@ -62,6 +66,9 @@ func startPortalStub(t *testing.T, stub *portalStub) string {
 		stub.record(r.URL.Path, body)
 		w.Header().Set("Content-Type", "application/json")
 		switch {
+		case hasSuffix(r.URL.Path, "/events") && stub.eventStatus != 0:
+			w.WriteHeader(stub.eventStatus)
+			_ = json.NewEncoder(w).Encode(map[string]any{"status": "error", "code": "test_event_rejected", "message": "Event rejected"})
 		case hasSuffix(r.URL.Path, "/commands/claim"):
 			if stub.claim != nil && !stub.claimed {
 				stub.claimed = true
@@ -205,5 +212,87 @@ func TestHeartbeatTurnOmitsTheFieldWhenNotManaged(t *testing.T) {
 	// throughout execution and would otherwise clear it every tick.
 	if _, present := beats[0].Body["active_turn_id"]; present {
 		t.Fatal("a plain heartbeat sent active_turn_id")
+	}
+}
+
+func TestResolveOnlyRetractsOwnNotice(t *testing.T) {
+	for _, engine := range []string{"codex", "claude"} {
+		t.Run(engine, func(t *testing.T) {
+			stub := &portalStub{}
+			withPortalEnv(t, startPortalStub(t, stub))
+			t.Setenv(envEngine, engine)
+			var stdout, stderr bytes.Buffer
+			if code := RunCommand([]string{"resolve", "--summary", "  No operator action needed.  "}, &stdout, &stderr); code != 0 {
+				t.Fatalf("resolve exit=%d stderr=%s", code, stderr.String())
+			}
+			events := stub.callsTo("/host/agent-sessions/" + stubSessionID + "/events")
+			if len(events) != 1 {
+				t.Fatalf("events=%v, want exactly one event for this session", events)
+			}
+			body := events[0].Body
+			eventID, hasEventID := body["client_event_id"].(string)
+			payload, ok := body["payload"].(map[string]any)
+			if body["type"] != "attention_resolved" || !hasEventID || eventID == "" || !ok || payload["summary"] != "No operator action needed." {
+				t.Fatalf("unexpected resolution event: %v", body)
+			}
+			if len(heartbeats(stub)) != 0 {
+				t.Fatal("resolve changed relay or active turn through a heartbeat")
+			}
+			var out map[string]any
+			if err := json.Unmarshal(stdout.Bytes(), &out); err != nil || out["type"] != "attention_resolved" || out["session_id"] != stubSessionID {
+				t.Fatalf("output=%s err=%v", stdout.String(), err)
+			}
+		})
+	}
+}
+
+func TestResolveFailureLeavesRelayAndTurnUntouched(t *testing.T) {
+	for _, engine := range []string{"codex", "claude"} {
+		for _, status := range []int{http.StatusForbidden, http.StatusBadGateway} {
+			t.Run(engine+"/"+http.StatusText(status), func(t *testing.T) {
+				stub := &portalStub{eventStatus: status}
+				withPortalEnv(t, startPortalStub(t, stub))
+				t.Setenv(envEngine, engine)
+				var stdout, stderr bytes.Buffer
+				if code := RunCommand([]string{"resolve", "--summary", "No operator action needed."}, &stdout, &stderr); code != 1 {
+					t.Fatalf("resolve exit=%d, expected failure", code)
+				}
+				if stdout.Len() != 0 || stderr.Len() == 0 || len(heartbeats(stub)) != 0 {
+					t.Fatalf("failed resolve changed state or claimed success: stdout=%s stderr=%s beats=%v", stdout.String(), stderr.String(), heartbeats(stub))
+				}
+				events := stub.callsTo("/host/agent-sessions/" + stubSessionID + "/events")
+				want := 1
+				if status == http.StatusBadGateway {
+					want = 2
+				}
+				if len(events) != want {
+					t.Fatalf("event attempts=%d, want %d", len(events), want)
+				}
+				for _, event := range events {
+					if event.Body["client_event_id"] != events[0].Body["client_event_id"] {
+						t.Fatal("resolution retry changed its idempotency key")
+					}
+				}
+			})
+		}
+	}
+}
+
+func TestResolveRejectsMissingSummaryAndAlternateSession(t *testing.T) {
+	stub := &portalStub{}
+	withPortalEnv(t, startPortalStub(t, stub))
+	for _, args := range [][]string{
+		{"resolve"},
+		{"resolve", "--summary", " "},
+		{"resolve", "--summary", strings.Repeat("x", 1001)},
+		{"resolve", "--summary", "done", "another-session"},
+		{"resolve", "--summary", "done", "--session-id", "another-session"},
+	} {
+		if code := RunCommand(args, io.Discard, io.Discard); code != 2 {
+			t.Fatalf("args=%v exit=%d, want usage error", args, code)
+		}
+	}
+	if len(stub.callsTo("/host/agent-sessions/"+stubSessionID+"/events")) != 0 || len(heartbeats(stub)) != 0 {
+		t.Fatal("invalid resolution reached the broker")
 	}
 }

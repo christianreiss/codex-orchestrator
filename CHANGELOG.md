@@ -1,5 +1,11 @@
 # 2026-09-08
 
+- **AFK relay / cxx 0.8.4:** opening `#afk` now starts listening quietly instead
+  of raising a false "Needs you" notice. Status updates use ordinary messages;
+  attention is reserved for an action the user actually needs to take.
+- Codex and Claude agents can withdraw a mistaken or resolved attention notice
+  with `cxx portal resolve --summary TEXT`, preserving its timeline, the relay,
+  current work, and any unanswered question. Both WebUIs show the resolution.
 - **Active Clients / cxx 0.8.3:** rebuilt the client directory with online,
   attention, offline, and ended counts; engine/status filters and search; and
   responsive session details with visible presence indicators. Heartbeat,

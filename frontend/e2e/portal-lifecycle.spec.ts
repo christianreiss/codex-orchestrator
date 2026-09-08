@@ -14,6 +14,7 @@ import AxeBuilder from "@axe-core/playwright";
 const USER = { id: 1, display_name: "Operator" };
 
 interface AgentOverrides {
+  engine?: "codex" | "claude";
   presence?: string;
   relay_ready?: boolean;
   active_turn_started_at?: string | null;
@@ -245,3 +246,44 @@ test("server snapshot clock preserves presence on a slow browser clock", async (
   await page.getByRole("textbox", { name: "Message this agent" }).fill("Clock-safe instruction");
   await expect(page.getByRole("button", { name: "Send", exact: true })).toBeEnabled();
 });
+
+for (const engine of ["codex", "claude"] as const) {
+  test(`${engine} resolution refreshes attention without dismissing a pending question`, async ({ page }) => {
+    await page.addInitScript(() => {
+      const feeds: EventTarget[] = [];
+      (window as unknown as { portalFeeds: EventTarget[] }).portalFeeds = feeds;
+      class MockEventSource extends EventTarget {
+        onopen: ((event: Event) => void) | null = null;
+        constructor() { super(); feeds.push(this); queueMicrotask(() => this.onopen?.(new Event("open"))); }
+        close() {}
+      }
+      window.EventSource = MockEventSource as unknown as typeof EventSource;
+    });
+    const raised = new Date(Date.now() - 1000).toISOString();
+    const question = `question-${engine}`;
+    const options: StubOptions = {
+      agent: { engine, attention: { since: raised, summary: "Local acknowledgment needed" }, pending_prompt: { id: question, version: 3, question: "Keep this question open?", options: ["Answer current question"], created_at: raised } },
+      events: [
+        { cursor: 1, session_id: SESSION_ID, type: "attention", source: "engine", payload: { summary: "Local acknowledgment needed" }, created_at: raised },
+        { cursor: 2, session_id: SESSION_ID, type: "waiting_input", source: "engine", payload: { prompt_id: question, prompt_version: 3, question: "Keep this question open?", options: ["Answer current question"] }, created_at: raised },
+      ],
+    };
+    const stub = await stubPortal(page, options); await openPortal(page);
+    await expect(page.getByRole("button", { name: "Reply", exact: true })).toBeVisible();
+    const resolution = { cursor: 3, session_id: SESSION_ID, type: "attention_resolved", source: "engine", payload: { summary: "Acknowledged locally" }, created_at: new Date().toISOString() };
+    const emit = () => page.evaluate((event) => {
+      (window as unknown as { portalFeeds: EventTarget[] }).portalFeeds.at(-1)?.dispatchEvent(new MessageEvent("agent", { data: JSON.stringify(event) }));
+    }, resolution);
+    const before = stub.calls.filter((call) => call === "GET /go/api/agents").length;
+    await emit();
+    await expect.poll(() => stub.calls.filter((call) => call === "GET /go/api/agents").length).toBeGreaterThan(before);
+    await expect(page.getByText(/Attention resolved — Acknowledged locally/)).toBeVisible();
+    await expect(page.getByRole("button", { name: "Reply", exact: true })).toBeVisible();
+    options.agent!.attention = null;
+    await emit();
+    await expect(page.getByRole("button", { name: "Reply", exact: true })).toHaveCount(0);
+    await page.getByRole("button", { name: "Answer current question", exact: true }).click();
+    await expect.poll(() => stub.bodies.some((body) => body.answer === "Answer current question" && body.version === 3)).toBe(true);
+    expect(stub.calls.some((call) => call.endsWith(`/prompts/${question}/answer`))).toBe(true);
+  });
+}

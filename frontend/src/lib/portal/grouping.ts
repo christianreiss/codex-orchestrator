@@ -21,6 +21,7 @@ export function roleFor(event: EventRow): Role {
     case "close_requested": return "close";
     case "started":
     case "resumed":
+    case "attention_resolved":
     case "completed":
     case "failed": return "lifecycle";
     default: return "status";
@@ -32,6 +33,10 @@ const COLLAPSIBLE: Role[] = ["status"];
 
 export function eventText(event: EventRow): string {
   const payload = event.payload;
+  if (event.type === "attention_resolved") {
+    const summary = typeof payload.summary === "string" ? payload.summary.trim() : "";
+    return summary ? `Attention resolved — ${summary}` : "Attention resolved.";
+  }
   if (typeof payload.text === "string") return payload.text;
   if (typeof payload.question === "string") return payload.question;
   if (typeof payload.summary === "string") return payload.summary;

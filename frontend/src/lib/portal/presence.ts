@@ -80,7 +80,7 @@ export function notListeningDetail(agent: Agent): string {
     case "undeliverable":
       return "The close could not be delivered";
     default:
-      return "Run #afk in the local session to open the relay";
+      return "Local CLI is running; remote relay is closed. Run #afk in the local session to open it.";
   }
 }
 

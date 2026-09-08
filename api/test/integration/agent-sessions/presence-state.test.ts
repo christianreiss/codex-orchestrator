@@ -1,8 +1,10 @@
+import Fastify, { type FastifyInstance } from 'fastify';
 import { randomUUID } from 'node:crypto';
 import { eq, sql } from 'drizzle-orm';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { adminUsers, agentSessions, hosts } from '../../../src/db/schema.js';
+import { adminUsers, agentEvents, agentMessages, agentPrompts, agentSessions, hosts } from '../../../src/db/schema.js';
 import { AgentPortalService, type PortalActor, type RegisterAgentInput } from '../../../src/services/agent-portal.js';
+import { registerAgentPortalAdminHostRoutes } from '../../../src/routes/agent-portal/admin-host.js';
 import { wsPublisher } from '../../../src/ws/publisher.js';
 import { getTestDb } from '../../helpers/test-db.js';
 import { loadTestEnv, testKeyring } from '../../helpers/test-keyring.js';
@@ -15,6 +17,7 @@ describe.skipIf(!handle)('Active Clients presence and recovery against MySQL', (
   let host: typeof hosts.$inferSelect;
   let actor: PortalActor;
   let service: AgentPortalService;
+  let app: FastifyInstance;
   const exec = async (text: string) => await db!.execute(sql.raw(text));
   const cleanSessions = async () => {
     if (!host) return;
@@ -33,11 +36,16 @@ describe.skipIf(!handle)('Active Clients presence and recovery against MySQL', (
       VALUES ('Presence operator', '${PREFIX}', '${PREFIX}@example.test', 'x', 'owner', 1, '${now}', '${now}')`);
     const admin = (await db!.select().from(adminUsers).where(eq(adminUsers.username, PREFIX)))[0]!;
     actor = { kind: 'admin', user: { id: admin.id, displayName: admin.name } };
-    service = new AgentPortalService(db!, {
+    const env = {
       ...loadTestEnv(), PUBLIC_BASE_URL: 'https://portal.example',
       AGENT_PORTAL_HEARTBEAT_FRESH_SECONDS: 45, AGENT_PORTAL_RELAY_FRESH_SECONDS: 30,
       AGENT_PORTAL_BRIDGE_TTL_SECONDS: 900,
-    }, testKeyring());
+    };
+    service = new AgentPortalService(db!, env, testKeyring());
+    app = Fastify({ logger: false });
+    app.decorate('requireAdmin', async () => {});
+    await registerAgentPortalAdminHostRoutes(app, { db: db!, env, keyring: testKeyring() });
+    await app.ready();
     await service.setEnabled(true);
   });
 
@@ -47,6 +55,7 @@ describe.skipIf(!handle)('Active Clients presence and recovery against MySQL', (
   });
 
   afterAll(async () => {
+    await app?.close();
     await cleanSessions();
     await exec(`DELETE FROM hosts WHERE fqdn = '${PREFIX}.example'`);
     await exec(`DELETE FROM admin_users WHERE username = '${PREFIX}'`);
@@ -119,6 +128,63 @@ describe.skipIf(!handle)('Active Clients presence and recovery against MySQL', (
       expect(await row(session.session_id)).toMatchObject({ presence: 'offline', relay_ready: false, read_only: false });
       await expect(send(session.session_id)).rejects.toMatchObject({ code: 'agent_relay_unavailable' });
       await expect(service.registerAgent(host, session.input)).rejects.toMatchObject({ code });
+    });
+
+    it('resolves its own notice while preserving the active turn, relay and unanswered prompt', async () => {
+      const session = await live(engine);
+      const other = await live(engine === 'codex' ? 'claude' : 'codex');
+      const promptId = randomUUID();
+      const publish = (type: 'attention' | 'attention_resolved' | 'waiting_input', payload: Record<string, unknown>) =>
+        service.addAgentEvent(session.session_id, session.bridge_token, { clientEventId: randomUUID(), type, source: 'engine', payload }, host.id);
+      await publish('waiting_input', { prompt_id: promptId, question: 'Approve this change?', options: ['Yes', 'No'] });
+      await service.heartbeatAgent(session.session_id, session.bridge_token, { activeTurnId: 'current-turn' }, host.id);
+      await publish('attention', { summary: 'Status was accidentally marked as attention' });
+      await service.addAgentEvent(other.session_id, other.bridge_token, { clientEventId: randomUUID(), type: 'attention', source: 'engine', payload: { summary: 'Other session still needs help' } }, host.id);
+      const beforeSession = (await db!.select().from(agentSessions).where(eq(agentSessions.id, session.session_id)))[0]!;
+      const beforePrompt = (await db!.select().from(agentPrompts).where(eq(agentPrompts.id, promptId)))[0]!;
+      const resolutionPayload = { client_event_id: randomUUID(), type: 'attention_resolved', payload: { summary: '  Continuing normally  ', prompt_id: promptId, question: 'Should be ignored', answer: 'Yes', author: 'Operator' } };
+      // Exercise the real route allowlist and bridge scoping, not only the service.
+      const denied = await app.inject({ method: 'POST', url: `/host/agent-sessions/${other.session_id}/events`, headers: { 'x-agent-bridge-token': session.bridge_token }, payload: resolutionPayload });
+      expect(denied.statusCode).toBe(401);
+      const response = await app.inject({ method: 'POST', url: `/host/agent-sessions/${session.session_id}/events`, headers: { 'x-agent-bridge-token': session.bridge_token }, payload: resolutionPayload });
+      expect(response.statusCode).toBe(200);
+      const resolved = response.json<Record<string, unknown>>();
+      expect(resolved).toMatchObject({ type: 'attention_resolved', source: 'engine', payload: { summary: 'Continuing normally' } });
+      expect(resolved.payload).toEqual({ summary: 'Continuing normally' });
+      expect(await row(session.session_id)).toMatchObject({ attention: null, pending_prompt: { id: promptId, question: 'Approve this change?' } });
+      expect(await row(other.session_id)).toMatchObject({ attention: { summary: 'Other session still needs help' } });
+      expect((await db!.select().from(agentSessions).where(eq(agentSessions.id, session.session_id)))[0]).toEqual(beforeSession);
+      expect((await db!.select().from(agentPrompts).where(eq(agentPrompts.id, promptId)))[0]).toEqual(beforePrompt);
+      expect(beforePrompt).toMatchObject({ status: 'open', answeredAt: null, answerMessageId: null });
+      expect(await db!.select().from(agentMessages).where(eq(agentMessages.sessionId, session.session_id))).toEqual([]);
+      const timeline = await service.listEvents(session.session_id);
+      expect(timeline.events.map((event) => event.type)).toContain('attention');
+      expect(timeline.events.map((event) => event.type)).toContain('attention_resolved');
+    });
+
+    it('keeps later attention raised when an older resolution is retried', async () => {
+      const session = await live(engine);
+      const event = { clientEventId: randomUUID(), type: 'attention_resolved' as const, source: 'engine' as const, payload: { summary: 'Withdraw accidental notice' } };
+      await service.addAgentEvent(session.session_id, session.bridge_token, { clientEventId: randomUUID(), type: 'attention', source: 'engine', payload: { summary: 'First notice' } }, host.id);
+      const first = await service.addAgentEvent(session.session_id, session.bridge_token, event, host.id);
+      expect(await row(session.session_id)).toMatchObject({ attention: null });
+      await service.addAgentEvent(session.session_id, session.bridge_token, { clientEventId: randomUUID(), type: 'attention', source: 'engine', payload: { summary: 'A new genuine request' } }, host.id);
+      const replay = await service.addAgentEvent(session.session_id, session.bridge_token, event, host.id);
+      expect(replay).toEqual(first);
+      expect(await row(session.session_id)).toMatchObject({ attention: { summary: 'A new genuine request' } });
+      const resolutions = (await db!.select().from(agentEvents).where(eq(agentEvents.sessionId, session.session_id))).filter((item) => item.eventType === 'attention_resolved');
+      expect(resolutions).toHaveLength(1);
+      await expect(service.addAgentEvent(session.session_id, session.bridge_token, { ...event, payload: { summary: 'Different reason' } }, host.id)).rejects.toMatchObject({ code: 'client_event_id_conflict' });
+    });
+
+    it('permits empty resolution summaries and bounds Unicode text without broken characters', async () => {
+      const session = await live(engine);
+      const bare = await service.addAgentEvent(session.session_id, session.bridge_token, { clientEventId: randomUUID(), type: 'attention_resolved', source: 'engine' }, host.id);
+      expect(bare.payload).toEqual({});
+      const bounded = await service.addAgentEvent(session.session_id, session.bridge_token, { clientEventId: randomUUID(), type: 'attention_resolved', source: 'engine', payload: { summary: 'a'.repeat(999) + '🙂' } }, host.id);
+      const summary = (bounded.payload as { summary: string }).summary;
+      expect(summary).toBe('a'.repeat(999));
+      expect(Buffer.byteLength(summary, 'utf8')).toBeLessThanOrEqual(1000);
     });
 
     it('publishes committed transitions and transcript updates without publishing ordinary heartbeats', async () => {

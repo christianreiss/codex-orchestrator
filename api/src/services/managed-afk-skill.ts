@@ -4,27 +4,34 @@ import type { ManagedSkillManifest } from './managed-context-skill.js';
 export const MANAGED_AFK_SKILL_SLUG = 'afk';
 
 const DESCRIPTION =
-  'Use #afk to publish an attention notice to the permanent web portal and keep this root agent available there; the portal is the only channel, and nothing is pushed off-box.';
+  'Use #afk to keep this root agent available in the permanent web portal without requesting attention unless user input is actually needed.';
 
 const MANIFEST = `---
 name: afk
 description: "${DESCRIPTION}"
 ---
 
-# AFK notification
+# AFK portal relay
 
 The fleet agent portal already records this running root session. The portal is the
 whole channel: the notice, the conversation, and every reply live in the
 authenticated web portal, which the user reaches through their own permanent
-bookmarked link. Nothing is pushed to them, so the notice is what they find waiting
-when they open it.
+bookmarked link. Opening the relay means the agent is available; it does not mean
+the user needs to do anything.
 
 When #afk is requested:
 
-1. Briefly summarize why the user should open this agent now. Do not include secrets,
-   transcript content, tool output, or hidden reasoning.
-2. Run \`cxx portal notify --summary "<summary>"\` once through the normal shell tool.
-3. If the command reports that the notice was queued, enter the relay loop below.
+1. Enter the relay loop below directly. Do not run \`cxx portal notify\` merely to
+   announce availability, progress, completion, or a relay check. That command
+   raises a persistent "Needs you" notice; entering AFK mode needs no notice.
+2. Use \`cxx portal say --text "<safe-update>"\` for an optional status update.
+   Use \`cxx portal ask --question "<question>"\` when an answer is required.
+   Reserve \`cxx portal notify --summary "<summary>"\` for a concrete action the user
+   needs to take. Do not include secrets, transcript content, tool output, or
+   hidden reasoning.
+3. If an attention notice was mistaken or no longer needs action, run
+   \`cxx portal resolve --summary "<why-no-action-is-needed>"\`. This clears the
+   notice without closing the relay or answering any outstanding question.
    If the portal or this user is disabled, say so plainly.
 
 Relay loop:
@@ -62,7 +69,7 @@ Never paste raw terminal output, secrets, hidden reasoning, or unsafe tool paylo
 the portal. Publish only the user-facing answer or bounded progress summary.
 
 Never send this notice anywhere yourself — no chat API, no webhook, no mail. The portal
-is the only sanctioned channel, and \`cxx portal notify\` is the only way to write to it.
+is the only sanctioned channel; use the scoped \`cxx portal\` commands above.
 Never read, request, print, or store a portal link or portal token: the link is bearer
 material that an owner or admin reads from Settings → Agent Portal, never something an
 agent hands out.
@@ -76,7 +83,7 @@ export function buildManagedAfkSkill(updatedAt: string): ManagedSkillManifest {
   return {
     slug: MANAGED_AFK_SKILL_SLUG,
     sha256: createHash('sha256').update(MANIFEST).digest('hex'),
-    display_name: 'AFK Portal Notice',
+    display_name: 'AFK Portal Relay',
     description: DESCRIPTION,
     manifest: MANIFEST,
     updated_at: updatedAt,

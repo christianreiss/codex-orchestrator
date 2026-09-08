@@ -451,9 +451,14 @@ and messages are purged.
 `cxx` 0.7.5 registers interactive and human-started execute/resume lifecycles
 with the host credential. It retains the short-lived session bridge bearer and
 proxies a fixed command set over a private Unix socket, leaving only the socket
-path and session metadata in the child. The managed `#afk` Skill queues its
-attention notice and uses `cxx portal wait` to lease portal text in the existing
-root session. Only a live `wait` iteration opens the relay: `cxx portal notify`
+path and session metadata in the child. The managed `#afk` Skill starts quietly
+and uses `cxx portal wait` to lease portal text in the existing root session.
+Availability and progress do not request user attention: `say` publishes status,
+`ask` requests an answer, and `notify` is reserved for a concrete action the user
+needs to take. From cxx 0.8.4, `cxx portal resolve --summary TEXT` withdraws a
+mistaken or resolved attention notice, retaining timeline evidence without
+changing relay readiness, active work, or unanswered prompts.
+Only a live `wait` iteration opens the relay: `cxx portal notify`
 deliberately does not, because notifying is the last thing an agent does before
 its turn ends, and opening the relay there left the portal advertising
 `listening` — and accepting instructions nothing would ever claim — for a full

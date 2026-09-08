@@ -17,7 +17,7 @@ import { notify } from "$lib/portal/browser";
 
 /** Only these can change server-derived agent state, so only these refetch. */
 const AGENT_STATE_EVENTS = new Set([
-  "attention", "waiting_input", "close_requested", "message_canceled",
+  "attention", "attention_resolved", "waiting_input", "close_requested", "message_canceled",
   "completed", "failed", "message_accepted", "started", "resumed",
 ]);
 

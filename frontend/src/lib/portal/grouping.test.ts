@@ -31,6 +31,7 @@ describe("roleFor", () => {
     assert.equal(roleFor(event("waiting_input", T(0))), "prompt");
     assert.equal(roleFor(event("close_requested", T(0))), "close");
     assert.equal(roleFor(event("completed", T(0))), "lifecycle");
+    assert.equal(roleFor(event("attention_resolved", T(0))), "lifecycle");
     assert.equal(roleFor(event("terminal_block", T(0))), "status");
   });
 });
@@ -42,6 +43,8 @@ describe("eventText", () => {
     assert.equal(eventText(event("waiting_input", T(0), { question: "ok?" })), "ok?");
     assert.equal(eventText(event("message_accepted", T(0))), "Instruction accepted by the running agent.");
     assert.equal(eventText(event("terminal_block", T(0))), "terminal block");
+    assert.equal(eventText(event("attention_resolved", T(0))), "Attention resolved.");
+    assert.equal(eventText(event("attention_resolved", T(0), { summary: "Local reply received" })), "Attention resolved — Local reply received");
   });
 });
 
@@ -114,5 +117,18 @@ describe("buildTimeline", () => {
     ]);
     const roles = items.filter((i) => i.kind === "event").map((i) => (i as { role: string }).role);
     assert.ok(roles.includes("attention"), "attention survived the collapse");
+  });
+
+  it("keeps resolved attention visible between runs without turning it into an alert", () => {
+    const items = buildTimeline([
+      event("progress", T(0)), event("progress", T(1)), event("progress", T(2)),
+      event("attention_resolved", T(3)),
+      event("progress", T(4)), event("progress", T(5)), event("progress", T(6)),
+      event("assistant_message", T(7)),
+    ]);
+    const resolution = items.find((item) => item.kind === "event" && item.event.type === "attention_resolved");
+    assert.ok(resolution && resolution.kind === "event");
+    assert.equal(resolution.role, "lifecycle");
+    assert.equal(items.filter((item) => item.kind === "run").length, 2);
   });
 });

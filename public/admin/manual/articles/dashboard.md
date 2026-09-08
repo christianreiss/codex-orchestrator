@@ -20,8 +20,8 @@ its work details, heartbeat and relay timestamps, and permitted timeline.
 
 **Online** means the wrapper recently contacted the server. **Listening** means
 its instruction relay is open; **Working** means it accepted an instruction.
-An online client that is not listening needs `#afk` in its local session before
-it can receive portal input. Offline means current work is unconfirmed, not
+**Not listening** means the local CLI is running with its remote relay closed;
+run `#afk` in that local session before sending portal input. Offline means current work is unconfirmed, not
 that the local engine has necessarily stopped. Revoked or expired credentials
 and disabled engines also make a client unavailable.
 
@@ -33,6 +33,11 @@ shows whether its timeline stream is live or reconnecting. A send that cannot
 be confirmed keeps its draft and original question; retry confirms that same
 request rather than creating a duplicate. Only the current question has active
 answer buttons. On a phone, **Clients** returns from the detail pane to the directory.
+
+When the agent resolves an attention notice, **Attention resolved** stays in the
+timeline as a calm record and the next client snapshot clears the current
+attention indicator. This does not answer or dismiss an outstanding question;
+its current answer buttons remain available while the client can receive replies.
 
 Sending and closing require the appropriate admin capability. **Ask to close**
 needs a reachable relay; **Force close** ends the recorded session even when its

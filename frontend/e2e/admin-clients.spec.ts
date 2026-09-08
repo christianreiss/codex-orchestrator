@@ -213,3 +213,34 @@ test("an expired delivery response preserves the unsent draft", async ({ page })
   await expect(page.getByText("This instruction was not delivered. Your draft is kept.", { exact: true })).toBeVisible();
   await expect(composer).toHaveValue("Keep undelivered work");
 });
+
+for (const engine of ["codex", "claude"] as const) {
+  test(`${engine} resolved attention follows the snapshot and leaves its question actionable`, async ({ page }) => {
+    const state = await fixtures(page);
+    const target = state.sessions.find((row) => row.engine === engine)!;
+    const raised = new Date(Date.now() - 1000).toISOString();
+    const question = `question-${engine}`;
+    target.attention = { since: raised, summary: "Local acknowledgment needed" };
+    target.pending_prompt = { id: question, version: 3, question: "Keep this question open?", options: ["Answer current question"], created_at: raised };
+    state.events = [
+      { cursor: 1, session_id: target.id, type: "attention", source: "engine", payload: { summary: "Local acknowledgment needed" }, created_at: raised },
+      { cursor: 2, session_id: target.id, type: "waiting_input", source: "engine", payload: { prompt_id: question, prompt_version: 3, question: "Keep this question open?", options: ["Answer current question"] }, created_at: raised },
+    ];
+    await open(page); await page.locator(`#client-${target.id}`).click();
+    await expect(page.getByRole("button", { name: "Reply", exact: true })).toBeVisible();
+    const resolution = { cursor: 3, session_id: target.id, type: "attention_resolved", source: "engine", payload: { summary: "Acknowledged locally" }, created_at: new Date().toISOString() };
+    state.events.push(resolution);
+    const before = state.calls.filter((call) => call === "GET /admin/agent-sessions").length;
+    await stream(page, "agent", JSON.stringify(resolution));
+    await expect.poll(() => state.calls.filter((call) => call === "GET /admin/agent-sessions").length).toBeGreaterThan(before);
+    await expect(page.getByText(/Attention resolved — Acknowledged locally/)).toBeVisible();
+    // The event alone must not invent a cleared server projection.
+    await expect(page.getByRole("button", { name: "Reply", exact: true })).toBeVisible();
+    target.attention = null;
+    await stream(page, "agent", JSON.stringify(resolution));
+    await expect(page.getByRole("button", { name: "Reply", exact: true })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: /Needs attention 0/ })).toBeVisible();
+    await page.getByRole("button", { name: "Answer current question", exact: true }).click();
+    await expect.poll(() => state.bodies.some((entry) => entry.path.endsWith(`/prompts/${question}/answer`) && entry.body.version === 3)).toBe(true);
+  });
+}

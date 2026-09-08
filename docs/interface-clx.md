@@ -835,8 +835,13 @@ scrubbed. Cron, auth/preflight, maintenance, and wrapper-only operations are
 excluded. Heartbeats and the terminal completed/failed transition are
 best-effort and cannot block a local Claude run.
 
-The shared `cxx portal status|notify|wait|accept|say|ask|leave` helper is the
-sole relay surface. `notify` queues a notice without opening the relay; only a
+The shared `cxx portal status|notify|resolve|wait|accept|say|ask|leave` helper is the
+sole relay surface. `notify` requests operator attention without opening the relay;
+routine status updates belong in `say`. `resolve --summary TEXT` explicitly
+retracts this session's earlier attention notices with an `attention_resolved`
+timeline event (summary: 1–1000 bytes), preserving the relay, active turn and
+pending prompt. It does not answer a question and reports success only after a
+confirmed publish; uncertain delivery retries keep the event ID. Only a
 live `wait` loop advertises listening. `wait`
 leases the oldest message without acknowledging it; `accept` commits receipt
 after the message reaches the root agent, so an unacknowledged lease is safely

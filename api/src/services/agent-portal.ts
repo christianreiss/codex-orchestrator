@@ -1,3 +1,4 @@
+import { StringDecoder } from 'node:string_decoder';
 import { randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import {
   and,
@@ -81,6 +82,7 @@ export const AGENT_EVENT_TYPES = [
   'terminal_block',
   'message_accepted',
   'attention',
+  'attention_resolved',
   'close_requested',
   // The operator's instruction was accepted into the queue and then discarded
   // without any agent ever claiming it. Server-written only: an agent that is
@@ -97,6 +99,7 @@ export const AGENT_BRIDGE_EVENT_TYPES = [
   'waiting_input',
   'terminal_block',
   'attention',
+  'attention_resolved',
 ] as const satisfies readonly AgentEventType[];
 
 const AGENT_EVENT_TYPE_SET = new Set<string>(AGENT_EVENT_TYPES);
@@ -134,8 +137,10 @@ export type AgentPresence = (typeof AGENT_PRESENCE_STATES)[number];
  * `insertPortalMessageEvent` writes `user_message` for plain messages *and* for
  * prompt answers, so answering a prompt clears the notice -- intended, and
  * pinned by a test. Requesting a close is a stronger acknowledgement still.
+ * Agents may withdraw their own notice with `attention_resolved`; its cursor
+ * clears only earlier attention and leaves answerable prompts untouched.
  */
-const AGENT_ATTENTION_CLEARING_EVENT_TYPES = ['user_message', 'close_requested'] as const;
+const AGENT_ATTENTION_CLEARING_EVENT_TYPES = ['user_message', 'close_requested', 'attention_resolved'] as const;
 
 /** Lifecycle of the operator's close note, read off the queued message row. */
 export const AGENT_CLOSE_STATES = ['pending', 'acknowledged', 'undeliverable'] as const;
@@ -2454,7 +2459,9 @@ function normalizeOptionalText(value: unknown, max: number): string | null {
   if (typeof value !== 'string') return null;
   const normalized = value.trim();
   if (!normalized) return null;
-  return Buffer.byteLength(normalized, 'utf8') > max ? Buffer.from(normalized).subarray(0, max).toString('utf8') : normalized;
+  // write() keeps an incomplete trailing UTF-8 sequence buffered rather than
+  // replacing it with a character that can exceed the byte limit.
+  return Buffer.byteLength(normalized, 'utf8') > max ? new StringDecoder('utf8').write(Buffer.from(normalized).subarray(0, max)) : normalized;
 }
 
 function normalizeMessage(value: unknown): string {
@@ -2522,6 +2529,9 @@ function normalizeEvent(type: AgentEventType, input: Record<string, unknown>): N
   }
   const summary = normalizeOptionalText(input.summary, 1000);
   if (summary) payload.summary = summary;
+  // Resolution is self-authored timeline evidence, never a prompt answer or
+  // an operator message. Ignore unrelated payload fields on this event.
+  if (type === 'attention_resolved') return { payload };
   const messageId = normalizeOptionalText(input.message_id, 64);
   if (messageId) payload.message_id = messageId;
   const promptId = normalizeOptionalText(input.prompt_id, 36);

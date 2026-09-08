@@ -63,6 +63,7 @@ describe("notListeningDetail", () => {
   // opened, and a finished close is not the same as a pending one.
   it("distinguishes the reasons an agent is not listening", () => {
     assert.match(notListeningDetail(agent()), /#afk/);
+    assert.match(notListeningDetail(agent()), /Local CLI is running; remote relay is closed/);
     const states: Array<[CloseState, RegExp]> = [
       ["pending", /Closing/],
       ["acknowledged", /Closed by you/],

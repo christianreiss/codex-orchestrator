@@ -26,7 +26,7 @@ describe("notable", () => {
   // Counting progress would badge every working session, recreating the
   // "everything looks urgent" problem this replaces.
   it("ignores routine progress chatter", () => {
-    for (const type of ["progress", "terminal_block", "message_accepted", "started", "user_message"]) {
+    for (const type of ["progress", "terminal_block", "message_accepted", "started", "user_message", "attention_resolved"]) {
       assert.equal(notable(event(type)), false, type);
     }
   });

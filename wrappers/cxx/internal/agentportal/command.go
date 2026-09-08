@@ -23,6 +23,8 @@ func RunCommand(args []string, stdout, stderr io.Writer) int {
 		return runStatus(stdout, stderr)
 	case "notify":
 		return runNotify(args[1:], stdout, stderr)
+	case "resolve":
+		return runResolve(args[1:], stdout, stderr)
 	case "say":
 		return runSay(args[1:], stdout, stderr)
 	case "ask":
@@ -111,6 +113,34 @@ func runSay(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	return sendEvent("assistant_message", map[string]any{"text": strings.TrimSpace(*text)}, stdout, stderr)
+}
+
+// Resolving a notice retracts its request for human attention. It neither
+// finishes the agent's current instruction nor changes who owns the relay.
+func runResolve(args []string, stdout, stderr io.Writer) int {
+	flags := flag.NewFlagSet("cxx portal resolve", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	summary := flags.String("summary", "", "why the attention notice is resolved")
+	if err := flags.Parse(args); err != nil {
+		return 2
+	}
+	text := strings.TrimSpace(*summary)
+	if text == "" || len(text) > 1000 || flags.NArg() != 0 {
+		fmt.Fprintln(stderr, "cxx portal resolve: --summary is required (1-1000 bytes); no positional arguments")
+		return 2
+	}
+	session, err := SessionFromEnvironment(15 * time.Second)
+	if err != nil {
+		fmt.Fprintln(stderr, "cxx portal:", err)
+		return 1
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 14*time.Second)
+	defer cancel()
+	if err := session.Event(ctx, newUUID(), "attention_resolved", map[string]any{"summary": text}); err != nil {
+		fmt.Fprintln(stderr, "cxx portal:", err)
+		return 1
+	}
+	return emitJSON(stdout, stderr, map[string]any{"status": "queued", "session_id": session.ID, "type": "attention_resolved"})
 }
 
 func runAsk(args []string, stdout, stderr io.Writer) int {
@@ -321,6 +351,7 @@ func printCommandHelp(w io.Writer) {
 	fmt.Fprintln(w, "Usage:")
 	fmt.Fprintln(w, "  cxx portal status")
 	fmt.Fprintln(w, "  cxx portal notify --summary <safe-summary>")
+	fmt.Fprintln(w, "  cxx portal resolve --summary <resolution-summary>")
 	fmt.Fprintln(w, "  cxx portal say --text <safe-assistant-response>")
 	fmt.Fprintln(w, "  cxx portal ask --question <question> [--options 'one|two']")
 	fmt.Fprintln(w, "  cxx portal wait [--seconds 20]")
