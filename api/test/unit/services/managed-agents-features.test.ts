@@ -43,6 +43,7 @@ function context(
     apiKeysInChat: disabled('disabled'),
     agentMessaging: disabled('master_disabled'),
     gitDirector: disabled('git_director_disabled', 0),
+    fileTransfer: disabled('transfers_disabled', 0),
     ...overrides,
   };
 }

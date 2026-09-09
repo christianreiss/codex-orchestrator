@@ -1874,6 +1874,89 @@ export const gitMergeRequests = mysqlTable(
  * Written by `db/migrator.ts`, not by Drizzle. Mirrored here so the schema file
  * stays a complete picture of the database; nothing queries it through Drizzle.
  */
+// ────────────────────────────────────────────────────────────────────────────
+// Agent file transfer — a fleet-wide, TTL'd pool of arbitrary files. Unlike
+// every other artifact table here the CONTENT is not a column: bytes live on
+// the DATA_ROOT volume and `storagePath` points at them. See
+// api/src/db/migrations/0028_add_agent_transfers.sql for why, and for the
+// unlink-before-status-flip ordering the sweeper depends on.
+// ────────────────────────────────────────────────────────────────────────────
+
+/**
+ * One uploaded file.
+ *
+ * `expiresAt` is NOT NULL with no "never" sentinel: every transfer expires, and
+ * an agent must pass a TTL that the service clamps to an operator maximum.
+ * `requestedTtlSeconds` keeps what was asked for, so a transfer that vanished
+ * sooner than its uploader expected shows the clamp rather than hiding it.
+ *
+ * `uploadedBy` and `uploadedFrom` are caller-asserted, like
+ * `gitWorktrees.username`. `POST /mcp` authenticates a host and every agent on
+ * that box shares one API key, so `sourceHostId` is the only identity here the
+ * orchestrator establishes itself.
+ *
+ * `contentSha256` is NULL until the transfer is sealed — it covers the whole
+ * reassembled file, so a put still accepting chunks has nothing honest to store.
+ */
+export const agentTransfers = mysqlTable(
+  'agent_transfers',
+  {
+    id: char('id', { length: 36 }).primaryKey(),
+    name: varchar('name', { length: 255 }).notNull(),
+    description: text('description'),
+    mimeType: varchar('mime_type', { length: 255 }),
+    /** Grows with each chunk, and doubles as the append offset. */
+    sizeBytes: bigint('size_bytes', { mode: 'number', unsigned: true }).notNull().default(0),
+    contentSha256: char('content_sha256', { length: 64 }),
+    /** Relative to DATA_ROOT, e.g. `transfers/ab/ab12…`. */
+    storagePath: varchar('storage_path', { length: 512 }).notNull(),
+    /** `uploading` | `live` | `expired` | `deleted`. Rows are never removed; bytes are. */
+    status: varchar('status', { length: 32 }).notNull(),
+    sourceHostId: bigint('source_host_id', { mode: 'number', unsigned: true }),
+    uploadedBy: varchar('uploaded_by', { length: 255 }),
+    uploadedFrom: varchar('uploaded_from', { length: 512 }),
+    requestedTtlSeconds: int('requested_ttl_seconds', { unsigned: true }),
+    downloadCount: int('download_count', { unsigned: true }).notNull().default(0),
+    expiresAt: varchar('expires_at', { length: 100 }).notNull(),
+    sealedAt: varchar('sealed_at', { length: 100 }),
+    purgedAt: varchar('purged_at', { length: 100 }),
+    createdAt: varchar('created_at', { length: 100 }).notNull(),
+    updatedAt: varchar('updated_at', { length: 100 }).notNull(),
+  },
+  (t) => ({
+    expiryIdx: index('idx_agent_transfers_expiry').on(t.status, t.expiresAt),
+    createdAtIdx: index('idx_agent_transfers_created_at').on(t.createdAt),
+    hostIdx: index('idx_agent_transfers_host').on(t.sourceHostId, t.status),
+  }),
+);
+
+/**
+ * Append-only audit trail. The `downloaded` rows are the point of it: a
+ * fleet-wide pool where knowing an id is enough to fetch has no access control
+ * worth the name, so what it owes an operator instead is a record of who took a
+ * copy. `actorKind` separates the three writers because they are trusted
+ * differently — `agent` is caller-asserted, `admin` is an authenticated console
+ * user, `system` is the sweeper.
+ */
+export const agentTransferEvents = mysqlTable(
+  'agent_transfer_events',
+  {
+    id: char('id', { length: 36 }).primaryKey(),
+    transferId: char('transfer_id', { length: 36 }).notNull(),
+    /** `uploaded` | `appended` | `sealed` | `downloaded` | `deleted` | `expired`. */
+    action: varchar('action', { length: 32 }).notNull(),
+    /** `agent` | `admin` | `system`. */
+    actorKind: varchar('actor_kind', { length: 16 }).notNull(),
+    actorLabel: varchar('actor_label', { length: 255 }),
+    sourceHostId: bigint('source_host_id', { mode: 'number', unsigned: true }),
+    detail: text('detail'),
+    createdAt: varchar('created_at', { length: 100 }).notNull(),
+  },
+  (t) => ({
+    transferIdx: index('idx_agent_transfer_events_transfer').on(t.transferId, t.createdAt),
+  }),
+);
+
 export const schemaMigrations = mysqlTable('schema_migrations', {
   version: varchar('version', { length: 32 }).primaryKey(),
   name: varchar('name', { length: 191 }).notNull(),
@@ -1930,3 +2013,5 @@ export type CliAuthRequest = typeof cliAuthRequests.$inferSelect;
 export type GitClone = typeof gitClones.$inferSelect;
 export type GitWorktree = typeof gitWorktrees.$inferSelect;
 export type GitMergeRequest = typeof gitMergeRequests.$inferSelect;
+export type AgentTransfer = typeof agentTransfers.$inferSelect;
+export type AgentTransferEvent = typeof agentTransferEvents.$inferSelect;

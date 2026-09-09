@@ -33,6 +33,7 @@ import { McpFsTools } from '../../services/mcp-fs.js';
 import { McpResourcesService } from '../../services/mcp-resources.js';
 import { McpServer } from '../../services/mcp-server.js';
 import { GitDirectorService } from '../../services/git-director.js';
+import { AgentTransfersService } from '../../services/agent-transfers.js';
 import { createRunnerGitDirectorJudge } from '../../services/git-director-judge.js';
 import { createRunnerClaudeAdapter } from '../../services/adapters/runner-claude.js';
 import { createRunnerValidationService } from '../../services/runner-validation.js';
@@ -106,6 +107,12 @@ export async function registerMcpRoutes(app: FastifyInstance, ctx: RouteContext)
     settings: new SettingsService(ctx.db),
   });
 
+  const transfers = new AgentTransfersService({
+    db: ctx.db,
+    settings: new SettingsService(ctx.db),
+    dataRoot: ctx.env.DATA_ROOT ?? '/app/storage',
+  });
+
   const resources = new McpResourcesService({ memories, sharedMemories, projects, skills });
   const tools = new McpToolsRegistry({
     memories,
@@ -117,6 +124,7 @@ export async function registerMcpRoutes(app: FastifyInstance, ctx: RouteContext)
     secrets,
     gitDirector,
     board,
+    transfers,
   });
   const server = new McpServer(tools, resources, accessLog);
 

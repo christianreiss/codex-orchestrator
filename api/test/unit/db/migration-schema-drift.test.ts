@@ -191,6 +191,8 @@ describe('migrations against the test baseline', () => {
       'coord_project_boards',
       'coord_project_board_columns',
       'coord_project_cards',
+      'agent_transfers',
+      'agent_transfer_events',
     ]);
     expect(
       additions.filter((a) => a.column !== undefined).map((a) => `${a.table}.${a.column}`),

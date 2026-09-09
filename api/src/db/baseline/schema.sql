@@ -397,6 +397,40 @@ CREATE TABLE `agent_sessions` (
 	CONSTRAINT `agent_sessions_id` PRIMARY KEY(`id`)
 );
 
+CREATE TABLE `agent_transfer_events` (
+	`id` char(36) NOT NULL,
+	`transfer_id` char(36) NOT NULL,
+	`action` varchar(32) NOT NULL,
+	`actor_kind` varchar(16) NOT NULL,
+	`actor_label` varchar(255),
+	`source_host_id` bigint unsigned,
+	`detail` text,
+	`created_at` varchar(100) NOT NULL,
+	CONSTRAINT `agent_transfer_events_id` PRIMARY KEY(`id`)
+);
+
+CREATE TABLE `agent_transfers` (
+	`id` char(36) NOT NULL,
+	`name` varchar(255) NOT NULL,
+	`description` text,
+	`mime_type` varchar(255),
+	`size_bytes` bigint unsigned NOT NULL DEFAULT 0,
+	`content_sha256` char(64),
+	`storage_path` varchar(512) NOT NULL,
+	`status` varchar(32) NOT NULL,
+	`source_host_id` bigint unsigned,
+	`uploaded_by` varchar(255),
+	`uploaded_from` varchar(512),
+	`requested_ttl_seconds` int unsigned,
+	`download_count` int unsigned NOT NULL DEFAULT 0,
+	`expires_at` varchar(100) NOT NULL,
+	`sealed_at` varchar(100),
+	`purged_at` varchar(100),
+	`created_at` varchar(100) NOT NULL,
+	`updated_at` varchar(100) NOT NULL,
+	CONSTRAINT `agent_transfers_id` PRIMARY KEY(`id`)
+);
+
 CREATE TABLE `agents_document_state` (
 	`id` tinyint NOT NULL,
 	`mode` varchar(16) NOT NULL,
@@ -1237,6 +1271,10 @@ CREATE INDEX `idx_agent_sessions_status` ON `agent_sessions` (`status`,`heartbea
 CREATE INDEX `idx_agent_sessions_host` ON `agent_sessions` (`host_id`,`engine`);
 CREATE INDEX `idx_agent_sessions_expiry` ON `agent_sessions` (`expires_at`);
 CREATE INDEX `idx_agent_sessions_address` ON `agent_sessions` (`agent_bus_address_id`,`status`,`heartbeat_at`);
+CREATE INDEX `idx_agent_transfer_events_transfer` ON `agent_transfer_events` (`transfer_id`,`created_at`);
+CREATE INDEX `idx_agent_transfers_expiry` ON `agent_transfers` (`status`,`expires_at`);
+CREATE INDEX `idx_agent_transfers_created_at` ON `agent_transfers` (`created_at`);
+CREATE INDEX `idx_agent_transfers_host` ON `agent_transfers` (`source_host_id`,`status`);
 CREATE INDEX `idx_agents_document_state_updated_at` ON `agents_document_state` (`updated_at`);
 CREATE INDEX `idx_agents_documents_updated_at` ON `agents_documents` (`updated_at`);
 CREATE INDEX `idx_agents_documents_engine` ON `agents_documents` (`engine`);

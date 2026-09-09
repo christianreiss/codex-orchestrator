@@ -667,6 +667,16 @@ const CURATION_TOOLS = [
   'shared_memory_delete',
   'project_memory_upsert',
   'project_memory_delete',
+  // Same asymmetry, one surface over: `transfer_list`, `transfer_get` and
+  // `transfer_info` read and were already allowed, while putting a file into
+  // the pool and taking it back out again are the two calls a handoff actually
+  // needs. A prompt on `transfer_put` lands on an agent mid-task with a file it
+  // cannot hand over; a prompt on `transfer_delete` is what turns "clean up
+  // after yourself" into "leave it to expire". The module is off by default and
+  // an operator switch still gates the whole surface, so this widens nothing on
+  // a fleet that has not asked for it.
+  'transfer_put',
+  'transfer_delete',
 ] as const;
 
 /**

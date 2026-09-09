@@ -148,6 +148,9 @@ Code-truth operator map for `/admin/*`. Source of truth is runtime code (`api/sr
 | `agent_messaging.manage` | yes | yes | — | — | — | — |
 | `git_director.read` | yes | yes | yes | yes | yes | yes |
 | `git_director.manage` | yes | yes | yes | — | — | — |
+| `transfers.read` | yes | yes | yes | yes | yes | yes |
+| `transfers.download` | yes | yes | — | — | — | — |
+| `transfers.manage` | yes | yes | yes | — | — | — |
 | `audit.read` | yes | yes | yes | yes | yes | yes |
 
 <!-- END GENERATED: capability-matrix -->

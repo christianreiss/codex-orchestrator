@@ -165,6 +165,14 @@ export const DEFAULT_INVALIDATIONS: WsInvalidationMap = {
   "git_director.decision_forced": [["git-director"]],
   "git_director.worktree_evicted": [["git-director"]],
 
+  // File transfer. The pool listing and the module state are separate queries,
+  // so both are invalidated: a toggle changes the state card, an upload changes
+  // the table, and a limits change moves the quota meter on the same page.
+  "transfers.changed": [["transfers"]],
+  "transfers.module_toggled": [["transfers"]],
+  "transfers.limits_changed": [["transfers"]],
+  "transfers.deleted": [["transfers"]],
+
   // Usage / dashboard
   "chatgpt.usage.updated": [["usage", "chatgpt"]],
   // Pushed by the clx wrapper via POST /claude/usage/report, not fetched by

@@ -18,6 +18,7 @@ import { ProjectsService } from './projects.js';
 import { SecretsService } from './secrets.js';
 import { SettingsService } from './settings.js';
 import { GitDirectorService, GIT_DIRECTOR_ENABLED_FLAG } from './git-director.js';
+import { AgentTransfersService, TRANSFERS_ENABLED_FLAG } from './agent-transfers.js';
 import { AGENT_MESSAGING_ENABLED_KEY } from './agent-messaging.js';
 import { API_KEYS_IN_CHAT_ALLOWED_KEY } from './api-keys-in-chat.js';
 import {
@@ -53,6 +54,7 @@ export class HostAgentsService {
   private readonly secrets: SecretsService;
   private readonly settings: SettingsService;
   private readonly gitDirector: GitDirectorService;
+  private readonly transfers: AgentTransfersService;
   private readonly profiles: AgentPolicyProfilesService;
 
   constructor(
@@ -74,6 +76,11 @@ export class HostAgentsService {
     // this host see?". Rendering a guidance block must not be able to reach a
     // model, and omitting the judge makes that structural rather than a promise.
     this.gitDirector = new GitDirectorService({ db, settings: this.settings });
+    // Same reasoning again: this instance only ever answers "is the pool on,
+    // and how many files does it hold?". `dataRoot` is deliberately a path this
+    // renderer never touches -- counting live rows reads no bytes -- so a
+    // guidance render cannot reach the transfer store's disk.
+    this.transfers = new AgentTransfersService({ db, settings: this.settings, dataRoot: '' });
     this.profiles = new AgentPolicyProfilesService(db);
   }
 
@@ -368,6 +375,8 @@ export class HostAgentsService {
       agentMessagingEnabled,
       gitDirectorEnabled,
       gitDirectorCloneCount,
+      transfersEnabled,
+      transferCount,
     ] = await Promise.all([
       this.db
         .select()
@@ -386,6 +395,8 @@ export class HostAgentsService {
       this.settings.getFlag(AGENT_MESSAGING_ENABLED_KEY, false).catch(() => null),
       this.settings.getFlag(GIT_DIRECTOR_ENABLED_FLAG, false).catch(() => null),
       this.gitDirector.availableCount(host).catch(() => null),
+      this.settings.getFlag(TRANSFERS_ENABLED_FLAG, false).catch(() => null),
+      this.transfers.availableCount().catch(() => null),
     ]);
     // db-fake ignores WHERE, so do not borrow another engine's row in tests.
     const configRow = configRows.find((candidate) => candidate.engine === engine) ?? null;
@@ -492,6 +503,20 @@ export class HostAgentsService {
             ? state(false, 'git_director_disabled')
             : state(true, 'ok', gitDirectorCloneCount);
 
+    // Gated on `mcp.enabled` for the same reason the Director is: the
+    // `transfer_*` tools are served by the orchestrator's own MCP entry, so a
+    // host whose managed MCP configuration never reached it has no pool to call
+    // and must not be told it has one. An empty pool still needs the guidance --
+    // being the first to upload is the normal case.
+    const fileTransfer =
+      transfersEnabled === null || transferCount === null
+        ? state(false, 'service_unavailable')
+        : !mcp.enabled
+          ? state(false, mcp.reason)
+          : !transfersEnabled
+            ? state(false, 'transfers_disabled')
+            : state(true, 'ok', transferCount);
+
     return {
       engine,
       skills,
@@ -502,6 +527,7 @@ export class HostAgentsService {
       apiKeysInChat,
       agentMessaging,
       gitDirector,
+      fileTransfer,
     };
   }
 

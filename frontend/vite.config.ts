@@ -21,9 +21,18 @@ import type { IncomingMessage } from "node:http";
 // `Accept: text/event-stream` and offers no way to change it. It is just as
 // reliable a signal — nothing in Vite's dev space asks for an event stream — so
 // it is admitted alongside JSON rather than being answered by the dev server.
+//
+// A transfer download is the third: it returns file bytes, not an envelope, so
+// lib/utils/download.ts asks for `application/octet-stream` explicitly. It is
+// fetched rather than navigated to precisely so it CAN carry a distinguishing
+// header — a plain `<a download>` would send a browser navigation Accept and be
+// answered by the dev server with the SPA shell.
 function bypassNonApi(req: IncomingMessage): string | undefined {
   const accept = req.headers.accept ?? "";
-  const isApiCall = accept.includes("application/json") || accept.includes("text/event-stream");
+  const isApiCall =
+    accept.includes("application/json") ||
+    accept.includes("text/event-stream") ||
+    accept.includes("application/octet-stream");
   return isApiCall ? undefined : req.url;
 }
 

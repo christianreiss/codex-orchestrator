@@ -124,6 +124,14 @@ export const CAPABILITIES = [
   // module switch turns the registry off fleet-wide, so both sit behind manage.
   'git_director.manage',
 
+  'transfers.read',
+  // The bytes themselves. A transfer is whatever an agent chose to upload and
+  // may hold anything the fleet was working on, so reading one back is its own
+  // grant -- the same line secrets.reveal and agent_messaging.reveal_content
+  // draw between metadata and content.
+  'transfers.download',
+  'transfers.manage',
+
   'audit.read',
 ] as const;
 
@@ -159,6 +167,7 @@ const READ_ONLY: readonly Capability[] = [
   'agent_portal.read',
   'agent_messaging.read',
   'git_director.read',
+  'transfers.read',
   'audit.read',
 ];
 
@@ -179,6 +188,11 @@ const FLEET_OPERATOR: readonly Capability[] = [
   // Arbitrating merges between running agents is fleet operation, not content
   // authorship: it sits with the role that already keeps the fleet running.
   'git_director.manage',
+  // Keeping the transfer pool running -- the switch, its bounds, and clearing a
+  // file out -- is fleet operation. `transfers.download` deliberately does NOT
+  // come with it: a fleet operator may empty the pool without reading what was
+  // in it, exactly as they may replace a credential without revealing one.
+  'transfers.manage',
 ];
 
 /**
