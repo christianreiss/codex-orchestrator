@@ -193,11 +193,13 @@ describe('InsecureWindowAdminService.allowDomain', () => {
     const out = await svc.allowDomain(1, null, null);
 
     expect(out.domain.domain).toBe('eu.example.com');
-    // No explicit duration -> the host's stored window is reused.
-    expect(out.windowMinutes).toBe(10);
+    // No explicit duration -> the 8h approval window, not the host's stored
+    // 10-minute sliding default: an operator saying yes should not have to say
+    // it again ten minutes later.
+    expect(out.windowMinutes).toBe(480);
     expect(db.tables.get(insecureDomainAllows)?.[0]).toMatchObject({
       domain: 'eu.example.com',
-      windowMinutes: 10,
+      windowMinutes: 480,
     });
   });
 });

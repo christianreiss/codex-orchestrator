@@ -133,6 +133,12 @@ export interface FleetCloseCounts {
  * back in on the next poll, so `enabled_until` is pulled back to now. The rows
  * survive with `revoked_at` still NULL, so an operator can re-arm one from the
  * approvals dialog; this is not a revoke.
+ *
+ * Never-expiring allows (`enabled_until IS NULL`, written by `allowDomain` with
+ * `permanent`) are swept too — the `isNull` arm of the filter is there for
+ * exactly them. "Disable all" is the panic button, and a grant that survived it
+ * would make the button a lie; permanence is about surviving a restart, not
+ * about outranking the operator. The row is left behind to be re-armed.
  */
 export async function closeAllInsecureAccess(
   db: Database,

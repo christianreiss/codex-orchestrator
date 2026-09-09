@@ -152,6 +152,10 @@ const versionSelectionSchema = z.object({
 const allowDomainSchema = z.object({
   domain: z.union([z.string(), z.null()]).optional(),
   duration_minutes: durationMinutesSchema,
+  // `enabled_until = NULL` — an allow that never lapses. A flag rather than a
+  // zero duration because 0 minutes is a legal (closed) window length, and
+  // `window_minutes` still governs how long a matched host stays open.
+  permanent: booleanish.optional(),
 });
 
 const approveSchema = z.object({
@@ -622,7 +626,12 @@ export async function registerAdminHostsRoutes(
     handler: async (req) => {
       const id = parseId((req.params as { id: string }).id);
       const body = parseZod(allowDomainSchema, req.body);
-      const result = await insecure.allowDomain(id, body.domain ?? null, body.duration_minutes ?? null);
+      const result = await insecure.allowDomain(
+        id,
+        body.domain ?? null,
+        body.duration_minutes ?? null,
+        body.permanent === true,
+      );
       return {
         request: { id: result.requestId, status: 'approved' },
         host: hostToWire(result.host),
@@ -632,6 +641,7 @@ export async function registerAdminHostsRoutes(
           enabled_until: result.domain.enabled_until,
           window_minutes: result.domain.window_minutes,
         },
+        cleared_request_ids: result.clearedRequestIds,
       };
     },
   });

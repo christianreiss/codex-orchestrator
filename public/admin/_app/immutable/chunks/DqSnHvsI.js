@@ -1,1 +1,0 @@
-import{$ as e,At as t,Q as n,X as r,Y as i,at as a,ot as o}from"./CF3ccWRX.js";function s(s,c){var l=i,u=r,d=s();let f=t(d,t=>{var c=d!==s(),f,p=r,m=i;e(u),n(l);try{f=a(()=>{o(()=>{let e=s();c&&t(e)})})}finally{e(p),n(m)}return c=!0,f});return c?{set:c,update:e=>c(e(s())),subscribe:f.subscribe}:{subscribe:f.subscribe}}export{s as t};

@@ -215,8 +215,13 @@ function makeMocks() {
       calls.push({ method: 'insecure.deny', args: [id] });
       return { requestId: id, host: fakeHost() };
     },
-    allowDomain: async (id: number, domain: string | null, minutes: number | null) => {
-      calls.push({ method: 'insecure.allowDomain', args: [id, domain, minutes] });
+    allowDomain: async (
+      id: number,
+      domain: string | null,
+      minutes: number | null,
+      permanent = false,
+    ) => {
+      calls.push({ method: 'insecure.allowDomain', args: [id, domain, minutes, permanent] });
       return {
         requestId: id,
         host: fakeHost(),
@@ -232,6 +237,7 @@ function makeMocks() {
         enabledUntil: '2024-01-01T00:30:00Z',
         graceUntil: null,
         windowMinutes: 30,
+        clearedRequestIds: [id],
       };
     },
     openFleetWindow: async (durationMinutes: number | null) => {
@@ -678,7 +684,29 @@ describe('admin hosts routes', () => {
       const body = JSON.parse(r.payload);
       expect(body.request).toEqual({ id: 3, status: 'approved' });
       expect(body.domain).toMatchObject({ domain: 'example.com' });
-      expect(calls.find((c) => c.method === 'insecure.allowDomain')?.args).toEqual([3, 'example.com', null]);
+      expect(calls.find((c) => c.method === 'insecure.allowDomain')?.args).toEqual([
+        3,
+        'example.com',
+        null,
+        false,
+      ]);
+      await app.close();
+    });
+
+    it('POST /admin/insecure-approvals/:id/allow-domain forwards permanent', async () => {
+      const { app, calls } = await build({ authenticated: true });
+      const r = await app.inject({
+        method: 'POST',
+        url: '/admin/insecure-approvals/3/allow-domain',
+        payload: { domain: 'example.com', permanent: true },
+      });
+      expect(r.statusCode).toBe(200);
+      expect(calls.find((c) => c.method === 'insecure.allowDomain')?.args).toEqual([
+        3,
+        'example.com',
+        null,
+        true,
+      ]);
       await app.close();
     });
 

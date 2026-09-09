@@ -1,0 +1,1 @@
+import{Mt as e,Q as t,Z as n,ct as r,et as i,st as a,tt as o}from"./DOwKBK7S.js";function s(s,c){var l=n,u=t,d=s();let f=e(d,e=>{var c=d!==s(),f,p=t,m=n;o(u),i(l);try{f=a(()=>{r(()=>{let t=s();c&&e(t)})})}finally{o(p),i(m)}return c=!0,f});return c?{set:c,update:e=>c(e(s())),subscribe:f.subscribe}:{subscribe:f.subscribe}}export{s as t};

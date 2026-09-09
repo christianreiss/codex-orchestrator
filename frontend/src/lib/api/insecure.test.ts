@@ -278,7 +278,7 @@ const MUTATION_CASES: MutationCase[] = [
     request: {
       method: "POST",
       path: "/admin/insecure-approvals/12/allow-domain",
-      body: { domain: "example.com", duration_minutes: 60 },
+      body: { domain: "example.com", duration_minutes: 60, permanent: undefined },
     },
     invalidates: [KEYS.approvals, KEYS.summary],
   },
@@ -290,7 +290,19 @@ const MUTATION_CASES: MutationCase[] = [
     request: {
       method: "POST",
       path: "/admin/insecure-approvals/12/allow-domain",
-      body: { domain: "example.com", duration_minutes: undefined },
+      body: { domain: "example.com", duration_minutes: undefined, permanent: undefined },
+    },
+    invalidates: [KEYS.approvals, KEYS.summary],
+  },
+  {
+    name: "createAllowDomainMutation",
+    label: "createAllowDomainMutation with permanent",
+    build: (qc) => asMutation(insecure.createAllowDomainMutation(qc)),
+    variables: { id: 12, domain: "example.com", permanent: true },
+    request: {
+      method: "POST",
+      path: "/admin/insecure-approvals/12/allow-domain",
+      body: { domain: "example.com", duration_minutes: undefined, permanent: true },
     },
     invalidates: [KEYS.approvals, KEYS.summary],
   },
@@ -393,6 +405,11 @@ describe("duration_minutes payloads", () => {
 
     await built.mutationFn({ id: 12, duration_minutes: 60 });
     assert.equal(wire(), '{"duration_minutes":60}');
+
+    // `permanent` only reaches the wire when it is actually set, so the
+    // ordinary timed allow keeps the body it always had.
+    await built.mutationFn({ id: 12, domain: "example.com", permanent: true });
+    assert.equal(wire(), '{"domain":"example.com","permanent":true}');
   });
 });
 

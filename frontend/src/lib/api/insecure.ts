@@ -143,12 +143,13 @@ export function createAllowDomainMutation(qc: QueryClient) {
   return createMutation<
     unknown,
     ApiError,
-    { id: number | string; domain?: string; duration_minutes?: number }
+    { id: number | string; domain?: string; duration_minutes?: number; permanent?: boolean }
   >({
-    mutationFn: ({ id, domain, duration_minutes }) =>
+    mutationFn: ({ id, domain, duration_minutes, permanent }) =>
       api.post(`/admin/insecure-approvals/${id}/allow-domain`, {
         domain,
         duration_minutes,
+        permanent,
       }),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: insecureKeys.approvals() });

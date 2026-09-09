@@ -28,6 +28,7 @@ import {
   clampInsecureMinutes,
   computeGraceUntil,
   DEFAULT_INSECURE_WINDOW_MINUTES,
+  MAX_INSECURE_WINDOW_MINUTES,
 } from './host-management.js';
 import { SettingsService } from './settings.js';
 import {
@@ -41,6 +42,34 @@ import {
 } from './insecure-fleet-window.js';
 
 const PENDING_APPROVAL_TTL_MS = 5 * 60_000;
+
+/**
+ * What an operator approval is worth: eight hours, the same grant the fleet
+ * window hands out by default.
+ *
+ * Deliberately not the host's stored `insecure_window_minutes` (10 by default).
+ * That number is the *sliding* window for unattended traffic — a host that keeps
+ * talking keeps itself open ten minutes at a time. An approval is a different
+ * act: a human looked at the request and said yes, and making them look again
+ * ten minutes later is the behaviour that drove operators to open the fleet
+ * window instead. `approve()` and `allowDomain()` also write this onto
+ * `insecure_window_minutes`, so the subsequent slides in `enforce()` are eight
+ * hours too rather than collapsing back to ten minutes on the next request.
+ */
+const APPROVAL_WINDOW_MINUTES = MAX_INSECURE_WINDOW_MINUTES;
+
+/** Cap on how many sibling requests one domain allow resolves in a sweep. */
+const DOMAIN_SWEEP_LIMIT = 200;
+
+/** True when `fqdn` is `domain` itself or a subdomain of it. */
+function fqdnMatchesDomain(fqdn: string | null | undefined, domain: string): boolean {
+  if (typeof fqdn !== 'string') return false;
+  const f = fqdn.toLowerCase().trim();
+  if (!f) return false;
+  if (f === domain) return true;
+  const suffix = `.${domain}`;
+  return f.endsWith(suffix) && f.length > suffix.length;
+}
 
 export interface InsecureWindowAdminOptions {
   db: Database;
@@ -133,6 +162,46 @@ export class InsecureWindowAdminService {
     const rows = await this.db.select().from(hosts).where(eq(hosts.id, id)).limit(1);
     if (!rows[0]) throw new NotFoundError('Host not found');
     return rows[0];
+  }
+
+  /**
+   * Open (or extend) one host's window by `minutes` and write the audit row.
+   *
+   * Extracted so the single-host approval and the domain sweep stamp hosts
+   * identically: the same additive base (an already-open window is extended,
+   * not truncated), the same grace tail, and the same stored window minutes.
+   */
+  private async stampHostWindow(
+    host: Host,
+    minutes: number,
+    source: 'approval' | 'approval_domain',
+    requestId: number,
+  ): Promise<Date> {
+    const now = Date.now();
+    const currentEnabled = parseDate(host.insecureEnabledUntil);
+    const baseMs = currentEnabled && currentEnabled.getTime() > now ? currentEnabled.getTime() : now;
+    const enabledUntil = new Date(baseMs + minutes * 60_000);
+    const graceMinutes = clampInsecureMinutes(this.env.INSECURE_GRACE_MINUTES, 60);
+    const grace = computeGraceUntil(enabledUntil, minutes, graceMinutes);
+
+    await this.db
+      .update(hosts)
+      .set({
+        insecureEnabledUntil: enabledUntil,
+        insecureGraceUntil: grace,
+        insecureWindowMinutes: minutes,
+        updatedAt: nowIso(),
+      })
+      .where(eq(hosts.id, host.id));
+
+    await this.writeLog(host.id, 'admin.host.insecure_enable', {
+      fqdn: host.fqdn,
+      enabled_until: enabledUntil.toISOString(),
+      window_minutes: minutes,
+      source,
+      request_id: requestId,
+    });
+    return enabledUntil;
   }
 
   private isExpiredPendingRequest(req: { status: string; requestedAt: string }): boolean {
@@ -236,10 +305,18 @@ export class InsecureWindowAdminService {
         window_minutes: minutes,
         hosts_opened: stamped.length,
         approvals_resolved: approved.length,
+        cleared_request_ids: approved.map((r) => r.id),
       },
       {
         wsType: 'insecure.approval.changed',
-        wsPayload: { source: 'fleet_window_opened', enabled_until: raw },
+        wsPayload: {
+          source: 'fleet_window_opened',
+          enabled_until: raw,
+          // Which rows the open just resolved. Clients hold a pending list they
+          // cannot otherwise reconcile: the rows simply stop coming back from
+          // /pending, with nothing saying they were allowed rather than denied.
+          cleared_request_ids: approved.map((r) => r.id),
+        },
       },
     );
 
@@ -468,37 +545,19 @@ export class InsecureWindowAdminService {
       throw new ValidationError('Host is secure; insecure window not applicable');
     }
 
-    const now = Date.now();
-    const currentEnabled = parseDate(host.insecureEnabledUntil);
-    const baseMs = currentEnabled && currentEnabled.getTime() > now ? currentEnabled.getTime() : now;
-    const fallback = host.insecureWindowMinutes ?? DEFAULT_INSECURE_WINDOW_MINUTES;
-    const minutes = clampInsecureMinutes(durationMinutes ?? fallback, fallback);
-    const enabledUntil = new Date(baseMs + minutes * 60_000);
+    const minutes = clampInsecureMinutes(
+      durationMinutes ?? APPROVAL_WINDOW_MINUTES,
+      APPROVAL_WINDOW_MINUTES,
+    );
+    const enabledUntil = await this.stampHostWindow(host, minutes, 'approval', requestId);
     const graceMinutes = clampInsecureMinutes(this.env.INSECURE_GRACE_MINUTES, 60);
     const grace = computeGraceUntil(enabledUntil, minutes, graceMinutes);
-
-    await this.db
-      .update(hosts)
-      .set({
-        insecureEnabledUntil: enabledUntil,
-        insecureGraceUntil: grace,
-        insecureWindowMinutes: minutes,
-        updatedAt: nowIso(),
-      })
-      .where(eq(hosts.id, host.id));
 
     await this.db
       .update(insecureAuthRequests)
       .set({ status: 'approved', resolvedAt: nowIso(), updatedAt: nowIso() })
       .where(eq(insecureAuthRequests.id, requestId));
 
-    await this.writeLog(host.id, 'admin.host.insecure_enable', {
-      fqdn: host.fqdn,
-      enabled_until: enabledUntil.toISOString(),
-      window_minutes: minutes,
-      source: 'approval',
-      request_id: requestId,
-    });
     await this.writeLog(host.id, 'admin.insecure.approval', {
       fqdn: host.fqdn,
       request_id: requestId,
@@ -555,10 +614,28 @@ export class InsecureWindowAdminService {
 
   // ────────── allow-domain (open window for the parent domain) ──────────
 
+  /**
+   * Allow a whole domain, and resolve every pending request it now covers.
+   *
+   * The sweep is the point. `enforce()`'s domain branch admits any host whose
+   * FQDN matches an active allow, so the moment this row is written, every other
+   * pending request under the same domain is already decided — leaving them in
+   * the operator's list asks for clicks whose answer the gate has stopped
+   * reading. The match uses the same suffix rule as `findActiveDomainAllow`
+   * (see `fqdnMatchesDomain`), so the set the UI clears is exactly the set the
+   * gate would wave through.
+   *
+   * `permanent` writes `enabled_until = NULL`, which `findActiveDomainAllow`
+   * already treats as always-active. It is a separate flag rather than a
+   * zero-minute duration because 0 is a legal window length meaning "closed",
+   * and `window_minutes` still has a job here: it is how long a *host* window
+   * stays open when the domain branch admits it.
+   */
   async allowDomain(
     requestId: number,
     domainInput: string | null,
     durationMinutes: number | null,
+    permanent = false,
   ): Promise<{
     requestId: number;
     host: Host;
@@ -566,6 +643,7 @@ export class InsecureWindowAdminService {
     enabledUntil: string;
     graceUntil: string | null;
     windowMinutes: number;
+    clearedRequestIds: number[];
   }> {
     const req = await this.findRequest(requestId);
     if (!req) throw new NotFoundError('Request not found');
@@ -589,10 +667,12 @@ export class InsecureWindowAdminService {
       throw new ValidationError('Domain must be a parent of the host FQDN', { param: 'domain' });
     }
 
-    const fallback = host.insecureWindowMinutes ?? DEFAULT_INSECURE_WINDOW_MINUTES;
-    const minutes = clampInsecureMinutes(durationMinutes ?? fallback, fallback);
+    const minutes = clampInsecureMinutes(
+      durationMinutes ?? APPROVAL_WINDOW_MINUTES,
+      APPROVAL_WINDOW_MINUTES,
+    );
     const now = Date.now();
-    const domainEnabledUntil = new Date(now + minutes * 60_000).toISOString();
+    const domainEnabledUntil = permanent ? null : new Date(now + minutes * 60_000).toISOString();
 
     // Upsert the insecure_domain_allows row.
     const existing = await this.db
@@ -645,29 +725,9 @@ export class InsecureWindowAdminService {
     });
 
     // Also bump the host window itself
-    const currentEnabled = parseDate(host.insecureEnabledUntil);
-    const baseMs =
-      currentEnabled && currentEnabled.getTime() > now ? currentEnabled.getTime() : now;
-    const enabledUntil = new Date(baseMs + minutes * 60_000);
+    const enabledUntil = await this.stampHostWindow(host, minutes, 'approval_domain', requestId);
     const graceMinutes = clampInsecureMinutes(this.env.INSECURE_GRACE_MINUTES, 60);
     const grace = computeGraceUntil(enabledUntil, minutes, graceMinutes);
-
-    await this.db
-      .update(hosts)
-      .set({
-        insecureEnabledUntil: enabledUntil,
-        insecureGraceUntil: grace,
-        insecureWindowMinutes: minutes,
-        updatedAt: nowIso(),
-      })
-      .where(eq(hosts.id, host.id));
-    await this.writeLog(host.id, 'admin.host.insecure_enable', {
-      fqdn: host.fqdn,
-      enabled_until: enabledUntil.toISOString(),
-      window_minutes: minutes,
-      source: 'approval_domain',
-      request_id: requestId,
-    });
 
     await this.db
       .update(insecureAuthRequests)
@@ -678,6 +738,9 @@ export class InsecureWindowAdminService {
       request_id: requestId,
     });
 
+    // Sweep the siblings this allow just decided.
+    const clearedRequestIds = [requestId, ...(await this.resolveSiblingRequests(domain, minutes))];
+
     await this.events.appendAndPublish(
       'insecure.domain.allowed',
       {
@@ -686,11 +749,19 @@ export class InsecureWindowAdminService {
         domain,
         domain_id: domainId,
         request_id: requestId,
+        permanent,
+        cleared_request_ids: clearedRequestIds,
       },
       {
         hostId: host.id,
         wsType: 'insecure.domain.allowed',
-        wsPayload: { host_id: host.id, domain, domain_id: domainId, request_id: requestId },
+        wsPayload: {
+          host_id: host.id,
+          domain,
+          domain_id: domainId,
+          request_id: requestId,
+          cleared_request_ids: clearedRequestIds,
+        },
       },
     );
 
@@ -702,7 +773,50 @@ export class InsecureWindowAdminService {
       enabledUntil: enabledUntil.toISOString(),
       graceUntil: grace ? grace.toISOString() : null,
       windowMinutes: minutes,
+      clearedRequestIds,
     };
+  }
+
+  /**
+   * Approve every *other* pending request whose host now falls under `domain`.
+   *
+   * Not routed through `approve()` on purpose, for the same reason
+   * `approveAllPendingInsecureRequests` isn't: `approve()` auto-denies anything
+   * past the five-minute TTL and then throws. A sibling that has been waiting
+   * six minutes when the operator allows its domain would be denied rather than
+   * let in — the opposite of what allowing the domain means.
+   */
+  private async resolveSiblingRequests(domain: string, minutes: number): Promise<number[]> {
+    const rows = await this.db
+      .select()
+      .from(insecureAuthRequests)
+      .where(eq(insecureAuthRequests.status, 'pending'))
+      .orderBy(asc(insecureAuthRequests.id))
+      .limit(DOMAIN_SWEEP_LIMIT);
+
+    const cleared: number[] = [];
+    for (const row of rows) {
+      const host = await this.findHost(row.hostId).catch(() => null);
+      if (!host) continue;
+      if (host.secure === 1) continue;
+      if (!fqdnMatchesDomain(host.fqdn, domain)) continue;
+
+      await this.stampHostWindow(host, minutes, 'approval_domain', row.id);
+      const resolvedAt = nowIso();
+      await this.db
+        .update(insecureAuthRequests)
+        .set({ status: 'approved', resolvedAt, updatedAt: resolvedAt })
+        .where(eq(insecureAuthRequests.id, row.id));
+      await this.writeLog(host.id, 'admin.insecure.approval', {
+        fqdn: host.fqdn,
+        request_id: row.id,
+        source: 'domain_sweep',
+        domain,
+      });
+      wsPublisher.publish('host.updated', { id: host.id });
+      cleared.push(row.id);
+    }
+    return cleared;
   }
 
   // ────────── revoke domain ──────────

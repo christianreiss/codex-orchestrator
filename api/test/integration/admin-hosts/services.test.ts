@@ -638,6 +638,105 @@ describe('InsecureWindowAdminService', () => {
     expect(mock.rows('admin_events').some((e) => e.type === 'insecure.domain.allowed')).toBe(true);
   });
 
+  it('allowDomain clears every pending request the domain now covers', async () => {
+    const { mock, svc } = await setup();
+    for (const fqdn of [
+      'cluster1.example.com',
+      'cluster2.example.com',
+      'deep.nested.example.com',
+      'other.elsewhere.org',
+    ]) {
+      mock.insertRow('hosts', {
+        fqdn,
+        api_key: 'h',
+        api_key_hash: 'h',
+        status: 'active',
+        secure: 0,
+        created_at: '2024-01-01',
+        updated_at: '2024-01-01',
+      });
+    }
+    for (const hostId of [1, 2, 3, 4]) {
+      mock.insertRow('insecure_auth_requests', {
+        host_id: hostId,
+        status: 'pending',
+        requested_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        engine: 'codex',
+      });
+    }
+
+    const out = await svc.allowDomain(1, 'example.com', null);
+
+    // The trigger plus both siblings under example.com; never the other domain.
+    expect(out.clearedRequestIds).toEqual([1, 2, 3]);
+    const requests = mock.rows('insecure_auth_requests');
+    expect(requests.map((r) => r.status)).toEqual([
+      'approved',
+      'approved',
+      'approved',
+      'pending',
+    ]);
+    // Every swept host gets a window, the untouched one does not.
+    const hostRows = mock.rows('hosts');
+    expect(hostRows.slice(0, 3).every((h) => h.insecure_enabled_until)).toBe(true);
+    expect(hostRows[3]!.insecure_enabled_until).toBeFalsy();
+    const evt = mock
+      .rows('admin_events')
+      .find((e) => e.type === 'insecure.domain.allowed');
+    const payload =
+      typeof evt!.payload === 'string' ? JSON.parse(evt!.payload) : (evt!.payload as Record<string, unknown>);
+    expect(payload.cleared_request_ids).toEqual([1, 2, 3]);
+  });
+
+  it('allowDomain defaults to the 8h approval window', async () => {
+    const { mock, svc } = await setup();
+    mock.insertRow('hosts', {
+      fqdn: 'cluster1.example.com',
+      api_key: 'h',
+      api_key_hash: 'h',
+      status: 'active',
+      secure: 0,
+      created_at: '2024-01-01',
+      updated_at: '2024-01-01',
+    });
+    mock.insertRow('insecure_auth_requests', {
+      host_id: 1,
+      status: 'pending',
+      requested_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      engine: 'codex',
+    });
+    const out = await svc.allowDomain(1, 'example.com', null);
+    expect(out.windowMinutes).toBe(480);
+    expect(mock.rows('hosts')[0]!.insecure_window_minutes).toBe(480);
+  });
+
+  it('allowDomain with permanent writes a never-expiring allow', async () => {
+    const { mock, svc } = await setup();
+    mock.insertRow('hosts', {
+      fqdn: 'cluster1.example.com',
+      api_key: 'h',
+      api_key_hash: 'h',
+      status: 'active',
+      secure: 0,
+      created_at: '2024-01-01',
+      updated_at: '2024-01-01',
+    });
+    mock.insertRow('insecure_auth_requests', {
+      host_id: 1,
+      status: 'pending',
+      requested_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      engine: 'codex',
+    });
+    const out = await svc.allowDomain(1, 'example.com', null, true);
+    expect(out.domain.enabled_until).toBeNull();
+    expect(mock.rows('insecure_domain_allows')[0]!.enabled_until).toBeNull();
+    // window_minutes still governs how long a matched host stays open.
+    expect(out.domain.window_minutes).toBe(480);
+  });
+
   it('allowDomain rejects when the domain is not a parent of the host FQDN', async () => {
     const { mock, svc } = await setup();
     mock.insertRow('hosts', {

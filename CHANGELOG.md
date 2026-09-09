@@ -1,3 +1,25 @@
+# 2026-09-09
+
+- **Insecure access modal:** resolving a request is now visible. An approved,
+  denied, domain-allowed or auto-allowed row fades to a labelled shadow and then
+  slides out, instead of silently vanishing on the next refetch. Resolutions
+  made anywhere — another operator's tab, a domain sweep, the fleet window, or
+  the server's own 5-minute timeout — animate identically, so the list stays
+  live without a refresh. The modal no longer closes itself until the last
+  shadow has cleared.
+- **Allowing a domain now clears everything it covers.** Previously it resolved
+  only the request it was clicked on and left sibling hosts queued for approvals
+  the gate had already stopped asking for. It now approves every pending request
+  under that domain and opens their windows, using the same suffix rule the
+  gate itself uses.
+- **Approving grants 8 hours.** An operator approval (single host or domain) now
+  defaults to 480 minutes rather than the host's 10-minute sliding window, and
+  stores it, so the next request does not collapse the grant back to ten
+  minutes. An explicit `duration_minutes` still wins.
+- Domain allows can be marked **Never expires** (`permanent: true`), which
+  survives an orchestrator restart. *Disable all* still clears them — the panic
+  button keeps its meaning — leaving the row to be re-armed.
+
 # 2026-09-08
 
 - Both WebUIs now show one prominent **Needs you** banner above the composer

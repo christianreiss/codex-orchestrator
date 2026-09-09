@@ -148,9 +148,9 @@ When an insecure host is outside its grace window and tries to pull auth, `host-
 Review endpoints:
 
 - `GET /admin/insecure-approvals/pending` — list pending approvals.
-- `POST /admin/insecure-approvals/{id}/approve` — approve and release auth.
+- `POST /admin/insecure-approvals/{id}/approve` — approve and release auth. Optional `duration_minutes`; the default is **480 (8h)**, the same grant the fleet window hands out, not the host's 10-minute sliding default. The chosen length is also written to `insecure_window_minutes`, so later slides in `enforce()` keep it.
 - `POST /admin/insecure-approvals/{id}/deny` — deny and log.
-- `POST /admin/insecure-approvals/{id}/allow-domain` — add the requester's domain to the trusted list.
+- `POST /admin/insecure-approvals/{id}/allow-domain` — add the requester's domain to the trusted list. Also resolves **every other pending request whose host falls under that domain** (returned as `cleared_request_ids`), because `enforce()` would now admit them without a prompt. Optional `duration_minutes` (default 480), or `permanent: true` for an allow with no expiry that survives a restart — still cleared by *Disable all*.
 - `POST /admin/insecure-domain-allows/{id}/revoke` — reverse a previous domain allow.
 - `POST /admin/hosts/insecure/extend` — re-extend the active window for every currently-open insecure host by its stored `insecure_window_minutes` (falls back to 60 if unset, clamped to 5–1440).
 - `POST /admin/hosts/insecure/disable-all` — close every insecure window at once. Also expires active domain allows and retracts the fleet window, since either one would otherwise re-open the hosts on their next poll.

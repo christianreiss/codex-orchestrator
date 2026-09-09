@@ -5,6 +5,7 @@
   import type { WsEvent } from "$lib/ws/client";
   import { insecureApprovalsQuery, insecureSummaryQuery } from "$lib/api/insecure";
   import { hostsSummary } from "$lib/stores/hosts-summary";
+  import { ghostCount } from "$lib/stores/insecure-resolutions";
   import InsecureApprovalsDialog from "./InsecureApprovalsDialog.svelte";
 
   /**
@@ -138,11 +139,15 @@
   // Auto-close the modal when there's nothing pending left AND it was
   // opened by a push (so we don't close it under a user who opened it
   // manually via the /hosts button to view Active Windows / Allowed Domains).
+  //
+  // Waiting on `ghostCount` too is what makes the last resolution legible: the
+  // row the operator just approved is still fading out, and closing the dialog
+  // on top of it turns the one piece of feedback they get into a flicker.
   $effect(() => {
     if (!open) return;
     if (!openedByPush) return;
     if ($approvals.isLoading) return;
-    if (pendingCount === 0) {
+    if (pendingCount === 0 && $ghostCount === 0) {
       open = false;
       openedByPush = false;
     }
@@ -184,4 +189,4 @@
   });
 </script>
 
-<InsecureApprovalsDialog bind:open onOpenChange={onDialogOpenChange} />
+<InsecureApprovalsDialog bind:open onOpenChange={onDialogOpenChange} {events} />
