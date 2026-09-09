@@ -2,7 +2,7 @@
 title: Dashboard
 summary: Reported engine coverage, Codex and Claude usage, runner verification, and refresh recovery.
 section: Admin workspace
-verified: 2026-08-03
+verified: 2026-09-09
 sources: api/src/routes/admin/overview/index.ts, api/src/routes/admin/setup/index.ts, api/src/services/setup-status.ts, api/src/services/setup-wizard.ts, api/src/services/chatgpt-usage.ts, api/src/services/dashboard-stats.ts, api/src/services/usage-scaling.ts, api/src/db/schema.ts, frontend/src/routes/dashboard/+page.svelte, frontend/src/routes/dashboard/OnboardingCard.svelte, frontend/src/lib/api/setup.ts, frontend/src/routes/dashboard/StatCard.svelte, frontend/src/routes/dashboard/ChatGptUsageCard.svelte, frontend/src/routes/dashboard/DashboardAlerts.svelte, frontend/src/lib/components/dashboard/RunnerCard.svelte, frontend/src/lib/api/overview.ts, frontend/src/lib/api/runner.ts
 ---
 
@@ -12,7 +12,7 @@ The **Overview** page combines reported host installations, upstream CLI version
 
 ## Active Clients
 
-Open **Active Clients** for the session directory across Codex and Claude. The
+**Active Clients** (`/clients`) is its own destination under *Monitor*; the full reference — presence states, the Agent Portal switch it depends on, roles, and the wrapper side — is in [Agent Portal and Active Clients](/admin/manual/agent-portal). In short: open it for the session directory across Codex and Claude. The
 summary counts distinguish online clients, outstanding attention, offline
 clients, and recently ended history. Search by host, user, task, branch, or
 working directory, then filter by engine and state. Selecting a client opens
@@ -86,7 +86,7 @@ The Hosts card displays a relative-time hint derived from `last_refresh` (e.g. "
 
 `DashboardAlerts` renders below the stat cards. Its banners are conditional:
 
-- **Insecure approvals** (warning) — `insecureApprovalsPendingQuery()` counts hosts awaiting insecure-window approval. When the count is non-zero a warning banner lists the count and links to `/hosts?insecure=1` ("Review").
+- **Insecure approvals** (warning) — `insecureApprovalsPendingQuery()` counts hosts awaiting insecure-window approval. When the count is non-zero a warning banner lists the count and links to `/hosts?insecure=1` ("Review"), which opens the insecure access dialog described in [Hosts](/admin/manual/hosts). A new request also opens that dialog on its own from any console page, with a short beep, when the `insecure.requested` event arrives over the live feed.
 - **Could not check insecure approvals** (destructive) — shown instead of the warning banner when that query itself errors, with a "Retry" button.
 
 Codex CLI updates do not produce a dashboard alert: managed hosts update automatically, so an older reported version is normally rollout telemetry rather than an operator action.

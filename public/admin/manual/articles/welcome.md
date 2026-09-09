@@ -2,8 +2,8 @@
 
 title: Welcome to Orchestrator
 section: Orientation
-verified: 2026-08-03
-sources: README.md, api/src/server.ts, api/src/routes/admin/pages/static.ts, api/src/services/admin-auth.ts, api/src/http/plugins/auth-admin.ts, api/src/env.ts, frontend/src/lib/nav.ts, frontend/src/routes/+page.svelte, frontend/src/routes/setup/+page.svelte, frontend/src/routes/dashboard/+page.svelte, frontend/src/routes/logs/+layout.svelte, frontend/src/lib/components/layout/Sidebar.svelte, frontend/src/lib/components/layout/TopBar.svelte, frontend/src/lib/utils/shortcuts.ts, frontend/src/lib/components/shortcuts/ShortcutsModal.svelte, frontend/src/routes/+layout.svelte, wrappers/cxx
+verified: 2026-09-09
+sources: README.md, api/src/server.ts, api/src/routes/admin/pages/static.ts, api/src/services/admin-auth.ts, api/src/http/plugins/auth-admin.ts, api/src/security/capabilities.ts, api/src/security/route-capabilities.ts, api/src/env.ts, frontend/src/lib/nav.ts, frontend/src/routes/+page.svelte, frontend/src/routes/setup/+page.svelte, frontend/src/routes/dashboard/+page.svelte, frontend/src/routes/logs/+layout.svelte, frontend/src/lib/components/layout/Sidebar.svelte, frontend/src/lib/components/layout/TopBar.svelte, frontend/src/lib/utils/shortcuts.ts, frontend/src/lib/components/shortcuts/ShortcutsModal.svelte, frontend/src/routes/+layout.svelte, wrappers/cxx
 ---
 
 Codex Orchestrator is a self-hosted service that keeps **OpenAI Codex** and **Anthropic Claude Code** in sync across every machine you own. You upload your credentials once, register each machine as a *host*, and the orchestrator then distributes encrypted auth payloads, pushes the shared agents document (`AGENTS.md` for Codex, `CLAUDE.md` for Claude), serves canonical skills through MCP, and surfaces ChatGPT quota state for operators. Each host gets its own API key delivered in signed per-engine config consumed by one `cxx` wrapper; relative `cdx` and `clx` aliases select the enabled persona without sharing a token across machines.
@@ -16,7 +16,7 @@ The admin surface is gated by `app.requireAdmin` (the Fastify decorator added by
 
 `ADMIN_ACCESS_MODE` (`cookie` default, or `open`) is declared in `env.ts` and consumed by `cli-auth/index.ts` for the CLI login guard; it does not affect the cookie check that `requireAdmin` performs.
 
-Once at least one admin exists (`AdminAuthService.countAdmins`), a valid session cookie is required for every gated route. Role labels are stored on `admin_users.access_level` — `owner`, `admin`, `viewer`, plus the legacy constants `fleet_operator` (`ROLE_FLEET`) and `trusted_user` (`ROLE_TRUSTED`). Today the API distinguishes "authenticated admin" from "not authenticated"; every gated route hangs off `app.requireAdmin`. The role string is surfaced in *Settings → Users* and is the hook for upcoming finer-grained gating.
+Once at least one admin exists (`AdminAuthService.countAdmins`), a valid session cookie is required for every gated route. Role labels are stored on `admin_users.access_level` — `owner`, `admin`, `viewer`, `fleet_operator` (`ROLE_FLEET`), `trusted_user` (`ROLE_TRUSTED`), and the legacy `user`. `requireAdmin` only authenticates; what each role may *do* is decided by the capability layer in `api/src/security/` — every admin route names one capability, and the role → capability matrix is the sole place a role string is compared against anything. The roster is managed under **Admin Users** (`/users`); see [Roles and capabilities](/admin/manual/roles).
 
 ## How the admin is laid out
 
@@ -28,11 +28,11 @@ The desktop sidebar groups destinations by task:
 |---|---|
 | **Monitor** | Overview, Active Clients, Activity |
 | **Fleet** | Hosts, Engines, Policies |
-| **Coordinate** | Projects, Agent Messaging, Git Director, Agent Portal |
+| **Coordinate** | Projects, Agent Messaging, Git Director, File Transfer, Agent Portal |
 | **Knowledge** | Skills, Fleet Instructions, Memories, Subagents, Commands, Output Styles |
 | **Access** | API Access, Secrets, Admin Users |
 
-Groups start expanded. Collapse any group to shorten the list; navigating into it opens it again. The active destination and breadcrumb identify your current location. **Overview** contains engine coverage, Codex and Claude usage, and runner verification. **Engines** holds fleet model and update controls; **Policies** holds fleet operational rules. Subagents, Commands, and Output Styles are Claude-native collections.
+Groups start expanded. Collapse any group to shorten the list; navigating into it opens it again. The active destination and breadcrumb identify your current location. **Overview** contains engine coverage, Codex and Claude usage, and runner verification. **Engines** holds fleet model and update controls; **Policies** holds fleet operational rules. **Git Director** arbitrates merges between agents sharing a clone, and **File Transfer** is the expiring pool of files agents hand each other. Subagents, Commands, and Output Styles are Claude-native collections.
 
 The footer provides **Manual**, **Account**, **Shortcuts**, and an account menu for password, passkeys, appearance, and sign-out. On phones, Overview, Hosts, Projects, and Activity stay in the bottom bar; **Menu** opens the remaining destinations and account actions. Menu is highlighted when the current page belongs to that group.
 
@@ -67,6 +67,7 @@ Each article is stamped with a `verified:` date visible as the pill at the top. 
 - api/src/routes/admin/pages/static.ts (SPA shell + adminSpaHtmlPreHandler)
 - api/src/services/admin-auth.ts (login-time session TTL clamp, role constants, countAdmins)
 - api/src/http/plugins/auth-admin.ts (requireAdmin, resolveAdmin, rolling session TTL clamp)
+- api/src/security/capabilities.ts, api/src/security/route-capabilities.ts (role → capability matrix and the per-route inventory)
 - api/src/env.ts (ADMIN_ACCESS_MODE, ADMIN_SESSION_COOKIE, ADMIN_SESSION_TTL_MINUTES)
 - frontend/src/routes/+page.svelte (the `/admin` front door and its wait-for-auth behaviour)
 - frontend/src/routes/setup/+page.svelte (first-run wizard)

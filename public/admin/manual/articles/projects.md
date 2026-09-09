@@ -1,18 +1,19 @@
 ---
 title: Projects workspace
 section: Admin workspace
-verified: 2026-07-27
-sources: api/src/routes/admin/projects/index.ts, api/src/routes/projects-client/index.ts, api/src/services/projects.ts, api/src/services/project-drafts.ts, api/src/services/project-content.ts, api/src/services/host-projects.ts, api/src/services/mcp-tools.ts, api/src/services/mcp-resources.ts, api/src/services/managed-coco-skill.ts, api/src/services/host-skills.ts, api/src/db/schema.ts, api/src/db/migrations/0003_add_coord_project_memories.sql, api/src/services/shared-memories.ts, api/src/db/migrations/0006_add_shared_memories.sql
+verified: 2026-09-09
+sources: api/src/routes/admin/projects/index.ts, api/src/routes/admin/project-board/index.ts, api/src/routes/projects-client/index.ts, api/src/services/projects.ts, api/src/services/project-drafts.ts, api/src/services/project-content.ts, api/src/services/project-board.ts, api/src/services/project-board-roles.ts, api/src/services/host-projects.ts, api/src/services/mcp-tools.ts, api/src/services/mcp-resources.ts, api/src/services/managed-coco-skill.ts, api/src/services/host-skills.ts, api/src/db/schema.ts, api/src/db/migrations/0003_add_coord_project_memories.sql, api/src/db/migrations/0026_add_project_board.sql, api/src/services/shared-memories.ts, api/src/db/migrations/0006_add_shared_memories.sql
 ---
 
-Projects is an optional workspace module that gives your agents a shared surface: an *about* object, a *roster* markdown document, notes, todos, files, memories, feedback, and a derived MCP skill (`coco`) that teaches agents how to use it. It is off by default.
+Projects is an optional workspace module that gives your agents a shared surface: an *about* object, a *roster* markdown document, notes, a board of cards (which todos are a view of), files, memories, feedback, and a derived MCP skill (`coco`) that teaches agents how to use it. It is off by default.
 
 ## Turning it on
 
-The module toggle is embedded in the header area of the `/projects` list page — it is not under a separate Settings section. The backing endpoints:
+Two module switches sit in the header area of the `/projects` list page — neither is under a separate Settings section. The backing endpoints:
 
 - `GET /admin/projects/state` — returns `{ enabled: bool, updated_at, managed_skill: { slug, uri } }`.
 - `POST /admin/projects/state` — flip the flag.
+- `GET /admin/project-board/state` / `POST /admin/project-board/state` — the separate **Project board** switch (`project_board_enabled`), described under "Project board" below. It lives outside `/admin/projects/…` so that a project whose slug is `board` cannot shadow it.
 
 When disabled: the `/projects` list page shows a warning banner and disables the "New project" button, and the synthetic `coco` skill stops being served (`getManagedCocoSkillIfEnabled` in `managed-coco-skill.ts` returns `null` while the flag is off — see "The `coco` skill" below). The flag does **not** gate anything else: the `project_*` MCP tools are unconditionally registered in `McpToolsRegistry` (`mcp-tools.ts`), the host-facing `/projects/*` REST routes (`routes/projects-client/index.ts`) have no enabled check, and the admin CRUD surface bypasses the flag by design (see the comment atop `projects.ts`). The `Projects` sidebar nav item (`frontend/src/lib/nav.ts`) is also always visible regardless of state. In practice the toggle only affects the admin UI's list-page messaging and whether `coco` is offered to agents.
 
@@ -39,15 +40,15 @@ Host-facing surface (authenticated by per-host API key, `routes/projects-client/
 The `/projects/[slug]` page fetches full project detail. The page header shows the project `title` (from `about.title`) with the slug as a subtitle when it differs. Below the header, a 4-stat bar shows:
 
 - **Notes** — total note count
-- **Open todos** — count of incomplete todos
+- **Open todos** — count of cards not sitting in a terminal lane (`counts.open_todos`)
 - **Bugs** — count of feedback items with `type = bug` specifically
 - **Files** — total file count
 
-A tab nav (`ProjectTabsNav`) routes to sub-pages: About, Notes, Todos, Files, Feedback, Activity. Header actions include a Back button and a Delete project button (destructive, with a confirm dialog).
+A tab nav (`ProjectTabsNav`) routes to sub-pages: Identity, Notes, Board, Files, Feedback, Activity. The old `/projects/{slug}/todos` URL still resolves but redirects to the board. Header actions include a Back button and a Delete project button (destructive, with a confirm dialog).
 
-## About and roster
+## Identity: about and roster
 
-The About tab shows two cards:
+The Identity tab (the project root URL) shows two cards:
 
 - **About** — three separate text inputs: *Title*, *Name*, and *Description*. These map to the `title`, `name`, and `description` sub-fields of the `about_json` JSON column. The `about_json` column always stores an object with these three canonical keys; the UI exposes them individually.
 - **Roster** — a monospace textarea for the roster markdown document.
@@ -76,14 +77,29 @@ Header + body, versioned by `updated_at`. Admin endpoints:
 
 The Notes tab shows a create form (Header and Body, both required). Existing notes are listed with inline edit (pencil icon) and delete. Updates are applied optimistically.
 
-## Todos
+## Project board
 
-Title + detail + done state. The Todos tab shows a create form (Title required, Detail optional). The list is split into "Open" and "Done" sections; the Done section is collapsible. A checkbox toggles done/undone state. Inline edit and delete are available per item.
+A todo is a checkbox; a card is a claim. `coord_project_todos` could record that work existed and whether it was finished, and nothing else — two agents could pick up the same item without either learning about the other, and an agent that closed its terminal mid-task left no trace. Migration `0026_add_project_board.sql` replaced it with a board (`coord_project_boards`, `coord_project_board_columns`, `coord_project_cards`; one board per project today, slug `default`) whose cards carry a claim: a declared role, a holder, the worktree that holder is working in, and an expiry.
 
-Explicit done/undone helpers so MCP tool calls can toggle cheaply:
+**Todos did not go away; they became a view of the same cards.** The backfill moved every row onto a card and kept its id as the card number, so `project_todo_done(4711)` still resolves to the work item it always did. `project_todo_*`, the host `/projects/{slug}/todos` routes and the admin `/admin/projects/{slug}/todos` routes (including `.../done` and `.../undone`) all read and write cards now with the same signatures and wire shape; `done` means the card sits in a lane flagged terminal, and `undone` is a no-op on a card that is not there — sending it back to Backlog would silently discard its place in the pipeline. `coord_project_todos` is retained but no longer written. One work item is one row, so the two views cannot disagree.
 
-- `POST /admin/projects/{slug}/todos/{id}/done`
-- `POST /admin/projects/{slug}/todos/{id}/undone`
+The module switch (`project_board_enabled`, the second `ModuleSwitchRow` on the list page) gates none of that. Todos predate it, and switching it off hides the board's MCP tools and makes its page read-only rather than breaking an older API.
+
+**Lanes and roles.** The migration seeds seven columns, duplicated as `SEEDED_COLUMNS` in `project-board.ts` and pinned against the SQL by a test: `backlog` (intake) → `planning` (`plan`) → `coding` (`code`) → `review` (`review`) → `verifying` (`verify`) → `done` (terminal), plus `blocked`. Roles are fleet-fixed — `plan`, `code`, `review`, `verify`, `ops` (`project-board-roles.ts`) — and self-declared per claim, exactly like `task` in `git_join`; `ops` has no lane of its own because it is the role that acts on the open ones. A lane's `allowed_roles`, `wip_limit` and `title` are reshaped with `POST /admin/projects/{slug}/board/columns/{id}`; there is no column create or delete, because deleting one would have to answer what happens to its cards.
+
+**Advisory, like every verdict this orchestrator issues about a machine it cannot see.** Moving a card into a lane whose `allowed_roles` do not include yours still moves it and returns an `advisories` list (`role_not_allowed`); exceeding a WIP limit does the same (`wip_limit_exceeded`). Both are recorded on the event and in `logs`. The single refusal is `project_card_claim` against a card somebody else holds, and it declines to *record* the claim rather than to permit the work — the reply names the holder, their host and their expiry. A refused claim consumes no event sequence number, so an agent polling a busy card cannot flood the project's change log with its own rejections.
+
+**Claims expire, and reclaiming is the point.** A claim lasts `CARD_CLAIM_TTL_SECONDS` (30 minutes; a board may override it with `claim_ttl_seconds`) and is renewed implicitly by any call naming the card by its holder — `project_card_get` is the cheapest. Passing `worktree_path` and `username` binds the claim to the agent's `agent_bus_addresses` row, and that is what makes reclaim fast: where Agent Messaging bound an address, `current_session_id` going NULL frees the card within seconds; with the module off, the TTL is the only signal. A bound agent that is merely quiet is never evicted, and the sweep fails open if the messaging tables cannot be read. Every reclaim writes a `claim_expired` event, which nothing but the sweep writes — that is what feeds the board page's **Recently reclaimed** list. Releasing (`project_card_release`) auto-advances the card along the lane's `next` pointer, so an agent that finishes coding need not know that review comes next; `resolution: "blocked"` parks it in the blocked lane with a note, `"handoff"` leaves it where it is, `"done"` sends it to the terminal lane, and naming a `column` wins over all of those. A release asserts no role, because the destination lane by construction belongs to a different one. Moving into the terminal lane releases the claim too.
+
+**No history table.** Every create, move, claim, release and reclaim is a `coord_project_events` row with `entity_type = 'card'`, so board activity reaches the `project_changes` poll agents already run and the Activity tab. Every mutation takes `SELECT … FOR UPDATE` on the parent `coord_projects` row first — MySQL has no partial unique index, so that row lock is what makes a claim exclusive and what serialises card moves per project — and records its event through the transaction-scoped `_recordEventTx`, because the standalone recorder would block on a second pool connection until `innodb_lock_wait_timeout`.
+
+Admin surface (`api/src/routes/admin/project-board/index.ts`; `projects.read` to look, `projects.manage` to change):
+
+- `GET /admin/projects/{slug}/board` — the same rendering `project_board_list` gives an agent for one project: columns with their cards and holders, plus `reclaimed_recently`.
+- `POST /admin/projects/{slug}/board/cards` — create; `POST .../cards/{id}` — edit title/detail/labels/priority/`blocked_reason`; `POST .../cards/{id}/move` — `{ column, note? }`; `POST .../cards/{id}/release` — force-release a claim from the console with an optional reason, the escape hatch for a holder that is unreachable but not detectably dead (a wedged process, a sleeping laptop), which neither reclaim signal catches; `DELETE .../cards/{id}`.
+- `POST /admin/projects/{slug}/board/columns/{id}` — reshape a lane.
+
+The Board tab renders one column per lane with an **Add card** form, a release action on held cards, and the Recently reclaimed list. There is no host-facing REST mirror of the board: agents reach it over MCP only, through `project_board_list` (never fails — with the module off it answers `status: "disabled"`, distinguishable from an empty board) and `project_card_create` / `claim` / `move` / `release` / `update` / `get`; the todo REST mirror remains for the checkbox view. See [MCP server and tools](/admin/manual/mcp) for the tool contracts.
 
 ## Files
 
@@ -121,7 +137,7 @@ The Activity tab shows the 10 most recent events sorted by sequence descending. 
 
 ## The `coco` skill
 
-When the Projects module is on, a canonical *coco* skill ships to every host. It documents the MCP tools an agent should call (`project_list`, `project_bootstrap`, `project_note_upsert`, `project_todo_create`, …) and the expected workflow. Unlike ordinary skills, `coco` is not a row in the `skills` table: its manifest is a hardcoded constant synthesized on demand by `managed-coco-skill.ts` (`buildManagedCocoSkill`), and `getManagedCocoSkillIfEnabled()` returns it only while `projects_module_enabled` is on. `HostSkillsService` (`api/src/services/host-skills.ts`) merges this managed skill into the host-facing `/skills` list, `/skills/retrieve`, and the on-disk Claude skill bundle, and rejects any attempt to store or delete the `coco` slug directly (`SkillsService`/`HostSkillsService` both special-case `isManagedCocoSlug`). Because the manifest text is fixed at deploy time rather than versioned in the DB, "latest version" here means the current build's constant, not a DB-tracked revision history like other skills.
+When the Projects module is on, a canonical *coco* skill ships to every host. It documents the MCP tools an agent should call (`project_list`, `project_bootstrap`, `project_note_upsert`, `project_board_list`, `project_card_claim`, …), the three-substrate memory routing (`project_memory_*` for this workstream, `shared_memory_*` for fleet-wide documents, `memory_*` never for handoffs), the fixed board role vocabulary, and the expected workflow — call `project_board_list` first, claim a card with a role and `worktree_path`/`username` before starting, release it the moment you stop. Unlike ordinary skills, `coco` is not a row in the `skills` table: its manifest is a hardcoded constant synthesized on demand by `managed-coco-skill.ts` (`buildManagedCocoSkill`), and `getManagedCocoSkillIfEnabled()` returns it only while `projects_module_enabled` is on. `HostSkillsService` (`api/src/services/host-skills.ts`) merges this managed skill into the host-facing `/skills` list, `/skills/retrieve`, and the on-disk Claude skill bundle, and rejects any attempt to store or delete the `coco` slug directly (`SkillsService`/`HostSkillsService` both special-case `isManagedCocoSlug`). Because the manifest text is fixed at deploy time rather than versioned in the DB, "latest version" here means the current build's constant, not a DB-tracked revision history like other skills.
 
 ## MCP resource exposure
 
@@ -140,22 +156,27 @@ Minimal workflow a Codex or Claude agent will run:
 1. Call `project_list` to find the slug it cares about.
 2. Call `project_bootstrap` with that slug to receive the compact context — including `counts.memories` and up to 8 memory previews under `recent_memories`.
 3. Call `project_memory_list` to enumerate durable memory in full. A zero-knowledge agent should never guess search terms; listing is the entry point.
-4. Call `project_changes` with `since` set to its last seen sequence to catch up on activity.
-5. Use `project_note_upsert` / `project_todo_*` / `project_file_upsert` / `project_memory_upsert` / `project_feedback_create` to record its work.
+4. Call `project_changes` with `since` set to its last seen sequence to catch up on activity — it returns at most 200 events per call, so iterate until `latest_seq`.
+5. Call `project_board_list` (no arguments needed) to see which cards are free and who holds the rest, then `project_card_claim` one with a role and `worktree_path`/`username` before starting; `project_card_release` it when done.
+6. Use `project_note_upsert` / `project_todo_*` / `project_file_upsert` / `project_memory_upsert` / `project_feedback_create` to record its work.
 
 The MCP tool schemas live in `api/src/services/mcp-tools.ts`.
 
 ## Source references
 
 - api/src/routes/admin/projects/index.ts (admin surface)
-- api/src/routes/projects-client/index.ts (host-facing /projects/* surface — mirrors the admin surface, not gated by the module flag)
-- api/src/services/projects.ts (project CRUD)
+- api/src/routes/admin/project-board/index.ts (board module switch and per-project card/column routes)
+- api/src/routes/projects-client/index.ts (host-facing /projects/* surface — mirrors the admin surface minus the board, not gated by the module flag)
+- api/src/services/projects.ts (project CRUD; detail reads todos through the board)
 - api/src/services/project-drafts.ts (assist via runner)
-- api/src/services/project-content.ts (notes/todos/files/feedback)
+- api/src/services/project-content.ts (notes/files/feedback)
+- api/src/services/project-board.ts (cards, claims, lanes, reclaim sweep, and the todo view over cards)
+- api/src/services/project-board-roles.ts (the fixed plan/code/review/verify/ops vocabulary)
+- api/src/db/migrations/0026_add_project_board.sql (board tables, seeded lanes, todo→card backfill)
 - api/src/services/host-projects.ts (host-facing project service used by both REST routes and MCP tools)
 - api/src/services/mcp-tools.ts (project_* tool definitions; always registered regardless of module state)
 - api/src/services/mcp-resources.ts (project:// resource exposure)
 - api/src/services/managed-coco-skill.ts (synthesized coco skill manifest, gated on projects_module_enabled)
 - api/src/services/host-skills.ts (merges the managed coco skill into host-facing skill list/retrieve/bundle)
-- api/src/db/schema.ts (coord_projects, coord_project_notes, coord_project_todos, coord_project_files, coord_project_feedback, coord_project_memories, coord_project_events)
+- api/src/db/schema.ts (coord_projects, coord_project_notes, coord_project_boards, coord_project_board_columns, coord_project_cards, coord_project_todos — retained, no longer written — coord_project_files, coord_project_feedback, coord_project_memories, coord_project_events)
 - api/src/db/migrations/0003_add_coord_project_memories.sql (coord_project_memories DDL — source of truth incl. the full-text index Drizzle cannot express)

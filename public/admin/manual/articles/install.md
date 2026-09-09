@@ -1,7 +1,7 @@
 ---
 title: Installing and bootstrapping
 section: Orientation
-verified: 2026-08-03
+verified: 2026-09-09
 sources: README.md, bin/install.sh, docker-compose.yml, caddy/Caddyfile, api/src/env.ts, api/src/server.ts, api/src/db/schema.ts, api/src/db/baseline/schema.sql, api/src/routes/health.ts, api/src/routes/admin/setup/index.ts, api/src/services/setup-status.ts, api/src/services/setup-wizard.ts, api/src/services/admin-users.ts, api/src/services/wrapper-signing-key.ts, api/src/services/wrapper-bin-registry.ts, api/src/security/keyring.ts, api/src/ops/setup-signing-key.ts, frontend/src/routes/setup/+page.svelte, frontend/src/lib/components/setup/SeedAuthPanel.svelte, frontend/src/routes/dashboard/OnboardingCard.svelte, wrappers/Makefile
 ---
 
@@ -95,7 +95,24 @@ These are the variables consumed by `api/src/env.ts`. The file is parsed with Zo
 - `ADMIN_SESSION_TTL_MINUTES` — default `43200` (30 days) in `env.ts`. `AdminAuthService.sessionTtlSeconds()` clamps this to 5 min – 7 days at login, so a fresh session starts at 7 days; `auth-admin.ts`'s `resolveAdmin` then rolls `expiresAt` forward on every authenticated request using the same TTL clamped to 5 min – 30 days, so an actively used session keeps renewing out to 30 days.
 - `ADMIN_WEBAUTHN_RP_ID`, `ADMIN_WEBAUTHN_ORIGIN`, `ADMIN_WEBAUTHN_RP_NAME` — passkey relying-party metadata.
 - `ADMIN_WS_ENABLED` — defaults to `false` in env.ts, but **the compose file sets it to `1` (enabled) by default** when using the compose stack. Also: `ADMIN_WS_PUBLIC_URL`, `ADMIN_WS_HEARTBEAT_SECONDS`, `ADMIN_WS_BACKLOG_LIMIT`.
+- `CORS_ALLOWED_ORIGINS` — default empty (no cross-origin browser access).
+- `LISTEN_HOST` (default `0.0.0.0`), `LISTEN_PORT` (default `8080`), `LOG_LEVEL` (default `info`), `LOG_PRETTY` (default `false`), `STATIC_ROOT` (defaults to the bundled `public/admin`).
 - `INSTALLATION_ID` — optional installation identifier.
+
+### Agent portal, Active Clients, and file transfer
+
+- `AGENT_PORTAL_COOKIE` — default `agent_portal_session`; the `/go` portal's browser cookie.
+- `AGENT_PORTAL_SESSION_TTL_HOURS` — default `24`; portal browser-session lifetime.
+- `AGENT_PORTAL_RETENTION_HOURS` — default `24`; how long an ended agent session stays readable in Active Clients and the portal.
+- `AGENT_PORTAL_BRIDGE_TTL_SECONDS` — default `900`; lifetime of the per-session bridge token a wrapper uses to register and heartbeat.
+- `AGENT_PORTAL_PURGE_INTERVAL_SECONDS` — default `300`; cadence of the portal worker that purges expired sessions and bridges.
+- `AGENT_PORTAL_HEARTBEAT_FRESH_SECONDS` (default `45`) and `AGENT_PORTAL_RELAY_FRESH_SECONDS` (default `60`) — the two windows that decide whether a client shows as online and whether its instruction relay counts as open.
+- `TRANSFERS_PURGE_INTERVAL_SECONDS` — default `300`; cadence of the file-transfer expiry sweeper. Every other transfer bound (TTLs, file size, pool quota, the module switch) is set from the console, not the environment.
+
+### Observability
+
+- `OTEL_TRACES_ENABLED` — bool, default `false`. When off, no OpenTelemetry package is imported. When on, the exporter is configured with the spec-standard `OTEL_EXPORTER_OTLP_*` / `OTEL_TRACES_SAMPLER*` variables, which the SDK reads directly.
+- `OTEL_SERVICE_NAME` — default `codex-orchestrator-api`.
 
 ### Auth runner
 
@@ -141,7 +158,8 @@ These are the variables consumed by `api/src/env.ts`. The file is parsed with Zo
 
 ### MCP
 
-- `MCP_OPERATOR_TOKEN`, `MCP_FS_ROOT`, `MCP_FS_MAX_*` — MCP operator bearer + filesystem tool root (see [mcp](/admin/manual/mcp)).
+- `MCP_OPERATOR_TOKEN`, `MCP_FS_ROOT` — MCP operator bearer + filesystem tool root; the `fs_*` tools register only when `MCP_FS_ROOT` resolves to an existing directory (see [mcp](/admin/manual/mcp)).
+- `MCP_FS_MAX_READ_BYTES` (default 1 MiB), `MCP_FS_MAX_LIST_ENTRIES` (default `1000`), `MCP_FS_MAX_SEARCH_HITS` (default `200`) — per-call caps for those tools.
 
 ### Mailer
 
@@ -155,8 +173,8 @@ These are the variables consumed by `api/src/env.ts`. The file is parsed with Zo
 
 - `GPT51_INPUT_PER_1K`, `GPT51_OUTPUT_PER_1K` (and other `GPT51_*` variants)
 - `CHATGPT_PLUS_PLAN_COST`, `CHATGPT_PRO_PLAN_COST`
-- `CHATGPT_USAGE_CRON_INTERVAL`, `CHATGPT_BASE_URL`, `CHATGPT_USAGE_TIMEOUT`
-- `CLAUDE_OPUS_INPUT_PER_1K`, `CLAUDE_OPUS_OUTPUT_PER_1K`, `CLAUDE_SONNET_INPUT_PER_1K`, `CLAUDE_SONNET_OUTPUT_PER_1K`, `CLAUDE_HAIKU_INPUT_PER_1K`, `CLAUDE_HAIKU_OUTPUT_PER_1K`, `ANTHROPIC_API_KEY` — parsed by `env.ts`, but currently unused elsewhere in `api/src`; there is no `claude-usage.ts` service consuming them yet (only `chatgpt-usage.ts` is wired up).
+- `CHATGPT_USAGE_CRON_INTERVAL`, `CHATGPT_BASE_URL`, `CHATGPT_USAGE_TIMEOUT`, `CHATGPT_USAGE_HEALTH_PATH` (default `/tmp/chatgpt-usage-health.json`), `CHATGPT_USAGE_HEALTH_MAX_AGE_SECONDS`
+- `CLAUDE_OPUS_INPUT_PER_1K`, `CLAUDE_OPUS_OUTPUT_PER_1K`, `CLAUDE_SONNET_INPUT_PER_1K`, `CLAUDE_SONNET_OUTPUT_PER_1K`, `CLAUDE_HAIKU_INPUT_PER_1K`, `CLAUDE_HAIKU_OUTPUT_PER_1K` (plus `*_CACHED_PER_1K` variants), `ANTHROPIC_API_KEY` — parsed by `env.ts`, but unused elsewhere in `api/src`. Claude usage on the dashboard comes from host-pushed reports (`api/src/services/claude-usage.ts`), not from these prices.
 - `PRICING_URL`, `PRICING_CURRENCY`
 
 Check `.env.example` in the repo for the full, current list.

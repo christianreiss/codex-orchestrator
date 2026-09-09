@@ -40,7 +40,10 @@ Default notice mappings:
 - Controlled by `orchestrator_mcp_enabled` in the builder (enabled by default).
 - For each host, the server injects a managed entry ahead of any supplied MCP
   servers and filters out reserved orchestrator aliases (`codex-memory`,
-  `codex-orchestrator`, `cdx`, `codex-coordinator`) from the persisted list.
+  `codex-orchestrator`, `cdx`; Claude renders additionally reserve `clx`) from
+  the persisted list. The managed `browseros` entry (Codex hosts with the
+  BrowserOS toggle) and the `cxx-agent` stdio entry (Agent Messaging switch on)
+  are injected and reserved the same way.
 - A usable managed Codex entry also owns the `skill-creator` disable rule described above. It is host-baked policy, not part of the stored operator template, and does not apply to Claude.
 - Keys are injected at bake time only; the server never stores host API keys inside the template. The exact TOML shape is derived from the internal settings and may change; treat it as implementation-defined rather than a user-editable block.
 
@@ -80,8 +83,9 @@ The builder still accepts a `[security]` block, but be aware of what it does —
   (`wrappers/cxx/internal/codex/lane.go`), and `wrapper-config.ts`'s `engineOptions()` never emits
   that key. So the server writes a key nobody reads and the wrapper reads a key nobody writes.
 - Do **not** "fix" this by baking `engine_options`. That would arm the bypass on every host whose
-  `[security]` key is already `true`, over a revoke channel measured in days: the signed config has
-  a 30-day TTL and is refreshed only by the daily managed cron, never on the launch path.
+  `[security]` key is already `true`, over a revoke channel that is not the launch path: the signed
+  config has a 30-day TTL and is refreshed by the shared maintenance cron (`cxx cron`, every 15
+  minutes subject to its cooldown), while a launch refetches it only once it has already expired.
 - The working equivalent is the pair `approval_policy = "never"` + `sandbox_mode =
   "danger-full-access"`, both of which are real Codex keys on the fast path and revoke within one
   launch.

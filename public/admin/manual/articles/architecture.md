@@ -2,8 +2,8 @@
 
 title: Architecture at a glance
 section: Orientation
-verified: 2026-07-29
-sources: api/src/server.ts, api/src/routes/index.ts, api/src/routes/admin/pages/static.ts, api/src/services/host-auth.ts, api/src/services/host-management.ts, api/src/services/wrapper-config.ts, api/src/services/wrapper-signing-key.ts, api/src/services/runner-validation.ts, api/src/services/runner-client.ts, api/src/services/canonical-auth-store.ts, api/src/services/runner-proxy.ts, api/src/ops/auth-verification-worker.ts, api/src/ops/setup-signing-key.ts, api/src/services/mcp-server.ts, api/src/ws/server.ts, api/src/ws/publisher.ts, api/src/db/schema.ts, api/src/env.ts, bin/install.sh, docker-compose.yml, runner/app.py, wrappers/cxx
+verified: 2026-09-09
+sources: api/src/server.ts, api/src/routes/index.ts, api/src/routes/admin/pages/static.ts, api/src/http/plugins/capabilities.ts, api/src/security/route-capabilities.ts, api/src/ops/agent-transfers-worker.ts, api/src/services/host-auth.ts, api/src/services/host-management.ts, api/src/services/wrapper-config.ts, api/src/services/wrapper-signing-key.ts, api/src/services/runner-validation.ts, api/src/services/runner-client.ts, api/src/services/canonical-auth-store.ts, api/src/services/runner-proxy.ts, api/src/ops/auth-verification-worker.ts, api/src/ops/setup-signing-key.ts, api/src/services/mcp-server.ts, api/src/ws/server.ts, api/src/ws/publisher.ts, api/src/db/schema.ts, api/src/env.ts, bin/install.sh, docker-compose.yml, runner/app.py, wrappers/cxx
 ---
 
 Orchestrator is a Node 22 + Fastify 5 + TypeScript HTTP service backed by MySQL 8.4 through Drizzle ORM. The HTTP entry point is `api/src/server.ts`; routes live under `api/src/routes/<group>/*.ts` and are mounted by `api/src/routes/index.ts`. Domain logic lives in plain TypeScript services under `api/src/services/`. A Python FastAPI auth-runner sidecar talks to OpenAI / Anthropic on the orchestrator's behalf. Hosts install one Go `cxx` wrapper and expose the enabled Codex/Claude personas through relative `cdx` / `clx` aliases.
@@ -20,16 +20,18 @@ Orchestrator is a Node 22 + Fastify 5 + TypeScript HTTP service backed by MySQL 
    6. `authMtlsPlugin`
    7. `makeAuthHostPlugin`
    8. `makeAuthAdminPlugin`
-   9. `envelopePlugin` (registered last — catches errors from all plugins above)
+   9. `makeCapabilitiesPlugin` — must precede route registration: its `onRoute` hook attaches the capability guard named by `api/src/security/route-capabilities.ts` to every `/admin/*` route as it is added, and throws at `onReady` if any governed route has no inventory entry
+   10. `envelopePlugin` (registered last — catches errors from all plugins above)
 
    Plugins live in `api/src/http/plugins/`. `db`, `env`, and `keyring` are decorated onto the Fastify instance during boot.
-3. `registerAllRoutes` in `api/src/routes/index.ts` wires the host-facing API, MCP, wrapper-v2, OpenAI- and Anthropic-compatible APIs, and the full admin surface. Each route group registers its handlers; admin routes attach `app.requireAdmin` as a preHandler.
-4. Admin HTML page navigations (`/admin/*` with `Accept: text/html`) are caught by `adminSpaHtmlPreHandler` in `api/src/routes/admin/pages/static.ts`, which returns the SvelteKit `index.html` shell. The SPA then hydrates by calling `GET /admin/auth/status`; there is no server-rendered session bootstrap.
+3. `registerAllRoutes` in `api/src/routes/index.ts` wires the host-facing API, MCP, wrapper-v2, OpenAI- and Anthropic-compatible APIs, and the full admin surface. Each route group registers its handlers; admin routes attach `app.requireAdmin` as a preHandler (authentication), and the capabilities plugin adds the role check (authorization) — see [Roles and capabilities](/admin/manual/roles).
+4. After routes, `server.ts` starts the in-process background workers from `api/src/ops/`: auth verification and auth retention, the Matt Pocock skills source, the agent portal, agent messaging, the insecure fleet window, and the file-transfer sweeper.
+5. Admin HTML page navigations (`/admin/*` with `Accept: text/html`) are caught by `adminSpaHtmlPreHandler` in `api/src/routes/admin/pages/static.ts`, which returns the SvelteKit `index.html` shell. The SPA then hydrates by calling `GET /admin/auth/status`; there is no server-rendered session bootstrap.
 
 ## Layers
 
 - **Routes** — `api/src/routes/<group>/*.ts`. Thin Fastify handlers that parse input, call services, and reply. The envelope plugin shapes errors based on URL prefix (`/anthropic/v1/*` Anthropic-style, `/v1/*` OpenAI-style, everything else the canonical `{ "status": "error", "message": … }` shape).
-- **Services** — `api/src/services/*.ts`. Where business rules live: `host-auth.ts` (auth distribution + handshake), `host-management.ts` (registration, mutations, insecure windows), `runner-client.ts` (low-level HTTP transport to the auth-runner sidecar), `runner-validation.ts` (resolves + validates the canonical auth payload for an engine), `canonical-auth-store.ts` (stores candidate auth and decides whether the served payload is still verified), `runner-proxy.ts` (admin-triggered runner actions: run a prompt on demand, mint seed commands), `wrapper-config.ts` + `wrapper-signing-key.ts` (signed per-host wrapper config), `mcp-server.ts` + `mcp-tools.ts` (MCP JSON-RPC + tool registry), `admin-auth.ts` + `admin-passkey.ts` (admin login + WebAuthn), `chatgpt-usage.ts` (dashboard ChatGPT usage — the `CLAUDE_*` pricing env vars are parsed by `env.ts` but no equivalent Claude usage-tracking service consumes them yet), `skills.ts` / `agents.ts` / `memories.ts` (canonical content), `mailer.ts`, `cli-auth.ts`, and so on.
+- **Services** — `api/src/services/*.ts`. Where business rules live: `host-auth.ts` (auth distribution + handshake), `host-management.ts` (registration, mutations, insecure windows), `runner-client.ts` (low-level HTTP transport to the auth-runner sidecar), `runner-validation.ts` (resolves + validates the canonical auth payload for an engine), `canonical-auth-store.ts` (stores candidate auth and decides whether the served payload is still verified), `runner-proxy.ts` (admin-triggered runner actions: run a prompt on demand, mint seed commands), `wrapper-config.ts` + `wrapper-signing-key.ts` (signed per-host wrapper config), `mcp-server.ts` + `mcp-tools.ts` (MCP JSON-RPC + tool registry), `admin-auth.ts` + `admin-passkey.ts` (admin login + WebAuthn), `chatgpt-usage.ts` (dashboard ChatGPT usage, fetched by the orchestrator) and `claude-usage.ts` (Claude usage, pushed by `clx` through `POST /claude/usage/report` — the `CLAUDE_*` pricing env vars are parsed by `env.ts` but nothing consumes them), `agent-transfers.ts` (the file-transfer pool), `git-director.ts` (clone registry and merge arbitration), `skills.ts` / `agents.ts` / `memories.ts` (canonical content), `mailer.ts`, `cli-auth.ts`, and so on.
 - **Database** — Drizzle queries against a single schema in `api/src/db/schema.ts`. Services receive a `Database` handle (`api/src/db/client.ts`) and write SQL through Drizzle's typed query builder. No repository layer; tables are queried where they're used.
 - **MCP** — `api/src/services/mcp-server.ts`, `mcp-tools.ts`, `mcp-resources.ts`, `mcp-fs.ts`. The HTTP entry point is `/mcp` (routes in `api/src/routes/mcp/index.ts`); auth uses either a per-host API key or an `MCP_OPERATOR_TOKEN` bearer (operator capability). MCP routes use a fourth preflight based on `mcp_session_tokens` bearer tokens.
 - **Security primitives** — `api/src/security/`. `secret-box.ts` (libsodium XSalsa20-Poly1305, `sbox:v1` envelope, compatible with legacy PHP), `keyring.ts` (encryption key set + rotation), `password.ts` (argon2id with legacy bcrypt/phpass verification + transparent rehash on login), `mtls.ts` (proxy-forwarded mTLS claim parsing, gated on trusted-proxy CIDRs), and `hash.ts` (sha256 helpers).
@@ -64,7 +66,12 @@ Schema is MySQL 8.4, defined as Drizzle table builders in `api/src/db/schema.ts`
 - `admin_users`, `admin_sessions`, `admin_passkeys`, `admin_password_resets` — the admin identity stack.
 - `coord_projects`, `coord_project_notes`, `coord_project_todos`, `coord_project_files`, `coord_project_feedback`, `coord_project_events` — the Projects module (all `coord_`-prefixed).
 - `chatgpt_usage_snapshots` — ChatGPT quota snapshots.
-- `mcp_session_tokens`, `mcp_access_logs`, `mcp_memories` — MCP identity, access log, and memory store.
+- `mcp_session_tokens`, `mcp_access_logs`, `mcp_memories` — MCP identity, access log, and host memory store; `shared_memories` (+ `_chunks`, `_revisions`) and `coord_project_memories` are the other two memory scopes.
+- `secrets` — credentials supplied to agents over MCP.
+- `agent_portal_users`, `agent_portal_browser_sessions`, `agent_sessions`, `agent_events`, `agent_prompts`, `agent_messages` — the Agent Portal and Active Clients session model.
+- `agent_bus_addresses`, `agent_bus_conversations`, `agent_bus_conferences`, `agent_bus_messages`, `agent_bus_relays` — Agent Messaging.
+- `git_clones`, `git_worktrees`, `git_merge_requests` — Git Director.
+- `agent_transfers`, `agent_transfer_events` — the File Transfer pool and its audit trail (bytes live on disk under `<DATA_ROOT>/transfers/`).
 - `wrapper_signing_keys` — Ed25519 signing keys used by `wrapper-signing-key.ts`.
 
 The MySQL container lives next to the app in `docker-compose.yml`; backups are your responsibility.
@@ -78,6 +85,8 @@ Everything that can vary by engine takes an `Engine` value from `api/src/util/en
 - api/src/server.ts (Fastify boot, plugin order, lifecycle)
 - api/src/routes/index.ts (route mounting tree)
 - api/src/routes/admin/pages/static.ts (SPA shell + adminSpaHtmlPreHandler)
+- api/src/http/plugins/capabilities.ts, api/src/security/route-capabilities.ts (per-route capability guard)
+- api/src/ops/agent-transfers-worker.ts (file-transfer expiry sweeper, one of the boot-time workers)
 - api/src/services/host-auth.ts (auth distribution, host lifecycle)
 - api/src/services/host-management.ts (registration, mutations)
 - api/src/services/wrapper-config.ts, api/src/services/wrapper-signing-key.ts (signed per-host config + Ed25519 keys)

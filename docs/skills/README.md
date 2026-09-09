@@ -173,6 +173,23 @@ slug and deleting the module is Release B, once the fleet has converged.
 
 ## Current manifests
 
+- `#afk` — code-derived in `api/src/services/managed-afk-skill.ts`, unconditional.
+  Keeps a root agent available in the permanent web portal without raising
+  attention unless user input is actually needed; since cxx 0.8.4 opening it
+  listens quietly rather than raising a false "Needs you", and
+  `cxx portal resolve --summary TEXT` withdraws a notice.
+
+- `#coco` — code-derived in `api/src/services/managed-coco-skill.ts`, served only
+  while `projects_module_enabled = 1`. Carries the `project_*` workflow, the
+  project-board claim/release discipline (`project_board_list` first, claim with
+  a role and `worktree_path`/`username`, release the moment you stop), and the
+  three-substrate memory routing that moved here from `#context`.
+
+- `#conference` — code-derived in
+  `api/src/services/managed-conference-skill.ts`, unconditional. The chair /
+  participant verb table for `agent_conf_*`, shipped in the same image as the
+  tools for the deadlock reason given above.
+
 - `#skill-manager` — code-derived in
   `api/src/services/managed-skill-manager.ts`. It answers how Skill management
   works and documents the MCP list/retrieve/store/delete/verify lifecycle,

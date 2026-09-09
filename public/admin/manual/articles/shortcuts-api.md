@@ -1,8 +1,8 @@
 ---
 title: Keyboard shortcuts and API reference
 section: Integrations and reference
-verified: 2026-08-03
-sources: api/src/routes/index.ts, api/src/routes/host-api/index.ts, api/src/routes/admin-auth-users/index.ts, api/src/routes/admin-overview-settings/index.ts, api/src/routes/admin-content/index.ts, api/src/routes/openai-compat/index.ts, api/src/routes/anthropic-compat/index.ts, api/src/routes/admin/auth/index.ts, api/src/routes/admin/setup/index.ts, api/src/routes/admin/hosts/index.ts, api/src/routes/admin/settings/index.ts, api/src/routes/admin/overview/index.ts, api/src/routes/admin/users/index.ts, api/src/routes/admin/config/index.ts, api/src/routes/admin/keys/openai.ts, api/src/routes/admin/keys/claude.ts, api/src/routes/admin/projects/index.ts, api/src/routes/admin/manual/index.ts, api/src/routes/auth/index.ts, api/src/routes/host/index.ts, api/src/routes/cli-auth/index.ts, api/src/routes/install/index.ts, api/src/routes/wrapper-v2/index.ts, api/src/routes/mcp/index.ts, api/src/routes/v1/index.ts, api/src/routes/anthropic-v1/index.ts, api/src/routes/projects-client/index.ts, api/src/routes/health.ts, api/src/ws/server.ts, api/src/services/openai-keys.ts, api/src/services/claude-keys.ts, api/src/services/claude-frontmatter.ts, api/src/db/schema.ts, frontend/src/routes/api-keys/+page.svelte, frontend/src/routes/setup/+page.svelte, frontend/src/lib/utils/shortcuts.ts, frontend/src/routes/+layout.svelte, frontend/src/lib/components/shortcuts/ShortcutsModal.svelte, frontend/src/lib/components/command-palette/commands.ts
+verified: 2026-09-09
+sources: api/src/routes/index.ts, api/src/routes/host-api/index.ts, api/src/routes/projects-mcp/index.ts, api/src/routes/agent-portal/index.ts, api/src/routes/agent-portal/admin-host.ts, api/src/routes/agent-portal/public.ts, api/src/routes/agent-messaging/index.ts, api/src/routes/admin/memories/index.ts, api/src/routes/admin/secrets/index.ts, api/src/routes/admin/git-director/index.ts, api/src/routes/admin/transfers/index.ts, api/src/routes/admin/agent-sessions/index.ts, api/src/routes/admin/project-board/index.ts, api/src/routes/admin/skill-sources/index.ts, api/src/routes/admin-auth-users/index.ts, api/src/routes/admin-overview-settings/index.ts, api/src/routes/admin-content/index.ts, api/src/routes/openai-compat/index.ts, api/src/routes/anthropic-compat/index.ts, api/src/routes/admin/auth/index.ts, api/src/routes/admin/setup/index.ts, api/src/routes/admin/hosts/index.ts, api/src/routes/admin/settings/index.ts, api/src/routes/admin/overview/index.ts, api/src/routes/admin/users/index.ts, api/src/routes/admin/config/index.ts, api/src/routes/admin/keys/openai.ts, api/src/routes/admin/keys/claude.ts, api/src/routes/admin/projects/index.ts, api/src/routes/admin/manual/index.ts, api/src/routes/auth/index.ts, api/src/routes/host/index.ts, api/src/routes/cli-auth/index.ts, api/src/routes/install/index.ts, api/src/routes/wrapper-v2/index.ts, api/src/routes/mcp/index.ts, api/src/routes/v1/index.ts, api/src/routes/anthropic-v1/index.ts, api/src/routes/projects-client/index.ts, api/src/routes/health.ts, api/src/ws/server.ts, api/src/services/openai-keys.ts, api/src/services/claude-keys.ts, api/src/services/claude-frontmatter.ts, api/src/db/schema.ts, frontend/src/routes/api-keys/+page.svelte, frontend/src/routes/setup/+page.svelte, frontend/src/lib/utils/shortcuts.ts, frontend/src/routes/+layout.svelte, frontend/src/lib/components/shortcuts/ShortcutsModal.svelte, frontend/src/lib/components/command-palette/commands.ts
 ---
 
 Two reference tables, pulled from the code as of this manual's verified date.
@@ -77,7 +77,7 @@ On success the dialog switches to a reveal screen showing the full plaintext key
 
 ## Admin HTTP routes
 
-`registerAllRoutes()` in `api/src/routes/index.ts` mounts everything by delegating to per-domain barrel modules — `host-api` (auth/host/install/cli-auth), `openai-compat` (`/v1/*` + OpenAI key admin), `anthropic-compat` (`/anthropic/v1/*` + Claude key admin), `admin-auth-users`, `admin-overview-settings`, `admin-content` (config/agents/skills/projects), and `admin/manual` — each of which registers the individual route files below. Tables list method + path + the file that actually defines the handler. All `/admin/*` JSON endpoints require an authenticated admin session (`app.requireAdmin`) unless explicitly noted.
+`registerAllRoutes()` in `api/src/routes/index.ts` mounts everything by delegating to per-domain barrel modules — `host-api` (auth/host/install/cli-auth), `projects-mcp` (host-facing projects/memories/skills plus `/mcp`), `wrapper-v2`, `agent-portal`, `agent-messaging`, `openai-compat` (`/v1/*` + OpenAI key admin), `anthropic-compat` (`/anthropic/v1/*` + Claude key admin), `admin-auth-users`, `admin/hosts`, `admin-overview-settings`, `admin-content` (config/agents/skills/projects/skill sources), `admin/memories`, `admin/secrets`, `admin/git-director`, `admin/transfers`, `admin/agent-sessions`, `admin/project-board`, and `admin/manual` — each of which registers the individual route files below. Tables list method + path + the file that actually defines the handler. All `/admin/*` JSON endpoints require an authenticated admin session (`app.requireAdmin`) unless explicitly noted, and every one of them additionally names a capability in `api/src/security/route-capabilities.ts` — see [Roles and capabilities](/admin/manual/roles).
 
 ### Admin auth + passkeys
 
@@ -129,6 +129,7 @@ The four `/admin/setup/*` routes are the noted exception to the session rule: th
 | POST | `/admin/hosts/:id/engines` | api/src/routes/admin/hosts/index.ts |
 | POST | `/admin/hosts/:id/clear` | api/src/routes/admin/hosts/index.ts |
 | POST | `/admin/hosts/:id/roaming` | api/src/routes/admin/hosts/index.ts |
+| POST | `/admin/hosts/:id/release-ip-binding` | api/src/routes/admin/hosts/index.ts |
 | POST | `/admin/hosts/:id/secure` | api/src/routes/admin/hosts/index.ts |
 | POST | `/admin/hosts/:id/vip` | api/src/routes/admin/hosts/index.ts |
 | POST | `/admin/hosts/:id/scaling-exempt` | api/src/routes/admin/hosts/index.ts |
@@ -172,6 +173,11 @@ The four `/admin/setup/*` routes are the noted exception to the session rule: th
 | GET/POST | `/admin/claude/version` | api/src/routes/admin/settings/index.ts |
 | POST | `/admin/codex-version` | api/src/routes/admin/settings/index.ts |
 | POST | `/admin/versions/check` | api/src/routes/admin/settings/index.ts |
+| GET/POST | `/admin/model-defaults/:engine` | api/src/routes/admin/settings/index.ts |
+| GET/POST | `/admin/agents-generation-mode` | api/src/routes/admin/settings/index.ts |
+| GET/POST | `/admin/api-keys-in-chat` | api/src/routes/admin/settings/index.ts |
+| GET/POST | `/admin/response-verbosity` | api/src/routes/admin/settings/index.ts |
+| GET/POST | `/admin/authorization` | api/src/routes/admin/settings/index.ts |
 
 `GET/POST /admin/openai/state` and `GET/POST /admin/claude/state` are the engine kill-switches. A POST with `{ disabled: true }` halts all requests authenticated by keys of that engine. See the kill-switch card description above for the UI equivalent.
 
@@ -185,6 +191,8 @@ The four `/admin/setup/*` routes are the noted exception to the session rule: th
 | GET | `/admin/chatgpt/usage` | api/src/routes/admin/overview/index.ts |
 | GET | `/admin/chatgpt/usage/history` | api/src/routes/admin/overview/index.ts |
 | POST | `/admin/chatgpt/usage/refresh` | api/src/routes/admin/overview/index.ts |
+| GET | `/admin/claude/usage` | api/src/routes/admin/overview/index.ts |
+| GET | `/admin/claude/usage/history` | api/src/routes/admin/overview/index.ts |
 | GET | `/admin/runner` | api/src/routes/admin/overview/index.ts |
 | POST | `/admin/runner/run` | api/src/routes/admin/overview/index.ts |
 | POST | `/admin/runner/run-claude` | api/src/routes/admin/overview/index.ts |
@@ -203,18 +211,61 @@ The four `/admin/setup/*` routes are the noted exception to the session rule: th
 | GET | `/admin/agents` | api/src/routes/admin/config/index.ts |
 | GET | `/admin/agents/versions/:id` | api/src/routes/admin/config/index.ts |
 | POST | `/admin/agents/store` | api/src/routes/admin/config/index.ts |
+| POST | `/admin/agents/compose` | api/src/routes/admin/config/index.ts |
+| GET/POST | `/admin/agents/render` | api/src/routes/admin/config/index.ts |
 | POST | `/admin/agents/serve` | api/src/routes/admin/config/index.ts |
 | POST | `/admin/agents/revert` | api/src/routes/admin/config/index.ts |
 | POST | `/admin/agents/retention` | api/src/routes/admin/config/index.ts |
 | DELETE | `/admin/agents/versions/:id` | api/src/routes/admin/config/index.ts |
+| GET | `/admin/agent-policy-profiles` | api/src/routes/admin/config/index.ts |
+| POST | `/admin/agent-policy-profiles` | api/src/routes/admin/config/index.ts |
+| POST | `/admin/agent-policy-profiles/:id` | api/src/routes/admin/config/index.ts |
+| DELETE | `/admin/agent-policy-profiles/:id` | api/src/routes/admin/config/index.ts |
+| POST | `/admin/agent-policy-profiles/:id/default` | api/src/routes/admin/config/index.ts |
+| POST | `/admin/agent-policy-profiles/assign` | api/src/routes/admin/config/index.ts |
+| GET | `/admin/agent-policy-profiles/enforcement` | api/src/routes/admin/config/index.ts |
 | GET | `/admin/mcp/memories` | api/src/routes/admin/config/index.ts |
 | DELETE | `/admin/mcp/memories/:id` | api/src/routes/admin/config/index.ts |
+| GET | `/admin/shared-memories` | api/src/routes/admin/config/index.ts |
+| GET | `/admin/shared-memories/:slug` | api/src/routes/admin/config/index.ts |
+| DELETE | `/admin/shared-memories/:slug` | api/src/routes/admin/config/index.ts |
 | GET | `/admin/skills` | api/src/routes/admin/config/index.ts |
 | GET | `/admin/skills/:slug` | api/src/routes/admin/config/index.ts |
 | POST | `/admin/skills/generate` | api/src/routes/admin/config/index.ts |
 | POST | `/admin/skills/assist` | api/src/routes/admin/config/index.ts |
 | POST | `/admin/skills/store` | api/src/routes/admin/config/index.ts |
 | DELETE | `/admin/skills/:slug` | api/src/routes/admin/config/index.ts |
+| GET | `/admin/skill-sources/mattpocock` | api/src/routes/admin/skill-sources/index.ts |
+| POST | `/admin/skill-sources/mattpocock` | api/src/routes/admin/skill-sources/index.ts |
+| POST | `/admin/skill-sources/mattpocock/refresh` | api/src/routes/admin/skill-sources/index.ts |
+
+`/admin/mcp/memories` and `/admin/shared-memories` are the deprecated per-scope reads and deletes; the console uses the unified `/admin/memories/*` surface below.
+
+### Admin memories (Memory Atlas)
+
+| Method | Route | Source |
+|--------|-------|--------|
+| GET | `/admin/memories/graph` | api/src/routes/admin/memories/index.ts |
+| GET | `/admin/memories/audit` | api/src/routes/admin/memories/index.ts |
+| POST | `/admin/memories/:scope` | api/src/routes/admin/memories/index.ts |
+| GET | `/admin/memories/:scope/:recordId` | api/src/routes/admin/memories/index.ts |
+| PATCH | `/admin/memories/:scope/:recordId` | api/src/routes/admin/memories/index.ts |
+| DELETE | `/admin/memories/:scope/:recordId` | api/src/routes/admin/memories/index.ts |
+| POST | `/admin/memories/shared/:recordId/append` | api/src/routes/admin/memories/index.ts |
+
+`:scope` is `host`, `project`, or `shared`. Detail responses carry an ETag; `PATCH` and `DELETE` accept `expected_etag` (or `If-Match`) and answer `409 memory_conflict` when stale. See [memories](/admin/manual/memories).
+
+### Admin secrets
+
+| Method | Route | Source |
+|--------|-------|--------|
+| GET/POST | `/admin/secrets/state` | api/src/routes/admin/secrets/index.ts |
+| GET | `/admin/secrets` | api/src/routes/admin/secrets/index.ts |
+| POST | `/admin/secrets` | api/src/routes/admin/secrets/index.ts |
+| GET | `/admin/secrets/:id` | api/src/routes/admin/secrets/index.ts |
+| PATCH | `/admin/secrets/:id` | api/src/routes/admin/secrets/index.ts |
+| DELETE | `/admin/secrets/:id` | api/src/routes/admin/secrets/index.ts |
+| POST | `/admin/secrets/:id/reveal` | api/src/routes/admin/secrets/index.ts |
 
 ### Admin Claude client config and artifacts
 
@@ -247,9 +298,70 @@ Mirrors `/admin/config`, `/admin/agents`, and `/admin/skills` above, but scoped 
 
 `POST /admin/openai/keys` and `POST /admin/claude/keys` accept `{ name, expires_at? }` and return `{ key, record }`. The `key` field contains the full plaintext key and is only present in this response — it is never returned again. All mutations publish WebSocket events (`apikey.created`, `apikey.toggled`, `apikey.deleted`) so connected admin clients invalidate their cache automatically.
 
+### Admin Agent Messaging
+
+| Method | Route | Source |
+|--------|-------|--------|
+| GET/POST | `/admin/agent-messaging/state` | api/src/routes/agent-messaging/index.ts |
+| GET | `/admin/agent-messaging` | api/src/routes/agent-messaging/index.ts |
+| GET | `/admin/agent-messaging/addresses` | api/src/routes/agent-messaging/index.ts |
+| PATCH | `/admin/agent-messaging/addresses/:id` | api/src/routes/agent-messaging/index.ts |
+| POST | `/admin/agent-messaging/addresses/:id/enabled` | api/src/routes/agent-messaging/index.ts |
+| GET | `/admin/agent-messaging/conversations` | api/src/routes/agent-messaging/index.ts |
+| POST | `/admin/agent-messaging/conversations/:id/cancel` | api/src/routes/agent-messaging/index.ts |
+| GET | `/admin/agent-messaging/messages` | api/src/routes/agent-messaging/index.ts |
+| POST | `/admin/agent-messaging/messages/:id/reveal` | api/src/routes/agent-messaging/index.ts |
+| POST | `/admin/agent-messaging/messages/:id/redrive` | api/src/routes/agent-messaging/index.ts |
+
+The host-facing relay and session bus routes (`/host/agent-relays/*`, `/host/agent-sessions/:id/agent-messaging/*`) live in the same file. See [agent-messaging](/admin/manual/agent-messaging).
+
+### Admin Agent Portal and Active Clients
+
+| Method | Route | Source |
+|--------|-------|--------|
+| GET/POST | `/admin/agent-portal/state` | api/src/routes/agent-portal/admin-host.ts |
+| GET | `/admin/agent-portal/users` | api/src/routes/agent-portal/admin-host.ts |
+| POST | `/admin/agent-portal/users` | api/src/routes/agent-portal/admin-host.ts |
+| POST | `/admin/agent-portal/users/:id` | api/src/routes/agent-portal/admin-host.ts |
+| POST | `/admin/agent-portal/users/:id/enabled` | api/src/routes/agent-portal/admin-host.ts |
+| POST | `/admin/agent-portal/users/:id/rotate` | api/src/routes/agent-portal/admin-host.ts |
+| GET | `/admin/agent-portal/users/:id/link` | api/src/routes/agent-portal/admin-host.ts |
+| DELETE | `/admin/agent-portal/users/:id` | api/src/routes/agent-portal/admin-host.ts |
+| GET | `/admin/agent-sessions` | api/src/routes/admin/agent-sessions/index.ts |
+| GET | `/admin/agent-sessions/events` | api/src/routes/admin/agent-sessions/index.ts |
+| GET | `/admin/agent-sessions/:id/events` | api/src/routes/admin/agent-sessions/index.ts |
+| POST | `/admin/agent-sessions/:id/messages` | api/src/routes/admin/agent-sessions/index.ts |
+| POST | `/admin/agent-sessions/:id/prompts/:promptId/answer` | api/src/routes/admin/agent-sessions/index.ts |
+| POST | `/admin/agent-sessions/:id/close` | api/src/routes/admin/agent-sessions/index.ts |
+| POST | `/admin/agent-sessions/:id/close/force` | api/src/routes/admin/agent-sessions/index.ts |
+
+`GET /admin/agent-sessions/events` is a server-sent-event stream. The wrapper-side registration, heartbeat, event and command-claim routes (`/host/agent-sessions*`, `/host/agent-commands/:messageId/ack`, `GET /host/agent-portal/state`) and the phone portal (`GET /go`, `GET /go/u/:publicId`, `/go/api/*`) are in `api/src/routes/agent-portal/admin-host.ts` and `public.ts`. See [agent-portal](/admin/manual/agent-portal).
+
+### Admin Git Director
+
+| Method | Route | Source |
+|--------|-------|--------|
+| GET/POST | `/admin/git-director/state` | api/src/routes/admin/git-director/index.ts |
+| GET | `/admin/git-director` | api/src/routes/admin/git-director/index.ts |
+| POST | `/admin/git-director/requests/:id/decide` | api/src/routes/admin/git-director/index.ts |
+| POST | `/admin/git-director/worktrees/:id/release` | api/src/routes/admin/git-director/index.ts |
+
+### Admin File Transfer
+
+| Method | Route | Source |
+|--------|-------|--------|
+| GET/POST | `/admin/transfers/state` | api/src/routes/admin/transfers/index.ts |
+| POST | `/admin/transfers/limits` | api/src/routes/admin/transfers/index.ts |
+| GET | `/admin/transfers` | api/src/routes/admin/transfers/index.ts |
+| GET | `/admin/transfers/:id/events` | api/src/routes/admin/transfers/index.ts |
+| GET | `/admin/transfers/:id/content` | api/src/routes/admin/transfers/index.ts |
+| DELETE | `/admin/transfers/:id` | api/src/routes/admin/transfers/index.ts |
+
+`/content` streams the file itself rather than the JSON envelope and requires `transfers.download`. Agents reach the pool through the `transfer_*` MCP tools, not HTTP. See [transfers](/admin/manual/transfers).
+
 ### Admin projects
 
-Every project endpoint lives in `api/src/routes/admin/projects/index.ts` and mirrors the host-facing `/projects/*` surface in `api/src/routes/projects-client/index.ts` (registered by the `projects-mcp` barrel alongside `api/src/routes/mcp/index.ts`). See [projects](/admin/manual/projects) for the full shape — the host-facing `/projects/*` routes aren't re-listed in the tables above for that reason.
+Every project endpoint lives in `api/src/routes/admin/projects/index.ts` and mirrors the host-facing `/projects/*` surface in `api/src/routes/projects-client/index.ts` (registered by the `projects-mcp` barrel alongside `api/src/routes/mcp/index.ts`). See [projects](/admin/manual/projects) for the full shape — the host-facing `/projects/*` routes aren't re-listed in the tables above for that reason. The project board (`GET/POST /admin/project-board/state`, `GET /admin/projects/:slug/board`, and the `/admin/projects/:slug/board/cards*` and `/columns/:id` mutations) is registered separately from `api/src/routes/admin/project-board/index.ts`.
 
 ### Admin manual
 
@@ -273,6 +385,7 @@ Every project endpoint lives in `api/src/routes/admin/projects/index.ts` and mir
 | POST | `/sync/status` | api/src/routes/auth/index.ts |
 | POST | `/sync/bootstrap` | api/src/routes/auth/index.ts |
 | DELETE | `/auth` | api/src/routes/auth/index.ts |
+| POST | `/claude/usage/report` | api/src/routes/auth/index.ts |
 | GET | `/versions` | api/src/routes/host/index.ts |
 | POST | `/host/users` | api/src/routes/host/index.ts |
 | GET/POST | `/host/lane` | api/src/routes/host/index.ts |
@@ -297,6 +410,27 @@ Every project endpoint lives in `api/src/routes/admin/projects/index.ts` and mir
 | POST | `/cli/auth/approve` | api/src/routes/cli-auth/index.ts |
 | POST | `/cli/auth/deny` | api/src/routes/cli-auth/index.ts |
 | GET/POST | `/mcp` | api/src/routes/mcp/index.ts |
+| POST | `/agents/retrieve` | api/src/routes/projects-client/index.ts |
+| POST | `/config/retrieve` | api/src/routes/projects-client/index.ts |
+| GET | `/claude/:kind` | api/src/routes/projects-client/index.ts |
+| POST | `/claude/:kind/retrieve` | api/src/routes/projects-client/index.ts |
+| GET | `/skills` | api/src/routes/projects-client/index.ts |
+| POST | `/skills/retrieve` | api/src/routes/projects-client/index.ts |
+| POST | `/skills/store` | api/src/routes/projects-client/index.ts |
+| POST | `/mcp/memories/store` | api/src/routes/projects-client/index.ts |
+| POST | `/mcp/memories/retrieve` | api/src/routes/projects-client/index.ts |
+| POST | `/mcp/memories/search` | api/src/routes/projects-client/index.ts |
+| POST | `/mcp/memories/delete` | api/src/routes/projects-client/index.ts |
+| DELETE | `/mcp/memories/:id` | api/src/routes/projects-client/index.ts |
+| GET | `/shared-memories` | api/src/routes/projects-client/index.ts |
+| GET | `/shared-memories/:slug` | api/src/routes/projects-client/index.ts |
+| DELETE | `/shared-memories/:slug` | api/src/routes/projects-client/index.ts |
+| POST | `/shared-memories/list` | api/src/routes/projects-client/index.ts |
+| POST | `/shared-memories/read` | api/src/routes/projects-client/index.ts |
+| POST | `/shared-memories/search` | api/src/routes/projects-client/index.ts |
+| POST | `/shared-memories/write` | api/src/routes/projects-client/index.ts |
+| POST | `/shared-memories/append` | api/src/routes/projects-client/index.ts |
+| POST | `/shared-memories/delete` | api/src/routes/projects-client/index.ts |
 | GET | `/healthz` | api/src/routes/health.ts |
 | GET | `/readyz` | api/src/routes/health.ts |
 
@@ -304,9 +438,9 @@ Every project endpoint lives in `api/src/routes/admin/projects/index.ts` and mir
 
 ### OpenAI- and Anthropic-compatible APIs
 
-`/v1/*` handlers live in `api/src/routes/v1/index.ts`; the `api/src/routes/openai-compat/index.ts` barrel wires them up alongside the admin OpenAI key routes. It supports `chat/completions`, `responses`, `completions`, `models`, plus CORS `OPTIONS` (`embeddings` returns `501 feature_not_supported` — the runner backend has no embeddings support).
+`/v1/*` handlers live in `api/src/routes/v1/index.ts`; the `api/src/routes/openai-compat/index.ts` barrel wires them up alongside the admin OpenAI key routes. It supports `chat/completions`, `responses`, `completions`, `models` (list and `models/:model`), plus CORS `OPTIONS` (`embeddings` returns `501 feature_not_supported` — the runner backend has no embeddings support).
 
-`/anthropic/v1/*` handlers live in `api/src/routes/anthropic-v1/index.ts`; the `api/src/routes/anthropic-compat/index.ts` barrel wires them up alongside the admin Claude key routes. It supports `messages`, `completions` (deprecated but supported), `models`, `responses` (non-streaming only), plus CORS `OPTIONS` (`embeddings` returns `501` — Anthropic has no embeddings API). Note the Anthropic-compat surface uses `messages`, not `chat/completions` — the two proxies are not path-symmetric.
+`/anthropic/v1/*` handlers live in `api/src/routes/anthropic-v1/index.ts`; the `api/src/routes/anthropic-compat/index.ts` barrel wires them up alongside the admin Claude key routes. It supports `messages`, `messages/count_tokens`, `completions` and `complete` (deprecated but supported), `models` (list and `models/:model_id`), `responses` (non-streaming only), plus CORS `OPTIONS` (`embeddings` returns `501` — Anthropic has no embeddings API). Note the Anthropic-compat surface uses `messages`, not `chat/completions` — the two proxies are not path-symmetric.
 
 Authentication uses a bearer token: `sk-cdx-…` keys for the OpenAI-compat surface and `sk-ant-…` keys for the Anthropic-compat surface. Requests proxy through the shared runner with quota accounting.
 
@@ -315,6 +449,8 @@ Authentication uses a bearer token: `sk-cdx-…` keys for the OpenAI-compat surf
 - api/src/routes/index.ts (top-level route mounting via `registerAllRoutes`)
 - api/src/routes/host-api/index.ts, admin-auth-users/index.ts, admin-overview-settings/index.ts, admin-content/index.ts (barrel modules that group the route files below)
 - api/src/routes/openai-compat/index.ts, anthropic-compat/index.ts (barrels wiring `/v1/*` and `/anthropic/v1/*` up with their admin key routes)
+- api/src/routes/admin/memories/index.ts, admin/secrets/index.ts, admin/git-director/index.ts, admin/transfers/index.ts, admin/agent-sessions/index.ts, admin/project-board/index.ts, admin/skill-sources/index.ts (the direct-mounted admin route files)
+- api/src/routes/agent-messaging/index.ts, agent-portal/admin-host.ts, agent-portal/public.ts (Agent Messaging, Agent Portal admin/host, and the `/go` portal)
 - api/src/routes/admin/**/*.ts (every admin route: auth, hosts, settings, overview, users, config, keys, projects, manual)
 - api/src/routes/auth/index.ts, host/index.ts, cli-auth/index.ts, install/index.ts (host-facing surface)
 - api/src/routes/wrapper-v2/index.ts (wrapper bakery v2 endpoints)

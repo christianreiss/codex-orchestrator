@@ -157,7 +157,7 @@ The wrapper is the supported entrypoint because it:
 - Pulls/pushes canonical `auth.json` via `/auth`.
 - Syncs effective `CODEX_HOME/config.toml` and `CODEX_HOME/AGENTS.md` via `/sync/status` + `/sync/bootstrap` (with fallback to per-surface endpoints). Skills are read through cdx/MCP `skill://{slug}` resources, and the wrapper removes legacy local skill mirrors on upgrade.
 - Enforces the server’s quota policy and kill switch.
-- Self-updates the wrapper and Codex CLI as needed (when the host can write install locations).
+- Keeps the wrapper and the Codex CLI current through the shared background maintenance coordinator (`cxx cron`, every 15 minutes at a host-specific minute offset). Since cxx 0.8.2 a launch only queues a detached `cxx cron run --due --minimal`; no download, installer, or wrapper re-exec runs inline before or after a session.
 
 Common commands:
 
@@ -204,6 +204,16 @@ cdx -4
 # Wrapper diagnostics
 cdx status
 cdx doctor
+
+# Apply managed AGENTS.md, config.toml, and the skills fingerprint without launching Codex
+cdx sync
+
+# Host-wide (engine-neutral) commands of the shared cxx binary
+cxx --version                # wrapper version, commit, and signing-key status
+cxx sync                     # sync every installed engine, nothing launched
+cxx update                   # self-update the wrapper, then re-exec into `cxx sync`
+cxx cron run --minimal       # run the shared maintenance tick now (bypasses the cooldown)
+cat ~/.cxx/maintenance.json  # last outcome and next eligible time
 
 # Wrapper-owned command reference (`--help` remains upstream Codex help)
 cdx --wrapper-help
@@ -289,8 +299,13 @@ If you see failures about an insecure window being closed, that’s not somethin
 
 ### Update the wrapper / Codex CLI on a host
 
-`cdx` auto-updates the shared wrapper in normal operation when it can manage
-the install location. The registered versioned route is
+The shared maintenance coordinator (`cxx cron`, installed by the host
+installer) auto-updates the wrapper and the Codex CLI in the background: the
+schedule fires every 15 minutes, successful work cools down for 15 minutes,
+failures retry after five, and a `cdx`/`clx` launch queues a detached tick when
+one is due. Codex upgrades are installed into private versioned prefixes under
+`~/.cxx/engines/codex` and activated atomically, so a running session keeps its
+files. The registered versioned route is
 `/wrapper/v2/bin/{artifact}/{platform}/v{version}/{binary}`; new releases use
 `artifact=cxx` and `binary=cxx`. The compatible per-engine URL and
 `/wrapper/v2/download` resolve to the same bytes for a new common release.
@@ -302,9 +317,9 @@ check/run:
 cdx --update
 ```
 
-That forced path checks both the wrapper and Codex. If the wrapper has to replace itself first, it restarts once and then finishes the Codex update check before exiting.
+`cdx --update` (or `cdx update`) verifies the wrapper target's SHA-256, installs it, and re-execs the new binary into `cdx sync` so managed content is written by the new code; it does not install Codex itself. `cxx update` does the same and syncs every installed engine. To pull a pending Codex CLI upgrade right now, run `cxx cron run --minimal`, which bypasses the 15-minute cooldown.
 
-If SSH launches misbehave, run `cdx doctor`. The wrapper reports SSH terminal/session hints, API reachability, local Codex version, and whether the host is using the direct TTY path or the older inline fallback.
+If SSH launches misbehave, run `cdx doctor`. The wrapper reports the SSH environment (local vs. ssh session, `TERM`), config and paths, the Codex CLI and its version, auth, the managed MCP entry in `config.toml`, API reachability and latency, disk, and whether the shared cron schedule is installed.
 
 ### Rotate canonical auth (operator)
 

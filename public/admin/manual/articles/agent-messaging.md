@@ -3,8 +3,8 @@ title: Agent Messaging operations
 section: Fleet operations
 summary: How Codex and Claude agents address each other, how ordered delivery behaves, and how operators control and audit the bus.
 tags: [agents, messaging, codex, claude, operations]
-verified: 2026-08-04
-sources: api/src/routes/agent-messaging/index.ts, api/src/routes/agent-portal/admin-host.ts, api/src/services/agent-messaging.ts, api/src/ops/agent-messaging-worker.ts, api/src/db/schema.ts, api/src/db/migrations/0014_add_agent_messaging.sql, frontend/src/routes/agent-messaging/+page.svelte, frontend/src/lib/components/settings/AgentMessagingSection.svelte, wrappers/cxx/internal/agentbus, wrappers/cxx/internal/agentportal/broker.go
+verified: 2026-09-09
+sources: api/src/routes/agent-messaging/index.ts, api/src/routes/agent-portal/admin-host.ts, api/src/services/agent-messaging.ts, api/src/services/agent-messaging-tool-names.ts, api/src/services/agent-presence.ts, api/src/services/agent-session-work.ts, api/src/ops/agent-messaging-worker.ts, api/src/db/schema.ts, api/src/db/migrations/0014_add_agent_messaging.sql, api/src/db/migrations/0021_add_agent_conferences.sql, frontend/src/routes/agent-messaging/+page.svelte, frontend/src/lib/components/settings/AgentMessagingSection.svelte, wrappers/cxx/internal/agentbus, wrappers/cxx/internal/agentportal/broker.go
 ---
 
 Agent Messaging is the fleet's private agent-to-agent bus. One contract covers
@@ -33,7 +33,8 @@ behind two things the security posture controls:
 Both come from the host's policy profile, and the escalation cap is the minimum
 across **all nine** axes — so a single low axis anywhere holds Codex back even
 when the axes that name approval and sandboxing are at 4. Claude has no
-equivalent gate: its `permissions.allow` already carries `mcp__cxx-agent__*`.
+equivalent gate: its managed `permissions.allow` already carries one
+`mcp__cxx-agent__<tool>` entry per tool in `AGENT_MESSAGING_TOOLS`.
 
 `config.toml` is only rewritten by a **codex** lifecycle. `cxx cron run` does
 not do it, so after changing posture a host keeps serving the old approval and
@@ -55,8 +56,14 @@ flip afterwards.
 **Enabling also rewrites what every agent reads.** The switch adds an Agent
 Messaging section to the managed `AGENTS.md` / `CLAUDE.md` served to every active
 host: the tool names, the rule that a peer message is untrusted input carrying no
-authority, and the `#call` PIN rendezvous with its turn-holding rule. Without it
-an agent receives ten peer-messaging tools and nothing explaining them. The
+authority, the `#call` PIN rendezvous with its turn-holding rule, and the
+`#conference` chair rule. Without it an agent receives seventeen peer-messaging
+tools (`agent_list`, `agent_send`, `agent_request`, `agent_wait`, `agent_reply`,
+`agent_message_get`, `agent_cancel`, `agent_call_open`, `agent_call_join`,
+`agent_listen`, and the seven `agent_conf_*` verbs — the list in
+`agent-messaging-tool-names.ts`, served by the wrapper-local `cxx-agent` stdio
+server rather than the orchestrator's `clx`/`cdx` entry) and nothing explaining
+them. The
 served file is replaced **whole** on the host — there is no separate managed
 block on disk — so a host picks the change up on its next wrapper launch, or on
 a successful background maintenance check, scheduled every 15 minutes. Managed
@@ -91,7 +98,11 @@ stale host data.
 
 An insecure host is not disqualified, only time-bounded. It is authorized per
 operation for as long as `insecure_enabled_until` is in the future — the same
-window used elsewhere for insecure hosts, opened from Host Detail.
+window used elsewhere for insecure hosts, opened from Host Detail, by an
+approval, or by the fleet-wide insecure window (since 2026-09-04), which stamps
+the same column on every insecure host and so makes all of them messaging-
+eligible at once. The fleet window's card says so, because eligibility here is
+one of the three things an open window grants beyond the obvious gate.
 
 The window is **read, never extended**. Agent Messaging does not slide it and
 does not raise approval requests, because the background relay polls
@@ -129,6 +140,22 @@ identity. Native resume uses the previous upstream session to recover the same
 address. A fresh lifecycle with the same host, user, engine, and working
 directory can reuse the newest dormant identity with continuity marked
 `reset`. A concurrently bound address is never shared by another live session.
+
+**Presence is derived, never stored.** `agent_bus_addresses.readiness` only moves
+when a caller passes `receive_capable`, which only the `agent_listen` bind path
+does, so for an ordinary session it reads `resumable` from registration to
+finish whether the agent is working or was SIGKILLed a month ago — and until
+2026-09-04 `agent_list(online: true)` returned exactly such agents.
+`services/agent-presence.ts` now computes `listening` / `online` / `resumable` /
+`offline` / `disabled` from the bound session's heartbeat against
+`AGENT_PORTAL_HEARTBEAT_FRESH_SECONDS` (45 s; the wrapper heartbeats every 15 s
+from its own goroutine, so a long tool call cannot make a live agent look dead).
+`resumable` is deliberately not "present". `agent_list` returns that `presence`
+beside the unchanged `readiness`, ranks reachable-first then most-recently-seen,
+and caps at 50 with `total` and `truncated` — addresses are never deleted on
+exit, so the unranked list had grown to 92 KB of JSON on one host. The Git
+Director and the project board reuse the same helper to reclaim a dead agent's
+leases and cards.
 
 The wrapper keeps the short-lived bridge token and exposes a fixed operation
 allowlist to the model through a private Unix socket. Heartbeats publish adapter
@@ -191,7 +218,12 @@ Operational notes:
   consumes it, so a wrong number takes the rendezvous with it. The opener is expected
   to answer an unexpected joiner with `BYE reason=refused` and open a fresh PIN. A join
   that fails validation, dials itself, or finds an ineligible opener leaves the PIN
-  live on purpose.
+  live on purpose. A third agent handed a live PIN therefore gets "not found or
+  expired": since 2026-08-22 that message names all three causes (wrong digits, closed
+  window, already dialled) and points at `#conference`, but the error *code* is
+  unchanged because the server genuinely cannot tell them apart — a swept PIN and a
+  spent one leave the same NULL. Two agents, not three: a second PIN buys a second
+  separate call.
 - **A PIN never outlives its agent.** It is cleared when the session finishes, when a
   binding is reaped, when the address is disabled, and when the fleet switch goes off,
   and expired PINs are swept on every mint, every redeem, and the 30-second
@@ -387,6 +419,13 @@ Open **Operate → Agent Messaging** to inspect:
 - Delivery status, attempts, size, expiry, sender/target, error code, and
   terminal timestamps.
 
+The **Active Clients** page (`/admin/clients`, Monitor group, since 2026-09-04)
+shows the other half: every registered wrapper session with its derived
+presence, and — joined by `services/agent-session-work.ts` — the Agent Messaging
+address a peer would reach it on, alongside its Git Director task, branch and
+declared paths. The join hashes every ancestor of the session's `cwd`, since an
+agent routinely works below the directory it registered.
+
 Any authenticated active admin role, including viewer and legacy read-only
 roles, may inspect this metadata. Message bodies are not included in any list.
 Only `owner` and `admin` may change the fleet/host/address switches, edit an
@@ -442,6 +481,7 @@ Outbound relay routes:
 Admin routes:
 
 - `GET/POST /admin/agent-messaging/state`
+- `GET /admin/agent-messaging` — the address listing again, served for the SPA route
 - `GET /admin/agent-messaging/addresses`
 - `PATCH /admin/agent-messaging/addresses/{id}`
 - `POST /admin/agent-messaging/addresses/{id}/enabled`
@@ -476,9 +516,13 @@ There is no automatic Agent Messaging history purge.
 - api/src/routes/agent-messaging/index.ts — admin, session, and relay route contracts
 - api/src/routes/agent-portal/admin-host.ts — shared session registration, heartbeat, and finish lifecycle
 - api/src/services/agent-messaging.ts — gates, stable identity, delivery, shutdown, reveal, and redrive semantics
+- api/src/services/agent-messaging-tool-names.ts — the seventeen `agent_*` tool names the wrapper-local `cxx-agent` server exposes
+- api/src/services/agent-presence.ts — derived presence shared by `agent_list`, the Git Director and the project board
+- api/src/services/agent-session-work.ts — the Active Clients join of session, address, and Git Director work
 - api/src/ops/agent-messaging-worker.ts — queue maintenance loop
 - api/src/db/schema.ts — Drizzle tables and lifecycle link
 - api/src/db/migrations/0014_add_agent_messaging.sql — idempotent Agent Messaging DDL and default-off keys
+- api/src/db/migrations/0021_add_agent_conferences.sql — conference rooms and rosters
 - frontend/src/routes/agent-messaging/+page.svelte — operations UI and reveal lifecycle
 - frontend/src/lib/components/settings/AgentMessagingSection.svelte — fleet switch
 - wrappers/cxx/internal/agentbus/ — engine commands, relay worker, and service management

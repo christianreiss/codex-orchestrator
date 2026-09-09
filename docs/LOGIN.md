@@ -6,12 +6,12 @@
 - When no admin user exists at all, `POST /admin/users` runs in bootstrap mode (no session required) so the first admin can be created.
 - Login uses an HTTP-only session cookie with a configurable TTL.
 - Admin login is normally username-first: the page submits the entered username before deciding whether the user must complete passkey auth or may continue to password entry. When exactly one active user exists and has passkeys, it can open that user's passkey prompt directly.
-- Passkey login issues the same session cookie as password login; the API wraps neither in a client-certificate check. Only the optional Caddy proxy in front of the app does that.
+- Passkey login issues the same session cookie as password login; the API wraps neither in a client-certificate check, and neither does the bundled Caddy profile (`caddy/Caddyfile` requests no client certificate). Any mTLS in front of the console is a proxy of your own.
 - Password recovery is available from the login screen and completes on the standalone `/admin/password/reset` page.
-- Roles are stored per user. Six route families add an `owner`/`admin` gate:
-  user management, Memory Atlas writes, external Skill-source changes, Agent
-  Portal writes/link reveal, Agent Messaging mutations/content reveal, and
-  fleet-secret writes/value reveal.
+- Roles are stored per user. Authorization is a default-deny capability matrix
+  (`api/src/security/capabilities.ts`): every `/admin/*` route names exactly one
+  capability, and a role is admitted only when it holds it. See "Roles &
+  Capabilities" below.
 
 ## Bootstrap & Enforcement
 - Enforcement check is the `isEnforced()` helper in `api/src/services/admin-auth.ts` (`countAdmins(true) > 0`).
@@ -74,9 +74,11 @@ Setup bootstrap uses `GET /admin/setup/status` (public only while there are no u
     `owner` only in the ownership invariants in
     `api/src/services/admin-users.ts`, which protect the last active
     owner-like account and are properties of the target row, not of the caller.
-  - `fleet_operator` — hosts, insecure windows, global settings, and fleet
-    credentials. No account management, no reveal of any kind, and none of the
-    four host security transitions.
+  - `fleet_operator` — hosts, insecure windows, global settings, fleet
+    credentials, the Git Director switch/verdicts, and the file transfer pool
+    (switch, limits, delete — but not reading a transfer back). No account
+    management, no reveal of any kind, and none of the four host security
+    transitions.
   - `trusted_user` — the reads plus `hosts.activate_insecure`.
   - `viewer` and the legacy `user` — read-only.
 - Authorization is a default-deny capability layer.
@@ -102,10 +104,17 @@ Setup bootstrap uses `GET /admin/setup/status` (public only while there are no u
   `security.manage_authorization`. See `api/src/security/authorization-mode.ts`
   and the route-by-route proof in
   `api/test/integration/security/authorization-compatibility.test.ts`.
-- Four reads carry their own capability instead of the domain's `.read`,
+- Six reads carry their own capability instead of the domain's `.read`,
   because each returns bearer material or private content:
   - `GET /admin/agent-portal/users/{id}/link` → `agent_portal.reveal_link`. The
     permanent portal link is a reusable credential.
+  - `GET /admin/agent-sessions/events` and `GET /admin/agent-sessions/{id}/events`
+    → `agent_portal.reveal_transcript`. The listing says who is running and
+    whether they are stuck; the timeline is the content of the work itself.
+  - `GET /admin/transfers/{id}/content` → `transfers.download`. A transfer is
+    whatever an agent chose to upload and may hold anything the fleet was
+    working on, so `transfers.manage` (switch, limits, delete) deliberately
+    does not include it.
   - `POST /admin/secrets/{id}/reveal` → `secrets.reveal`. A `POST` rather than a
     `GET` on purpose: it cannot be prefetched, cached by an intermediary, or
     replayed out of browser history.

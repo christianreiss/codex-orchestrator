@@ -1,8 +1,8 @@
 ---
 title: Admin login and access
 section: Admin access and identity
-verified: 2026-07-01
-sources: api/src/http/plugins/auth-admin.ts, api/src/http/plugins/auth-mtls.ts, api/src/security/mtls.ts, api/src/http/plugins/client-ip.ts, api/src/services/admin-auth.ts, api/src/services/admin-passkey.ts, api/src/services/admin-password.ts, api/src/services/mailer.ts, api/src/routes/admin/auth/index.ts, api/src/routes/admin/pages/static.ts, api/src/routes/cli-auth/index.ts, api/src/env.ts, caddy/Caddyfile, frontend/src/routes/login/+page.svelte
+verified: 2026-09-09
+sources: api/src/http/plugins/auth-admin.ts, api/src/security/authorization-mode.ts, api/src/http/plugins/auth-mtls.ts, api/src/security/mtls.ts, api/src/http/plugins/client-ip.ts, api/src/services/admin-auth.ts, api/src/services/admin-passkey.ts, api/src/services/admin-password.ts, api/src/services/mailer.ts, api/src/routes/admin/auth/index.ts, api/src/routes/admin/pages/static.ts, api/src/routes/cli-auth/index.ts, api/src/env.ts, caddy/Caddyfile, frontend/src/routes/login/+page.svelte
 ---
 
 The admin surface has one gate: a session cookie, enforced once at least one admin user exists. Transport security is whatever your proxy provides. This server does not issue, request or verify client certificates.
@@ -59,13 +59,17 @@ The API serves the SvelteKit SPA's HTML shell via `adminSpaHtmlPreHandler` (`api
   "user": { "id": …, "username": …, "name": …, "access_level": … } | null,
   "has_users": <bool>,
   "admin_count": <number>,
+  "capabilities": [ "admin.read", … ],
+  "authorization_mode": "compatible" | "strict",
   "passkeys_registered": <number>,
   "passkey_login_available": <bool>
 }
 ```
 
 - `has_users` — whether any admin accounts exist yet (used to gate the first-run flow).
-- `admin_count` — total number of admin accounts.
+- `admin_count` — number of active `owner`/`admin` accounts; `enforced` is `admin_count > 0`.
+- `capabilities` — the caller's row of the role → capability matrix, evaluated under the fleet's current enforcement mode (empty when unauthenticated). The console uses it to disable controls a `403` would meet; the server re-checks every request regardless. See [Roles and capabilities](/admin/manual/roles).
+- `authorization_mode` — `compatible` or `strict`; the console shows the posture under *Policies → Access control*.
 - `passkeys_registered` — number of passkeys registered to the currently authenticated user.
 - `passkey_login_available` — true if any passkey is registered across all users.
 
@@ -108,6 +112,7 @@ Authenticated admins can change their own password via `POST /admin/auth/passwor
 ## Failure modes you will see
 
 - **401 Admin session required** — session cookie missing or expired, and the route is gated by `requireAdmin`. Note that `/admin/auth/logout` is also gated; calling it without a valid session returns 401.
+- **403 `admin_role_required`** — the session is valid but its role lacks the capability the route names; the response carries `required_capability`. See [Roles and capabilities](/admin/manual/roles).
 - **403 Passkey login required for this user** — the user has at least one registered passkey and cannot fall back to password. Remove the passkey from *Account → Passkeys* if you need to restore password access.
 
 ## Source references
@@ -118,7 +123,8 @@ Authenticated admins can change their own password via `POST /admin/auth/passwor
 - api/src/services/admin-passkey.ts (WebAuthn registration + assertion, residentKey: 'discouraged', single-active-user lookup)
 - api/src/services/admin-password.ts (password reset token lifecycle)
 - api/src/services/mailer.ts (NoopMailer vs SmtpMailer, SMTP_HOST-gated delivery)
-- api/src/routes/admin/auth/index.ts (every /admin/auth/* route)
+- api/src/routes/admin/auth/index.ts (every /admin/auth/* route; `capabilities` and `authorization_mode` on the status payload)
+- api/src/security/authorization-mode.ts (`compatible` / `strict` enforcement modes)
 - api/src/routes/admin/pages/static.ts (SPA shell preHandler)
 - api/src/routes/cli-auth/index.ts (the only route that reads ADMIN_ACCESS_MODE)
 - api/src/env.ts (ADMIN_ACCESS_MODE, ADMIN_SESSION_TTL_MINUTES defaults)

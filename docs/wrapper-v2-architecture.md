@@ -55,6 +55,13 @@ pipeline with:
    user-crontab failure or later legacy `/etc/cron.d` cleanup failure restores
    every snapshot and removes the new system entry, so migration fails closed
    instead of committing two jobs.
+   The schedule fires every 15 minutes at a host-derived minute offset and
+   invokes `cxx cron run --due`, which honours the cooldown recorded in
+   `~/.cxx/maintenance.json` (15 minutes after success, 5 after failure); a bare
+   `cxx cron run` bypasses it. `internal/maintenance` holds one per-user lease
+   over scheduled, launch-triggered, and manual runs, and since cxx 0.8.2 a
+   `cdx`/`clx` launch only queues that detached tick — no wrapper, engine, or
+   peer upgrade runs inline.
 
 ## Request flow
 
@@ -108,6 +115,7 @@ api/src/services/
 ├── wrapper-bin-registry.ts   # FS view of storage/wrapper/v2/bin/
 ├── wrapper-meta.ts           # /wrapper/v2/meta manifest
 ├── wrapper-download.ts       # /wrapper/v2/download payload
+├── wrapper-version-projection.ts # exact per-platform artifact for /versions
 └── wrapper-transition.ts     # legacy POSIX transition launcher
 
 storage/wrapper/v2/
