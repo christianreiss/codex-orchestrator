@@ -331,6 +331,16 @@ export const ROUTE_CAPABILITIES: Readonly<Record<string, RouteGuard>> = {
   'POST /admin/git-director/requests/:id/decide': cap('git_director.manage'),
   'POST /admin/git-director/worktrees/:id/release': cap('git_director.manage'),
 
+  // ── File transfer ────────────────────────────────────────────────────────
+  'GET /admin/transfers': cap('transfers.read'),
+  'GET /admin/transfers/state': cap('transfers.read'),
+  'GET /admin/transfers/:id/events': cap('transfers.read'),
+  // The file itself, not metadata about it. See capabilities.ts.
+  'GET /admin/transfers/:id/content': cap('transfers.download'),
+  'POST /admin/transfers/state': cap('transfers.manage'),
+  'POST /admin/transfers/limits': cap('transfers.manage'),
+  'DELETE /admin/transfers/:id': cap('transfers.manage'),
+
   // ── Agent portal ─────────────────────────────────────────────────────────
   'GET /admin/agent-portal/state': cap('agent_portal.read'),
   'GET /admin/agent-portal/users': cap('agent_portal.read'),

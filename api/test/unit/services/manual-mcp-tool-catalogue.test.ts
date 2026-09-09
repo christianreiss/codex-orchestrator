@@ -33,6 +33,7 @@ const GROUPS = [
   'Shared memory',
   'Secrets',
   'Git Director',
+  'File transfer',
   'Filesystem (operator only)',
   'Resources',
   'Skills',
@@ -92,6 +93,7 @@ const ALL_DEPS = {
   fs: {},
   secrets: {},
   gitDirector: {},
+  transfers: {},
   board: {},
 } as unknown as ToolDeps;
 

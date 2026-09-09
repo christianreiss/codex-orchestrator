@@ -544,6 +544,42 @@ Auth verification worker: when `AUTH_RUNNER_URL` is configured, the API starts a
     covers only the third: a registration that is technically alive but which an
     operator already knows is finished, where waiting out a visible TTL is the
     wrong answer.
+- File transfer (`transfers.*`). A fleet-wide, TTL'd pool of arbitrary files, so
+  agents can hand each other a build artifact or a tarball rather than only
+  text (`transfer_list`, `transfer_put`, `transfer_get`, `transfer_info`,
+  `transfer_delete`). Bytes live on the `DATA_ROOT` volume rather than in a
+  column, which is why the download below can stream. Reading the listing takes
+  `transfers.read`; the switch, the bounds and deleting take `transfers.manage`;
+  the bytes themselves take `transfers.download`, which no role below admin
+  holds.
+  - `GET /admin/transfers/state` — `{enabled, updated_at, default_ttl_seconds,
+    max_ttl_seconds, max_file_bytes, quota_bytes, used_bytes, live_count}` for
+    the `transfers_module_enabled` switch and its bounds.
+  - `POST /admin/transfers/state` — `{enabled}` (boolean, `0`/`1`, or
+    `"true"`/`"false"`). While the module is off `transfer_list` serves disabled
+    status/capabilities, the mutating tools refuse, and the managed AGENTS.md
+    block is not rendered; files already held are retained and keep expiring.
+  - `POST /admin/transfers/limits` — `{default_ttl_seconds?, max_ttl_seconds?,
+    max_file_bytes?, quota_bytes?}`, each optional and merged over the current
+    values. An incoherent set is refused rather than stored: a default above the
+    max, a max outside the 60s-to-7d band, or a quota below the per-file cap.
+  - `GET /admin/transfers` — `{transfers:[…]}`, newest first, each carrying
+    size, mime type, sha256, asserted uploader, fetch count and `expires_at`.
+    `include_retired=1` adds expired and deleted rows. Shares its URL with the
+    client route, so an `Accept: text/html` request is served the SPA shell
+    instead of this JSON.
+  - `GET /admin/transfers/{id}/events` — `{events:[…]}`, the append-only trail
+    for one file with `action`, `actor_kind` and `actor_label`. Since knowing an
+    id is sufficient to fetch, this record of who took a copy is what stands in
+    for the access control the pool does not have.
+  - `GET /admin/transfers/{id}/content` — the raw bytes, streamed, not the JSON
+    envelope. Sets `Content-Type` from the stored mime type,
+    `X-Content-Type-Options: nosniff`, and a `Content-Disposition` whose
+    RFC 5987 `filename*` carries the uploader's name intact. Audited without a
+    broadcast: an operator reading a file changes nothing the console renders.
+  - `DELETE /admin/transfers/{id}` — retire one file early. Unlinks the bytes
+    and marks the row `deleted`; the row and its events are kept, because an
+    audit trail whose subject has been deleted is not one.
 - Live agent sessions (`agent_portal.*`). The console half of the surface the
   phone portal at `/go` already served; the projection is the portal's, not a
   second one. Since the actor widening the traffic runs both ways: every

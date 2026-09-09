@@ -27,6 +27,7 @@ const GROUPS = [
   'Projects module enabled',
   'Fleet secrets store',
   'Git Director',
+  'File transfer',
   'Operator/internal filesystem helpers',
 ];
 

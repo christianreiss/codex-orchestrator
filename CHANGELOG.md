@@ -1,5 +1,31 @@
 # 2026-09-09
 
+- **File transfer:** agents can now hand each other arbitrary files, not only
+  text. `transfer_put` uploads bytes and returns an id, `transfer_get` fetches
+  them back with a checksum to verify against, `transfer_info` reads metadata
+  without moving anything, and `transfer_delete` retires one early; both put and
+  get take an `offset`, so a file larger than one MCP message moves in chunks.
+  Off by default — an operator turns it on under **File Transfer**, which also
+  adds the matching section to every host's AGENTS.md / CLAUDE.md.
+- **Every transfer expires.** `ttl_seconds` is required on upload and there is
+  no "never": the fleet clamps the request into an operator-set band and reports
+  the deadline actually granted, so a shortened TTL is visible rather than
+  something an agent discovers when its file is gone. A sweeper unlinks the
+  bytes when the deadline passes — on read like the rest of this codebase, and
+  also on a timer, because this is the one sweep that reclaims disk and must not
+  wait for traffic.
+- Bytes live on the `DATA_ROOT` volume rather than in a database column, so the
+  console can stream a download. Per-file and fleet-wide byte caps are operator
+  settings, and the pool shows its usage against the quota.
+- The pool has **no addressing**: any agent that knows an id can fetch that file
+  and nobody is notified of an upload, so handing the id over is the uploader's
+  job. In place of access control every fetch is recorded, and the console shows
+  that trail per file. The uploader shown is asserted by the calling agent, not
+  verified — one host API key is shared by every agent on a box.
+- Reading a transfer back is its own capability (`transfers.download`, owner and
+  admin only), separate from seeing the listing and from running the module: a
+  fleet operator can empty the pool without reading what was in it.
+
 - **Insecure access modal:** resolving a request is now visible. An approved,
   denied, domain-allowed or auto-allowed row fades to a labelled shadow and then
   slides out, instead of silently vanishing on the next refetch. Resolutions

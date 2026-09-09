@@ -14,6 +14,7 @@ import {
   FileText,
   FolderKanban,
   GitMerge,
+  FileUp,
   KeyRound,
   LayoutDashboard,
   Link,
@@ -108,6 +109,10 @@ const REGISTRY: NavDefinition[] = [
   {
     id: "git-director", group: "Coordinate", route: "/git-director", label: "Git Director",
     description: "Clone registry and merge arbitration", keywords: ["git", "worktree", "merge", "branch", "lease", "clone"], icon: GitMerge,
+  },
+  {
+    id: "transfers", group: "Coordinate", route: "/transfers", label: "File Transfer",
+    description: "Files agents hand each other, and when they expire", keywords: ["file", "transfer", "upload", "download", "artifact", "ttl", "expiry"], icon: FileUp,
   },
   {
     id: "agent-portal", group: "Coordinate", route: "/agent-portal", label: "Agent Portal",

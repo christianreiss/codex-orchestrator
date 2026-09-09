@@ -7,6 +7,7 @@ import type { McpFsTools } from '../../../src/services/mcp-fs.js';
 import type { McpResourcesService } from '../../../src/services/mcp-resources.js';
 import type { SharedMemoriesService } from '../../../src/services/shared-memories.js';
 import type { SecretsService } from '../../../src/services/secrets.js';
+import type { AgentTransfersService } from '../../../src/services/agent-transfers.js';
 import type { Host } from '../../../src/db/schema.js';
 
 const stubMemories = {
@@ -797,5 +798,135 @@ describe('secret_* tools', () => {
   it('accepts dot aliases like the rest of the surface', async () => {
     const res = await reg.dispatch('secret.get', { slug: 'a' }, host);
     expect(res).toMatchObject({ isError: false });
+  });
+});
+
+describe('transfer_* tools', () => {
+  interface TransferCall {
+    method: string;
+    arg: unknown;
+  }
+  let transferCalls: TransferCall[] = [];
+  let transfersEnabled = true;
+  const stubTransfers = {
+    getEnabled: async () => transfersEnabled,
+    list: async (options: unknown) => {
+      transferCalls.push({ method: 'list', arg: options });
+      return [{ id: 'f1', name: 'build.tar.gz' }];
+    },
+    put: async (input: unknown) => {
+      transferCalls.push({ method: 'put', arg: input });
+      return { transfer: { id: 'f1' }, ttl_clamped: false, bytes_written: 4, complete: true };
+    },
+    get: async (id: string) => {
+      transferCalls.push({ method: 'get', arg: id });
+      return { transfer: { id }, content_b64: 'AAAA', offset: 0, next_offset: null, truncated: false };
+    },
+    info: async (id: string) => {
+      transferCalls.push({ method: 'info', arg: id });
+      return { id };
+    },
+    remove: async (id: string, actor: unknown) => {
+      transferCalls.push({ method: 'remove', arg: { id, actor } });
+      return { id, status: 'deleted' };
+    },
+  } as unknown as AgentTransfersService;
+
+  const reg = new McpToolsRegistry({
+    memories: stubMemories,
+    projects: stubProjects,
+    skills: stubSkills,
+    transfers: stubTransfers,
+  });
+
+  beforeEach(() => {
+    transferCalls = [];
+    transfersEnabled = true;
+  });
+
+  /** `dispatch` wraps a handler's return value as JSON text; read it back out. */
+  const payloadOf = (result: unknown): Record<string, unknown> =>
+    JSON.parse((result as { content: Array<{ text: string }> }).content[0]!.text) as Record<
+      string,
+      unknown
+    >;
+
+  it('registers the whole pool lifecycle and nothing more', () => {
+    const names = reg.list().map((t) => t.name);
+    // Pinned as an exact set so a sixth transfer_* tool is a deliberate call.
+    expect(names.filter((n) => n.startsWith('transfer_')).sort()).toEqual([
+      'transfer_delete',
+      'transfer_get',
+      'transfer_info',
+      'transfer_list',
+      'transfer_put',
+    ]);
+  });
+
+  it('does not register any of them when the service is not wired', () => {
+    const bare = new McpToolsRegistry({
+      memories: stubMemories,
+      projects: stubProjects,
+      skills: stubSkills,
+    });
+    expect(bare.list().filter((t) => t.name.startsWith('transfer_'))).toEqual([]);
+    expect(bare.has('transfer_put')).toBe(false);
+  });
+
+  it('makes ttl_seconds unmissable in the put description', async () => {
+    const put = reg.list().find((tool) => tool.name === 'transfer_put');
+    // An agent that treats the TTL as boilerplate fills the pool, so the
+    // description has to say it is required and that the reply carries the
+    // deadline actually granted.
+    expect(put?.description).toMatch(/REQUIRED/);
+    expect(put?.description).toMatch(/expires_at/);
+    // And that nothing tells the peer -- an upload nobody hears about expires unread.
+    expect(put?.description).toMatch(/nobody is notified/);
+  });
+
+  it('answers transfer_list with a disabled status instead of failing', async () => {
+    transfersEnabled = false;
+    const result = payloadOf(await reg.dispatch('transfer_list', {}, host));
+    // The probe: an agent must be able to tell a switched-off pool from an
+    // empty one without guessing from an error string.
+    expect(result['status']).toBe('disabled');
+    expect(result['transfers']).toEqual([]);
+    expect((result['capabilities'] as Record<string, boolean>)['put']).toBe(false);
+    // `list` stays true even while off, because that is the tool answering.
+    expect((result['capabilities'] as Record<string, boolean>)['list']).toBe(true);
+    expect(transferCalls).toEqual([]);
+  });
+
+  it('refuses every mutating tool while the module is off, naming the console', async () => {
+    transfersEnabled = false;
+    for (const name of ['transfer_put', 'transfer_get', 'transfer_info', 'transfer_delete']) {
+      const result = (await reg.dispatch(name, { id: 'f1', content_b64: 'AAAA' }, host)) as {
+        isError?: boolean;
+        content: Array<{ text: string }>;
+      };
+      expect(result.isError, name).toBe(true);
+      expect(result.content[0]?.text).toMatch(/not enabled for this fleet/);
+      expect(result.content[0]?.text).toMatch(/under File Transfer/);
+    }
+    expect(transferCalls).toEqual([]);
+  });
+
+  it('serves the pool once enabled, passing the caller host through', async () => {
+    const listed = payloadOf(await reg.dispatch('transfer_list', {}, host));
+    expect(listed['status']).toBe('available');
+    expect(listed['count']).toBe(1);
+
+    await reg.dispatch('transfer_get', { id: 'f1' }, host);
+    await reg.dispatch('transfer_info', { id: 'f1' }, host);
+    expect(transferCalls.map((call) => call.method)).toEqual(['list', 'get', 'info']);
+  });
+
+  it('attributes a delete to the caller-asserted username, not to the fleet', async () => {
+    await reg.dispatch('transfer_delete', { id: 'f1', username: 'chris' }, host);
+    const call = transferCalls.find((entry) => entry.method === 'remove');
+    expect(call?.arg).toEqual({
+      id: 'f1',
+      actor: { kind: 'agent', label: 'chris', hostId: host.id },
+    });
   });
 });

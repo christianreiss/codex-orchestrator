@@ -22,6 +22,7 @@ import { registerAdminManualRoutes } from './admin/manual/index.js';
 import { registerAdminMemoriesRoutes } from './admin/memories/index.js';
 import { registerAdminSecretsRoutes } from './admin/secrets/index.js';
 import { registerAdminGitDirectorRoutes } from './admin/git-director/index.js';
+import { registerAdminTransfersRoutes } from './admin/transfers/index.js';
 import { registerAdminAgentSessionsRoutes } from './admin/agent-sessions/index.js';
 import { registerAdminProjectBoardRoutes } from './admin/project-board/index.js';
 import { registerAgentPortalRoutes } from './agent-portal/index.js';
@@ -59,6 +60,7 @@ export async function registerAllRoutes(app: FastifyInstance, ctx: RouteContext)
   await registerAdminMemoriesRoutes(app, ctx);
   await registerAdminSecretsRoutes(app, ctx);
   await registerAdminGitDirectorRoutes(app, ctx);
+  await registerAdminTransfersRoutes(app, ctx);
   await registerAdminAgentSessionsRoutes(app, ctx);
   await registerAdminProjectBoardRoutes(app, ctx);
   await registerAdminManualRoutes(app, ctx);

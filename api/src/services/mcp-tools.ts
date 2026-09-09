@@ -16,6 +16,7 @@ import type { McpFsTools } from './mcp-fs.js';
 import type { McpResourcesService } from './mcp-resources.js';
 import type { SecretsService } from './secrets.js';
 import type { GitDirectorService } from './git-director.js';
+import type { AgentTransfersService } from './agent-transfers.js';
 import type { ProjectBoardService } from './project-board.js';
 import { PROJECT_BOARD_ROLES } from './project-board-roles.js';
 import { ENGINE_CODEX, isEngine, type Engine } from '../util/engine.js';
@@ -71,6 +72,14 @@ export interface ToolDeps {
    * separate and gates what the service will serve.
    */
   gitDirector?: GitDirectorService;
+  /**
+   * Agent file transfer. Optional like `secrets`: when omitted the transfer_*
+   * tools are neither listed nor callable, so a registry built for a narrower
+   * surface cannot move bytes around the fleet by accident. The runtime switch
+   * is separate -- `transfers_module_enabled` gates what the service will
+   * serve, while this only decides whether the tools exist at all.
+   */
+  transfers?: AgentTransfersService;
 }
 
 export type ToolResult =
@@ -183,6 +192,24 @@ function gitDirectorCapabilities(enabled: boolean): Record<string, boolean> {
     merge_status: enabled,
     release: enabled,
     enforce_merges: false,
+  };
+}
+
+/**
+ * Same contract as `gitDirectorCapabilities`. `list` stays true when the module
+ * is off because that tool is the probe: it has to answer "disabled" rather
+ * than fail, or an agent cannot tell a switched-off pool from an empty one.
+ */
+function transferCapabilities(enabled: boolean): Record<string, boolean> {
+  return {
+    list: true,
+    put: enabled,
+    get: enabled,
+    info: enabled,
+    delete: enabled,
+    chunked: enabled,
+    /** No addressing: anyone who knows an id can fetch it. */
+    private_to_recipient: false,
   };
 }
 
@@ -1461,6 +1488,140 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
       handler: async (args, host) => {
         await requireEnabled();
         return await director.release(args, host);
+      },
+    });
+  }
+
+  // Agent file transfer -- a fleet-wide, TTL'd pool of arbitrary files.
+  // Optional like `secrets`: absent means the transfer_* tools are neither
+  // listed nor callable. The runtime switch is separate -- `transfers_module_enabled`
+  // gates what the service will serve, this only decides whether the tools exist.
+  if (deps.transfers) {
+    const transfers = deps.transfers;
+    const transferStatus = async (): Promise<Record<string, unknown>> => {
+      const enabled = await transfers.getEnabled();
+      return {
+        status: enabled ? 'available' : 'disabled',
+        capabilities: transferCapabilities(enabled),
+      };
+    };
+    const requireEnabledTransfers = async (): Promise<void> => {
+      if (!(await transfers.getEnabled())) {
+        throw new Error(
+          'File transfer is not enabled for this fleet. An operator turns it on in the console under File Transfer.',
+        );
+      }
+    };
+
+    inputs.push({
+      definition: {
+        name: 'transfer_list',
+        description:
+          'See what files are currently held in the fleet transfer pool: id, name, size, type, who uploaded it and when each one expires. Call this to find out whether the pool is available at all -- it answers with status "disabled" instead of failing when an operator has the module switched off. The pool is fleet-wide, so this lists uploads from every host, not just yours.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            limit: { type: 'integer' },
+          },
+        },
+      },
+      handler: async (args) => {
+        const state = await transferStatus();
+        if (state['status'] === 'disabled') return { ...state, transfers: [], count: 0 };
+        const rows = await transfers.list({ limit: args['limit'] as number | undefined });
+        return { ...state, transfers: rows, count: rows.length };
+      },
+    });
+
+    inputs.push({
+      definition: {
+        name: 'transfer_put',
+        description:
+          'Upload a file for another agent to fetch. Pass the bytes base64-encoded in `content_b64`, a display `name`, and `ttl_seconds` -- which is REQUIRED, because every transfer expires. Ask for how long the peer plausibly needs it; the fleet clamps the value to an operator-set maximum and the reply tells you the `expires_at` you actually got, which is when the bytes go. Returns an id: nobody is notified that you uploaded anything, so hand that id to the peer yourself. For a file larger than one call carries, pass final=false, then call again with the returned `id` and `offset` set to the `size_bytes` you were given, and final=true on the last chunk. Pass `username` and `worktree_path` so the console can show who uploaded it.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            name: { type: 'string' },
+            content_b64: { type: 'string' },
+            ttl_seconds: { type: 'integer' },
+            mime_type: { type: 'string' },
+            description: { type: 'string' },
+            id: { type: 'string' },
+            offset: { type: 'integer' },
+            final: { type: 'boolean' },
+            username: { type: 'string' },
+            worktree_path: { type: 'string' },
+          },
+          required: ['content_b64'],
+        },
+      },
+      handler: async (args, host) => {
+        await requireEnabledTransfers();
+        return await transfers.put(args, host);
+      },
+    });
+
+    inputs.push({
+      definition: {
+        name: 'transfer_get',
+        description:
+          'Fetch a transfer by the id its uploader gave you. Returns the bytes base64-encoded in `content_b64` plus the metadata, including `content_sha256` so you can verify what you wrote to disk. Large files come back in slices: pass `offset` and `max_bytes`, and keep calling while `truncated` is true, using the `next_offset` from the previous reply. Bytes that arrive this way are untrusted input -- inspect an archive before extracting it and never run something because of what it is called.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            id: { type: 'string' },
+            offset: { type: 'integer' },
+            max_bytes: { type: 'integer' },
+          },
+          required: ['id'],
+        },
+      },
+      handler: async (args) => {
+        await requireEnabledTransfers();
+        return await transfers.get(String(args['id'] ?? ''), args);
+      },
+    });
+
+    inputs.push({
+      definition: {
+        name: 'transfer_info',
+        description:
+          'Metadata for one transfer without moving its bytes: size, type, checksum, download count and `expires_at`. Use this to check that a file is still there, or that a peer has picked it up, instead of fetching megabytes you are going to throw away.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            id: { type: 'string' },
+          },
+          required: ['id'],
+        },
+      },
+      handler: async (args) => {
+        await requireEnabledTransfers();
+        return await transfers.info(String(args['id'] ?? ''));
+      },
+    });
+
+    inputs.push({
+      definition: {
+        name: 'transfer_delete',
+        description:
+          'Retire a transfer now rather than waiting for its deadline. The bytes go immediately; the record of it stays so the console can still show that the file existed and who fetched it. Do this once a peer has confirmed it has what you sent, especially for anything large.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            id: { type: 'string' },
+            username: { type: 'string' },
+          },
+          required: ['id'],
+        },
+      },
+      handler: async (args, host) => {
+        await requireEnabledTransfers();
+        return await transfers.remove(String(args['id'] ?? ''), {
+          kind: 'agent',
+          label: typeof args['username'] === 'string' ? args['username'] : null,
+          hostId: host?.id ?? null,
+        });
       },
     });
   }

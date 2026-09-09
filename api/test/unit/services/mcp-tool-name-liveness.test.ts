@@ -37,6 +37,7 @@ const ALL_DEPS = {
   fs: {},
   secrets: {},
   gitDirector: {},
+  transfers: {},
   board: {},
 } as unknown as ToolDeps;
 
@@ -67,6 +68,9 @@ const NON_TOOL_TOKENS: Record<string, string> = {
     'the git_merge_request argument carrying `git diff --name-only base...head`, not a tool',
   worktree_path:
     'the caller-identity argument shared by git_register and project_card_claim, not a tool',
+  ttl_seconds: 'the required expiry argument of transfer_put, not a tool',
+  expires_at: 'the deadline a transfer_put reply carries back, not a tool',
+  content_sha256: 'the checksum on a transfer_get reply that lets a peer verify the bytes, not a tool',
 };
 
 interface Mention {
@@ -100,6 +104,7 @@ const CONTENT: Array<{ source: string; text: string }> = [
       apiKeysInChat: enabled,
       agentMessaging: enabled,
       gitDirector: { ...enabled, count: 1 },
+      fileTransfer: { ...enabled, count: 1 },
     }).body,
   })),
   {

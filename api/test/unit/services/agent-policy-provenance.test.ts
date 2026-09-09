@@ -35,6 +35,7 @@ function context(overrides: Record<string, unknown> = {}) {
     apiKeysInChat: on,
     agentMessaging: on,
     gitDirector: { ...on, count: 2 },
+    fileTransfer: { ...on, count: 2 },
     ...overrides,
   } as never;
 }

@@ -126,6 +126,17 @@ export const WS_EVENT_TYPES = [
   'git_director.decision_forced',
   'git_director.worktree_evicted',
 
+  // File transfer. One type for every change to the pool -- an upload, a chunk,
+  // an expiry sweep, a limit change -- for the same reason git_director.changed
+  // is one type: the console renders the pool as a single live view.
+  'transfers.changed',
+  // The three operator actions, which are audit facts as well as view changes.
+  // A download is deliberately NOT here: an operator reading a file changes
+  // nothing the console is showing, and it is recorded as an audit row instead.
+  'transfers.module_toggled',
+  'transfers.limits_changed',
+  'transfers.deleted',
+
   // Usage
   'chatgpt.usage.updated',
   'claude.usage.updated',

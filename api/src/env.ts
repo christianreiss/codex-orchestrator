@@ -135,6 +135,12 @@ const schema = z
     AGENT_PORTAL_BRIDGE_TTL_SECONDS: intish(900).pipe(z.number().int().positive()),
     AGENT_PORTAL_PURGE_INTERVAL_SECONDS: intish(300).pipe(z.number().int().positive()),
 
+    // Agent file transfer. The module switch and every byte/TTL bound live in
+    // `versions` so an operator can change them from the console; only the
+    // sweep cadence is an env knob, because it is a property of the deployment
+    // rather than of the policy. Bytes land under DATA_ROOT/transfers.
+    TRANSFERS_PURGE_INTERVAL_SECONDS: intish(300).pipe(z.number().int().positive()),
+
     // The two windows that actually decide what the operator sees. They used to
     // be hardcoded constants while the far coarser TTLs above were tunable,
     // which was backwards.
