@@ -266,6 +266,27 @@ function formatBytes(n: number): string {
   return `${value.toFixed(1)} ${units[unit]}`;
 }
 
+/**
+ * Turn a permission failure on the storage volume into an instruction.
+ *
+ * `store/transfers` is the only path under DATA_ROOT the API writes to — every
+ * other thing there it reads — so on a box provisioned before this feature
+ * existed the directory is root-owned and the container user (uid 10001) cannot
+ * create it. A bare `EACCES: permission denied, mkdir '/app/storage/transfers'`
+ * reaching an agent mid-task is a dead end for both the agent and the operator
+ * it reports to, so name the fix instead. `bin/install.sh` provisions this for
+ * a fresh install; this message is for every existing one.
+ */
+function rethrowStorageError(error: unknown, dataRoot: string): never {
+  const code = (error as { code?: string } | null)?.code;
+  if (code === 'EACCES' || code === 'EPERM' || code === 'EROFS') {
+    throw new Error(
+      `The transfer store at ${join(dataRoot, STORAGE_DIR)} is not writable by the API. An operator fixes it once, on the host, with: mkdir -p <DATA_ROOT>/transfers && chown 10001:10001 <DATA_ROOT>/transfers && chmod 700 <DATA_ROOT>/transfers`,
+    );
+  }
+  throw error;
+}
+
 export class AgentTransfersService {
   private readonly now: () => string;
 
@@ -431,19 +452,17 @@ export class AgentTransfersService {
    * The trail for one transfer, oldest first — a trail is read forward in time,
    * and an upload above its downloads is the order that explains itself.
    *
-   * Ordering is by `created_at`, which `nowIso()` gives second precision, so two
-   * events inside the same second have no defined order between them. That is
-   * accepted rather than fixed with a sequence column: adjacent entries one
-   * second apart tell an operator the same story either way round, and the
-   * question this list answers — who took a copy — does not depend on which of
-   * two same-second rows came first. The cap keeps the OLDEST rows when a
-   * transfer somehow exceeds it, since the upload is the row worth keeping.
+   * Ordered by `seq`, not `created_at`: the latter is second precision, and a
+   * chunked upload really did render with its seal above the chunk it followed
+   * before `seq` existed. See `0029_add_agent_transfer_event_seq.sql`. The cap
+   * keeps the OLDEST rows when a transfer somehow exceeds it, since the upload
+   * is the row worth keeping.
    */
   async events(id: string, limit = 200): Promise<TransferEventView[]> {
     const rows = await this.deps.db
       .select()
       .from(agentTransferEvents)
-      .orderBy(asc(agentTransferEvents.createdAt));
+      .orderBy(asc(agentTransferEvents.seq));
     return rows
       .filter((row) => row.transferId === id)
       .slice(0, Math.min(Math.max(Math.trunc(limit), 1), 500))
@@ -525,11 +544,15 @@ export class AgentTransfersService {
     const id = randomUUID();
     const storagePath = join(STORAGE_DIR, id.slice(0, 2), id);
     const absolute = join(this.deps.dataRoot, storagePath);
-    await mkdir(dirname(absolute), { recursive: true });
     // Bytes first, row second: a crash here leaves an orphan file, which
     // reconcileOrphans() collects. A row written first whose bytes never
     // arrived would be a live transfer that fails every fetch.
-    await writeFile(absolute, chunk, { flag: 'wx' });
+    try {
+      await mkdir(dirname(absolute), { recursive: true });
+      await writeFile(absolute, chunk, { flag: 'wx' });
+    } catch (error) {
+      rethrowStorageError(error, this.deps.dataRoot);
+    }
 
     const now = this.now();
     const row = {
@@ -602,7 +625,11 @@ export class AgentTransfersService {
     await this.requireQuota(chunk.length, limits);
 
     const absolute = this.absolutePath(row);
-    await appendFile(absolute, chunk);
+    try {
+      await appendFile(absolute, chunk);
+    } catch (error) {
+      rethrowStorageError(error, this.deps.dataRoot);
+    }
     const now = this.now();
     const update: Record<string, unknown> = {
       sizeBytes: total,

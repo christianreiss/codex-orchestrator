@@ -406,7 +406,9 @@ CREATE TABLE `agent_transfer_events` (
 	`source_host_id` bigint unsigned,
 	`detail` text,
 	`created_at` varchar(100) NOT NULL,
-	CONSTRAINT `agent_transfer_events_id` PRIMARY KEY(`id`)
+	`seq` bigint unsigned AUTO_INCREMENT NOT NULL,
+	CONSTRAINT `agent_transfer_events_id` PRIMARY KEY(`id`),
+	CONSTRAINT `uq_agent_transfer_events_seq` UNIQUE(`seq`)
 );
 
 CREATE TABLE `agent_transfers` (

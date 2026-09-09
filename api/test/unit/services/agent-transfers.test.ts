@@ -521,6 +521,30 @@ describe('audit trail', () => {
     expect(events.find((event) => event.action === 'uploaded')?.actor_label).toBe('chris');
   });
 
+  it('renders a chunked upload in the order it happened', async () => {
+    // The bug 0029 fixes: every one of these lands inside the same second, and
+    // ordering on the second-precision `created_at` put "sealed at offset 2000"
+    // above the chunk it follows -- a trail describing something that never
+    // happened. `seq` is what makes this deterministic.
+    const first = await put({ content_b64: Buffer.from('AAAA').toString('base64'), final: false });
+    const id = first.transfer.id;
+    await service.put(
+      { id, content_b64: Buffer.from('BBBB').toString('base64'), offset: 4, final: false },
+      HOST,
+    );
+    await service.put(
+      { id, content_b64: Buffer.from('CCCC').toString('base64'), offset: 8, final: true },
+      HOST,
+    );
+    const events = await service.events(id);
+    expect(events.map((event) => event.action)).toEqual(['appended', 'appended', 'sealed']);
+    expect(events.map((event) => event.detail)).toEqual([
+      '4 bytes',
+      '4 bytes at offset 4',
+      '4 bytes at offset 8',
+    ]);
+  });
+
   it('scopes the trail to one transfer', async () => {
     const a = await put();
     const b = await put({ name: 'other.bin' });

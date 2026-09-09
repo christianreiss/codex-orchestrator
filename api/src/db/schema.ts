@@ -1951,9 +1951,18 @@ export const agentTransferEvents = mysqlTable(
     sourceHostId: bigint('source_host_id', { mode: 'number', unsigned: true }),
     detail: text('detail'),
     createdAt: varchar('created_at', { length: 100 }).notNull(),
+    /**
+     * Monotonic display order. `created_at` is second precision, which rendered
+     * a chunked upload's trail with its seal before the chunk it followed —
+     * see `0029_add_agent_transfer_event_seq.sql`. Not the primary key: the
+     * CHAR(36) `id` stays the identity, and MySQL only needs an auto-increment
+     * column to be *a* key.
+     */
+    seq: bigint('seq', { mode: 'number', unsigned: true }).notNull().autoincrement(),
   },
   (t) => ({
     transferIdx: index('idx_agent_transfer_events_transfer').on(t.transferId, t.createdAt),
+    seqUnique: uniqueIndex('uq_agent_transfer_events_seq').on(t.seq),
   }),
 );
 

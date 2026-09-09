@@ -689,13 +689,23 @@ step_dataroot() {
   [[ "$chosen" != /* ]] && chosen="$ROOT_DIR/${chosen#./}"
 
   if (( ! DRY_RUN )); then
-    mkdir -p "$chosen"/{store,store/sql,store/logs,mysql_data,caddy/tls,backups} ||
+    mkdir -p "$chosen"/{store,store/sql,store/logs,store/transfers,mysql_data,caddy/tls,backups} ||
       fatal "cannot create data directories under $chosen (try sudo, or pick a writable path)"
     # Deliberately not `chmod -R` over the whole store: the wrapper signing key
     # lives under it at mode 0600, and a recursive widen would quietly publish
     # this installation's private key to every local user. Directories only.
     find "$chosen/store" "$chosen/caddy" "$chosen/backups" \
       -type d -not -path "*/wrapper/v2/keys*" -exec chmod 775 {} + 2>/dev/null || true
+    # `store/transfers` is the one path under the store the API WRITES to at
+    # runtime -- everything else there it only reads, which is why the rest can
+    # stay root-owned. The container runs as uid 10001 (see the Dockerfile), so
+    # this has to be owned by that uid rather than merely group-writable: the
+    # app user is in no group on the host. Without it every transfer_put fails
+    # with a bare EACCES on the first upload rather than at install time.
+    mkdir -p "$chosen/store/transfers"
+    chown 10001:10001 "$chosen/store/transfers" 2>/dev/null ||
+      warn "could not chown $chosen/store/transfers to 10001:10001; file transfer uploads will fail until it is owned by the container user"
+    chmod 700 "$chosen/store/transfers" 2>/dev/null || true
   fi
   env_set DATA_ROOT "$chosen"
   DATA_ROOT_RESOLVED="$chosen"

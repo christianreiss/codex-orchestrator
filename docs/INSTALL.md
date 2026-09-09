@@ -143,9 +143,34 @@ Prefer `bin/install.sh` to generate `.env`. If you edit manually instead:
 2. Configure:
    - `DB_HOST/DB_PORT/DB_DATABASE/DB_USERNAME/DB_PASSWORD/DB_ROOT_PASSWORD`
    - `AUTH_ENCRYPTION_KEY` — 32 raw bytes, base64. **Required**; the API refuses
-     to boot without it.
+     to boot without it (or its preferred spelling `ENCRYPTION_ACTIVE_KEY`).
+     Keyring mode for rotation is `ENCRYPTION_KEYS` + `ENCRYPTION_ACTIVE_KID`
+     (legacy `AUTH_ENCRYPTION_KEYS` + `AUTH_ENCRYPTION_ACTIVE_KID`).
    - `INSTALLATION_ID` — UUID. Written by the installer.
-   - `DATA_ROOT` for the bind-mount root.
+   - `DATA_ROOT` for the bind-mount root. Compose mounts `${DATA_ROOT}/store`
+     into the API container as `/app/storage` and sets the container's own
+     `DATA_ROOT` to that path, so everything the API writes to disk — published
+     wrapper binaries and file-transfer payloads (`transfers/`) — lands under
+     `${DATA_ROOT}/store` on the host.
+   - File transfer: the module switch and its byte/TTL bounds live in the
+     console (`versions`), not in `.env`. `TRANSFERS_PURGE_INTERVAL_SECONDS`
+     (default 300) is the only env knob — how often the API sweeps expired
+     transfer bytes off `DATA_ROOT`.
+     **`${DATA_ROOT}/store/transfers` must be owned by uid 10001**, the user the
+     API container runs as. It is the only path under the store the API *writes*
+     to — everything else there it reads, which is why the rest can stay
+     root-owned — so on an installation that predates this feature the directory
+     does not exist and the container cannot create it. The installer provisions
+     it; on an existing box do it once:
+
+     ```bash
+     sudo mkdir -p "${DATA_ROOT}/store/transfers"
+     sudo chown 10001:10001 "${DATA_ROOT}/store/transfers"
+     sudo chmod 700 "${DATA_ROOT}/store/transfers"
+     ```
+
+     Skipping this does not break the boot: the module simply refuses every
+     upload, with an error naming this fix.
    - `CODEX_AUTH_SUBNET` / `CODEX_AUTH_GATEWAY` if the internal compose bridge
      collides with a local route. Defaults to `172.30.250.0/24`.
    - Admin surface: `/admin/*` is gated by the admin session cookie. The API runs
@@ -300,6 +325,10 @@ from anyone else. Nothing in the API authorizes on them today.
 
 - `scripts/deploy.sh --backup` writes a one-off MySQL dump before a rollout. Set
   `CODEX_DEPLOY_BACKUP_DIR` to choose a destination; the default is `./backups`.
+- A dump alone is not a restorable backup. Also keep `.env` (the encryption key
+  every secretbox column depends on) and `${DATA_ROOT}/store`, which holds the
+  wrapper binary matrix and any live file-transfer payloads; neither is in
+  MySQL.
 
 ## The first-run wizard
 

@@ -1,5 +1,13 @@
 # 2026-09-09
 
+- **Documentation re-aligned with code truth** across `README.md`, every
+  `docs/*.md`, the wrapper README and the console manual: stale kill-switch
+  scope, insecure-window semantics (8-hour approvals, permanent domain allows,
+  sibling sweep), the six-role capability matrix, `ADMIN_ACCESS_MODE`
+  defaults, the WebSocket frame contract, Anthropic `max_tokens` requirement,
+  the seventeen `cxx-agent` tools, cxx 0.8.x background maintenance and
+  self-update behaviour, the project board, Git Director and File Transfer.
+  The manual gains articles for console pages that had none.
 - **File transfer:** agents can now hand each other arbitrary files, not only
   text. `transfer_put` uploads bytes and returns an id, `transfer_get` fetches
   them back with a checksum to verify against, `transfer_info` reads metadata
@@ -25,6 +33,16 @@
 - Reading a transfer back is its own capability (`transfers.download`, owner and
   admin only), separate from seeing the listing and from running the module: a
   fleet operator can empty the pool without reading what was in it.
+- Two fixes found by exercising the above against production rather than a test
+  double. The API container runs as uid 10001 and `store/` is root-owned, so the
+  first upload on any existing installation failed with a bare
+  `EACCES … mkdir '/app/storage/transfers'`; the installer now provisions that
+  one directory with the right owner, the service turns the permission error
+  into a message naming the fix, and `docs/INSTALL.md` carries the one-time
+  command for a box that predates the feature.
+- The audit trail is ordered by a new `agent_transfer_events.seq` rather than by
+  `created_at`. At second precision a chunked upload really did render with its
+  seal above the chunk it followed, describing something that never happened.
 
 - **Insecure access modal:** resolving a request is now visible. An approved,
   denied, domain-allowed or auto-allowed row fades to a labelled shadow and then
