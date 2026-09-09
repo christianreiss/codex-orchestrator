@@ -1,8 +1,8 @@
 ---
 title: MCP server and tools
 section: Integrations and reference
-verified: 2026-07-31
-sources: api/src/services/mcp-server.ts, api/src/services/mcp-tools.ts, api/src/services/mcp-resources.ts, api/src/services/mcp-fs.ts, api/src/services/mcp-session.ts, api/src/services/mcp-access-log.ts, api/src/services/mcp-memories.ts, api/src/services/shared-memories.ts, api/src/services/shared-memory-chunker.ts, api/src/services/memory-tags.ts, api/src/services/host-skills.ts, api/src/services/host-projects.ts, api/src/services/managed-coco-skill.ts, api/src/services/managed-skill-manager.ts, api/src/services/skill-manifest.ts, api/src/routes/mcp/index.ts, api/src/services/client-config.ts, api/src/services/config-normalizer.ts, api/src/db/migrations/0003_add_coord_project_memories.sql, api/src/db/migrations/0006_add_shared_memories.sql, wrappers/cxx/internal/persona/claude/lifecycle/userconfig_merge.go, wrappers/cxx/internal/persona/claude/lifecycle/settings_merge.go
+verified: 2026-09-09
+sources: api/src/services/mcp-server.ts, api/src/services/mcp-tools.ts, api/src/services/mcp-resources.ts, api/src/services/mcp-fs.ts, api/src/services/mcp-session.ts, api/src/services/mcp-access-log.ts, api/src/services/mcp-memories.ts, api/src/services/shared-memories.ts, api/src/services/shared-memory-chunker.ts, api/src/services/memory-tags.ts, api/src/services/secrets.ts, api/src/services/git-director.ts, api/src/services/project-board.ts, api/src/services/agent-transfers.ts, api/src/ops/agent-transfers-worker.ts, api/src/services/host-skills.ts, api/src/services/host-projects.ts, api/src/services/managed-coco-skill.ts, api/src/services/managed-skill-manager.ts, api/src/services/skill-manifest.ts, api/src/routes/mcp/index.ts, api/src/services/client-config.ts, api/src/services/config-normalizer.ts, api/src/db/migrations/0003_add_coord_project_memories.sql, api/src/db/migrations/0006_add_shared_memories.sql, wrappers/cxx/internal/persona/claude/lifecycle/userconfig_merge.go, wrappers/cxx/internal/persona/claude/lifecycle/settings_merge.go
 ---
 
 The Model Context Protocol (MCP) endpoint is how hosts and operator tools read canonical orchestrator data at runtime — skills, project state, memories — without going through the admin UI. It speaks JSON-RPC 2.0 over HTTP.
@@ -12,7 +12,7 @@ This article covers two distinct topics: the **server-side MCP endpoint** (what 
 ## Endpoint
 
 - `GET /mcp` — advisory probe. Returns 405 with the body `POST only, JSON-RPC 2.0` (and 403 when an Origin header is present and `MCP_ALLOW_REQUEST_HOST_ORIGIN=false`).
-- `POST /mcp` — full JSON-RPC surface: `initialize`, `tools/list`, `tools/call`, `resources/list`, `resources/read`, `resources/templates/list`, `resources/create`, `resources/update`, `resources/delete`.
+- `POST /mcp` — full JSON-RPC surface: `initialize`, `notifications/initialized`, `tools/list`, `tools/call`, `resources/list`, `resources/read`, `resources/templates/list`, `resources/create`, `resources/update`, `resources/delete`, plus `prompts/list` (always empty, so a client's prompts capability probe succeeds) and `prompts/get` (answers `-32601` on purpose). Dot spellings (`tools.list`) and the legacy verbs (`list_tools`, `call_tool`, `read_resource`, …) are accepted aliases. `X-Engine` selects the engine for Skill and secret reads: omitted resolves to `codex`, a malformed value is a validation error, and an engine disabled on that host is refused with `engine_disabled` before dispatch.
 
 Both routes live in `api/src/routes/mcp/index.ts` and dispatch into `McpServer` (`api/src/services/mcp-server.ts`).
 
@@ -98,7 +98,7 @@ user's request.
 
 ## Resources
 
-`McpResourcesService` (`api/src/services/mcp-resources.ts`) registers five URI schemes, all listed by `resources/templates/list`:
+`McpResourcesService` (`api/src/services/mcp-resources.ts`) routes four URI schemes — `memory://`, `shared://`, `project://` and `skill://` — as seven templates, all listed by `resources/templates/list` (`shared://` only when the shared-memory service is wired):
 
 - `memory://{key}` — a single host-scoped memory. Together with `shared://{slug}` and `project://{slug}/memory/{key}`, these are the only schemes `resource_create`/`resource_update`/`resource_delete` accept; every other scheme rejects create/update/delete with an explicit error. `resource_update` is a plain alias for `resource_create` (both call the same upsert path).
 - `shared://{slug}` — a fleet-wide shared-memory document. Create/update carries only `text` plus optional `expected_sha256`; replacing an existing document still requires the same complete offset-zero read, stable digest, preserved unaffected content, and conflict restart as `shared_memory_write`. Delete is appropriate only when the whole record is invalid or superseded.
@@ -106,8 +106,9 @@ user's request.
 - `project://{slug}/files/{stored_name}` — a single project file's raw content.
 - `project://{slug}/memory/{key}` — a single project-scoped memory. Writable, but this path only carries `text`: tags and metadata are unreachable here, so `project_memory_upsert` remains the full-fidelity surface.
 - `skill://{slug}` — the canonical skill manifest, materialised at read time by `HostSkillsService.retrieve()` (`api/src/services/host-skills.ts`). `skill-manifest.ts` is a separate helper used by the admin skill-authoring routes (slug/manifest validation for drafts) — it is not on this read path. This is how both `cdx` and `clx` bring in slash-command skills without keeping per-host copies on disk.
+- `skill://{slug}/{path}` — one support file bundled with a source-owned Skill (a Matt Pocock import, for example), served with a MIME type derived from its extension. A bundled manifest is annotated at read time to route relative paths through this URI, and bundled scripts stay reference text with no execution authority.
 
-`resource_list` enumerates every project (plus up to 50 files and up to 50 memories each) and every skill as browsable entries. It does **not** enumerate host-scoped `memory://` entries — those have no listing path at all (see below). Reading a resource is preferred over the more specific tools when the agent only needs to read; it skips the tool schema-validation step.
+`resource_list` enumerates every project (plus up to 50 files and up to 50 memories each), the 50 most recently updated shared documents, and every skill (plus up to 128 support files for a source-owned one) as browsable entries. It does **not** enumerate host-scoped `memory://` entries — those have no listing path at all (see below). Reading a resource is preferred over the more specific tools when the agent only needs to read; it skips the tool schema-validation step.
 
 ## Memory tools
 
@@ -190,6 +191,7 @@ There is no per-host MCP kill-switch. The switches that exist:
 - Rotate `MCP_OPERATOR_TOKEN` and restart the API → operator-capability callers are immediately cut off.
 - Disable the Projects module (`projects_module_enabled`, toggled from `/admin/projects`) → does **not** remove `project_*` tools or `project://` resources; they are always registered. It only removes the managed `coco` skill (`skill://coco`) that documents the workflow.
 - Unset `MCP_FS_ROOT` → `fs_*` tools are no longer registered.
+- The four `versions` module flags — `secrets_module_enabled`, `git_director_enabled`, `project_board_enabled`, `transfers_module_enabled` — switch what a family will *serve*, not whether it exists: the tools stay listed, the probe tool of each family (`secret_list`/`secret_search`, `git_list`, `project_board_list`, `transfer_list`) answers `status: "disabled"` with a `capabilities` map, and the rest throw a message naming where an operator turns the module on. Nothing is cached on a host, so flipping a flag takes effect on the next call.
 
 ---
 
@@ -205,7 +207,7 @@ Each entry supports the following fields:
 
 | Field | Type | Description |
 |---|---|---|
-| `name` | string | Server identifier. Reserved names — `cdx`, `codex-memory`, `codex-orchestrator` on every host, `clx` additionally on Claude hosts, and `browseros` on Codex hosts with the BrowserOS MCP toggle on — are filtered out at render time to avoid colliding with managed entries. |
+| `name` | string | Server identifier. Reserved names — `cdx`, `codex-memory`, `codex-orchestrator` on every host, `clx` additionally on Claude hosts, `browseros` on Codex hosts with the BrowserOS MCP toggle on, and `cxx-agent` while the Agent Messaging fleet switch is on — are filtered out at render time to avoid colliding with managed entries. |
 | `command` | string | Executable to launch (stdio transport). |
 | `args` | array | Arguments to pass to `command`. |
 | `url` | string | HTTP/SSE endpoint URL (HTTP transport). Use instead of `command`. |
@@ -220,7 +222,7 @@ There is no dedicated MCP server editor anywhere in the admin frontend today: `m
 
 ### Managed server injection
 
-At config-render time (`client-config.ts`'s `injectManagedMcp`) the orchestrator automatically prepends one or two fleet-managed entries before the user-defined list:
+At config-render time (`client-config.ts`'s `injectManagedMcp`) the orchestrator automatically prepends up to three fleet-managed entries before the user-defined list:
 
 **Orchestrator entry (`clx` / `cdx`)**
 
@@ -238,6 +240,10 @@ Injection is skipped entirely when:
 **BrowserOS entry**
 
 When a Codex host has `browserosMcpEnabled=1`, a second entry named `browseros` pointing to `http://127.0.0.1:9000/mcp` is also injected. This corresponds to the **BrowserOS MCP** toggle on the host detail page.
+
+**Agent Messaging entry (`cxx-agent`)**
+
+While the Agent Messaging fleet switch is on, a stdio entry named `cxx-agent` running `cxx agent mcp` is injected on both engines. It is a different server from `clx`/`cdx`: the wrapper starts it locally and it serves the seventeen `agent_*` tools (messaging, `#call`, `#conference`), none of which appear in the orchestrator's own `tools/list`. It is provisioned on the fleet switch rather than per operation so the toolset does not appear and disappear with an insecure host's window; on Claude hosts the same render adds one `mcp__cxx-agent__<tool>` entry per tool to `permissions.allow`. See [Agent Messaging](/admin/manual/agent-messaging).
 
 ### How servers reach the Claude CLI
 
@@ -265,8 +271,13 @@ When a host loses fleet trust (e.g. host is deleted, wrapper is uninstalled, or 
 ## Source references
 
 - api/src/services/mcp-server.ts (JSON-RPC dispatch, capability constants)
-- api/src/services/mcp-tools.ts (tool registry, capability filter, full project_*/memory_*/shared_memory_*/skill_*/fs_* tool list)
-- api/src/services/mcp-resources.ts (URI-scheme routing, resource_* CRUD restricted to the memory:// and project://{slug}/memory/{key} schemes)
+- api/src/services/mcp-tools.ts (tool registry, capability filter, full memory_*/shared_memory_*/secret_*/project_*/project_card_*/git_*/transfer_*/skill_*/resource_*/fs_* tool list)
+- api/src/services/mcp-resources.ts (URI-scheme routing, resource_* CRUD restricted to the memory://, shared://{slug} and project://{slug}/memory/{key} schemes)
+- api/src/services/secrets.ts (secret_* backing, ownership scoping, audited secret_get)
+- api/src/services/git-director.ts (git_* backing: clone registry, advisory merge arbiter, reclaim)
+- api/src/services/project-board.ts (project_board_list / project_card_* backing, and the card view behind project_todo_*)
+- api/src/services/agent-transfers.ts (transfer_* backing: on-disk bytes, TTL clamp, sweeps, audit trail)
+- api/src/ops/agent-transfers-worker.ts (timer sweep and orphan reaper for transfer bytes)
 - api/src/services/mcp-fs.ts (fs_* tools, root sandboxing)
 - api/src/services/mcp-session.ts (mcp_session_tokens)
 - api/src/services/mcp-memories.ts (host-scoped memory backing, mcp_memories table, key/content/tag limits)
