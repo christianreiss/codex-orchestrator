@@ -185,3 +185,30 @@ func TestSyncBootstrap_AuthCandidatePassedThrough(t *testing.T) {
 		t.Errorf("auth_candidate not in body: %s", sawBody)
 	}
 }
+
+// A content-only bundle — what the unattended cron tick sends — must carry no
+// credential material at all, not merely decline the auth block in the reply.
+func TestSyncBootstrap_ContentOnlyOmitsAuth(t *testing.T) {
+	var sawBody string
+	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		sawBody = string(body)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":"ok","agents":"# AGENTS.md\n"}`))
+	})
+	if _, err := c.SyncBootstrap(context.Background(), BundleRequest{
+		Engine:      "codex",
+		IncludeAuth: false,
+		Agents:      "a1",
+	}); err != nil {
+		t.Fatalf("bootstrap: %v", err)
+	}
+	if !strings.Contains(sawBody, `"include_auth":false`) {
+		t.Errorf("content-only body still asked for auth: %s", sawBody)
+	}
+	for _, unwanted := range []string{"auth_digest", "auth_candidate"} {
+		if strings.Contains(sawBody, unwanted) {
+			t.Errorf("content-only body carried %s: %s", unwanted, sawBody)
+		}
+	}
+}

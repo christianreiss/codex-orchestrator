@@ -46,9 +46,26 @@ type Options struct {
 	// interactive run applies — but no PreExec, no portal session, no Claude.
 	// This is what `clx sync`, the post-update pass, and the cron tick use to
 	// converge fleet-managed content without launching an engine.
-	SyncOnly       bool
-	WrapperVersion string
-	Logger         *slog.Logger
+	SyncOnly bool
+	// SkipCredentialExchange runs the managed-content half of the bundle with
+	// no credential traffic in either direction: no local credentials.json is
+	// read or offered as a candidate, no digest is advertised, and an auth
+	// block the server sends anyway is ignored rather than written. The
+	// unattended cron tick sets it because it already preserves an unsent
+	// local login through the ungated `/auth` store call, so a second, gated
+	// credential round-trip buys nothing — and on an insecure host with a
+	// closed approval window it costs everything: the tick is refused, and
+	// CLAUDE.md, settings, collections and skills stop converging on exactly
+	// the hosts that most need them. Nobody is sitting at that host to answer
+	// the approval it would open. Because the trust-loss teardown below is
+	// likewise credential-scoped, a content-only pass never strips managed
+	// settings, collections or skills: a tick that was told nothing about
+	// credentials has learned nothing that would justify removing content.
+	// Explicit `clx sync` is a human asking for a credential sync and does
+	// not set it.
+	SkipCredentialExchange bool
+	WrapperVersion         string
+	Logger                 *slog.Logger
 	// DangerouslySkipPermissions mirrors --dangerously-skip-permissions for
 	// this run only: it lights the boot-screen warning badge. The flag itself
 	// already rides ExtraArgs straight through to the upstream `claude`
@@ -219,13 +236,22 @@ func Run(ctx context.Context, opts Options) (exitCode int, retErr error) {
 	)
 
 	if !opts.SkipAuthSync {
-		authResp, authErr, authSynced, agentsSync, configSync, nativeSkillsSync, fleetSessions = bootstrap(ctx, client, logger, concurrent, authPath)
-		if err := updateAuthSessionSecurity(authSession, authResp); err != nil {
-			return 1, fmt.Errorf("persist API host security state: %w", err)
+		authResp, authErr, authSynced, agentsSync, configSync, nativeSkillsSync, fleetSessions = bootstrap(ctx, client, logger, concurrent, authPath, !opts.SkipCredentialExchange)
+		// A content-only pass leaves the decision at its zero value on purpose:
+		// there is no auth response to judge, and no host-secure state came back
+		// to persist — the signed config remains its source. Every branch that
+		// reads `dec` below carries the same `!opts.SkipCredentialExchange`
+		// guard, so `git grep` for that identifier returns the full blast radius
+		// of this mode rather than the accident of what a zero AuthDecision
+		// happens to mean today.
+		if !opts.SkipCredentialExchange {
+			if err := updateAuthSessionSecurity(authSession, authResp); err != nil {
+				return 1, fmt.Errorf("persist API host security state: %w", err)
+			}
+			dec = decideAuth(authResp, authErr, authPath, cfg.Host.Secure)
 		}
-		dec = decideAuth(authResp, authErr, authPath, cfg.Host.Secure)
 
-		if dec.NeedsApprovalPoll {
+		if !opts.SkipCredentialExchange && dec.NeedsApprovalPoll {
 			if opts.Headless {
 				dec.Allowed = false
 				dec.Reason = "Insecure host approval is required; open Admin → Host Detail, then retry."
@@ -236,7 +262,7 @@ func Run(ctx context.Context, opts Options) (exitCode int, retErr error) {
 					logger.Warn("approval poll failed", "err", perr)
 				}
 				if resolved {
-					authResp, authErr, authSynced, agentsSync, configSync, nativeSkillsSync, fleetSessions = bootstrap(ctx, client, logger, concurrent, authPath)
+					authResp, authErr, authSynced, agentsSync, configSync, nativeSkillsSync, fleetSessions = bootstrap(ctx, client, logger, concurrent, authPath, !opts.SkipCredentialExchange)
 					if err := updateAuthSessionSecurity(authSession, authResp); err != nil {
 						return 1, fmt.Errorf("persist API host security state: %w", err)
 					}
@@ -246,7 +272,7 @@ func Run(ctx context.Context, opts Options) (exitCode int, retErr error) {
 		}
 
 		var authCandidateErr error
-		if !concurrent && dec.Allowed && (dec.Status == "missing" || dec.Status == "upload_required") {
+		if !opts.SkipCredentialExchange && !concurrent && dec.Allowed && (dec.Status == "missing" || dec.Status == "upload_required") {
 			if snap, rerr := claude.ReadAuthForUploadSnapshot(); rerr == nil && len(snap.Upload) > 0 {
 				if err := pushAuthCandidate(ctx, client, snap, logger, authSession); err != nil {
 					if errors.Is(err, claude.ErrAuthUploadBlockedByLogout) {
@@ -266,7 +292,7 @@ func Run(ctx context.Context, opts Options) (exitCode int, retErr error) {
 						dec.Reason = "Local Claude credentials were definitively rejected by live verification."
 					}
 				} else {
-					authResp, authErr, authSynced, agentsSync, configSync, nativeSkillsSync, fleetSessions = bootstrap(ctx, client, logger, concurrent, authPath)
+					authResp, authErr, authSynced, agentsSync, configSync, nativeSkillsSync, fleetSessions = bootstrap(ctx, client, logger, concurrent, authPath, !opts.SkipCredentialExchange)
 					if err := updateAuthSessionSecurity(authSession, authResp); err != nil {
 						return 1, fmt.Errorf("persist API host security state: %w", err)
 					}
@@ -277,7 +303,7 @@ func Run(ctx context.Context, opts Options) (exitCode int, retErr error) {
 			}
 		}
 
-		if needsInteractiveAuthRecovery(dec, authCandidateErr, localAuthFresh(authPath, cfg.Host.Secure)) {
+		if !opts.SkipCredentialExchange && needsInteractiveAuthRecovery(dec, authCandidateErr, localAuthFresh(authPath, cfg.Host.Secure)) {
 			reason := safeLifecycleText(recoveryReason(dec, authCandidateErr), opts.Minimal)
 			if opts.Headless {
 				dec.Allowed = false
@@ -287,7 +313,7 @@ func Run(ctx context.Context, opts Options) (exitCode int, retErr error) {
 				dec.Allowed = false
 				dec.Reason = err.Error()
 			} else {
-				authResp, authErr, authSynced, agentsSync, configSync, nativeSkillsSync, fleetSessions = bootstrap(ctx, client, logger, concurrent, authPath)
+				authResp, authErr, authSynced, agentsSync, configSync, nativeSkillsSync, fleetSessions = bootstrap(ctx, client, logger, concurrent, authPath, !opts.SkipCredentialExchange)
 				if err := updateAuthSessionSecurity(authSession, authResp); err != nil {
 					return 1, fmt.Errorf("persist API host security state: %w", err)
 				}
@@ -297,7 +323,10 @@ func Run(ctx context.Context, opts Options) (exitCode int, retErr error) {
 
 		// Routine binary and peer maintenance belongs to the background tick.
 		// Foreground launches retain only local onboarding required by Claude.
-		if dec.Allowed && !concurrent && claude.HasUsableAuth() {
+		// A content-only tick is the only thing that visits an idle host, and
+		// onboarding state is a local flag with no credential traffic — keep it
+		// converging there. HasUsableAuth() is what makes that honest.
+		if (dec.Allowed || opts.SkipCredentialExchange) && !concurrent && claude.HasUsableAuth() {
 			ensureOnboardingState(logger)
 		}
 
@@ -365,7 +394,7 @@ func Run(ctx context.Context, opts Options) (exitCode int, retErr error) {
 		logger.Warn("quota approaching limit", "warn", state.QuotaWarn)
 	}
 
-	if !opts.SkipAuthSync && !dec.Allowed {
+	if !opts.SkipAuthSync && !opts.SkipCredentialExchange && !dec.Allowed {
 		// On an explicit server refusal (not a transient outage), surgically
 		// remove fleet-managed settings keys + collection files so a host that
 		// lost trust no longer carries fleet hooks/permissions/subagents. We
@@ -400,7 +429,7 @@ func Run(ctx context.Context, opts Options) (exitCode int, retErr error) {
 		if err := errors.Join(authErr, agentsSync.Err, configSync.Err, skillsSync.Err); err != nil {
 			return 1, fmt.Errorf("managed sync incomplete: %w", err)
 		}
-		if strings.EqualFold(dec.Status, "offline") {
+		if !opts.SkipCredentialExchange && strings.EqualFold(dec.Status, "offline") {
 			return 1, errors.New("managed sync incomplete: API offline; cached credentials do not confirm content is current")
 		}
 		return 0, nil
@@ -638,9 +667,13 @@ func footerCaps(caps ui.Caps, minimal bool) ui.Caps {
 	return caps
 }
 
+// includeAuth false makes this a content-only exchange: no snapshot, no
+// candidate, no digest, and no auth block applied. The auth response comes back
+// nil and the error return carries only the bundle/content outcome, so a caller
+// that never asked about credentials cannot be told anything about them.
 func bootstrap(
 	ctx context.Context, client *orchestrator.Client, logger *slog.Logger,
-	concurrent bool, authPath string,
+	concurrent bool, authPath string, includeAuth bool,
 ) (*orchestrator.AuthRetrieveResponse, error, bool, summary.ResourceSync, summary.ResourceSync, summary.ResourceSync, *orchestrator.FleetSessions) {
 	ctx, bootSpan := tracing.Start(ctx, "cxx.lifecycle.bootstrap",
 		tracing.String("wrapper.engine", "claude"),
@@ -654,15 +687,19 @@ func bootstrap(
 		candidate         []byte
 		candidatePossible bool
 	)
-	if snap, err := claude.ReadAuthForRetrieveSnapshot(); err == nil {
-		authSnapshot = snap
-		if snap.Usable {
-			digest = snap.DigestForServer()
-			candidatePossible = true
+	// Content-only passes never read the credential file: reading it is itself
+	// part of the credential exchange this mode exists to avoid.
+	if includeAuth {
+		if snap, err := claude.ReadAuthForRetrieveSnapshot(); err == nil {
+			authSnapshot = snap
+			if snap.Usable {
+				digest = snap.DigestForServer()
+				candidatePossible = true
+			}
+		} else if !errors.Is(err, os.ErrNotExist) {
+			failure := &orchestrator.AuthRetrieveResponse{Status: "error", Message: err.Error()}
+			return failure, fmt.Errorf("read authoritative Claude credentials: %w", err), false, summary.ResourceSync{}, summary.ResourceSync{}, summary.ResourceSync{}, nil
 		}
-	} else if !errors.Is(err, os.ErrNotExist) {
-		failure := &orchestrator.AuthRetrieveResponse{Status: "error", Message: err.Error()}
-		return failure, fmt.Errorf("read authoritative Claude credentials: %w", err), false, summary.ResourceSync{}, summary.ResourceSync{}, summary.ResourceSync{}, nil
 	}
 	agentsDigest := fileDigest(agentsPath())
 	configDigest := fileDigest(settingsPath())
@@ -728,7 +765,7 @@ func bootstrap(
 	)
 	resp, berr := client.SyncBootstrap(bctx, orchestrator.BundleRequest{
 		Engine:        "claude",
-		IncludeAuth:   true,
+		IncludeAuth:   includeAuth,
 		AuthDigest:    digest,
 		AuthCandidate: candidate,
 		Agents:        agentsDigest,
@@ -745,7 +782,11 @@ func bootstrap(
 	syncSpan.End()
 	releaseBundleUpload()
 
-	if berr != nil && isBundleUnsupported(berr) {
+	// The legacy fallback pulls auth per resource through `/auth command=retrieve`
+	// — the gated credential fetch this mode exists to avoid. A content-only pass
+	// against a server too old for the bundle reports a retryable sync failure
+	// instead of quietly downgrading into a credential request.
+	if berr != nil && includeAuth && isBundleUnsupported(berr) {
 		logger.Debug("bundle endpoint unsupported, falling back", "err", berr)
 		bootSpan.SetBool("wrapper.bundle_fallback", true)
 		a, e, s, ag, co := legacySyncPath(ctx, client, logger, concurrent, authPath)
@@ -754,22 +795,31 @@ func bootstrap(
 	if berr != nil {
 		// Insecure-approval gate (423 pending / 403 denied) is not an outage:
 		// map it to the auth status so the launch gate polls for approval
-		// instead of falling through to the offline branch.
-		if st := orchestrator.InsecureStatusFromError(berr); st != "" {
+		// instead of falling through to the offline branch. A content-only pass
+		// has no launch gate to inform and nobody to poll for: for it the same
+		// refusal is simply a failed content sync.
+		if st := orchestrator.InsecureStatusFromError(berr); includeAuth && st != "" {
 			return &orchestrator.AuthRetrieveResponse{Status: st}, nil, false, summary.ResourceSync{}, summary.ResourceSync{}, summary.ResourceSync{}, nil
+		}
+		if !includeAuth {
+			return nil, berr, false, summary.ResourceSync{}, summary.ResourceSync{}, summary.ResourceSync{}, nil
 		}
 		offline := &orchestrator.AuthRetrieveResponse{Status: "offline", Message: berr.Error()}
 		return offline, berr, false, summary.ResourceSync{}, summary.ResourceSync{}, summary.ResourceSync{}, nil
 	}
 
-	authResp := resp.Auth
-	if authResp == nil {
-		authResp = &orchestrator.AuthRetrieveResponse{Status: "offline", Message: "bundle missing auth block"}
+	var authResp *orchestrator.AuthRetrieveResponse
+	authSynced := false
+	if includeAuth {
+		authResp = resp.Auth
+		if authResp == nil {
+			authResp = &orchestrator.AuthRetrieveResponse{Status: "offline", Message: "bundle missing auth block"}
+		}
+		if authResp.Host == nil && resp.Host != nil {
+			authResp.Host = resp.Host
+		}
 	}
-	if authResp.Host == nil && resp.Host != nil {
-		authResp.Host = resp.Host
-	}
-	if bundleCandidateSent && bundleCandidateIntent.Exists && authResp.AuthCandidateAccepted() {
+	if includeAuth && bundleCandidateSent && bundleCandidateIntent.Exists && authResp.AuthCandidateAccepted() {
 		acknowledged, err := claude.ClearLogoutIntentIfUnchanged(bundleCandidateSnapshot.Generation, bundleCandidateIntent)
 		if err != nil {
 			return authResp, fmt.Errorf("acknowledge accepted Claude bundle candidate: %w", err), false, summary.ResourceSync{}, summary.ResourceSync{}, summary.ResourceSync{}, resp.Sessions
@@ -778,8 +828,7 @@ func bootstrap(
 			logger.Debug("Claude auth or logout intent changed after accepted bundle candidate; preserving newer local state")
 		}
 	}
-	authSynced := false
-	if shouldWriteServerAuth(authResp.Status, authResp.Auth) && claude.ServerAuthMayReplace(
+	if includeAuth && shouldWriteServerAuth(authResp.Status, authResp.Auth) && claude.ServerAuthMayReplace(
 		authSnapshot,
 		authResp.Auth,
 		authResp.CanonicalLastRefresh,
@@ -806,7 +855,7 @@ func bootstrap(
 			markLogoutRecovery(authResp)
 		}
 	}
-	if bundleCandidateSent {
+	if includeAuth && bundleCandidateSent {
 		if err := neutralizeRejectedSupersededBundleCandidate(authResp, bundleCandidateSnapshot); err != nil {
 			return authResp, err, false, summary.ResourceSync{}, summary.ResourceSync{}, summary.ResourceSync{}, resp.Sessions
 		}

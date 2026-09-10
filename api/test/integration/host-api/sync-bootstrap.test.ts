@@ -8,6 +8,8 @@ import {
   authPayloads,
   chatgptUsageSnapshots,
   hosts as hostsTable,
+  insecureAuthRequests,
+  insecureDomainAllows,
   skills as skillsTable,
   versions as versionsTable,
   agentsDocuments,
@@ -193,6 +195,73 @@ function seedClaudeCanonical(
   db.tables.set(authCanonicalHeads, [{ engine: 'claude', payloadId: 30, generation: 3, updatedAt: stamp }]);
   return { auth, digest, stamp };
 }
+
+describe('POST /sync/bootstrap and the insecure window', () => {
+  /**
+   * The unattended cron tick is content-only. Gating it behind the approval
+   * window produced one approval request per host per tick on a fleet nobody
+   * was sitting at, and answered a request that asked for no credentials with
+   * a credential refusal.
+   */
+  it('serves a content-only bundle to an insecure host with a closed window without opening an approval', async () => {
+    const apiKey = 'sk-bootstrap-content-only';
+    const db = createDbFake();
+    db.tables.set(hostsTable, [
+      hostRow(apiKey, {
+        secure: 0,
+        insecureEnabledUntil: new Date(Date.now() - 120_000),
+        insecureGraceUntil: new Date(Date.now() - 60_000),
+      }),
+    ]);
+    db.tables.set(versionsTable, []);
+    db.tables.set(agentsDocuments, []);
+    db.tables.set(clientConfigDocuments, []);
+    db.tables.set(insecureAuthRequests, []);
+    db.tables.set(insecureDomainAllows, []);
+    const app = await buildHostApiTestApp({ db: db as never, env, keyring: makeKeyring() });
+
+    const r = await app.inject({
+      method: 'POST',
+      url: '/sync/bootstrap',
+      headers: { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json' },
+      payload: JSON.stringify({ engine: 'codex', include_auth: false }),
+    });
+
+    expect(r.statusCode).toBe(200);
+    expect(r.json().auth).toBeUndefined();
+    expect(db.tables.get(insecureAuthRequests)).toEqual([]);
+    await app.close();
+  });
+
+  it('still gates the same closed-window host when the bundle asks for credentials', async () => {
+    const apiKey = 'sk-bootstrap-gated';
+    const db = createDbFake();
+    db.tables.set(hostsTable, [
+      hostRow(apiKey, {
+        secure: 0,
+        insecureEnabledUntil: new Date(Date.now() - 120_000),
+        insecureGraceUntil: new Date(Date.now() - 60_000),
+      }),
+    ]);
+    db.tables.set(versionsTable, []);
+    db.tables.set(agentsDocuments, []);
+    db.tables.set(clientConfigDocuments, []);
+    db.tables.set(insecureAuthRequests, []);
+    db.tables.set(insecureDomainAllows, []);
+    const app = await buildHostApiTestApp({ db: db as never, env, keyring: makeKeyring() });
+
+    const r = await app.inject({
+      method: 'POST',
+      url: '/sync/bootstrap',
+      headers: { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json' },
+      payload: JSON.stringify({ engine: 'codex', include_auth: true }),
+    });
+
+    expect(r.statusCode).toBe(423);
+    expect(db.tables.get(insecureAuthRequests)).toHaveLength(1);
+    await app.close();
+  });
+});
 
 describe('POST /sync/bootstrap inlines agents + config', () => {
   it('defaults an inherited host to the normal active quota lane in bundled auth', async () => {

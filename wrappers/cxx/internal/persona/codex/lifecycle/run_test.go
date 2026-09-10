@@ -696,7 +696,7 @@ func TestBootstrapOmitsInvalidJSONCandidateAndHealsFromCanonical(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	resp, authErr, synced, _, _, _ := bootstrap(context.Background(), client, slog.Default(), false, path)
+	resp, authErr, synced, _, _, _ := bootstrap(context.Background(), client, slog.Default(), false, path, true)
 	if authErr != nil || !synced || resp == nil {
 		t.Fatalf("bootstrap = resp=%+v err=%v synced=%v", resp, authErr, synced)
 	}
@@ -741,7 +741,7 @@ func TestBootstrapConcurrentRepairsUnusableAuthDespiteMatchingGenerationDigest(t
 	if err != nil {
 		t.Fatal(err)
 	}
-	resp, authErr, synced, _, _, _ := bootstrap(context.Background(), client, slog.Default(), true, path)
+	resp, authErr, synced, _, _, _ := bootstrap(context.Background(), client, slog.Default(), true, path, true)
 	if authErr != nil || !synced || resp == nil {
 		t.Fatalf("concurrent unusable auth repair = resp=%+v synced=%v err=%v", resp, synced, authErr)
 	}
@@ -1068,7 +1068,7 @@ func TestPostRunNativeLoginClockRollbackConvergesBeforeImmediateNextRun(t *testi
 	if acceptedStamp == "" {
 		t.Fatal("server never accepted monotonic Y generation")
 	}
-	resp, bootstrapErr, _, _, _, _ := bootstrap(context.Background(), client, logger, false, path)
+	resp, bootstrapErr, _, _, _, _ := bootstrap(context.Background(), client, logger, false, path, true)
 	if bootstrapErr != nil || resp == nil || resp.Status != "valid" {
 		t.Fatalf("immediate next cdx bootstrap = resp=%+v err=%v", resp, bootstrapErr)
 	}
@@ -1113,7 +1113,7 @@ func TestBootstrapAuthCandidateSerializesConcurrentLogoutAcrossNetwork(t *testin
 	type result struct{ err error }
 	done := make(chan result, 1)
 	go func() {
-		_, err, _, _, _, _ := bootstrap(context.Background(), client, slog.Default(), false, path)
+		_, err, _, _, _, _ := bootstrap(context.Background(), client, slog.Default(), false, path, true)
 		done <- result{err: err}
 	}()
 	select {
@@ -1177,7 +1177,7 @@ func TestBootstrapOmitsAuthCandidateWhenLogoutAlreadyCommitted(t *testing.T) {
 	}))
 	defer server.Close()
 	client, _ := orchestrator.New(orchestrator.Options{BaseURL: server.URL, APIKey: "test"})
-	if _, err, _, _, _, _ := bootstrap(context.Background(), client, slog.Default(), false, path); err != nil {
+	if _, err, _, _, _, _ := bootstrap(context.Background(), client, slog.Default(), false, path, true); err != nil {
 		t.Fatal(err)
 	}
 	if candidateSeen {
@@ -1230,7 +1230,7 @@ func TestBootstrapClearsLogoutOnlyAfterDifferentLoginIsAccepted(t *testing.T) {
 			}))
 			defer server.Close()
 			client, _ := orchestrator.New(orchestrator.Options{BaseURL: server.URL, APIKey: "test"})
-			_, bootstrapErr, _, _, _, _ := bootstrap(context.Background(), client, slog.Default(), false, path)
+			_, bootstrapErr, _, _, _, _ := bootstrap(context.Background(), client, slog.Default(), false, path, true)
 			if bootstrapErr != nil {
 				t.Fatal(bootstrapErr)
 			}

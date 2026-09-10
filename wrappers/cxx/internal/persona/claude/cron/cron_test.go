@@ -429,3 +429,44 @@ func TestTickSkipsSyncWhenWrapperUpdatePathTaken(t *testing.T) {
 		t.Fatalf("synced %d times on the wrapper-update path", calls)
 	}
 }
+
+// TestSyncManagedContentNeverRequestsCredentials pins the cron→lifecycle wiring
+// itself, which every other test in this file stubs away: an unattended tick
+// must ask for content and nothing else, so it can never open an insecure
+// approval nobody is there to answer.
+func TestSyncManagedContentNeverRequestsCredentials(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_RUNTIME_DIR", filepath.Join(home, "run"))
+	t.Setenv("CLAUDE_ALLOW_FQDN_MISMATCH", "1")
+
+	var body map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/skills" {
+			_, _ = w.Write([]byte(`{"skills":[]}`))
+			return
+		}
+		if r.URL.Path != "/sync/bootstrap" {
+			http.NotFound(w, r)
+			return
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		_, _ = w.Write([]byte(`{"status":"success","data":{"status":"success","agents":"# fleet claude policy\n"}}`))
+	}))
+	defer server.Close()
+
+	cfg := &config.Config{Orchestrator: config.Orchestrator{BaseURL: server.URL, APIKey: "test-key"}}
+	if err := syncManagedContent(context.Background(), cfg, true); err != nil {
+		t.Fatalf("cron managed sync failed: %v", err)
+	}
+	if body == nil {
+		t.Fatal("cron tick never reached /sync/bootstrap")
+	}
+	if body["include_auth"] != false {
+		t.Fatalf("cron tick asked for credentials: include_auth=%v", body["include_auth"])
+	}
+	if _, ok := body["auth_candidate"]; ok {
+		t.Fatal("cron tick offered a credential candidate")
+	}
+}
