@@ -58,7 +58,7 @@ Code-truth operator map for `/admin/*`. Source of truth is runtime code (`api/sr
 - One registry (`frontend/src/lib/nav.ts`) drives navigation, mobile Menu, the
   command palette, title, breadcrumb, and active state. Its direct groups are
   **Monitor** (Overview, Active Clients, Activity), **Fleet** (Hosts, Engines, Policies),
-  **Coordinate** (Projects, Agent Messaging, Agent Portal), **Knowledge**
+  **Coordinate** (Projects, Agent Messaging, Git Director, File Transfer, Agent Portal), **Knowledge**
   (Skills, Fleet Instructions, Memories, Subagents, Commands, Output Styles),
   and **Access** (API Access, Secrets, Admin Users). Manual and Account stay in
   the sidebar footer. There is no generic Settings or Authoring destination.
@@ -210,9 +210,10 @@ upgrading does not change behavior.**
 
 Migration `0022` sets `compatible` on any installation that already had users
 and `strict` on a fresh one, so **an upgrade is a behavioral no-op and a new
-install is secure from first boot**. `authorization-compatibility.test.ts`
-proves the no-op by exercising every role against every route rather than
-asserting it.
+install is secure from first boot**. `capability-layer-invariants.test.ts`
+pins the no-op: it holds a hand-written copy of the routes that were owner/admin
+only before the layer landed against the runtime legacy-route list, so widening
+either list alone fails.
 
 Two capabilities are enforced under *both* modes: `auth.reveal_credential`
 (reading a stored canonical credential body back out — a privilege escalation
@@ -372,6 +373,67 @@ Admin routes:
   as they stood before the capability layer and can never grow, which leaves
   every route added afterwards open under that mode.
 
+## Git Director Operations
+
+- `/admin/git-director` is the clone registry and merge arbiter for agents
+  sharing a checkout; it never touches a worktree. The module switch
+  (`GET`/`POST /admin/git-director/state`) is fleet-wide, and while it is on,
+  hosts with MCP enabled get a Git Director section in their managed agents
+  document plus the `git_list` / `git_register` / `git_join` /
+  `git_merge_request` / `git_merge_status` / `git_release` MCP tools.
+- Registrations live one hour and are refreshed by
+  any call naming the worktree, including `git_list`; an `allow` verdict is a
+  15-minute lease. Expiry is swept on read, not by a
+  timer. A registration bound to an Agent Messaging address is reclaimed the
+  moment that address loses its session.
+- Uncontended requests are allowed by policy. Contended ones go to the judge
+  (`git-director-judge.ts`, `claude-sonnet-5`, 20-second timeout), which may
+  decline but never blocks: any failure falls back to `wait`. The admin routes
+  build the service without a judge — `POST /admin/git-director/requests/{id}/decide`
+  (`allow` | `deny`, optional reason) is an operator override, and
+  `POST /admin/git-director/worktrees/{id}/release` withdraws the worktree's
+  live requests and frees its lease immediately.
+- `git_director.read` is held by every role; `git_director.manage` (switch,
+  decide, release) by owner, admin, and fleet operator.
+
+## File Transfer Operations
+
+- `/admin/transfers` is the expiring pool of files agents hand each other over
+  the `transfer_list` / `transfer_put` / `transfer_get` / `transfer_info` /
+  `transfer_delete` MCP tools. There is **no addressing**: knowing an id is
+  sufficient to fetch, so the page's job is the audit trail — who uploaded,
+  who fetched, when it expires.
+- Module switch: `GET`/`POST /admin/transfers/state` (`transfers.manage`).
+  While on, hosts with MCP enabled get a *File Transfer* section in their
+  managed agents document (gated exactly like Git Director). Turning it off
+  stops the mutating tools but deletes nothing; held files keep expiring.
+  `transfer_list` always answers (`status: 'disabled'`) so an agent can tell
+  disabled from empty.
+- Limits: `POST /admin/transfers/limits` with any of `default_ttl_seconds`
+  (default 3600), `max_ttl_seconds` (default 86400, ceiling 604800),
+  `max_file_bytes` (default 8 MiB, ceiling 64 MiB), `quota_bytes` (default
+  2 GiB, must be ≥ `max_file_bytes`); an incoherent set is refused whole. All
+  four live in `versions`, not env. Out-of-range agent TTLs are clamped and
+  flagged `ttl_clamped`. Chunked put/get moves at most 4 MiB per call.
+- Listing: `GET /admin/transfers` (≤200 rows; `include_retired=1` adds expired
+  and deleted), `GET /admin/transfers/{id}/events` (the trail: `uploaded`,
+  `appended`, `sealed`, `downloaded`, `deleted`, `expired`; actor agent / admin /
+  system). `uploaded_by` / `uploaded_from` are asserted by the agent, not
+  verified; only `source_host_id` is first-hand.
+- `GET /admin/transfers/{id}/content` streams the file (`Content-Disposition`
+  with the agent-chosen name) and needs `transfers.download` — owner and admin
+  only, deliberately outside the fleet-operator set; it records
+  `transfers.downloaded` with `broadcast: false`. `DELETE /admin/transfers/{id}`
+  (`transfers.manage`) unlinks the bytes and keeps the row and trail.
+- Storage is `<DATA_ROOT>/transfers/<id[0:2]>/<id>`. The sweeper
+  (`api/src/ops/agent-transfers-worker.ts`) runs at boot and every
+  `TRANSFERS_PURGE_INTERVAL_SECONDS` (default 300), reclaims orphans older than
+  an hour every twelfth tick, and the service also sweeps on every read. Bytes
+  are unlinked before the row's status changes, so a crash mid-sweep leaves a
+  harmless retry rather than a retired row guarding an undeleted file.
+- WS events: `transfers.changed`, `transfers.module_toggled`,
+  `transfers.limits_changed`, `transfers.deleted` → the `transfers` query root.
+
 ## API Kill Switch
 - `POST /admin/api/state` stores `api_disabled` in `versions`.
 - Guard runs before route dispatch: when enabled, every path returns `503` except exact path `/admin/api/state`.
@@ -419,7 +481,11 @@ Admin routes:
     - Toggle roaming: `POST /admin/hosts/{id}/roaming` (`allow` bool).
     - Toggle secure flag: `POST /admin/hosts/{id}/secure` (`secure` bool).
     - Toggle VIP: `POST /admin/hosts/{id}/vip` (`vip` bool).
-    - Toggle IPv4-only wrapper behavior: `POST /admin/hosts/{id}/ipv4` (`force` bool, clears pinned IPs).
+    - Toggle scaling exemption: `POST /admin/hosts/{id}/scaling-exempt`.
+    - Per-host auto-update override: `POST /admin/hosts/{id}/auto-update` (tri-state; null inherits the fleet flag).
+    - Toggle engines: `POST /admin/hosts/{id}/engines` (`hosts.security_transition`; a host keeps at least one engine).
+    - Toggle BrowserOS MCP: `POST /admin/hosts/{id}/browseros-mcp`.
+    - Release IP binding: `POST /admin/hosts/{id}/release-ip-binding` (clears `ip4` and `ip6`; the next successful auth re-binds). There is no `/ipv4` route.
     - Toggle curl insecure wrapper behavior: `POST /admin/hosts/{id}/curl-insecure` (`allow` bool).
     - Per-host reverse DNS mode: `POST /admin/hosts/{id}/reverse-dns` (`mode`).
     - Per-host model/reasoning override: `POST /admin/hosts/{id}/model` (Codex model/reasoning plus Claude model override when the host supports Claude).
@@ -433,10 +499,12 @@ Admin routes:
   - Bulk disable active insecure windows: `POST /admin/hosts/insecure/disable-all`.
   - Open the fleet-wide window ("work hours"): `POST /admin/hosts/insecure/window` with optional `duration_minutes` (5–1440, default 480).
   - Close it: `POST /admin/hosts/insecure/window/close`. Closing — by button or when the deadline passes — clears every insecure host's window and grace and expires active domain auto-allows.
-  - Approval queue actions:
-    - Approve/deny: `POST /admin/insecure-approvals/{id}/approve|deny`.
-    - Approve + allow parent domain: `POST /admin/insecure-approvals/{id}/allow-domain`.
+  - Approval queue actions (`hosts.activate_insecure`):
+    - Approve/deny: `POST /admin/insecure-approvals/{id}/approve|deny`. Approve grants **480 minutes** by default, not the host's 10-minute sliding window, and stores that length in `hosts.insecure_window_minutes` so later slides keep it; an explicit `duration_minutes` (0–480) wins.
+    - Approve + allow parent domain: `POST /admin/insecure-approvals/{id}/allow-domain`. Also resolves every other pending request whose FQDN falls under the domain (same suffix rule as the gate; returned as `cleared_request_ids`, capped at 200). `permanent: true` writes an allow with no `enabled_until`, which survives a restart; *Disable all* and the fleet-window close still pull it back to now, leaving the row un-revoked so it can be re-armed.
     - Revoke domain allow: `POST /admin/insecure-domain-allows/{id}/revoke`.
+    - A pending request nobody rules on within five minutes is expired on the next read of the queue; there is no separate timer.
+  - The console's insecure access dialog (`InsecureApprovalsDialog` / `InsecureApprovalsAutoPopup`) opens itself on a live `insecure.requested` event, plays a short synthesized beep (once per two seconds at most), and can fire a desktop notification once the operator grants permission from the banner inside it. Resolved rows — by click, another tab, a domain sweep, the fleet window, or the timeout — fade to a labelled shadow for 1.6 s and slide out; a dialog that opened itself closes only once the last shadow has cleared.
 - **Users**:
   - List/create/update/delete: `/admin/users`, `/admin/users/{id}`.
   - Wipe all users: `POST /admin/users/wipe` with `{"confirm":"WIPE"}`.
@@ -515,7 +583,7 @@ Admin routes:
 - Insecure window refresh is applied on non-store checks (`/auth` retrieve path, `/mcp`, `/host/lane`), not on plain `/auth` store.
 - Insecure approval queue is not gated on websocket presence; there is no such heartbeat window. The `insecure_approval_enabled` flag is a settings toggle reported by `GET /admin/overview`, and `GET /admin/insecure-approvals/pending` lists the queue to any admin regardless of it.
 - The dashboard now rehydrates the insecure approval queue from `GET /admin/insecure-approvals/pending` on load and websocket reconnect, so pending requests still show up even if the original live event was missed.
-- A live `auth.insecure.pending` event now rings a short synthesized bell in the admin dashboard when a genuinely new insecure approval request arrives. Browser autoplay/user-gesture policy still applies, so the sound is best-effort rather than guaranteed on a never-interacted tab.
+- A live `insecure.requested` event rings a short synthesized beep in the console when a genuinely new insecure approval request arrives (there is no `auth.insecure.pending` event type). Browser autoplay/user-gesture policy still applies, so the sound is best-effort rather than guaranteed on a never-interacted tab.
 - The Projects module is deliberately native to codex-orchestrator: the direct
   `/admin/projects` workspace owns its module toggle and compact index, while
   each project opens on its own `/admin/projects/<slug>` workspace page. The

@@ -1,7 +1,7 @@
 ---
 title: The auth distribution pipeline
 section: Fleet operations
-verified: 2026-07-18
+verified: 2026-09-09
 sources: api/src/routes/auth/index.ts, api/src/services/host-auth.ts, api/src/services/insecure-window.ts, api/src/services/canonical-auth-store.ts, api/src/services/runner-validation.ts, api/src/services/runner-client.ts, api/src/ops/auth-verification-worker.ts, api/src/services/reverse-dns.ts, api/src/security/keyring.ts, api/src/security/secret-box.ts, api/src/db/schema.ts, wrappers/cxx/internal/codex/auth_writer.go, wrappers/cxx/internal/codex/auth_session.go, wrappers/cxx/internal/claude/auth_writer.go, wrappers/cxx/internal/claude/auth_session.go
 ---
 
@@ -101,6 +101,8 @@ An insecure host is one where the machine is not fully trusted to hold credentia
 - `APPROVAL_DENY_COOLDOWN_SECONDS = 60`
 
 The window slides on each non-store hit while active. `store` candidates bypass this window entirely, including after `graceUntil`, without extending it. For retrieve-style calls, a matching `insecure_domain_allows` row **auto-opens a new window**; otherwise an `insecure_auth_requests` row is inserted (status=pending) and the caller sees a 423. A recent `denied` row within `APPROVAL_DENY_COOLDOWN_SECONDS` causes a 403 instead.
+
+`DEFAULT_WINDOW` is the sliding window a host gets on its own. An operator approval is a different grant: approving a request (or allowing its domain) from the console opens **480 minutes** by default and stores that length on the host, so later slides keep it — see [Hosts](/admin/manual/hosts) for the approval queue, domain allows (including permanent ones), and the fleet-wide window.
 
 ## Sync routes
 

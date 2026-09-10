@@ -1,7 +1,7 @@
 ---
 title: Logs — MCP and Events
 section: Admin workspace
-verified: 2026-07-01
+verified: 2026-09-09
 sources: api/src/db/schema.ts, api/src/services/admin-events.ts, api/src/services/dashboard-stats.ts, api/src/services/mcp-access-log.ts, api/src/services/admin-auth.ts, api/src/services/host-registration.ts, api/src/routes/admin/overview/index.ts, api/src/routes/admin/config/index.ts, api/src/routes/admin/settings/index.ts, api/src/ops/boot-checks.ts, api/src/ws/server.ts, api/src/ws/publisher.ts, frontend/src/lib/api/logs.ts
 ---
 
@@ -20,7 +20,7 @@ Calls `GET /admin/mcp/logs?limit=200` and returns `mcp_access_logs` rows as-is.
 
 **Columns:** Timestamp, Host, Tool/Method (tool name with method as a sub-label), Status (OK or Failed, derived from the `success` boolean on the row, with error code and error message where present).
 
-The Host column reads `host_fqdn` off each row, but the `/admin/mcp/logs` handler (`api/src/routes/admin/config/index.ts`) selects straight from `mcp_access_logs` — which only stores `host_id` — with no join to `hosts`. `host_fqdn` is never populated, so this column currently renders as "—" for every row regardless of which host made the call.
+The Host column reads `host_fqdn` off each row. The `/admin/mcp/logs` handler (`api/src/routes/admin/config/index.ts`) left-joins `mcp_access_logs.host_id` to `hosts` to fill it, so a row whose host has since been pruned — or a call that was never bound to a host — renders "—" while every other row shows the FQDN.
 
 **Toolbar controls:**
 - Free-text search — matches host, tool name, or method.
@@ -68,12 +68,12 @@ Despite the article title, there are two separate append-only audit tables, and 
 
 ## Retention
 
-*Settings → Log retention* stores four independent windows, each clamped to 1–365 days:
+*Policies → Log retention* stores four independent windows, each clamped to 1–365 days:
 
 - `GET /admin/log-retention` — returns `enabled`, `days_logs` (default 90), `days_mcp` (default 90), `days_events` (default 30), `days_graph_stats` (default 180).
 - `POST /admin/log-retention` — updates them; records `admin.log_retention` to the `logs` table.
 
-These windows are configuration only today. Nothing in this repository — not the boot-time preflight (`api/src/ops/boot-checks.ts`, which only refreshes runner health and wrapper versions), not a scheduled job, nothing else — deletes rows from `logs`, `mcp_access_logs`, `admin_events`, or `dashboard_graph_quota_snapshots` based on these settings. Enabling `log_retention_enabled` and tightening the windows does not currently prune anything, despite what the Settings page copy implies — treat this as a reserved/unenforced setting until an enforcement job ships.
+These windows are configuration only today. Nothing in this repository — not the boot-time preflight (`api/src/ops/boot-checks.ts`, which only refreshes runner health and wrapper versions), not a scheduled job, nothing else — deletes rows from `logs`, `mcp_access_logs`, `admin_events`, or `dashboard_graph_quota_snapshots` based on these settings. Enabling `log_retention_enabled` and tightening the windows does not currently prune anything, despite what the Policies page copy implies — treat this as a reserved/unenforced setting until an enforcement job ships.
 
 ## Live streaming
 
@@ -88,7 +88,7 @@ When `ADMIN_WS_ENABLED=true`, the admin UI opens a WebSocket to `/admin/ws` (URL
 - api/src/services/admin-auth.ts (login/logout events into `admin_events`)
 - api/src/services/host-registration.ts (dual-writes `logs` + `admin_events` on host create/rotate)
 - api/src/routes/admin/overview/index.ts (`/admin/logs`, `/admin/ws/info`)
-- api/src/routes/admin/config/index.ts (`/admin/mcp/logs`)
+- api/src/routes/admin/config/index.ts (`/admin/mcp/logs`, left-joined to `hosts` for `host_fqdn`)
 - api/src/routes/admin/settings/index.ts (log retention endpoints)
 - api/src/ops/boot-checks.ts (boot-time preflight — no log-retention enforcement present)
 - api/src/ws/server.ts, api/src/ws/publisher.ts (live event stream)

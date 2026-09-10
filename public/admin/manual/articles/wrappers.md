@@ -1,8 +1,8 @@
 ---
 title: The shared cxx wrapper
 section: Fleet operations
-verified: 2026-07-29
-sources: wrappers/cxx, api/src/services/wrapper-config.ts, api/src/services/wrapper-signing-key.ts, api/src/services/wrapper-bin-registry.ts, api/src/services/wrapper-meta.ts, api/src/services/wrapper-download.ts, api/src/services/wrapper-transition.ts, api/src/services/install-token.ts, api/src/routes/wrapper-v2/index.ts, api/src/routes/install/index.ts, wrappers/schemas/host-config-v1.json
+verified: 2026-09-09
+sources: wrappers/cxx, wrappers/cxx/internal/agentportal/command.go, api/src/services/wrapper-config.ts, api/src/services/wrapper-signing-key.ts, api/src/services/wrapper-bin-registry.ts, api/src/services/wrapper-meta.ts, api/src/services/wrapper-download.ts, api/src/services/wrapper-transition.ts, api/src/services/install-token.ts, api/src/routes/wrapper-v2/index.ts, api/src/routes/install/index.ts, wrappers/schemas/host-config-v1.json
 ---
 
 `cdx` wraps the Codex CLI; `clx` wraps the Claude Code CLI. Both paths are
@@ -371,6 +371,19 @@ Flags: same set as cdx minus the lane/profile-specific ones; adds
 the run lock is held, it allows normal managed writes instead of sync-paused
 fallback and prints that decision before startup.
 
+### cxx-level commands
+
+Besides `cxx codex …` and `cxx claude …`, the shared binary owns a few
+host-wide commands that neither alias re-spells: `cxx cron [install|remove|run]`
+(the auto-update coordinator), `cxx update`, `cxx sync`, `cxx agent …` (the
+Agent Messaging relay used by the `cxx-agent` worker), `cxx claude-quota-statusline`
+(the default Claude status line), and `cxx portal …` — the Agent Portal
+client an agent calls from inside a session: `status`, `notify --summary`,
+`resolve --summary` (withdraw a mistaken or resolved *Needs you* notice while
+keeping the timeline, relay, and any open question), `say --text`,
+`ask --question [--options 'one|two']`, `wait [--seconds]`, `accept`, and
+`leave`. See [Agent Portal and Active Clients](/admin/manual/agent-portal).
+
 ### auth-upload
 
 Both `cdx` and `clx` expose an `auth-upload` subcommand that lets an operator
@@ -443,6 +456,7 @@ callers.
 - wrappers/cxx (common Go module and both personas, including peer-engine
   reconciliation and persona `orchestrator/auth_decide.go`
   launch-gate rules)
+- wrappers/cxx/internal/agentportal/command.go (`cxx portal` subcommands)
 - api/src/services/wrapper-config.ts (signed per-host config bakery)
 - api/src/services/wrapper-signing-key.ts (Ed25519 key from wrapper_signing_keys)
 - api/src/services/wrapper-bin-registry.ts (binary inventory, SHA256)

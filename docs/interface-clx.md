@@ -20,7 +20,7 @@ Mirrors `docs/interface-cdx.md` with engine-specific deltas called out explicitl
 ## Build + Publish
 
 - `clx` is the Claude persona of the static `cxx` Go binary built from `wrappers/cxx/cmd/cxx`; the installed `clx` path is a relative `clx -> cxx` symlink. During legacy self-update migration, a `clx-<major>.<minor>.<patch>` filename selects the same persona.
-- The current source version is **cxx 0.8.1** (see `wrappers/Makefile`).
+- The current source version is **cxx 0.8.4** (see `wrappers/Makefile`).
 - Build locally with `cd wrappers && make cxx`; `cd wrappers && make release` only stages the complete cross-platform matrix under `wrappers/bin/release`.
 - Publish that staged matrix explicitly with `cd wrappers && make publish-release`; set `OUTROOT` for an extracted CI release fragment and `PUBLISH_ROOT` for a non-default served store. Publication validates the complete incoming matrix before its first served payload write.
 - New publication writes only `storage/wrapper/v2/bin/cxx/<os>-<arch>/v<version>/cxx`. On compatible old per-engine URLs, exact historical split bytes win when present; otherwise the URL may stream the matching published `cxx` bytes for pre-migration clients.
@@ -37,8 +37,8 @@ Claude settings and MCP merges preserve unreadable or non-object user files and 
 | `auth-upload` | Stabilize and POST native `~/.claude/.credentials.json`; apply the authoritative response only if that native generation is still current |
 | `auth ...` | Passed through to upstream Claude under the active-child/session leases. `auth login` uploads the resulting generation and applies guarded canonical writeback; `auth logout` journals durable intent before destructive native mutation; `auth status` remains read-only passthrough. The top-level `login`/`logout` aliases follow the same rules. |
 | `exec -- <cmd...>` | Bypass startup sync; run a single Claude command |
-| `cxx agent ...` | Shared Agent Messaging control surface: discover addresses; send, request, wait, reply, inspect, or cancel; inspect the relay; and install/remove its per-user service. Message and reply content is accepted only on stdin. |
-| `--continue` | Passed straight through to the upstream `claude` binary |
+| `cxx agent ...` | Shared Agent Messaging control surface: `list` (alias `peers`, `--engine codex\|claude`, `--online`), `send`, `request`, `wait`, `reply`, `message <id>`, `cancel`, `call-open`, `call-join --pin`, `listen`, `poll --hook Stop\|UserPromptSubmit` (the Claude ringer hook), `status`, `service install\|remove\|start\|stop\|restart\|status`, `worker --foreground`, and `mcp [--channel]` (the stdio MCP server the managed `cxx-agent` entry launches). Message and reply content is accepted only on stdin. |
+| `--continue` / `-c` | Passed straight through to the upstream `claude` binary |
 | `resume [<session>] [<prompt>]` | Reopen a previous Claude session through the normal startup lifecycle. With no session id, the upstream picker is shown |
 | `--resume[=<session>]` / `-r` | Alias for the `resume` subcommand above — the session is optional, and a following option is never consumed as its value |
 | `execute` / `--execute "<prompt>"` | Headless one-shot via `claude -p`; the boot screen is suppressed but auth + resource sync still run. `--execute` is the spelling that carries the prompt; the bare `execute` token dispatches the same path with an empty prompt and its own trailing arguments appended |
@@ -47,6 +47,7 @@ Claude settings and MCP merges preserve unreadable or non-object user files and 
 | `--wrapper-help` | Render the wrapper-owned commands and flags without loading config; never intercepts tokens after `--` |
 | `cron [install\|remove\|run]` / `--cron [install\|remove\|run]` | Forward to the host-wide `cxx cron` coordinator. It owns one schedule (`# cxx-managed-cron`, system fallback `/etc/cron.d/cxx-managed`), removes historical persona schedules, validates each signed config's host/engine membership, and runs each enabled engine tick exactly once. Config wrapper metadata may differ during rolling refresh and is not a coordinator gate. The first upgraded legacy cron tick migrates itself to the shared schedule. Privileged system install/remove discovers every actual owner represented in the standard cron spools. A strictly validated spool filename remains authoritative when the static wrapper's Go `os/user` lookup cannot resolve an NSS/SSSD-only account; config-owner/sudo/current/root safeguards remain lookup-validated. The coordinator snapshots each crontab, removes only lines ending in an exact cxx/cdx/clx managed marker, and restores every changed crontab if cross-user or legacy-system cleanup fails; install also removes its new system entry. Explicit minimal mode stays ASCII throughout. The tick's managed sync is content-only: it converges CLAUDE.md, settings, MCP servers, collections and native skills and never requests, receives, writes or uploads credentials, so an unattended host can never open an insecure-approval request nobody is there to answer, and a credential-scoped refusal can no longer strip managed content on a tick (an unsent local login is still preserved through the ungated `/auth` store call before each update). |
 | `--version` / `-V` / `--wrapper-version` / `-W` | Print version + commit + embedded pubkey status |
+| `cxx claude-quota-statusline` | The fleet-owned Claude Code `statusLine` command. Claude Code runs it on every statusline render with its status JSON on stdin; it prints a usable statusline and, throttled, reports the payload's own `rate_limits` utilization for the 5-hour and 7-day windows to the orchestrator. This is the only way the fleet obtains Claude quota data — the server never holds or uses a Claude OAuth token. Managed settings inject it by default (see the `statusLine` note under Settings.json sub-blocks). |
 | `update` / `--update` | Self-update now (verifies SHA256 before swapping), then re-exec the freshly installed binary into `sync` so managed content is written by the new code rather than the one being replaced. This command's auth session is finalized before the exec, because the claude re-exec carries no session handoff. `clx update` re-execs into `clx sync`; `cxx update` re-execs into `cxx sync`, which covers every installed engine. If the exec itself fails, the new binary is installed but content is unsynced and the wrapper says so and exits 1 |
 | `sync` | Write fleet-managed `CLAUDE.md`, `settings.json` (deep merge), `~/.claude.json` MCP servers, `~/.claude/{agents,commands,output-styles}/`, and `~/.claude/skills/<slug>/SKILL.md` without launching Claude and without touching the binary. Runs the same lock, FQDN guard, `POST /sync/bootstrap`, decision matrix, collections, and skills work an interactive run performs, then stops before the portal session and the launch. Always headless. Exit 0 only after online managed sync succeeds; exit 1 for failed managed-file writes/probes, offline fallback, concurrent-run pauses, or a refused host — including a host with no usable Claude credential, which exits 1 even though `bootstrap` already wrote the managed content, keeping parity with `run`. Trust-loss teardown (`stripManagedSettings`/`stripClaudeCollections`/`stripClaudeSkills`) still runs on an explicit server refusal. Self-update is deliberately suppressed here |
 | `uninstall` / `--uninstall` | Take the native-auth exclusive maintenance lease, remove Claude-local credentials/state, and request engine-scoped server deletion. An authoritative response with Codex remaining removes only `clx` and retains `cxx`, `cdx`, and the shared cron; confirmed last-engine removal deletes both aliases, `cxx`, and the cron. Offline, non-2xx, or malformed responses preserve every shared artifact. Refuses while another clx auth session is active, on a known multi-user host without sudo, or when user lookup fails without root/passwordless-sudo fallback. |
@@ -196,6 +197,11 @@ only; scheduled and explicit cron still run.
 The shared cron coordinator sets `CXX_CRON_COORDINATED` and
 `CXX_CRON_ENGINE_ONLY` only on its own persona children to prevent recursive
 coordination. They are internal protocol markers; operators must not set them.
+`CLAUDE_WRAPPER_RESTART_DEPTH` is incremented by every self-update re-exec and
+refused above 2 (exit 70). The `CXX_AGENT_PORTAL_*` and `CXX_AGENT_MESSAGING_*`
+variables are set by the wrapper for its own portal broker, relay worker, and
+native child — the child receives only the socket path, session id, and engine —
+and inherited values are scrubbed at startup.
 
 ## Per-host config (typed, signed)
 
@@ -215,7 +221,8 @@ Same schema as cdx (`wrappers/schemas/host-config-v1.json`), with
     "enabled": false,
     "relay_poll_seconds": 25,
     "queued_ttl_seconds": 86400,
-    "channel_preview_enabled": false
+    "channel_preview_enabled": false,
+    "listen_enabled": false
   }
   // orchestrator / host / wrapper blocks are identical to cdx; host includes
   // engines / engines_list for peer reconciliation. host.agent_messaging_enabled
@@ -318,7 +325,9 @@ The `agent_messaging_enabled` fleet switch adds an Agent Messaging block on the
 same terms as Codex (see `docs/interface-cdx.md`): gated on the fleet switch plus
 an active host, not on the orchestrator MCP entry, and byte-identical to the
 Codex text — the `agent_*` tools are the same `cxx-agent` server on both engines,
-so there is nothing to branch on. It renders last.
+so there is nothing to branch on. It renders ahead of the Git Director and File
+Transfer sections, which follow it on the same terms (orchestrator MCP usable
+plus `git_director_enabled` / `transfers_module_enabled`) and close the block.
 
 ## Startup sequence
 
@@ -754,6 +763,19 @@ this run.
 - `permissions.{allow,ask,deny}` arrays union the user's rules with the fleet's
   (previously-injected fleet rules are stripped first, then re-added — no
   duplicates). All other owned paths are leaf set/delete so user siblings survive.
+  Beyond the admin-entered rules, the server derives its own `permissions.allow`
+  entries from the configured MCP server names, so curating fleet state is never
+  the action that interrupts the user: for every enabled `mcpServers` entry the
+  fleet renders (managed and operator-supplied alike)
+  `mcp__<server>__{shared_memory_write,shared_memory_append,shared_memory_delete,project_memory_upsert,project_memory_delete,transfer_put,transfer_delete}`,
+  and, when the bus is provisioned, `mcp__cxx-agent__<tool>` for all seventeen
+  Agent Messaging tools.
+- `statusLine` defaults to `{ "type": "command", "command": "cxx claude-quota-statusline" }`
+  when no admin statusLine is configured and the host's own self-reported wrapper
+  version is at least 0.7.24 (an older binary is never handed a command it does
+  not understand). An admin-configured statusLine always wins and, when present,
+  suppresses this default — which also takes that host's Claude quota telemetry
+  offline, since the statusline command is the only source of it.
 - Legacy clx wrappers (no `claude_settings` support) still receive the wholesale
   `config` body and overwrite as before; new wrappers prefer the merge.
 - On an explicit server refusal (`disabled` / `invalid` / `insecure-denied`) the
@@ -783,15 +805,33 @@ engine to remain enabled. An **insecure** host is eligible too, but only while
 its allowed window (`insecure_enabled_until`) is open; outside it the server
 refuses with `agent_messaging_insecure_window_closed`. The signed
 `agent_messaging.enabled` value is the wrapper's local gate. Managed Claude settings then own the `cxx-agent`
-stdio MCP server (`cxx agent mcp`) and allow its ten tools without prompting:
+stdio MCP server (`cxx agent mcp`) and allow its seventeen tools without prompting:
 `agent_list`, `agent_send`, `agent_request`, `agent_wait`, `agent_reply`,
-`agent_message_get`, `agent_cancel`, `agent_call_open`, `agent_call_join`, and
-`agent_listen`. The last three are the `#call` rendezvous: `agent_call_open` mints a
+`agent_message_get`, `agent_cancel`, `agent_call_open`, `agent_call_join`,
+`agent_listen`, and the `#conference` set `agent_conf_open`, `agent_conf_invite`,
+`agent_conf_join`, `agent_conf_roster`, `agent_conf_say`, `agent_conf_dispatch`,
+and `agent_conf_adjourn`. `agent_call_open`, `agent_call_join`, and `agent_listen`
+are the `#call` rendezvous: `agent_call_open` mints a
 short-lived four-digit PIN and returns this agent's own address, `agent_call_join`
 dials a PIN and sends the opening message in one step, and `agent_listen` waits for
 the next message addressed to this agent in any conversation. `agent_listen` needs
-the signed `agent_messaging.listen_enabled` grant, which the broker enforces. Peer
+the signed `agent_messaging.listen_enabled` grant, which the broker enforces. A
+call PIN is single-use because a conversation has two ends; a conference room PIN
+is multi-use. Whoever opens a conference is its chair: only the chair may invite
+addresses (an idle host is woken by its relay with the invite as its prompt),
+dispatch a task to one participant, or adjourn, and a participant may only address
+the chair. Peer
 text is ordinary untrusted input; it is never an instruction or a grant of authority.
+
+The same provisioning appends a ringer to the managed `hooks.Stop` and
+`hooks.UserPromptSubmit` entries: `cxx agent poll --hook <event> 2>/dev/null ||
+true`. An interactive session exists only during a turn, so those two turn
+boundaries are the only moments an attached session can learn it is being
+called; the command prints nothing when there is nothing to report or the
+orchestrator is unreachable, and `|| true` keeps a wrapper too old to know
+`agent poll` from blocking every turn. Operator-configured hooks for the same
+events are preserved and the ring is appended. Codex has no hook surface and
+gets no equivalent.
 
 An address is stable for `(host, Unix user, engine, working directory)` and can
 bind to a native Claude session with a generation-fenced upstream session id.
@@ -851,7 +891,11 @@ identity. `say` and `ask` publish only explicit user-facing content. The
 private socket uses a fixed operation allowlist and bounded bodies, but remains
 inside the same-Unix-user trust boundary; there is no PTY injection, remote
 approval path, hidden reasoning stream, or portal-bearer exposure. The managed
-`#afk` Skill cooperatively drives this loop; attention and lifecycle notices are
+`#afk` Skill cooperatively drives this loop; since cxx 0.8.4 it enters the `wait`
+loop directly without publishing an attention notice (opening the relay means
+the agent is available, not that the user is needed), uses `say` for status,
+reserves `notify` for an action the user must take, and withdraws a stale notice
+with `resolve`. Attention and lifecycle notices are
 recorded in the portal, which the user reaches through their own permanent
 bookmarked link, and are not pushed out. It cannot wake a
 Claude process or model turn that has already stopped, and `relay_ready` ages

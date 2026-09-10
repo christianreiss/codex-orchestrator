@@ -1,8 +1,8 @@
 ---
 title: Hosts — secure, insecure, unprovisioned
 section: Fleet operations
-verified: 2026-07-01
-sources: api/src/routes/admin/hosts/index.ts, api/src/routes/admin/overview/index.ts, api/src/routes/admin/settings/index.ts, api/src/services/host-management.ts, api/src/services/host-auth.ts, api/src/services/insecure-window.ts, api/src/services/insecure-window-admin.ts, api/src/db/schema.ts
+verified: 2026-09-09
+sources: api/src/routes/admin/hosts/index.ts, api/src/routes/admin/overview/index.ts, api/src/routes/admin/settings/index.ts, api/src/services/host-management.ts, api/src/services/host-auth.ts, api/src/services/insecure-window.ts, api/src/services/insecure-window-admin.ts, api/src/services/insecure-fleet-window.ts, api/src/ops/insecure-fleet-window-worker.ts, api/src/security/route-capabilities.ts, api/src/db/schema.ts, frontend/src/routes/hosts/+page.svelte, frontend/src/routes/hosts/[id]/+page.svelte, frontend/src/lib/components/hosts/FilterChips.svelte, frontend/src/lib/components/hosts/InsecureApprovalsDialog.svelte, frontend/src/lib/components/hosts/InsecureApprovalsAutoPopup.svelte, frontend/src/lib/stores/insecure-resolutions.ts, frontend/src/lib/api/hosts.ts
 ---
 
 # Hosts — secure, insecure, unprovisioned
@@ -28,18 +28,18 @@ A debounced search box (searches `fqdn`, Codex/Claude version including override
 
 ## Header buttons
 
-The host list page header contains four action buttons:
+The host list page header carries:
 
-- **Insecure** — opens the insecure approvals panel. An amber badge shows the count of active insecure windows when any are open. The panel also opens automatically when the URL contains `?insecure=1`.
-- **Seed auth** — opens the *Seed Auth* dialog to pre-seed credentials across the fleet. One-time commands are copied automatically when generated.
+- **Insecure access** — shown only while at least one insecure window is open; an amber badge carries the count. It opens the insecure access dialog (see *The insecure approval queue* below), which also opens automatically when the URL contains `?insecure=1` and when a new request arrives over the live feed.
+- **More ▾** — a menu with **Seed canonical auth** (the shared `SeedAuthPanel`; the one-time command is copied automatically when generated) and **Review insecure access** (the same dialog, reachable even when no window is open).
 - **Quick VM** — opens the *Quick VM* dialog for a minimal-input registration. The installer command is copied automatically after provisioning.
-- **New host** — opens the *New Host* slide-in sheet for full registration. The installer command is copied automatically after registration.
+- **New host** — opens the *New Host* slide-in sheet for full registration (also bound to the `n` shortcut). The installer command is copied automatically after registration.
 
-There are no chord keyboard shortcuts for host navigation. Keyboard access is through the Cmd-K command palette and single-key shortcuts (`?`, `/`, Escape) only.
+There are no chord keyboard shortcuts for host navigation. Keyboard access is through the Cmd-K command palette and single-key shortcuts (`?`, `/`, `n`, Escape) only.
 
 ## Registering a host
 
-`POST /admin/hosts/register` creates the host row and returns an install token. It requires `owner` or `admin`, because reusing an FQDN rotates the host key and generation-fences live Agent Messaging work. `POST /admin/hosts/quick-register` is the abbreviated form used by *Quick VM* and remains gated by `app.requireAdmin`.
+`POST /admin/hosts/register` creates the host row and returns an install token. It carries the `hosts.security_transition` capability — owner and admin only — because reusing an FQDN rotates the host key and generation-fences live Agent Messaging work. `POST /admin/hosts/quick-register` is the abbreviated form used by *Quick VM* and needs only `hosts.manage`, which a `fleet_operator` also holds.
 
 Full registration inputs (`POST /admin/hosts/register`):
 
@@ -101,7 +101,7 @@ Displays warnings that require attention:
 
 Read-only fields showing the host's configuration:
 
-Host ID, FQDN, IPv4/IPv6, Codex version (override or reported), Claude version, Wrapper (Codex) version, Wrapper (Claude) version, Model override, Reasoning override, Claude model override, Binary digest, VIP, Auto-update, Insecure state, Roaming, Lane preference, Reverse DNS (inline tri-state segmented control: Inherit / Force on / Force off), Agents doc override.
+Host ID, FQDN, IPv4/IPv6, Codex version (override or reported), Claude version, Wrapper (Codex) version, Wrapper (Claude) version, Model override, Reasoning override, Claude model override, Binary digest, VIP, Auto-update, Insecure state, Roaming, Lane preference, Reverse DNS (inline tri-state segmented control: Inherit / Force on / Force off), Agents doc override. Next to the bound addresses, **Release IP binding** clears both `ip4` and `ip6` (`POST /admin/hosts/{id}/release-ip-binding`) so the next successful auth re-binds; it is a clearing action, not an editable address field.
 
 ### Controls card
 
@@ -116,14 +116,15 @@ Buttons depend on host state:
 - **Mint installer** — generates a new installer via `POST /admin/hosts/{id}/installer`; the current **Curl insecure** toggle value is included so the auto-copied command reflects the visible setting.
 - **Delete host** — removes the host via `DELETE /admin/hosts/{id}`.
 
-All mutations require an authenticated admin session.
+Every mutation names a capability. Deleting a host, toggling its engines, and flipping **Secure** are `hosts.security_transition` (owner/admin); the insecure-window buttons are `hosts.activate_insecure` (owner, admin, fleet operator, trusted user); everything else on this page is `hosts.manage` (owner, admin, fleet operator). Controls a role does not hold are disabled with a tooltip naming the missing capability.
 
 ### Full mutations reference
 
 | Action | Endpoint |
 |--------|----------|
 | Delete host | `DELETE /admin/hosts/{id}` |
-| Clear baked auth | `POST /admin/hosts/{id}/clear` |
+| Clear baked auth (endpoint only; no button on the page) | `POST /admin/hosts/{id}/clear` |
+| Release IP binding | `POST /admin/hosts/{id}/release-ip-binding` |
 | Toggle roaming | `POST /admin/hosts/{id}/roaming` |
 | Mark secure / insecure | `POST /admin/hosts/{id}/secure` |
 | Toggle VIP | `POST /admin/hosts/{id}/vip` |
@@ -143,7 +144,11 @@ All mutations require an authenticated admin session.
 
 ## The insecure approval queue
 
-When an insecure host is outside its grace window and tries to pull auth, `host-auth.ts` withholds the payload and creates a row in `insecure_auth_requests`. The queue is visible in the approvals panel (opened via the **Insecure** button in the host list header).
+When an insecure host is outside its grace window and tries to pull auth, `host-auth.ts` withholds the payload and creates a row in `insecure_auth_requests`. The queue is visible in the **Insecure access** dialog (`InsecureApprovalsDialog`), opened from the host list header, from *More → Review insecure access*, from the Overview alert's **Review** link, or automatically: `InsecureApprovalsAutoPopup` opens it when a new `insecure.requested` event arrives over the admin WebSocket, plays a short synthesized beep (880 Hz, at most once per two seconds; browser autoplay rules still apply), and — if you enabled browser notifications from the banner inside the dialog — fires a desktop notification so a background tab still hears the request. The pending list itself is `GET /admin/insecure-approvals/pending`, polled every 30 seconds and re-fetched on every insecure WebSocket event, so a request still shows up when the original push was missed.
+
+Each pending row shows the FQDN, the requesting IP and request id, and three actions: **Allow domain** (a popover with the duration and a **Never expires** switch), **Approve**, and **Deny**. A pending request that nobody rules on within five minutes is expired server-side (`PENDING_APPROVAL_TTL_MS`, checked on every read of the queue). Resolving a row is visible: an approved, denied, domain-allowed, auto-allowed, or timed-out row fades to a labelled shadow for 1.6 seconds and slides out, whether the resolution came from your click, another operator's tab, a domain sweep, the fleet window, or the timeout. A dialog that opened itself closes again only once the last shadow has cleared and nothing is pending; one you opened stays open.
+
+Below the queue, the dialog lists **Active windows** (per-host **Extend** and **Close**) and **Allowed domains** (each with a countdown or *Never expires*, and **Revoke**), plus the fleet-wide window controls described below.
 
 Review endpoints:
 
@@ -159,7 +164,7 @@ Review endpoints:
 
 ## Pruning stale hosts
 
-`POST /admin/prune-policy` (in the settings routes) sets `inactivity_window_days` (clamped 0–60, default 30; `0` disables it), configurable in *Settings → General*. The routine that would act on it — `HostAuthService.pruneInactiveHosts()` in `host-auth.ts`, which deletes host rows whose `updated_at` is older than the window and publishes `host.pruned` — exists but is not wired to any scheduler or route in this codebase, so the stored policy is not currently enforced automatically.
+`POST /admin/prune-policy` (in the settings routes) sets `inactivity_window_days` (clamped 0–60, default 30; `0` disables it), configurable under *Policies → Host lifecycle*. The routine that would act on it — `HostAuthService.pruneInactiveHosts()` in `host-auth.ts`, which deletes host rows whose `updated_at` is older than the window and publishes `host.pruned` — exists but is not wired to any scheduler or route in this codebase, so the stored policy is not currently enforced automatically.
 
 ## Source references
 
@@ -170,5 +175,9 @@ Review endpoints:
 - `api/src/routes/admin/settings/index.ts` — `POST /admin/prune-policy`
 - `api/src/services/host-auth.ts` — `authenticate`, IP binding, `pruneInactiveHosts`
 - `api/src/services/host-management.ts` — registration, mutations, insecure-window clamps
-- `api/src/services/insecure-window-admin.ts` — approval helpers
+- `api/src/services/insecure-window-admin.ts` — approval helpers, the 480-minute approval grant, the five-minute pending TTL, the domain sweep
+- `api/src/security/route-capabilities.ts` — which capability each host route carries
 - `api/src/db/schema.ts` — `hosts`, `insecure_auth_requests`, `insecure_domain_allows`
+- `frontend/src/routes/hosts/+page.svelte`, `frontend/src/lib/components/hosts/FilterChips.svelte` — list page, header actions, filter chips
+- `frontend/src/routes/hosts/[id]/+page.svelte`, `frontend/src/lib/api/hosts.ts` — detail page controls and their mutations
+- `frontend/src/lib/components/hosts/InsecureApprovalsDialog.svelte`, `frontend/src/lib/components/hosts/InsecureApprovalsAutoPopup.svelte`, `frontend/src/lib/stores/insecure-resolutions.ts` — the insecure access dialog, its auto-open/beep/notification behaviour, and the resolved-row shadows

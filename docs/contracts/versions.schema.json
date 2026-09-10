@@ -25,6 +25,7 @@
         "auto_update_enabled",
         "cdx_silent",
         "clx_silent",
+        "agent_messaging_enabled",
         "installation_id",
         "engine"
       ],
@@ -84,6 +85,9 @@
           "type": "boolean"
         },
         "clx_silent": {
+          "type": "boolean"
+        },
+        "agent_messaging_enabled": {
           "type": "boolean"
         },
         "installation_id": {

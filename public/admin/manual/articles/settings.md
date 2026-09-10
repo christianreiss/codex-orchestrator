@@ -1,13 +1,13 @@
 ---
-title: Settings reference
+title: Engines, Policies, and API Access
 section: Admin workspace
-verified: 2026-07-29
-sources: frontend/src/routes/settings/+page.svelte, frontend/src/routes/authoring/+page.svelte, frontend/src/routes/authoring/settings/+page.ts, frontend/src/lib/components/authoring/MattPocockSkillsSource.svelte, frontend/src/lib/api/skillSources.ts, frontend/src/lib/components/settings/ModelDefaultsSection.svelte, frontend/src/lib/components/settings/ClaudeFleetSettings.svelte, frontend/src/lib/components/command-palette/commands.ts, api/src/routes/admin/settings/index.ts, api/src/routes/admin/config/index.ts, api/src/routes/admin/skill-sources/index.ts, api/src/services/mattpocock-skills.ts, api/src/ops/mattpocock-skills-worker.ts, api/src/services/model-defaults.ts, api/src/services/agents.ts, api/src/services/skills.ts, api/src/services/skill-provenance.ts, api/src/services/mcp-resources.ts, api/src/services/memories.ts, api/src/services/client-config.ts, api/src/services/config-normalizer.ts, api/src/services/client-versions.ts, api/src/services/host-auth.ts, api/src/db/migrations/0007_add_skill_provenance.sql, wrappers/cxx/internal/persona/claude/lifecycle/collections.go
+verified: 2026-09-09
+sources: frontend/src/routes/engines/+page.svelte, frontend/src/routes/policies/+page.svelte, frontend/src/routes/api-keys/+page.svelte, frontend/src/routes/settings/+page.svelte, frontend/src/routes/authoring/+page.svelte, frontend/src/routes/authoring/settings/+page.ts, frontend/src/lib/legacy-admin-routes.ts, frontend/src/lib/components/settings/AuthorizationSection.svelte, frontend/src/lib/components/settings/ApiKeysInChatSection.svelte, frontend/src/lib/components/settings/InsecureApprovalSection.svelte, frontend/src/lib/components/authoring/HooksEditor.svelte, frontend/src/lib/constants/models.ts, frontend/src/lib/components/authoring/MattPocockSkillsSource.svelte, frontend/src/lib/api/skillSources.ts, frontend/src/lib/components/settings/ModelDefaultsSection.svelte, frontend/src/lib/components/settings/ClaudeFleetSettings.svelte, frontend/src/lib/components/command-palette/commands.ts, api/src/routes/admin/settings/index.ts, api/src/routes/admin/config/index.ts, api/src/routes/admin/skill-sources/index.ts, api/src/services/mattpocock-skills.ts, api/src/ops/mattpocock-skills-worker.ts, api/src/services/model-defaults.ts, api/src/services/agents.ts, api/src/services/skills.ts, api/src/services/skill-provenance.ts, api/src/services/mcp-resources.ts, api/src/services/memories.ts, api/src/services/client-config.ts, api/src/services/config-normalizer.ts, api/src/services/client-versions.ts, api/src/services/host-auth.ts, api/src/db/migrations/0007_add_skill_provenance.sql, wrappers/cxx/internal/persona/claude/lifecycle/collections.go
 ---
 
 Configuration is organized under **Engines**, **Policies**, and **API Access**, with separate destinations for users, instructions, skills, memories, and projects. This article describes their controls and the environment variables that require deployment configuration.
 
-All write operations require an authenticated admin session (`app.requireAdmin`). Settings-service mutations publish a `settings.changed` WebSocket event and log an `admin.*` audit row. Saving the Claude fleet editor goes through `ClientConfigService`, publishes the same event for actual config changes, and uses sha256 conflict detection.
+Every write here names a capability: the fleet settings are `settings.manage` (owner, admin, fleet operator), the Claude client editor and the proxy inference defaults are `content.manage` (owner/admin), issuing or revoking API keys is `keys.manage` (owner/admin), and the authorization posture is `security.manage_authorization` (owner/admin). Reads are open to every role. Settings-service mutations publish a `settings.changed` WebSocket event and log an `admin.*` audit row. Saving the Claude fleet editor goes through `ClientConfigService`, publishes the same event for actual config changes, and uses sha256 conflict detection.
 
 ---
 
@@ -18,7 +18,7 @@ Use these canonical destinations from the sidebar or command palette:
 | Destination | URL | Contents |
 |---|---|---|
 | **Engines** | `/engines` | Codex and Claude fleet models, effort, CLI versions, Codex silent mode, quota and scaling, and Claude client settings. |
-| **Policies** | `/policies` | Auto-update, reverse DNS, insecure approvals, host lifecycle, and log retention. |
+| **Policies** | `/policies` | Auto-update, reverse DNS, API keys in chat, access control (authorization mode), insecure approvals, host lifecycle, and log retention. |
 | **API Access** | `/api-keys` | Service availability, engine proxy settings, endpoints, and issued keys. |
 
 The **Engines** page has jump links for **Codex**, **Claude**, **Quota and scaling**, and **Claude client**. These scroll within the page, preserving open forms. **Host overrides** opens Hosts, where individual model and version choices take precedence over fleet defaults.
@@ -41,9 +41,17 @@ Old `/settings` bookmarks redirect to the corresponding destination. `/authoring
 
 `GET /admin/reverse-dns`, `POST /admin/reverse-dns` — boolean flag. Controls global reverse-DNS strictness; individual hosts can override via `POST /admin/hosts/{id}/reverse-dns`.
 
+#### API keys in chat
+
+`GET /admin/api-keys-in-chat`, `POST /admin/api-keys-in-chat` — boolean flag under *Policies → Agent behavior*. A fleet instruction injected into the managed Codex and Claude documents; see [Fleet Instructions](/admin/manual/instructions).
+
+#### Access control
+
+`GET /admin/authorization`, `POST /admin/authorization` — the enforcement posture for roles, `compatible` or `strict`, under *Policies → Access control*. The GET also lists every request the matrix *would* have refused while the fleet ran in `compatible`, so the switch is informed by your own traffic. Both directions need `security.manage_authorization`; see [Roles and capabilities](/admin/manual/roles).
+
 #### Insecure approval
 
-`GET /admin/insecure-approval`, `POST /admin/insecure-approval` — boolean flag. Controls how strictly the insecure activation queue is enforced.
+`GET /admin/insecure-approval`, `POST /admin/insecure-approval` — boolean flag, presented as a **Manual approval** / **Reject all** choice. It is stored in `versions`, echoed as `insecure_approval_enabled` on `GET /admin/overview`, and written to the audit trail; nothing in `api/src/services` reads it back — the approval queue (`GET /admin/insecure-approvals/pending`) is listed and ruled on regardless of its value.
 
 #### Prune policy
 
@@ -92,7 +100,7 @@ Old `/settings` bookmarks redirect to the corresponding destination. `/authoring
 
 #### Quotas
 
-`GET /admin/quota-mode`, `POST /admin/quota-mode` — three fields:
+`GET /admin/quota-mode`, `POST /admin/quota-mode` — three fields. The server accepts `week_partition` only as one of the strings `off`, `5`, `7`; the console's Quotas card sends the number it holds (`0`, `5`, `7`), so saving the **Off** choice is refused with `week_partition must be one of: off, 5, 7` until that mismatch is fixed.
 
 | Field | Type | Description |
 |---|---|---|
@@ -156,12 +164,12 @@ The **Claude client** editor at `/engines#claude-client` builds and publishes th
 
 | Field | Notes |
 |---|---|
-| `advisorModel` | Dropdown; marked experimental. Sets `advisorModel` in the delivered settings.json. |
+| `advisorModel` | Dropdown — Off, Opus, Sonnet, Fable (`ADVISOR_MODELS`; Haiku is not offered because Claude Code's own advisor picker ranks it below every model it could advise); marked experimental. The pair is validated against the binary's rule that the advisor must rank at or above the fleet model. |
 | `env` | Key-value pairs written to the `env` block. |
 | `permissionMode` | Dropdown of `CLAUDE_PERMISSION_MODES`; writes `permissions.defaultMode` in the delivered settings.json. Fleet default is `'auto'` (`DEFAULT_CLAUDE_PERMISSION_MODE`) — every managed host auto-approves tool calls unless pinned to `'default'` or another mode. |
 | `permissions` | Allow, ask, and deny lists. |
-| `statusLine.command` | String; type is fixed to `'command'`. |
-| `hooks` | Event → `[{matcher, commands[]}]` map, edited via `HooksEditor`. |
+| `statusLine.command` | String; type is fixed to `'command'`. The optional siblings Claude Code accepts (`padding`, `refreshInterval`, `hideVimModeIndicator`) survive a save. Any `statusLine` suppresses the fleet's default `cxx claude-quota-statusline`, so a malformed one used to take Claude quota telemetry offline silently; it is validated now. |
+| `hooks` | Event → hook list, edited via `HooksEditor`. Events are `PreToolUse`, `PostToolUse`, `UserPromptSubmit`, `SessionStart`, `SessionEnd`, `Stop`, `Notification`, `SubagentStop`, `PreCompact`, `PostCompact` (`HOOK_EVENTS`). Each entry is serialized in the shape the CLI parses — `{ matcher?, hooks: [{ type: "command", command }] }`; the editor still reads the older `{ matcher, commands[] }` shape back, so a stored document migrates on its next save. |
 
 A live read-only preview of the rendered `settings.json` is shown alongside the editor. Saving this editor re-reads and preserves the canonical fleet `model` / `effortLevel`, so an older open form cannot overwrite a model-default change.
 
@@ -171,15 +179,17 @@ A live read-only preview of the rendered `settings.json` is shown alongside the 
 
 The following areas each have their own sidebar destination.
 
-### /users — User management
+### /users — Admin Users
 
-Full CRUD for admin accounts (`api/src/routes/admin/users/index.ts`):
+Full CRUD for admin accounts (`api/src/routes/admin/users/index.ts`), `users.read` to list and `users.manage` (owner/admin) to change:
 
 - `GET /admin/users` — list all users.
 - `POST /admin/users` — create. Body: `{ username, password, access_level, name, email }`. Minimum password length (12) is enforced by `AdminAuthService.validatePasswordOrThrow`.
 - `POST /admin/users/{id}` — update.
 - `DELETE /admin/users/{id}` — delete (refuses if this would leave zero active `owner`/`admin` accounts).
-- `POST /admin/users/wipe` — delete all users and reopen the first-run flow.
+- `POST /admin/users/wipe` — delete every user except the caller.
+
+See [Roles and capabilities](/admin/manual/roles) for the roles on offer and what each may do.
 
 ### /instructions — Fleet Instructions
 
@@ -187,13 +197,17 @@ Served to hosts via `POST /agents/retrieve`. Endpoints in `api/src/routes/admin/
 
 - `GET /admin/agents` — current active version + version history.
 - `GET /admin/agents/versions/{id}` — body of a specific version.
+- `POST /admin/agents/compose` — compose the builder's modules and custom instructions into a preview.
+- `GET /admin/agents/render`, `POST /admin/agents/render` — the effective per-host document.
 - `POST /admin/agents/store` — save a new version.
 - `POST /admin/agents/serve` — pick which version to serve (latest / pinned / none).
 - `POST /admin/agents/revert` — revert to an earlier version.
 - `POST /admin/agents/retention` — how many old versions to keep.
 - `DELETE /admin/agents/versions/{id}` — delete one version.
+- `GET`/`POST /admin/agents-generation-mode` — the Generated / Manual / Disabled switch (in the settings routes).
+- `GET`/`POST /admin/response-verbosity` and `/admin/agent-policy-profiles*` — the verbosity dial and security posture profiles that live on the same page.
 
-`AgentsService` (`api/src/services/agents.ts`) reconciles serve mode, latest version, and canonical content hash.
+`AgentsService` (`api/src/services/agents.ts`) reconciles serve mode, latest version, and canonical content hash. The page itself is described in [Fleet Instructions](/admin/manual/instructions).
 
 ### /skills — Skills library
 
@@ -263,9 +277,13 @@ those fleet-owned directories at its next bootstrap. The cached server
 rows/files and last-known-good metadata remain for re-enable; unrelated Skills
 are untouched.
 
-### /memories — MCP memories
+### /memories — Memory Atlas
 
-MCP memories stored by hosts. `GET /admin/mcp/memories` lists everything across the fleet; `DELETE /admin/mcp/memories/{id}` drops a row by id. The read/write surface for hosts is the MCP `memory_*` tools (see [mcp](/admin/manual/mcp)).
+Host, project, and shared memory in one workspace over the unified `/admin/memories/*` routes (`api/src/routes/admin/memories/index.ts`); the older `GET /admin/mcp/memories` list and `DELETE /admin/mcp/memories/{id}` remain for compatibility. See [Memories and the Memory Atlas](/admin/manual/memories); the host-side surface is the MCP `memory_*`, `project_memory_*`, and `shared_memory_*` tools (see [mcp](/admin/manual/mcp)).
+
+### /secrets, /git-director, /transfers, /agent-portal, /agent-messaging
+
+Each module has its own destination and its own article: [Secrets](/admin/manual/secrets), [Git Director](/admin/manual/git-director), [File Transfer](/admin/manual/transfers), [Agent Portal and Active Clients](/admin/manual/agent-portal), and [Agent Messaging](/admin/manual/agent-messaging).
 
 ### /projects — Projects module
 
@@ -311,7 +329,11 @@ The following variables are read from the process environment at startup. They c
 ## Source references
 
 - frontend/src/routes/engines/+page.svelte (engine jump links and grouped controls)
-- frontend/src/routes/policies/+page.svelte (fleet operational policies)
+- frontend/src/routes/policies/+page.svelte (fleet operational policies, including Agent behavior and Access control)
+- frontend/src/routes/api-keys/+page.svelte (service availability, proxy toggles, issued keys)
+- frontend/src/lib/components/settings/AuthorizationSection.svelte, frontend/src/lib/components/settings/ApiKeysInChatSection.svelte, frontend/src/lib/components/settings/InsecureApprovalSection.svelte (the Policies cards)
+- frontend/src/lib/components/settings/QuotasSection.svelte (sends a numeric `week_partition` the server refuses for Off)
+- frontend/src/lib/components/authoring/HooksEditor.svelte, frontend/src/lib/constants/models.ts (hook shape, `HOOK_EVENTS`, `ADVISOR_MODELS`)
 - frontend/src/lib/legacy-admin-routes.ts (compatibility redirects)
 
 - `frontend/src/routes/settings/+page.ts` — redirects legacy Settings bookmarks

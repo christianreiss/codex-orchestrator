@@ -1,7 +1,7 @@
 ---
 title: Passkeys and passwords
 section: Admin access and identity
-verified: 2026-07-01
+verified: 2026-09-09
 sources: api/src/services/admin-passkey.ts, api/src/services/admin-auth.ts, api/src/services/admin-password.ts, api/src/services/mailer.ts, api/src/routes/admin/auth/index.ts, api/src/db/schema.ts, api/src/security/password.ts, frontend/src/routes/account/password/+page.svelte, frontend/src/lib/components/users/userSchema.ts
 ---
 
@@ -61,7 +61,7 @@ Password requirements differ between the backend and the two frontend forms that
 
 - The backend (`AdminAuthService.validatePasswordOrThrow`) enforces only a minimum length, `PASSWORD_MIN_LENGTH = 12` — no digit, symbol, or character-class check. This is the only rule applied to `POST /admin/auth/password/change`, `POST /admin/auth/password/reset`, and `POST /admin/users` (create/update).
 - The `/account/password` page's zod schema is stricter: 12+ characters, and must contain a digit, and must contain a symbol (non-alphanumeric character) — both are mandatory, not "at least one of."
-- The `Settings → Users` create/edit form uses a third rule (`passwordCharacterMix` in `frontend/src/lib/components/users/userSchema.ts`): 12+ characters plus at least two of {lowercase, uppercase, digit, symbol} — see [Roles and capabilities](/admin/manual/roles).
+- The **Admin Users** (`/users`) create/edit form uses a third rule (`passwordCharacterMix` in `frontend/src/lib/components/users/userSchema.ts`): 12+ characters plus at least two of {lowercase, uppercase, digit, symbol} — see [Roles and capabilities](/admin/manual/roles).
 
 The `/account/password` page displays a live rule checklist that updates as the user types. Hashes are argon2 (via `api/src/security/password.ts`); legacy bcrypt and phpass hashes verify transparently and are rehashed to argon2 on the next successful login.
 
@@ -83,7 +83,7 @@ Delivering the email needs `SMTP_HOST` set (`api/src/services/mailer.ts`); the o
 
 `POST /admin/auth/password/reset` consumes the reset token. Tokens live in `admin_password_resets`.
 
-If SMTP isn't configured, the recovery path is: another admin opens *Settings → Users*, sets a temporary password, the target admin logs in with it, and then changes it immediately.
+If SMTP isn't configured, the recovery path is: another owner or admin opens *Admin Users* (`/users`), sets a temporary password, the target admin logs in with it, and then changes it immediately.
 
 ## Locked out of every passkey?
 
@@ -103,4 +103,4 @@ WebAuthn credentials carry a monotonically increasing signature counter. `@simpl
 - api/src/routes/admin/auth/index.ts (every /admin/auth/* and /admin/passkeys/* route)
 - api/src/db/schema.ts (admin_passkeys, admin_webauthn_challenges, admin_password_resets)
 - frontend/src/routes/account/password/+page.svelte (self-service password-change zod schema: length + digit + symbol)
-- frontend/src/lib/components/users/userSchema.ts (Settings → Users form password schema: length + 2-of-4 classes)
+- frontend/src/lib/components/users/userSchema.ts (Admin Users form password schema: length + 2-of-4 classes)

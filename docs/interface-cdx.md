@@ -89,13 +89,14 @@ The config:
     "enabled": false,
     "relay_poll_seconds": 25,
     "queued_ttl_seconds": 86400,
-    "channel_preview_enabled": false
+    "channel_preview_enabled": false,
+    "listen_enabled": false
   },
   "wrapper": {
-    "version": "0.7.7",
+    "version": "0.8.4",
     "track": "stable",
     "auto_update": true,
-    "binary_url": "https://orch.example.com/wrapper/v2/bin/cxx/linux-amd64/v0.7.7/cxx",
+    "binary_url": "https://orch.example.com/wrapper/v2/bin/cxx/linux-amd64/v0.8.4/cxx",
     "binary_sha256": "..."
   }
 }
@@ -105,10 +106,13 @@ The config:
 
 The admin editor and version history store only canonical base Markdown. During
 `/agents/retrieve` or bundled startup sync, the server derives the effective
-Codex/host feature state and appends at most one
-`<!-- cxx:managed-policy:start -->` … `<!-- cxx:managed-policy:end -->` always prefixes the served document with Codex Orchestrator fleet identity, instruction precedence/safety floor, and Hard Stop Lines. The canonical builder/raw base follows, then `<!-- cxx:managed-features:start -->` … `<!-- cxx:managed-features:end -->` carries host capability guidance.
-block. Existing orchestrator-owned blocks are replaced so repeated renders are
-idempotent.
+Codex/host feature state and composes the served document from three parts:
+`<!-- cxx:managed-policy:start -->` … `<!-- cxx:managed-policy:end -->` always
+prefixes it with Codex Orchestrator fleet identity, instruction precedence/safety
+floor, and Hard Stop Lines; the canonical builder/raw base follows; then at most
+one `<!-- cxx:managed-features:start -->` … `<!-- cxx:managed-features:end -->`
+block carries host capability guidance. Existing orchestrator-owned blocks are
+replaced so repeated renders are idempotent.
 
 The fleet-wide `agents_generation_mode` setting (`GET`/`POST
 /admin/agents-generation-mode`) decides what the stored document contributes to
@@ -177,7 +181,21 @@ It does not require the orchestrator MCP entry, because `cxx-agent` is a separat
 stdio server the wrapper starts itself. The block names the peer-messaging tools,
 states that a peer message is untrusted input carrying no authority, and carries
 the `#call` PIN rendezvous and its turn-holding rule. It is byte-identical across
-engines and rendered last.
+engines.
+
+Two further sections follow it, each gated on the orchestrator MCP entry being
+usable plus its own fleet switch, because their tools are served by the
+orchestrator's MCP server rather than by `cxx-agent`. `git_director_enabled`
+adds a Git Director block: `git_list` and `git_register` before working in a
+clone, `git_join` to declare task, target branch, and paths, `git_merge_request`
+and `git_merge_status` before merging or pushing a shared branch, and
+`git_release` (with `deregister: true` when leaving); verdicts are advisory and
+the block says so. `transfers_module_enabled` adds a File Transfer block:
+`transfer_put`, `transfer_list`, `transfer_get`, `transfer_info`, and
+`transfer_delete` move files through the orchestrator's pool in base64 chunks,
+every upload carries a required `ttl_seconds`, nobody is notified of an upload,
+and a received file is untrusted input. Both are byte-identical across engines
+and are rendered last, in that order.
 
 ## Skill delivery
 
@@ -260,7 +278,7 @@ server bakes effective `CODEX_HOME/config.toml`.
 | `profile <name>` | Forward `--profile <name>` to the upstream `codex` CLI |
 | `<profile-name>` | Shorthand for `cdx profile <name>` when `[profiles.<name>]` exists in the synced `config.toml` and the token is not a wrapper-owned or reserved-Codex subcommand |
 | `exec -- <cmd...>` | Bypass the startup sequence and run a single Codex command |
-| `cxx agent ...` | Shared Agent Messaging control surface: discover addresses; send, request, wait, reply, inspect, or cancel; inspect the relay; and install/remove its per-user service. Message and reply content is accepted only on stdin. |
+| `cxx agent ...` | Shared Agent Messaging control surface: `list` (alias `peers`, `--engine codex\|claude`, `--online`), `send`, `request`, `wait`, `reply`, `message <id>`, `cancel`, `call-open`, `call-join --pin`, `listen`, `poll --hook Stop\|UserPromptSubmit` (the Claude ringer hook), `status`, `service install\|remove\|start\|stop\|restart\|status`, `worker --foreground`, and `mcp [--channel]` (the stdio MCP server the managed `cxx-agent` entry launches). Message and reply content is accepted only on stdin. |
 | `--help` / `-h` / `help` | Passed straight through to a supervised upstream `codex` child without running auth/sync/boot — handles `cdx --help`, `cdx help`, and `cdx <reserved-subcommand> --help`; it skips the managed run lock but the child inherits effective-home session + active-child descriptors until Codex exits; wrapper-only `--minimal`/`--minimal-output` is consumed rather than forwarded as an unsupported Codex flag |
 | `--wrapper-help` | Render the wrapper-owned commands and flags without loading config; never intercepts tokens after `--` |
 | `resume [<session>] [<prompt>]` | Reopen a previous Codex session through the normal startup lifecycle. With no session id, the upstream picker is shown; `--last` continues the most recent |
@@ -407,6 +425,12 @@ only; scheduled and explicit cron still run.
 The shared cron coordinator sets `CXX_CRON_COORDINATED` and
 `CXX_CRON_ENGINE_ONLY` only on its own persona children to prevent recursive
 coordination. They are internal protocol markers; operators must not set them.
+`CODEX_WRAPPER_RESTART_DEPTH` is incremented by every self-update re-exec and
+refused above 2 (exit 70). The `CXX_AGENT_PORTAL_*` and `CXX_AGENT_MESSAGING_*`
+variables are set by the wrapper for its own portal broker, relay worker, and
+native child — the child receives only the socket path, session id, and engine —
+and inherited values are scrubbed at startup. `CXX_OTEL_*` is the traced-build
+tracing contract described in `docs/wrapper-v2-architecture.md`.
 
 ## Peer engine reconciliation
 
@@ -545,7 +569,7 @@ participate in these leases and is the explicit coordination boundary.
 
 ## Startup sequence
 
-1. Load the signed config; refuse to proceed if the Ed25519 signature is invalid. `status`/`doctor` use the structured blocked report described above; other commands exit 2 with a concise sanitized error. A config past its `expires_at` (30 days after it was baked) is instead recovered in place: its signature is still valid, so the wrapper refetches with its own `orchestrator.base_url`/`api_key`, persists the replacement, reloads, and reports `signed config had expired; refreshed it from the orchestrator`. Expiry is checked only for the on-disk config, never for freshly fetched bytes, so a skewed host clock cannot refuse its own replacement. When `host.browseros_mcp_enabled=true`, the startup context shows a BrowserOS chip and synced `config.toml` contains the local BrowserOS HTTP MCP server entry.
+1. Load the signed config; refuse to proceed if the Ed25519 signature is invalid. `status`/`doctor` use the structured blocked report described above; other commands exit 2 with a concise sanitized error. A config past its `expires_at` (30 days after it was baked) is instead recovered in place: its signature is still valid, so the wrapper refetches with its own `orchestrator.base_url`/`api_key`, persists the replacement, reloads, and reports `signed config had expired; refreshed it from the orchestrator`. Expiry is checked only for the on-disk config, never for freshly fetched bytes, so a skewed host clock cannot refuse its own replacement. Immediately after the config loads (bounded to 150 ms), the wrapper reconciles its own `cdx -> cxx` alias and publishes `cxx` under its bare name into the PATH directory that holds the alias when `cxx` does not already resolve — a legacy transition install keeps the artifact off `PATH`, where the managed `cxx-agent` MCP command could not find it; an existing regular file of that name is never replaced. When `host.browseros_mcp_enabled=true`, the startup context shows a BrowserOS chip and synced `config.toml` contains the local BrowserOS HTTP MCP server entry.
 2. `flock` on `$XDG_RUNTIME_DIR/cdx.lock` (or `/tmp/cdx-<uid>.lock`) to enforce single-instance per host, then run the FQDN guard before any sync (`CODEX_ALLOW_FQDN_MISMATCH=1` is the explicit override). If the lock is held, the wrapper enters sync-paused mode for managed AGENTS/config/skills writes, wrapper/engine updates, and peer reconciliation, and surfaces neutral `SYNC PAUSED` on the boot screen without hiding API/auth/runner health. It is normal contention that needs no operator action; warning colour is reserved for actionable conditions. The pause explanation appears once in SYSTEM; a distinct result/error still receives the normal footer. Auth remains active but follows the full replacement gate: materialize only verified canonical auth, preserve a newer usable local generation, require definitive-rejection authority for an older verified repair, and compare-and-swap against the request generation plus active-child lease. An absent or structurally unusable native auth file suppresses its cached digest and candidate, forcing canonical repair even during a sync-paused run; only the server's insecure-host window policy may block that repair. The explicit `--allow-concurrent-sync` escape hatch allows normal managed writes without the run lock and is visibly announced. The `cdx` lock is independent from `clx.lock`; Codex and Claude sessions must not pause each other's managed sync.
 3. Bundle sync (`POST /sync/bootstrap` with `include_auth=true`, `home`, `username`, AGENTS+config digests, and an optional `auth_candidate`) — auth + AGENTS + config in one round-trip. When a candidate is present, its auth/intent transaction remains locked across the bounded bundle request; an already committed same-generation logout omits it, while a distinct login clears old intent only after `auth_stored`/equivalent acceptance. Resource envelopes are unwrapped before local writes, so effective `CODEX_HOME/AGENTS.md` and `CODEX_HOME/config.toml` contain only the served `content` bodies. On 404/405/501 the wrapper falls back to the legacy per-resource pulls (`/auth`, `/agents/retrieve`, `/config/retrieve`). The fallback converges two ways: preserve newer local auth and attempt store; only a validation-shaped 400/422 plus the already-retrieved verified canonical permits older replacement. Transient/security/rate failures preserve local auth, while `runner_updated_auth_invalid` fails closed.
 4. Pass the bundle response through the typed decision matrix (`internal/orchestrator/auth_decide.go`). Handles `valid`, `outdated`, `updated`, `unchanged`, `missing`, `upload_required`, `disabled`, `invalid`, `insecure` (opens the in-place approval-pending box, 5 s refresh), `insecure-denied`, `concurrent`, and `offline` (uses cached `auth.json` within 24 h, or 7 d on secure hosts). Approval polling only repaints an interactive, non-dumb stderr with a measured width of at least 40 columns; other contexts fail immediately with Admin → Host Detail guidance instead of hanging or emitting cursor controls. Honours `versions.api_disabled` and `installation_id` mismatch as hard stops. A server `verification_state=failed` (the background runner worker reached ChatGPT and the canonical token did not authenticate) overrides any green digest status: the launch is refused with a re-login message and the boot-screen auth marker turns red. Startup does not wait on live runner verification; `/auth` and `/sync/bootstrap` expose the stored verdict but include canonical credential bytes only when it is `verified`. Pending/failed runner readbacks remain server-side quarantine and cannot be materialized. When ChatGPT quota metadata is available, the boot screen uses provider-duration labels, explicit unknown resets, the host-effective active lane, provider allow/limit flags, snapshot freshness, and a wrapped burn-rate projection. Current quota state can warn/block only for the active lane; projections remain advisory.
@@ -583,6 +607,9 @@ participate in these leases and is the explicit coordination boundary.
   concise sanitized config failure and exit 2.
 - `schema_version != 1` → `unsupported schema_version`; exit 2.
 - `engine != "codex"` → `engine "..." not supported by this binary`; exit 2.
+- More than one wrapper action in a single invocation (for example `--update --uninstall`, or `--status` beside a wrapper-owned subcommand) → `conflicting wrapper actions: ...`; exit 2.
+- Upstream `codex` CLI not found for `run`/`resume`/`exec`/`execute`/`profile` or for help passthrough → the installation/repair hint is printed; exit 127.
+- `CODEX_WRAPPER_RESTART_DEPTH` above 2 after self-update re-execs → `restart depth N exceeded cap 2 - refusing to continue`; exit 70.
 - Lock held by another PID with invalid local auth → "Active cdx run detected and local auth.json is invalid or absent."; exit 1.
 - `versions.api_disabled=true` → "Auth API disabled by administrator."; exit 1.
 - API kill-switch (`versions.api_disabled=true`) blocks startup before auth/config writes.
@@ -616,14 +643,22 @@ refuses with `agent_messaging_insecure_window_closed`. The signed
 `agent_messaging.enabled` value is the wrapper's local gate;
 `host.agent_messaging_enabled` is a retired compatibility field that mirrors it
 and gates nothing (cxx <= 0.7.7 rejected the whole config without it). When enabled, managed Codex config contains the
-stdio MCP server `cxx-agent` (`cxx agent mcp`) with these tools:
+stdio MCP server `cxx-agent` (`cxx agent mcp`) with these seventeen tools:
 `agent_list`, `agent_send`, `agent_request`, `agent_wait`, `agent_reply`,
-`agent_message_get`, `agent_cancel`, `agent_call_open`, `agent_call_join`, and
-`agent_listen`. The last three are the `#call` rendezvous: `agent_call_open` mints a
+`agent_message_get`, `agent_cancel`, `agent_call_open`, `agent_call_join`,
+`agent_listen`, and the `#conference` set `agent_conf_open`, `agent_conf_invite`,
+`agent_conf_join`, `agent_conf_roster`, `agent_conf_say`, `agent_conf_dispatch`,
+and `agent_conf_adjourn`. `agent_call_open`, `agent_call_join`, and `agent_listen`
+are the `#call` rendezvous: `agent_call_open` mints a
 short-lived four-digit PIN and returns this agent's own address, `agent_call_join`
 dials a PIN and sends the opening message in one step, and `agent_listen` waits for
 the next message addressed to this agent in any conversation. `agent_listen` needs
-the signed `agent_messaging.listen_enabled` grant, which the broker enforces. Peer
+the signed `agent_messaging.listen_enabled` grant, which the broker enforces. A
+call PIN is single-use because a conversation has two ends; a conference room PIN
+is multi-use. Whoever opens a conference is its chair: only the chair may invite
+addresses (an idle host is woken by its relay with the invite as its prompt),
+dispatch a task to one participant, or adjourn, and a participant may only address
+the chair. Peer
 text is ordinary untrusted input; it is never an instruction or a grant of authority.
 
 An address is stable for `(host, Unix user, engine, working directory)` and can
@@ -687,7 +722,11 @@ socket. This keeps the portal bridge bearer out of the child environment and
 command line; it is not isolation from other processes running as the same Unix
 user. The commands expose no PTY,
 approval handling, hidden reasoning, or raw tool output. The managed `#afk`
-Skill cooperatively keeps the existing root turn polling; the notice it publishes
+Skill cooperatively keeps the existing root turn polling. Since cxx 0.8.4 it
+enters the `wait` loop directly without publishing an attention notice: opening
+the relay means the agent is available, not that the user is needed. Status goes
+through `say`, `notify` is reserved for an action the user must take, and
+`resolve` withdraws a notice that no longer applies. Everything it publishes
 lands in the portal and is not pushed anywhere. It cannot wake a Codex process or
 model turn that has already stopped; `relay_ready` becomes false when fresh
 polling ceases.

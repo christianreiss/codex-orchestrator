@@ -9,7 +9,9 @@ Layout:
 
 - `cxx/` — the single Go module and multicall command.
 - `cxx/internal/app/{codex,claude}` — compatibility CLI personas.
-- `cxx/internal/{config,cron,ipc,ipv4,layout,log,signing,uninstall,update}` — shared host primitives.
+- `cxx/internal/{config,fleetconfig,cron,maintenance,ipc,ipv4,layout,log,signing,uninstall,update}` — shared host primitives (signed config load/recovery, the shared cron coordinator, the background maintenance lease).
+- `cxx/internal/{agentbus,agentportal,authnotice,claudequota}` — the `cxx agent` bus (relay worker + `cxx-agent` stdio MCP server), the `cxx portal` relay broker, credential-change notices, and the `cxx claude-quota-statusline` command.
+- `cxx/internal/observability/tracing` — opt-in OpenTelemetry behind the `cxx_otel` build tag.
 - `cxx/internal/persona/{codex,claude}` — intentionally different engine lifecycle behavior.
 - `cxx/internal/terminalui` — shared terminal layout, semantic states, width handling,
   and sanitization; persona UI adapters supply engine identity and supported data.
@@ -17,6 +19,22 @@ Layout:
 - `testdata/` — golden baked configs and their detached signatures, asserted
   byte-for-byte by the TypeScript baker test and loaded for real by
   `cxx/internal/config`. See `testdata/README.md`.
+
+Host-wide commands of the one binary (the `cdx`/`clx` aliases select an engine
+automatically; `cxx codex ...` / `cxx claude ...` do so explicitly):
+
+```
+cxx --version                 # wrapper version, commit, signing-key status
+cxx sync                      # write fleet-managed content for every installed engine
+cxx update                    # verify + install the wrapper target, then re-exec into `cxx sync`
+cxx cron [install|remove|run [--due]]   # the shared 15-minute maintenance schedule / tick
+cxx portal [status|notify|resolve|say|ask|wait|accept|leave]   # agent portal relay (#afk)
+cxx agent [list|send|request|wait|reply|message|cancel|call-open|call-join|listen|poll|status|service|worker|mcp]
+cxx claude-quota-statusline   # Claude Code statusLine command that relays quota readings
+```
+
+The release version is `VERSION` in this Makefile (currently 0.8.4) and is
+stamped into the binary with `-ldflags -X main.Version=...`.
 
 Build:
 

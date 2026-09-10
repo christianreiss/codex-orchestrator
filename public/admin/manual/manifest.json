@@ -1,125 +1,295 @@
 {
-  "version": "2026-04-19",
+  "version": "2026-09-09",
   "articles": [
     {
       "slug": "welcome",
       "title": "Welcome to Orchestrator",
       "section": "Orientation",
-      "summary": "What Orchestrator is, who operates it, and how to move around the admin UI.",
-      "tags": ["overview", "getting-started"],
-      "verified": "2026-04-19"
+      "summary": "What Orchestrator is, who operates it, and how the console is laid out.",
+      "tags": [
+        "overview",
+        "getting-started"
+      ],
+      "verified": "2026-09-09"
     },
     {
       "slug": "architecture",
       "title": "Architecture at a glance",
       "section": "Orientation",
       "summary": "Request flow, controllers, services, repositories, the runner sidecar, and the admin-ws event stream.",
-      "tags": ["architecture", "internals"],
-      "verified": "2026-04-19"
+      "tags": [
+        "architecture",
+        "internals"
+      ],
+      "verified": "2026-09-09"
     },
     {
       "slug": "install",
       "title": "Installing and bootstrapping",
       "section": "Orientation",
       "summary": "First boot, environment variables, install tokens, seed auth, and baking per-host wrappers.",
-      "tags": ["install", "setup"],
-      "verified": "2026-04-19"
+      "tags": [
+        "install",
+        "setup"
+      ],
+      "verified": "2026-09-09"
     },
     {
       "slug": "admin-login",
       "title": "Admin login and access",
       "section": "Admin access and identity",
       "summary": "The session cookie, access modes, the login / logout flow, and what happened to client certificates.",
-      "tags": ["auth", "login", "session"],
-      "verified": "2026-04-19"
+      "tags": [
+        "auth",
+        "login",
+        "session"
+      ],
+      "verified": "2026-09-09"
     },
     {
       "slug": "passkeys",
       "title": "Passkeys and passwords",
       "section": "Admin access and identity",
       "summary": "WebAuthn registration and login, passkey management, and password behaviour.",
-      "tags": ["auth", "webauthn", "passkeys"],
-      "verified": "2026-04-19"
+      "tags": [
+        "auth",
+        "webauthn",
+        "passkeys"
+      ],
+      "verified": "2026-09-09"
     },
     {
       "slug": "roles",
       "title": "Roles and capabilities",
       "section": "Admin access and identity",
-      "summary": "What admin, fleet_operator, trusted_user, and user can each do across the admin surface.",
-      "tags": ["auth", "rbac"],
-      "verified": "2026-04-19"
+      "summary": "The default-deny capability layer: what owner, admin, fleet_operator, trusted_user, viewer, and user may each do, and the compatible/strict enforcement modes.",
+      "tags": [
+        "auth",
+        "rbac"
+      ],
+      "verified": "2026-09-09"
     },
     {
       "slug": "hosts",
-      "title": "Hosts: secure, insecure, unprovisioned",
+      "title": "Hosts — secure, insecure, unprovisioned",
       "section": "Fleet operations",
-      "summary": "Fleet tabs, host detail page, registration, pruning, and the active-window review queue.",
-      "tags": ["hosts", "fleet"],
-      "verified": "2026-04-19"
+      "summary": "Filter chips, host detail page, registration, pruning, and the insecure access dialog with its approval queue, domain allows, and fleet window.",
+      "tags": [
+        "hosts",
+        "fleet"
+      ],
+      "verified": "2026-09-09"
     },
     {
       "slug": "auth-pipeline",
       "title": "The auth distribution pipeline",
       "section": "Fleet operations",
       "summary": "How auth.json reaches a host: encryption, IP binding, reverse DNS, runner verification, and insecure windows.",
-      "tags": ["auth", "secrets", "pipeline"],
-      "verified": "2026-04-19"
+      "tags": [
+        "auth",
+        "secrets",
+        "pipeline"
+      ],
+      "verified": "2026-09-09"
     },
     {
       "slug": "wrappers",
-      "title": "The cdx and clx wrappers",
+      "title": "The shared cxx wrapper",
       "section": "Fleet operations",
       "summary": "Per-host baked wrappers, the /wrapper contract, startup sync, auto-update, and boot summaries.",
-      "tags": ["runner", "wrappers", "cdx", "clx"],
-      "verified": "2026-04-19"
+      "tags": [
+        "runner",
+        "wrappers",
+        "cdx",
+        "clx"
+      ],
+      "verified": "2026-09-09"
+    },
+    {
+      "slug": "clx",
+      "title": "clx — the Claude Code wrapper",
+      "section": "Fleet operations",
+      "summary": "The Claude persona of cxx: config schema, subcommands and flags, startup sequence, auth model, cron, settings deep-merge, and Claude-native collections.",
+      "tags": [
+        "runner",
+        "wrappers",
+        "clx",
+        "claude"
+      ],
+      "verified": "2026-09-09"
     },
     {
       "slug": "dashboard",
-      "title": "Dashboard metrics",
+      "title": "Dashboard",
       "section": "Admin workspace",
-      "summary": "KPIs, ChatGPT quota lanes, Claude usage, usage history, and how the charts are fed.",
-      "tags": ["dashboard", "usage", "usage"],
-      "verified": "2026-04-19"
+      "summary": "Reported engine coverage, Codex and Claude usage, runner verification, and refresh recovery.",
+      "tags": [
+        "dashboard",
+        "usage",
+        "usage"
+      ],
+      "verified": "2026-09-09"
+    },
+    {
+      "slug": "agent-portal",
+      "title": "Agent Portal and Active Clients",
+      "section": "Admin workspace",
+      "summary": "The portal master switch and permanent links, the Active Clients directory, presence states, the Needs-you banner, and instructing or closing a running agent.",
+      "tags": [
+        "portal",
+        "clients",
+        "sessions",
+        "afk"
+      ],
+      "verified": "2026-09-09"
     },
     {
       "slug": "settings",
-      "title": "Settings reference",
+      "title": "Engines, Policies, and API Access",
       "section": "Admin workspace",
-      "summary": "Every tab under Settings — what each one changes and which services it touches.",
-      "tags": ["settings", "reference"],
-      "verified": "2026-04-19"
+      "summary": "Every fleet configuration control under Engines, Policies, and API Access — what each one changes and which endpoint it touches.",
+      "tags": [
+        "settings",
+        "engines",
+        "policies",
+        "reference"
+      ],
+      "verified": "2026-09-09"
+    },
+    {
+      "slug": "instructions",
+      "title": "Fleet Instructions",
+      "section": "Admin workspace",
+      "summary": "The generated AGENTS.md / CLAUDE.md: generation switch, policy modules, versions, security posture profiles, and the response-verbosity dial.",
+      "tags": [
+        "agents.md",
+        "claude.md",
+        "policy",
+        "instructions"
+      ],
+      "verified": "2026-09-09"
     },
     {
       "slug": "projects",
       "title": "Projects workspace",
       "section": "Admin workspace",
       "summary": "Shared coordination surface: notes, todos, files, feedback, the coco skill, and MCP resources.",
-      "tags": ["projects", "mcp"],
-      "verified": "2026-04-19"
+      "tags": [
+        "projects",
+        "mcp"
+      ],
+      "verified": "2026-09-09"
+    },
+    {
+      "slug": "git-director",
+      "title": "Git Director",
+      "section": "Admin workspace",
+      "summary": "Clone and worktree registry, merge leases and verdicts, the judge, and the operator overrides.",
+      "tags": [
+        "git",
+        "merge",
+        "worktree",
+        "coordination"
+      ],
+      "verified": "2026-09-09"
+    },
+    {
+      "slug": "transfers",
+      "title": "File Transfer",
+      "section": "Admin workspace",
+      "summary": "The expiring file pool agents hand each other: module switch, limits, held files, downloads, and the audit trail.",
+      "tags": [
+        "transfers",
+        "files",
+        "mcp"
+      ],
+      "verified": "2026-09-09"
+    },
+    {
+      "slug": "memories",
+      "title": "Memories and the Memory Atlas",
+      "section": "Admin workspace",
+      "summary": "Host, project, and shared memory in one graph or list, the inspector, and the ETag-guarded create, edit, append, and delete flows.",
+      "tags": [
+        "memory",
+        "atlas",
+        "mcp"
+      ],
+      "verified": "2026-09-09"
+    },
+    {
+      "slug": "secrets",
+      "title": "Secrets",
+      "section": "Admin workspace",
+      "summary": "The fleet credential store: module switch, metadata table, audited reveal, host ownership, and the secret_* MCP tools.",
+      "tags": [
+        "secrets",
+        "credentials",
+        "mcp"
+      ],
+      "verified": "2026-09-09"
+    },
+    {
+      "slug": "claude-artifacts",
+      "title": "Subagents, Commands, and Output Styles",
+      "section": "Admin workspace",
+      "summary": "Claude-native collections: editing each kind, its frontmatter, and how clx writes and prunes them on hosts.",
+      "tags": [
+        "claude",
+        "subagents",
+        "commands",
+        "output-styles"
+      ],
+      "verified": "2026-09-09"
+    },
+    {
+      "slug": "agent-messaging",
+      "title": "Agent Messaging operations",
+      "section": "Fleet operations",
+      "summary": "How Codex and Claude agents address each other, how ordered delivery behaves, and how operators control and audit the bus.",
+      "tags": [
+        "agents",
+        "messaging",
+        "codex",
+        "claude",
+        "operations"
+      ],
+      "verified": "2026-09-09"
     },
     {
       "slug": "logs",
-      "title": "Logs: API, MCP, and Events",
+      "title": "Logs — MCP and Events",
       "section": "Admin workspace",
       "summary": "Where each log stream originates, retention, filtering, and the admin-ws live feed.",
-      "tags": ["logs", "observability"],
-      "verified": "2026-04-19"
+      "tags": [
+        "logs",
+        "observability"
+      ],
+      "verified": "2026-09-09"
     },
     {
       "slug": "mcp",
       "title": "MCP server and tools",
       "section": "Integrations and reference",
       "summary": "Host-authenticated MCP, the tools and resources exposed, and how agents call them.",
-      "tags": ["mcp", "agents", "tools"],
-      "verified": "2026-04-19"
+      "tags": [
+        "mcp",
+        "agents",
+        "tools"
+      ],
+      "verified": "2026-09-09"
     },
     {
       "slug": "shortcuts-api",
       "title": "Keyboard shortcuts and API reference",
       "section": "Integrations and reference",
       "summary": "Complete keyboard-shortcut map and a full index of admin HTTP routes with their controllers.",
-      "tags": ["reference", "shortcuts", "api"],
-      "verified": "2026-04-19"
+      "tags": [
+        "reference",
+        "shortcuts",
+        "api"
+      ],
+      "verified": "2026-09-09"
     }
   ]
 }
