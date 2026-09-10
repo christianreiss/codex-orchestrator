@@ -241,7 +241,8 @@ export async function registerAuthRoutes(app: FastifyInstance, ctx: RouteContext
     const payload = readPayload(req.body);
     const engine = resolveAuthRequestEngine(req, payload);
     assertHostEngineEnabled(host, engine);
-    const enforced = await maybeEnforceInsecure(insecure, host, 'retrieve');
+    const includeAuth = normalizeBoolean(payload.include_auth) !== false;
+    const enforced = await maybeEnforceInsecure(insecure, host, includeAuth ? 'retrieve' : null);
     const projectedVersions = requestVersions(req, enforced);
 
     const userInput = extractHostUserInput(payload);
@@ -249,7 +250,6 @@ export async function registerAuthRoutes(app: FastifyInstance, ctx: RouteContext
     const out = await syncService.collect({ host: enforced, engine, bootstrap: false, users });
     out.versions = await projectedVersions(engine, payload.wrapper_version);
 
-    const includeAuth = normalizeBoolean(payload.include_auth) !== false;
     if (includeAuth) {
       const authResult = await handleRetrieve(
         app,
@@ -306,7 +306,8 @@ export async function registerAuthRoutes(app: FastifyInstance, ctx: RouteContext
     const payload = readPayload(req.body);
     const engine = resolveAuthRequestEngine(req, payload);
     assertHostEngineEnabled(host, engine);
-    const enforced = await maybeEnforceInsecure(insecure, host, 'retrieve');
+    const includeAuth = normalizeBoolean(payload.include_auth) !== false;
+    const enforced = await maybeEnforceInsecure(insecure, host, includeAuth ? 'retrieve' : null);
     const projectedVersions = requestVersions(req, enforced);
 
     const userInput = extractHostUserInput(payload);
@@ -314,7 +315,6 @@ export async function registerAuthRoutes(app: FastifyInstance, ctx: RouteContext
     const out = await syncService.collect({ host: enforced, engine, bootstrap: true, users });
     out.versions = await projectedVersions(engine, payload.wrapper_version);
 
-    const includeAuth = normalizeBoolean(payload.include_auth) !== false;
     if (includeAuth) {
       const authResult = await handleBootstrapAuth(
         app,
@@ -1006,12 +1006,25 @@ async function assertApiNotDisabled(
   }
 }
 
+/**
+ * The insecure window gates credential distribution, not fleet-managed content.
+ * A `null` command says this request asked for no credentials at all — the
+ * unattended cron tick's content-only bundle — and such a request is admitted
+ * without opening an approval, exactly like `command=store` and like every
+ * other content route (`/cron/check`, `/wrapper/v2/config`, `/skills`), which
+ * have never been gated. Gating it instead produced an approval request per
+ * host per tick on a fleet nobody was sitting at, and on Claude hosts the
+ * resulting refusal stripped the very managed content the tick had come to
+ * converge. It also means content-only traffic no longer slides the window:
+ * a poller cannot hold its own access open.
+ */
 async function maybeEnforceInsecure(
   insecure: ReturnType<typeof createInsecureWindowService>,
   host: Host,
-  command: string,
+  command: string | null,
 ): Promise<Host> {
-  return host.secure === 1 ? host : insecure.enforce(host, command);
+  if (command === null || host.secure === 1) return host;
+  return insecure.enforce(host, command);
 }
 
 function buildHostPayload(host: Host): Record<string, unknown> {

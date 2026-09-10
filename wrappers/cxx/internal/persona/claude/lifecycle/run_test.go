@@ -109,7 +109,7 @@ func TestBootstrapRoutesClaudeSkillFailureAwayFromConfigStatus(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, bootstrapErr, _, _, configSync, nativeSkillsSync, _ := bootstrap(
-		context.Background(), client, logger, false, "",
+		context.Background(), client, logger, false, "", true,
 	)
 	if bootstrapErr != nil {
 		t.Fatalf("bootstrap returned transport error: %v", bootstrapErr)
@@ -145,7 +145,7 @@ func TestBundleUnsafeRunnerWritebackFailsClosedWithLocalAuth(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			resp, authErr, _, _, _, _, _ := bootstrap(context.Background(), client, logger, concurrent, authPath)
+			resp, authErr, _, _, _, _, _ := bootstrap(context.Background(), client, logger, concurrent, authPath, true)
 			if !orchestrator.IsUnsafeRunnerUpdatedAuthError(authErr) {
 				t.Fatalf("bootstrap error = %v", authErr)
 			}
@@ -200,7 +200,7 @@ func TestBootstrapUsesSharedServerAuthReplacementGate(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			_, bootstrapErr, synced, _, _, _, _ := bootstrap(context.Background(), client, logger, false, authPath)
+			_, bootstrapErr, synced, _, _, _, _ := bootstrap(context.Background(), client, logger, false, authPath, true)
 			if bootstrapErr != nil {
 				t.Fatal(bootstrapErr)
 			}
@@ -235,7 +235,7 @@ func TestBootstrapRepairsStructurallyInvalidNativeJSON(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, bootstrapErr, synced, _, _, _, _ := bootstrap(context.Background(), client, logger, false, authPath)
+	_, bootstrapErr, synced, _, _, _, _ := bootstrap(context.Background(), client, logger, false, authPath, true)
 	if bootstrapErr != nil || !synced {
 		t.Fatalf("invalid native repair synced=%v err=%v", synced, bootstrapErr)
 	}
@@ -296,7 +296,7 @@ func TestBootstrapConcurrentRepairsUnusableAuthDespiteMatchingGenerationDigest(t
 	if err != nil {
 		t.Fatal(err)
 	}
-	resp, bootstrapErr, synced, _, _, _, _ := bootstrap(context.Background(), client, logger, true, authPath)
+	resp, bootstrapErr, synced, _, _, _, _ := bootstrap(context.Background(), client, logger, true, authPath, true)
 	if bootstrapErr != nil || !synced || resp == nil {
 		t.Fatalf("concurrent unusable auth repair = resp=%+v synced=%v err=%v", resp, synced, bootstrapErr)
 	}
@@ -368,7 +368,7 @@ while [ ! -e "$CLX_TEST_RELEASE" ]; do sleep 0.01; done
 				t.Fatal(err)
 			}
 			if mode == "bundle" {
-				_, err, _, _, _, _, _ = bootstrap(context.Background(), client, logger, false, filepath.Join(home, ".claude", ".credentials.json"))
+				_, err, _, _, _, _, _ = bootstrap(context.Background(), client, logger, false, filepath.Join(home, ".claude", ".credentials.json"), true)
 			} else {
 				_, err, _ = syncAuthLegacy(context.Background(), client, logger, false)
 			}
@@ -444,7 +444,7 @@ while [ ! -e "$CLX_TEST_RELEASE" ]; do sleep 0.01; done
 				t.Fatal(err)
 			}
 			if mode == "bundle" {
-				_, err, _, _, _, _, _ = bootstrap(context.Background(), client, logger, false, authPath)
+				_, err, _, _, _, _, _ = bootstrap(context.Background(), client, logger, false, authPath, true)
 			} else {
 				_, err, _ = syncAuthLegacy(context.Background(), client, logger, false)
 			}
@@ -699,7 +699,7 @@ func TestFailedServerHeadWithExplicitlyDistinctLocalCandidateDefersWithoutLogin(
 	if err != nil {
 		t.Fatal(err)
 	}
-	resp, bootstrapErr, _, _, _, _, _ := bootstrap(context.Background(), client, logger, true, authPath)
+	resp, bootstrapErr, _, _, _, _, _ := bootstrap(context.Background(), client, logger, true, authPath, true)
 	if bootstrapErr != nil {
 		t.Fatal(bootstrapErr)
 	}
@@ -870,7 +870,7 @@ func TestBundleRejectionIsBoundToSubmittedCredentialGeneration(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			resp, bootstrapErr, _, _, _, _, _ := bootstrap(context.Background(), client, logger, true, authPath)
+			resp, bootstrapErr, _, _, _, _, _ := bootstrap(context.Background(), client, logger, true, authPath, true)
 			if bootstrapErr != nil {
 				t.Fatal(bootstrapErr)
 			}
@@ -1410,7 +1410,7 @@ func TestPostRunNativeSlashLoginClockRollbackConvergesBeforeImmediateNextRun(t *
 	if raw, err := os.ReadFile(authPath); err != nil || string(raw) != string(y) {
 		t.Fatalf("normal close did not retain Y: %q err=%v", raw, err)
 	}
-	resp, bootstrapErr, _, _, _, _, _ := bootstrap(context.Background(), client, logger, false, authPath)
+	resp, bootstrapErr, _, _, _, _, _ := bootstrap(context.Background(), client, logger, false, authPath, true)
 	if bootstrapErr != nil || resp == nil || resp.Status != "valid" {
 		t.Fatalf("immediate next clx bootstrap = resp=%+v err=%v", resp, bootstrapErr)
 	}
@@ -1640,7 +1640,7 @@ func TestBundleCandidateSerializesOverlappingExplicitLogout(t *testing.T) {
 	}
 	bootstrapDone := make(chan error, 1)
 	go func() {
-		_, bootstrapErr, _, _, _, _, _ := bootstrap(context.Background(), client, logger, false, authPath)
+		_, bootstrapErr, _, _, _, _, _ := bootstrap(context.Background(), client, logger, false, authPath, true)
 		bootstrapDone <- bootstrapErr
 	}()
 	<-requestSeen
@@ -1709,7 +1709,7 @@ func TestBundleClearsOldLogoutMarkerOnlyAfterDifferentLoginIsAccepted(t *testing
 			if err != nil {
 				t.Fatal(err)
 			}
-			_, bootstrapErr, _, _, _, _, _ := bootstrap(context.Background(), client, logger, false, old.Path)
+			_, bootstrapErr, _, _, _, _, _ := bootstrap(context.Background(), client, logger, false, old.Path, true)
 			if bootstrapErr != nil {
 				t.Fatal(bootstrapErr)
 			}

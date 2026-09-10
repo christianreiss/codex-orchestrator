@@ -169,3 +169,260 @@ func TestSyncOnlyRefusalKeepsRunParity(t *testing.T) {
 		t.Fatalf("Run(SyncOnly) on a disabled host = (%d, %v), want (1, error)", exit, err)
 	}
 }
+
+// contentOnlyHost is syncOnlyHost with the bundle request recorded, so a test
+// can assert on what the wrapper actually asked for rather than only on what it
+// did with the answer. `authBlock` is spliced into the response verbatim.
+func contentOnlyHost(t *testing.T, authBlock string) (*config.Config, string, *[]map[string]any, *[]string) {
+	t.Helper()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_RUNTIME_DIR", filepath.Join(home, "run"))
+	t.Setenv("CLAUDE_ALLOW_FQDN_MISMATCH", "1")
+
+	expires := time.Now().Add(24 * time.Hour).UnixMilli()
+	if err := claude.WriteAuth(json.RawMessage(fmt.Sprintf(
+		`{"last_refresh":%q,"claudeAiOauth":{"accessToken":"live","expiresAt":%d}}`,
+		time.Now().UTC().Format(time.RFC3339), expires,
+	))); err != nil {
+		t.Fatal(err)
+	}
+
+	bodies := &[]map[string]any{}
+	paths := &[]string{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		*paths = append(*paths, r.URL.Path)
+		if r.URL.Path == "/skills" {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, `{"skills":[]}`)
+			return
+		}
+		if r.URL.Path != "/sync/bootstrap" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		if raw, err := io.ReadAll(r.Body); err == nil {
+			_ = json.Unmarshal(raw, &body)
+		}
+		*bodies = append(*bodies, body)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":"success","data":{"status":"success","agents":"# fleet claude policy\n"` + authBlock + `}}`))
+	}))
+	t.Cleanup(server.Close)
+
+	return &config.Config{
+		Orchestrator: config.Orchestrator{BaseURL: server.URL, APIKey: "test-key"},
+		Host:         config.Host{Secure: true},
+	}, home, bodies, paths
+}
+
+func contentOnlyOptions(cfg *config.Config) Options {
+	return Options{
+		Config:                 cfg,
+		SyncOnly:               true,
+		SkipCredentialExchange: true,
+		Headless:               true,
+		SkipBoot:               true,
+		Logger:                 slog.New(slog.NewTextHandler(io.Discard, nil)),
+		WrapperVersion:         "0.8.5",
+	}
+}
+
+// TestContentOnlySyncSendsNoCredentials is the contract the cron tick relies on:
+// the request carries no credential material, and the local file is not touched.
+func TestContentOnlySyncSendsNoCredentials(t *testing.T) {
+	cfg, home, bodies, _ := contentOnlyHost(t, "")
+	authPath, _ := claude.AuthPath()
+	before, err := os.ReadFile(authPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	exit, err := Run(context.Background(), contentOnlyOptions(cfg))
+	if exit != 0 || err != nil {
+		t.Fatalf("Run(content-only) = (%d, %v), want (0, nil)", exit, err)
+	}
+	if len(*bodies) != 1 {
+		t.Fatalf("want exactly one bundle request, got %d", len(*bodies))
+	}
+	body := (*bodies)[0]
+	if body["include_auth"] != false {
+		t.Fatalf("content-only pass asked for auth: include_auth=%v", body["include_auth"])
+	}
+	if _, ok := body["auth_candidate"]; ok {
+		t.Fatal("content-only pass offered a credential candidate")
+	}
+	if _, ok := body["auth_digest"]; ok {
+		t.Fatal("content-only pass advertised a credential digest")
+	}
+	if after, rerr := os.ReadFile(authPath); rerr != nil || string(after) != string(before) {
+		t.Fatalf("content-only pass rewrote the credential file: err=%v", rerr)
+	}
+	if policy, rerr := os.ReadFile(filepath.Join(home, ".claude", "CLAUDE.md")); rerr != nil || !strings.Contains(string(policy), "fleet claude policy") {
+		t.Fatalf("CLAUDE.md not synced: %q err=%v", policy, rerr)
+	}
+}
+
+// A server that returns credentials nobody asked for must not be able to push
+// them onto the host through the back door of a content-only tick.
+func TestContentOnlySyncIgnoresServerAuthBlock(t *testing.T) {
+	cfg, _, _, _ := contentOnlyHost(t, `,"auth":{"status":"updated","verification_state":"verified","auth":{"claudeAiOauth":{"accessToken":"server-pushed","expiresAt":4102444800000}}}`)
+	authPath, _ := claude.AuthPath()
+	before, err := os.ReadFile(authPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	exit, err := Run(context.Background(), contentOnlyOptions(cfg))
+	if exit != 0 || err != nil {
+		t.Fatalf("Run(content-only) = (%d, %v), want (0, nil)", exit, err)
+	}
+	after, rerr := os.ReadFile(authPath)
+	if rerr != nil || string(after) != string(before) {
+		t.Fatalf("unsolicited auth block was written to disk: err=%v", rerr)
+	}
+	if strings.Contains(string(after), "server-pushed") {
+		t.Fatal("content-only pass applied the server's credential")
+	}
+}
+
+// The regression this mode exists to prevent: a refusal aimed at credentials
+// used to strip the very managed content the tick had come to converge.
+func TestContentOnlySyncKeepsManagedContentOnRefusal(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_RUNTIME_DIR", filepath.Join(home, "run"))
+	t.Setenv("CLAUDE_ALLOW_FQDN_MISMATCH", "1")
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/skills" {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, `{"skills":[]}`)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":"success","data":{"status":"success","agents":"# fleet claude policy\n"}}`))
+	}))
+	t.Cleanup(server.Close)
+
+	settings := filepath.Join(home, ".claude", "settings.json")
+	if err := os.MkdirAll(filepath.Dir(settings), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(settings, []byte(`{"model":"fleet"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := &config.Config{
+		Orchestrator: config.Orchestrator{BaseURL: server.URL, APIKey: "test-key"},
+		Host:         config.Host{Secure: false},
+	}
+	exit, err := Run(context.Background(), contentOnlyOptions(cfg))
+	if exit != 0 || err != nil {
+		t.Fatalf("Run(content-only, no credentials) = (%d, %v), want (0, nil)", exit, err)
+	}
+	if _, statErr := os.Stat(settings); statErr != nil {
+		t.Fatalf("content-only pass stripped managed settings: %v", statErr)
+	}
+	if policy, rerr := os.ReadFile(filepath.Join(home, ".claude", "CLAUDE.md")); rerr != nil || !strings.Contains(string(policy), "fleet claude policy") {
+		t.Fatalf("CLAUDE.md not synced: %q err=%v", policy, rerr)
+	}
+}
+
+// A 423 is a failed content sync here, not an approval to wait for: cron must
+// not block a process on a box nobody is sitting at.
+func TestContentOnlySyncNeverPollsForApproval(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_RUNTIME_DIR", filepath.Join(home, "run"))
+	t.Setenv("CLAUDE_ALLOW_FQDN_MISMATCH", "1")
+
+	bundleRequests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/sync/bootstrap" {
+			bundleRequests++
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusLocked)
+		_, _ = io.WriteString(w, `{"error":{"code":"insecure_pending","message":"Insecure host approval pending"}}`)
+	}))
+	t.Cleanup(server.Close)
+
+	cfg := &config.Config{Orchestrator: config.Orchestrator{BaseURL: server.URL, APIKey: "test-key"}}
+	exit, err := Run(context.Background(), contentOnlyOptions(cfg))
+	if exit != 1 || err == nil || !strings.Contains(err.Error(), "managed sync incomplete") {
+		t.Fatalf("locked bundle = (%d, %v), want (1, managed sync incomplete)", exit, err)
+	}
+	if bundleRequests != 1 {
+		t.Fatalf("content-only pass polled for approval: %d bundle requests", bundleRequests)
+	}
+}
+
+// A server too old for the bundle must not be answered with a credential
+// retrieve — that is the gated call this mode exists to avoid.
+func TestContentOnlySyncDoesNotFallBackToLegacyRetrieve(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_RUNTIME_DIR", filepath.Join(home, "run"))
+	t.Setenv("CLAUDE_ALLOW_FQDN_MISMATCH", "1")
+
+	seen := []string{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seen = append(seen, r.URL.Path)
+		http.NotFound(w, r)
+	}))
+	t.Cleanup(server.Close)
+
+	cfg := &config.Config{Orchestrator: config.Orchestrator{BaseURL: server.URL, APIKey: "test-key"}}
+	exit, err := Run(context.Background(), contentOnlyOptions(cfg))
+	if exit != 1 || err == nil {
+		t.Fatalf("unsupported bundle = (%d, %v), want (1, error)", exit, err)
+	}
+	for _, path := range seen {
+		if path == "/auth" {
+			t.Fatal("content-only pass fell back to a credential retrieve")
+		}
+	}
+}
+
+// The failure path stays retryable: a broken tick must exit non-zero so cron
+// tries again rather than recording a green sync it never performed.
+func TestContentOnlySyncFailsRetryablyWhenBundleFails(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_RUNTIME_DIR", filepath.Join(home, "run"))
+	t.Setenv("CLAUDE_ALLOW_FQDN_MISMATCH", "1")
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "temporarily unavailable", http.StatusBadGateway)
+	}))
+	t.Cleanup(server.Close)
+
+	cfg := &config.Config{Orchestrator: config.Orchestrator{BaseURL: server.URL, APIKey: "test-key"}}
+	exit, err := Run(context.Background(), contentOnlyOptions(cfg))
+	if exit != 1 || err == nil || !strings.Contains(err.Error(), "managed sync incomplete") {
+		t.Fatalf("failing bundle = (%d, %v), want (1, managed sync incomplete)", exit, err)
+	}
+}
+
+// The axis must stay independent of SyncOnly: an explicit `clx sync` is a human
+// asking for credentials and still gets them.
+func TestSyncKeepsCredentialSyncWithoutContentOnly(t *testing.T) {
+	cfg, _, bodies, _ := contentOnlyHost(t, `,"auth":{"status":"valid","verification_state":"verified","host":{"secure":true}}`)
+
+	exit, err := Run(context.Background(), Options{
+		Config:         cfg,
+		SyncOnly:       true,
+		Headless:       true,
+		SkipBoot:       true,
+		Logger:         slog.New(slog.NewTextHandler(io.Discard, nil)),
+		WrapperVersion: "0.8.5",
+	})
+	if exit != 0 || err != nil {
+		t.Fatalf("Run(SyncOnly) = (%d, %v), want (0, nil)", exit, err)
+	}
+	if len(*bodies) == 0 || (*bodies)[0]["include_auth"] != true {
+		t.Fatalf("explicit sync stopped asking for credentials: %v", *bodies)
+	}
+}

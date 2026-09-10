@@ -1,3 +1,32 @@
+# 2026-09-10
+
+- **The unattended cron tick no longer asks for credentials.** Its managed-content
+  sync used to send the full startup bundle — `include_auth: true` plus the local
+  `auth.json`/`credentials.json` as an upload candidate — which the server reads as
+  a credential retrieve and puts behind the insecure-host approval window. On a
+  fleet of insecure hosts with a closed window that produced an approval request
+  per host per tick, around the clock, with nobody sitting at any of those hosts to
+  answer one: 554 requests expired into `denied` in a single day here. Cron now runs
+  a content-only pass (`SkipCredentialExchange`), which reads no credential file,
+  offers no candidate, advertises no digest, and ignores an auth block a server
+  sends anyway. The one credential concern a tick has — an unsent local login — was
+  already covered separately by the ungated `/auth` store call before each update.
+- On the Claude side this also stops a worse consequence: the refusal that came
+  back was a *credential* verdict, and `insecure-denied` triggers the trust-loss
+  teardown that strips fleet-managed settings, collections and skills. Every tick on
+  such a host removed the very content it had come to converge. Trust-loss teardown
+  now belongs to interactive `clx run` and `clx sync` alone.
+- **The server stops gating content on a credential window.** `POST /sync/bootstrap`
+  and `POST /sync/status` check the insecure window only when the request actually
+  asks for credentials; `include_auth: false` is served without a window check,
+  without sliding the window, and without opening an approval — the same treatment
+  `/cron/check`, `/wrapper/v2/config`, `/skills` and `command=store` already had.
+  Managed content therefore keeps converging on insecure hosts whose window is shut,
+  which is what those hosts most need, and a polling caller can no longer hold its
+  own window open. Old wrappers keep sending `include_auth: true` and are unaffected.
+- `cdx sync` / `clx sync` are unchanged: a human asking for a credential sync still
+  gets one, and may still open an approval — there is someone there to answer it.
+
 # 2026-09-09
 
 - **Documentation re-aligned with code truth** across `README.md`, every

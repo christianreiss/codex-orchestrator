@@ -37,15 +37,19 @@ func Remove() error {
 }
 
 // syncManagedContent converges fleet-managed CLAUDE.md, settings, MCP servers,
-// collections and native skills without launching Claude. Indirected for tests.
+// collections and native skills without launching Claude, and without
+// exchanging credentials: the one credential concern a tick has — an unsent
+// local login — is already covered by protectPendingMaintenanceAuth, which
+// uploads through the ungated store path. Indirected for tests.
 var syncManagedContent = func(ctx context.Context, cfg *config.Config, minimal bool) error {
 	_, err := lifecycle.Run(ctx, lifecycle.Options{
-		Config:         cfg,
-		SyncOnly:       true,
-		Headless:       true,
-		SkipBoot:       true,
-		Minimal:        minimal,
-		WrapperVersion: WrapperVersion,
+		Config:                 cfg,
+		SyncOnly:               true,
+		SkipCredentialExchange: true,
+		Headless:               true,
+		SkipBoot:               true,
+		Minimal:                minimal,
+		WrapperVersion:         WrapperVersion,
 	})
 	return err
 }

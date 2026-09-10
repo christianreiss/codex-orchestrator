@@ -52,9 +52,21 @@ type Options struct {
 	// applies — but no quota gate, no PreExec, no portal session, no Codex.
 	// This is what `cdx sync`, the post-update pass, and the cron tick use to
 	// converge fleet-managed content without launching an engine.
-	SyncOnly       bool
-	Logger         *slog.Logger
-	WrapperVersion string
+	SyncOnly bool
+	// SkipCredentialExchange runs the managed-content half of the bundle with
+	// no credential traffic in either direction: no local auth.json is read or
+	// offered as a candidate, no digest is advertised, and an auth block the
+	// server sends anyway is ignored rather than written. The unattended cron
+	// tick sets it because it already preserves an unsent local login through
+	// the ungated `/auth` store call, so a second, gated credential round-trip
+	// buys nothing — and on an insecure host with a closed approval window it
+	// costs everything: the tick is refused, and AGENTS.md, config.toml and
+	// skills stop converging on exactly the hosts that most need them. Nobody
+	// is sitting at that host to answer the approval it would open. Explicit
+	// `cdx sync` is a human asking for a credential sync and does not set it.
+	SkipCredentialExchange bool
+	Logger                 *slog.Logger
+	WrapperVersion         string
 }
 
 // localProbe is the cached LocalAuthProbe binding to the codex package
@@ -266,12 +278,20 @@ func Run(ctx context.Context, opts Options) (exitCode int, runErr error) {
 	}()
 
 	if !opts.SkipAuthSync {
-		authResp, authErr, authSynced, agentsSync, configSync, fleetSessions = bootstrap(ctx, client, logger, concurrent, authPath)
-		dec = decideAuth(authResp, authErr, authPath, cfg.Host.Secure)
+		authResp, authErr, authSynced, agentsSync, configSync, fleetSessions = bootstrap(ctx, client, logger, concurrent, authPath, !opts.SkipCredentialExchange)
+		// A content-only pass leaves the decision at its zero value on purpose:
+		// there is no auth response to judge. Every branch that reads `dec`
+		// below carries the same `!opts.SkipCredentialExchange` guard, so the
+		// full blast radius of this mode is what `git grep` for that identifier
+		// returns — never the accident of what a zero AuthDecision happens to
+		// mean today.
+		if !opts.SkipCredentialExchange {
+			dec = decideAuth(authResp, authErr, authPath, cfg.Host.Secure)
+		}
 
 		// Insecure-host approval polling — block here until status flips or
 		// the operator aborts. Re-bundle once on resolution.
-		if dec.NeedsApprovalPoll {
+		if !opts.SkipCredentialExchange && dec.NeedsApprovalPoll {
 			if opts.Headless {
 				dec.Allowed = false
 				dec.Reason = "Insecure host approval is required; open Admin → Host Detail, then retry."
@@ -282,7 +302,7 @@ func Run(ctx context.Context, opts Options) (exitCode int, runErr error) {
 					logger.Warn("approval poll failed", "err", perr)
 				}
 				if resolved {
-					authResp, authErr, authSynced, agentsSync, configSync, fleetSessions = bootstrap(ctx, client, logger, concurrent, authPath)
+					authResp, authErr, authSynced, agentsSync, configSync, fleetSessions = bootstrap(ctx, client, logger, concurrent, authPath, !opts.SkipCredentialExchange)
 					dec = decideAuth(authResp, authErr, authPath, cfg.Host.Secure)
 				}
 			}
@@ -291,7 +311,7 @@ func Run(ctx context.Context, opts Options) (exitCode int, runErr error) {
 		// On missing/upload_required, push the local file via /sync/bootstrap
 		// auth_candidate and re-decide.
 		var authCandidateErr error
-		if dec.Allowed && (dec.Status == "missing" || dec.Status == "upload_required") {
+		if !opts.SkipCredentialExchange && dec.Allowed && (dec.Status == "missing" || dec.Status == "upload_required") {
 			if raw, rerr := codex.ReadAuth(); rerr == nil && len(raw) > 0 {
 				if err := pushAuthCandidate(ctx, client, logger, false); err != nil {
 					authCandidateErr = err
@@ -302,7 +322,7 @@ func Run(ctx context.Context, opts Options) (exitCode int, runErr error) {
 						dec.Reason = "The auth runner rotated credentials but returned an unusable replacement; refusing to launch with the superseded local token. Retry after the runner is healthy."
 					}
 				} else {
-					authResp, authErr, authSynced, agentsSync, configSync, fleetSessions = bootstrap(ctx, client, logger, concurrent, authPath)
+					authResp, authErr, authSynced, agentsSync, configSync, fleetSessions = bootstrap(ctx, client, logger, concurrent, authPath, !opts.SkipCredentialExchange)
 					dec = decideAuth(authResp, authErr, authPath, cfg.Host.Secure)
 				}
 			} else if rerr != nil {
@@ -316,7 +336,7 @@ func Run(ctx context.Context, opts Options) (exitCode int, runErr error) {
 		// Offer to run `codex login` here, upload the freshly minted token, and
 		// re-verify — the only fix for a rotated/expired refresh token. Headless
 		// runs (cron, --execute) fail closed instead of opening a login flow.
-		switch decideAuthRecovery(concurrent, opts.Headless, needsInteractiveAuthRecovery(dec, authCandidateErr, cfg.Host.Secure)) {
+		switch decideAuthRecovery(concurrent, opts.Headless, !opts.SkipCredentialExchange && needsInteractiveAuthRecovery(dec, authCandidateErr, cfg.Host.Secure)) {
 		case authRecoveryFailClosed:
 			// Non-interactive callers (cron, --execute) must not open a
 			// `codex login` prompt — fail closed with the underlying reason.
@@ -331,7 +351,7 @@ func Run(ctx context.Context, opts Options) (exitCode int, runErr error) {
 				dec.Allowed = false
 				dec.Reason = err.Error()
 			} else {
-				authResp, authErr, authSynced, agentsSync, configSync, fleetSessions = bootstrap(ctx, client, logger, concurrent, authPath)
+				authResp, authErr, authSynced, agentsSync, configSync, fleetSessions = bootstrap(ctx, client, logger, concurrent, authPath, !opts.SkipCredentialExchange)
 				dec = decideAuth(authResp, authErr, authPath, cfg.Host.Secure)
 			}
 		}
@@ -404,7 +424,7 @@ func Run(ctx context.Context, opts Options) (exitCode int, runErr error) {
 	}
 
 	// Refuse launch on auth decision.
-	if !opts.SkipAuthSync && !dec.Allowed {
+	if !opts.SkipAuthSync && !opts.SkipCredentialExchange && !dec.Allowed {
 		printBoot()
 		return 1, markPresented(fmt.Errorf("launch refused: %s", dec.Reason), opts)
 	}
@@ -423,7 +443,7 @@ func Run(ctx context.Context, opts Options) (exitCode int, runErr error) {
 		if err := errors.Join(authErr, agentsSync.Err, configSync.Err, skillsSync.Err); err != nil {
 			return 1, fmt.Errorf("managed sync incomplete: %w", err)
 		}
-		if strings.EqualFold(dec.Status, "offline") {
+		if !opts.SkipCredentialExchange && strings.EqualFold(dec.Status, "offline") {
 			return 1, errors.New("managed sync incomplete: API offline; cached credentials do not confirm content is current")
 		}
 		return 0, nil
@@ -605,9 +625,14 @@ func footerCaps(caps ui.Caps, minimal bool) ui.Caps {
 // per-resource pulls. Returns the same tuple regardless of which path ran.
 // The last value carries the fleet activity counters when the bundle path was
 // taken (nil on the legacy path or when the server didn't supply them).
+//
+// includeAuth false makes this a content-only exchange: no upload lease, no
+// candidate, no digest, and no auth block applied. The auth response comes back
+// nil and the error return carries only the bundle/content outcome, so a caller
+// that never asked about credentials cannot be told anything about them.
 func bootstrap(
 	ctx context.Context, client *orchestrator.Client, logger *slog.Logger,
-	concurrent bool, authPath string,
+	concurrent bool, authPath string, includeAuth bool,
 ) (*orchestrator.AuthRetrieveResponse, error, bool, summary.ResourceSync, summary.ResourceSync, *orchestrator.FleetSessions) {
 	ctx, bootSpan := tracing.Start(ctx, "cxx.lifecycle.bootstrap",
 		tracing.String("wrapper.engine", "codex"),
@@ -621,32 +646,37 @@ func bootstrap(
 		uploadLease *codex.AuthUploadLease
 	)
 	localUsable := false
-	if lease, readErr := codex.BeginAuthUpload(false); readErr == nil {
-		uploadLease = lease
-		localUsable = codex.IsValidLocalAuth(authPath)
-		// An unusable local file must not advertise its sidecar's canonical
-		// digest: doing so returns `valid` without an auth payload and leaves a
-		// concurrent run blocked. Retain its generation for CAS, but omit both
-		// digest and candidate so the server returns verified canonical auth.
-		if localUsable && json.Valid(lease.Payload()) {
-			candidate = lease.Payload()
-		}
-		expected = lease.Generation()
-	} else if errors.Is(readErr, codex.ErrLogoutIntentActive) {
-		expected, readErr = codex.CurrentAuthGeneration()
-		if readErr != nil {
+	// Content-only passes never open the upload transaction: reading the
+	// credential file is itself part of the credential exchange this mode
+	// exists to avoid.
+	if includeAuth {
+		if lease, readErr := codex.BeginAuthUpload(false); readErr == nil {
+			uploadLease = lease
+			localUsable = codex.IsValidLocalAuth(authPath)
+			// An unusable local file must not advertise its sidecar's canonical
+			// digest: doing so returns `valid` without an auth payload and leaves a
+			// concurrent run blocked. Retain its generation for CAS, but omit both
+			// digest and candidate so the server returns verified canonical auth.
+			if localUsable && json.Valid(lease.Payload()) {
+				candidate = lease.Payload()
+			}
+			expected = lease.Generation()
+		} else if errors.Is(readErr, codex.ErrLogoutIntentActive) {
+			expected, readErr = codex.CurrentAuthGeneration()
+			if readErr != nil {
+				return &orchestrator.AuthRetrieveResponse{Status: "error", Message: readErr.Error()},
+					fmt.Errorf("snapshot logged-out auth generation: %w", readErr), false, summary.ResourceSync{}, summary.ResourceSync{}, nil
+			}
+		} else if errors.Is(readErr, os.ErrNotExist) {
+			expected, readErr = codex.CurrentAuthGeneration()
+			if readErr != nil {
+				return &orchestrator.AuthRetrieveResponse{Status: "error", Message: readErr.Error()},
+					fmt.Errorf("snapshot missing auth generation: %w", readErr), false, summary.ResourceSync{}, summary.ResourceSync{}, nil
+			}
+		} else {
 			return &orchestrator.AuthRetrieveResponse{Status: "error", Message: readErr.Error()},
-				fmt.Errorf("snapshot logged-out auth generation: %w", readErr), false, summary.ResourceSync{}, summary.ResourceSync{}, nil
+				fmt.Errorf("stabilize local auth candidate: %w", readErr), false, summary.ResourceSync{}, summary.ResourceSync{}, nil
 		}
-	} else if errors.Is(readErr, os.ErrNotExist) {
-		expected, readErr = codex.CurrentAuthGeneration()
-		if readErr != nil {
-			return &orchestrator.AuthRetrieveResponse{Status: "error", Message: readErr.Error()},
-				fmt.Errorf("snapshot missing auth generation: %w", readErr), false, summary.ResourceSync{}, summary.ResourceSync{}, nil
-		}
-	} else {
-		return &orchestrator.AuthRetrieveResponse{Status: "error", Message: readErr.Error()},
-			fmt.Errorf("stabilize local auth candidate: %w", readErr), false, summary.ResourceSync{}, summary.ResourceSync{}, nil
 	}
 	if uploadLease != nil {
 		defer func() {
@@ -691,7 +721,7 @@ func bootstrap(
 	)
 	resp, berr := client.SyncBootstrap(bctx, orchestrator.BundleRequest{
 		Engine:        "codex",
-		IncludeAuth:   true,
+		IncludeAuth:   includeAuth,
 		AuthDigest:    digest,
 		AuthCandidate: candidate,
 		Agents:        agentsDigest,
@@ -721,7 +751,11 @@ func bootstrap(
 		}
 	}
 
-	if berr != nil && isBundleUnsupported(berr) {
+	// The legacy fallback pulls auth per resource through `/auth command=retrieve`
+	// — the gated credential fetch this mode exists to avoid. A content-only pass
+	// against a server too old for the bundle reports a retryable sync failure
+	// instead of quietly downgrading into a credential request.
+	if berr != nil && includeAuth && isBundleUnsupported(berr) {
 		logger.Debug("bundle endpoint unsupported, falling back to per-resource pulls", "err", berr)
 		bootSpan.SetBool("wrapper.bundle_fallback", true)
 		a, e, s, ag, co := legacySyncPath(ctx, client, logger, concurrent, authPath)
@@ -730,9 +764,14 @@ func bootstrap(
 	if berr != nil {
 		// Insecure-approval gate (423 pending / 403 denied) is not an outage:
 		// map it to the auth status so the launch gate polls for approval
-		// instead of falling through to the offline branch.
-		if st := orchestrator.InsecureStatusFromError(berr); st != "" {
+		// instead of falling through to the offline branch. A content-only pass
+		// has no launch gate to inform and nobody to poll for: for it the same
+		// refusal is simply a failed content sync.
+		if st := orchestrator.InsecureStatusFromError(berr); includeAuth && st != "" {
 			return &orchestrator.AuthRetrieveResponse{Status: st}, nil, false, summary.ResourceSync{}, summary.ResourceSync{}, nil
+		}
+		if !includeAuth {
+			return nil, berr, false, summary.ResourceSync{}, summary.ResourceSync{}, nil
 		}
 		// Treat network/server failure as "offline" for Decide().
 		offline := &orchestrator.AuthRetrieveResponse{Status: "offline", Message: berr.Error()}
@@ -740,15 +779,23 @@ func bootstrap(
 	}
 
 	// Apply bundle outputs.
-	authResp := resp.Auth
-	if authResp == nil {
-		authResp = &orchestrator.AuthRetrieveResponse{Status: "offline", Message: "bundle missing auth block"}
-	}
-	if err := updateAuthSessionSecurity(authResp); err != nil {
-		return authResp, fmt.Errorf("update auth session security state: %w", err), false, summary.ResourceSync{}, summary.ResourceSync{}, resp.Sessions
-	}
-	authSynced, keptFresherLocal, applyErr := applyServerAuth(logger, authPath, authResp, concurrent, expected)
+	var (
+		authResp   *orchestrator.AuthRetrieveResponse
+		authSynced bool
+		applyErr   error
+	)
 	var convergenceErr error
+	keptFresherLocal := false
+	if includeAuth {
+		authResp = resp.Auth
+		if authResp == nil {
+			authResp = &orchestrator.AuthRetrieveResponse{Status: "offline", Message: "bundle missing auth block"}
+		}
+		if err := updateAuthSessionSecurity(authResp); err != nil {
+			return authResp, fmt.Errorf("update auth session security state: %w", err), false, summary.ResourceSync{}, summary.ResourceSync{}, resp.Sessions
+		}
+		authSynced, keptFresherLocal, applyErr = applyServerAuth(logger, authPath, authResp, concurrent, expected)
+	}
 	if keptFresherLocal && !concurrent {
 		// The fleet canonical is behind this host's credential (typically a
 		// fresh `codex login` the server-side store gated — runner outage or
