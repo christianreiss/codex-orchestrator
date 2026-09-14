@@ -1,16 +1,13 @@
-import { randomBytes, randomInt, randomUUID } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import {
   and,
   asc,
   count,
-  desc,
   eq,
   gt,
   inArray,
-  isNotNull,
   isNull,
   lte,
-  ne,
   or,
   sql,
 } from 'drizzle-orm';
@@ -18,8 +15,6 @@ import {
 import type { Database } from '../db/client.js';
 import {
   agentBusAddresses,
-  agentBusConferenceMembers,
-  agentBusConferences,
   agentBusConversations,
   agentBusMessages,
   agentBusRelays,
@@ -50,19 +45,14 @@ import { type Engine } from '../util/engine.js';
 import { isoOffsetSeconds, nowIso } from '../util/timestamp.js';
 import { wsPublisher } from '../ws/publisher.js';
 import {
-  AGENT_PRESENCE_RANK,
-  deriveAddressPresence,
-  isPresent,
 } from './agent-presence.js';
 import { hostEnginesList } from './host-engine-policy.js';
 import { isTruthyFlagValue, SettingsService } from './settings.js';
 
 import {
-  AGENT_MESSAGING_CALL_PIN_SPACE,
   AGENT_MESSAGING_DEFAULT_TTL_SECONDS,
   AGENT_MESSAGING_ENABLED_KEY,
   AGENT_MESSAGING_LEASE_SECONDS,
-  AGENT_MESSAGING_LIST_LIMIT,
   AGENT_MESSAGING_MAILBOX_PAGE_SIZE,
   AGENT_MESSAGING_MAX_DELIVERY_ATTEMPTS,
   AGENT_MESSAGING_MISSED_WINDOW_SECONDS,
@@ -80,15 +70,11 @@ import {
 } from './agent-messaging/types.js';
 import {
   deliveryBackoffSeconds,
-  normalizeBridgeToken,
-  normalizeCallPin,
-  normalizeCallPinTtl,
   normalizeErrorCode,
   normalizeMessageBody,
   normalizeMessageTtl,
   normalizeOptionalText,
   normalizeRequiredText,
-  normalizeSessionStatus,
   normalizeUuid,
 } from './agent-messaging/normalize.js';
 import {
@@ -96,10 +82,13 @@ import {
   deliveryView,
   messageForParticipant,
   messageMetadata,
-  newQueuedMessage,
-  publicAddress,
 } from './agent-messaging/views.js';
 import { AgentMessagingAdmin } from './agent-messaging/admin.js';
+import { CallCoordinator } from './agent-messaging/call.js';
+import {
+  reapExpiredAgentMessagingBindingsLocked,
+} from './agent-messaging/bindings.js';
+import { SessionRegistry } from './agent-messaging/session.js';
 import { ConferenceCoordinator } from './agent-messaging/conference.js';
 import {
   conversationIncludes,
@@ -169,6 +158,12 @@ export {
 } from './agent-messaging/normalize.js';
 
 export {
+  reapExpiredAgentMessagingBindingsLocked,
+  releaseAgentMessagingBindingsLocked,
+  suspendAgentMessagingRuntimeLocked,
+} from './agent-messaging/bindings.js';
+
+export {
   messagingHostEligible,
   messagingHostEligibleSql,
 } from './agent-messaging/eligibility.js';
@@ -176,6 +171,8 @@ export {
 
 export class AgentMessagingService {
   private readonly settings: SettingsService;
+  private readonly sessions: SessionRegistry;
+  private readonly call: CallCoordinator;
   private readonly conference: ConferenceCoordinator;
   private readonly admin: AgentMessagingAdmin;
 
@@ -188,6 +185,39 @@ export class AgentMessagingService {
     // The coordinator gets an explicit adapter rather than `this`, so the
     // primitives it may use stay a short, reviewable list and the service's
     // own internals stay private.
+    this.sessions = new SessionRegistry({
+      db,
+      env,
+      isEnabled: () => this.isEnabled(),
+      requireEnabledLocked: (tx) => this.requireEnabledLocked(tx),
+      requireAddressLocked: (tx, id) => this.requireAddressLocked(tx, id),
+      resolveAddressLocked: (tx, raw, forUpdate) => this.resolveAddressLocked(tx, raw, forUpdate),
+      requireEligibleHostLocked: (tx, hostId) => this.requireEligibleHostLocked(tx, hostId),
+      requireBridgeSessionLocked: (tx, sessionId, rawToken, hostId) =>
+        this.requireBridgeSessionLocked(tx, sessionId, rawToken, hostId),
+      authenticateBridge: (sessionId, rawToken, allowEnded) =>
+        this.authenticateBridge(sessionId, rawToken, allowEnded),
+      assertSessionRegistration: (session, host, engine, username, cwd, invocationKind, bridgeToken) =>
+        this.assertSessionRegistration(session, host, engine, username, cwd, invocationKind, bridgeToken),
+      assertSessionAddressLocked: (tx, sessionId, address) =>
+        this.assertSessionAddressLocked(tx, sessionId, address),
+      assertEligibleHost: (host) => this.assertEligibleHost(host),
+      assertAddressRegistration: (address, host, engine, username, cwd) =>
+        this.assertAddressRegistration(address, host, engine, username, cwd),
+      assertAddressEligibleLocked: (tx, address) => this.assertAddressEligibleLocked(tx, address),
+    });
+    this.call = new CallCoordinator({
+      db,
+      keyring,
+      requireEnabledLocked: (tx) => this.requireEnabledLocked(tx),
+      requireAddressLocked: (tx, id) => this.requireAddressLocked(tx, id),
+      authenticateBridge: (sessionId, rawToken, allowEnded) =>
+        this.authenticateBridge(sessionId, rawToken, allowEnded),
+      assertSessionAddressLocked: (tx, sessionId, address) =>
+        this.assertSessionAddressLocked(tx, sessionId, address),
+      assertAddressEligibleLocked: (tx, address) => this.assertAddressEligibleLocked(tx, address),
+      recordRuntime: (action, hostId, engine, details) => this.recordRuntime(action, hostId, engine, details),
+    });
     this.conference = new ConferenceCoordinator({
       db,
       keyring,
@@ -199,9 +229,9 @@ export class AgentMessagingService {
       assertSessionAddressLocked: (tx, sessionId, address) =>
         this.assertSessionAddressLocked(tx, sessionId, address),
       assertAddressEligibleLocked: (tx, address) => this.assertAddressEligibleLocked(tx, address),
-      sweepCallPinsLocked: (tx, now) => this.sweepCallPinsLocked(tx, now),
-      livePinsLocked: (tx) => this.livePinsLocked(tx),
-      pickFreePin: (taken) => this.pickFreePin(taken),
+      sweepCallPinsLocked: (tx, now) => this.call.sweepCallPinsLocked(tx, now),
+      livePinsLocked: (tx) => this.call.livePinsLocked(tx),
+      pickFreePin: (taken) => this.call.pickFreePin(taken),
       requireConversationLocked: (tx, id) => this.requireConversationLocked(tx, id),
       cancelConversationInternal: (conversationId, canceledBy, reason, addressId, sessionId) =>
         this.cancelConversationInternal(conversationId, canceledBy, reason, addressId, sessionId),
@@ -237,236 +267,16 @@ export class AgentMessagingService {
     return this.admin.setEnabled(enabled);
   }
 
-  /**
-   * Revoke runtime eligibility so work cannot sit invisibly in-flight and
-   * later replay when eligibility returns. Host status and engine demotions
-   * call this. A secure-to-insecure demotion deliberately does not: an
-   * insecure host is window-bounded, not disqualified, so its queue is left
-   * intact to drain when the window reopens.
-   */
   async suspendHostRuntime(
     hostId: number,
     reason: 'host_inactive' | 'engine_disabled',
     engines?: Engine[],
   ): Promise<Record<string, unknown>> {
-    const result = await this.db.transaction(async (tx) =>
-      await suspendAgentMessagingRuntimeLocked(tx, hostId, reason, engines),
-    );
-    wsPublisher.publish('agent_messaging.host.changed', { host_id: hostId, suspended: true, reason, ...result });
-    return { host_id: hostId, suspended: true, reason, ...result };
+    return this.sessions.suspendHostRuntime(hostId, reason, engines);
   }
 
   async registerSession(host: Host, input: RegisterMessagingSessionInput): Promise<Record<string, unknown>> {
-    if (!(await this.isEnabled())) return { enabled: false, reason: 'master_disabled' };
-    this.assertEligibleHost(host);
-    const sessionId = normalizeUuid(input.sessionId, 'session_id');
-    const bridgeToken = normalizeBridgeToken(input.bridgeToken);
-    const username = normalizeRequiredText(input.username, 'username', 255);
-    const cwd = normalizeRequiredText(input.cwd, 'cwd', 1024);
-    const now = nowIso();
-    const bridgeExpiresAt = isoOffsetSeconds(this.env.AGENT_PORTAL_BRIDGE_TTL_SECONDS);
-    const fingerprint = hostAuthFingerprint(host);
-    const result = await this.db.transaction(async (tx) => {
-      await this.requireEnabledLocked(tx);
-      const lockedHost = await this.requireEligibleHostLocked(tx, host.id);
-      if (!safeHashEqual(hostAuthFingerprint(lockedHost), fingerprint)) {
-        throw new UnauthorizedError('Host credential changed during registration', 'agent_bridge_host_auth_changed');
-      }
-      if (!hostEnginesList(lockedHost.engines).includes(input.engine)) {
-        throw new ForbiddenError(`Engine ${input.engine} is disabled for this host`, 'engine_disabled');
-      }
-      // A crashed wrapper may leave its durable address bound until the portal
-      // reaper runs. Reclaim expired bindings for this identity in-band so a
-      // restart reuses the same address instead of minting a split identity.
-      await reapExpiredAgentMessagingBindingsLocked(tx, now, {
-        hostId: host.id,
-        engine: input.engine,
-        username,
-      });
-      const existingRows = await tx.select().from(agentSessions).where(eq(agentSessions.id, sessionId)).limit(1).for('update');
-      const existing = existingRows[0];
-      if (existing) {
-        this.assertSessionRegistration(existing, host, input.engine, username, cwd, input.invocationKind, bridgeToken);
-        if (existing.endedAt) throw new ConflictError('Agent session is finished', 'agent_session_finished');
-        await tx.update(agentSessions).set({ hostAuthFingerprint: fingerprint, bridgeExpiresAt, heartbeatAt: now, updatedAt: now }).where(eq(agentSessions.id, sessionId));
-      } else {
-        await tx.insert(agentSessions).values({
-          id: sessionId,
-          hostId: host.id,
-          engine: input.engine,
-          username,
-          cwd,
-          upstreamSessionId: normalizeOptionalText(input.upstreamSessionId, 255),
-          agentBusAddressId: null,
-          invocationKind: input.invocationKind,
-          status: 'active',
-          relayEnabled: 0,
-          relayHeartbeatAt: null,
-          activeTurnId: null,
-          adapterProtocol: normalizeOptionalText(input.adapterProtocol, 32),
-          adapterCapabilities: input.adapterCapabilities ?? null,
-          receiveHeartbeatAt: null,
-          bindingGeneration: 0,
-          hostAuthFingerprint: fingerprint,
-          bridgeTokenHash: sha256(bridgeToken),
-          bridgeExpiresAt,
-          startedAt: now,
-          heartbeatAt: now,
-          endedAt: null,
-          expiresAt: null,
-          createdAt: now,
-          updatedAt: now,
-        });
-      }
-
-      const currentRows = await tx.select().from(agentSessions).where(eq(agentSessions.id, sessionId)).limit(1).for('update');
-      const current = currentRows[0]!;
-      let address: AgentBusAddress | null = null;
-      let inferredContinuity: 'native' | 'reset' | null = null;
-      if (current.agentBusAddressId) {
-        const rows = await tx.select().from(agentBusAddresses).where(eq(agentBusAddresses.id, current.agentBusAddressId)).limit(1).for('update');
-        address = rows[0] ?? null;
-        if (!address || address.archivedAt || address.enabled !== 1) {
-          throw new ConflictError('Agent address binding changed', 'agent_messaging_binding_stale');
-        }
-      }
-      if (!address && input.requestedAddress) {
-        address = await this.resolveAddressLocked(tx, input.requestedAddress, true);
-        this.assertAddressRegistration(address, host, input.engine, username, cwd);
-        inferredContinuity = input.upstreamSessionId ? 'native' : 'reset';
-        if (
-          input.expectedBindingGeneration != null &&
-          address.bindingGeneration !== input.expectedBindingGeneration
-        ) {
-          throw new ConflictError('Agent address binding changed', 'agent_messaging_binding_stale');
-        }
-      }
-      if (!address && input.upstreamSessionId) {
-        const rows = await tx
-          .select()
-          .from(agentBusAddresses)
-          .where(and(eq(agentBusAddresses.hostId, host.id), eq(agentBusAddresses.engine, input.engine), eq(agentBusAddresses.username, username), eq(agentBusAddresses.lastUpstreamSessionId, input.upstreamSessionId), eq(agentBusAddresses.enabled, 1), isNull(agentBusAddresses.archivedAt)))
-          .orderBy(desc(agentBusAddresses.lastSeenAt))
-          .limit(1)
-          .for('update');
-        if (rows[0] && (!rows[0].currentSessionId || rows[0].currentSessionId === sessionId)) {
-          address = rows[0];
-          inferredContinuity = 'native';
-        }
-      }
-      if (!address) {
-        // A fresh native session has no upstream transcript id yet. Reuse the
-        // latest dormant identity for the same host/user/engine/cwd and mark
-        // continuity reset; concurrent live sessions still get distinct
-        // addresses because only an unbound row is eligible here.
-        const rows = await tx
-          .select()
-          .from(agentBusAddresses)
-          .where(and(
-            eq(agentBusAddresses.hostId, host.id),
-            eq(agentBusAddresses.engine, input.engine),
-            eq(agentBusAddresses.username, username),
-            eq(agentBusAddresses.cwdHash, sha256(cwd)),
-            eq(agentBusAddresses.enabled, 1),
-            isNull(agentBusAddresses.currentSessionId),
-            isNull(agentBusAddresses.archivedAt),
-          ))
-          .orderBy(desc(agentBusAddresses.lastSeenAt))
-          .limit(1)
-          .for('update');
-        if (rows[0]) {
-          address = rows[0];
-          inferredContinuity = 'reset';
-        }
-      }
-      if (!address) {
-        const id = randomUUID();
-        address = {
-          id,
-          address: `agent:${id}`,
-          displayAlias: null,
-          hostId: host.id,
-          engine: input.engine,
-          username,
-          cwd,
-          cwdHash: sha256(cwd),
-          enabled: 1,
-          currentSessionId: sessionId,
-          callPin: null,
-          callPinExpiresAt: null,
-          lastUpstreamSessionId: normalizeOptionalText(input.upstreamSessionId, 255),
-          bindingGeneration: 1,
-          continuity: input.continuity ?? (input.upstreamSessionId ? 'native' : 'reset'),
-          adapterProtocol: normalizeOptionalText(input.adapterProtocol, 32),
-          adapterCapabilities: input.adapterCapabilities ?? null,
-          readiness: input.adapterProtocol ? 'ready' : 'resumable',
-          receiveHeartbeatAt: input.adapterProtocol ? now : null,
-          lastSeenAt: now,
-          archivedAt: null,
-          createdAt: now,
-          updatedAt: now,
-        };
-        await tx.insert(agentBusAddresses).values(address);
-      } else {
-        if (address.currentSessionId && address.currentSessionId !== sessionId) {
-          throw new ConflictError('Agent address is already bound to another lifecycle', 'agent_messaging_address_busy');
-        }
-        const nextGeneration = address.currentSessionId === sessionId ? address.bindingGeneration : address.bindingGeneration + 1;
-        const nextContinuity = input.continuity ?? (
-          address.currentSessionId === sessionId
-            ? address.continuity
-            : inferredContinuity ?? (input.upstreamSessionId || input.resumed ? 'native' : 'reset')
-        );
-        const nextUpstream = normalizeOptionalText(input.upstreamSessionId, 255) ?? (
-          nextContinuity === 'reset' ? null : address.lastUpstreamSessionId
-        );
-        await tx
-          .update(agentBusAddresses)
-          .set({
-            currentSessionId: sessionId,
-            lastUpstreamSessionId: nextUpstream,
-            bindingGeneration: nextGeneration,
-            continuity: nextContinuity,
-            adapterProtocol: normalizeOptionalText(input.adapterProtocol, 32),
-            adapterCapabilities: input.adapterCapabilities ?? null,
-            readiness: input.adapterProtocol ? 'ready' : 'resumable',
-            receiveHeartbeatAt: input.adapterProtocol ? now : null,
-            lastSeenAt: now,
-            updatedAt: now,
-          })
-          .where(eq(agentBusAddresses.id, address.id));
-        address = {
-          ...address,
-          currentSessionId: sessionId,
-          lastUpstreamSessionId: nextUpstream,
-          bindingGeneration: nextGeneration,
-          continuity: nextContinuity,
-        };
-      }
-      await tx
-        .update(agentSessions)
-        .set({
-          agentBusAddressId: address.id,
-          upstreamSessionId: normalizeOptionalText(input.upstreamSessionId, 255) ?? current.upstreamSessionId,
-          adapterProtocol: normalizeOptionalText(input.adapterProtocol, 32),
-          adapterCapabilities: input.adapterCapabilities ?? null,
-          receiveHeartbeatAt: input.adapterProtocol ? now : null,
-          bindingGeneration: address.bindingGeneration,
-          heartbeatAt: now,
-          bridgeExpiresAt,
-          updatedAt: now,
-        })
-        .where(eq(agentSessions.id, sessionId));
-      return { address, bridgeExpiresAt };
-    });
-    wsPublisher.publish('agent_messaging.address.changed', { address_id: result.address.id, host_id: host.id, engine: input.engine });
-    return {
-      enabled: true,
-      session_id: sessionId,
-      bridge_token: bridgeToken,
-      expires_at: result.bridgeExpiresAt,
-      address: publicAddress(result.address),
-    };
+    return this.sessions.registerSession(host, input);
   }
 
   async heartbeatSession(
@@ -480,439 +290,38 @@ export class AgentMessagingService {
       receiveCapable?: boolean;
       expectedBindingGeneration?: number | null;
       continuity?: 'native' | 'reset';
-      /**
-       * Return null instead of raising when this session never received a
-       * messaging address.
-       *
-       * The shared liveness heartbeat is sent by *every* managed session,
-       * including ones that registered while the fleet switch was off and so
-       * were never given an address. For those, messaging simply does not
-       * apply, and raising a conflict fails the whole shared heartbeat —
-       * taking Agent Portal down with it for the life of the session. An
-       * explicit bind keeps raising, because there the caller is asking for a
-       * binding it must be told it cannot have.
-       */
       skipIfUnbound?: boolean;
     },
   ): Promise<Record<string, unknown> | null> {
-    const authenticated = await this.authenticateBridge(sessionId, bridgeToken);
-    const now = nowIso();
-    const expiresAt = isoOffsetSeconds(this.env.AGENT_PORTAL_BRIDGE_TTL_SECONDS);
-    const result = await this.db.transaction(async (tx) => {
-      await this.requireEnabledLocked(tx);
-      const session = await this.requireBridgeSessionLocked(tx, authenticated.session.id, bridgeToken, authenticated.host.id);
-      if (!session.agentBusAddressId) {
-        if (input.skipIfUnbound) return null;
-        throw new ConflictError('Agent session has no messaging address', 'agent_messaging_address_missing');
-      }
-      const addressRows = await tx.select().from(agentBusAddresses).where(eq(agentBusAddresses.id, session.agentBusAddressId)).limit(1).for('update');
-      const address = addressRows[0];
-      if (!address || address.archivedAt || address.enabled !== 1) throw new ForbiddenError('Agent address is disabled', 'agent_messaging_address_disabled');
-      if (address.currentSessionId !== session.id) throw new ConflictError('Agent address binding changed', 'agent_messaging_binding_stale');
-      await this.assertAddressEligibleLocked(tx, address);
-      if (input.expectedBindingGeneration != null && address.bindingGeneration !== input.expectedBindingGeneration) {
-        throw new ConflictError('Agent address binding changed', 'agent_messaging_binding_stale');
-      }
-      const receiveHeartbeatAt = input.receiveCapable === undefined
-        ? session.receiveHeartbeatAt
-          ? now
-          : null
-        : input.receiveCapable
-          ? now
-          : null;
-      const protocol = normalizeOptionalText(input.adapterProtocol, 32) ?? session.adapterProtocol;
-      const upstream = normalizeOptionalText(input.upstreamSessionId, 255) ?? session.upstreamSessionId;
-      const status = normalizeSessionStatus(input.status) ?? session.status;
-      await tx
-        .update(agentSessions)
-        .set({
-          status,
-          upstreamSessionId: upstream,
-          adapterProtocol: protocol,
-          adapterCapabilities: input.adapterCapabilities ?? session.adapterCapabilities,
-          receiveHeartbeatAt,
-          heartbeatAt: now,
-          bridgeExpiresAt: expiresAt,
-          updatedAt: now,
-        })
-        .where(eq(agentSessions.id, session.id));
-      await tx
-        .update(agentBusAddresses)
-        .set({
-          lastUpstreamSessionId: upstream ?? address.lastUpstreamSessionId,
-          continuity: input.continuity ?? address.continuity,
-          adapterProtocol: protocol,
-          adapterCapabilities: input.adapterCapabilities ?? address.adapterCapabilities,
-          readiness: input.receiveCapable === undefined
-            ? address.readiness
-            : input.receiveCapable
-              ? 'live'
-              : upstream
-                ? 'resumable'
-                : 'offline',
-          receiveHeartbeatAt,
-          lastSeenAt: now,
-          updatedAt: now,
-        })
-        .where(eq(agentBusAddresses.id, address.id));
-      return { address, status };
-    });
-    if (!result) return null;
-    return {
-      enabled: true,
-      expires_at: expiresAt,
-      status: result.status,
-      address: publicAddress(result.address),
-    };
+    return this.sessions.heartbeatSession(sessionId, bridgeToken, input);
   }
 
   async finishSession(sessionId: string, bridgeToken: string, status: 'completed' | 'failed'): Promise<Record<string, unknown>> {
-    const authenticated = await this.authenticateBridge(sessionId, bridgeToken, true);
-    const now = nowIso();
-    await this.db.transaction(async (tx) => {
-      const rows = await tx.select().from(agentSessions).where(eq(agentSessions.id, sessionId)).limit(1).for('update');
-      const session = rows[0];
-      if (!session) return;
-      await tx
-        .update(agentSessions)
-        .set({ status, endedAt: session.endedAt ?? now, receiveHeartbeatAt: null, adapterProtocol: null, adapterCapabilities: null, updatedAt: now })
-        .where(eq(agentSessions.id, sessionId));
-      if (session.agentBusAddressId) {
-        await tx
-          .update(agentBusAddresses)
-          // The PIN dies with the session that opened it: it lives on the
-          // address, which outlives the session, so a survivor would leave a
-          // later join dialling an address with nobody on it.
-          .set({ currentSessionId: null, readiness: session.upstreamSessionId ? 'resumable' : 'offline', receiveHeartbeatAt: null, callPin: null, callPinExpiresAt: null, lastUpstreamSessionId: session.upstreamSessionId, lastSeenAt: now, updatedAt: now })
-          .where(and(eq(agentBusAddresses.id, session.agentBusAddressId), eq(agentBusAddresses.currentSessionId, sessionId)));
-      }
-    });
-    wsPublisher.publish('agent_messaging.address.changed', { address_id: authenticated.session.agentBusAddressId, status });
-    return { enabled: true, status };
+    return this.sessions.finishSession(sessionId, bridgeToken, status);
   }
 
   async listAddresses(sessionId: string, bridgeToken: string, filters: { engine?: Engine; hostId?: number; includeOffline?: boolean } = {}): Promise<Record<string, unknown>> {
-    const authenticated = await this.authenticateBridge(sessionId, bridgeToken);
-    const currentAddressId = authenticated.session.agentBusAddressId;
-    if (!currentAddressId) throw new ConflictError('Agent session has no messaging address', 'agent_messaging_address_missing');
-    const predicates = [
-      eq(agentBusAddresses.enabled, 1),
-      isNull(agentBusAddresses.archivedAt),
-      messagingHostEligibleSql(),
-      ne(agentBusAddresses.id, currentAddressId),
-    ];
-    if (filters.engine) predicates.push(eq(agentBusAddresses.engine, filters.engine));
-    if (filters.hostId) predicates.push(eq(agentBusAddresses.hostId, filters.hostId));
-    const rows = await this.db.transaction(async (tx) => {
-      await this.requireEnabledLocked(tx);
-      const current = await this.requireAddressLocked(tx, currentAddressId);
-      await this.assertSessionAddressLocked(tx, authenticated.session.id, current);
-      return await tx
-        .select({
-          address: agentBusAddresses,
-          fqdn: hosts.fqdn,
-          hostEngines: hosts.engines,
-          // Left, not inner: an address whose binding was reaped has no session
-          // row to join, and that absence is itself the answer.
-          session: { heartbeatAt: agentSessions.heartbeatAt, endedAt: agentSessions.endedAt },
-        })
-        .from(agentBusAddresses)
-        .innerJoin(hosts, eq(hosts.id, agentBusAddresses.hostId))
-        .leftJoin(agentSessions, eq(agentSessions.id, agentBusAddresses.currentSessionId))
-        .where(and(...predicates))
-        .orderBy(asc(agentBusAddresses.address));
-    });
-    const freshAfter = isoOffsetSeconds(-this.env.AGENT_PORTAL_HEARTBEAT_FRESH_SECONDS);
-    const ranked = rows
-      .filter((row) => hostEnginesList(row.hostEngines).includes(row.address.engine as Engine))
-      .map((row) => ({ ...row, presence: deriveAddressPresence(row.address, row.session, freshAfter) }))
-      // `online: true` reaches here as `includeOffline: false`. It filters on
-      // derived presence, not on `readiness`: that column is a registration
-      // latch, so the old blocklist reported a peer as reachable for as long as
-      // its row survived — a month, in the worst case observed live.
-      .filter((row) => filters.includeOffline !== false || isPresent(row.presence))
-      // Reachable first, then most recently seen. The old ordering was
-      // alphabetical by address, which is a UUID — so truncating it would have
-      // cut at random. Ranking is what makes the cap below safe.
-      .sort(
-        (a, b) =>
-          AGENT_PRESENCE_RANK[a.presence] - AGENT_PRESENCE_RANK[b.presence] ||
-          (a.address.lastSeenAt < b.address.lastSeenAt ? 1 : a.address.lastSeenAt > b.address.lastSeenAt ? -1 : 0),
-      );
-    // An address is never deleted when its agent exits, so this list is a
-    // history that only grows: 201 rows fleet-wide, 104 on one host, and 92 KB
-    // of JSON that overflowed the context of the agent that asked. Live peers
-    // number in the handful, so a ranked cap loses nothing a caller can act on
-    // — and says so rather than silently truncating.
-    const addresses = ranked.slice(0, AGENT_MESSAGING_LIST_LIMIT);
-    return {
-      addresses: addresses.map((row) => publicAddress(row.address, row.fqdn, row.presence)),
-      total: ranked.length,
-      ...(ranked.length > addresses.length ? { truncated: true } : {}),
-    };
+    return this.sessions.listAddresses(sessionId, bridgeToken, filters);
   }
 
-  /**
-   * Clear every PIN whose window has closed.
-   *
-   * Runs before any mint or redeem, and again on the maintenance tick. An
-   * expired-but-uncleared PIN still occupies its slot in the unique index, so
-   * without this the mint-from-complement scan would treat a dead rendezvous as
-   * a live one.
-   */
-  private async sweepCallPinsLocked(db: AgentMessagingDb, now: string): Promise<void> {
-    await db
-      .update(agentBusAddresses)
-      .set({ callPin: null, callPinExpiresAt: null, updatedAt: now })
-      .where(and(isNotNull(agentBusAddresses.callPin), lte(agentBusAddresses.callPinExpiresAt, now)));
-    // Conference PINs share the four-digit space and therefore the sweep. A dead
-    // room PIN left in place would occupy a slot the call mint cannot reuse.
-    await db
-      .update(agentBusConferences)
-      .set({ pin: null, pinExpiresAt: null, updatedAt: now })
-      .where(and(isNotNull(agentBusConferences.pin), lte(agentBusConferences.pinExpiresAt, now)));
-  }
+  // =====================================================================
+  // Calls -- delegated to `CallCoordinator`, which also owns the PIN space.
+  // =====================================================================
 
-  /**
-   * Every PIN currently spoken for, across both rendezvous kinds.
-   *
-   * The two spaces are deliberately one space. A human carrying four digits from
-   * one terminal to another cannot be expected to also carry which *kind* of
-   * thing those digits open, and `#call receiver 4821` against a conference PIN
-   * should fail as "wrong kind" rather than silently dial an unrelated stranger
-   * who happens to hold the same number. MySQL cannot express a UNIQUE across
-   * two tables, so the invariant lives here, in the mint.
-   */
-  private async livePinsLocked(db: AgentMessagingDb): Promise<Set<string>> {
-    const addressRows = await db
-      .select({ pin: agentBusAddresses.callPin })
-      .from(agentBusAddresses)
-      .where(isNotNull(agentBusAddresses.callPin))
-      .for('update');
-    const conferenceRows = await db
-      .select({ pin: agentBusConferences.pin })
-      .from(agentBusConferences)
-      .where(isNotNull(agentBusConferences.pin))
-      .for('update');
-    return new Set(
-      [...addressRows, ...conferenceRows].map((row) => row.pin).filter((pin): pin is string => pin !== null),
-    );
-  }
-
-  /**
-   * Choose from the complement of the live set rather than retrying random
-   * values against a unique index: a duplicate insert inside a transaction would
-   * surface as a driver-level ER_DUP_ENTRY this layer would have to
-   * pattern-match, and exhaustion would be indistinguishable from bad luck.
-   */
-  private pickFreePin(taken: Set<string>): string {
-    const free: string[] = [];
-    for (let candidate = 0; candidate < AGENT_MESSAGING_CALL_PIN_SPACE; candidate += 1) {
-      const pin = String(candidate).padStart(4, '0');
-      if (!taken.has(pin)) free.push(pin);
-    }
-    if (free.length === 0) {
-      throw new ConflictError('No call PIN is available', 'agent_messaging_call_pin_exhausted');
-    }
-    return free[randomInt(free.length)]!;
-  }
-
-  /** Pick a free PIN and bind it to this address. */
-  private async mintCallPinLocked(
-    db: AgentMessagingDb,
-    addressId: string,
-    expiresAt: string,
-    now: string,
-  ): Promise<string> {
-    const pin = this.pickFreePin(await this.livePinsLocked(db));
-    await db
-      .update(agentBusAddresses)
-      .set({ callPin: pin, callPinExpiresAt: expiresAt, updatedAt: now })
-      .where(eq(agentBusAddresses.id, addressId));
-    return pin;
-  }
-
-
-  /**
-   * Resolve a PIN to the address that opened it.
-   *
-   * Deliberately does not clear the PIN: the caller clears it only once the join
-   * has fully succeeded, so a join that fails validation, targets itself, or
-   * finds an ineligible opener leaves the rendezvous intact. One mistyped join
-   * must not burn a PIN the human is still holding.
-   *
-   * The failure names all three ways a lookup comes up empty rather than
-   * guessing between them, because nothing here can tell them apart: a swept PIN
-   * and a spent PIN both leave the same NULL, and the four-digit space is shared
-   * with conferences and re-minted constantly, so any remembered "last PIN"
-   * would sooner or later belong to a stranger. The third cause is the one worth
-   * spelling out — a human who hands one PIN to a third agent reads "not found"
-   * as a typo and re-reads the digits, when what they actually want is a
-   * conference.
-   */
-  private async consumeCallPinLocked(db: AgentMessagingDb, pin: string, now: string): Promise<AgentBusAddress> {
-    const rows = await db
-      .select()
-      .from(agentBusAddresses)
-      .where(and(eq(agentBusAddresses.callPin, pin), gt(agentBusAddresses.callPinExpiresAt, now)))
-      .limit(1)
-      .for('update');
-    const address = rows[0];
-    if (!address || address.archivedAt) {
-      throw new NotFoundError(
-        'Call PIN not found, expired, or already dialled. A call PIN is single-use and joins exactly two agents; for three or more, open a conference instead.',
-        'agent_messaging_call_pin_not_found',
-      );
-    }
-    return address;
-  }
-
-  private async clearCallPinLocked(db: AgentMessagingDb, addressId: string, now: string): Promise<void> {
-    await db
-      .update(agentBusAddresses)
-      .set({ callPin: null, callPinExpiresAt: null, updatedAt: now })
-      .where(eq(agentBusAddresses.id, addressId));
-  }
-
-  /**
-   * Open a `#call` rendezvous: mint a PIN a peer can dial, and tell the caller
-   * its own address.
-   *
-   * `self` is the only route by which an agent learns its own address —
-   * `listAddresses` excludes the caller by construction.
-   */
   async openCall(
     sessionId: string,
     bridgeToken: string,
     input: { ttlSeconds?: number | null } = {},
   ): Promise<Record<string, unknown>> {
-    const authenticated = await this.authenticateBridge(sessionId, bridgeToken);
-    if (!authenticated.session.agentBusAddressId) {
-      throw new ConflictError('Agent session has no messaging address', 'agent_messaging_address_missing');
-    }
-    const ttlSeconds = normalizeCallPinTtl(input.ttlSeconds);
-    const result = await this.db.transaction(async (tx) => {
-      await this.requireEnabledLocked(tx);
-      const now = nowIso();
-      await this.sweepCallPinsLocked(tx, now);
-      const self = await this.requireAddressLocked(tx, authenticated.session.agentBusAddressId!);
-      await this.assertSessionAddressLocked(tx, authenticated.session.id, self);
-      await this.assertAddressEligibleLocked(tx, self);
-      // Re-opening while a PIN is still live returns the same one. Minting a
-      // second would silently kill a PIN the human may already have written down.
-      if (self.callPin && self.callPinExpiresAt && self.callPinExpiresAt > now) {
-        return { pin: self.callPin, expiresAt: self.callPinExpiresAt, reused: true, self };
-      }
-      const expiresAt = isoOffsetSeconds(ttlSeconds);
-      const pin = await this.mintCallPinLocked(tx, self.id, expiresAt, now);
-      return { pin, expiresAt, reused: false, self };
-    });
-    return {
-      enabled: true,
-      pin: result.pin,
-      expires_at: result.expiresAt,
-      reused: result.reused,
-      self: publicAddress(result.self),
-    };
+    return this.call.openCall(sessionId, bridgeToken, input);
   }
 
-  /**
-   * Dial a PIN: open the conversation and deliver the first message in one step.
-   *
-   * The hello is folded in for atomicity — PIN consumed, conversation opened and
-   * first message queued all commit together. Split across two calls, a failed
-   * follow-up send would leave a consumed single-use PIN, an orphan conversation
-   * and an opener waiting on a rendezvous it can no longer be reached through.
-   */
   async joinCall(
     sessionId: string,
     bridgeToken: string,
     input: { pin: string; content: string; clientMessageId: string; ttlSeconds?: number | null },
   ): Promise<Record<string, unknown>> {
-    const authenticated = await this.authenticateBridge(sessionId, bridgeToken);
-    if (!authenticated.session.agentBusAddressId) {
-      throw new ConflictError('Agent session has no messaging address', 'agent_messaging_address_missing');
-    }
-    const pin = normalizeCallPin(input.pin);
-    const content = normalizeMessageBody(input.content);
-    const clientMessageId = normalizeUuid(input.clientMessageId, 'client_message_id');
-    const ttlSeconds = normalizeMessageTtl(input.ttlSeconds);
-    const result = await this.db.transaction(async (tx) => {
-      await this.requireEnabledLocked(tx);
-      const now = nowIso();
-      await this.sweepCallPinsLocked(tx, now);
-      const opener = await this.consumeCallPinLocked(tx, pin, now);
-      const self = await this.requireAddressLocked(tx, authenticated.session.agentBusAddressId!);
-      await this.assertSessionAddressLocked(tx, authenticated.session.id, self);
-      if (self.id === opener.id) {
-        throw new ValidationError('An agent cannot call itself', { param: 'pin' });
-      }
-      await this.assertAddressEligibleLocked(tx, opener);
-
-      const conversation: AgentBusConversation = {
-        id: randomUUID(),
-        addressAId: opener.id,
-        addressBId: self.id,
-        createdByAddressId: self.id,
-        nextSequence: 1,
-        status: 'open',
-        lastActivityAt: now,
-        canceledBy: null,
-        cancelReason: null,
-        canceledAt: null,
-        createdAt: now,
-        updatedAt: now,
-      };
-      await tx.insert(agentBusConversations).values(conversation);
-      const messageId = randomUUID();
-      await tx.insert(agentBusMessages).values(
-        newQueuedMessage({
-          id: messageId,
-          conversationId: conversation.id,
-          sequence: 1,
-          sender: self,
-          senderSessionId: authenticated.session.id,
-          target: opener,
-          kind: 'message',
-          content,
-          contentEnc: encrypt(content, this.keyring),
-          clientMessageId,
-          expiresAt: isoOffsetSeconds(ttlSeconds),
-          now,
-        }),
-      );
-      const persistedRows = await tx.select().from(agentBusMessages).where(eq(agentBusMessages.id, messageId)).limit(1);
-      const persisted = persistedRows[0];
-      if (!persisted) throw new Error('Inserted agent message could not be read back');
-      await tx
-        .update(agentBusConversations)
-        .set({ nextSequence: 2, lastActivityAt: now, updatedAt: now })
-        .where(eq(agentBusConversations.id, conversation.id));
-      // Single-use, and consumed only here — after every check has passed.
-      await this.clearCallPinLocked(tx, opener.id, now);
-      return { conversation, message: persisted, self, opener };
-    });
-    await this.recordRuntime('agent_message.queued', authenticated.host.id, result.self.engine, {
-      message_id: result.message.id,
-      conversation_id: result.message.conversationId,
-      source_address_id: result.self.id,
-      target_address_id: result.opener.id,
-      source_engine: result.self.engine,
-      target_engine: result.opener.engine,
-      content_bytes: result.message.contentBytes,
-    });
-    wsPublisher.publish('agent_messaging.message.changed', {
-      message_id: result.message.id,
-      conversation_id: result.message.conversationId,
-      status: result.message.status,
-    });
-    return {
-      enabled: true,
-      conversation_id: result.conversation.id,
-      peer: publicAddress(result.opener),
-      self: publicAddress(result.self),
-      message: messageForParticipant(result.message, content, result.self, result.opener),
-    };
+    return this.call.joinCall(sessionId, bridgeToken, input);
   }
 
   // =====================================================================
@@ -1711,7 +1120,7 @@ export class AgentMessagingService {
       // Expired PINs are also swept at mint and redeem time; doing it here as
       // well means a PIN nobody ever dials does not squat its slot in the unique
       // index until the next `#call` happens to run.
-      await this.sweepCallPinsLocked(tx, now);
+      await this.call.sweepCallPinsLocked(tx, now);
       const expiring = await tx.select({ value: count() }).from(agentBusMessages).where(and(inArray(agentBusMessages.status, ['queued', 'leased']), lte(agentBusMessages.expiresAt, now)));
       const retryable = await tx.select({ value: count() }).from(agentBusMessages).where(and(eq(agentBusMessages.status, 'leased'), lte(agentBusMessages.leaseUntil, now), lte(agentBusMessages.attempts, AGENT_MESSAGING_MAX_DELIVERY_ATTEMPTS - 1), gt(agentBusMessages.expiresAt, now)));
       const exhausted = await tx.select({ value: count() }).from(agentBusMessages).where(and(eq(agentBusMessages.status, 'leased'), lte(agentBusMessages.leaseUntil, now), gt(agentBusMessages.attempts, AGENT_MESSAGING_MAX_DELIVERY_ATTEMPTS - 1)));
@@ -2302,200 +1711,6 @@ export class AgentMessagingService {
   }
 }
 
-/**
- * Apply the destructive half of an eligibility transition inside the caller's
- * transaction. Host security, engine, uninstall, and pruning code use this
- * primitive so their host-row mutation cannot commit while bus cleanup fails.
- */
-export async function suspendAgentMessagingRuntimeLocked(
-  db: AgentMessagingDb,
-  hostId: number,
-  reason: 'host_inactive' | 'host_auth_rotated' | 'engine_disabled',
-  engines?: Engine[],
-): Promise<{ canceled: number; ambiguous: number; conversations: number; relays: number; bindings: number }> {
-  const now = nowIso();
-  const hostRows = await db.select().from(hosts).where(eq(hosts.id, hostId)).limit(1).for('update');
-  if (!hostRows[0]) throw new NotFoundError('Host not found', 'host_not_found');
-  const addressPredicate = engines?.length
-    ? and(eq(agentBusAddresses.hostId, hostId), inArray(agentBusAddresses.engine, engines))
-    : eq(agentBusAddresses.hostId, hostId);
-  const addressRows = await db
-    .select({ id: agentBusAddresses.id })
-    .from(agentBusAddresses)
-    .where(addressPredicate)
-    .for('update');
-  const addressIds = addressRows.map((row) => row.id);
-  let canceled = 0;
-  let ambiguous = 0;
-  let conversations = 0;
-  if (addressIds.length > 0) {
-    const messageScope = or(
-      inArray(agentBusMessages.senderAddressId, addressIds),
-      inArray(agentBusMessages.targetAddressId, addressIds),
-    );
-    const conversationScope = or(
-      inArray(agentBusConversations.addressAId, addressIds),
-      inArray(agentBusConversations.addressBId, addressIds),
-    );
-    const [pending, uncertain, open] = await Promise.all([
-      db.select({ value: count() }).from(agentBusMessages).where(and(inArray(agentBusMessages.status, [...CANCELABLE_MESSAGE_STATUSES]), messageScope)),
-      db.select({ value: count() }).from(agentBusMessages).where(and(eq(agentBusMessages.status, 'accepted'), messageScope)),
-      db.select({ value: count() }).from(agentBusConversations).where(and(eq(agentBusConversations.status, 'open'), conversationScope)),
-    ]);
-    canceled = Number(pending[0]?.value ?? 0);
-    ambiguous = Number(uncertain[0]?.value ?? 0);
-    conversations = Number(open[0]?.value ?? 0);
-    await db
-      .update(agentBusMessages)
-      .set({ status: 'canceled', cancelRequestedAt: now, canceledAt: now, leaseOwner: null, leaseUntil: null, updatedAt: now })
-      .where(and(inArray(agentBusMessages.status, [...CANCELABLE_MESSAGE_STATUSES]), messageScope));
-    await db
-      .update(agentBusMessages)
-      .set({ status: 'ambiguous', ambiguousAt: now, lastErrorCode: `${reason}_after_accept`, leaseOwner: null, leaseUntil: null, updatedAt: now })
-      .where(and(eq(agentBusMessages.status, 'accepted'), messageScope));
-    await db
-      .update(agentBusConversations)
-      .set({
-        status: 'canceled',
-        canceledBy: `system:${reason}`,
-        cancelReason: reason === 'engine_disabled'
-          ? 'Agent engine disabled for host'
-          : 'Host is no longer eligible for Agent Messaging',
-        canceledAt: now,
-        updatedAt: now,
-      })
-      .where(and(eq(agentBusConversations.status, 'open'), conversationScope));
-    // Conferences outlive individual conversations, so cancelling the spokes is
-    // not enough: a room whose chair has just been made ineligible would stay
-    // `open` forever, holding its PIN and admitting joiners to a meeting nobody
-    // can run. Close the rooms these addresses chair, and seat-release them from
-    // any room they merely attend.
-    await db
-      .update(agentBusConferences)
-      .set({
-        status: 'adjourned',
-        adjournReason: reason === 'engine_disabled' ? 'Agent engine disabled for host' : 'Host is no longer eligible for Agent Messaging',
-        adjournedAt: now,
-        pin: null,
-        pinExpiresAt: null,
-        updatedAt: now,
-      })
-      .where(and(ne(agentBusConferences.status, 'adjourned'), inArray(agentBusConferences.ownerAddressId, addressIds)));
-    await db
-      .update(agentBusConferenceMembers)
-      .set({ state: 'left', leftAt: now, dispatchMessageId: null, dispatchDeadlineAt: null, updatedAt: now })
-      .where(and(ne(agentBusConferenceMembers.state, 'left'), inArray(agentBusConferenceMembers.addressId, addressIds)));
-    await db
-      .update(agentBusAddresses)
-      .set({
-        currentSessionId: null,
-        readiness: 'disabled',
-        receiveHeartbeatAt: null,
-        bindingGeneration: sql`${agentBusAddresses.bindingGeneration} + 1`,
-        updatedAt: now,
-      })
-      .where(inArray(agentBusAddresses.id, addressIds));
-    await db
-      .update(agentSessions)
-      .set({
-        adapterProtocol: null,
-        adapterCapabilities: null,
-        receiveHeartbeatAt: null,
-        bindingGeneration: sql`${agentSessions.bindingGeneration} + 1`,
-        updatedAt: now,
-      })
-      .where(inArray(agentSessions.agentBusAddressId, addressIds));
-  }
-  const relayRows = engines?.length
-    ? [{ value: 0 }]
-    : await db.select({ value: count() }).from(agentBusRelays).where(and(eq(agentBusRelays.hostId, hostId), eq(agentBusRelays.status, 'active')));
-  if (!engines?.length) {
-    await db
-      .update(agentBusRelays)
-      .set({ status: 'revoked', tokenHash: null, tokenExpiresAt: null, stopRequestedAt: now, updatedAt: now })
-      .where(and(eq(agentBusRelays.hostId, hostId), eq(agentBusRelays.status, 'active')));
-  }
-  return {
-    canceled,
-    ambiguous,
-    conversations,
-    relays: Number(relayRows[0]?.value ?? 0),
-    bindings: addressIds.length,
-  };
-}
-
-export async function releaseAgentMessagingBindingsLocked(
-  db: AgentMessagingDb,
-  sessionIds: string[],
-  now = nowIso(),
-): Promise<number> {
-  if (sessionIds.length === 0) return 0;
-  const rows = await db
-    .select({ address: agentBusAddresses, session: agentSessions })
-    .from(agentBusAddresses)
-    .innerJoin(agentSessions, eq(agentSessions.id, agentBusAddresses.currentSessionId))
-    .where(inArray(agentSessions.id, sessionIds))
-    .for('update');
-  for (const row of rows) {
-    const upstream = row.session.upstreamSessionId ?? row.address.lastUpstreamSessionId;
-    await db
-      .update(agentBusAddresses)
-      .set({
-        currentSessionId: null,
-        lastUpstreamSessionId: upstream,
-        adapterProtocol: null,
-        adapterCapabilities: null,
-        readiness: upstream ? 'resumable' : 'offline',
-        receiveHeartbeatAt: null,
-        // Same reason as finishSession: a reaped binding must not leave a live
-        // PIN pointing at an address that is no longer on the line.
-        callPin: null,
-        callPinExpiresAt: null,
-        bindingGeneration: row.address.bindingGeneration + 1,
-        lastSeenAt: now,
-        updatedAt: now,
-      })
-      .where(and(eq(agentBusAddresses.id, row.address.id), eq(agentBusAddresses.currentSessionId, row.session.id)));
-  }
-  const boundSessionIds = rows.map((row) => row.session.id);
-  if (boundSessionIds.length > 0) {
-    await db
-      .update(agentSessions)
-      .set({
-        adapterProtocol: null,
-        adapterCapabilities: null,
-        receiveHeartbeatAt: null,
-        bindingGeneration: sql`${agentSessions.bindingGeneration} + 1`,
-        updatedAt: now,
-      })
-      .where(inArray(agentSessions.id, boundSessionIds));
-  }
-  return rows.length;
-}
-
-export async function reapExpiredAgentMessagingBindingsLocked(
-  db: AgentMessagingDb,
-  now = nowIso(),
-  scope: { hostId?: number; engine?: Engine; username?: string } = {},
-): Promise<number> {
-  const predicates = [
-    or(isNotNull(agentSessions.endedAt), lte(agentSessions.bridgeExpiresAt, now)),
-  ];
-  if (scope.hostId != null) predicates.push(eq(agentBusAddresses.hostId, scope.hostId));
-  if (scope.engine) predicates.push(eq(agentBusAddresses.engine, scope.engine));
-  if (scope.username) predicates.push(eq(agentBusAddresses.username, scope.username));
-  const rows = await db
-    .select({ sessionId: agentSessions.id })
-    .from(agentBusAddresses)
-    .innerJoin(agentSessions, eq(agentSessions.id, agentBusAddresses.currentSessionId))
-    .where(and(...predicates))
-    .for('update');
-  return await releaseAgentMessagingBindingsLocked(
-    db,
-    [...new Set(rows.map((row) => row.sessionId))],
-    now,
-  );
-}
 
 export function createAgentMessagingService(db: Database, env: Env, keyring: Keyring): AgentMessagingService {
   return new AgentMessagingService(db, env, keyring);
