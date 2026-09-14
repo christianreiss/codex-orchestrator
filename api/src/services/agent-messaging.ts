@@ -1,4 +1,4 @@
-import { randomBytes, randomInt, randomUUID, timingSafeEqual } from 'node:crypto';
+import { randomBytes, randomInt, randomUUID } from 'node:crypto';
 import {
   and,
   asc,
@@ -55,188 +55,141 @@ import {
   AGENT_PRESENCE_RANK,
   deriveAddressPresence,
   isPresent,
-  type AgentAddressPresence,
 } from './agent-presence.js';
 import { hostEnginesList } from './host-engine-policy.js';
-import { insecureWindowActive } from './insecure-window.js';
 import { isTruthyFlagValue, SettingsService } from './settings.js';
 
-export const AGENT_MESSAGING_ENABLED_KEY = 'agent_messaging_enabled';
-export const AGENT_MESSAGING_MAX_BODY_BYTES = 32 * 1024;
-export const AGENT_MESSAGING_DEFAULT_TTL_SECONDS = 24 * 60 * 60;
-export const AGENT_MESSAGING_MIN_TTL_SECONDS = 60;
-export const AGENT_MESSAGING_MAX_TTL_SECONDS = 7 * 24 * 60 * 60;
-export const AGENT_MESSAGING_MAX_DELIVERY_ATTEMPTS = 12;
-export const AGENT_MESSAGING_LEASE_SECONDS = 60;
-export const AGENT_MESSAGING_RELAY_TOKEN_SECONDS = 15 * 60;
-export const AGENT_MESSAGING_RECEIVE_FRESH_SECONDS = 45;
-/**
- * Most addresses a single `agent_list` will return. Reachable peers are ranked
- * first, so this only ever truncates the dead tail; the reply carries `total`
- * and `truncated` so a caller is never quietly shown a partial fleet.
+import {
+  AGENT_MESSAGING_CALL_PIN_SPACE,
+  AGENT_MESSAGING_CONFERENCE_MEMBER_MESSAGE_CAP,
+  AGENT_MESSAGING_DEFAULT_TTL_SECONDS,
+  AGENT_MESSAGING_ENABLED_KEY,
+  AGENT_MESSAGING_LEASE_SECONDS,
+  AGENT_MESSAGING_LIST_LIMIT,
+  AGENT_MESSAGING_MAILBOX_PAGE_SIZE,
+  AGENT_MESSAGING_MAX_BODY_BYTES,
+  AGENT_MESSAGING_MAX_DELIVERY_ATTEMPTS,
+  AGENT_MESSAGING_MISSED_WINDOW_SECONDS,
+  AGENT_MESSAGING_RECEIVE_FRESH_SECONDS,
+  AGENT_MESSAGING_RELAY_TOKEN_SECONDS,
+  AGENT_MESSAGING_WAIT_PAGE_SIZE,
+  CANCELABLE_MESSAGE_STATUSES,
+  LIVE_MESSAGE_STATUSES,
+  TERMINAL_MESSAGE_STATUSES,
+} from './agent-messaging/constants.js';
+import {
+  type AgentMessagingDb,
+  type AgentMessagingOutcome,
+  type MessageDelivery,
+  type RegisterMessagingSessionInput,
+} from './agent-messaging/types.js';
+import {
+  deliveryBackoffSeconds,
+  normalizeAgentAlias,
+  normalizeBridgeToken,
+  normalizeCallPin,
+  normalizeCallPinTtl,
+  normalizeConferenceMaxMembers,
+  normalizeConferenceTtl,
+  normalizeDispatchEta,
+  normalizeErrorCode,
+  normalizeMessageBody,
+  normalizeMessageTtl,
+  normalizeOptionalText,
+  normalizeRequiredText,
+  normalizeSessionStatus,
+  normalizeUuid,
+} from './agent-messaging/normalize.js';
+import {
+  conversationMetadata,
+  deliveryView,
+  messageForParticipant,
+  messageMetadata,
+  newQueuedMessage,
+  publicAddress,
+  publicConferenceMember,
+} from './agent-messaging/views.js';
+import {
+  conferenceEnvelope,
+  conferenceInviteBody,
+  conferenceMessageExpiry,
+} from './agent-messaging/conference-protocol.js';
+import {
+  addressIneligibleReason,
+  conversationIncludes,
+  messagingHostEligible,
+  messagingHostEligibleSql,
+} from './agent-messaging/eligibility.js';
+import {
+  errorCodeOf,
+  errorMessageOf,
+  hostAuthFingerprint,
+  isDuplicateKeyError,
+  relayIdFromLeaseOwner,
+  safeHashEqual,
+  sessionIdFromLeaseOwner,
+} from './agent-messaging/internals.js';
+
+/*
+ * Agent Messaging: the fleet message bus.
+ *
+ * `AgentMessagingService` is the interface every caller uses; the modules under
+ * `agent-messaging/` are its implementation, imported here and re-exported where
+ * they were part of the published surface. Splitting them out keeps this file
+ * about orchestration rather than about string shapes and row projections.
  */
-export const AGENT_MESSAGING_LIST_LIMIT = 50;
-export const AGENT_MESSAGING_WAIT_PAGE_SIZE = 100;
-export const AGENT_MESSAGING_CALL_PIN_TTL_SECONDS = 10 * 60;
-export const AGENT_MESSAGING_CALL_PIN_MIN_TTL_SECONDS = 60;
-export const AGENT_MESSAGING_CALL_PIN_MAX_TTL_SECONDS = 60 * 60;
-/** `0000`..`9999`. The PIN is read aloud off one terminal into another, so it stays four digits. */
-export const AGENT_MESSAGING_CALL_PIN_SPACE = 10_000;
-/** How far back a mailbox peek reports calls that expired unanswered. */
-export const AGENT_MESSAGING_MISSED_WINDOW_SECONDS = 30 * 60;
-export const AGENT_MESSAGING_CONFERENCE_TTL_SECONDS = 60 * 60;
-export const AGENT_MESSAGING_CONFERENCE_MIN_TTL_SECONDS = 5 * 60;
-export const AGENT_MESSAGING_CONFERENCE_MAX_TTL_SECONDS = 6 * 60 * 60;
-/**
- * A room of eight is already 8 engine boots per broadcast round on the headless
- * path. The cap is about what a chair can actually run, not what the tables hold.
- */
-export const AGENT_MESSAGING_CONFERENCE_MAX_MEMBERS = 8;
-/**
- * Messages one member may exchange with the chair before the room is out of
- * budget. The 1:1 call's sixteen-turn bound is meaningless here -- a single
- * broadcast round across five members is already ten-plus messages -- so the
- * budget is per member and the deadline is wall-clock.
- */
-export const AGENT_MESSAGING_CONFERENCE_MEMBER_MESSAGE_CAP = 12;
-/** Shortest dispatch window. A headless task must survive at least one engine boot. */
-export const AGENT_MESSAGING_CONFERENCE_DISPATCH_FLOOR_SECONDS = 15 * 60;
-export const AGENT_MESSAGING_CONFERENCE_DISPATCH_MAX_SECONDS = 4 * 60 * 60;
-/** Most rows a single mailbox peek will report. It runs on every turn boundary; keep it cheap. */
-export const AGENT_MESSAGING_MAILBOX_PAGE_SIZE = 20;
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
-const CALL_PIN_RE = /^[0-9]{4}$/;
-const LIVE_MESSAGE_STATUSES = ['queued', 'leased', 'accepted'] as const;
-const CANCELABLE_MESSAGE_STATUSES = ['queued', 'leased'] as const;
-const TERMINAL_MESSAGE_STATUSES = ['completed', 'ambiguous', 'dead', 'expired', 'canceled'] as const;
+export {
+  AGENT_MESSAGING_CALL_PIN_MAX_TTL_SECONDS,
+  AGENT_MESSAGING_CALL_PIN_MIN_TTL_SECONDS,
+  AGENT_MESSAGING_CALL_PIN_SPACE,
+  AGENT_MESSAGING_CALL_PIN_TTL_SECONDS,
+  AGENT_MESSAGING_CONFERENCE_DISPATCH_FLOOR_SECONDS,
+  AGENT_MESSAGING_CONFERENCE_DISPATCH_MAX_SECONDS,
+  AGENT_MESSAGING_CONFERENCE_MAX_MEMBERS,
+  AGENT_MESSAGING_CONFERENCE_MAX_TTL_SECONDS,
+  AGENT_MESSAGING_CONFERENCE_MEMBER_MESSAGE_CAP,
+  AGENT_MESSAGING_CONFERENCE_MIN_TTL_SECONDS,
+  AGENT_MESSAGING_CONFERENCE_TTL_SECONDS,
+  AGENT_MESSAGING_DEFAULT_TTL_SECONDS,
+  AGENT_MESSAGING_ENABLED_KEY,
+  AGENT_MESSAGING_LEASE_SECONDS,
+  AGENT_MESSAGING_LIST_LIMIT,
+  AGENT_MESSAGING_MAILBOX_PAGE_SIZE,
+  AGENT_MESSAGING_MAX_BODY_BYTES,
+  AGENT_MESSAGING_MAX_DELIVERY_ATTEMPTS,
+  AGENT_MESSAGING_MAX_TTL_SECONDS,
+  AGENT_MESSAGING_MIN_TTL_SECONDS,
+  AGENT_MESSAGING_MISSED_WINDOW_SECONDS,
+  AGENT_MESSAGING_RECEIVE_FRESH_SECONDS,
+  AGENT_MESSAGING_RELAY_TOKEN_SECONDS,
+  AGENT_MESSAGING_WAIT_PAGE_SIZE,
+} from './agent-messaging/constants.js';
 
-export type AgentMessagingDb = Pick<Database, 'insert' | 'update' | 'select' | 'delete'>;
+export {
+  type AgentMessagingDb,
+  type AgentMessagingOutcome,
+  type MessageDelivery,
+  type RegisterMessagingSessionInput,
+} from './agent-messaging/types.js';
 
-export type AgentMessagingOutcome = 'accepted' | 'completed' | 'retry' | 'dead' | 'ambiguous';
+export {
+  deliveryBackoffSeconds,
+  normalizeAgentAlias,
+  normalizeCallPin,
+  normalizeCallPinTtl,
+  normalizeConferenceMaxMembers,
+  normalizeConferenceTtl,
+  normalizeDispatchEta,
+  normalizeMessageBody,
+  normalizeMessageTtl,
+} from './agent-messaging/normalize.js';
 
-export interface RegisterMessagingSessionInput {
-  engine: Engine;
-  username: string;
-  cwd: string;
-  upstreamSessionId?: string | null;
-  invocationKind: 'interactive' | 'execute' | 'peer_delivery';
-  resumed?: boolean;
-  sessionId: string;
-  bridgeToken: string;
-  requestedAddress?: string | null;
-  expectedBindingGeneration?: number | null;
-  continuity?: 'native' | 'reset';
-  adapterProtocol?: string | null;
-  adapterCapabilities?: Record<string, unknown> | null;
-}
+export {
+  messagingHostEligible,
+  messagingHostEligibleSql,
+} from './agent-messaging/eligibility.js';
 
-export interface MessageDelivery {
-  message_id: string;
-  conversation_id: string;
-  sequence: number;
-  reply_to_message_id: string | null;
-  kind: string;
-  content: string;
-  content_bytes: number;
-  sender: Record<string, unknown>;
-  target: Record<string, unknown>;
-  attempts: number;
-  claim_id: string;
-  lease_owner: string;
-  lease_until: string;
-  expires_at: string;
-}
-
-export function normalizeMessageBody(value: unknown): string {
-  if (typeof value !== 'string' || value.trim() === '') {
-    throw new ValidationError('message body must not be empty', { param: 'content' });
-  }
-  const bytes = Buffer.byteLength(value, 'utf8');
-  if (bytes > AGENT_MESSAGING_MAX_BODY_BYTES) {
-    throw new ValidationError('message body exceeds 32 KiB', { param: 'content' });
-  }
-  return value;
-}
-
-export function normalizeCallPin(value: unknown): string {
-  // Always a string. A number would drop the leading zeros of `0042`.
-  const pin = typeof value === 'string' ? value.trim() : '';
-  if (!CALL_PIN_RE.test(pin)) {
-    throw new ValidationError('pin must be four digits', { param: 'pin' });
-  }
-  return pin;
-}
-
-export function normalizeCallPinTtl(value: unknown): number {
-  if (value === undefined || value === null) return AGENT_MESSAGING_CALL_PIN_TTL_SECONDS;
-  const ttl = Number(value);
-  if (
-    !Number.isSafeInteger(ttl) ||
-    ttl < AGENT_MESSAGING_CALL_PIN_MIN_TTL_SECONDS ||
-    ttl > AGENT_MESSAGING_CALL_PIN_MAX_TTL_SECONDS
-  ) {
-    throw new ValidationError('ttl_seconds must be between 60 and 3600', { param: 'ttl_seconds' });
-  }
-  return ttl;
-}
-
-export function normalizeConferenceTtl(value: unknown): number {
-  if (value === undefined || value === null) return AGENT_MESSAGING_CONFERENCE_TTL_SECONDS;
-  const ttl = Number(value);
-  if (
-    !Number.isSafeInteger(ttl) ||
-    ttl < AGENT_MESSAGING_CONFERENCE_MIN_TTL_SECONDS ||
-    ttl > AGENT_MESSAGING_CONFERENCE_MAX_TTL_SECONDS
-  ) {
-    throw new ValidationError('ttl_seconds must be between 300 and 21600', { param: 'ttl_seconds' });
-  }
-  return ttl;
-}
-
-export function normalizeConferenceMaxMembers(value: unknown): number {
-  if (value === undefined || value === null) return AGENT_MESSAGING_CONFERENCE_MAX_MEMBERS;
-  const max = Number(value);
-  if (!Number.isSafeInteger(max) || max < 2 || max > AGENT_MESSAGING_CONFERENCE_MAX_MEMBERS) {
-    throw new ValidationError(`max_members must be between 2 and ${AGENT_MESSAGING_CONFERENCE_MAX_MEMBERS}`, {
-      param: 'max_members',
-    });
-  }
-  return max;
-}
-
-export function normalizeDispatchEta(value: unknown): number {
-  if (value === undefined || value === null) return AGENT_MESSAGING_CONFERENCE_DISPATCH_FLOOR_SECONDS;
-  const eta = Number(value);
-  if (!Number.isSafeInteger(eta) || eta < 0 || eta > AGENT_MESSAGING_CONFERENCE_DISPATCH_MAX_SECONDS) {
-    throw new ValidationError('eta_seconds must be between 0 and 14400', { param: 'eta_seconds' });
-  }
-  // The floor is not a minimum the caller asked for -- it is how long the sweep
-  // waits before declaring a silent member stuck. A task that claims it needs
-  // thirty seconds still gets the full grace period, because a headless run
-  // spends most of that booting an engine.
-  return Math.max(eta, AGENT_MESSAGING_CONFERENCE_DISPATCH_FLOOR_SECONDS);
-}
-
-export function normalizeMessageTtl(value: unknown): number {
-  if (value === undefined || value === null) return AGENT_MESSAGING_DEFAULT_TTL_SECONDS;
-  const ttl = Number(value);
-  if (
-    !Number.isSafeInteger(ttl) ||
-    ttl < AGENT_MESSAGING_MIN_TTL_SECONDS ||
-    ttl > AGENT_MESSAGING_MAX_TTL_SECONDS
-  ) {
-    throw new ValidationError('ttl_seconds must be between 60 and 604800', {
-      param: 'ttl_seconds',
-    });
-  }
-  return ttl;
-}
-
-export function deliveryBackoffSeconds(attempt: number): number {
-  const bounded = Math.max(1, Math.min(AGENT_MESSAGING_MAX_DELIVERY_ATTEMPTS, Math.trunc(attempt)));
-  return Math.min(900, 2 ** bounded);
-}
 
 export class AgentMessagingService {
   private readonly settings: SettingsService;
@@ -3889,406 +3842,3 @@ export function createAgentMessagingService(db: Database, env: Env, keyring: Key
   return new AgentMessagingService(db, env, keyring);
 }
 
-/**
- * One queued message row, with every column that has no per-call meaning set to
- * its neutral value.
- *
- * `sendMessage`, `replyMessage`, `replyFromRelayDelivery` and `redriveMessage`
- * each carry their own hand-written copy of this 30-field literal. Those are
- * left alone; this exists so `joinCall` does not become the fifth.
- */
-function newQueuedMessage(input: {
-  id: string;
-  conversationId: string;
-  sequence: number;
-  sender: AgentBusAddress;
-  senderSessionId: string | null;
-  target: AgentBusAddress;
-  kind: string;
-  content: string;
-  contentEnc: string;
-  clientMessageId: string;
-  expiresAt: string;
-  now: string;
-}): typeof agentBusMessages.$inferInsert {
-  return {
-    id: input.id,
-    conversationId: input.conversationId,
-    sequence: input.sequence,
-    replyToMessageId: null,
-    redriveOfMessageId: null,
-    senderAddressId: input.sender.id,
-    senderSessionId: input.senderSessionId,
-    targetAddressId: input.target.id,
-    sourceEngine: input.sender.engine,
-    targetEngine: input.target.engine,
-    kind: input.kind,
-    contentEnc: input.contentEnc,
-    contentBytes: Buffer.byteLength(input.content, 'utf8'),
-    clientMessageId: input.clientMessageId,
-    status: 'queued',
-    attempts: 0,
-    nextAttemptAt: input.now,
-    leaseOwner: null,
-    leaseUntil: null,
-    claimId: null,
-    relayGeneration: null,
-    targetBindingGeneration: null,
-    deliverySessionId: null,
-    deliveryUpstreamSessionId: null,
-    expiresAt: input.expiresAt,
-    lastErrorCode: null,
-    lastErrorEnc: null,
-    cancelRequestedAt: null,
-    acceptedAt: null,
-    completedAt: null,
-    ambiguousAt: null,
-    deadAt: null,
-    expiredAt: null,
-    canceledAt: null,
-    createdAt: input.now,
-    updatedAt: input.now,
-  };
-}
-
-/**
- * The wire envelope: `CONF/1 <VERB> k=v ...` on the first line, free text below.
- *
- * Composed server-side so the conference id always travels with the message. A
- * relay-woken member is a fresh process whose entire context is the prompt it
- * was booted with -- if the id were left to the sender to remember to include,
- * a headless participant would have no way to call `agent_conf_join` and answer.
- *
- * Values are sanitised to a single line: the header is exactly the first line,
- * so a newline smuggled into a topic would push the body up into the header and
- * change how a peer parses the whole message.
- */
-function conferenceEnvelope(
-  verb: string,
-  headers: Record<string, string | number | null | undefined>,
-  body: string,
-): string {
-  const parts = [`CONF/1 ${verb}`];
-  for (const [key, value] of Object.entries(headers)) {
-    if (value === null || value === undefined || value === '') continue;
-    parts.push(`${key}=${String(value).replace(/[\r\n]+/g, ' ').trim()}`);
-  }
-  const header = parts.join(' ');
-  const text = body.trim();
-  return text ? `${header}\n${text}` : header;
-}
-
-function conferenceInviteBody(conference: AgentBusConference, note: string): string {
-  const lines = [
-    `You are invited to a conference chaired by another agent.`,
-    conference.topic ? `Topic: ${conference.topic}` : null,
-    conference.purpose ? `Purpose: ${conference.purpose}` : null,
-    '',
-    `To accept, call agent_conf_join with conference_id="${conference.id}" and a short purpose`,
-    `describing what you bring. The chair runs the room: it dispatches tasks and adjourns.`,
-    `Reply to this message to decline.`,
-    note ? `\n${note}` : null,
-  ];
-  return lines.filter((line) => line !== null).join('\n');
-}
-
-/**
- * A conference message must not outlive the room it belongs to, and must still
- * satisfy the bus's own TTL bounds.
- */
-function conferenceMessageExpiry(conference: AgentBusConference, now: string): string {
-  const remaining = Math.ceil((Date.parse(conference.deadlineAt) - Date.parse(now)) / 1000);
-  const ttl = Math.min(
-    AGENT_MESSAGING_MAX_TTL_SECONDS,
-    Math.max(AGENT_MESSAGING_MIN_TTL_SECONDS, Number.isFinite(remaining) ? remaining : AGENT_MESSAGING_MIN_TTL_SECONDS),
-  );
-  return isoOffsetSeconds(ttl);
-}
-
-/**
- * Roster projection.
- *
- * `fqdn` and `engine` are read off the joined host and address rather than off
- * the member row, because a member declares only its `purpose`. Everything else
- * about who it is comes from what the fleet already knows, so a participant
- * cannot misreport the box it is running on.
- */
-function publicConferenceMember(
-  member: AgentBusConferenceMember,
-  address: AgentBusAddress,
-  fqdn: string | null,
-): Record<string, unknown> {
-  return {
-    address: address.address,
-    alias: address.displayAlias,
-    engine: address.engine,
-    fqdn,
-    username: address.username,
-    cwd: address.cwd,
-    role: member.role,
-    purpose: member.purpose,
-    mode: member.mode,
-    state: member.state,
-    messages_used: member.messageCount,
-    messages_budget: AGENT_MESSAGING_CONFERENCE_MEMBER_MESSAGE_CAP,
-    dispatched_at: member.dispatchedAt,
-    dispatch_deadline_at: member.dispatchDeadlineAt,
-    last_report_at: member.lastReportAt,
-    joined_at: member.joinedAt,
-  };
-}
-
-/** Fan-out reports per member, so a caller needs the code without the stack. */
-function errorCodeOf(error: unknown): string {
-  const code = (error as { code?: unknown })?.code;
-  return typeof code === 'string' ? code : 'agent_messaging_conference_send_failed';
-}
-
-function errorMessageOf(error: unknown): string {
-  const message = (error as { message?: unknown })?.message;
-  return typeof message === 'string' ? message : 'Delivery failed';
-}
-
-/**
- * `presence` is supplied only by the surfaces that enumerate peers, because it
- * is the one field here that cannot be read off the address row — deriving it
- * needs the joined session. Point payloads (a registration ack, the peer on a
- * call) omit it rather than guess: an absent field is honest, a stale one is
- * the bug this whole change removes. `readiness` is retained on the wire for
- * compatibility and carries no liveness meaning for a non-relay session.
- */
-function publicAddress(address: AgentBusAddress, fqdn?: string, presence?: AgentAddressPresence): Record<string, unknown> {
-  return {
-    id: address.id,
-    address: address.address,
-    alias: address.displayAlias,
-    engine: address.engine,
-    host_id: address.hostId,
-    ...(fqdn ? { fqdn } : {}),
-    username: address.username,
-    cwd: address.cwd,
-    enabled: address.enabled === 1,
-    continuity: address.continuity,
-    ...(presence ? { presence } : {}),
-    readiness: address.readiness,
-    adapter_protocol: address.adapterProtocol,
-    adapter_capabilities: jsonRecord(address.adapterCapabilities),
-    binding_generation: address.bindingGeneration,
-    receive_heartbeat_at: address.receiveHeartbeatAt,
-    last_seen_at: address.lastSeenAt,
-    created_at: address.createdAt,
-  };
-}
-
-function messageMetadata(message: AgentBusMessage, sender?: AgentBusAddress, target?: AgentBusAddress): Record<string, unknown> {
-  return {
-    id: message.id,
-    conversation_id: message.conversationId,
-    sequence: message.sequence,
-    reply_to_message_id: message.replyToMessageId,
-    redrive_of_message_id: message.redriveOfMessageId,
-    sender: sender ? publicAddress(sender) : { id: message.senderAddressId, engine: message.sourceEngine },
-    target: target ? publicAddress(target) : { id: message.targetAddressId, engine: message.targetEngine },
-    kind: message.kind,
-    content_bytes: message.contentBytes,
-    status: message.status,
-    attempts: message.attempts,
-    expires_at: message.expiresAt,
-    last_error_code: message.lastErrorCode,
-    accepted_at: message.acceptedAt,
-    completed_at: message.completedAt,
-    ambiguous_at: message.ambiguousAt,
-    dead_at: message.deadAt,
-    expired_at: message.expiredAt,
-    canceled_at: message.canceledAt,
-    created_at: message.createdAt,
-    updated_at: message.updatedAt,
-  };
-}
-
-function messageForParticipant(message: AgentBusMessage, content: string, sender: AgentBusAddress, target: AgentBusAddress): Record<string, unknown> {
-  return { ...messageMetadata(message, sender, target), content };
-}
-
-function deliveryView(message: AgentBusMessage, content: string, sender: AgentBusAddress, target: AgentBusAddress): MessageDelivery {
-  return {
-    message_id: message.id,
-    conversation_id: message.conversationId,
-    sequence: message.sequence,
-    reply_to_message_id: message.replyToMessageId,
-    kind: message.kind,
-    content,
-    content_bytes: message.contentBytes,
-    sender: publicAddress(sender),
-    target: {
-      ...publicAddress(target),
-      upstream_session_id: target.lastUpstreamSessionId,
-    },
-    attempts: message.attempts,
-    claim_id: message.claimId!,
-    lease_owner: message.leaseOwner!,
-    lease_until: message.leaseUntil!,
-    expires_at: message.expiresAt,
-  };
-}
-
-function conversationMetadata(conversation: AgentBusConversation): Record<string, unknown> {
-  return {
-    id: conversation.id,
-    address_a_id: conversation.addressAId,
-    address_b_id: conversation.addressBId,
-    created_by_address_id: conversation.createdByAddressId,
-    status: conversation.status,
-    next_sequence: conversation.nextSequence,
-    last_activity_at: conversation.lastActivityAt,
-    canceled_by: conversation.canceledBy,
-    cancel_reason: conversation.cancelReason,
-    canceled_at: conversation.canceledAt,
-    created_at: conversation.createdAt,
-    updated_at: conversation.updatedAt,
-  };
-}
-
-function conversationIncludes(conversation: AgentBusConversation, addressId: string): boolean {
-  return conversation.addressAId === addressId || conversation.addressBId === addressId;
-}
-
-/**
- * The single host-eligibility rule for Agent Messaging. The fleet switch is
- * the only switch: once it is on the bus is on for every host, including
- * insecure ones. An insecure host is authorized per operation for as long as
- * its allowed window is open, which is read, never extended — see
- * `insecureWindowActive`. Status and engine remain gates because an inactive
- * host or a removed engine has no agent to address.
- */
-export function messagingHostEligible(
-  host: Pick<Host, 'status' | 'secure' | 'insecureEnabledUntil'>,
-): boolean {
-  return host.status === 'active' && (host.secure === 1 || insecureWindowActive(host));
-}
-
-/**
- * The SQL half of `messagingHostEligible`, for queries that select candidate
- * hosts instead of checking one row. `gt` is given a `Date` on purpose:
- * drizzle's `datetime` column maps it through `toISOString()`, matching how
- * the window was stored. Passing an ISO string here would compare the `T`/`Z`
- * form against a MySQL DATETIME and silently return the wrong host set.
- *
- * Exported so the fleet-window suite can assert against the real predicate:
- * being SQL, it cannot consult the fleet-window settings key and is only right
- * if the deadline stamped on the host row is right, which is precisely what a
- * DB-less fake cannot check.
- */
-export function messagingHostEligibleSql(now: Date = new Date()) {
-  return and(
-    eq(hosts.status, 'active'),
-    or(eq(hosts.secure, 1), gt(hosts.insecureEnabledUntil, now)),
-  );
-}
-
-function addressIneligibleReason(
-  masterEnabled: boolean,
-  eligible: boolean,
-  secure: boolean,
-  hostStatus: string,
-  engines: Engine[],
-  engine: Engine,
-): string | null {
-  if (!masterEnabled) return 'master_disabled';
-  if (hostStatus !== 'active') return 'host_inactive';
-  if (!secure && !eligible) return 'insecure_window_closed';
-  if (!engines.includes(engine)) return 'engine_disabled';
-  return null;
-}
-
-function relayIdFromLeaseOwner(value: string): string | null {
-  const match = /^relay:([0-9a-f-]{36}):\d+$/.exec(value);
-  return match?.[1] && UUID_RE.test(match[1]) ? match[1] : null;
-}
-
-function sessionIdFromLeaseOwner(value: string): string | null {
-  const match = /^session:([0-9a-f-]{36})$/.exec(value);
-  return match?.[1] && UUID_RE.test(match[1]) ? match[1] : null;
-}
-
-function normalizeRequiredText(value: unknown, param: string, maxBytes: number): string {
-  if (typeof value !== 'string' || !value.trim()) throw new ValidationError(`${param} is required`, { param });
-  const normalized = value.trim();
-  if (Buffer.byteLength(normalized, 'utf8') > maxBytes) throw new ValidationError(`${param} is too long`, { param });
-  return normalized;
-}
-
-function normalizeOptionalText(value: unknown, maxBytes: number): string | null {
-  if (typeof value !== 'string') return null;
-  const normalized = value.trim();
-  if (!normalized) return null;
-  if (Buffer.byteLength(normalized, 'utf8') > maxBytes) throw new ValidationError('text is too long');
-  return normalized;
-}
-
-function normalizeUuid(value: unknown, param: string): string {
-  const normalized = String(value ?? '').trim().toLowerCase();
-  if (!UUID_RE.test(normalized)) throw new ValidationError(`${param} must be a UUID`, { param });
-  return normalized;
-}
-
-function normalizeBridgeToken(value: unknown): string {
-  const token = String(value ?? '').trim();
-  if (token.length < 43 || token.length > 128 || !/^[A-Za-z0-9_-]+$/.test(token)) {
-    throw new ValidationError('bridge_token must be a 43-128 character base64url value', { param: 'bridge_token' });
-  }
-  return token;
-}
-
-export function normalizeAgentAlias(value: unknown): string | null {
-  if (value === null || value === undefined || String(value).trim() === '') return null;
-  const normalized = String(value).trim().toLowerCase();
-  if (!/^(?:agent:)?[a-z0-9][a-z0-9._-]{0,63}$/.test(normalized)) {
-    throw new ValidationError('alias must use lowercase letters, digits, dot, underscore or dash', { param: 'alias' });
-  }
-  const alias = normalized.startsWith('agent:') ? normalized : `agent:${normalized}`;
-  if (UUID_RE.test(alias.slice('agent:'.length))) {
-    throw new ValidationError('alias cannot use the reserved canonical address format', { param: 'alias' });
-  }
-  return alias;
-}
-
-function normalizeErrorCode(value: unknown): string | null {
-  if (value === null || value === undefined || String(value).trim() === '') return null;
-  const normalized = String(value).trim().toLowerCase().replace(/[^a-z0-9._-]/g, '_').slice(0, 64);
-  return normalized || null;
-}
-
-function normalizeSessionStatus(value: unknown): string | null {
-  const normalized = typeof value === 'string' ? value.trim().toLowerCase() : '';
-  return ['starting', 'active', 'waiting', 'offline'].includes(normalized) ? normalized : null;
-}
-
-function jsonRecord(value: unknown): Record<string, unknown> | null {
-  if (!value) return null;
-  if (typeof value === 'string') {
-    try {
-      const parsed = JSON.parse(value) as unknown;
-      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : null;
-    } catch {
-      return null;
-    }
-  }
-  return typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
-}
-
-function safeHashEqual(a: string, b: string): boolean {
-  const left = Buffer.from(a, 'hex');
-  const right = Buffer.from(b, 'hex');
-  return left.length === right.length && left.length > 0 && timingSafeEqual(left, right);
-}
-
-function hostAuthFingerprint(host: Pick<Host, 'apiKey' | 'apiKeyHash'>): string {
-  return sha256(host.apiKeyHash || host.apiKey);
-}
-
-function isDuplicateKeyError(error: unknown): boolean {
-  if (!error || typeof error !== 'object') return false;
-  const candidate = error as { code?: unknown; errno?: unknown };
-  return candidate.code === 'ER_DUP_ENTRY' || candidate.errno === 1062;
-}
