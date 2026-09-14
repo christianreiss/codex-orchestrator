@@ -205,6 +205,8 @@ engine-specific deltas are called out in [clx](/admin/manual/clx):
     usable credentials with guarded writeback, or record logout intent when
     credentials were removed/unusable. As with bootstrap, pre-run, legacy,
     recovery, and explicit auth-upload/login candidates, the post-run store keeps
+    one 15-second budget across retries; each request may use the remaining
+    time so a successful runner probe is not cancelled after five seconds. It keeps
     an atomic auth+intent transaction through the bounded request so explicit
     logout is linearly ordered around it. Logout markers include a random nonce
     and are cleared only after an accepted store of the exact auth generation

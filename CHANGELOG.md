@@ -1,3 +1,17 @@
+# 2026-09-13
+
+- **Credential sync recovers from an outdated runner.** The runner now ships
+  Codex 0.154.0 with verified release checksums for both Linux architectures.
+  OpenAI rejected the previous 0.144.1 probe for `gpt-6-astra`, leaving fresh
+  host credentials unaccepted and repeated startup/exit uploads waiting behind
+  failed probes. Probe errors retain the provider's final error instead of
+  truncating it behind the CLI banner.
+- **cxx 0.8.6:** Codex and Claude final credential uploads share one 15-second
+  budget, including retries. A successful verification taking over five seconds
+  now completes in one request instead of being cancelled and submitted again.
+- HTTP request IDs are created before Fastify binds its request logger, so
+  incoming/completed logs and response headers carry the same validated ID.
+
 # 2026-09-10
 
 - **The unattended cron tick no longer asks for credentials.** Its managed-content

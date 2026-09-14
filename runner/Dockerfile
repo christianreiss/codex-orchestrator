@@ -15,18 +15,18 @@ RUN apt-get update \
 
 # --- Codex CLI (multi-arch, checksum-verified) ---
 # Keep in step with the fleet's codex target: the probe must run the same
-# model catalog as real hosts. 0.125.0 predated the GPT-5.6 default probe
-# model (gpt-6-astra) and rejected every VALID fresh login as
-# "failed live verification", pinning the fleet canonical on a dead token.
+# model catalog as real hosts. OpenAI rejects gpt-6-astra probes from 0.144.1
+# as requiring a newer CLI, preventing fresh credentials from becoming
+# canonical even though the runner's binary-only healthcheck stays green.
 #
 # The SHA256s are the release assets' published digests. A tag can be moved;
 # a digest cannot, so the download is verified before anything is unpacked.
-ARG CODEX_TAG=rust-v0.144.1
-ARG CODEX_VERSION=0.144.1
+ARG CODEX_TAG=rust-v0.154.0
+ARG CODEX_VERSION=0.154.0
 ARG CODEX_ASSET_AMD64=codex-x86_64-unknown-linux-musl.tar.gz
 ARG CODEX_ASSET_ARM64=codex-aarch64-unknown-linux-musl.tar.gz
-ARG CODEX_SHA256_AMD64=84091ae20c65fcc7d4120db97d1bd57d7ff8df9c7609fb781c78c2ebbd4f5a28
-ARG CODEX_SHA256_ARM64=b9f8ef5f98e46ced4dbbd3756a4223e3ee299a457ff488a3305bea455da8b5b8
+ARG CODEX_SHA256_AMD64=d7e18b2597ae8f242f5f31ee9e90deef48dbc9edd634d9868fb6435d08c07f02
+ARG CODEX_SHA256_ARM64=583b48df32804213bdcd338c2e5adb06b34340821fa757a726cc0a524fa33c27
 ARG TARGETARCH
 RUN set -euo pipefail; \
     arch="${TARGETARCH:-amd64}"; \

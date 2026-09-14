@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import Fastify, { type FastifyInstance } from 'fastify';
-import { requestIdPlugin } from '../../../src/http/plugins/request-id.js';
+import { generateRequestId, requestIdPlugin } from '../../../src/http/plugins/request-id.js';
 
 /**
  * `req.id` is what every log line and error envelope is correlated by, so a
@@ -45,6 +45,26 @@ async function requestId(
 }
 
 describe('request-id plugin', () => {
+  it('binds matching ids to incoming/completed logs and headers before hooks run', async () => {
+    const records: { reqId?: string; msg?: string }[] = [];
+    const app = Fastify({
+      genReqId: generateRequestId,
+      logger: { stream: { write: (line: string) => { records.push(JSON.parse(line)); } } },
+    });
+    await app.register(requestIdPlugin);
+    app.get('/probe', async (req) => ({ id: req.id }));
+    const cases: Record<string, string>[] = [{}, { 'x-request-id': 'caller-id' }, { 'x-request-id': 'bad id' }];
+    for (const headers of cases) {
+      const firstRecord = records.length;
+      const id = await requestId(app, headers);
+      const requestLogs = records.slice(firstRecord).filter((row) =>
+        row.msg === 'incoming request' || row.msg === 'request completed');
+      expect(requestLogs).toHaveLength(2);
+      expect(requestLogs.map((row) => row.reqId)).toEqual([id, id]);
+    }
+    await app.close();
+  });
+
   it('honours a well-formed caller-supplied header', async () => {
     const app = await buildProbe();
     expect(await requestId(app, { 'x-request-id': 'abc-123_XYZ.9' })).toBe('abc-123_XYZ.9');

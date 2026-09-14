@@ -1496,9 +1496,10 @@ func maybePostRunAuthUpload(client *orchestrator.Client, logger *slog.Logger, pa
 			case <-timer.C:
 			}
 		}
-		attemptCtx, stop := context.WithTimeout(ctx, 5*time.Second)
-		status, tone, err = postRunAuthUploadAttempt(attemptCtx, client, logger, path, beforeHash, beforeRefresh)
-		stop()
+		// The runner's normal probe budget is eight seconds. Give a healthy
+		// store the remaining overall budget instead of cancelling it after
+		// five seconds and queueing the same credential again on the server.
+		status, tone, err = postRunAuthUploadAttempt(ctx, client, logger, path, beforeHash, beforeRefresh)
 		if err == nil || ctx.Err() != nil {
 			return status, tone, err
 		}

@@ -1566,9 +1566,9 @@ func maybePostRunAuthUpload(client *orchestrator.Client, logger *slog.Logger, be
 				break
 			}
 		}
-		attemptCtx, attemptCancel := context.WithTimeout(ctx, 5*time.Second)
-		status, tone = postRunAuthUploadAttempt(attemptCtx, client, logger, before, session)
-		attemptCancel()
+		// Share the overall budget: a healthy runner may need more than five
+		// seconds, and abandoning it just queues the same credential again.
+		status, tone = postRunAuthUploadAttempt(ctx, client, logger, before, session)
 		if tone != ui.ToneFail && status != "newer local kept" {
 			return status, tone
 		}

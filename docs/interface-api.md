@@ -2,6 +2,9 @@
 
 ## Host-facing
 
+- `X-Request-Id` accepts `[A-Za-z0-9._-]{1,128}`; absent or malformed values
+  receive a generated ID before request logging starts. Incoming/completed
+  log entries, `req.id`, and the response header share the same ID.
 - Base URL for baked wrappers/installers honors `PUBLIC_BASE_URL` when set; otherwise it is derived from trusted `X-Forwarded-Host`/`Host` + trusted `X-Forwarded-Proto` (`TRUST_X_FORWARDED=1` and the socket peer address in `TRUSTED_PROXY_CIDRS`, validated against `https?://`). If no valid base can be resolved, installer creation fails and host `/auth` responses omit per-host wrapper baking metadata.
 - Base URL policy guard: when `PUBLIC_BASE_URL_REQUIRED=1` (default in production), requests fail fast if `PUBLIC_BASE_URL` is missing/invalid. Optional host validation (`STRICT_HOST_VALIDATION=1`) rejects requests whose effective host/port do not match `PUBLIC_BASE_URL`.
 - MCP origin policy: `/mcp` has no origin allowlist — while `MCP_ALLOW_REQUEST_HOST_ORIGIN` is off (the default) any request that sends an `Origin` header is rejected with 403, and enabling it accepts every origin.

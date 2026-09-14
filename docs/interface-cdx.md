@@ -393,6 +393,10 @@ month` are those event totals from the UTC day/month boundaries. They are not
 launch or concurrency counts. Older servers omit the block cleanly rather than
 producing invented zeroes.
 
+Final credential uploads share a single 15-second deadline across retries. A
+verification may use the remaining budget; there is no shorter per-attempt
+deadline that cancels a healthy runner and queues duplicate uploads.
+
 The post-run footer is measured rather than optimistic: real engine exit code,
 duration, engine version, and auth-upload outcome drive its overall tone. A
 successful engine process with a failed canonical credential upload is shown as

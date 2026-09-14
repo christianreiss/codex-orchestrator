@@ -439,6 +439,8 @@ and fsynced renames. Every request carrying Claude candidate bytes is the
 deliberate exception: bundle bootstrap, pre-run/legacy recovery, explicit
 login/auth-upload, and post-run upload keep one atomic auth+logout-intent
 snapshot locked through the bounded network call (normally 10–15 seconds).
+Final credential uploads share one 15-second deadline across retries, with no
+shorter per-attempt cutoff that cancels an otherwise healthy verification.
 An overlapping explicit logout therefore orders wholly before or after the
 upload. A separate shared lease beside native
 credentials spans every wrapper-launched Claude `Start`/`Wait` interval.
