@@ -1,3 +1,15 @@
+# 2026-09-14
+
+- **Choose the less pressured provider at startup.** cdx and clx compare fresh
+  OpenAI/Claude quota observations and estimated consumption before reset, offer
+  an interactive provider choice, and can remember it locally until midnight.
+  `run --quota-choice-reset` clears the daily choice. Switching always starts a
+  new session; resume and launch arguments require explicit discard confirmation.
+- Admin Quotas settings centrally control recommendation mode, thresholds, data
+  age and daily remembering. Headless starts remain advisory only, and existing
+  auth/quota enforcement still applies. The quota form now preserves “Off” week
+  partitioning and submits enforcement values accepted by the existing API.
+
 # 2026-09-13
 
 - **Credential sync recovers from an outdated runner.** The runner now ships

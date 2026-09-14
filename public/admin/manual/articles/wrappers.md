@@ -467,3 +467,18 @@ callers.
 - api/src/routes/wrapper-v2/index.ts (HTTP surface)
 - api/src/routes/install/index.ts (installer + seed-auth tokens)
 - wrappers/schemas/host-config-v1.json (per-host config schema)
+
+## Quota-aware provider choice
+
+When one subscription is under pressure, an interactive cdx/clx start can suggest
+the other provider. Configure mode, thresholds, maximum measurement age and daily
+remembering in **Engines → Quota and scaling → Quotas**. The comparison shows
+reported usage, reset timing and estimated usage at reset; stale readings do not
+justify a recommendation.
+
+Choose either provider for this start, or remember it for today on this computer.
+Remembered choices apply to both aliases until local midnight; clear them with
+`cdx run --quota-choice-reset` or `clx run --quota-choice-reset`. Switching opens a
+new session in the same directory. Existing conversations, prompts and launch
+options do not transfer, and their loss requires confirmation. Automated starts
+only receive a hint. Authentication and quota enforcement still apply.

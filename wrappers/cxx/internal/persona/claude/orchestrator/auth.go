@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/quotaadvice"
 	"net/http"
 	"strings"
 )
@@ -12,6 +13,8 @@ import (
 // AuthRetrieveResponse mirrors POST /auth?engine=claude. The orchestrator may
 // add fields freely; unknown fields are tolerated.
 type AuthRetrieveResponse struct {
+	QuotaAdvice *quotaadvice.Comparison `json:"quota_advice,omitempty"`
+
 	Status                      string               `json:"status"`
 	Action                      string               `json:"action,omitempty"`
 	Message                     string               `json:"message,omitempty"`

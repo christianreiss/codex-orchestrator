@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/quotaadvice"
 	"net/http"
 	"strings"
 )
@@ -14,6 +15,8 @@ import (
 // ~30 side-channel fields here — they're now strongly typed so the boot
 // banner, health dots, and quota panel can read them without re-parsing JSON.
 type AuthRetrieveResponse struct {
+	QuotaAdvice *quotaadvice.Comparison `json:"quota_advice,omitempty"`
+
 	Status               string          `json:"status"`
 	Action               string          `json:"action,omitempty"`
 	Message              string          `json:"message,omitempty"`

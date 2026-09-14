@@ -1491,3 +1491,39 @@ test("Agent Messaging uses peer URL-backed operational views", async ({ page }) 
   await expect(page.getByRole("heading", { name: "Addresses" })).toBeVisible();
   await expect(page.getByText("agent:console", { exact: true })).toBeVisible();
 });
+
+test("quota advice settings save centrally and survive reload", async ({ page }) => {
+  let stored = { hard_fail: true, limit_percent: 95, week_partition: "off", advice: {
+    mode: "ask", high_usage_percent: 85, projected_usage_percent: 100,
+    min_pressure_gap: 20, max_age_minutes: 30, remember_day: true,
+  } };
+  const writes: unknown[] = [];
+  await installFixtures(page, (path, body) => {
+    if (path !== "/admin/quota-mode") return undefined;
+    if (body) { writes.push(body); stored = body as typeof stored; }
+    return stored;
+  });
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto("/admin/engines#quota-enforcement");
+  const quotas = page.locator("#quotas");
+  await expect(page.getByLabel("Maximum measurement age (minutes)")).toHaveValue("30");
+  await expect(page.locator("#quota-week-partition")).toContainText("Off");
+  await page.locator("#quota-advice-mode").click();
+  await page.getByRole("option", { name: "Hint only", exact: true }).click();
+  await page.getByLabel("High usage (%)", { exact: true }).fill("90");
+  await page.getByLabel("Maximum measurement age (minutes)").fill("15");
+  await page.getByRole("switch", { name: "Allow remembering the provider until local midnight" }).click();
+  await quotas.getByRole("button", { name: "Save", exact: true }).click();
+  await expect.poll(() => writes.length).toBe(1);
+  expect(stored).toEqual({ hard_fail: true, limit_percent: 95, week_partition: "off", advice: {
+    mode: "hint", high_usage_percent: 90, projected_usage_percent: 100,
+    min_pressure_gap: 20, max_age_minutes: 15, remember_day: false,
+  } });
+  await page.reload();
+  await expect(page.locator("#quota-advice-mode")).toContainText("Hint only");
+  await expect(page.getByLabel("Maximum measurement age (minutes)")).toHaveValue("15");
+  await expect(page.getByRole("switch", { name: "Allow remembering the provider until local midnight" })).not.toBeChecked();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(quotas.getByRole("button", { name: "Save", exact: true })).toBeVisible();
+  await expectNoSeriousAxeFindings(page);
+});

@@ -988,3 +988,44 @@ may read state and users but cannot change rollout or identity state.
 - `POST /admin/agent-portal/users/{id}/rotate` — explicitly replace the reusable secret, revoke browser sessions, and return the new URL.
 - `GET /admin/agent-portal/users/{id}/link` — re-render the stored permanent link without rotating it, so an operator can bookmark it on another device. Owner/admin only, and audited as `agent_portal.user.link_revealed`; the link is bearer material and is deliberately absent from the `GET /admin/agent-portal/users` listing, which every authenticated admin may read.
 - `DELETE /admin/agent-portal/users/{id}` — soft-delete the user, revoke sessions, and cancel pending work.
+
+## Provider quota recommendation
+
+`GET /admin/quota-mode` additionally returns `advice`; `POST /admin/quota-mode`
+accepts the same object alongside the existing enforcement fields. Omission preserves
+stored advice, so older admin clients do not reset it. Invalid input is rejected
+before any quota setting is written. The object is stored atomically as JSON under
+`versions.quota_advice`; no schema migration is required.
+
+| Advice setting | Default | Accepted values |
+| --- | --- | --- |
+| `mode` | `ask` | `off`, `hint`, `ask` |
+| `high_usage_percent` | 85 | Integer 1–100 |
+| `projected_usage_percent` | 100 | Integer 100–500 |
+| `min_pressure_gap` | 20 | Integer 1–100 |
+| `max_age_minutes` | 30 | Integer 1–120 |
+| `remember_day` | true | Boolean |
+
+Auth retrieve/store and `/sync/status` / `/sync/bootstrap` auth responses include
+optional `quota_advice: {settings, codex, claude}`. Each provider contains
+`available` (host engine membership), `status`, original `fetched_at`,
+`limit_reached`, and `windows: [{used_percent, limit_seconds, reset_at}]`.
+Null readings remain null. The optional field is specified in the existing
+auth and sync response schemas. Codex windows refer only to the host's active
+normal/Spark lane. This field contains no credentials and reads stored snapshots
+only: no provider requests and no renewal of observation timestamps. Availability
+is not an authentication verdict; the chosen provider must pass normal startup.
+
+For each valid measured window, pressure is the greater of
+`100 * used / high_usage_percent` and `100 * projected / projected_usage_percent`.
+Projection uses the observation time and requires at least five minutes and 1% of
+the window to have elapsed. The provider's worst window determines its pressure;
+a reported provider limit sets a floor of 100. Recommend the alternative only when
+the current provider reaches 100, the alternative is below 100, and the difference
+meets `min_pressure_gap`. Missing/error/stale timestamps, invalid percentages and
+passed/inconsistent resets prevent comparison. Unknown reset times permit only
+absolute-usage comparison. Corrupt persisted settings disable advice.
+
+Settings are central; remembered selections are local to an OS user and
+orchestrator URL. `off` and `hint` never apply remembered selections. Advice does
+not relax existing authentication, local credential handling or quota hard-fail.

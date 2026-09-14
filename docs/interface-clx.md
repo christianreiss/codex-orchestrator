@@ -62,6 +62,7 @@ both against `parseFlags`, so a flag added to one is added to all three.
 |---|---|
 | `--minimal` / `--minimal-output` | Compact, ANSI-free ASCII wrapper output; also selected automatically on redirects, dumb/narrow terminals, and `NO_COLOR` |
 | `--silent` | Suppress the boot screen and all non-error wrapper logging |
+| `--quota-choice-reset` | Clear the local daily provider choice before an interactive run or resume |
 | `--skip-boot` / `--no-banner` | Launch without the boot screen or exit footer |
 | `--debug` / `--verbose` | Detailed wrapper diagnostics on stderr |
 | `-4` / `--ipv4` | Force wrapper-managed network traffic (sync, update, download) through IPv4; exports `CLAUDE_FORCE_IPV4=1` |
@@ -914,3 +915,34 @@ still rechecks current host and engine eligibility. Shutdown cancels normal
 requests before finalization, and a failed final report cannot restart the local
 session. The admin Active Clients page distinguishes fresh wrapper contact from
 an open relay and shows stale connections without claiming work has stopped.
+
+## Choosing a provider when quota is under pressure
+
+Interactive `run` and `resume` can recommend OpenAI or Claude using the centrally
+configured quota policy (see [API quota recommendation](interface-api.md#provider-quota-recommendation)).
+The terminal shows consumption, estimated usage at reset, reset countdown and
+measurement age. Choose the current provider, the alternative, or cancel; Enter
+keeps the explicitly requested provider. A switch starts a new session in the same
+working directory after the original wrapper releases its auth leases. No prompt,
+resume identifier or launch arguments transfer. If the original invocation has
+options or a conversation to resume, confirm their loss on every switch.
+
+“Remember this provider for today” applies the selection to subsequent interactive
+starts of both `cdx` and `clx`, until local midnight (including daylight-saving
+transitions). The private, atomically written state is stored under
+`~/.config/codex-orchestrator/quota-choices/<URL-sha256>.json`. It applies only to
+this OS user and orchestrator URL. `cdx run --quota-choice-reset` or
+`clx run --quota-choice-reset` clears it before startup. Failed storage means the
+selection applies to this start only. Invalid/expired state is ignored. Disabled
+remembering, hint mode and off mode ignore stored choices.
+
+Only a locally configured, installed provider for the same orchestrator is offered.
+The target runs normal auth and quota checks; if it refuses before session launch,
+the daily choice is cleared and the operator can explicitly retry the originally
+requested provider. There is no automatic fallback or switching loop. A nonzero
+exit from an actual agent session is returned unchanged.
+
+Non-TTY starts and headless `execute` invocations only print advisory text to stderr,
+never prompt or apply a remembered provider. Direct `exec` retains its documented
+startup bypass. Status, sync and auth commands do not offer provider choices.
+Older servers without `quota_advice` retain the previous launch behavior.

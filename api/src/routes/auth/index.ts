@@ -1,3 +1,4 @@
+import { readQuotaAdvice, quotaAdviceSnapshot } from '../../services/quota-advice.js';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { join, resolve } from 'node:path';
 import { and, eq, sql } from 'drizzle-orm';
@@ -480,11 +481,13 @@ async function handleRetrieve(
     cdx_silent: versions.cdx_silent,
     engine,
   };
-  if (engine === ENGINE_CODEX) {
-    baseResponse.chatgpt = await readChatgptSnapshot(ctx, host.lanePreference);
-  } else if (engine === ENGINE_CLAUDE) {
-    baseResponse.claude_usage = await readClaudeSnapshot(ctx);
-  }
+  const [chatgpt, claude, advice] = await Promise.all([
+    readChatgptSnapshot(ctx, host.lanePreference), readClaudeSnapshot(ctx),
+    readQuotaAdvice(new SettingsService(ctx.db)),
+  ]);
+  if (engine === ENGINE_CODEX) baseResponse.chatgpt = chatgpt;
+  else if (engine === ENGINE_CLAUDE) baseResponse.claude_usage = claude;
+  baseResponse.quota_advice = quotaAdviceSnapshot(advice, hostEnginesList(host.engines), chatgpt, claude);
 
   if (!canonicalRow || !canonicalDigest) {
     return {
@@ -589,11 +592,13 @@ async function buildRetrieveBaseResponse(
     cdx_silent: versions.cdx_silent,
     engine,
   };
-  if (engine === ENGINE_CODEX) {
-    baseResponse.chatgpt = await readChatgptSnapshot(ctx, host.lanePreference);
-  } else if (engine === ENGINE_CLAUDE) {
-    baseResponse.claude_usage = await readClaudeSnapshot(ctx);
-  }
+  const [chatgpt, claude, advice] = await Promise.all([
+    readChatgptSnapshot(ctx, host.lanePreference), readClaudeSnapshot(ctx),
+    readQuotaAdvice(new SettingsService(ctx.db)),
+  ]);
+  if (engine === ENGINE_CODEX) baseResponse.chatgpt = chatgpt;
+  else if (engine === ENGINE_CLAUDE) baseResponse.claude_usage = claude;
+  baseResponse.quota_advice = quotaAdviceSnapshot(advice, hostEnginesList(host.engines), chatgpt, claude);
   return baseResponse;
 }
 
@@ -891,11 +896,13 @@ async function handleStore(
     cdx_silent: summary.cdx_silent,
     host: buildHostPayload(host),
   };
-  if (engine === ENGINE_CODEX) {
-    response.chatgpt = await readChatgptSnapshot(ctx, host.lanePreference);
-  } else if (engine === ENGINE_CLAUDE) {
-    response.claude_usage = await readClaudeSnapshot(ctx);
-  }
+  const [chatgpt, claude, advice] = await Promise.all([
+    readChatgptSnapshot(ctx, host.lanePreference), readClaudeSnapshot(ctx),
+    readQuotaAdvice(new SettingsService(ctx.db)),
+  ]);
+  if (engine === ENGINE_CODEX) response.chatgpt = chatgpt;
+  else if (engine === ENGINE_CLAUDE) response.claude_usage = claude;
+  response.quota_advice = quotaAdviceSnapshot(advice, hostEnginesList(host.engines), chatgpt, claude);
   return response;
 }
 

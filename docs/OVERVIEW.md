@@ -518,3 +518,5 @@ cancellation expires the prompt so an old answer cannot replay after
 re-enable. A maintenance sweep turns abandoned live sessions into failed,
 read-only records, cancels their pending work, and purges the complete session
 tree after retention expires.
+
+Provider quota advice compares fresh saved OpenAI/Claude snapshots before interactive wrapper starts; central settings and the daily local choice are documented in [the API contract](interface-api.md#provider-quota-recommendation).

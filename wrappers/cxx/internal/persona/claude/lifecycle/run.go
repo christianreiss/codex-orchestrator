@@ -29,9 +29,12 @@ import (
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/claude/orchestrator"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/claude/summary"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/claude/ui"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/quotaadvice"
 )
 
 type Options struct {
+	QuotaChoiceReset bool
+
 	Config       *config.Config
 	ExtraArgs    []string
 	SkipAuthSync bool
@@ -126,6 +129,12 @@ func Run(ctx context.Context, opts Options) (exitCode int, retErr error) {
 	}
 
 	cfg := opts.Config
+	if opts.QuotaChoiceReset && !opts.SyncOnly {
+		if err := quotaadvice.Reset(cfg.Orchestrator.BaseURL); err != nil {
+			return 1, fmt.Errorf("reset daily quota choice: %w", err)
+		}
+		opts.QuotaChoiceReset = false
+	}
 	logger := opts.Logger
 	if logger == nil {
 		logger = slog.Default()
@@ -435,6 +444,12 @@ func Run(ctx context.Context, opts Options) (exitCode int, retErr error) {
 		return 0, nil
 	}
 
+	if authResp != nil && !opts.SyncOnly {
+		if stop, code, err := quotaadvice.BeforeStart(ctx, cfg, authResp.QuotaAdvice, opts.ExtraArgs, opts.Headless, opts.QuotaChoiceReset); stop {
+			return code, err
+		}
+	}
+
 	before := snapshotAuthGeneration()
 
 	restoreInheritedPortalEnv := agentportal.ScrubEnvironment()
@@ -499,6 +514,7 @@ func Run(ctx context.Context, opts Options) (exitCode int, retErr error) {
 	if !opts.SkipAuthSync && dec.Allowed {
 		stopAuthWatch = startMidSessionAuthUpload(ctx, client, logger, before, authSession)
 	}
+	quotaadvice.ArmLaunch(ctx)
 	exitCode, _, runErr := claude.RunCaptureWithAuthSession(ctx, cfg, launchArgs, authSession)
 	stopAuthWatch()
 	duration := time.Since(started)

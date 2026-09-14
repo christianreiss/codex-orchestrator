@@ -35,6 +35,7 @@ import (
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/codex/ui"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/codex/uninstall"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/codex/update"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/quotaadvice"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/signing"
 )
 
@@ -94,8 +95,15 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	return run(args, stdout, stderr)
 }
 
+// RunWithChoice returns only after persona auth leases have been released.
+func RunWithChoice(args []string, stdout, stderr io.Writer, choice *quotaadvice.Session) int {
+	return run(args, stdout, stderr, choice)
+}
+
 // Parsed flags shared across subcommands.
 type flags struct {
+	quotaChoiceReset bool
+
 	configPath     string
 	silent         bool
 	debug          bool
@@ -294,7 +302,7 @@ func helpExecArgv(args []string) []string {
 	return out
 }
 
-func run(args []string, stdout, stderr io.Writer) (exitCode int) {
+func run(args []string, stdout, stderr io.Writer, choices ...*quotaadvice.Session) (exitCode int) {
 	// A self-update exec hands its durable purge IDs and one inherited shared
 	// lease to the new wrapper. Adopt that handoff before even the restart-depth
 	// or config checks so every exit path services an insecure purge request.
@@ -338,6 +346,9 @@ func run(args []string, stdout, stderr io.Writer) (exitCode int) {
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
+	if len(choices) > 0 {
+		ctx = quotaadvice.WithSession(ctx, choices[0])
+	}
 
 	f, positional, passthrough := parseFlags(args)
 	if actions := conflictingActions(f, positional); len(actions) > 1 {
@@ -503,6 +514,7 @@ func run(args []string, stdout, stderr io.Writer) (exitCode int) {
 	switch sub {
 	case "run":
 		exit, err := lifecycle.Run(ctx, lifecycle.Options{
+			QuotaChoiceReset:    f.quotaChoiceReset,
 			Config:              cfg,
 			ExtraArgs:           append(subArgs, passthrough...),
 			SkipBoot:            f.skipBoot || f.silent,
@@ -517,6 +529,7 @@ func run(args []string, stdout, stderr io.Writer) (exitCode int) {
 		// Interactive like `run`, never Headless like `execute` — resume opens
 		// a TTY session picker and a headless run would fail it closed.
 		exit, err := lifecycle.Run(ctx, lifecycle.Options{
+			QuotaChoiceReset:    f.quotaChoiceReset,
 			Config:              cfg,
 			ExtraArgs:           resumeArgs(subArgs, passthrough),
 			Resumed:             true,
@@ -1065,6 +1078,8 @@ func parseFlags(args []string) (flags, []string, []string) {
 			_ = os.Setenv("CODEX_DEBUG", "1")
 		case a == "--minimal" || a == "--minimal-output":
 			f.minimal = true
+		case a == "--quota-choice-reset":
+			f.quotaChoiceReset = true
 		case a == "--skip-boot" || a == "--no-banner":
 			f.skipBoot = true
 		case a == "-4" || a == "--ipv4":

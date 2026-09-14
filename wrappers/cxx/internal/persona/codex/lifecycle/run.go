@@ -29,9 +29,12 @@ import (
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/codex/orchestrator"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/codex/summary"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/codex/ui"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/quotaadvice"
 )
 
 type Options struct {
+	QuotaChoiceReset bool
+
 	Config       *config.Config
 	ExtraArgs    []string
 	SkipAuthSync bool
@@ -184,6 +187,12 @@ func Run(ctx context.Context, opts Options) (exitCode int, runErr error) {
 	}
 
 	cfg := opts.Config
+	if opts.QuotaChoiceReset && !opts.SyncOnly {
+		if err := quotaadvice.Reset(cfg.Orchestrator.BaseURL); err != nil {
+			return 1, fmt.Errorf("reset daily quota choice: %w", err)
+		}
+		opts.QuotaChoiceReset = false
+	}
 	logger := opts.Logger
 	if logger == nil {
 		logger = slog.Default()
@@ -449,6 +458,12 @@ func Run(ctx context.Context, opts Options) (exitCode int, runErr error) {
 		return 0, nil
 	}
 
+	if authResp != nil && !opts.SyncOnly {
+		if stop, code, err := quotaadvice.BeforeStart(ctx, cfg, authResp.QuotaAdvice, opts.ExtraArgs, opts.Headless, opts.QuotaChoiceReset); stop {
+			return code, err
+		}
+	}
+
 	// Block launch if hard-fail quota — unless the operator sets the documented
 	// QUOTA_HARD_FAIL=0 escape hatch named in the refusal message itself. The
 	// override was advertised in the message and the spec but never read; an
@@ -550,6 +565,7 @@ func Run(ctx context.Context, opts Options) (exitCode int, runErr error) {
 	if !opts.SkipAuthSync && dec.Allowed {
 		stopAuthWatch = startMidSessionAuthUpload(ctx, client, logger, authPath, beforeHash, beforeRefresh)
 	}
+	quotaadvice.ArmLaunch(ctx)
 	exitCode, _, runErr = codex.RunCapturePrepared(ctx, cfg, launchArgs)
 	stopAuthWatch()
 	duration := time.Since(started)

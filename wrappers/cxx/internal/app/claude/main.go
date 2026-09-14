@@ -35,6 +35,7 @@ import (
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/claude/ui"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/claude/uninstall"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/claude/update"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/quotaadvice"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/signing"
 )
 
@@ -93,7 +94,14 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	return run(args, stdout, stderr)
 }
 
+// RunWithChoice returns only after persona auth leases have been released.
+func RunWithChoice(args []string, stdout, stderr io.Writer, choice *quotaadvice.Session) int {
+	return run(args, stdout, stderr, choice)
+}
+
 type flags struct {
+	quotaChoiceReset bool
+
 	configPath      string
 	silent          bool
 	debug           bool
@@ -294,7 +302,7 @@ func helpExecArgv(args []string) []string {
 	return out
 }
 
-func run(args []string, stdout, stderr io.Writer) (code int) {
+func run(args []string, stdout, stderr io.Writer, choices ...*quotaadvice.Session) (code int) {
 	depth, _ := strconv.Atoi(os.Getenv("CLAUDE_WRAPPER_RESTART_DEPTH"))
 	if depth > maxRestartDepth {
 		fmt.Fprintf(stderr, "clx: restart depth %d exceeded cap %d - refusing to continue\n", depth, maxRestartDepth)
@@ -309,6 +317,9 @@ func run(args []string, stdout, stderr io.Writer) (code int) {
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
+	if len(choices) > 0 {
+		ctx = quotaadvice.WithSession(ctx, choices[0])
+	}
 
 	f, positional, passthrough := parseFlags(args)
 	if actions := conflictingActions(f, positional); len(actions) > 1 {
@@ -449,6 +460,7 @@ func run(args []string, stdout, stderr io.Writer) (code int) {
 	switch sub {
 	case "run":
 		exit, err := lifecycle.Run(ctx, lifecycle.Options{
+			QuotaChoiceReset:           f.quotaChoiceReset,
 			Config:                     cfg,
 			ExtraArgs:                  append(subArgs, passthrough...),
 			SkipBoot:                   f.skipBoot || f.silent,
@@ -463,6 +475,7 @@ func run(args []string, stdout, stderr io.Writer) (code int) {
 	case "resume":
 		// Interactive like `run` — resume opens a TTY session picker.
 		exit, err := lifecycle.Run(ctx, lifecycle.Options{
+			QuotaChoiceReset:           f.quotaChoiceReset,
 			Config:                     cfg,
 			ExtraArgs:                  resumeArgs(subArgs, passthrough),
 			Resumed:                    true,
@@ -1137,6 +1150,8 @@ func parseFlags(args []string) (flags, []string, []string) {
 			_ = os.Setenv("CLAUDE_DEBUG", "1")
 		case a == "--minimal" || a == "--minimal-output":
 			f.minimal = true
+		case a == "--quota-choice-reset":
+			f.quotaChoiceReset = true
 		case a == "--skip-boot" || a == "--no-banner":
 			f.skipBoot = true
 		case a == "-4" || a == "--ipv4":
