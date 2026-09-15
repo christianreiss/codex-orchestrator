@@ -946,3 +946,7 @@ Non-TTY starts and headless `execute` invocations only print advisory text to st
 never prompt or apply a remembered provider. Direct `exec` retains its documented
 startup bypass. Status, sync and auth commands do not offer provider choices.
 Older servers without `quota_advice` retain the previous launch behavior.
+
+## Login expiry warning
+
+From wrapper 0.8.8, startup and `clx status` assess the selected local credential after synchronization, including offline use. Claude OAuth logins within 72 hours of `refreshTokenExpiresAt` display the remaining days (rounded upward), UTC expiry, and `Run /login in Claude launched through clx.` Expired logins display `Claude login expired`. The advisory does not change launch eligibility or exit codes; startup writes it to stderr even with `--skip-boot`, preserving child stdout. Status includes it in its normal output. Missing/malformed expiry or API-key credentials produce no warning. Access expiry more than 72 hours beyond refresh expiry suppresses the warning, matching Claude Code 2.1.263. Renewing through the existing login/upload flow clears the warning once the renewed local credential is selected; the dashboard clears once it becomes canonical. No extra refresh attempt is made.

@@ -44,7 +44,14 @@ export interface RunnerStatus {
   } | null;
 }
 
+export interface LoginExpiry {
+  state: "unknown" | "ok" | "expiring" | "expired" | "not_applicable";
+  expires_at: string | null;
+  days_remaining: number | null;
+}
+
 export interface RunnerEngineStatus {
+  login_expiry?: LoginExpiry;
   state?: string | null;
   last_check?: string | null;
   last_ok?: string | null;

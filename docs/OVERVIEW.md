@@ -520,3 +520,7 @@ read-only records, cancels their pending work, and purges the complete session
 tree after retention expires.
 
 Provider quota advice compares fresh saved OpenAI/Claude snapshots before interactive wrapper starts; central settings and the daily local choice are documented in [the API contract](interface-api.md#provider-quota-recommendation).
+
+## Claude login expiry
+
+The dashboard's Runner state card shows a Claude login-expiry warning within three days, independently of successful verification or runner configuration. It polls every 15 seconds. `clx` startup and status show the same advisory for their selected local credential, including offline use. Run `/login` inside Claude launched through `clx`; existing verified credential synchronization distributes the renewed login. These warnings do not block launch or automatically spend refresh tokens.

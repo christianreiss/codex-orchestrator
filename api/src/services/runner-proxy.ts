@@ -1,4 +1,6 @@
 import { randomBytes } from 'node:crypto';
+import { inspectCredential } from './auth-generation.js';
+import { assessLoginExpiry, type LoginExpiry } from './login-expiry.js';
 import { lt } from 'drizzle-orm';
 import { ServiceUnavailableError, ValidationError } from '../http/errors.js';
 import type { Env } from '../env.js';
@@ -31,6 +33,7 @@ export interface RunnerStatus {
 }
 
 export interface RunnerEngineStatus {
+  login_expiry?: LoginExpiry;
   state: string | null;
   last_check: string | null;
   last_ok: string | null;
@@ -165,18 +168,19 @@ export class RunnerProxyService {
   async status(): Promise<RunnerStatus> {
     const url = this.env.AUTH_RUNNER_URL ?? null;
     const secret = this.env.AUTH_RUNNER_SHARED_SECRET ?? '';
+    const persisted = await this.readPersistedStatus();
     if (!url) {
-      return { configured: false, url: null, ready: false, detail: 'AUTH_RUNNER_URL is not set' };
+      return { ...persisted, configured: false, url: null, ready: false, detail: 'AUTH_RUNNER_URL is not set' };
     }
     if (!secret) {
-      return { configured: true, url, ready: false, detail: 'AUTH_RUNNER_SHARED_SECRET missing' };
+      return { ...persisted, configured: true, url, ready: false, detail: 'AUTH_RUNNER_SHARED_SECRET missing' };
     }
     return {
       configured: true,
       url,
       ready: true,
       detail: 'configured',
-      ...(await this.readPersistedStatus()),
+      ...persisted,
     };
   }
 
@@ -286,16 +290,20 @@ export class RunnerProxyService {
 
   private async readPersistedStatus(): Promise<Partial<RunnerStatus>> {
     const map = await this.deps.readTelemetry();
-    const [codexCanonical, claudeCanonical] = await Promise.all([
-      this.hasVerifiedCanonicalAuth(ENGINE_CODEX),
-      this.hasVerifiedCanonicalAuth(ENGINE_CLAUDE),
+    const [codexAuth, claudeAuth] = await Promise.all([
+      this.canonicalStatus(ENGINE_CODEX),
+      this.canonicalStatus(ENGINE_CLAUDE),
     ]);
+    const codexCanonical = codexAuth.verified;
+    const claudeCanonical = claudeAuth.verified;
     const codex = normalizeRunnerEngineStatus(runnerEngineStatus(map, ''), 'Codex', codexCanonical);
     const claude = normalizeRunnerEngineStatus(
       runnerEngineStatus(map, '_claude'),
       'Claude',
       claudeCanonical,
     );
+    codex.login_expiry = codexAuth.expiry;
+    claude.login_expiry = claudeAuth.expiry;
     const state = codex.state === 'fail' || claude.state === 'fail'
       ? 'fail'
       : codex.state === 'ok' || claude.state === 'ok'
@@ -320,14 +328,19 @@ export class RunnerProxyService {
    * after its canonical auth has been removed.  Only expose persisted `ok` /
    * `fail` state when the current canonical row is verified and distributable.
    */
-  private async hasVerifiedCanonicalAuth(engine: Engine): Promise<boolean> {
+  private async canonicalStatus(engine: Engine): Promise<{ verified: boolean; expiry: LoginExpiry }> {
     const validation = this.deps.runnerValidation;
     const row = await validation.resolveCanonicalPayload(engine);
-    return (
-      row?.verificationState === 'verified' &&
-      validation.validateCanonicalPayload(row) !== null &&
-      validation.canonicalAuthFromPayload(row) !== null
-    );
+    const auth = row ? validation.canonicalAuthFromPayload(row) : null;
+    // A failed verification must not hide the selected login's expiry.
+    const validated = validation.validateCanonicalPayload(row);
+    return {
+      verified: row?.verificationState === 'verified' &&
+        validated !== null && auth !== null,
+      expiry: engine === ENGINE_CODEX
+        ? { state: 'not_applicable', expires_at: null, days_remaining: null }
+        : assessLoginExpiry(validated ? inspectCredential(validated.auth, engine) : null),
+    };
   }
 }
 

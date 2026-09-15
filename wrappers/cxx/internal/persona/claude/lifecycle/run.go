@@ -363,6 +363,8 @@ func Run(ctx context.Context, opts Options) (exitCode int, retErr error) {
 	// rendered screen we still want the derived QuotaWarn text so headless
 	// callers (cron, --execute) see the warning on stderr.
 	state := summary.Build(ctx, summary.Inputs{
+		SkipLoginExpiry:   opts.SkipCredentialExchange,
+		AuthPath:          authPath,
 		Config:            cfg,
 		WrapperVersion:    currentWrapperVersion(opts, cfg),
 		SkipVersionProbe:  opts.SkipBoot,
@@ -401,6 +403,10 @@ func Run(ctx context.Context, opts Options) (exitCode int, retErr error) {
 		// Suppressed startup screens still need advisory usage in cron/CI logs.
 		fmt.Fprintln(os.Stderr, "clx: "+state.QuotaWarn)
 		logger.Warn("quota approaching limit", "warn", state.QuotaWarn)
+	}
+
+	if opts.SkipBoot && state.LoginWarning != "" {
+		fmt.Fprintln(os.Stderr, "clx: "+state.LoginWarning)
 	}
 
 	if !opts.SkipAuthSync && !opts.SkipCredentialExchange && !dec.Allowed {

@@ -27,3 +27,18 @@ func TestSkipBannerRemainsEngineScoped(t *testing.T) {
 		t.Fatal("Claude banner setting was ignored")
 	}
 }
+
+func TestLoginWarningVisibleInFullAndMinimalScreens(t *testing.T) {
+	for _, minimal := range []bool{false, true} {
+		var out bytes.Buffer
+		input := ScreenInput{LoginWarning: "Claude login expires in 3 days. Run /login in Claude launched through clx."}
+		if minimal {
+			PrintMinimalScreen(&out, input)
+		} else {
+			PrintBootScreen(&out, input)
+		}
+		if strings.Count(out.String(), input.LoginWarning) != 1 {
+			t.Fatalf("warning: %q", out.String())
+		}
+	}
+}

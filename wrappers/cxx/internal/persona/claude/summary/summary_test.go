@@ -3,10 +3,12 @@ package summary
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/claude/orchestrator"
@@ -321,4 +323,30 @@ func withClaudeVersion(t *testing.T, version string) {
 	}
 	t.Setenv("HOME", home)
 	t.Setenv("CLX_CLAUDE_BIN", path)
+}
+
+func TestLoginWarningUsesSelectedLocalCredentialAndClearsOnRenewal(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "credentials.json")
+	expiry := time.Now().Add(48 * time.Hour).UnixMilli()
+	write := func(exp int64) {
+		t.Helper()
+		if err := os.WriteFile(path, []byte(fmt.Sprintf(`{"claudeAiOauth":{"accessToken":"selected","refreshTokenExpiresAt":%d}}`, exp)), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(expiry)
+	for _, statusOnly := range []bool{false, true} {
+		in := Inputs{AuthPath: path, SkipVersionProbe: true, StatusOnly: statusOnly, AuthErr: errors.New("offline")}
+		got := Build(context.Background(), in)
+		if !strings.Contains(got.LoginWarning, "expires in 2 days") {
+			t.Fatalf("warning: %q", got.LoginWarning)
+		}
+	}
+	if got := Build(context.Background(), Inputs{AuthPath: path, SkipVersionProbe: true, SkipLoginExpiry: true}); got.LoginWarning != "" {
+		t.Fatal("content-only sync inspected credentials")
+	}
+	write(time.Now().Add(30 * 24 * time.Hour).UnixMilli())
+	if got := Build(context.Background(), Inputs{AuthPath: path, SkipVersionProbe: true}); got.LoginWarning != "" {
+		t.Fatal(got.LoginWarning)
+	}
 }

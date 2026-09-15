@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { ValidationError } from '../../../src/http/errors.js';
 import type { EnsureServedVerificationInput } from '../../../src/services/canonical-auth-store.js';
 import {
@@ -382,5 +382,38 @@ describe('RunnerProxyService.seedCommand', () => {
 
     await expect(svc.seedCommand({})).rejects.toThrow(/public base URL/i);
     expect(seedTokens.issued).toEqual([]);
+  });
+});
+
+
+describe('Runner login expiry metadata', () => {
+  it.each([false, true])('reports expiry independently of runner configuration (%s), then clears after renewal', async (configured) => {
+    const now = Date.parse('2026-09-15T12:00:00Z');
+    vi.useFakeTimers();
+    vi.setSystemTime(now);
+    try {
+      const row = canonicalRow({ engine: 'claude', auth: { claudeAiOauth: {
+        accessToken: 'test-access', refreshToken: 'test-refresh',
+        expiresAt: now + 3600000, refreshTokenExpiresAt: now + 3 * 86400000,
+      } } });
+      const svc = makeRunnerProxy(configured ? readyRunnerEnv() : makeRunnerEnv(), {
+        runnerValidation: fakeRunnerValidation({ claude: row }),
+        readTelemetry: async () => new Map([['runner_state_claude', 'ok']]),
+      });
+      let status = await svc.status();
+      expect(status.ready).toBe(configured);
+      expect(status.engines?.claude.state).toBe('ok');
+      expect(status.engines?.claude.login_expiry).toEqual({ state: 'expiring', days_remaining: 3, expires_at: '2026-09-18T12:00:00.000Z' });
+      expect(status.engines?.codex.login_expiry?.state).toBe('not_applicable');
+      expect(JSON.stringify(status)).not.toContain('test-access');
+      expect(JSON.stringify(status)).not.toContain('test-refresh');
+      row.auth = { claudeAiOauth: { accessToken: 'renewed', refreshToken: 'renewed-refresh', expiresAt: now + 3600000, refreshTokenExpiresAt: now + 30 * 86400000 } };
+      status = await svc.status();
+      expect(status.engines?.claude.login_expiry?.state).toBe('ok');
+      row.verificationState = 'failed';
+      expect((await svc.status()).engines?.claude.login_expiry?.state).toBe('ok');
+      vi.setSystemTime(now + 31 * 86400000);
+      expect((await svc.status()).engines?.claude.login_expiry?.state).toBe('expired');
+    } finally { vi.useRealTimers(); }
   });
 });

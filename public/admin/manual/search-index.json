@@ -1,5 +1,5 @@
 {
-    "version": "2026-09-09T00:00:00Z",
+    "version": "2026-09-15T00:00:00Z",
     "docs": [
         {
             "slug": "welcome",
@@ -733,6 +733,11 @@
                     "id": "source-references",
                     "text": "Source references",
                     "level": 2
+                },
+                {
+                    "id": "expiring-login",
+                    "text": "Expiring login",
+                    "level": 2
                 }
             ]
         },
@@ -805,6 +810,11 @@
                 {
                     "id": "source-references",
                     "text": "Source references",
+                    "level": 2
+                },
+                {
+                    "id": "claude-login-expiry",
+                    "text": "Claude login expiry",
                     "level": 2
                 }
             ]

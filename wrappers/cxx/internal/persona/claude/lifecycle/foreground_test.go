@@ -133,3 +133,61 @@ func TestMissingClaudeFailsBeforeAuthAndNeverBootstrapsInstaller(t *testing.T) {
 		t.Fatal("missing native CLI caused foreground auth/installer network work")
 	}
 }
+
+func TestLoginExpiryWarningPreservesHeadlessStdoutAndExit(t *testing.T) {
+	for _, remaining := range []time.Duration{48 * time.Hour, -time.Hour} {
+		t.Run(remaining.String(), func(t *testing.T) {
+			home := t.TempDir()
+			t.Setenv("HOME", home)
+			t.Setenv("XDG_RUNTIME_DIR", filepath.Join(home, "runtime"))
+			previous := requestBackgroundMaintenance
+			requestBackgroundMaintenance = func(string, string) error { return nil }
+			t.Cleanup(func() { requestBackgroundMaintenance = previous })
+			cli := filepath.Join(home, "claude")
+			writeTestScript(t, cli, "#!/bin/sh\ncase \"$1\" in --version|-V) echo 2.1.263;; *) printf '%s' '{\"result\":\"ok\"}';; esac\n")
+			t.Setenv("CLX_CLAUDE_BIN", cli)
+			payload := json.RawMessage(fmt.Sprintf(`{"last_refresh":%q,"claudeAiOauth":{"accessToken":"fixture","refreshToken":"fixture-refresh","expiresAt":%d,"refreshTokenExpiresAt":%d}}`, time.Now().UTC().Format(time.RFC3339Nano), time.Now().Add(time.Hour).UnixMilli(), time.Now().Add(remaining).UnixMilli()))
+			if err := claude.WriteAuth(payload); err != nil {
+				t.Fatal(err)
+			}
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				switch r.URL.Path {
+				case "/sync/bootstrap":
+					_, _ = w.Write([]byte(`{"status":"success","data":{"auth":{"status":"valid","verification_state":"verified","host":{"secure":true}}}}`))
+				case "/auth":
+					_, _ = w.Write([]byte(`{"status":"valid","verification_state":"verified","host":{"secure":true}}`))
+				case "/skills":
+					_, _ = w.Write([]byte(`{"skills":[]}`))
+				default:
+					w.WriteHeader(404)
+				}
+			}))
+			defer server.Close()
+			cfg := &config.Config{Engine: config.EngineClaude, Host: config.Host{Secure: true}, Orchestrator: config.Orchestrator{BaseURL: server.URL, APIKey: "fixture"}}
+			output, err := os.CreateTemp(home, "stdout")
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer output.Close()
+			originalStdout := os.Stdout
+			os.Stdout = output
+			defer func() { os.Stdout = originalStdout }()
+			var code int
+			var runErr error
+			stderr := captureStderr(t, func() {
+				code, runErr = Run(context.Background(), Options{Config: cfg, SkipBoot: true, Headless: true, ExtraArgs: []string{"-p", "test", "--output-format", "json"}, Logger: slog.New(slog.DiscardHandler)})
+			})
+			if code != 0 || runErr != nil {
+				t.Fatalf("Run=%d %v", code, runErr)
+			}
+			if !strings.Contains(stderr, "Run /login in Claude launched through clx.") {
+				t.Fatalf("missing warning: %q", stderr)
+			}
+			raw, err := os.ReadFile(output.Name())
+			if err != nil || string(raw) != `{"result":"ok"}` {
+				t.Fatalf("stdout=%q err=%v", raw, err)
+			}
+		})
+	}
+}

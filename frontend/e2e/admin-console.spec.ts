@@ -1527,3 +1527,39 @@ test("quota advice settings save centrally and survive reload", async ({ page })
   await expect(quotas.getByRole("button", { name: "Save", exact: true })).toBeVisible();
   await expectNoSeriousAxeFindings(page);
 });
+
+
+test("Claude login expiry remains visible with successful verification and clears after renewal", async ({ page }, info) => {
+  test.setTimeout(90_000);
+  await installFixtures(page, controlFixture);
+  let expiryState = "expiring";
+  let configured = true;
+  await page.route("**/admin/runner", async (route) => route.fulfill({
+    contentType: "application/json",
+    body: JSON.stringify({ runner: { configured, ready: configured, detail: configured ? "configured" : "AUTH_RUNNER_URL is not set", engines: {
+      codex: { state: "ok", login_expiry: { state: "not_applicable", expires_at: null, days_remaining: null } },
+      claude: { state: "ok", login_expiry: { state: expiryState, expires_at: "2026-09-18T12:00:00.000Z", days_remaining: expiryState === "expired" ? 0 : 3 } },
+    } } }),
+  }));
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 1000 });
+    await page.goto("/admin/dashboard");
+    const card = page.getByRole("region", { name: "Claude verification" });
+    await expect(card.getByText("Claude login expires in 3 days", { exact: true })).toBeVisible();
+    await expect(card.getByText("OK", { exact: true })).toBeVisible();
+    await expect(card).toContainText("2026-09-18T12:00:00.000Z");
+    await expect(card).toContainText("Run /login in Claude launched through clx.");
+    await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await expectNoSeriousAxeFindings(page);
+    await card.screenshot({ path: info.outputPath(`login-expiry-${width}.png`) });
+  }
+  configured = false;
+  await page.reload();
+  await expect(page.getByText("Claude login expires in 3 days", { exact: true })).toBeVisible();
+  expiryState = "expired";
+  await page.reload();
+  await expect(page.getByText("Claude login expired", { exact: true })).toBeVisible();
+  expiryState = "ok";
+  // Existing polling must remove the warning after canonical renewal.
+  await expect(page.getByText("Claude login expired", { exact: true })).toHaveCount(0, { timeout: 20_000 });
+});

@@ -20,7 +20,13 @@ async function buildApp(env: Env): Promise<FastifyInstance> {
   app.decorate('requireAdmin', async () => undefined);
   app.decorate('resolveAdmin', async () => null);
   const ctx: RouteContext = {
-    db: {} as unknown as RouteContext['db'],
+    // Status now reads canonical expiry even without a configured runner.
+    // Model an empty database for both telemetry and canonical-head queries.
+    db: {
+      select: () => ({
+        from: () => Object.assign(Promise.resolve([]), { where: async () => [] }),
+      }),
+    } as unknown as RouteContext['db'],
     env,
     keyring: {} as unknown as RouteContext['keyring'],
   };
@@ -46,6 +52,8 @@ describe('runner endpoints', () => {
     expect(body.status).toBe('ok');
     expect(body.runner.configured).toBe(false);
     expect(body.runner.ready).toBe(false);
+    expect(res.json().runner.engines.claude.login_expiry.state).toBe('unknown');
+    expect(res.json().runner.engines.codex.login_expiry.state).toBe('not_applicable');
   });
 
   it('POST /admin/runner/run reports unconfigured for an empty body', async () => {

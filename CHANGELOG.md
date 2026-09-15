@@ -1,3 +1,10 @@
+# 2026-09-15
+
+- **Claude login expiry warnings.** The dashboard and clx startup/status show a
+  three-day countdown and renewal instructions independently of runner health.
+  Warnings use the selected credential, clear after renewal, and do not block
+  launch or refresh tokens automatically. Wrapper version 0.8.8.
+
 # 2026-09-14
 
 - **Choose the less pressured provider at startup.** cdx and clx compare fresh
