@@ -1,4 +1,9 @@
 import { describe, it, expect, vi } from 'vitest';
+import type { SQL } from 'drizzle-orm';
+import { MySqlDialect } from 'drizzle-orm/mysql-core';
+import type { Database } from '../../../src/db/client.js';
+import { authSeedTokens } from '../../../src/db/schema.js';
+import { createSeedTokenStore } from '../../../src/services/runner-proxy.js';
 import { ValidationError } from '../../../src/http/errors.js';
 import type { EnsureServedVerificationInput } from '../../../src/services/canonical-auth-store.js';
 import {
@@ -415,5 +420,50 @@ describe('Runner login expiry metadata', () => {
       vi.setSystemTime(now + 31 * 86400000);
       expect((await svc.status()).engines?.claude.login_expiry?.state).toBe('expired');
     } finally { vi.useRealTimers(); }
+  });
+});
+
+
+describe('Renewal seed persistence', () => {
+  it.each(['codex', 'claude'] as const)('persists the %s grant before returning its renewal command', async (engine) => {
+    const writes: Record<string, unknown>[] = [];
+    const cleanup: SQL[] = [];
+    const db = {
+      delete: (table: unknown) => {
+        expect(table).toBe(authSeedTokens);
+        return { where: async (condition: SQL) => { cleanup.push(condition); } };
+      },
+      insert: (table: unknown) => {
+        expect(table).toBe(authSeedTokens);
+        return { values: async (row: Record<string, unknown>) => { writes.push(row); } };
+      },
+    } as unknown as Database;
+    const svc = makeRunnerProxy(
+      readyRunnerEnv({ PUBLIC_BASE_URL: 'https://auth.example.com', AUTH_SEED_TOKEN_TTL_SECONDS: 900 } as Partial<Env>),
+      { seedTokens: createSeedTokenStore(db) },
+    );
+    const result = await svc.seedCommand({ engine });
+    expect(writes).toHaveLength(1);
+    const stored = writes[0]!;
+    expect(stored).toMatchObject({ engine, baseUrl: 'https://auth.example.com', tokenEnc: null, usedAt: null, expiresAt: result.expires_at });
+    expect(stored.token).toMatch(/^[a-f0-9]{64}$/);
+    expect(Date.parse(stored.expiresAt as string) - Date.parse(stored.createdAt as string)).toBe(900000);
+    expect(result.command).toContain(`/seed/auth/${stored.token}`);
+    expect(cleanup).toHaveLength(1);
+    const query = new MySqlDialect().sqlToQuery(cleanup[0]!);
+    expect(query.sql).toBe('`auth_seed_tokens`.`expires_at` < ?');
+    expect(query.params).toEqual([stored.createdAt]);
+  });
+
+  it('propagates a database failure instead of returning an unusable renewal command', async () => {
+    const db = {
+      delete: () => ({ where: async () => undefined }),
+      insert: () => ({ values: async () => { throw new Error('seed insert failed'); } }),
+    } as unknown as Database;
+    const svc = makeRunnerProxy(
+      readyRunnerEnv({ PUBLIC_BASE_URL: 'https://auth.example.com' } as Partial<Env>),
+      { seedTokens: createSeedTokenStore(db) },
+    );
+    await expect(svc.seedCommand({ engine: 'claude' })).rejects.toThrow('seed insert failed');
   });
 });
