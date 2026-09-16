@@ -1,5 +1,15 @@
 # 2026-09-16
 
+- cxx 0.8.9 automatically connects interactive Codex and Claude sessions to peer
+  and operator-portal reception through native queues/Channels. Listening requires
+  a fresh receiver connection and a model-acknowledged nonce for each enabled source;
+  wrapper heartbeats cannot keep a dead receiver green. Reconnects revoke old proof.
+- Managed agent guidance now describes automatic waiting and receipt tools; its
+  feature/document digest fixtures intentionally change so the fleet resyncs it.
+- Clients and /go show receiver evidence and provide Verify reception;
+  `cxx agent doctor --json` reports local receiver state. Native permissions still
+  apply, and Claude retains its development-Channel confirmation.
+
 - Ignore local pytest caches, frontend test reports/coverage, TypeScript build metadata,
   and the one-off Go wrapper executable; shipped admin assets remain tracked.
 - Preserve the in-progress `cxx remote` scaffold during repository synchronization.

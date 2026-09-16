@@ -1,3 +1,4 @@
+import { receiverReady } from './agent-receiver-state.js';
 import { parseRfc3339Millis } from '../util/timestamp.js';
 
 /**
@@ -66,6 +67,7 @@ export interface PresenceAddress {
 export interface PresenceSession {
   heartbeatAt: string | null;
   endedAt: string | null;
+  receiver?: unknown;
 }
 
 /**
@@ -92,7 +94,7 @@ export function deriveAddressPresence(
     cutoff != null &&
     isFreshPresenceTimestamp(session.heartbeatAt, cutoff, nowMs);
   if (live) {
-    const receiving = isFreshPresenceTimestamp(address.receiveHeartbeatAt, cutoff!, nowMs);
+    const receiving = session.receiver ? receiverReady(session.receiver, 'peer', nowMs) : isFreshPresenceTimestamp(address.receiveHeartbeatAt, cutoff!, nowMs);
     return receiving ? 'listening' : 'online';
   }
   return address.lastUpstreamSessionId ? 'resumable' : 'offline';

@@ -37,7 +37,7 @@ Claude settings and MCP merges preserve unreadable or non-object user files and 
 | `auth-upload` | Stabilize and POST native `~/.claude/.credentials.json`; apply the authoritative response only if that native generation is still current |
 | `auth ...` | Passed through to upstream Claude under the active-child/session leases. `auth login` uploads the resulting generation and applies guarded canonical writeback; `auth logout` journals durable intent before destructive native mutation; `auth status` remains read-only passthrough. The top-level `login`/`logout` aliases follow the same rules. |
 | `exec -- <cmd...>` | Bypass startup sync; run a single Claude command |
-| `cxx agent ...` | Shared Agent Messaging control surface: `list` (alias `peers`, `--engine codex\|claude`, `--online`), `send`, `request`, `wait`, `reply`, `message <id>`, `cancel`, `call-open`, `call-join --pin`, `listen`, `poll --hook Stop\|UserPromptSubmit` (the Claude ringer hook), `status`, `service install\|remove\|start\|stop\|restart\|status`, `worker --foreground`, and `mcp [--channel]` (the stdio MCP server the managed `cxx-agent` entry launches). Message and reply content is accepted only on stdin. |
+| `cxx agent ...` | Shared Agent Messaging control surface: `list` (alias `peers`, `--engine codex\|claude`, `--online`), `send`, `request`, `wait`, `reply`, `message <id>`, `cancel`, `call-open`, `call-join --pin`, `listen`, `poll --hook Stop\|UserPromptSubmit` (the Claude ringer hook), `status`, `service install\|remove\|start\|stop\|restart\|status`, `worker --foreground`, and `mcp [--channel|--auto]` (the stdio MCP server the managed `cxx-agent` entry launches). Message and reply content is accepted only on stdin. |
 | `cxx remote ...` | Shared remote-execution surface, default off behind the signed `remote.enabled` switch: `info`, `exec -- ARGV...`, `read`, `write`, `wait`, `signal`, `ps`, `rm`, `get`, `put`, `push`, `pull`, `down`. One ssh connection per destination is established and reused through a private `ControlMaster` path, so a command is a channel on it rather than a new handshake. Jobs live in a directory on the target and survive a dropped connection: a cursor is a byte offset into the job's log, and reconnecting reads on rather than re-running. Everything after `--` is argv, verbatim, with no shell unless one is asked for explicitly. One JSON object per invocation on stdout; diagnostics on stderr. A destination is whatever `ssh` accepts, so `~/.ssh/config` aliases work, and the target needs only SSH access — the binary installs itself there on first contact. |
 | `--continue` / `-c` | Passed straight through to the upstream `claude` binary |
 | `resume [<session>] [<prompt>]` | Reopen a previous Claude session through the normal startup lifecycle. With no session id, the upstream picker is shown |
@@ -951,3 +951,50 @@ Older servers without `quota_advice` retain the previous launch behavior.
 ## Login expiry warning
 
 From wrapper 0.8.8, startup and `clx status` assess the selected local credential after synchronization, including offline use. Claude OAuth logins within 72 hours of `refreshTokenExpiresAt` display the remaining days (rounded upward), UTC expiry, and `Run /login in Claude launched through clx.` Expired logins display `Claude login expired`. The advisory does not change launch eligibility or exit codes; startup writes it to stderr even with `--skip-boot`, preserving child stdout. Status includes it in its normal output. Missing/malformed expiry or API-key credentials produce no warning. Access expiry more than 72 hours beyond refresh expiry suppresses the warning, matching Claude Code 2.1.263. Renewing through the existing login/upload flow clears the warning once the renewed local credential is selected; the dashboard clears once it becomes canonical. No extra refresh attempt is made.
+
+## Automatic verified reception (cxx 0.8.9)
+
+For interactive launches with signed `agent_messaging.receiver_enabled`, the wrapper
+starts `cxx agent mcp --auto`. This grant is baked when the host/engine is active and
+either the peer bus or operator portal is enabled; their server-side switches remain
+independent. Existing headless workers and explicit manual listeners retain their own
+paths. Already-running older wrappers need a new launch to gain the native adapter.
+
+The receiver owns one generation and native conversation identity. It checks the
+native connection every 15 seconds; a 45-second lapse invalidates readiness, even if
+the supervising wrapper still heartbeats. Each enabled source (`peer`, `portal`)
+sends a nonce through the same native delivery adapter. Only the model's matching
+`agent_receiver_ack(generation, source, nonce)` verifies that source. Verification
+notifications may repeat safely during startup; a delivered probe expires after
+120 seconds. Reconnection generates new challenges. “Listening” therefore means
+fresh transport plus model proof, separately from whether a task is working.
+
+Ordinary deliveries are serialized across both sources. Peer requests use
+`agent_reply(message_id, content)`; operator requests use
+`agent_receiver_reply(message_id, content)`. Durable acceptance precedes native
+submission, so uncertain submission is not automatically replayed as fresh work.
+A peer disconnect records an ambiguous outcome. An accepted portal instruction
+without its correlated assistant event remains unconfirmed, never fabricated as
+completed. These receipts prove adapter delivery and model response, not that the
+requested task itself succeeded.
+
+Native permission settings are preserved. A denied or approval-blocked receipt
+cannot pass verification; the UI stays unavailable/verifying. No remote permission
+approval capability is advertised. Peer content remains untrusted input.
+
+Inspect generation, native ID, transport response time and per-source model proof
+in Clients or /go, or run `cxx agent doctor --json` from a local shell (also exposed
+through `cdx agent doctor --json` / `clx agent doctor --json`). Verify reception
+invalidates the current generation and asks the connected adapter to reconnect;
+old/delayed acknowledgments cannot satisfy the replacement. Explicit portal leave
+keeps that source closed until reopened, without closing peer reception.
+
+Claude keeps its native TUI and receives `notifications/claude/channel`. A temporary
+per-launch plugin adds a SessionStart identity hook without replacing user hooks or
+settings; it handles new sessions, continue/resume pickers and `/clear`. A changed
+native identity invalidates the connection. The private broker directory owns and
+removes the plugin. The wrapper adds only its `cxx-agent` MCP override and the
+`--dangerously-load-development-channels server:cxx-agent` flag. Claude's native
+confirmation and organization channel policy still apply; the wrapper does not
+answer the confirmation. MCP ping replies keep transport health independent of
+long-running model/tool calls. The Channels API remains a research preview.

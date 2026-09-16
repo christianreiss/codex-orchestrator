@@ -197,3 +197,11 @@ export function forceCloseMutation(opts: MutationOpts<ForceCloseResult, { id: st
     },
   });
 }
+
+export function verifyReceptionMutation() {
+  const client = useQueryClient();
+  return createMutation({
+    mutationFn: (id: string) => api.post(`/admin/agent-sessions/${id}/receiver/verify`, {}),
+    onSuccess: () => client.invalidateQueries({ queryKey: agentSessionKeys.all }),
+  });
+}

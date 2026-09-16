@@ -92,9 +92,9 @@ describe('served document byte invariance', () => {
 
     expect(base.sha256).toBe('30abaea24c8809d8634670f0eceb3004aabb4eafb5416c78333c719e8b67e14b');
     expect(out.policy_sha256).toBe('ca5c99eb3eb59039b44eeb1fd8276f848ffe18945b41bc84cc491c0ea436f8e9');
-    expect(out.features_sha256).toBe('aee209078109de35f397aa1229ed8e4ccfcb8024ce245ec584f0b4e2eb18d8f9');
-    expect(out.managed_sha256).toBe('b6f3a044426f28a275ee5bae8771549b110e4d75195da0ea6df5e990322c15b7');
-    expect(sha256(out.body)).toBe('57ceb63c10ad4ade71e11e4cce7a90cb44adec6fe236556a1f6a5da74ca6b3d3');
+    expect(out.features_sha256).toBe('52480b0fb955b546e7cb7556fdd76af8eedd28addd009f2d07812a8b7e8d42d9');
+    expect(out.managed_sha256).toBe('b2b27d99285933b6332e9a2215fe85830d7ee5293ec8668591294d76a7e9e752');
+    expect(sha256(out.body)).toBe('d3c9f2c27b798a2007af00510fa91f0428508b33b1ba53b81a115633df215ae9');
   });
 });
 

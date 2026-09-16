@@ -1436,6 +1436,7 @@ export const agentSessions = mysqlTable(
     adapterProtocol: varchar('adapter_protocol', { length: 32 }),
     adapterCapabilities: json('adapter_capabilities'),
     receiveHeartbeatAt: varchar('receive_heartbeat_at', { length: 100 }),
+    receiver: json('receiver'),
     bindingGeneration: int('binding_generation', { unsigned: true }).notNull().default(0),
     hostAuthFingerprint: char('host_auth_fingerprint', { length: 64 }).notNull(),
     bridgeTokenHash: char('bridge_token_hash', { length: 64 }).notNull(),

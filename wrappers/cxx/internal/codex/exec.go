@@ -251,6 +251,16 @@ func runCapturePreparedWithHeldLeases(ctx context.Context, cfg *config.Config, a
 		env = append(env, "PROMPT_TOOLKIT_NO_CPR=1")
 	}
 
+	if cfg != nil && cfg.AgentMessaging.ReceiverEnabled && stdoutIsTTY && stdinIsTTY && os.Getenv("CXX_AGENT_PORTAL_SOCKET") != "" {
+		receiverArgs, stopReceiver, receiverErr := startReceiverServer(ctx, cli, args, env, session, childLease)
+		if receiverErr != nil {
+			fmt.Fprintln(os.Stderr, "cxx receiver unavailable:", receiverErr)
+		} else {
+			args = receiverArgs
+			defer stopReceiver()
+		}
+	}
+
 	cmd := exec.CommandContext(ctx, cli, args...)
 	cmd.Env = env
 	cmd.Stdin = os.Stdin

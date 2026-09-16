@@ -32,9 +32,10 @@
   import { clientClock, clientCounts, snapshotIsStale, visibleClients, type ClientFilter, type ClientSort } from "$lib/portal/clients";
   import { watchClientEvents, type ClientFeedState } from "$lib/portal/client-events";
   import type { TimelineSource } from "$lib/portal/types";
-  import { agentSessionKeys, agentSessionsQuery, forceCloseMutation, requestCloseMutation, sendMutation, sessionEventsQuery, type AgentSessionRow } from "$lib/api/agentSessions";
+  import { verifyReceptionMutation, agentSessionKeys, agentSessionsQuery, forceCloseMutation, requestCloseMutation, sendMutation, sessionEventsQuery, type AgentSessionRow } from "$lib/api/agentSessions";
 
   const sessions = agentSessionsQuery();
+  const verifyReception = verifyReceptionMutation();
   const client = useQueryClient();
   const canManage = $derived($authStore.can("agent_portal.manage"));
   const canReadTranscript = $derived($authStore.can("agent_portal.reveal_transcript"));
@@ -274,6 +275,18 @@
                 <details class="mt-3 rounded-md border bg-background/60 px-3 py-2"><summary class="cursor-pointer text-xs font-medium">Reported work and session details</summary><dl class="mt-2 space-y-2 text-xs"><div><dt class="text-muted-foreground">Directory</dt><dd class="mt-0.5 break-all font-mono">{selected.work.worktree_path ?? selected.cwd}</dd></div>{#if selected.work.task}<div><dt class="text-muted-foreground">Task</dt><dd class="mt-0.5 whitespace-pre-wrap leading-relaxed">{selected.work.task}</dd></div>{/if}{#if selected.work.branch}<div><dt class="text-muted-foreground">Branch</dt><dd class="break-all font-mono">{selected.work.branch}{selected.work.target_branch ? ` → ${selected.work.target_branch}` : ""}</dd></div>{/if}{#if selected.work.address}<div><dt class="text-muted-foreground">Messaging address</dt><dd class="break-all font-mono">{selected.work.address_alias ?? selected.work.address}</dd></div>{/if}{#if selected.work.declared_paths.length}<div><dt class="text-muted-foreground">Declared paths</dt><dd class="whitespace-pre-wrap break-all font-mono">{selected.work.declared_paths.join("\n")}</dd></div>{/if}<div><dt class="text-muted-foreground">Relay heartbeat</dt><dd title={exactTime(selected.relay_heartbeat_at ?? null)}>{selected.relay_enabled === false ? "Relay disabled" : selected.relay_heartbeat_at ? `${age(selected.relay_heartbeat_at)} ago · ${exactTime(selected.relay_heartbeat_at)}` : "Not reported"}</dd></div><div><dt class="text-muted-foreground">Session ID</dt><dd class="break-all font-mono">{selected.id}</dd></div><div><dt class="text-muted-foreground">Started</dt><dd>{exactTime(selected.started_at)}</dd></div></dl></details>
                 {#if canManage && !selected.ended_at && !selected.read_only}
                   <div class="mt-3 flex flex-wrap gap-2">{#if selectedView.canSend && !selected.close}<Button variant="outline" size="sm" disabled={$cooperativeClose.isPending || actionsUnavailable} onclick={() => $cooperativeClose.mutate({ id: selected.id })}>Ask to close</Button>{/if}<Button variant="outline" size="sm" disabled={$force.isPending || !enabled} onclick={() => { forceTarget = selected; forceOpen = true; }}>Force close</Button></div>
+                {/if}
+                {#if selected.receiver}
+                  <div class="mt-3 rounded border p-3 text-xs">
+                    <p class="font-medium">Reception: {selected.receiver.state}</p>
+                    <p>{selected.receiver.protocol} · Native session {selected.receiver.native_session_id}</p>
+                    <p>Last receiver response: {age(selected.receiver.heartbeat_at)} ago</p>
+                    {#if selected.receiver.failure}<p>{selected.receiver.failure}</p>{/if}
+                    {#each selected.receiver.sources as proof}
+                      <p class="mt-1">{proof.source}: {proof.state}{proof.acknowledged_at ? ` · verified ${age(proof.acknowledged_at)} ago · ${proof.latency_ms} ms` : " · no model acknowledgment"}</p>
+                    {/each}
+                    {#if canManage && !selected.ended_at}<Button class="mt-2" variant="outline" size="sm" disabled={$verifyReception.isPending || actionsUnavailable} onclick={() => $verifyReception.mutate(selected.id, { onError: (error) => toast.error(error.message) })}>Verify reception</Button>{/if}
+                  </div>
                 {/if}
               </header>
               {#if !canReadTranscript}

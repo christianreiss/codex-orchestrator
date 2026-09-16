@@ -1,3 +1,5 @@
+import { deriveAddressPresence } from '../agent-presence.js';
+import { receiverView } from '../agent-receiver-state.js';
 /**
  * The operator's view of the bus: the fleet switch, and the admin console's
  * read and repair surface.
@@ -80,6 +82,8 @@ export class AgentMessagingAdmin {
       await Promise.all([
         this.core.db
           .select({
+            address: agentBusAddresses,
+            session: agentSessions,
             engine: agentBusAddresses.engine,
             receiveHeartbeatAt: agentBusAddresses.receiveHeartbeatAt,
             hostStatus: hosts.status,
@@ -89,6 +93,7 @@ export class AgentMessagingAdmin {
           })
           .from(agentBusAddresses)
           .innerJoin(hosts, eq(hosts.id, agentBusAddresses.hostId))
+          .leftJoin(agentSessions, eq(agentSessions.id, agentBusAddresses.currentSessionId))
           .where(and(eq(agentBusAddresses.enabled, 1), isNull(agentBusAddresses.archivedAt))),
         this.core.db
           .select({
@@ -153,7 +158,7 @@ export class AgentMessagingAdmin {
       enabled,
       initial_default: false,
       addresses: eligibleAddresses.length,
-      live_addresses: eligibleAddresses.filter((row) => row.receiveHeartbeatAt != null && row.receiveHeartbeatAt > freshAfter).length,
+      live_addresses: eligibleAddresses.filter((row) => deriveAddressPresence(row.address,row.session,freshAfter) === 'listening').length,
       relays: eligibleRelays.length,
       open_conversations: Number(conversations[0]?.value ?? 0),
       messages: {
@@ -286,6 +291,7 @@ export class AgentMessagingAdmin {
     const rows = await this.core.db
       .select({
         address: agentBusAddresses,
+        session: agentSessions,
         fqdn: hosts.fqdn,
         hostSecure: hosts.secure,
         hostStatus: hosts.status,
@@ -294,6 +300,7 @@ export class AgentMessagingAdmin {
       })
       .from(agentBusAddresses)
       .innerJoin(hosts, eq(hosts.id, agentBusAddresses.hostId))
+      .leftJoin(agentSessions, eq(agentSessions.id, agentBusAddresses.currentSessionId))
       .where(isNull(agentBusAddresses.archivedAt))
       .orderBy(desc(agentBusAddresses.lastSeenAt));
     const queueRows = await this.core.db
@@ -304,7 +311,8 @@ export class AgentMessagingAdmin {
     const queues = new Map(queueRows.map((row) => [row.targetAddressId, Number(row.value)]));
     return {
       addresses: rows.map((row) => ({
-        ...publicAddress(row.address, row.fqdn),
+        ...publicAddress(row.address, row.fqdn, deriveAddressPresence(row.address,row.session,isoOffsetSeconds(-45))),
+        receiver: receiverView(row.session?.receiver),
         current_session_id: row.address.currentSessionId,
         host_secure: row.hostSecure === 1,
         host_status: row.hostStatus,

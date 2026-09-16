@@ -218,3 +218,23 @@ describe("conservative presence evidence", () => {
     assert.equal(livePresence({ ...row, relay_heartbeat_at: "2026-08-01T11:50:00Z" }, NOW, { working_fresh_seconds: 60 }), "idle");
   });
 });
+
+describe("automatic receiver proof", () => {
+  const receiver = {
+    generation: "one", protocol: "codex-queue-v1", native_session_id: "native", state: "ready", failure: null,
+    heartbeat_at: new Date(NOW).toISOString(),
+    sources: [{ source: "portal" as const, state: "ready", delivery_id: "probe", delivered_at: new Date(NOW).toISOString(), acknowledged_at: new Date(NOW).toISOString(), latency_ms: 1 }],
+  };
+  it("requires the portal proof independently of peer or wrapper health", () => {
+    const row = agent({ presence: "listening", receiver });
+    assert.equal(presenceView(row, NOW).canSend, true);
+    assert.equal(presenceView({ ...row, receiver: { ...receiver, sources: [] } }, NOW).canSend, false);
+    assert.equal(presenceView({ ...row, heartbeat_at: new Date(NOW + 46_000).toISOString() }, NOW + 46_000).canSend, false);
+  });
+  it("keeps work separate but labels a disconnected receiver honestly", () => {
+    const row = agent({ presence: "working", receiver: { ...receiver, failure: "adapter_disconnected" } });
+    const view = presenceView(row, NOW);
+    assert.equal(view.canSend, false);
+    assert.match(view.detail, /unconfirmed/);
+  });
+});

@@ -62,6 +62,10 @@ func sessionClientFromEnv(timeout time.Duration) (*sessionClient, error) {
 	if socket == "" || id == "" {
 		return nil, errors.New("agent messaging is available only inside a managed cdx/clx lifecycle")
 	}
+	return sessionClientAt(socket, id, timeout), nil
+}
+
+func sessionClientAt(socket, id string, timeout time.Duration) *sessionClient {
 	transport := &http.Transport{
 		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
 			return (&net.Dialer{}).DialContext(ctx, "unix", socket)
@@ -73,7 +77,7 @@ func sessionClientFromEnv(timeout time.Duration) (*sessionClient, error) {
 	return &sessionClient{
 		id:   id,
 		http: &http.Client{Transport: transport, Timeout: timeout},
-	}, nil
+	}
 }
 
 func (c *sessionClient) path(suffix string) string {

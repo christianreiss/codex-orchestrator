@@ -357,6 +357,13 @@ export function createPortal() {
    * Resolves to "unreachable" when the agent cannot take a cooperative close,
    * so the caller can escalate instead of dead-ending on an error banner.
    */
+  async function verifyReception(): Promise<void> {
+    if (!selected || selected.read_only) return;
+    try { await api.verifyReception(selected.id); }
+    catch (reason) { applyFailure(reason as ApiFailure, "Reception verification could not be started."); }
+    await refreshAgentsSafe();
+  }
+
   async function requestClose(note: string): Promise<"closed" | "unreachable" | "failed"> {
     const agent = selected;
     if (!agent || closing) return "failed";
@@ -509,6 +516,7 @@ export function createPortal() {
     select,
     send,
     requestClose,
+    verifyReception,
     forceEnd,
     bootstrap,
     teardown,

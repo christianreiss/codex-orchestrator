@@ -128,3 +128,5 @@ export const forceEndAgent = (id: string, clientMessageId: string, note: string)
     json({ client_message_id: clientMessageId, note }));
 
 export const logout = () => api("/go/api/logout", { method: "POST", body: "{}" }).catch(() => undefined);
+
+export const verifyReception = (id: string) => api(`${agentPath(id)}/receiver/verify`, json({}));

@@ -514,6 +514,13 @@ func Run(ctx context.Context, opts Options) (exitCode int, retErr error) {
 
 	started := time.Now()
 	launchArgs := guardRootPermissionMode(opts.ExtraArgs, logger)
+	if cfg.AgentMessaging.ReceiverEnabled && !opts.Headless && term.IsTerminal(int(os.Stdin.Fd())) && term.IsTerminal(int(os.Stdout.Fd())) {
+		if receiverArgs, err := agentportal.ClaudeReceiverArgs(launchArgs); err != nil {
+			logger.Warn("automatic receiver unavailable", "err", err)
+		} else {
+			launchArgs = receiverArgs
+		}
+	}
 	// Upload mid-session native token rotations as they happen instead of
 	// only at exit; see auth_watch.go for why the gap is dangerous.
 	stopAuthWatch := func() {}

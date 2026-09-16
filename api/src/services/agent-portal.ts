@@ -1,3 +1,4 @@
+import { receiverView, receiverReady, receiverState, newReceiverProbe } from './agent-receiver-state.js';
 import { StringDecoder } from 'node:string_decoder';
 import { randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import {
@@ -692,10 +693,22 @@ export class AgentPortalService {
         updatedAt: now,
       };
       if (input.activeTurnId !== undefined) patch.activeTurnId = normalizeOptionalText(input.activeTurnId, 255);
-      if (input.relayAction === 'poll') {
+      const automatic = receiverState(locked.receiver);
+      if (automatic && input.relayAction === 'poll' && automatic.portal_closed) {
+        automatic.portal_closed = false;
+        automatic.probes.portal = newReceiverProbe(now);
+        automatic.failure = 'portal_reopened'; // reconnect to pick up the source and reverify
+        patch.receiver = automatic;
+      }
+      if (input.relayAction === 'poll' && !receiverState(locked.receiver)) {
         patch.relayEnabled = 1;
         patch.relayHeartbeatAt = now;
       } else if (input.relayAction === 'close') {
+        if (automatic) {
+          automatic.portal_closed = true;
+          delete automatic.probes.portal;
+          patch.receiver = automatic;
+        }
         patch.relayEnabled = 0;
         patch.relayHeartbeatAt = null;
         // `cxx portal leave` is how an agent acts *on* a close note, so a close
@@ -853,8 +866,8 @@ export class AgentPortalService {
       const heartbeatFresh = bridgeHostAvailable(session, host, snapshotTime) &&
         isFreshPresenceTimestamp(session.heartbeatAt, offlineBefore, snapshotTime);
       const effectiveStatus = LIVE_SESSION_STATE_SET.has(session.status) && !heartbeatFresh ? 'offline' : session.status;
-      const relayReady = !session.endedAt && heartbeatFresh && session.relayEnabled === 1 &&
-        isFreshPresenceTimestamp(session.relayHeartbeatAt, relayBefore, snapshotTime);
+      const relayReady = !session.endedAt && heartbeatFresh && (session.receiver ? receiverReady(session.receiver, 'portal', snapshotTime) : session.relayEnabled === 1 &&
+        isFreshPresenceTimestamp(session.relayHeartbeatAt, relayBefore, snapshotTime));
 
       // A session with no events yet (registered, `server:started` not committed)
       // produces no aggregate row at all.
@@ -915,6 +928,7 @@ export class AgentPortalService {
         status: effectiveStatus,
         presence,
         relay_ready: relayReady,
+        receiver: receiverView(session.receiver, snapshotTime),
         relay_enabled: session.relayEnabled === 1,
         relay_heartbeat_at: session.relayHeartbeatAt,
         active_turn_id: session.activeTurnId,
@@ -1322,7 +1336,7 @@ export class AgentPortalService {
     return result;
   }
 
-  async claimMessage(sessionId: string, bridgeToken: string, claimId: string, hostId?: number): Promise<ClaimedMessage | null> {
+  async claimMessage(sessionId: string, bridgeToken: string, claimId: string, hostId?: number, receiverGeneration?: string): Promise<ClaimedMessage | null> {
     const leaseClaimId = normalizeUuid(claimId, 'claim_id');
     const authenticated = await this.authenticateBridge(sessionId, bridgeToken, hostId);
     for (;;) {
@@ -1346,6 +1360,9 @@ export class AgentPortalService {
           bridgeToken,
           authenticated.hostId,
         );
+        if (receiverState(session.receiver) && receiverState(session.receiver)?.generation !== receiverGeneration) {
+          throw new ConflictError('Receiver generation changed', 'receiver_generation_changed');
+        }
         await this.assertRelayReady(session, tx);
         const now = nowIso();
         await tx
@@ -1734,7 +1751,7 @@ export class AgentPortalService {
     return expired;
   }
 
-  private async authenticateBridge(
+  async authenticateBridge(
     sessionId: string,
     rawToken: string,
     hostId?: number,
@@ -1968,6 +1985,10 @@ export class AgentPortalService {
       isFreshPresenceTimestamp(session.heartbeatAt, now - this.env.AGENT_PORTAL_HEARTBEAT_FRESH_SECONDS * 1000, now);
     const relayFresh = session.relayEnabled === 1 &&
       isFreshPresenceTimestamp(session.relayHeartbeatAt, now - this.env.AGENT_PORTAL_RELAY_FRESH_SECONDS * 1000, now);
+    if (session.receiver) {
+      if (heartbeatFresh && receiverReady(session.receiver, 'portal', now)) return;
+      throw new ConflictError('Automatic receiver is not verified', 'agent_relay_unavailable');
+    }
     if (heartbeatFresh && relayFresh) return;
     // An agent mid-turn stops polling while it executes, so a strict relay check
     // would refuse an instruction the agent is about to come back and claim.

@@ -1,3 +1,4 @@
+import { receiverReady, receiverState } from './agent-receiver-state.js';
 import { randomBytes, randomUUID } from 'node:crypto';
 import {
   and,
@@ -693,14 +694,14 @@ export class AgentMessagingService {
     return result;
   }
 
-  async claimForSession(sessionId: string, bridgeToken: string, claimId: string): Promise<MessageDelivery | null> {
+  async claimForSession(sessionId: string, bridgeToken: string, claimId: string, receiverGeneration?: string): Promise<MessageDelivery | null> {
     const authenticated = await this.authenticateBridge(sessionId, bridgeToken);
     const addressId = authenticated.session.agentBusAddressId;
     if (!addressId) throw new ConflictError('Agent session has no messaging address', 'agent_messaging_address_missing');
     if (!authenticated.session.receiveHeartbeatAt) {
       throw new ConflictError('Agent session is not receive-capable', 'agent_messaging_adapter_unavailable');
     }
-    return await this.claimDelivery([addressId], `session:${sessionId}`, claimId, null, false);
+    return await this.claimDelivery([addressId], `session:${sessionId}`, claimId, null, false, receiverGeneration);
   }
 
   /**
@@ -1157,6 +1158,7 @@ export class AgentMessagingService {
     rawClaimId: string,
     relayGeneration: number | null,
     skipReceiveCapable: boolean,
+    receiverGeneration?: string,
   ): Promise<MessageDelivery | null> {
     const claimId = normalizeUuid(rawClaimId, 'claim_id');
     const now = nowIso();
@@ -1175,6 +1177,10 @@ export class AgentMessagingService {
         const session = sessionRows[0];
         if (!session?.agentBusAddressId || !targetAddressIds.includes(session.agentBusAddressId)) {
           throw new ConflictError('Agent address binding changed', 'agent_messaging_binding_stale');
+        }
+        if (receiverState(session.receiver) &&
+          (receiverState(session.receiver)?.generation !== receiverGeneration || !receiverReady(session.receiver, 'peer'))) {
+          throw new ConflictError('Receiver generation is unavailable', 'receiver_generation_changed');
         }
         const target = await this.requireAddressLocked(tx, session.agentBusAddressId);
         await this.assertSessionAddressLocked(tx, sessionId, target);
@@ -1474,7 +1480,7 @@ export class AgentMessagingService {
     });
   }
 
-  private async authenticateBridge(sessionId: string, rawToken: string, allowEnded = false): Promise<{ session: AgentSession; host: Host }> {
+  async authenticateBridge(sessionId: string, rawToken: string, allowEnded = false): Promise<{ session: AgentSession; host: Host }> {
     await this.requireEnabled();
     const id = normalizeUuid(sessionId, 'session_id');
     const rows = await this.db

@@ -38,7 +38,18 @@ export interface PendingPrompt {
   created_at: string;
 }
 
+export interface ReceiverEvidence {
+  generation: string;
+  protocol: string;
+  native_session_id: string;
+  state: string;
+  failure: string | null;
+  heartbeat_at: string;
+  sources: Array<{ source: "peer" | "portal"; state: string; delivery_id: string; delivered_at: string | null; acknowledged_at: string | null; latency_ms: number | null }>;
+}
+
 export interface Agent {
+  receiver?: ReceiverEvidence | null;
   id: string;
   engine: Engine;
   host: string;

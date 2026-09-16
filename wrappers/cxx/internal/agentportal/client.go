@@ -85,6 +85,7 @@ type Session struct {
 	messagingConfigPath    string
 	channelReceiveAllowed  bool
 	listenAllowed          bool
+	receiverAllowed        bool
 	localBroker            bool
 	mu                     sync.Mutex
 	finishMu               sync.Mutex
@@ -209,6 +210,7 @@ func Start(parent context.Context, cfg *config.Config, input StartInput) (*Sessi
 		// engine and policy, never from child-provided environment or MCP input.
 		channelReceiveAllowed: signedChannelReceiveAllowed(cfg, input.Engine),
 		listenAllowed:         signedListenAllowed(cfg),
+		receiverAllowed:       cfg.AgentMessaging.ReceiverEnabled,
 	}
 
 	var response registerResponse
@@ -566,6 +568,21 @@ func (s *Session) signedListenEnabled() bool {
 // Claude-only preview check, and listen is the engine-neutral one.
 func (s *Session) signedReceivePlaneEnabled() bool {
 	return s.signedListenEnabled() || s.signedChannelReceiveEnabled()
+}
+
+func (s *Session) signedReceiverEnabled() bool {
+	if s == nil || !s.receiverAllowed {
+		return false
+	}
+	if s.messagingConfigPath == "" {
+		return true
+	}
+	key, err := signing.PublicKey()
+	if err != nil {
+		return false
+	}
+	cfg, err := config.LoadForEngine(s.messagingConfigPath, key, false, s.Engine)
+	return err == nil && cfg.AgentMessaging.ReceiverEnabled && (s.Engine != config.EngineClaude || cfg.AgentMessaging.ChannelPreviewEnabled)
 }
 
 func SessionFromEnvironment(timeout time.Duration) (*Session, error) {

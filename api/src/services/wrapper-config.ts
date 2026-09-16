@@ -106,6 +106,7 @@ export interface WrapperConfigPayload {
     relay_poll_seconds: number;
     queued_ttl_seconds: number;
     channel_preview_enabled: boolean;
+    receiver_enabled: boolean;
     listen_enabled: boolean;
   };
   wrapper: {
@@ -301,6 +302,11 @@ export function createWrapperConfigService(deps: WrapperConfigDeps): WrapperConf
     return isTruthyFlagValue(rows[0]?.version, false);
   }
 
+  async function portalGloballyEnabled(): Promise<boolean> {
+    const rows = await deps.db.select({ version: versions.version }).from(versions).where(eq(versions.name, 'agent_portal_enabled')).limit(1);
+    return isTruthyFlagValue(rows[0]?.version, false);
+  }
+
   async function remoteExecGloballyEnabled(): Promise<boolean> {
     const rows = await deps.db
       .select({ version: versions.version })
@@ -406,7 +412,7 @@ export function createWrapperConfigService(deps: WrapperConfigDeps): WrapperConf
     // inside the array would serialize seven independent lookups. This is also
     // where `wrapperBlock` raises WrapperBinaryUnavailableError, so that exit
     // marks this span ERROR as well as the root.
-    const [agents, clientCfg, skills, silent, adminTheme, wrapper, messagingEnabled, remoteExecEnabled] =
+    const [agents, clientCfg, skills, silent, adminTheme, wrapper, messagingEnabled, remoteExecEnabled, portalEnabled] =
       await withSpan('wrapper.config.collect', { 'wrapper.engine': engine }, () =>
         Promise.all([
           activeAgentsDocSha(engine, host.agentsDocumentIdOverride ?? null),
@@ -417,6 +423,7 @@ export function createWrapperConfigService(deps: WrapperConfigDeps): WrapperConf
           wrapperBlock(engine, publicBaseUrl, platform),
           agentMessagingGloballyEnabled(),
           remoteExecGloballyEnabled(),
+          portalGloballyEnabled(),
         ]),
       );
 
@@ -482,7 +489,8 @@ export function createWrapperConfigService(deps: WrapperConfigDeps): WrapperConf
         enabled: messagingBaked,
         relay_poll_seconds: 25,
         queued_ttl_seconds: 86_400,
-        channel_preview_enabled: false,
+        channel_preview_enabled: engine === 'claude' && (messagingBaked || portalEnabled),
+        receiver_enabled: host.status === 'active' && hostEnginesList(host.engines).includes(engine) && (messagingBaked || portalEnabled),
         // The model-initiated receive plane (`agent_listen`), which `#call`
         // needs to keep an agent on the line. It mirrors the fleet switch
         // because that switch is deliberately the only Agent Messaging switch;

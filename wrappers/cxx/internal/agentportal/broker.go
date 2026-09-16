@@ -29,19 +29,22 @@ const mcpServerName = "cxx-agent"
 // The model process receives only a private Unix-socket path whose handler is
 // bound to this one agent session and a narrow set of portal operations.
 type Broker struct {
-	session    *Session
-	ctx        context.Context
-	cancel     context.CancelFunc
-	dir        string
-	socketPath string
-	listener   net.Listener
-	server     *http.Server
-	closeOnce  sync.Once
-	closeMu    sync.Mutex
-	closeErr   error
-	requestMu  sync.Mutex
-	requestSeq uint64
-	requests   map[uint64]context.CancelFunc
+	session      *Session
+	ctx          context.Context
+	cancel       context.CancelFunc
+	dir          string
+	socketPath   string
+	listener     net.Listener
+	server       *http.Server
+	closeOnce    sync.Once
+	closeMu      sync.Mutex
+	closeErr     error
+	requestMu    sync.Mutex
+	requestSeq   uint64
+	requests     map[uint64]context.CancelFunc
+	registryPath string
+	nativeMu     sync.Mutex
+	nativeID     string
 }
 
 func (s *Session) StartBroker(parent context.Context) (*Broker, error) {
@@ -77,6 +80,16 @@ func (s *Session) StartBroker(parent context.Context) (*Broker, error) {
 		Handler:           broker,
 		ReadHeaderTimeout: 3 * time.Second,
 		IdleTimeout:       35 * time.Second,
+	}
+	if s.receiverAllowed {
+		if cache, err := os.UserCacheDir(); err == nil {
+			directory := filepath.Join(cache, "codex-orchestrator", "receivers")
+			if os.MkdirAll(directory, 0700) == nil {
+				broker.registryPath = filepath.Join(directory, s.ID+".json")
+				data, _ := json.Marshal(map[string]string{"session_id": s.ID, "socket": socketPath, "engine": s.Engine})
+				_ = os.WriteFile(broker.registryPath, data, 0600)
+			}
+		}
 	}
 	go func() {
 		if serveErr := broker.server.Serve(listener); serveErr != nil &&
@@ -122,6 +135,28 @@ func (b *Broker) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if b.requiresReceivePlanePolicy(r.URL.Path, raw) && !b.session.signedReceivePlaneEnabled() {
 		writeBrokerError(w, http.StatusForbidden, "broker_receive_forbidden", "Receive-side operations are disabled by signed policy")
+		return
+	}
+	if strings.Contains(r.URL.Path, "/receiver/") && !b.session.signedReceiverEnabled() {
+		writeBrokerError(w, http.StatusForbidden, "broker_receiver_forbidden", "Automatic receiver is disabled by signed policy")
+		return
+	}
+	if strings.HasSuffix(r.URL.Path, "/receiver/native") {
+		var input struct {
+			NativeID string `json:"native_session_id"`
+		}
+		_ = json.Unmarshal(raw, &input)
+		if input.NativeID != "" && !isCanonicalUUID(input.NativeID) {
+			writeBrokerError(w, 400, "native_identity_invalid", "Native session identity must be a UUID")
+			return
+		}
+		b.nativeMu.Lock()
+		if input.NativeID != "" {
+			b.nativeID = input.NativeID
+		}
+		id := b.nativeID
+		b.nativeMu.Unlock()
+		_ = json.NewEncoder(w).Encode(map[string]string{"native_session_id": id})
 		return
 	}
 	// Long polls may wait 25 seconds. A 35-second ceiling also bounds a
@@ -200,6 +235,11 @@ func (b *Broker) allowedPath(path string) bool {
 	sessionBase := "/host/agent-sessions/" + url.PathEscape(b.session.ID)
 	if path == sessionBase+"/heartbeat" || path == sessionBase+"/events" || path == sessionBase+"/commands/claim" {
 		return true
+	}
+	for _, op := range []string{"register", "heartbeat", "stop", "ack", "status", "claim", "native"} {
+		if path == sessionBase+"/receiver/"+op {
+			return true
+		}
 	}
 	messagingBase := sessionBase + "/agent-messaging/"
 	for _, operation := range []string{
@@ -375,6 +415,9 @@ func (b *Broker) Close() error {
 			closeErr = b.server.Close()
 		}
 		_ = b.listener.Close()
+		if b.registryPath != "" {
+			_ = os.Remove(b.registryPath)
+		}
 		if removeErr := os.RemoveAll(b.dir); closeErr == nil {
 			closeErr = removeErr
 		}

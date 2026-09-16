@@ -1,3 +1,4 @@
+import { receiverView, receiverState } from '../agent-receiver-state.js';
 /**
  * Session lifecycle: a managed CLI run registering its bridge, keeping it warm,
  * ending it, and asking who else is reachable.
@@ -375,10 +376,11 @@ export class SessionRegistry {
       if (input.expectedBindingGeneration != null && address.bindingGeneration !== input.expectedBindingGeneration) {
         throw new ConflictError('Agent address binding changed', 'agent_messaging_binding_stale');
       }
+      if (receiverState(session.receiver) && !receiverState(session.receiver)!.failure && Date.parse(receiverState(session.receiver)!.heartbeat_at) > Date.now()-45_000 && input.receiveCapable !== undefined) {
+        throw new ConflictError('Automatic receiver owns this session', 'receiver_owned');
+      }
       const receiveHeartbeatAt = input.receiveCapable === undefined
         ? session.receiveHeartbeatAt
-          ? now
-          : null
         : input.receiveCapable
           ? now
           : null;
@@ -393,6 +395,7 @@ export class SessionRegistry {
           adapterProtocol: protocol,
           adapterCapabilities: input.adapterCapabilities ?? session.adapterCapabilities,
           receiveHeartbeatAt,
+          ...(input.receiveCapable !== undefined ? { receiver: null } : {}),
           heartbeatAt: now,
           bridgeExpiresAt: expiresAt,
           updatedAt: now,
@@ -476,7 +479,7 @@ export class SessionRegistry {
           hostEngines: hosts.engines,
           // Left, not inner: an address whose binding was reaped has no session
           // row to join, and that absence is itself the answer.
-          session: { heartbeatAt: agentSessions.heartbeatAt, endedAt: agentSessions.endedAt },
+          session: { heartbeatAt: agentSessions.heartbeatAt, endedAt: agentSessions.endedAt, receiver: agentSessions.receiver },
         })
         .from(agentBusAddresses)
         .innerJoin(hosts, eq(hosts.id, agentBusAddresses.hostId))
@@ -487,7 +490,7 @@ export class SessionRegistry {
     const freshAfter = isoOffsetSeconds(-this.core.env.AGENT_PORTAL_HEARTBEAT_FRESH_SECONDS);
     const ranked = rows
       .filter((row) => hostEnginesList(row.hostEngines).includes(row.address.engine as Engine))
-      .map((row) => ({ ...row, presence: deriveAddressPresence(row.address, row.session, freshAfter) }))
+      .map((row) => ({ ...row, receiver: receiverView(row.session?.receiver), presence: deriveAddressPresence(row.address, row.session, freshAfter) }))
       // `online: true` reaches here as `includeOffline: false`. It filters on
       // derived presence, not on `readiness`: that column is a registration
       // latch, so the old blocklist reported a peer as reachable for as long as
@@ -508,7 +511,7 @@ export class SessionRegistry {
     // — and says so rather than silently truncating.
     const addresses = ranked.slice(0, AGENT_MESSAGING_LIST_LIMIT);
     return {
-      addresses: addresses.map((row) => publicAddress(row.address, row.fqdn, row.presence)),
+      addresses: addresses.map((row) => ({ ...publicAddress(row.address, row.fqdn, row.presence), receiver: row.receiver })),
       total: ranked.length,
       ...(ranked.length > addresses.length ? { truncated: true } : {}),
     };

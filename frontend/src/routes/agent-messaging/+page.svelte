@@ -460,7 +460,7 @@
     <section class="border-y border-border" aria-labelledby="addresses-heading">
       <header class="border-b border-border px-3 py-3">
         <h2 id="addresses-heading" class="text-sm font-semibold">Addresses</h2>
-        <p class="mt-1 text-sm text-muted-foreground">Stable recipient identity, readiness, and host eligibility.</p>
+        <p class="mt-1 text-sm text-muted-foreground">Stable recipient identity, verified reception, and host eligibility.</p>
       </header>
       <div class="divide-y divide-border">
         {#each $addresses.data?.addresses ?? [] as address (address.id)}
@@ -470,7 +470,7 @@
               <div class="flex flex-wrap items-center gap-2">
                 <strong class="font-mono text-sm">{routeLabel(address)}</strong>
                 <span class="rounded-full border bg-muted/40 px-2 py-0.5 text-[10px] uppercase">{address.engine}</span>
-                <span class="rounded-full border px-2 py-0.5 text-[10px] uppercase {address.readiness === 'live' ? 'border-success/25 bg-success-muted text-success-muted-foreground' : 'text-muted-foreground'}">{address.readiness}</span>
+                <span class="rounded-full border px-2 py-0.5 text-[10px] uppercase {address.presence === 'listening' ? 'border-success/25 bg-success-muted text-success-muted-foreground' : 'text-muted-foreground'}">{address.receiver?.state === "verifying" ? "verifying" : address.presence ?? "unknown"}</span>
                 {#if !address.eligible}
                   <span class="rounded-full border border-warning/25 bg-warning-muted px-2 py-0.5 text-[10px] uppercase text-warning-muted-foreground">Ineligible</span>
                 {/if}

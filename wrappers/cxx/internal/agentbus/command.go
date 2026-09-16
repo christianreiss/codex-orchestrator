@@ -42,6 +42,10 @@ func RunCommand(args []string, stdin io.Reader, stdout, stderr io.Writer, versio
 		err = runListen(args[1:], stdout, stderr)
 	case "poll":
 		err = runPoll(args[1:], stdout, stderr)
+	case "native-session":
+		err = reportNativeSession(stdin)
+	case "doctor":
+		err = runReceiverDoctor(stdout)
 	case "status":
 		err = runStatus(stdout)
 	case "service":

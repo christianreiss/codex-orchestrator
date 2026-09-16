@@ -44,6 +44,7 @@ export function livePresence(agent: Agent, now: number, timings: PresenceTimings
   if (agent.presence === "ended" || agent.ended_at) return "ended";
   const freshMs = positiveWindow(timings.heartbeat_fresh_seconds, heartbeatFreshMs);
   if (!timestampFresh(agent.heartbeat_at, now, freshMs)) return "offline";
+  if (agent.receiver && (!timestampFresh(agent.receiver.heartbeat_at, now, 45_000) || !agent.receiver.sources.some(source => source.source === "portal" && source.state === "ready") || agent.receiver.failure)) return agent.presence === "working" ? "working" : "idle";
   const relayFresh = agent.relay_enabled !== false && (agent.relay_heartbeat_at === undefined
     ? agent.relay_ready
     : timestampFresh(agent.relay_heartbeat_at, now, positiveWindow(timings.relay_fresh_seconds, 60_000)));
@@ -72,6 +73,7 @@ function timestampFresh(value: string | null, now: number, freshMs: number): boo
  * opened a relay.
  */
 export function notListeningDetail(agent: Agent): string {
+  if (agent.receiver) return agent.receiver.failure ?? (agent.receiver.state === "verifying" ? "Verifying that this conversation can receive and acknowledge messages." : "Receiver is unavailable or verification failed. Inspect reception details and retry verification.");
   switch (agent.close?.state) {
     case "pending":
       return "Closing — waiting for the agent to pick up the note";
@@ -120,12 +122,12 @@ export function presenceView(agent: Agent, now: number, timings: PresenceTimings
         // Still sendable: the agent returns to its relay when the turn ends and
         // picks the queue up then. Refusing here would be the old behaviour,
         // where a busy agent looked unreachable.
-        detail: age ? `Running your instruction — started ${age} ago` : "Running your instruction",
-        canSend: !agent.read_only,
+        detail: agent.receiver && (!timestampFresh(agent.receiver.heartbeat_at, now, 45_000) || agent.receiver.failure) ? "Receiver unavailable; running work is unconfirmed." : age ? `Running your instruction — started ${age} ago` : "Running your instruction",
+        canSend: !agent.read_only && (!agent.receiver || (timestampFresh(agent.receiver.heartbeat_at, now, 45_000) && !agent.receiver.failure && agent.receiver.sources.some(source => source.source === "portal" && source.state === "ready"))),
       };
     }
     case "idle":
-      return { presence, label: "Not listening", detail: notListeningDetail(agent), canSend: false };
+      return { presence, label: agent.receiver?.state === "verifying" ? "Verifying" : "Not listening", detail: notListeningDetail(agent), canSend: false };
     case "offline":
       return {
         presence,

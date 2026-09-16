@@ -278,7 +278,7 @@ server bakes effective `CODEX_HOME/config.toml`.
 | `profile <name>` | Forward `--profile <name>` to the upstream `codex` CLI |
 | `<profile-name>` | Shorthand for `cdx profile <name>` when `[profiles.<name>]` exists in the synced `config.toml` and the token is not a wrapper-owned or reserved-Codex subcommand |
 | `exec -- <cmd...>` | Bypass the startup sequence and run a single Codex command |
-| `cxx agent ...` | Shared Agent Messaging control surface: `list` (alias `peers`, `--engine codex\|claude`, `--online`), `send`, `request`, `wait`, `reply`, `message <id>`, `cancel`, `call-open`, `call-join --pin`, `listen`, `poll --hook Stop\|UserPromptSubmit` (the Claude ringer hook), `status`, `service install\|remove\|start\|stop\|restart\|status`, `worker --foreground`, and `mcp [--channel]` (the stdio MCP server the managed `cxx-agent` entry launches). Message and reply content is accepted only on stdin. |
+| `cxx agent ...` | Shared Agent Messaging control surface: `list` (alias `peers`, `--engine codex\|claude`, `--online`), `send`, `request`, `wait`, `reply`, `message <id>`, `cancel`, `call-open`, `call-join --pin`, `listen`, `poll --hook Stop\|UserPromptSubmit` (the Claude ringer hook), `status`, `service install\|remove\|start\|stop\|restart\|status`, `worker --foreground`, and `mcp [--channel|--auto]` (the stdio MCP server the managed `cxx-agent` entry launches). Message and reply content is accepted only on stdin. |
 | `cxx remote ...` | Shared remote-execution surface, default off behind the signed `remote.enabled` switch: `info`, `exec -- ARGV...`, `read`, `write`, `wait`, `signal`, `ps`, `rm`, `get`, `put`, `push`, `pull`, `down`. One ssh connection per destination is established and reused through a private `ControlMaster` path, so a command is a channel on it rather than a new handshake. Jobs live in a directory on the target and survive a dropped connection: a cursor is a byte offset into the job's log, and reconnecting reads on rather than re-running. Everything after `--` is argv, verbatim, with no shell unless one is asked for explicitly. One JSON object per invocation on stdout; diagnostics on stderr. A destination is whatever `ssh` accepts, so `~/.ssh/config` aliases work, and the target needs only SSH access — the binary installs itself there on first contact. |
 | `--help` / `-h` / `help` | Passed straight through to a supervised upstream `codex` child without running auth/sync/boot — handles `cdx --help`, `cdx help`, and `cdx <reserved-subcommand> --help`; it skips the managed run lock but the child inherits effective-home session + active-child descriptors until Codex exits; wrapper-only `--minimal`/`--minimal-output` is consumed rather than forwarded as an unsupported Codex flag |
 | `--wrapper-help` | Render the wrapper-owned commands and flags without loading config; never intercepts tokens after `--` |
@@ -777,3 +777,50 @@ Non-TTY starts and headless `execute` invocations only print advisory text to st
 never prompt or apply a remembered provider. Direct `exec` retains its documented
 startup bypass. Status, sync and auth commands do not offer provider choices.
 Older servers without `quota_advice` retain the previous launch behavior.
+
+## Automatic verified reception (cxx 0.8.9)
+
+For interactive launches with signed `agent_messaging.receiver_enabled`, the wrapper
+starts `cxx agent mcp --auto`. This grant is baked when the host/engine is active and
+either the peer bus or operator portal is enabled; their server-side switches remain
+independent. Existing headless workers and explicit manual listeners retain their own
+paths. Already-running older wrappers need a new launch to gain the native adapter.
+
+The receiver owns one generation and native conversation identity. It checks the
+native connection every 15 seconds; a 45-second lapse invalidates readiness, even if
+the supervising wrapper still heartbeats. Each enabled source (`peer`, `portal`)
+sends a nonce through the same native delivery adapter. Only the model's matching
+`agent_receiver_ack(generation, source, nonce)` verifies that source. Verification
+notifications may repeat safely during startup; a delivered probe expires after
+120 seconds. Reconnection generates new challenges. “Listening” therefore means
+fresh transport plus model proof, separately from whether a task is working.
+
+Ordinary deliveries are serialized across both sources. Peer requests use
+`agent_reply(message_id, content)`; operator requests use
+`agent_receiver_reply(message_id, content)`. Durable acceptance precedes native
+submission, so uncertain submission is not automatically replayed as fresh work.
+A peer disconnect records an ambiguous outcome. An accepted portal instruction
+without its correlated assistant event remains unconfirmed, never fabricated as
+completed. These receipts prove adapter delivery and model response, not that the
+requested task itself succeeded.
+
+Native permission settings are preserved. A denied or approval-blocked receipt
+cannot pass verification; the UI stays unavailable/verifying. No remote permission
+approval capability is advertised. Peer content remains untrusted input.
+
+Inspect generation, native ID, transport response time and per-source model proof
+in Clients or /go, or run `cxx agent doctor --json` from a local shell (also exposed
+through `cdx agent doctor --json` / `clx agent doctor --json`). Verify reception
+invalidates the current generation and asks the connected adapter to reconnect;
+old/delayed acknowledgments cannot satisfy the replacement. Explicit portal leave
+keeps that source closed until reopened, without closing peer reception.
+
+Codex keeps its native TUI attached to one wrapper-owned app-server on a protected
+Unix socket. The socket carries WebSocket JSON-RPC; the adapter submits
+`thread/queue/add` to the bound loaded root thread and the TUI schedules it. The
+adapter neither starts/resumes a second conversation nor interrupts/steers an active
+turn. Additional loaded threads do not change an existing binding. An unloaded
+binding fails closed. An explicit user `--remote` endpoint is preserved and does
+not acquire this local adapter. The installed CLI must support the app-server Unix
+listener, remote TUI and experimental thread queue API; unsupported clients remain
+not listening. These native APIs are experimental.

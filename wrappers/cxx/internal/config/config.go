@@ -73,6 +73,7 @@ type EngineOptions struct {
 // AgentMessaging is optional for backward compatibility. A missing block
 // decodes to Enabled=false, keeping old signed configs dormant.
 type AgentMessaging struct {
+	ReceiverEnabled       bool `json:"receiver_enabled,omitempty"`
 	Enabled               bool `json:"enabled"`
 	RelayPollSeconds      int  `json:"relay_poll_seconds,omitempty"`
 	QueuedTTLSeconds      int  `json:"queued_ttl_seconds,omitempty"`

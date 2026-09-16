@@ -525,3 +525,23 @@ Provider quota advice compares fresh saved OpenAI/Claude snapshots before intera
 ## Claude login expiry
 
 The dashboard's Runner state card shows a Claude login-expiry warning within three days, independently of successful verification or runner configuration. It polls every 15 seconds. `clx` startup and status show the same advisory for their selected local credential, including offline use. Run `/login` inside Claude launched through `clx`; existing verified credential synchronization distributes the renewed login. These warnings do not block launch or automatically spend refresh tokens.
+
+## Verified interactive receivers
+
+cxx 0.8.9 connects interactive Codex through its native app-server queue and Claude
+through its native Channel, preserving the existing terminal conversation and
+permissions. Per-source model nonce receipts plus 45-second connection freshness
+control Listening; wrapper liveness and task execution are separate signals.
+Clients and /go expose the evidence and Verify reception, while
+`cxx agent doctor --json` reports receivers on the local host. See the cdx/clx and
+API interfaces for requirements and failure semantics.
+
+For opt-in native verification, build `make -C wrappers cxx` and run
+`python3 wrappers/scripts/receiver-canary.py --engine codex --cxx "$PWD/wrappers/bin/cxx"`
+(or `--engine claude`). This uses a temporary local broker and work directory,
+real installed CLIs and real model credentials/quota. It verifies both source
+nonces and correlated ordinary replies, then forces reconnection and new proof in
+the same native conversation, without sending fleet messages. The harness
+accepts only its own temporary-directory/development-channel prompts and grants
+only its receipt tools; it cannot approve arbitrary commands. Normal test suites
+use an isolated database and deterministic native-socket fixtures.

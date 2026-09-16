@@ -1032,3 +1032,36 @@ absolute-usage comparison. Corrupt persisted settings disable advice.
 Settings are central; remembered selections are local to an OS user and
 orchestrator URL. `off` and `hint` never apply remembered selections. Advice does
 not relax existing authentication, local credential handling or quota hard-fail.
+
+## Automatic receiver protocol (0.8.9)
+
+`POST /host/agent-sessions/:id/receiver/{register,heartbeat,stop,ack,status,claim}`
+uses `X-Agent-Bridge-Token`, the existing session/host/engine authorization, and the
+applicable peer/portal switch. No host credential is sent to the model process.
+
+- `register`: `{generation: UUID, protocol: "codex-queue-v1"|"claude-channel-v1", native_session_id}`;
+  returns public `receiver` evidence and enabled `sources`. A live owner cannot be
+  replaced. Same-generation retries are idempotent.
+- `heartbeat`, `stop`: `{generation}`, optionally `failure` on stop. Health expires
+  after 45 seconds and cannot be revived; reconnect and prove the new generation.
+- `claim`: `{generation, source: "peer"|"portal", claim_id: UUID}` returns a `probe`
+  until acknowledged, then an existing queue `delivery` (peer) or `message` (portal),
+  possibly null. Verification retries keep the same nonce and deadline. Queue
+  transactions check generation again before leasing ordinary work; manual claims
+  cannot race the automatic owner.
+- `ack`: `{generation, source, nonce: UUID}` accepts only a delivered, unexpired
+  challenge for this connection. It is idempotent and never proves another source.
+- `status`: `{}` returns `receiver` with state, generation, native session ID,
+  protocol, last native-health heartbeat, failure and source delivery ID,
+  delivered/acknowledged timestamps and latency. Public views omit the nonce.
+
+`POST /admin/agent-sessions/:id/receiver/verify` and
+`POST /go/api/agents/:id/receiver/verify` require the existing operator/manage
+capability and origin protections. They invalidate current proof; the adapter
+reconnects and verifies again. Ordinary session heartbeat does not renew receiver
+health. Admin/peer/portal listings return the same public `receiver` evidence.
+
+The private local broker additionally implements `receiver/native`, used only by
+the Claude SessionStart hook and adapter to exchange actual native identity; it is
+not an HTTP API route. All local receiver operations require the signed
+`agent_messaging.receiver_enabled` grant.

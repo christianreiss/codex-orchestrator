@@ -60,6 +60,7 @@ export interface AgentAddress {
    * Derived liveness, supplied by the surfaces that enumerate peers. Prefer
    * this over `readiness` for anything that means "is anyone there".
    */
+  receiver?: import("$lib/portal/types").ReceiverEvidence | null;
   presence?: "listening" | "online" | "resumable" | "offline" | "disabled";
   /**
    * Stored registration state, retained for compatibility. NOT a liveness

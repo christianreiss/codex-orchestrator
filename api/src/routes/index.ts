@@ -3,6 +3,7 @@ import type { Database } from '../db/client.js';
 import type { Env } from '../env.js';
 import { Keyring } from '../security/keyring.js';
 
+import { registerAgentReceiverRoutes } from './agent-receiver.js';
 import { registerHealthRoutes } from './health.js';
 import { registerStaticAdminRoutes } from './admin/pages/static.js';
 import { notFoundHandler } from '../http/not-found.js';
@@ -47,6 +48,7 @@ export async function registerAllRoutes(app: FastifyInstance, ctx: RouteContext)
   await registerWrapperV2Routes(app, ctx);
   await registerAgentPortalRoutes(app, ctx);
   await registerAgentMessagingRoutes(app, ctx);
+  await registerAgentReceiverRoutes(app, ctx);
 
   // OpenAI / Anthropic-shaped public APIs (envelope dispatcher selects shape)
   await registerOpenAiCompatWorktree(app, ctx);

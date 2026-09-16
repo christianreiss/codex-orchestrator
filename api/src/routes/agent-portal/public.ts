@@ -1,3 +1,4 @@
+import { AgentReceiverService } from '../../services/agent-receiver.js';
 import { createSseLifecycle } from '../../http/sse-lifecycle.js';
 import { setTimeout as delay } from 'node:timers/promises';
 import fastifyStatic from '@fastify/static';
@@ -141,6 +142,14 @@ export async function registerAgentPortalPublicRoutes(
       })
       .parse(req.query ?? {});
     return ok(await portal.listEvents(stringParam(req.params, 'id'), query.after, query.limit, query.tail === '1'));
+  });
+
+  app.post('/go/api/agents/:id/receiver/verify', async (req, reply) => {
+    assertPortalOrigin(req, ctx, true);
+    portalHeaders(reply);
+    await actorFor(req, 'agent_portal.manage');
+    const { id } = z.object({ id: z.string().uuid() }).parse(req.params);
+    return ok(await new AgentReceiverService(ctx.db, ctx.env, ctx.keyring).retry(id));
   });
 
   app.post('/go/api/agents/:id/messages', async (req, reply) => {
