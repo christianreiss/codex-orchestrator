@@ -11,6 +11,7 @@
 
 import type { FastifyInstance } from 'fastify';
 import type { RouteContext } from '../../index.js';
+import { readQuotaAdvice, parseQuotaAdvice, QUOTA_ADVICE_KEY } from '../../../services/quota-advice.js';
 import { SettingsService } from '../../../services/settings.js';
 import {
   ClientVersionsService,
@@ -323,13 +324,14 @@ export async function registerAdminSettingsRoutes(
     const limitPercent = clampInt(limitRaw, 50, 100, 95);
     const partitionRaw = (await settings.getString('quota_week_partition', 'off')) ?? 'off';
     const partition = ['off', '5', '7'].includes(partitionRaw) ? partitionRaw : 'off';
-    return ok({ hard_fail: hardFail, limit_percent: limitPercent, week_partition: partition });
+    return ok({ hard_fail: hardFail, limit_percent: limitPercent, week_partition: partition, advice: await readQuotaAdvice(settings) });
   });
   app.post('/admin/quota-mode', { preHandler: app.requireAdmin }, async (req) => {
     const body = (req.body ?? {}) as {
       hard_fail?: unknown;
       limit_percent?: unknown;
       week_partition?: unknown;
+      advice?: unknown;
     };
     const hardFail = normalizeBool(body.hard_fail);
     if (hardFail === null) throw new ValidationError('hard_fail must be boolean', { param: 'hard_fail' });
@@ -360,15 +362,18 @@ export async function registerAdminSettingsRoutes(
       weekPartition = s;
     }
 
+    const advice = body.advice === undefined ? await readQuotaAdvice(settings) : parseQuotaAdvice(body.advice);
     await settings.setFlag('quota_hard_fail', hardFail);
     await settings.setInt('quota_limit_percent', limitPercent);
     await settings.set('quota_week_partition', weekPartition);
+    if (body.advice !== undefined) await settings.set(QUOTA_ADVICE_KEY, JSON.stringify(advice));
     await recordLog(ctx, 'admin.quota_mode', {
+      advice,
       hard_fail: hardFail,
       limit_percent: limitPercent,
       week_partition: weekPartition,
     });
-    return ok({ hard_fail: hardFail, limit_percent: limitPercent, week_partition: weekPartition });
+    return ok({ hard_fail: hardFail, limit_percent: limitPercent, week_partition: weekPartition, advice });
   });
 
   // ── prune-policy ──────────────────────────────────────────────────────────

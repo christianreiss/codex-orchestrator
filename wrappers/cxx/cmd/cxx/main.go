@@ -16,8 +16,11 @@ import (
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/agentportal"
 	claudeapp "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/app/claude"
 	codexapp "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/app/codex"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/claude"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/claudequota"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/codex"
 	hostcron "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/cron"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/quotaadvice"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/remote"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/signing"
 )
@@ -37,9 +40,9 @@ func run(invokedAs string, args []string, stdout, stderr io.Writer) int {
 
 	switch personaForProgramName(invokedAs) {
 	case "codex":
-		return codexapp.Run(args, stdout, stderr)
+		return runPersona("codex", args, stdout, stderr)
 	case "claude":
-		return claudeapp.Run(args, stdout, stderr)
+		return runPersona("claude", args, stdout, stderr)
 	case "common":
 		return runExplicit(args, stdout, stderr)
 	default:
@@ -62,9 +65,9 @@ func runExplicit(args []string, stdout, stderr io.Writer) int {
 	}
 	switch args[0] {
 	case "codex":
-		return codexapp.Run(args[1:], stdout, stderr)
+		return runPersona("codex", args[1:], stdout, stderr)
 	case "claude":
-		return claudeapp.Run(args[1:], stdout, stderr)
+		return runPersona("claude", args[1:], stdout, stderr)
 	case "cron":
 		return runHostCron(args[1:], stdout, stderr)
 	case "portal":
@@ -321,4 +324,52 @@ func printSelectorHelp(w io.Writer) {
 	fmt.Fprintln(w, "  cxx --version")
 	fmt.Fprintln(w, "")
 	fmt.Fprintln(w, "The cdx and clx aliases select their matching engine automatically.")
+}
+
+// Dispatch only after the first app returns, including all deferred auth cleanup.
+func runPersona(engine string, args []string, stdout, stderr io.Writer) int {
+	return dispatchChoice(engine, args, stdout, stderr, func(e string, a []string, s *quotaadvice.Session) int {
+		if e == "codex" {
+			return codexapp.RunWithChoice(a, stdout, stderr, s)
+		}
+		return claudeapp.RunWithChoice(a, stdout, stderr, s)
+	})
+}
+func dispatchChoice(engine string, args []string, stdout, stderr io.Writer, run func(string, []string, *quotaadvice.Session) int) int {
+	s := &quotaadvice.Session{Available: func(e string) bool {
+		var err error
+		if e == "codex" {
+			_, err = codex.FindCLI()
+		} else {
+			_, err = claude.FindCLI()
+		}
+		return err == nil
+	}}
+	for _, arg := range args {
+		if arg != "run" && arg != "--quota-choice-reset" {
+			s.HasLaunchOptions = true
+		}
+	}
+	code := run(engine, args, s)
+	if s.Request == "" || code != 0 {
+		if code != 0 && !s.Started && s.DecisionApplied && s.Instance != "" {
+			if err := quotaadvice.Reset(s.Instance); err != nil {
+				fmt.Fprintln(stderr, "quota: could not clear daily choice:", err)
+			}
+		}
+		return code
+	}
+	selected := s.Request
+	s.Request = ""
+	s.Selected = true
+	s.Started = false
+	s.Armed = false
+	code = run(selected, []string{"run"}, s)
+	if code != 0 && !s.Started && quotaadvice.RetryOriginal(s, engine, stderr) {
+		s.Request = ""
+		s.Started = false
+		s.Armed = false
+		return run(engine, args, s)
+	}
+	return code
 }

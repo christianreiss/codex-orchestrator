@@ -2,6 +2,9 @@
 
 ## Host-facing
 
+- `X-Request-Id` accepts `[A-Za-z0-9._-]{1,128}`; absent or malformed values
+  receive a generated ID before request logging starts. Incoming/completed
+  log entries, `req.id`, and the response header share the same ID.
 - Base URL for baked wrappers/installers honors `PUBLIC_BASE_URL` when set; otherwise it is derived from trusted `X-Forwarded-Host`/`Host` + trusted `X-Forwarded-Proto` (`TRUST_X_FORWARDED=1` and the socket peer address in `TRUSTED_PROXY_CIDRS`, validated against `https?://`). If no valid base can be resolved, installer creation fails and host `/auth` responses omit per-host wrapper baking metadata.
 - Base URL policy guard: when `PUBLIC_BASE_URL_REQUIRED=1` (default in production), requests fail fast if `PUBLIC_BASE_URL` is missing/invalid. Optional host validation (`STRICT_HOST_VALIDATION=1`) rejects requests whose effective host/port do not match `PUBLIC_BASE_URL`.
 - MCP origin policy: `/mcp` has no origin allowlist — while `MCP_ALLOW_REQUEST_HOST_ORIGIN` is off (the default) any request that sends an `Origin` header is rejected with 403, and enabling it accepts every origin.
@@ -343,6 +346,8 @@ Auth verification worker: when `AUTH_RUNNER_URL` is configured, the API starts a
 - `GET /admin/logs?limit=` — recent audit events.
 - `GET /admin/mcp/logs?limit=` — recent MCP tool calls (max 500).
 - `GET /admin/runner` — runner config/telemetry (configured flag, runner URL, readiness detail, combined state, and engine-scoped telemetry at `runner.engines.codex` / `runner.engines.claude` with `state`, `last_check`, `last_ok`, `last_fail`, `last_run`, and `last_error`). Persisted telemetry is projected as `idle` with cleared timestamps for an engine that has no currently verified, structurally valid, distributable canonical auth; stale rows from a reused database therefore cannot render a false healthy badge. `POST /admin/runner/run` verifies the latest Codex canonical auth payload; `POST /admin/runner/run-claude` does the same for Claude via the runner's `/verify-claude` path, where native Claude Code OAuth payloads are verified by a real Claude CLI probe rather than by sending the OAuth access token as a public API key. Both take **no request body fields** — a body carrying the retired `prompt` / `model` / `reasoning_effort` / `preview` / `timeout_seconds` keys returns `422 validation_failed`. Both go through the canonical auth store's `ensureServedVerification` (forced live, TTL 0), so refreshed credentials are promoted under compare-and-swap or quarantined exactly as on the `/auth` store path. The response carries `engine`, `verdict` (`verified` / `failed` / `unknown`), `applied`, `probed`, `canonical_digest_before`, `canonical_digest`, `canonical_last_refresh`, `payload_id`, `detail`, and, only when a probe actually ran, `reachable` and `latency_ms`; credential bytes are never returned.
+  Each engine also exposes optional `login_expiry: { state, expires_at, days_remaining }`, including when the runner is unconfigured. States are `unknown`, `ok`, `expiring`, `expired`, and `not_applicable`; timestamps are ISO UTC or null, and remaining days are rounded upward (zero after expiry, null when unknown). Claude OAuth uses the selected canonical payload's `claudeAiOauth.refreshTokenExpiresAt`: warn at <=72 hours, expired at <=0; access expiry > refresh expiry +72 hours suppresses the warning (`not_applicable`), matching Claude Code 2.1.263. Missing/malformed timestamps are `unknown`; Codex and API keys are `not_applicable`. This read-only assessment is independent of verification, includes no credentials, makes no provider calls, and never changes admission or launch policy.
+
 - `POST /admin/versions/check` — refresh GitHub client release cache.
 - `GET /admin/chatgpt/usage[?force=1]` — account-level ChatGPT `/wham/usage` snapshot using canonical `auth.json` token (5-minute cooldown unless `force`). The default Compose `quota-cron` worker refreshes this stored snapshot at boot and then every `CHATGPT_USAGE_CRON_INTERVAL` seconds (default 900); host `/auth` retrieval only reads the stored result.
 - `GET /admin/chatgpt/usage/history?days=60` — quota history for dashboard graphs (normal/spark lane, primary + secondary windows), capped to the past 180 days. History is served from the set-aside graph snapshot store so the charts survive verbose log cleanup. Query params: `days` (1..180), optional `from`/`until` (RFC3339/date strings), optional `interval=raw|hour|day`, optional `lane=normal|spark|both`, optional `window=primary|secondary|both`. Returns compatibility `points` and normalized `series` plus `days`, `since`, `from`, `until`, `interval`, `lane`, `window`. Each series carries `lane`, `window` and `limit_seconds` — the window length that slot currently measures, taken from the newest point reporting one. A slot does not always mean the same window: chatgpt.com moved the normal lane's weekly quota from `secondary_window` into `primary_window` on 2026-07-11, so a series admits only the points measured against its current `limit_seconds` and readings from the older window are left out rather than charted as one continuous line.
@@ -986,3 +991,44 @@ may read state and users but cannot change rollout or identity state.
 - `POST /admin/agent-portal/users/{id}/rotate` — explicitly replace the reusable secret, revoke browser sessions, and return the new URL.
 - `GET /admin/agent-portal/users/{id}/link` — re-render the stored permanent link without rotating it, so an operator can bookmark it on another device. Owner/admin only, and audited as `agent_portal.user.link_revealed`; the link is bearer material and is deliberately absent from the `GET /admin/agent-portal/users` listing, which every authenticated admin may read.
 - `DELETE /admin/agent-portal/users/{id}` — soft-delete the user, revoke sessions, and cancel pending work.
+
+## Provider quota recommendation
+
+`GET /admin/quota-mode` additionally returns `advice`; `POST /admin/quota-mode`
+accepts the same object alongside the existing enforcement fields. Omission preserves
+stored advice, so older admin clients do not reset it. Invalid input is rejected
+before any quota setting is written. The object is stored atomically as JSON under
+`versions.quota_advice`; no schema migration is required.
+
+| Advice setting | Default | Accepted values |
+| --- | --- | --- |
+| `mode` | `ask` | `off`, `hint`, `ask` |
+| `high_usage_percent` | 85 | Integer 1–100 |
+| `projected_usage_percent` | 100 | Integer 100–500 |
+| `min_pressure_gap` | 20 | Integer 1–100 |
+| `max_age_minutes` | 30 | Integer 1–120 |
+| `remember_day` | true | Boolean |
+
+Auth retrieve/store and `/sync/status` / `/sync/bootstrap` auth responses include
+optional `quota_advice: {settings, codex, claude}`. Each provider contains
+`available` (host engine membership), `status`, original `fetched_at`,
+`limit_reached`, and `windows: [{used_percent, limit_seconds, reset_at}]`.
+Null readings remain null. The optional field is specified in the existing
+auth and sync response schemas. Codex windows refer only to the host's active
+normal/Spark lane. This field contains no credentials and reads stored snapshots
+only: no provider requests and no renewal of observation timestamps. Availability
+is not an authentication verdict; the chosen provider must pass normal startup.
+
+For each valid measured window, pressure is the greater of
+`100 * used / high_usage_percent` and `100 * projected / projected_usage_percent`.
+Projection uses the observation time and requires at least five minutes and 1% of
+the window to have elapsed. The provider's worst window determines its pressure;
+a reported provider limit sets a floor of 100. Recommend the alternative only when
+the current provider reaches 100, the alternative is below 100, and the difference
+meets `min_pressure_gap`. Missing/error/stale timestamps, invalid percentages and
+passed/inconsistent resets prevent comparison. Unknown reset times permit only
+absolute-usage comparison. Corrupt persisted settings disable advice.
+
+Settings are central; remembered selections are local to an OS user and
+orchestrator URL. `off` and `hint` never apply remembered selections. Advice does
+not relax existing authentication, local credential handling or quota hard-fail.

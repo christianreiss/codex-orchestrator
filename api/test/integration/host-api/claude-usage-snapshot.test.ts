@@ -73,7 +73,19 @@ describe('Claude usage in authentication and startup responses', () => {
         seven_day_window: { used_percent: null, resets_at: null },
       });
       expect(auth).not.toHaveProperty('chatgpt');
+      expect(auth.quota_advice).toMatchObject({
+        settings: { mode: 'ask', high_usage_percent: 85, max_age_minutes: 30 },
+        codex: { available: true, status: 'unavailable' },
+        claude: { available: true, fetched_at: stamp, windows: [
+          { used_percent: 0, limit_seconds: 18000, reset_at: '2026-09-07T17:00:00Z' },
+          { used_percent: null, limit_seconds: 604800, reset_at: null },
+        ] },
+      });
       expect(fetch).not.toHaveBeenCalled();
+      const invalidAdvice = response.json();
+      const invalidAuth = url === '/auth' ? invalidAdvice.data : invalidAdvice.data.auth;
+      invalidAuth.quota_advice.settings.mode = 'automatic';
+      expect(compileContract(schema)(invalidAdvice)).toBe(false);
       for (const invalid of [
         { fetched_at: 'not-a-timestamp' },
         { five_hour_used_percent: 101 },

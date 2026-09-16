@@ -473,3 +473,9 @@ read-only (`GET /claude/:kind`, `POST /claude/:kind/retrieve`).
 - `api/src/services/claude-artifacts.ts` — subagent/command/output-style fleet artifacts
 - `api/src/services/client-config.ts` — renders the `claude_settings` partial (incl. `permissions.defaultMode`)
 - `wrappers/schemas/host-config-v1.json` — config schema (enforced against the baked payload by `api/test/unit/contract/wrapper-config-schema.test.ts`)
+
+## Expiring login
+
+From wrapper 0.8.8, `clx` startup and `clx status` warn when the selected Claude login expires within three days. The message includes the UTC expiry and renewal instructions; startup warnings go to stderr even with `--skip-boot`. The advisory does not change command exit codes or block a usable login.
+
+Run `/login` inside Claude launched through `clx`. The wrapper uses the selected local credentials after sync, including during API outages, and the warning clears when that login is renewed. Missing expiry metadata and API-key credentials do not produce a countdown.

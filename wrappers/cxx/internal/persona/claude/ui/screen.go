@@ -2,6 +2,7 @@
 package ui
 
 import (
+	"fmt"
 	"io"
 	"os"
 
@@ -9,6 +10,7 @@ import (
 )
 
 type ScreenInput struct {
+	LoginWarning   string
 	WrapperVersion string
 	WrapperTone    Tone
 	WrapperTarget  string
@@ -65,7 +67,17 @@ func sharedScreen(in ScreenInput) terminalui.ScreenInput {
 		Theme:             in.Theme,
 	}
 }
-func PrintBootScreen(w io.Writer, in ScreenInput) { terminalui.PrintBootScreen(w, sharedScreen(in)) }
+func PrintBootScreen(w io.Writer, in ScreenInput) {
+	terminalui.PrintBootScreen(w, sharedScreen(in))
+	printLoginWarning(w, in)
+}
 func PrintMinimalScreen(w io.Writer, in ScreenInput) {
 	terminalui.PrintMinimalScreen(w, sharedScreen(in))
+	printLoginWarning(w, in)
+}
+
+func printLoginWarning(w io.Writer, in ScreenInput) {
+	if in.LoginWarning != "" {
+		fmt.Fprintln(w, "clx: "+in.LoginWarning)
+	}
 }

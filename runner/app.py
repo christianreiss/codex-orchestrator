@@ -807,7 +807,10 @@ def _run_probe(payload: VerifyRequest) -> dict:
             "auth_readback": "unchanged",
         }
         if not ok:
-            result["reason"] = message[:400] if message else "probe failed"
+            # Native CLI banners can exceed this whole field. Preserve the
+            # actual provider/model failure at the end instead of hiding it
+            # behind the version, prompt and sandbox preamble.
+            result["reason"] = message[-400:] if message else "probe failed"
         return result
     finally:
         shutil.rmtree(home_dir, ignore_errors=True)

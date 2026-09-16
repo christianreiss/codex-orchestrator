@@ -29,9 +29,12 @@ import (
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/claude/orchestrator"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/claude/summary"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/claude/ui"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/quotaadvice"
 )
 
 type Options struct {
+	QuotaChoiceReset bool
+
 	Config       *config.Config
 	ExtraArgs    []string
 	SkipAuthSync bool
@@ -126,6 +129,12 @@ func Run(ctx context.Context, opts Options) (exitCode int, retErr error) {
 	}
 
 	cfg := opts.Config
+	if opts.QuotaChoiceReset && !opts.SyncOnly {
+		if err := quotaadvice.Reset(cfg.Orchestrator.BaseURL); err != nil {
+			return 1, fmt.Errorf("reset daily quota choice: %w", err)
+		}
+		opts.QuotaChoiceReset = false
+	}
 	logger := opts.Logger
 	if logger == nil {
 		logger = slog.Default()
@@ -354,6 +363,8 @@ func Run(ctx context.Context, opts Options) (exitCode int, retErr error) {
 	// rendered screen we still want the derived QuotaWarn text so headless
 	// callers (cron, --execute) see the warning on stderr.
 	state := summary.Build(ctx, summary.Inputs{
+		SkipLoginExpiry:   opts.SkipCredentialExchange,
+		AuthPath:          authPath,
 		Config:            cfg,
 		WrapperVersion:    currentWrapperVersion(opts, cfg),
 		SkipVersionProbe:  opts.SkipBoot,
@@ -392,6 +403,10 @@ func Run(ctx context.Context, opts Options) (exitCode int, retErr error) {
 		// Suppressed startup screens still need advisory usage in cron/CI logs.
 		fmt.Fprintln(os.Stderr, "clx: "+state.QuotaWarn)
 		logger.Warn("quota approaching limit", "warn", state.QuotaWarn)
+	}
+
+	if opts.SkipBoot && state.LoginWarning != "" {
+		fmt.Fprintln(os.Stderr, "clx: "+state.LoginWarning)
 	}
 
 	if !opts.SkipAuthSync && !opts.SkipCredentialExchange && !dec.Allowed {
@@ -433,6 +448,12 @@ func Run(ctx context.Context, opts Options) (exitCode int, retErr error) {
 			return 1, errors.New("managed sync incomplete: API offline; cached credentials do not confirm content is current")
 		}
 		return 0, nil
+	}
+
+	if authResp != nil && !opts.SyncOnly {
+		if stop, code, err := quotaadvice.BeforeStart(ctx, cfg, authResp.QuotaAdvice, opts.ExtraArgs, opts.Headless, opts.QuotaChoiceReset); stop {
+			return code, err
+		}
 	}
 
 	before := snapshotAuthGeneration()
@@ -499,6 +520,7 @@ func Run(ctx context.Context, opts Options) (exitCode int, retErr error) {
 	if !opts.SkipAuthSync && dec.Allowed {
 		stopAuthWatch = startMidSessionAuthUpload(ctx, client, logger, before, authSession)
 	}
+	quotaadvice.ArmLaunch(ctx)
 	exitCode, _, runErr := claude.RunCaptureWithAuthSession(ctx, cfg, launchArgs, authSession)
 	stopAuthWatch()
 	duration := time.Since(started)
@@ -1566,9 +1588,9 @@ func maybePostRunAuthUpload(client *orchestrator.Client, logger *slog.Logger, be
 				break
 			}
 		}
-		attemptCtx, attemptCancel := context.WithTimeout(ctx, 5*time.Second)
-		status, tone = postRunAuthUploadAttempt(attemptCtx, client, logger, before, session)
-		attemptCancel()
+		// Share the overall budget: a healthy runner may need more than five
+		// seconds, and abandoning it just queues the same credential again.
+		status, tone = postRunAuthUploadAttempt(ctx, client, logger, before, session)
 		if tone != ui.ToneFail && status != "newer local kept" {
 			return status, tone
 		}

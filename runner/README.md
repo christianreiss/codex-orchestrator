@@ -20,7 +20,7 @@ docker build -t codex-auth-runner -f runner/Dockerfile .
 
 The image bundles:
 
-- The Codex CLI (default `rust-v0.144.1`, musl builds; see `CODEX_TAG` in `runner/Dockerfile`). The pin has to stay in step with the fleet's codex target so the probe runs the same model catalog as real hosts — an older CLI without the default probe model fails every valid fresh login. Override via build args `CODEX_TAG`, `CODEX_VERSION`, `CODEX_ASSET_AMD64`, `CODEX_ASSET_ARM64`, `CODEX_SHA256_AMD64`, `CODEX_SHA256_ARM64`. Supported `TARGETARCH` values are `amd64` and `arm64`.
+- The Codex CLI (default `rust-v0.154.0`, musl builds; see `CODEX_TAG` in `runner/Dockerfile`). The pin has to stay in step with the fleet's codex target so the probe runs the same model catalog as real hosts — an older CLI without the default probe model fails every valid fresh login. Override via build args `CODEX_TAG`, `CODEX_VERSION`, `CODEX_ASSET_AMD64`, `CODEX_ASSET_ARM64`, `CODEX_SHA256_AMD64`, `CODEX_SHA256_ARM64`. Supported `TARGETARCH` values are `amd64` and `arm64`.
 - Node.js 22.14.0 plus `@anthropic-ai/claude-code@2.1.233` (installed globally), so `/verify-claude` and the Claude `exec` path work without extra setup.
 
 Every downloaded archive is checked against a pinned SHA256 before it is unpacked, and both CLIs are asked for their version after installation: a build whose `codex` or `claude` is missing, unreadable, or a different version **fails**. There is no `|| true`. The base image is pinned by multi-arch index digest — `scripts/update-base-images.sh` refreshes that pin and the Node/Codex checksums together.
@@ -82,8 +82,8 @@ Returns what the image actually carries, probed once at import:
     "codex": {
       "available": true,
       "binary": "/usr/local/bin/codex",
-      "version": "0.144.1",
-      "expected_version": "0.144.1",
+      "version": "0.154.0",
+      "expected_version": "0.154.0",
       "version_matches": true,
       "detail": "ready"
     },

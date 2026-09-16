@@ -254,6 +254,20 @@
               <p class="mb-4 break-words rounded-md border border-destructive/20 bg-destructive/5 p-3 text-xs text-destructive">{row.status.last_error}</p>
             {/if}
 
+            {#if row.status?.login_expiry?.state === "expiring" || row.status?.login_expiry?.state === "expired"}
+              {@const expiry = row.status.login_expiry}
+              <Alert variant={expiry.state === "expired" ? "destructive" : "warning"} class="mb-4">
+                <AlertTriangle class="h-4 w-4" />
+                <AlertTitle>{expiry.state === "expired" ? "Claude login expired" : `Claude login expires in ${expiry.days_remaining} ${expiry.days_remaining === 1 ? "day" : "days"}`}</AlertTitle>
+                <AlertDescription>
+                  <p>Expiry: <time datetime={expiry.expires_at ?? undefined}>{expiry.expires_at}</time></p>
+                  <p>Run <code>/login</code> in Claude launched through <code>clx</code>.</p>
+                </AlertDescription>
+              </Alert>
+            {:else if row.engine === "claude" && row.status?.login_expiry?.state === "unknown"}
+              <p class="mb-4 text-xs text-muted-foreground">Login expiry unknown.</p>
+            {/if}
+
             <Button
               class="mt-auto w-full justify-center"
               size="sm"

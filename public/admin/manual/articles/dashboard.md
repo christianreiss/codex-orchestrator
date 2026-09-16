@@ -143,3 +143,9 @@ Failed first loads show an error and a retry control rather than a successful ze
 - frontend/src/routes/dashboard/DashboardAlerts.svelte
 - frontend/src/lib/components/dashboard/RunnerCard.svelte
 - frontend/src/lib/api/overview.ts, frontend/src/lib/api/runner.ts (query/mutation builders + response shapes)
+
+## Claude login expiry
+
+The Claude section of **Runner state** warns when the fleet login expires within three days and shows its exact UTC expiry. A successful verification can appear alongside this warning: the credential can work now while approaching expiry. The countdown remains available when the runner is unconfigured; missing expiry metadata is shown as unknown. After expiry the card says **Claude login expired**.
+
+Run `/login` inside Claude launched through `clx`. Existing credential synchronization uploads and verifies the renewed login. The dashboard clears the warning on its next 15-second poll after renewal becomes canonical. The warning itself does not refresh credentials or block requests.

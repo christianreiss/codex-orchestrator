@@ -14,16 +14,18 @@ import (
 )
 
 type Inputs struct {
-	Config         *config.Config
-	WrapperVersion string
-	Auth           *orchestrator.AuthRetrieveResponse
-	AuthErr        error
-	Concurrent     bool
-	ConcurrentNote string // override text for the "concurrent" boot-screen row
-	SkillsSync     ResourceSync
-	ConfigSync     ResourceSync
-	AuthSynced     bool
-	LaunchArgs     []string // actual native argv, after wrapper flag parsing
+	SkipLoginExpiry bool   // content-only sync must not inspect credentials
+	AuthPath        string // selected native credential file after synchronization
+	Config          *config.Config
+	WrapperVersion  string
+	Auth            *orchestrator.AuthRetrieveResponse
+	AuthErr         error
+	Concurrent      bool
+	ConcurrentNote  string // override text for the "concurrent" boot-screen row
+	SkillsSync      ResourceSync
+	ConfigSync      ResourceSync
+	AuthSynced      bool
+	LaunchArgs      []string // actual native argv, after wrapper flag parsing
 	// StatusOnly suppresses resource-sync markers because `clx status` probes
 	// /auth only and must not present unprobed skills/config as healthy.
 	StatusOnly bool
@@ -217,7 +219,16 @@ func Build(ctx context.Context, in Inputs) ui.ScreenInput {
 		theme = *cfg.EngineOptions.AdminThemeHint
 	}
 
+	authPath := in.AuthPath
+	if authPath == "" {
+		authPath, _ = claude.AuthPath()
+	}
+	loginWarning := ""
+	if !in.SkipLoginExpiry {
+		loginWarning = claude.LoginExpiryWarning(authPath, time.Now())
+	}
 	return ui.ScreenInput{
+		LoginWarning:      loginWarning,
 		WrapperVersion:    wrapperVer,
 		WrapperTone:       wrapperTone,
 		WrapperTarget:     wrapperTarget,

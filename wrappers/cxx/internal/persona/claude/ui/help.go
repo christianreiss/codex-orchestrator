@@ -41,6 +41,7 @@ var clxHelpFlags = []wrapperHelpItem{
 	{"--minimal, --minimal-output", "Portable, compact ASCII output."},
 	{"--silent", "Hide startup and non-error logging."},
 	{"--debug, --verbose", "Detailed wrapper diagnostics."},
+	{"--quota-choice-reset", "Forget today's provider choice before starting."},
 	{"--skip-boot, --no-banner", "Hide startup and the session footer."},
 	{"-4, --ipv4", "Use IPv4 for wrapper network traffic."},
 	{"--allow-concurrent-sync", "Allow managed writes during a session."},

@@ -21,7 +21,7 @@ import { initTracing, shutdownTracing } from './observability/tracing.js';
 import { MattPocockSkillsService } from './services/mattpocock-skills.js';
 
 import { envelopePlugin } from './http/plugins/envelope.js';
-import { requestIdPlugin } from './http/plugins/request-id.js';
+import { generateRequestId, requestIdPlugin } from './http/plugins/request-id.js';
 import { makeClientIpPlugin } from './http/plugins/client-ip.js';
 import { makeAuthHostPlugin } from './http/plugins/auth-host.js';
 import { makeAuthAdminPlugin } from './http/plugins/auth-admin.js';
@@ -70,11 +70,7 @@ export async function buildServer() {
     bodyLimit: 32 * 1024 * 1024,
     ignoreTrailingSlash: true,
     caseSensitive: true,
-    genReqId: (req) => {
-      const incoming = req.headers['x-request-id'];
-      if (typeof incoming === 'string' && incoming.length <= 128) return incoming;
-      return undefined as unknown as string; // fastify will assign default
-    },
+    genReqId: generateRequestId,
   });
 
   // Decorate shared infrastructure so route modules can find it.

@@ -100,6 +100,7 @@
             "auth": {
               "type": "object"
             },
+            "quota_advice": { "$ref": "#/$defs/quotaAdvice" },
             "claude_usage": {
               "description": "Stored Claude Code statusline telemetry; fetched_at is the original report receipt time, not the response time.",
               "type": "object",
@@ -239,5 +240,136 @@
       "additionalProperties": true
     }
   },
-  "additionalProperties": true
+  "additionalProperties": true,
+  "$defs": {
+    "quotaAdvice": {
+      "type": "object",
+      "required": [
+        "settings",
+        "codex",
+        "claude"
+      ],
+      "properties": {
+        "settings": {
+          "type": "object",
+          "required": [
+            "mode",
+            "high_usage_percent",
+            "projected_usage_percent",
+            "min_pressure_gap",
+            "max_age_minutes",
+            "remember_day"
+          ],
+          "properties": {
+            "mode": {
+              "enum": [
+                "off",
+                "hint",
+                "ask"
+              ]
+            },
+            "remember_day": {
+              "type": "boolean"
+            },
+            "high_usage_percent": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            },
+            "projected_usage_percent": {
+              "type": "integer",
+              "minimum": 100,
+              "maximum": 500
+            },
+            "min_pressure_gap": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            },
+            "max_age_minutes": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 120
+            }
+          },
+          "additionalProperties": true
+        },
+        "codex": {
+          "$ref": "#/$defs/quotaAdviceSnapshot"
+        },
+        "claude": {
+          "$ref": "#/$defs/quotaAdviceSnapshot"
+        }
+      },
+      "additionalProperties": true
+    },
+    "quotaAdviceSnapshot": {
+      "type": "object",
+      "required": [
+        "available",
+        "status",
+        "fetched_at",
+        "limit_reached",
+        "windows"
+      ],
+      "properties": {
+        "available": {
+          "type": "boolean"
+        },
+        "status": {
+          "type": "string"
+        },
+        "fetched_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "limit_reached": {
+          "type": "boolean"
+        },
+        "windows": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/quotaAdviceWindow"
+          }
+        }
+      },
+      "additionalProperties": true
+    },
+    "quotaAdviceWindow": {
+      "type": "object",
+      "required": [
+        "used_percent",
+        "limit_seconds",
+        "reset_at"
+      ],
+      "properties": {
+        "used_percent": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 100
+        },
+        "limit_seconds": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        },
+        "reset_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        }
+      },
+      "additionalProperties": true
+    }
+  }
 }

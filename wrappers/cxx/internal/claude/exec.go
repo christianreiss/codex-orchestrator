@@ -17,6 +17,7 @@ import (
 	"golang.org/x/term"
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/quotaadvice"
 )
 
 // captureMaxBytes caps the in-memory stdout buffer for pipe-mode runs. The
@@ -275,6 +276,7 @@ func runCaptureWithHeldAuthLeaseUsing(
 		}
 		return 127, nil, fmt.Errorf("start claude: %w", err)
 	}
+	quotaadvice.MarkStarted(ctx)
 	closeExtras()
 
 	sigCh := make(chan os.Signal, 4)

@@ -19,6 +19,7 @@ import (
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/ipc"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/quotaadvice"
 )
 
 // captureMaxBytes caps the in-memory stdout buffer for pipe-mode runs. The
@@ -270,6 +271,7 @@ func runCapturePreparedWithHeldLeases(ctx context.Context, cfg *config.Config, a
 	if err := cmd.Start(); err != nil {
 		return 127, nil, errors.Join(fmt.Errorf("start codex: %w", err), closeExtras())
 	}
+	quotaadvice.MarkStarted(ctx)
 	bridgeErr := closeExtras()
 
 	sigCh := make(chan os.Signal, 4)

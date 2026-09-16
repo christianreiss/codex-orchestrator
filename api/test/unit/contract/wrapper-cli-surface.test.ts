@@ -42,7 +42,7 @@ const block = (source: string, open: number): string => {
   throw new Error(`unbalanced braces at offset ${open}`);
 };
 
-const RUN = /\bfunc run\(args \[\]string, stdout, stderr io\.Writer\)[^\n]*\{/;
+const RUN = /\bfunc run\(args \[\]string, stdout, stderr io\.Writer(?:, choices \.\.\.\*quotaadvice\.Session)?\)[^\n]*\{/;
 /** The subcommand dispatch inside `run()`; the other `switch sub` blocks are helpers. */
 const DISPATCH = 'switch sub {';
 

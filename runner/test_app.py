@@ -37,6 +37,20 @@ asyncio.set_event_loop(asyncio.new_event_loop())
 
 
 class RunnerAppTest(unittest.TestCase):
+    def test_codex_probe_failure_keeps_provider_error_after_long_banner(self):
+        payload = runner_app.VerifyRequest(
+            auth_json={"tokens": {"access_token": "test-token"}}, timeout_seconds=2,
+        )
+        failure = "ERROR: The 'gpt-6-astra' model requires a newer version of Codex."
+        proc = subprocess.CompletedProcess([], 1, stdout="", stderr="CLI banner\n" * 80 + failure)
+        with patch.object(runner_app, "_run_codex_exec", return_value=(proc, 100)), \
+             patch.object(runner_app, "_codex_version", return_value="old"):
+            result = runner_app._run_probe(payload)
+        self.assertEqual("fail", result["status"])
+        self.assertFalse(result["definitive"])
+        self.assertIn(failure, result["reason"])
+        self.assertLessEqual(len(result["reason"]), 400)
+
     def test_codex_version_probe_is_bounded(self):
         captured = {}
 

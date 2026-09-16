@@ -6,6 +6,39 @@
   The September 11 entry below describes its intended design: remote operations
   currently return `not implemented`; the default-off switch is not a completed transport.
 
+# 2026-09-15
+
+- **Claude login expiry warnings.** The dashboard and clx startup/status show a
+  three-day countdown and renewal instructions independently of runner health.
+  Warnings use the selected credential, clear after renewal, and do not block
+  launch or refresh tokens automatically. Wrapper version 0.8.8.
+
+# 2026-09-14
+
+- **Choose the less pressured provider at startup.** cdx and clx compare fresh
+  OpenAI/Claude quota observations and estimated consumption before reset, offer
+  an interactive provider choice, and can remember it locally until midnight.
+  `run --quota-choice-reset` clears the daily choice. Switching always starts a
+  new session; resume and launch arguments require explicit discard confirmation.
+- Admin Quotas settings centrally control recommendation mode, thresholds, data
+  age and daily remembering. Headless starts remain advisory only, and existing
+  auth/quota enforcement still applies. The quota form now preserves “Off” week
+  partitioning and submits enforcement values accepted by the existing API.
+
+# 2026-09-13
+
+- **Credential sync recovers from an outdated runner.** The runner now ships
+  Codex 0.154.0 with verified release checksums for both Linux architectures.
+  OpenAI rejected the previous 0.144.1 probe for `gpt-6-astra`, leaving fresh
+  host credentials unaccepted and repeated startup/exit uploads waiting behind
+  failed probes. Probe errors retain the provider's final error instead of
+  truncating it behind the CLI banner.
+- **cxx 0.8.6:** Codex and Claude final credential uploads share one 15-second
+  budget, including retries. A successful verification taking over five seconds
+  now completes in one request instead of being cancelled and submitted again.
+- HTTP request IDs are created before Fastify binds its request logger, so
+  incoming/completed logs and response headers carry the same validated ID.
+
 # 2026-09-11
 
 - **`cxx remote`: a process API on other machines, default off.** Agents that need to work on a VM

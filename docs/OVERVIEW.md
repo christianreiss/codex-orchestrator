@@ -235,6 +235,7 @@ visible with a choice to load the latest values or discard the draft.
      `--allow-concurrent-sync` remains the write-enabled escape hatch. This is
      normal contention requiring no operator action, so its status is neutral;
      warning colour is reserved for conditions that require attention.
+   - Final Codex and Claude credential uploads share one 15-second deadline across retries; an individual verification may use the remaining budget. The runner image must support the configured probe model: binary health alone does not prove model compatibility.
    - Wrapper post-run auth upload now compares both `last_refresh` and local `auth.json` SHA-256; content changes with unchanged timestamps are still pushed so fleet hosts can consume updated auth promptly.
    - Wrapper self-update re-exec preserves original argv for subcommands (for example `cdx resume`) and snapshots original argc separately, so empty-argv restarts fall back cleanly without `set -u` empty-array crashes on older bash builds such as CentOS 7 / XCP-NG hosts.
    - `cdx` and `clx` share one responsive terminal dashboard: outcome, host/security/model context, local-to-target versions, semantic health glyphs, quota/activity, and the final result fit within the detected width. Redirects, dumb/narrow terminals, and `--minimal` use stable ANSI-free ASCII; explicit minimal mode also covers wrapper help, status, doctor, cron/peer-update progress, and the measured exit footer. Wrapper-only presentation flags are consumed before an upstream help passthrough. Boot/status result text is control-sequence stripped, width-bounded, and capped at three lines; diagnostic causes/paths are bounded separately, and narrow update rows preserve the outcome before version metadata.
@@ -518,3 +519,9 @@ cancellation expires the prompt so an old answer cannot replay after
 re-enable. A maintenance sweep turns abandoned live sessions into failed,
 read-only records, cancels their pending work, and purges the complete session
 tree after retention expires.
+
+Provider quota advice compares fresh saved OpenAI/Claude snapshots before interactive wrapper starts; central settings and the daily local choice are documented in [the API contract](interface-api.md#provider-quota-recommendation).
+
+## Claude login expiry
+
+The dashboard's Runner state card shows a Claude login-expiry warning within three days, independently of successful verification or runner configuration. It polls every 15 seconds. `clx` startup and status show the same advisory for their selected local credential, including offline use. Run `/login` inside Claude launched through `clx`; existing verified credential synchronization distributes the renewed login. These warnings do not block launch or automatically spend refresh tokens.

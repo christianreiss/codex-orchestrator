@@ -1051,10 +1051,20 @@ export interface ClaudeVersionLockValue {
   locked_at: string | null;
 }
 
+export interface QuotaAdviceSettings {
+  mode: "off" | "hint" | "ask";
+  high_usage_percent: number;
+  projected_usage_percent: number;
+  min_pressure_gap: number;
+  max_age_minutes: number;
+  remember_day: boolean;
+}
+
 export interface QuotaModeValue {
+  advice?: QuotaAdviceSettings;
   hard_fail: boolean;
   limit_percent: number;
-  week_partition: number;
+  week_partition: number | "off" | "5" | "7";
 }
 
 export interface LogRetentionValue {
