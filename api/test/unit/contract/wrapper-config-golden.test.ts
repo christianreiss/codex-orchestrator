@@ -182,6 +182,13 @@ function fakeDb(rows: FakeRows): Database {
             },
           ],
     skills: rows.skills,
+    // `where()` below is a no-op, so this one row answers every `versions`
+    // lookup the baker makes -- `agent_messaging_enabled` and, since it was
+    // added, `remote_exec_enabled`. The golden files therefore pin "every fleet
+    // flag on" and "every fleet flag off" rather than each switch separately,
+    // which is what they are for: proving the wrapper decodes a complete
+    // payload byte for byte. Per-flag behaviour is covered by the unit tests
+    // over `buildWrapperConfig` itself.
     versions:
       rows.agentMessagingFlag === null ? [] : [{ version: rows.agentMessagingFlag }],
   };

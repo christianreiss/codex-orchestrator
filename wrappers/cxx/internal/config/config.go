@@ -21,6 +21,7 @@ type Config struct {
 	Host           Host           `json:"host"`
 	EngineOptions  EngineOptions  `json:"engine_options"`
 	AgentMessaging AgentMessaging `json:"agent_messaging,omitempty"`
+	Remote         Remote         `json:"remote,omitempty"`
 	Wrapper        Wrapper        `json:"wrapper"`
 	ConfigVersion  int64          `json:"config_version,omitempty"`
 
@@ -81,6 +82,13 @@ type AgentMessaging struct {
 	// ChannelPreviewEnabled, which stays Claude-only because it governs
 	// unsolicited push into a transcript rather than a tool call the model made.
 	ListenEnabled bool `json:"listen_enabled,omitempty"`
+}
+
+// Remote is optional for backward compatibility. A missing block decodes to
+// Enabled=false, so every config signed before `cxx remote` existed keeps the
+// family switched off rather than silently opening one.
+type Remote struct {
+	Enabled bool `json:"enabled"`
 }
 
 type Wrapper struct {

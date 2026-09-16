@@ -155,6 +155,17 @@ func TestHostSyncRejectsUnknownArguments(t *testing.T) {
 	}
 }
 
+// TestSelectorHelpAdvertisesRemote keeps `cxx remote` discoverable from the
+// binary itself. An agent that cannot find the verb falls back to raw ssh, which
+// is exactly the per-command handshake the family exists to replace.
+func TestSelectorHelpAdvertisesRemote(t *testing.T) {
+	var out bytes.Buffer
+	printSelectorHelp(&out)
+	if !strings.Contains(out.String(), "cxx remote") {
+		t.Fatalf("help does not mention cxx remote: %q", out.String())
+	}
+}
+
 func TestSelectorHelpAdvertisesSync(t *testing.T) {
 	var out bytes.Buffer
 	printSelectorHelp(&out)

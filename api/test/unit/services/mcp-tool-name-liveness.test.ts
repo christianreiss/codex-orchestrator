@@ -105,6 +105,7 @@ const CONTENT: Array<{ source: string; text: string }> = [
       agentMessaging: enabled,
       gitDirector: { ...enabled, count: 1 },
       fileTransfer: { ...enabled, count: 1 },
+      remoteExec: enabled,
     }).body,
   })),
   {

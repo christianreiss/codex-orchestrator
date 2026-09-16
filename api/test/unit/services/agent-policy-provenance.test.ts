@@ -36,6 +36,7 @@ function context(overrides: Record<string, unknown> = {}) {
     agentMessaging: on,
     gitDirector: { ...on, count: 2 },
     fileTransfer: { ...on, count: 2 },
+    remoteExec: on,
     ...overrides,
   } as never;
 }

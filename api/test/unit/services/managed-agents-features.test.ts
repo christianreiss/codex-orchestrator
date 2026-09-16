@@ -44,6 +44,7 @@ function context(
     agentMessaging: disabled('master_disabled'),
     gitDirector: disabled('git_director_disabled', 0),
     fileTransfer: disabled('transfers_disabled', 0),
+    remoteExec: disabled('remote_exec_disabled'),
     ...overrides,
   };
 }

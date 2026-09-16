@@ -25,6 +25,8 @@ import {
   stripResponseStyleModule,
   type ResponseVerbosityLevel,
 } from './agent-response-style.js';
+import { REMOTE_EXEC_GUIDANCE } from './remote-exec.js';
+
 
 export const MANAGED_FEATURES_START = '<!-- cxx:managed-features:start -->';
 export const MANAGED_FEATURES_END = '<!-- cxx:managed-features:end -->';
@@ -48,6 +50,7 @@ export interface ManagedAgentFeatureContext {
   agentMessaging: ManagedFeatureState;
   gitDirector: ManagedFeatureState;
   fileTransfer: ManagedFeatureState;
+  remoteExec: ManagedFeatureState;
 }
 
 export interface ManagedAgentFeatureSection {
@@ -77,6 +80,7 @@ export interface ManagedAgentFeatureSections {
   agent_messaging: ManagedAgentFeatureSection;
   git_director: ManagedAgentFeatureSection;
   file_transfer: ManagedAgentFeatureSection;
+  remote_exec: ManagedAgentFeatureSection;
 }
 
 export interface RenderManagedAgentFeaturesResult {
@@ -120,6 +124,10 @@ const FEATURE_SECTION_LABELS: Partial<Record<keyof ManagedAgentFeatureSections, 
   // A fleet setting like the two above: one console switch turns the pool on
   // for every host, so the jump-to-setting link points at a control that exists.
   file_transfer: 'File Transfer (fleet setting)',
+  // Also one console switch for every host. Unlike its neighbours this one is
+  // not an MCP surface: it reaches the wrapper through the signed host config,
+  // so a host that has not refreshed its config yet still sees the old value.
+  remote_exec: 'Remote execution (fleet setting)',
 };
 
 interface RenderedSection {
@@ -487,6 +495,11 @@ claims to have sent a file and not who did.`,
   );
 }
 
+function remoteExecSection(context: ManagedAgentFeatureContext): RenderedSection | null {
+  if (!context.remoteExec.enabled) return null;
+  return present(context.remoteExec, REMOTE_EXEC_GUIDANCE, 'native');
+}
+
 function stripManagedContent(body: string): { body: string; changed: boolean } {
   let stripped = body.replace(OWN_POLICY_BLOCK, '');
   stripped = stripped.replace(OWN_BLOCK, '');
@@ -544,6 +557,7 @@ export function renderManagedAgentFeatures(
   const agentMessaging = agentMessagingSection(context);
   const gitDirector = gitDirectorSection(context);
   const fileTransfer = fileTransferSection(context);
+  const remoteExec = remoteExecSection(context);
 
   const skillsMetadata = skills?.metadata ?? absent(context.skills);
   const memoryMetadata = memory?.metadata ?? absent(context.memory);
@@ -579,6 +593,7 @@ export function renderManagedAgentFeatures(
     agent_messaging: agentMessaging?.metadata ?? absent(context.agentMessaging),
     git_director: gitDirector?.metadata ?? absent(context.gitDirector),
     file_transfer: fileTransfer?.metadata ?? absent(context.fileTransfer),
+    remote_exec: remoteExec?.metadata ?? absent(context.remoteExec),
   };
 
   // Appended last on purpose: provider order is part of `managed_sha256`, so
@@ -594,6 +609,7 @@ export function renderManagedAgentFeatures(
     { key: 'agent_messaging', section: agentMessaging },
     { key: 'git_director', section: gitDirector },
     { key: 'file_transfer', section: fileTransfer },
+    { key: 'remote_exec', section: remoteExec },
   ];
   const presentFeatures = orderedFeatures.filter(
     (entry): entry is { key: keyof ManagedAgentFeatureSections; section: RenderedSection } =>

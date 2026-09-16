@@ -19,6 +19,7 @@ import { SecretsService } from './secrets.js';
 import { SettingsService } from './settings.js';
 import { GitDirectorService, GIT_DIRECTOR_ENABLED_FLAG } from './git-director.js';
 import { AgentTransfersService, TRANSFERS_ENABLED_FLAG } from './agent-transfers.js';
+import { REMOTE_EXEC_ENABLED_KEY } from './remote-exec.js';
 import { AGENT_MESSAGING_ENABLED_KEY } from './agent-messaging.js';
 import { API_KEYS_IN_CHAT_ALLOWED_KEY } from './api-keys-in-chat.js';
 import {
@@ -377,6 +378,7 @@ export class HostAgentsService {
       gitDirectorCloneCount,
       transfersEnabled,
       transferCount,
+      remoteExecEnabled,
     ] = await Promise.all([
       this.db
         .select()
@@ -397,6 +399,7 @@ export class HostAgentsService {
       this.gitDirector.availableCount(host).catch(() => null),
       this.settings.getFlag(TRANSFERS_ENABLED_FLAG, false).catch(() => null),
       this.transfers.availableCount().catch(() => null),
+      this.settings.getFlag(REMOTE_EXEC_ENABLED_KEY, false).catch(() => null),
     ]);
     // db-fake ignores WHERE, so do not borrow another engine's row in tests.
     const configRow = configRows.find((candidate) => candidate.engine === engine) ?? null;
@@ -517,6 +520,18 @@ export class HostAgentsService {
             ? state(false, 'transfers_disabled')
             : state(true, 'ok', transferCount);
 
+    // Deliberately not gated on `mcp.enabled`, unlike the Director and the
+    // transfer pool: `cxx remote` is a wrapper command, not an MCP tool, so a
+    // host whose managed MCP configuration never arrived can still use it. What
+    // it does need is a signed config carrying the same switch, and that rides
+    // the same sync — so guidance and capability turn on together.
+    const remoteExec =
+      remoteExecEnabled === null
+        ? state(false, 'service_unavailable')
+        : !remoteExecEnabled
+          ? state(false, 'remote_exec_disabled')
+          : state(true, 'ok');
+
     return {
       engine,
       skills,
@@ -528,6 +543,7 @@ export class HostAgentsService {
       agentMessaging,
       gitDirector,
       fileTransfer,
+      remoteExec,
     };
   }
 

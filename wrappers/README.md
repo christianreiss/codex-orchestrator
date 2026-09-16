@@ -11,6 +11,7 @@ Layout:
 - `cxx/internal/app/{codex,claude}` — compatibility CLI personas.
 - `cxx/internal/{config,fleetconfig,cron,maintenance,ipc,ipv4,layout,log,signing,uninstall,update}` — shared host primitives (signed config load/recovery, the shared cron coordinator, the background maintenance lease).
 - `cxx/internal/{agentbus,agentportal,authnotice,claudequota}` — the `cxx agent` bus (relay worker + `cxx-agent` stdio MCP server), the `cxx portal` relay broker, credential-change notices, and the `cxx claude-quota-statusline` command.
+- `cxx/internal/remote` — the `cxx remote` process API on machines reached over SSH. No daemon on either side: ssh(1)'s own `ControlMaster` is the reused connection, and job state lives in a directory on the target, so a cursor is a byte offset into a file and a reconnect is a read rather than a re-run.
 - `cxx/internal/observability/tracing` — opt-in OpenTelemetry behind the `cxx_otel` build tag.
 - `cxx/internal/persona/{codex,claude}` — intentionally different engine lifecycle behavior.
 - `cxx/internal/terminalui` — shared terminal layout, semantic states, width handling,
@@ -30,6 +31,7 @@ cxx update                    # verify + install the wrapper target, then re-exe
 cxx cron [install|remove|run [--due]]   # the shared 15-minute maintenance schedule / tick
 cxx portal [status|notify|resolve|say|ask|wait|accept|leave]   # agent portal relay (#afk)
 cxx agent [list|send|request|wait|reply|message|cancel|call-open|call-join|listen|poll|status|service|worker|mcp]
+cxx remote [info|exec|read|write|wait|signal|ps|rm|get|put|push|pull|down]  # default off; signed remote.enabled
 cxx claude-quota-statusline   # Claude Code statusLine command that relays quota readings
 ```
 

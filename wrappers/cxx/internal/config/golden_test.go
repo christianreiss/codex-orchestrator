@@ -115,6 +115,9 @@ func goldenFixtures() []goldenFixture {
 					ChannelPreviewEnabled: false,
 					ListenEnabled:         true,
 				},
+				// The fixture's fleet flags are all on, so `cxx remote` is on
+				// with them. host-claude.json is the off case for both.
+				Remote: Remote{Enabled: true},
 				Wrapper: Wrapper{
 					Version:      "2.4.0",
 					Track:        "stable",
@@ -169,6 +172,9 @@ func goldenFixtures() []goldenFixture {
 					ChannelPreviewEnabled: false,
 					ListenEnabled:         true,
 				},
+				// The fixture's fleet flags are all on, so `cxx remote` is on
+				// with them. host-claude.json is the off case for both.
+				Remote: Remote{Enabled: true},
 				Wrapper: Wrapper{
 					Version:      "2.4.0",
 					Track:        "beta",

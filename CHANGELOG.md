@@ -1,3 +1,45 @@
+# 2026-09-16
+
+- Ignore local pytest caches, frontend test reports/coverage, TypeScript build metadata,
+  and the one-off Go wrapper executable; shipped admin assets remain tracked.
+- Preserve the in-progress `cxx remote` scaffold during repository synchronization.
+  The September 11 entry below describes its intended design: remote operations
+  currently return `not implemented`; the default-off switch is not a completed transport.
+
+# 2026-09-11
+
+- **`cxx remote`: a process API on other machines, default off.** Agents that need to work on a VM
+  have until now opened one `ssh` per command, paying a TCP handshake and an authentication for
+  every `ls`. The new family reuses one connection per destination through a private
+  `ControlMaster` path, so the handshake happens once per target and each command is a channel on
+  it. Nothing here reimplements what OpenSSH already does: an earlier draft had a local broker
+  daemon, a stdio pump and a supervisor daemon on the VM with its own ring buffers, epochs and two
+  idle TTLs, and all three were deleted in favour of ssh's own multiplexer plus job state on disk.
+- **A job outlives its connection, because it is a directory and not a process.** Each job owns
+  `~/.cxx/remote/jobs/<id>/` holding its argv, an append-only log, its pid and start time, and — only
+  once the child is gone — its status. So a cursor is a byte offset into a real file rather than
+  ring-buffer arithmetic, an idempotency key is an exclusive `mkdir` that survives a reboot rather
+  than a map that dies with a daemon, and reconnecting after a dropped connection is a read that
+  continues rather than a command that runs twice. A job started before a reboot is reported as
+  lost, never as running and never as exited 0, because the boot id recorded at start no longer
+  matches.
+- The target machine needs SSH access and nothing else: no engine, no orchestrator API key, no
+  signed config. The binary installs itself there on first contact, content-addressed by digest.
+  There is deliberately no target allowlist — a destination is whatever `ssh` accepts, so
+  `~/.ssh/config` aliases work, and the keys on the host are the control that actually holds. A
+  list inside the wrapper would only be one the same agent could edit.
+- **The switch is `remote_exec_enabled`, off until an operator turns it on.** It reaches wrappers as
+  `remote.enabled` in the signed host config, which is the binary's own gate and is re-read per
+  invocation so revoking it takes effect on the next command rather than on some restart. It reaches
+  agents as a "Remote execution" section in served AGENTS.md/CLAUDE.md, so capability and guidance
+  arrive together. `docs/SECURITY.md` states what the switch is not: a fleet control rather than a
+  boundary, since an agent that can run `cxx remote` can already run `ssh` — and a sandbox escape
+  for a locally confined agent, which is worth knowing before enabling it rather than after.
+- Output is returned as text only when it really is text. `encoding/json` rewrites invalid UTF-8 to
+  U+FFFD and reports nothing, so a command emitting latin-1, a tarball, or a multi-byte sequence cut
+  in half at a read boundary would have come back quietly wrong; such a response is base64 with
+  `binary: true` instead, never repaired.
+
 # 2026-09-10
 
 - **The unattended cron tick no longer asks for credentials.** Its managed-content

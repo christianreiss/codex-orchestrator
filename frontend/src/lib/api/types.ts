@@ -1012,6 +1012,10 @@ export interface ApiKeysInChatValue {
   enabled: boolean;
 }
 
+export interface RemoteExecValue {
+  enabled: boolean;
+}
+
 export interface InsecureApprovalValue {
   enabled: boolean;
 }

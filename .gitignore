@@ -27,3 +27,11 @@ __pycache__/
 /improver/
 
 /.playwright-mcp/
+
+# Local test caches, reports, and one-off development builds.
+.pytest_cache/
+.DS_Store
+*.tsbuildinfo
+/frontend/playwright-report/
+/frontend/coverage/
+/wrappers/cxx/cxx

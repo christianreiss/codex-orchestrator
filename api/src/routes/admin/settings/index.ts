@@ -30,6 +30,7 @@ import {
   CLAUDE_SUPPORTED_MODELS,
 } from '../../../services/claude-models.js';
 import { API_KEYS_IN_CHAT_ALLOWED_KEY } from '../../../services/api-keys-in-chat.js';
+import { REMOTE_EXEC_ENABLED_KEY } from '../../../services/remote-exec.js';
 import {
   AUTHORIZATION_MODES,
   isAuthorizationMode,
@@ -148,6 +149,22 @@ export async function registerAdminSettingsRoutes(
     if (enabled === null) throw new ValidationError('enabled must be boolean', { param: 'enabled' });
     await settings.setFlag(API_KEYS_IN_CHAT_ALLOWED_KEY, enabled);
     await recordLog(ctx, 'admin.api_keys_in_chat', { enabled });
+    return ok({ enabled });
+  });
+
+  // ── remote-exec ──────────────────────────────────────────────────────────
+  // The fleet switch for `cxx remote`. It reaches wrappers in the signed host
+  // config and reaches agents as a guidance block, so flipping it changes both
+  // what the binary permits and what the model is told exists.
+  app.get('/admin/remote-exec', { preHandler: app.requireAdmin }, async () => {
+    return ok({ enabled: await settings.getFlag(REMOTE_EXEC_ENABLED_KEY, false) });
+  });
+  app.post('/admin/remote-exec', { preHandler: app.requireAdmin }, async (req) => {
+    const body = (req.body ?? {}) as { enabled?: unknown };
+    const enabled = normalizeBool(body.enabled);
+    if (enabled === null) throw new ValidationError('enabled must be boolean', { param: 'enabled' });
+    await settings.setFlag(REMOTE_EXEC_ENABLED_KEY, enabled);
+    await recordLog(ctx, 'admin.remote_exec', { enabled });
     return ok({ enabled });
   });
 
