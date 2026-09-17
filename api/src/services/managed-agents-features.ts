@@ -356,9 +356,9 @@ finds peers, \`agent_send\` and \`agent_request\` deliver, \`agent_wait\` and \`
 and \`agent_cancel\` withdraws work you queued. Delivery is ordered and at-least-once, and a queued
 message expires if nothing takes it.
 
-**Automatic reception.** When the wrapper connects a native receiver, acknowledge only a
-challenge actually delivered in this conversation with \`agent_receiver_ack\`, echoing its
-exact generation, source and nonce. For operator portal instructions, use
+**Automatic reception.** The wrapper checks native receiver health silently in the
+background; there are no verification messages to acknowledge. For operator portal
+instructions, use
 \`agent_receiver_reply\` with the delivered message ID and your result. Normal peer replies
 still use \`agent_reply\`. These tools do not grant permission to perform the requested work.
 If \`agent_listen\` reports automatic reception, do not poll it: yield the current model turn

@@ -198,7 +198,7 @@ export function forceCloseMutation(opts: MutationOpts<ForceCloseResult, { id: st
   });
 }
 
-export function verifyReceptionMutation() {
+export function reconnectReceiverMutation() {
   const client = useQueryClient();
   return createMutation({
     mutationFn: (id: string) => api.post(`/admin/agent-sessions/${id}/receiver/verify`, {}),

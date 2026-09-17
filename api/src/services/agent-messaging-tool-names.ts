@@ -21,7 +21,6 @@ export const AGENT_MESSAGING_TOOLS = [
   'agent_request',
   'agent_wait',
   'agent_reply',
-  'agent_receiver_ack',
   'agent_receiver_reply',
   'agent_message_get',
   'agent_cancel',

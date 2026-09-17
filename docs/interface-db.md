@@ -105,9 +105,9 @@ Encryption: `AUTH_ENCRYPTION_KEY` (single-key mode) is generated into `.env` by 
 
 Migration `0030_agent_receiver.sql` idempotently adds nullable JSON
 `agent_sessions.receiver`. It stores the current generation, native protocol/session
-ID, connection heartbeat, failure, optional explicit portal-close state and per-source
-probe UUID, nonce, creation/delivery/model-ack times and acknowledgment latency.
-This is current connection evidence, not a historical task-success ledger. Public
-serializers omit the nonce. No canonical auth-store layout changes. Readiness never
-comes from the wrapper heartbeat alone; reconnect replaces proof, and legacy rows
-with NULL continue through their existing explicit-listener behavior.
+ID, connection heartbeat, failure, optional explicit portal-close state and source
+membership under the legacy `probes` map (new entries are empty objects). Old probe
+UUIDs/nonces/timestamps may remain in existing JSON but never gate readiness or appear
+as model proof in public views. No migration or canonical auth-store changes are needed.
+Readiness requires fresh native transport health; wrapper heartbeats cannot renew it.
+Reconnect replaces connection state, and NULL rows retain explicit-listener behavior.

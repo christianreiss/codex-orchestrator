@@ -1033,7 +1033,7 @@ Settings are central; remembered selections are local to an OS user and
 orchestrator URL. `off` and `hint` never apply remembered selections. Advice does
 not relax existing authentication, local credential handling or quota hard-fail.
 
-## Automatic receiver protocol (0.8.9)
+## Automatic receiver protocol (0.8.10)
 
 `POST /host/agent-sessions/:id/receiver/{register,heartbeat,stop,ack,status,claim}`
 uses `X-Agent-Bridge-Token`, the existing session/host/engine authorization, and the
@@ -1042,23 +1042,26 @@ applicable peer/portal switch. No host credential is sent to the model process.
 - `register`: `{generation: UUID, protocol: "codex-queue-v1"|"claude-channel-v1", native_session_id}`;
   returns public `receiver` evidence and enabled `sources`. A live owner cannot be
   replaced. Same-generation retries are idempotent.
-- `heartbeat`, `stop`: `{generation}`, optionally `failure` on stop. Health expires
-  after 45 seconds and cannot be revived; reconnect and prove the new generation.
-- `claim`: `{generation, source: "peer"|"portal", claim_id: UUID}` returns a `probe`
-  until acknowledged, then an existing queue `delivery` (peer) or `message` (portal),
-  possibly null. Verification retries keep the same nonce and deadline. Queue
-  transactions check generation again before leasing ordinary work; manual claims
-  cannot race the automatic owner.
-- `ack`: `{generation, source, nonce: UUID}` accepts only a delivered, unexpired
-  challenge for this connection. It is idempotent and never proves another source.
+- `heartbeat`, `stop`: `{generation}`, optionally `failure` on stop. Native health
+  expires after 45 seconds and cannot be revived; reconnect with a new generation.
+- `claim`: `{generation, source: "peer"|"portal", claim_id: UUID}` returns an existing
+  queue `delivery` (peer) or `message` (portal), possibly null. It never returns a probe.
+  Queue transactions check generation again before leasing ordinary work; manual
+  claims cannot race the automatic owner. Enabled sources need no model acknowledgment.
+- `ack`: deprecated compatibility endpoint for already-delivered old probes. Requires
+  a matching generation/source/nonce and delivered legacy probe on a healthy connection.
+  Returns status without changing stored evidence, renewing health, or reviving a receiver.
 - `status`: `{}` returns `receiver` with state, generation, native session ID,
-  protocol, last native-health heartbeat, failure and source delivery ID,
-  delivered/acknowledged timestamps and latency. Public views omit the nonce.
+  protocol, last native-health heartbeat, failure and per-source transport state.
+  Legacy source `delivery_id`, `delivered_at`, `acknowledged_at`, and `latency_ms`
+  fields remain present but null. No model-response proof is inferred from readiness.
 
 `POST /admin/agent-sessions/:id/receiver/verify` and
-`POST /go/api/agents/:id/receiver/verify` require the existing operator/manage
-capability and origin protections. They invalidate current proof; the adapter
-reconnects and verifies again. Ordinary session heartbeat does not renew receiver
+`POST /go/api/agents/:id/receiver/verify` remain compatibility routes for the
+**Reconnect receiver** action, with existing operator/manage capability and origin
+protections. They invalidate the generation and return `{reconnect_requested: true,
+verification_requested: true}` (the second key is legacy). Reconnection is silent;
+there is no manual chat probe. Ordinary session heartbeat does not renew receiver
 health. Admin/peer/portal listings return the same public `receiver` evidence.
 
 The private local broker additionally implements `receiver/native`, used only by

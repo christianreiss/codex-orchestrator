@@ -10,7 +10,7 @@ import { getTestDb } from '../../helpers/test-db.js';
 import { loadTestEnv, testKeyring } from '../../helpers/test-keyring.js';
 
 const handle = await getTestDb();
-describe.skipIf(!handle)('receiver connection fencing and model proof', () => {
+describe.skipIf(!handle)('receiver connection health and fencing', () => {
   let host: typeof hosts.$inferSelect;
   let receiver: AgentReceiverService;
   let messaging: AgentMessagingService;
@@ -20,17 +20,15 @@ describe.skipIf(!handle)('receiver connection fencing and model proof', () => {
   beforeAll(async () => {
     const db = handle!.db,
       now = new Date().toISOString();
-    await db
-      .insert(hosts)
-      .values({
-        fqdn: `receiver-${id}.test`,
-        apiKey: 'd'.repeat(64),
-        engines: 'codex,claude',
-        status: 'active',
-        secure: 1,
-        createdAt: now,
-        updatedAt: now,
-      });
+    await db.insert(hosts).values({
+      fqdn: `receiver-${id}.test`,
+      apiKey: 'd'.repeat(64),
+      engines: 'codex,claude',
+      status: 'active',
+      secure: 1,
+      createdAt: now,
+      updatedAt: now,
+    });
     host = (
       await db
         .select()
@@ -64,22 +62,17 @@ describe.skipIf(!handle)('receiver connection fencing and model proof', () => {
     );
     await handle?.pool.end();
   });
-  it('requires a delivered nonce, preserves proof on normal heartbeat, and fences replacement', async () => {
+  it('needs no probe, preserves health on normal heartbeat, and fences replacement', async () => {
     const input = { generation, protocol: 'codex-queue-v1' as const, native_session_id: randomUUID() };
-    expect((await receiver.register(id, token, input)).receiver?.state).toBe('verifying');
+    expect((await receiver.register(id, token, input)).receiver?.state).toBe('ready');
     await expect(receiver.register(id, token, { ...input, generation: randomUUID() })).rejects.toMatchObject({
       code: 'receiver_owned',
     });
     await expect(
       receiver.update(id, token, generation, 'ack', { source: 'peer', nonce: randomUUID() }),
     ).rejects.toMatchObject({ code: 'receiver_probe_mismatch' });
-    const claim = (await receiver.claim(id, token, generation, 'peer', randomUUID())) as {
-      probe: { nonce: string };
-    };
-    expect(
-      (await receiver.update(id, token, generation, 'ack', { source: 'peer', nonce: claim.probe.nonce }))
-        .receiver?.state,
-    ).toBe('ready');
+    expect(await receiver.claim(id, token, generation, 'peer', randomUUID())).toEqual({ delivery: null });
+    await receiver.update(id, token, generation, 'heartbeat', {});
     const before = (await handle!.db.select().from(agentSessions).where(eq(agentSessions.id, id)))[0]!;
     await messaging.heartbeatSession(id, token, {});
     const after = (await handle!.db.select().from(agentSessions).where(eq(agentSessions.id, id)))[0]!;
@@ -89,8 +82,25 @@ describe.skipIf(!handle)('receiver connection fencing and model proof', () => {
       code: 'receiver_generation_changed',
     });
     expect((await receiver.register(id, token, { ...input, generation: randomUUID() })).receiver?.state).toBe(
-      'verifying',
+      'ready',
     );
+  });
+  it('accepts a matching legacy receipt without changing any health or probe state', async () => {
+    const [session] = await handle!.db.select().from(agentSessions).where(eq(agentSessions.id, id));
+    const s = receiverState(session!.receiver)!;
+    const nonce = randomUUID();
+    s.probes.peer = {
+      id: randomUUID(),
+      nonce,
+      delivered_at: new Date(Date.now() - 180_000).toISOString(),
+      acknowledged_at: null,
+    };
+    await handle!.db.update(agentSessions).set({ receiver: s }).where(eq(agentSessions.id, id));
+    expect(await receiver.claim(id, token, s.generation, 'peer', randomUUID())).toEqual({ delivery: null });
+    await receiver.update(id, token, s.generation, 'ack', { source: 'peer', nonce });
+    const [after] = await handle!.db.select().from(agentSessions).where(eq(agentSessions.id, id));
+    expect(after!.receiver).toEqual(s);
+    expect(after!.receiveHeartbeatAt).toBe(session!.receiveHeartbeatAt);
   });
   it('cannot revive an expired receiver with wrapper or receiver heartbeats', async () => {
     const [session] = await handle!.db.select().from(agentSessions).where(eq(agentSessions.id, id));
@@ -102,9 +112,12 @@ describe.skipIf(!handle)('receiver connection fencing and model proof', () => {
     await expect(receiver.update(id, token, s.generation, 'heartbeat', {})).rejects.toMatchObject({
       code: 'receiver_expired',
     });
+    await expect(
+      receiver.update(id, token, s.generation, 'ack', { source: 'peer', nonce: s.probes.peer!.nonce }),
+    ).rejects.toMatchObject({ code: 'receiver_expired' });
     await expect(receiver.status(id, 'wrong')).rejects.toThrow();
   });
-  it('verifies both sources independently and fences ordinary queue claims', async () => {
+  it('enables both sources without probes and fences ordinary queue claims', async () => {
     await handle!.db.execute(sql`UPDATE versions SET version='1' WHERE name='agent_portal_enabled'`);
     const next = randomUUID();
     const result = await receiver.register(id, token, {
@@ -113,17 +126,9 @@ describe.skipIf(!handle)('receiver connection fencing and model proof', () => {
       native_session_id: randomUUID(),
     });
     expect(result.sources).toEqual(['peer', 'portal']);
+    expect(result.receiver?.state).toBe('ready');
     for (const source of ['peer', 'portal'] as const) {
-      const first = (await receiver.claim(id, token, next, source, randomUUID())) as {
-        probe: { nonce: string; id: string };
-      };
-      const retry = (await receiver.claim(id, token, next, source, randomUUID())) as typeof first;
-      expect(retry.probe.id).toBe(first.probe.id);
-      expect(retry.probe.nonce).toBe(first.probe.nonce);
-      await receiver.update(id, token, next, 'ack', { source, nonce: first.probe.nonce });
-      const evidence = (await receiver.status(id, token)).receiver!;
-      expect(evidence.sources.find((p) => p.source === source)?.state).toBe('ready');
-      if (source === 'peer') expect(evidence.state).toBe('verifying');
+      expect(result.receiver?.sources.find((p) => p.source === source)?.state).toBe('ready');
     }
     expect(await receiver.claim(id, token, next, 'peer', randomUUID())).toEqual({ delivery: null });
     expect(await receiver.claim(id, token, next, 'portal', randomUUID())).toEqual({ message: null });

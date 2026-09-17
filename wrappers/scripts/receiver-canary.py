@@ -2,8 +2,8 @@
 """Opt-in real-model canary for the installed CLIs and a freshly built cxx.
 
 Uses a temporary Unix broker and temporary working directory. No fleet messages
-are sent: both receive sources supply a nonce and only the real model's MCP
-acknowledgment counts as proof. Credentials stay with the native CLI.
+are sent: both receive sources supply ordinary messages and only correlated
+model replies count as response evidence. Credentials stay with the native CLI.
 """
 import argparse
 import http.server
@@ -34,11 +34,10 @@ def run(engine, cxx, timeout):
         native = str(uuid.uuid4())
         broker = str(pathlib.Path(tmp) / "portal.sock")
         sock = str(pathlib.Path(tmp) / "codex.sock")
-        proofs = {}
-        challenges = {s: str(uuid.uuid4()) for s in ("peer", "portal")}
-        claimed = set()
-        message_ids = {s: str(uuid.uuid4()) for s in challenges}
-        receipts = {s: "canary-" + str(uuid.uuid4()) for s in challenges}
+        healthy = False
+        sources = ("peer", "portal")
+        message_ids = {s: str(uuid.uuid4()) for s in sources}
+        receipts = {s: "canary-" + str(uuid.uuid4()) for s in sources}
         submitted = set()
         replied = set()
         native_reported = False
@@ -55,7 +54,7 @@ def run(engine, cxx, timeout):
                 pass
 
             def do_POST(self):
-                nonlocal registered, failure, native_reported, reconnect_requested, reconnected, completed_replies
+                nonlocal registered, failure, native_reported, reconnect_requested, reconnected, completed_replies, healthy
                 data = json.loads(self.rfile.read(int(self.headers.get("Content-Length", "0"))) or "{}")
                 op = self.path.rsplit("/", 1)[-1]
                 out, status = {}, 200
@@ -68,10 +67,10 @@ def run(engine, cxx, timeout):
                             if not reconnect_requested or data["generation"] == registered["generation"] or data["native_session_id"] != registered["native_session_id"]:
                                 failure = "reconnection lost its generation or native conversation binding"
                             reconnected = True
-                            challenges.update({s: str(uuid.uuid4()) for s in challenges})
+                            message_ids.update({s: str(uuid.uuid4()) for s in sources})
+                            receipts.update({s: "canary-" + str(uuid.uuid4()) for s in sources})
                         registered = data
-                        claimed.clear()
-                        proofs.clear()
+                        healthy = False
                         submitted.clear()
                         replied.clear()
                         out = {"sources": ["peer", "portal"]}
@@ -81,20 +80,13 @@ def run(engine, cxx, timeout):
                         out = {"native_session_id": native if native_reported or engine == "codex" else ""}
                     elif op == "claim":
                         source = data["source"]
-                        if source not in proofs:
-                            claimed.add(source)
-                            out = {"probe": {"id": challenges[source], "nonce": challenges[source]}}
-                        elif not reconnected and len(proofs) == 2 and source not in submitted:
+                        if healthy and source not in submitted:
                             submitted.add(source)
                             message = {"message_id": message_ids[source], "lease_owner": data["claim_id"], "kind": "message", "content": "Canary only: reply with exactly " + receipts[source] + ". Do not run commands or edit files."}
                             out = {"delivery" if source == "peer" else "message": message}
                     elif op == "ack" and "/receiver/" in self.path:
-                        source = data.get("source")
-                        if not registered or data.get("generation") != registered["generation"] or data.get("nonce") != challenges.get(source):
-                            failure = "model acknowledgment did not match this connection"
-                            status = 409
-                        else:
-                            proofs[source] = time.monotonic()
+                        failure = "unexpected receiver probe acknowledgment"
+                        status = 400
                     elif op == "reply":
                         if data.get("message_id") == message_ids["peer"] and data.get("content", "").strip() == receipts["peer"]:
                             replied.add("peer")
@@ -106,11 +98,14 @@ def run(engine, cxx, timeout):
                             replied.add("portal")
                         else:
                             failure = "portal reply lost message correlation"
-                    elif op == "heartbeat" and "/receiver/" in self.path and len(proofs) == 2 and len(replied) == 2 and not reconnect_requested:
+                    elif op == "heartbeat" and "/receiver/" in self.path and len(replied) == 2 and not reconnect_requested:
                         completed_replies = sorted(replied)
                         reconnect_requested = True
                         status = 409
-                        out = {"code": "receiver_generation_changed", "message": "canary verification requested"}
+                        out = {"code": "receiver_generation_changed", "message": "canary reconnect requested"}
+                    elif op == "heartbeat" and "/receiver/" in self.path:
+                        healthy = True
+                        out = {"receiver": {"sources": [{"source": s} for s in sources]}}
                     elif op in ("heartbeat", "stop", "status", "ack", "renew"):
                         pass
                     else:
@@ -145,7 +140,7 @@ def run(engine, cxx, timeout):
                     overrides += ["-c", "mcp_servers.cxx-agent.env." + key + "=" + json.dumps(value)]
                 # This isolated canary grants only its own receipt tools; shell
                 # commands and files remain read-only with approvals disabled.
-                for name in ("agent_receiver_ack", "agent_receiver_reply", "agent_reply"):
+                for name in ("agent_receiver_reply", "agent_reply"):
                     overrides += ["-c", "mcp_servers.cxx-agent.tools." + name + '.approval_mode="approve"']
                 daemon = subprocess.Popen(["codex", "app-server", "--listen", "unix://" + sock, *overrides],
                                           cwd=tmp, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
@@ -168,7 +163,7 @@ def run(engine, cxx, timeout):
                 command = ["claude", "--plugin-dir", str(plugin), "--session-id", native, "--mcp-config", json.dumps(mcp),
                            "--dangerously-load-development-channels", "server:cxx-agent",
                            "--permission-mode", "dontAsk",
-                           "--allowedTools", "mcp__cxx-agent__agent_receiver_ack", "mcp__cxx-agent__agent_receiver_reply", "mcp__cxx-agent__agent_reply"]
+                           "--allowedTools", "mcp__cxx-agent__agent_receiver_reply", "mcp__cxx-agent__agent_reply"]
             master, slave = pty.openpty()
             import fcntl
             import struct
@@ -190,12 +185,12 @@ def run(engine, cxx, timeout):
                 with lock:
                     if failure:
                         raise RuntimeError(failure)
-                    if reconnected and len(proofs) == 2:
+                    if reconnected and healthy and len(replied) == 2:
                         print(json.dumps({"engine": engine, "result": "passed", "native_session_id": registered["native_session_id"],
-                                          "generation": registered["generation"], "model_acknowledged_sources": sorted(proofs), "correlated_message_replies": completed_replies, "reconnected_and_reverified": True}), flush=True)
+                                          "generation": registered["generation"], "correlated_message_replies": completed_replies, "reconnected_and_replied": sorted(replied)}), flush=True)
                         return
                 if process.poll() is not None:
-                    raise RuntimeError("native terminal exited before acknowledging both probes")
+                    raise RuntimeError("native terminal exited before replying to both messages")
                 readable, _, _ = select.select([master], [], [], .2)
                 if readable:
                     try:
@@ -224,8 +219,8 @@ def run(engine, cxx, timeout):
                 print(tail.decode(errors="replace"))
                 if receiver_log.exists():
                     print(receiver_log.read_text()[-4000:])
-                print(json.dumps({"operations": operations, "claimed": sorted(claimed), "proofs": sorted(proofs), "replies": sorted(replied), "native_reported": native_reported}))
-            raise RuntimeError("timed out: " + ("registered; model proof incomplete" if registered else "receiver never registered"))
+                print(json.dumps({"operations": operations, "replies": sorted(replied), "native_reported": native_reported}))
+            raise RuntimeError("timed out: " + ("registered; correlated message replies incomplete" if registered else "receiver never registered"))
         finally:
             for child in reversed(children):
                 if child.poll() is None:

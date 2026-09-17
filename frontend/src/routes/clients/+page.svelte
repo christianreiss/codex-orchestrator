@@ -32,10 +32,10 @@
   import { clientClock, clientCounts, snapshotIsStale, visibleClients, type ClientFilter, type ClientSort } from "$lib/portal/clients";
   import { watchClientEvents, type ClientFeedState } from "$lib/portal/client-events";
   import type { TimelineSource } from "$lib/portal/types";
-  import { verifyReceptionMutation, agentSessionKeys, agentSessionsQuery, forceCloseMutation, requestCloseMutation, sendMutation, sessionEventsQuery, type AgentSessionRow } from "$lib/api/agentSessions";
+  import { reconnectReceiverMutation, agentSessionKeys, agentSessionsQuery, forceCloseMutation, requestCloseMutation, sendMutation, sessionEventsQuery, type AgentSessionRow } from "$lib/api/agentSessions";
 
   const sessions = agentSessionsQuery();
-  const verifyReception = verifyReceptionMutation();
+  const reconnectReceiver = reconnectReceiverMutation();
   const client = useQueryClient();
   const canManage = $derived($authStore.can("agent_portal.manage"));
   const canReadTranscript = $derived($authStore.can("agent_portal.reveal_transcript"));
@@ -283,9 +283,9 @@
                     <p>Last receiver response: {age(selected.receiver.heartbeat_at)} ago</p>
                     {#if selected.receiver.failure}<p>{selected.receiver.failure}</p>{/if}
                     {#each selected.receiver.sources as proof}
-                      <p class="mt-1">{proof.source}: {proof.state}{proof.acknowledged_at ? ` · verified ${age(proof.acknowledged_at)} ago · ${proof.latency_ms} ms` : " · no model acknowledgment"}</p>
+                      <p class="mt-1">{proof.source}: {proof.state} · transport health</p>
                     {/each}
-                    {#if canManage && !selected.ended_at}<Button class="mt-2" variant="outline" size="sm" disabled={$verifyReception.isPending || actionsUnavailable} onclick={() => $verifyReception.mutate(selected.id, { onError: (error) => toast.error(error.message) })}>Verify reception</Button>{/if}
+                    {#if canManage && !selected.ended_at}<Button class="mt-2" variant="outline" size="sm" disabled={$reconnectReceiver.isPending || actionsUnavailable} onclick={() => $reconnectReceiver.mutate(selected.id, { onError: (error) => toast.error(error.message) })}>Reconnect receiver</Button>{/if}
                   </div>
                 {/if}
               </header>

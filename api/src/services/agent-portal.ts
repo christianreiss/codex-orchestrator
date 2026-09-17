@@ -1,4 +1,4 @@
-import { receiverView, receiverReady, receiverState, newReceiverProbe } from './agent-receiver-state.js';
+import { receiverView, receiverReady, receiverState } from './agent-receiver-state.js';
 import { StringDecoder } from 'node:string_decoder';
 import { randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import {
@@ -696,8 +696,8 @@ export class AgentPortalService {
       const automatic = receiverState(locked.receiver);
       if (automatic && input.relayAction === 'poll' && automatic.portal_closed) {
         automatic.portal_closed = false;
-        automatic.probes.portal = newReceiverProbe(now);
-        automatic.failure = 'portal_reopened'; // reconnect to pick up the source and reverify
+        automatic.probes.portal = {};
+        automatic.failure = 'portal_reopened'; // reconnect to pick up the source
         patch.receiver = automatic;
       }
       if (input.relayAction === 'poll' && !receiverState(locked.receiver)) {

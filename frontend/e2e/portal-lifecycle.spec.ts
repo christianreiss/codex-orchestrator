@@ -14,6 +14,7 @@ import AxeBuilder from "@axe-core/playwright";
 const USER = { id: 1, display_name: "Operator" };
 
 interface AgentOverrides {
+  receiver?: import("../src/lib/portal/types").ReceiverEvidence;
   engine?: "codex" | "claude";
   presence?: string;
   relay_ready?: boolean;
@@ -327,3 +328,19 @@ for (const lateStatus of [200, 503]) {
     await expect(page.getByText("Old snapshot failed", { exact: true })).toHaveCount(0);
   });
 }
+
+
+test("receiver health offers silent reconnection without model verification", async ({ page }) => {
+  const stub = await stubPortal(page, { agent: { receiver: {
+    generation: SESSION_ID, protocol: "codex-queue-v1", native_session_id: "native",
+    heartbeat_at: new Date().toISOString(), failure: null, state: "ready",
+    sources: [{ source: "portal", state: "ready", delivery_id: null, delivered_at: null, acknowledged_at: null, latency_ms: null }],
+  } } });
+  await openPortal(page);
+  await page.locator("summary").filter({ hasText: "Reception: ready" }).click();
+  await expect(page.getByText("portal: ready · transport health", { exact: true })).toBeVisible();
+  await expect(page.getByText(/model acknowledgment|Verify reception/)).toHaveCount(0);
+  await page.getByRole("button", { name: "Reconnect receiver", exact: true }).click();
+  await expect.poll(() => stub.calls.filter((c) => c.endsWith("/receiver/verify")).length).toBe(1);
+  expect(stub.calls.some((c) => c.endsWith("/messages"))).toBe(false);
+});

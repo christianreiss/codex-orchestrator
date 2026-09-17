@@ -1,11 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
-  newReceiverProbe,
   receiverReady,
   receiverView,
   type ReceiverState,
 } from '../../../src/services/agent-receiver-state.js';
-
 const now = Date.parse('2026-09-16T12:00:00Z');
 function state(): ReceiverState {
   return {
@@ -14,33 +12,56 @@ function state(): ReceiverState {
     native_session_id: 'thread',
     heartbeat_at: new Date(now).toISOString(),
     failure: null,
-    probes: {
-      peer: newReceiverProbe(new Date(now).toISOString()),
-      portal: newReceiverProbe(new Date(now).toISOString()),
-    },
+    probes: { peer: {}, portal: {} },
   };
 }
-describe('receiver evidence', () => {
-  it('does not confuse a live transport with a model acknowledgment', () => {
+describe('receiver transport health', () => {
+  it.each(['codex-queue-v1', 'claude-channel-v1'] as const)(
+    'needs no model acknowledgment for %s',
+    (protocol) => {
+      const s = { ...state(), protocol };
+      expect(receiverReady(s, 'peer', now)).toBe(true);
+      expect(receiverReady(s, 'portal', now)).toBe(true);
+      expect(receiverView(s, now)?.state).toBe('ready');
+    },
+  );
+  it('expires health independently of wrapper heartbeats and rejects future health', () => {
     const s = state();
-    expect(receiverReady(s, 'peer', now)).toBe(false);
-    expect(receiverView(s, now)?.state).toBe('verifying');
-    expect(JSON.stringify(receiverView(s, now))).not.toContain(s.probes.peer!.nonce);
-  });
-  it('requires independent evidence for each source and expires even if the wrapper lives', () => {
-    const s = state();
-    s.probes.peer!.acknowledged_at = s.heartbeat_at;
-    expect(receiverReady(s, 'peer', now)).toBe(true);
-    expect(receiverReady(s, 'portal', now)).toBe(false);
     expect(receiverReady(s, 'peer', now + 45_000)).toBe(false);
+    expect(receiverView(s, now + 45_000)?.state).toBe('unavailable');
     expect(receiverReady(s, 'peer', now - 1)).toBe(false);
     s.failure = 'adapter_disconnected';
     expect(receiverReady(s, 'peer', now)).toBe(false);
+    expect(receiverView(s, now)?.state).toBe('failed');
   });
-  it('reports a probe timeout while the transport still reports health', () => {
+  it('keeps disabled and closed sources unavailable without closing the peer source', () => {
     const s = state();
-    s.probes.peer!.delivered_at = s.heartbeat_at;
-    s.heartbeat_at = new Date(now + 120_000).toISOString();
-    expect(receiverView(s, now + 120_000)?.state).toBe('failed');
+    s.portal_closed = true;
+    expect(receiverReady(s, 'portal', now)).toBe(false);
+    expect(receiverView(s, now)?.sources.map((p) => p.source)).toEqual(['peer']);
+    expect(receiverReady(s, 'peer', now)).toBe(true);
+    delete s.probes.peer;
+    expect(receiverReady(s, 'peer', now)).toBe(false);
+    expect(receiverView(s, now)?.state).toBe('unavailable');
+  });
+  it('ignores old pending, expired, or acknowledged probes without exposing their evidence', () => {
+    for (const acknowledged_at of [null, new Date(now - 180_000).toISOString()]) {
+      const s = state();
+      s.probes.peer = {
+        id: 'old',
+        nonce: 'secret-nonce',
+        delivered_at: new Date(now - 180_000).toISOString(),
+        acknowledged_at,
+        latency_ms: 7,
+      };
+      expect(receiverReady(s, 'peer', now)).toBe(true);
+      expect(receiverView(s, now)?.state).toBe('ready');
+      expect(receiverView(s, now)?.sources[0]).toMatchObject({
+        delivery_id: null,
+        acknowledged_at: null,
+        latency_ms: null,
+      });
+      expect(JSON.stringify(receiverView(s, now))).not.toContain('secret-nonce');
+    }
   });
 });

@@ -952,7 +952,7 @@ Older servers without `quota_advice` retain the previous launch behavior.
 
 From wrapper 0.8.8, startup and `clx status` assess the selected local credential after synchronization, including offline use. Claude OAuth logins within 72 hours of `refreshTokenExpiresAt` display the remaining days (rounded upward), UTC expiry, and `Run /login in Claude launched through clx.` Expired logins display `Claude login expired`. The advisory does not change launch eligibility or exit codes; startup writes it to stderr even with `--skip-boot`, preserving child stdout. Status includes it in its normal output. Missing/malformed expiry or API-key credentials produce no warning. Access expiry more than 72 hours beyond refresh expiry suppresses the warning, matching Claude Code 2.1.263. Renewing through the existing login/upload flow clears the warning once the renewed local credential is selected; the dashboard clears once it becomes canonical. No extra refresh attempt is made.
 
-## Automatic verified reception (cxx 0.8.9)
+## Automatic reception (cxx 0.8.10)
 
 For interactive launches with signed `agent_messaging.receiver_enabled`, the wrapper
 starts `cxx agent mcp --auto`. This grant is baked when the host/engine is active and
@@ -961,13 +961,11 @@ independent. Existing headless workers and explicit manual listeners retain thei
 paths. Already-running older wrappers need a new launch to gain the native adapter.
 
 The receiver owns one generation and native conversation identity. It checks the
-native connection every 15 seconds; a 45-second lapse invalidates readiness, even if
-the supervising wrapper still heartbeats. Each enabled source (`peer`, `portal`)
-sends a nonce through the same native delivery adapter. Only the model's matching
-`agent_receiver_ack(generation, source, nonce)` verifies that source. Verification
-notifications may repeat safely during startup; a delivered probe expires after
-120 seconds. Reconnection generates new challenges. “Listening” therefore means
-fresh transport plus model proof, separately from whether a task is working.
+native connection silently every 15 seconds; a 45-second lapse invalidates readiness,
+even if the supervising wrapper still heartbeats. Each enabled source (`peer`, `portal`)
+is ready while that transport is healthy. Startup, reconnects, and manual reconnects
+never enqueue verification messages or require a model acknowledgment. “Listening”
+means transport availability, not proof that the model will respond or a task succeeded.
 
 Ordinary deliveries are serialized across both sources. Peer requests use
 `agent_reply(message_id, content)`; operator requests use
@@ -978,16 +976,20 @@ without its correlated assistant event remains unconfirmed, never fabricated as
 completed. These receipts prove adapter delivery and model response, not that the
 requested task itself succeeded.
 
-Native permission settings are preserved. A denied or approval-blocked receipt
-cannot pass verification; the UI stays unavailable/verifying. No remote permission
-approval capability is advertised. Peer content remains untrusted input.
+Native permission settings are preserved. Real message replies remain subject to
+the model's tool permissions; no remote permission approval capability is advertised.
+Peer content remains untrusted input.
 
-Inspect generation, native ID, transport response time and per-source model proof
-in Clients or /go, or run `cxx agent doctor --json` from a local shell (also exposed
-through `cdx agent doctor --json` / `clx agent doctor --json`). Verify reception
-invalidates the current generation and asks the connected adapter to reconnect;
-old/delayed acknowledgments cannot satisfy the replacement. Explicit portal leave
-keeps that source closed until reopened, without closing peer reception.
+Inspect generation, native ID, heartbeat and per-source transport health in Clients
+or /go, or run `cxx agent doctor --json` (also exposed through `cdx` / `clx`).
+Reconnect receiver invalidates the current generation and asks the connected adapter
+to reconnect silently; stale heartbeats cannot revive it. Explicit portal leave keeps
+that source closed until reopened, without closing peer reception.
+
+Update the server before wrappers: old wrappers work with probe-free server claims.
+New wrappers refuse an old server's probe without injecting it into the conversation.
+The legacy server acknowledgment endpoint accepts matching previously delivered
+receipts without renewing health; new wrappers no longer expose `agent_receiver_ack`.
 
 Claude keeps its native TUI and receives `notifications/claude/channel`. A temporary
 per-launch plugin adds a SessionStart identity hook without replacing user hooks or

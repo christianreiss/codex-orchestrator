@@ -45,7 +45,7 @@ export interface ReceiverEvidence {
   state: string;
   failure: string | null;
   heartbeat_at: string;
-  sources: Array<{ source: "peer" | "portal"; state: string; delivery_id: string; delivered_at: string | null; acknowledged_at: string | null; latency_ms: number | null }>;
+  sources: Array<{ source: "peer" | "portal"; state: string; delivery_id: string | null; delivered_at: string | null; acknowledged_at: string | null; latency_ms: number | null }>;
 }
 
 export interface Agent {

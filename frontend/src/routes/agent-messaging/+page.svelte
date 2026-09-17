@@ -470,7 +470,7 @@
               <div class="flex flex-wrap items-center gap-2">
                 <strong class="font-mono text-sm">{routeLabel(address)}</strong>
                 <span class="rounded-full border bg-muted/40 px-2 py-0.5 text-[10px] uppercase">{address.engine}</span>
-                <span class="rounded-full border px-2 py-0.5 text-[10px] uppercase {address.presence === 'listening' ? 'border-success/25 bg-success-muted text-success-muted-foreground' : 'text-muted-foreground'}">{address.receiver?.state === "verifying" ? "verifying" : address.presence ?? "unknown"}</span>
+                <span class="rounded-full border px-2 py-0.5 text-[10px] uppercase {address.presence === 'listening' ? 'border-success/25 bg-success-muted text-success-muted-foreground' : 'text-muted-foreground'}">{address.receiver?.state === "verifying" ? "connecting" : address.presence ?? "unknown"}</span>
                 {#if !address.eligible}
                   <span class="rounded-full border border-warning/25 bg-warning-muted px-2 py-0.5 text-[10px] uppercase text-warning-muted-foreground">Ineligible</span>
                 {/if}

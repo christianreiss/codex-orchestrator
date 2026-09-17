@@ -221,9 +221,6 @@ func toolCatalogJSON() []byte {
 			"conversation_id": map[string]any{"type": "string"}, "after": map[string]any{"type": "integer", "minimum": 0},
 			"seconds": map[string]any{"type": "integer", "minimum": 0, "maximum": 25},
 		}, []string{"conversation_id"}),
-		tool("agent_receiver_ack", "Acknowledge a receiver verification challenge delivered to this conversation. Echo its generation, source and nonce exactly.", map[string]any{
-			"generation": map[string]any{"type": "string"}, "source": map[string]any{"type": "string", "enum": []string{"peer", "portal"}}, "nonce": map[string]any{"type": "string"},
-		}, []string{"generation", "source", "nonce"}),
 		tool("agent_receiver_reply", "Return the result of an operator portal instruction to the operator.", map[string]any{
 			"message_id": map[string]any{"type": "string"}, "content": map[string]any{"type": "string", "maxLength": maxBodyBytes},
 		}, []string{"message_id", "content"}),
@@ -540,11 +537,6 @@ func handleMCPRequest(ctx context.Context, client *sessionClient, req mcpRequest
 func callMCPTool(ctx context.Context, client *sessionClient, channelState *channelTracker, name string, args map[string]any) (map[string]any, error) {
 	var out map[string]any
 	switch name {
-	case "agent_receiver_ack":
-		if channelState.receiver == nil {
-			return nil, errors.New("automatic receiver unavailable")
-		}
-		return channelState.receiver.ack(ctx, args)
 	case "agent_receiver_reply":
 		if channelState.receiver == nil {
 			return nil, errors.New("automatic receiver unavailable")

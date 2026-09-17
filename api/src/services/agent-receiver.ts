@@ -9,17 +9,15 @@ import { createAgentMessagingService } from './agent-messaging.js';
 import { createAgentPortalService } from './agent-portal.js';
 import { wsPublisher } from '../ws/publisher.js';
 import {
-  newReceiverProbe,
   receiverReady,
   receiverState,
   receiverView,
   RECEIVER_FRESH_MS,
-  RECEIVER_PROBE_MS,
   type ReceiverSource,
   type ReceiverState,
 } from './agent-receiver-state.js';
 
-/** One connection owns reception across both queues; its proof never survives a reconnect. */
+/** One connection owns reception across both queues; its health never survives a reconnect. */
 export class AgentReceiverService {
   private messaging;
   private portal;
@@ -70,16 +68,17 @@ export class AgentReceiverService {
         portal_closed: old?.portal_closed,
         heartbeat_at: now,
         failure: null,
-        probes: Object.fromEntries(sources.map((source) => [source, newReceiverProbe(now)])),
+        probes: Object.fromEntries(sources.map((source) => [source, {}])),
       };
       await tx
         .update(agentSessions)
         .set({
           receiver: next,
           upstreamSessionId: input.native_session_id,
-          receiveHeartbeatAt: null,
-          relayHeartbeatAt: null,
-          relayEnabled: 0,
+          adapterProtocol: input.protocol,
+          receiveHeartbeatAt: sources.includes('peer') ? now : null,
+          relayHeartbeatAt: sources.includes('portal') ? now : null,
+          relayEnabled: sources.includes('portal') ? 1 : 0,
         })
         .where(eq(agentSessions.id, id));
       if (session.agentBusAddressId) {
@@ -92,7 +91,11 @@ export class AgentReceiverService {
           throw new ConflictError('Address binding changed', 'receiver_binding_changed');
         await tx
           .update(agentBusAddresses)
-          .set({ receiveHeartbeatAt: null, lastUpstreamSessionId: input.native_session_id })
+          .set({
+            receiveHeartbeatAt: sources.includes('peer') ? now : null,
+            lastUpstreamSessionId: input.native_session_id,
+            adapterProtocol: input.protocol,
+          })
           .where(eq(agentBusAddresses.id, address.id));
       }
       return next;
@@ -125,19 +128,16 @@ export class AgentReceiverService {
         operation !== 'stop' &&
         (state.failure || Date.parse(state.heartbeat_at) <= now - RECEIVER_FRESH_MS)
       )
-        throw new ConflictError('Receiver connection expired; reconnect and verify', 'receiver_expired');
+        throw new ConflictError('Receiver connection expired; reconnect', 'receiver_expired');
       if (operation === 'heartbeat') state.heartbeat_at = new Date(now).toISOString();
       if (operation === 'stop') state.failure = input.failure ?? 'receiver_stopped';
       if (operation === 'ack') {
+        // Compatibility with already-delivered probes from old wrappers. A late
+        // receipt is read-only: it cannot renew health or certify model readiness.
         const probe = state.probes[input.source!];
-        if (!probe || probe.nonce !== input.nonce || !probe.delivered_at)
+        if (!probe || !input.nonce || probe.nonce !== input.nonce || !probe.delivered_at)
           throw new ConflictError('Probe does not match this delivery', 'receiver_probe_mismatch');
-        if (!probe.acknowledged_at) {
-          if (now - Date.parse(probe.delivered_at) >= RECEIVER_PROBE_MS)
-            throw new ConflictError('Probe expired', 'receiver_probe_expired');
-          probe.acknowledged_at = new Date(now).toISOString();
-          probe.latency_ms = now - Date.parse(probe.delivered_at);
-        }
+        return receiverView(state);
       }
       const peer = receiverReady(state, 'peer', now);
       const portal = receiverReady(state, 'portal', now);
@@ -176,7 +176,7 @@ export class AgentReceiverService {
 
   async claim(id: string, token: string, generation: string, source: ReceiverSource, claimId: string) {
     const auth = await this.authenticate(id, token, source);
-    const probe = await this.db.transaction(async (tx) => {
+    await this.db.transaction(async (tx) => {
       const [session] = await tx.select().from(agentSessions).where(eq(agentSessions.id, id)).for('update');
       const state = receiverState(session?.receiver);
       if (
@@ -189,19 +189,9 @@ export class AgentReceiverService {
         Date.parse(state.heartbeat_at) <= Date.now() - RECEIVER_FRESH_MS
       )
         throw new ConflictError('Receiver is unavailable', 'receiver_expired');
-      const p = state.probes[source];
-      if (!p) throw new ForbiddenError('Source is disabled', 'receiver_source_disabled');
-      if (p.acknowledged_at) return null;
-      if (p.delivered_at) {
-        if (Date.now() - Date.parse(p.delivered_at) >= RECEIVER_PROBE_MS)
-          throw new ConflictError('Receiver probe timed out', 'receiver_probe_expired');
-        return { probe: { ...p, generation, source } };
-      }
-      p.delivered_at = new Date().toISOString();
-      await tx.update(agentSessions).set({ receiver: state }).where(eq(agentSessions.id, id));
-      return { probe: { ...p, generation, source } };
+      if (!receiverReady(state, source))
+        throw new ForbiddenError('Source is disabled', 'receiver_source_disabled');
     });
-    if (probe) return probe;
     if (source === 'peer')
       return { delivery: await this.messaging.claimForSession(id, token, claimId, generation) };
     return { message: await this.portal.claimMessage(id, token, claimId, undefined, generation) };
@@ -213,8 +203,8 @@ export class AgentReceiverService {
       const state = receiverState(session?.receiver);
       if (!session || session.endedAt || !state)
         throw new ConflictError('No active receiver', 'receiver_missing');
-      // Change the generation so a delayed acknowledgment cannot verify the new connection.
-      state.failure = 'verification_requested';
+      // Fence delayed claims and heartbeats before the adapter reconnects.
+      state.failure = 'reconnect_requested';
       state.generation = randomUUID();
       await tx
         .update(agentSessions)
@@ -227,6 +217,6 @@ export class AgentReceiverService {
           .where(eq(agentBusAddresses.id, session.agentBusAddressId));
     });
     this.changed(id);
-    return { verification_requested: true };
+    return { reconnect_requested: true, verification_requested: true };
   }
 }

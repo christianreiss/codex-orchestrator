@@ -73,7 +73,7 @@ function timestampFresh(value: string | null, now: number, freshMs: number): boo
  * opened a relay.
  */
 export function notListeningDetail(agent: Agent): string {
-  if (agent.receiver) return agent.receiver.failure ?? (agent.receiver.state === "verifying" ? "Verifying that this conversation can receive and acknowledge messages." : "Receiver is unavailable or verification failed. Inspect reception details and retry verification.");
+  if (agent.receiver) return agent.receiver.failure ?? (agent.receiver.state === "verifying" ? "Connecting this conversation to the receiver." : "Receiver is unavailable. Inspect connection details and reconnect the receiver.");
   switch (agent.close?.state) {
     case "pending":
       return "Closing — waiting for the agent to pick up the note";
@@ -127,7 +127,7 @@ export function presenceView(agent: Agent, now: number, timings: PresenceTimings
       };
     }
     case "idle":
-      return { presence, label: agent.receiver?.state === "verifying" ? "Verifying" : "Not listening", detail: notListeningDetail(agent), canSend: false };
+      return { presence, label: agent.receiver?.state === "verifying" ? "Connecting" : "Not listening", detail: notListeningDetail(agent), canSend: false };
     case "offline":
       return {
         presence,

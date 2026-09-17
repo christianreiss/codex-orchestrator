@@ -12,14 +12,14 @@
     now,
     onback,
     onclose,
-    onverify,
+    onreconnect,
     heading = $bindable(null),
   }: {
     agent: Agent;
     now: number;
     onback: () => void;
     onclose: () => void;
-    onverify?: () => void;
+    onreconnect?: () => void;
     heading?: HTMLHeadingElement | null;
   } = $props();
 
@@ -85,11 +85,11 @@
     <p class="mt-2">{agent.receiver.protocol} · Native session {agent.receiver.native_session_id}</p>
     <p>Last receiver response: {clockTime(agent.receiver.heartbeat_at)}</p>
     {#each agent.receiver.sources as source}
-      <p>{source.source}: {source.state}{source.acknowledged_at ? ` · model acknowledged ${clockTime(source.acknowledged_at)}` : " · model acknowledgment pending"}</p>
+      <p>{source.source}: {source.state} · transport health</p>
     {/each}
     {#if agent.receiver.failure}<p>{agent.receiver.failure}</p>{/if}
-    {#if onverify && !agent.read_only && !agent.ended_at}
-      <button type="button" class="mt-2 rounded border border-border px-2 py-1 text-foreground" onclick={onverify}>Verify reception</button>
+    {#if onreconnect && !agent.read_only && !agent.ended_at}
+      <button type="button" class="mt-2 rounded border border-border px-2 py-1 text-foreground" onclick={onreconnect}>Reconnect receiver</button>
     {/if}
   </details>
 {/if}

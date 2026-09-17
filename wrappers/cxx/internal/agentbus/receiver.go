@@ -21,8 +21,6 @@ type autoReceiver struct {
 	mu            sync.Mutex
 	generation    string
 	pendingPortal map[string]any
-	pendingProbe  string
-	probeAt       time.Time
 	lastPong      time.Time
 	queue         *nativeQueue
 	boundNativeID string
@@ -116,7 +114,6 @@ func (r *autoReceiver) connection(parent context.Context) error {
 	}
 	r.mu.Lock()
 	r.generation = generation
-	r.pendingProbe = ""
 	r.pendingPortal = nil
 	r.mu.Unlock()
 	defer func() {
@@ -193,7 +190,7 @@ func (r *autoReceiver) connection(parent context.Context) error {
 			lastBeat = time.Now()
 		}
 		r.mu.Lock()
-		busy := r.pendingPortal != nil || (r.pendingProbe != "" && time.Since(r.probeAt) < 15*time.Second)
+		busy := r.pendingPortal != nil
 		r.mu.Unlock()
 		r.tracker.mu.Lock()
 		busy = busy || len(r.tracker.items) > 0
@@ -218,16 +215,9 @@ func (r *autoReceiver) connection(parent context.Context) error {
 				return err
 			}
 			if claimed.Probe != nil {
-				p := claimed.Probe
-				id := stringArg(p, "id")
-				prompt := fmt.Sprintf("Receiver verification only. Call agent_receiver_ack with generation %q, source %q, and nonce %q. Do not run commands or change files. Resume your previous work afterward.", generation, source, stringArg(p, "nonce"))
-				r.mu.Lock()
-				r.pendingProbe = source
-				r.probeAt = time.Now()
-				r.mu.Unlock()
-				if err := r.deliver(id, prompt); err != nil {
-					return err
-				}
+				// An older server still requires model probes. Fail closed without
+				// injecting a conversation turn or pretending the model replied.
+				return errors.New("receiver server requires chat probes; update the server")
 			} else if claimed.Delivery != nil {
 				d := claimed.Delivery
 				id := stringArg(d, "message_id")
@@ -284,19 +274,6 @@ func (r *autoReceiver) portalAccept(ctx context.Context, d map[string]any) error
 		return err
 	}
 	return r.client.sessionPost(ctx, "heartbeat", map[string]any{"active_turn_id": id}, nil)
-}
-
-func (r *autoReceiver) ack(ctx context.Context, args map[string]any) (map[string]any, error) {
-	var out map[string]any
-	if err := r.client.receiver(ctx, "ack", args, &out); err != nil {
-		return nil, err
-	}
-	r.mu.Lock()
-	if stringArg(args, "generation") == r.generation && stringArg(args, "source") == r.pendingProbe {
-		r.pendingProbe = ""
-	}
-	r.mu.Unlock()
-	return out, nil
 }
 
 func (r *autoReceiver) reply(ctx context.Context, args map[string]any) (map[string]any, error) {

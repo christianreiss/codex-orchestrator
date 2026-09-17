@@ -223,7 +223,7 @@ describe("automatic receiver proof", () => {
   const receiver = {
     generation: "one", protocol: "codex-queue-v1", native_session_id: "native", state: "ready", failure: null,
     heartbeat_at: new Date(NOW).toISOString(),
-    sources: [{ source: "portal" as const, state: "ready", delivery_id: "probe", delivered_at: new Date(NOW).toISOString(), acknowledged_at: new Date(NOW).toISOString(), latency_ms: 1 }],
+    sources: [{ source: "portal" as const, state: "ready", delivery_id: null, delivered_at: null, acknowledged_at: null, latency_ms: null }],
   };
   it("requires the portal proof independently of peer or wrapper health", () => {
     const row = agent({ presence: "listening", receiver });

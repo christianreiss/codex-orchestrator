@@ -1,3 +1,12 @@
+# 2026-09-17
+
+- cxx 0.8.10 removes all receiver chat probes for Codex and Claude. Automatic
+  reception uses silent native health checks; actual message replies remain the
+  evidence of model response. Clients and /go offer Reconnect receiver without
+  starting a verification conversation. Deploy the server before new wrappers.
+- Managed reception guidance and its pinned document digests change deliberately
+  to remove acknowledgment instructions; existing receiver JSON needs no migration.
+
 # 2026-09-16
 
 - cxx 0.8.9 automatically connects interactive Codex and Claude sessions to peer

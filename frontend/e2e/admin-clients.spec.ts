@@ -279,3 +279,20 @@ test("a current attention bar disappears on resolution without leaving chat noti
   await expect(page.getByRole("region", { name: "Session timeline" })).not.toContainText(/Needed you|Attention resolved|Check the local result/);
   await expect(page.getByLabel("Message this agent")).toHaveValue("Draft stays with me");
 });
+
+
+test("receiver health offers silent reconnection without model verification", async ({ page }) => {
+  const state = await fixtures(page);
+  state.sessions[0].receiver = {
+    generation: CODEX, protocol: "codex-queue-v1", native_session_id: "native",
+    heartbeat_at: new Date().toISOString(), failure: null, state: "ready",
+    sources: [{ source: "peer", state: "ready", delivery_id: null, delivered_at: null, acknowledged_at: null, latency_ms: null }],
+  };
+  await open(page);
+  await page.locator(`#client-${CODEX}`).click();
+  await expect(page.getByText("peer: ready · transport health", { exact: true })).toBeVisible();
+  await expect(page.getByText(/model acknowledgment|Verify reception/)).toHaveCount(0);
+  await page.getByRole("button", { name: "Reconnect receiver", exact: true }).click();
+  await expect.poll(() => state.bodies.filter((b) => b.path.endsWith("/receiver/verify")).length).toBe(1);
+  expect(state.bodies.some((b) => b.path.endsWith("/messages"))).toBe(false);
+});

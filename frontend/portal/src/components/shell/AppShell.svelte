@@ -97,7 +97,7 @@
   <div class="{paneOpen ? 'flex' : 'hidden'} min-h-0 flex-col md:flex">
     {#if agent}
       <ThreadHeader
-        onverify={() => void portal.verifyReception()}
+        onreconnect={() => void portal.reconnectReceiver()}
         {agent}
         now={portal.now}
         onback={closeThread}
