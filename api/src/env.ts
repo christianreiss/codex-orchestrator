@@ -87,6 +87,10 @@ const schema = z
     AUTH_RUNNER_URL: z.string().optional(),
     AUTH_RUNNER_SHARED_SECRET: z.string().optional(),
     AUTH_RUNNER_TIMEOUT: intish(8),
+    // Credential probes must fail quickly, but compatibility API calls run a
+    // full CLI turn and may legitimately take minutes. Keep the two budgets
+    // independent so a slow completion cannot inherit the probe deadline.
+    AUTH_RUNNER_EXEC_TIMEOUT: intish(600).pipe(z.number().int().min(1).max(600)),
     AUTH_RUNNER_CODEX_BASE_URL: z.string().optional(),
     AUTH_RUNNER_IP_BYPASS: boolish.default(false),
     AUTH_RUNNER_BYPASS_SUBNETS: z.string().default(''),

@@ -21,12 +21,13 @@ describe('runner-openai', () => {
       AUTH_RUNNER_URL: 'http://auth-runner:8080/verify',
       AUTH_RUNNER_SHARED_SECRET: 'secret',
       AUTH_RUNNER_TIMEOUT: 12,
+      AUTH_RUNNER_EXEC_TIMEOUT: 120,
     } as Parameters<typeof makeRunnerConfig>[0]);
 
     expect(config).toMatchObject({
       execUrl: 'http://auth-runner:8080/exec',
       sharedSecret: 'secret',
-      timeoutSeconds: 12,
+      timeoutSeconds: 120,
     });
   });
 });

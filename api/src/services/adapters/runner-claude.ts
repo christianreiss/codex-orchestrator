@@ -116,7 +116,7 @@ export function createRunnerClaudeAdapter(deps: RunnerClaudeAdapterDeps): Runner
   // Any AUTH_RUNNER_URL form — the bare base, the `/verify` endpoint it usually
   // points at, or `/exec` itself — normalises onto the runner's one POST route.
   const execUrl = runnerExecUrl(url) as `${string}/exec`;
-  const timeoutSeconds = deps.env.AUTH_RUNNER_TIMEOUT ?? 30;
+  const timeoutSeconds = deps.env.AUTH_RUNNER_EXEC_TIMEOUT ?? 600;
   const fetcher = deps.fetcher ?? fetch;
   const getAuth = deps.getAuthSnapshot ?? (async () => null);
 

@@ -157,6 +157,13 @@ describe('env coercions', () => {
     expect((await envWith({ AUTH_RUNNER_TIMEOUT: undefined })).AUTH_RUNNER_TIMEOUT).toBe(8);
   });
 
+  it('keeps the long API execution budget separate from short auth probes', async () => {
+    expect((await envWith({ AUTH_RUNNER_EXEC_TIMEOUT: '120' })).AUTH_RUNNER_EXEC_TIMEOUT).toBe(120);
+    expect((await envWith({ AUTH_RUNNER_EXEC_TIMEOUT: '' })).AUTH_RUNNER_EXEC_TIMEOUT).toBe(600);
+    expect((await envWith({ AUTH_RUNNER_EXEC_TIMEOUT: undefined })).AUTH_RUNNER_EXEC_TIMEOUT).toBe(600);
+    expect(await envError({ AUTH_RUNNER_EXEC_TIMEOUT: '601' })).toContain('AUTH_RUNNER_EXEC_TIMEOUT');
+  });
+
   it('defaults the agent portal purge interval and refuses a non-positive one', async () => {
     expect((await envWith({ AGENT_PORTAL_PURGE_INTERVAL_SECONDS: '60' })).AGENT_PORTAL_PURGE_INTERVAL_SECONDS).toBe(60);
     expect((await envWith({ AGENT_PORTAL_PURGE_INTERVAL_SECONDS: '' })).AGENT_PORTAL_PURGE_INTERVAL_SECONDS).toBe(300);
