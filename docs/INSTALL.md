@@ -286,6 +286,9 @@ uncommitted tree.
   default 6h, and successful gateway traffic counts as verification) instead of
   blocking wrapper startup. Admin seed and admin upload paths
   run through the same strict runner validation as host `/auth` stores.
+- `AUTH_RUNNER_TIMEOUT` is the short credential-probe budget (default 8 seconds).
+  OpenAI- and Anthropic-compatible generation uses `AUTH_RUNNER_EXEC_TIMEOUT`
+  instead (default 600 seconds), bounded by the runner's 600-second maximum.
 - Pending migrations are applied at boot, so deploying a version that adds schema
   needs no separate step. API startup fails closed if the required
   `claude_artifacts` table is absent.

@@ -22,6 +22,8 @@
 
 # 2026-09-17
 
+- **Long OpenAI/Anthropic compatibility requests no longer inherit the 8-second credential-probe timeout.** `AUTH_RUNNER_EXEC_TIMEOUT` now controls runner `/exec` calls independently, with a 600-second default and runner-enforced ceiling; Caddy was not the source of the observed 502s.
+
 - cxx 0.8.10 removes all receiver chat probes for Codex and Claude. Automatic
   reception uses silent native health checks; actual message replies remain the
   evidence of model response. Clients and /go offer Reconnect receiver without

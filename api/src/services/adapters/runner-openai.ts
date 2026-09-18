@@ -149,7 +149,7 @@ export function makeRunnerConfig(env: Env): RunnerOpenAiConfig | null {
   return {
     execUrl,
     sharedSecret: env.AUTH_RUNNER_SHARED_SECRET,
-    timeoutSeconds: env.AUTH_RUNNER_TIMEOUT ?? 30,
+    timeoutSeconds: env.AUTH_RUNNER_EXEC_TIMEOUT ?? 600,
   };
 }
 
