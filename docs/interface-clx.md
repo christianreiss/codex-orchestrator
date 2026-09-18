@@ -772,8 +772,14 @@ this run.
   the action that interrupts the user: for every enabled `mcpServers` entry the
   fleet renders (managed and operator-supplied alike)
   `mcp__<server>__{shared_memory_write,shared_memory_append,shared_memory_delete,project_memory_upsert,project_memory_delete,transfer_put,transfer_delete}`,
-  and, when the bus is provisioned, `mcp__cxx-agent__<tool>` for all seventeen
-  Agent Messaging tools.
+  and, when the bus is provisioned, `mcp__plugin_cxx-receiver_cxx-agent__<tool>`
+  for every Agent Messaging tool. That plugin-scoped server name is not a typo:
+  on Claude the messaging server is provided by the wrapper's own `cxx-receiver`
+  plugin (see below), and Claude Code keys a plugin-provided server as
+  `plugin:<plugin>:<server>`, normalising `:` to `_` in the tool identifier.
+  `Bash(clx:*)` and `Bash(cxx:*)` are always added: the wrapper's own CLI is how
+  an agent inspects the fleet it is running inside, and the fleet documentation
+  tells it to.
 - `statusLine` defaults to `{ "type": "command", "command": "cxx claude-quota-statusline" }`
   when no admin statusLine is configured and the host's own self-reported wrapper
   version is at least 0.7.24 (an older binary is never handed a command it does
@@ -992,11 +998,34 @@ The legacy server acknowledgment endpoint accepts matching previously delivered
 receipts without renewing health; new wrappers no longer expose `agent_receiver_ack`.
 
 Claude keeps its native TUI and receives `notifications/claude/channel`. A temporary
-per-launch plugin adds a SessionStart identity hook without replacing user hooks or
-settings; it handles new sessions, continue/resume pickers and `/clear`. A changed
-native identity invalidates the connection. The private broker directory owns and
-removes the plugin. The wrapper adds only its `cxx-agent` MCP override and the
-`--dangerously-load-development-channels server:cxx-agent` flag. Claude's native
-confirmation and organization channel policy still apply; the wrapper does not
-answer the confirmation. MCP ping replies keep transport health independent of
-long-running model/tool calls. The Channels API remains a research preview.
+per-launch plugin named `cxx-receiver` adds a SessionStart identity hook without
+replacing user hooks or settings; it handles new sessions, continue/resume pickers
+and `/clear`. A changed native identity invalidates the connection. The private
+broker directory owns and removes the plugin. That plugin also *provides* the
+`cxx-agent` MCP server (`.mcp.json` inside the plugin), which is why no user-scope
+`cxx-agent` entry is rendered for Claude: Claude Code registers a channel only for a
+plugin-provided server whose plugin is approved in managed settings, and a bare
+`server:` entry has no allowlist path at all. The wrapper therefore adds
+`--plugin-dir <broker>/cxx-receiver` and `--channels plugin:cxx-receiver@inline`.
+
+The approval is a managed-settings **drop-in**, written by the wrapper at
+`/etc/claude-code/managed-settings.d/50-cxx-channels.json` (`…/ClaudeCode/…` on
+macOS), directly or through non-interactive `sudo`; drop-ins compose, so an
+organization's own `managed-settings.json` is never read back or rewritten. It sets
+`channelsEnabled: true` and lists `cxx-receiver@inline` in `allowedChannelPlugins`.
+With the drop-in in place Claude's development-channels confirmation never appears.
+Without it — no write permission, or an organization policy that already speaks
+about `channelsEnabled` / `allowedChannelPlugins`, which the wrapper deliberately
+leaves alone — the wrapper falls back to
+`--dangerously-load-development-channels plugin:cxx-receiver@inline` and the
+confirmation returns, rather than registering a channel the gate would silently
+skip. The wrapper still does not answer the confirmation. Set `CLX_CHANNEL_POLICY_DIR`
+to point the drop-in somewhere else.
+
+Because the server is plugin-provided, its tools are named
+`mcp__plugin_cxx-receiver_cxx-agent__<tool>`; the managed permission allowlist uses
+that form. Headless and piped Claude launches attach the same plugin without the
+receiver (`agent mcp`, no `--auto`, no channel), since the plugin is now the only
+source of the messaging tools on Claude. MCP ping replies keep transport health
+independent of long-running model/tool calls. The Channels API remains a research
+preview.

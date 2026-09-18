@@ -1,3 +1,25 @@
+# 2026-09-18
+
+- Claude no longer asks the operator to confirm development channels at every
+  launch. `clx` now ships the `cxx-agent` MCP server inside its per-launch
+  `cxx-receiver` plugin and registers `--channels plugin:cxx-receiver@inline`,
+  which Claude Code approves from managed settings instead of prompting. The
+  wrapper installs that approval itself as a `managed-settings.d` drop-in
+  (directly or via non-interactive `sudo`); where it cannot, or where an
+  organization's own policy already speaks about channels, it falls back to the
+  old prompting flag rather than registering a channel the gate would skip.
+- Claude hosts no longer receive a user-scope `mcpServers.cxx-agent` entry: two
+  entries for one server would duplicate every messaging tool across two
+  processes, only one of which holds the delivery lease. The wrapper attaches the
+  plugin to headless and piped launches too, so those keep the tools. Codex is
+  unchanged.
+- Consequently the Claude permission allowlist names
+  `mcp__plugin_cxx-receiver_cxx-agent__<tool>`; the previous `mcp__cxx-agent__*`
+  rules leave the fleet-owned set and the wrapper removes them on the next sync.
+- Managed Claude settings now also allow `Bash(clx:*)` and `Bash(cxx:*)`: the
+  wrapper's own CLI is how an agent inspects the fleet it runs inside, and the
+  fleet guidance tells it to run those commands.
+
 # 2026-09-17
 
 - cxx 0.8.10 removes all receiver chat probes for Codex and Claude. Automatic

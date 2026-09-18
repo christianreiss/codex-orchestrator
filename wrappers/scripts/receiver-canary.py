@@ -20,7 +20,35 @@ import subprocess
 import tempfile
 import threading
 import time
+import sys
 import uuid
+
+# Mirrors wrappers/cxx/internal/agentportal/receiver.go. Claude Code keys a
+# plugin-provided MCP server as `plugin:<plugin>:<server>` and normalises `:`
+# to `_` for the `mcp__<server>__<tool>` identifier, so these three names move
+# together or the canary approves tools that do not exist.
+CLAUDE_PLUGIN = "cxx-receiver"
+CLAUDE_CHANNEL = "plugin:" + CLAUDE_PLUGIN + "@inline"
+CLAUDE_MCP_SERVER = "plugin_" + CLAUDE_PLUGIN + "_cxx-agent"
+
+MANAGED_SETTINGS_DIR = ("/Library/Application Support/ClaudeCode" if sys.platform == "darwin"
+                        else "/etc/claude-code")
+
+
+def channel_approved():
+    """Whether this host's managed settings approve the receiver plugin.
+
+    The canary launches `claude` directly, so it cannot use the wrapper's
+    drop-in installer; it asks the same question the wrapper does and takes the
+    same fallback, which keeps it runnable on an unprivileged host.
+    """
+    path = pathlib.Path(MANAGED_SETTINGS_DIR) / "managed-settings.d" / "50-cxx-channels.json"
+    try:
+        policy = json.loads(path.read_text())
+    except (OSError, ValueError):
+        return False
+    return policy.get("channelsEnabled") is True and any(
+        entry.get("plugin") == CLAUDE_PLUGIN for entry in policy.get("allowedChannelPlugins", []))
 
 
 def run(engine, cxx, timeout):
@@ -152,18 +180,27 @@ def run(engine, cxx, timeout):
                 command = ["codex", "--remote", "unix://" + sock, "--no-alt-screen", "-C", tmp,
                            "-a", "never", "-s", "read-only"]
             else:
-                plugin = pathlib.Path(tmp) / "receiver-plugin"
+                # The plugin directory basename is the plugin's identity to
+                # Claude Code (`<basename>@inline`), and it provides the MCP
+                # server itself: only a plugin-provided server can be approved
+                # as a channel without the development-channels confirmation.
+                plugin = pathlib.Path(tmp) / CLAUDE_PLUGIN
                 (plugin / ".claude-plugin").mkdir(parents=True)
                 (plugin / "hooks").mkdir()
-                (plugin / ".claude-plugin" / "plugin.json").write_text(json.dumps({"name": "cxx-receiver", "version": "1.0.0"}))
+                (plugin / ".claude-plugin" / "plugin.json").write_text(json.dumps(
+                    {"name": CLAUDE_PLUGIN, "version": "1.0.0", "channels": [{"server": "cxx-agent"}]}))
                 hook_env = " ".join(shlex.quote(k + "=" + v) for k, v in mcp_env.items())
                 command_hook = "env " + hook_env + " " + shlex.quote(cxx) + " agent native-session"
                 (plugin / "hooks" / "hooks.json").write_text(json.dumps({"hooks": {"SessionStart": [{"hooks": [{"type": "command", "command": command_hook, "timeout": 5}]}]}}))
                 mcp = {"mcpServers": {"cxx-agent": {"command": cxx, "args": ["agent", "mcp", "--auto"], "env": mcp_env}}}
-                command = ["claude", "--plugin-dir", str(plugin), "--session-id", native, "--mcp-config", json.dumps(mcp),
-                           "--dangerously-load-development-channels", "server:cxx-agent",
+                (plugin / ".mcp.json").write_text(json.dumps(mcp))
+                tools = ["mcp__" + CLAUDE_MCP_SERVER + "__agent_receiver_reply",
+                         "mcp__" + CLAUDE_MCP_SERVER + "__agent_reply"]
+                command = ["claude", "--plugin-dir", str(plugin), "--session-id", native,
+                           *(["--channels", CLAUDE_CHANNEL] if channel_approved() else
+                             ["--dangerously-load-development-channels", CLAUDE_CHANNEL]),
                            "--permission-mode", "dontAsk",
-                           "--allowedTools", "mcp__cxx-agent__agent_receiver_reply", "mcp__cxx-agent__agent_reply"]
+                           "--allowedTools", *tools]
             master, slave = pty.openpty()
             import fcntl
             import struct
@@ -211,7 +248,15 @@ def run(engine, cxx, timeout):
                             time.sleep(.2)
                         os.write(master, b"\r")
                         trusted = True
-                    if not channel_confirmed and b"iamusingthisforlocaldevelopment" in screen and b"server:cxx-agent" in screen:
+                    if not channel_confirmed and b"iamusingthisforlocaldevelopment" in screen:
+                        # With the managed drop-in installed this dialog must
+                        # never appear: the channel is approved, so a prompt
+                        # here means the approval silently stopped working and
+                        # the run is not proving what it claims to prove.
+                        if channel_approved():
+                            raise SystemExit(
+                                "channel confirmation appeared although managed settings approve "
+                                + CLAUDE_CHANNEL)
                         os.write(master, b"\r")
                         channel_confirmed = True
             # Diagnostics remain local and exclude terminal contents by default.

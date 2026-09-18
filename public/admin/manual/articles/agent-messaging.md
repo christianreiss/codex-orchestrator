@@ -34,7 +34,10 @@ Both come from the host's policy profile, and the escalation cap is the minimum
 across **all nine** axes — so a single low axis anywhere holds Codex back even
 when the axes that name approval and sandboxing are at 4. Claude has no
 equivalent gate: its managed `permissions.allow` already carries one
-`mcp__cxx-agent__<tool>` entry per tool in `AGENT_MESSAGING_TOOLS`.
+`mcp__plugin_cxx-receiver_cxx-agent__<tool>` entry per tool in
+`AGENT_MESSAGING_TOOLS` — plugin-scoped because on Claude the server is provided
+by the wrapper's per-launch `cxx-receiver` plugin rather than by user-scope MCP
+config.
 
 `config.toml` is only rewritten by a **codex** lifecycle. `cxx cron run` does
 not do it, so after changing posture a host keeps serving the old approval and

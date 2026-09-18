@@ -59,7 +59,7 @@ import {
 } from './config-normalizer.js';
 import { ENGINE_CLAUDE, ENGINE_CODEX, type Engine } from '../util/engine.js';
 import { versionCompare } from './wrapper-bin-registry.js';
-import { AGENT_MESSAGING_TOOLS } from './agent-messaging-tool-names.js';
+import { AGENT_MESSAGING_TOOLS, CLAUDE_AGENT_MESSAGING_SERVER } from './agent-messaging-tool-names.js';
 import { securityLevelEnforcement, type SecurityLevels } from './agent-security-levels.js';
 import {
   RESPONSE_VERBOSITY_OUTPUT_STYLE_NAMES,
@@ -551,14 +551,23 @@ function injectManagedMcp(
   // which would otherwise add and remove tools every few minutes.
   const agentMessagingEnabled = opts.agentMessagingEnabled === true;
   if (agentMessagingEnabled) {
+    // The name stays managed on both engines so an operator-configured entry of
+    // the same name never reaches a host. Only Codex gets the entry itself:
+    // `clx` now ships the same stdio server inside its per-launch `cxx-receiver`
+    // plugin, because a plugin-provided server is the only kind Claude Code will
+    // register as a channel without the development-channels confirmation. A
+    // second, identically-named user-scope entry would duplicate all eighteen
+    // tools across two processes, only one of which holds the delivery lease.
     managedNames.add('cxx-agent');
-    managedEntries.push({
-      name: 'cxx-agent',
-      command: 'cxx',
-      args: ['agent', 'mcp'],
-      startup_timeout_sec: 30,
-      tool_timeout_sec: 35,
-    });
+    if (opts.engine !== ENGINE_CLAUDE) {
+      managedEntries.push({
+        name: 'cxx-agent',
+        command: 'cxx',
+        args: ['agent', 'mcp'],
+        startup_timeout_sec: 30,
+        tool_timeout_sec: 35,
+      });
+    }
   }
   if (managedEntries.length === 0) return settings;
   const filtered = settings.mcp_servers.filter((server) => {
@@ -713,8 +722,24 @@ function managedRingerHooks(): Record<string, unknown[]> {
   return { Stop: ring('Stop'), UserPromptSubmit: ring('UserPromptSubmit') };
 }
 
+/**
+ * The wrapper's own CLI, pre-approved.
+ *
+ * `clx` and `cxx` are the same managed binary this session is already running
+ * inside, and its subcommands are how an agent inspects the fleet it belongs to
+ * — `cxx agent doctor`, `clx auth status`, `cxx portal notify`. Prompting for
+ * them asks the operator to approve the tool that launched the session, every
+ * time, and the fleet documentation tells agents to run them. Unconditional
+ * because a Claude host without the wrapper cannot receive these settings at
+ * all.
+ *
+ * Scoped to those two names: this approves the wrapper, not a shell.
+ */
+const WRAPPER_COMMAND_ALLOW = ['Bash(clx:*)', 'Bash(cxx:*)'];
+
 export function renderClaudeSettingsPartial(
   settings: NormalizedSettings,
+  opts: { agentMessagingEnabled?: boolean } = {},
 ): { partial: Record<string, unknown>; owned_paths: string[] } {
   const partial: Record<string, unknown> = {};
   const owned: string[] = [];
@@ -776,14 +801,19 @@ export function renderClaudeSettingsPartial(
   const curationAllow = Object.keys(servers).flatMap((server) =>
     CURATION_TOOLS.map((tool) => `mcp__${server}__${tool}`),
   );
-  const agentMessagingAllow = servers['cxx-agent']
-    ? AGENT_MESSAGING_TOOLS.map((tool) => `mcp__cxx-agent__${tool}`)
+  // Not derived from `servers` like the curation rules above: on Claude the
+  // messaging server is provided by clx's per-launch `cxx-receiver` plugin and
+  // therefore never appears in the rendered `mcpServers`. The fleet switch is
+  // the signal, and the identifier is the plugin-scoped one Claude Code builds.
+  const agentMessaging = opts.agentMessagingEnabled === true;
+  const agentMessagingAllow = agentMessaging
+    ? AGENT_MESSAGING_TOOLS.map((tool) => `mcp__${CLAUDE_AGENT_MESSAGING_SERVER}__${tool}`)
     : [];
   // Same signal as the permission allowlist above: if the bus is provisioned,
   // this session is addressable, and an addressable session needs a ringer.
   // Operator-configured hooks for the same events are preserved and the ring is
   // appended, mirroring how `permissions.allow` unions rather than replaces.
-  if (servers['cxx-agent']) {
+  if (agentMessaging) {
     const configured = asRecord(partial['hooks']);
     const merged: Record<string, unknown> = { ...configured };
     for (const [event, groups] of Object.entries(managedRingerHooks())) {
@@ -793,9 +823,11 @@ export function renderClaudeSettingsPartial(
     }
     partial['hooks'] = merged;
   }
-  if (curationAllow.length > 0 || agentMessagingAllow.length > 0) {
+  if (curationAllow.length > 0 || agentMessagingAllow.length > 0 || WRAPPER_COMMAND_ALLOW.length > 0) {
     const existing = Array.isArray(perms['allow']) ? (perms['allow'] as string[]) : [];
-    perms['allow'] = [...new Set([...existing, ...curationAllow, ...agentMessagingAllow])];
+    perms['allow'] = [
+      ...new Set([...existing, ...curationAllow, ...agentMessagingAllow, ...WRAPPER_COMMAND_ALLOW]),
+    ];
     if (!owned.includes('permissions.allow')) owned.push('permissions.allow');
   }
   // `permissions.defaultMode` is a plain leaf path: it rides the generic dotted
@@ -851,7 +883,9 @@ export function renderClaudeSettingsPartialForHost(
     managedMcpToken: opts.managedMcpToken,
     agentMessagingEnabled: opts.agentMessagingEnabled,
   });
-  const { partial, owned_paths } = renderClaudeSettingsPartial(withManaged);
+  const { partial, owned_paths } = renderClaudeSettingsPartial(withManaged, {
+    agentMessagingEnabled: opts.agentMessagingEnabled,
+  });
   // Component B of the response-verbosity dial: reinforce the CLAUDE.md policy
   // text with Claude Code's own output-style mechanism. Level 0 (or unset)
   // omits the key entirely so a host/user's manually chosen style is left

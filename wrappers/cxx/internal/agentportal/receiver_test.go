@@ -15,6 +15,7 @@ func TestClaudeReceiverPreservesResumeAndUserSettings(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv(envSocket, filepath.Join(dir, "portal.sock"))
 	t.Setenv(envSessionID, "session")
+	t.Setenv(channelPolicyDirEnv, filepath.Join(dir, "managed"))
 	args := []string{"--continue", "--settings", `{"hooks":{"SessionStart":[]}}`, "--plugin-dir", "user-plugin"}
 	got, err := ClaudeReceiverArgs(args)
 	if err != nil {
@@ -28,7 +29,7 @@ func TestClaudeReceiverPreservesResumeAndUserSettings(t *testing.T) {
 			t.Fatal("invented an identity for a resumed session")
 		}
 	}
-	data, err := os.ReadFile(filepath.Join(dir, "receiver-plugin", "hooks", "hooks.json"))
+	data, err := os.ReadFile(filepath.Join(dir, PluginName, "hooks", "hooks.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -38,6 +39,122 @@ func TestClaudeReceiverPreservesResumeAndUserSettings(t *testing.T) {
 	}
 	if hooks["hooks"].(map[string]any)["SessionStart"] == nil {
 		t.Fatal("missing native identity hook")
+	}
+}
+
+// The messaging server must ride inside the plugin, not in a --mcp-config
+// override: only a plugin-provided server can be approved as a channel, which
+// is what removes the development-channels confirmation.
+func TestClaudeReceiverShipsServerInPluginAndTakesApprovedChannel(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv(envSocket, filepath.Join(dir, "portal.sock"))
+	t.Setenv(envSessionID, "session")
+	t.Setenv(channelPolicyDirEnv, filepath.Join(dir, "managed"))
+	got, err := ClaudeReceiverArgs(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	joined := strings.Join(got, " ")
+	if strings.Contains(joined, "--mcp-config") {
+		t.Fatal("server still injected outside the plugin")
+	}
+	if !strings.Contains(joined, "--channels "+ChannelEntry) {
+		t.Fatalf("expected the approved channel entry: %v", got)
+	}
+	if strings.Contains(joined, "--dangerously-load-development-channels") {
+		t.Fatalf("policy is installed; the confirmation must not be requested: %v", got)
+	}
+	var mcp struct {
+		Servers map[string]struct {
+			Args []string `json:"args"`
+			Env  map[string]string
+		} `json:"mcpServers"`
+	}
+	raw, err := os.ReadFile(filepath.Join(dir, PluginName, ".mcp.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(raw, &mcp); err != nil {
+		t.Fatal(err)
+	}
+	server, ok := mcp.Servers["cxx-agent"]
+	if !ok {
+		t.Fatalf("plugin does not provide cxx-agent: %s", raw)
+	}
+	if !reflect.DeepEqual(server.Args, []string{"agent", "mcp", "--auto"}) {
+		t.Fatalf("receiver server args: %v", server.Args)
+	}
+	manifest, err := os.ReadFile(filepath.Join(dir, PluginName, ".claude-plugin", "plugin.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(manifest), `"channels"`) {
+		t.Fatalf("manifest does not declare the channel: %s", manifest)
+	}
+	policy, err := os.ReadFile(filepath.Join(dir, "managed", "managed-settings.d", channelPolicyFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(policy), `"channelsEnabled":true`) || !strings.Contains(string(policy), PluginName) {
+		t.Fatalf("drop-in does not approve the plugin: %s", policy)
+	}
+}
+
+// Without an approved channel the receiver must keep the old prompting shape.
+// Registering a channel the gate silently skips would leave a receiver that
+// reports healthy while nothing can reach the transcript.
+func TestClaudeReceiverFallsBackWhenOrgPolicyOwnsChannels(t *testing.T) {
+	dir := t.TempDir()
+	managed := filepath.Join(dir, "managed")
+	if err := os.MkdirAll(managed, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(managed, "managed-settings.json"), []byte(`{"channelsEnabled":false}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(envSocket, filepath.Join(dir, "portal.sock"))
+	t.Setenv(envSessionID, "session")
+	t.Setenv(channelPolicyDirEnv, managed)
+	got, err := ClaudeReceiverArgs(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	joined := strings.Join(got, " ")
+	if !strings.Contains(joined, "--dangerously-load-development-channels "+ChannelEntry) {
+		t.Fatalf("expected the development-channel fallback: %v", got)
+	}
+	if strings.Contains(joined, "--channels ") {
+		t.Fatalf("claimed an approved channel it does not have: %v", got)
+	}
+	if _, err := os.Stat(filepath.Join(managed, "managed-settings.d", channelPolicyFile)); !os.IsNotExist(err) {
+		t.Fatal("wrote a drop-in over an organisation's own channel policy")
+	}
+}
+
+// Headless and piped launches still need the tools: the fleet no longer renders
+// a user-scope cxx-agent entry for Claude, so the plugin is the only source.
+func TestClaudeAgentArgsAttachPluginWithoutReceiver(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv(envSocket, filepath.Join(dir, "portal.sock"))
+	t.Setenv(envSessionID, "session")
+	t.Setenv(channelPolicyDirEnv, filepath.Join(dir, "managed"))
+	got, err := ClaudeAgentArgs(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	joined := strings.Join(got, " ")
+	if !strings.Contains(joined, "--plugin-dir") {
+		t.Fatalf("no plugin attached: %v", got)
+	}
+	if strings.Contains(joined, "--channels") || strings.Contains(joined, "development-channels") {
+		t.Fatalf("a session with no receiver must not register a channel: %v", got)
+	}
+	raw, err := os.ReadFile(filepath.Join(dir, PluginName, ".mcp.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), "--auto") {
+		t.Fatalf("started the receiver for a session that has none: %s", raw)
 	}
 }
 

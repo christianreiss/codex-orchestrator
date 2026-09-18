@@ -35,3 +35,19 @@ export const AGENT_MESSAGING_TOOLS = [
   'agent_conf_dispatch',
   'agent_conf_adjourn',
 ] as const;
+
+/**
+ * The MCP server name Claude Code sees for the messaging server.
+ *
+ * On Codex the wrapper's managed config names the stdio server `cxx-agent`
+ * directly. On Claude it is provided by the per-launch `cxx-receiver` plugin
+ * instead (that is the only shape that may declare the `claude/channel`
+ * capability without the `--dangerously-load-development-channels`
+ * confirmation), and Claude Code keys a plugin-provided server as
+ * `plugin:<plugin>:<server>`, normalising `:` to `_` when it builds the
+ * `mcp__<server>__<tool>` identifier permissions match on.
+ *
+ * Renaming the plugin or the server inside it renames every tool: keep this in
+ * step with `ClaudeReceiverArgs` in `wrappers/cxx/internal/agentportal/receiver.go`.
+ */
+export const CLAUDE_AGENT_MESSAGING_SERVER = 'plugin_cxx-receiver_cxx-agent';

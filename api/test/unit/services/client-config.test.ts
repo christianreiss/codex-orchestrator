@@ -586,7 +586,8 @@ describe('client-config: renderClaudeSettingsPartial permissions.defaultMode', (
     );
     const perms = partial.permissions as Record<string, unknown>;
     expect(perms.defaultMode).toBe('acceptEdits');
-    expect(perms.allow).toEqual(['Bash(npm run *)']);
+    // The wrapper's own CLI is always approved and unions with operator rules.
+    expect(perms.allow).toEqual(['Bash(npm run *)', 'Bash(clx:*)', 'Bash(cxx:*)']);
     expect(perms.deny).toEqual(['Read(./secrets/**)']);
     expect(owned_paths).toEqual(
       expect.arrayContaining(['permissions.allow', 'permissions.deny', 'permissions.defaultMode']),
@@ -637,39 +638,64 @@ describe('client-config: memory curation permissions', () => {
     expect(allow.filter((r) => r === 'mcp__clx__shared_memory_write')).toHaveLength(1);
   });
 
-  it('adds nothing when no MCP server is configured — there is no tool to name', () => {
+  it('names no MCP tool when no server is configured, keeping only the wrapper CLI', () => {
     const { partial } = renderClaudeSettingsPartial(normalizeSettings({}, { applyCodexDefaults: false }));
-    const allow = (partial.permissions as Record<string, unknown>).allow;
-    expect(allow).toBeUndefined();
+    const allow = (partial.permissions as Record<string, unknown>).allow as string[];
+    expect(allow).toEqual(['Bash(clx:*)', 'Bash(cxx:*)']);
   });
 });
 
 describe('client-config: Claude Agent Messaging permissions', () => {
-  it('owns the local MCP server and allows only the explicit agent tool surface', () => {
-    const { partial, owned_paths } = renderClaudeSettingsPartialForHost({
-      settings: { orchestrator_mcp_enabled: false },
-      host: {
-        id: 7,
-        fqdn: 'host.example',
-        secure: 1,
-        agentMessagingEnabled: 1,
-      } as never,
-      baseUrl: null,
-      apiKey: null,
-      engine: ENGINE_CLAUDE,
-      agentMessagingEnabled: true,
-    });
-    const servers = partial.mcpServers as Record<string, Record<string, unknown>>;
-    expect(servers['cxx-agent']).toEqual({ command: 'cxx', args: ['agent', 'mcp'] });
-    expect(owned_paths).toContain('mcpServers.cxx-agent');
+  const claudeMessagingRender = () => renderClaudeSettingsPartialForHost({
+    settings: { orchestrator_mcp_enabled: false },
+    host: {
+      id: 7,
+      fqdn: 'host.example',
+      secure: 1,
+      agentMessagingEnabled: 1,
+    } as never,
+    baseUrl: null,
+    apiKey: null,
+    engine: ENGINE_CLAUDE,
+    agentMessagingEnabled: true,
+  });
+
+  // clx ships the server inside its per-launch `cxx-receiver` plugin, because a
+  // plugin-provided server is the only kind Claude Code registers as a channel
+  // without the development-channels confirmation. A user-scope entry of the
+  // same name would duplicate every tool across two processes, only one of
+  // which holds the delivery lease.
+  it('leaves the messaging server to the wrapper plugin rather than user scope', () => {
+    const { partial, owned_paths } = claudeMessagingRender();
+    const servers = (partial.mcpServers ?? {}) as Record<string, Record<string, unknown>>;
+    expect(servers['cxx-agent']).toBeUndefined();
+    expect(owned_paths).not.toContain('mcpServers.cxx-agent');
+  });
+
+  it('allows the explicit agent tool surface under the plugin-scoped server name', () => {
+    const { partial } = claudeMessagingRender();
     const allow = (partial.permissions as Record<string, unknown>).allow as string[];
     expect(allow).toEqual(expect.arrayContaining([
-      'mcp__cxx-agent__agent_list',
-      'mcp__cxx-agent__agent_send',
-      'mcp__cxx-agent__agent_reply',
-      'mcp__cxx-agent__agent_cancel',
+      'mcp__plugin_cxx-receiver_cxx-agent__agent_list',
+      'mcp__plugin_cxx-receiver_cxx-agent__agent_send',
+      'mcp__plugin_cxx-receiver_cxx-agent__agent_reply',
+      'mcp__plugin_cxx-receiver_cxx-agent__agent_cancel',
     ]));
-    expect(allow).not.toContain('mcp__cxx-agent__permission');
+    expect(allow).not.toContain('mcp__plugin_cxx-receiver_cxx-agent__permission');
+    // The pre-plugin identifiers must not linger: they would approve a server
+    // Claude no longer has, and the wrapper removes rules that leave the set.
+    expect(allow.some((rule) => rule.startsWith('mcp__cxx-agent__'))).toBe(false);
+  });
+
+  it('still names the plain server on Codex, which has no plugin surface', () => {
+    const { content } = renderTomlForHost({
+      settings: { orchestrator_mcp_enabled: false },
+      host: { id: 7, fqdn: 'host.example', secure: 1, agentMessagingEnabled: 1 } as never,
+      baseUrl: null,
+      apiKey: null,
+      agentMessagingEnabled: true,
+    });
+    expect(content).toContain('[mcp_servers.cxx-agent]');
   });
 });
 

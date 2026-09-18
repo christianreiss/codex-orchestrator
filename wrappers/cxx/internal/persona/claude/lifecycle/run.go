@@ -514,11 +514,22 @@ func Run(ctx context.Context, opts Options) (exitCode int, retErr error) {
 
 	started := time.Now()
 	launchArgs := guardRootPermissionMode(opts.ExtraArgs, logger)
-	if cfg.AgentMessaging.ReceiverEnabled && !opts.Headless && term.IsTerminal(int(os.Stdin.Fd())) && term.IsTerminal(int(os.Stdout.Fd())) {
-		if receiverArgs, err := agentportal.ClaudeReceiverArgs(launchArgs); err != nil {
-			logger.Warn("automatic receiver unavailable", "err", err)
+	// Claude gets the `cxx-agent` MCP server from the wrapper's own plugin on
+	// every launch, not from the managed user-scope config: only a
+	// plugin-provided server may be approved as a channel without the
+	// development-channels confirmation, and two entries for one server would
+	// duplicate every tool. Attended launches additionally get the receiver.
+	if cfg.AgentMessaging.Enabled {
+		attended := cfg.AgentMessaging.ReceiverEnabled && !opts.Headless &&
+			term.IsTerminal(int(os.Stdin.Fd())) && term.IsTerminal(int(os.Stdout.Fd()))
+		build := agentportal.ClaudeAgentArgs
+		if attended {
+			build = agentportal.ClaudeReceiverArgs
+		}
+		if pluginArgs, err := build(launchArgs); err != nil {
+			logger.Warn("agent messaging plugin unavailable", "err", err, "receiver", attended)
 		} else {
-			launchArgs = receiverArgs
+			launchArgs = pluginArgs
 		}
 	}
 	// Upload mid-session native token rotations as they happen instead of
