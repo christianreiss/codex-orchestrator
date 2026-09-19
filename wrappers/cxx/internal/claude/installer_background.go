@@ -61,8 +61,13 @@ func managedClaudeEnv(cli string, env []string) []string {
 
 // EnsureClaudeBackground installs only inside a fresh private npm prefix. It
 // never invokes a system package manager, sudo, or a global npm install. Cache
-// publication is atomic after an exact runnable-version check. Old successful
-// prefixes are retained: an existing process may lazily load their files.
+// publication is atomic after an exact runnable-version check.
+//
+// It never reclaims the prefix it supersedes -- an existing process may still
+// lazily load its files. Reclaiming is PruneEngineStore's job, from a later
+// maintenance tick: the fleet keeps exactly one version on disk, but only once
+// the superseded prefix has not been the pointer target for a full tick and no
+// live process runs from it.
 func EnsureClaudeBackground(ctx context.Context, target string, enforceExact bool, logger *slog.Logger) error {
 	if logger == nil {
 		logger = slog.Default()
@@ -131,8 +136,9 @@ func EnsureClaudeBackground(ctx context.Context, target string, enforceExact boo
 		return err
 	}
 	// Cache publication may rename successfully and then fail its directory
-	// durability flush. Once validation succeeds, never remove a prefix that
-	// a newly started process might already have selected.
+	// durability flush. Once validation succeeds, this function never removes a
+	// prefix that a newly started process might already have selected; the next
+	// sweep reclaims whichever prefix the pointer did not select.
 	published = true
 	if err := cacheClaudeContext(ctx, candidate); err != nil {
 		return fmt.Errorf("publish staged Claude CLI: %w", err)

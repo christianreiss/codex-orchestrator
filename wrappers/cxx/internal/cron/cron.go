@@ -169,6 +169,8 @@ func run(ctx context.Context, seed *config.Config, minimal, due bool, stdout, st
 	}
 	defer func() { runErr = errors.Join(runErr, lease.Finish(runErr)) }()
 
+	sweepLegacyRollback(stderr)
+
 	exe, err := os.Executable()
 	if err != nil {
 		return err
@@ -1172,4 +1174,23 @@ func setEnv(env []string, key, value string) []string {
 		}
 	}
 	return append(env, prefix+value)
+}
+
+// sweepLegacyRollback removes ~/.cxx/rollback, a pre-update copy of the wrapper
+// binary that nothing in this tree writes or reads any more. The fleet keeps no
+// old versions: a downgrade is a fresh download of the wanted version, so a
+// local copy of a superseded binary is only disk. Best-effort by design -- a
+// failure here must never fail a maintenance tick.
+func sweepLegacyRollback(stderr io.Writer) {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return
+	}
+	dir := filepath.Join(home, ".cxx", "rollback")
+	if _, err := os.Stat(dir); err != nil {
+		return
+	}
+	if err := os.RemoveAll(dir); err != nil {
+		fmt.Fprintln(warnWriter(stderr), fmt.Errorf("remove legacy wrapper rollback copies: %w", err))
+	}
 }

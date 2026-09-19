@@ -308,9 +308,12 @@ helper commands are individually capped at 20 seconds.
 
 New engines are staged in private `~/.cxx/engines/codex` and
 `~/.cxx/engines/claude` directories, validated, and activated with an atomic CLI
-cache change. Existing sessions keep their old version files; successful old
-prefixes are retained, including after uninstall; no automatic pruning can
-remove files a direct native process may still use. Explicit CLI path overrides
+cache change. Existing sessions keep their old version files. Every maintenance
+tick then sweeps each store down to the one version its published CLI cache
+selects, skipping any prefix a direct native process still runs from and
+retrying it on the next tick; `~/.cxx/rollback` is removed on the same pass.
+The fleet keeps no old versions, so an up- or downgrade is always a fresh
+download and an uninstall removes the store outright. Explicit CLI path overrides
 are respected. Disabling
 auto-update leaves scheduled content/auth sync and future policy checks active.
 

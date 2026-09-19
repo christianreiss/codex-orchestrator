@@ -297,7 +297,11 @@ func removePeer(ctx context.Context, logger *slog.Logger) error {
 		} {
 			removeFilePath(path, logger)
 		}
+		// ~/.clx also holds state/claude-bin, the pointer that selects the
+		// peer's private engine prefix, so the store goes with it. The fleet
+		// keeps no old versions; re-enabling Claude downloads the current one.
 		removeTreePath(filepath.Join(home, ".clx"), logger)
+		removeTreePath(filepath.Join(home, ".cxx", "engines", "claude"), logger)
 	}
 	if npmGlobalHas(ctx, "@anthropic-ai/claude-code") {
 		if out, err := exec.CommandContext(ctx, "npm", "uninstall", "-g", "@anthropic-ai/claude-code").CombinedOutput(); err != nil {

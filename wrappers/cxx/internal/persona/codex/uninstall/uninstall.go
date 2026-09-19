@@ -153,9 +153,24 @@ func Run(ctx context.Context, cfg *config.Config, stdout, stderr io.Writer) (run
 		filepath.Join(codexHome, "config.toml"),
 		filepath.Join(home, ".config", "codex-orchestrator", "cdx.json"),
 		filepath.Join(home, ".config", "codex-orchestrator", "cdx.json.sig"),
+		// Pointers into the private engine store removed just below. Leaving
+		// them behind would make a later install resolve a deleted prefix.
+		filepath.Join(home, ".config", "codex-orchestrator", "cdx-codex-bin"),
+		filepath.Join(home, ".config", "codex-orchestrator", "cdx-code-mode-host-state"),
 	}
 	for _, p := range targets {
 		_ = removeReport(stdout, stderr, p)
+	}
+
+	// The private Codex version store. The fleet keeps no old versions, so an
+	// uninstall leaves none behind either; a reinstall downloads what it needs.
+	enginesDir := filepath.Join(home, ".cxx", "engines", "codex")
+	if _, err := os.Stat(enginesDir); err == nil {
+		if err := os.RemoveAll(enginesDir); err != nil {
+			fmt.Fprintln(stderr, "uninstall: remove", enginesDir, ":", err)
+		} else {
+			fmt.Fprintln(stdout, "uninstall: removed", enginesDir)
+		}
 	}
 
 	// /opt/codex — only attempt when writable to avoid clobbering a

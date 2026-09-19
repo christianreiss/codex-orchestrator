@@ -305,7 +305,7 @@ schedule fires every 15 minutes, successful work cools down for 15 minutes,
 failures retry after five, and a `cdx`/`clx` launch queues a detached tick when
 one is due. Codex upgrades are installed into private versioned prefixes under
 `~/.cxx/engines/codex` and activated atomically, so a running session keeps its
-files. The registered versioned route is
+files; a later tick sweeps the store back down to the one selected version. The registered versioned route is
 `/wrapper/v2/bin/{artifact}/{platform}/v{version}/{binary}`; new releases use
 `artifact=cxx` and `binary=cxx`. The compatible per-engine URL and
 `/wrapper/v2/download` resolve to the same bytes for a new common release.

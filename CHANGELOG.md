@@ -1,3 +1,35 @@
+# 2026-09-19
+
+- **Fixed: Claude's messaging channel was dead on every host that had not
+  upgraded yet.** The 2026-09-18 change took the user-scope
+  `mcpServers.cxx-agent` entry away from all Claude hosts at once, but a wrapper
+  older than the plugin migration still passes the server via `--mcp-config` and
+  asks Claude Code to register `server:cxx-agent`. Claude Code resolves a
+  `server:` channel only against the enterprise, managed, user, project and
+  local MCP scopes -- never the command line -- so those hosts reported
+  `server:cxx-agent - no MCP server configured with that name`, received no
+  inbound messages, and prompted on every `agent_*` call because the served
+  allowlist named tools they did not have. Both halves of the new Claude shape
+  are now gated on the host's own reported wrapper version (`0.8.11`); below it
+  the old entry and the old `mcp__cxx-agent__*` rules keep being served until
+  that host updates itself.
+- The wrapper now has a regression guard that no launch shape may name a bare
+  `server:` channel, with the engine-side reason recorded next to `ChannelEntry`.
+- **The fleet no longer keeps old engine versions.** Staged prefixes under
+  `~/.cxx/engines/{claude,codex}` were retained forever: 12 Claude prefixes
+  (2.6 GB) and 3 Codex prefixes (964 MB) had accumulated on a single host in ten
+  days, growing roughly 6 GB per host per month. Every maintenance tick now
+  sweeps each store down to the one version its published CLI cache selects,
+  before anything else in the tick so a paused content sync cannot skip it. A
+  prefix a live process still runs from is kept and swept on a later tick; the
+  sweep takes the installer's own lock, so it can never delete a staging
+  directory mid-install. Abandoned stages from interrupted installs are
+  reclaimed by the same rule, and `~/.cxx/rollback` is removed on the same pass.
+- Up- and downgrades are therefore always a fresh download of the wanted
+  version, never a switch back to a retained copy. Uninstalling an engine, or
+  disabling it as a peer, now removes its version store and the pointer that
+  selects it instead of leaving gigabytes behind.
+
 # 2026-09-18
 
 - Claude no longer asks the operator to confirm development channels at every

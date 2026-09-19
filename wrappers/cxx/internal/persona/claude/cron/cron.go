@@ -66,6 +66,7 @@ type Result struct {
 	CodexAction    string
 	CodexTarget    string
 	SyncAction     string // "" when managed content converged | "failed"
+	PrunedVersions int    // superseded engine prefixes reclaimed this tick
 	Reported       bool
 }
 
@@ -98,6 +99,18 @@ func TickWithOptions(ctx context.Context, cfg *config.Config, minimal bool) (Res
 	claudeVer := strings.TrimSpace(claude.Version(ctx))
 	res.CodexBefore = claudeVer
 	res.CodexVersion = claudeVer
+
+	// Reclaim superseded engine prefixes before anything else in the tick.
+	// Deliberately not gated on the update branch below, not on reaching the
+	// orchestrator, and not placed after syncManagedContent: on a host with a
+	// live session that sync fails every tick, so cleanup behind it would run
+	// nowhere. Sweeping against the pointer as it stands now also gives the
+	// prefix this tick may supersede a full tick of grace before it is eligible.
+	if pruned, err := claude.PruneEngineStore(logger); err != nil {
+		logger.Warn("cron: Claude engine sweep failed", "err", err)
+	} else {
+		res.PrunedVersions = len(pruned)
+	}
 	check, err := client.CronCheck(ctx, orchestrator.CronCheckRequest{
 		Engine:         "claude",
 		ClientVersion:  claudeVer,

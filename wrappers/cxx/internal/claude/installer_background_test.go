@@ -305,3 +305,61 @@ func TestManagedClaudeRuntimeDisablesNativeInstallationMutation(t *testing.T) {
 		t.Fatal("global CLI overlay must disable automatic updates and retain manual updates")
 	}
 }
+
+// The installer keeps the prefix it supersedes; the maintenance tick reclaims
+// it one tick later, once nothing runs from it any more.
+func TestPruneEngineStoreKeepsOnlyTheSelectedPrefix(t *testing.T) {
+	home, bin := stagedInstallFixture(t)
+	writeScript(t, filepath.Join(bin, "npm"), stagedNpmFixture)
+	root := filepath.Join(home, ".cxx", "engines", "claude")
+	stale := filepath.Join(root, "2.1.1-old", "node_modules", ".bin")
+	if err := os.MkdirAll(stale, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	writeScript(t, filepath.Join(stale, "claude"), "#!/bin/sh\necho '2.1.1 (Claude Code)'\n")
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if err := EnsureClaudeBackground(ctx, "2.1.2", true, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "2.1.1-old")); err != nil {
+		t.Fatalf("the installer itself removed a superseded prefix: %v", err)
+	}
+	removed, err := PruneEngineStore(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(removed) != 1 || removed[0] != "2.1.1-old" {
+		t.Fatalf("expected the superseded prefix swept, got %v", removed)
+	}
+	cli, err := FindCLI()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(cli); err != nil {
+		t.Fatalf("sweep removed the selected prefix: %v", err)
+	}
+	if got := strings.TrimSpace(Version(ctx)); got != "2.1.2" {
+		t.Fatalf("selected prefix no longer runs after the sweep: %q", got)
+	}
+}
+
+// An operator-selected CLI lives outside the store, so there is no published
+// prefix to anchor a sweep on and nothing may be reclaimed.
+func TestPruneEngineStoreIsANoOpForAnUnmanagedCLI(t *testing.T) {
+	home, _ := stagedInstallFixture(t)
+	root := filepath.Join(home, ".cxx", "engines", "claude")
+	if err := os.MkdirAll(filepath.Join(root, "2.1.1-old"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	removed, err := PruneEngineStore(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(removed) != 0 {
+		t.Fatalf("swept the store while an unmanaged CLI is selected: %v", removed)
+	}
+	if _, err := os.Stat(filepath.Join(root, "2.1.1-old")); err != nil {
+		t.Fatalf("prefix removed without a pointer into the store: %v", err)
+	}
+}

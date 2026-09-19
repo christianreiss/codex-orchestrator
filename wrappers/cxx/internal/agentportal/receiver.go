@@ -19,6 +19,14 @@ const PluginName = "cxx-receiver"
 
 // ChannelEntry is the plugin channel Claude is asked to register. `inline` is
 // the sentinel marketplace Claude Code gives a --plugin-dir plugin.
+//
+// It must stay a `plugin:` entry. Claude Code resolves the alternative
+// `server:<name>` form against the enterprise, managed, user, project and
+// local MCP scopes only -- a server handed to it on the command line via
+// --mcp-config is invisible to that check, and the channel is skipped with
+// "no MCP server configured with that name" whatever else is passed. The
+// fleet no longer writes a user-scope `mcpServers.cxx-agent` entry, so
+// `server:cxx-agent` is now unresolvable by construction.
 const ChannelEntry = "plugin:" + PluginName + "@inline"
 
 // Claude preserves its native TUI and user hooks. A temporary plugin reports

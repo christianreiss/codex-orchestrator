@@ -327,3 +327,38 @@ func TestColdCacheLaunchNeverWaitsForPublicationLock(t *testing.T) {
 		t.Fatalf("publication did not respect cancellation: %v", err)
 	}
 }
+
+// The installer deliberately leaves the prefix it supersedes in place; the
+// maintenance tick is what reclaims it, one tick later.
+func TestPruneEngineStoreKeepsOnlyTheSelectedRelease(t *testing.T) {
+	home, _ := backgroundFixture(t, backgroundReleaseFixture{})
+	root := filepath.Join(home, ".cxx", "engines", "codex")
+	stale := filepath.Join(root, "1.0.0-old")
+	writeBackgroundExecutable(t, filepath.Join(stale, "codex"), "#!/bin/sh\necho 'codex 1.0.0'\n")
+	if err := EnsureCodexBackground(context.Background(), "9.9.9", true, backgroundLogger()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(stale); err != nil {
+		t.Fatalf("the installer itself removed a superseded release: %v", err)
+	}
+	removed, err := PruneEngineStore(backgroundLogger())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(removed) != 1 || removed[0] != "1.0.0-old" {
+		t.Fatalf("expected the superseded release swept, got %v", removed)
+	}
+	if _, err := os.Stat(stale); !os.IsNotExist(err) {
+		t.Fatalf("superseded release survived the sweep: %v", err)
+	}
+	cli, err := FindCLI()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(cli); err != nil {
+		t.Fatalf("sweep removed the selected release: %v", err)
+	}
+	if got := Version(context.Background()); got != "9.9.9" {
+		t.Fatalf("selected release no longer runs after the sweep: %q", got)
+	}
+}

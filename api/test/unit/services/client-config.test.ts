@@ -646,13 +646,17 @@ describe('client-config: memory curation permissions', () => {
 });
 
 describe('client-config: Claude Agent Messaging permissions', () => {
-  const claudeMessagingRender = () => renderClaudeSettingsPartialForHost({
+  // The shape served to a Claude host follows that host's OWN wrapper version:
+  // config syncs ahead of a self-update, so a host still on a pre-plugin
+  // wrapper must keep the shape its binary actually produces.
+  const claudeMessagingRender = (claudeWrapperVersion: string | null = '0.8.11') => renderClaudeSettingsPartialForHost({
     settings: { orchestrator_mcp_enabled: false },
     host: {
       id: 7,
       fqdn: 'host.example',
       secure: 1,
       agentMessagingEnabled: 1,
+      claudeWrapperVersion,
     } as never,
     baseUrl: null,
     apiKey: null,
@@ -685,6 +689,32 @@ describe('client-config: Claude Agent Messaging permissions', () => {
     // The pre-plugin identifiers must not linger: they would approve a server
     // Claude no longer has, and the wrapper removes rules that leave the set.
     expect(allow.some((rule) => rule.startsWith('mcp__cxx-agent__'))).toBe(false);
+  });
+
+  // Claude Code resolves a `server:<name>` channel against the enterprise,
+  // managed, user, project and local MCP scopes only. A pre-plugin wrapper
+  // passes the server on the command line, which is in none of them, so this
+  // user-scope entry is the only thing keeping that host's channel alive --
+  // and its tools are still `mcp__cxx-agent__*`.
+  it('keeps the user-scope server and its tool names for a pre-plugin wrapper', () => {
+    const { partial, owned_paths } = claudeMessagingRender('0.8.10');
+    const servers = (partial.mcpServers ?? {}) as Record<string, Record<string, unknown>>;
+    expect(servers['cxx-agent']).toBeDefined();
+    expect(owned_paths).toContain('mcpServers.cxx-agent');
+    const allow = (partial.permissions as Record<string, unknown>).allow as string[];
+    expect(allow).toEqual(expect.arrayContaining([
+      'mcp__cxx-agent__agent_list',
+      'mcp__cxx-agent__agent_send',
+    ]));
+    expect(allow.some((rule) => rule.startsWith('mcp__plugin_cxx-receiver_cxx-agent__'))).toBe(false);
+  });
+
+  // A host that has never reported a wrapper version cannot be assumed to have
+  // upgraded, so it is treated as pre-plugin.
+  it('treats an unknown wrapper version as pre-plugin', () => {
+    const { partial } = claudeMessagingRender(null);
+    const servers = (partial.mcpServers ?? {}) as Record<string, Record<string, unknown>>;
+    expect(servers['cxx-agent']).toBeDefined();
   });
 
   it('still names the plain server on Codex, which has no plugin surface', () => {

@@ -230,19 +230,33 @@ func removeLocalState(home string, stdout, stderr io.Writer) error {
 	removeFleetCollections(home, stdout, stderr)
 	removeFleetSkills(home, stdout, stderr)
 
-	// Drop the entire clx-native tree (auth/, config/, cache).
-	clxDir := filepath.Join(home, ".clx")
-	if _, err := os.Stat(clxDir); err == nil {
-		if err := os.RemoveAll(clxDir); err != nil {
-			fmt.Fprintln(stderr, "uninstall: remove", clxDir, ":", err)
-			cleanupErr = errors.Join(cleanupErr, fmt.Errorf("remove %s: %w", clxDir, err))
-		} else {
-			fmt.Fprintln(stdout, "uninstall: removed", clxDir)
-		}
-	} else if !errors.Is(err, os.ErrNotExist) {
-		cleanupErr = errors.Join(cleanupErr, fmt.Errorf("inspect %s: %w", clxDir, err))
+	// Drop the entire clx-native tree (auth/, config/, cache). This also takes
+	// state/claude-bin, the pointer that selects the private engine prefix, so
+	// the version store below would otherwise be unreachable gigabytes.
+	for _, dir := range []string{
+		filepath.Join(home, ".clx"),
+		filepath.Join(home, ".cxx", "engines", "claude"),
+	} {
+		cleanupErr = errors.Join(cleanupErr, removeTreeReport(stdout, stderr, dir))
 	}
 	return cleanupErr
+}
+
+// removeTreeReport deletes a managed directory and reports what it did, in the
+// same shape as removeReport does for single files.
+func removeTreeReport(stdout, stderr io.Writer, dir string) error {
+	if _, err := os.Stat(dir); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return fmt.Errorf("inspect %s: %w", dir, err)
+	}
+	if err := os.RemoveAll(dir); err != nil {
+		fmt.Fprintln(stderr, "uninstall: remove", dir, ":", err)
+		return fmt.Errorf("remove %s: %w", dir, err)
+	}
+	fmt.Fprintln(stdout, "uninstall: removed", dir)
+	return nil
 }
 
 func otherUsers(ctx context.Context, client *orchestrator.Client, currentUsername string) []string {

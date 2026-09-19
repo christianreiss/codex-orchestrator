@@ -17,7 +17,12 @@ import (
 
 // EnsureCodexBackground prepares a private release while existing sessions keep
 // their executable and sibling companion. Publication changes only the cached
-// path used by future launches; global npm installs and old prefixes are intact.
+// path used by future launches, so a running session is never disturbed.
+//
+// It never reclaims the prefix it supersedes. That is PruneEngineStore's job,
+// from a later maintenance tick: the fleet keeps exactly one version on disk,
+// but only once the superseded prefix has not been the pointer target for a
+// full tick and no live process runs from it.
 func EnsureCodexBackground(ctx context.Context, target string, enforceExact bool, logger *slog.Logger) error {
 	if logger == nil {
 		logger = slog.Default()
@@ -25,17 +30,16 @@ func EnsureCodexBackground(ctx context.Context, target string, enforceExact bool
 	if strings.TrimSpace(os.Getenv("CDX_CODEX_BIN")) != "" {
 		return fmt.Errorf("background Codex update cannot replace CDX_CODEX_BIN; update that explicit CLI or unset the override")
 	}
-	home, err := os.UserHomeDir()
+	root, err := ManagedCodexRoot()
 	if err != nil {
 		return err
 	}
-	root := filepath.Join(home, ".cxx", "engines", "codex")
 	if err := os.MkdirAll(root, 0o700); err != nil {
 		return err
 	}
 	// Only maintenance writers contend on this lock. Foreground lookup and
 	// launch never acquire it, including while downloads are slow or offline.
-	lock, err := ipc.TryAcquireExclusivePath(filepath.Join(root, ".install.lock"))
+	lock, err := ipc.TryAcquireExclusivePath(filepath.Join(root, codexInstallLock))
 	if err != nil {
 		return fmt.Errorf("Codex background installer: %w", err)
 	}
@@ -111,8 +115,9 @@ func EnsureCodexBackground(ctx context.Context, target string, enforceExact bool
 		return ctx.Err()
 	}
 	// Rename may succeed before the cache's directory sync reports an error.
-	// From this point the selected path is uncertain, so retain the validated
+	// From this point the selected path is uncertain, so keep the validated
 	// prefix even if publication fails; a concurrent launch may already use it.
+	// The next sweep reclaims whichever prefix the pointer did not select.
 	published = true
 	if err := cacheCodexContext(ctx, cli); err != nil {
 		return fmt.Errorf("publish staged Codex: %w", err)

@@ -478,8 +478,11 @@ replacement while retaining the shared schedule and content/auth sync.
 Unattended Codex installs verified GitHub assets into a separate private prefix
 under `~/.cxx/engines/codex`, including its matching code-mode companion, validates
 them, then atomically publishes the CLI cache path. Running sessions retain their
-old files; successful previous versions are retained, including after uninstall.
-No automatic pruning removes a prefix that a direct native process may use. `CDX_CODEX_BIN` remains an
+old files; the superseded prefix is reclaimed by a later maintenance tick, which
+sweeps `~/.cxx/engines/codex` down to the version the published CLI cache
+selects and skips any prefix a direct native process still runs from. The fleet
+keeps no old versions, so a downgrade redownloads the wanted release and an
+uninstall removes the store outright. `CDX_CODEX_BIN` remains an
 authoritative override. Claude follows the same activation contract using npm
 and its own private prefixes. Pending local auth is guarded before sync; a failed
 maintenance request never authorizes a credential purge.

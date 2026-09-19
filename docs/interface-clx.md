@@ -160,9 +160,13 @@ The shared background coordinator checks both enabled engines, honors the
 fleet/host auto-update policy, verifies wrapper SHA256, and stages Claude with
 `npm install --prefix <private-stage> --global=false @anthropic-ai/claude-code@<target>`.
 It validates the runnable version before atomically publishing its cached CLI
-path. Successful previous prefixes under `~/.cxx/engines/claude` are retained so
-running sessions keep their original files. These staged prefixes are retained
-after uninstall too; there is no automatic pruning. Every clx-launched Claude process suppresses native automatic updates; private
+path. The prefix it supersedes under `~/.cxx/engines/claude` survives the
+install itself, so a running session keeps its original files; a later
+maintenance tick reclaims it. The fleet keeps exactly one version on disk: every
+tick sweeps `~/.cxx/engines/claude` down to the prefix the published CLI cache
+selects, skipping any prefix a live process still runs from and retrying it on
+the next tick. An up- or downgrade is therefore always a fresh download, never a
+switch back to a retained copy, and uninstall removes the store outright. Every clx-launched Claude process suppresses native automatic updates; private
 managed installations also disable Claude's manual self-update path. `CLX_CLAUDE_BIN` remains authoritative and skips
 managed replacement. Failed staging leaves the current executable selected.
 No unattended prerequisite package-manager or global npm mutation runs.

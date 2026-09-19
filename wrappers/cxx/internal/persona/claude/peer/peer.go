@@ -287,6 +287,12 @@ func removePeer(ctx context.Context, logger *slog.Logger) error {
 		logger.Warn("peer remove skipped home-relative paths: no home directory", "err", err)
 	} else {
 		removeTreePath(filepath.Join(home, ".codex"), logger)
+		// The peer's private engine store and the pointer that selects it. The
+		// fleet keeps no old versions, so a disabled engine leaves none behind;
+		// re-enabling it downloads the current release.
+		removeTreePath(filepath.Join(home, ".cxx", "engines", "codex"), logger)
+		removeFilePath(filepath.Join(home, ".config", "codex-orchestrator", "cdx-codex-bin"), logger)
+		removeFilePath(filepath.Join(home, ".config", "codex-orchestrator", "cdx-code-mode-host-state"), logger)
 	}
 	if npmGlobalHas("codex-cli") {
 		if out, err := exec.CommandContext(ctx, "npm", "uninstall", "-g", "codex-cli").CombinedOutput(); err != nil {

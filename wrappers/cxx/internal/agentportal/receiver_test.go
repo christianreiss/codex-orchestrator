@@ -129,6 +129,39 @@ func TestClaudeReceiverFallsBackWhenOrgPolicyOwnsChannels(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(managed, "managed-settings.d", channelPolicyFile)); !os.IsNotExist(err) {
 		t.Fatal("wrote a drop-in over an organisation's own channel policy")
 	}
+	if strings.Contains(joined, "--mcp-config") {
+		t.Fatalf("fallback reintroduced a command-line server: %v", got)
+	}
+}
+
+// Claude Code resolves a `server:<name>` channel only against the enterprise,
+// managed, user, project and local MCP scopes. A server passed on the command
+// line is in none of them, and the fleet no longer writes a user-scope
+// cxx-agent entry, so a bare `server:` entry can only ever be skipped with
+// "no MCP server configured with that name". Both launch shapes must therefore
+// name the plugin, never the server.
+func TestChannelEntryNeverNamesABareServer(t *testing.T) {
+	if strings.HasPrefix(ChannelEntry, "server:") {
+		t.Fatalf("ChannelEntry must be a plugin entry, got %q", ChannelEntry)
+	}
+	dir := t.TempDir()
+	t.Setenv(envSocket, filepath.Join(dir, "portal.sock"))
+	t.Setenv(envSessionID, "session")
+	t.Setenv(channelPolicyDirEnv, filepath.Join(dir, "managed"))
+	for name, build := range map[string]func([]string) ([]string, error){
+		"receiver": ClaudeReceiverArgs,
+		"agent":    ClaudeAgentArgs,
+	} {
+		got, err := build(nil)
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		for _, arg := range got {
+			if strings.HasPrefix(arg, "server:") {
+				t.Fatalf("%s: unresolvable bare server channel %q in %v", name, arg, got)
+			}
+		}
+	}
 }
 
 // Headless and piped launches still need the tools: the fleet no longer renders

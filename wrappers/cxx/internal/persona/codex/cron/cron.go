@@ -67,6 +67,7 @@ type Result struct {
 	CodexAction    string // "no_update" | "updated" | "disable"
 	CodexTarget    string // target version if updated
 	SyncAction     string // "" when managed content converged | "failed"
+	PrunedVersions int    // superseded engine prefixes reclaimed this tick
 	Reported       bool   // /cron/report succeeded
 }
 
@@ -107,6 +108,15 @@ func TickWithOptions(ctx context.Context, cfg *config.Config, minimal bool) (Res
 	codexVer := strings.TrimSpace(codex.Version(ctx))
 	res.CodexBefore = codexVer
 	res.CodexVersion = codexVer
+
+	// Reclaim superseded engine prefixes before anything else in the tick; see
+	// the matching comment on the Claude side for why this is neither gated on
+	// the update branch nor placed after the managed content sync.
+	if pruned, err := codex.PruneEngineStore(logger); err != nil {
+		logger.Warn("cron: Codex engine sweep failed", "err", err)
+	} else {
+		res.PrunedVersions = len(pruned)
+	}
 	check, err := client.CronCheck(ctx, orchestrator.CronCheckRequest{
 		Engine:         "codex",
 		ClientVersion:  codexVer,

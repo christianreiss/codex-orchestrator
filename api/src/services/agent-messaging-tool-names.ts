@@ -51,3 +51,12 @@ export const AGENT_MESSAGING_TOOLS = [
  * step with `ClaudeReceiverArgs` in `wrappers/cxx/internal/agentportal/receiver.go`.
  */
 export const CLAUDE_AGENT_MESSAGING_SERVER = 'plugin_cxx-receiver_cxx-agent';
+
+/**
+ * The server name a Claude host sees while it still runs a wrapper that passes
+ * `cxx-agent` as an ordinary user-scope MCP entry rather than inside the
+ * plugin. Kept so config served to a host that has not self-updated yet still
+ * matches the tools that host actually has; see
+ * `claudeMessagingServerFor` in `client-config.ts`.
+ */
+export const LEGACY_CLAUDE_AGENT_MESSAGING_SERVER = 'cxx-agent';
