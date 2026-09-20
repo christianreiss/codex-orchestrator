@@ -1,3 +1,34 @@
+# 2026-09-20
+
+- **`cxx agent doctor --json` (and the receiver registry it reads for a
+  detached session) now reports `channel_policy` for Claude hosts.** The MCP
+  pipe and SessionStart hook that drive `receiver.state == "ready"` stay
+  healthy whether or not Claude Code actually approved the `cxx-receiver`
+  channel for push delivery -- those are two separate gates on the same
+  plugin. A host that fell back to
+  `--dangerously-load-development-channels` (blocked org policy, no write
+  permission for the managed-settings drop-in, etc.) previously looked
+  identical to a fully-approved one in every automated check; inbound
+  messages were silently dropped with nothing to flag it. `clx` now leaves a
+  `channel-policy` marker (`approved` / `fallback`) beside the per-launch
+  plugin directory it already builds, and doctor reads it back.
+- Investigated a live report of `plugin:cxx-receiver@inline · plugin not
+  installed` in the Claude Code TUI. Not reproducible against the current
+  fleet host/version (`clx 0.8.11`, Claude Code `2.1.278`) via
+  `wrappers/scripts/receiver-canary.py --engine claude`, which registers and
+  delivers cleanly end to end; confirmed the same message also surfaces when
+  the plugin's own declared `cxx-agent` MCP server fails to start (wrong
+  binary invocation), not only when the plugin directory is genuinely
+  missing. The doctor gap above is the actionable fix that came out of this;
+  see `shared://claude.dev-channel-approval` for the full trail.
+- Found (not yet fixed) unmanaged hygiene debt on at least one host: a
+  root-owned global npm install of `@anthropic-ai/claude-code` shadows
+  `claude` on `/usr/local/bin` and `/usr/local/sbin` alongside a separate
+  user-scope global install, both distinct from the managed private-prefix
+  CLI under `~/.cxx/engines/claude`. Not the cause of the report above --
+  a bare `claude` invocation never passes `--channels`, so it cannot produce
+  that message -- but real disk/PATH clutter worth a follow-up.
+
 # 2026-09-19
 
 - **Fixed: Claude's messaging channel was dead on every host that had not

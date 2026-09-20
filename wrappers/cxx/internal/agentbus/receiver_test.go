@@ -8,12 +8,15 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/agentportal"
 )
 
 type rewriteTransport struct{ server *httptest.Server }
@@ -35,6 +38,31 @@ func TestAutomaticListenDoesNotClaimOrCompleteNativeDeliveries(t *testing.T) {
 	}
 	if out["status"] != "automatic" || len(tracker.items) != 1 {
 		t.Fatal("manual listen competed with native receiver")
+	}
+}
+
+// A receiver can look "ready" from MCP-pipe liveness and hook identity alone
+// while Claude Code's channel gate silently fell back -- exactly the trap the
+// fleet's channel runbook warns about. Doctor must be able to tell the two
+// apart from the marker agentportal leaves beside the plugin it built.
+func TestChannelPolicyForReadsTheMarkerAgentportalWrites(t *testing.T) {
+	dir := t.TempDir()
+	socket := filepath.Join(dir, "portal.sock")
+	if got := channelPolicyFor(socket); got != "" {
+		t.Fatalf("no marker yet should report no opinion, got %q", got)
+	}
+	if got := channelPolicyFor(""); got != "" {
+		t.Fatalf("empty socket should report no opinion, got %q", got)
+	}
+	plugin := filepath.Join(dir, agentportal.PluginName)
+	if err := os.MkdirAll(plugin, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(plugin, agentportal.ChannelPolicyMarker), []byte("fallback"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := channelPolicyFor(socket); got != "fallback" {
+		t.Fatalf("expected fallback, got %q", got)
 	}
 }
 

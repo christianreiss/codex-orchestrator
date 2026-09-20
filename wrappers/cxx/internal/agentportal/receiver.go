@@ -104,7 +104,25 @@ func claudePluginArgs(args []string, receiver bool) ([]string, error) {
 		return out, nil
 	}
 	if ensureChannelPolicy() {
+		recordChannelPolicy(plugin, "approved")
 		return append(out, "--channels", ChannelEntry), nil
 	}
+	recordChannelPolicy(plugin, "fallback")
 	return append(out, "--dangerously-load-development-channels", ChannelEntry), nil
+}
+
+// ChannelPolicyMarker is the filename `cxx agent doctor` reads back to tell an
+// "approved" launch (--channels, push notifications actually reach the
+// transcript) from a "fallback" one (--dangerously-load-development-channels,
+// the confirmation prompt returned and nothing is proven delivered). The MCP
+// pipe and SessionStart hook stay healthy either way -- doctor's "ready" state
+// is about those, not about this -- so without this marker there is no way to
+// tell "receiver ready" apart from "push notifications are silently dropped",
+// which is exactly the trap the fleet's channel runbook warns about.
+const ChannelPolicyMarker = "channel-policy"
+
+// recordChannelPolicy is best-effort: a write failure here must never fail
+// the launch it is only annotating.
+func recordChannelPolicy(plugin, status string) {
+	_ = os.WriteFile(filepath.Join(plugin, ChannelPolicyMarker), []byte(status), 0600)
 }

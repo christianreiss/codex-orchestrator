@@ -12,6 +12,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/agentportal"
 )
 
 type autoReceiver struct {
@@ -324,6 +326,9 @@ func runReceiverDoctor(stdout io.Writer) error {
 			if err := c.receiver(context.Background(), "status", map[string]any{}, &status); err != nil {
 				status = map[string]any{"state": "unavailable", "reason": "broker or server unavailable"}
 			}
+			if policy := channelPolicyFor(entry["socket"]); policy != "" {
+				status["channel_policy"] = policy
+			}
 			sessions = append(sessions, map[string]any{"session_id": entry["session_id"], "engine": entry["engine"], "evidence": status})
 		}
 		return writeJSON(stdout, map[string]any{"sessions": sessions})
@@ -333,7 +338,31 @@ func runReceiverDoctor(stdout io.Writer) error {
 		_ = writeJSON(stdout, map[string]any{"session_id": client.id, "receiver": map[string]any{"state": "unavailable", "failure": sanitizedError(err)}})
 		return err
 	}
+	if policy := channelPolicyFor(os.Getenv(envSocket)); policy != "" {
+		if receiverOut, ok := out["receiver"].(map[string]any); ok {
+			receiverOut["channel_policy"] = policy
+		}
+	}
 	return writeJSON(stdout, out)
+}
+
+// channelPolicyFor reads back the marker agentportal.recordChannelPolicy
+// leaves beside a Claude launch's per-session plugin directory: "approved"
+// when Claude Code's channel gate actually registered push delivery,
+// "fallback" when it fell back to the interactive dev-channel confirmation
+// and nothing is proven delivered. Empty (not present, not readable, not a
+// Claude session) means no opinion -- callers must not treat that as failure.
+func channelPolicyFor(socket string) string {
+	socket = strings.TrimSpace(socket)
+	if socket == "" {
+		return ""
+	}
+	plugin := filepath.Join(filepath.Dir(socket), agentportal.PluginName)
+	data, err := os.ReadFile(filepath.Join(plugin, agentportal.ChannelPolicyMarker))
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(data))
 }
 
 // SessionStart hook; stdout stays empty so native prompts are unchanged.

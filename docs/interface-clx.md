@@ -991,7 +991,16 @@ the model's tool permissions; no remote permission approval capability is advert
 Peer content remains untrusted input.
 
 Inspect generation, native ID, heartbeat and per-source transport health in Clients
-or /go, or run `cxx agent doctor --json` (also exposed through `cdx` / `clx`).
+or /go, or run `cxx agent doctor --json` (also exposed through `cdx` / `clx`). For
+Claude, that output also carries `receiver.channel_policy` (`approved` /
+`fallback` / absent): the MCP pipe and SessionStart hook behind `receiver.state
+== "ready"` say nothing about whether Claude Code's channel gate actually
+approved `cxx-receiver` for push delivery, and a fallback launch (org policy,
+no write permission for the managed-settings drop-in) looks identical to an
+approved one on every other signal while silently dropping inbound messages.
+`clx` records which branch a launch took beside the per-launch plugin
+directory it builds; doctor reads that marker back rather than guessing from
+transport health alone.
 Reconnect receiver invalidates the current generation and asks the connected adapter
 to reconnect silently; stale heartbeats cannot revive it. Explicit portal leave keeps
 that source closed until reopened, without closing peer reception.

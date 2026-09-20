@@ -98,6 +98,13 @@ func TestClaudeReceiverShipsServerInPluginAndTakesApprovedChannel(t *testing.T) 
 	if !strings.Contains(string(policy), `"channelsEnabled":true`) || !strings.Contains(string(policy), PluginName) {
 		t.Fatalf("drop-in does not approve the plugin: %s", policy)
 	}
+	marker, err := os.ReadFile(filepath.Join(dir, PluginName, ChannelPolicyMarker))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(marker) != "approved" {
+		t.Fatalf("expected doctor's marker to say approved, got %q", marker)
+	}
 }
 
 // Without an approved channel the receiver must keep the old prompting shape.
@@ -131,6 +138,13 @@ func TestClaudeReceiverFallsBackWhenOrgPolicyOwnsChannels(t *testing.T) {
 	}
 	if strings.Contains(joined, "--mcp-config") {
 		t.Fatalf("fallback reintroduced a command-line server: %v", got)
+	}
+	marker, err := os.ReadFile(filepath.Join(dir, PluginName, ChannelPolicyMarker))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(marker) != "fallback" {
+		t.Fatalf("expected doctor's marker to say fallback, got %q", marker)
 	}
 }
 
