@@ -62,9 +62,11 @@ Defined in `api/src/services/mcp-tools.ts`. What you get at runtime depends on c
 **Projects** (both capabilities — always registered)
 - `project_summary` — the call an agent should make first: what the project is, what it holds, what is open on its board and what the caller holds, with file metadata rather than file bodies
 - `project_list`, `project_bootstrap`, `project_detail`, `project_changes`, `project_create`
-- `project_note_create`, `project_note_upsert`, `project_notes`
+- `project_update` — change the `about` block or roster after creation; `about` merges unless `replace` is set
+- `project_archive`, `project_unarchive` — close and reopen a project
+- `project_note_create`, `project_note_upsert`, `project_notes`, `project_note_delete`
 - `project_todo_create`, `project_todo_update`, `project_todo_done`, `project_todo_undone`
-- `project_feedback_create`, `project_feedback_list`
+- `project_feedback_create`, `project_feedback_list`, `project_feedback_update`
 - `project_files` — file metadata only
 - `project_file_list`, `project_file_read`, `project_file_upsert`, `project_file_delete`
 - `project_memory_list`, `project_memory_get`, `project_memory_upsert`, `project_memory_delete`, `project_memory_search` — project-scoped memory (see *Project memory tools* below)

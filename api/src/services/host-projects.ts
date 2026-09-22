@@ -25,7 +25,12 @@ import { nowIso } from '../util/timestamp.js';
 import { wsPublisher } from '../ws/publisher.js';
 import type { Host } from '../db/schema.js';
 import { createHash } from 'node:crypto';
-import { isProjectFeedbackType, projectFeedbackTypeList } from './project-feedback-types.js';
+import {
+  isProjectFeedbackStatus,
+  isProjectFeedbackType,
+  projectFeedbackStatusList,
+  projectFeedbackTypeList,
+} from './project-feedback-types.js';
 import { managedCocoBootstrapGuidance } from './managed-coco-skill.js';
 import { parseTags, sortedLowercase, sortedAssoc } from './memory-tags.js';
 import {
@@ -38,6 +43,7 @@ import {
   type ProjectFileEncoding,
 } from './project-file-encoding.js';
 import { ProjectBoardService, actorFromHost, type ProjectTodoWire } from './project-board.js';
+import { SettingsService } from './settings.js';
 
 const SLUG_RE = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
 const STORED_NAME_RE = /^[^\0]+$/;
@@ -87,6 +93,7 @@ export interface ProjectSummary {
   latest_seq: number;
   created_at: string | null;
   updated_at: string | null;
+  archived_at: string | null;
 }
 
 interface ProjectRow {
@@ -199,15 +206,59 @@ interface EventRow {
 export class HostProjectsService {
   constructor(private readonly db: Database) {}
 
-  async listProjects(host: Host): Promise<{ projects: ProjectSummary[] }> {
+  async listProjects(host: Host, args: Record<string, unknown> = {}): Promise<{ projects: ProjectSummary[] }> {
+    const includeArchived = this.normalizeBoolFlag(args['include_archived']);
     const rows = await this.db
       .select()
       .from(coordProjects)
-      .where(isNull(coordProjects.archivedAt))
+      .where(includeArchived ? undefined : isNull(coordProjects.archivedAt))
       .orderBy(desc(coordProjects.updatedAt), asc(coordProjects.slug));
     const summaries = rows.map((r) => this.buildSummary(this.hydrateProject(r)));
-    await this.recordLog(host.id, 'project.list', { count: summaries.length });
+    await this.recordLog(host.id, 'project.list', { count: summaries.length, include_archived: includeArchived });
     return { projects: summaries };
+  }
+
+  /**
+   * Close a project. Writes `coord_projects.archived_at`, a column that has had
+   * an index since the table was created and that every listing path already
+   * filtered on — and that no code path had ever written, so nothing could ever
+   * leave a listing. The fleet's project list had been append-only since March.
+   */
+  async archiveProject(slug: string, payload: Record<string, unknown>, host: Host): Promise<unknown> {
+    const project = await this.requireProject(slug);
+    const reason = this.optString(payload['reason']);
+    if (project.archived_at) {
+      return { project: this.buildSummary(project), archived_at: project.archived_at, status: 'unchanged' };
+    }
+    const now = nowIso();
+    await this.db
+      .update(coordProjects)
+      .set({ archivedAt: now, updatedAt: now })
+      .where(eq(coordProjects.id, project.id));
+    const updated = (await this.findById(project.id))!;
+    await this.recordEvent(updated, 'project', 'archive', 'project', String(updated.id), { archived_at: now, reason }, host.id);
+    await this.recordLog(host.id, 'project.archive', { slug: updated.slug, reason });
+    wsPublisher.publish('project.archived', { slug: updated.slug, source_host_id: host.id });
+    wsPublisher.publish('project.updated', { slug: updated.slug, source_host_id: host.id });
+    return { project: this.buildSummary(updated), archived_at: now, status: 'archived' };
+  }
+
+  async unarchiveProject(slug: string, host: Host): Promise<unknown> {
+    const project = await this.requireProject(slug);
+    if (!project.archived_at) {
+      return { project: this.buildSummary(project), archived_at: null, status: 'unchanged' };
+    }
+    const now = nowIso();
+    await this.db
+      .update(coordProjects)
+      .set({ archivedAt: null, updatedAt: now })
+      .where(eq(coordProjects.id, project.id));
+    const updated = (await this.findById(project.id))!;
+    await this.recordEvent(updated, 'project', 'unarchive', 'project', String(updated.id), { archived_at: null }, host.id);
+    await this.recordLog(host.id, 'project.unarchive', { slug: updated.slug });
+    wsPublisher.publish('project.unarchived', { slug: updated.slug, source_host_id: host.id });
+    wsPublisher.publish('project.updated', { slug: updated.slug, source_host_id: host.id });
+    return { project: this.buildSummary(updated), archived_at: null, status: 'unarchived' };
   }
 
   async createProject(payload: Record<string, unknown>, host: Host): Promise<unknown> {
@@ -324,6 +375,7 @@ export class HostProjectsService {
       about: project.about,
       roster_markdown: project.roster_markdown ?? '',
       latest_seq: project.latest_event_seq,
+      archived_at: project.archived_at,
       counts: {
         notes: notes.length,
         open_todos: todos.filter((t) => !t.done).length,
@@ -393,6 +445,43 @@ export class HostProjectsService {
     await this.recordLog(host.id, 'project.about.update', { slug: updated.slug });
     wsPublisher.publish('project.updated', { slug: updated.slug, source_host_id: host.id });
     return { project: this.buildSummary(updated), about: updated.about };
+  }
+
+  /**
+   * Change a project's `about` block or roster after creation.
+   *
+   * `updateAbout` and `updateRoster` have existed since this service did, and
+   * both were reachable over REST — but neither was ever exposed as an MCP tool,
+   * so an agent could set `about` once at `project_create` and never again. On
+   * the live `dns_switch_work` project that left `about.status` reading
+   * "diagnosed_not_migrated" and `about.last_verified` reading an old date, with
+   * no way for the agent that knew better to correct either.
+   *
+   * `about` merges by default. An agent bumping `status` and `last_verified`
+   * should not have to restate the owner, scope and summary to do it — that is
+   * how a field gets dropped. `replace: true` overwrites wholesale, and passing
+   * `about: {}` with it is how you clear the block.
+   */
+  async updateProject(slug: string, payload: Record<string, unknown>, host: Host): Promise<unknown> {
+    const project = await this.requireProject(slug);
+    const touchesAbout = payload['about'] !== undefined;
+    const touchesRoster = payload['roster_markdown'] !== undefined || payload['markdown'] !== undefined;
+    if (!touchesAbout && !touchesRoster) {
+      throw new ValidationError('Validation failed', {
+        extra: { errors: { about: ['nothing to update: pass about or roster_markdown'] } },
+      });
+    }
+
+    let result: Record<string, unknown> = {};
+    if (touchesAbout) {
+      const incoming = this.normalizeAbout(payload['about']) ?? {};
+      const merged = payload['replace'] === true ? incoming : { ...(project.about ?? {}), ...incoming };
+      result = { ...result, ...(await this.updateAbout(slug, { about: merged }, host) as Record<string, unknown>) };
+    }
+    if (touchesRoster) {
+      result = { ...result, ...(await this.updateRoster(slug, payload, host) as Record<string, unknown>) };
+    }
+    return result;
   }
 
   async updateRoster(slug: string, payload: Record<string, unknown>, host: Host): Promise<unknown> {
@@ -491,21 +580,6 @@ export class HostProjectsService {
     });
 
     return { project: project.slug, note: saved };
-  }
-
-  async deleteNote(slug: string, id: number, host: Host): Promise<unknown> {
-    const project = await this.requireProject(slug);
-    const existing = await this.db
-      .select()
-      .from(coordProjectNotes)
-      .where(and(eq(coordProjectNotes.projectId, project.id), eq(coordProjectNotes.id, id)))
-      .limit(1);
-    if (!existing[0]) throw new NotFoundError('Note not found');
-    await this.db.delete(coordProjectNotes).where(and(eq(coordProjectNotes.projectId, project.id), eq(coordProjectNotes.id, id)));
-    await this.recordEvent(project, 'note', 'delete', 'note', String(id), { id }, host.id);
-    await this.recordLog(host.id, 'project.note.delete', { slug: project.slug, note_id: id });
-    wsPublisher.publish('project.note.deleted', { slug: project.slug, note_id: id, source_host_id: host.id });
-    return { project: project.slug, deleted: id };
   }
 
   // ── todos, which are now a view of the project board ──────────────────────
@@ -751,6 +825,78 @@ export class HostProjectsService {
   }
 
   /**
+   * Triage a feedback item. `status` is the point: the column has existed since
+   * the table did and nothing ever wrote anything but 'open', so the inbox only
+   * ever grew.
+   */
+  async updateFeedback(slug: string, id: number, payload: Record<string, unknown>, host: Host): Promise<unknown> {
+    const project = await this.requireProject(slug);
+    const existing = await this.fetchFeedbackById(project.id, id);
+    if (!existing) throw new NotFoundError('Project feedback not found');
+
+    const patch: Record<string, unknown> = {};
+    if (payload['status'] !== undefined) {
+      const status = String(payload['status'] ?? '').trim().toLowerCase();
+      if (!isProjectFeedbackStatus(status)) {
+        throw new ValidationError('Validation failed', {
+          extra: { errors: { status: [`status must be one of: ${projectFeedbackStatusList()}`] } },
+        });
+      }
+      patch['status'] = status;
+    }
+    if (payload['type'] !== undefined) {
+      const type = String(payload['type'] ?? '').trim().toLowerCase();
+      if (!isProjectFeedbackType(type)) {
+        throw new ValidationError('Validation failed', {
+          extra: { errors: { type: [`type must be one of: ${projectFeedbackTypeList()}`] } },
+        });
+      }
+      patch['type'] = type;
+    }
+    for (const field of ['title', 'body'] as const) {
+      if (payload[field] === undefined) continue;
+      const text = String(payload[field] ?? '').trim();
+      if (!text) {
+        throw new ValidationError('Validation failed', { extra: { errors: { [field]: [`${field} cannot be blank`] } } });
+      }
+      patch[field] = text;
+    }
+    if (Object.keys(patch).length === 0) {
+      throw new ValidationError('Validation failed', {
+        extra: { errors: { status: ['nothing to update: pass status, type, title or body'] } },
+      });
+    }
+
+    const now = nowIso();
+    await this.db
+      .update(coordProjectFeedback)
+      .set({ ...patch, updatedAt: now })
+      .where(and(eq(coordProjectFeedback.projectId, project.id), eq(coordProjectFeedback.id, id)));
+    const row = await this.fetchFeedbackById(project.id, id);
+    await this.recordEvent(project, 'feedback', 'update', 'feedback', String(id), row as unknown as Record<string, unknown>, host.id);
+    await this.recordLog(host.id, 'project.feedback.update', { slug: project.slug, feedback_id: id, ...patch });
+    wsPublisher.publish('project.feedback.updated', { slug: project.slug, feedback_id: id, source_host_id: host.id });
+    return { project: project.slug, feedback: row };
+  }
+
+  async deleteNote(slug: string, id: number, host: Host): Promise<unknown> {
+    const project = await this.requireProject(slug);
+    const rows = await this.db
+      .select()
+      .from(coordProjectNotes)
+      .where(and(eq(coordProjectNotes.projectId, project.id), eq(coordProjectNotes.id, id)))
+      .limit(1);
+    if (!rows[0]) throw new NotFoundError('Note not found');
+    await this.db
+      .delete(coordProjectNotes)
+      .where(and(eq(coordProjectNotes.projectId, project.id), eq(coordProjectNotes.id, id)));
+    await this.recordEvent(project, 'note', 'delete', 'note', String(id), { id, header: rows[0].header }, host.id);
+    await this.recordLog(host.id, 'project.note.delete', { slug: project.slug, note_id: id });
+    wsPublisher.publish('project.note.deleted', { slug: project.slug, note_id: id, source_host_id: host.id });
+    return { project: project.slug, deleted: id };
+  }
+
+  /**
    * Enumerate a project's memories. Previews by default: this is the entry point
    * a zero-knowledge agent uses to discover what exists, so it must stay cheap
    * enough to always call. Full content is one `getMemory` away.
@@ -991,18 +1137,39 @@ export class HostProjectsService {
    * test has to learn that todos moved: `new HostProjectsService(db)` still
    * means the same thing. `this` escaping into it is deliberate and safe — the
    * board only calls back into `requireProject` and `_recordEventTx`, and never
-   * during construction. It carries no settings service because the shim is not
-   * gated by the board module flag.
+   * during construction.
+   *
+   * It DOES carry a settings service, despite `project_todo_*` not being gated
+   * by the board module flag. Those methods never consult it — they go through
+   * `withBoard`, which does not check — so passing one gates nothing that was
+   * ungated before. What it fixes is `getEnabled()`, which returns false when
+   * there is no settings service: `project_summary` embeds the board, and
+   * without this it reported `status: "disabled"` on every fleet, including the
+   * ones with the board switched on.
    */
   private board(): ProjectBoardService {
-    this.boardService ??= new ProjectBoardService({ db: this.db, projects: this });
+    this.boardService ??= new ProjectBoardService({
+      db: this.db,
+      projects: this,
+      settings: new SettingsService(this.db),
+    });
     return this.boardService;
   }
   private boardService: ProjectBoardService | null = null;
 
+  /**
+   * Archiving is a visibility state, not a tombstone: an archived project drops
+   * out of `project_list`, the board sweep and the MCP resource catalogue, but
+   * stays fully readable and writable by explicit slug. A mail migration that
+   * shipped is exactly the thing somebody comes back to read six months later,
+   * and `deleteBySlug` already exists for actually getting rid of one.
+   *
+   * `createProject` checks for duplicates with `includeArchived: true`, so an
+   * archived slug still cannot be taken by a new project.
+   */
   async requireProject(slug: string): Promise<ProjectRow> {
     const normalized = this.normalizeSlug(slug);
-    const found = await this.findBySlug(normalized);
+    const found = await this.findBySlug(normalized, true);
     if (!found) throw new NotFoundError('Project not found');
     return found;
   }
@@ -1431,6 +1598,9 @@ export class HostProjectsService {
       latest_seq: project.latest_event_seq,
       created_at: project.created_at,
       updated_at: project.updated_at,
+      // Without this an `include_archived` listing is a mixed list the caller
+      // cannot tell apart, which is worse than not offering the flag.
+      archived_at: project.archived_at,
     };
   }
 

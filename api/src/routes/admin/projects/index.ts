@@ -44,6 +44,15 @@ function parseInteger(value: unknown): number | null {
   return null;
 }
 
+/** The `parseInteger` + positivity check every `:id` route repeats. */
+function positiveId(value: unknown, label: string): number {
+  const id = parseInteger(value);
+  if (id === null || id <= 0) {
+    throw new ValidationError(`${label} must be a positive integer`, { param: 'id' });
+  }
+  return id;
+}
+
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
 }
@@ -134,6 +143,24 @@ export async function registerAdminProjectsRoutes(app: FastifyInstance, ctx: Rou
     async (req) => {
       return drafts.assist(decodeURIComponent(req.params.slug));
     },
+  );
+
+  app.get<{ Params: { slug: string } }>(
+    '/admin/projects/:slug/summary',
+    { preHandler: app.requireAdmin },
+    async (req) => projects.summary(decodeURIComponent(req.params.slug)),
+  );
+
+  app.post<{ Params: { slug: string } }>(
+    '/admin/projects/:slug/archive',
+    { preHandler: app.requireAdmin },
+    async (req) => projects.setArchived(decodeURIComponent(req.params.slug), true, null),
+  );
+
+  app.post<{ Params: { slug: string } }>(
+    '/admin/projects/:slug/unarchive',
+    { preHandler: app.requireAdmin },
+    async (req) => projects.setArchived(decodeURIComponent(req.params.slug), false, null),
   );
 
   app.post<{ Params: { slug: string }; Body: Record<string, unknown> }>(
@@ -275,6 +302,12 @@ export async function registerAdminProjectsRoutes(app: FastifyInstance, ctx: Rou
     async (req) => content.upsertFile(decodeURIComponent(req.params.slug), asRecord(req.body), null),
   );
 
+  app.get<{ Params: { slug: string; id: string } }>(
+    '/admin/projects/:slug/files/:id',
+    { preHandler: app.requireAdmin },
+    async (req) => content.readFile(decodeURIComponent(req.params.slug), positiveId(req.params.id, 'file id')),
+  );
+
   app.delete<{ Params: { slug: string; id: string } }>(
     '/admin/projects/:slug/files/:id',
     { preHandler: app.requireAdmin },
@@ -299,5 +332,17 @@ export async function registerAdminProjectsRoutes(app: FastifyInstance, ctx: Rou
     '/admin/projects/:slug/feedback',
     { preHandler: app.requireAdmin },
     async (req) => content.createFeedback(decodeURIComponent(req.params.slug), asRecord(req.body), null),
+  );
+
+  app.post<{ Params: { slug: string; id: string }; Body: Record<string, unknown> }>(
+    '/admin/projects/:slug/feedback/:id',
+    { preHandler: app.requireAdmin },
+    async (req) =>
+      content.updateFeedback(
+        decodeURIComponent(req.params.slug),
+        positiveId(req.params.id, 'feedback id'),
+        asRecord(req.body),
+        null,
+      ),
   );
 }

@@ -7,6 +7,9 @@
   import ArrowLeft from "@lucide/svelte/icons/arrow-left";
   import Ellipsis from "@lucide/svelte/icons/ellipsis";
   import Trash2 from "@lucide/svelte/icons/trash-2";
+  import Archive from "@lucide/svelte/icons/archive";
+  import ArchiveRestore from "@lucide/svelte/icons/archive-restore";
+  import { Badge } from "$lib/components/ui/badge";
   import PageHeader from "$lib/components/layout/PageHeader.svelte";
   import { Button } from "$lib/components/ui/button";
   import * as DropdownMenu from "$lib/components/ui/dropdown-menu";
@@ -16,7 +19,13 @@
   import ConfirmDialog from "$lib/components/projects/ConfirmDialog.svelte";
   import { reactiveOptions } from "$lib/components/projects/reactive-options.svelte.js";
   import { ApiError } from "$lib/api/client";
-  import { deleteProject, fetchProject, projectKeys } from "$lib/api/projects";
+  import {
+    archiveProject,
+    deleteProject,
+    fetchProjectSummary,
+    projectKeys,
+    unarchiveProject,
+  } from "$lib/api/projects";
 
   let { children } = $props();
 
@@ -24,10 +33,13 @@
   const slug = $derived(page.params.slug ?? "");
   const currentPath = $derived(page.url.pathname);
 
+  // The lean summary, not `fetchProject`: this query runs on every tab, and the
+  // detail response carries every file body — 597 KB on one live project, paid
+  // again for the Activity tab and again for Feedback.
   const detail = createQuery(
     reactiveOptions(() => ({
-      queryKey: projectKeys.detail(slug),
-      queryFn: () => fetchProject(slug),
+      queryKey: projectKeys.summary(slug),
+      queryFn: () => fetchProjectSummary(slug),
       enabled: slug.length > 0,
     })),
   );
@@ -46,6 +58,22 @@
     },
   });
 
+  const archivedAt = $derived($detail.data?.project?.archived_at ?? null);
+
+  // Archiving is reversible and keeps the project readable, so unlike Delete it
+  // needs no confirmation dialog.
+  const archiveMutation = createMutation({
+    mutationFn: (archive: boolean) => (archive ? archiveProject(slug) : unarchiveProject(slug)),
+    onSuccess: (_data, archive) => {
+      toast.success(archive ? `Archived ${slug}` : `Reopened ${slug}`);
+      void qc.invalidateQueries({ queryKey: projectKeys.list });
+      void qc.invalidateQueries({ queryKey: projectKeys.detail(slug) });
+    },
+    onError: (err) => {
+      toast.error(err instanceof ApiError ? err.message : "Could not change archive state");
+    },
+  });
+
   const title = $derived(
     $detail.data?.project?.about &&
       typeof ($detail.data.project.about as Record<string, unknown>).title === "string"
@@ -53,12 +81,17 @@
       : slug,
   );
   const counts = $derived($detail.data?.project?.counts);
-  const feedbackList = $derived($detail.data?.feedback ?? []);
-  const bugCount = $derived(feedbackList.filter((f) => f.type === "bug").length);
+  // Counted server-side now. It used to be `feedback.filter(f => f.type === "bug")`
+  // over the full feedback array, which is part of why the whole tree had to be
+  // fetched to render a number.
+  const bugCount = $derived($detail.data?.project?.feedback_by_type?.bug ?? 0);
 </script>
 
 <PageHeader title={title} subtitle={slug !== title ? slug : undefined}>
   {#snippet actions()}
+    {#if archivedAt}
+      <Badge variant="outline">Archived</Badge>
+    {/if}
     <Button variant="outline" href="{base}/projects">
       <ArrowLeft class="h-4 w-4" />
       Back
@@ -71,6 +104,17 @@
         <Ellipsis class="h-4 w-4" /> More
       </DropdownMenu.Trigger>
       <DropdownMenu.Content align="end" class="w-56">
+        <DropdownMenu.Item
+          onclick={() => $archiveMutation.mutate(!archivedAt)}
+          disabled={$archiveMutation.isPending}
+        >
+          {#if archivedAt}
+            <ArchiveRestore class="h-4 w-4" /> Reopen project
+          {:else}
+            <Archive class="h-4 w-4" /> Archive project
+          {/if}
+        </DropdownMenu.Item>
+        <DropdownMenu.Separator />
         <DropdownMenu.Item
           onclick={() => (confirmOpen = true)}
           class="text-destructive focus:bg-destructive-muted focus:text-destructive"

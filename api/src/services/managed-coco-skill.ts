@@ -23,6 +23,10 @@ CoCo coordination state is project-only — projects carry notes, todos, files, 
 - Use project_list or project_create to find or create shared workspaces.
 - Use project_changes to catch up, passing payloads "preview" so a long note does not arrive in full.
 - Write durable handoffs with project_note_upsert, project_file_upsert, project_memory_upsert, and project_feedback_create.
+- Keep the about block true as the work moves: project_update merges what you pass into it, so recording a new status or verification date does not mean restating owner and scope. If what a project says about itself is stale, correcting it is part of the task you are already doing.
+- Attach a binary artifact — a PDF, an archive, a screenshot — with project_file_upsert and encoding "base64". The size and sha256 then describe the file itself, so they can be checked against the copy on disk. Files cap at 4 MiB decoded; anything larger belongs in transfer_put or a repository.
+- Close a review item with project_feedback_update rather than leaving it open: status moves through open, acknowledged, resolved and dismissed. An inbox nobody closes is one nobody reads.
+- Finish with project_archive when the work is done. The project leaves project_list and stays readable by slug, and project_unarchive reopens it.
 - Read shared artifacts with project_files, project_notes, project_feedback_list, project_memory_list, project_memory_get, project://{slug}/summary, project://{slug}/files/{stored_name}, and project://{slug}/memory/{key}.
 - Read one file with project_file_read. When you only need part of it, or it is large, pass offset and limit and follow next_offset while truncated is true — the same contract shared_memory_read uses.
 - Avoid project_bootstrap, project_detail, project_file_list and project://{slug} unless you specifically want every byte a project holds. They inline every file body and every note body, which on a project carrying real artifacts is hundreds of kilobytes and can exhaust your context before you have done any work. project_summary, project_files and project_notes are the same information without the payload.
@@ -124,7 +128,8 @@ export function managedCocoBootstrapGuidance(): {
       'Use project_memory_list to enumerate durable project memory without guessing search terms.',
       'Read one artifact with project_file_read; pass offset and limit on a large one and follow next_offset while truncated is true.',
       'project_summary already shows the board. Reach for project_board_list when you want to filter by column, role, mine or unclaimed, or to look across every project. Claim with project_card_claim and your role, passing worktree_path and username, and project_card_release the moment you stop.',
-      'Write durable results with project_note_upsert, project_file_upsert, project_memory_upsert, or project_feedback_create.',
+      'Write durable results with project_note_upsert, project_file_upsert, project_memory_upsert, or project_feedback_create. Use encoding "base64" on project_file_upsert for a binary artifact.',
+      'Keep the project honest as you go: project_update to correct the about block, project_feedback_update to close a review item, project_archive when the work is finished.',
       'For knowledge that is not specific to this project, use shared_memory_list to see what the fleet already knows, then shared_memory_write or shared_memory_append.',
       'If anything you read turns out to be wrong, correct it before you finish. Before replacing an existing shared document through shared_memory_write or resource_create/resource_update on shared://, reconstruct the complete body from offset 0 through every next_offset with one stable memory.sha256, preserve unaffected content, and pass it as expected_sha256. Use shared_memory_delete or resource_delete on shared:// only when the whole record is invalid or superseded. Do not leave the correction sitting next to the stale record.',
     ],

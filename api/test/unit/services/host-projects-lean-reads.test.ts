@@ -241,8 +241,11 @@ describe('project_summary', () => {
     expect(notes[0]!['preview']).toHaveLength(280);
     expect(notes[0]!['content_length']).toBe(5000);
 
-    // 55 KB of stored artifacts; the orientation payload stays small.
-    expect(JSON.stringify(out).length).toBeLessThan(4000);
+    // 55 KB of stored artifacts; the orientation payload stays small, and most
+    // of what is left is the fixed CoCo guidance block rather than project data.
+    // That it does not GROW with the artifacts is asserted against real MySQL in
+    // test/integration/projects-client/lean-reads.test.ts.
+    expect(JSON.stringify(out).length).toBeLessThan(5000);
   });
 
   it('reports a disabled board rather than failing, like project_board_list', async () => {

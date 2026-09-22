@@ -14,7 +14,7 @@
  * additionally check the flag — the legacy admin paths bypassed the gate
  * for management operations as well, so we follow that convention.
  */
-import { and, asc, desc, eq, gt } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, sql } from 'drizzle-orm';
 import type { Database } from '../db/client.js';
 import {
   coordProjectEvents,
@@ -49,6 +49,7 @@ export interface ProjectSummary {
   latest_seq: number;
   created_at: string;
   updated_at: string;
+  archived_at: string | null;
 }
 
 export function normalizeSlug(value: unknown): string {
@@ -106,6 +107,7 @@ function buildSummary(project: typeof coordProjects.$inferSelect): ProjectSummar
     latest_seq: project.latestEventSeq,
     created_at: project.createdAt,
     updated_at: project.updatedAt,
+    archived_at: project.archivedAt ?? null,
   };
 }
 
@@ -350,6 +352,7 @@ export class ProjectsService {
         latest_seq: project.latestEventSeq,
         created_at: project.createdAt,
         updated_at: project.updatedAt,
+        archived_at: project.archivedAt ?? null,
         counts: {
           notes: notes.length,
           open_todos: todoViews.filter((t) => !t.done).length,
@@ -363,6 +366,77 @@ export class ProjectsService {
       files: fileViews,
       feedback,
       recent_changes: recentChanges.reverse(),
+    };
+  }
+
+  /**
+   * The console's counts strip, without the project's contents.
+   *
+   * `[slug]/+layout.svelte` runs on every tab, and it was calling `detail()` —
+   * which carries every file body. On a project with 49 files that is a 597 KB
+   * response fetched to render six numbers, and it was fetched again for the
+   * Activity tab and the Feedback tab. `feedback_by_type` is here because the
+   * Bugs tile used to be computed by filtering the full feedback array client
+   * side, which is the other reason the whole tree had to come down the wire.
+   */
+  async summary(rawSlug: string): Promise<{
+    project: {
+      slug: string;
+      about: Record<string, unknown> | null;
+      roster_markdown: string;
+      latest_seq: number;
+      created_at: string;
+      updated_at: string;
+      archived_at: string | null;
+      counts: Record<string, number>;
+      feedback_by_type: Record<string, number>;
+    };
+  }> {
+    const project = await this.requireProject(rawSlug);
+    const [noteRows, todos, fileRows, feedbackRows, memoryRows] = await Promise.all([
+      this.db.select({ id: coordProjectNotes.id }).from(coordProjectNotes).where(eq(coordProjectNotes.projectId, project.id)),
+      this.board().todoRowsFor(project.id),
+      this.db
+        .select({ id: coordProjectFiles.id, bytes: sql<number>`octet_length(${coordProjectFiles.content})` })
+        .from(coordProjectFiles)
+        .where(eq(coordProjectFiles.projectId, project.id)),
+      this.db
+        .select({ id: coordProjectFeedback.id, type: coordProjectFeedback.type, status: coordProjectFeedback.status })
+        .from(coordProjectFeedback)
+        .where(eq(coordProjectFeedback.projectId, project.id)),
+      this.db.select({ id: coordProjectMemories.id }).from(coordProjectMemories).where(eq(coordProjectMemories.projectId, project.id)),
+    ]);
+
+    const todoViews = todos.map(toTodoView);
+    const byType: Record<string, number> = {};
+    const byStatus: Record<string, number> = {};
+    for (const row of feedbackRows) {
+      byType[row.type] = (byType[row.type] ?? 0) + 1;
+      byStatus[row.status] = (byStatus[row.status] ?? 0) + 1;
+    }
+
+    return {
+      project: {
+        slug: project.slug,
+        about: (project.aboutJson && typeof project.aboutJson === 'object' && !Array.isArray(project.aboutJson))
+          ? (project.aboutJson as Record<string, unknown>)
+          : null,
+        roster_markdown: project.rosterMarkdown ?? '',
+        latest_seq: project.latestEventSeq,
+        created_at: project.createdAt,
+        updated_at: project.updatedAt,
+        archived_at: project.archivedAt ?? null,
+        counts: {
+          notes: noteRows.length,
+          open_todos: todoViews.filter((t) => !t.done).length,
+          done_todos: todoViews.filter((t) => t.done).length,
+          files: fileRows.length,
+          files_bytes: fileRows.reduce((sum, f) => sum + Number(f.bytes ?? 0), 0),
+          feedback: feedbackRows.length,
+          memories: memoryRows.length,
+        },
+        feedback_by_type: { ...byType, ...Object.fromEntries(Object.entries(byStatus).map(([k, v]) => [`status_${k}`, v])) },
+      },
     };
   }
 
@@ -381,6 +455,33 @@ export class ProjectsService {
 
     const refreshed = await this.requireProject(rawSlug);
     return { project: buildSummary(refreshed), about };
+  }
+
+  /**
+   * Close or reopen a project. `coord_projects.archived_at` has had an index
+   * since the table was created and every listing path already filtered on it;
+   * nothing had ever written it, so no project could leave a listing.
+   */
+  async setArchived(rawSlug: string, archived: boolean, sourceHostId: number | null = null): Promise<{ project: ProjectSummary; archived_at: string | null }> {
+    const project = await this.requireProject(rawSlug);
+    const alreadyThere = archived === (project.archivedAt !== null);
+    if (alreadyThere) {
+      return { project: buildSummary(project), archived_at: project.archivedAt ?? null };
+    }
+    const nowTs = nowIso();
+    const archivedAt = archived ? nowTs : null;
+    await this.db
+      .update(coordProjects)
+      .set({ archivedAt, updatedAt: nowTs })
+      .where(eq(coordProjects.id, project.id));
+    await this.recordEvent(project.id, 'project', archived ? 'archive' : 'unarchive', 'project', project.id, { archived_at: archivedAt }, sourceHostId);
+
+    wsPublisher.publish(archived ? 'project.archived' : 'project.unarchived', { slug: project.slug, id: project.id });
+    wsPublisher.publish('project.updated', { slug: project.slug, id: project.id });
+    wsPublisher.publish('project.changed', { slug: project.slug });
+
+    const refreshed = await this.requireProject(rawSlug);
+    return { project: buildSummary(refreshed), archived_at: archivedAt };
   }
 
   async updateRoster(rawSlug: string, payload: { roster_markdown?: unknown; markdown?: unknown }, sourceHostId: number | null = null): Promise<{ project: ProjectSummary; roster_markdown: string }> {
@@ -455,6 +556,7 @@ export interface ProjectDetail {
     latest_seq: number;
     created_at: string;
     updated_at: string;
+    archived_at: string | null;
     counts: { notes: number; open_todos: number; done_todos: number; files: number; feedback: number };
   };
   notes: typeof coordProjectNotes.$inferSelect[];

@@ -78,8 +78,50 @@
   now derived from the stored name's extension when the caller gives none; an explicit value always
   wins and an unrecognised extension stays NULL.
 
+- **A project could be started but never finished.** `coord_projects.archived_at` had existed
+  since the table did, with its own index, and every listing path already filtered on it — and no
+  code anywhere wrote it, so the fleet's project list had been append-only since March.
+  `coord_project_feedback.status` had a default of `open` and no writer, so every review item ever
+  filed was still open. `ProjectsService.updateAbout` and `updateRoster` existed and were reachable
+  over REST but had no MCP tool, so an agent could set `about` once at `project_create` and never
+  correct it; on the live `dns_switch_work` project that left `about.status` and
+  `about.last_verified` both stale with no way for the agent that knew better to fix either.
+
+  New: `project_update` (merges into the existing `about` by default, `replace: true` to overwrite,
+  so bumping a status does not mean restating owner and scope), `project_archive` /
+  `project_unarchive`, `project_feedback_update` (`open | acknowledged | resolved | dismissed`), and
+  `project_note_delete`, which the admin API had and MCP did not. `project_list` gains
+  `include_archived`. Archiving is a visibility state, not a tombstone: an archived project leaves
+  the listings and the resource catalogue, keeps its slug reserved, and stays readable and writable
+  by slug, because a finished migration is exactly the thing somebody comes back to read. The four
+  mutating tools join `CURATION_TOOLS`, so a clx host is not prompted mid-task for the calls that
+  close a project out.
+
+  The console gets the same: Archive/Reopen beside Delete, a *Show archived* filter on the list, and
+  status controls on the feedback page, which was create-only.
+
+- **The admin console fetched every file body on every project tab.**
+  `[slug]/+layout.svelte` called `GET /admin/projects/{slug}` — the full tree, file contents and all
+  — to render six numbers in its header, on the Activity tab and the Feedback tab as much as on
+  Files. New `GET /admin/projects/{slug}/summary` returns the counts and the about block and nothing
+  else; the Bugs tile now reads a server-side count instead of filtering the whole feedback array.
+  The files page fetches the one body being edited through the new
+  `GET /admin/projects/{slug}/files/{id}` rather than reading it out of the listing.
+
+- **Fixed in passing:** `project_summary`'s board block reported `status: "disabled"` on every
+  fleet, including ones with the board switched on. `HostProjectsService` builds its own
+  `ProjectBoardService` without a settings service — deliberately, since `project_todo_*` is not
+  gated by the board flag — and `getEnabled()` returns false when there is none. It now gets one;
+  the todo methods never consult it, so nothing that was ungated becomes gated. Found by the
+  end-to-end rehearsal in `test/integration/projects-client/mail-migration.test.ts`, which walks a
+  mail server migration from charter through discovery, board, review and cutover to archive.
+
+- `project.memory.*` was in `DEFAULT_INVALIDATIONS` but never in `PROJECT_SCOPED_EVENTS`, so an
+  agent writing a project memory refreshed the project list and left an open Activity tab stale.
+
 - The managed `coco` skill now opens with `project_summary`, names the windowing contract for large
-  artifacts, and says plainly which calls to avoid and why. Its sha256 changes, so hosts resync it.
+  artifacts, says plainly which calls to avoid and why, and carries the lifecycle steps — correcting
+  the about block, closing a review item, archiving when the work is done. Its sha256 changes, so hosts resync it.
 
 # 2026-09-20
 

@@ -15,6 +15,8 @@
   import { Skeleton } from "$lib/components/ui/skeleton";
   import { EmptyState } from "$lib/components/ui/empty-state";
   import { Input } from "$lib/components/ui/input";
+  import { Checkbox } from "$lib/components/ui/checkbox";
+  import { Badge } from "$lib/components/ui/badge";
   import { relativeTime } from "$lib/utils/format";
   import * as Table from "$lib/components/ui/table";
   import SortableHead from "$lib/components/data-table/SortableHead.svelte";
@@ -128,11 +130,17 @@
   type SortKey = "title" | "updated" | "activity";
   let sortKey = $state<SortKey>("updated");
   let sortDir = $state<"asc" | "desc">("desc");
+  // The admin list endpoint returns archived projects too, because the console
+  // is where you go to find one again. Hidden by default so a finished project
+  // stops competing for attention with live work.
+  let showArchived = $state(false);
+  const archivedCount = $derived(projects.filter((project) => project.archived_at).length);
   const visibleProjects = $derived.by(() => {
     const query = search.trim().toLowerCase();
+    const scoped = showArchived ? projects : projects.filter((project) => !project.archived_at);
     const rows = query
-      ? projects.filter((project) => [project.title, project.slug, project.description].some((value) => value?.toLowerCase().includes(query)))
-      : projects;
+      ? scoped.filter((project) => [project.title, project.slug, project.description].some((value) => value?.toLowerCase().includes(query)))
+      : scoped;
     const direction = sortDir === "asc" ? 1 : -1;
     return [...rows].sort((a, b) => {
       const left = sortKey === "title" ? (a.title || a.slug) : sortKey === "updated" ? (a.updated_at ?? "") : String(a.latest_seq ?? 0).padStart(16, "0");
@@ -244,14 +252,22 @@
   <div class:opacity-60={!enabled} class="overflow-hidden rounded-md border bg-card">
     <div class="flex min-h-11 flex-wrap items-center justify-between gap-2 border-b px-3 py-2">
       <label class="relative min-w-[14rem] flex-1 sm:max-w-sm"><Search class="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" /><Input bind:value={search} class="h-8 pl-8" placeholder="Search title, slug, or description" aria-label="Search projects" /></label>
-      <span class="text-xs text-muted-foreground">{visibleProjects.length} of {projects.length} projects</span>
+      <div class="flex items-center gap-3">
+        {#if archivedCount > 0}
+          <label class="flex cursor-pointer items-center gap-1.5 text-xs text-muted-foreground">
+            <Checkbox bind:checked={showArchived} aria-label="Show archived projects" />
+            Show archived ({archivedCount})
+          </label>
+        {/if}
+        <span class="text-xs text-muted-foreground">{visibleProjects.length} of {projects.length} projects</span>
+      </div>
     </div>
     <Table.Root>
       <Table.Header><Table.Row><SortableHead label="Project" active={sortKey === "title"} dir={sortDir} onclick={() => toggleSort("title")} /><Table.Head>Description</Table.Head><Table.Head class="text-right">Open work</Table.Head><SortableHead label="Activity" active={sortKey === "activity"} dir={sortDir} onclick={() => toggleSort("activity")} /><SortableHead label="Updated" active={sortKey === "updated"} dir={sortDir} onclick={() => toggleSort("updated")} /><Table.Head class="w-10" /></Table.Row></Table.Header>
       <Table.Body>
         {#each visibleProjects as project (project.slug)}
           <Table.Row>
-            <Table.Cell><a href={`${base}/projects/${encodeURIComponent(project.slug)}`} class="font-medium hover:text-primary hover:underline">{project.title || project.slug}</a><code class="ml-2 text-xs text-muted-foreground">{project.slug}</code></Table.Cell>
+            <Table.Cell><a href={`${base}/projects/${encodeURIComponent(project.slug)}`} class="font-medium hover:text-primary hover:underline">{project.title || project.slug}</a><code class="ml-2 text-xs text-muted-foreground">{project.slug}</code>{#if project.archived_at}<Badge variant="outline" class="ml-2">Archived</Badge>{/if}</Table.Cell>
             <Table.Cell class="max-w-xl truncate text-muted-foreground">{project.description || "—"}</Table.Cell>
             <Table.Cell class="text-right tabular-nums">{project.counts?.open_todos ?? 0} todos</Table.Cell>
             <Table.Cell class="text-right tabular-nums">{project.latest_seq}</Table.Cell>

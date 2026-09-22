@@ -396,6 +396,51 @@ const BUILDER_CASES: BuilderCase[] = [
     body: { type: "bug", title: "title", body: "body" },
     slugged: true,
   },
+  {
+    name: "fetchProjectSummary",
+    label: "fetchProjectSummary(slug)",
+    call: () => projects.fetchProjectSummary(SLUG),
+    method: "GET",
+    path: `/admin/projects/${ENCODED}/summary`,
+    body: undefined,
+    slugged: true,
+  },
+  {
+    name: "fetchFile",
+    label: "fetchFile(slug, 5)",
+    call: () => projects.fetchFile(SLUG, 5),
+    method: "GET",
+    path: `/admin/projects/${ENCODED}/files/5`,
+    body: undefined,
+    slugged: true,
+  },
+  {
+    name: "updateFeedback",
+    label: "updateFeedback(slug, 7, {status})",
+    call: () => projects.updateFeedback(SLUG, 7, { status: "resolved" }),
+    method: "POST",
+    path: `/admin/projects/${ENCODED}/feedback/7`,
+    body: { status: "resolved" },
+    slugged: true,
+  },
+  {
+    name: "archiveProject",
+    label: "archiveProject(slug)",
+    call: () => projects.archiveProject(SLUG),
+    method: "POST",
+    path: `/admin/projects/${ENCODED}/archive`,
+    body: {},
+    slugged: true,
+  },
+  {
+    name: "unarchiveProject",
+    label: "unarchiveProject(slug)",
+    call: () => projects.unarchiveProject(SLUG),
+    method: "POST",
+    path: `/admin/projects/${ENCODED}/unarchive`,
+    body: {},
+    slugged: true,
+  },
 ];
 
 beforeEach(() => {
@@ -419,7 +464,7 @@ describe("slug encoding", () => {
   const SLUGGED_CASES = BUILDER_CASES.filter((builderCase) => builderCase.slugged);
 
   it("covers every builder that takes a slug", () => {
-    assert.equal(SLUGGED_CASES.length, 28);
+    assert.equal(SLUGGED_CASES.length, 33);
   });
 
   for (const builderCase of SLUGGED_CASES) {
@@ -519,6 +564,11 @@ describe("module surface", () => {
     "deleteNote",
     "deleteProject",
     "deleteTodo",
+    "archiveProject",
+    "unarchiveProject",
+    "fetchFile",
+    "fetchProjectSummary",
+    "updateFeedback",
     "fetchBoard",
     "fetchBoardState",
     "fetchChanges",

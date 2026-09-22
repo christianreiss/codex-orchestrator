@@ -56,6 +56,8 @@ export interface ProjectSummary {
   latest_seq: number;
   created_at: string | null;
   updated_at: string | null;
+  /** Set once the project has been closed; archived projects stay readable. */
+  archived_at?: string | null;
   /** Counts strip — present on the list endpoint. */
   counts?: ProjectCounts;
 }
@@ -72,6 +74,19 @@ export interface ProjectDetailProject {
   created_at: string | null;
   updated_at: string | null;
   counts: ProjectCounts;
+  /** Set once the project has been closed; archived projects stay readable. */
+  archived_at?: string | null;
+}
+
+/**
+ * The lean counterpart of `ProjectDetailResponse` — everything the detail layout
+ * needs for its header and tiles, and none of the project's contents.
+ */
+export interface ProjectSummaryResponse {
+  project: ProjectDetailProject & {
+    /** Counts per feedback type, plus `status_*` keys per feedback status. */
+    feedback_by_type: Record<string, number>;
+  };
 }
 
 export interface ProjectNote {
@@ -177,7 +192,10 @@ export interface ProjectFile {
   description?: string | null;
   content_sha256?: string | null;
   mime_type?: string | null;
+  /** 'utf8' or 'base64'; size_bytes and the sha describe the decoded bytes. */
+  content_encoding?: string | null;
   size_bytes: number;
+  /** Absent on the lean single-file read used by the editor's list view. */
   content: string;
   created_at?: string | null;
   updated_at?: string | null;
@@ -185,10 +203,13 @@ export interface ProjectFile {
 
 export type ProjectFeedbackType = "bug" | "feature" | "note" | "issue" | "test";
 
+export type ProjectFeedbackStatus = "open" | "acknowledged" | "resolved" | "dismissed";
+
 export interface ProjectFeedback {
   id: number;
   project_id?: number | null;
   type: ProjectFeedbackType;
+  status?: ProjectFeedbackStatus;
   title: string;
   body: string;
   created_at?: string | null;

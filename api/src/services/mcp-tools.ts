@@ -20,7 +20,7 @@ import type { AgentTransfersService } from './agent-transfers.js';
 import type { ProjectBoardService } from './project-board.js';
 import { PROJECT_BOARD_ROLES } from './project-board-roles.js';
 import { ENGINE_CODEX, isEngine, type Engine } from '../util/engine.js';
-import { PROJECT_FEEDBACK_TYPES } from './project-feedback-types.js';
+import { PROJECT_FEEDBACK_STATUSES, PROJECT_FEEDBACK_TYPES } from './project-feedback-types.js';
 
 const TOOL_NAME_RE = /^[a-zA-Z0-9_-]+$/;
 
@@ -287,6 +287,9 @@ function normalizeArgs(toolName: string, args: unknown): Record<string, unknown>
     case 'project_files':
     case 'project_notes':
     case 'project_feedback_list':
+    case 'project_archive':
+    case 'project_unarchive':
+    case 'project_update':
       return { slug: scalar };
     case 'project_memory_search':
       // Unlike memory_search, the scalar is the slug, not the query: query is
@@ -699,10 +702,15 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
   inputs.push({
     definition: {
       name: 'project_list',
-      description: 'List shared projects available to this host',
-      inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+      description:
+        'List shared projects available to this host. Archived projects are left out unless include_archived is set.',
+      inputSchema: {
+        type: 'object',
+        properties: { include_archived: { type: 'boolean' } },
+        additionalProperties: false,
+      },
     },
-    handler: async (_args, host) => deps.projects.listProjects(host),
+    handler: async (args, host) => deps.projects.listProjects(host, args),
   });
   inputs.push({
     definition: {
@@ -838,6 +846,88 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
       },
     },
     handler: async (args, host) => deps.projects.createProject(args, host),
+  });
+  inputs.push({
+    definition: {
+      name: 'project_update',
+      description:
+        "Update a project's about block or roster. About is merged into what is there by default, so bumping status or last_verified does not mean restating the whole object; pass replace:true to overwrite it wholesale.",
+      inputSchema: {
+        type: 'object',
+        properties: {
+          slug: { type: 'string' },
+          about: { type: 'object' },
+          replace: { type: 'boolean' },
+          roster_markdown: { type: 'string' },
+        },
+        additionalProperties: false,
+        required: ['slug'],
+      },
+    },
+    handler: async (args, host) => deps.projects.updateProject(String(args['slug'] ?? ''), args, host),
+  });
+  inputs.push({
+    definition: {
+      name: 'project_archive',
+      description:
+        'Close a project. It drops out of project_list and the resource catalogue but stays readable and writable by slug, and project_unarchive reopens it. Use this when work is finished; project deletion is an operator action in the console.',
+      inputSchema: {
+        type: 'object',
+        properties: { slug: { type: 'string' }, reason: { type: 'string' } },
+        additionalProperties: false,
+        required: ['slug'],
+      },
+    },
+    handler: async (args, host) => deps.projects.archiveProject(String(args['slug'] ?? ''), args, host),
+  });
+  inputs.push({
+    definition: {
+      name: 'project_unarchive',
+      description: 'Reopen an archived project',
+      inputSchema: {
+        type: 'object',
+        properties: { slug: { type: 'string' } },
+        additionalProperties: false,
+        required: ['slug'],
+      },
+    },
+    handler: async (args, host) => deps.projects.unarchiveProject(String(args['slug'] ?? ''), host),
+  });
+  inputs.push({
+    definition: {
+      name: 'project_note_delete',
+      description: 'Delete a project note by numeric id',
+      inputSchema: {
+        type: 'object',
+        properties: { slug: { type: 'string' }, id: { type: 'integer' } },
+        additionalProperties: false,
+        required: ['slug', 'id'],
+      },
+    },
+    handler: async (args, host) =>
+      deps.projects.deleteNote(String(args['slug'] ?? ''), Number(args['id']), host),
+  });
+  inputs.push({
+    definition: {
+      name: 'project_feedback_update',
+      description:
+        'Triage a feedback item: move its status through open, acknowledged, resolved or dismissed, or correct its type, title or body.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          slug: { type: 'string' },
+          id: { type: 'integer' },
+          status: { type: 'string', enum: [...PROJECT_FEEDBACK_STATUSES] },
+          type: { type: 'string', enum: [...PROJECT_FEEDBACK_TYPES] },
+          title: { type: 'string' },
+          body: { type: 'string' },
+        },
+        additionalProperties: false,
+        required: ['slug', 'id'],
+      },
+    },
+    handler: async (args, host) =>
+      deps.projects.updateFeedback(String(args['slug'] ?? ''), Number(args['id']), args, host),
   });
   inputs.push({
     definition: {
