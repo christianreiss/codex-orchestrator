@@ -19,13 +19,15 @@ description: "${MANAGED_COCO_DESCRIPTION}"
 Use #coco when work needs shared multi-agent state across hosts or sessions.
 
 CoCo coordination state is project-only — projects carry notes, todos, files, feedback and an append-only event log, none of which shared memories have:
-- Start by reading project_bootstrap for the active slug.
+- Start with project_summary for the active slug. It is the one call to make first: it carries what the project is, what it holds, what is open on the board and what you already hold, and it stays small because it lists files by name and size rather than by content.
 - Use project_list or project_create to find or create shared workspaces.
-- Use project_detail and project_changes to refresh context before acting.
+- Use project_changes to catch up, passing payloads "preview" so a long note does not arrive in full.
 - Write durable handoffs with project_note_upsert, project_file_upsert, project_memory_upsert, and project_feedback_create.
-- Read shared artifacts with project_file_list, project_file_read, project_memory_list, project_memory_get, project://{slug}, project://{slug}/files/{stored_name}, and project://{slug}/memory/{key}.
+- Read shared artifacts with project_files, project_notes, project_feedback_list, project_memory_list, project_memory_get, project://{slug}/summary, project://{slug}/files/{stored_name}, and project://{slug}/memory/{key}.
+- Read one file with project_file_read. When you only need part of it, or it is large, pass offset and limit and follow next_offset while truncated is true — the same contract shared_memory_read uses.
+- Avoid project_bootstrap, project_detail, project_file_list and project://{slug} unless you specifically want every byte a project holds. They inline every file body and every note body, which on a project carrying real artifacts is hundreds of kilobytes and can exhaust your context before you have done any work. project_summary, project_files and project_notes are the same information without the payload.
 
-Coordinated work lives on the project board, not in a list. Call project_board_list **first** — it needs no arguments and tells you which columns exist, which cards are free, and who holds what:
+Coordinated work lives on the project board, not in a list. project_summary already carries the board, so you do not need a second orientation call; use project_board_list when you want to filter (by column, role, mine, unclaimed) or to look across every project at once:
 - Claim a card with project_card_claim and the role you are working in (plan, code, review, verify, ops) BEFORE you start. Pass worktree_path and username: they bind the claim to this session, and without them a card you abandon stays stuck for half an hour instead of being freed the moment the session ends.
 - Move it with project_card_move as it progresses, and project_card_release the moment you stop rather than simply stopping. Releasing advances the card to the next column on its own, so you do not have to know what comes next; pass resolution "blocked" with a note when you are stuck, or "handoff" to leave it where it is for somebody else.
 - Any call naming a card renews your claim, so a long task keeps its card. project_card_get is the cheapest way to do that and also shows the card's recent history.
@@ -115,12 +117,13 @@ export function managedCocoBootstrapGuidance(): {
       managed: true,
     },
     instructions:
-      'Use #coco with project_* MCP tools and project:// resources for coordination. Coordinated work lives on the project board — call project_board_list first, claim a card with your role before starting, and release it when you stop. Keep handoffs in project notes, files, memories, feedback, and changes; host-scoped memory:// entries are not shared CoCo state. Use project_memory_* for facts about this workstream, and shared_memory_* for fleet-wide reference documents that outlive it.',
+      'Use #coco with project_* MCP tools and project:// resources for coordination. Call project_summary first: it carries the project, its artifacts as metadata, and the board in one cheap call. Claim a card with your role before starting and release it when you stop. Keep handoffs in project notes, files, memories, feedback, and changes; host-scoped memory:// entries are not shared CoCo state. Use project_memory_* for facts about this workstream, and shared_memory_* for fleet-wide reference documents that outlive it. Prefer project_summary, project_files and project_notes over project_bootstrap, project_detail and project_file_list, which inline every file and note body.',
     quickstart: [
-      'Read project_bootstrap for the slug before acting.',
-      'Use project_changes since the last known seq to catch up.',
+      'Read project_summary for the slug before acting: it carries the about block, artifact metadata, recent previews and the board together.',
+      'Use project_changes since the last known seq to catch up, with payloads "preview" so long note bodies arrive as previews.',
       'Use project_memory_list to enumerate durable project memory without guessing search terms.',
-      'Call project_board_list before picking up work: it needs no arguments and shows which cards are free and who holds the rest. Claim one with project_card_claim and your role, passing worktree_path and username, and project_card_release it the moment you stop.',
+      'Read one artifact with project_file_read; pass offset and limit on a large one and follow next_offset while truncated is true.',
+      'project_summary already shows the board. Reach for project_board_list when you want to filter by column, role, mine or unclaimed, or to look across every project. Claim with project_card_claim and your role, passing worktree_path and username, and project_card_release the moment you stop.',
       'Write durable results with project_note_upsert, project_file_upsert, project_memory_upsert, or project_feedback_create.',
       'For knowledge that is not specific to this project, use shared_memory_list to see what the fleet already knows, then shared_memory_write or shared_memory_append.',
       'If anything you read turns out to be wrong, correct it before you finish. Before replacing an existing shared document through shared_memory_write or resource_create/resource_update on shared://, reconstruct the complete body from offset 0 through every next_offset with one stable memory.sha256, preserve unaffected content, and pass it as expected_sha256. Use shared_memory_delete or resource_delete on shared:// only when the whole record is invalid or superseded. Do not leave the correction sitting next to the stale record.',

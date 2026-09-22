@@ -105,6 +105,10 @@ export async function registerProjectsClientRoutes(app: FastifyInstance, ctx: Ro
     const payload = (req.body as Record<string, unknown>) ?? {};
     return ok(await projects.createProject(payload, requireHost(req)));
   });
+  app.get('/projects/:slug/summary', { preHandler: auth }, async (req) => {
+    const slug = parseSlug((req.params as { slug: string }).slug);
+    return ok(await projects.summary(slug, (req.query as Record<string, unknown>) ?? {}, requireHost(req)));
+  });
   app.get('/projects/:slug/bootstrap', { preHandler: auth }, async (req) => {
     const slug = parseSlug((req.params as { slug: string }).slug);
     return ok(await projects.bootstrap(slug, requireHost(req)));
@@ -123,8 +127,16 @@ export async function registerProjectsClientRoutes(app: FastifyInstance, ctx: Ro
   });
   app.get('/projects/:slug/changes', { preHandler: auth }, async (req) => {
     const slug = parseSlug((req.params as { slug: string }).slug);
-    const since = Number((req.query as { since?: string })?.since ?? 0);
-    return ok(await projects.listChanges(slug, Number.isFinite(since) ? Math.max(0, since) : 0, requireHost(req)));
+    const query = (req.query as Record<string, unknown>) ?? {};
+    const since = Number(query['since'] ?? query['since_seq'] ?? 0);
+    return ok(
+      await projects.listChanges(
+        slug,
+        Number.isFinite(since) ? Math.max(0, since) : 0,
+        requireHost(req),
+        query,
+      ),
+    );
   });
 
   // Notes

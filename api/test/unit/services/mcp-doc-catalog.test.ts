@@ -24,7 +24,7 @@ const REGISTRY = resolve(HERE, '../../../src/services/mcp-tools.ts');
 const GROUPS = [
   'Host-authenticated tools',
   'Fleet-wide shared memory',
-  'Projects module enabled',
+  'Projects',
   'Fleet secrets store',
   'Git Director',
   'File transfer',

@@ -1172,6 +1172,75 @@ export class ProjectBoardService {
     );
   }
 
+  /**
+   * The compact board block `project_summary` embeds: enough to know which lanes
+   * exist, how full they are, what is open and what is yours — with no card
+   * `detail` bodies, which are the part that scales with the project.
+   *
+   * Deliberately built on `readBoard`, not `withBoard`: a summary is a discovery
+   * call, and discovery must not renew a claim. An agent proves it is alive by
+   * touching the card (`project_card_get` is the cheapest way), not by reading
+   * the project it is working in.
+   */
+  async summaryFor(slug: string, actor: CardActor): Promise<Record<string, unknown>> {
+    const enabled = await this.getEnabled();
+    if (!enabled) return { status: 'disabled', columns: [], open_cards: [], your_claims: [] };
+
+    const board = await this.readBoard(slug, actor, {
+      column: null,
+      role: null,
+      mine: false,
+      unclaimed: false,
+    });
+    const columns = Array.isArray(board['columns']) ? (board['columns'] as Record<string, unknown>[]) : [];
+
+    const openCards: Record<string, unknown>[] = [];
+    const columnSummaries = columns.map((column) => {
+      const terminal = column['is_terminal'] === true;
+      const cards = Array.isArray(column['cards']) ? (column['cards'] as Record<string, unknown>[]) : [];
+      if (!terminal) {
+        for (const card of cards) {
+          const claim = card['claim'] as Record<string, unknown> | null;
+          openCards.push({
+            number: card['number'],
+            title: card['title'],
+            column: column['key'],
+            priority: card['priority'],
+            blocked_reason: card['blocked_reason'] ?? null,
+            held_by: claim && claim['held'] === true ? (claim['username'] ?? null) : null,
+          });
+        }
+      }
+      return {
+        key: column['key'],
+        title: column['title'],
+        card_count: column['card_count'],
+        is_intake: column['is_intake'] === true,
+        is_terminal: terminal,
+        is_blocked: column['is_blocked'] === true,
+        over_wip: column['over_wip'] === true,
+      };
+    });
+
+    const yourClaims = Array.isArray(board['your_claims'])
+      ? (board['your_claims'] as Record<string, unknown>[]).map((card) => ({
+          number: card['number'],
+          title: card['title'],
+          column: (card['column'] as Record<string, unknown> | null)?.['key'] ?? null,
+          expires_at: (card['claim'] as Record<string, unknown> | null)?.['expires_at'] ?? null,
+        }))
+      : [];
+
+    return {
+      status: 'available',
+      board_slug: DEFAULT_BOARD_SLUG,
+      roles: [...PROJECT_BOARD_ROLES],
+      columns: columnSummaries,
+      open_cards: openCards,
+      your_claims: yourClaims,
+    };
+  }
+
   private async projectSlugs(): Promise<string[]> {
     const rows = await this.deps.db
       .select({ slug: coordProjects.slug, archivedAt: coordProjects.archivedAt })

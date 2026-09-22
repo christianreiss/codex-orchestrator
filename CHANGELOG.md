@@ -1,3 +1,52 @@
+# 2026-09-22
+
+- **The Projects module could not be read by the agents it exists for.** Measured against live
+  projects: `project_bootstrap` returned 62 KB, `project_detail` 597 KB, `project_file_list`
+  347 KB — every one of them past the limit an agent can take in a single tool result. Three
+  quarters of each was file bodies: one formatter (`formatFile`) inlined `content` into every
+  path that touched a file, and `detail` selected every row with no limit. The `coco` skill told
+  agents to call these first, so following the documented doctrine exhausted an agent's context
+  before it did any work.
+
+  The fat calls keep their shape, because the admin console reads `content` out of them. What is
+  new is a lean path beside them:
+
+  - `project_summary` — the call to make first. The project's `about`, its files as metadata, note
+    and event previews, and the board, in one response whose size tracks how many things a project
+    holds rather than how big they are. Adding 500 KB of file content to a project grows it by
+    about 700 bytes. It also folds in the board, which `bootstrap` omitted while the skill was
+    telling agents `project_board_list` was the first call — there is now one first call, not two.
+  - `project_files`, `project_notes`, `project_feedback_list` — the listings. Feedback had a
+    create tool and no reader at all; notes and feedback were reachable only through the 597 KB
+    `project_detail`.
+  - `project_file_read` takes `offset`/`limit` and returns `next_offset`/`truncated`, the same
+    windowing contract `shared_memory_read` already uses. An absurd `limit` is capped rather than
+    honoured.
+  - `project_changes` takes `payloads: "preview"`, which trims note and card bodies the way file
+    and memory events were already trimmed. Twenty events on one live project weighed 98 KB
+    because three of them carried whole note bodies.
+  - `project://{slug}/summary` as a resource, since `project://{slug}` serves the bootstrap
+    payload verbatim and was the same trap by another name.
+
+  `project_files` asks MySQL for `octet_length(content)` rather than selecting the body to measure
+  it, so the listing does not pull the LONGTEXT out of the database at all. That number is covered
+  by `test/integration/projects-client/lean-reads.test.ts` against real MySQL, including a
+  multi-byte body: `db-fake` discards the projection passed to `select()`, so a unit test for it
+  would only be testing the fake.
+
+- **`project_changes` silently ignored an unrecognised argument and replayed the whole log.** The
+  parameter is `since`; the bootstrap doctrine reads as "changes since the stored `latest_seq`",
+  and `since_seq` was accepted, dropped, and answered with every event from the beginning.
+  `since_seq` is now a declared alias. `since` also truncated to 32 bits (`since | 0`), so a
+  sequence above 2^31 wrapped to zero and replayed the log for a different reason.
+
+- **`docs/MCP.md` claimed the project tools were gated on `projects_module_enabled`.** They are
+  registered unconditionally; the flag gates only the managed `coco` skill and the admin console's
+  messaging. Line 71 of the same file already said so.
+
+- The managed `coco` skill now opens with `project_summary`, names the windowing contract for large
+  artifacts, and says plainly which calls to avoid and why. Its sha256 changes, so hosts resync it.
+
 # 2026-09-20
 
 - **`cxx agent doctor --json` (and the receiver registry it reads for a

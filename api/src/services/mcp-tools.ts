@@ -283,6 +283,10 @@ function normalizeArgs(toolName: string, args: unknown): Record<string, unknown>
     case 'project_changes':
     case 'project_file_list':
     case 'project_memory_list':
+    case 'project_summary':
+    case 'project_files':
+    case 'project_notes':
+    case 'project_feedback_list':
       return { slug: scalar };
     case 'project_memory_search':
       // Unlike memory_search, the scalar is the slug, not the query: query is
@@ -675,7 +679,8 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
   inputs.push({
     definition: {
       name: 'project_bootstrap',
-      description: 'Read compact shared project bootstrap context',
+      description:
+        'Read shared project bootstrap context. Inlines whole file bodies and can be very large — prefer project_summary.',
       inputSchema: {
         type: 'object',
         properties: { slug: { type: 'string' } },
@@ -686,8 +691,64 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
   });
   inputs.push({
     definition: {
+      name: 'project_summary',
+      description:
+        'Read a project: what it is, what it holds, what is open on its board, and what you hold. File metadata only, note and event previews only — this is the call to make first, and the one that stays cheap on a project with real artifacts.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          slug: { type: 'string' },
+          worktree_path: { type: 'string' },
+          username: { type: 'string' },
+          engine: { type: 'string' },
+        },
+        required: ['slug'],
+      },
+    },
+    handler: async (args, host) => deps.projects.summary(String(args['slug'] ?? ''), args, host),
+  });
+  inputs.push({
+    definition: {
+      name: 'project_files',
+      description:
+        'List a project\'s files as metadata only (stored_name, size_bytes, mime_type, sha256). Read one body with project_file_read.',
+      inputSchema: {
+        type: 'object',
+        properties: { slug: { type: 'string' } },
+        required: ['slug'],
+      },
+    },
+    handler: async (args, host) => deps.projects.listFileSummaries(String(args['slug'] ?? ''), host),
+  });
+  inputs.push({
+    definition: {
+      name: 'project_notes',
+      description: 'List a project\'s notes',
+      inputSchema: {
+        type: 'object',
+        properties: { slug: { type: 'string' } },
+        required: ['slug'],
+      },
+    },
+    handler: async (args, host) => deps.projects.listNotes(String(args['slug'] ?? ''), host),
+  });
+  inputs.push({
+    definition: {
+      name: 'project_feedback_list',
+      description: 'List a project\'s feedback items',
+      inputSchema: {
+        type: 'object',
+        properties: { slug: { type: 'string' } },
+        required: ['slug'],
+      },
+    },
+    handler: async (args, host) => deps.projects.listFeedback(String(args['slug'] ?? ''), host),
+  });
+  inputs.push({
+    definition: {
       name: 'project_detail',
-      description: 'Read full shared project state',
+      description:
+        'Read full shared project state, including every file body. Can be very large — prefer project_summary.',
       inputSchema: {
         type: 'object',
         properties: { slug: { type: 'string' } },
@@ -699,15 +760,30 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
   inputs.push({
     definition: {
       name: 'project_changes',
-      description: 'List project changes since a sequence number',
+      description:
+        'List project changes since a sequence number. Pass payloads:"preview" to trim note and card bodies to a preview.',
       inputSchema: {
         type: 'object',
-        properties: { slug: { type: 'string' }, since: { type: 'integer' } },
+        properties: {
+          slug: { type: 'string' },
+          since: { type: 'integer' },
+          // The bootstrap doctrine says "changes since the stored latest_seq",
+          // which reads as `since_seq` often enough that agents passed it — and
+          // got the whole log back, because an undeclared argument was simply
+          // dropped. Accepting it is cheaper than being right about the name.
+          since_seq: { type: 'integer' },
+          payloads: { type: 'string', enum: ['full', 'preview'] },
+        },
         required: ['slug'],
       },
     },
     handler: async (args, host) =>
-      deps.projects.listChanges(String(args['slug'] ?? ''), Number(args['since'] ?? 0), host),
+      deps.projects.listChanges(
+        String(args['slug'] ?? ''),
+        Number(args['since'] ?? args['since_seq'] ?? 0),
+        host,
+        args,
+      ),
   });
   inputs.push({
     definition: {
@@ -850,7 +926,8 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
   inputs.push({
     definition: {
       name: 'project_file_list',
-      description: 'List all files attached to a project (returns full file rows with content)',
+      description:
+        'List all files attached to a project, including every file body. Can be very large — prefer project_files.',
       inputSchema: {
         type: 'object',
         properties: { slug: { type: 'string' } },
@@ -870,6 +947,8 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
           slug: { type: 'string' },
           stored_name: { type: 'string' },
           id: { type: 'integer' },
+          offset: { type: 'integer' },
+          limit: { type: 'integer' },
         },
         required: ['slug'],
       },
@@ -888,7 +967,12 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
             : null;
       return deps.projects.readFile(
         slug,
-        { storedName, id: idNum !== null && Number.isFinite(idNum) ? idNum : null },
+        {
+          storedName,
+          id: idNum !== null && Number.isFinite(idNum) ? idNum : null,
+          offset: args['offset'] === undefined ? null : Number(args['offset']),
+          limit: args['limit'] === undefined ? null : Number(args['limit']),
+        },
         host,
       );
     },

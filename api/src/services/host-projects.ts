@@ -28,7 +28,7 @@ import { createHash } from 'node:crypto';
 import { isProjectFeedbackType, projectFeedbackTypeList } from './project-feedback-types.js';
 import { managedCocoBootstrapGuidance } from './managed-coco-skill.js';
 import { parseTags, sortedLowercase, sortedAssoc } from './memory-tags.js';
-import { ProjectBoardService, type ProjectTodoWire } from './project-board.js';
+import { ProjectBoardService, actorFromHost, type ProjectTodoWire } from './project-board.js';
 
 const SLUG_RE = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
 const STORED_NAME_RE = /^[^\0]+$/;
@@ -45,6 +45,20 @@ const MEMORY_MAX_TAG_LENGTH = 64;
 const MEMORY_PREVIEW_CHARS = 280;
 const MEMORY_BOOTSTRAP_LIMIT = 8;
 const MEMORY_LIST_MAX = 500;
+
+// A windowed `project_file_read` defaults to 64 KiB and is capped at 1 MiB. The
+// cap is the point: an agent that passes `limit: 99999999` to "just get it all"
+// gets a window and a `next_offset` instead of the context bomb it was asking
+// for.
+const FILE_READ_DEFAULT_WINDOW = 65536;
+const FILE_READ_MAX_WINDOW = 1048576;
+
+/** The extra fields a windowed `project_file_read` adds to the file row. */
+interface FileReadWindow {
+  offset: number;
+  next_offset: number;
+  truncated: boolean;
+}
 
 /**
  * A transaction handle, in the shape `_recordEventTx` needs. Same narrowing
@@ -100,6 +114,26 @@ interface FileRow {
   stored_name: string;
   description: string | null;
   content: string;
+  content_sha256: string;
+  mime_type: string | null;
+  size_bytes: number;
+  source_host_id: number | null;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+/**
+ * A file row without its body. Every listing path uses this: `content` is a
+ * LONGTEXT column that routinely runs to hundreds of kilobytes, and inlining it
+ * into a listing made `project_file_list` and `project_detail` cost more context
+ * than the work they were meant to set up. The body is one `project_file_read`
+ * away, and that call windows.
+ */
+interface FileSummaryRow {
+  id: number;
+  project_id: number;
+  stored_name: string;
+  description: string | null;
   content_sha256: string;
   mime_type: string | null;
   size_bytes: number;
@@ -235,6 +269,84 @@ export class HostProjectsService {
     };
   }
 
+  /**
+   * The call an agent should make first, and the reason it exists: `bootstrap`
+   * inlines whole file bodies into `recent_files`, so on a project carrying real
+   * artifacts it costs more context than the work it was meant to set up. This
+   * returns the same orientation — what the project is, what is in it, what is
+   * open, what is yours — with file metadata instead of file bodies and note
+   * previews instead of note bodies, so its size tracks the number of things in
+   * the project rather than their contents.
+   *
+   * It also folds in the board, which `bootstrap` omits: the `coco` skill used to
+   * name two different calls as the one to make first.
+   */
+  async summary(slug: string, args: Record<string, unknown>, host: Host): Promise<Record<string, unknown>> {
+    const project = await this.requireProject(slug);
+    const [notes, todos, files, feedback, memories, recent] = await Promise.all([
+      this.fetchNotes(project.id),
+      this.fetchTodos(project.id),
+      this.fetchFileSummaries(project.id),
+      this.fetchFeedback(project.id),
+      this.fetchMemories(project.id),
+      this.fetchRecentEvents(project.id, 10),
+    ]);
+
+    const board = await this.board().summaryFor(
+      project.slug,
+      actorFromHost(host, args, this.optionalArg(args, 'engine')),
+    );
+
+    const feedbackByType: Record<string, number> = {};
+    const feedbackByStatus: Record<string, number> = {};
+    for (const item of feedback) {
+      feedbackByType[item.type] = (feedbackByType[item.type] ?? 0) + 1;
+      feedbackByStatus[item.status] = (feedbackByStatus[item.status] ?? 0) + 1;
+    }
+
+    const guidance = managedCocoBootstrapGuidance();
+    const encoded = encodeURIComponent(project.slug);
+    const detailRoute = `/projects/${encoded}`;
+    await this.recordLog(host.id, 'project.summary', { slug: project.slug });
+    return {
+      project: project.slug,
+      about: project.about,
+      roster_markdown: project.roster_markdown ?? '',
+      latest_seq: project.latest_event_seq,
+      counts: {
+        notes: notes.length,
+        open_todos: todos.filter((t) => !t.done).length,
+        done_todos: todos.filter((t) => t.done).length,
+        files: files.length,
+        files_bytes: files.reduce((sum, f) => sum + f.size_bytes, 0),
+        feedback: feedback.length,
+        // The console's Bugs tile filters the full feedback array client-side.
+        // Without these it would have to keep fetching every body to count them.
+        feedback_by_type: feedbackByType,
+        feedback_by_status: feedbackByStatus,
+        memories: memories.length,
+      },
+      board,
+      recent_notes: notes.slice(0, 3).map((n) => this.toNotePreview(n)),
+      files,
+      recent_memories: memories.slice(0, MEMORY_BOOTSTRAP_LIMIT).map((m) => this.toMemoryPreview(m)),
+      recent_changes: recent.slice(-10).map((e) => this.toEventPreview(e)),
+      skill: guidance.skill,
+      instructions: guidance.instructions,
+      quickstart: guidance.quickstart,
+      routes: {
+        summary: `${detailRoute}/summary`,
+        detail: detailRoute,
+        notes: `${detailRoute}/notes`,
+        todos: `${detailRoute}/todos`,
+        files: `${detailRoute}/files`,
+        feedback: `${detailRoute}/feedback`,
+        memories: `${detailRoute}/memories`,
+        changes: `${detailRoute}/changes`,
+      },
+    };
+  }
+
   async projectDetail(slug: string, host: Host): Promise<{
     project: {
       slug: string;
@@ -287,16 +399,21 @@ export class HostProjectsService {
     return { project: this.buildSummary(updated), roster_markdown: updated.roster_markdown };
   }
 
-  async listChanges(slug: string, since: number, host: Host): Promise<unknown> {
+  async listChanges(slug: string, since: number, host: Host, args: Record<string, unknown> = {}): Promise<unknown> {
     const project = await this.requireProject(slug);
-    const safeSince = Math.max(0, since | 0);
+    // `Math.trunc`, not `| 0`: the bitwise form silently wraps a sequence above
+    // 2^31, which on a long-lived project would replay the whole log instead of
+    // resuming.
+    const safeSince = Math.max(0, Math.trunc(Number(since)) || 0);
+    const preview = String(args['payloads'] ?? '').toLowerCase() === 'preview';
     const rows = await this.db
       .select()
       .from(coordProjectEvents)
       .where(and(eq(coordProjectEvents.projectId, project.id), gt(coordProjectEvents.seq, safeSince)))
       .orderBy(asc(coordProjectEvents.seq))
       .limit(200);
-    const changes = rows.map((r) => this.hydrateEvent(r));
+    const hydrated = rows.map((r) => this.hydrateEvent(r));
+    const changes = preview ? hydrated.map((e) => this.toEventPreview(e)) : hydrated;
     await this.recordLog(host.id, 'project.changes', { slug: project.slug, since: safeSince, count: changes.length });
     return {
       project: project.slug,
@@ -436,11 +553,23 @@ export class HostProjectsService {
     return { project: project.slug, files };
   }
 
+  /**
+   * Lean file listing: metadata only. This is what an agent should call to find
+   * out what a project holds; `listFiles` returns every body and is kept only
+   * because the admin console and existing callers read `content` out of it.
+   */
+  async listFileSummaries(slug: string, host: Host): Promise<unknown> {
+    const project = await this.requireProject(slug);
+    const files = await this.fetchFileSummaries(project.id);
+    await this.recordLog(host.id, 'project.files.list', { slug: project.slug, count: files.length });
+    return { project: project.slug, files };
+  }
+
   async readFile(
     slug: string,
-    locator: { storedName?: string | null; id?: number | null },
+    locator: { storedName?: string | null; id?: number | null; offset?: number | null; limit?: number | null },
     host: Host,
-  ): Promise<{ project: string; file: FileRow }> {
+  ): Promise<{ project: string; file: FileRow & Partial<FileReadWindow> }> {
     const project = await this.requireProject(slug);
     let file: FileRow | null = null;
     if (typeof locator.id === 'number' && Number.isFinite(locator.id) && locator.id > 0) {
@@ -464,7 +593,48 @@ export class HostProjectsService {
       file_id: file.id,
       stored_name: file.stored_name,
     });
-    return { project: project.slug, file };
+
+    // Windowing is opt-in: passing neither `offset` nor `limit` returns the whole
+    // body exactly as before, so every existing caller is untouched. The contract
+    // for the windowed form matches `shared_memory_read` — follow `next_offset`
+    // while `truncated` is true — because an agent that has learned one should not
+    // have to learn the other.
+    const window = this.normalizeReadWindow(locator.offset, locator.limit);
+    if (!window) return { project: project.slug, file };
+
+    const total = Buffer.byteLength(file.content, 'utf8');
+    const offset = Math.min(window.offset, total);
+    const slice = Buffer.from(file.content, 'utf8').subarray(offset, offset + window.limit);
+    const nextOffset = offset + slice.length;
+    return {
+      project: project.slug,
+      file: {
+        ...file,
+        content: slice.toString('utf8'),
+        offset,
+        next_offset: nextOffset,
+        truncated: nextOffset < total,
+        size_bytes: total,
+      },
+    };
+  }
+
+  /**
+   * `null` when the caller asked for no window at all. `offset` alone is a valid
+   * window (read from here to the default page size), which is what makes
+   * following `next_offset` work without restating `limit` every call.
+   */
+  private normalizeReadWindow(
+    offsetRaw: unknown,
+    limitRaw: unknown,
+  ): { offset: number; limit: number } | null {
+    const hasOffset = offsetRaw !== undefined && offsetRaw !== null && offsetRaw !== '';
+    const hasLimit = limitRaw !== undefined && limitRaw !== null && limitRaw !== '';
+    if (!hasOffset && !hasLimit) return null;
+    const offset = Math.max(0, Math.trunc(Number(offsetRaw ?? 0)) || 0);
+    const rawLimit = Math.trunc(Number(limitRaw ?? FILE_READ_DEFAULT_WINDOW)) || FILE_READ_DEFAULT_WINDOW;
+    const limit = Math.min(Math.max(1, rawLimit), FILE_READ_MAX_WINDOW);
+    return { offset, limit };
   }
 
   async upsertFile(slug: string, payload: Record<string, unknown>, host: Host): Promise<unknown> {
@@ -882,6 +1052,44 @@ export class HostProjectsService {
     return rows.map((r) => this.hydrateFile(r));
   }
 
+  /**
+   * The listing counterpart of `fetchFiles`. `content` is never selected: the
+   * point is not only to keep it out of the response but to keep MySQL from
+   * shipping the LONGTEXT at all, so `size_bytes` comes from `octet_length()`
+   * server-side rather than from `Buffer.byteLength` over a body we then throw
+   * away. Same number that `hydrateFile` derives, one round trip cheaper.
+   */
+  private async fetchFileSummaries(projectId: number): Promise<FileSummaryRow[]> {
+    const rows = await this.db
+      .select({
+        id: coordProjectFiles.id,
+        projectId: coordProjectFiles.projectId,
+        storedName: coordProjectFiles.storedName,
+        description: coordProjectFiles.description,
+        contentSha256: coordProjectFiles.contentSha256,
+        mimeType: coordProjectFiles.mimeType,
+        sizeBytes: sql<number>`octet_length(${coordProjectFiles.content})`,
+        sourceHostId: coordProjectFiles.sourceHostId,
+        createdAt: coordProjectFiles.createdAt,
+        updatedAt: coordProjectFiles.updatedAt,
+      })
+      .from(coordProjectFiles)
+      .where(eq(coordProjectFiles.projectId, projectId))
+      .orderBy(desc(coordProjectFiles.updatedAt), desc(coordProjectFiles.id));
+    return rows.map((r) => ({
+      id: Number(r.id),
+      project_id: Number(r.projectId),
+      stored_name: r.storedName,
+      description: r.description ?? null,
+      content_sha256: r.contentSha256,
+      mime_type: r.mimeType ?? null,
+      size_bytes: Number(r.sizeBytes ?? 0),
+      source_host_id: r.sourceHostId ?? null,
+      created_at: r.createdAt,
+      updated_at: r.updatedAt,
+    }));
+  }
+
   private async fetchFileById(projectId: number, id: number): Promise<FileRow | null> {
     const rows = await this.db
       .select()
@@ -1116,6 +1324,46 @@ export class HostProjectsService {
       updated_at: (row['updated_at'] as string | null) ?? null,
       score: typeof row['score'] === 'number' ? row['score'] : null,
     };
+  }
+
+  private optionalArg(args: Record<string, unknown>, key: string): string | null {
+    const value = args[key];
+    return typeof value === 'string' && value.trim() !== '' ? value.trim() : null;
+  }
+
+  private preview(text: string): { preview: string; content_length: number } {
+    return {
+      preview: text.length > MEMORY_PREVIEW_CHARS ? text.slice(0, MEMORY_PREVIEW_CHARS) : text,
+      content_length: text.length,
+    };
+  }
+
+  private toNotePreview(row: NoteRow): Record<string, unknown> {
+    const { body, ...rest } = row;
+    return { ...rest, ...this.preview(body ?? '') };
+  }
+
+  /**
+   * Event payloads are mostly metadata already — file and memory events carry a
+   * sha and a preview. Note and card events are the exception: they inline the
+   * whole body, which is how twenty events came to weigh a hundred kilobytes.
+   * This trims exactly those fields and leaves every other payload alone.
+   */
+  private toEventPreview(row: EventRow): EventRow {
+    const payload = row.payload;
+    if (!payload || typeof payload !== 'object') return row;
+    const trimmed: Record<string, unknown> = { ...payload };
+    let touched = false;
+    for (const key of ['body', 'detail', 'content', 'note', 'roster_markdown']) {
+      const value = trimmed[key];
+      if (typeof value === 'string' && value.length > MEMORY_PREVIEW_CHARS) {
+        const { preview, content_length } = this.preview(value);
+        trimmed[key] = preview;
+        trimmed[`${key}_length`] = content_length;
+        touched = true;
+      }
+    }
+    return touched ? { ...row, payload: trimmed } : row;
   }
 
   private toMemoryPreview(row: MemoryRow): MemoryPreviewRow {
