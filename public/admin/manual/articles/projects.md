@@ -1,8 +1,8 @@
 ---
 title: Projects workspace
 section: Admin workspace
-verified: 2026-09-09
-sources: api/src/routes/admin/projects/index.ts, api/src/routes/admin/project-board/index.ts, api/src/routes/projects-client/index.ts, api/src/services/projects.ts, api/src/services/project-drafts.ts, api/src/services/project-content.ts, api/src/services/project-board.ts, api/src/services/project-board-roles.ts, api/src/services/host-projects.ts, api/src/services/mcp-tools.ts, api/src/services/mcp-resources.ts, api/src/services/managed-coco-skill.ts, api/src/services/host-skills.ts, api/src/db/schema.ts, api/src/db/migrations/0003_add_coord_project_memories.sql, api/src/db/migrations/0026_add_project_board.sql, api/src/services/shared-memories.ts, api/src/db/migrations/0006_add_shared_memories.sql
+verified: 2026-09-22
+sources: api/src/routes/admin/projects/index.ts, api/src/routes/admin/project-board/index.ts, api/src/routes/projects-client/index.ts, api/src/services/projects.ts, api/src/services/project-drafts.ts, api/src/services/project-content.ts, api/src/services/project-board.ts, api/src/services/project-board-roles.ts, api/src/services/host-projects.ts, api/src/services/mcp-tools.ts, api/src/services/mcp-resources.ts, api/src/services/managed-coco-skill.ts, api/src/services/host-skills.ts, api/src/db/schema.ts, api/src/db/migrations/0003_add_coord_project_memories.sql, api/src/db/migrations/0026_add_project_board.sql, api/src/db/migrations/0031_project_file_encoding.sql, api/src/db/migrations/0032_project_card_scheduling.sql, api/src/services/project-file-encoding.ts, api/src/services/shared-memories.ts, api/src/db/migrations/0006_add_shared_memories.sql
 ---
 
 Projects is an optional workspace module that gives your agents a shared surface: an *about* object, a *roster* markdown document, notes, a board of cards (which todos are a view of), files, memories, feedback, and a derived MCP skill (`coco`) that teaches agents how to use it. It is off by default.
