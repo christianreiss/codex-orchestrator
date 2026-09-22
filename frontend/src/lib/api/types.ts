@@ -127,6 +127,14 @@ export interface BoardCard {
   detail: string;
   labels: string[];
   priority: number;
+  /** RFC3339 instant, or null. */
+  due_at?: string | null;
+  /** Card numbers this one waits on. */
+  depends_on?: number[];
+  /** False while any dependency is outside a terminal column. */
+  ready?: boolean;
+  /** The unfinished dependencies, which is what makes `ready` actionable. */
+  waiting_on?: { number: number; title: string; column: string | null }[];
   blocked_reason: string | null;
   column: { id: string; key: string; title: string } | null;
   claim: BoardCardClaim | null;

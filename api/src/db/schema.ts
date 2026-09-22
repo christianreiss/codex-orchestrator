@@ -823,6 +823,8 @@ export const coordProjectCards = mysqlTable(
     labels: json('labels'),
     priority: int('priority').notNull().default(0),
     blockedReason: varchar('blocked_reason', { length: 500 }),
+    // When the work is due, as an RFC3339 instant. See migration 0032.
+    dueAt: varchar('due_at', { length: 100 }),
     sourceTodoId: bigint('source_todo_id', { mode: 'number', unsigned: true }),
     createdByHostId: bigint('created_by_host_id', { mode: 'number', unsigned: true }),
     claimRole: varchar('claim_role', { length: 32 }),
@@ -854,6 +856,34 @@ export const coordProjectCards = mysqlTable(
       t.claimedAgentBusAddressId,
       t.claimExpiresAt,
     ),
+  }),
+);
+
+/**
+ * Card-to-card ordering: `card_id` waits on `depends_on_card_id`.
+ *
+ * An edge table rather than a JSON column on the card, because the question the
+ * board asks runs the other way — "is anything still waiting on this?" — and
+ * because a unique key is what stops the same edge being recorded twice.
+ *
+ * Like every board table since 0026 it declares no foreign keys; referential
+ * integrity lives in the service, which deletes a card's edges with the card and
+ * refuses a cycle with the chain named in the error. See migration 0032.
+ */
+export const coordProjectCardDeps = mysqlTable(
+  'coord_project_card_deps',
+  {
+    id: char('id', { length: 36 }).primaryKey(),
+    projectId: bigint('project_id', { mode: 'number', unsigned: true }).notNull(),
+    cardId: char('card_id', { length: 36 }).notNull(),
+    dependsOnCardId: char('depends_on_card_id', { length: 36 }).notNull(),
+    createdAt: varchar('created_at', { length: 100 }).notNull(),
+  },
+  (t) => ({
+    edgeUnique: uniqueIndex('uq_coord_project_card_deps_edge').on(t.cardId, t.dependsOnCardId),
+    cardIdx: index('idx_coord_project_card_deps_card').on(t.cardId),
+    dependsIdx: index('idx_coord_project_card_deps_depends').on(t.dependsOnCardId),
+    projectIdx: index('idx_coord_project_card_deps_project').on(t.projectId),
   }),
 );
 
@@ -2015,6 +2045,7 @@ export type CoordProject = typeof coordProjects.$inferSelect;
 export type CoordProjectBoard = typeof coordProjectBoards.$inferSelect;
 export type CoordProjectBoardColumn = typeof coordProjectBoardColumns.$inferSelect;
 export type CoordProjectCard = typeof coordProjectCards.$inferSelect;
+export type CoordProjectCardDep = typeof coordProjectCardDeps.$inferSelect;
 export type SharedMemory = typeof sharedMemories.$inferSelect;
 export type SharedMemoryChunk = typeof sharedMemoryChunks.$inferSelect;
 export type SharedMemoryRevision = typeof sharedMemoryRevisions.$inferSelect;

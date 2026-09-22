@@ -42,7 +42,14 @@ import {
   storedNameTooLong,
   type ProjectFileEncoding,
 } from './project-file-encoding.js';
-import { ProjectBoardService, actorFromHost, type ProjectTodoWire } from './project-board.js';
+import {
+  DEFAULT_BOARD_TEMPLATE,
+  ProjectBoardService,
+  actorFromHost,
+  boardTemplateList,
+  normalizeBoardTemplate,
+  type ProjectTodoWire,
+} from './project-board.js';
 import { SettingsService } from './settings.js';
 
 const SLUG_RE = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
@@ -265,6 +272,12 @@ export class HostProjectsService {
     const slug = this.normalizeSlug(payload['slug'] ?? payload['project']);
     const about = this.normalizeAbout(payload['about']);
     const roster = this.normalizeRoster(payload['roster_markdown'] ?? payload['agents_markdown'] ?? '');
+    const template = normalizeBoardTemplate(payload['board_template']);
+    if (template === null) {
+      throw new ValidationError('Validation failed', {
+        extra: { errors: { board_template: [`board_template must be one of: ${boardTemplateList()}`] } },
+      });
+    }
 
     const existing = await this.findBySlug(slug, true);
     if (existing) {
@@ -290,8 +303,13 @@ export class HostProjectsService {
       { slug: created.slug, about: created.about },
       host.id,
     );
-    await this.recordLog(host.id, 'project.create', { slug });
+    await this.recordLog(host.id, 'project.create', { slug, board_template: template });
     wsPublisher.publish('project.created', { slug, source_host_id: host.id });
+    // Provision eagerly when a template was asked for. `ensureBoard` is lazy —
+    // it runs on the first board call — which would leave the choice with
+    // nowhere to wait; doing it here means no column on `coord_projects` just to
+    // replay a decision later.
+    if (template !== DEFAULT_BOARD_TEMPLATE) await this.board().provisionBoard(slug, template);
     return this.projectDetail(slug, host);
   }
 

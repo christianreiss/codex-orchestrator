@@ -78,6 +78,43 @@
   now derived from the stored name's extension when the caller gives none; an explicit value always
   wins and an unrecognised extension stays NULL.
 
+- **A cutover's calendar and its ordering lived in prose.** `coord_project_cards` carried labels,
+  priority and a blocked reason but nothing that said when a piece of work was due or what it waited
+  on. On the live `dns_switch_work` board, card 5's detail opens *"Noch nicht begonnen; abhängig von
+  Resolver/HA-, Netzwerk- und Puppet-Vorbereitung"* — a dependency on cards 2, 3 and 4 that nothing
+  could act on and nothing noticed being satisfied.
+
+  Migration `0032` adds `coord_project_cards.due_at` (RFC3339, indexed with `project_id`) and
+  `coord_project_card_deps`, an edge table — the interesting query runs the other way, *is anything
+  still waiting on this?*, and a unique key is what stops an edge being recorded twice. A card whose
+  dependencies have not all reached a terminal lane renders `ready: false` with `waiting_on`;
+  finishing them clears it with no second edit. Ordering is advisory like roles and WIP limits:
+  claiming a card that is not ready still succeeds and returns a `depends_unmet` advisory. A cycle is
+  the one exception and is refused outright, naming the chain (`#5 → #4 → #5`), because there is no
+  reading of a cycle that is the caller's call to make. Archiving a card drops its edges in both
+  directions, and deleting a project drops the project's.
+
+- **The board was a software pipeline on every project.** `plan / code / review / verify` is the
+  wrong shape for infrastructure work, and the live DNS board proves it: every card sits in
+  `backlog`, `done` or `blocked` and all four pipeline lanes are empty — not because the work had no
+  stages, but because its stages were discovery, a staged rollout and a canary. Columns were already
+  per-project rows carrying `allowed_roles` and `default_next_column_id`; only the seed was fixed.
+  `project_create` and `POST /admin/projects` now take `board_template`: `software` (the existing
+  seven lanes, and still the default) or `migration` (`backlog → discovery → plan → cutover → verify
+  → done`, plus `blocked`). A template provisions the board at creation, since `ensureBoard` is
+  otherwise lazy and the choice would have nowhere to wait — no column on `coord_projects` to replay
+  a decision from. Roles stay the fleet-fixed five: a template chooses which lanes exist and who is
+  expected in each, not a new vocabulary. Existing boards are untouched.
+
+  Every template is checked structurally, not just the seeded one — one intake, one terminal and one
+  blocked lane, a successor chain that actually reaches the terminal lane, unique keys, and roles the
+  fleet vocabulary declares. A malformed template is not a bad render; it is a board nobody can fix
+  without SQL.
+
+  The console's card editor was a `window.prompt` for the title. It is now a sheet with the detail,
+  the due date and the dependencies, and it reports a rejected cycle in place rather than in a toast
+  that closes it.
+
 - **A project could be started but never finished.** `coord_projects.archived_at` had existed
   since the table did, with its own index, and every listing path already filtered on it — and no
   code anywhere wrote it, so the fleet's project list had been append-only since March.

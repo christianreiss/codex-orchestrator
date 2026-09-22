@@ -78,6 +78,8 @@ Project and board tool schemas are closed, so an argument the tool does not decl
 **Project board** (both capabilities — registered only when the project board service is wired)
 - `project_board_list`, `project_card_create`, `project_card_claim`, `project_card_move`, `project_card_release`, `project_card_update`, `project_card_get`
 
+Cards carry `due_at` and `depends_on`. A card whose dependencies are unfinished reports `ready: false` with `waiting_on`; claiming it still works and returns a `depends_unmet` advisory, because ordering is advice on this board exactly as roles and WIP limits are. A dependency cycle is refused with the chain named. `project_create` takes `board_template` — `software` (the default) or `migration`, whose lanes are discovery / plan / cutover / verify.
+
 These tools are unconditional: `McpToolsRegistry` (`mcp-tools.ts`) registers them the same way it registers `memory_*`/`skill_*`, with no dependency on the Projects module toggle (`projects_module_enabled`). What *is* gated by that toggle is the managed `coco` skill (`api/src/services/managed-coco-skill.ts`, `skill://coco`) — see [Projects](/admin/manual/projects) — which onboards agents onto the `project_*` workflow. Disabling the module removes the skill, not the tools.
 
 The board tools are the exception to that paragraph: they are registered only when the API wires a `ProjectBoardService` into the registry, and they additionally check `project_board_enabled` at call time. `project_board_list` is the discovery entry point and never fails — with the module off it answers `status: "disabled"` and an empty list, which an agent can tell apart from a board that simply has nothing on it. The rest throw with a message naming where an operator turns it on.

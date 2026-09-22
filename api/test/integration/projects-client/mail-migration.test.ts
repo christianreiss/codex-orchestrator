@@ -60,10 +60,14 @@ describe.skipIf(!handle)('a mail server migration, end to end', () => {
     await handle?.pool.end();
   });
 
-  it('charters the project', async () => {
+  it('charters the project on lanes that fit the work', async () => {
     await svc.createProject(
       {
         slug: SLUG,
+        // Not the software pipeline: the stages here are discovery, a cutover
+        // and a verification, and on the live dns_switch_work board the four
+        // software lanes sat empty for exactly that reason.
+        board_template: 'migration',
         about: {
           title: 'Mail server migration — mx1 → mx2',
           owner: 'Chris',
@@ -76,6 +80,16 @@ describe.skipIf(!handle)('a mail server migration, end to end', () => {
     const summary = await svc.summary(SLUG, {}, host);
     expect((summary['about'] as Record<string, unknown>)['status']).toBe('planning');
     expect(summary['board']).toMatchObject({ status: 'available' });
+    const lanes = (summary['board'] as Record<string, unknown>)['columns'] as { key: string }[];
+    expect(lanes.map((lane) => lane.key)).toEqual([
+      'backlog',
+      'discovery',
+      'plan',
+      'cutover',
+      'verify',
+      'done',
+      'blocked',
+    ]);
   });
 
   it('attaches discovery evidence, text and binary alike', async () => {
@@ -116,10 +130,39 @@ describe.skipIf(!handle)('a mail server migration, end to end', () => {
     expect(JSON.stringify(listing).length).toBeLessThan(2_000);
   });
 
-  it('decomposes the work onto the board and runs a card through it', async () => {
+  it('decomposes the work onto the board, in order and on a date', async () => {
     for (const title of ['Freeze DNS TTLs', 'Rsync maildirs', 'Cut MX over', 'Decommission mx1']) {
       await board.createCard({ slug: SLUG, title }, host);
     }
+
+    // The cutover is a calendar event, and it waits on the two cards before it.
+    // Both facts used to live in the card's detail text, where nothing could act
+    // on them and nothing noticed when they were satisfied.
+    const cutover = (await board.updateCard(
+      { slug: SLUG, card: 3, due_at: '2026-10-15T22:00:00Z', depends_on: [1, 2] },
+      host,
+    )) as { card: Record<string, unknown> };
+    expect(cutover.card['due_at']).toBe('2026-10-15T22:00:00Z');
+    expect(cutover.card['depends_on']).toEqual([1, 2]);
+    expect(cutover.card['ready']).toBe(false);
+    expect(cutover.card['waiting_on']).toEqual([
+      { number: 1, title: 'Freeze DNS TTLs', column: 'backlog' },
+      { number: 2, title: 'Rsync maildirs', column: 'backlog' },
+    ]);
+
+    // Ordering is advice, like every other board verdict: the claim is granted
+    // and says what is still open.
+    const early = (await board.claimCard(
+      { slug: SLUG, card: 3, role: 'ops', username: 'chris', worktree_path: '/srv/mail' },
+      host,
+    )) as { claimed: boolean; advisories: { code: string }[] };
+    expect(early.claimed).toBe(true);
+    expect(early.advisories.map((a) => a.code)).toContain('depends_unmet');
+    await board.releaseCard({ slug: SLUG, card: 3, resolution: 'handoff' }, host);
+
+    await expect(
+      board.updateCard({ slug: SLUG, card: 1, depends_on: [3] }, host),
+    ).rejects.toThrow(/cycle: #1 → #3 → #1/);
 
     const claim = (await board.claimCard(
       { slug: SLUG, card: 2, role: 'ops', username: 'chris', worktree_path: '/srv/mail' },
@@ -127,7 +170,7 @@ describe.skipIf(!handle)('a mail server migration, end to end', () => {
     )) as Record<string, unknown>;
     expect(claim['claimed']).toBe(true);
 
-    await board.moveCard({ slug: SLUG, card: 2, column: 'coding', role: 'ops' }, host);
+    await board.moveCard({ slug: SLUG, card: 2, column: 'cutover', role: 'ops' }, host);
     const released = (await board.releaseCard(
       { slug: SLUG, card: 2, resolution: 'handoff', note: 'First pass synced; delta pass pending.' },
       host,
@@ -138,8 +181,18 @@ describe.skipIf(!handle)('a mail server migration, end to end', () => {
     const boardBlock = summary['board'] as Record<string, unknown>;
     const open = boardBlock['open_cards'] as Record<string, unknown>[];
     expect(open.length).toBe(4);
-    // Card detail bodies are not in the summary; titles are.
+    // Card detail bodies are not in the summary; titles, dates and readiness are.
     expect(open.every((c) => !('detail' in c))).toBe(true);
+    expect(open.find((c) => c['number'] === 3)).toMatchObject({
+      due_at: '2026-10-15T22:00:00Z',
+      ready: false,
+    });
+
+    // Finishing the blockers makes the dependent ready, with no second edit.
+    for (const number of [1, 2]) await board.moveCard({ slug: SLUG, card: number, column: 'done' }, host);
+    const nowReady = (await board.getCard({ slug: SLUG, card: 3 }, host)) as { card: Record<string, unknown> };
+    expect(nowReady.card['ready']).toBe(true);
+    expect(nowReady.card['waiting_on']).toEqual([]);
   });
 
   it('records a review and closes it out', async () => {

@@ -169,7 +169,15 @@ export interface CardPayload {
 export const createCard = (slug: string, payload: CardPayload) =>
   api.post<{ project: string; card: BoardCard }>(`${BASE}/${encodeSlug(slug)}/board/cards`, payload);
 
-export const updateCard = (slug: string, id: string, payload: Partial<CardPayload> & { blocked_reason?: string | null }) =>
+export const updateCard = (
+  slug: string,
+  id: string,
+  payload: Partial<CardPayload> & {
+    blocked_reason?: string | null;
+    due_at?: string | null;
+    depends_on?: number[] | null;
+  },
+) =>
   api.post<{ project: string; card: BoardCard }>(
     `${BASE}/${encodeSlug(slug)}/board/cards/${encodeURIComponent(id)}`,
     payload,

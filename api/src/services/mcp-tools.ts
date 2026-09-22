@@ -831,13 +831,15 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
   inputs.push({
     definition: {
       name: 'project_create',
-      description: 'Create a shared project',
+      description:
+        'Create a shared project. board_template picks the lane set — "software" (plan/code/review/verify, the default) or "migration" (discovery/plan/cutover/verify).',
       inputSchema: {
         type: 'object',
         properties: {
           slug: { type: 'string' },
           about: { type: 'object' },
           roster_markdown: { type: 'string' },
+          board_template: { type: 'string' },
           project: { type: 'string' },
           agents_markdown: { type: 'string' },
         },
@@ -1445,7 +1447,7 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
       definition: {
         name: 'project_card_create',
         description:
-          'Put a new piece of work on the board. Without `column` it lands in the intake lane, which is where work waits to be picked up. `role` records who you think should do it and is advice, not an assignment — claiming is what actually takes a card. Use `priority` to sort a lane (higher first) and `labels` to group. Returns the card, including the short number every other tool accepts.',
+          'Put a new piece of work on the board. Without `column` it lands in the intake lane, which is where work waits to be picked up. `role` records who you think should do it and is advice, not an assignment — claiming is what actually takes a card. Use `priority` to sort a lane (higher first) and `labels` to group. `due_at` is an RFC3339 instant, and `depends_on` takes the card numbers this one waits on: a card whose dependencies are unfinished comes back `ready: false` with `waiting_on`, and claiming it still works but says so.',
         inputSchema: {
           type: 'object',
           properties: {
@@ -1456,6 +1458,8 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
             role: { type: 'string', enum: [...PROJECT_BOARD_ROLES] },
             labels: { type: 'array', items: { type: 'string' } },
             priority: { type: 'integer' },
+            due_at: { type: 'string' },
+            depends_on: { type: 'array', items: { type: 'integer' } },
             // Every board handler reads this off args; it was never declared,
             // so closing the schema without it would start rejecting it.
             engine: { type: 'string' },
@@ -1557,7 +1561,7 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
       definition: {
         name: 'project_card_update',
         description:
-          'Edit a card in place: its title, its detail, its labels, its priority, or the reason it is blocked. Only the fields you pass change. This does not move the card and does not touch its claim.',
+          'Edit a card in place: its title, its detail, its labels, its priority, its due date, what it depends on, or the reason it is blocked. Only the fields you pass change; `depends_on` replaces the whole set, and `[]` clears it. This does not move the card and does not touch its claim.',
         inputSchema: {
           type: 'object',
           properties: {
@@ -1568,6 +1572,8 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
             labels: { type: 'array', items: { type: 'string' } },
             priority: { type: 'integer' },
             blocked_reason: { type: 'string' },
+            due_at: { type: 'string' },
+            depends_on: { type: 'array', items: { type: 'integer' } },
             // Every board handler reads this off args; it was never declared,
             // so closing the schema without it would start rejecting it.
             engine: { type: 'string' },

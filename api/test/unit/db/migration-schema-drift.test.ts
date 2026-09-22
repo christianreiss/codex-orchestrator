@@ -193,6 +193,7 @@ describe('migrations against the test baseline', () => {
       'coord_project_cards',
       'agent_transfers',
       'agent_transfer_events',
+      'coord_project_card_deps',
     ]);
     expect(
       additions.filter((a) => a.column !== undefined).map((a) => `${a.table}.${a.column}`),
@@ -233,6 +234,7 @@ describe('migrations against the test baseline', () => {
       'agent_messages.admin_user_id',
       'agent_transfer_events.seq',
       'coord_project_files.content_encoding',
+      'coord_project_cards.due_at',
     ]);
   });
 

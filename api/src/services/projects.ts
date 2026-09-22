@@ -26,6 +26,7 @@ import {
   coordProjectBoards,
   coordProjectBoardColumns,
   coordProjectCards,
+  coordProjectCardDeps,
   coordProjects,
   versions,
 } from '../db/schema.js';
@@ -310,6 +311,7 @@ export class ProjectsService {
     // leaves its cards behind, still counted by `adminState` and reachable by
     // nothing.
     await this.db.transaction(async (tx) => {
+      await tx.delete(coordProjectCardDeps).where(eq(coordProjectCardDeps.projectId, project.id));
       await tx.delete(coordProjectCards).where(eq(coordProjectCards.projectId, project.id));
       await tx.delete(coordProjectBoardColumns).where(eq(coordProjectBoardColumns.projectId, project.id));
       await tx.delete(coordProjectBoards).where(eq(coordProjectBoards.projectId, project.id));
