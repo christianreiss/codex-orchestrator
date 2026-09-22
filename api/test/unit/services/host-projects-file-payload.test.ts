@@ -106,13 +106,30 @@ describe('HostProjectsService.normalizeFilePayload', () => {
     expect(out.mimeType).toBe('text/markdown');
   });
 
-  it('nulls blank and missing description and mime_type', () => {
+  it('nulls blank and missing description, and infers a mime type from the name', () => {
     const blank = service.normalizeFilePayload({ stored_name: 'a.md', content: 'x', description: '   ', mime_type: '' });
     const missing = service.normalizeFilePayload({ stored_name: 'a.md', content: 'x' });
 
     expect(blank.description).toBeNull();
-    expect(blank.mimeType).toBeNull();
     expect(missing.description).toBeNull();
-    expect(missing.mimeType).toBeNull();
+    // A blank mime type is the same as none, and both infer: 30 of 49 files on
+    // one live project had a NULL mime type, which is what happens when nothing
+    // infers and every caller has to remember.
+    expect(blank.mimeType).toBe('text/markdown');
+    expect(missing.mimeType).toBe('text/markdown');
+  });
+
+  it('leaves an unrecognised extension null rather than guessing', () => {
+    expect(service.normalizeFilePayload({ stored_name: 'a.wat', content: 'x' }).mimeType).toBeNull();
+    expect(service.normalizeFilePayload({ stored_name: 'LICENSE', content: 'x' }).mimeType).toBeNull();
+  });
+
+  it('lets an explicit mime type win over inference', () => {
+    const out = service.normalizeFilePayload({
+      stored_name: 'a.md',
+      content: 'x',
+      mime_type: 'text/plain',
+    });
+    expect(out.mimeType).toBe('text/plain');
   });
 });

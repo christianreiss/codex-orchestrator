@@ -71,6 +71,8 @@ Defined in `api/src/services/mcp-tools.ts`. What you get at runtime depends on c
 
 `project_bootstrap`, `project_detail` and `project_file_list` return every file body and every note body. On a project that carries real artifacts that is a very large response — measured at 62 KB, 597 KB and 347 KB against live projects — so an agent following the bootstrap doctrine could exhaust its context before doing any work. They keep that shape because the admin console reads `content` out of them. `project_summary`, `project_files` and `project_notes` are the lean equivalents, and `project_file_read` accepts `offset`/`limit` to window a single body, returning `next_offset` and `truncated` exactly as `shared_memory_read` does. `project_changes` accepts `payloads: "preview"` to trim note and card bodies, and `since_seq` as an alias for `since`.
 
+Project and board tool schemas are closed, so an argument the tool does not declare is refused by name rather than dropped. The aliases the services accept are declared for that reason. `project_file_upsert` takes `encoding: "base64"` for binary artifacts, computing the digest and size over the decoded bytes; project files cap at 4 MiB decoded, where previously they had no limit beyond the 32 MiB request body. A missing mime type is inferred from the stored name's extension.
+
 **Project board** (both capabilities — registered only when the project board service is wired)
 - `project_board_list`, `project_card_create`, `project_card_claim`, `project_card_move`, `project_card_release`, `project_card_update`, `project_card_get`
 

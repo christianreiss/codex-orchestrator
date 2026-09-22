@@ -44,6 +44,40 @@
   registered unconditionally; the flag gates only the managed `coco` skill and the admin console's
   messaging. Line 71 of the same file already said so.
 
+- **Project files had no size limit of any kind, and no way to hold bytes.** No check existed in
+  either normalizer or either service, so the only ceiling was Fastify's 32 MiB body limit — out of
+  step with `roster_markdown` (65535) and project memories (32000), which hold far less. Files now
+  cap at 4 MiB, measured on what the body represents, and `stored_name` is checked against its
+  `VARCHAR(255)` column instead of being truncated by MySQL. Both writers go through one gate
+  (`project-file-encoding.ts`): a limit only one of them enforces is not a limit.
+
+  `project_file_upsert` takes `encoding: "base64"` (migration `0031`, `content_encoding`). The
+  workaround was already in production data before the column existed — `dns_switch_work` carries
+  `context/evidence-20260921.tar.gz.base64`, an agent's hand-encoded tarball stored as
+  `text/plain` — and nothing knew it had happened: `content_sha256` was the digest of the envelope
+  rather than of the archive, so it could not be checked against a digest taken anywhere else. For
+  an encoded row the digest and the reported size now describe the decoded bytes, and the body is
+  stored whitespace-stripped so `octet_length(content)` stays exactly four thirds of the decoded
+  size — which is what lets the lean listing stay byte-accurate without reading the body.
+
+- **A mistyped argument to any project tool was silently dropped.** `validateAgainstSchema` has
+  always supported `additionalProperties: false`; no project tool set it, so `since_seq` (and
+  anything else) was accepted, ignored, and answered as though it had not been passed. All 32
+  project and board schemas are now closed. The aliases the services read but no schema declared —
+  `project`/`agents_markdown`, `name`/`text`, `id`/`memory_id`, `q`, and `engine` on every board
+  tool — are declared rather than merely tolerated, since closing without them would have turned
+  working calls into errors; `project-tool-schema-closure.test.ts` holds the two halves together.
+
+  Missing-required is now checked before unknown-argument, because `normalizeArgs` turns an
+  unplaceable bare scalar into `{value: …}` and `'value' is not allowed` is true and useless where
+  `'slug' is required` tells the caller what to do. Declared `enum`s are enforced for the first
+  time, case-folded to match the services that normalize before comparing, so `type: "Bug"` and
+  `role: "Plan"` keep working.
+
+- **Nothing inferred a file's mime type.** It was NULL on 30 of 49 files in one live project. It is
+  now derived from the stored name's extension when the caller gives none; an explicit value always
+  wins and an unrecognised extension stays NULL.
+
 - The managed `coco` skill now opens with `project_summary`, names the windowing contract for large
   artifacts, and says plainly which calls to avoid and why. Its sha256 changes, so hosts resync it.
 

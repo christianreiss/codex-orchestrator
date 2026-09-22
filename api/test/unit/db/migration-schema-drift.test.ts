@@ -231,8 +231,9 @@ describe('migrations against the test baseline', () => {
       'agent_bus_addresses.call_pin',
       'agent_bus_addresses.call_pin_expires_at',
       'agent_messages.admin_user_id',
-          'agent_transfer_events.seq',
-]);
+      'agent_transfer_events.seq',
+      'coord_project_files.content_encoding',
+    ]);
   });
 
   it('reads whole tables out of the baseline, columns and all', () => {

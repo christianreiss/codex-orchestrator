@@ -20,6 +20,15 @@ import { nowIso } from '../util/timestamp.js';
 import { wsPublisher } from '../ws/publisher.js';
 import { ProjectsService, formatFile, toTodoView, type ProjectFileView, type TodoView } from './projects.js';
 import { isProjectFeedbackType, projectFeedbackTypeList } from './project-feedback-types.js';
+import {
+  STORED_NAME_TOO_LONG_MESSAGE,
+  acceptFileBody,
+  decodedByteLength,
+  decodedLengthFromStored,
+  inferMimeType,
+  storedNameTooLong,
+  type ProjectFileEncoding,
+} from './project-file-encoding.js';
 import { ProjectBoardService } from './project-board.js';
 import { HostProjectsService } from './host-projects.js';
 
@@ -48,7 +57,11 @@ function normalizeStoredName(value: unknown): string {
       throw new ValidationError('stored_name cannot contain dot segments', { param: 'stored_name' });
     }
   }
-  return segments.join('/');
+  const joined = segments.join('/');
+  if (storedNameTooLong(joined)) {
+    throw new ValidationError(STORED_NAME_TOO_LONG_MESSAGE, { param: 'stored_name' });
+  }
+  return joined;
 }
 
 function normalizeOptionalString(value: unknown): string | null {
@@ -74,7 +87,14 @@ function normalizeTodo(payload: Record<string, unknown>): { title: string; detai
   return { title, detail };
 }
 
-function normalizeFile(payload: Record<string, unknown>): { storedName: string; description: string | null; content: string; mimeType: string | null } {
+function normalizeFile(payload: Record<string, unknown>): {
+  storedName: string;
+  description: string | null;
+  content: string;
+  mimeType: string | null;
+  encoding: ProjectFileEncoding;
+  sha256: string;
+} {
   const storedName = normalizeStoredName(payload.stored_name ?? payload.name);
   const description = normalizeOptionalString(payload.description);
   const content = typeof payload.content === 'string' ? payload.content : typeof payload.text === 'string' ? payload.text : '';
@@ -82,7 +102,20 @@ function normalizeFile(payload: Record<string, unknown>): { storedName: string; 
   if (content === '') {
     throw new ValidationError('content is required', { param: 'content' });
   }
-  return { storedName, description, content, mimeType };
+  // Same gate the host/MCP writer uses. A size limit only one of the two
+  // enforces is not a size limit.
+  const accepted = acceptFileBody(content, payload.encoding);
+  if (!accepted.ok) {
+    throw new ValidationError(accepted.error.message, { param: accepted.error.field });
+  }
+  return {
+    storedName,
+    description,
+    content: accepted.value.body,
+    mimeType: mimeType ?? inferMimeType(storedName),
+    encoding: accepted.value.encoding,
+    sha256: accepted.value.sha256,
+  };
 }
 
 function normalizeFeedback(payload: Record<string, unknown>): { type: string; title: string; body: string } {
@@ -261,8 +294,7 @@ export class ProjectContentService {
 
   async upsertFile(slug: string, payload: Record<string, unknown>, sourceHostId: number | null = null): Promise<{ project: string; file: ProjectFileView }> {
     const project = await this.projects._resolveProject(slug);
-    const { storedName, description, content, mimeType } = normalizeFile(payload);
-    const sha = createHash('sha256').update(content).digest('hex');
+    const { storedName, description, content, mimeType, encoding, sha256: sha } = normalizeFile(payload);
     const nowTs = nowIso();
 
     const existing = await this.db
@@ -281,6 +313,7 @@ export class ProjectContentService {
         .set({
           description,
           content,
+          contentEncoding: encoding,
           contentSha256: sha,
           mimeType,
           sourceHostId,
@@ -293,6 +326,7 @@ export class ProjectContentService {
         storedName,
         description,
         content,
+        contentEncoding: encoding,
         contentSha256: sha,
         mimeType,
         sourceHostId,

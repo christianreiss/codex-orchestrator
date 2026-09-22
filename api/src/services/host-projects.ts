@@ -28,6 +28,15 @@ import { createHash } from 'node:crypto';
 import { isProjectFeedbackType, projectFeedbackTypeList } from './project-feedback-types.js';
 import { managedCocoBootstrapGuidance } from './managed-coco-skill.js';
 import { parseTags, sortedLowercase, sortedAssoc } from './memory-tags.js';
+import {
+  STORED_NAME_TOO_LONG_MESSAGE,
+  acceptFileBody,
+  decodedByteLength,
+  decodedLengthFromStored,
+  inferMimeType,
+  storedNameTooLong,
+  type ProjectFileEncoding,
+} from './project-file-encoding.js';
 import { ProjectBoardService, actorFromHost, type ProjectTodoWire } from './project-board.js';
 
 const SLUG_RE = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
@@ -114,6 +123,7 @@ interface FileRow {
   stored_name: string;
   description: string | null;
   content: string;
+  content_encoding: string;
   content_sha256: string;
   mime_type: string | null;
   size_bytes: number;
@@ -134,6 +144,7 @@ interface FileSummaryRow {
   project_id: number;
   stored_name: string;
   description: string | null;
+  content_encoding: string;
   content_sha256: string;
   mime_type: string | null;
   size_bytes: number;
@@ -639,8 +650,8 @@ export class HostProjectsService {
 
   async upsertFile(slug: string, payload: Record<string, unknown>, host: Host): Promise<unknown> {
     const project = await this.requireProject(slug);
-    const { storedName, description, content, mimeType } = this.normalizeFilePayload(payload);
-    const sha = createHash('sha256').update(content).digest('hex');
+    const { storedName, description, content, mimeType, encoding, sha256: sha } =
+      this.normalizeFilePayload(payload);
     const now = nowIso();
     const existing = await this.db
       .select()
@@ -657,6 +668,7 @@ export class HostProjectsService {
         .set({
           description: description ?? null,
           content,
+          contentEncoding: encoding,
           contentSha256: sha,
           mimeType: mimeType ?? null,
           sourceHostId: host.id,
@@ -669,6 +681,7 @@ export class HostProjectsService {
         storedName,
         description: description ?? null,
         content,
+        contentEncoding: encoding,
         contentSha256: sha,
         mimeType: mimeType ?? null,
         sourceHostId: host.id,
@@ -1068,7 +1081,11 @@ export class HostProjectsService {
         description: coordProjectFiles.description,
         contentSha256: coordProjectFiles.contentSha256,
         mimeType: coordProjectFiles.mimeType,
+        contentEncoding: coordProjectFiles.contentEncoding,
         sizeBytes: sql<number>`octet_length(${coordProjectFiles.content})`,
+        // The last two characters are all that is needed to count base64
+        // padding, and two characters is not a body.
+        contentTail: sql<string>`right(${coordProjectFiles.content}, 2)`,
         sourceHostId: coordProjectFiles.sourceHostId,
         createdAt: coordProjectFiles.createdAt,
         updatedAt: coordProjectFiles.updatedAt,
@@ -1083,7 +1100,12 @@ export class HostProjectsService {
       description: r.description ?? null,
       content_sha256: r.contentSha256,
       mime_type: r.mimeType ?? null,
-      size_bytes: Number(r.sizeBytes ?? 0),
+      content_encoding: r.contentEncoding ?? 'utf8',
+      size_bytes: decodedLengthFromStored(
+        Number(r.sizeBytes ?? 0),
+        String(r.contentTail ?? ''),
+        r.contentEncoding,
+      ),
       source_host_id: r.sourceHostId ?? null,
       created_at: r.createdAt,
       updated_at: r.updatedAt,
@@ -1267,15 +1289,17 @@ export class HostProjectsService {
 
   private hydrateFile(row: typeof coordProjectFiles.$inferSelect): FileRow {
     const content = row.content ?? '';
+    const encoding = row.contentEncoding ?? 'utf8';
     return {
       id: Number(row.id),
       project_id: Number(row.projectId),
       stored_name: row.storedName,
       description: row.description ?? null,
       content,
+      content_encoding: encoding,
       content_sha256: row.contentSha256,
       mime_type: row.mimeType ?? null,
-      size_bytes: Buffer.byteLength(content, 'utf8'),
+      size_bytes: decodedByteLength(content, encoding),
       source_host_id: row.sourceHostId ?? null,
       created_at: row.createdAt,
       updated_at: row.updatedAt,
@@ -1470,16 +1494,28 @@ export class HostProjectsService {
     description: string | null;
     content: string;
     mimeType: string | null;
+    encoding: ProjectFileEncoding;
+    sha256: string;
   } {
     const rawName = payload['stored_name'] ?? payload['name'] ?? '';
     const storedName = this.normalizeStoredName(rawName);
     const content = String(payload['content'] ?? payload['text'] ?? '');
     if (!content) throw new ValidationError('Validation failed', { extra: { errors: { content: ['content is required'] } } });
+    const accepted = acceptFileBody(content, payload['encoding']);
+    if (!accepted.ok) {
+      throw new ValidationError('Validation failed', {
+        extra: { errors: { [accepted.error.field]: [accepted.error.message] } },
+      });
+    }
     return {
       storedName,
       description: this.optString(payload['description']),
-      content,
-      mimeType: this.optString(payload['mime_type']),
+      content: accepted.value.body,
+      // An explicit mime type always wins; inference only fills a gap the
+      // caller left, which is most of them.
+      mimeType: this.optString(payload['mime_type']) ?? inferMimeType(storedName),
+      encoding: accepted.value.encoding,
+      sha256: accepted.value.sha256,
     };
   }
 
@@ -1495,7 +1531,13 @@ export class HostProjectsService {
         throw new ValidationError('Validation failed', { extra: { errors: { stored_name: ['stored_name cannot contain dot segments'] } } });
       }
     }
-    return segments.join('/');
+    const joined = segments.join('/');
+    if (storedNameTooLong(joined)) {
+      throw new ValidationError('Validation failed', {
+        extra: { errors: { stored_name: [STORED_NAME_TOO_LONG_MESSAGE] } },
+      });
+    }
+    return joined;
   }
 
   normalizeMemoryPayload(payload: Record<string, unknown>): {

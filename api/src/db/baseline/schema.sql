@@ -726,6 +726,7 @@ CREATE TABLE `coord_project_files` (
 	`stored_name` varchar(255) NOT NULL,
 	`description` text,
 	`content` longtext NOT NULL,
+	`content_encoding` varchar(16) NOT NULL DEFAULT 'utf8',
 	`content_sha256` char(64) NOT NULL,
 	`mime_type` varchar(255),
 	`source_host_id` bigint unsigned,

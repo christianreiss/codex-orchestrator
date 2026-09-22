@@ -32,6 +32,7 @@ import {
 import { ConflictError, NotFoundError, ValidationError } from '../http/errors.js';
 import { nowIso } from '../util/timestamp.js';
 import { wsPublisher } from '../ws/publisher.js';
+import { decodedByteLength } from './project-file-encoding.js';
 import { ProjectBoardService, type ProjectTodoWire } from './project-board.js';
 import { HostProjectsService } from './host-projects.js';
 
@@ -469,6 +470,7 @@ export interface ProjectFileView {
   id: number;
   stored_name: string;
   description: string | null;
+  content_encoding: string;
   content_sha256: string;
   mime_type: string | null;
   size_bytes: number;
@@ -479,13 +481,18 @@ export interface ProjectFileView {
 
 export function formatFile(file: typeof coordProjectFiles.$inferSelect): ProjectFileView {
   const content = file.content ?? '';
+  const encoding = file.contentEncoding ?? 'utf8';
   return {
     id: file.id,
     stored_name: file.storedName,
     description: file.description,
+    content_encoding: encoding,
     content_sha256: file.contentSha256,
     mime_type: file.mimeType,
-    size_bytes: Buffer.byteLength(content, 'utf8'),
+    // The size of what the body represents, not of the body. For a base64 row
+    // those differ by a third, and the caller who stored a 3 MiB PDF means the
+    // PDF.
+    size_bytes: decodedByteLength(content, encoding),
     updated_at: file.updatedAt,
     created_at: file.createdAt,
     content,

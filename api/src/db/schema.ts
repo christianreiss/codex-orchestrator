@@ -639,6 +639,10 @@ export const coordProjectFiles = mysqlTable(
     storedName: varchar('stored_name', { length: 255 }).notNull(),
     description: text('description'),
     content: longtext('content').notNull(),
+    // What `content` actually holds: 'utf8' (the body is the text) or 'base64'
+    // (the body encodes bytes, and the sha256 and size below describe the
+    // DECODED bytes, not this column's length). See migration 0031.
+    contentEncoding: varchar('content_encoding', { length: 16 }).notNull().default('utf8'),
     contentSha256: char('content_sha256', { length: 64 }).notNull(),
     mimeType: varchar('mime_type', { length: 255 }),
     sourceHostId: bigint('source_host_id', { mode: 'number', unsigned: true }),

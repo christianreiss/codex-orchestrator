@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { sql } from 'drizzle-orm';
+import { createHash } from 'node:crypto';
 import { HostProjectsService } from '../../../src/services/host-projects.js';
 import { getTestDb, type TestDb } from '../../helpers/test-db.js';
 import type { Host } from '../../../src/db/schema.js';
@@ -109,18 +110,68 @@ describe.skipIf(!handle)('lean project reads against a real database', () => {
     expect(JSON.stringify(out).length).toBeLessThan(6_000);
   });
 
+  it('round-trips a binary artifact through the base64 encoding', async () => {
+    // A real PNG header plus noise: bytes that are not valid UTF-8, which is
+    // what made a project file unable to hold them before content_encoding.
+    const bytes = Buffer.concat([
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+      Buffer.alloc(64_000, 0xfe),
+    ]);
+    const sha = createHash('sha256').update(bytes).digest('hex');
+
+    await svc.upsertFile(
+      SLUG,
+      { stored_name: 'context/capture.png', content: bytes.toString('base64'), encoding: 'base64' },
+      host,
+    );
+
+    const { file } = await svc.readFile(SLUG, { storedName: 'context/capture.png' }, host);
+    expect(file.content_encoding).toBe('base64');
+    // The size and digest describe the PNG, not the envelope it travelled in —
+    // so this sha can be checked against one taken of the file on disk.
+    expect(file.size_bytes).toBe(bytes.length);
+    expect(file.content_sha256).toBe(sha);
+    expect(Buffer.from(file.content, 'base64').equals(bytes)).toBe(true);
+    // Inferred from the name, since the caller gave no mime type.
+    expect(file.mime_type).toBe('image/png');
+
+    // And the lean listing agrees, having never read the body.
+    const lean = (await svc.listFileSummaries(SLUG, host)) as { files: Record<string, unknown>[] };
+    const summary = lean.files.find((f) => f['stored_name'] === 'context/capture.png')!;
+    expect(summary['size_bytes']).toBe(bytes.length);
+    expect(summary['content_sha256']).toBe(sha);
+    expect(summary['content_encoding']).toBe('base64');
+  });
+
+  it('refuses a body that is not the encoding it claims', async () => {
+    // The host-side shape puts the message under `extra.errors`, not in
+    // `error.message`, which is always the generic 'Validation failed'.
+    await expect(
+      svc.upsertFile(SLUG, { stored_name: 'context/bad.bin', content: 'not base64!!', encoding: 'base64' }, host),
+    ).rejects.toMatchObject({
+      extra: { errors: { content: ['content is not valid base64'] } },
+    });
+
+    const lean = (await svc.listFileSummaries(SLUG, host)) as { files: Record<string, unknown>[] };
+    expect(lean.files.map((f) => f['stored_name'])).not.toContain('context/bad.bin');
+  });
+
   it('does not grow when the artifacts do — the property the byte budget is a proxy for', async () => {
-    const before = JSON.stringify(await svc.summary(SLUG, {}, host)).length;
+    const first = await svc.summary(SLUG, {}, host);
+    const before = JSON.stringify(first).length;
+    const countsBefore = first['counts'] as Record<string, number>;
+
     await svc.upsertFile(SLUG, { stored_name: 'context/huge.md', content: 'z'.repeat(500_000) }, host);
-    const after = JSON.stringify(await svc.summary(SLUG, {}, host)).length;
+
+    const second = await svc.summary(SLUG, {}, host);
+    const after = JSON.stringify(second).length;
+    const countsAfter = second['counts'] as Record<string, number>;
 
     // Half a megabyte of new content buys one metadata row and one event row —
     // about 700 bytes, three orders of magnitude below what was stored.
     // `project_detail` on the same project would now be ~550 KB.
     expect(after - before).toBeLessThan(1_000);
-    expect((await svc.summary(SLUG, {}, host))['counts']).toMatchObject({
-      files: 3,
-      files_bytes: ASCII.length + 2_000 + 500_000,
-    });
+    expect(countsAfter['files']).toBe(countsBefore['files']! + 1);
+    expect(countsAfter['files_bytes']).toBe(countsBefore['files_bytes']! + 500_000);
   });
 });
