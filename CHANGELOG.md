@@ -1,5 +1,38 @@
 # 2026-09-23
 
+- **Fixed `config.toml` schema drift against codex-cli 0.156.1: 5 unrecognized-setting warnings on
+  every Codex host startup, and a live landmine for any host with a stored `profile` override.**
+  Reproduced live (real 0.156.1 binary, isolated `CODEX_HOME`) and root-caused to `client-config.ts`'s
+  `renderToml`, which still wrote a field shape from an older codex-cli schema:
+  - `model_supports_reasoning_summaries` and `model_max_output_tokens` are no longer accepted by
+    codex-cli anywhere (top-level or per-profile) — dropped from render, still accepted for ingest.
+  - `local_provider` was renamed upstream to `oss_provider` — renderer now writes the new key name;
+    the stored/API field name is unchanged.
+  - A top-level `profile = "…"` is now a **hard boot error**, not a warning ("legacy `profile =
+    "code"` config is no longer supported"). It was already only used internally by
+    `applyHostModelOverrides` to route a host's model override onto the matching `[profiles.<name>]`
+    entry — it never needed to reach the rendered TOML, and now must not.
+  - `[profiles.<name>].sandbox_workspace_write` doesn't exist in the schema at all — the whole table
+    was reported ignored, not just its `network_access` sub-key. `[sandbox_workspace_write]` is
+    top-level only; the renderer stopped emitting it per-profile.
+  - `[security]` is confirmed dead on both sides now: no wrapper Go code has ever parsed it
+    (`docs/CONFIG_BUILDER.md` already documented that), and codex-cli 0.156.1 rejects the whole
+    table too. Renderer stopped emitting it; the field stays accepted for ingest back-compat.
+
+  `model_context_window` stays valid but top-level only — profiles now skip it. Docs
+  (`docs/CONFIG_BUILDER.md`, `docs/interface-api.md`) and `api/test/unit/services/client-config.test.ts`
+  updated to match; verified against the real installed codex-cli 0.156.1 binary that the warning is
+  gone.
+
+- **Added `claude-opus-5-5` to the Claude (clx) supported model catalog.** Anthropic's models
+  overview now recommends Opus 5.5 as the default for most workloads (successor to `claude-opus-5`
+  in the Opus tier, $4/$20 per MTok vs. $5/$25); every model already in the fleet's catalog is still
+  listed there too, so nothing was removed. Added to `CLAUDE_SUPPORTED_MODELS` /
+  `CLAUDE_MODEL_METADATA` (`api/src/services/claude-models.ts`), `CLAUDE_MODEL_REASONING_EFFORTS` /
+  `CLAUDE_MODEL_DEFAULT_REASONING_EFFORTS` (default effort `medium`, per Anthropic's table — one
+  step below every other current Claude tier's `high`) in `config-normalizer.ts`, and the frontend
+  `CLAUDE_MODEL_OPTIONS` picker.
+
 - **`clx update` / `cdx update` never updated the engine.** The command self-updates the wrapper
   binary and re-execs into `cxx sync` to converge managed content, but nothing in that path ever
   touched the Claude or Codex CLI itself — only the scheduled cron tick (`TickWithOptions`) called

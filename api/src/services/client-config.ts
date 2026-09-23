@@ -88,6 +88,29 @@ const SCALAR_KEYS: Array<keyof NormalizedSettings> = [
   'model_max_output_tokens',
 ];
 
+/**
+ * Keys codex-cli no longer accepts anywhere (top level or per-profile).
+ * Confirmed live against codex-cli 0.156.1, 2026-09-23 (the exact version
+ * `cxx`/`cdx` launches): both are reported `is ignored.` in the startup
+ * "unrecognized configuration settings" warning. Still accepted into
+ * `NormalizedSettings` for ingest back-compat — only the render is skipped.
+ */
+const DROPPED_SCALAR_RENDER_KEYS = new Set<keyof NormalizedSettings>([
+  'model_supports_reasoning_summaries',
+  'model_max_output_tokens',
+]);
+
+/**
+ * `local_provider` was renamed to `oss_provider` upstream. Verified against
+ * codex-cli 0.156.1, 2026-09-23: `oss_provider = "…"` produces no warning,
+ * `local_provider = "…"` does. The stored/normalized field name stays
+ * `local_provider` (existing API/doc contract); only the rendered TOML key
+ * changes.
+ */
+const RENAMED_SCALAR_RENDER_KEYS: Partial<Record<keyof NormalizedSettings, string>> = {
+  local_provider: 'oss_provider',
+};
+
 const BACKSPACE_CHAR = String.fromCharCode(0x08);
 
 function tomlString(value: string): string {
@@ -147,7 +170,14 @@ export function renderToml(normalized: NormalizedSettings): string {
   const lines: string[] = [];
 
   for (const key of SCALAR_KEYS) {
-    addKeyValue(lines, key, normalized[key]);
+    // Legacy top-level `profile = "…"` is now a hard boot error on codex-cli
+    // 0.156.1+ ("legacy `profile = "code"` config is no longer supported;
+    // use `--profile <name>`"), confirmed live 2026-09-23. `normalized.profile`
+    // is kept only for `applyHostModelOverrides`' internal profile routing —
+    // it must never reach the rendered TOML.
+    if (key === 'profile') continue;
+    if (DROPPED_SCALAR_RENDER_KEYS.has(key)) continue;
+    addKeyValue(lines, RENAMED_SCALAR_RENDER_KEYS[key] ?? key, normalized[key]);
   }
 
   if (normalized.notify && normalized.notify.length > 0) {
@@ -172,11 +202,12 @@ export function renderToml(normalized: NormalizedSettings): string {
     }
   }
 
-  if (normalized.security.dangerously_bypass_approvals_and_sandbox !== null) {
-    if (lines.length > 0) lines.push('');
-    lines.push('[security]');
-    addKeyValue(lines, 'dangerously_bypass_approvals_and_sandbox', normalized.security.dangerously_bypass_approvals_and_sandbox);
-  }
+  // `[security].dangerously_bypass_approvals_and_sandbox` is dead on both
+  // sides: no Go wrapper code has ever parsed a `[security]` block
+  // (docs/CONFIG_BUILDER.md § Security toggles), and codex-cli 0.156.1
+  // now reports it `is ignored.` too (confirmed live, 2026-09-23). Still
+  // accepted into `NormalizedSettings.security` for ingest back-compat —
+  // never rendered.
 
   if (isPresentRecord(normalized.sandbox_workspace_write)) {
     if (lines.length > 0) lines.push('');
@@ -207,7 +238,12 @@ export function renderToml(normalized: NormalizedSettings): string {
     if (lines.length > 0) lines.push('');
     lines.push(`[profiles.${tomlBareKey(name)}]`);
     for (const key of SCALAR_KEYS) {
-      if (key === 'profile' || key === 'local_provider') continue;
+      // `local_provider`/`profile` never applied per-profile. `model_context_window`
+      // is top-level-only on codex-cli — nested under a profile it is reported
+      // `is ignored.` (confirmed live, 0.156.1, 2026-09-23), same as the
+      // always-dropped keys below.
+      if (key === 'profile' || key === 'local_provider' || key === 'model_context_window') continue;
+      if (DROPPED_SCALAR_RENDER_KEYS.has(key)) continue;
       addKeyValue(lines, key, profile[key]);
     }
     if (isPresentRecord(asRecord(profile['features']))) {
@@ -217,11 +253,10 @@ export function renderToml(normalized: NormalizedSettings): string {
         addKeyValue(lines, k, asRecord(profile['features'])[k]);
       }
     }
-    if (isPresentRecord(asRecord(profile['sandbox_workspace_write']))) {
-      lines.push('');
-      lines.push(`[profiles.${tomlBareKey(name)}.sandbox_workspace_write]`);
-      addKeyValue(lines, 'network_access', asRecord(profile['sandbox_workspace_write'])['network_access']);
-    }
+    // codex-cli has no per-profile `sandbox_workspace_write` table at all: the
+    // whole table is reported `is ignored.` (confirmed live, 0.156.1,
+    // 2026-09-23), not just an unknown sub-key. `[sandbox_workspace_write]` is
+    // top-level only — see above.
   }
 
   for (const server of sortEntriesByName(normalized.mcp_servers)) {

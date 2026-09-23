@@ -79,6 +79,11 @@ describe('ModelDefaultsService', () => {
         default_effort: 'high',
       },
       {
+        model: 'claude-opus-5-5',
+        persistent_efforts: ['low', 'medium', 'high', 'xhigh'],
+        default_effort: 'medium',
+      },
+      {
         model: 'claude-opus-5',
         persistent_efforts: ['low', 'medium', 'high', 'xhigh'],
         default_effort: 'high',

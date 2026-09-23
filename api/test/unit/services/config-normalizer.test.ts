@@ -103,6 +103,7 @@ describe('config-normalizer constants', () => {
     expect(CLAUDE_MODEL_REASONING_EFFORTS).toEqual({
       'claude-fable-5-1': ['low', 'medium', 'high', 'xhigh'],
       'claude-fable-5': ['low', 'medium', 'high', 'xhigh'],
+      'claude-opus-5-5': ['low', 'medium', 'high', 'xhigh'],
       'claude-opus-5': ['low', 'medium', 'high', 'xhigh'],
       'claude-opus-4-8': ['low', 'medium', 'high', 'xhigh'],
       'claude-sonnet-5': ['low', 'medium', 'high', 'xhigh'],
@@ -113,6 +114,7 @@ describe('config-normalizer constants', () => {
     expect(CLAUDE_MODEL_DEFAULT_REASONING_EFFORTS).toEqual({
       'claude-fable-5-1': 'high',
       'claude-fable-5': 'high',
+      'claude-opus-5-5': 'medium',
       'claude-opus-5': 'high',
       'claude-opus-4-8': 'high',
       'claude-sonnet-5': 'high',

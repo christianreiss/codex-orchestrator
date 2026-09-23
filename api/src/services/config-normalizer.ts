@@ -13,6 +13,17 @@
  * followed by section tables: [features], [notice], [security],
  * [sandbox_workspace_write], [shell_environment_policy], [[profiles]],
  * [[mcp_servers]].
+ *
+ * That field order is still the accepted-input/normalized shape, but as of
+ * codex-cli 0.156.1 (reproduced live, 2026-09-23) it is no longer what
+ * `client-config.ts`'s `renderToml` writes verbatim: `local_provider` is
+ * rendered as `oss_provider` (upstream rename), `profile` is never rendered
+ * at top level (a literal `profile = "…"` is now a hard boot error, not a
+ * warning — kept here only for `applyHostModelOverrides`' internal profile
+ * routing), and `model_supports_reasoning_summaries` /
+ * `model_max_output_tokens` are accepted for ingest but dropped from every
+ * render (top-level and per-profile) — codex-cli reports both `ignored`
+ * everywhere. See `renderToml` for the exact skip/rename lists.
  */
 
 import { createHash } from 'node:crypto';
@@ -148,6 +159,7 @@ export const CODEX_MODEL_DEFAULT_REASONING_EFFORTS: Readonly<Record<string, stri
 export const CLAUDE_MODEL_REASONING_EFFORTS: Readonly<Record<string, readonly string[]>> = {
   'claude-fable-5-1': ['low', 'medium', 'high', 'xhigh'],
   'claude-fable-5': ['low', 'medium', 'high', 'xhigh'],
+  'claude-opus-5-5': ['low', 'medium', 'high', 'xhigh'],
   'claude-opus-5': ['low', 'medium', 'high', 'xhigh'],
   'claude-opus-4-8': ['low', 'medium', 'high', 'xhigh'],
   'claude-sonnet-5': ['low', 'medium', 'high', 'xhigh'],
@@ -156,10 +168,15 @@ export const CLAUDE_MODEL_REASONING_EFFORTS: Readonly<Record<string, readonly st
   'claude-haiku-4-5-20251001': [],
 };
 
-/** Fleet defaults used when an operator selects a Claude model without an effort. */
+/**
+ * Fleet defaults used when an operator selects a Claude model without an
+ * effort. `claude-opus-5-5` defaults to `medium` per Anthropic's own models
+ * table — one step below every other Opus/Fable/Sonnet tier's `high`.
+ */
 export const CLAUDE_MODEL_DEFAULT_REASONING_EFFORTS: Readonly<Record<string, string | null>> = {
   'claude-fable-5-1': 'high',
   'claude-fable-5': 'high',
+  'claude-opus-5-5': 'medium',
   'claude-opus-5': 'high',
   'claude-opus-4-8': 'high',
   'claude-sonnet-5': 'high',

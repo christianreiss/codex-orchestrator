@@ -35,6 +35,7 @@ describe('claude-models', () => {
     expect(CLAUDE_SUPPORTED_MODELS).toEqual([
       'claude-fable-5-1',
       'claude-fable-5',
+      'claude-opus-5-5',
       'claude-opus-5',
       'claude-opus-4-8',
       'claude-sonnet-5',

@@ -1,6 +1,6 @@
 <script lang="ts">
   import PageHeader from "$lib/components/layout/PageHeader.svelte";
-  import StatCard from "./StatCard.svelte";
+  import StatCard from "$lib/components/dashboard/StatCard.svelte";
   import ChatGptUsageCard from "./ChatGptUsageCard.svelte";
   import ClaudeUsageCard from "./ClaudeUsageCard.svelte";
   import RunnerCard from "$lib/components/dashboard/RunnerCard.svelte";

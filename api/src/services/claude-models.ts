@@ -24,10 +24,18 @@ export const CLAUDE_DEFAULT_MODEL = 'claude-sonnet-5';
  *
  * `claude-mythos-5-1` is deliberately absent — it is a restricted-access model
  * (Project Glasswing), not something a general fleet picker should offer.
+ *
+ * `claude-opus-5-5` added 2026-09-23: it is now Anthropic's recommended
+ * default for most workloads (successor to `claude-opus-5` in the Opus tier,
+ * $4/$20 per MTok vs. $5/$25), confirmed GA via
+ * platform.claude.com/docs/en/about-claude/models/overview. Every model
+ * already in this list is still listed there too, under "Legacy models
+ * (still available)" — nothing here is retired, so nothing was removed.
  */
 export const CLAUDE_SUPPORTED_MODELS = [
   'claude-fable-5-1',
   'claude-fable-5',
+  'claude-opus-5-5',
   'claude-opus-5',
   'claude-opus-4-8',
   'claude-sonnet-5',
@@ -71,6 +79,7 @@ export const CLAUDE_MODEL_METADATA: Record<
 > = {
   'claude-fable-5-1': { displayName: 'Claude Fable 5.1', maxInputTokens: 1_000_000, maxTokens: 128_000 },
   'claude-fable-5': { displayName: 'Claude Fable 5', maxInputTokens: 1_000_000, maxTokens: 128_000 },
+  'claude-opus-5-5': { displayName: 'Claude Opus 5.5', maxInputTokens: 1_000_000, maxTokens: 128_000 },
   'claude-opus-5': { displayName: 'Claude Opus 5', maxInputTokens: 1_000_000, maxTokens: 128_000 },
   'claude-opus-4-8': { displayName: 'Claude Opus 4.8', maxInputTokens: 1_000_000, maxTokens: 128_000 },
   'claude-sonnet-5': { displayName: 'Claude Sonnet 5', maxInputTokens: 1_000_000, maxTokens: 128_000 },

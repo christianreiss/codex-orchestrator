@@ -11,8 +11,12 @@
   import { Label } from "$lib/components/ui/label";
   import { Skeleton } from "$lib/components/ui/skeleton";
   import * as Collapsible from "$lib/components/ui/collapsible";
+  import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from "$lib/components/ui/card";
+  import { Alert, AlertDescription } from "$lib/components/ui/alert";
+  import StatCard from "$lib/components/dashboard/StatCard.svelte";
   import StatusPill from "$lib/components/hosts/StatusPill.svelte";
   import EngineBadge from "$lib/components/hosts/EngineBadge.svelte";
+  import EnginePanel from "$lib/components/hosts/EnginePanel.svelte";
   import InsecureCountdown from "$lib/components/hosts/InsecureCountdown.svelte";
   import ConfirmDialog from "$lib/components/hosts/ConfirmDialog.svelte";
   import InputDialog from "$lib/components/hosts/InputDialog.svelte";
@@ -26,6 +30,15 @@
   import Download from "@lucide/svelte/icons/download";
   import AlertTriangle from "@lucide/svelte/icons/triangle-alert";
   import ChevronDown from "@lucide/svelte/icons/chevron-down";
+  import Package from "@lucide/svelte/icons/package";
+  import ShieldCheck from "@lucide/svelte/icons/shield-check";
+  import Network from "@lucide/svelte/icons/network";
+  import SlidersHorizontal from "@lucide/svelte/icons/sliders-horizontal";
+  import Plug from "@lucide/svelte/icons/plug";
+  import Clock from "@lucide/svelte/icons/clock";
+  import Timer from "@lucide/svelte/icons/timer";
+  import Activity from "@lucide/svelte/icons/activity";
+  import Terminal from "@lucide/svelte/icons/terminal";
   import { relativeTime } from "$lib/utils/format";
   import { autoCopyText } from "$lib/utils/clipboard";
   import { CLAUDE_MODEL_OPTIONS, CODEX_MODELS, REASONING_EFFORT_OPTIONS } from "$lib/constants/models";
@@ -126,6 +139,13 @@
   async function refresh(): Promise<void> {
     await qc.invalidateQueries({ queryKey: hostsKeys.detail(id) });
     toast.success("Refreshing…");
+  }
+
+  /** Absolute local timestamp for a stat tile's hint line. */
+  function absoluteTime(iso?: string | null): string | null {
+    if (!iso) return null;
+    const d = new Date(iso);
+    return Number.isNaN(d.getTime()) ? null : d.toLocaleString();
   }
 
   // Dialog state
@@ -281,10 +301,19 @@
 </script>
 
 {#if $detail.isLoading}
-  <div class="space-y-3">
-    <Skeleton class="h-10 w-64" />
-    <Skeleton class="h-40 w-full" />
-    <Skeleton class="h-40 w-full" />
+  <div class="flex flex-col gap-6">
+    <Skeleton class="h-16 w-full" />
+    <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <Skeleton class="h-24" />
+      <Skeleton class="h-24" />
+      <Skeleton class="h-24" />
+      <Skeleton class="h-24" />
+    </div>
+    <Skeleton class="h-56 w-full" />
+    <div class="grid grid-cols-1 gap-4 lg:grid-cols-2">
+      <Skeleton class="h-40" />
+      <Skeleton class="h-40" />
+    </div>
   </div>
 {:else if $detail.isError || !host}
   <div class="rounded-md border border-destructive/25 bg-destructive-muted p-4 text-sm text-destructive-muted-foreground">
@@ -306,221 +335,254 @@
     {/snippet}
   </PageHeader>
 
-  <!-- Status line: reachability | security | engines. VIP/roaming/auto-update/
-       BrowserOS are controls further down, not pills — a pill is for state
-       you can't change on this page. -->
-  <div class="mb-5 flex flex-wrap items-center gap-1.5">
-    {#if hostStatusKind(host) === "online"}
-      <StatusPill tone="online" label="Online" />
-    {:else if hostStatusKind(host) === "auth-missing"}
-      <StatusPill tone="warning" label="Auth missing" />
-    {:else if hostStatusKind(host) === "auth-outdated"}
-      <StatusPill tone="warning" label="Outdated auth" />
-    {:else}
-      <StatusPill tone="offline" label="Offline" />
-    {/if}
-    {#if isInsecureWindowActive(host)}
-      <StatusPill tone="warning" label="Insecure" />
-    {:else if host.secure}
-      <StatusPill tone="secure" label="Secure" />
-    {:else}
-      <StatusPill tone="muted" label="Insecure (closed)" />
-    {/if}
-    {#each hostEngines(host) as engine}
-      <EngineBadge {engine} />
-    {/each}
-  </div>
+  <div class="flex flex-col gap-6">
+    <!-- Status line: reachability | security | engines. VIP/roaming/auto-update/
+         BrowserOS are controls further down, not pills — a pill is for state
+         you can't change on this page. -->
+    <div class="flex flex-wrap items-center gap-1.5">
+      {#if hostStatusKind(host) === "online"}
+        <StatusPill tone="online" label="Online" />
+      {:else if hostStatusKind(host) === "auth-missing"}
+        <StatusPill tone="warning" label="Auth missing" />
+      {:else if hostStatusKind(host) === "auth-outdated"}
+        <StatusPill tone="warning" label="Outdated auth" />
+      {:else}
+        <StatusPill tone="offline" label="Offline" />
+      {/if}
+      {#if isInsecureWindowActive(host)}
+        <StatusPill tone="warning" label="Insecure" />
+      {:else if host.secure}
+        <StatusPill tone="secure" label="Secure" />
+      {:else}
+        <StatusPill tone="muted" label="Insecure (closed)" />
+      {/if}
+      {#each hostEngines(host) as engine}
+        <EngineBadge {engine} />
+      {/each}
+    </div>
 
-  <div class="divide-y divide-border border-y border-border">
     {#if actionItems.length > 0}
-      <section class="py-5" aria-labelledby="host-attention">
-        <h2 id="host-attention" class="text-sm font-semibold">Needs attention</h2>
-        <ul class="mt-3 space-y-2 text-sm">
-          {#each actionItems as item}
-            <li
-              class="flex items-start gap-2 rounded-md border px-2.5 py-1.5 {item.tone === 'warning'
-                ? 'border-warning/25 bg-warning-muted text-warning-muted-foreground'
-                : 'border-info/25 bg-info-muted text-info-muted-foreground'}"
-            >
-              <AlertTriangle class="mt-0.5 h-4 w-4 flex-shrink-0" />
-              <span>{item.text}</span>
-            </li>
-          {/each}
-        </ul>
-      </section>
+      <div class="flex flex-col gap-2">
+        {#each actionItems as item}
+          <Alert variant={item.tone}>
+            <AlertTriangle class="h-4 w-4" />
+            <AlertDescription>{item.text}</AlertDescription>
+          </Alert>
+        {/each}
+      </div>
     {/if}
 
-    <!-- Identity & reachability: facts only. -->
-    <section class="py-5" aria-labelledby="host-identity">
-      <header class="mb-4 flex flex-row items-start justify-between gap-3">
-        <div>
-          <h2 id="host-identity" class="text-sm font-semibold">Identity & reachability</h2>
-          <p class="mt-1 text-sm text-muted-foreground">Network identity and last-contact facts.</p>
-        </div>
-        {#if host.ip4 || host.ip6}
-          <Button variant="outline" size="sm" onclick={() => (confirmReleaseIpBindingOpen = true)}>
-            Release IP binding
-          </Button>
-        {/if}
-      </header>
-      <dl class="grid grid-cols-1 gap-x-6 gap-y-2 text-sm sm:grid-cols-2 lg:grid-cols-3">
-        {@render dt("Host ID", String(host.id))}
-        {@render dt("FQDN", host.fqdn)}
-        {@render dt("IP (v4)", host.ip4 ?? "—")}
-        {@render dt("IP (v6)", host.ip6 ?? "—")}
-        {@render dt("Last contact", relativeTime(hostLatestRefresh(host)) || "—")}
-        {@render dt("Last cron check", relativeTime(host.last_cron_check) || "—")}
-        {@render dt("API calls (recent)", host.api_calls != null ? String(host.api_calls) : "—")}
-        <div class="flex flex-col">
-          <dt class="text-[11px] uppercase tracking-wide text-muted-foreground">Insecure window</dt>
-          <dd class="font-mono text-xs"><InsecureCountdown until={host.insecure_enabled_until} /></dd>
-        </div>
-      </dl>
-    </section>
+    <!-- Vitals at a glance. -->
+    <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <StatCard
+        label="Last contact"
+        value={relativeTime(hostLatestRefresh(host)) || "—"}
+        hint={absoluteTime(hostLatestRefresh(host))}
+      >
+        {#snippet icon()}<Clock class="h-4 w-4" />{/snippet}
+      </StatCard>
+      <StatCard
+        label="Last cron check"
+        value={relativeTime(host.last_cron_check) || "—"}
+        hint={absoluteTime(host.last_cron_check)}
+      >
+        {#snippet icon()}<Timer class="h-4 w-4" />{/snippet}
+      </StatCard>
+      <StatCard
+        label="API calls (recent)"
+        value={host.api_calls != null ? String(host.api_calls) : "—"}
+      >
+        {#snippet icon()}<Activity class="h-4 w-4" />{/snippet}
+      </StatCard>
+      <StatCard
+        label="CXX wrapper"
+        value={cxxWrapper.drift ? "Drift" : cxxWrapper.display}
+        hint={cxxWrapper.drift ? cxxWrapper.display : null}
+        class={cxxWrapper.drift ? "border-warning/40" : undefined}
+      >
+        {#snippet icon()}<Terminal class="h-4 w-4" />{/snippet}
+      </StatCard>
+    </div>
 
     <!-- Engines & versions: per-engine overrides via inline popovers, each
          showing the effective value and where it came from. -->
-    <section class="py-5" aria-labelledby="host-engines">
-      <header class="mb-4 flex flex-row items-start justify-between gap-3">
-        <div>
-          <h2 id="host-engines" class="text-sm font-semibold">Engines & versions</h2>
-          <p class="mt-1 text-sm text-muted-foreground">Blank clears an override and inherits the fleet default.</p>
+    <Card>
+      <CardHeader class="flex flex-row items-start justify-between gap-3 space-y-0">
+        <div class="space-y-1.5">
+          <CardTitle class="flex items-center gap-2">
+            <Package class="h-4 w-4 text-muted-foreground" /> Engines & versions
+          </CardTitle>
+          <CardDescription>Blank clears an override and inherits the fleet default.</CardDescription>
         </div>
         <Button variant="outline" size="sm" onclick={() => doMintInstaller()} disabled={$mintInstaller.isPending}>
           <Download class="h-3.5 w-3.5" /> {$mintInstaller.isPending ? "Minting…" : "Mint installer"}
         </Button>
-      </header>
-      <div class="space-y-4">
-        <dl class="grid grid-cols-1 gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
-          {@render dt("CXX wrapper", cxxWrapper.display)}
-        </dl>
-
-        {#if codexEngine}
-          <div class="space-y-2">
-            <div class="eyebrow">Codex</div>
-            <OverridePopover
-              label="Version"
-              override={host.client_version_override}
-              inheritedValue={host.client_version}
-              inheritedLabel="detected"
-              placeholder={overview?.versions.client_version ?? "0.30.0"}
-              pending={$codexVersion.isPending}
-              onSave={saveCodexVersion}
-            />
-            <OverridePopover
-              label="Model"
-              override={host.model_override}
-              options={CODEX_MODELS}
-              pending={$modelOverride.isPending}
-              onSave={saveCodexModel}
-            />
-            <OverridePopover
-              label="Reasoning effort"
-              override={host.reasoning_effort_override}
-              options={REASONING_EFFORT_OPTIONS}
-              pending={$modelOverride.isPending}
-              onSave={saveReasoningEffort}
-            />
-            <dl class="text-sm">
-              {@render dt("Binary digest", host.canonical_digest ? host.canonical_digest.slice(0, 16) + "…" : "—")}
-            </dl>
-          </div>
-        {/if}
-
-        {#if claudeEngine}
-          <div class="space-y-2">
-            <div class="eyebrow">Claude</div>
-            <OverridePopover
-              label="Version"
-              override={host.claude_client_version_override}
-              inheritedValue={host.claude_client_version}
-              inheritedLabel="detected"
-              placeholder={overview?.versions.claude_version ?? "1.0.0"}
-              pending={$claudeVersion.isPending}
-              onSave={saveClaudeVersion}
-            />
-            <OverridePopover
-              label="Model"
-              override={host.claude_model_override}
-              options={CLAUDE_MODEL_OPTIONS}
-              pending={$modelOverride.isPending}
-              onSave={saveClaudeModel}
-            />
-            <dl class="text-sm">
-              {@render dt("Binary digest", host.claude_canonical_digest ? host.claude_canonical_digest.slice(0, 16) + "…" : "—")}
-            </dl>
-          </div>
-        {/if}
-      </div>
-    </section>
-
-    <!-- Access & security -->
-    <section class="py-5" aria-labelledby="host-security">
-      <header class="mb-4">
-        <h2 id="host-security" class="text-sm font-semibold">Access & security</h2>
-        <p class="mt-1 text-sm text-muted-foreground">How strictly this host's requests are authenticated.</p>
-      </header>
-      <div class="space-y-3">
-        <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <ToggleRow
-            label="Secure"
-            checked={host.secure}
-            onchange={(v) => runQuiet($secure.mutateAsync({ id, value: v }))}
-          />
-          <ToggleRow
-            label="Curl insecure"
-            checked={host.curl_insecure}
-            onchange={(v) => runQuiet($curlInsecure.mutateAsync({ id, value: v }))}
-          />
-        </div>
-        <div class="flex flex-wrap gap-2 border-t pt-3">
-          {#if isInsecureWindowActive(host)}
-            <InsecureWindowPopover
-              label="Extend window"
-              variant="outline"
-              heading="Extend insecure window"
-              confirmLabel="Extend"
-              onConfirm={(duration_minutes) =>
-                run("Window extended", $insecureEnable.mutateAsync({ id, duration_minutes }))}
-            />
-            <Button
-              variant="ghost"
-              onclick={() => run("Window closed", $insecureDisable.mutateAsync({ id }))}
+      </CardHeader>
+      <CardContent>
+        <div class="grid gap-3 md:grid-cols-2">
+          {#if codexEngine}
+            <EnginePanel
+              engine="codex"
+              digest={host.canonical_digest ? host.canonical_digest.slice(0, 16) + "…" : "—"}
             >
-              Close window
-            </Button>
-          {:else if host.secure === false}
-            <InsecureWindowPopover
-              label="Open insecure window"
-              heading="Open insecure window"
-              confirmLabel="Open"
-              onConfirm={(duration_minutes) =>
-                run("Window opened", $insecureEnable.mutateAsync({ id, duration_minutes }))}
-            />
+              <OverridePopover
+                label="Version"
+                override={host.client_version_override}
+                inheritedValue={host.client_version}
+                inheritedLabel="detected"
+                placeholder={overview?.versions.client_version ?? "0.30.0"}
+                pending={$codexVersion.isPending}
+                onSave={saveCodexVersion}
+              />
+              <OverridePopover
+                label="Model"
+                override={host.model_override}
+                options={CODEX_MODELS}
+                pending={$modelOverride.isPending}
+                onSave={saveCodexModel}
+              />
+              <OverridePopover
+                label="Reasoning effort"
+                override={host.reasoning_effort_override}
+                options={REASONING_EFFORT_OPTIONS}
+                pending={$modelOverride.isPending}
+                onSave={saveReasoningEffort}
+              />
+            </EnginePanel>
+          {/if}
+
+          {#if claudeEngine}
+            <EnginePanel
+              engine="claude"
+              digest={host.claude_canonical_digest ? host.claude_canonical_digest.slice(0, 16) + "…" : "—"}
+            >
+              <OverridePopover
+                label="Version"
+                override={host.claude_client_version_override}
+                inheritedValue={host.claude_client_version}
+                inheritedLabel="detected"
+                placeholder={overview?.versions.claude_version ?? "1.0.0"}
+                pending={$claudeVersion.isPending}
+                onSave={saveClaudeVersion}
+              />
+              <OverridePopover
+                label="Model"
+                override={host.claude_model_override}
+                options={CLAUDE_MODEL_OPTIONS}
+                pending={$modelOverride.isPending}
+                onSave={saveClaudeModel}
+              />
+            </EnginePanel>
           {/if}
         </div>
-      </div>
-    </section>
+      </CardContent>
+    </Card>
+
+    <div class="grid grid-cols-1 gap-4 lg:grid-cols-2">
+      <!-- Identity & network: facts only. -->
+      <Card>
+        <CardHeader class="flex flex-row items-start justify-between gap-3 space-y-0">
+          <div class="space-y-1.5">
+            <CardTitle class="flex items-center gap-2">
+              <Network class="h-4 w-4 text-muted-foreground" /> Identity & network
+            </CardTitle>
+            <CardDescription>Network identity for this host.</CardDescription>
+          </div>
+          {#if host.ip4 || host.ip6}
+            <Button variant="outline" size="sm" onclick={() => (confirmReleaseIpBindingOpen = true)}>
+              Release IP binding
+            </Button>
+          {/if}
+        </CardHeader>
+        <CardContent>
+          <dl class="grid grid-cols-1 gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
+            {@render dt("Host ID", String(host.id))}
+            {@render dt("FQDN", host.fqdn)}
+            {@render dt("IP (v4)", host.ip4 ?? "—")}
+            {@render dt("IP (v6)", host.ip6 ?? "—")}
+          </dl>
+        </CardContent>
+      </Card>
+
+      <!-- Access & security -->
+      <Card>
+        <CardHeader class="flex flex-row items-start justify-between gap-3 space-y-0">
+          <div class="space-y-1.5">
+            <CardTitle class="flex items-center gap-2">
+              <ShieldCheck class="h-4 w-4 text-muted-foreground" /> Access & security
+            </CardTitle>
+            <CardDescription>How strictly this host's requests are authenticated.</CardDescription>
+          </div>
+          {#if isInsecureWindowActive(host)}
+            <InsecureCountdown until={host.insecure_enabled_until} />
+          {/if}
+        </CardHeader>
+        <CardContent>
+          <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <ToggleRow
+              label="Secure"
+              checked={host.secure}
+              onchange={(v) => runQuiet($secure.mutateAsync({ id, value: v }))}
+            />
+            <ToggleRow
+              label="Curl insecure"
+              checked={host.curl_insecure}
+              onchange={(v) => runQuiet($curlInsecure.mutateAsync({ id, value: v }))}
+            />
+          </div>
+        </CardContent>
+        {#if isInsecureWindowActive(host) || host.secure === false}
+          <CardFooter class="flex flex-wrap gap-2">
+            {#if isInsecureWindowActive(host)}
+              <InsecureWindowPopover
+                label="Extend window"
+                variant="outline"
+                heading="Extend insecure window"
+                confirmLabel="Extend"
+                onConfirm={(duration_minutes) =>
+                  run("Window extended", $insecureEnable.mutateAsync({ id, duration_minutes }))}
+              />
+              <Button
+                variant="ghost"
+                onclick={() => run("Window closed", $insecureDisable.mutateAsync({ id }))}
+              >
+                Close window
+              </Button>
+            {:else if host.secure === false}
+              <InsecureWindowPopover
+                label="Open insecure window"
+                heading="Open insecure window"
+                confirmLabel="Open"
+                onConfirm={(duration_minutes) =>
+                  run("Window opened", $insecureEnable.mutateAsync({ id, duration_minutes }))}
+              />
+            {/if}
+          </CardFooter>
+        {/if}
+      </Card>
+    </div>
 
     <!-- Fleet policy overrides: collapsible, trigger states what's inside. -->
-    <section class="py-5" aria-labelledby="host-policy-overrides">
-      <Collapsible.Root bind:open={policyOpen}>
+    <Collapsible.Root bind:open={policyOpen}>
+      <Card class="overflow-hidden">
         <h2 id="host-policy-overrides">
           <Collapsible.Trigger class="w-full">
             {#snippet child({ props })}
               <button
                 {...props}
                 type="button"
-                class="group flex w-full items-center justify-between gap-3 text-left"
+                class="group flex w-full flex-row items-center justify-between gap-3 p-5 text-left sm:p-6"
               >
-                <span>
-                  <span class="block text-sm font-semibold">Fleet policy overrides</span>
-                  <span class="mt-1 block text-sm font-normal text-muted-foreground">
+                <div class="space-y-1.5">
+                  <div class="flex items-center gap-2 text-lg font-semibold leading-tight tracking-[-0.02em]">
+                    <SlidersHorizontal class="h-4 w-4 text-muted-foreground" /> Fleet policy overrides
+                  </div>
+                  <div class="text-sm text-muted-foreground">
                     {policyOverrideCount > 0
                       ? `${policyOverrideCount} set`
                       : "All inherit fleet defaults"}
-                  </span>
-                </span>
+                  </div>
+                </div>
                 <ChevronDown
                   class="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-data-[state=open]:rotate-180"
                 />
@@ -529,7 +591,7 @@
           </Collapsible.Trigger>
         </h2>
         <Collapsible.Content>
-          <div class="space-y-3 pt-4">
+          <CardContent class="space-y-3 pt-0">
             <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <ToggleRow
                 label="VIP"
@@ -587,40 +649,44 @@
                 Edit
               </Button>
             </div>
-          </div>
+          </CardContent>
         </Collapsible.Content>
-      </Collapsible.Root>
-    </section>
+      </Card>
+    </Collapsible.Root>
 
     <!-- Integrations -->
-    <section class="py-5" aria-labelledby="host-integrations">
-      <header class="mb-4">
-        <h2 id="host-integrations" class="text-sm font-semibold">Integrations</h2>
-      </header>
-      <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
-        <ToggleRow
-          label="BrowserOS MCP"
-          checked={host.browseros_mcp_enabled}
-          onchange={(v) => runQuiet($browserOsMcp.mutateAsync({ id, value: v }))}
-        />
-        <ToggleRow
-          label="Codex engine"
-          checked={codexEngine}
-          disabled={codexSwitchDisabled}
-          onchange={(v) => setHostEngine("codex", v)}
-        />
-        <ToggleRow
-          label="Claude engine"
-          checked={claudeEngine}
-          disabled={claudeSwitchDisabled}
-          onchange={(v) => setHostEngine("claude", v)}
-        />
-      </div>
-      <p class="mt-2 text-xs text-muted-foreground">
-        Engine changes apply on the host's next <code>cdx</code>/<code>clx</code> run, or its next
-        scheduled maintenance tick if neither runs interactively.
-      </p>
-    </section>
+    <Card>
+      <CardHeader>
+        <CardTitle class="flex items-center gap-2">
+          <Plug class="h-4 w-4 text-muted-foreground" /> Integrations
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <ToggleRow
+            label="BrowserOS MCP"
+            checked={host.browseros_mcp_enabled}
+            onchange={(v) => runQuiet($browserOsMcp.mutateAsync({ id, value: v }))}
+          />
+          <ToggleRow
+            label="Codex engine"
+            checked={codexEngine}
+            disabled={codexSwitchDisabled}
+            onchange={(v) => setHostEngine("codex", v)}
+          />
+          <ToggleRow
+            label="Claude engine"
+            checked={claudeEngine}
+            disabled={claudeSwitchDisabled}
+            onchange={(v) => setHostEngine("claude", v)}
+          />
+        </div>
+        <p class="mt-3 text-xs text-muted-foreground">
+          Engine changes apply on the host's next <code>cdx</code>/<code>clx</code> run, or its next
+          scheduled maintenance tick if neither runs interactively.
+        </p>
+      </CardContent>
+    </Card>
 
     <DangerZone description="Permanently remove this host from the fleet.">
       <Button variant="destructive" onclick={() => (confirmDeleteOpen = true)}>

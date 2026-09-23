@@ -73,15 +73,16 @@ Legacy compatibility:
 
 ## Security toggles
 
-The builder still accepts a `[security]` block, but be aware of what it does — which, today, is nothing.
+The builder still accepts a `[security]` block, but be aware of what it does — which, today, is nothing. As of the fix below, it is also no longer rendered into `config.toml` at all.
 
-- `dangerously_bypass_approvals_and_sandbox` — **inert.** The server renders this key into
-  `config.toml`, but no Go code parses a `[security]` block; the sentence that used to appear here
-  ("`cdx` adds `--dangerously-bypass-approvals-and-sandbox`") described the retired *bash* `cdx`,
-  which had its own TOML parser. The current wrapper reads
-  `engine_options.dangerously_bypass_approvals_and_sandbox` from the **signed** config
-  (`wrappers/cxx/internal/codex/lane.go`), and `wrapper-config.ts`'s `engineOptions()` never emits
-  that key. So the server writes a key nobody reads and the wrapper reads a key nobody writes.
+- `dangerously_bypass_approvals_and_sandbox` — **inert, and no longer rendered.** No Go code parses
+  a `[security]` block; the sentence that used to appear here ("`cdx` adds
+  `--dangerously-bypass-approvals-and-sandbox`") described the retired *bash* `cdx`, which had its
+  own TOML parser. The current wrapper reads `engine_options.dangerously_bypass_approvals_and_sandbox`
+  from the **signed** config (`wrappers/cxx/internal/codex/lane.go`), and `wrapper-config.ts`'s
+  `engineOptions()` never emits that key. codex-cli 0.156.1 now also reports the whole `[security]`
+  table as unrecognized (confirmed live, 2026-09-23), so `client-config.ts`'s `renderToml` stopped
+  writing it — the field is still accepted/normalized for ingest back-compat, just never rendered.
 - Do **not** "fix" this by baking `engine_options`. That would arm the bypass on every host whose
   `[security]` key is already `true`, over a revoke channel that is not the launch path: the signed
   config has a 30-day TTL and is refreshed by the shared maintenance cron (`cxx cron`, every 15
@@ -182,7 +183,7 @@ Recognized OTEL input keys are `environment`, `exporter`, `endpoint`, `protocol`
 The builder can also set:
 
 - `model_provider` — top-level `config.toml` key that maps to `codex --config model_provider=...` (e.g. `openai` or `oss`). Leave blank to inherit client defaults.
-- `local_provider` — used alongside `model_provider=oss` to select the local provider (e.g. `lmstudio` or `ollama`).
+- `local_provider` — used alongside `model_provider=oss` to select the local provider (e.g. `lmstudio` or `ollama`). Stored/accepted under this name for API back-compat, but upstream renamed the `config.toml` key to `oss_provider`; codex-cli 0.156.1 reports a literal `local_provider = "…"` as unrecognized (confirmed live, 2026-09-23). `client-config.ts`'s renderer writes it out as `oss_provider` — see `renderToml`'s `RENAMED_SCALAR_RENDER_KEYS`.
 
 ## When to update
 

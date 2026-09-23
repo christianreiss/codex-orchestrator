@@ -25,11 +25,71 @@ describe('client-config: renderToml', () => {
     const toml = renderToml(s);
     const lines = toml.split('\n');
     expect(lines[0]).toBe('model = "gpt-5.5"');
-    expect(toml).toContain('profile = "workhorse"');
     expect(toml).toContain('personality = "friendly"');
     expect(toml).toContain('approval_policy = "on-request"');
     expect(toml).toContain('sandbox_mode = "workspace-write"');
     expect(toml).toContain('model_reasoning_effort = "high"');
+  });
+
+  it('never renders a top-level `profile` key: codex-cli 0.156.1+ treats it as a hard boot error', () => {
+    // "legacy `profile = "code"` config is no longer supported; use `--profile
+    // code` with `code.config.toml` instead" — confirmed live, 2026-09-23.
+    // `settings.profile` is still normalized (applyHostModelOverrides in
+    // client-config.ts routes host model overrides onto profiles by name), it
+    // must just never reach the rendered TOML.
+    const s = normalizeSettings({ model: 'gpt-5.5', profile: 'workhorse' });
+    expect(s.profile).toBe('workhorse');
+    const toml = renderToml(s);
+    expect(toml).not.toMatch(/^profile\s*=/m);
+  });
+
+  it('renders `local_provider` under its codex-cli 0.156.1 name `oss_provider`', () => {
+    const s = normalizeSettings({ model: 'gpt-5.5', local_provider: 'ollama' });
+    const toml = renderToml(s);
+    expect(toml).toContain('oss_provider = "ollama"');
+    expect(toml).not.toMatch(/^local_provider\s*=/m);
+  });
+
+  it('drops model_supports_reasoning_summaries and model_max_output_tokens: codex-cli ignores both everywhere', () => {
+    const s = normalizeSettings({
+      model: 'gpt-5.5',
+      model_supports_reasoning_summaries: true,
+      model_max_output_tokens: 4096,
+      model_context_window: 128000,
+    });
+    const toml = renderToml(s);
+    expect(toml).not.toMatch(/model_supports_reasoning_summaries/);
+    expect(toml).not.toMatch(/model_max_output_tokens/);
+    // model_context_window is still valid at top level — only per-profile is dropped.
+    expect(toml).toContain('model_context_window = 128000');
+  });
+
+  it('drops the dead [security] table entirely', () => {
+    const s = normalizeSettings({
+      model: 'gpt-5.5',
+      security: { dangerously_bypass_approvals_and_sandbox: true },
+    });
+    const toml = renderToml(s);
+    expect(toml).not.toContain('[security]');
+    expect(toml).not.toContain('dangerously_bypass_approvals_and_sandbox');
+  });
+
+  it('per-profile: drops model_context_window and the sandbox_workspace_write table', () => {
+    const s = normalizeSettings({
+      model: 'gpt-5.5',
+      profiles: [
+        {
+          name: 'code',
+          model_context_window: 128000,
+          sandbox_workspace_write: { network_access: true },
+        },
+      ],
+    });
+    const toml = renderToml(s);
+    const profileIdx = toml.indexOf('[profiles.code]');
+    expect(profileIdx).toBeGreaterThanOrEqual(0);
+    expect(toml).not.toContain('[profiles.code.sandbox_workspace_write]');
+    expect(toml.slice(profileIdx)).not.toMatch(/model_context_window/);
   });
 
   it('emits a [features] section sorted alphabetically', () => {
@@ -47,10 +107,15 @@ describe('client-config: renderToml', () => {
     expect(mangoIdx).toBeLessThan(zebraIdx);
   });
 
-  it('emits [security] only when bypass flag is explicitly set', () => {
+  it('never emits [security]: codex-cli 0.156.1 reports the whole table ignored', () => {
+    // The bypass flag is still normalized/stored (ingest back-compat and the
+    // dedicated "drops the dead [security] table entirely" test above), but
+    // was never a real render/no-render distinction to begin with — neither
+    // value should reach the TOML.
     const off = renderToml(normalizeSettings({ security: { dangerously_bypass_approvals_and_sandbox: false } }));
-    expect(off).toContain('[security]');
-    expect(off).toContain('dangerously_bypass_approvals_and_sandbox = false');
+    expect(off).not.toContain('[security]');
+    const on = renderToml(normalizeSettings({ security: { dangerously_bypass_approvals_and_sandbox: true } }));
+    expect(on).not.toContain('[security]');
     const none = renderToml(normalizeSettings({}));
     expect(none).not.toContain('[security]');
   });
