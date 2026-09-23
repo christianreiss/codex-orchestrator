@@ -209,10 +209,10 @@ func Run(ctx context.Context, opts Options) (exitCode int, retErr error) {
 			return 1, err
 		}
 		if opts.AllowConcurrentSync {
-			fmt.Fprintln(os.Stderr, "clx: another session is active; concurrent sync explicitly enabled")
+			ui.Say(os.Stderr, "clx", ui.ToneWarn, "session", "another session is active; concurrent sync explicitly enabled")
 		} else {
 			concurrent = true
-			fmt.Fprintln(os.Stderr, "clx: another session is active; managed content sync paused; auth freshness remains active")
+			ui.Say(os.Stderr, "clx", ui.ToneWarn, "session", "another session is active; managed content sync paused; auth freshness remains active")
 		}
 	} else {
 		defer lock.Release()
@@ -393,23 +393,33 @@ func Run(ctx context.Context, opts Options) (exitCode int, retErr error) {
 	} else if dec.Allowed && concurrent && state.ResultTone != ui.ToneFail {
 		state.ResultLabel = "Managed content sync paused; auth freshness remains active."
 	}
-	if !opts.SkipBoot {
-		if opts.Minimal {
-			ui.PrintMinimalScreen(os.Stderr, state)
-		} else {
-			ui.PrintBootScreen(os.Stderr, state)
+	// The boot screen is rendered once, after any quota question, so a
+	// provider switch never leaves a stale clx card above the new session.
+	// This matches the cdx ordering.
+	bootPrinted := false
+	printBoot := func() {
+		if bootPrinted {
+			return
 		}
-	} else if state.QuotaWarn != "" {
-		// Suppressed startup screens still need advisory usage in cron/CI logs.
-		fmt.Fprintln(os.Stderr, "clx: "+state.QuotaWarn)
-		logger.Warn("quota approaching limit", "warn", state.QuotaWarn)
-	}
-
-	if opts.SkipBoot && state.LoginWarning != "" {
-		fmt.Fprintln(os.Stderr, "clx: "+state.LoginWarning)
+		bootPrinted = true
+		if !opts.SkipBoot {
+			if opts.Minimal {
+				ui.PrintMinimalScreen(os.Stderr, state)
+			} else {
+				ui.PrintBootScreen(os.Stderr, state)
+			}
+		} else if state.QuotaWarn != "" {
+			// Suppressed startup screens still need advisory usage in cron/CI logs.
+			ui.Say(os.Stderr, "clx", ui.ToneWarn, ui.TopicQuota, state.QuotaWarn)
+			logger.Warn("quota approaching limit", "warn", state.QuotaWarn)
+		}
+		if opts.SkipBoot && state.LoginWarning != "" {
+			ui.Say(os.Stderr, "clx", ui.ToneWarn, ui.TopicAuth, state.LoginWarning)
+		}
 	}
 
 	if !opts.SkipAuthSync && !opts.SkipCredentialExchange && !dec.Allowed {
+		printBoot()
 		// On an explicit server refusal (not a transient outage), surgically
 		// remove fleet-managed settings keys + collection files so a host that
 		// lost trust no longer carries fleet hooks/permissions/subagents. We
@@ -435,6 +445,7 @@ func Run(ctx context.Context, opts Options) (exitCode int, retErr error) {
 	// rendered above and the trust gate has had its say. Stop before the portal
 	// session and PreExec so a sync never opens a phantom session row.
 	if opts.SyncOnly {
+		printBoot()
 		// Cached auth permits an interactive launch, but it does not prove a
 		// successful sync. Cron and explicit sync callers need a retryable
 		// failure when content was skipped or could not be applied.
@@ -455,6 +466,7 @@ func Run(ctx context.Context, opts Options) (exitCode int, retErr error) {
 			return code, err
 		}
 	}
+	printBoot()
 
 	before := snapshotAuthGeneration()
 
@@ -1236,10 +1248,11 @@ func recoverClaudeAuth(ctx context.Context, cfg *config.Config, client *orchestr
 		return errAuthRecoveryNonInteractive
 	}
 	fmt.Fprintln(os.Stderr)
+	var details []string
 	if strings.TrimSpace(reason) != "" {
-		fmt.Fprintln(os.Stderr, "clx: "+reason)
+		details = append(details, reason)
 	}
-	fmt.Fprintln(os.Stderr, "clx: Starting `claude auth login` to restore authentication.")
+	ui.Say(os.Stderr, "clx", ui.ToneWarn, ui.TopicAuth, "Starting `claude auth login` to restore authentication.", details...)
 
 	beforeLogin, beforeLoginErr := claude.ReadAuthSnapshot(false)
 	if beforeLoginErr != nil && !errors.Is(beforeLoginErr, os.ErrNotExist) {
@@ -1283,7 +1296,7 @@ func recoverClaudeAuth(ctx context.Context, cfg *config.Config, client *orchestr
 				return errors.New("Claude credentials or logout intent changed while login upload was in flight")
 			}
 			logger.Warn("Claude login succeeded but server upload is deferred", "err", err)
-			fmt.Fprintln(os.Stderr, "clx: Local Claude login is ready; server upload will retry on the next sync.")
+			ui.Say(os.Stderr, "clx", ui.ToneOK, "auth", "Local Claude login is ready; server upload will retry on the next sync.")
 			return nil
 		}
 		return fmt.Errorf("upload Claude credentials after login: %w", err)
@@ -1319,7 +1332,7 @@ func recoverClaudeAuth(ctx context.Context, cfg *config.Config, client *orchestr
 				return fmt.Errorf("apply authoritative Claude credentials after rejected login: %w", writeErr)
 			}
 			if applied {
-				fmt.Fprintln(os.Stderr, "clx: Submitted login was not accepted; restored the server's verified Claude credentials.")
+				ui.Say(os.Stderr, "clx", ui.ToneWarn, "auth", "Submitted login was not accepted; restored the server's verified Claude credentials.")
 				return nil
 			}
 			if !applied {
@@ -1347,7 +1360,7 @@ func recoverClaudeAuth(ctx context.Context, cfg *config.Config, client *orchestr
 		if err != nil {
 			if errors.Is(err, claude.ErrUnusableServerAuth) && claude.HasUsableAuth() {
 				logger.Warn("accepted login returned unusable canonical write-back; preserving local login", "err", err)
-				fmt.Fprintln(os.Stderr, "clx: Server write-back was unusable; keeping the accepted local Claude login.")
+				ui.Say(os.Stderr, "clx", ui.ToneWarn, "auth", "Server write-back was unusable; keeping the accepted local Claude login.")
 				return nil
 			}
 			return fmt.Errorf("apply accepted Claude credentials: %w", err)
@@ -1358,7 +1371,7 @@ func recoverClaudeAuth(ctx context.Context, cfg *config.Config, client *orchestr
 			}
 		}
 	}
-	fmt.Fprintln(os.Stderr, "clx: Claude credentials uploaded and accepted by the server.")
+	ui.Say(os.Stderr, "clx", ui.ToneOK, "auth", "Claude credentials uploaded and accepted by the server.")
 	return nil
 }
 

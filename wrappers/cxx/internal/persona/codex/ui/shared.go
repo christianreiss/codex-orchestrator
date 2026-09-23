@@ -18,6 +18,9 @@ type ExitFooter = terminalui.ExitFooter
 type DoctorRow = terminalui.DoctorRow
 type DoctorReport = terminalui.DoctorReport
 type AuthChecker = terminalui.AuthChecker
+type Notice = terminalui.Notice
+type Question = terminalui.Question
+type Option = terminalui.Option
 
 const (
 	ThemeAuto      = terminalui.ThemeAuto
@@ -30,6 +33,21 @@ const (
 	ToneDim        = terminalui.ToneDim
 	BarWidth       = terminalui.BarWidth
 	minRichColumns = terminalui.MinRichColumns
+
+	TopicAuth      = terminalui.TopicAuth
+	TopicConfig    = terminalui.TopicConfig
+	TopicCron      = terminalui.TopicCron
+	TopicLane      = terminalui.TopicLane
+	TopicLogin     = terminalui.TopicLogin
+	TopicProfile   = terminalui.TopicProfile
+	TopicQuota     = terminalui.TopicQuota
+	TopicSession   = terminalui.TopicSession
+	TopicStatus    = terminalui.TopicStatus
+	TopicSync      = terminalui.TopicSync
+	TopicUninstall = terminalui.TopicUninstall
+	TopicUpdate    = terminalui.TopicUpdate
+	TopicUpload    = terminalui.TopicUpload
+	TopicUsage     = terminalui.TopicUsage
 )
 
 var (
@@ -58,6 +76,13 @@ var (
 	UpdateProgress     = terminalui.UpdateProgress
 	UpdateComplete     = terminalui.UpdateComplete
 	UpdateFailure      = terminalui.UpdateFailure
+	Say                = terminalui.Say
+	Sayf               = terminalui.Sayf
+	PrintNotice        = terminalui.PrintNotice
+	FormatNotice       = terminalui.FormatNotice
+	Confirm            = terminalui.Confirm
+	Select             = terminalui.Select
+	ErrPromptCancelled = terminalui.ErrPromptCancelled
 )
 
 func DetectCaps(theme string) Caps { caps := terminalui.DetectCaps(theme); return caps }

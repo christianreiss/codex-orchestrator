@@ -6,11 +6,16 @@
 package terminalui
 
 import (
+	"image/color"
 	"io"
 	"os"
 	"strings"
+	"sync/atomic"
 	"unicode"
 
+	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/colorprofile"
+	"github.com/charmbracelet/x/ansi"
 	"golang.org/x/term"
 )
 
@@ -76,6 +81,15 @@ type BannerGlyphs struct {
 	IconSpark string // ⚡
 }
 
+// forceMinimal is the process-wide --minimal switch. The flag is parsed once
+// per invocation, but notices and prompts detect capabilities deep inside
+// lifecycle and quota code that never sees the flag.
+var forceMinimal atomic.Bool
+
+// SetForceMinimal applies (or clears) explicit --minimal for every later
+// DetectCaps/DetectCapsFor call in this process.
+func SetForceMinimal(on bool) { forceMinimal.Store(on) }
+
 // DetectCaps inspects stderr + env to resolve the colour palette and glyphs.
 // adminTheme is the hint baked into config (auto, auto-pink, light, dark,
 // bright-pink, dark-pink — anything else falls back to auto).
@@ -108,6 +122,14 @@ func MinimalCaps(caps Caps) Caps {
 }
 
 func detectCaps(fd int, adminTheme string) Caps {
+	caps := detectTerminalCaps(fd, adminTheme)
+	if forceMinimal.Load() {
+		return MinimalCaps(caps)
+	}
+	return caps
+}
+
+func detectTerminalCaps(fd int, adminTheme string) Caps {
 	noColor := os.Getenv("NO_COLOR") != ""
 	termEnv := strings.ToLower(os.Getenv("TERM"))
 	dumb := termEnv == "dumb" || termEnv == ""
@@ -131,21 +153,7 @@ func detectCaps(fd int, adminTheme string) Caps {
 
 	pal := Palette{}
 	if isTTY && !noColor && !dumb {
-		pal = Palette{
-			Bold:      "\033[1m",
-			Dim:       "\033[2m",
-			Reset:     "\033[0m",
-			Green:     "\033[32m",
-			Yellow:    "\033[33m",
-			Orange:    "\033[38;5;208m",
-			Pink:      "\033[38;5;205m",
-			Violet:    "\033[38;5;141m",
-			Cyan:      "\033[96m",
-			Blue:      "\033[36m",
-			Magenta:   "\033[35m",
-			Red:       "\033[31m",
-			ClearLine: "\033[K",
-		}
+		pal = richPalette(colourProfile())
 	}
 
 	theme := resolveTheme(adminTheme)
@@ -173,6 +181,60 @@ func detectCaps(fd int, adminTheme string) Caps {
 		IsTTY: isTTY, NoColor: noColor, Dumb: dumb, UTF8: utf8,
 		Columns: cols, Theme: theme, Palette: pal, BannerSym: g,
 	}
+}
+
+// Design tokens. One colour table serves both engines; each value is authored
+// as 24-bit and downsampled to what the terminal advertises, so a 256- or
+// 16-colour terminal gets the nearest match instead of a different palette.
+const (
+	hexGreen   = "#34D399"
+	hexYellow  = "#FBBF24"
+	hexOrange  = "#FF8A3D"
+	hexPink    = "#F472B6"
+	hexViolet  = "#A78BFA"
+	hexCyan    = "#22D3EE"
+	hexBlue    = "#60A5FA"
+	hexMagenta = "#E879F9"
+	hexRed     = "#F87171"
+	hexMuted   = "#8B90A5"
+)
+
+// colourProfile resolves colour depth only. Whether colour is used at all is
+// decided by detectCaps (TTY, TERM, NO_COLOR, --minimal) and never delegated,
+// so the wrapper and the prompt library cannot disagree about plain output.
+func colourProfile() colorprofile.Profile {
+	p := colorprofile.Env(os.Environ())
+	if p < colorprofile.ANSI {
+		p = colorprofile.ANSI
+	}
+	return p
+}
+
+func richPalette(p colorprofile.Profile) Palette {
+	fg := func(hex string) string { return sgrForeground(p, lipgloss.Color(hex)) }
+	return Palette{
+		Bold:      "\033[1m",
+		Dim:       fg(hexMuted),
+		Reset:     "\033[0m",
+		Green:     fg(hexGreen),
+		Yellow:    fg(hexYellow),
+		Orange:    fg(hexOrange),
+		Pink:      fg(hexPink),
+		Violet:    fg(hexViolet),
+		Cyan:      fg(hexCyan),
+		Blue:      fg(hexBlue),
+		Magenta:   fg(hexMagenta),
+		Red:       fg(hexRed),
+		ClearLine: "\033[K",
+	}
+}
+
+func sgrForeground(p colorprofile.Profile, c color.Color) string {
+	c = p.Convert(c)
+	if c == nil {
+		return ""
+	}
+	return ansi.Style{}.ForegroundColor(c).String()
 }
 
 func resolveTheme(hint string) Theme {

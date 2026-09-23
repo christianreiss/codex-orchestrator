@@ -30,6 +30,8 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/claude/ui"
+
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/claude"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/claude/orchestrator"
@@ -100,10 +102,10 @@ func removeFleetSkills(home string, stdout, stderr io.Writer) {
 		}
 		d := filepath.Join(home, ".claude", "skills", sub)
 		if err := os.RemoveAll(d); err != nil && !errors.Is(err, os.ErrNotExist) {
-			fmt.Fprintln(stderr, "uninstall: remove", d, ":", err)
+			ui.Say(stderr, "clx", ui.ToneFail, ui.TopicUninstall, "remove "+d+": "+err.Error())
 			continue
 		}
-		fmt.Fprintln(stdout, "uninstall: removed", d)
+		ui.Say(stdout, "clx", ui.ToneOK, "uninstall", "removed "+fmt.Sprint(d))
 	}
 }
 
@@ -162,22 +164,22 @@ func Run(ctx context.Context, cfg *config.Config, stdout, stderr io.Writer) erro
 		req, _ := http.NewRequestWithContext(ctx, http.MethodDelete, cfg.Orchestrator.BaseURL+"/auth?force=1&engine=claude", nil)
 		resp, derr := client.Do(ctx, req, 0)
 		if derr != nil {
-			fmt.Fprintln(stderr, "uninstall: server-side delete failed (best-effort):", derr)
+			ui.Say(stderr, "clx", ui.ToneFail, "uninstall", "server-side delete failed (best-effort): "+fmt.Sprint(derr))
 		} else if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 			decoded, decodeErr := shareduninstall.DecodeServerResult(resp.Body)
 			_ = resp.Body.Close()
-			fmt.Fprintf(stdout, "uninstall: server-side delete -> HTTP %d\n", resp.StatusCode)
+			ui.Sayf(stdout, "clx", ui.ToneOK, "uninstall", "server-side delete -> HTTP %d", resp.StatusCode)
 			if decodeErr != nil {
-				fmt.Fprintln(stderr, "uninstall: shared artifacts preserved; delete response was not authoritative:", decodeErr)
+				ui.Say(stderr, "clx", ui.ToneFail, "uninstall", "shared artifacts preserved; delete response was not authoritative: "+fmt.Sprint(decodeErr))
 			} else {
 				serverResult = decoded
 			}
 		} else {
 			_ = resp.Body.Close()
-			fmt.Fprintf(stderr, "uninstall: shared artifacts preserved; server-side delete -> HTTP %d\n", resp.StatusCode)
+			ui.Sayf(stderr, "clx", ui.ToneWarn, "uninstall", "shared artifacts preserved; server-side delete -> HTTP %d", resp.StatusCode)
 		}
 	} else {
-		fmt.Fprintln(stderr, "uninstall: server-side delete skipped (best-effort):", clientErr)
+		ui.Say(stderr, "clx", ui.ToneFail, "uninstall", "server-side delete skipped (best-effort): "+fmt.Sprint(clientErr))
 	}
 
 	home, homeErr := os.UserHomeDir()
@@ -189,24 +191,24 @@ func Run(ctx context.Context, cfg *config.Config, stdout, stderr io.Writer) erro
 	if npmGlobalHas("@anthropic-ai/claude-code") {
 		cmd := exec.CommandContext(ctx, "npm", "uninstall", "-g", "@anthropic-ai/claude-code")
 		if err := cmd.Run(); err != nil {
-			fmt.Fprintln(stderr, "uninstall: npm uninstall -g @anthropic-ai/claude-code:", err)
+			ui.Say(stderr, "clx", ui.ToneFail, "uninstall", "npm uninstall -g @anthropic-ai/claude-code: "+fmt.Sprint(err))
 		} else {
-			fmt.Fprintln(stdout, "uninstall: removed npm-global @anthropic-ai/claude-code")
+			ui.Say(stdout, "clx", ui.ToneOK, "uninstall", "removed npm-global @anthropic-ai/claude-code")
 		}
 	}
 
 	exe, exeErr := os.Executable()
 	var sharedErr error
 	if exeErr != nil {
-		fmt.Fprintln(stderr, "uninstall: shared artifacts preserved; resolve cxx:", exeErr)
+		ui.Say(stderr, "clx", ui.ToneFail, "uninstall", "shared artifacts preserved; resolve cxx: "+fmt.Sprint(exeErr))
 	} else if !serverResult.Confirmed {
-		fmt.Fprintln(stderr, "uninstall: shared cxx aliases and cron preserved because remaining engines were not confirmed")
+		ui.Say(stderr, "clx", ui.ToneWarn, "uninstall", "shared cxx aliases and cron preserved because remaining engines were not confirmed")
 	} else if sharedErr = shareduninstall.Apply(ctx, serverResult, config.EngineClaude, exe); sharedErr != nil {
-		fmt.Fprintln(stderr, "uninstall: shared cxx cleanup:", sharedErr)
+		ui.Say(stderr, "clx", ui.ToneFail, "uninstall", "shared cxx cleanup: "+fmt.Sprint(sharedErr))
 	} else if len(serverResult.RemainingEngines) == 0 {
-		fmt.Fprintln(stdout, "uninstall: removed last-engine cxx aliases, binary, and managed cron")
+		ui.Say(stdout, "clx", ui.ToneOK, "uninstall", "removed last-engine cxx aliases, binary, and managed cron")
 	} else {
-		fmt.Fprintln(stdout, "uninstall: removed clx alias; shared cxx and cron retained")
+		ui.Say(stdout, "clx", ui.ToneOK, "uninstall", "removed clx alias; shared cxx and cron retained")
 	}
 
 	return errors.Join(localCleanupErr, sharedErr)
@@ -252,10 +254,10 @@ func removeTreeReport(stdout, stderr io.Writer, dir string) error {
 		return fmt.Errorf("inspect %s: %w", dir, err)
 	}
 	if err := os.RemoveAll(dir); err != nil {
-		fmt.Fprintln(stderr, "uninstall: remove", dir, ":", err)
+		ui.Say(stderr, "clx", ui.ToneFail, ui.TopicUninstall, "remove "+dir+": "+err.Error())
 		return fmt.Errorf("remove %s: %w", dir, err)
 	}
-	fmt.Fprintln(stdout, "uninstall: removed", dir)
+	ui.Say(stdout, "clx", ui.ToneOK, "uninstall", "removed "+fmt.Sprint(dir))
 	return nil
 }
 
@@ -337,9 +339,9 @@ func removeReport(stdout, stderr io.Writer, p string) error {
 		if errors.Is(err, os.ErrNotExist) {
 			return nil
 		}
-		fmt.Fprintln(stderr, "uninstall: remove", p, ":", err)
+		ui.Say(stderr, "clx", ui.ToneFail, ui.TopicUninstall, "remove "+p+": "+err.Error())
 		return fmt.Errorf("remove %s: %w", p, err)
 	}
-	fmt.Fprintln(stdout, "uninstall: removed", p)
+	ui.Say(stdout, "clx", ui.ToneOK, "uninstall", "removed "+fmt.Sprint(p))
 	return nil
 }

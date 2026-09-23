@@ -9,8 +9,9 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
+
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/terminalui"
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/agentbus"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/agentportal"
@@ -303,12 +304,7 @@ func normalizeProgramName(name string) string {
 }
 
 func printVersion(w io.Writer) {
-	fmt.Fprintf(w, "cxx %s (commit %s, built %s, %s/%s)\n", Version, Commit, BuildDate, runtime.GOOS, runtime.GOARCH)
-	if signing.HasKey() {
-		fmt.Fprintln(w, "signing pubkey: embedded")
-	} else {
-		fmt.Fprintln(w, "signing pubkey: MISSING (this binary refuses signed configs)")
-	}
+	terminalui.PrintVersion(w, terminalui.BuildInfo{Name: "cxx", Version: Version, Commit: Commit, BuildDate: BuildDate, SigningKey: signing.HasKey()})
 }
 
 func printSelectorHelp(w io.Writer) {
@@ -354,7 +350,11 @@ func dispatchChoice(engine string, args []string, stdout, stderr io.Writer, run 
 	if s.Request == "" || code != 0 {
 		if code != 0 && !s.Started && s.DecisionApplied && s.Instance != "" {
 			if err := quotaadvice.Reset(s.Instance); err != nil {
-				fmt.Fprintln(stderr, "quota: could not clear daily choice:", err)
+				prefix := "cdx"
+				if engine == "claude" {
+					prefix = "clx"
+				}
+				terminalui.Say(stderr, prefix, terminalui.ToneFail, terminalui.TopicQuota, "could not clear daily choice: "+err.Error())
 			}
 		}
 		return code

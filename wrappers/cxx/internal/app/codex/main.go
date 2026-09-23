@@ -14,11 +14,12 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
-	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/terminalui"
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/codex"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
@@ -308,17 +309,17 @@ func run(args []string, stdout, stderr io.Writer, choices ...*quotaadvice.Sessio
 	// or config checks so every exit path services an insecure purge request.
 	handoffSession, handoffErr := codex.ResumeAuthSessionReexecHandoff()
 	if handoffErr != nil {
-		fmt.Fprintln(stderr, "cdx: resume auth session after update:", handoffErr)
+		ui.Say(stderr, "cdx", ui.ToneFail, "auth", "resume auth session after update: "+fmt.Sprint(handoffErr))
 		return 1
 	}
 	if handoffSession != nil {
 		defer func() {
 			removed, _, finishErr := codex.FinishAuthSession(handoffSession)
 			if finishErr != nil {
-				fmt.Fprintln(stderr, "cdx: auth session cleanup after update:", finishErr)
+				ui.Say(stderr, "cdx", ui.ToneFail, "auth", "auth session cleanup after update: "+fmt.Sprint(finishErr))
 				exitCode = 1
 			} else if removed {
-				fmt.Fprintln(stderr, "cdx: insecure-host credentials purged")
+				ui.Say(stderr, "cdx", ui.ToneDim, "auth", "insecure-host credentials purged")
 			}
 		}()
 	}
@@ -329,7 +330,7 @@ func run(args []string, stdout, stderr io.Writer, choices ...*quotaadvice.Sessio
 	// itself out-of-date) cannot fork-bomb our way out of the host.
 	depth, _ := strconv.Atoi(os.Getenv("CODEX_WRAPPER_RESTART_DEPTH"))
 	if depth > maxRestartDepth {
-		fmt.Fprintf(stderr, "cdx: restart depth %d exceeded cap %d - refusing to continue\n", depth, maxRestartDepth)
+		ui.Sayf(stderr, "cdx", ui.ToneFail, "", "restart depth %d exceeded cap %d - refusing to continue", depth, maxRestartDepth)
 		return 70
 	}
 
@@ -351,8 +352,9 @@ func run(args []string, stdout, stderr io.Writer, choices ...*quotaadvice.Sessio
 	}
 
 	f, positional, passthrough := parseFlags(args)
+	terminalui.SetForceMinimal(f.minimal)
 	if actions := conflictingActions(f, positional); len(actions) > 1 {
-		fmt.Fprintln(stderr, "cdx: conflicting wrapper actions:", strings.Join(actions, ", "))
+		ui.Say(stderr, "cdx", ui.ToneFail, "usage", "conflicting wrapper actions: "+strings.Join(actions, ", "))
 		return 2
 	}
 
@@ -368,31 +370,26 @@ func run(args []string, stdout, stderr io.Writer, choices ...*quotaadvice.Sessio
 	if f.helpPassthrough {
 		cli, err := codex.FindCLI()
 		if err != nil {
-			fmt.Fprintln(stderr, "cdx --help:", err)
+			ui.Say(stderr, "cdx", ui.ToneFail, "help", fmt.Sprint(err))
 			return 127
 		}
 		exit, removed, runErr := runHelpChild(ctx, cli, helpExecArgv(args), stdout, stderr)
 		if removed {
-			fmt.Fprintln(stderr, "cdx: insecure-host credentials purged")
+			ui.Say(stderr, "cdx", ui.ToneDim, "auth", "insecure-host credentials purged")
 		}
 		if runErr != nil {
-			fmt.Fprintln(stderr, "cdx --help:", runErr)
+			ui.Say(stderr, "cdx", ui.ToneFail, "help", fmt.Sprint(runErr))
 		}
 		return exit
 	}
 
 	if f.executeInvalid {
-		fmt.Fprintln(stderr, "cdx: --execute requires a non-empty prompt argument")
+		ui.Say(stderr, "cdx", ui.ToneFail, "usage", "--execute requires a non-empty prompt argument")
 		return 2
 	}
 
 	if f.versionFlag {
-		fmt.Fprintf(stdout, "cdx %s (commit %s, built %s, %s/%s)\n", Version, Commit, BuildDate, runtime.GOOS, runtime.GOARCH)
-		if signing.HasKey() {
-			fmt.Fprintln(stdout, "signing pubkey: embedded")
-		} else {
-			fmt.Fprintln(stdout, "signing pubkey: MISSING (this binary refuses signed configs)")
-		}
+		terminalui.PrintVersion(stdout, terminalui.BuildInfo{Name: "cdx", Version: Version, Commit: Commit, BuildDate: BuildDate, SigningKey: signing.HasKey()})
 		return 0
 	}
 
@@ -404,7 +401,7 @@ func run(args []string, stdout, stderr io.Writer, choices ...*quotaadvice.Sessio
 	if sub == "auth-sync" {
 		active, probeErr := codex.HasActiveAuthChild()
 		if probeErr != nil {
-			fmt.Fprintln(stderr, "auth-sync: active session probe:", probeErr)
+			ui.Say(stderr, "cdx", ui.ToneFail, "auth-sync", "active session probe: "+fmt.Sprint(probeErr))
 			return 1
 		}
 		if !active {
@@ -424,7 +421,7 @@ func run(args []string, stdout, stderr io.Writer, choices ...*quotaadvice.Sessio
 		return configLoadFailure(sub, "cdx", f.configPath, Version, err, stdout, stderr, f.minimal)
 	}
 	if refreshed {
-		fmt.Fprintln(stderr, "cdx: signed config had expired; refreshed it from the orchestrator")
+		ui.Say(stderr, "cdx", ui.ToneOK, "config", "signed config had expired; refreshed it from the orchestrator")
 	}
 
 	// Honour silent flag baked into config too.
@@ -473,16 +470,16 @@ func run(args []string, stdout, stderr io.Writer, choices ...*quotaadvice.Sessio
 	if sub != "uninstall" && sub != "logout" && sub != "update" && !maintenanceCron {
 		outerSession, leaseErr := codex.StartAuthSession(!cfg.Host.Secure)
 		if leaseErr != nil {
-			fmt.Fprintln(stderr, "cdx: acquire auth session lease:", leaseErr)
+			ui.Say(stderr, "cdx", ui.ToneFail, "auth", "acquire auth session lease: "+fmt.Sprint(leaseErr))
 			return 1
 		}
 		defer func() {
 			removed, _, finishErr := codex.FinishAuthSession(outerSession)
 			if finishErr != nil {
-				fmt.Fprintln(stderr, "cdx: auth session cleanup:", finishErr)
+				ui.Say(stderr, "cdx", ui.ToneFail, "auth", "auth session cleanup: "+fmt.Sprint(finishErr))
 				exitCode = 1
 			} else if removed {
-				fmt.Fprintln(stderr, "cdx: insecure-host credentials purged")
+				ui.Say(stderr, "cdx", ui.ToneDim, "auth", "insecure-host credentials purged")
 			}
 		}()
 		if sub == "run" || sub == "resume" || sub == "execute" || sub == "exec" || sub == "profile" {
@@ -544,7 +541,7 @@ func run(args []string, stdout, stderr io.Writer, choices ...*quotaadvice.Sessio
 	case "exec":
 		exit, err := codex.Run(ctx, cfg, append(subArgs, passthrough...))
 		if err != nil {
-			fmt.Fprintln(stderr, ui.PlainInline("cdx exec: "+err.Error()))
+			ui.Say(stderr, "cdx", ui.ToneFail, "exec", err.Error())
 		}
 		return exit
 	case "execute":
@@ -608,7 +605,7 @@ func run(args []string, stdout, stderr io.Writer, choices ...*quotaadvice.Sessio
 		}
 		if err := protectUpdateAuth(ctx, cfg, logger); err != nil {
 			fmt.Fprintln(stderr, ui.UpdateFailure(errCaps, "cdx", "wrapper", artifact.Version, err))
-			fmt.Fprintln(stderr, "cdx update: the new wrapper is installed; credentials retained, run `cdx sync` after connectivity recovers")
+			ui.Say(stderr, "cdx", ui.ToneWarn, "update", "the new wrapper is installed; credentials retained, run `cdx sync` after connectivity recovers")
 			return 1
 		}
 		// A new binary alone leaves the host stale: AGENTS.md, config.toml and
@@ -620,13 +617,13 @@ func run(args []string, stdout, stderr io.Writer, choices ...*quotaadvice.Sessio
 		fmt.Fprintln(stdout, ui.UpdateComplete(outCaps, "cdx", "wrapper", artifact.Version, true))
 		if err := update.ReExecAfterUpdateAs(exe, postUpdateSyncEngine(), postUpdateSyncArgv(f)); err != nil {
 			fmt.Fprintln(stderr, ui.UpdateFailure(errCaps, "cdx", "wrapper", artifact.Version, err))
-			fmt.Fprintln(stderr, "cdx update: the new wrapper is installed but managed content was not synced; run `cdx sync`")
+			ui.Say(stderr, "cdx", ui.ToneWarn, "update", "the new wrapper is installed but managed content was not synced; run `cdx sync`")
 			return 1
 		}
 		return 0
 	case "uninstall":
 		if err := uninstall.Run(ctx, cfg, stdout, stderr); err != nil {
-			fmt.Fprintln(stderr, "cdx uninstall:", err)
+			ui.Say(stderr, "cdx", ui.ToneFail, "uninstall", fmt.Sprint(err))
 			return 1
 		}
 		return 0
@@ -642,13 +639,13 @@ func run(args []string, stdout, stderr io.Writer, choices ...*quotaadvice.Sessio
 			if sub == "logout" {
 				before, snapshotErr := codex.CurrentAuthGeneration()
 				if snapshotErr != nil {
-					fmt.Fprintln(stderr, "cdx logout: could not snapshot local auth state:", snapshotErr)
+					ui.Say(stderr, "cdx", ui.ToneFail, "logout", "could not snapshot local auth state: "+fmt.Sprint(snapshotErr))
 					return 1
 				}
 				execArgs := append([]string{sub}, append(subArgs, passthrough...)...)
 				exit, marked, deferred, logoutErr := codex.RunExplicitLogout(ctx, cfg, execArgs, before)
 				if logoutErr != nil {
-					fmt.Fprintln(stderr, ui.PlainInline("cdx logout: "+logoutErr.Error()))
+					ui.Say(stderr, "cdx", ui.ToneFail, "logout", logoutErr.Error())
 					if exit == 0 {
 						return 1
 					}
@@ -656,9 +653,9 @@ func run(args []string, stdout, stderr io.Writer, choices ...*quotaadvice.Sessio
 				}
 				if marked {
 					if deferred {
-						fmt.Fprintln(stdout, "cdx logout: local logout recorded; native removal deferred until active Codex exits")
+						ui.Say(stdout, "cdx", ui.ToneWarn, "logout", "local logout recorded; native removal deferred until active Codex exits")
 					} else {
-						fmt.Fprintln(stdout, "cdx logout: local logout recorded")
+						ui.Say(stdout, "cdx", ui.ToneOK, "logout", "local logout recorded")
 					}
 				}
 				return exit
@@ -667,7 +664,7 @@ func run(args []string, stdout, stderr io.Writer, choices ...*quotaadvice.Sessio
 			if sub == "login" {
 				authMutationLease, err = codex.StartAuthSession(!cfg.Host.Secure)
 				if err != nil {
-					fmt.Fprintln(stderr, "cdx "+sub+": acquire auth session lease:", err)
+					ui.Say(stderr, "cdx", ui.ToneFail, sub, "acquire auth session lease: "+fmt.Sprint(err))
 					return 1
 				}
 			}
@@ -678,11 +675,11 @@ func run(args []string, stdout, stderr io.Writer, choices ...*quotaadvice.Sessio
 				removed, _, finishErr := codex.FinishAuthSession(authMutationLease)
 				authMutationLease = nil
 				if finishErr != nil {
-					fmt.Fprintln(stderr, "cdx "+sub+": auth session cleanup:", finishErr)
+					ui.Say(stderr, "cdx", ui.ToneFail, sub, "auth session cleanup: "+fmt.Sprint(finishErr))
 					return 1
 				}
 				if removed {
-					fmt.Fprintln(stderr, "cdx: insecure-host credentials purged after "+sub)
+					ui.Say(stderr, "cdx", ui.ToneDim, ui.TopicAuth, "insecure-host credentials purged after "+sub)
 				}
 				return code
 			}
@@ -696,39 +693,39 @@ func run(args []string, stdout, stderr io.Writer, choices ...*quotaadvice.Sessio
 			if sub == "login" {
 				beforeDigest, err = directLoginDigestSnapshot()
 				if err != nil {
-					fmt.Fprintln(stderr, "cdx login:", err)
+					ui.Say(stderr, "cdx", ui.ToneFail, "login", fmt.Sprint(err))
 					return finishAuthMutation(1)
 				}
 			}
 			execArgs := append([]string{sub}, append(subArgs, passthrough...)...)
 			exit, err := codex.Run(ctx, cfg, execArgs)
 			if err != nil {
-				fmt.Fprintln(stderr, ui.PlainInline("cdx "+sub+": "+err.Error()))
+				ui.Say(stderr, "cdx", ui.ToneFail, sub, err.Error())
 			}
 			if sub == "login" {
 				afterDigest, digestErr := directLoginDigestSnapshot()
 				if digestErr != nil {
-					fmt.Fprintln(stderr, "cdx login:", digestErr)
+					ui.Say(stderr, "cdx", ui.ToneFail, "login", fmt.Sprint(digestErr))
 					return finishAuthMutation(1)
 				}
 				intent := codex.LogoutIntentGeneration{}
 				if exit == 0 && !loginStatus {
 					intent, digestErr = codex.CurrentLogoutIntentGeneration()
 					if digestErr != nil {
-						fmt.Fprintln(stderr, "cdx login: could not inspect logout intent:", digestErr)
+						ui.Say(stderr, "cdx", ui.ToneFail, "login", "could not inspect logout intent: "+fmt.Sprint(digestErr))
 						return finishAuthMutation(1)
 					}
 				}
 				if !loginStatus && loginNeedsAuthUpload(exit, beforeDigest, afterDigest, intent.Exists) {
 					if code := cmdAuthUpload(ctx, cfg, stdout, stderr); code != 0 {
-						fmt.Fprintln(stderr, "cdx login: WARNING; the new credentials were NOT synced to the orchestrator. The fleet still holds the previous token. Retry with `cdx auth-upload`.")
+						ui.Say(stderr, "cdx", ui.ToneFail, "login", "WARNING; the new credentials were NOT synced to the orchestrator. The fleet still holds the previous token. Retry with `cdx auth-upload`.")
 						return finishAuthMutation(loginCompletionExit(exit, code))
 					}
 				}
 			}
 			return finishAuthMutation(exit)
 		}
-		fmt.Fprintln(stderr, "cdx: unknown subcommand:", sub)
+		ui.Say(stderr, "cdx", ui.ToneFail, "usage", "unknown subcommand: "+fmt.Sprint(sub))
 		fmt.Fprintln(stderr, "subcommands: run | resume [<session>] | sync | status | doctor | auth-upload | lane <normal|spark|clear> | profile <name> | exec -- <cmd...>")
 		fmt.Fprintln(stderr, "flags: --wrapper-help | --version | --status | --doctor | --update | --uninstall | --resume[=<session>] | --execute <prompt> | --cron [install|remove|run] | --silent | --debug | --minimal | --skip-boot | -4 | --allow-concurrent-sync")
 		return 2
@@ -853,7 +850,7 @@ func ensureEngineForSync(ctx context.Context, cfg *config.Config, minimal bool, 
 		if minimal {
 			arrow = "->"
 		}
-		fmt.Fprintln(stderr, fmt.Sprintf("cdx sync: Codex updated %s %s %s", res.CodexBefore, arrow, res.CodexVersion))
+		ui.Sayf(stderr, "cdx", ui.ToneOK, ui.TopicSync, "Codex updated %s %s %s", res.CodexBefore, arrow, res.CodexVersion)
 	}
 	return 0
 }
@@ -862,7 +859,8 @@ func printLifecycleError(w io.Writer, prefix string, err error) {
 	if err == nil || lifecycle.ErrorWasPresented(err) {
 		return
 	}
-	fmt.Fprintln(w, ui.PlainInline(prefix+": "+err.Error()))
+	engine, topic, _ := strings.Cut(prefix, " ")
+	ui.Say(w, engine, ui.ToneFail, topic, err.Error())
 }
 
 // commandCaps applies explicit --minimal after terminal detection. Keeping the
@@ -1247,16 +1245,16 @@ func conflictingActions(f flags, positional []string) []string {
 func cmdStatus(ctx context.Context, cfg *config.Config, wrapperVersion string, stdout, stderr io.Writer, minimal bool) (exitCode int) {
 	authSessionLease, leaseErr := codex.StartAuthSession(!cfg.Host.Secure)
 	if leaseErr != nil {
-		fmt.Fprintln(stderr, "cdx status: acquire auth session lease:", leaseErr)
+		ui.Say(stderr, "cdx", ui.ToneFail, "status", "acquire auth session lease: "+fmt.Sprint(leaseErr))
 		return 1
 	}
 	defer func() {
 		removed, _, err := codex.FinishAuthSession(authSessionLease)
 		if err != nil {
-			fmt.Fprintln(stderr, "cdx status: auth session cleanup:", err)
+			ui.Say(stderr, "cdx", ui.ToneFail, "status", "auth session cleanup: "+fmt.Sprint(err))
 			exitCode = 1
 		} else if removed {
-			fmt.Fprintln(stderr, "cdx status: insecure-host credentials purged")
+			ui.Say(stderr, "cdx", ui.ToneDim, "status", "insecure-host credentials purged")
 		}
 	}()
 	client, err := orchestrator.New(orchestrator.Options{
@@ -1266,17 +1264,17 @@ func cmdStatus(ctx context.Context, cfg *config.Config, wrapperVersion string, s
 		CABundlePath:  configuredCABundle(cfg),
 	})
 	if err != nil {
-		fmt.Fprintln(stderr, "cdx status:", err)
+		ui.Say(stderr, "cdx", ui.ToneFail, "status", fmt.Sprint(err))
 		return 1
 	}
 	logoutHold, err := codex.LogoutIntentActive()
 	if err != nil {
-		fmt.Fprintln(stderr, "cdx status: inspect logout intent:", err)
+		ui.Say(stderr, "cdx", ui.ToneFail, "status", "inspect logout intent: "+fmt.Sprint(err))
 		return 1
 	}
 	expected, err := codex.CurrentAuthGeneration()
 	if err != nil {
-		fmt.Fprintln(stderr, "cdx status: snapshot local auth:", err)
+		ui.Say(stderr, "cdx", ui.ToneFail, "status", "snapshot local auth: "+fmt.Sprint(err))
 		return 1
 	}
 	if !logoutHold && expected.Exists {
@@ -1285,7 +1283,7 @@ func cmdStatus(ctx context.Context, cfg *config.Config, wrapperVersion string, s
 			expected, stabilizeErr = codex.CurrentAuthGeneration()
 		}
 		if stabilizeErr != nil {
-			fmt.Fprintln(stderr, "cdx status: stabilize local auth:", stabilizeErr)
+			ui.Say(stderr, "cdx", ui.ToneFail, "status", "stabilize local auth: "+fmt.Sprint(stabilizeErr))
 			return 1
 		}
 		expected = stabilized
@@ -1416,7 +1414,7 @@ func cmdLane(ctx context.Context, cfg *config.Config, args []string, stdout, std
 		CABundlePath:  configuredCABundle(cfg),
 	})
 	if err != nil {
-		fmt.Fprintln(stderr, "lane:", err)
+		ui.Say(stderr, "cdx", ui.ToneFail, "lane", fmt.Sprint(err))
 		return 1
 	}
 
@@ -1431,45 +1429,45 @@ func cmdLane(ctx context.Context, cfg *config.Config, args []string, stdout, std
 			clear = true
 		case "normal", "spark":
 			if target != "" && target != a {
-				fmt.Fprintln(stderr, "lane: choose exactly one of normal, spark, or clear")
+				ui.Say(stderr, "cdx", ui.ToneWarn, "lane", "choose exactly one of normal, spark, or clear")
 				return 2
 			}
 			target = a
 		default:
-			fmt.Fprintln(stderr, "lane: unrecognized argument:", a)
+			ui.Say(stderr, "cdx", ui.ToneFail, "lane", "unrecognized argument: "+fmt.Sprint(a))
 			fmt.Fprintln(stderr, "usage: cdx lane [normal|spark|clear] [--persist]")
 			return 2
 		}
 	}
 	if clear && target != "" {
-		fmt.Fprintln(stderr, "lane: clear cannot be combined with "+target)
+		ui.Say(stderr, "cdx", ui.ToneFail, ui.TopicLane, "clear cannot be combined with "+target)
 		return 2
 	}
 
 	if clear {
 		if err := client.ClearLane(ctx); err != nil {
-			fmt.Fprintln(stderr, "lane clear:", err)
+			ui.Say(stderr, "cdx", ui.ToneFail, "lane", fmt.Sprint(err))
 			return 1
 		}
-		fmt.Fprintln(stdout, "lane: cleared (inherited default; effective normal)")
+		ui.Say(stdout, "cdx", ui.ToneOK, "lane", "cleared (inherited default; effective normal)")
 		return 0
 	}
 
 	if target == "" {
 		lane, err := client.GetLane(ctx)
 		if err != nil {
-			fmt.Fprintln(stderr, "lane:", err)
+			ui.Say(stderr, "cdx", ui.ToneFail, "lane", fmt.Sprint(err))
 			return 1
 		}
-		fmt.Fprintf(stdout, "lane: %s (effective)\n", lane)
+		ui.Sayf(stdout, "cdx", ui.ToneOK, "lane", "%s (effective)", lane)
 		return 0
 	}
 
 	if err := client.SetLane(ctx, target); err != nil {
-		fmt.Fprintln(stderr, "lane:", err)
+		ui.Say(stderr, "cdx", ui.ToneFail, "lane", fmt.Sprint(err))
 		return 1
 	}
-	fmt.Fprintf(stdout, "lane: %s (persisted)\n", target)
+	ui.Sayf(stdout, "cdx", ui.ToneOK, "lane", "%s (persisted)", target)
 	return 0
 }
 
@@ -1480,7 +1478,7 @@ func cmdProfile(ctx context.Context, cfg *config.Config, args []string, stderr i
 	}
 	exit, err := codex.Run(ctx, cfg, append([]string{"--profile", args[0]}, args[1:]...))
 	if err != nil {
-		fmt.Fprintln(stderr, "profile:", err)
+		ui.Say(stderr, "cdx", ui.ToneFail, "profile", fmt.Sprint(err))
 	}
 	return exit
 }
@@ -1542,16 +1540,16 @@ func logoutGenerationMayBeMarked(before, after codex.AuthGeneration, authPath st
 func cmdAuthUpload(ctx context.Context, cfg *config.Config, stdout, stderr io.Writer) (exitCode int) {
 	authSessionLease, leaseErr := codex.StartAuthSession(!cfg.Host.Secure)
 	if leaseErr != nil {
-		fmt.Fprintln(stderr, "auth-upload: acquire auth session lease:", leaseErr)
+		ui.Say(stderr, "cdx", ui.ToneFail, "auth-upload", "acquire auth session lease: "+fmt.Sprint(leaseErr))
 		return 1
 	}
 	defer func() {
 		removed, _, err := codex.FinishAuthSession(authSessionLease)
 		if err != nil {
-			fmt.Fprintln(stderr, "auth-upload: auth session cleanup:", err)
+			ui.Say(stderr, "cdx", ui.ToneFail, "auth-upload", "auth session cleanup: "+fmt.Sprint(err))
 			exitCode = 1
 		} else if removed {
-			fmt.Fprintln(stderr, "auth-upload: insecure-host credentials purged")
+			ui.Say(stderr, "cdx", ui.ToneDim, "auth-upload", "insecure-host credentials purged")
 		}
 	}()
 	client, err := orchestrator.New(orchestrator.Options{
@@ -1561,7 +1559,7 @@ func cmdAuthUpload(ctx context.Context, cfg *config.Config, stdout, stderr io.Wr
 		CABundlePath:  configuredCABundle(cfg),
 	})
 	if err != nil {
-		fmt.Fprintln(stderr, "auth-upload:", err)
+		ui.Say(stderr, "cdx", ui.ToneFail, "auth-upload", fmt.Sprint(err))
 		return 1
 	}
 	storeCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
@@ -1569,31 +1567,31 @@ func cmdAuthUpload(ctx context.Context, cfg *config.Config, stdout, stderr io.Wr
 	for attempt := 0; attempt < 2; attempt++ {
 		upload, err := codex.BeginAuthUploadContext(storeCtx, true)
 		if err != nil {
-			fmt.Fprintln(stderr, "auth-upload:", err)
+			ui.Say(stderr, "cdx", ui.ToneFail, "auth-upload", fmt.Sprint(err))
 			return 1
 		}
 		expected := upload.Generation()
 		resp, err := client.AuthStore(storeCtx, upload.Payload())
 		if err != nil {
 			_ = upload.Close()
-			fmt.Fprintln(stderr, "auth-upload:", err)
+			ui.Say(stderr, "cdx", ui.ToneFail, "auth-upload", fmt.Sprint(err))
 			return 1
 		}
 		if !resp.AuthCandidateAccepted() {
 			closeErr := upload.Close()
 			if err := updateCommandAuthSessionSecurity(resp); err != nil {
-				fmt.Fprintln(stderr, "auth-upload: update auth session security state:", err)
+				ui.Say(stderr, "cdx", ui.ToneFail, "auth-upload", "update auth session security state: "+fmt.Sprint(err))
 				return 1
 			}
 			if closeErr != nil {
-				fmt.Fprintln(stderr, "auth-upload: rejected upload transaction cleanup:", closeErr)
+				ui.Say(stderr, "cdx", ui.ToneFail, "auth-upload", "rejected upload transaction cleanup: "+fmt.Sprint(closeErr))
 				return 1
 			}
 			status := ""
 			if resp != nil {
 				status = resp.Status
 			}
-			fmt.Fprintf(stderr, "auth-upload: server did not accept the uploaded Codex credential generation (status %q)\n", status)
+			ui.Sayf(stderr, "cdx", ui.ToneFail, "auth-upload", "server did not accept the uploaded Codex credential generation (status %q)", status)
 			return 1
 		}
 		// Native Codex does not honor the wrapper flock. Confirm that the exact
@@ -1602,45 +1600,45 @@ func cmdAuthUpload(ctx context.Context, cfg *config.Config, stdout, stderr io.Wr
 		acknowledged, ackErr := upload.AcknowledgeObservedLogout()
 		closeErr := upload.Close()
 		if ackErr != nil {
-			fmt.Fprintln(stderr, "auth-upload: accepted by server but logout marker cleanup failed:", ackErr)
+			ui.Say(stderr, "cdx", ui.ToneFail, "auth-upload", "accepted by server but logout marker cleanup failed: "+fmt.Sprint(ackErr))
 			return 1
 		}
 		if closeErr != nil {
-			fmt.Fprintln(stderr, "auth-upload: accepted by server but auth transaction cleanup failed:", closeErr)
+			ui.Say(stderr, "cdx", ui.ToneFail, "auth-upload", "accepted by server but auth transaction cleanup failed: "+fmt.Sprint(closeErr))
 			return 1
 		}
 		if err := updateCommandAuthSessionSecurity(resp); err != nil {
-			fmt.Fprintln(stderr, "auth-upload: update auth session security state:", err)
+			ui.Say(stderr, "cdx", ui.ToneFail, "auth-upload", "update auth session security state: "+fmt.Sprint(err))
 			return 1
 		}
 		if !acknowledged {
 			if attempt == 0 {
 				continue
 			}
-			fmt.Fprintln(stderr, "auth-upload: local credentials changed during both upload attempts; latest generation was not verified")
+			ui.Say(stderr, "cdx", ui.ToneWarn, "auth-upload", "local credentials changed during both upload attempts; latest generation was not verified")
 			return 1
 		}
 		if resp != nil && len(resp.Auth) > 0 && !strings.EqualFold(strings.TrimSpace(resp.VerificationState), "failed") {
 			if result, writeErr := codex.ConvergeAuthIfCurrent(resp.Auth, expected); writeErr != nil {
-				fmt.Fprintln(stderr, "auth-upload: accepted by server but local writeback failed:", writeErr)
+				ui.Say(stderr, "cdx", ui.ToneFail, "auth-upload", "accepted by server but local writeback failed: "+fmt.Sprint(writeErr))
 				return 1
 			} else if !result.Written {
 				if logoutActive, logoutErr := codex.LogoutIntentActive(); logoutErr == nil && logoutActive {
-					fmt.Fprintln(stdout, "auth-upload: accepted; a later local logout was kept")
+					ui.Say(stdout, "cdx", ui.ToneWarn, "auth-upload", "accepted; a later local logout was kept")
 					return 0
 				}
 				authPath, _ := codex.AuthPath()
 				kept, outcomeErr := classifyBlockedAuthWrite(authPath, expected, result)
 				if outcomeErr != nil {
-					fmt.Fprintln(stderr, "auth-upload: server accepted the upload but canonical credentials could not be materialized locally:", outcomeErr)
+					ui.Say(stderr, "cdx", ui.ToneFail, "auth-upload", "server accepted the upload but canonical credentials could not be materialized locally: "+fmt.Sprint(outcomeErr))
 					return 1
 				}
 				if kept {
-					fmt.Fprintln(stderr, "auth-upload: server accepted the upload; a newer local login was kept")
+					ui.Say(stderr, "cdx", ui.ToneWarn, "auth-upload", "server accepted the upload; a newer local login was kept")
 				}
 			}
 		}
-		fmt.Fprintln(stdout, "auth-upload: ok")
+		ui.Say(stdout, "cdx", ui.ToneOK, "auth-upload", "ok")
 		return 0
 	}
 	return 1
@@ -1657,14 +1655,14 @@ func cmdCron(ctx context.Context, cfg *config.Config, args []string, stdout, std
 			printBoundedPlain(stderr, "cdx --cron install: "+err.Error(), minimal)
 			return 1
 		}
-		fmt.Fprintln(stdout, "cron: installed")
+		ui.Say(stdout, "cdx", ui.ToneOK, "cron", "installed")
 		return 0
 	case "remove":
 		if err := hostcron.Remove(ctx); err != nil {
 			printBoundedPlain(stderr, "cdx --cron remove: "+err.Error(), minimal)
 			return 1
 		}
-		fmt.Fprintln(stdout, "cron: removed")
+		ui.Say(stdout, "cdx", ui.ToneOK, "cron", "removed")
 		return 0
 	case "run":
 		if !hostcron.IsEngineOnly() {

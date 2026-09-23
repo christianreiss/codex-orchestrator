@@ -94,6 +94,12 @@ doctor, cron/peer-update output, startup, and the exit footer. For upstream help
 passthrough, the wrapper consumes that presentation flag before executing
 Claude's supported help argv.
 
+From **cxx 0.9.0**, wrapper messages and interactive questions follow the shared
+notice and prompt grammar described in
+[interface-cdx.md → Terminal presentation](interface-cdx.md#terminal-presentation)
+(`▲ clx quota  …` on a terminal, `clx quota: …` in logs and `--minimal`). The
+quota provider question now appears before the clx boot screen, matching cdx.
+
 Hidden boot screens omit the native version subprocess used only for the
 display; visible boot/status reports still inspect the installed Claude CLI.
 A verified `claude_skills` bootstrap bundle also supplies the skills health
@@ -581,7 +587,8 @@ Engine-specific details:
   credentials: when neither runnable local auth nor verified runnable server
   auth exists, it directly runs `claude auth login`, uploads the resulting
   native credentials through `/auth command=store`, and re-runs the startup
-  auth check. There is no extra wrapper-owned `[y/N]` prompt. Headless runs do
+  auth check. There is no extra wrapper-owned `[y/N]` prompt (cdx asks one;
+  this is an intentional delta). Headless runs do
   not open a browser flow; they fail with the actionable instruction to run
   `clx auth login` interactively.
 - Settings file mirrored to `~/.clx/config/settings.json` after the canonical
@@ -933,7 +940,9 @@ Interactive `run` and `resume` can recommend OpenAI or Claude using the centrall
 configured quota policy (see [API quota recommendation](interface-api.md#provider-quota-recommendation)).
 The terminal shows consumption, estimated usage at reset, reset countdown and
 measurement age. Choose the current provider, the alternative, or cancel; Enter
-keeps the explicitly requested provider. A switch starts a new session in the same
+keeps the explicitly requested provider. From cxx 0.9.0 the question is asked
+before the boot screen on both engines, so a switch never leaves a stale card of
+the abandoned provider above the new session. A switch starts a new session in the same
 working directory after the original wrapper releases its auth leases. No prompt,
 resume identifier or launch arguments transfer. If the original invocation has
 options or a conversation to resume, confirm their loss on every switch.

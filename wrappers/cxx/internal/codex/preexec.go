@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/terminalui"
+
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/ipv4"
 )
@@ -31,19 +33,19 @@ func PreExec(ctx context.Context, cfg *config.Config) (func(), error) {
 
 	// 1) Project-trust auto-add.
 	if err := EnsureProjectTrust(); err != nil {
-		fmt.Fprintln(os.Stderr, "cdx: project-trust auto-add failed:", err)
+		terminalui.Say(os.Stderr, "cdx", terminalui.ToneFail, "session", "project-trust auto-add failed: "+fmt.Sprint(err))
 	}
 
 	// 2) OTEL env from config.toml.
 	if err := exportOTELFromConfig(); err != nil {
-		fmt.Fprintln(os.Stderr, "cdx: OTEL env export failed:", err)
+		terminalui.Say(os.Stderr, "cdx", terminalui.ToneFail, "session", "OTEL env export failed: "+fmt.Sprint(err))
 	}
 
 	// 3) IPv4 proxy if requested.
 	if os.Getenv("CODEX_FORCE_IPV4") == "1" {
 		p, err := ipv4.Start(ctx)
 		if err != nil {
-			fmt.Fprintln(os.Stderr, "cdx: IPv4 proxy failed to start:", err)
+			terminalui.Say(os.Stderr, "cdx", terminalui.ToneFail, "session", "IPv4 proxy failed to start: "+fmt.Sprint(err))
 		} else {
 			_ = os.Setenv("HTTP_PROXY", p.URL)
 			_ = os.Setenv("HTTPS_PROXY", p.URL)

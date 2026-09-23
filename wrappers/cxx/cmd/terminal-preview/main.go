@@ -4,6 +4,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"os"
@@ -16,14 +17,14 @@ import (
 
 func main() {
 	engine := flag.String("engine", "codex", "codex or claude")
-	scene := flag.String("scene", "startup", "startup, attention, blocked, concurrent, stale, forecast, security, doctor, help, session, or updates")
+	scene := flag.String("scene", "startup", "startup, attention, blocked, concurrent, stale, forecast, security, doctor, help, session, updates, notices, or prompt")
 	minimal := flag.Bool("minimal", false, "portable ASCII output")
 	flag.Parse()
 	if (*engine != "codex" && *engine != "claude") || flag.NArg() != 0 {
 		fmt.Fprintln(os.Stderr, "terminal-preview: use -engine codex or -engine claude")
 		os.Exit(2)
 	}
-	valid := map[string]bool{"startup": true, "attention": true, "blocked": true, "concurrent": true, "stale": true, "forecast": true, "security": true, "doctor": true, "help": true, "session": true, "updates": true}
+	valid := map[string]bool{"startup": true, "attention": true, "blocked": true, "concurrent": true, "stale": true, "forecast": true, "security": true, "doctor": true, "help": true, "session": true, "updates": true, "notices": true, "prompt": true}
 	if !valid[*scene] || (*scene == "security" && *engine != "claude") {
 		fmt.Fprintln(os.Stderr, "terminal-preview: unknown scene; security requires Claude")
 		os.Exit(2)
@@ -67,6 +68,41 @@ func preview(engine, scene string, minimal bool) {
 	case "session":
 		cdx.PrintExitFooter(os.Stdout, caps, prefix, cdx.ExitFooter{RunDuration: 12*time.Minute + 34*time.Second, ExitCode: 0, AuthStatus: "synced", AuthTone: cdx.ToneOK, EngineName: engine, EngineVersion: version})
 		cdx.PrintExitFooter(os.Stdout, caps, prefix, cdx.ExitFooter{RunDuration: 2*time.Minute + 7*time.Second, ExitCode: 0, AuthStatus: "upload failed; local credentials retained", AuthTone: cdx.ToneFail, EngineName: engine, EngineVersion: version})
+		return
+	case "notices":
+		for _, n := range []cdx.Notice{
+			{Prefix: prefix, Topic: cdx.TopicSync, Tone: cdx.ToneOK, Message: strings.ToUpper(engine[:1]) + engine[1:] + " updated 0.144.0 → " + version},
+			{Prefix: prefix, Topic: cdx.TopicAuth, Tone: cdx.ToneDim, Message: "insecure-host credentials purged"},
+			{Prefix: prefix, Topic: cdx.TopicSession, Tone: cdx.ToneWarn, Message: "another session is active; managed sync paused"},
+			{Prefix: prefix, Topic: cdx.TopicUpload, Tone: cdx.ToneFail, Message: "server rejected the credential upload", Details: []string{"Retry with `" + prefix + " auth-upload` later."}},
+		} {
+			cdx.PrintNotice(os.Stdout, caps, n)
+		}
+		return
+	case "prompt":
+		other, otherName := "Claude (clx)", "claude"
+		if engine == "claude" {
+			other, otherName = "OpenAI (cdx)", "codex"
+		}
+		self := "OpenAI (cdx)"
+		if engine == "claude" {
+			self = "Claude (clx)"
+		}
+		ctx := context.Background()
+		q := cdx.Question{Prefix: prefix, Topic: cdx.TopicQuota, Tone: cdx.ToneWarn, Title: "Recommend " + other, Details: []string{
+			self + ": 5h 97% used; resets in 1h12m",
+			other + ": 5h 18% used; resets in 3h5m",
+		}}
+		answer, err := cdx.Select(ctx, caps, os.Stdin, os.Stdout, q, []cdx.Option{{Key: "1", Label: "Keep " + self}, {Key: "2", Label: "Switch to " + other}}, "1")
+		if err != nil {
+			fmt.Fprintln(os.Stdout)
+			cdx.PrintNotice(os.Stdout, caps, cdx.Notice{Prefix: prefix, Topic: cdx.TopicQuota, Tone: cdx.ToneDim, Message: "cancelled; nothing started"})
+			return
+		}
+		if answer == "2" {
+			_, _ = cdx.Confirm(ctx, caps, os.Stdin, os.Stdout, cdx.Question{Prefix: prefix, Topic: cdx.TopicQuota, Title: "Remember " + other + " for today on this computer?"})
+			cdx.PrintNotice(os.Stdout, caps, cdx.Notice{Prefix: prefix, Topic: cdx.TopicQuota, Tone: cdx.ToneOK, Message: "starting " + otherName})
+		}
 		return
 	case "updates":
 		fmt.Fprintln(os.Stdout, cdx.UpdateProgress(caps, prefix, "wrapper", "0.7.28", "0.8.0"))

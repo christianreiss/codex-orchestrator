@@ -8,6 +8,8 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/codex/ui"
+
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/authnotice"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/codex"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
@@ -20,7 +22,7 @@ import (
 func cmdAuthSync(ctx context.Context, cfg *config.Config, stdout, stderr io.Writer) (exitCode int) {
 	active, err := codex.HasActiveAuthChild()
 	if err != nil {
-		fmt.Fprintln(stderr, "auth-sync: active session probe:", err)
+		ui.Say(stderr, "cdx", ui.ToneFail, "auth-sync", "active session probe: "+fmt.Sprint(err))
 		return 1
 	}
 	if !active {
@@ -30,18 +32,18 @@ func cmdAuthSync(ctx context.Context, cfg *config.Config, stdout, stderr io.Writ
 	// may revise it, not a possibly stale baked secure/insecure flag.
 	session, err := codex.StartAuthSession(false)
 	if err != nil {
-		fmt.Fprintln(stderr, "auth-sync:", err)
+		ui.Say(stderr, "cdx", ui.ToneFail, "auth-sync", fmt.Sprint(err))
 		return 1
 	}
 	defer func() {
 		if _, _, err := codex.FinishAuthSession(session); err != nil {
-			fmt.Fprintln(stderr, "auth-sync: session cleanup:", err)
+			ui.Say(stderr, "cdx", ui.ToneFail, "auth-sync", "session cleanup: "+fmt.Sprint(err))
 			exitCode = 1
 		}
 	}()
 	active, err = codex.HasActiveAuthChild()
 	if err != nil {
-		fmt.Fprintln(stderr, "auth-sync: active session probe:", err)
+		ui.Say(stderr, "cdx", ui.ToneFail, "auth-sync", "active session probe: "+fmt.Sprint(err))
 		return 1
 	}
 	if !active {
@@ -54,21 +56,21 @@ func cmdAuthSync(ctx context.Context, cfg *config.Config, stdout, stderr io.Writ
 		Logger:        slog.New(slog.DiscardHandler),
 	})
 	if err != nil {
-		fmt.Fprintln(stderr, "auth-sync:", err)
+		ui.Say(stderr, "cdx", ui.ToneFail, "auth-sync", fmt.Sprint(err))
 		return 1
 	}
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 	result, err := lifecycle.SyncSessionAuth(ctx, client, slog.New(slog.DiscardHandler))
 	if err != nil {
-		fmt.Fprintln(stderr, "auth-sync:", err)
+		ui.Say(stderr, "cdx", ui.ToneFail, "auth-sync", fmt.Sprint(err))
 		return 1
 	}
 	if result.Adopted {
 		_ = authnotice.Publish("codex", result.Generation.Digest)
 	}
 	if err := json.NewEncoder(stdout).Encode(result); err != nil {
-		fmt.Fprintln(stderr, "auth-sync: result:", err)
+		ui.Say(stderr, "cdx", ui.ToneFail, "auth-sync", "result: "+fmt.Sprint(err))
 		return 1
 	}
 	return 0

@@ -338,6 +338,29 @@ startup, and the exit footer rather than depending on terminal auto-detection.
 For upstream help passthrough, the wrapper consumes that presentation flag and
 executes Codex with only its supported help argv.
 
+From **cxx 0.9.0**, every wrapper message outside the framed screens uses one
+grammar on both engines: `<glyph> <cdx|clx> <topic>  message`, with detail
+lines hanging under the message. Topics are a fixed vocabulary (`auth`,
+`quota`, `sync`, `update`, `session`, `config`, `usage`, `lane`, `status`,
+`login`, `uninstall`, `auth-upload`, …). Glyphs are `✓` ok, `▲` attention,
+`✗` failure, `›` neutral (`+ ! x >` without UTF-8). Redirects, logs and
+`--minimal` keep the greppable plain form `cdx quota: message` on one physical
+line per record (details indented two spaces), so paths and tokens survive
+grep and copy/paste. The colour palette is authored as 24-bit design tokens and
+downsampled to the terminal's advertised depth (truecolor, 256 or 16 colours);
+whether colour is used at all is still decided only by TTY, `TERM`, `NO_COLOR`
+and `--minimal`. `--version` output is identical for `cxx`, `cdx` and `clx`
+and stays plain text.
+
+Interactive questions (quota provider choice, “new session” and “remember for
+today” confirmations, Codex auth recovery) render as arrow-key menus on a real
+terminal (`↑/↓`, `Enter`, `y`/`n` on confirms; `q`, `Esc` or `Ctrl-C` cancels)
+and leave one `question → answer` receipt line in scrollback. When stdin or
+stderr is not a terminal, or under `TERM=dumb`/`--minimal`, the same question is
+a single line prompt: `[1] Keep OpenAI (cdx)  [2] Switch to Claude (clx)  [q]
+Cancel  (Enter: 1):`. Enter keeps the default, a listed key selects, anything
+else or EOF cancels; confirms accept `y`/`yes`.
+
 Suppressed boot screens skip the native CLI version subprocess used solely for
 presentation. Auth, quota, config, skills, and update policy still run; visible
 status/boot reports continue to inspect the installed version.
@@ -760,7 +783,9 @@ Interactive `run` and `resume` can recommend OpenAI or Claude using the centrall
 configured quota policy (see [API quota recommendation](interface-api.md#provider-quota-recommendation)).
 The terminal shows consumption, estimated usage at reset, reset countdown and
 measurement age. Choose the current provider, the alternative, or cancel; Enter
-keeps the explicitly requested provider. A switch starts a new session in the same
+keeps the explicitly requested provider. From cxx 0.9.0 the question is asked
+before the boot screen on both engines, so a switch never leaves a stale card of
+the abandoned provider above the new session. A switch starts a new session in the same
 working directory after the original wrapper releases its auth leases. No prompt,
 resume identifier or launch arguments transfer. If the original invocation has
 options or a conversation to resume, confirm their loss on every switch.

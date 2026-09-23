@@ -4,7 +4,6 @@
 package lifecycle
 
 import (
-	"bufio"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -230,10 +229,10 @@ func Run(ctx context.Context, opts Options) (exitCode int, runErr error) {
 			return 1, err
 		}
 		if opts.AllowConcurrentSync {
-			fmt.Fprintln(os.Stderr, "cdx: another session is active; concurrent sync explicitly enabled")
+			ui.Say(os.Stderr, "cdx", ui.ToneWarn, "session", "another session is active; concurrent sync explicitly enabled")
 		} else {
 			concurrent = true
-			fmt.Fprintln(os.Stderr, "cdx: another session is active; managed content sync paused; auth freshness remains active")
+			ui.Say(os.Stderr, "cdx", ui.ToneWarn, "session", "another session is active; managed content sync paused; auth freshness remains active")
 		}
 	} else {
 		defer lock.Release()
@@ -427,7 +426,7 @@ func Run(ctx context.Context, opts Options) (exitCode int, runErr error) {
 		} else if state.QuotaWarn != "" {
 			// Headless path: surface the quota warning so cron/CI logs capture
 			// it. The boot-screen path already renders this text inline.
-			fmt.Fprintln(os.Stderr, "cdx: "+state.QuotaWarn)
+			ui.Say(os.Stderr, "cdx", ui.ToneWarn, ui.TopicQuota, state.QuotaWarn)
 			logger.Warn("quota approaching limit", "warn", state.QuotaWarn)
 		}
 	}
@@ -820,12 +819,12 @@ func bootstrap(
 		if raw, rerr := codex.ReadAuth(); rerr == nil && len(raw) > 0 {
 			if perr := pushAuthCandidate(ctx, client, logger, false); perr != nil {
 				logger.Warn("fresher local auth upload rejected", "err", perr)
-				fmt.Fprintln(os.Stderr, ui.PlainInline("cdx: orchestrator did not accept the newer local credentials: "+perr.Error()))
+				ui.Say(os.Stderr, "cdx", ui.ToneFail, "auth", "orchestrator did not accept the newer local credentials: "+perr.Error())
 				if orchestrator.IsUnsafeRunnerUpdatedAuthError(perr) {
 					convergenceErr = perr
 				}
 			} else {
-				fmt.Fprintln(os.Stderr, "cdx: newer local credentials uploaded to the orchestrator")
+				ui.Say(os.Stderr, "cdx", ui.ToneOK, "auth", "newer local credentials uploaded to the orchestrator")
 			}
 		}
 	}
@@ -1165,16 +1164,22 @@ func recoverCodexAuth(ctx context.Context, cfg *config.Config, client *orchestra
 		return errAuthRecoveryNonInteractive
 	}
 	fmt.Fprintln(os.Stderr)
+	var details []string
 	if strings.TrimSpace(reason) != "" {
-		fmt.Fprintln(os.Stderr, "cdx: "+reason)
+		details = append(details, reason)
 	}
-	fmt.Fprint(os.Stderr, "cdx: Run `codex login`, upload credentials, and verify with the server now? [y/N] ")
-	answer, err := bufio.NewReader(os.Stdin).ReadString('\n')
+	ok, err := ui.Confirm(ctx, ui.DetectCapsFor(os.Stderr, ""), os.Stdin, os.Stderr, ui.Question{
+		Prefix: "cdx", Topic: ui.TopicAuth, Tone: ui.ToneFail,
+		Title:   "Run `codex login`, upload credentials, and verify with the server now?",
+		Details: details,
+	})
 	if err != nil {
+		if errors.Is(err, ui.ErrPromptCancelled) {
+			return errAuthRecoveryDeclined
+		}
 		return fmt.Errorf("read auth recovery answer: %w", err)
 	}
-	answer = strings.ToLower(strings.TrimSpace(answer))
-	if answer != "y" && answer != "yes" {
+	if !ok {
 		return errAuthRecoveryDeclined
 	}
 
@@ -1195,7 +1200,7 @@ func recoverCodexAuth(ctx context.Context, cfg *config.Config, client *orchestra
 	if err := pushAuthCandidate(ctx, client, slog.Default(), true); err != nil {
 		return fmt.Errorf("upload Codex credentials after login: %w", err)
 	}
-	fmt.Fprintln(os.Stderr, "cdx: Codex credentials uploaded and accepted by the server.")
+	ui.Say(os.Stderr, "cdx", ui.ToneOK, ui.TopicAuth, "Codex credentials uploaded and accepted by the server.")
 	return nil
 }
 
@@ -1329,7 +1334,7 @@ func applyServerAuth(logger *slog.Logger, authPath string, resp *orchestrator.Au
 	if localAuthFresherThan(authPath, resp.Auth) && !definitiveFallback {
 		logger.Warn("local auth.json is newer than server canonical; refusing to overwrite",
 			"canonical_last_refresh", resp.CanonicalLastRefresh)
-		fmt.Fprintln(os.Stderr, "cdx: local auth.json is newer than the fleet canonical; keeping the local copy")
+		ui.Say(os.Stderr, "cdx", ui.ToneWarn, "auth", "local auth.json is newer than the fleet canonical; keeping the local copy")
 		return false, true, nil
 	}
 	result, err := codex.ConvergeAuthIfCurrent(resp.Auth, expected)

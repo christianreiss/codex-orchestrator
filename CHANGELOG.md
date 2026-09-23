@@ -1,5 +1,18 @@
 # 2026-09-23
 
+- **cdx / clx terminal UI refresh (wrapper `0.9.0`).** One message grammar on both engines:
+  `✓ cdx sync  Codex updated …`, `▲ clx quota  Recommend OpenAI (cdx)`, `✗ cdx auth-upload  …`,
+  replacing the old mix of `cdx:`, `quota:`, `auth-upload:`, `lane:`, `uninstall:` and bare prefixes
+  (logs, pipes and `--minimal` keep a greppable one-line `cdx quota: …` form). Questions — the quota
+  "switch provider?" flow, "new session?" and "remember for today?", and Codex auth recovery — are
+  arrow-key menus on a real terminal (`q`/`Esc`/`Ctrl-C` cancels) and leave a one-line receipt; the
+  line-prompt fallback for pipes/`--minimal` keeps the old keys (`1`/`2`/`q`, `y`/`N`). The palette is
+  now 24-bit design tokens downsampled to 256/16 colours; `NO_COLOR`, `TERM=dumb` and `--minimal`
+  behave as before. clx now asks the quota question before its boot screen, like cdx. The
+  retry-original prompt after a failed switch accepts `yes` (it only took `y`). Adds
+  `charm.land/huh/v2` and `charm.land/lipgloss/v2` (the static binary grows by about 2 MB);
+  the wrapper module now requires Go 1.25.8.
+
 - **Agent chat redesigned in a Messages style on both the `/go` portal and Active Clients.** One
   flat, searchable conversation list (round engine avatars with a presence badge, one-line preview,
   Messages-style timestamps, unread/needs-you badges; *Needs you* first, ended sessions collapsed)

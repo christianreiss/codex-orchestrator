@@ -15,11 +15,12 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
-	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/terminalui"
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/claude"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
@@ -305,7 +306,7 @@ func helpExecArgv(args []string) []string {
 func run(args []string, stdout, stderr io.Writer, choices ...*quotaadvice.Session) (code int) {
 	depth, _ := strconv.Atoi(os.Getenv("CLAUDE_WRAPPER_RESTART_DEPTH"))
 	if depth > maxRestartDepth {
-		fmt.Fprintf(stderr, "clx: restart depth %d exceeded cap %d - refusing to continue\n", depth, maxRestartDepth)
+		ui.Sayf(stderr, "clx", ui.ToneFail, "", "restart depth %d exceeded cap %d - refusing to continue", depth, maxRestartDepth)
 		return 70
 	}
 
@@ -322,8 +323,9 @@ func run(args []string, stdout, stderr io.Writer, choices ...*quotaadvice.Sessio
 	}
 
 	f, positional, passthrough := parseFlags(args)
+	terminalui.SetForceMinimal(f.minimal)
 	if actions := conflictingActions(f, positional); len(actions) > 1 {
-		fmt.Fprintln(stderr, "clx: conflicting wrapper actions:", strings.Join(actions, ", "))
+		ui.Say(stderr, "clx", ui.ToneFail, "usage", "conflicting wrapper actions: "+strings.Join(actions, ", "))
 		return 2
 	}
 
@@ -341,25 +343,25 @@ func run(args []string, stdout, stderr io.Writer, choices ...*quotaadvice.Sessio
 	if f.helpPassthrough {
 		helpSession, err := claude.StartAuthSession(false)
 		if err != nil {
-			fmt.Fprintln(stderr, "clx --help: start auth session:", err)
+			ui.Say(stderr, "clx", ui.ToneFail, "help", "start auth session: "+fmt.Sprint(err))
 			return 1
 		}
 		defer func() {
 			_, cleanupErr := helpSession.CloseAndPurgeIfLast()
 			if cleanupErr != nil {
-				fmt.Fprintln(stderr, "clx --help: finalize auth session:", cleanupErr)
+				ui.Say(stderr, "clx", ui.ToneFail, "help", "finalize auth session: "+fmt.Sprint(cleanupErr))
 				code = 1
 			}
 		}()
 		cli, err := claude.FindCLI()
 		if err != nil {
-			fmt.Fprintln(stderr, "clx --help:", err)
+			ui.Say(stderr, "clx", ui.ToneFail, "help", fmt.Sprint(err))
 			return 127
 		}
 		execArgv := append([]string{cli}, helpExecArgv(args)...)
 		exit, err := claude.RunHelpPassthrough(ctx, cli, execArgv, os.Environ(), os.Stdin, stdout, stderr, helpSession)
 		if err != nil {
-			fmt.Fprintln(stderr, "clx --help:", err)
+			ui.Say(stderr, "clx", ui.ToneFail, "help", fmt.Sprint(err))
 			if exit == 0 {
 				return 1
 			}
@@ -368,17 +370,12 @@ func run(args []string, stdout, stderr io.Writer, choices ...*quotaadvice.Sessio
 	}
 
 	if f.executeInvalid {
-		fmt.Fprintln(stderr, "clx: --execute requires a non-empty prompt argument")
+		ui.Say(stderr, "clx", ui.ToneFail, "usage", "--execute requires a non-empty prompt argument")
 		return 2
 	}
 
 	if f.versionFlag {
-		fmt.Fprintf(stdout, "clx %s (commit %s, built %s, %s/%s)\n", Version, Commit, BuildDate, runtime.GOOS, runtime.GOARCH)
-		if signing.HasKey() {
-			fmt.Fprintln(stdout, "signing pubkey: embedded")
-		} else {
-			fmt.Fprintln(stdout, "signing pubkey: MISSING (this binary refuses signed configs)")
-		}
+		terminalui.PrintVersion(stdout, terminalui.BuildInfo{Name: "clx", Version: Version, Commit: Commit, BuildDate: BuildDate, SigningKey: signing.HasKey()})
 		return 0
 	}
 
@@ -404,7 +401,7 @@ func run(args []string, stdout, stderr io.Writer, choices ...*quotaadvice.Sessio
 		return configLoadFailure(sub, "clx", f.configPath, Version, err, stdout, stderr, f.minimal)
 	}
 	if refreshed {
-		fmt.Fprintln(stderr, "clx: signed config had expired; refreshed it from the orchestrator")
+		ui.Say(stderr, "clx", ui.ToneOK, "config", "signed config had expired; refreshed it from the orchestrator")
 	}
 
 	if cfg.EngineOptions.Silent {
@@ -445,13 +442,13 @@ func run(args []string, stdout, stderr io.Writer, choices ...*quotaadvice.Sessio
 	if !commandOwnsAuthSession(sub, subArgs) {
 		commandSession, err = claude.StartAuthSession(!cfg.Host.Secure)
 		if err != nil {
-			fmt.Fprintln(stderr, "clx: start auth session:", err)
+			ui.Say(stderr, "clx", ui.ToneFail, "auth", "start auth session: "+fmt.Sprint(err))
 			return 1
 		}
 		defer func() {
 			_, cleanupErr := commandSession.CloseAndPurgeIfLast()
 			if cleanupErr != nil {
-				fmt.Fprintln(stderr, "clx: finalize auth session:", cleanupErr)
+				ui.Say(stderr, "clx", ui.ToneFail, "auth", "finalize auth session: "+fmt.Sprint(cleanupErr))
 				code = 1
 			}
 		}()
@@ -494,7 +491,7 @@ func run(args []string, stdout, stderr io.Writer, choices ...*quotaadvice.Sessio
 		}
 		exit, err := claude.RunWithAuthSession(ctx, cfg, append(subArgs, passthrough...), commandSession)
 		if err != nil {
-			fmt.Fprintln(stderr, ui.PlainInline("clx exec: "+err.Error()))
+			ui.Say(stderr, "clx", ui.ToneFail, "exec", err.Error())
 		}
 		return exit
 	case "execute":
@@ -522,7 +519,7 @@ func run(args []string, stdout, stderr io.Writer, choices ...*quotaadvice.Sessio
 		return cmdWrapperUpdate(ctx, cfg, f, logger, stdout, stderr)
 	case "uninstall":
 		if err := uninstall.Run(ctx, cfg, stdout, stderr); err != nil {
-			fmt.Fprintln(stderr, "clx uninstall:", err)
+			ui.Say(stderr, "clx", ui.ToneFail, "uninstall", fmt.Sprint(err))
 			return 1
 		}
 		return 0
@@ -541,11 +538,11 @@ func run(args []string, stdout, stderr io.Writer, choices ...*quotaadvice.Sessio
 			}
 			exit, err := claude.RunWithAuthSession(ctx, cfg, execArgs, commandSession)
 			if err != nil {
-				fmt.Fprintln(stderr, ui.PlainInline("clx "+sub+": "+err.Error()))
+				ui.Say(stderr, "clx", ui.ToneFail, sub, err.Error())
 			}
 			return exit
 		}
-		fmt.Fprintln(stderr, "clx: unknown subcommand:", sub)
+		ui.Say(stderr, "clx", ui.ToneFail, "usage", "unknown subcommand: "+fmt.Sprint(sub))
 		fmt.Fprintln(stderr, "subcommands: run | resume [<session>] | sync | status | doctor | auth-upload | exec -- <cmd...>")
 		fmt.Fprintln(stderr, "flags: --wrapper-help | --version | --status | --doctor | --update | --uninstall | -r/--resume[=<session>] | --continue | --execute <prompt> | --cron [install|remove|run] | --silent | --debug | --minimal | --skip-boot | --dangerously-skip-permissions")
 		return 2
@@ -610,13 +607,13 @@ func runClaudeAuthMutation(ctx context.Context, cfg *config.Config, args []strin
 		session, err = claude.StartAuthSession(!cfg.Host.Secure)
 	}
 	if err != nil {
-		fmt.Fprintln(stderr, "clx "+kind+": start auth session:", err)
+		ui.Say(stderr, "clx", ui.ToneFail, kind, "start auth session: "+fmt.Sprint(err))
 		return 1
 	}
 	defer func() {
 		_, err := session.CloseAndPurgeIfLast()
 		if err != nil {
-			fmt.Fprintln(stderr, "clx "+kind+": finalize auth session:", err)
+			ui.Say(stderr, "clx", ui.ToneFail, kind, "finalize auth session: "+fmt.Sprint(err))
 			code = 1
 		}
 	}()
@@ -624,13 +621,13 @@ func runClaudeAuthMutation(ctx context.Context, cfg *config.Config, args []strin
 	if snap, err := claude.ReadAuthSnapshot(false); err == nil {
 		beforeSnap = snap
 	} else if !errors.Is(err, os.ErrNotExist) {
-		fmt.Fprintln(stderr, "clx "+kind+":", err)
+		ui.Say(stderr, "clx", ui.ToneFail, kind, fmt.Sprint(err))
 		return 1
 	}
 	before := beforeSnap.Generation
 	beforeIntent, err := claude.CurrentLogoutIntentGeneration()
 	if err != nil {
-		fmt.Fprintln(stderr, "clx "+kind+": inspect logout intent:", err)
+		ui.Say(stderr, "clx", ui.ToneFail, kind, "inspect logout intent: "+fmt.Sprint(err))
 		return 1
 	}
 
@@ -638,17 +635,17 @@ func runClaudeAuthMutation(ctx context.Context, cfg *config.Config, args []strin
 		if logoutPeers {
 			marked, err := claude.RecordDeferredExplicitLogout(before)
 			if err != nil {
-				fmt.Fprintln(stderr, "clx logout:", err)
+				ui.Say(stderr, "clx", ui.ToneFail, "logout", fmt.Sprint(err))
 				return 1
 			}
 			if marked {
-				fmt.Fprintln(stdout, "clx logout: local logout recorded; native removal deferred until active CLX sessions exit")
+				ui.Say(stdout, "clx", ui.ToneWarn, "logout", "local logout recorded; native removal deferred until active CLX sessions exit")
 			}
 			return 0
 		}
 		exit, marked, deferred, err := claude.RunExplicitLogout(ctx, cfg, args, before, session)
 		if err != nil {
-			fmt.Fprintln(stderr, "clx logout:", err)
+			ui.Say(stderr, "clx", ui.ToneFail, "logout", fmt.Sprint(err))
 			if exit == 0 {
 				return 1
 			}
@@ -659,9 +656,9 @@ func runClaudeAuthMutation(ctx context.Context, cfg *config.Config, args []strin
 		}
 		if marked {
 			if deferred {
-				fmt.Fprintln(stdout, "clx logout: local logout recorded; native removal deferred until active Claude exits")
+				ui.Say(stdout, "clx", ui.ToneWarn, "logout", "local logout recorded; native removal deferred until active Claude exits")
 			} else {
-				fmt.Fprintln(stdout, "clx logout: local logout recorded")
+				ui.Say(stdout, "clx", ui.ToneOK, "logout", "local logout recorded")
 			}
 		}
 		return 0
@@ -669,7 +666,7 @@ func runClaudeAuthMutation(ctx context.Context, cfg *config.Config, args []strin
 
 	exit, err := claude.RunWithAuthSession(ctx, cfg, args, session)
 	if err != nil {
-		fmt.Fprintln(stderr, "clx "+kind+":", err)
+		ui.Say(stderr, "clx", ui.ToneFail, kind, fmt.Sprint(err))
 		if exit == 0 {
 			return 1
 		}
@@ -681,7 +678,7 @@ func runClaudeAuthMutation(ctx context.Context, cfg *config.Config, args []strin
 	keptNewer, err := uploadCurrentClaudeAuth(ctx, cfg, session)
 	if err != nil {
 		if errors.Is(err, errClaudeCanonicalWon) {
-			fmt.Fprintln(stdout, "clx login: submitted login lost arbitration; restored the server's verified Claude credentials")
+			ui.Say(stdout, "clx", ui.ToneWarn, "login", "submitted login lost arbitration; restored the server's verified Claude credentials")
 			return 0
 		}
 		if isRetryableExplicitAuthSyncFailure(err) {
@@ -693,22 +690,22 @@ func runClaudeAuthMutation(ctx context.Context, cfg *config.Config, args []strin
 				(!beforeSnap.Usable || !claude.SameCredentialPair(after.Raw, beforeSnap.Raw)) {
 				acknowledged, clearErr := claude.ClearLogoutIntentIfUnchanged(after.Generation, beforeIntent)
 				if clearErr != nil {
-					fmt.Fprintln(stderr, "clx login: acknowledge deferred login:", clearErr)
+					ui.Say(stderr, "clx", ui.ToneFail, "login", "acknowledge deferred login: "+fmt.Sprint(clearErr))
 					return 1
 				}
 				if acknowledged && explicitLocalAuthFresh(after.Path, cfg.Host.Secure) {
-					fmt.Fprintln(stdout, "clx login: local credentials ready; server upload deferred until the next sync")
+					ui.Say(stdout, "clx", ui.ToneWarn, "login", "local credentials ready; server upload deferred until the next sync")
 					return 0
 				}
 			}
 		}
-		fmt.Fprintln(stderr, "clx login: upload:", err)
+		ui.Say(stderr, "clx", ui.ToneFail, "login", "upload: "+fmt.Sprint(err))
 		return 1
 	}
 	if keptNewer {
-		fmt.Fprintln(stdout, "clx login: uploaded; newer concurrent local credentials kept")
+		ui.Say(stdout, "clx", ui.ToneWarn, "login", "uploaded; newer concurrent local credentials kept")
 	} else {
-		fmt.Fprintln(stdout, "clx login: credentials uploaded")
+		ui.Say(stdout, "clx", ui.ToneOK, "login", "credentials uploaded")
 	}
 	return 0
 }
@@ -756,13 +753,13 @@ func withInsecureAuthSession(cfg *config.Config, stderr io.Writer, fn func() int
 	}
 	session, err := claude.StartAuthSession(true)
 	if err != nil {
-		fmt.Fprintln(stderr, "clx: start insecure auth session:", err)
+		ui.Say(stderr, "clx", ui.ToneFail, "auth", "start insecure auth session: "+fmt.Sprint(err))
 		return 1
 	}
 	defer func() {
 		_, cleanupErr := session.CloseAndPurgeIfLast()
 		if cleanupErr != nil {
-			fmt.Fprintln(stderr, "clx: purge insecure credentials:", cleanupErr)
+			ui.Say(stderr, "clx", ui.ToneFail, "auth", "purge insecure credentials: "+fmt.Sprint(cleanupErr))
 			code = 1
 		}
 	}()
@@ -925,7 +922,7 @@ func ensureEngineForSync(ctx context.Context, cfg *config.Config, minimal bool, 
 		if minimal {
 			arrow = "->"
 		}
-		fmt.Fprintln(stderr, fmt.Sprintf("clx sync: Claude updated %s %s %s", res.CodexBefore, arrow, res.CodexVersion))
+		ui.Sayf(stderr, "clx", ui.ToneOK, ui.TopicSync, "Claude updated %s %s %s", res.CodexBefore, arrow, res.CodexVersion)
 	}
 	return 0
 }
@@ -934,7 +931,8 @@ func printLifecycleError(w io.Writer, prefix string, err error) {
 	if err == nil || lifecycle.ErrorWasPresented(err) {
 		return
 	}
-	fmt.Fprintln(w, ui.PlainInline(prefix+": "+err.Error()))
+	engine, topic, _ := strings.Cut(prefix, " ")
+	ui.Say(w, engine, ui.ToneFail, topic, err.Error())
 }
 
 // commandCaps applies explicit --minimal after terminal detection. Keeping the
@@ -1327,19 +1325,19 @@ func conflictingActions(f flags, positional []string) []string {
 func cmdStatus(ctx context.Context, cfg *config.Config, wrapperVersion string, stdout, stderr io.Writer, minimal bool) (code int) {
 	session, err := claude.StartAuthSession(!cfg.Host.Secure)
 	if err != nil {
-		fmt.Fprintln(stderr, "clx status: start auth session:", err)
+		ui.Say(stderr, "clx", ui.ToneFail, "status", "start auth session: "+fmt.Sprint(err))
 		return 1
 	}
 	defer func() {
 		_, cleanupErr := session.CloseAndPurgeIfLast()
 		if cleanupErr != nil {
-			fmt.Fprintln(stderr, "clx status: finalize auth session:", cleanupErr)
+			ui.Say(stderr, "clx", ui.ToneFail, "status", "finalize auth session: "+fmt.Sprint(cleanupErr))
 			code = 1
 		}
 	}()
 	logoutHold, logoutErr := claude.LogoutIntentActive()
 	if logoutErr != nil {
-		fmt.Fprintln(stderr, "clx status: inspect logout intent:", logoutErr)
+		ui.Say(stderr, "clx", ui.ToneFail, "status", "inspect logout intent: "+fmt.Sprint(logoutErr))
 		return 1
 	}
 	client, err := orchestrator.New(orchestrator.Options{
@@ -1349,7 +1347,7 @@ func cmdStatus(ctx context.Context, cfg *config.Config, wrapperVersion string, s
 		AllowInsecure: cfg.Orchestrator.AllowInsecure,
 	})
 	if err != nil {
-		fmt.Fprintln(stderr, "clx status:", err)
+		ui.Say(stderr, "clx", ui.ToneFail, "status", fmt.Sprint(err))
 		return 1
 	}
 	requestGeneration := claude.AuthGeneration{}
@@ -1362,7 +1360,7 @@ func cmdStatus(ctx context.Context, cfg *config.Config, wrapperVersion string, s
 			digest = snap.DigestForServer()
 		}
 	} else if !errors.Is(snapErr, os.ErrNotExist) {
-		fmt.Fprintln(stderr, "clx status:", snapErr)
+		ui.Say(stderr, "clx", ui.ToneFail, "status", fmt.Sprint(snapErr))
 		return 1
 	}
 	resp, authErr := client.AuthRetrieve(ctx, digest)
@@ -1448,37 +1446,37 @@ func cmdStatus(ctx context.Context, cfg *config.Config, wrapperVersion string, s
 func cmdAuthUpload(ctx context.Context, cfg *config.Config, stdout, stderr io.Writer) (code int) {
 	session, err := claude.StartAuthSession(!cfg.Host.Secure)
 	if err != nil {
-		fmt.Fprintln(stderr, "auth-upload: start auth session:", err)
+		ui.Say(stderr, "clx", ui.ToneFail, "auth-upload", "start auth session: "+fmt.Sprint(err))
 		return 1
 	}
 	defer func() {
 		_, cleanupErr := session.CloseAndPurgeIfLast()
 		if cleanupErr != nil {
-			fmt.Fprintln(stderr, "auth-upload: finalize auth session:", cleanupErr)
+			ui.Say(stderr, "clx", ui.ToneFail, "auth-upload", "finalize auth session: "+fmt.Sprint(cleanupErr))
 			code = 1
 		}
 	}()
 	keptNewer, err := uploadCurrentClaudeAuth(ctx, cfg, session)
 	if err != nil {
 		if errors.Is(err, errClaudeCanonicalWon) {
-			fmt.Fprintln(stdout, "auth-upload: submitted credentials lost arbitration; restored the server's verified Claude credentials")
+			ui.Say(stdout, "clx", ui.ToneWarn, "auth-upload", "submitted credentials lost arbitration; restored the server's verified Claude credentials")
 			return 0
 		}
-		fmt.Fprintln(stderr, "auth-upload:", err)
+		ui.Say(stderr, "clx", ui.ToneFail, "auth-upload", fmt.Sprint(err))
 		return 1
 	}
 	if keptNewer {
-		fmt.Fprintln(stdout, "auth-upload: accepted; newer local credentials or logout intent kept")
+		ui.Say(stdout, "clx", ui.ToneWarn, "auth-upload", "accepted; newer local credentials or logout intent kept")
 		return 0
 	}
-	fmt.Fprintln(stdout, "auth-upload: ok")
+	ui.Say(stdout, "clx", ui.ToneOK, "auth-upload", "ok")
 	return 0
 }
 
 func cmdSessionAuthSync(ctx context.Context, cfg *config.Config, logger *slog.Logger, stderr io.Writer) (code int) {
 	active, err := claude.HasActiveAuthChild()
 	if err != nil {
-		fmt.Fprintln(stderr, "auth-sync: inspect active Claude child:", err)
+		ui.Say(stderr, "clx", ui.ToneFail, "auth-sync", "inspect active Claude child: "+fmt.Sprint(err))
 		return 1
 	}
 	if !active {
@@ -1488,21 +1486,21 @@ func cmdSessionAuthSync(ctx context.Context, cfg *config.Config, logger *slog.Lo
 	defer cancel()
 	session, err := claude.StartAuthSessionContext(ctx, false)
 	if err != nil {
-		fmt.Fprintln(stderr, "auth-sync: start auth session:", err)
+		ui.Say(stderr, "clx", ui.ToneFail, "auth-sync", "start auth session: "+fmt.Sprint(err))
 		return 1
 	}
 	defer func() {
 		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), time.Second)
 		defer cleanupCancel()
 		if _, err := session.CloseAndPurgeIfLastContext(cleanupCtx); err != nil {
-			fmt.Fprintln(stderr, "auth-sync: finalize auth session:", err)
+			ui.Say(stderr, "clx", ui.ToneFail, "auth-sync", "finalize auth session: "+fmt.Sprint(err))
 			code = 1
 		}
 	}()
 	active, err = claude.HasActiveAuthChild()
 	if err != nil || !active {
 		if err != nil {
-			fmt.Fprintln(stderr, "auth-sync: inspect active Claude child:", err)
+			ui.Say(stderr, "clx", ui.ToneFail, "auth-sync", "inspect active Claude child: "+fmt.Sprint(err))
 			return 1
 		}
 		return 0
@@ -1513,7 +1511,7 @@ func cmdSessionAuthSync(ctx context.Context, cfg *config.Config, logger *slog.Lo
 	}
 	client, err := orchestrator.New(opts)
 	if err != nil {
-		fmt.Fprintln(stderr, "auth-sync:", err)
+		ui.Say(stderr, "clx", ui.ToneFail, "auth-sync", fmt.Sprint(err))
 		return 1
 	}
 	syncCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
@@ -1523,7 +1521,7 @@ func cmdSessionAuthSync(ctx context.Context, cfg *config.Config, logger *slog.Lo
 		err = errors.Join(err, session.SetPurgeOnLastExitContext(syncCtx, !*result.HostSecure))
 	}
 	if err != nil {
-		fmt.Fprintln(stderr, ui.PlainInline("auth-sync: "+err.Error()))
+		ui.Say(stderr, "clx", ui.ToneFail, "auth-sync", err.Error())
 		return 1
 	}
 	return 0
@@ -1540,14 +1538,14 @@ func cmdCron(ctx context.Context, cfg *config.Config, args []string, stdout, std
 			printBoundedPlain(stderr, "clx --cron install: "+err.Error(), minimal)
 			return 1
 		}
-		fmt.Fprintln(stdout, "cron: installed")
+		ui.Say(stdout, "clx", ui.ToneOK, "cron", "installed")
 		return 0
 	case "remove":
 		if err := hostcron.Remove(ctx); err != nil {
 			printBoundedPlain(stderr, "clx --cron remove: "+err.Error(), minimal)
 			return 1
 		}
-		fmt.Fprintln(stdout, "cron: removed")
+		ui.Say(stdout, "clx", ui.ToneOK, "cron", "removed")
 		return 0
 	case "run":
 		if !hostcron.IsEngineOnly() {

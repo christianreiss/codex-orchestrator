@@ -2,7 +2,6 @@
 package ui
 
 import (
-	"fmt"
 	"io"
 	"os"
 
@@ -78,6 +77,6 @@ func PrintMinimalScreen(w io.Writer, in ScreenInput) {
 
 func printLoginWarning(w io.Writer, in ScreenInput) {
 	if in.LoginWarning != "" {
-		fmt.Fprintln(w, "clx: "+in.LoginWarning)
+		terminalui.Say(w, "clx", terminalui.ToneWarn, terminalui.TopicAuth, in.LoginWarning)
 	}
 }

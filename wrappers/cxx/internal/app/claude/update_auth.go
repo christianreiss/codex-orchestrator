@@ -3,12 +3,13 @@ package claudeapp
 import (
 	"context"
 	"fmt"
-	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/claude"
-	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/claude/ui"
-	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/claude/update"
 	"io"
 	"log/slog"
 	"time"
+
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/claude"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/claude/ui"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/claude/update"
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/claude/lifecycle"
@@ -36,12 +37,12 @@ func cmdWrapperUpdate(ctx context.Context, cfg *config.Config, f flags, logger *
 	commandSession, err := claude.StartAuthSessionContext(leaseCtx, false)
 	leaseCancel()
 	if err != nil {
-		fmt.Fprintln(stderr, "clx update: start maintenance session:", err)
+		ui.Say(stderr, "clx", ui.ToneFail, "update", "start maintenance session: "+fmt.Sprint(err))
 		return 1
 	}
 	defer func() {
 		if err := commandSession.Close(); err != nil {
-			fmt.Fprintln(stderr, "clx update: close maintenance session:", err)
+			ui.Say(stderr, "clx", ui.ToneFail, "update", "close maintenance session: "+fmt.Sprint(err))
 			code = 1
 		}
 	}()
@@ -67,7 +68,7 @@ func cmdWrapperUpdate(ctx context.Context, cfg *config.Config, f flags, logger *
 	}
 	if err := protectUpdateAuth(ctx, cfg, logger); err != nil {
 		fmt.Fprintln(stderr, ui.UpdateFailure(errCaps, "clx", "wrapper", artifact.Version, err))
-		fmt.Fprintln(stderr, "clx update: new wrapper installed; restart deferred until pending credentials can be synchronized")
+		ui.Say(stderr, "clx", ui.ToneWarn, "update", "new wrapper installed; restart deferred until pending credentials can be synchronized")
 		return 1
 	}
 	secure := cfg.Host.Secure
@@ -75,7 +76,7 @@ func cmdWrapperUpdate(ctx context.Context, cfg *config.Config, f flags, logger *
 		secure = *artifact.HostSecure
 	}
 	if err := commandSession.SetPurgeOnLastExit(!secure); err != nil {
-		fmt.Fprintln(stderr, "clx update: persist restart auth cleanup:", err)
+		ui.Say(stderr, "clx", ui.ToneFail, "update", "persist restart auth cleanup: "+fmt.Sprint(err))
 		return 1
 	}
 	// A new binary alone leaves the host stale: CLAUDE.md, settings, MCP
@@ -88,12 +89,12 @@ func cmdWrapperUpdate(ctx context.Context, cfg *config.Config, f flags, logger *
 	// Settle this successful maintenance lease before syscall.Exec;
 	// failure paths above close without purging pending native credentials.
 	if err := commandSession.FinalizeForReexec(); err != nil {
-		fmt.Fprintln(stderr, "clx update: finalize auth session before restart:", err)
+		ui.Say(stderr, "clx", ui.ToneFail, "update", "finalize auth session before restart: "+fmt.Sprint(err))
 		return 1
 	}
 	if err := update.ReExecAfterUpdateAs(exe, postUpdateSyncEngine(), postUpdateSyncArgv(f)); err != nil {
 		fmt.Fprintln(stderr, ui.UpdateFailure(errCaps, "clx", "wrapper", artifact.Version, err))
-		fmt.Fprintln(stderr, "clx update: the new wrapper is installed but managed content was not synced; run `clx sync`")
+		ui.Say(stderr, "clx", ui.ToneWarn, "update", "the new wrapper is installed but managed content was not synced; run `clx sync`")
 		return 1
 	}
 	return 0

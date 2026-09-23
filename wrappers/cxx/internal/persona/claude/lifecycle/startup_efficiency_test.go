@@ -31,7 +31,7 @@ func TestHiddenBootKeepsClaudeQuotaAdvisory(t *testing.T) {
 			t.Fatalf("advisory quota blocked managed sync: exit=%d err=%v", exit, err)
 		}
 	})
-	if !strings.Contains(stderr, "clx:") || !strings.Contains(stderr, "96%") {
+	if !strings.Contains(stderr, "clx quota:") || !strings.Contains(stderr, "96%") {
 		t.Fatalf("hidden screen omitted Claude usage warning: %q", stderr)
 	}
 }

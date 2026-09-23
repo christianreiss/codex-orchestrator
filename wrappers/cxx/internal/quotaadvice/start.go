@@ -1,7 +1,6 @@
 package quotaadvice
 
 import (
-	"bufio"
 	"context"
 	"fmt"
 	"io"
@@ -11,6 +10,7 @@ import (
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/signing"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/terminalui"
 	"golang.org/x/term"
 )
 
@@ -114,7 +114,7 @@ func BeforeStart(ctx context.Context, cfg *config.Config, c *Comparison, args []
 		return true, 0, nil
 	}
 	if pathErr != nil && c.Settings.RememberDay {
-		fmt.Fprintln(os.Stderr, "quota: daily choice storage unavailable")
+		terminalui.Say(os.Stderr, personaPrefix(cfg.Engine), terminalui.ToneWarn, terminalui.TopicQuota, "Daily choice storage unavailable")
 	}
 	return false, 0, nil
 }
@@ -139,7 +139,14 @@ func (u *Chooser) Choose(ctx context.Context, c *Comparison, current string, has
 	if c == nil || !c.Settings.valid() || c.Settings.Mode == "off" {
 		return stay, nil
 	}
-	reader := bufio.NewReader(u.Input)
+	caps := terminalui.DetectCapsFor(u.Output, "")
+	prefix := personaPrefix(current)
+	say := func(tone terminalui.Tone, msg string, details ...string) {
+		terminalui.PrintNotice(u.Output, caps, terminalui.Notice{Prefix: prefix, Topic: terminalui.TopicQuota, Tone: tone, Message: msg, Details: details})
+	}
+	confirm := func(title string, details ...string) (bool, error) {
+		return terminalui.Confirm(ctx, caps, u.Input, u.Output, terminalui.Question{Prefix: prefix, Topic: terminalui.TopicQuota, Title: title, Details: details})
+	}
 	selected := ""
 	remembered := false
 	if u.Interactive && c.Settings.Mode == "ask" && c.Settings.RememberDay {
@@ -147,16 +154,15 @@ func (u *Chooser) Choose(ctx context.Context, c *Comparison, current string, has
 			if u.Available(day.Engine) {
 				selected = day.Engine
 				remembered = true
-				fmt.Fprintf(u.Output, "quota: using today's choice: %s (until local midnight; undo with --quota-choice-reset)\n", Name(selected))
+				say(terminalui.ToneDim, "Using today's choice: "+Name(selected), "until local midnight; undo with --quota-choice-reset")
 			} else {
 				if err := ClearChoice(u.StatePath); err != nil {
-					fmt.Fprintln(u.Output, "quota: daily choice could not be cleared; ignoring unavailable provider")
+					say(terminalui.ToneWarn, "Daily choice could not be cleared; ignoring the unavailable provider")
 				} else {
-					fmt.Fprintln(u.Output, "quota: today's provider is unavailable; daily choice cleared")
+					say(terminalui.ToneWarn, "Today's provider is unavailable; daily choice cleared")
 				}
-				fmt.Fprintf(u.Output, "Start originally requested %s instead? [y/N]: ", Name(current))
-				answer, err := readAnswer(ctx, reader)
-				if err != nil || (answer != "y" && answer != "yes") {
+				ok, err := confirm("Start originally requested " + Name(current) + " instead?")
+				if err != nil || !ok {
 					return Choice{Cancel: true}, nil
 				}
 				selected = current
@@ -167,84 +173,86 @@ func (u *Chooser) Choose(ctx context.Context, c *Comparison, current string, has
 		a := Evaluate(c.Snapshot(current), c.Settings, u.Now)
 		b := Evaluate(c.Snapshot(other(current)), c.Settings, u.Now)
 		if !a.Valid || !b.Valid {
-			fmt.Fprintf(u.Output, "quota comparison unavailable: %s: %s; %s: %s\n", Name(current), a.Description(u.Now), Name(other(current)), b.Description(u.Now))
+			say(terminalui.ToneDim, "Quota comparison unavailable",
+				Name(current)+": "+a.Description(u.Now),
+				Name(other(current))+": "+b.Description(u.Now))
 			return stay, nil
 		}
 		if !Recommend(a, b, c.Settings) || !u.Available(other(current)) {
 			return stay, nil
 		}
-		fmt.Fprintf(u.Output, "quota: recommend %s\n  %s: %s\n  %s: %s\n", Name(other(current)), Name(current), a.Description(u.Now), Name(other(current)), b.Description(u.Now))
+		details := []string{
+			Name(current) + ": " + a.Description(u.Now),
+			Name(other(current)) + ": " + b.Description(u.Now),
+		}
 		if !u.Interactive || c.Settings.Mode != "ask" {
+			say(terminalui.ToneWarn, "Recommend "+Name(other(current)), details...)
 			return stay, nil
 		}
-		fmt.Fprintf(u.Output, "[1] Start %s  [2] Start %s  [q] Cancel (Enter: keep %s): ", Name(current), Name(other(current)), Name(current))
-		answer, err := readAnswer(ctx, reader)
+		answer, err := terminalui.Select(ctx, caps, u.Input, u.Output, terminalui.Question{
+			Prefix: prefix, Topic: terminalui.TopicQuota, Tone: terminalui.ToneWarn,
+			Title:   "Recommend " + Name(other(current)),
+			Details: details,
+		}, []terminalui.Option{
+			{Key: "1", Label: "Keep " + Name(current)},
+			{Key: "2", Label: "Switch to " + Name(other(current))},
+		}, "1")
 		if err != nil {
 			return Choice{Cancel: true}, nil
 		}
-		switch answer {
-		case "", "1":
-			selected = current
-		case "2":
+		selected = current
+		if answer == "2" {
 			selected = other(current)
-		case "q":
-			return Choice{Cancel: true}, nil
-		default:
-			return Choice{Cancel: true}, nil
 		}
 	}
 	if selected != current && hasArgs {
-		fmt.Fprint(u.Output, "Switch starts a NEW session here, without the previous conversation, supplied prompt or launch arguments. Continue? [y/N]: ")
-		answer, err := readAnswer(ctx, reader)
+		ok, err := confirm("Continue in a new session?", "Switching starts a NEW session here, without the previous conversation, supplied prompt or launch arguments.")
 		if err != nil {
 			return Choice{Cancel: true}, nil
 		}
-		if answer != "y" && answer != "yes" {
+		if !ok {
 			return stay, nil
 		}
 	}
 	if !remembered && c.Settings.RememberDay && u.Interactive && c.Settings.Mode == "ask" {
-		fmt.Fprint(u.Output, "Remember this provider for today on this computer? [y/N]: ")
-		answer, err := readAnswer(ctx, reader)
+		ok, err := confirm("Remember " + Name(selected) + " for today on this computer?")
 		if err != nil {
 			return Choice{Cancel: true}, nil
 		}
-		if answer == "y" || answer == "yes" {
+		if ok {
 			if err := SaveChoice(u.StatePath, u.Instance, selected, u.Now); err != nil {
-				fmt.Fprintln(u.Output, "quota: could not save daily choice; selection applies to this start only")
+				say(terminalui.ToneWarn, "Could not save the daily choice; this selection applies to this start only")
 			}
 		}
 	}
 	u.decisionApplied = true
 	return Choice{Engine: selected}, nil
 }
-func readAnswer(ctx context.Context, r *bufio.Reader) (string, error) {
-	type answer struct {
-		text string
-		err  error
+
+func personaPrefix(engine string) string {
+	if engine == "codex" {
+		return "cdx"
 	}
-	ch := make(chan answer, 1)
-	go func() { s, e := r.ReadString('\n'); ch <- answer{s, e} }()
-	select {
-	case <-ctx.Done():
-		return "", ctx.Err()
-	case a := <-ch:
-		return strings.ToLower(strings.TrimSpace(a.text)), a.err
-	}
+	return "clx"
 }
 
 // RetryOriginal offers one bounded recovery after the chosen provider refuses
 // before launching. Never reinterpret a failure of an actual agent session.
 func RetryOriginal(s *Session, original string, out io.Writer) bool {
+	caps := terminalui.DetectCapsFor(out, "")
+	prefix := personaPrefix(original)
 	if s.Instance != "" {
 		if err := Reset(s.Instance); err != nil {
-			fmt.Fprintln(out, "quota: could not clear daily choice:", err)
+			terminalui.PrintNotice(out, caps, terminalui.Notice{Prefix: prefix, Topic: terminalui.TopicQuota, Tone: terminalui.ToneFail, Message: "Could not clear the daily choice", Details: []string{err.Error()}})
 			return false
 		}
 	}
-	fmt.Fprintf(out, "quota: selected provider could not start; daily choice cleared. Try originally requested %s? [y/N]: ", Name(original))
-	line, err := bufio.NewReader(os.Stdin).ReadString('\n')
-	return err == nil && strings.EqualFold(strings.TrimSpace(line), "y")
+	ok, err := terminalui.Confirm(context.Background(), caps, os.Stdin, out, terminalui.Question{
+		Prefix: prefix, Topic: terminalui.TopicQuota, Tone: terminalui.ToneFail,
+		Title:   "Start originally requested " + Name(original) + "?",
+		Details: []string{"The selected provider could not start; daily choice cleared."},
+	})
+	return err == nil && ok
 }
 
 func automatedArgs(engine string, args []string) bool {

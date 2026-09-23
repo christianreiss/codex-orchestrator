@@ -23,7 +23,7 @@ import unicodedata
 
 
 SGR = re.compile(r"\x1b\[([0-9;]*)m")
-SCENES = ("startup", "attention", "blocked", "concurrent", "stale", "forecast", "doctor", "help", "session", "updates")
+SCENES = ("startup", "attention", "blocked", "concurrent", "stale", "forecast", "doctor", "help", "session", "updates", "notices", "prompt")
 COLORS = {30: "#555766", 31: "#ef747b", 32: "#85ca97", 33: "#eac079", 34: "#88a9e8", 35: "#c79aee", 36: "#8bced7", 37: "#e2e5ed"}
 
 
@@ -42,7 +42,7 @@ def capture(binary, engine, scene, width, mode):
         args.append("-minimal")
     if mode == "pipe":
         env["COLUMNS"] = str(width)
-        return subprocess.run(args, env=env, check=True, capture_output=True, timeout=10).stdout.decode()
+        return subprocess.run(args, env=env, check=True, capture_output=True, stdin=subprocess.DEVNULL, timeout=10).stdout.decode()
     master, slave = pty.openpty()
     fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 240, width, 0, 0))
     process = subprocess.Popen(args, stdin=subprocess.DEVNULL, stdout=slave, stderr=slave, env=env, close_fds=True)
@@ -135,6 +135,9 @@ def ansi_html(output):
             elif value == 38 and values[i + 1:i + 2] == [5] and len(values) > i + 2:
                 style["color"] = color256(values[i + 2])
                 i += 2
+            elif value == 38 and values[i + 1:i + 2] == [2] and len(values) > i + 4:
+                style["color"] = f"rgb({values[i + 2]},{values[i + 3]},{values[i + 4]})"
+                i += 4
             i += 1
         start = match.end()
     result.append(terminal_text(output[start:]))

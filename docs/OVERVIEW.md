@@ -246,6 +246,12 @@ visible with a choice to load the latest values or discard the draft.
      for older servers. Stored Claude quota reports now reach boot/status
      displays through auth, with advisory usage, explicit unavailable/stale
      states, and no new provider requests or quota launch refusal.
+   - cxx 0.9.0 routes every wrapper message through one notice grammar
+     (`<glyph> cdx|clx <topic>  message`; plain `cdx topic: message` in logs and
+     `--minimal`) and every question through shared prompts: arrow-key menus
+     (`charm.land/huh/v2`) on a real terminal, one-line prompts elsewhere. The
+     palette is 24-bit tokens downsampled via `lipgloss`/`colorprofile`, while
+     colour on/off stays with the wrapper's own TTY/`NO_COLOR`/`--minimal` rules.
    - Both wrappers show the same optional `ACTIVITY` section: `local procs` is
      the same-UID wrapper process count; `hosts 30m` is the number of distinct
      hosts with an `agents.retrieve` event in the prior 30 minutes; `syncs UTC

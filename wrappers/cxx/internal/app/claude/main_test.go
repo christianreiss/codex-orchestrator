@@ -1178,7 +1178,7 @@ func TestRunRejectsMissingOrBlankExecutePrompt(t *testing.T) {
 			if code := run(tc.args, &stdout, &stderr); code != 2 {
 				t.Fatalf("run(%v) exit = %d, want 2", tc.args, code)
 			}
-			if got, want := stderr.String(), "clx: --execute requires a non-empty prompt argument\n"; got != want {
+			if got, want := stderr.String(), "clx usage: --execute requires a non-empty prompt argument\n"; got != want {
 				t.Errorf("stderr = %q, want %q", got, want)
 			}
 			if stdout.Len() != 0 {
