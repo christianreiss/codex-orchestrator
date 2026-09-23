@@ -150,7 +150,7 @@ export async function registerAgentPortalAdminHostRoutes(
   const hostAuth = createHostAuthService({ db: ctx.db, env: ctx.env, insecure });
   const authenticateHost = async (req: FastifyRequest, purpose: string) => {
     const raw = await hostAuth.authenticate(req);
-    return raw.secure === 1 ? raw : await insecure.enforce(raw, purpose);
+    return raw.secure === 1 ? raw : await insecure.enforce(raw, purpose, req.clientIp);
   };
 
   app.get('/host/agent-portal/state', async (req) => {

@@ -71,7 +71,7 @@ export async function registerHostRoutes(app: FastifyInstance, ctx: RouteContext
   app.get('/host/lane', async (req) => {
     const host0 = await hostAuth.authenticate(req);
     assertCodexLaneRequest(req, host0);
-    const host = host0.secure === 1 ? host0 : await insecure.enforce(host0, 'host_lane_get');
+    const host = host0.secure === 1 ? host0 : await insecure.enforce(host0, 'host_lane_get', req.clientIp);
     const lanePreference = normalizeLane(host.lanePreference);
     return {
       lane_preference: lanePreference,
@@ -85,7 +85,7 @@ export async function registerHostRoutes(app: FastifyInstance, ctx: RouteContext
   app.post('/host/lane', async (req) => {
     const host0 = await hostAuth.authenticate(req);
     assertCodexLaneRequest(req, host0);
-    const host = host0.secure === 1 ? host0 : await insecure.enforce(host0, 'host_lane_set');
+    const host = host0.secure === 1 ? host0 : await insecure.enforce(host0, 'host_lane_set', req.clientIp);
     const body = (req.body && typeof req.body === 'object' ? req.body : null) as Record<string, unknown> | null;
     if (!body || !('lane' in body)) throw new ValidationError('lane is required (set null to clear)', { param: 'lane' });
     const lane = body.lane;

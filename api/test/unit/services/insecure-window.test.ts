@@ -76,6 +76,46 @@ describe('createInsecureWindowService', () => {
       status: 'denied',
     });
   });
+  describe('pending-request heartbeat', () => {
+    function withPending(offsets: { requestedMs: number; seenMs: number }) {
+      const requestedAt = new Date(Date.now() - offsets.requestedMs).toISOString();
+      const updatedAt = new Date(Date.now() - offsets.seenMs).toISOString();
+      const tables = new Map<unknown, Record<string, unknown>[]>();
+      tables.set(hosts, [insecureHost() as unknown as Record<string, unknown>]);
+      tables.set(insecureAuthRequests, [
+        { id: 1, hostId: 42, status: 'pending', requestIp: null, requestedAt, resolvedAt: null, updatedAt },
+      ]);
+      const db = createDbFake(tables);
+      return { db, svc: createInsecureWindowService({ db: db as never, env: env() }) };
+    }
+
+    it('stamps updated_at and the caller IP while a wrapper keeps polling', async () => {
+      const { db, svc } = withPending({ requestedMs: 10_000, seenMs: 5_000 });
+
+      await expect(svc.enforce(insecureHost(), 'retrieve', '10.1.2.3')).rejects.toMatchObject({
+        code: 'insecure_pending',
+      });
+      const row = db.tables.get(insecureAuthRequests)?.[0];
+      expect(row).toMatchObject({ status: 'pending', requestIp: '10.1.2.3' });
+      expect(Date.now() - new Date(String(row?.updatedAt)).getTime()).toBeLessThan(2_000);
+    });
+
+    it('expires an abandoned request without a cooldown and opens a fresh one', async () => {
+      const { db, svc } = withPending({ requestedMs: 60_000, seenMs: 45_000 });
+
+      await expect(svc.enforce(insecureHost(), 'retrieve', '10.1.2.3')).rejects.toMatchObject({
+        code: 'insecure_pending',
+        status: 423,
+      });
+      const rows = db.tables.get(insecureAuthRequests) ?? [];
+      expect(rows[0]).toMatchObject({ id: 1, status: 'expired' });
+      expect(db.inserts.find((i) => i.table === insecureAuthRequests)?.values).toMatchObject({
+        status: 'pending',
+        requestIp: '10.1.2.3',
+      });
+    });
+  });
+
   describe('the fleet window', () => {
     it('admits a host whose own window is shut, without queueing an approval', async () => {
       const host = insecureHost();

@@ -40,7 +40,13 @@ export function insecureApprovalsQuery() {
     queryKey: insecureKeys.approvals(),
     queryFn: () =>
       api.get<InsecureApprovalsResponse>("/admin/insecure-approvals/pending"),
-    refetchInterval: 30_000,
+    // A request lives 5 minutes and is abandoned after 30 s without a poll, so
+    // an open list has to keep up with that; an empty one can idle. It must
+    // also keep running in a background tab and catch up on focus: those are
+    // exactly the conditions under which the dialog used to show dead rows.
+    refetchInterval: (query) => ((query.state.data?.requests?.length ?? 0) > 0 ? 10_000 : 30_000),
+    refetchIntervalInBackground: true,
+    refetchOnWindowFocus: true,
   });
 }
 

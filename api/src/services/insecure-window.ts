@@ -37,7 +37,42 @@ const MAX_WINDOW = 480;
 const DEFAULT_WINDOW = 10;
 const PROVISIONING_WINDOW_MINUTES = 30;
 const APPROVAL_DENY_COOLDOWN_SECONDS = 60;
-const PENDING_APPROVAL_TTL_MS = 5 * 60_000;
+
+/** A pending approval auto-denies once it has been waiting this long. */
+export const PENDING_APPROVAL_TTL_MS = 5 * 60_000;
+
+/**
+ * A pending approval nobody is waiting on any more.
+ *
+ * An interactive wrapper parked on the approval box re-hits `/auth` every five
+ * seconds, and each hit stamps `updated_at` (see `enforce`). A request whose
+ * stamp is older than this has lost its caller — the operator Ctrl-C'd, or it
+ * came from a one-shot headless run — so approving it would grant a window
+ * nobody asked to use. Six missed polls is the margin for a slow network.
+ */
+export const PENDING_HEARTBEAT_TTL_MS = 30_000;
+
+/** Why a pending request stopped being worth an operator's decision. */
+export type StalePendingReason = 'timeout' | 'abandoned';
+
+/**
+ * Classify a pending request as live (`null`) or stale.
+ *
+ * `timeout` outranks `abandoned`: a request that sat the full TTL is recorded
+ * as denied (and so starts the deny cooldown) whether or not its caller is
+ * still polling, exactly as before the heartbeat existed.
+ */
+export function stalePendingReason(
+  req: { status: string; requestedAt: string; updatedAt: string },
+  nowMs: number = Date.now(),
+): StalePendingReason | null {
+  if (req.status !== 'pending') return null;
+  const requested = parseDate(req.requestedAt);
+  if (requested && nowMs - requested.getTime() >= PENDING_APPROVAL_TTL_MS) return 'timeout';
+  const seen = parseDate(req.updatedAt) ?? requested;
+  if (seen && nowMs - seen.getTime() >= PENDING_HEARTBEAT_TTL_MS) return 'abandoned';
+  return null;
+}
 
 export type InsecureCommand = 'auth' | 'store' | 'retrieve' | 'mcp' | 'host_lane_get' | 'host_lane_set' | string;
 
@@ -64,7 +99,7 @@ export interface InsecureWindowService {
    * Mutates `insecure_enabled_until` to slide the window on a hit. Returns
    * the (possibly refreshed) host row.
    */
-  enforce(host: Host, command: InsecureCommand): Promise<Host>;
+  enforce(host: Host, command: InsecureCommand, requestIp?: string | null): Promise<Host>;
 
   /**
    * Opens the initial 30-minute provisioning window for a freshly-registered
@@ -85,7 +120,7 @@ export function createInsecureWindowService(deps: InsecureWindowDeps): InsecureW
   const settings = new SettingsService(db);
 
   return {
-    async enforce(host, command) {
+    async enforce(host, command, requestIp = null) {
       if (host.secure === 1) return host;
 
       // A local login/logout may complete after the retrieve window closes.
@@ -186,8 +221,8 @@ export function createInsecureWindowService(deps: InsecureWindowDeps): InsecureW
         )
         .limit(1);
       if (pending[0]) {
-        const requested = parseDate(pending[0].requestedAt);
-        if (requested && now.getTime() - requested.getTime() >= PENDING_APPROVAL_TTL_MS) {
+        const stale = stalePendingReason(pending[0], now.getTime());
+        if (stale === 'timeout') {
           const resolvedAt = nowIso();
           await db
             .update(insecureAuthRequests)
@@ -201,7 +236,43 @@ export function createInsecureWindowService(deps: InsecureWindowDeps): InsecureW
           });
           throw new ForbiddenError('Insecure host approval denied', 'insecure_denied');
         }
-        throw new LockedError('Insecure host approval pending', 'insecure_pending');
+        if (stale === 'abandoned') {
+          // The caller that opened it stopped waiting, and this is a new one.
+          // Retire the old row as `expired` — not `denied`, so no cooldown — and
+          // fall through to open a fresh request the operator sees as new.
+          const resolvedAt = nowIso();
+          await db
+            .update(insecureAuthRequests)
+            .set({ status: 'expired', resolvedAt, updatedAt: resolvedAt })
+            .where(eq(insecureAuthRequests.id, pending[0].id));
+          wsPublisher.publish('insecure.denied', {
+            host_id: hostId,
+            fqdn: host.fqdn,
+            request_id: pending[0].id,
+            reason: 'abandoned',
+          });
+        } else {
+          // Heartbeat: someone is still parked on this request. The first one
+          // is what tells the dashboard a human is actually waiting (a one-shot
+          // headless call never sends it), so that one is pushed.
+          const firstBeat = pending[0].updatedAt === pending[0].requestedAt;
+          await db
+            .update(insecureAuthRequests)
+            .set({
+              updatedAt: nowIso(),
+              ...(requestIp ? { requestIp: requestIp.slice(0, 64) } : {}),
+            })
+            .where(eq(insecureAuthRequests.id, pending[0].id));
+          if (firstBeat) {
+            wsPublisher.publish('insecure.requested', {
+              host_id: hostId,
+              fqdn: host.fqdn,
+              request_id: pending[0].id,
+              live: true,
+            });
+          }
+          throw new LockedError('Insecure host approval pending', 'insecure_pending');
+        }
       }
 
       const latest = await db
@@ -223,6 +294,7 @@ export function createInsecureWindowService(deps: InsecureWindowDeps): InsecureW
         await db.insert(insecureAuthRequests).values({
           hostId,
           status: 'pending',
+          requestIp: requestIp ? requestIp.slice(0, 64) : null,
           requestedAt,
           updatedAt: requestedAt,
         });

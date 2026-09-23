@@ -6,14 +6,18 @@
   import { insecureApprovalsQuery, insecureSummaryQuery } from "$lib/api/insecure";
   import { hostsSummary } from "$lib/stores/hosts-summary";
   import { ghostCount } from "$lib/stores/insecure-resolutions";
-  import InsecureApprovalsDialog from "./InsecureApprovalsDialog.svelte";
+  import InsecureApprovalsDialog, {
+    type InsecureDialogMode,
+  } from "./InsecureApprovalsDialog.svelte";
+  import type { InsecureApprovalRequest } from "$lib/api/types";
 
   /**
    * Global owner of the InsecureApprovalsDialog state.
    *
-   * Auto-opens the modal when a new `insecure.requested` WS event arrives,
-   * when there are already pending requests on first load, or when any
-   * component dispatches `codex:open-insecure-approvals` on window. Also
+   * Auto-opens the modal (in `triage` mode) when a request someone is actually
+   * waiting on appears — on a WS push, a poll, or already on first load — and in
+   * `manage` mode when any component dispatches
+   * `codex:open-insecure-approvals` on window. Also
    * plays a short beep and (if the tab is in the background and the user
    * has granted permission) fires a desktop Notification.
    */
@@ -24,6 +28,7 @@
   let { events }: Props = $props();
 
   let open = $state(false);
+  let mode = $state<InsecureDialogMode>("triage");
   let openedByPush = $state(false);
   // Last *settled* pending count we acted on. `null` until the first
   // non-loading fetch so we can distinguish "pending already existed on load"
@@ -31,7 +36,20 @@
   let lastSettledCount: number | null = null;
 
   const approvals = insecureApprovalsQuery();
-  const pendingCount = $derived($approvals.data?.requests?.length ?? 0);
+
+  /**
+   * Only requests a human is parked on may pop the dialog. A one-shot headless
+   * call never polls again (`live` stays false) and is retired by the server
+   * within 30 s, so popping — and beeping — for it would interrupt the operator
+   * for something nobody can use. Those still show in "Manage access".
+   */
+  function isWaiting(r: InsecureApprovalRequest, at: number): boolean {
+    if (r.live === false) return false;
+    const exp = r.expires_at ? Date.parse(r.expires_at) : NaN;
+    return !Number.isFinite(exp) || exp > at;
+  }
+  const waiting = $derived(($approvals.data?.requests ?? []).filter((r) => isWaiting(r, Date.now())));
+  const pendingCount = $derived(waiting.length);
 
   // This component is mounted in the root layout, which makes it the only place
   // that can keep the TopBar honest about a fleet-wide auto-allow from every
@@ -41,9 +59,7 @@
     const fleet = $summary.data?.fleet_window;
     hostsSummary.setFleetWindowUntil(fleet?.open ? (fleet.until ?? null) : null);
   });
-  const newestFqdn = $derived(
-    $approvals.data?.requests?.[$approvals.data.requests.length - 1]?.fqdn,
-  );
+  const newestFqdn = $derived(waiting[waiting.length - 1]?.fqdn);
 
   // Short cooldown so a backlog replay or burst of requests doesn't spam audio.
   let lastSoundAt = 0;
@@ -121,7 +137,8 @@
     // First settled fetch: open if something is already pending, but don't beep
     // for a backlog the operator hasn't seen as "new".
     if (prev === null) {
-      if (count > 0) {
+      if (count > 0 && !open) {
+        mode = "triage";
         open = true;
         openedByPush = true;
       }
@@ -131,8 +148,11 @@
     if (count > prev) {
       playBeep();
       maybeNotify(newestFqdn);
+      // Never yank an operator who is already in "manage" back to triage; the
+      // new row shows up in their Requests tab.
+      if (!open) mode = "triage";
       open = true;
-      openedByPush = true;
+      openedByPush = mode === "triage";
     }
   });
 
@@ -151,6 +171,12 @@
       open = false;
       openedByPush = false;
     }
+  });
+
+  // Switching to "manage" makes it the operator's dialog: it must not vanish
+  // under them when the last request is answered.
+  $effect(() => {
+    if (mode === "manage") openedByPush = false;
   });
 
   function onDialogOpenChange(value: boolean): void {
@@ -175,6 +201,7 @@
     });
 
     manualOpenListener = () => {
+      mode = "manage";
       open = true;
       openedByPush = false;
     };
@@ -189,4 +216,4 @@
   });
 </script>
 
-<InsecureApprovalsDialog bind:open onOpenChange={onDialogOpenChange} {events} />
+<InsecureApprovalsDialog bind:open bind:mode onOpenChange={onDialogOpenChange} {events} />

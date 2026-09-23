@@ -40,8 +40,19 @@ import {
   stampAllInsecureHosts,
   type FleetWindowState,
 } from './insecure-fleet-window.js';
+import {
+  insecureWindowActive,
+  PENDING_APPROVAL_TTL_MS,
+  stalePendingReason,
+} from './insecure-window.js';
 
-const PENDING_APPROVAL_TTL_MS = 5 * 60_000;
+/**
+ * Why the sweep retired a pending request. `superseded` is the one the
+ * request's own timestamps cannot tell: the host was deleted, made secure, or
+ * already let in some other way, so there is nothing left to decide.
+ */
+type RetireReason = 'timeout' | 'abandoned' | 'superseded';
+
 
 /**
  * What an operator approval is worth: eight hours, the same grant the fleet
@@ -86,6 +97,13 @@ export interface InsecureRequestRow {
   resolved_at: string | null;
   updated_at: string;
   status: string;
+  /** When the request auto-denies if nobody answers it. */
+  expires_at: string | null;
+  /**
+   * True once the requesting wrapper has polled again after opening it, i.e.
+   * a human is parked on the approval box. One-shot headless calls stay false.
+   */
+  live: boolean;
 }
 
 export interface InsecureDomainAllowRow {
@@ -103,6 +121,12 @@ function parseDate(s: string | Date | null | undefined): Date | null {
   if (s instanceof Date) return Number.isNaN(s.getTime()) ? null : s;
   const d = new Date(s);
   return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function expiresAt(requestedAt: string): string | null {
+  const requested = parseDate(requestedAt);
+  if (!requested) return null;
+  return new Date(requested.getTime() + PENDING_APPROVAL_TTL_MS).toISOString().replace(/\.\d{3}Z$/, 'Z');
 }
 
 function normalizeDomainCandidate(domain: string | null | undefined): string | null {
@@ -204,53 +228,87 @@ export class InsecureWindowAdminService {
     return enabledUntil;
   }
 
-  private isExpiredPendingRequest(req: { status: string; requestedAt: string }): boolean {
-    if (req.status !== 'pending') return false;
-    const requested = parseDate(req.requestedAt);
-    if (!requested) return false;
-    return Date.now() - requested.getTime() >= PENDING_APPROVAL_TTL_MS;
-  }
-
-  private async expirePendingRequest(req: {
-    id: number;
-    hostId: number;
-    status: string;
-    requestedAt: string;
-  }): Promise<boolean> {
-    if (!this.isExpiredPendingRequest(req)) return false;
+  /**
+   * Retire one pending request that no longer deserves a decision.
+   *
+   * A timeout is recorded as `denied` — the historical outcome, and the one
+   * that starts the deny cooldown. Everything else is `expired`: nobody said
+   * no, so a host that asks again must not be turned away for a minute.
+   */
+  private async retirePendingRequest(
+    req: { id: number; hostId: number },
+    reason: RetireReason,
+    host: Host | null,
+  ): Promise<void> {
     const resolvedAt = nowIso();
     await this.db
       .update(insecureAuthRequests)
-      .set({ status: 'denied', resolvedAt, updatedAt: resolvedAt })
+      .set({ status: reason === 'timeout' ? 'denied' : 'expired', resolvedAt, updatedAt: resolvedAt })
       .where(eq(insecureAuthRequests.id, req.id));
 
-    const host = await this.findHost(req.hostId).catch(() => null);
     await this.writeLog(host?.id ?? req.hostId, 'admin.insecure.auto_denied', {
       fqdn: host?.fqdn ?? null,
       request_id: req.id,
-      reason: 'timeout',
-      ttl_seconds: PENDING_APPROVAL_TTL_MS / 1000,
+      reason,
+      ...(reason === 'timeout' ? { ttl_seconds: PENDING_APPROVAL_TTL_MS / 1000 } : {}),
     });
     await this.events.appendAndPublish(
       'insecure.denied',
-      { host_id: req.hostId, fqdn: host?.fqdn ?? null, request_id: req.id, reason: 'timeout' },
+      { host_id: req.hostId, fqdn: host?.fqdn ?? null, request_id: req.id, reason },
       {
         hostId: req.hostId,
         wsType: 'insecure.denied',
-        wsPayload: { host_id: req.hostId, request_id: req.id, reason: 'timeout' },
+        wsPayload: { host_id: req.hostId, request_id: req.id, reason },
       },
     );
+  }
+
+  /**
+   * Retire `req` if it is stale; true when it was.
+   *
+   * `superseded` is only judged by the sweep. The approve/deny/allow guards
+   * leave it out so an action on a secure or deleted host still fails with the
+   * error that names the actual problem.
+   */
+  private async expirePendingRequest(
+    req: {
+      id: number;
+      hostId: number;
+      status: string;
+      requestedAt: string;
+      updatedAt: string;
+    },
+    includeSuperseded = false,
+  ): Promise<boolean> {
+    if (req.status !== 'pending') return false;
+    let reason: RetireReason | null = stalePendingReason(req);
+    if (!reason && !includeSuperseded) return false;
+    const host = await this.findHost(req.hostId).catch(() => null);
+    if (!reason && (!host || host.secure === 1 || insecureWindowActive(host))) {
+      reason = 'superseded';
+    }
+    if (!reason) return false;
+    await this.retirePendingRequest(req, reason, host);
     return true;
   }
 
-  private async expirePendingRequests(): Promise<void> {
+  /**
+   * Retire every pending request nobody should be asked about any more.
+   *
+   * Called on read by `listPending` and on a timer by the insecure worker —
+   * the timer is what makes a request left open in an unattended dashboard
+   * disappear, since nothing else reads it.
+   */
+  async sweepStaleRequests(): Promise<number> {
     const rows = await this.db
       .select()
       .from(insecureAuthRequests)
       .where(eq(insecureAuthRequests.status, 'pending'));
+    let retired = 0;
     for (const req of rows) {
-      await this.expirePendingRequest(req);
+      if (await this.expirePendingRequest(req, true)) retired += 1;
     }
+    return retired;
   }
 
   // ────────── fleet-wide window ──────────
@@ -486,7 +544,7 @@ export class InsecureWindowAdminService {
   // ────────── pending list ──────────
 
   async listPending(limit = 50): Promise<InsecureRequestRow[]> {
-    await this.expirePendingRequests();
+    await this.sweepStaleRequests();
     const cap = Math.min(Math.max(1, limit), 200);
     const rows = await this.db
       .select({
@@ -513,6 +571,8 @@ export class InsecureWindowAdminService {
       resolved_at: r.resolvedAt,
       updated_at: r.updatedAt,
       status: r.status,
+      expires_at: expiresAt(r.requestedAt),
+      live: r.updatedAt !== r.requestedAt,
     }));
   }
 

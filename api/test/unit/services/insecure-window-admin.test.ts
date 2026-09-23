@@ -254,6 +254,51 @@ describe('InsecureWindowAdminService secure hosts and stale requests', () => {
   });
 });
 
+describe('InsecureWindowAdminService.sweepStaleRequests', () => {
+  function ago(ms: number): string {
+    return new Date(Date.now() - ms).toISOString();
+  }
+
+  it('retires timed-out, abandoned and superseded requests with distinct reasons', async () => {
+    const { db, svc, recorded } = setup({
+      requests: [
+        pendingRequest({ id: 1, requestedAt: ago(6 * 60_000), updatedAt: ago(1_000) }),
+        pendingRequest({ id: 2, requestedAt: ago(60_000), updatedAt: ago(60_000) }),
+        pendingRequest({ id: 3, requestedAt: ago(10_000), updatedAt: ago(2_000) }),
+      ],
+    });
+
+    await expect(svc.sweepStaleRequests()).resolves.toBe(2);
+
+    const rows = db.tables.get(insecureAuthRequests) ?? [];
+    expect(rows.map((r) => r.status)).toEqual(['denied', 'expired', 'pending']);
+    const reasons = recorded
+      .filter((e) => e.type === 'insecure.denied')
+      .map((e) => [e.payload.request_id, e.payload.reason]);
+    expect(reasons).toEqual([
+      [1, 'timeout'],
+      [2, 'abandoned'],
+    ]);
+  });
+
+  it('retires a live request once its host is already let in', async () => {
+    const { db, svc, recorded } = setup({
+      host: insecureHost({ insecureEnabledUntil: new Date(Date.now() + 60_000) }),
+      requests: [pendingRequest({ updatedAt: ago(1_000) })],
+    });
+
+    await expect(svc.sweepStaleRequests()).resolves.toBe(1);
+
+    expect(db.tables.get(insecureAuthRequests)?.[0]).toMatchObject({ status: 'expired' });
+    expect(recorded).toContainEqual(
+      expect.objectContaining({
+        type: 'insecure.denied',
+        payload: expect.objectContaining({ reason: 'superseded' }),
+      }),
+    );
+  });
+});
+
 describe('InsecureWindowAdminService.revokeDomain', () => {
   it('stamps revokedAt on the allow row', async () => {
     const allow: Row = {

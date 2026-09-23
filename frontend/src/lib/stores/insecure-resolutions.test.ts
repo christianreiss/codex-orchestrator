@@ -14,6 +14,7 @@ const {
   clearResolved,
   GHOST_MS,
   OUTCOME_LABELS,
+  deniedOutcome,
 } = (await import(storeModule)) as typeof import("./insecure-resolutions");
 
 /** The store is a module singleton, so each test starts by emptying it. */
@@ -67,8 +68,30 @@ describe("insecure-resolutions", () => {
   });
 
   it("labels every outcome", () => {
-    for (const outcome of ["approved", "denied", "timeout", "domain", "auto"] as const) {
+    for (const outcome of [
+      "approved",
+      "denied",
+      "timeout",
+      "abandoned",
+      "superseded",
+      "gone",
+      "domain",
+      "auto",
+    ] as const) {
       assert.ok(OUTCOME_LABELS[outcome].length > 0);
     }
+  });
+});
+
+describe("deniedOutcome", () => {
+  it("keeps the server's reason when it names one the dialog can show", () => {
+    assert.equal(deniedOutcome("timeout"), "timeout");
+    assert.equal(deniedOutcome("abandoned"), "abandoned");
+    assert.equal(deniedOutcome("superseded"), "superseded");
+  });
+
+  it("treats an operator deny and anything unknown as denied", () => {
+    assert.equal(deniedOutcome(undefined), "denied");
+    assert.equal(deniedOutcome("something-new"), "denied");
   });
 });

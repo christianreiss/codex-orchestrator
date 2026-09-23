@@ -20,7 +20,27 @@
  */
 import { writable, derived, type Readable } from "svelte/store";
 
-export type ResolutionOutcome = "approved" | "denied" | "timeout" | "domain" | "auto";
+export type ResolutionOutcome =
+  | "approved"
+  | "denied"
+  | "timeout"
+  | "abandoned"
+  | "superseded"
+  | "gone"
+  | "domain"
+  | "auto";
+
+/** Map an `insecure.denied` payload reason onto the outcome it shows as. */
+export function deniedOutcome(reason: unknown): ResolutionOutcome {
+  switch (reason) {
+    case "timeout":
+    case "abandoned":
+    case "superseded":
+      return reason;
+    default:
+      return "denied";
+  }
+}
 
 export interface Resolution {
   outcome: ResolutionOutcome;
@@ -98,6 +118,9 @@ export const OUTCOME_LABELS: Record<ResolutionOutcome, string> = {
   approved: "Approved",
   denied: "Denied",
   timeout: "Timed out",
+  abandoned: "Stopped waiting",
+  superseded: "Already allowed",
+  gone: "No longer pending",
   domain: "Domain allowed",
   auto: "Auto-allowed",
 };

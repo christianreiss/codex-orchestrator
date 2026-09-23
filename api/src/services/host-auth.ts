@@ -136,13 +136,13 @@ async function enforceIpBinding(
   if (boundSame && boundSame === ip) return host;
   if (boundSame && boundSame !== ip) {
     if (host.allowRoamingIps === 1) return bindIp(deps.db, host, ip, family);
-    if (await canExtendInsecureWindow(deps, host)) return bindIp(deps.db, host, ip, family);
+    if (await canExtendInsecureWindow(deps, host, ip)) return bindIp(deps.db, host, ip, family);
     throw new UnauthorizedError('API key not allowed from this IP', 'ip_mismatch');
   }
   // Same family not yet bound, other family is.
   if (boundOther) {
     if (host.allowRoamingIps === 1) return bindIp(deps.db, host, ip, family);
-    if (await canExtendInsecureWindow(deps, host)) return bindIp(deps.db, host, ip, family);
+    if (await canExtendInsecureWindow(deps, host, ip)) return bindIp(deps.db, host, ip, family);
     throw new UnauthorizedError('API key not allowed from this IP', 'ip_mismatch');
   }
   return host;
@@ -175,10 +175,14 @@ async function bindIp(db: Database, host: Host, ip: string, family: 'ipv4' | 'ip
     : { ...host, ip6: ip, updatedAt: patch.updatedAt };
 }
 
-async function canExtendInsecureWindow(deps: HostAuthDeps, host: Host): Promise<boolean> {
+async function canExtendInsecureWindow(
+  deps: HostAuthDeps,
+  host: Host,
+  ip: string | null,
+): Promise<boolean> {
   if (host.secure === 1 || !deps.insecure) return false;
   try {
-    await deps.insecure.enforce(host, 'auth');
+    await deps.insecure.enforce(host, 'auth', ip);
     return true;
   } catch {
     return false;

@@ -1,5 +1,24 @@
 # 2026-09-23
 
+- **Insecure-access approval dialog no longer shows dead requests, and was redesigned around the
+  decision.**
+  - Stale requests are now retired server-side every 10 seconds instead of only when someone reads
+    the list: timed out after 5 minutes (`denied`, as before), abandoned when the waiting wrapper
+    stops polling for 30 seconds (new status `expired`, no deny cooldown, so a rerun gets a fresh
+    request), or superseded when the host was deleted, made secure, or already let in. Each
+    publishes `insecure.denied` with its `reason`, so open dashboards grey the row out live.
+  - The waiting wrapper's 5-second poll is now a heartbeat (`updated_at`), and the caller's IP is
+    recorded — rows used to say "from unknown" for every request.
+  - The pending list refreshes every 10 seconds while anything is pending, keeps polling in a
+    background tab, and refetches on focus; rows past their deadline are greyed out locally even
+    before the refetch lands, and approving a request the server already settled shows "No longer
+    pending" instead of an error toast.
+  - The dialog now only pops up (and beeps) for requests someone is actually waiting on in a
+    terminal. It opens in a focused request view: one card per host with a live indicator, IP,
+    request age, a countdown bar to the auto-deny, and *Approve for 8 hours* / *Allow \*.domain* /
+    *Deny* (single request: `Enter` approves, `D` denies; several: *Approve all*). The hosts-page
+    button opens the full view with *Requests*, *Windows*, and *Domains* tabs.
+
 - **Fixed `config.toml` schema drift against codex-cli 0.156.1: 5 unrecognized-setting warnings on
   every Codex host startup, and a live landmine for any host with a stored `profile` override.**
   Reproduced live (real 0.156.1 binary, isolated `CODEX_HOME`) and root-caused to `client-config.ts`'s

@@ -68,9 +68,11 @@
 <Popover.Root bind:open>
   <Popover.Trigger>
     {#snippet child({ props })}
-      <Button {...props} variant="outline" size="sm" {disabled}>
+      <Button {...props} variant="outline" size="sm" {disabled} title={domain ? `Allow *.${domain}` : undefined}>
         <Globe class="h-3.5 w-3.5" />
-        Allow domain{coveredCount > 1 ? ` (${coveredCount})` : ""}
+        <span class="max-w-[14rem] truncate">
+          {domain ? `Allow *.${domain}` : "Allow domain"}{coveredCount > 1 ? ` (${coveredCount})` : ""}
+        </span>
       </Button>
     {/snippet}
   </Popover.Trigger>

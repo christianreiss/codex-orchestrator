@@ -18,8 +18,14 @@ import { InsecureWindowAdminService } from '../services/insecure-window-admin.js
  *
  * The DB is the source of truth: the stored deadline survives restarts, so a
  * process that dies mid-close resumes on the next tick.
+ *
+ * The same tick retires stale approval requests (timed out, abandoned by their
+ * wrapper, or superseded). Otherwise a request is only swept when someone reads
+ * the pending list, and a dashboard left open keeps asking the operator about
+ * callers that stopped waiting long ago. The cadence is set by that job: the
+ * heartbeat TTL is 30 s, so a 10 s tick clears an abandoned row within 40 s.
  */
-const TICK_INTERVAL_MS = 30_000;
+const TICK_INTERVAL_MS = 10_000;
 
 export function startInsecureFleetWindowWorker(
   app: FastifyInstance,
@@ -41,6 +47,8 @@ export function startInsecureFleetWindowWorker(
       if (await insecure.sweepIfLapsed()) {
         app.log.info('insecure fleet window expired; all insecure access closed');
       }
+      const retired = await insecure.sweepStaleRequests();
+      if (retired > 0) app.log.info({ retired }, 'stale insecure approval requests retired');
     } catch (error) {
       app.log.error({ err: error }, 'insecure fleet window worker tick failed');
     } finally {

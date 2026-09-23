@@ -894,8 +894,13 @@ export interface InsecureApprovalRequest {
   fqdn: string;
   request_ip: string | null;
   requested_at: string | null;
+  /** Last time the requesting wrapper polled; the heartbeat. */
   updated_at: string | null;
   status: string;
+  /** When the server auto-denies it if nobody answers. */
+  expires_at?: string | null;
+  /** True once the wrapper polled again after asking — someone is waiting. */
+  live?: boolean;
 }
 
 export interface InsecureApprovalsResponse {

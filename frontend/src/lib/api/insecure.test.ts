@@ -65,7 +65,7 @@ interface RecordedCall {
 interface BuiltQuery {
   queryKey: readonly unknown[];
   queryFn: () => Promise<unknown>;
-  refetchInterval?: number;
+  refetchInterval?: number | ((query: { state: { data?: unknown } }) => number);
 }
 
 /** What the stubbed `createMutation` hands back in place of a store. */
@@ -333,12 +333,29 @@ describe("query builders", () => {
     it(`${queryCase.name} keys and reads ${queryCase.path}`, async () => {
       const built = queryCase.build();
       assert.deepEqual(built.queryKey, queryCase.queryKey);
-      assert.equal(built.refetchInterval, queryCase.refetchInterval);
+      const interval =
+        typeof built.refetchInterval === "function"
+          ? built.refetchInterval({ state: { data: undefined } })
+          : built.refetchInterval;
+      assert.equal(interval, queryCase.refetchInterval);
 
       await built.queryFn();
       assert.deepEqual(calls, [{ method: "GET", path: queryCase.path, body: undefined }]);
     });
   }
+
+  it("polls pending approvals faster while any are pending, also in the background", () => {
+    const built = asQuery(insecure.insecureApprovalsQuery()) as BuiltQuery & {
+      refetchIntervalInBackground?: boolean;
+      refetchOnWindowFocus?: boolean;
+    };
+    assert.equal(typeof built.refetchInterval, "function");
+    const fn = built.refetchInterval as (q: { state: { data?: unknown } }) => number;
+    assert.equal(fn({ state: { data: { requests: [{ id: 1 }] } } }), 10_000);
+    assert.equal(fn({ state: { data: { requests: [] } } }), 30_000);
+    assert.equal(built.refetchIntervalInBackground, true);
+    assert.equal(built.refetchOnWindowFocus, true);
+  });
 
   it("keys the summary the way the hosts feature keys it", () => {
     assert.deepEqual(insecure.insecureKeys.summary(), hostsKeys.insecure());

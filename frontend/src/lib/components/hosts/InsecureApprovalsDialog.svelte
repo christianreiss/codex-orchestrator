@@ -1,10 +1,21 @@
+<script lang="ts" module>
+  /**
+   * `triage` is what pops up on its own: only the requests, each one a decision
+   * the operator can make in one click. `manage` is the full panel the hosts
+   * page opens — requests, open windows, allowed domains — behind tabs.
+   */
+  export type InsecureDialogMode = "triage" | "manage";
+</script>
+
 <script lang="ts">
   import * as Dialog from "$lib/components/ui/dialog";
+  import * as Tabs from "$lib/components/ui/tabs";
   import { Button } from "$lib/components/ui/button";
   import { useQueryClient } from "@tanstack/svelte-query";
   import { toast } from "svelte-sonner";
   import { browser } from "$app/environment";
   import {
+    insecureKeys,
     insecureSummaryQuery,
     insecureApprovalsQuery,
     createDisableInsecureMutation,
@@ -18,6 +29,7 @@
     createOpenFleetWindowMutation,
     createCloseFleetWindowMutation,
   } from "$lib/api/insecure";
+  import { ApiError } from "$lib/api/client";
   import InsecureCountdown from "./InsecureCountdown.svelte";
   import FleetInsecureWindowCard from "./FleetInsecureWindowCard.svelte";
   import InsecureWindowPopover from "./InsecureWindowPopover.svelte";
@@ -37,17 +49,27 @@
     markResolved,
     markResolvedMany,
     clearResolved,
+    deniedOutcome,
     OUTCOME_LABELS,
     type ResolutionOutcome,
   } from "$lib/stores/insecure-resolutions";
 
   type Props = {
     open: boolean;
+    mode?: InsecureDialogMode;
     onOpenChange?: (open: boolean) => void;
     /** WS feed, so resolutions made elsewhere animate here identically. */
     events?: Readable<WsEvent | null>;
   };
-  let { open = $bindable(false), onOpenChange, events }: Props = $props();
+  let {
+    open = $bindable(false),
+    mode = $bindable<InsecureDialogMode>("manage"),
+    onOpenChange,
+    events,
+  }: Props = $props();
+
+  /** Server-side TTL of a pending request; only the fallback when `expires_at` is absent. */
+  const REQUEST_TTL_MS = 5 * 60_000;
 
   const qc = useQueryClient();
   const summary = insecureSummaryQuery();
@@ -70,10 +92,22 @@
   const fleetWindow = $derived($summary.data?.fleet_window);
   const fleetWindowOpen = $derived(fleetWindow?.open === true);
 
+  let tab = $state<"requests" | "windows" | "domains">("requests");
+
   function handleOpenChange(value: boolean): void {
     open = value;
     onOpenChange?.(value);
   }
+
+  // One clock for every countdown and drain bar in the dialog; it only runs
+  // while the dialog is open.
+  let now = $state(Date.now());
+  $effect(() => {
+    if (!open) return;
+    now = Date.now();
+    const t = setInterval(() => (now = Date.now()), 1000);
+    return () => clearInterval(t);
+  });
 
   async function run<T>(label: string, p: Promise<T>): Promise<void> {
     try {
@@ -91,7 +125,9 @@
    * Marking before the await is the point — the operator's click gets its
    * feedback immediately rather than one round-trip and one refetch later. If
    * the mutation fails the mark is dropped and the row snaps back to actionable,
-   * which is the honest outcome: the request is still pending.
+   * which is the honest outcome: the request is still pending. A 409 is the
+   * exception: the server already settled it (timed out, abandoned, or resolved
+   * by someone else), so the row stays shadowed and says so.
    */
   async function resolve<T>(
     id: number,
@@ -105,6 +141,11 @@
       toast.success(label);
     } catch (err) {
       clearResolved(id);
+      if (err instanceof ApiError && err.status === 409) {
+        markResolved(id, "gone");
+        void qc.invalidateQueries({ queryKey: insecureKeys.approvals() });
+        return;
+      }
       const msg = err instanceof Error ? err.message : "Action failed";
       toast.error(msg);
     }
@@ -125,22 +166,42 @@
     lastKnown = next;
   });
 
-  type Row = InsecureApprovalRequest & { ghost: ResolutionOutcome | null };
+  type Row = InsecureApprovalRequest & {
+    ghost: ResolutionOutcome | null;
+    expiresMs: number | null;
+  };
+
+  function expiresMs(r: InsecureApprovalRequest): number | null {
+    const explicit = r.expires_at ? Date.parse(r.expires_at) : NaN;
+    if (Number.isFinite(explicit)) return explicit;
+    const requested = r.requested_at ? Date.parse(r.requested_at) : NaN;
+    return Number.isFinite(requested) ? requested + REQUEST_TTL_MS : null;
+  }
 
   const rows = $derived.by<Row[]>(() => {
     const live = $approvals.data?.requests ?? [];
     const ghosts = $resolutions;
-    const out: Row[] = live.map((r) => ({ ...r, ghost: ghosts.get(r.id)?.outcome ?? null }));
+    const toRow = (r: InsecureApprovalRequest, ghost: ResolutionOutcome | null): Row => {
+      const exp = expiresMs(r);
+      // Past its deadline is past its deadline, whether or not the refetch that
+      // says so has landed yet. The server agrees within one worker tick.
+      const expired = !ghost && exp !== null && now >= exp;
+      return { ...r, ghost: expired ? "timeout" : ghost, expiresMs: exp };
+    };
+    const out: Row[] = live.map((r) => toRow(r, ghosts.get(r.id)?.outcome ?? null));
     const seen = new Set(live.map((r) => r.id));
     // Rows the server has already forgotten but whose shadow is still on screen.
     for (const [id, res] of ghosts) {
       if (seen.has(id)) continue;
       const known = lastKnown.get(id);
       if (!known) continue;
-      out.push({ ...known, ghost: res.outcome });
+      out.push(toRow(known, res.outcome));
     }
-    return out.sort((a, b) => a.id - b.id);
+    // Someone waiting in a terminal first, then oldest first.
+    return out.sort((a, b) => Number(!!b.live) - Number(!!a.live) || a.id - b.id);
   });
+
+  const actionable = $derived(rows.filter((r) => !r.ghost));
 
   /**
    * The parent domain "Allow domain" would write — the client-side twin of
@@ -157,16 +218,67 @@
   function coveredBy(domain: string | null): number {
     if (!domain) return 0;
     const suffix = `.${domain}`;
-    return rows.filter((r) => {
-      if (r.ghost) return false;
+    return actionable.filter((r) => {
       const f = (r.fqdn ?? "").toLowerCase();
       return f === domain || (f.endsWith(suffix) && f.length > suffix.length);
     }).length;
   }
 
+  function approveOne(id: number): Promise<void> {
+    return resolve(id, "approved", "Approved", $approve.mutateAsync({ id }));
+  }
+
+  function denyOne(id: number): Promise<void> {
+    return resolve(id, "denied", "Denied", $deny.mutateAsync({ id }));
+  }
+
+  async function approveAll(): Promise<void> {
+    for (const r of actionable) await approveOne(r.id);
+  }
+
+  // ─── formatting ──────────────────────────────────────────────────────────
+
+  function clock(ms: number): string {
+    const s = Math.max(0, Math.ceil(ms / 1000));
+    return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+  }
+
+  function askedAgo(r: Row): string {
+    const at = r.requested_at ? Date.parse(r.requested_at) : NaN;
+    if (!Number.isFinite(at)) return "";
+    const s = Math.max(0, Math.round((now - at) / 1000));
+    if (s < 10) return "asked just now";
+    if (s < 60) return `asked ${s} s ago`;
+    return `asked ${Math.floor(s / 60)} min ago`;
+  }
+
+  function remainingFraction(r: Row): number {
+    if (r.expiresMs === null) return 1;
+    return Math.min(1, Math.max(0, (r.expiresMs - now) / REQUEST_TTL_MS));
+  }
+
+  // ─── keyboard: one request on screen, one key to decide it ───────────────
+
+  const single = $derived(mode === "triage" && actionable.length === 1 ? actionable[0] : null);
+
+  function onKeydown(e: KeyboardEvent): void {
+    if (!single || e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey) return;
+    const el = e.target as HTMLElement | null;
+    if (el?.closest("input, textarea, select, button, a, [contenteditable], [role='dialog'] [role='dialog']")) {
+      return;
+    }
+    if (e.key === "Enter") {
+      e.preventDefault();
+      void approveOne(single.id);
+    } else if (e.key === "d" || e.key === "D") {
+      e.preventDefault();
+      void denyOne(single.id);
+    }
+  }
+
   // Resolutions that happened anywhere — another operator's tab, a domain sweep,
-  // the fleet window, or the server's own 5-minute timeout — land in the same
-  // overlay, so a row never simply disappears out from under the operator.
+  // the fleet window, or the server's own sweep — land in the same overlay, so a
+  // row never simply disappears out from under the operator.
   $effect(() => {
     const feed = events;
     if (!feed) return;
@@ -178,7 +290,7 @@
           markResolved(payload.request_id, "approved");
           break;
         case "insecure.denied":
-          markResolved(payload.request_id, payload.reason === "timeout" ? "timeout" : "denied");
+          markResolved(payload.request_id, deniedOutcome(payload.reason));
           break;
         case "insecure.domain.allowed":
           if (Array.isArray(payload.cleared_request_ids)) {
@@ -196,8 +308,8 @@
     });
   });
 
-  // Browser-notification permission state. Reactive so the inline banner
-  // disappears as soon as the user grants/denies.
+  // Browser-notification permission state. Reactive so the nudge disappears as
+  // soon as the user grants/denies.
   let notifPermission = $state<NotificationPermission | "unsupported">(
     browser && typeof Notification !== "undefined" ? Notification.permission : "unsupported",
   );
@@ -212,219 +324,298 @@
       /* ignore */
     }
   }
+
+  const title = $derived.by(() => {
+    if (mode === "manage") return "Insecure access";
+    if (actionable.length === 1) return `${actionable[0].fqdn || "A host"} is asking for access`;
+    if (actionable.length > 1) return `${actionable.length} hosts are asking for access`;
+    return "Access requests";
+  });
 </script>
 
+{#snippet requestCard(req: Row)}
+  {@const fraction = remainingFraction(req)}
+  {@const left = req.expiresMs === null ? null : req.expiresMs - now}
+  {@const domain = parentDomain(req.fqdn)}
+  <li
+    class="relative overflow-hidden rounded-lg border bg-card transition-[opacity,filter] duration-300"
+    class:opacity-50={req.ghost}
+    class:grayscale={req.ghost}
+    class:pointer-events-none={req.ghost}
+    out:slide|local={{ duration: 220 }}
+  >
+    <div class="space-y-3 p-4">
+      <div class="flex items-start justify-between gap-3">
+        <div class="min-w-0 space-y-1">
+          <p class="flex items-center gap-2">
+            <span class="relative flex h-2 w-2 shrink-0" aria-hidden="true">
+              {#if req.live && !req.ghost}
+                <span
+                  class="absolute inline-flex h-full w-full animate-ping rounded-full bg-success opacity-60 motion-reduce:animate-none"
+                ></span>
+                <span class="relative inline-flex h-2 w-2 rounded-full bg-success"></span>
+              {:else}
+                <span class="relative inline-flex h-2 w-2 rounded-full bg-muted-foreground/40"></span>
+              {/if}
+            </span>
+            <span class="truncate text-base font-semibold" class:line-through={req.ghost}>
+              {req.fqdn || `Host #${req.host_id}`}
+            </span>
+          </p>
+          <p class="text-xs text-muted-foreground">
+            {req.live ? "Waiting in a terminal" : "Nobody is waiting on this one"}{req.request_ip
+              ? `, from ${req.request_ip}`
+              : ""}{askedAgo(req) ? `, ${askedAgo(req)}` : ""}
+          </p>
+        </div>
+        {#if req.ghost}
+          <span class="shrink-0 rounded-md border px-2 py-1 text-xs font-medium text-muted-foreground">
+            {OUTCOME_LABELS[req.ghost]}
+          </span>
+        {:else if left !== null}
+          <span
+            class="shrink-0 text-sm font-medium tabular-nums"
+            class:text-destructive={left < 60_000}
+            class:text-muted-foreground={left >= 60_000}
+            title="Denied automatically when this runs out"
+          >
+            {clock(left)}
+          </span>
+        {/if}
+      </div>
+
+      {#if !req.ghost}
+        <div class="flex flex-wrap items-center gap-2">
+          <Button size="sm" class="grow sm:grow-0" onclick={() => approveOne(req.id)}>
+            <Check class="h-3.5 w-3.5" /> Approve for 8 hours
+          </Button>
+          <AllowDomainPopover
+            {domain}
+            coveredCount={coveredBy(domain)}
+            onConfirm={({ duration_minutes, permanent }) =>
+              resolve(
+                req.id,
+                "domain",
+                "Domain allowed",
+                $allowDomain.mutateAsync({ id: req.id, duration_minutes, permanent }),
+              )}
+          />
+          <Button size="sm" variant="ghost" class="ml-auto" onclick={() => denyOne(req.id)}>
+            <X class="h-3.5 w-3.5" /> Deny
+          </Button>
+        </div>
+      {/if}
+    </div>
+
+    <!-- Time left until the server denies it. The one moving thing in the dialog. -->
+    {#if !req.ghost}
+      <div class="absolute inset-x-0 bottom-0 h-1 bg-muted" aria-hidden="true">
+        <div
+          class="h-full transition-[width] duration-1000 ease-linear motion-reduce:transition-none"
+          class:bg-warning={left === null || left >= 60_000}
+          class:bg-destructive={left !== null && left < 60_000}
+          style:width="{fraction * 100}%"
+        ></div>
+      </div>
+    {/if}
+  </li>
+{/snippet}
+
+{#snippet requestList()}
+  {#if $approvals.isError}
+    <p class="text-sm text-destructive">
+      Pending requests could not be loaded. Hosts may be waiting; reload to try again.
+    </p>
+  {:else if rows.length > 0}
+    <ul class="space-y-2">
+      {#each rows as req (req.id)}
+        {@render requestCard(req)}
+      {/each}
+    </ul>
+  {:else}
+    <p class="py-6 text-center text-sm text-muted-foreground">No host is waiting for access.</p>
+  {/if}
+{/snippet}
+
 <Dialog.Root bind:open onOpenChange={handleOpenChange}>
-  <Dialog.Content class="sm:max-w-2xl">
+  <Dialog.Content class="sm:max-w-xl" onkeydown={onKeydown}>
     <Dialog.Header>
-      <Dialog.Title>Insecure access</Dialog.Title>
+      <Dialog.Title class="pr-8">{title}</Dialog.Title>
       <Dialog.Description>
-        Pending approval requests auto-deny after 5 minutes. Approving grants 8
-        hours; allowing a domain clears every pending request under it.
+        {#if mode === "triage"}
+          Approving lets the host fetch credentials for 8 hours. Requests nobody answers are denied
+          after 5 minutes.
+        {:else}
+          Requests, hosts with an open window, and domains that are let in without asking.
+        {/if}
       </Dialog.Description>
     </Dialog.Header>
 
-    <div class="max-h-[70vh] space-y-6 overflow-y-auto py-2">
-      <FleetInsecureWindowCard
-        window={fleetWindow}
-        openHostCount={$summary.data?.hosts.length ?? 0}
-        openDomainCount={$summary.data?.domains_active ?? 0}
-        onOpen={(minutes) => $openFleetWindow.mutateAsync({ duration_minutes: minutes })}
-        onClose={() => $closeFleetWindow.mutateAsync()}
-      />
+    {#if mode === "triage"}
+      <div class="max-h-[65vh] overflow-y-auto py-1">
+        {@render requestList()}
+      </div>
 
-      {#if notifPermission === "default"}
-        <div
-          class="flex items-center justify-between gap-3 rounded-md border border-warning/25 bg-warning-muted px-3 py-2 text-xs"
-        >
-          <div class="flex items-center gap-2 text-warning-muted-foreground">
-            <Bell class="h-3.5 w-3.5" />
-            <span>Enable browser notifications to hear requests when this tab is in the background.</span>
-          </div>
-          <Button size="sm" variant="outline" onclick={enableNotifications}>Enable</Button>
+      <footer class="flex flex-wrap items-center justify-between gap-2 border-t pt-3">
+        <div class="flex items-center gap-3 text-xs text-muted-foreground">
+          {#if single}
+            <span><kbd class="rounded border px-1">Enter</kbd> approve, <kbd class="rounded border px-1">D</kbd> deny</span>
+          {/if}
+          {#if notifPermission === "default"}
+            <button
+              type="button"
+              class="inline-flex items-center gap-1 underline-offset-2 hover:text-foreground hover:underline"
+              onclick={enableNotifications}
+            >
+              <Bell class="h-3 w-3" /> Notify me in the background
+            </button>
+          {/if}
         </div>
-      {/if}
-
-      <!-- Pending approvals -->
-      {#if $approvals.isError}
-        <p class="text-xs text-destructive">
-          Failed to load pending approval requests. There may be requests awaiting review.
-        </p>
-      {:else if rows.length > 0}
-        <section class="space-y-2">
-          <header class="flex items-center justify-between">
-            <h3 class="text-sm font-semibold">Pending requests</h3>
-            <span class="text-xs text-muted-foreground">
-              {rows.filter((r) => !r.ghost).length}
-            </span>
-          </header>
-          <ul class="divide-y rounded-md border">
-            {#each rows as req (req.id)}
-              <li
-                class="flex items-center justify-between gap-3 px-3 py-2 transition-all duration-300"
-                class:opacity-45={req.ghost}
-                class:grayscale={req.ghost}
-                class:pointer-events-none={req.ghost}
-                out:slide|local={{ duration: 220 }}
-              >
-                <div class="min-w-0">
-                  <div class="truncate text-sm font-medium" class:line-through={req.ghost}>
-                    {req.fqdn}
-                  </div>
-                  <div class="truncate text-[11px] text-muted-foreground">
-                    from {req.request_ip ?? "unknown"} · #{req.id}
-                  </div>
-                </div>
-                {#if req.ghost}
-                  <span
-                    class="shrink-0 rounded-md border px-2 py-1 text-[11px] font-medium text-muted-foreground"
-                  >
-                    {OUTCOME_LABELS[req.ghost]}
-                  </span>
-                {:else}
-                  <div class="flex items-center gap-1">
-                    <AllowDomainPopover
-                      domain={parentDomain(req.fqdn)}
-                      coveredCount={coveredBy(parentDomain(req.fqdn))}
-                      onConfirm={({ duration_minutes, permanent }) =>
-                        resolve(
-                          req.id,
-                          "domain",
-                          "Domain allowed",
-                          $allowDomain.mutateAsync({ id: req.id, duration_minutes, permanent }),
-                        )}
-                    />
-                    <Button
-                      size="sm"
-                      onclick={() =>
-                        resolve(req.id, "approved", "Approved", $approve.mutateAsync({ id: req.id }))}
-                    >
-                      <Check class="h-3.5 w-3.5" /> Approve
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onclick={() =>
-                        resolve(req.id, "denied", "Denied", $deny.mutateAsync({ id: req.id }))}
-                    >
-                      <X class="h-3.5 w-3.5" />
-                    </Button>
-                  </div>
-                {/if}
-              </li>
-            {/each}
-          </ul>
-        </section>
-      {/if}
-
-      <!-- Active windows -->
-      <section class="space-y-2">
-        <header class="flex items-center justify-between">
-          <h3 class="text-sm font-semibold">Active windows</h3>
-          <div class="flex items-center gap-1">
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={!$summary.data?.hosts.length}
-              onclick={() => run("All windows extended", $extendAll.mutateAsync())}
-            >
-              Extend all
+        <div class="flex items-center gap-2">
+          <Button size="sm" variant="ghost" onclick={() => (mode = "manage")}>Manage access</Button>
+          {#if actionable.length > 1}
+            <Button size="sm" variant="outline" onclick={approveAll}>
+              Approve all {actionable.length}
             </Button>
-            <Button
-              size="sm"
-              variant="ghost"
-              disabled={!$summary.data?.hosts.length && !fleetWindowOpen}
-              onclick={() => run("All windows disabled", $disableAll.mutateAsync())}
-            >
-              <ShieldOff class="h-3.5 w-3.5" /> Disable all
-            </Button>
-          </div>
-        </header>
-        {#if $summary.isLoading}
-          <p class="text-xs text-muted-foreground">Loading…</p>
-        {:else if $summary.isError}
-          <p class="text-xs text-destructive">Failed to load active insecure windows.</p>
-        {:else if !$summary.data?.hosts.length}
-          <p class="text-xs text-muted-foreground">No hosts currently in an insecure window.</p>
-        {:else}
-          <ul class="divide-y rounded-md border">
-            {#each $summary.data.hosts as h (h.id)}
-              <li class="flex items-center justify-between gap-3 px-3 py-2">
-                <div class="min-w-0">
-                  <div class="truncate text-sm font-medium">{h.fqdn}</div>
-                  <div class="text-[11px] text-muted-foreground">
-                    Closes <InsecureCountdown until={h.insecure_enabled_until} />
-                  </div>
-                </div>
+          {/if}
+        </div>
+      </footer>
+    {:else}
+      <Tabs.Root value={tab} onValueChange={(v) => (tab = v as typeof tab)}>
+        <Tabs.List>
+          <Tabs.Trigger value="requests">Requests ({actionable.length})</Tabs.Trigger>
+          <Tabs.Trigger value="windows">Windows ({$summary.data?.hosts.length ?? 0})</Tabs.Trigger>
+          <Tabs.Trigger value="domains">Domains ({$summary.data?.domains_active ?? 0})</Tabs.Trigger>
+        </Tabs.List>
+
+        <div class="mt-4 max-h-[60vh] overflow-y-auto">
+          <Tabs.Content value="requests">
+            {@render requestList()}
+          </Tabs.Content>
+
+          <Tabs.Content value="windows" class="space-y-4">
+            <FleetInsecureWindowCard
+              window={fleetWindow}
+              openHostCount={$summary.data?.hosts.length ?? 0}
+              openDomainCount={$summary.data?.domains_active ?? 0}
+              onOpen={(minutes) => $openFleetWindow.mutateAsync({ duration_minutes: minutes })}
+              onClose={() => $closeFleetWindow.mutateAsync()}
+            />
+            <section class="space-y-2">
+              <header class="flex items-center justify-between">
+                <h3 class="text-sm font-semibold">Hosts with an open window</h3>
                 <div class="flex items-center gap-1">
-                  <InsecureWindowPopover
-                    label="Extend"
-                    variant="outline"
+                  <Button
                     size="sm"
-                    heading="Extend insecure window"
-                    confirmLabel="Extend"
-                    onConfirm={(duration_minutes) =>
-                      run(
-                        "Window extended",
-                        $enableHost.mutateAsync({ id: h.id, duration_minutes }),
-                      )}
-                  />
+                    variant="outline"
+                    disabled={!$summary.data?.hosts.length}
+                    onclick={() => run("All windows extended", $extendAll.mutateAsync())}
+                  >
+                    Extend all
+                  </Button>
                   <Button
                     size="sm"
                     variant="ghost"
-                    disabled={fleetWindowOpen}
-                    title={fleetWindowOpen
-                      ? "Close the fleet window first — this host would be re-opened on its next request"
-                      : undefined}
-                    onclick={() => run("Window closed", $disableHost.mutateAsync({ id: h.id }))}
+                    disabled={!$summary.data?.hosts.length && !fleetWindowOpen}
+                    onclick={() => run("All windows disabled", $disableAll.mutateAsync())}
                   >
-                    Close
+                    <ShieldOff class="h-3.5 w-3.5" /> Disable all
                   </Button>
                 </div>
-              </li>
-            {/each}
-          </ul>
-        {/if}
-      </section>
+              </header>
+              {#if $summary.isLoading}
+                <p class="text-xs text-muted-foreground">Loading…</p>
+              {:else if $summary.isError}
+                <p class="text-xs text-destructive">Open windows could not be loaded.</p>
+              {:else if !$summary.data?.hosts.length}
+                <p class="text-xs text-muted-foreground">No host has an open window.</p>
+              {:else}
+                <ul class="divide-y rounded-md border">
+                  {#each $summary.data.hosts as h (h.id)}
+                    <li class="flex items-center justify-between gap-3 px-3 py-2">
+                      <div class="min-w-0">
+                        <div class="truncate text-sm font-medium">{h.fqdn}</div>
+                        <div class="text-[11px] text-muted-foreground">
+                          Closes in <InsecureCountdown until={h.insecure_enabled_until} />
+                        </div>
+                      </div>
+                      <div class="flex items-center gap-1">
+                        <InsecureWindowPopover
+                          label="Extend"
+                          variant="outline"
+                          size="sm"
+                          heading="Extend insecure window"
+                          confirmLabel="Extend"
+                          onConfirm={(duration_minutes) =>
+                            run(
+                              "Window extended",
+                              $enableHost.mutateAsync({ id: h.id, duration_minutes }),
+                            )}
+                        />
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          disabled={fleetWindowOpen}
+                          title={fleetWindowOpen
+                            ? "Close the fleet window first — this host would be re-opened on its next request"
+                            : undefined}
+                          onclick={() => run("Window closed", $disableHost.mutateAsync({ id: h.id }))}
+                        >
+                          Close
+                        </Button>
+                      </div>
+                    </li>
+                  {/each}
+                </ul>
+              {/if}
+            </section>
+          </Tabs.Content>
 
-      <!-- Allowed domains -->
-      <section class="space-y-2">
-        <header class="flex items-center justify-between">
-          <h3 class="text-sm font-semibold">Allowed domains</h3>
-          <span class="text-xs text-muted-foreground">
-            {$summary.data?.domains_active ?? 0} active
-          </span>
-        </header>
-        {#if $summary.isError}
-          <p class="text-xs text-destructive">Failed to load allowed domains.</p>
-        {:else if !$summary.data?.domains.length}
-          <p class="text-xs text-muted-foreground">No active domain allow-list entries.</p>
-        {:else}
-          <ul class="divide-y rounded-md border">
-            {#each $summary.data.domains as d (d.id)}
-              <li class="flex items-center justify-between gap-3 px-3 py-2">
-                <div class="min-w-0">
-                  <div class="truncate font-mono text-sm">{d.domain}</div>
-                  <div class="text-[11px] text-muted-foreground">
-                    {#if d.enabled_until === null}
-                      Never expires
-                    {:else}
-                      Expires <InsecureCountdown until={d.enabled_until} />
-                    {/if}
-                  </div>
-                </div>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onclick={() => run("Domain revoked", $revokeDomain.mutateAsync({ id: d.id }))}
-                >
-                  Revoke
-                </Button>
-              </li>
-            {/each}
-          </ul>
-        {/if}
-      </section>
-    </div>
+          <Tabs.Content value="domains">
+            {#if $summary.isError}
+              <p class="text-xs text-destructive">Allowed domains could not be loaded.</p>
+            {:else if !$summary.data?.domains.length}
+              <p class="py-6 text-center text-sm text-muted-foreground">
+                No domain is allowed. Use “Allow domain” on a request to let a whole domain in.
+              </p>
+            {:else}
+              <ul class="divide-y rounded-md border">
+                {#each $summary.data.domains as d (d.id)}
+                  <li class="flex items-center justify-between gap-3 px-3 py-2">
+                    <div class="min-w-0">
+                      <div class="truncate text-sm font-medium">*.{d.domain}</div>
+                      <div class="text-[11px] text-muted-foreground">
+                        {#if d.enabled_until === null}
+                          Never expires
+                        {:else}
+                          Expires in <InsecureCountdown until={d.enabled_until} />
+                        {/if}
+                      </div>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onclick={() => run("Domain revoked", $revokeDomain.mutateAsync({ id: d.id }))}
+                    >
+                      Revoke
+                    </Button>
+                  </li>
+                {/each}
+              </ul>
+            {/if}
+          </Tabs.Content>
+        </div>
+      </Tabs.Root>
+
+      {#if notifPermission === "default"}
+        <button
+          type="button"
+          class="inline-flex items-center gap-1 text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+          onclick={enableNotifications}
+        >
+          <Bell class="h-3 w-3" /> Notify me about requests while this tab is in the background
+        </button>
+      {/if}
+    {/if}
   </Dialog.Content>
 </Dialog.Root>

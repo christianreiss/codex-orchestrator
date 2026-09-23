@@ -120,7 +120,7 @@ export async function registerAuthRoutes(app: FastifyInstance, ctx: RouteContext
     const engine = resolveAuthRequestEngine(req, payload);
     assertHostEngineEnabled(host, engine);
     const command = normalizeCommand(payload.command);
-    const enforcedHost = await maybeEnforceInsecure(insecure, host, command);
+    const enforcedHost = await maybeEnforceInsecure(insecure, host, command, req.clientIp);
     const projectedVersions = requestVersions(req, enforcedHost);
 
     if (command === 'retrieve') {
@@ -243,7 +243,7 @@ export async function registerAuthRoutes(app: FastifyInstance, ctx: RouteContext
     const engine = resolveAuthRequestEngine(req, payload);
     assertHostEngineEnabled(host, engine);
     const includeAuth = normalizeBoolean(payload.include_auth) !== false;
-    const enforced = await maybeEnforceInsecure(insecure, host, includeAuth ? 'retrieve' : null);
+    const enforced = await maybeEnforceInsecure(insecure, host, includeAuth ? 'retrieve' : null, req.clientIp);
     const projectedVersions = requestVersions(req, enforced);
 
     const userInput = extractHostUserInput(payload);
@@ -308,7 +308,7 @@ export async function registerAuthRoutes(app: FastifyInstance, ctx: RouteContext
     const engine = resolveAuthRequestEngine(req, payload);
     assertHostEngineEnabled(host, engine);
     const includeAuth = normalizeBoolean(payload.include_auth) !== false;
-    const enforced = await maybeEnforceInsecure(insecure, host, includeAuth ? 'retrieve' : null);
+    const enforced = await maybeEnforceInsecure(insecure, host, includeAuth ? 'retrieve' : null, req.clientIp);
     const projectedVersions = requestVersions(req, enforced);
 
     const userInput = extractHostUserInput(payload);
@@ -1029,9 +1029,10 @@ async function maybeEnforceInsecure(
   insecure: ReturnType<typeof createInsecureWindowService>,
   host: Host,
   command: string | null,
+  requestIp?: string | null,
 ): Promise<Host> {
   if (command === null || host.secure === 1) return host;
-  return insecure.enforce(host, command);
+  return insecure.enforce(host, command, requestIp);
 }
 
 function buildHostPayload(host: Host): Record<string, unknown> {
