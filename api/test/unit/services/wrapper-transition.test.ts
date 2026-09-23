@@ -698,6 +698,9 @@ describe('wrapper transition helpers', () => {
       expect(out).toContain('npm@10.9.2');
       expect(out).toContain('install_corepack_npm');
       expect(out).toContain('install_os_component npm');
+      // Node.js/npm are best-effort: without them cxx installs the native CLI.
+      expect(out).toContain('ensure_claude_prerequisites || true');
+      expect(out).not.toMatch(/ensure_claude_prerequisites; then\s+exit 1/);
     }
     expect(
       buildWrapperV2InstallerScript({
@@ -828,13 +831,12 @@ describe('wrapper transition helpers', () => {
     expect(result.clxLink).toBeNull();
   });
 
-  it('rejects broken npm and explains that a fresh installer is required', () => {
+  it('warns about broken npm and leaves the Claude CLI to the native install', () => {
     const result = runDualInstallerFixture({ brokenNpm: true });
     const output = result.stdout + result.stderr;
-    expect(result.status).toBe(1);
-    expect(output).toContain('Node.js/npm version check failed');
-    expect(output).toContain('This single-use installer was consumed');
-    expect(output).not.toContain('READY |');
+    expect(result.status).toBe(0);
+    expect(output).toContain('Node.js/npm version check failed; using the native Claude CLI');
+    expect(output).toContain('READY |');
   });
 
   it('does not mark a CLI ready when its version probe is empty', () => {

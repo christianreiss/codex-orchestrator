@@ -248,9 +248,14 @@ Same schema as cdx (`wrappers/schemas/host-config-v1.json`), with
 ## Peer engine reconciliation
 
 For initial Claude-only or dual-engine provisioning, the host installer first
-ensures Node.js and npm, preferring the OS Node package plus a managed pinned
-Corepack npm 10.9.2 shim over the often much larger OS npm dependency tree. It
-then invokes the common `cxx cron install` and `cxx cron run --minimal`
+tries to ensure Node.js and npm, preferring the OS Node package plus a managed
+pinned Corepack npm 10.9.2 shim over the often much larger OS npm dependency
+tree. This step is best-effort: when the OS cannot supply them (e.g. XCP-ng 8.3
+dom0, a CentOS 7 base with no Node.js >= 22) it warns and continues, and the
+managed install fetches the pinned native CLI from the npm registry's
+`@anthropic-ai/claude-code-<os>-<arch>[-musl]` package instead, verified against
+the registry's sha512 `dist.integrity` (`npm_config_registry` selects a mirror).
+It then invokes the common `cxx cron install` and `cxx cron run --minimal`
 coordinator once each; `READY` is printed only after the shared wrapper,
 schedule, and every requested CLI verify.
 

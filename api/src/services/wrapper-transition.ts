@@ -705,6 +705,13 @@ cached_engine_cli() {
   printf '%s\n' "$CACHED_CLI"
 }
 
+# Node.js/npm are optional: with npm the pinned Claude CLI installs through
+# its npm package, without it cxx fetches the same native binary straight from
+# the registry (e.g. XCP-ng dom0, whose OS has no Node.js >= 22).
+claude_prerequisites_unavailable() {
+  ui_warn "clx" "prerequisites" "" "$1; using the native Claude CLI"
+}
+
 ensure_claude_prerequisites() {
   if command -v node >/dev/null 2>&1 && command -v npm >/dev/null 2>&1 &&
     read_claude_prerequisite_versions; then
@@ -715,33 +722,29 @@ ensure_claude_prerequisites() {
   ui_progress "clx" "prerequisites" "" "preparing Node.js + npm"
   if ! command -v node >/dev/null 2>&1 && ! command -v nodejs >/dev/null 2>&1; then
     if ! install_os_component node; then
-      ui_fail "clx" "prerequisites" "" "Node.js install failed"
-      show_step_log
+      claude_prerequisites_unavailable "Node.js install failed"
       return 1
     fi
   fi
   if ! ensure_node_command; then
-    ui_fail "clx" "prerequisites" "" "Node.js is unavailable after install"
-    show_step_log
+    claude_prerequisites_unavailable "Node.js is unavailable after install"
     return 1
   fi
 
   if ! command -v npm >/dev/null 2>&1; then
     if ! install_corepack_npm && ! install_os_component npm; then
-      ui_fail "clx" "prerequisites" "" "npm install failed"
-      show_step_log
+      claude_prerequisites_unavailable "npm install failed"
       return 1
     fi
     hash -r 2>/dev/null || true
   fi
   if ! command -v npm >/dev/null 2>&1; then
-    ui_fail "clx" "prerequisites" "" "npm is unavailable after install"
-    show_step_log
+    claude_prerequisites_unavailable "npm is unavailable after install"
     return 1
   fi
 
   if ! read_claude_prerequisite_versions; then
-    ui_fail "clx" "prerequisites" "" "Node.js/npm version check failed"
+    claude_prerequisites_unavailable "Node.js/npm version check failed"
     return 1
   fi
   ui_ok "clx" "prerequisites" "$NODE_VERSION / npm $NPM_VERSION" "ready"
@@ -969,9 +972,7 @@ eval "$PY_OUT"
 ui_ok "cxx" "config" "$WRAPPER_VERSION" "ready"
 
 if [ "$INSTALL_CONTEXT" = "installer" ] && [ "$NEEDS_CLAUDE" = "1" ]; then
-  if ! ensure_claude_prerequisites; then
-    exit 1
-  fi
+  ensure_claude_prerequisites || true
 fi
 
 case "$BINARY_URL" in

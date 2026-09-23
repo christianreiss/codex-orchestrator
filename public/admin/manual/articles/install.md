@@ -214,6 +214,9 @@ What the installer actually does on the target machine:
    atomically replaced by aliases during migration.
 3. When Claude is requested, prepares Node.js/npm. It prefers the OS Node
    runtime plus a pinned Corepack npm shim and falls back to the OS npm package.
+   This is best-effort: where the OS has no usable Node.js (e.g. XCP-ng 8.3
+   dom0) it warns and the Claude CLI installs from the registry's
+   sha512-verified native platform package instead.
 4. Invokes `cxx cron install` and `cxx cron run --minimal` once each. The
    coordinator installs one shared schedule and boots every enabled persona
    exactly once, installing Codex and/or Claude Code at the server-selected

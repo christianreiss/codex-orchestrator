@@ -106,17 +106,11 @@ func checkDeps(hints *[]string) ui.DoctorRow {
 	available := []string{}
 	missing := []string{}
 	tone := ui.ToneOK
-	required := []string{"curl", "node"}
+	// Node.js is not required: the managed install falls back to the native
+	// CLI from the registry when npm is missing or broken.
+	required := []string{"curl"}
 	for _, dep := range required {
-		bin := dep
-		if dep == "node" {
-			if _, err := exec.LookPath("node"); err != nil {
-				if _, err2 := exec.LookPath("nodejs"); err2 == nil {
-					bin = "nodejs"
-				}
-			}
-		}
-		if _, err := exec.LookPath(bin); err != nil {
+		if _, err := exec.LookPath(dep); err != nil {
 			missing = append(missing, dep)
 			tone = ui.ToneFail
 			*hints = append(*hints, fmt.Sprintf("Install %s; Claude Code requires it.", dep))

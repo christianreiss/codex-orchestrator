@@ -22,6 +22,8 @@ func stagedInstallFixture(t *testing.T) (string, string) {
 	t.Setenv("HOME", home)
 	t.Setenv("CLX_CLAUDE_BIN", "")
 	t.Setenv("PATH", bin+":/usr/bin:/bin")
+	// npm failures fall back to the registry; never reach the real one.
+	t.Setenv("npm_config_registry", "http://127.0.0.1:1")
 	old := filepath.Join(bin, "claude")
 	writeScript(t, old, "#!/bin/sh\necho '2.1.1 (Claude Code)'\n")
 	if err := cacheClaude(old); err != nil {
@@ -148,7 +150,7 @@ func TestBackgroundClaudeRespectsOverrideAndNoopWithoutNpm(t *testing.T) {
 	if err := EnsureClaudeBackground(context.Background(), "2.1.0", false, nil); err != nil {
 		t.Fatalf("automatic downgrade required npm: %v", err)
 	}
-	if err := EnsureClaudeBackground(context.Background(), "2.1.2", true, nil); err == nil || !strings.Contains(err.Error(), "requires npm") {
+	if err := EnsureClaudeBackground(context.Background(), "2.1.2", true, nil); err == nil || !strings.Contains(err.Error(), "without npm") {
 		t.Fatalf("missing npm did not produce actionable error: %v", err)
 	}
 	t.Setenv("CLX_CLAUDE_BIN", filepath.Join(bin, "claude"))

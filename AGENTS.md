@@ -30,7 +30,7 @@ Treat Codex (`cdx`) as canonical and Claude (`clx`) as parity target. Before lan
 - ChatGPT quota lanes / Spark lane / `--lane` / `POST /host/lane` — Codex/ChatGPT-only concept.
 - Effort naming and persistence differ by engine: Codex writes `model_reasoning_effort` to `config.toml`, while Claude Code writes `effortLevel` to `settings.json`. Do not send the Codex key to Claude or confuse either CLI setting with the Anthropic API's `effort` request parameter.
 - Device-code CLI login (`/cli/auth/*`) — Claude Code accepts `ANTHROPIC_API_KEY` directly; the wrapper syncs credentials.
-- GitHub-release CLI download — Claude CLI is npm-only; `clx update` / `clx cron run` install a pinned private copy with `npm install --prefix` under `~/.cxx/engines/claude` (no global npm, no sudo).
+- GitHub-release CLI download — Claude CLI ships via npm; `clx update` / `clx cron run` install a pinned private copy with `npm install --prefix` under `~/.cxx/engines/claude` (no global npm, no sudo), or, when npm is absent, the pinned native binary from the registry's platform package (sha512-verified).
 - SSH alt-screen suppression — Claude CLI handles its own terminal state.
 - OpenAI auth is `Bearer`-only (matches OpenAI's public API); the Anthropic-compatible API accepts Bearer / `x-api-key` / raw token (matches Anthropic's public API).
 

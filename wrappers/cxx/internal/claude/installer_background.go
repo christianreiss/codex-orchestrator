@@ -59,7 +59,8 @@ func managedClaudeEnv(cli string, env []string) []string {
 	return env
 }
 
-// EnsureClaudeBackground installs only inside a fresh private npm prefix. It
+// EnsureClaudeBackground installs only inside a fresh private npm prefix (or,
+// on a host without npm, a private stage holding the registry's native CLI). It
 // never invokes a system package manager, sudo, or a global npm install. Cache
 // publication is atomic after an exact runnable-version check.
 //
@@ -96,10 +97,6 @@ func EnsureClaudeBackground(ctx context.Context, target string, enforceExact boo
 	if current == target || (!enforceExact && IsDowngrade(current, target)) {
 		return nil
 	}
-	npm, err := exec.LookPath("npm")
-	if err != nil {
-		return errors.New("managed Claude CLI install requires npm on PATH, and none was found; install Node.js and npm (e.g. the `nodejs` and `npm` packages), then rerun `clx cron run`")
-	}
 	stage, err := os.MkdirTemp(root, target+"-")
 	if err != nil {
 		return fmt.Errorf("create Claude install stage: %w", err)
@@ -110,6 +107,46 @@ func EnsureClaudeBackground(ctx context.Context, target string, enforceExact boo
 			_ = os.RemoveAll(stage)
 		}
 	}()
+	// Without npm (e.g. XCP-ng dom0, whose OS has no Node.js new enough for
+	// the package) install the platform's native binary straight from the
+	// registry; the npm package only wraps that same binary.
+	npm, err := exec.LookPath("npm")
+	if err != nil {
+		return publishNativeClaude(ctx, stage, target, "without npm", &published, logger)
+	}
+	if err := installStagedClaudeNpm(ctx, npm, stage, target, &published, logger); err != nil {
+		if published || ctx.Err() != nil {
+			return err
+		}
+		// A broken or too-old Node.js/npm must not strand the host either.
+		logger.Warn("npm install of Claude CLI failed; trying the native package", "target", target, "err", err)
+		if nativeErr := publishNativeClaude(ctx, stage, target, "after npm failure", &published, logger); nativeErr != nil {
+			return fmt.Errorf("%w; %w", err, nativeErr)
+		}
+	}
+	return nil
+}
+
+func publishNativeClaude(ctx context.Context, stage, target, why string, published *bool, logger *slog.Logger) error {
+	native, err := installNativeClaude(ctx, stage, target)
+	if err != nil {
+		return fmt.Errorf("managed Claude CLI install %s: %w", why, err)
+	}
+	probeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	version := versionFromCLI(probeCtx, native)
+	cancel()
+	if version != target {
+		return fmt.Errorf("native Claude CLI reports version %q, want %s", version, target)
+	}
+	*published = true
+	if err := cacheClaudeContext(ctx, native); err != nil {
+		return fmt.Errorf("publish staged Claude CLI: %w", err)
+	}
+	logger.Info("published native Claude CLI", "version", target)
+	return nil
+}
+
+func installStagedClaudeNpm(ctx context.Context, npm, stage, target string, published *bool, logger *slog.Logger) error {
 	spec := "@anthropic-ai/claude-code@" + target
 	cmd := exec.CommandContext(ctx, npm, "install", "--prefix", stage, "--no-save", "--no-audit", "--no-fund", spec)
 	cmd.Dir = stage
@@ -139,7 +176,7 @@ func EnsureClaudeBackground(ctx context.Context, target string, enforceExact boo
 	// durability flush. Once validation succeeds, this function never removes a
 	// prefix that a newly started process might already have selected; the next
 	// sweep reclaims whichever prefix the pointer did not select.
-	published = true
+	*published = true
 	if err := cacheClaudeContext(ctx, candidate); err != nil {
 		return fmt.Errorf("publish staged Claude CLI: %w", err)
 	}
