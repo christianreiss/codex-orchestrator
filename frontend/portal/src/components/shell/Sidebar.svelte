@@ -3,7 +3,8 @@
   import BellOffIcon from "@lucide/svelte/icons/bell-off";
   import CheckCheckIcon from "@lucide/svelte/icons/check-check";
   import LogOutIcon from "@lucide/svelte/icons/log-out";
-  import { GROUP_LABEL, groupAgents } from "$lib/portal/presence";
+  import SearchIcon from "@lucide/svelte/icons/search";
+  import { GROUP_LABEL, groupAgents, matchesAgent } from "$lib/portal/presence";
   import type { Portal } from "../../lib/portal-state.svelte";
   import {
     notificationPermission,
@@ -14,8 +15,16 @@
 
   let { portal, onselect }: { portal: Portal; onselect: (id: string) => void } = $props();
 
-  const groups = $derived(groupAgents(portal.agents, portal.now));
-  const flat = $derived(groups.flatMap((group) => (group.key === "ended" && !portal.prefs.endedOpen ? [] : group.agents)));
+  let query = $state("");
+
+  // One list, Messages style: status groups still decide the order ("Needs
+  // you" first, ended last) but no longer each get a heading.
+  const groups = $derived(groupAgents(portal.agents.filter((agent) => matchesAgent(agent, query)), portal.now));
+  const live = $derived(groups.filter((group) => group.key !== "ended").flatMap((group) => group.agents));
+  const ended = $derived(groups.find((group) => group.key === "ended")?.agents ?? []);
+  // A search looks through ended sessions too, without making anyone expand them.
+  const endedShown = $derived(portal.prefs.endedOpen || query.trim() !== "");
+  const flat = $derived(endedShown ? [...live, ...ended] : live);
   let permission = $state(notificationPermission());
 
   // Some browsers only reveal that notifications are unusable when the first
@@ -71,95 +80,108 @@
 </script>
 
 <div class="flex h-full min-h-0 flex-col border-r border-border bg-card">
-  <header class="flex items-center gap-2 border-b border-border px-4 py-3">
-    <div class="min-w-0 flex-1">
-      <p class="truncate text-body font-semibold">{portal.user?.display_name}</p>
-      <p class="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-        <span
-          class="h-1.5 w-1.5 rounded-full {portal.connected ? 'bg-success' : 'bg-warning'}"
-          aria-hidden="true"
-        ></span>
-        {portal.connected ? "Live" : "Reconnecting…"}
-      </p>
+  <header class="px-3 pb-2 pt-3">
+    <div class="flex items-center gap-1 pl-1.5">
+      <div class="min-w-0 flex-1">
+        <h1 class="text-lg font-bold leading-tight">Agents</h1>
+        <p class="flex items-center gap-1.5 truncate text-[11px] text-muted-foreground">
+          <span
+            class="h-1.5 w-1.5 shrink-0 rounded-full {portal.connected ? 'bg-success' : 'bg-warning'}"
+            aria-hidden="true"
+          ></span>
+          <span class="truncate">{portal.user?.display_name} · {portal.connected ? "Live" : "Reconnecting…"}</span>
+        </p>
+      </div>
+
+      <button
+        type="button"
+        class="grid h-8 w-8 place-items-center rounded-full text-muted-foreground transition hover:bg-muted
+             hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring
+               disabled:opacity-40"
+        onclick={toggleNotify}
+        disabled={permission === "denied" || permission === "unsupported"}
+        aria-pressed={portal.prefs.notify}
+        aria-label={bellLabel}
+        title={bellLabel}
+      >
+        {#if portal.prefs.notify}<BellIcon class="h-4 w-4" />{:else}<BellOffIcon class="h-4 w-4" />{/if}
+      </button>
+
+      <button
+        type="button"
+        class="grid h-8 w-8 place-items-center rounded-full text-muted-foreground transition hover:bg-muted
+             hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        onclick={portal.markAllRead}
+        aria-label="Mark everything read"
+        title="Mark everything read"
+      ><CheckCheckIcon class="h-4 w-4" /></button>
+
+      <button
+        type="button"
+        class="grid h-8 w-8 place-items-center rounded-full text-muted-foreground transition hover:bg-muted
+             hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        onclick={() => void portal.logout()}
+        aria-label="Log out"
+        title="Log out"
+      ><LogOutIcon class="h-4 w-4" /></button>
     </div>
 
-    <button
-      type="button"
-      class="grid h-8 w-8 place-items-center rounded-md text-muted-foreground transition hover:bg-muted
-             hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring
-             disabled:opacity-40"
-      onclick={toggleNotify}
-      disabled={permission === "denied" || permission === "unsupported"}
-      aria-pressed={portal.prefs.notify}
-      aria-label={bellLabel}
-      title={bellLabel}
-    >
-      {#if portal.prefs.notify}<BellIcon class="h-4 w-4" />{:else}<BellOffIcon class="h-4 w-4" />{/if}
-    </button>
-
-    <button
-      type="button"
-      class="grid h-8 w-8 place-items-center rounded-md text-muted-foreground transition hover:bg-muted
-             hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-      onclick={portal.markAllRead}
-      aria-label="Mark everything read"
-      title="Mark everything read"
-    ><CheckCheckIcon class="h-4 w-4" /></button>
-
-    <button
-      type="button"
-      class="grid h-8 w-8 place-items-center rounded-md text-muted-foreground transition hover:bg-muted
-             hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-      onclick={() => void portal.logout()}
-      aria-label="Log out"
-      title="Log out"
-    ><LogOutIcon class="h-4 w-4" /></button>
+    <label class="relative mt-2 block">
+      <span class="sr-only">Search agents</span>
+      <SearchIcon class="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+      <input
+        type="search"
+        bind:value={query}
+        placeholder="Search"
+        class="h-8 w-full rounded-lg border-0 bg-muted pl-8 pr-2 text-caption outline-none
+               placeholder:text-muted-foreground focus:ring-2 focus:ring-ring/30"
+      />
+    </label>
   </header>
 
-  <nav class="min-h-0 flex-1 overflow-y-auto" aria-label="Agent sessions">
+  <nav class="min-h-0 flex-1 overflow-y-auto px-1.5 pb-2" aria-label="Agent sessions">
+    {#if query.trim() && flat.length === 0}
+      <p class="px-3 py-6 text-center text-caption text-muted-foreground">No agents match “{query.trim()}”.</p>
+    {/if}
     <ul>
-      {#each groups as group (group.key)}
-        <li>
-          {#if group.key === "ended"}
-            <button
-              type="button"
-              class="flex w-full items-center gap-1.5 px-4 py-2 text-left text-[11px] font-semibold uppercase
-                     tracking-[0.08em] text-muted-foreground hover:text-foreground focus:outline-none
-                     focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
-              aria-expanded={portal.prefs.endedOpen}
-              onclick={() => portal.setPrefs({ endedOpen: !portal.prefs.endedOpen })}
-            >
-              <span class="transition-transform {portal.prefs.endedOpen ? 'rotate-90' : ''}" aria-hidden="true">›</span>
-              {GROUP_LABEL[group.key]} ({group.agents.length})
-            </button>
-          {:else}
-            <p
-              class="px-4 pb-1 pt-3 text-[11px] font-semibold uppercase tracking-[0.08em]
-                     {group.key === 'attention' ? 'text-destructive' : 'text-muted-foreground'}"
-            >
-              {GROUP_LABEL[group.key]}{group.key === "attention" ? ` (${group.agents.length})` : ""}
-            </p>
-          {/if}
-
-          {#if group.key !== "ended" || portal.prefs.endedOpen}
-            <ul>
-              {#each group.agents as agent (agent.id)}
-                <li id="chat-{agent.id}">
-                  <ChatListItem
-                    {agent}
-                    selected={agent.id === portal.selectedId}
-                    now={portal.now}
-                    readRecord={portal.readRecord}
-                    unreadCount={portal.unreadCounts[agent.id]}
-                    {onselect}
-                    onkeydown={onKeydown}
-                  />
-                </li>
-              {/each}
-            </ul>
-          {/if}
-        </li>
+      {#each live as agent (agent.id)}
+        {@render row(agent)}
       {/each}
     </ul>
+
+    {#if ended.length}
+      <button
+        type="button"
+        class="mt-2 flex w-full items-center gap-1.5 rounded-md px-3 py-1.5 text-left text-[11px] font-semibold
+               text-muted-foreground hover:text-foreground focus:outline-none
+               focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+        aria-expanded={endedShown}
+        onclick={() => portal.setPrefs({ endedOpen: !portal.prefs.endedOpen })}
+      >
+        <span class="transition-transform {endedShown ? 'rotate-90' : ''}" aria-hidden="true">›</span>
+        {GROUP_LABEL.ended} ({ended.length})
+      </button>
+      {#if endedShown}
+        <ul>
+          {#each ended as agent (agent.id)}
+            {@render row(agent)}
+          {/each}
+        </ul>
+      {/if}
+    {/if}
   </nav>
 </div>
+
+{#snippet row(agent: (typeof portal.agents)[number])}
+  <li id="chat-{agent.id}">
+    <ChatListItem
+      {agent}
+      selected={agent.id === portal.selectedId}
+      now={portal.now}
+      readRecord={portal.readRecord}
+      unreadCount={portal.unreadCounts[agent.id]}
+      {onselect}
+      onkeydown={onKeydown}
+    />
+  </li>
+{/snippet}

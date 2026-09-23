@@ -71,8 +71,33 @@ export function dayLabel(iso: string, now = new Date()): string {
   }).format(date);
 }
 
+/**
+ * Conversation-list timestamp, Messages style: a clock time today, a weekday
+ * within the last week, a short date beyond that.
+ */
+export function listTime(iso: string | null, now = new Date()): string {
+  if (!iso) return "";
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "";
+  if (date.toDateString() === now.toDateString()) {
+    return new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit" }).format(date);
+  }
+  if (now.getTime() - date.getTime() < 6 * 86_400_000) {
+    return new Intl.DateTimeFormat(undefined, { weekday: "short" }).format(date);
+  }
+  return new Intl.DateTimeFormat(undefined, {
+    day: "numeric",
+    month: "short",
+    year: date.getFullYear() === now.getFullYear() ? undefined : "numeric",
+  }).format(date);
+}
+
+/** A same-day pause this long gets its own centred time label in the thread. */
+export const TIME_GAP_MS = 15 * 60_000;
+
 export type TimelineItem =
   | { kind: "day"; id: string; label: string }
+  | { kind: "time"; id: string; label: string }
   | { kind: "event"; id: string; event: EventRow; role: Role; startsGroup: boolean; endsGroup: boolean }
   | { kind: "run"; id: string; events: EventRow[] };
 
@@ -86,6 +111,7 @@ export type TimelineItem =
 export function buildTimeline(events: EventRow[], now = new Date()): TimelineItem[] {
   const items: TimelineItem[] = [];
   let lastDay = "";
+  let lastAt = Number.NaN;
   let index = 0;
 
   while (index < events.length) {
@@ -94,7 +120,15 @@ export function buildTimeline(events: EventRow[], now = new Date()): TimelineIte
     if (day !== lastDay) {
       items.push({ kind: "day", id: `day:${day}`, label: dayLabel(event.created_at, now) });
       lastDay = day;
+    } else {
+      const at = Date.parse(event.created_at);
+      if (at - lastAt >= TIME_GAP_MS) {
+        const date = new Date(at);
+        const label = new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit" }).format(date);
+        items.push({ kind: "time", id: `time:${event.cursor}`, label });
+      }
     }
+    lastAt = Date.parse(event.created_at);
 
     const role = roleFor(event);
     if (COLLAPSIBLE.includes(role)) {
@@ -116,6 +150,7 @@ export function buildTimeline(events: EventRow[], now = new Date()): TimelineIte
           items.push({ kind: "event", id: `e:${row.cursor}`, event: row, role: "status", startsGroup: true, endsGroup: true });
         }
       }
+      lastAt = Date.parse(run.at(-1)!.created_at);
       index = cursor;
       continue;
     }

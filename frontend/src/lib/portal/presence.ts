@@ -184,3 +184,13 @@ export function groupAgents(agents: Agent[], now: number): Array<{ key: GroupKey
   }
   return GROUP_ORDER.map((key) => ({ key, agents: buckets.get(key)! })).filter((g) => g.agents.length > 0);
 }
+
+/** Conversation-list search: every whitespace-separated term must match somewhere. */
+export function matchesAgent(agent: Agent, query: string): boolean {
+  const terms = query.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean);
+  if (!terms.length) return true;
+  const haystack = [agent.host, agent.username, agent.cwd, agent.engine, agent.engine === "codex" ? "cdx" : "clx"]
+    .join(" ")
+    .toLocaleLowerCase();
+  return terms.every((term) => haystack.includes(term));
+}

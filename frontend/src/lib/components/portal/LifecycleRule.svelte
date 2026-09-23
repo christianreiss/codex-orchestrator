@@ -12,9 +12,6 @@
   );
 </script>
 
-<div class="relative my-4 flex items-center justify-center">
-  <span class="absolute inset-x-0 top-1/2 border-t border-border" aria-hidden="true"></span>
-  <span class="relative bg-background px-3 text-[11px] font-medium {tone}">
-    {eventText(event)} · {clockTime(event.created_at)}
-  </span>
-</div>
+<p class="my-3 text-center text-[11px] font-medium {tone}">
+  {eventText(event)} · {clockTime(event.created_at)}
+</p>

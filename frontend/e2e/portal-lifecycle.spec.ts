@@ -337,6 +337,7 @@ test("receiver health offers silent reconnection without model verification", as
     sources: [{ source: "portal", state: "ready", delivery_id: null, delivered_at: null, acknowledged_at: null, latency_ms: null }],
   } } });
   await openPortal(page);
+  await page.getByRole("button", { name: "Session details", exact: true }).click();
   await page.locator("summary").filter({ hasText: "Reception: ready" }).click();
   await expect(page.getByText("portal: ready · transport health", { exact: true })).toBeVisible();
   await expect(page.getByText(/model acknowledgment|Verify reception/)).toHaveCount(0);

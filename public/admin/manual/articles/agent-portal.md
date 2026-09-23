@@ -32,7 +32,7 @@ Timings come from `api/src/env.ts`: a heartbeat is fresh for `AGENT_PORTAL_HEART
 
 ## Active Clients
 
-`GET /admin/agent-sessions` (`agent_portal.read`, polled every 15 seconds) returns `enabled`, the server's `generated_at`, its timing windows, and one row per session enriched with the Git Director task and Agent Messaging address for the worktree it sits in. The summary cards count **Online**, **Needs attention**, **Offline**, and **Recently ended**; below them, filter by engine (Codex / Claude) and state (active, online, attention, working, listening, idle, offline, ended), sort by status, recency, or host, and search host, user, task, branch, or working directory — all client-side over the last snapshot.
+`GET /admin/agent-sessions` (`agent_portal.read`, polled every 15 seconds) returns `enabled`, the server's `generated_at`, its timing windows, and one row per session enriched with the Git Director task and Agent Messaging address for the worktree it sits in. The page is laid out like a messaging app: a conversation list on the left (status priority first, *Needs you* on top) and the selected session's thread on the right. Above the list, search host, user, task, branch, or working directory, pick an engine (Codex / Claude), and narrow with the **Current**, **Needs you**, **Online**, **Ended**, and **All** chips (the chips carry the counts) — all client-side over the last snapshot. Heartbeat, reported work, receiver evidence, and the close actions sit behind the thread header's **Session details** (ⓘ) button.
 
 Presence is derived on the client from the server snapshot and the server's clock, never from the browser's:
 
@@ -42,7 +42,7 @@ Presence is derived on the client from the server snapshot and the server's cloc
 - **Working** — it accepted an instruction and the turn is still within its window.
 - **Idle** — online, but the relay is closed (a local CLI running without `#afk`) or has gone stale.
 
-**Needs attention** is independent of presence: a row with an outstanding notice or an unanswered question. The **Needs you** banner above the composer shows exactly that and disappears once the snapshot confirms nothing is outstanding; resolving a notice does not answer a question. Historical attention and resolution events remain in the stored record but no longer clutter the conversation.
+**Needs you** is independent of presence: a row with an outstanding notice or an unanswered question. The **Needs you** banner above the composer shows exactly that and disappears once the snapshot confirms nothing is outstanding; resolving a notice does not answer a question. Historical attention and resolution events remain in the stored record but no longer clutter the conversation.
 
 Selecting a client opens the detail pane: heartbeat and last-activity times, the relay heartbeat, reported work and session details, and the timeline. The timeline (`GET /admin/agent-sessions/{id}/events`, at most 500 events per page) streams live over server-sent events (`GET /admin/agent-sessions/events?session_id=…`) with a heartbeat frame every 15 seconds; a stream that goes silent for 45 seconds reconnects with exponential backoff, browser wake reconnects a stale socket, and polling every 15 seconds is the fallback. Reconnection catches up from a fresh snapshot and preserves your scroll position when you are reading older messages. Only the current version of a question has active answer buttons.
 

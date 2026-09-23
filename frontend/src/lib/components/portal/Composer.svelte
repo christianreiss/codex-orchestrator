@@ -55,9 +55,9 @@
   }
 </script>
 
-<footer class="border-t border-border bg-card px-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] pt-3 sm:px-4">
+<footer class="border-t border-border bg-card px-3 pb-[calc(0.5rem+env(safe-area-inset-bottom))] pt-2 sm:px-4">
   {#if agent.read_only}
-    <p class="py-2 text-center text-body-sm text-muted-foreground">
+    <p class="py-1.5 text-center text-caption text-muted-foreground">
       {view.detail}
     </p>
   {:else}
@@ -67,14 +67,14 @@
       someone was typing destroyed what they had written.
     -->
     {#if disabledReason}
-      <p class="pb-2 text-center text-body-sm text-muted-foreground">{disabledReason}</p>
+      <p class="pb-1.5 text-center text-[11px] text-muted-foreground">{disabledReason}</p>
     {:else if !view.canSend}
-      <p class="pb-2 text-center text-body-sm text-muted-foreground">
+      <p class="truncate pb-1.5 text-center text-[11px] text-muted-foreground" title={view.detail}>
         <strong class="font-semibold text-foreground">{view.label}.</strong> {view.detail}
       </p>
     {/if}
     <form
-      class="mx-auto flex max-w-3xl items-end gap-2"
+      class="relative mx-auto flex max-w-3xl items-end"
       onsubmit={(event) => { event.preventDefault(); submit(); }}
     >
       <label class="sr-only" for="portal-composer">Message this agent</label>
@@ -87,22 +87,23 @@
         maxlength="32768"
         placeholder={view.canSend ? placeholder : "Not accepting instructions right now"}
         aria-keyshortcuts="Enter"
+        aria-describedby="portal-composer-hint"
         onkeydown={onKeydown}
-        class="max-h-40 min-h-[2.75rem] flex-1 resize-none rounded-xl border border-border bg-background px-3 py-2.5
-               text-body outline-none transition placeholder:text-muted-foreground focus:border-ring
-               focus:ring-2 focus:ring-ring/30"
+        class="max-h-40 [field-sizing:content] min-h-[2.25rem] flex-1 resize-none rounded-[1.25rem] border border-border
+               bg-background py-1.5 pl-3.5 pr-11 text-body leading-6 outline-none transition
+               placeholder:text-muted-foreground focus:border-ring focus:ring-2 focus:ring-ring/25"
       ></textarea>
       <button
         type="submit"
-        class="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-primary text-primary-foreground
-               transition hover:bg-primary-hover disabled:opacity-40 focus:outline-none
-               focus-visible:ring-2 focus-visible:ring-ring"
+        class="absolute bottom-1 right-1 grid h-7 w-7 place-items-center rounded-full bg-primary text-primary-foreground
+               transition hover:bg-primary-hover disabled:bg-muted-foreground/30 disabled:text-background
+               focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         disabled={sending || !draft.trim() || !view.canSend || Boolean(disabledReason)}
         aria-label="Send"
-      ><SendIcon class="h-5 w-5" /></button>
+      ><SendIcon class="h-4 w-4" strokeWidth={2.75} /></button>
     </form>
-    <p class="mt-1.5 text-center text-[10px] text-muted-foreground">
-      Enter to send · Shift+Enter for a new line · local sandbox and approvals still apply
+    <p id="portal-composer-hint" class="sr-only">
+      Enter to send, Shift+Enter for a new line. Local sandbox and approvals still apply.
     </p>
   {/if}
 </footer>

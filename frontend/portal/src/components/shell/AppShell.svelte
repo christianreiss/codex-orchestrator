@@ -89,12 +89,12 @@
 
 <a class="skip-link" href="#portal-composer">Skip to the message box</a>
 
-<div class="grid h-full grid-cols-1 md:grid-cols-[minmax(17rem,22rem)_1fr]">
+<div class="grid h-full grid-cols-1 md:grid-cols-[minmax(16rem,20rem)_1fr]">
   <div class="{paneOpen ? 'hidden' : 'block'} min-h-0 md:block">
     <Sidebar {portal} onselect={openThread} />
   </div>
 
-  <div class="{paneOpen ? 'flex' : 'hidden'} min-h-0 flex-col md:flex">
+  <div class="{paneOpen ? 'flex' : 'hidden'} min-h-0 flex-col bg-background md:flex">
     {#if agent}
       <ThreadHeader
         onreconnect={() => void portal.reconnectReceiver()}

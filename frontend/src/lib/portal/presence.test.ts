@@ -5,7 +5,7 @@ import type { Agent, CloseState, Presence } from "./types";
 // `node --test` strips types but resolves specifiers verbatim, so the runtime
 // import needs the ".ts" extension TypeScript rejects on a static import.
 const presenceModule: string = "./presence.ts";
-const { groupAgents, groupFor, livePresence, notListeningDetail, presenceView } = (await import(presenceModule)) as typeof import("./presence");
+const { groupAgents, groupFor, livePresence, matchesAgent, notListeningDetail, presenceView } = (await import(presenceModule)) as typeof import("./presence");
 
 const NOW = Date.parse("2026-08-01T12:00:00.000Z");
 
@@ -236,5 +236,15 @@ describe("automatic receiver proof", () => {
     const view = presenceView(row, NOW);
     assert.equal(view.canSend, false);
     assert.match(view.detail, /unconfirmed/);
+  });
+});
+
+describe("matchesAgent", () => {
+  it("matches every term across host, user, directory and engine", () => {
+    const row = agent({ host: "web01.example", username: "ops", cwd: "/srv/api", engine: "claude" });
+    assert.equal(matchesAgent(row, ""), true);
+    assert.equal(matchesAgent(row, "WEB01 api"), true);
+    assert.equal(matchesAgent(row, "clx ops"), true);
+    assert.equal(matchesAgent(row, "codex"), false);
   });
 });

@@ -245,7 +245,7 @@ for (const engine of ["codex", "claude"] as const) {
     await stream(page, "agent", JSON.stringify(resolution));
     await expect(banner).not.toContainText("Local acknowledgment needed");
     await expect(banner).toContainText("Keep this question open?");
-    if (engine === "codex") await expect(page.getByRole("button", { name: /Needs attention 1/ })).toBeVisible();
+    if (engine === "codex") await expect(page.getByRole("button", { name: /Needs you 1/ })).toBeVisible();
     await page.getByRole("button", { name: "Answer current question", exact: true }).click();
     await expect.poll(() => state.bodies.some((entry) => entry.path.endsWith(`/prompts/${question}/answer`) && entry.body.version === 3)).toBe(true);
     await expect(page.getByLabel("Message this agent")).toHaveValue("Keep my unrelated draft");
@@ -290,6 +290,7 @@ test("receiver health offers silent reconnection without model verification", as
   };
   await open(page);
   await page.locator(`#client-${CODEX}`).click();
+  await page.getByRole("button", { name: "Session details", exact: true }).click();
   await expect(page.getByText("peer: ready · transport health", { exact: true })).toBeVisible();
   await expect(page.getByText(/model acknowledgment|Verify reception/)).toHaveCount(0);
   await page.getByRole("button", { name: "Reconnect receiver", exact: true }).click();

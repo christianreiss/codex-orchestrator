@@ -6,6 +6,7 @@
   import type { Agent, TimelineSource } from "$lib/portal/types";
   import { prefersReducedMotion } from "$lib/portal/browser";
   import DaySeparator from "./DaySeparator.svelte";
+  import TimeSeparator from "./TimeSeparator.svelte";
   import LifecycleRule from "./LifecycleRule.svelte";
   import MessageBubble from "./MessageBubble.svelte";
   import PromptCard from "./PromptCard.svelte";
@@ -45,7 +46,7 @@
   <div
     bind:this={scroller}
     onscroll={onScroll}
-    class="h-full overflow-y-auto px-3 py-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring sm:px-6"
+    class="h-full overflow-y-auto bg-background px-3 pb-3 pt-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring sm:px-5"
     tabindex="0"
     role="region"
     aria-label="Session timeline"
@@ -60,6 +61,8 @@
     {#each items as item (item.id)}
       {#if item.kind === "day"}
         <DaySeparator label={item.label} />
+      {:else if item.kind === "time"}
+        <TimeSeparator label={item.label} />
       {:else if item.kind === "run"}
         <StatusRun events={item.events} />
       {:else if item.role === "prompt"}

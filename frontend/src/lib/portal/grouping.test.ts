@@ -5,7 +5,7 @@ import type { EventRow } from "./types";
 // `node --test` strips types but resolves specifiers verbatim, so the runtime
 // import needs the ".ts" extension TypeScript rejects on a static import.
 const groupingModule: string = "./grouping.ts";
-const { buildTimeline, dayLabel, eventText, roleFor, visibleTimeline } = (await import(groupingModule)) as typeof import("./grouping");
+const { buildTimeline, dayLabel, eventText, listTime, roleFor, visibleTimeline } = (await import(groupingModule)) as typeof import("./grouping");
 
 let cursor = 0;
 function event(type: string, at: string, payload: Record<string, unknown> = {}): EventRow {
@@ -142,5 +142,31 @@ describe("buildTimeline", () => {
     assert.ok(resolution && resolution.kind === "event");
     assert.equal(resolution.role, "lifecycle");
     assert.equal(items.filter((item) => item.kind === "run").length, 2);
+  });
+});
+
+describe("time gaps", () => {
+  it("labels a same-day pause of fifteen minutes or more", () => {
+    const items = buildTimeline([
+      event("assistant_message", T(0), { text: "a" }),
+      event("assistant_message", T(10), { text: "b" }),
+      event("assistant_message", T(30), { text: "c" }),
+    ], new Date(T(59)));
+    assert.deepEqual(items.map((item) => item.kind), ["day", "event", "event", "time", "event"]);
+  });
+});
+
+describe("listTime", () => {
+  const now = new Date("2026-08-10T15:00:00.000Z");
+
+  it("is empty for a missing or unparseable time", () => {
+    assert.equal(listTime(null, now), "");
+    assert.equal(listTime("nope", now), "");
+  });
+
+  it("uses a clock time today, a weekday this week, a date beyond", () => {
+    assert.match(listTime("2026-08-10T12:34:00.000Z", now), /\d{1,2}:\d{2}/);
+    assert.equal(listTime("2026-08-07T12:00:00.000Z", now), new Intl.DateTimeFormat(undefined, { weekday: "short" }).format(new Date("2026-08-07T12:00:00.000Z")));
+    assert.doesNotMatch(listTime("2026-07-01T12:00:00.000Z", now), /:/);
   });
 });

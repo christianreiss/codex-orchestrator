@@ -76,44 +76,7 @@
            focus:ring-2 focus:ring-ring focus:ring-offset-2;
   }
 
-  /**
-   * Message bubbles. The tail is a two-shape hook: a round-cornered wedge in
-   * the bubble colour, then a background-coloured circle that bites the outer
-   * edge off it. Pure pseudo-elements, so no SVG and no inline style.
-   */
-  .bubble { @apply relative rounded-2xl px-3.5 py-2; }
-
-  .bubble-you { @apply bg-primary text-primary-foreground; }
-  .bubble-you.bubble-tail { @apply rounded-br-md; }
-  .bubble-you.bubble-tail::before {
-    content: "";
-    @apply absolute bottom-0 h-4 w-5 bg-primary;
-    right: -6px;
-    border-bottom-left-radius: 16px 14px;
-  }
-  .bubble-you.bubble-tail::after {
-    content: "";
-    @apply absolute bottom-0 h-4 w-[10px] bg-background;
-    right: -10px;
-    border-bottom-left-radius: 10px;
-  }
-
-  /* Agent bubbles sit on `card`, not `muted`: muted is the status-noise
-     surface, and reusing it would blur the two apart. */
-  .bubble-agent { @apply border border-border bg-card text-card-foreground; }
-  .bubble-agent.bubble-tail { @apply rounded-bl-md; }
-  .bubble-agent.bubble-tail::before {
-    content: "";
-    @apply absolute bottom-0 h-4 w-5 border-b border-l border-border bg-card;
-    left: -6px;
-    border-bottom-right-radius: 16px 14px;
-  }
-  .bubble-agent.bubble-tail::after {
-    content: "";
-    @apply absolute bottom-0 h-4 w-[10px] bg-background;
-    left: -10px;
-    border-bottom-right-radius: 10px;
-  }
+  /* Message bubbles live in src/lib/components/portal/MessageBubble.svelte. */
 
   /* Overlay for the copy button appended to each rendered code block.
      .md-prose pre already carries position:relative and the top padding. */

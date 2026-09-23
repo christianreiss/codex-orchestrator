@@ -1,5 +1,15 @@
 # 2026-09-23
 
+- **Agent chat redesigned in a Messages style on both the `/go` portal and Active Clients.** One
+  flat, searchable conversation list (round engine avatars with a presence badge, one-line preview,
+  Messages-style timestamps, unread/needs-you badges; *Needs you* first, ended sessions collapsed)
+  replaces the per-status groups. The thread header is a single centred band; presence detail,
+  heartbeat, reported work and receiver evidence moved behind a **Session details** (ⓘ) button.
+  Bubbles are blue/grey with tails, per-bubble times appear on hover, and pauses of 15 minutes or
+  more get a centred time label. The composer is a pill with an inline send button, and the
+  *Needs you* bar is compact with quick-reply chips. Active Clients drops the summary cards and
+  filter form for search, an engine picker and filter chips (sorting is fixed to status priority).
+  Fixes admin message bubbles, which had rendered without their styling.
 - **Codex model catalog: added `gpt-6-sol` and `gpt-6-luna`.** Both are selectable as fleet
   default and per-host override, and served via `/v1/models`; both default to `medium` effort (Sol
   up to `ultra`, Luna up to `max`). Mirrors codex-cli 0.156.1. `gpt-5.5` stays offered until its
