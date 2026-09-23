@@ -38,8 +38,11 @@ describe('HostProjectsService bootstrap', () => {
     expect(out['skill']).toMatchObject({ slug: 'coco', uri: 'skill://coco', managed: true });
     expect(String(out['instructions'])).toContain('project_* MCP tools');
     expect(String(out['instructions'])).toContain('memory://');
+    // The quickstart names the cheap first call, not the fat one it replaced:
+    // `project_bootstrap` inlines whole file bodies, so pointing an agent at it
+    // first is what the lean path exists to stop.
     expect(out['quickstart']).toEqual(expect.arrayContaining([
-      expect.stringContaining('project_bootstrap'),
+      expect.stringContaining('project_summary'),
       expect.stringContaining('project_changes'),
     ]));
   });

@@ -13,14 +13,20 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
+  BOARD_TEMPLATES,
   CARD_RESOLUTIONS,
+  DEFAULT_BOARD_TEMPLATE,
+  SEEDED_COLUMNS,
   claimIsLive,
   columnAdvisories,
+  findDependencyCycle,
+  normalizeBoardTemplate,
   normalizeCardRef,
+  normalizeDependsOn,
+  normalizeDueAt,
   normalizeResolution,
   resolveClaim,
   resolveReleaseTarget,
-  SEEDED_COLUMNS,
   type ClaimRequester,
   type ClaimState,
 } from '../../../src/services/project-board.js';
@@ -332,6 +338,136 @@ describe('the seeded lanes match migration 0026', () => {
         expect(isProjectBoardRole(role), `${column.key} expects "${role}"`).toBe(true);
       }
     }
+  });
+});
+
+/**
+ * The same structural rules for every template, not just the seeded one. A
+ * template is chosen at `project_create` and provisioned once, so a malformed
+ * one is not a bad render — it is a board that can never be fixed without SQL.
+ */
+describe('board templates', () => {
+  it('still has the software template migration 0026 seeds, under its own name', () => {
+    expect(BOARD_TEMPLATES[DEFAULT_BOARD_TEMPLATE]).toBe(SEEDED_COLUMNS);
+    expect(DEFAULT_BOARD_TEMPLATE).toBe('software');
+  });
+
+  for (const [name, columns] of Object.entries(BOARD_TEMPLATES)) {
+    describe(name, () => {
+      it('declares exactly one intake, one terminal and one blocked lane', () => {
+        expect(columns.filter((column) => column.isIntake)).toHaveLength(1);
+        expect(columns.filter((column) => column.isTerminal)).toHaveLength(1);
+        expect(columns.filter((column) => column.isBlocked)).toHaveLength(1);
+      });
+
+      it('gates lanes only on roles the fleet vocabulary declares', () => {
+        for (const column of columns) {
+          for (const role of column.allowedRoles ?? []) {
+            expect(isProjectBoardRole(role), `${name}.${column.key} expects "${role}"`).toBe(true);
+          }
+        }
+      });
+
+      it('chains every successor to a lane that exists', () => {
+        const keys = new Set(columns.map((column) => column.key));
+        for (const column of columns) {
+          if (column.next) expect(keys, `${name}.${column.key} → ${column.next}`).toContain(column.next);
+        }
+      });
+
+      it('reaches the terminal lane from intake, so release can advance a card to done', () => {
+        const byKey = new Map(columns.map((column) => [column.key, column]));
+        let at = columns.find((column) => column.isIntake)!;
+        const seen = new Set<string>();
+        while (at.next && !seen.has(at.key)) {
+          seen.add(at.key);
+          at = byKey.get(at.next)!;
+        }
+        expect(at.isTerminal, `${name} intake chain ends at ${at.key}`).toBe(true);
+      });
+
+      it('uses unique keys', () => {
+        expect(new Set(columns.map((column) => column.key)).size).toBe(columns.length);
+      });
+    });
+  }
+
+  it('resolves the spellings a caller reaches for, and refuses the rest', () => {
+    expect(normalizeBoardTemplate(undefined)).toBe('software');
+    expect(normalizeBoardTemplate('')).toBe('software');
+    expect(normalizeBoardTemplate(' Migration ')).toBe('migration');
+    expect(normalizeBoardTemplate('kanban')).toBeNull();
+  });
+});
+
+describe('due dates', () => {
+  it('normalizes to the second-precision spelling the rest of the schema uses', () => {
+    expect(normalizeDueAt('2026-10-15T22:00:00Z')).toBe('2026-10-15T22:00:00Z');
+    expect(normalizeDueAt('2026-10-15T22:00:00.123Z')).toBe('2026-10-15T22:00:00Z');
+    // An offset is a valid instant; it is stored as the UTC one it names.
+    expect(normalizeDueAt('2026-10-16T00:00:00+02:00')).toBe('2026-10-15T22:00:00Z');
+  });
+
+  it('clears on null and empty, so a date can be taken off a card', () => {
+    expect(normalizeDueAt(null)).toBeNull();
+    expect(normalizeDueAt('')).toBeNull();
+    expect(normalizeDueAt(undefined)).toBeNull();
+  });
+
+  it('refuses what it cannot compare, rather than storing it', () => {
+    expect(() => normalizeDueAt('next tuesday')).toThrow(/RFC3339/);
+    expect(() => normalizeDueAt('soon')).toThrow(/RFC3339/);
+  });
+});
+
+describe('depends_on', () => {
+  it('reads card numbers in the spellings the board already accepts elsewhere', () => {
+    expect(normalizeDependsOn([2, 3, 4])).toEqual([2, 3, 4]);
+    expect(normalizeDependsOn(['#2', '3'])).toEqual([2, 3]);
+  });
+
+  it('dedupes while keeping the order given', () => {
+    expect(normalizeDependsOn([4, 2, 4, 3, 2])).toEqual([4, 2, 3]);
+  });
+
+  it('distinguishes "not mentioned" from "cleared"', () => {
+    // undefined means the caller did not touch dependencies; null and [] mean
+    // remove them. Conflating the two would make every card update wipe them.
+    expect(normalizeDependsOn(undefined)).toBeNull();
+    expect(normalizeDependsOn(null)).toEqual([]);
+    expect(normalizeDependsOn([])).toEqual([]);
+  });
+
+  it('refuses anything that is not a positive card number', () => {
+    expect(() => normalizeDependsOn([0])).toThrow(/positive card numbers/);
+    expect(() => normalizeDependsOn([-1])).toThrow(/positive card numbers/);
+    expect(() => normalizeDependsOn([1.5])).toThrow(/positive card numbers/);
+    expect(() => normalizeDependsOn(['nope'])).toThrow(/positive card numbers/);
+    expect(() => normalizeDependsOn('2,3')).toThrow(/must be an array/);
+  });
+});
+
+describe('findDependencyCycle', () => {
+  const graph = (edges: Record<string, string[]>) => new Map(Object.entries(edges));
+
+  it('finds nothing in a chain', () => {
+    expect(findDependencyCycle(graph({ a: ['b'], b: ['c'], c: [] }), 'a')).toBeNull();
+  });
+
+  it('finds nothing in a diamond, which is not a cycle', () => {
+    expect(findDependencyCycle(graph({ a: ['b', 'c'], b: ['d'], c: ['d'], d: [] }), 'a')).toBeNull();
+  });
+
+  it('names the whole chain, which is what makes the error actionable', () => {
+    expect(findDependencyCycle(graph({ a: ['b'], b: ['c'], c: ['a'] }), 'a')).toEqual(['a', 'b', 'c', 'a']);
+  });
+
+  it('catches a card depending on itself', () => {
+    expect(findDependencyCycle(graph({ a: ['a'] }), 'a')).toEqual(['a', 'a']);
+  });
+
+  it('catches a cycle that does not run through the starting card', () => {
+    expect(findDependencyCycle(graph({ a: ['b'], b: ['c'], c: ['b'] }), 'a')).toEqual(['b', 'c', 'b']);
   });
 });
 

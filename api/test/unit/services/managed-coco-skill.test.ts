@@ -93,15 +93,21 @@ describe('managed #coco skill names only real MCP surfaces', () => {
 
   // A guard that extracts nothing passes vacuously, so pin the surfaces the
   // skill exists to advertise.
-  it('still names the coordination tools and all three project:// forms', () => {
+  it('still names the coordination tools and every project:// form', () => {
     const manifest = managedCocoManifest();
     expect(manifest).toContain('project_bootstrap');
     expect(manifest).toContain('project_note_upsert');
     expect(manifest).toContain('shared_memory_append');
     expect(tokensIn(manifest, PROJECT_URI_RE)).toEqual([
+      // `tokensIn` sorts, so this list is alphabetical rather than in the order
+      // the manifest names them.
+      //
+      // The bare form is named only to steer agents away from it: it serves the
+      // bootstrap payload, file bodies and all.
       'project://{slug}',
       'project://{slug}/files/{stored_name}',
       'project://{slug}/memory/{key}',
+      'project://{slug}/summary',
     ]);
   });
 

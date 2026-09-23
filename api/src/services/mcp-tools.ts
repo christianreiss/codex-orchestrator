@@ -20,7 +20,7 @@ import type { AgentTransfersService } from './agent-transfers.js';
 import type { ProjectBoardService } from './project-board.js';
 import { PROJECT_BOARD_ROLES } from './project-board-roles.js';
 import { ENGINE_CODEX, isEngine, type Engine } from '../util/engine.js';
-import { PROJECT_FEEDBACK_TYPES } from './project-feedback-types.js';
+import { PROJECT_FEEDBACK_STATUSES, PROJECT_FEEDBACK_TYPES } from './project-feedback-types.js';
 
 const TOOL_NAME_RE = /^[a-zA-Z0-9_-]+$/;
 
@@ -283,6 +283,13 @@ function normalizeArgs(toolName: string, args: unknown): Record<string, unknown>
     case 'project_changes':
     case 'project_file_list':
     case 'project_memory_list':
+    case 'project_summary':
+    case 'project_files':
+    case 'project_notes':
+    case 'project_feedback_list':
+    case 'project_archive':
+    case 'project_unarchive':
+    case 'project_update':
       return { slug: scalar };
     case 'project_memory_search':
       // Unlike memory_search, the scalar is the slug, not the query: query is
@@ -322,8 +329,24 @@ function validateAgainstSchema(schema: Record<string, unknown>, args: Record<str
   const required = Array.isArray(schema['required']) ? (schema['required'] as unknown[]) : [];
   const properties =
     schema['properties'] && typeof schema['properties'] === 'object'
-      ? (schema['properties'] as Record<string, { type?: unknown }>)
+      ? (schema['properties'] as Record<string, { type?: unknown; enum?: unknown }>)
       : {};
+  // Missing-required is checked BEFORE undeclared-argument, and the order is
+  // load-bearing. `normalizeArgs` turns a bare scalar it cannot place into
+  // `{value: scalar}`, so on a closed schema the other order answers
+  // `'value' is not allowed` — true, and useless. `'slug' is required` tells the
+  // caller what to do.
+  for (const key of required) {
+    if (typeof key !== 'string') continue;
+    const value = args[key];
+    if (value === undefined || value === null || value === '') {
+      return "'" + key + "' is required";
+    }
+    const propType = properties[key]?.type;
+    if ((propType === 'integer' || propType === 'number') && !isFiniteNumeric(value)) {
+      return "'" + key + "' must be a number";
+    }
+  }
   if (schema['additionalProperties'] === false) {
     for (const key of Object.keys(args)) {
       if (!Object.prototype.hasOwnProperty.call(properties, key)) {
@@ -336,20 +359,32 @@ function validateAgainstSchema(schema: Record<string, unknown>, args: Record<str
       if (property.type === 'string' && typeof value !== 'string') {
         return "'" + key + "' must be a string";
       }
-    }
-  }
-  for (const key of required) {
-    if (typeof key !== 'string') continue;
-    const value = args[key];
-    if (value === undefined || value === null || value === '') {
-      return "'" + key + "' is required";
-    }
-    const propType = properties[key]?.type;
-    if ((propType === 'integer' || propType === 'number') && !isFiniteNumeric(value)) {
-      return "'" + key + "' must be a number";
+      const enumError = enumViolation(key, property, value);
+      if (enumError) return enumError;
     }
   }
   return null;
+}
+
+/**
+ * Enforce a declared `enum`, which the validator previously ignored entirely:
+ * `project_feedback_create.type`, the board `role` arguments and
+ * `project_card_release.resolution` all declared one and none was ever checked,
+ * so a bad value travelled to the service and came back as a vaguer error.
+ *
+ * Case-folded when every member is lowercase, because the services normalize
+ * before they compare — `normalizeFeedbackPayload` lower-cases `type`, and
+ * `normalizeProjectBoardRole` does the same for roles. A strict check here
+ * would start rejecting `"Bug"` and `"Plan"`, which work today.
+ */
+function enumViolation(key: string, property: { enum?: unknown }, value: unknown): string | null {
+  const allowed = property.enum;
+  if (!Array.isArray(allowed) || allowed.length === 0) return null;
+  const members = allowed.map((entry) => String(entry));
+  const foldable = members.every((member) => member === member.toLowerCase());
+  const candidate = typeof value === 'string' && foldable ? value.trim().toLowerCase() : value;
+  if (members.some((member) => member === candidate)) return null;
+  return "'" + key + "' must be one of: " + members.join(', ');
 }
 
 function isFiniteNumeric(value: unknown): boolean {
@@ -667,18 +702,25 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
   inputs.push({
     definition: {
       name: 'project_list',
-      description: 'List shared projects available to this host',
-      inputSchema: { type: 'object', properties: {} },
+      description:
+        'List shared projects available to this host. Archived projects are left out unless include_archived is set.',
+      inputSchema: {
+        type: 'object',
+        properties: { include_archived: { type: 'boolean' } },
+        additionalProperties: false,
+      },
     },
-    handler: async (_args, host) => deps.projects.listProjects(host),
+    handler: async (args, host) => deps.projects.listProjects(host, args),
   });
   inputs.push({
     definition: {
       name: 'project_bootstrap',
-      description: 'Read compact shared project bootstrap context',
+      description:
+        'Read shared project bootstrap context. Inlines whole file bodies and can be very large — prefer project_summary.',
       inputSchema: {
         type: 'object',
         properties: { slug: { type: 'string' } },
+        additionalProperties: false,
         required: ['slug'],
       },
     },
@@ -686,11 +728,72 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
   });
   inputs.push({
     definition: {
-      name: 'project_detail',
-      description: 'Read full shared project state',
+      name: 'project_summary',
+      description:
+        'Read a project: what it is, what it holds, what is open on its board, and what you hold. File metadata only, note and event previews only — this is the call to make first, and the one that stays cheap on a project with real artifacts.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          slug: { type: 'string' },
+          worktree_path: { type: 'string' },
+          username: { type: 'string' },
+          engine: { type: 'string' },
+        },
+        additionalProperties: false,
+        required: ['slug'],
+      },
+    },
+    handler: async (args, host) => deps.projects.summary(String(args['slug'] ?? ''), args, host),
+  });
+  inputs.push({
+    definition: {
+      name: 'project_files',
+      description:
+        'List a project\'s files as metadata only (stored_name, size_bytes, mime_type, sha256). Read one body with project_file_read.',
       inputSchema: {
         type: 'object',
         properties: { slug: { type: 'string' } },
+        additionalProperties: false,
+        required: ['slug'],
+      },
+    },
+    handler: async (args, host) => deps.projects.listFileSummaries(String(args['slug'] ?? ''), host),
+  });
+  inputs.push({
+    definition: {
+      name: 'project_notes',
+      description: 'List a project\'s notes',
+      inputSchema: {
+        type: 'object',
+        properties: { slug: { type: 'string' } },
+        additionalProperties: false,
+        required: ['slug'],
+      },
+    },
+    handler: async (args, host) => deps.projects.listNotes(String(args['slug'] ?? ''), host),
+  });
+  inputs.push({
+    definition: {
+      name: 'project_feedback_list',
+      description: 'List a project\'s feedback items',
+      inputSchema: {
+        type: 'object',
+        properties: { slug: { type: 'string' } },
+        additionalProperties: false,
+        required: ['slug'],
+      },
+    },
+    handler: async (args, host) => deps.projects.listFeedback(String(args['slug'] ?? ''), host),
+  });
+  inputs.push({
+    definition: {
+      name: 'project_detail',
+      description:
+        'Read full shared project state, including every file body. Can be very large — prefer project_summary.',
+      inputSchema: {
+        type: 'object',
+        properties: { slug: { type: 'string' } },
+        additionalProperties: false,
         required: ['slug'],
       },
     },
@@ -699,31 +802,134 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
   inputs.push({
     definition: {
       name: 'project_changes',
-      description: 'List project changes since a sequence number',
+      description:
+        'List project changes since a sequence number. Pass payloads:"preview" to trim note and card bodies to a preview.',
       inputSchema: {
         type: 'object',
-        properties: { slug: { type: 'string' }, since: { type: 'integer' } },
+        properties: {
+          slug: { type: 'string' },
+          since: { type: 'integer' },
+          // The bootstrap doctrine says "changes since the stored latest_seq",
+          // which reads as `since_seq` often enough that agents passed it — and
+          // got the whole log back, because an undeclared argument was simply
+          // dropped. Accepting it is cheaper than being right about the name.
+          since_seq: { type: 'integer' },
+          payloads: { type: 'string', enum: ['full', 'preview'] },
+        },
+        additionalProperties: false,
         required: ['slug'],
       },
     },
     handler: async (args, host) =>
-      deps.projects.listChanges(String(args['slug'] ?? ''), Number(args['since'] ?? 0), host),
+      deps.projects.listChanges(
+        String(args['slug'] ?? ''),
+        Number(args['since'] ?? args['since_seq'] ?? 0),
+        host,
+        args,
+      ),
   });
   inputs.push({
     definition: {
       name: 'project_create',
-      description: 'Create a shared project',
+      description:
+        'Create a shared project. board_template picks the lane set — "software" (plan/code/review/verify, the default) or "migration" (discovery/plan/cutover/verify).',
       inputSchema: {
         type: 'object',
         properties: {
           slug: { type: 'string' },
           about: { type: 'object' },
           roster_markdown: { type: 'string' },
+          board_template: { type: 'string' },
+          project: { type: 'string' },
+          agents_markdown: { type: 'string' },
         },
+        additionalProperties: false,
         required: ['slug'],
       },
     },
     handler: async (args, host) => deps.projects.createProject(args, host),
+  });
+  inputs.push({
+    definition: {
+      name: 'project_update',
+      description:
+        "Update a project's about block or roster. About is merged into what is there by default, so bumping status or last_verified does not mean restating the whole object; pass replace:true to overwrite it wholesale.",
+      inputSchema: {
+        type: 'object',
+        properties: {
+          slug: { type: 'string' },
+          about: { type: 'object' },
+          replace: { type: 'boolean' },
+          roster_markdown: { type: 'string' },
+        },
+        additionalProperties: false,
+        required: ['slug'],
+      },
+    },
+    handler: async (args, host) => deps.projects.updateProject(String(args['slug'] ?? ''), args, host),
+  });
+  inputs.push({
+    definition: {
+      name: 'project_archive',
+      description:
+        'Close a project. It drops out of project_list and the resource catalogue but stays readable and writable by slug, and project_unarchive reopens it. Use this when work is finished; project deletion is an operator action in the console.',
+      inputSchema: {
+        type: 'object',
+        properties: { slug: { type: 'string' }, reason: { type: 'string' } },
+        additionalProperties: false,
+        required: ['slug'],
+      },
+    },
+    handler: async (args, host) => deps.projects.archiveProject(String(args['slug'] ?? ''), args, host),
+  });
+  inputs.push({
+    definition: {
+      name: 'project_unarchive',
+      description: 'Reopen an archived project',
+      inputSchema: {
+        type: 'object',
+        properties: { slug: { type: 'string' } },
+        additionalProperties: false,
+        required: ['slug'],
+      },
+    },
+    handler: async (args, host) => deps.projects.unarchiveProject(String(args['slug'] ?? ''), host),
+  });
+  inputs.push({
+    definition: {
+      name: 'project_note_delete',
+      description: 'Delete a project note by numeric id',
+      inputSchema: {
+        type: 'object',
+        properties: { slug: { type: 'string' }, id: { type: 'integer' } },
+        additionalProperties: false,
+        required: ['slug', 'id'],
+      },
+    },
+    handler: async (args, host) =>
+      deps.projects.deleteNote(String(args['slug'] ?? ''), Number(args['id']), host),
+  });
+  inputs.push({
+    definition: {
+      name: 'project_feedback_update',
+      description:
+        'Triage a feedback item: move its status through open, acknowledged, resolved or dismissed, or correct its type, title or body.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          slug: { type: 'string' },
+          id: { type: 'integer' },
+          status: { type: 'string', enum: [...PROJECT_FEEDBACK_STATUSES] },
+          type: { type: 'string', enum: [...PROJECT_FEEDBACK_TYPES] },
+          title: { type: 'string' },
+          body: { type: 'string' },
+        },
+        additionalProperties: false,
+        required: ['slug', 'id'],
+      },
+    },
+    handler: async (args, host) =>
+      deps.projects.updateFeedback(String(args['slug'] ?? ''), Number(args['id']), args, host),
   });
   inputs.push({
     definition: {
@@ -736,6 +942,7 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
           header: { type: 'string' },
           body: { type: 'string' },
         },
+        additionalProperties: false,
         required: ['slug', 'header', 'body'],
       },
     },
@@ -754,6 +961,7 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
           header: { type: 'string' },
           body: { type: 'string' },
         },
+        additionalProperties: false,
         required: ['slug', 'header', 'body'],
       },
     },
@@ -775,6 +983,7 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
           title: { type: 'string' },
           detail: { type: 'string' },
         },
+        additionalProperties: false,
         required: ['slug', 'title'],
       },
     },
@@ -792,6 +1001,7 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
           title: { type: 'string' },
           detail: { type: 'string' },
         },
+        additionalProperties: false,
         required: ['slug', 'id', 'title'],
       },
     },
@@ -808,6 +1018,7 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
           slug: { type: 'string' },
           id: { type: 'integer' },
         },
+        additionalProperties: false,
         required: ['slug', 'id'],
       },
     },
@@ -824,6 +1035,7 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
           slug: { type: 'string' },
           id: { type: 'integer' },
         },
+        additionalProperties: false,
         required: ['slug', 'id'],
       },
     },
@@ -842,6 +1054,7 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
           title: { type: 'string' },
           body: { type: 'string' },
         },
+        additionalProperties: false,
         required: ['slug', 'type', 'title', 'body'],
       },
     },
@@ -850,10 +1063,12 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
   inputs.push({
     definition: {
       name: 'project_file_list',
-      description: 'List all files attached to a project (returns full file rows with content)',
+      description:
+        'List all files attached to a project, including every file body. Can be very large — prefer project_files.',
       inputSchema: {
         type: 'object',
         properties: { slug: { type: 'string' } },
+        additionalProperties: false,
         required: ['slug'],
       },
     },
@@ -870,7 +1085,10 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
           slug: { type: 'string' },
           stored_name: { type: 'string' },
           id: { type: 'integer' },
+          offset: { type: 'integer' },
+          limit: { type: 'integer' },
         },
+        additionalProperties: false,
         required: ['slug'],
       },
     },
@@ -888,7 +1106,12 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
             : null;
       return deps.projects.readFile(
         slug,
-        { storedName, id: idNum !== null && Number.isFinite(idNum) ? idNum : null },
+        {
+          storedName,
+          id: idNum !== null && Number.isFinite(idNum) ? idNum : null,
+          offset: args['offset'] === undefined ? null : Number(args['offset']),
+          limit: args['limit'] === undefined ? null : Number(args['limit']),
+        },
         host,
       );
     },
@@ -897,7 +1120,9 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
     definition: {
       name: 'project_file_upsert',
       description:
-        'Create or replace a project file by stored_name. Content is required; description and mime_type are optional.',
+        'Create or replace a project file by stored_name. Content is required; description and mime_type are optional. ' +
+        'For a binary artifact — a PDF, an archive, a screenshot — base64-encode it and pass encoding:"base64"; ' +
+        'size_bytes and content_sha256 are then computed over the decoded bytes. Files cap at 4 MiB decoded.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -906,7 +1131,15 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
           content: { type: 'string' },
           description: { type: 'string' },
           mime_type: { type: 'string' },
+          encoding: { type: 'string', enum: ['utf8', 'base64'] },
+          // Service-layer aliases. They predate this schema and callers use
+          // them, so they are declared rather than quietly tolerated — an
+          // undeclared argument is one the caller cannot discover and the
+          // validator cannot check.
+          name: { type: 'string' },
+          text: { type: 'string' },
         },
+        additionalProperties: false,
         required: ['slug', 'stored_name', 'content'],
       },
     },
@@ -922,6 +1155,7 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
           slug: { type: 'string' },
           id: { type: 'integer' },
         },
+        additionalProperties: false,
         required: ['slug', 'id'],
       },
     },
@@ -940,6 +1174,7 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
           include_content: { type: 'boolean' },
           limit: { type: 'integer' },
         },
+        additionalProperties: false,
         required: ['slug'],
       },
     },
@@ -955,6 +1190,7 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
           slug: { type: 'string' },
           key: { type: 'string' },
         },
+        additionalProperties: false,
         required: ['slug', 'key'],
       },
     },
@@ -974,7 +1210,11 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
           content: { type: 'string' },
           tags: { type: 'array', items: { type: 'string' } },
           metadata: { type: 'object' },
+          id: { type: 'string' },
+          memory_id: { type: 'string' },
+          text: { type: 'string' },
         },
+        additionalProperties: false,
         required: ['slug', 'key', 'content'],
       },
     },
@@ -991,6 +1231,7 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
           slug: { type: 'string' },
           key: { type: 'string' },
         },
+        additionalProperties: false,
         required: ['slug', 'key'],
       },
     },
@@ -1009,11 +1250,13 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
           query: { type: 'string' },
           tags: { type: 'array', items: { type: 'string' } },
           limit: { type: 'integer' },
+          q: { type: 'string' },
         },
         // `query` is deliberately NOT required: validateAgainstSchema rejects '',
         // which is exactly what makes memory_search unable to enumerate and forces
         // callers to guess search terms. Omitting query here degrades to a
         // recency-ordered listing instead.
+        additionalProperties: false,
         required: ['slug'],
       },
     },
@@ -1187,7 +1430,11 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
             unclaimed: { type: 'boolean' },
             worktree_path: { type: 'string' },
             username: { type: 'string' },
+            // Every board handler reads this off args; it was never declared,
+            // so closing the schema without it would start rejecting it.
+            engine: { type: 'string' },
           },
+          additionalProperties: false,
         },
       },
       // Deliberately no requireBoard(): a discovery tool that throws when the
@@ -1200,7 +1447,7 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
       definition: {
         name: 'project_card_create',
         description:
-          'Put a new piece of work on the board. Without `column` it lands in the intake lane, which is where work waits to be picked up. `role` records who you think should do it and is advice, not an assignment — claiming is what actually takes a card. Use `priority` to sort a lane (higher first) and `labels` to group. Returns the card, including the short number every other tool accepts.',
+          'Put a new piece of work on the board. Without `column` it lands in the intake lane, which is where work waits to be picked up. `role` records who you think should do it and is advice, not an assignment — claiming is what actually takes a card. Use `priority` to sort a lane (higher first) and `labels` to group. `due_at` is an RFC3339 instant, and `depends_on` takes the card numbers this one waits on: a card whose dependencies are unfinished comes back `ready: false` with `waiting_on`, and claiming it still works but says so.',
         inputSchema: {
           type: 'object',
           properties: {
@@ -1211,7 +1458,13 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
             role: { type: 'string', enum: [...PROJECT_BOARD_ROLES] },
             labels: { type: 'array', items: { type: 'string' } },
             priority: { type: 'integer' },
+            due_at: { type: 'string' },
+            depends_on: { type: 'array', items: { type: 'integer' } },
+            // Every board handler reads this off args; it was never declared,
+            // so closing the schema without it would start rejecting it.
+            engine: { type: 'string' },
           },
+          additionalProperties: false,
           required: ['slug', 'title'],
         },
       },
@@ -1236,7 +1489,11 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
             username: { type: 'string' },
             note: { type: 'string' },
             client_request_id: { type: 'string' },
+            // Every board handler reads this off args; it was never declared,
+            // so closing the schema without it would start rejecting it.
+            engine: { type: 'string' },
           },
+          additionalProperties: false,
           required: ['slug', 'card', 'role'],
         },
       },
@@ -1259,7 +1516,11 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
             column: { type: 'string' },
             role: { type: 'string', enum: [...PROJECT_BOARD_ROLES] },
             note: { type: 'string' },
+            // Every board handler reads this off args; it was never declared,
+            // so closing the schema without it would start rejecting it.
+            engine: { type: 'string' },
           },
+          additionalProperties: false,
           required: ['slug', 'card', 'column'],
         },
       },
@@ -1282,7 +1543,11 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
             column: { type: 'string' },
             resolution: { type: 'string', enum: ['done', 'blocked', 'handoff'] },
             note: { type: 'string' },
+            // Every board handler reads this off args; it was never declared,
+            // so closing the schema without it would start rejecting it.
+            engine: { type: 'string' },
           },
+          additionalProperties: false,
           required: ['slug', 'card'],
         },
       },
@@ -1296,7 +1561,7 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
       definition: {
         name: 'project_card_update',
         description:
-          'Edit a card in place: its title, its detail, its labels, its priority, or the reason it is blocked. Only the fields you pass change. This does not move the card and does not touch its claim.',
+          'Edit a card in place: its title, its detail, its labels, its priority, its due date, what it depends on, or the reason it is blocked. Only the fields you pass change; `depends_on` replaces the whole set, and `[]` clears it. This does not move the card and does not touch its claim.',
         inputSchema: {
           type: 'object',
           properties: {
@@ -1307,7 +1572,13 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
             labels: { type: 'array', items: { type: 'string' } },
             priority: { type: 'integer' },
             blocked_reason: { type: 'string' },
+            due_at: { type: 'string' },
+            depends_on: { type: 'array', items: { type: 'integer' } },
+            // Every board handler reads this off args; it was never declared,
+            // so closing the schema without it would start rejecting it.
+            engine: { type: 'string' },
           },
+          additionalProperties: false,
           required: ['slug', 'card'],
         },
       },
@@ -1329,7 +1600,11 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
             card: { type: ['string', 'integer'] },
             worktree_path: { type: 'string' },
             username: { type: 'string' },
+            // Every board handler reads this off args; it was never declared,
+            // so closing the schema without it would start rejecting it.
+            engine: { type: 'string' },
           },
+          additionalProperties: false,
           required: ['slug', 'card'],
         },
       },

@@ -71,6 +71,10 @@ const NON_TOOL_TOKENS: Record<string, string> = {
   ttl_seconds: 'the required expiry argument of transfer_put, not a tool',
   expires_at: 'the deadline a transfer_put reply carries back, not a tool',
   content_sha256: 'the checksum on a transfer_get reply that lets a peer verify the bytes, not a tool',
+  due_at: 'the card scheduling argument of project_card_create/_update, not a tool',
+  depends_on: 'the card ordering argument of project_card_create/_update, not a tool',
+  waiting_on: 'the unfinished dependencies a card render carries back, not a tool',
+  board_template: 'the lane set project_create provisions the board with, not a tool',
 };
 
 interface Mention {

@@ -46,6 +46,7 @@ export interface ResourceReadResponse {
 
 const URI_RE = /^([a-z]+):\/\/(.+)$/;
 const FILES_INFIX = '/files/';
+const SUMMARY_SUBPATH = '/summary';
 const MEMORY_INFIX = '/memory/';
 const PROJECT_FILES_LIST_CAP = 50;
 const PROJECT_MEMORIES_LIST_CAP = 50;
@@ -186,7 +187,13 @@ export class McpResourcesService {
   listTemplates(): Array<Record<string, unknown>> {
     const templates: Array<Record<string, unknown>> = [
       { uriTemplate: 'memory://{key}', name: 'memory', description: 'Host-scoped MCP memory by key', mimeType: 'application/json' },
-      { uriTemplate: 'project://{slug}', name: 'project', description: 'Shared project (bootstrap payload)', mimeType: 'application/json' },
+      { uriTemplate: 'project://{slug}', name: 'project', description: 'Shared project (bootstrap payload; inlines file bodies — prefer project://{slug}/summary)', mimeType: 'application/json' },
+      {
+        uriTemplate: 'project://{slug}/summary',
+        name: 'project_summary',
+        description: 'Shared project orientation: file metadata, note previews and board state, without file bodies',
+        mimeType: 'application/json',
+      },
       {
         uriTemplate: 'project://{slug}/files/{stored_name}',
         name: 'project_file',
@@ -369,6 +376,14 @@ export class McpResourcesService {
           text: file.content,
         };
         return { contents: [content] };
+      }
+      if (parsed.subPath === SUMMARY_SUBPATH) {
+        const summary = await this.deps.projects.summary(id, {}, host);
+        return {
+          contents: [
+            { uri, name: id, mimeType: 'application/json', text: JSON.stringify(summary) },
+          ],
+        };
       }
       const bootstrap = await this.deps.projects.bootstrap(id, host);
       return {

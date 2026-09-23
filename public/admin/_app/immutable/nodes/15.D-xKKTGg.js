@@ -1,1 +1,0 @@
-import{t as e}from"../chunks/BOoXF1px2.js";export{e as component};

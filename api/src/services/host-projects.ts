@@ -25,10 +25,32 @@ import { nowIso } from '../util/timestamp.js';
 import { wsPublisher } from '../ws/publisher.js';
 import type { Host } from '../db/schema.js';
 import { createHash } from 'node:crypto';
-import { isProjectFeedbackType, projectFeedbackTypeList } from './project-feedback-types.js';
+import {
+  isProjectFeedbackStatus,
+  isProjectFeedbackType,
+  projectFeedbackStatusList,
+  projectFeedbackTypeList,
+} from './project-feedback-types.js';
 import { managedCocoBootstrapGuidance } from './managed-coco-skill.js';
 import { parseTags, sortedLowercase, sortedAssoc } from './memory-tags.js';
-import { ProjectBoardService, type ProjectTodoWire } from './project-board.js';
+import {
+  STORED_NAME_TOO_LONG_MESSAGE,
+  acceptFileBody,
+  decodedByteLength,
+  decodedLengthFromStored,
+  inferMimeType,
+  storedNameTooLong,
+  type ProjectFileEncoding,
+} from './project-file-encoding.js';
+import {
+  DEFAULT_BOARD_TEMPLATE,
+  ProjectBoardService,
+  actorFromHost,
+  boardTemplateList,
+  normalizeBoardTemplate,
+  type ProjectTodoWire,
+} from './project-board.js';
+import { SettingsService } from './settings.js';
 
 const SLUG_RE = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
 const STORED_NAME_RE = /^[^\0]+$/;
@@ -45,6 +67,20 @@ const MEMORY_MAX_TAG_LENGTH = 64;
 const MEMORY_PREVIEW_CHARS = 280;
 const MEMORY_BOOTSTRAP_LIMIT = 8;
 const MEMORY_LIST_MAX = 500;
+
+// A windowed `project_file_read` defaults to 64 KiB and is capped at 1 MiB. The
+// cap is the point: an agent that passes `limit: 99999999` to "just get it all"
+// gets a window and a `next_offset` instead of the context bomb it was asking
+// for.
+const FILE_READ_DEFAULT_WINDOW = 65536;
+const FILE_READ_MAX_WINDOW = 1048576;
+
+/** The extra fields a windowed `project_file_read` adds to the file row. */
+interface FileReadWindow {
+  offset: number;
+  next_offset: number;
+  truncated: boolean;
+}
 
 /**
  * A transaction handle, in the shape `_recordEventTx` needs. Same narrowing
@@ -64,6 +100,7 @@ export interface ProjectSummary {
   latest_seq: number;
   created_at: string | null;
   updated_at: string | null;
+  archived_at: string | null;
 }
 
 interface ProjectRow {
@@ -100,6 +137,28 @@ interface FileRow {
   stored_name: string;
   description: string | null;
   content: string;
+  content_encoding: string;
+  content_sha256: string;
+  mime_type: string | null;
+  size_bytes: number;
+  source_host_id: number | null;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+/**
+ * A file row without its body. Every listing path uses this: `content` is a
+ * LONGTEXT column that routinely runs to hundreds of kilobytes, and inlining it
+ * into a listing made `project_file_list` and `project_detail` cost more context
+ * than the work they were meant to set up. The body is one `project_file_read`
+ * away, and that call windows.
+ */
+interface FileSummaryRow {
+  id: number;
+  project_id: number;
+  stored_name: string;
+  description: string | null;
+  content_encoding: string;
   content_sha256: string;
   mime_type: string | null;
   size_bytes: number;
@@ -154,21 +213,71 @@ interface EventRow {
 export class HostProjectsService {
   constructor(private readonly db: Database) {}
 
-  async listProjects(host: Host): Promise<{ projects: ProjectSummary[] }> {
+  async listProjects(host: Host, args: Record<string, unknown> = {}): Promise<{ projects: ProjectSummary[] }> {
+    const includeArchived = this.normalizeBoolFlag(args['include_archived']);
     const rows = await this.db
       .select()
       .from(coordProjects)
-      .where(isNull(coordProjects.archivedAt))
+      .where(includeArchived ? undefined : isNull(coordProjects.archivedAt))
       .orderBy(desc(coordProjects.updatedAt), asc(coordProjects.slug));
     const summaries = rows.map((r) => this.buildSummary(this.hydrateProject(r)));
-    await this.recordLog(host.id, 'project.list', { count: summaries.length });
+    await this.recordLog(host.id, 'project.list', { count: summaries.length, include_archived: includeArchived });
     return { projects: summaries };
+  }
+
+  /**
+   * Close a project. Writes `coord_projects.archived_at`, a column that has had
+   * an index since the table was created and that every listing path already
+   * filtered on — and that no code path had ever written, so nothing could ever
+   * leave a listing. The fleet's project list had been append-only since March.
+   */
+  async archiveProject(slug: string, payload: Record<string, unknown>, host: Host): Promise<unknown> {
+    const project = await this.requireProject(slug);
+    const reason = this.optString(payload['reason']);
+    if (project.archived_at) {
+      return { project: this.buildSummary(project), archived_at: project.archived_at, status: 'unchanged' };
+    }
+    const now = nowIso();
+    await this.db
+      .update(coordProjects)
+      .set({ archivedAt: now, updatedAt: now })
+      .where(eq(coordProjects.id, project.id));
+    const updated = (await this.findById(project.id))!;
+    await this.recordEvent(updated, 'project', 'archive', 'project', String(updated.id), { archived_at: now, reason }, host.id);
+    await this.recordLog(host.id, 'project.archive', { slug: updated.slug, reason });
+    wsPublisher.publish('project.archived', { slug: updated.slug, source_host_id: host.id });
+    wsPublisher.publish('project.updated', { slug: updated.slug, source_host_id: host.id });
+    return { project: this.buildSummary(updated), archived_at: now, status: 'archived' };
+  }
+
+  async unarchiveProject(slug: string, host: Host): Promise<unknown> {
+    const project = await this.requireProject(slug);
+    if (!project.archived_at) {
+      return { project: this.buildSummary(project), archived_at: null, status: 'unchanged' };
+    }
+    const now = nowIso();
+    await this.db
+      .update(coordProjects)
+      .set({ archivedAt: null, updatedAt: now })
+      .where(eq(coordProjects.id, project.id));
+    const updated = (await this.findById(project.id))!;
+    await this.recordEvent(updated, 'project', 'unarchive', 'project', String(updated.id), { archived_at: null }, host.id);
+    await this.recordLog(host.id, 'project.unarchive', { slug: updated.slug });
+    wsPublisher.publish('project.unarchived', { slug: updated.slug, source_host_id: host.id });
+    wsPublisher.publish('project.updated', { slug: updated.slug, source_host_id: host.id });
+    return { project: this.buildSummary(updated), archived_at: null, status: 'unarchived' };
   }
 
   async createProject(payload: Record<string, unknown>, host: Host): Promise<unknown> {
     const slug = this.normalizeSlug(payload['slug'] ?? payload['project']);
     const about = this.normalizeAbout(payload['about']);
     const roster = this.normalizeRoster(payload['roster_markdown'] ?? payload['agents_markdown'] ?? '');
+    const template = normalizeBoardTemplate(payload['board_template']);
+    if (template === null) {
+      throw new ValidationError('Validation failed', {
+        extra: { errors: { board_template: [`board_template must be one of: ${boardTemplateList()}`] } },
+      });
+    }
 
     const existing = await this.findBySlug(slug, true);
     if (existing) {
@@ -194,8 +303,13 @@ export class HostProjectsService {
       { slug: created.slug, about: created.about },
       host.id,
     );
-    await this.recordLog(host.id, 'project.create', { slug });
+    await this.recordLog(host.id, 'project.create', { slug, board_template: template });
     wsPublisher.publish('project.created', { slug, source_host_id: host.id });
+    // Provision eagerly when a template was asked for. `ensureBoard` is lazy —
+    // it runs on the first board call — which would leave the choice with
+    // nowhere to wait; doing it here means no column on `coord_projects` just to
+    // replay a decision later.
+    if (template !== DEFAULT_BOARD_TEMPLATE) await this.board().provisionBoard(slug, template);
     return this.projectDetail(slug, host);
   }
 
@@ -225,6 +339,85 @@ export class HostProjectsService {
       routes: {
         detail: detailRoute,
         bootstrap: `${detailRoute}/bootstrap`,
+        notes: `${detailRoute}/notes`,
+        todos: `${detailRoute}/todos`,
+        files: `${detailRoute}/files`,
+        feedback: `${detailRoute}/feedback`,
+        memories: `${detailRoute}/memories`,
+        changes: `${detailRoute}/changes`,
+      },
+    };
+  }
+
+  /**
+   * The call an agent should make first, and the reason it exists: `bootstrap`
+   * inlines whole file bodies into `recent_files`, so on a project carrying real
+   * artifacts it costs more context than the work it was meant to set up. This
+   * returns the same orientation — what the project is, what is in it, what is
+   * open, what is yours — with file metadata instead of file bodies and note
+   * previews instead of note bodies, so its size tracks the number of things in
+   * the project rather than their contents.
+   *
+   * It also folds in the board, which `bootstrap` omits: the `coco` skill used to
+   * name two different calls as the one to make first.
+   */
+  async summary(slug: string, args: Record<string, unknown>, host: Host): Promise<Record<string, unknown>> {
+    const project = await this.requireProject(slug);
+    const [notes, todos, files, feedback, memories, recent] = await Promise.all([
+      this.fetchNotes(project.id),
+      this.fetchTodos(project.id),
+      this.fetchFileSummaries(project.id),
+      this.fetchFeedback(project.id),
+      this.fetchMemories(project.id),
+      this.fetchRecentEvents(project.id, 10),
+    ]);
+
+    const board = await this.board().summaryFor(
+      project.slug,
+      actorFromHost(host, args, this.optionalArg(args, 'engine')),
+    );
+
+    const feedbackByType: Record<string, number> = {};
+    const feedbackByStatus: Record<string, number> = {};
+    for (const item of feedback) {
+      feedbackByType[item.type] = (feedbackByType[item.type] ?? 0) + 1;
+      feedbackByStatus[item.status] = (feedbackByStatus[item.status] ?? 0) + 1;
+    }
+
+    const guidance = managedCocoBootstrapGuidance();
+    const encoded = encodeURIComponent(project.slug);
+    const detailRoute = `/projects/${encoded}`;
+    await this.recordLog(host.id, 'project.summary', { slug: project.slug });
+    return {
+      project: project.slug,
+      about: project.about,
+      roster_markdown: project.roster_markdown ?? '',
+      latest_seq: project.latest_event_seq,
+      archived_at: project.archived_at,
+      counts: {
+        notes: notes.length,
+        open_todos: todos.filter((t) => !t.done).length,
+        done_todos: todos.filter((t) => t.done).length,
+        files: files.length,
+        files_bytes: files.reduce((sum, f) => sum + f.size_bytes, 0),
+        feedback: feedback.length,
+        // The console's Bugs tile filters the full feedback array client-side.
+        // Without these it would have to keep fetching every body to count them.
+        feedback_by_type: feedbackByType,
+        feedback_by_status: feedbackByStatus,
+        memories: memories.length,
+      },
+      board,
+      recent_notes: notes.slice(0, 3).map((n) => this.toNotePreview(n)),
+      files,
+      recent_memories: memories.slice(0, MEMORY_BOOTSTRAP_LIMIT).map((m) => this.toMemoryPreview(m)),
+      recent_changes: recent.slice(-10).map((e) => this.toEventPreview(e)),
+      skill: guidance.skill,
+      instructions: guidance.instructions,
+      quickstart: guidance.quickstart,
+      routes: {
+        summary: `${detailRoute}/summary`,
+        detail: detailRoute,
         notes: `${detailRoute}/notes`,
         todos: `${detailRoute}/todos`,
         files: `${detailRoute}/files`,
@@ -272,6 +465,43 @@ export class HostProjectsService {
     return { project: this.buildSummary(updated), about: updated.about };
   }
 
+  /**
+   * Change a project's `about` block or roster after creation.
+   *
+   * `updateAbout` and `updateRoster` have existed since this service did, and
+   * both were reachable over REST — but neither was ever exposed as an MCP tool,
+   * so an agent could set `about` once at `project_create` and never again. On
+   * the live `dns_switch_work` project that left `about.status` reading
+   * "diagnosed_not_migrated" and `about.last_verified` reading an old date, with
+   * no way for the agent that knew better to correct either.
+   *
+   * `about` merges by default. An agent bumping `status` and `last_verified`
+   * should not have to restate the owner, scope and summary to do it — that is
+   * how a field gets dropped. `replace: true` overwrites wholesale, and passing
+   * `about: {}` with it is how you clear the block.
+   */
+  async updateProject(slug: string, payload: Record<string, unknown>, host: Host): Promise<unknown> {
+    const project = await this.requireProject(slug);
+    const touchesAbout = payload['about'] !== undefined;
+    const touchesRoster = payload['roster_markdown'] !== undefined || payload['markdown'] !== undefined;
+    if (!touchesAbout && !touchesRoster) {
+      throw new ValidationError('Validation failed', {
+        extra: { errors: { about: ['nothing to update: pass about or roster_markdown'] } },
+      });
+    }
+
+    let result: Record<string, unknown> = {};
+    if (touchesAbout) {
+      const incoming = this.normalizeAbout(payload['about']) ?? {};
+      const merged = payload['replace'] === true ? incoming : { ...(project.about ?? {}), ...incoming };
+      result = { ...result, ...(await this.updateAbout(slug, { about: merged }, host) as Record<string, unknown>) };
+    }
+    if (touchesRoster) {
+      result = { ...result, ...(await this.updateRoster(slug, payload, host) as Record<string, unknown>) };
+    }
+    return result;
+  }
+
   async updateRoster(slug: string, payload: Record<string, unknown>, host: Host): Promise<unknown> {
     const project = await this.requireProject(slug);
     const roster = this.normalizeRoster(payload['roster_markdown'] ?? payload['markdown'] ?? '');
@@ -287,16 +517,21 @@ export class HostProjectsService {
     return { project: this.buildSummary(updated), roster_markdown: updated.roster_markdown };
   }
 
-  async listChanges(slug: string, since: number, host: Host): Promise<unknown> {
+  async listChanges(slug: string, since: number, host: Host, args: Record<string, unknown> = {}): Promise<unknown> {
     const project = await this.requireProject(slug);
-    const safeSince = Math.max(0, since | 0);
+    // `Math.trunc`, not `| 0`: the bitwise form silently wraps a sequence above
+    // 2^31, which on a long-lived project would replay the whole log instead of
+    // resuming.
+    const safeSince = Math.max(0, Math.trunc(Number(since)) || 0);
+    const preview = String(args['payloads'] ?? '').toLowerCase() === 'preview';
     const rows = await this.db
       .select()
       .from(coordProjectEvents)
       .where(and(eq(coordProjectEvents.projectId, project.id), gt(coordProjectEvents.seq, safeSince)))
       .orderBy(asc(coordProjectEvents.seq))
       .limit(200);
-    const changes = rows.map((r) => this.hydrateEvent(r));
+    const hydrated = rows.map((r) => this.hydrateEvent(r));
+    const changes = preview ? hydrated.map((e) => this.toEventPreview(e)) : hydrated;
     await this.recordLog(host.id, 'project.changes', { slug: project.slug, since: safeSince, count: changes.length });
     return {
       project: project.slug,
@@ -365,21 +600,6 @@ export class HostProjectsService {
     return { project: project.slug, note: saved };
   }
 
-  async deleteNote(slug: string, id: number, host: Host): Promise<unknown> {
-    const project = await this.requireProject(slug);
-    const existing = await this.db
-      .select()
-      .from(coordProjectNotes)
-      .where(and(eq(coordProjectNotes.projectId, project.id), eq(coordProjectNotes.id, id)))
-      .limit(1);
-    if (!existing[0]) throw new NotFoundError('Note not found');
-    await this.db.delete(coordProjectNotes).where(and(eq(coordProjectNotes.projectId, project.id), eq(coordProjectNotes.id, id)));
-    await this.recordEvent(project, 'note', 'delete', 'note', String(id), { id }, host.id);
-    await this.recordLog(host.id, 'project.note.delete', { slug: project.slug, note_id: id });
-    wsPublisher.publish('project.note.deleted', { slug: project.slug, note_id: id, source_host_id: host.id });
-    return { project: project.slug, deleted: id };
-  }
-
   // ── todos, which are now a view of the project board ──────────────────────
   //
   // Migration 0026 moved every todo onto a card and kept its id as the card
@@ -436,11 +656,23 @@ export class HostProjectsService {
     return { project: project.slug, files };
   }
 
+  /**
+   * Lean file listing: metadata only. This is what an agent should call to find
+   * out what a project holds; `listFiles` returns every body and is kept only
+   * because the admin console and existing callers read `content` out of it.
+   */
+  async listFileSummaries(slug: string, host: Host): Promise<unknown> {
+    const project = await this.requireProject(slug);
+    const files = await this.fetchFileSummaries(project.id);
+    await this.recordLog(host.id, 'project.files.list', { slug: project.slug, count: files.length });
+    return { project: project.slug, files };
+  }
+
   async readFile(
     slug: string,
-    locator: { storedName?: string | null; id?: number | null },
+    locator: { storedName?: string | null; id?: number | null; offset?: number | null; limit?: number | null },
     host: Host,
-  ): Promise<{ project: string; file: FileRow }> {
+  ): Promise<{ project: string; file: FileRow & Partial<FileReadWindow> }> {
     const project = await this.requireProject(slug);
     let file: FileRow | null = null;
     if (typeof locator.id === 'number' && Number.isFinite(locator.id) && locator.id > 0) {
@@ -464,13 +696,54 @@ export class HostProjectsService {
       file_id: file.id,
       stored_name: file.stored_name,
     });
-    return { project: project.slug, file };
+
+    // Windowing is opt-in: passing neither `offset` nor `limit` returns the whole
+    // body exactly as before, so every existing caller is untouched. The contract
+    // for the windowed form matches `shared_memory_read` — follow `next_offset`
+    // while `truncated` is true — because an agent that has learned one should not
+    // have to learn the other.
+    const window = this.normalizeReadWindow(locator.offset, locator.limit);
+    if (!window) return { project: project.slug, file };
+
+    const total = Buffer.byteLength(file.content, 'utf8');
+    const offset = Math.min(window.offset, total);
+    const slice = Buffer.from(file.content, 'utf8').subarray(offset, offset + window.limit);
+    const nextOffset = offset + slice.length;
+    return {
+      project: project.slug,
+      file: {
+        ...file,
+        content: slice.toString('utf8'),
+        offset,
+        next_offset: nextOffset,
+        truncated: nextOffset < total,
+        size_bytes: total,
+      },
+    };
+  }
+
+  /**
+   * `null` when the caller asked for no window at all. `offset` alone is a valid
+   * window (read from here to the default page size), which is what makes
+   * following `next_offset` work without restating `limit` every call.
+   */
+  private normalizeReadWindow(
+    offsetRaw: unknown,
+    limitRaw: unknown,
+  ): { offset: number; limit: number } | null {
+    const hasOffset = offsetRaw !== undefined && offsetRaw !== null && offsetRaw !== '';
+    const hasLimit = limitRaw !== undefined && limitRaw !== null && limitRaw !== '';
+    if (!hasOffset && !hasLimit) return null;
+    const offset = Math.max(0, Math.trunc(Number(offsetRaw ?? 0)) || 0);
+    const rawLimit = Math.trunc(Number(limitRaw ?? FILE_READ_DEFAULT_WINDOW)) || FILE_READ_DEFAULT_WINDOW;
+    const limit = Math.min(Math.max(1, rawLimit), FILE_READ_MAX_WINDOW);
+    return { offset, limit };
   }
 
   async upsertFile(slug: string, payload: Record<string, unknown>, host: Host): Promise<unknown> {
     const project = await this.requireProject(slug);
-    const { storedName, description, content, mimeType } = this.normalizeFilePayload(payload);
-    const sha = createHash('sha256').update(content).digest('hex');
+    const { storedName, description, content, mimeType, encoding, sha256: sha } =
+      this.normalizeFilePayload(payload);
     const now = nowIso();
     const existing = await this.db
       .select()
@@ -487,6 +760,7 @@ export class HostProjectsService {
         .set({
           description: description ?? null,
           content,
+          contentEncoding: encoding,
           contentSha256: sha,
           mimeType: mimeType ?? null,
           sourceHostId: host.id,
@@ -499,6 +773,7 @@ export class HostProjectsService {
         storedName,
         description: description ?? null,
         content,
+        contentEncoding: encoding,
         contentSha256: sha,
         mimeType: mimeType ?? null,
         sourceHostId: host.id,
@@ -565,6 +840,78 @@ export class HostProjectsService {
     await this.recordLog(host.id, 'project.feedback.create', { slug: project.slug, feedback_id: savedId });
     wsPublisher.publish('project.feedback.created', { slug: project.slug, feedback_id: savedId, source_host_id: host.id });
     return { project: project.slug, feedback: row };
+  }
+
+  /**
+   * Triage a feedback item. `status` is the point: the column has existed since
+   * the table did and nothing ever wrote anything but 'open', so the inbox only
+   * ever grew.
+   */
+  async updateFeedback(slug: string, id: number, payload: Record<string, unknown>, host: Host): Promise<unknown> {
+    const project = await this.requireProject(slug);
+    const existing = await this.fetchFeedbackById(project.id, id);
+    if (!existing) throw new NotFoundError('Project feedback not found');
+
+    const patch: Record<string, unknown> = {};
+    if (payload['status'] !== undefined) {
+      const status = String(payload['status'] ?? '').trim().toLowerCase();
+      if (!isProjectFeedbackStatus(status)) {
+        throw new ValidationError('Validation failed', {
+          extra: { errors: { status: [`status must be one of: ${projectFeedbackStatusList()}`] } },
+        });
+      }
+      patch['status'] = status;
+    }
+    if (payload['type'] !== undefined) {
+      const type = String(payload['type'] ?? '').trim().toLowerCase();
+      if (!isProjectFeedbackType(type)) {
+        throw new ValidationError('Validation failed', {
+          extra: { errors: { type: [`type must be one of: ${projectFeedbackTypeList()}`] } },
+        });
+      }
+      patch['type'] = type;
+    }
+    for (const field of ['title', 'body'] as const) {
+      if (payload[field] === undefined) continue;
+      const text = String(payload[field] ?? '').trim();
+      if (!text) {
+        throw new ValidationError('Validation failed', { extra: { errors: { [field]: [`${field} cannot be blank`] } } });
+      }
+      patch[field] = text;
+    }
+    if (Object.keys(patch).length === 0) {
+      throw new ValidationError('Validation failed', {
+        extra: { errors: { status: ['nothing to update: pass status, type, title or body'] } },
+      });
+    }
+
+    const now = nowIso();
+    await this.db
+      .update(coordProjectFeedback)
+      .set({ ...patch, updatedAt: now })
+      .where(and(eq(coordProjectFeedback.projectId, project.id), eq(coordProjectFeedback.id, id)));
+    const row = await this.fetchFeedbackById(project.id, id);
+    await this.recordEvent(project, 'feedback', 'update', 'feedback', String(id), row as unknown as Record<string, unknown>, host.id);
+    await this.recordLog(host.id, 'project.feedback.update', { slug: project.slug, feedback_id: id, ...patch });
+    wsPublisher.publish('project.feedback.updated', { slug: project.slug, feedback_id: id, source_host_id: host.id });
+    return { project: project.slug, feedback: row };
+  }
+
+  async deleteNote(slug: string, id: number, host: Host): Promise<unknown> {
+    const project = await this.requireProject(slug);
+    const rows = await this.db
+      .select()
+      .from(coordProjectNotes)
+      .where(and(eq(coordProjectNotes.projectId, project.id), eq(coordProjectNotes.id, id)))
+      .limit(1);
+    if (!rows[0]) throw new NotFoundError('Note not found');
+    await this.db
+      .delete(coordProjectNotes)
+      .where(and(eq(coordProjectNotes.projectId, project.id), eq(coordProjectNotes.id, id)));
+    await this.recordEvent(project, 'note', 'delete', 'note', String(id), { id, header: rows[0].header }, host.id);
+    await this.recordLog(host.id, 'project.note.delete', { slug: project.slug, note_id: id });
+    wsPublisher.publish('project.note.deleted', { slug: project.slug, note_id: id, source_host_id: host.id });
+    return { project: project.slug, deleted: id };
   }
 
   /**
@@ -808,18 +1155,39 @@ export class HostProjectsService {
    * test has to learn that todos moved: `new HostProjectsService(db)` still
    * means the same thing. `this` escaping into it is deliberate and safe — the
    * board only calls back into `requireProject` and `_recordEventTx`, and never
-   * during construction. It carries no settings service because the shim is not
-   * gated by the board module flag.
+   * during construction.
+   *
+   * It DOES carry a settings service, despite `project_todo_*` not being gated
+   * by the board module flag. Those methods never consult it — they go through
+   * `withBoard`, which does not check — so passing one gates nothing that was
+   * ungated before. What it fixes is `getEnabled()`, which returns false when
+   * there is no settings service: `project_summary` embeds the board, and
+   * without this it reported `status: "disabled"` on every fleet, including the
+   * ones with the board switched on.
    */
   private board(): ProjectBoardService {
-    this.boardService ??= new ProjectBoardService({ db: this.db, projects: this });
+    this.boardService ??= new ProjectBoardService({
+      db: this.db,
+      projects: this,
+      settings: new SettingsService(this.db),
+    });
     return this.boardService;
   }
   private boardService: ProjectBoardService | null = null;
 
+  /**
+   * Archiving is a visibility state, not a tombstone: an archived project drops
+   * out of `project_list`, the board sweep and the MCP resource catalogue, but
+   * stays fully readable and writable by explicit slug. A mail migration that
+   * shipped is exactly the thing somebody comes back to read six months later,
+   * and `deleteBySlug` already exists for actually getting rid of one.
+   *
+   * `createProject` checks for duplicates with `includeArchived: true`, so an
+   * archived slug still cannot be taken by a new project.
+   */
   async requireProject(slug: string): Promise<ProjectRow> {
     const normalized = this.normalizeSlug(slug);
-    const found = await this.findBySlug(normalized);
+    const found = await this.findBySlug(normalized, true);
     if (!found) throw new NotFoundError('Project not found');
     return found;
   }
@@ -880,6 +1248,53 @@ export class HostProjectsService {
       .where(eq(coordProjectFiles.projectId, projectId))
       .orderBy(desc(coordProjectFiles.updatedAt), desc(coordProjectFiles.id));
     return rows.map((r) => this.hydrateFile(r));
+  }
+
+  /**
+   * The listing counterpart of `fetchFiles`. `content` is never selected: the
+   * point is not only to keep it out of the response but to keep MySQL from
+   * shipping the LONGTEXT at all, so `size_bytes` comes from `octet_length()`
+   * server-side rather than from `Buffer.byteLength` over a body we then throw
+   * away. Same number that `hydrateFile` derives, one round trip cheaper.
+   */
+  private async fetchFileSummaries(projectId: number): Promise<FileSummaryRow[]> {
+    const rows = await this.db
+      .select({
+        id: coordProjectFiles.id,
+        projectId: coordProjectFiles.projectId,
+        storedName: coordProjectFiles.storedName,
+        description: coordProjectFiles.description,
+        contentSha256: coordProjectFiles.contentSha256,
+        mimeType: coordProjectFiles.mimeType,
+        contentEncoding: coordProjectFiles.contentEncoding,
+        sizeBytes: sql<number>`octet_length(${coordProjectFiles.content})`,
+        // The last two characters are all that is needed to count base64
+        // padding, and two characters is not a body.
+        contentTail: sql<string>`right(${coordProjectFiles.content}, 2)`,
+        sourceHostId: coordProjectFiles.sourceHostId,
+        createdAt: coordProjectFiles.createdAt,
+        updatedAt: coordProjectFiles.updatedAt,
+      })
+      .from(coordProjectFiles)
+      .where(eq(coordProjectFiles.projectId, projectId))
+      .orderBy(desc(coordProjectFiles.updatedAt), desc(coordProjectFiles.id));
+    return rows.map((r) => ({
+      id: Number(r.id),
+      project_id: Number(r.projectId),
+      stored_name: r.storedName,
+      description: r.description ?? null,
+      content_sha256: r.contentSha256,
+      mime_type: r.mimeType ?? null,
+      content_encoding: r.contentEncoding ?? 'utf8',
+      size_bytes: decodedLengthFromStored(
+        Number(r.sizeBytes ?? 0),
+        String(r.contentTail ?? ''),
+        r.contentEncoding,
+      ),
+      source_host_id: r.sourceHostId ?? null,
+      created_at: r.createdAt,
+      updated_at: r.updatedAt,
+    }));
   }
 
   private async fetchFileById(projectId: number, id: number): Promise<FileRow | null> {
@@ -1059,15 +1474,17 @@ export class HostProjectsService {
 
   private hydrateFile(row: typeof coordProjectFiles.$inferSelect): FileRow {
     const content = row.content ?? '';
+    const encoding = row.contentEncoding ?? 'utf8';
     return {
       id: Number(row.id),
       project_id: Number(row.projectId),
       stored_name: row.storedName,
       description: row.description ?? null,
       content,
+      content_encoding: encoding,
       content_sha256: row.contentSha256,
       mime_type: row.mimeType ?? null,
-      size_bytes: Buffer.byteLength(content, 'utf8'),
+      size_bytes: decodedByteLength(content, encoding),
       source_host_id: row.sourceHostId ?? null,
       created_at: row.createdAt,
       updated_at: row.updatedAt,
@@ -1118,6 +1535,46 @@ export class HostProjectsService {
     };
   }
 
+  private optionalArg(args: Record<string, unknown>, key: string): string | null {
+    const value = args[key];
+    return typeof value === 'string' && value.trim() !== '' ? value.trim() : null;
+  }
+
+  private preview(text: string): { preview: string; content_length: number } {
+    return {
+      preview: text.length > MEMORY_PREVIEW_CHARS ? text.slice(0, MEMORY_PREVIEW_CHARS) : text,
+      content_length: text.length,
+    };
+  }
+
+  private toNotePreview(row: NoteRow): Record<string, unknown> {
+    const { body, ...rest } = row;
+    return { ...rest, ...this.preview(body ?? '') };
+  }
+
+  /**
+   * Event payloads are mostly metadata already — file and memory events carry a
+   * sha and a preview. Note and card events are the exception: they inline the
+   * whole body, which is how twenty events came to weigh a hundred kilobytes.
+   * This trims exactly those fields and leaves every other payload alone.
+   */
+  private toEventPreview(row: EventRow): EventRow {
+    const payload = row.payload;
+    if (!payload || typeof payload !== 'object') return row;
+    const trimmed: Record<string, unknown> = { ...payload };
+    let touched = false;
+    for (const key of ['body', 'detail', 'content', 'note', 'roster_markdown']) {
+      const value = trimmed[key];
+      if (typeof value === 'string' && value.length > MEMORY_PREVIEW_CHARS) {
+        const { preview, content_length } = this.preview(value);
+        trimmed[key] = preview;
+        trimmed[`${key}_length`] = content_length;
+        touched = true;
+      }
+    }
+    return touched ? { ...row, payload: trimmed } : row;
+  }
+
   private toMemoryPreview(row: MemoryRow): MemoryPreviewRow {
     const { content, ...rest } = row;
     return { ...rest, content_length: content.length, preview: content.slice(0, MEMORY_PREVIEW_CHARS) };
@@ -1159,6 +1616,9 @@ export class HostProjectsService {
       latest_seq: project.latest_event_seq,
       created_at: project.created_at,
       updated_at: project.updated_at,
+      // Without this an `include_archived` listing is a mixed list the caller
+      // cannot tell apart, which is worse than not offering the flag.
+      archived_at: project.archived_at,
     };
   }
 
@@ -1222,16 +1682,28 @@ export class HostProjectsService {
     description: string | null;
     content: string;
     mimeType: string | null;
+    encoding: ProjectFileEncoding;
+    sha256: string;
   } {
     const rawName = payload['stored_name'] ?? payload['name'] ?? '';
     const storedName = this.normalizeStoredName(rawName);
     const content = String(payload['content'] ?? payload['text'] ?? '');
     if (!content) throw new ValidationError('Validation failed', { extra: { errors: { content: ['content is required'] } } });
+    const accepted = acceptFileBody(content, payload['encoding']);
+    if (!accepted.ok) {
+      throw new ValidationError('Validation failed', {
+        extra: { errors: { [accepted.error.field]: [accepted.error.message] } },
+      });
+    }
     return {
       storedName,
       description: this.optString(payload['description']),
-      content,
-      mimeType: this.optString(payload['mime_type']),
+      content: accepted.value.body,
+      // An explicit mime type always wins; inference only fills a gap the
+      // caller left, which is most of them.
+      mimeType: this.optString(payload['mime_type']) ?? inferMimeType(storedName),
+      encoding: accepted.value.encoding,
+      sha256: accepted.value.sha256,
     };
   }
 
@@ -1247,7 +1719,13 @@ export class HostProjectsService {
         throw new ValidationError('Validation failed', { extra: { errors: { stored_name: ['stored_name cannot contain dot segments'] } } });
       }
     }
-    return segments.join('/');
+    const joined = segments.join('/');
+    if (storedNameTooLong(joined)) {
+      throw new ValidationError('Validation failed', {
+        extra: { errors: { stored_name: [STORED_NAME_TOO_LONG_MESSAGE] } },
+      });
+    }
+    return joined;
   }
 
   normalizeMemoryPayload(payload: Record<string, unknown>): {

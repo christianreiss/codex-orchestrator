@@ -100,10 +100,15 @@ export async function registerProjectsClientRoutes(app: FastifyInstance, ctx: Ro
   const auth = app.requireHost;
 
   // ─── Projects ─────────────────────────────────────────────────────────
-  app.get('/projects', { preHandler: auth }, async (req) => ok(await projects.listProjects(requireHost(req))));
+  app.get('/projects', { preHandler: auth }, async (req) =>
+    ok(await projects.listProjects(requireHost(req), (req.query as Record<string, unknown>) ?? {})));
   app.post('/projects', { preHandler: auth }, async (req) => {
     const payload = (req.body as Record<string, unknown>) ?? {};
     return ok(await projects.createProject(payload, requireHost(req)));
+  });
+  app.get('/projects/:slug/summary', { preHandler: auth }, async (req) => {
+    const slug = parseSlug((req.params as { slug: string }).slug);
+    return ok(await projects.summary(slug, (req.query as Record<string, unknown>) ?? {}, requireHost(req)));
   });
   app.get('/projects/:slug/bootstrap', { preHandler: auth }, async (req) => {
     const slug = parseSlug((req.params as { slug: string }).slug);
@@ -112,6 +117,14 @@ export async function registerProjectsClientRoutes(app: FastifyInstance, ctx: Ro
   app.get('/projects/:slug', { preHandler: auth }, async (req) => {
     const slug = parseSlug((req.params as { slug: string }).slug);
     return ok(await projects.projectDetail(slug, requireHost(req)));
+  });
+  app.post('/projects/:slug/archive', { preHandler: auth }, async (req) => {
+    const slug = parseSlug((req.params as { slug: string }).slug);
+    return ok(await projects.archiveProject(slug, (req.body as Record<string, unknown>) ?? {}, requireHost(req)));
+  });
+  app.post('/projects/:slug/unarchive', { preHandler: auth }, async (req) => {
+    const slug = parseSlug((req.params as { slug: string }).slug);
+    return ok(await projects.unarchiveProject(slug, requireHost(req)));
   });
   app.post('/projects/:slug/about', { preHandler: auth }, async (req) => {
     const slug = parseSlug((req.params as { slug: string }).slug);
@@ -123,8 +136,16 @@ export async function registerProjectsClientRoutes(app: FastifyInstance, ctx: Ro
   });
   app.get('/projects/:slug/changes', { preHandler: auth }, async (req) => {
     const slug = parseSlug((req.params as { slug: string }).slug);
-    const since = Number((req.query as { since?: string })?.since ?? 0);
-    return ok(await projects.listChanges(slug, Number.isFinite(since) ? Math.max(0, since) : 0, requireHost(req)));
+    const query = (req.query as Record<string, unknown>) ?? {};
+    const since = Number(query['since'] ?? query['since_seq'] ?? 0);
+    return ok(
+      await projects.listChanges(
+        slug,
+        Number.isFinite(since) ? Math.max(0, since) : 0,
+        requireHost(req),
+        query,
+      ),
+    );
   });
 
   // Notes
@@ -221,6 +242,16 @@ export async function registerProjectsClientRoutes(app: FastifyInstance, ctx: Ro
   app.post('/projects/:slug/feedback', { preHandler: auth }, async (req) => {
     const slug = parseSlug((req.params as { slug: string }).slug);
     return ok(await projects.createFeedback(slug, (req.body as Record<string, unknown>) ?? {}, requireHost(req)));
+  });
+  app.post('/projects/:slug/feedback/:id', { preHandler: auth }, async (req) => {
+    const { slug, id } = req.params as { slug: string; id: string };
+    const feedbackId = parseInteger(id);
+    if (feedbackId === null || feedbackId <= 0) {
+      throw new ValidationError('feedback id must be a positive integer', { param: 'id' });
+    }
+    return ok(
+      await projects.updateFeedback(parseSlug(slug), feedbackId, (req.body as Record<string, unknown>) ?? {}, requireHost(req)),
+    );
   });
 
   // Memories

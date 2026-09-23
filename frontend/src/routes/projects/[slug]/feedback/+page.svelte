@@ -19,9 +19,14 @@
     createFeedback,
     fetchFeedback,
     projectKeys,
+    updateFeedback,
   } from "$lib/api/projects";
   import { relativeTime } from "$lib/utils/format";
-  import type { ProjectFeedback, ProjectFeedbackType } from "$lib/api/types";
+  import type {
+    ProjectFeedback,
+    ProjectFeedbackStatus,
+    ProjectFeedbackType,
+  } from "$lib/api/types";
 
   const qc = useQueryClient();
   const slug = $derived(page.params.slug ?? "");
@@ -60,6 +65,50 @@
     issue: "destructive",
     test: "outline",
   };
+
+  // `status` had a default of 'open' and no writer anywhere — no route, no tool,
+  // no control here — so every item ever filed was still open. A review inbox
+  // that cannot be closed is a list nobody reads.
+  const STATUSES: ProjectFeedbackStatus[] = ["open", "acknowledged", "resolved", "dismissed"];
+
+  const STATUS_LABEL: Record<ProjectFeedbackStatus, string> = {
+    open: "Open",
+    acknowledged: "Acknowledged",
+    resolved: "Resolved",
+    dismissed: "Dismissed",
+  };
+
+  const STATUS_BADGE: Record<ProjectFeedbackStatus, BadgeVariant> = {
+    open: "destructive",
+    acknowledged: "default",
+    resolved: "secondary",
+    dismissed: "outline",
+  };
+
+  const statusMut = createMutation({
+    mutationFn: ({ id, status }: { id: number; status: ProjectFeedbackStatus }) =>
+      updateFeedback(slug, id, { status }),
+    onMutate: async ({ id, status }) => {
+      await qc.cancelQueries({ queryKey: projectKeys.feedback(slug) });
+      const previous = qc.getQueryData(projectKeys.feedback(slug));
+      qc.setQueryData<{ project: string | null; feedback: ProjectFeedback[] }>(
+        projectKeys.feedback(slug),
+        (prev) => ({
+          project: prev?.project ?? slug,
+          feedback: (prev?.feedback ?? []).map((f) => (f.id === id ? { ...f, status } : f)),
+        }),
+      );
+      return { previous };
+    },
+    onError: (err, _v, ctx) => {
+      if (ctx?.previous !== undefined) qc.setQueryData(projectKeys.feedback(slug), ctx.previous);
+      toast.error(err instanceof ApiError ? err.message : "Could not update feedback");
+    },
+    onSettled: () => {
+      void qc.invalidateQueries({ queryKey: projectKeys.feedback(slug) });
+      void qc.invalidateQueries({ queryKey: projectKeys.detail(slug) });
+    },
+  });
 
   const createMut = createMutation({
     mutationFn: () => createFeedback(slug, { type, title: title.trim(), body: body.trim() }),
@@ -105,6 +154,10 @@
       return tb - ta;
     }),
   );
+
+  const openCount = $derived(
+    items.filter((entry) => (entry.status ?? "open") === "open").length,
+  );
   const canSubmit = $derived(title.trim().length > 0 && body.trim().length > 0);
 </script>
 
@@ -112,7 +165,7 @@
   <section class="flex flex-col gap-3">
     <div class="flex items-center justify-between gap-3">
       <h2 class="text-sm font-medium text-muted-foreground">
-        {items.length} {items.length === 1 ? "entry" : "entries"} · read-only log
+        {items.length} {items.length === 1 ? "entry" : "entries"}{openCount > 0 ? ` · ${openCount} open` : ""}
       </h2>
       <Button size="sm" onclick={() => (createOpen = true)}>
         <Plus class="h-4 w-4" />
@@ -145,10 +198,32 @@
                   <Badge variant={TYPE_BADGE[entry.type] ?? "default"}>
                     {TYPE_LABEL[entry.type] ?? entry.type}
                   </Badge>
+                  <Badge variant={STATUS_BADGE[entry.status ?? "open"] ?? "destructive"}>
+                    {STATUS_LABEL[entry.status ?? "open"] ?? entry.status}
+                  </Badge>
                   <h3 class="truncate text-sm font-semibold">{entry.title}</h3>
                 </div>
                 <p class="mt-1 text-xs text-muted-foreground">{relativeTime(entry.created_at)}</p>
               </div>
+              {#if entry.id > 0}
+                <Select.Root
+                  type="single"
+                  value={entry.status ?? "open"}
+                  onValueChange={(next) =>
+                    next &&
+                    next !== (entry.status ?? "open") &&
+                    $statusMut.mutate({ id: entry.id, status: next as ProjectFeedbackStatus })}
+                >
+                  <Select.Trigger class="w-40 shrink-0" aria-label="Feedback status">
+                    {STATUS_LABEL[entry.status ?? "open"]}
+                  </Select.Trigger>
+                  <Select.Content>
+                    {#each STATUSES as value (value)}
+                      <Select.Item {value}>{STATUS_LABEL[value]}</Select.Item>
+                    {/each}
+                  </Select.Content>
+                </Select.Root>
+              {/if}
             </div>
             <p class="mt-3 whitespace-pre-wrap text-sm text-foreground/90">{entry.body}</p>
           </li>

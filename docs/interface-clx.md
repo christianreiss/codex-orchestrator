@@ -775,7 +775,7 @@ this run.
   entries from the configured MCP server names, so curating fleet state is never
   the action that interrupts the user: for every enabled `mcpServers` entry the
   fleet renders (managed and operator-supplied alike)
-  `mcp__<server>__{shared_memory_write,shared_memory_append,shared_memory_delete,project_memory_upsert,project_memory_delete,transfer_put,transfer_delete}`,
+  `mcp__<server>__{shared_memory_write,shared_memory_append,shared_memory_delete,project_memory_upsert,project_memory_delete,project_update,project_archive,project_unarchive,project_feedback_update,transfer_put,transfer_delete}`,
   and, when the bus is provisioned, `mcp__plugin_cxx-receiver_cxx-agent__<tool>`
   for every Agent Messaging tool. That plugin-scoped server name is not a typo:
   on Claude the messaging server is provided by the wrapper's own `cxx-receiver`

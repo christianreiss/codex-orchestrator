@@ -24,6 +24,16 @@
       : null,
   );
   const targets = $derived(columns.filter((column) => column.id !== card.column?.id));
+
+  const waiting = $derived(card.waiting_on ?? []);
+  // A due date only earns attention when it is close or past.
+  const dueState = $derived.by(() => {
+    if (!card.due_at) return null;
+    const due = Date.parse(card.due_at);
+    if (!Number.isFinite(due)) return null;
+    const hoursOut = (due - Date.now()) / 3_600_000;
+    return hoursOut < 0 ? "overdue" : hoursOut < 48 ? "soon" : "later";
+  });
 </script>
 
 <article
@@ -64,10 +74,24 @@
     <p class="mt-2 text-xs text-destructive">{card.blocked_reason}</p>
   {/if}
 
+  {#if waiting.length > 0}
+    <p class="mt-2 text-xs text-muted-foreground">
+      Waiting on {waiting.map((dep) => `#${dep.number}`).join(", ")}
+    </p>
+  {/if}
+
   <div class="mt-2 flex flex-wrap items-center gap-1">
     {#each card.labels as label (label)}
       <Badge variant="outline" class="text-[10px]">{label}</Badge>
     {/each}
+    {#if card.due_at}
+      <Badge
+        variant={dueState === "overdue" ? "destructive" : dueState === "soon" ? "default" : "outline"}
+        class="text-[10px]"
+      >
+        due {relativeTime(card.due_at)}
+      </Badge>
+    {/if}
     {#if held}
       <!-- The expiry is the useful part, not the fact of a claim: it is what
            tells an operator whether to wait or to force a release. -->

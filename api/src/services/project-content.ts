@@ -19,7 +19,21 @@ import { NotFoundError, ValidationError } from '../http/errors.js';
 import { nowIso } from '../util/timestamp.js';
 import { wsPublisher } from '../ws/publisher.js';
 import { ProjectsService, formatFile, toTodoView, type ProjectFileView, type TodoView } from './projects.js';
-import { isProjectFeedbackType, projectFeedbackTypeList } from './project-feedback-types.js';
+import {
+  isProjectFeedbackStatus,
+  isProjectFeedbackType,
+  projectFeedbackStatusList,
+  projectFeedbackTypeList,
+} from './project-feedback-types.js';
+import {
+  STORED_NAME_TOO_LONG_MESSAGE,
+  acceptFileBody,
+  decodedByteLength,
+  decodedLengthFromStored,
+  inferMimeType,
+  storedNameTooLong,
+  type ProjectFileEncoding,
+} from './project-file-encoding.js';
 import { ProjectBoardService } from './project-board.js';
 import { HostProjectsService } from './host-projects.js';
 
@@ -48,7 +62,11 @@ function normalizeStoredName(value: unknown): string {
       throw new ValidationError('stored_name cannot contain dot segments', { param: 'stored_name' });
     }
   }
-  return segments.join('/');
+  const joined = segments.join('/');
+  if (storedNameTooLong(joined)) {
+    throw new ValidationError(STORED_NAME_TOO_LONG_MESSAGE, { param: 'stored_name' });
+  }
+  return joined;
 }
 
 function normalizeOptionalString(value: unknown): string | null {
@@ -74,7 +92,14 @@ function normalizeTodo(payload: Record<string, unknown>): { title: string; detai
   return { title, detail };
 }
 
-function normalizeFile(payload: Record<string, unknown>): { storedName: string; description: string | null; content: string; mimeType: string | null } {
+function normalizeFile(payload: Record<string, unknown>): {
+  storedName: string;
+  description: string | null;
+  content: string;
+  mimeType: string | null;
+  encoding: ProjectFileEncoding;
+  sha256: string;
+} {
   const storedName = normalizeStoredName(payload.stored_name ?? payload.name);
   const description = normalizeOptionalString(payload.description);
   const content = typeof payload.content === 'string' ? payload.content : typeof payload.text === 'string' ? payload.text : '';
@@ -82,7 +107,20 @@ function normalizeFile(payload: Record<string, unknown>): { storedName: string; 
   if (content === '') {
     throw new ValidationError('content is required', { param: 'content' });
   }
-  return { storedName, description, content, mimeType };
+  // Same gate the host/MCP writer uses. A size limit only one of the two
+  // enforces is not a size limit.
+  const accepted = acceptFileBody(content, payload.encoding);
+  if (!accepted.ok) {
+    throw new ValidationError(accepted.error.message, { param: accepted.error.field });
+  }
+  return {
+    storedName,
+    description,
+    content: accepted.value.body,
+    mimeType: mimeType ?? inferMimeType(storedName),
+    encoding: accepted.value.encoding,
+    sha256: accepted.value.sha256,
+  };
 }
 
 function normalizeFeedback(payload: Record<string, unknown>): { type: string; title: string; body: string } {
@@ -261,8 +299,7 @@ export class ProjectContentService {
 
   async upsertFile(slug: string, payload: Record<string, unknown>, sourceHostId: number | null = null): Promise<{ project: string; file: ProjectFileView }> {
     const project = await this.projects._resolveProject(slug);
-    const { storedName, description, content, mimeType } = normalizeFile(payload);
-    const sha = createHash('sha256').update(content).digest('hex');
+    const { storedName, description, content, mimeType, encoding, sha256: sha } = normalizeFile(payload);
     const nowTs = nowIso();
 
     const existing = await this.db
@@ -281,6 +318,7 @@ export class ProjectContentService {
         .set({
           description,
           content,
+          contentEncoding: encoding,
           contentSha256: sha,
           mimeType,
           sourceHostId,
@@ -293,6 +331,7 @@ export class ProjectContentService {
         storedName,
         description,
         content,
+        contentEncoding: encoding,
         contentSha256: sha,
         mimeType,
         sourceHostId,
@@ -321,6 +360,21 @@ export class ProjectContentService {
     wsPublisher.publish('project.changed', { slug: project.slug });
 
     return { project: project.slug, file };
+  }
+
+  /**
+   * One file, body included. The console's files page used to read `content`
+   * out of the full listing, which meant fetching every body to edit one.
+   */
+  async readFile(slug: string, id: number): Promise<{ project: string; file: ProjectFileView }> {
+    const project = await this.projects._resolveProject(slug);
+    const rows = await this.db
+      .select()
+      .from(coordProjectFiles)
+      .where(and(eq(coordProjectFiles.projectId, project.id), eq(coordProjectFiles.id, id)))
+      .limit(1);
+    if (!rows[0]) throw new NotFoundError('Project file not found');
+    return { project: project.slug, file: formatFile(rows[0]) };
   }
 
   async deleteFile(slug: string, id: number, sourceHostId: number | null = null): Promise<{ project: string; deleted: number }> {
@@ -353,6 +407,65 @@ export class ProjectContentService {
       .where(eq(coordProjectFeedback.projectId, project.id))
       .orderBy(desc(coordProjectFeedback.updatedAt));
     return { project: project.slug, feedback: rows };
+  }
+
+  /**
+   * Triage an existing item. `status` had a default and no writer, so the
+   * console could file feedback and never close it.
+   */
+  async updateFeedback(
+    slug: string,
+    id: number,
+    payload: Record<string, unknown>,
+    sourceHostId: number | null = null,
+  ): Promise<{ project: string; feedback: typeof coordProjectFeedback.$inferSelect }> {
+    const project = await this.projects._resolveProject(slug);
+    const existing = await this.db
+      .select()
+      .from(coordProjectFeedback)
+      .where(and(eq(coordProjectFeedback.projectId, project.id), eq(coordProjectFeedback.id, id)))
+      .limit(1);
+    if (!existing[0]) throw new NotFoundError('Project feedback not found');
+
+    const patch: Record<string, unknown> = {};
+    if (payload.status !== undefined) {
+      const status = trimStr(payload.status).toLowerCase();
+      if (!isProjectFeedbackStatus(status)) {
+        throw new ValidationError(`status must be one of: ${projectFeedbackStatusList()}`, { param: 'status' });
+      }
+      patch.status = status;
+    }
+    if (payload.type !== undefined) {
+      const type = trimStr(payload.type).toLowerCase();
+      if (!isProjectFeedbackType(type)) {
+        throw new ValidationError(`type must be one of: ${projectFeedbackTypeList()}`, { param: 'type' });
+      }
+      patch.type = type;
+    }
+    for (const field of ['title', 'body'] as const) {
+      if (payload[field] === undefined) continue;
+      const text = trimStr(payload[field]);
+      if (text === '') throw new ValidationError(`${field} cannot be blank`, { param: field });
+      patch[field] = text;
+    }
+    if (Object.keys(patch).length === 0) {
+      throw new ValidationError('nothing to update: pass status, type, title or body', { param: 'status' });
+    }
+
+    const nowTs = nowIso();
+    await this.db
+      .update(coordProjectFeedback)
+      .set({ ...patch, updatedAt: nowTs })
+      .where(and(eq(coordProjectFeedback.projectId, project.id), eq(coordProjectFeedback.id, id)));
+    const row = (await this.db
+      .select()
+      .from(coordProjectFeedback)
+      .where(and(eq(coordProjectFeedback.projectId, project.id), eq(coordProjectFeedback.id, id)))
+      .limit(1))[0]!;
+    await this.projects._recordEvent(project.id, 'feedback', 'update', 'feedback', row.id, row as unknown as Record<string, unknown>, sourceHostId);
+    wsPublisher.publish('project.feedback.updated', { slug: project.slug, feedback_id: id });
+    wsPublisher.publish('project.changed', { slug: project.slug });
+    return { project: project.slug, feedback: row };
   }
 
   async createFeedback(slug: string, payload: Record<string, unknown>, sourceHostId: number | null = null): Promise<{ project: string; feedback: typeof coordProjectFeedback.$inferSelect }> {

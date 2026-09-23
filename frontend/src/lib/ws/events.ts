@@ -54,6 +54,9 @@ export const DEFAULT_INVALIDATIONS: WsInvalidationMap = {
   "project.file.updated": [["projects"]],
   "project.file.deleted": [["projects"]],
   "project.feedback.created": [["projects"]],
+  "project.feedback.updated": [["projects"]],
+  "project.archived": [["projects"]],
+  "project.unarchived": [["projects"]],
   "project.card.created": [["projects"]],
   "project.card.updated": [["projects"]],
   "project.card.moved": [["projects"]],
@@ -237,6 +240,15 @@ const PROJECT_SCOPED_EVENTS = new Set<string>([
   "project.file.updated",
   "project.file.deleted",
   "project.feedback.created",
+  "project.feedback.updated",
+  "project.archived",
+  "project.unarchived",
+  // Project memories are the long-standing gap here: `project.memory.*` is in
+  // DEFAULT_INVALIDATIONS but was never project-scoped, so an agent writing one
+  // refreshed the project list and left an open Activity tab stale.
+  "project.memory.created",
+  "project.memory.updated",
+  "project.memory.deleted",
   "project.card.created",
   "project.card.updated",
   "project.card.moved",
@@ -251,6 +263,7 @@ function projectDetailSubKey(eventType: string): string | null {
   if (eventType.startsWith("project.todo")) return "todos";
   if (eventType.startsWith("project.file")) return "files";
   if (eventType.startsWith("project.feedback")) return "feedback";
+  if (eventType.startsWith("project.memory")) return "memories";
   if (eventType.startsWith("project.card") || eventType.startsWith("project.board")) return "board";
   return null;
 }

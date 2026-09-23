@@ -5,6 +5,9 @@
   import Plus from "@lucide/svelte/icons/plus";
   import { Button } from "$lib/components/ui/button";
   import { Input } from "$lib/components/ui/input";
+  import { Label } from "$lib/components/ui/label";
+  import { Textarea } from "$lib/components/ui/textarea";
+  import * as Sheet from "$lib/components/ui/sheet";
   import { Skeleton } from "$lib/components/ui/skeleton";
   import * as Alert from "$lib/components/ui/alert";
   import BoardColumnPane from "$lib/components/projects/board/BoardColumn.svelte";
@@ -84,19 +87,89 @@
     onSettled: refresh,
   });
 
+  // A sheet rather than the window.prompt this used to be: a card now carries a
+  // due date and an ordering, and neither survives being typed into a prompt.
+  let editing = $state<BoardCard | null>(null);
+  let editTitle = $state("");
+  let editDetail = $state("");
+  let editDueAt = $state("");
+  let editDependsOn = $state("");
+  let editError = $state<string | null>(null);
+
+  function edit(card: BoardCard) {
+    editing = card;
+    editTitle = card.title;
+    editDetail = card.detail ?? "";
+    // `datetime-local` wants a local wall-clock string with no zone.
+    editDueAt = card.due_at ? toLocalInput(card.due_at) : "";
+    editDependsOn = (card.depends_on ?? []).map((n) => `#${n}`).join(", ");
+    editError = null;
+  }
+
+  function toLocalInput(iso: string): string {
+    const at = new Date(iso);
+    if (!Number.isFinite(at.getTime())) return "";
+    const pad = (n: number) => String(n).padStart(2, "0");
+    return `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())}T${pad(at.getHours())}:${pad(at.getMinutes())}`;
+  }
+
+  function parseDependsOn(text: string): number[] | null {
+    const parts = text.split(/[\s,]+/).filter(Boolean);
+    const out: number[] = [];
+    for (const part of parts) {
+      const n = Number(part.replace(/^#/, ""));
+      if (!Number.isInteger(n) || n <= 0) return null;
+      if (!out.includes(n)) out.push(n);
+    }
+    return out;
+  }
+
   const editMut = createMutation({
-    mutationFn: (vars: { card: BoardCard; title: string }) =>
-      updateCard(slug, vars.card.id, { title: vars.title }),
-    onError: (err) => failed(err, "Could not update the card"),
+    mutationFn: (vars: {
+      card: BoardCard;
+      title: string;
+      detail: string;
+      due_at: string | null;
+      depends_on: number[];
+    }) =>
+      updateCard(slug, vars.card.id, {
+        title: vars.title,
+        detail: vars.detail,
+        due_at: vars.due_at,
+        depends_on: vars.depends_on,
+      }),
+    onError: (err) => {
+      // A cycle or an unknown card number is the operator's mistake to fix, so
+      // it belongs in the sheet rather than in a toast that closes it.
+      editError = err instanceof ApiError ? err.message : "Could not update the card";
+    },
+    onSuccess: () => {
+      editing = null;
+      toast.success("Card updated");
+    },
     onSettled: refresh,
   });
 
-  function edit(card: BoardCard) {
-    const next = window.prompt("Card title", card.title);
-    if (next === null) return;
-    const title = next.trim();
-    if (!title || title === card.title) return;
-    $editMut.mutate({ card, title });
+  function submitEdit() {
+    if (!editing) return;
+    const title = editTitle.trim();
+    if (!title) {
+      editError = "Title cannot be empty";
+      return;
+    }
+    const depends = parseDependsOn(editDependsOn);
+    if (depends === null) {
+      editError = "Depends on must be card numbers, like: #2, #3";
+      return;
+    }
+    editError = null;
+    $editMut.mutate({
+      card: editing,
+      title,
+      detail: editDetail,
+      due_at: editDueAt ? new Date(editDueAt).toISOString() : null,
+      depends_on: depends,
+    });
   }
 </script>
 
@@ -167,3 +240,57 @@
     {/if}
   {/if}
 </div>
+
+<Sheet.Root
+  open={editing !== null}
+  onOpenChange={(next) => {
+    if (!next) editing = null;
+  }}
+>
+  <Sheet.Content side="right" class="w-full overflow-y-auto sm:max-w-lg">
+    <Sheet.Header>
+      <Sheet.Title>Edit card #{editing?.number}</Sheet.Title>
+      <Sheet.Description>
+        Changes here do not move the card or touch its claim.
+      </Sheet.Description>
+    </Sheet.Header>
+    <form
+      class="mt-6 flex flex-col gap-3"
+      onsubmit={(e) => {
+        e.preventDefault();
+        submitEdit();
+      }}
+    >
+      <div class="grid gap-1.5">
+        <Label for="card-title">Title</Label>
+        <Input id="card-title" bind:value={editTitle} />
+      </div>
+      <div class="grid gap-1.5">
+        <Label for="card-detail">Detail</Label>
+        <Textarea id="card-detail" bind:value={editDetail} rows={6} class="text-sm" />
+      </div>
+      <div class="grid gap-1.5">
+        <Label for="card-due">Due</Label>
+        <Input id="card-due" type="datetime-local" bind:value={editDueAt} />
+      </div>
+      <div class="grid gap-1.5">
+        <Label for="card-deps">Depends on</Label>
+        <Input id="card-deps" bind:value={editDependsOn} placeholder="#2, #3" />
+        <p class="text-xs text-muted-foreground">
+          Card numbers this one waits on. Leave empty for none.
+        </p>
+      </div>
+      {#if editError}
+        <Alert.Root variant="destructive">
+          <Alert.Description>{editError}</Alert.Description>
+        </Alert.Root>
+      {/if}
+      <div class="flex justify-end gap-2 pt-2">
+        <Button variant="ghost" type="button" onclick={() => (editing = null)}>Cancel</Button>
+        <Button type="submit" disabled={$editMut.isPending}>
+          {$editMut.isPending ? "Saving…" : "Save"}
+        </Button>
+      </div>
+    </form>
+  </Sheet.Content>
+</Sheet.Root>

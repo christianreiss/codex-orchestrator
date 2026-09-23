@@ -60,14 +60,25 @@ Defined in `api/src/services/mcp-tools.ts`. What you get at runtime depends on c
 - `skill_list`, `skill_retrieve`, `skill_store`, `skill_delete` — canonical Skill manifest CRUD.
 
 **Projects** (both capabilities — always registered)
+- `project_summary` — the call an agent should make first: what the project is, what it holds, what is open on its board and what the caller holds, with file metadata rather than file bodies
 - `project_list`, `project_bootstrap`, `project_detail`, `project_changes`, `project_create`
-- `project_note_create`, `project_note_upsert`, `project_todo_create`, `project_todo_update`, `project_todo_done`, `project_todo_undone`
-- `project_feedback_create`
+- `project_update` — change the `about` block or roster after creation; `about` merges unless `replace` is set
+- `project_archive`, `project_unarchive` — close and reopen a project
+- `project_note_create`, `project_note_upsert`, `project_notes`, `project_note_delete`
+- `project_todo_create`, `project_todo_update`, `project_todo_done`, `project_todo_undone`
+- `project_feedback_create`, `project_feedback_list`, `project_feedback_update`
+- `project_files` — file metadata only
 - `project_file_list`, `project_file_read`, `project_file_upsert`, `project_file_delete`
 - `project_memory_list`, `project_memory_get`, `project_memory_upsert`, `project_memory_delete`, `project_memory_search` — project-scoped memory (see *Project memory tools* below)
 
+`project_bootstrap`, `project_detail` and `project_file_list` return every file body and every note body. On a project that carries real artifacts that is a very large response — measured at 62 KB, 597 KB and 347 KB against live projects — so an agent following the bootstrap doctrine could exhaust its context before doing any work. They keep that shape because the admin console reads `content` out of them. `project_summary`, `project_files` and `project_notes` are the lean equivalents, and `project_file_read` accepts `offset`/`limit` to window a single body, returning `next_offset` and `truncated` exactly as `shared_memory_read` does. `project_changes` accepts `payloads: "preview"` to trim note and card bodies, and `since_seq` as an alias for `since`.
+
+Project and board tool schemas are closed, so an argument the tool does not declare is refused by name rather than dropped. The aliases the services accept are declared for that reason. `project_file_upsert` takes `encoding: "base64"` for binary artifacts, computing the digest and size over the decoded bytes; project files cap at 4 MiB decoded, where previously they had no limit beyond the 32 MiB request body. A missing mime type is inferred from the stored name's extension.
+
 **Project board** (both capabilities — registered only when the project board service is wired)
 - `project_board_list`, `project_card_create`, `project_card_claim`, `project_card_move`, `project_card_release`, `project_card_update`, `project_card_get`
+
+Cards carry `due_at` and `depends_on`. A card whose dependencies are unfinished reports `ready: false` with `waiting_on`; claiming it still works and returns a `depends_unmet` advisory, because ordering is advice on this board exactly as roles and WIP limits are. A dependency cycle is refused with the chain named. `project_create` takes `board_template` — `software` (the default) or `migration`, whose lanes are discovery / plan / cutover / verify.
 
 These tools are unconditional: `McpToolsRegistry` (`mcp-tools.ts`) registers them the same way it registers `memory_*`/`skill_*`, with no dependency on the Projects module toggle (`projects_module_enabled`). What *is* gated by that toggle is the managed `coco` skill (`api/src/services/managed-coco-skill.ts`, `skill://coco`) — see [Projects](/admin/manual/projects) — which onboards agents onto the `project_*` workflow. Disabling the module removes the skill, not the tools.
 
@@ -102,7 +113,8 @@ user's request.
 
 - `memory://{key}` — a single host-scoped memory. Together with `shared://{slug}` and `project://{slug}/memory/{key}`, these are the only schemes `resource_create`/`resource_update`/`resource_delete` accept; every other scheme rejects create/update/delete with an explicit error. `resource_update` is a plain alias for `resource_create` (both call the same upsert path).
 - `shared://{slug}` — a fleet-wide shared-memory document. Create/update carries only `text` plus optional `expected_sha256`; replacing an existing document still requires the same complete offset-zero read, stable digest, preserved unaffected content, and conflict restart as `shared_memory_write`. Delete is appropriate only when the whole record is invalid or superseded.
-- `project://{slug}` — the same shape as `project_bootstrap` but consumed as a resource. Always available (see the Projects note above).
+- `project://{slug}` — the same shape as `project_bootstrap` but consumed as a resource, and carrying the same caveat: it inlines file bodies. Always available (see the Projects note above).
+- `project://{slug}/summary` — the same shape as `project_summary`. This is the one to point an agent at.
 - `project://{slug}/files/{stored_name}` — a single project file's raw content.
 - `project://{slug}/memory/{key}` — a single project-scoped memory. Writable, but this path only carries `text`: tags and metadata are unreachable here, so `project_memory_upsert` remains the full-fidelity surface.
 - `skill://{slug}` — the canonical skill manifest, materialised at read time by `HostSkillsService.retrieve()` (`api/src/services/host-skills.ts`). `skill-manifest.ts` is a separate helper used by the admin skill-authoring routes (slug/manifest validation for drafts) — it is not on this read path. This is how both `cdx` and `clx` bring in slash-command skills without keeping per-host copies on disk.

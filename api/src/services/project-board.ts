@@ -48,6 +48,7 @@ import {
   coordProjectBoardColumns,
   coordProjectBoards,
   coordProjectCards,
+  coordProjectCardDeps,
   coordProjectEvents,
   coordProjects,
   hosts,
@@ -98,7 +99,7 @@ export type ProjectBoardDb = Pick<Database, 'insert' | 'update' | 'select' | 'de
  * `ops` deliberately has no lane of its own — it is the role that acts on the
  * open ones, where `allowedRoles` is null.
  */
-export const SEEDED_COLUMNS: readonly {
+export interface SeededColumn {
   key: string;
   title: string;
   allowedRoles: string[] | null;
@@ -106,7 +107,14 @@ export const SEEDED_COLUMNS: readonly {
   isIntake?: boolean;
   isTerminal?: boolean;
   isBlocked?: boolean;
-}[] = [
+}
+
+/**
+ * The default lanes, and the ones migration 0026 seeds. Kept as the `software`
+ * template rather than being renamed, because that is what every existing board
+ * already has.
+ */
+export const SEEDED_COLUMNS: readonly SeededColumn[] = [
   { key: 'backlog', title: 'Backlog', allowedRoles: null, next: 'planning', isIntake: true },
   { key: 'planning', title: 'Planning', allowedRoles: ['plan'], next: 'coding' },
   { key: 'coding', title: 'Coding', allowedRoles: ['code'], next: 'review' },
@@ -116,7 +124,116 @@ export const SEEDED_COLUMNS: readonly {
   { key: 'blocked', title: 'Blocked', allowedRoles: null, next: null, isBlocked: true },
 ];
 
+/**
+ * Lane sets a project can be provisioned with.
+ *
+ * The default set is a software pipeline, and for infrastructure work it does
+ * not fit: on the live `dns_switch_work` board every card sits in `backlog`,
+ * `done` or `blocked`, and `planning`/`coding`/`review`/`verifying` are all
+ * empty — not because the work had no stages, but because its stages were
+ * discovery, a staged rollout and a canary, none of which those lanes name.
+ * Columns were already per-project rows carrying `allowed_roles` and
+ * `default_next_column_id`; only the seed was fixed.
+ *
+ * Roles stay the fleet-fixed five. A template chooses which lanes exist and who
+ * is expected in each, not a new vocabulary — an agent that knows `plan` and
+ * `verify` can work either board.
+ */
+export const BOARD_TEMPLATES: Readonly<Record<string, readonly SeededColumn[]>> = {
+  software: SEEDED_COLUMNS,
+  migration: [
+    { key: 'backlog', title: 'Backlog', allowedRoles: null, next: 'discovery', isIntake: true },
+    { key: 'discovery', title: 'Discovery', allowedRoles: ['plan'], next: 'plan' },
+    { key: 'plan', title: 'Plan', allowedRoles: ['plan'], next: 'cutover' },
+    { key: 'cutover', title: 'Cutover', allowedRoles: ['ops'], next: 'verify' },
+    { key: 'verify', title: 'Verify', allowedRoles: ['verify'], next: 'done' },
+    { key: 'done', title: 'Done', allowedRoles: null, next: null, isTerminal: true },
+    { key: 'blocked', title: 'Blocked', allowedRoles: null, next: null, isBlocked: true },
+  ],
+};
+
+export const DEFAULT_BOARD_TEMPLATE = 'software';
+
+export function normalizeBoardTemplate(value: unknown): string | null {
+  if (value === undefined || value === null || value === '') return DEFAULT_BOARD_TEMPLATE;
+  const name = String(value).trim().toLowerCase();
+  return Object.prototype.hasOwnProperty.call(BOARD_TEMPLATES, name) ? name : null;
+}
+
+export function boardTemplateList(): string {
+  return Object.keys(BOARD_TEMPLATES).join(', ');
+}
+
 // ── pure helpers (exported for unit tests) ───────────────────────────────────
+
+/**
+ * The cycle through `start`, as a list of card ids ending where it began, or
+ * null. Depth-first with an on-stack marker: the stack at the moment an on-stack
+ * node is reached again IS the cycle, which is what lets the error name it.
+ */
+export function findDependencyCycle(
+  adjacency: Map<string, string[]>,
+  start: string,
+): string[] | null {
+  const stack: string[] = [];
+  const onStack = new Set<string>();
+  const done = new Set<string>();
+
+  const walk = (node: string): string[] | null => {
+    if (onStack.has(node)) return [...stack.slice(stack.indexOf(node)), node];
+    if (done.has(node)) return null;
+    stack.push(node);
+    onStack.add(node);
+    for (const next of adjacency.get(node) ?? []) {
+      const found = walk(next);
+      if (found) return found;
+    }
+    stack.pop();
+    onStack.delete(node);
+    done.add(node);
+    return null;
+  };
+
+  return walk(start);
+}
+
+/**
+ * A due date, normalized to the RFC3339 spelling `nowIso()` writes so the column
+ * sorts lexically the way every other timestamp in this schema does. `null`
+ * clears it; anything unparseable is refused rather than stored as a string
+ * nothing can compare.
+ */
+export function normalizeDueAt(value: unknown): string | null {
+  if (value === null || value === undefined || value === '') return null;
+  const text = String(value).trim();
+  const parsed = Date.parse(text);
+  if (!Number.isFinite(parsed)) {
+    throw new ValidationError('due_at must be an RFC3339 timestamp, or null to clear it', {
+      param: 'due_at',
+    });
+  }
+  return isoOffsetSeconds(0, new Date(parsed));
+}
+
+/** Card numbers for `depends_on`, deduped and order-preserving. */
+export function normalizeDependsOn(value: unknown): number[] | null {
+  if (value === undefined) return null;
+  if (value === null) return [];
+  if (!Array.isArray(value)) {
+    throw new ValidationError('depends_on must be an array of card numbers', { param: 'depends_on' });
+  }
+  const out: number[] = [];
+  for (const entry of value) {
+    const number = typeof entry === 'number' ? entry : Number(String(entry).replace(/^#/, ''));
+    if (!Number.isInteger(number) || number <= 0) {
+      throw new ValidationError('depends_on entries must be positive card numbers', {
+        param: 'depends_on',
+      });
+    }
+    if (!out.includes(number)) out.push(number);
+  }
+  return out;
+}
 
 export function sha256(value: string): string {
   return createHash('sha256').update(value).digest('hex');
@@ -435,6 +552,28 @@ interface BoardContext {
 
 type ColumnRow = CoordProjectBoardColumn;
 
+/** One card a dependent is waiting on, as the wire renders it. */
+export interface WaitingOn {
+  number: number;
+  title: string;
+  column: string | null;
+}
+
+/**
+ * Dependency edges resolved against the board's current state, computed once per
+ * render rather than per card: a project's edge set is small and reading it once
+ * is cheaper than asking per card.
+ *
+ * `waitingOn` holds only the UNFINISHED dependencies — a card whose dependencies
+ * have all reached a terminal lane is ready, and says nothing about them.
+ */
+export interface CardReadiness {
+  dependsOn: Map<string, WaitingOn[]>;
+  waitingOn: Map<string, WaitingOn[]>;
+}
+
+const EMPTY_READINESS: CardReadiness = { dependsOn: new Map(), waitingOn: new Map() };
+
 export class ProjectBoardService {
   private readonly now: () => string;
 
@@ -516,6 +655,7 @@ export class ProjectBoardService {
     tx: ProjectBoardDb,
     project: ProjectRow,
     now: string,
+    template: string = DEFAULT_BOARD_TEMPLATE,
   ): Promise<{ boardId: string; columns: ColumnRow[] }> {
     const existing = await tx
       .select()
@@ -546,9 +686,10 @@ export class ProjectBoardService {
 
     let columns = await this.fetchColumns(tx, boardId);
     if (columns.length === 0) {
+      const seeds = BOARD_TEMPLATES[template] ?? SEEDED_COLUMNS;
       const ids = new Map<string, string>();
-      for (const seed of SEEDED_COLUMNS) ids.set(seed.key, randomUUID());
-      for (const [position, seed] of SEEDED_COLUMNS.entries()) {
+      for (const seed of seeds) ids.set(seed.key, randomUUID());
+      for (const [position, seed] of seeds.entries()) {
         await tx.insert(coordProjectBoardColumns).values({
           id: ids.get(seed.key)!,
           boardId,
@@ -569,6 +710,134 @@ export class ProjectBoardService {
       columns = await this.fetchColumns(tx, boardId);
     }
     return { boardId, columns };
+  }
+
+  /**
+   * Provision a project's board up front with a chosen lane set.
+   *
+   * `ensureBoard` is lazy — it runs on the first board call — which leaves a
+   * template argument passed at `project_create` with nowhere to wait. Rather
+   * than storing the choice on the project just to replay it later, creating a
+   * project with a template provisions the board there and then; every later
+   * call finds the lanes already in place and changes nothing.
+   *
+   * Does nothing if the board already has columns, so it is safe to call twice.
+   */
+  async provisionBoard(slug: string, template: string): Promise<void> {
+    const project = await this.deps.projects.requireProject(slug);
+    const now = this.now();
+    await this.deps.db.transaction(async (tx) => {
+      await this.ensureBoard(tx as ProjectBoardDb, project, now, template);
+    });
+  }
+
+  /**
+   * Resolve a project's dependency edges against its cards.
+   *
+   * Reads the whole edge set for the project in one query. A card is "not ready"
+   * while any card it depends on sits outside a terminal lane; a dangling edge
+   * (the dependency was deleted) is dropped rather than blocking forever.
+   */
+  private async loadReadiness(
+    tx: ProjectBoardDb,
+    projectId: number,
+    cards: CoordProjectCard[],
+    columns: ColumnRow[],
+  ): Promise<CardReadiness> {
+    const edges = await tx
+      .select()
+      .from(coordProjectCardDeps)
+      .where(eq(coordProjectCardDeps.projectId, projectId));
+    if (edges.length === 0) return EMPTY_READINESS;
+
+    const byId = new Map(cards.map((card) => [card.id, card]));
+    const terminal = new Set(columns.filter((column) => column.isTerminal === 1).map((c) => c.id));
+    const dependsOn = new Map<string, WaitingOn[]>();
+    const waitingOn = new Map<string, WaitingOn[]>();
+
+    for (const edge of edges) {
+      const target = byId.get(edge.dependsOnCardId);
+      if (!target) continue; // dangling edge: the dependency is gone, so nothing to wait for
+      const column = columns.find((entry) => entry.id === target.columnId) ?? null;
+      const wire: WaitingOn = {
+        number: Number(target.cardNumber),
+        title: target.title,
+        column: column?.columnKey ?? null,
+      };
+      (dependsOn.get(edge.cardId) ?? dependsOn.set(edge.cardId, []).get(edge.cardId)!).push(wire);
+      if (!terminal.has(target.columnId)) {
+        (waitingOn.get(edge.cardId) ?? waitingOn.set(edge.cardId, []).get(edge.cardId)!).push(wire);
+      }
+    }
+    for (const list of dependsOn.values()) list.sort((a, b) => a.number - b.number);
+    for (const list of waitingOn.values()) list.sort((a, b) => a.number - b.number);
+    return { dependsOn, waitingOn };
+  }
+
+  /**
+   * Replace a card's dependency edges.
+   *
+   * Refuses a cycle, and names the chain: "card 5 → 4 → 5" is actionable where
+   * "dependency cycle" is not. The check walks the edge set as it would be AFTER
+   * the write, so it catches a cycle the write itself would create.
+   */
+  private async setDependencies(
+    ctx: BoardContext,
+    card: CoordProjectCard,
+    dependsOnNumbers: number[],
+  ): Promise<void> {
+    const cards = await this.cardsOf(ctx.tx, ctx.project.id);
+    const byNumber = new Map(cards.map((entry) => [Number(entry.cardNumber), entry]));
+
+    const targets: CoordProjectCard[] = [];
+    for (const number of dependsOnNumbers) {
+      if (number === Number(card.cardNumber)) {
+        throw new ValidationError(`card #${number} cannot depend on itself`, {
+          param: 'depends_on',
+        });
+      }
+      const target = byNumber.get(number);
+      if (!target) {
+        throw new NotFoundError(`Card #${number} not found on this project`, 'card_not_found');
+      }
+      targets.push(target);
+    }
+
+    const edges = await ctx.tx
+      .select()
+      .from(coordProjectCardDeps)
+      .where(eq(coordProjectCardDeps.projectId, ctx.project.id));
+
+    // The graph as it will be once this write lands: this card's edges replaced,
+    // everybody else's kept.
+    const adjacency = new Map<string, string[]>();
+    for (const edge of edges) {
+      if (edge.cardId === card.id) continue;
+      (adjacency.get(edge.cardId) ?? adjacency.set(edge.cardId, []).get(edge.cardId)!).push(edge.dependsOnCardId);
+    }
+    adjacency.set(card.id, targets.map((entry) => entry.id));
+
+    const cycle = findDependencyCycle(adjacency, card.id);
+    if (cycle) {
+      const numbers = cycle.map((id) => {
+        const found = cards.find((entry) => entry.id === id);
+        return found ? `#${Number(found.cardNumber)}` : id.slice(0, 8);
+      });
+      throw new ValidationError(`depends_on would create a cycle: ${numbers.join(' → ')}`, {
+        param: 'depends_on',
+      });
+    }
+
+    await ctx.tx.delete(coordProjectCardDeps).where(eq(coordProjectCardDeps.cardId, card.id));
+    for (const target of targets) {
+      await ctx.tx.insert(coordProjectCardDeps).values({
+        id: randomUUID(),
+        projectId: ctx.project.id,
+        cardId: card.id,
+        dependsOnCardId: target.id,
+        createdAt: ctx.now,
+      });
+    }
   }
 
   private async fetchColumns(tx: ProjectBoardDb, boardId: string): Promise<ColumnRow[]> {
@@ -1019,8 +1288,10 @@ export class ProjectBoardService {
     now: string,
     actor: CardActor,
     hostLabels: Map<number, string>,
+    readiness?: CardReadiness,
   ): Record<string, unknown> {
     const column = columns.find((entry) => entry.id === card.columnId) ?? null;
+    const waiting = readiness?.waitingOn.get(card.id) ?? [];
     return {
       id: card.id,
       number: Number(card.cardNumber),
@@ -1028,6 +1299,13 @@ export class ProjectBoardService {
       detail: card.detail,
       labels: jsonStringArray(card.labels) ?? [],
       priority: card.priority,
+      due_at: card.dueAt ?? null,
+      // `ready` answers "is everything this card waits on finished?". It is
+      // advice like every other board verdict: a claim on a card that is not
+      // ready still succeeds and comes back with an advisory.
+      ready: waiting.length === 0,
+      waiting_on: waiting,
+      depends_on: (readiness?.dependsOn.get(card.id) ?? []).map((dep) => dep.number),
       blocked_reason: card.blockedReason,
       column: column ? { id: column.id, key: column.columnKey, title: column.title } : null,
       claim: this.claimWire(card, now, actor, hostLabels),
@@ -1172,6 +1450,78 @@ export class ProjectBoardService {
     );
   }
 
+  /**
+   * The compact board block `project_summary` embeds: enough to know which lanes
+   * exist, how full they are, what is open and what is yours — with no card
+   * `detail` bodies, which are the part that scales with the project.
+   *
+   * Deliberately built on `readBoard`, not `withBoard`: a summary is a discovery
+   * call, and discovery must not renew a claim. An agent proves it is alive by
+   * touching the card (`project_card_get` is the cheapest way), not by reading
+   * the project it is working in.
+   */
+  async summaryFor(slug: string, actor: CardActor): Promise<Record<string, unknown>> {
+    const enabled = await this.getEnabled();
+    if (!enabled) return { status: 'disabled', columns: [], open_cards: [], your_claims: [] };
+
+    const board = await this.readBoard(slug, actor, {
+      column: null,
+      role: null,
+      mine: false,
+      unclaimed: false,
+    });
+    const columns = Array.isArray(board['columns']) ? (board['columns'] as Record<string, unknown>[]) : [];
+
+    const openCards: Record<string, unknown>[] = [];
+    const columnSummaries = columns.map((column) => {
+      const terminal = column['is_terminal'] === true;
+      const cards = Array.isArray(column['cards']) ? (column['cards'] as Record<string, unknown>[]) : [];
+      if (!terminal) {
+        for (const card of cards) {
+          const claim = card['claim'] as Record<string, unknown> | null;
+          openCards.push({
+            number: card['number'],
+            title: card['title'],
+            column: column['key'],
+            priority: card['priority'],
+            due_at: card['due_at'] ?? null,
+            ready: card['ready'] !== false,
+            waiting_on: card['waiting_on'] ?? [],
+            blocked_reason: card['blocked_reason'] ?? null,
+            held_by: claim && claim['held'] === true ? (claim['username'] ?? null) : null,
+          });
+        }
+      }
+      return {
+        key: column['key'],
+        title: column['title'],
+        card_count: column['card_count'],
+        is_intake: column['is_intake'] === true,
+        is_terminal: terminal,
+        is_blocked: column['is_blocked'] === true,
+        over_wip: column['over_wip'] === true,
+      };
+    });
+
+    const yourClaims = Array.isArray(board['your_claims'])
+      ? (board['your_claims'] as Record<string, unknown>[]).map((card) => ({
+          number: card['number'],
+          title: card['title'],
+          column: (card['column'] as Record<string, unknown> | null)?.['key'] ?? null,
+          expires_at: (card['claim'] as Record<string, unknown> | null)?.['expires_at'] ?? null,
+        }))
+      : [];
+
+    return {
+      status: 'available',
+      board_slug: DEFAULT_BOARD_SLUG,
+      roles: [...PROJECT_BOARD_ROLES],
+      columns: columnSummaries,
+      open_cards: openCards,
+      your_claims: yourClaims,
+    };
+  }
+
   private async projectSlugs(): Promise<string[]> {
     const rows = await this.deps.db
       .select({ slug: coordProjects.slug, archivedAt: coordProjects.archivedAt })
@@ -1189,6 +1539,9 @@ export class ProjectBoardService {
       ctx.tx,
       cards.map((card) => (card.claimedByHostId === null ? null : Number(card.claimedByHostId))),
     );
+    // Once per render, not once per card: a project's edge set is small and the
+    // per-card answers all come out of the same read.
+    const readiness = await this.loadReadiness(ctx.tx, ctx.project.id, cards, ctx.columns);
 
     const visible = cards.filter((card) => {
       const live = claimIsLive(this.claimStateOf(card), ctx.now);
@@ -1212,7 +1565,7 @@ export class ProjectBoardService {
           over_wip: column.wipLimit !== null && column.wipLimit > 0 && occupancy > column.wipLimit,
           cards: inColumn
             .slice(0, MAX_CARDS_PER_COLUMN)
-            .map((card) => this.cardWire(card, ctx.columns, ctx.now, ctx.actor, labels)),
+            .map((card) => this.cardWire(card, ctx.columns, ctx.now, ctx.actor, labels, readiness)),
           truncated: inColumn.length > MAX_CARDS_PER_COLUMN,
         };
       });
@@ -1222,7 +1575,7 @@ export class ProjectBoardService {
         const wire = this.claimWire(card, ctx.now, ctx.actor, labels);
         return wire !== null && wire['yours'] === true;
       })
-      .map((card) => this.cardWire(card, ctx.columns, ctx.now, ctx.actor, labels));
+      .map((card) => this.cardWire(card, ctx.columns, ctx.now, ctx.actor, labels, readiness));
 
     // What the SWEEP took back, so an agent that lost a card can see why rather
     // than finding it mysteriously free.
@@ -1291,9 +1644,15 @@ export class ProjectBoardService {
         )
         .orderBy(desc(coordProjectEvents.seq))
         .limit(RECENT_EVENTS);
+      const readiness = await this.loadReadiness(
+        ctx.tx,
+        ctx.project.id,
+        await this.cardsOf(ctx.tx, ctx.project.id),
+        ctx.columns,
+      );
       return {
         project: ctx.project.slug,
-        card: this.cardWire(card, ctx.columns, ctx.now, ctx.actor, labels),
+        card: this.cardWire(card, ctx.columns, ctx.now, ctx.actor, labels, readiness),
         history: events.map((event) => ({
           seq: Number(event.seq),
           action: event.action,
@@ -1311,6 +1670,8 @@ export class ProjectBoardService {
     const detail = boundedText(optionalString(args, 'detail') ?? '', MAX_DETAIL, 'detail');
     const labels = normalizeLabels(args['labels']);
     const priority = Number.isInteger(args['priority']) ? Number(args['priority']) : 0;
+    const dueAt = normalizeDueAt(args['due_at']);
+    const dependsOn = normalizeDependsOn(args['depends_on']);
 
     const result = await this.withBoard(slug, actor, async (ctx) => {
       const requested = optionalString(args, 'column');
@@ -1327,6 +1688,7 @@ export class ProjectBoardService {
         detail,
         labels,
         priority,
+        dueAt,
         blockedReason: null,
         sourceTodoId: null,
         createdByHostId: actor.hostId,
@@ -1343,9 +1705,16 @@ export class ProjectBoardService {
         'project.card.created',
       );
       const card = await this.requireCard(ctx.tx, ctx.project.id, id, false);
+      if (dependsOn && dependsOn.length > 0) await this.setDependencies(ctx, card, dependsOn);
+      const readiness = await this.loadReadiness(
+        ctx.tx,
+        ctx.project.id,
+        await this.cardsOf(ctx.tx, ctx.project.id),
+        ctx.columns,
+      );
       return {
         project: ctx.project.slug,
-        card: this.cardWire(card, ctx.columns, ctx.now, ctx.actor, new Map()),
+        card: this.cardWire(card, ctx.columns, ctx.now, ctx.actor, new Map(), readiness),
       };
     });
     await this.log(actor.hostId, 'project.card.create', { slug, title });
@@ -1426,6 +1795,27 @@ export class ProjectBoardService {
             occupancy,
           })
         : [];
+
+      // Claiming a card whose dependencies are unfinished is advice, not a
+      // refusal. The board does not enforce roles or WIP limits either; making
+      // this the one hard rule would mean an agent that knows the order is fine
+      // has no way to say so. The claim is granted, and the reply names what is
+      // still open.
+      const claimReadiness = await this.loadReadiness(
+        ctx.tx,
+        ctx.project.id,
+        await this.cardsOf(ctx.tx, ctx.project.id),
+        ctx.columns,
+      );
+      const unmet = claimReadiness.waitingOn.get(card.id) ?? [];
+      if (unmet.length > 0) {
+        advisories.push({
+          code: 'depends_unmet',
+          message:
+            `This card waits on ${unmet.map((entry) => `#${entry.number}`).join(', ')}, ` +
+            `which ${unmet.length === 1 ? 'has' : 'have'} not reached a terminal column.`,
+        });
+      }
 
       await ctx.tx
         .update(coordProjectCards)
@@ -1708,8 +2098,11 @@ export class ProjectBoardService {
         const reason = optionalString(args, 'blocked_reason');
         patch['blockedReason'] = reason ? boundedText(reason, MAX_BLOCKED_REASON, 'blocked_reason') : null;
       }
+      if (args['due_at'] !== undefined) patch['dueAt'] = normalizeDueAt(args['due_at']);
 
       await ctx.tx.update(coordProjectCards).set(patch).where(eq(coordProjectCards.id, card.id));
+      const dependsOn = normalizeDependsOn(args['depends_on']);
+      if (dependsOn !== null) await this.setDependencies(ctx, card, dependsOn);
       const fresh = await this.requireCard(ctx.tx, ctx.project.id, card.id, false);
       await this.emit(
         ctx,
@@ -1718,9 +2111,15 @@ export class ProjectBoardService {
         { card_id: card.id, card_number: Number(card.cardNumber), title: fresh.title },
         'project.card.updated',
       );
+      const readiness = await this.loadReadiness(
+        ctx.tx,
+        ctx.project.id,
+        await this.cardsOf(ctx.tx, ctx.project.id),
+        ctx.columns,
+      );
       return {
         project: ctx.project.slug,
-        card: this.cardWire(fresh, ctx.columns, ctx.now, actor, new Map()),
+        card: this.cardWire(fresh, ctx.columns, ctx.now, actor, new Map(), readiness),
       };
     });
   }
@@ -1740,6 +2139,13 @@ export class ProjectBoardService {
           updatedAt: ctx.now,
         })
         .where(eq(coordProjectCards.id, card.id));
+      // Edges in both directions: a dependency on an archived card would leave
+      // its dependents waiting on something nobody can finish, and the table
+      // declares no foreign keys to do this for us.
+      await ctx.tx.delete(coordProjectCardDeps).where(eq(coordProjectCardDeps.cardId, card.id));
+      await ctx.tx
+        .delete(coordProjectCardDeps)
+        .where(eq(coordProjectCardDeps.dependsOnCardId, card.id));
       await this.emit(
         ctx,
         'delete',
@@ -1928,6 +2334,13 @@ export class ProjectBoardService {
           updatedAt: ctx.now,
         })
         .where(eq(coordProjectCards.id, card.id));
+      // Edges in both directions: a dependency on an archived card would leave
+      // its dependents waiting on something nobody can finish, and the table
+      // declares no foreign keys to do this for us.
+      await ctx.tx.delete(coordProjectCardDeps).where(eq(coordProjectCardDeps.cardId, card.id));
+      await ctx.tx
+        .delete(coordProjectCardDeps)
+        .where(eq(coordProjectCardDeps.dependsOnCardId, card.id));
       await this.emit(
         ctx,
         'delete',

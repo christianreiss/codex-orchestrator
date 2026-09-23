@@ -11,12 +11,14 @@ import type {
   ProjectChangesResponse,
   ProjectDetailResponse,
   ProjectFeedback,
+  ProjectFeedbackStatus,
   ProjectFeedbackType,
   ProjectFile,
   ProjectListResponse,
   ProjectModuleState,
   ProjectNote,
   ProjectSummary,
+  ProjectSummaryResponse,
   ProjectTodo,
   BoardResponse,
   BoardCard,
@@ -57,6 +59,14 @@ export const deleteProject = (slug: string): Promise<{ deleted: string }> =>
 
 export const fetchProject = (slug: string): Promise<ProjectDetailResponse> =>
   api.get<ProjectDetailResponse>(`${BASE}/${encodeSlug(slug)}`);
+
+/**
+ * The counts strip without the project's contents. `fetchProject` carries every
+ * file body, and the detail layout runs on every tab — 597 KB on one live
+ * project, fetched again for Activity and again for Feedback.
+ */
+export const fetchProjectSummary = (slug: string): Promise<ProjectSummaryResponse> =>
+  api.get(`${BASE}/${encodeSlug(slug)}/summary`);
 
 export const updateAbout = (
   slug: string,
@@ -159,7 +169,15 @@ export interface CardPayload {
 export const createCard = (slug: string, payload: CardPayload) =>
   api.post<{ project: string; card: BoardCard }>(`${BASE}/${encodeSlug(slug)}/board/cards`, payload);
 
-export const updateCard = (slug: string, id: string, payload: Partial<CardPayload> & { blocked_reason?: string | null }) =>
+export const updateCard = (
+  slug: string,
+  id: string,
+  payload: Partial<CardPayload> & {
+    blocked_reason?: string | null;
+    due_at?: string | null;
+    depends_on?: number[] | null;
+  },
+) =>
   api.post<{ project: string; card: BoardCard }>(
     `${BASE}/${encodeSlug(slug)}/board/cards/${encodeURIComponent(id)}`,
     payload,
@@ -209,6 +227,14 @@ export interface FilePayload {
   content: string;
 }
 
+/**
+ * One file, body included. The editor used to read `content` straight out of
+ * `fetchFiles`, which meant the list response had to carry every body — 347 KB
+ * on one live project — to open one for editing.
+ */
+export const fetchFile = (slug: string, id: number): Promise<{ project: string; file: ProjectFile }> =>
+  api.get(`${BASE}/${encodeSlug(slug)}/files/${id}`);
+
 export const upsertFile = (slug: string, payload: FilePayload) =>
   api.post<{ project: string; file: ProjectFile }>(`${BASE}/${encodeSlug(slug)}/files`, payload);
 
@@ -234,12 +260,39 @@ export const createFeedback = (slug: string, payload: FeedbackPayload) =>
     payload,
   );
 
+export const updateFeedback = (
+  slug: string,
+  id: number,
+  payload: Partial<FeedbackPayload> & { status?: ProjectFeedbackStatus },
+) =>
+  api.post<{ project: string; feedback: ProjectFeedback }>(
+    `${BASE}/${encodeSlug(slug)}/feedback/${id}`,
+    payload,
+  );
+
+// ─────────────────────────── Archive ────────────────────────────────────
+
+export const archiveProject = (slug: string) =>
+  api.post<{ project: ProjectSummary; archived_at: string | null }>(
+    `${BASE}/${encodeSlug(slug)}/archive`,
+    {},
+  );
+
+export const unarchiveProject = (slug: string) =>
+  api.post<{ project: ProjectSummary; archived_at: string | null }>(
+    `${BASE}/${encodeSlug(slug)}/unarchive`,
+    {},
+  );
+
 // ─────────────────────────── Query key factory ──────────────────────────
 
 export const projectKeys = {
   state: ["projects", "state"] as const,
   list: ["projects"] as const,
   detail: (slug: string) => ["project", slug] as const,
+  // Deliberately under the detail prefix, so every websocket event that
+  // invalidates ["project", slug] refreshes the header and tiles too.
+  summary: (slug: string) => ["project", slug, "summary"] as const,
   notes: (slug: string) => ["project", slug, "notes"] as const,
   todos: (slug: string) => ["project", slug, "todos"] as const,
   // Matches the key `projectDetailSubKey` builds for every project.card.* and

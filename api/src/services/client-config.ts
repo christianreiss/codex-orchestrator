@@ -684,6 +684,16 @@ const CURATION_TOOLS = [
   'shared_memory_delete',
   'project_memory_upsert',
   'project_memory_delete',
+  // Same asymmetry again, on the project lifecycle. Reading a project was
+  // already allowed; the calls that let an agent finish one were not. A prompt
+  // on `project_archive` lands on an agent that has just done the work and is
+  // trying to close the book, and a prompt on `project_feedback_update` is what
+  // turns a review inbox into a list nobody triages. `project_update` is how a
+  // project's `about` block stops saying something that stopped being true.
+  'project_update',
+  'project_archive',
+  'project_unarchive',
+  'project_feedback_update',
   // Same asymmetry, one surface over: `transfer_list`, `transfer_get` and
   // `transfer_info` read and were already allowed, while putting a file into
   // the pool and taking it back out again are the two calls a handoff actually

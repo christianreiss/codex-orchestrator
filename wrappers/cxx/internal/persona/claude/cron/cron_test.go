@@ -470,3 +470,90 @@ func TestSyncManagedContentNeverRequestsCredentials(t *testing.T) {
 		t.Fatal("cron tick offered a credential candidate")
 	}
 }
+
+// TestEnsureEngineCurrentRespectsDisable exercises the path `clx sync` takes
+// after a `clx update` re-exec: when the server has binary updates disabled,
+// EnsureEngineCurrent must not attempt an install and must not report.
+func TestEnsureEngineCurrentRespectsDisable(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("CLX_CLAUDE_BIN", "/does/not/exist")
+	var reportCalls, probeSeen int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/cron/check":
+			buf := make([]byte, 4096)
+			n, _ := r.Body.Read(buf)
+			if strings.Contains(string(buf[:n]), `"probe":true`) {
+				atomic.AddInt32(&probeSeen, 1)
+			}
+			_, _ = w.Write([]byte(`{"action":"disable","wrapper":{"action":"no_update"}}`))
+		case "/cron/report":
+			atomic.AddInt32(&reportCalls, 1)
+			_, _ = w.Write([]byte(`{"recorded":true}`))
+		default:
+			t.Errorf("unexpected request %s", r.URL.Path)
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	res, err := EnsureEngineCurrent(context.Background(), minimalCfg(server.URL), nil)
+	if err != nil || res.CodexAction != "disable" {
+		t.Fatalf("EnsureEngineCurrent disable: result=%+v err=%v", res, err)
+	}
+	if reportCalls != 0 {
+		t.Fatalf("expected no /cron/report while disabled; got %d", reportCalls)
+	}
+	if probeSeen != 1 {
+		t.Fatal("EnsureEngineCurrent must mark itself as a probe, not a cron tick")
+	}
+}
+
+// TestEnsureEngineCurrentNoUpdate covers the common case: server says the
+// installed version is already current, so EnsureEngineCurrent is a no-op.
+func TestEnsureEngineCurrentNoUpdate(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("CLX_CLAUDE_BIN", "/does/not/exist")
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path != "/cron/check" {
+			t.Errorf("unexpected request %s", r.URL.Path)
+			http.NotFound(w, r)
+			return
+		}
+		_, _ = w.Write([]byte(`{"action":"no_update","wrapper":{"action":"no_update"}}`))
+	}))
+	defer server.Close()
+
+	res, err := EnsureEngineCurrent(context.Background(), minimalCfg(server.URL), nil)
+	if err != nil || res.CodexAction != "no_update" || res.Reported {
+		t.Fatalf("EnsureEngineCurrent no_update: result=%+v err=%v", res, err)
+	}
+}
+
+// TestEnsureEngineCurrentReportsOperatorCLIOverrideWithoutInstalling mirrors
+// TestTickReportsOperatorCLIOverrideWithoutInstalling for the standalone path
+// `clx sync` calls after a wrapper self-update.
+func TestEnsureEngineCurrentReportsOperatorCLIOverrideWithoutInstalling(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("CLX_CLAUDE_BIN", "/does/not/exist")
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/cron/check":
+			_, _ = w.Write([]byte(`{"action":"update","target_version":"2.1.2"}`))
+		case "/cron/report":
+			_, _ = w.Write([]byte(`{"recorded":true}`))
+		default:
+			t.Errorf("unexpected request %s", r.URL.Path)
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	res, err := EnsureEngineCurrent(context.Background(), minimalCfg(server.URL), nil)
+	if err != nil || res.CodexAction != "skipped_override" || res.Reported {
+		t.Fatalf("EnsureEngineCurrent override: result=%+v err=%v", res, err)
+	}
+}

@@ -18,6 +18,7 @@
   import { ApiError } from "$lib/api/client";
   import {
     deleteFile,
+    fetchFile,
     fetchFiles,
     projectKeys,
     upsertFile,
@@ -56,13 +57,32 @@
     createOpen = true;
   }
 
-  function loadInto(file: ProjectFile) {
+  let loadingBody = $state(false);
+
+  /**
+   * Fetch the one body being edited rather than reading it out of the listing.
+   * The list response used to carry every file's content — 347 KB on one live
+   * project — purely so this function could read one of them.
+   */
+  async function loadInto(file: ProjectFile) {
     storedName = file.stored_name;
     mimeType = file.mime_type ?? "";
     description = file.description ?? "";
-    content = file.content ?? "";
     editingName = file.stored_name;
+    content = "";
     createOpen = true;
+    loadingBody = true;
+    try {
+      const { file: full } = await fetchFile(slug, file.id);
+      // Ignore a response that lost the race with the operator opening another
+      // file, or closing the sheet.
+      if (editingName === file.stored_name) content = full.content ?? "";
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : "Could not load file contents");
+      createOpen = false;
+    } finally {
+      loadingBody = false;
+    }
   }
 
   const upsertMut = createMutation({
@@ -245,12 +265,13 @@
           bind:value={content}
           rows={12}
           class="font-mono text-sm"
-          placeholder="File contents…"
+          disabled={loadingBody}
+          placeholder={loadingBody ? "Loading contents…" : "File contents…"}
         />
       </div>
       <div class="flex justify-end gap-2 pt-2">
         <Button variant="ghost" type="button" onclick={() => (createOpen = false)}>Cancel</Button>
-        <Button type="submit" disabled={!canSubmit || $upsertMut.isPending}>
+        <Button type="submit" disabled={!canSubmit || loadingBody || $upsertMut.isPending}>
           <Save class="h-4 w-4" />
           {$upsertMut.isPending ? "Saving…" : "Save"}
         </Button>

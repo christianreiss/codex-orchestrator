@@ -1,3 +1,180 @@
+# 2026-09-23
+
+- **`clx update` / `cdx update` never updated the engine.** The command self-updates the wrapper
+  binary and re-execs into `cxx sync` to converge managed content, but nothing in that path ever
+  touched the Claude or Codex CLI itself — only the scheduled cron tick (`TickWithOptions`) called
+  `EnsureClaudeBackground`/`EnsureCodexBackground`. A host that only ever ran `clx update`
+  interactively could sit on an old engine version indefinitely between cron ticks.
+
+  `EnsureEngineCurrent` (new, one per persona in `internal/persona/{claude,codex}/cron`) factors the
+  check-then-install step out of the tick — same orchestrator `CronCheck` gate, same disable switch,
+  same `CLX_CLAUDE_BIN`/`CDX_CODEX_BIN` override handling — and `cmdSync` in each persona's app now
+  calls it after every managed-content sync. Since `clx update`'s re-exec always lands on `sync`,
+  this closes the gap without touching the cron tick itself. A failure here is reported but does not
+  block the sync it rides along with.
+
+# 2026-09-22
+
+- **The Projects module could not be read by the agents it exists for.** Measured against live
+  projects: `project_bootstrap` returned 62 KB, `project_detail` 597 KB, `project_file_list`
+  347 KB — every one of them past the limit an agent can take in a single tool result. Three
+  quarters of each was file bodies: one formatter (`formatFile`) inlined `content` into every
+  path that touched a file, and `detail` selected every row with no limit. The `coco` skill told
+  agents to call these first, so following the documented doctrine exhausted an agent's context
+  before it did any work.
+
+  The fat calls keep their shape, because the admin console reads `content` out of them. What is
+  new is a lean path beside them:
+
+  - `project_summary` — the call to make first. The project's `about`, its files as metadata, note
+    and event previews, and the board, in one response whose size tracks how many things a project
+    holds rather than how big they are. Adding 500 KB of file content to a project grows it by
+    about 700 bytes. It also folds in the board, which `bootstrap` omitted while the skill was
+    telling agents `project_board_list` was the first call — there is now one first call, not two.
+  - `project_files`, `project_notes`, `project_feedback_list` — the listings. Feedback had a
+    create tool and no reader at all; notes and feedback were reachable only through the 597 KB
+    `project_detail`.
+  - `project_file_read` takes `offset`/`limit` and returns `next_offset`/`truncated`, the same
+    windowing contract `shared_memory_read` already uses. An absurd `limit` is capped rather than
+    honoured.
+  - `project_changes` takes `payloads: "preview"`, which trims note and card bodies the way file
+    and memory events were already trimmed. Twenty events on one live project weighed 98 KB
+    because three of them carried whole note bodies.
+  - `project://{slug}/summary` as a resource, since `project://{slug}` serves the bootstrap
+    payload verbatim and was the same trap by another name.
+
+  `project_files` asks MySQL for `octet_length(content)` rather than selecting the body to measure
+  it, so the listing does not pull the LONGTEXT out of the database at all. That number is covered
+  by `test/integration/projects-client/lean-reads.test.ts` against real MySQL, including a
+  multi-byte body: `db-fake` discards the projection passed to `select()`, so a unit test for it
+  would only be testing the fake.
+
+- **`project_changes` silently ignored an unrecognised argument and replayed the whole log.** The
+  parameter is `since`; the bootstrap doctrine reads as "changes since the stored `latest_seq`",
+  and `since_seq` was accepted, dropped, and answered with every event from the beginning.
+  `since_seq` is now a declared alias. `since` also truncated to 32 bits (`since | 0`), so a
+  sequence above 2^31 wrapped to zero and replayed the log for a different reason.
+
+- **`docs/MCP.md` claimed the project tools were gated on `projects_module_enabled`.** They are
+  registered unconditionally; the flag gates only the managed `coco` skill and the admin console's
+  messaging. Line 71 of the same file already said so.
+
+- **Project files had no size limit of any kind, and no way to hold bytes.** No check existed in
+  either normalizer or either service, so the only ceiling was Fastify's 32 MiB body limit — out of
+  step with `roster_markdown` (65535) and project memories (32000), which hold far less. Files now
+  cap at 4 MiB, measured on what the body represents, and `stored_name` is checked against its
+  `VARCHAR(255)` column instead of being truncated by MySQL. Both writers go through one gate
+  (`project-file-encoding.ts`): a limit only one of them enforces is not a limit.
+
+  `project_file_upsert` takes `encoding: "base64"` (migration `0031`, `content_encoding`). The
+  workaround was already in production data before the column existed — `dns_switch_work` carries
+  `context/evidence-20260921.tar.gz.base64`, an agent's hand-encoded tarball stored as
+  `text/plain` — and nothing knew it had happened: `content_sha256` was the digest of the envelope
+  rather than of the archive, so it could not be checked against a digest taken anywhere else. For
+  an encoded row the digest and the reported size now describe the decoded bytes, and the body is
+  stored whitespace-stripped so `octet_length(content)` stays exactly four thirds of the decoded
+  size — which is what lets the lean listing stay byte-accurate without reading the body.
+
+- **A mistyped argument to any project tool was silently dropped.** `validateAgainstSchema` has
+  always supported `additionalProperties: false`; no project tool set it, so `since_seq` (and
+  anything else) was accepted, ignored, and answered as though it had not been passed. All 32
+  project and board schemas are now closed. The aliases the services read but no schema declared —
+  `project`/`agents_markdown`, `name`/`text`, `id`/`memory_id`, `q`, and `engine` on every board
+  tool — are declared rather than merely tolerated, since closing without them would have turned
+  working calls into errors; `project-tool-schema-closure.test.ts` holds the two halves together.
+
+  Missing-required is now checked before unknown-argument, because `normalizeArgs` turns an
+  unplaceable bare scalar into `{value: …}` and `'value' is not allowed` is true and useless where
+  `'slug' is required` tells the caller what to do. Declared `enum`s are enforced for the first
+  time, case-folded to match the services that normalize before comparing, so `type: "Bug"` and
+  `role: "Plan"` keep working.
+
+- **Nothing inferred a file's mime type.** It was NULL on 30 of 49 files in one live project. It is
+  now derived from the stored name's extension when the caller gives none; an explicit value always
+  wins and an unrecognised extension stays NULL.
+
+- **A cutover's calendar and its ordering lived in prose.** `coord_project_cards` carried labels,
+  priority and a blocked reason but nothing that said when a piece of work was due or what it waited
+  on. On the live `dns_switch_work` board, card 5's detail opens *"Noch nicht begonnen; abhängig von
+  Resolver/HA-, Netzwerk- und Puppet-Vorbereitung"* — a dependency on cards 2, 3 and 4 that nothing
+  could act on and nothing noticed being satisfied.
+
+  Migration `0032` adds `coord_project_cards.due_at` (RFC3339, indexed with `project_id`) and
+  `coord_project_card_deps`, an edge table — the interesting query runs the other way, *is anything
+  still waiting on this?*, and a unique key is what stops an edge being recorded twice. A card whose
+  dependencies have not all reached a terminal lane renders `ready: false` with `waiting_on`;
+  finishing them clears it with no second edit. Ordering is advisory like roles and WIP limits:
+  claiming a card that is not ready still succeeds and returns a `depends_unmet` advisory. A cycle is
+  the one exception and is refused outright, naming the chain (`#5 → #4 → #5`), because there is no
+  reading of a cycle that is the caller's call to make. Archiving a card drops its edges in both
+  directions, and deleting a project drops the project's.
+
+- **The board was a software pipeline on every project.** `plan / code / review / verify` is the
+  wrong shape for infrastructure work, and the live DNS board proves it: every card sits in
+  `backlog`, `done` or `blocked` and all four pipeline lanes are empty — not because the work had no
+  stages, but because its stages were discovery, a staged rollout and a canary. Columns were already
+  per-project rows carrying `allowed_roles` and `default_next_column_id`; only the seed was fixed.
+  `project_create` and `POST /admin/projects` now take `board_template`: `software` (the existing
+  seven lanes, and still the default) or `migration` (`backlog → discovery → plan → cutover → verify
+  → done`, plus `blocked`). A template provisions the board at creation, since `ensureBoard` is
+  otherwise lazy and the choice would have nowhere to wait — no column on `coord_projects` to replay
+  a decision from. Roles stay the fleet-fixed five: a template chooses which lanes exist and who is
+  expected in each, not a new vocabulary. Existing boards are untouched.
+
+  Every template is checked structurally, not just the seeded one — one intake, one terminal and one
+  blocked lane, a successor chain that actually reaches the terminal lane, unique keys, and roles the
+  fleet vocabulary declares. A malformed template is not a bad render; it is a board nobody can fix
+  without SQL.
+
+  The console's card editor was a `window.prompt` for the title. It is now a sheet with the detail,
+  the due date and the dependencies, and it reports a rejected cycle in place rather than in a toast
+  that closes it.
+
+- **A project could be started but never finished.** `coord_projects.archived_at` had existed
+  since the table did, with its own index, and every listing path already filtered on it — and no
+  code anywhere wrote it, so the fleet's project list had been append-only since March.
+  `coord_project_feedback.status` had a default of `open` and no writer, so every review item ever
+  filed was still open. `ProjectsService.updateAbout` and `updateRoster` existed and were reachable
+  over REST but had no MCP tool, so an agent could set `about` once at `project_create` and never
+  correct it; on the live `dns_switch_work` project that left `about.status` and
+  `about.last_verified` both stale with no way for the agent that knew better to fix either.
+
+  New: `project_update` (merges into the existing `about` by default, `replace: true` to overwrite,
+  so bumping a status does not mean restating owner and scope), `project_archive` /
+  `project_unarchive`, `project_feedback_update` (`open | acknowledged | resolved | dismissed`), and
+  `project_note_delete`, which the admin API had and MCP did not. `project_list` gains
+  `include_archived`. Archiving is a visibility state, not a tombstone: an archived project leaves
+  the listings and the resource catalogue, keeps its slug reserved, and stays readable and writable
+  by slug, because a finished migration is exactly the thing somebody comes back to read. The four
+  mutating tools join `CURATION_TOOLS`, so a clx host is not prompted mid-task for the calls that
+  close a project out.
+
+  The console gets the same: Archive/Reopen beside Delete, a *Show archived* filter on the list, and
+  status controls on the feedback page, which was create-only.
+
+- **The admin console fetched every file body on every project tab.**
+  `[slug]/+layout.svelte` called `GET /admin/projects/{slug}` — the full tree, file contents and all
+  — to render six numbers in its header, on the Activity tab and the Feedback tab as much as on
+  Files. New `GET /admin/projects/{slug}/summary` returns the counts and the about block and nothing
+  else; the Bugs tile now reads a server-side count instead of filtering the whole feedback array.
+  The files page fetches the one body being edited through the new
+  `GET /admin/projects/{slug}/files/{id}` rather than reading it out of the listing.
+
+- **Fixed in passing:** `project_summary`'s board block reported `status: "disabled"` on every
+  fleet, including ones with the board switched on. `HostProjectsService` builds its own
+  `ProjectBoardService` without a settings service — deliberately, since `project_todo_*` is not
+  gated by the board flag — and `getEnabled()` returns false when there is none. It now gets one;
+  the todo methods never consult it, so nothing that was ungated becomes gated. Found by the
+  end-to-end rehearsal in `test/integration/projects-client/mail-migration.test.ts`, which walks a
+  mail server migration from charter through discovery, board, review and cutover to archive.
+
+- `project.memory.*` was in `DEFAULT_INVALIDATIONS` but never in `PROJECT_SCOPED_EVENTS`, so an
+  agent writing a project memory refreshed the project list and left an open Activity tab stale.
+
+- The managed `coco` skill now opens with `project_summary`, names the windowing contract for large
+  artifacts, says plainly which calls to avoid and why, and carries the lifecycle steps — correcting
+  the about block, closing a review item, archiving when the work is done. Its sha256 changes, so hosts resync it.
+
 # 2026-09-20
 
 - **`cxx agent doctor --json` (and the receiver registry it reads for a

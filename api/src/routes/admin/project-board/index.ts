@@ -29,12 +29,17 @@ const stateSchema = z.object({
   enabled: z.union([z.boolean(), z.literal(0), z.literal(1), z.enum(['0', '1', 'true', 'false'])]),
 });
 
+// `due_at` and `depends_on` are validated in the service — an RFC3339 instant
+// and card numbers that must exist on this project without forming a cycle —
+// so these only have to let them through with the right shape.
 const createCardSchema = z.object({
   title: z.string().trim().min(1).max(255),
   detail: z.string().max(32000).optional(),
   column: z.string().trim().min(1).optional(),
   labels: z.array(z.string().trim().min(1).max(64)).max(16).optional(),
   priority: z.number().int().optional(),
+  due_at: z.string().trim().nullable().optional(),
+  depends_on: z.array(z.number().int().positive()).optional(),
 });
 
 const updateCardSchema = z.object({
@@ -43,6 +48,8 @@ const updateCardSchema = z.object({
   labels: z.array(z.string().trim().min(1).max(64)).max(16).optional(),
   priority: z.number().int().optional(),
   blocked_reason: z.string().max(500).nullable().optional(),
+  due_at: z.string().trim().nullable().optional(),
+  depends_on: z.array(z.number().int().positive()).nullable().optional(),
 });
 
 const moveCardSchema = z.object({

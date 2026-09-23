@@ -670,6 +670,7 @@ CREATE TABLE `coord_project_cards` (
 	`labels` json,
 	`priority` int NOT NULL DEFAULT 0,
 	`blocked_reason` varchar(500),
+	`due_at` varchar(100),
 	`source_todo_id` bigint unsigned,
 	`created_by_host_id` bigint unsigned,
 	`claim_role` varchar(32),
@@ -690,6 +691,16 @@ CREATE TABLE `coord_project_cards` (
 	CONSTRAINT `coord_project_cards_id` PRIMARY KEY(`id`),
 	CONSTRAINT `uq_coord_project_cards_number` UNIQUE(`project_id`,`card_number`),
 	CONSTRAINT `uq_coord_project_cards_todo` UNIQUE(`project_id`,`source_todo_id`)
+);
+
+CREATE TABLE `coord_project_card_deps` (
+	`id` char(36) NOT NULL,
+	`project_id` bigint unsigned NOT NULL,
+	`card_id` char(36) NOT NULL,
+	`depends_on_card_id` char(36) NOT NULL,
+	`created_at` varchar(100) NOT NULL,
+	CONSTRAINT `coord_project_card_deps_id` PRIMARY KEY(`id`),
+	CONSTRAINT `uq_coord_project_card_deps_edge` UNIQUE(`card_id`,`depends_on_card_id`)
 );
 
 CREATE TABLE `coord_project_events` (
@@ -726,6 +737,7 @@ CREATE TABLE `coord_project_files` (
 	`stored_name` varchar(255) NOT NULL,
 	`description` text,
 	`content` longtext NOT NULL,
+	`content_encoding` varchar(16) NOT NULL DEFAULT 'utf8',
 	`content_sha256` char(64) NOT NULL,
 	`mime_type` varchar(255),
 	`source_host_id` bigint unsigned,

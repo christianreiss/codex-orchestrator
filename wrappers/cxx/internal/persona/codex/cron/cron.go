@@ -253,6 +253,89 @@ func TickWithOptions(ctx context.Context, cfg *config.Config, minimal bool) (Res
 	return res, errors.Join(syncErr, fmt.Errorf("cron: /cron/report failed after retry: %w", reportErr))
 }
 
+// EnsureEngineCurrent brings the Codex CLI itself up to whatever version the
+// orchestrator currently permits, the same check-then-install step Tick runs,
+// but standalone: no wrapper self-update, no managed-content sync, no peer
+// engine. `cdx update` only self-updates the wrapper binary and re-execs into
+// `cxx sync` (see cmdWrapperUpdate); without this call that re-exec never
+// touched the Codex CLI at all, so an interactive update left the engine on
+// its old version until the next cron tick. Respects the same server-side
+// disable switch and CDX_CODEX_BIN override cron does.
+func EnsureEngineCurrent(ctx context.Context, cfg *config.Config, logger *slog.Logger) (Result, error) {
+	if logger == nil {
+		logger = slog.Default()
+	}
+	res := Result{CodexAction: "no_update"}
+	caBundle := ""
+	if cfg.Orchestrator.CABundlePath != nil {
+		caBundle = *cfg.Orchestrator.CABundlePath
+	}
+	client, err := orchestrator.New(orchestrator.Options{
+		BaseURL:       cfg.Orchestrator.BaseURL,
+		APIKey:        cfg.Orchestrator.APIKey,
+		AllowInsecure: cfg.Orchestrator.AllowInsecure,
+		CABundlePath:  caBundle,
+		Logger:        logger,
+	})
+	if err != nil {
+		return res, err
+	}
+
+	codexVer := strings.TrimSpace(codex.Version(ctx))
+	res.CodexBefore = codexVer
+	res.CodexVersion = codexVer
+
+	check, err := client.CronCheck(ctx, orchestrator.CronCheckRequest{
+		Engine:         "codex",
+		ClientVersion:  codexVer,
+		WrapperVersion: WrapperVersion,
+		Probe:          true,
+	})
+	if err != nil {
+		return res, fmt.Errorf("engine check: %w", err)
+	}
+	if check.Action == "disable" {
+		logger.Info("engine check: automatic binary updates disabled by server; leaving Codex CLI as-is")
+		res.CodexAction = "disable"
+		return res, nil
+	}
+	if check.Action != "update" {
+		return res, nil
+	}
+
+	targetClient := check.TargetVersion
+	if targetClient == "" {
+		targetClient = check.ClientVersion
+	}
+	if strings.TrimSpace(targetClient) == "" {
+		return res, errors.New("engine update requested without target version")
+	}
+	logger.Info("engine check: Codex update", "from", codexVer, "to", targetClient, "enforce_exact", check.EnforceExact)
+	res.CodexTarget = targetClient
+	beforeCLI, _ := codex.FindCLI()
+	if err := codex.EnsureCodexBackground(ctx, targetClient, check.EnforceExact, logger); err != nil {
+		res.CodexAction = "failed"
+		return res, fmt.Errorf("codex update: %w", err)
+	}
+	if afterCLI, _ := codex.FindCLI(); afterCLI != beforeCLI {
+		res.CodexAction = "updated"
+	}
+	newVer := strings.TrimSpace(codex.Version(ctx))
+	res.CodexVersion = newVer
+
+	report := orchestrator.CronReportRequest{
+		Engine:         "codex",
+		ClientVersion:  newVer,
+		WrapperVersion: WrapperVersion,
+	}
+	if err := client.CronReport(ctx, report); err != nil {
+		logger.Warn("engine check: report new Codex version", "err", err)
+	} else {
+		res.Reported = true
+	}
+	return res, nil
+}
+
 func protectPendingMaintenanceAuth(ctx context.Context, client *orchestrator.Client, logger *slog.Logger) error {
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
