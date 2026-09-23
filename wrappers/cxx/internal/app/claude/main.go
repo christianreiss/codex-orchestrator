@@ -901,7 +901,33 @@ func cmdSync(ctx context.Context, cfg *config.Config, f flags, logger *slog.Logg
 		WrapperVersion:      Version,
 	})
 	printLifecycleError(stderr, "clx sync", err)
+	if engineExit := ensureEngineForSync(ctx, cfg, f.minimal, logger, stderr); engineExit != 0 && exit == 0 {
+		exit = engineExit
+	}
 	return exit
+}
+
+// ensureEngineForSync brings the Claude CLI itself up to date as part of
+// `clx sync`. It exists so `clx update` — which self-updates the wrapper,
+// then re-execs into `clx sync` to converge managed content — also converges
+// the engine: without this the interactive update path only ever replaced
+// the wrapper binary, and the Claude CLI itself stayed on its old version
+// until the next cron tick. Best-effort: a failure here is reported but
+// never blocks `clx sync` from having done its own job.
+func ensureEngineForSync(ctx context.Context, cfg *config.Config, minimal bool, logger *slog.Logger, stderr io.Writer) int {
+	res, err := enginecron.EnsureEngineCurrent(ctx, cfg, logger)
+	if err != nil {
+		printBoundedPlain(stderr, "clx sync: Claude engine update failed: "+err.Error(), minimal)
+		return 1
+	}
+	if res.CodexAction == "updated" {
+		arrow := "→"
+		if minimal {
+			arrow = "->"
+		}
+		fmt.Fprintln(stderr, fmt.Sprintf("clx sync: Claude updated %s %s %s", res.CodexBefore, arrow, res.CodexVersion))
+	}
+	return 0
 }
 
 func printLifecycleError(w io.Writer, prefix string, err error) {

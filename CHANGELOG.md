@@ -1,3 +1,18 @@
+# 2026-09-23
+
+- **`clx update` / `cdx update` never updated the engine.** The command self-updates the wrapper
+  binary and re-execs into `cxx sync` to converge managed content, but nothing in that path ever
+  touched the Claude or Codex CLI itself — only the scheduled cron tick (`TickWithOptions`) called
+  `EnsureClaudeBackground`/`EnsureCodexBackground`. A host that only ever ran `clx update`
+  interactively could sit on an old engine version indefinitely between cron ticks.
+
+  `EnsureEngineCurrent` (new, one per persona in `internal/persona/{claude,codex}/cron`) factors the
+  check-then-install step out of the tick — same orchestrator `CronCheck` gate, same disable switch,
+  same `CLX_CLAUDE_BIN`/`CDX_CODEX_BIN` override handling — and `cmdSync` in each persona's app now
+  calls it after every managed-content sync. Since `clx update`'s re-exec always lands on `sync`,
+  this closes the gap without touching the cron tick itself. A failure here is reported but does not
+  block the sync it rides along with.
+
 # 2026-09-22
 
 - **The Projects module could not be read by the agents it exists for.** Measured against live

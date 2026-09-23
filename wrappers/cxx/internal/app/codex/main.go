@@ -829,7 +829,33 @@ func cmdSync(ctx context.Context, cfg *config.Config, f flags, logger *slog.Logg
 		WrapperVersion:      Version,
 	})
 	printLifecycleError(stderr, "cdx sync", err)
+	if engineExit := ensureEngineForSync(ctx, cfg, f.minimal, logger, stderr); engineExit != 0 && exit == 0 {
+		exit = engineExit
+	}
 	return exit
+}
+
+// ensureEngineForSync brings the Codex CLI itself up to date as part of
+// `cdx sync`. It exists so `cdx update` — which self-updates the wrapper,
+// then re-execs into `cxx sync` to converge managed content — also converges
+// the engine: without this the interactive update path only ever replaced
+// the wrapper binary, and the Codex CLI itself stayed on its old version
+// until the next cron tick. Best-effort: a failure here is reported but
+// never blocks `cdx sync` from having done its own job.
+func ensureEngineForSync(ctx context.Context, cfg *config.Config, minimal bool, logger *slog.Logger, stderr io.Writer) int {
+	res, err := enginecron.EnsureEngineCurrent(ctx, cfg, logger)
+	if err != nil {
+		printBoundedPlain(stderr, "cdx sync: Codex engine update failed: "+err.Error(), minimal)
+		return 1
+	}
+	if res.CodexAction == "updated" {
+		arrow := "→"
+		if minimal {
+			arrow = "->"
+		}
+		fmt.Fprintln(stderr, fmt.Sprintf("cdx sync: Codex updated %s %s %s", res.CodexBefore, arrow, res.CodexVersion))
+	}
+	return 0
 }
 
 func printLifecycleError(w io.Writer, prefix string, err error) {

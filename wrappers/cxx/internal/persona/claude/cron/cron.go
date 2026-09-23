@@ -243,6 +243,86 @@ func TickWithOptions(ctx context.Context, cfg *config.Config, minimal bool) (Res
 	return res, errors.Join(syncErr, fmt.Errorf("cron: /cron/report failed after retry: %w", reportErr))
 }
 
+// EnsureEngineCurrent brings the Claude CLI itself up to whatever version the
+// orchestrator currently permits, the same check-then-install step Tick runs,
+// but standalone: no wrapper self-update, no managed-content sync, no peer
+// engine. `clx update` only self-updates the wrapper binary and re-execs into
+// `clx sync` (see cmdWrapperUpdate); without this call that re-exec never
+// touched the Claude CLI at all, so an interactive update left the engine on
+// its old version until the next cron tick. Respects the same server-side
+// disable switch and CLX_CLAUDE_BIN override cron does.
+func EnsureEngineCurrent(ctx context.Context, cfg *config.Config, logger *slog.Logger) (Result, error) {
+	if logger == nil {
+		logger = slog.Default()
+	}
+	res := Result{CodexAction: "no_update"}
+	client, err := orchestrator.New(orchestrator.Options{
+		BaseURL:       cfg.Orchestrator.BaseURL,
+		APIKey:        cfg.Orchestrator.APIKey,
+		CABundlePath:  caBundlePath(cfg),
+		AllowInsecure: cfg.Orchestrator.AllowInsecure,
+		Logger:        logger,
+	})
+	if err != nil {
+		return res, err
+	}
+
+	claudeVer := strings.TrimSpace(claude.Version(ctx))
+	res.CodexBefore = claudeVer
+	res.CodexVersion = claudeVer
+
+	check, err := client.CronCheck(ctx, orchestrator.CronCheckRequest{
+		Engine:         "claude",
+		ClientVersion:  claudeVer,
+		WrapperVersion: WrapperVersion,
+		Probe:          true,
+	})
+	if err != nil {
+		return res, fmt.Errorf("engine check: %w", err)
+	}
+	if check.Action == "disable" {
+		logger.Info("engine check: automatic binary updates disabled by server; leaving Claude CLI as-is")
+		res.CodexAction = "disable"
+		return res, nil
+	}
+	if check.Action != "update" {
+		return res, nil
+	}
+
+	targetClient := check.TargetVersion
+	if targetClient == "" {
+		targetClient = check.ClientVersion
+	}
+	if strings.TrimSpace(targetClient) == "" {
+		return res, errors.New("engine update requested without a target version")
+	}
+	logger.Info("engine check: Claude update", "from", claudeVer, "to", targetClient, "enforce_exact", check.EnforceExact)
+	res.CodexTarget = targetClient
+	if err := claude.EnsureClaudeBackground(ctx, targetClient, check.EnforceExact, logger); errors.Is(err, claude.ErrClaudeCLIOverride) {
+		res.CodexAction = "skipped_override"
+		logger.Info("engine check: Claude update skipped for CLX_CLAUDE_BIN override")
+		return res, nil
+	} else if err != nil {
+		res.CodexAction = "failed"
+		return res, fmt.Errorf("claude update: %w", err)
+	}
+	res.CodexAction = "updated"
+	newVer := strings.TrimSpace(claude.Version(ctx))
+	res.CodexVersion = newVer
+
+	report := orchestrator.CronReportRequest{
+		Engine:         "claude",
+		ClientVersion:  newVer,
+		WrapperVersion: WrapperVersion,
+	}
+	if err := client.CronReport(ctx, report); err != nil {
+		logger.Warn("engine check: report new Claude version", "err", err)
+	} else {
+		res.Reported = true
+	}
+	return res, nil
+}
+
 func protectPendingMaintenanceAuth(ctx context.Context, client *orchestrator.Client, logger *slog.Logger) error {
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
