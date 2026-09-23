@@ -1041,8 +1041,13 @@ not relax existing authentication, local credential handling or quota hard-fail.
 
 ## Automatic receiver protocol (0.8.10)
 
-`POST /host/agent-sessions/:id/receiver/{register,heartbeat,stop,ack,status,claim}`
-uses `X-Agent-Bridge-Token`, the existing session/host/engine authorization, and the
+`POST /host/agent-sessions/{id}/receiver/register`,
+`POST /host/agent-sessions/{id}/receiver/heartbeat`,
+`POST /host/agent-sessions/{id}/receiver/stop`,
+`POST /host/agent-sessions/{id}/receiver/ack`,
+`POST /host/agent-sessions/{id}/receiver/status` and
+`POST /host/agent-sessions/{id}/receiver/claim`
+use `X-Agent-Bridge-Token`, the existing session/host/engine authorization, and the
 applicable peer/portal switch. No host credential is sent to the model process.
 
 - `register`: `{generation: UUID, protocol: "codex-queue-v1"|"claude-channel-v1", native_session_id}`;

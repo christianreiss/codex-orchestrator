@@ -3,7 +3,7 @@ title: Dashboard
 summary: Reported engine coverage, Codex and Claude usage, runner verification, and refresh recovery.
 section: Admin workspace
 verified: 2026-09-09
-sources: api/src/routes/admin/overview/index.ts, api/src/routes/admin/setup/index.ts, api/src/services/setup-status.ts, api/src/services/setup-wizard.ts, api/src/services/chatgpt-usage.ts, api/src/services/dashboard-stats.ts, api/src/services/usage-scaling.ts, api/src/db/schema.ts, frontend/src/routes/dashboard/+page.svelte, frontend/src/routes/dashboard/OnboardingCard.svelte, frontend/src/lib/api/setup.ts, frontend/src/routes/dashboard/StatCard.svelte, frontend/src/routes/dashboard/ChatGptUsageCard.svelte, frontend/src/lib/components/dashboard/RunnerCard.svelte, frontend/src/lib/api/overview.ts, frontend/src/lib/api/runner.ts
+sources: api/src/routes/admin/overview/index.ts, api/src/routes/admin/setup/index.ts, api/src/services/setup-status.ts, api/src/services/setup-wizard.ts, api/src/services/chatgpt-usage.ts, api/src/services/dashboard-stats.ts, api/src/services/usage-scaling.ts, api/src/db/schema.ts, frontend/src/routes/dashboard/+page.svelte, frontend/src/routes/dashboard/OnboardingCard.svelte, frontend/src/lib/api/setup.ts, frontend/src/lib/components/dashboard/StatCard.svelte, frontend/src/routes/dashboard/ChatGptUsageCard.svelte, frontend/src/lib/components/dashboard/RunnerCard.svelte, frontend/src/lib/api/overview.ts, frontend/src/lib/api/runner.ts
 ---
 
 # Dashboard

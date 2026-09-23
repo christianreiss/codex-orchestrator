@@ -282,6 +282,7 @@ describe('the exceptions are exceptions, not holes', () => {
       'POST /admin/agent-sessions/:id/close/force',
       'POST /admin/agent-sessions/:id/messages',
       'POST /admin/agent-sessions/:id/prompts/:promptId/answer',
+      'POST /admin/agent-sessions/:id/receiver/verify',
       'POST /admin/authorization',
     ]);
   });
