@@ -233,6 +233,7 @@ describe('migrations against the test baseline', () => {
       'agent_bus_addresses.call_pin_expires_at',
       'agent_messages.admin_user_id',
       'agent_transfer_events.seq',
+      'agent_sessions.receiver',
       'coord_project_files.content_encoding',
       'coord_project_cards.due_at',
     ]);

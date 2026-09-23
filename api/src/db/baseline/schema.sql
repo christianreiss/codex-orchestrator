@@ -384,6 +384,7 @@ CREATE TABLE `agent_sessions` (
 	`adapter_protocol` varchar(32),
 	`adapter_capabilities` json,
 	`receive_heartbeat_at` varchar(100),
+	`receiver` json,
 	`binding_generation` int unsigned NOT NULL DEFAULT 0,
 	`host_auth_fingerprint` char(64) NOT NULL,
 	`bridge_token_hash` char(64) NOT NULL,
@@ -659,6 +660,16 @@ CREATE TABLE `coord_project_boards` (
 	CONSTRAINT `uq_coord_project_boards_slug` UNIQUE(`project_id`,`slug`)
 );
 
+CREATE TABLE `coord_project_card_deps` (
+	`id` char(36) NOT NULL,
+	`project_id` bigint unsigned NOT NULL,
+	`card_id` char(36) NOT NULL,
+	`depends_on_card_id` char(36) NOT NULL,
+	`created_at` varchar(100) NOT NULL,
+	CONSTRAINT `coord_project_card_deps_id` PRIMARY KEY(`id`),
+	CONSTRAINT `uq_coord_project_card_deps_edge` UNIQUE(`card_id`,`depends_on_card_id`)
+);
+
 CREATE TABLE `coord_project_cards` (
 	`id` char(36) NOT NULL,
 	`project_id` bigint unsigned NOT NULL,
@@ -691,16 +702,6 @@ CREATE TABLE `coord_project_cards` (
 	CONSTRAINT `coord_project_cards_id` PRIMARY KEY(`id`),
 	CONSTRAINT `uq_coord_project_cards_number` UNIQUE(`project_id`,`card_number`),
 	CONSTRAINT `uq_coord_project_cards_todo` UNIQUE(`project_id`,`source_todo_id`)
-);
-
-CREATE TABLE `coord_project_card_deps` (
-	`id` char(36) NOT NULL,
-	`project_id` bigint unsigned NOT NULL,
-	`card_id` char(36) NOT NULL,
-	`depends_on_card_id` char(36) NOT NULL,
-	`created_at` varchar(100) NOT NULL,
-	CONSTRAINT `coord_project_card_deps_id` PRIMARY KEY(`id`),
-	CONSTRAINT `uq_coord_project_card_deps_edge` UNIQUE(`card_id`,`depends_on_card_id`)
 );
 
 CREATE TABLE `coord_project_events` (
@@ -1314,6 +1315,9 @@ CREATE INDEX `idx_client_config_documents_updated_at` ON `client_config_document
 CREATE INDEX `idx_client_config_engine` ON `client_config_documents` (`engine`);
 CREATE INDEX `idx_coord_project_board_columns_order` ON `coord_project_board_columns` (`board_id`,`position`);
 CREATE INDEX `idx_coord_project_boards_project` ON `coord_project_boards` (`project_id`,`archived_at`);
+CREATE INDEX `idx_coord_project_card_deps_card` ON `coord_project_card_deps` (`card_id`);
+CREATE INDEX `idx_coord_project_card_deps_depends` ON `coord_project_card_deps` (`depends_on_card_id`);
+CREATE INDEX `idx_coord_project_card_deps_project` ON `coord_project_card_deps` (`project_id`);
 CREATE INDEX `idx_coord_project_cards_column` ON `coord_project_cards` (`column_id`,`priority`,`entered_column_at`);
 CREATE INDEX `idx_coord_project_cards_project` ON `coord_project_cards` (`project_id`,`archived_at`,`updated_at`);
 CREATE INDEX `idx_coord_project_cards_claim` ON `coord_project_cards` (`claimed_agent_bus_address_id`,`claim_expires_at`);
