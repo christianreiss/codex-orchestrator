@@ -14,7 +14,7 @@ import {
  * `--config model_reasoning_effort=...`. All three are duplicates of the server
  * catalog in `config-normalizer.ts`, held together by comments only.
  *
- * The drift is one the fleet has already lived through: `CHANGELOG.md:2079`
+ * The drift is one the fleet has already lived through: `CHANGELOG.md` (2026-04)
  * records a release that dropped `gpt-5.3-codex-spark` from the allowlist. With
  * nothing pinning the wrapper, every `cdx lane spark` launch would have asked
  * for a model the inference gate rejects while the whole gate stayed green —
