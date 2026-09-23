@@ -18,6 +18,8 @@ import (
 	"runtime"
 	"strings"
 	"time"
+
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/ipv4"
 )
 
 const (
@@ -66,6 +68,7 @@ func New(opts Options) (*Client, error) {
 		timeout = defaultTimeout
 	}
 	transport := &http.Transport{
+		DialContext:           ipv4.PreferDialContext(),
 		TLSClientConfig:       tlsCfg,
 		MaxIdleConns:          10,
 		IdleConnTimeout:       60 * time.Second,

@@ -26,6 +26,7 @@ import (
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/ipc"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/ipv4"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/signing"
 )
 
@@ -221,7 +222,7 @@ func newRelayClient(cfg *config.Config) (*relayClient, error) {
 		}
 		tlsConfig.RootCAs = pool
 	}
-	transport := &http.Transport{TLSClientConfig: tlsConfig, MaxIdleConns: 4, IdleConnTimeout: 45 * time.Second, ResponseHeaderTimeout: 35 * time.Second}
+	transport := &http.Transport{DialContext: ipv4.PreferDialContext(), TLSClientConfig: tlsConfig, MaxIdleConns: 4, IdleConnTimeout: 45 * time.Second, ResponseHeaderTimeout: 35 * time.Second}
 	return &relayClient{
 		baseURL: strings.TrimRight(cfg.Orchestrator.BaseURL, "/"), apiKey: cfg.Orchestrator.APIKey,
 		http: &http.Client{Transport: transport, Timeout: 40 * time.Second},

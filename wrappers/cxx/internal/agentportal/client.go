@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/ipv4"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/signing"
 )
 
@@ -767,6 +768,7 @@ func newHTTPClient(caBundlePath *string, allowInsecure bool, timeout time.Durati
 		responseHeaderTimeout = timeout
 	}
 	transport := &http.Transport{
+		DialContext:           ipv4.PreferDialContext(),
 		TLSClientConfig:       tlsConfig,
 		MaxIdleConns:          4,
 		IdleConnTimeout:       45 * time.Second,

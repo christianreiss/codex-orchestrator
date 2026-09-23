@@ -13,6 +13,31 @@
   this closes the gap without touching the cron tick itself. A failure here is reported but does not
   block the sync it rides along with.
 
+- **Fixed `POST /cron/check -> 401 ip_mismatch` (and the identical failure on agent-relay
+  register/heartbeat) on dual-stack hosts, bumping the wrapper to `0.8.14`.** Reproduced live on
+  `vox.dalason.net` (secure host, `allow_roaming_ips=0`, bound `ip4=84.246.123.203`, `ip6=NULL`):
+  the host has real IPv6 connectivity, and every one of the wrapper's own `net/http.Transport`s
+  used Go's default dual-stack dial, which prefers IPv6 and — worse, on this network — hands out a
+  *different* IPv6 source address per connection. A non-roaming secure host can never satisfy that,
+  so `hostAuth.enforceIpBinding` (`api/src/services/host-auth.ts`) correctly rejected it every time;
+  the production API logs showed the same `ip_mismatch` churn on `/host/agent-relays/register` from
+  several other hosts, confirming this wasn't vox-specific. Root cause was wrapper-side, not a
+  server bug: nothing pinned the wrapper's egress address family, so a stable single-IP binding
+  policy met an unstable multi-address client.
+
+  Added `ipv4.PreferDialContext()` (`wrappers/cxx/internal/ipv4/dial.go`) — a `DialContext` that
+  tries `tcp4` first and falls back to the address's default dual-stack dial only when no IPv4 route
+  exists (so IPv6-only hosts keep working). Wired into every `http.Transport` the wrapper builds for
+  its own orchestrator traffic: both persona `orchestrator.New` clients
+  (`internal/persona/{codex,claude}/orchestrator/client.go`), the agent-messaging relay client
+  (`internal/agentbus/worker.go`, the actual source of the logged relay-register spam), the agent
+  portal registration client (`internal/agentportal/client.go`), and the wrapper self-update
+  downloader (`internal/update/update.go`). Also noted, not fixed here: the `-4`/`--ipv4` CLI flag
+  in both `main.go` files sets `f.forceIPv4` and `CODEX_FORCE_IPV4`/`CLAUDE_FORCE_IPV4`, but nothing
+  ever read the struct field, and the env var only feeds the child-process IPv4 proxy
+  (`internal/ipv4/proxy.go`) — it never affected the wrapper's own API calls, which is a separate
+  latent gap from the one fixed here.
+
 # 2026-09-22
 
 - **The Projects module could not be read by the agents it exists for.** Measured against live
