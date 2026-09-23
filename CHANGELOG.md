@@ -1,5 +1,13 @@
 # 2026-09-23
 
+- **`scripts/deploy.sh` now publishes the `cxx` wrappers itself.** Bumping `VERSION` in
+  `wrappers/Makefile` and deploying is the whole release: the script builds all four platforms in the
+  `wrappers/Dockerfile.build` container, embeds the database's active signing key and refuses to
+  publish unless every binary carries it, publishes into the served store, recreates the api and
+  verifies `wrapper_version_codex`/`_claude` moved. A served version is a no-op; wrapper changes
+  without a bump print a warning. `--skip-wrappers` opts out; more than one active signing key
+  (rotation in progress) stops the step.
+
 - **Quota provider question: bar rows and 1–4 hotkeys (wrapper `0.9.1`).** The two quota readings
   now render as aligned usage bars with compact durations (`7d window · reset unknown · 12m ago`
   instead of `168h0m0s window … measured 12m1s ago`). The choice is one keypress: `1` OpenAI

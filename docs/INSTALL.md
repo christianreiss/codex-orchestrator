@@ -269,6 +269,17 @@ fresh logs for critical failures, and prunes unused Docker build artifacts. Add
 an API-only restart, or `--skip-git` only when intentionally deploying a local
 uncommitted tree.
 
+It also publishes the `cxx` wrapper matrix. When `VERSION` in
+`wrappers/Makefile` is not yet the served version, it builds all four platforms
+in the `wrappers/Dockerfile.build` toolchain container (no Go, make or python
+build tooling needed on the host beyond `python3`), embeds the database's single
+active signing key and proves every binary carries it, publishes into the
+`/app/storage` mount's `wrapper/v2/bin`, recreates the api and checks that
+`wrapper_version_codex`/`_claude` moved. An already-served version is a no-op;
+if wrapper sources changed since the served binary's commit without a
+`VERSION` bump it warns and continues. `--skip-wrappers` opts out, and the step
+refuses to run while a signing-key rotation leaves more than one active key.
+
 - Starts `api`, `auth-runner`, `mysql` and `quota-cron`. Add `--profile caddy`
   for the TLS proxy.
 - API defaults to `http://localhost:8488`.

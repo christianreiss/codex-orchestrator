@@ -35,8 +35,10 @@ cxx remote [info|exec|read|write|wait|signal|ps|rm|get|put|push|pull|down]  # de
 cxx claude-quota-statusline   # Claude Code statusLine command that relays quota readings
 ```
 
-The release version is `VERSION` in this Makefile (currently 0.8.4) and is
-stamped into the binary with `-ldflags -X main.Version=...`.
+The release version is `VERSION` in this Makefile and is stamped into the binary
+with `-ldflags -X main.Version=...`. Bumping it is the whole release step:
+`scripts/deploy.sh` builds, verifies and publishes any `VERSION` the server does
+not serve yet, then recreates the api so hosts update.
 
 Build:
 

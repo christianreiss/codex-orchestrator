@@ -57,6 +57,7 @@ const NON_API_VARS: Record<string, string> = {
   BIN_DIR: 'api/src/services/wrapper-transition.ts (generated installer)',
   CODEX_HOME: 'wrappers/cxx/internal/codex/auth_writer.go',
   CODEX_INSTALL_CURL_INSECURE: 'api/src/services/wrapper-transition.ts (generated installer)',
+  NO_COLOR: 'wrappers/cxx/internal/terminalui/ansi.go (wrapper colour opt-out)',
   OPENAI_API_KEY: 'wrappers/cxx/internal/codex/env.go (exported into the Codex process)',
   PASSWORD_MIN_LENGTH: 'api/src/services/admin-auth.ts (a constant behind passwordMinLength(), not an env var)',
   TOKEN_MIN_LENGTH: 'api/src/services/runner-validation.ts (read off process.env)',

@@ -142,7 +142,7 @@ Conversely, some features are **Claude-only** (`clx`) because Codex has no on-di
 - Respect existing patterns; route registration lives in `api/src/routes/index.ts`, while business logic should stay in `api/src/services/`.
 - Keep `api/src/db/schema.ts` and Drizzle migrations aligned whenever adding columns/tables.
 - Document API/request/CLI changes in `docs/OVERVIEW.md` plus relevant `docs/interface-*.md` files, and add/update tests in `api/test/` or `wrappers/cxx/`.
-- For wrapper changes, edit `wrappers/cxx/`, run `go build ./...` + `go vet ./...`, bump the wrapper version, and rebuild Docker images so the bakery seeds correctly.
+- For wrapper changes, edit `wrappers/cxx/`, run `go build ./...` + `go vet ./...`, and bump `VERSION` in `wrappers/Makefile`; `scripts/deploy.sh` builds, verifies and publishes any unserved `VERSION` and recreates the api (no separate release step).
 - Behavioral changes that affect hosts/operators require matching dashboard updates and a `CHANGELOG.md` entry.
 
 ## Admin WebUI

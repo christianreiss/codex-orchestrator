@@ -203,9 +203,14 @@ bin/install.sh
 It generates an environment-local Ed25519 pair, passes the public PEM as
 `PUBLIC_KEY_FILE` to `make release` (linker injection; tracked `pubkey.pem`
 never changes), publishes the complete platform matrix, imports the private
-PEM encrypted, proves signing/read-back, and deletes plaintext. The lower-level
-`make release` / `make publish-release` targets remain available for explicit
-versioned operator releases and recovery.
+PEM encrypted, proves signing/read-back, and deletes plaintext. Later releases
+are published by `scripts/deploy.sh`: bump `VERSION` in `wrappers/Makefile` and
+deploy. It builds in the toolchain container with the database's single active
+public key as `PUBLIC_KEY_FILE`, refuses to publish unless every staged binary
+carries that injected key, publishes with `publish-release.py`, and recreates
+the api so `versions` picks up the new target. The lower-level `make release` /
+`make publish-release` targets remain available for explicit operator releases
+and recovery.
 
 After that, hitting `/wrapper/v2/meta` with a valid host API key returns the
 binary manifest. The v2 routes gate on the signing key first — none configured
@@ -410,6 +415,11 @@ key afterwards is what makes it primary again, and the fleet has to move back
 onto old-key binaries with it.
 
 ## cxx rollout and rollback
+
+Routine rollout is `scripts/deploy.sh` (see Operator bootstrap). It never
+overwrites a published version: a `VERSION` that is already `current` is a no-op,
+and one that is published but not `current` (a manual rollback) is left alone.
+The manual procedure below is for rollbacks, key rotation and recovery.
 
 Build into a staging directory outside the served `bin/cxx` root; a tag's CI
 archive is a single-version release fragment, not a replacement store. After
