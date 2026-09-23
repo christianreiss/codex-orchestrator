@@ -49,6 +49,12 @@ describe('deploy.sh wrapper publishing contract', () => {
     expect(deploy).toContain('docker build --pull -q -f "${repo_root}/wrappers/Dockerfile.build"');
   });
 
+  it('re-runs itself after a pull that changed the script', () => {
+    // Otherwise the first deploy after an update runs the previous logic, and
+    // a new wrapper step silently does nothing until the next deploy.
+    expect(deploy).toContain('exec bash "${script_dir}/deploy.sh" "${original_args[@]}" --skip-git');
+  });
+
   it('fails the deploy when the api did not project the new version', () => {
     expect(deploy).toContain('api did not project cxx ${wrapper_version}');
   });

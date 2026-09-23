@@ -4,6 +4,7 @@ set -euo pipefail
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd "${script_dir}/.." && pwd)"
 
+original_args=("$@")
 backup=0
 cleanup=1
 pull_rebase=0
@@ -139,6 +140,13 @@ if [[ "${skip_git}" -eq 0 ]]; then
   after_rev="$(git rev-parse --short HEAD)"
   if [[ "${before_rev}" != "${after_rev}" ]]; then
     log "updated git revision ${before_rev} -> ${after_rev}"
+    # bash reads a script while running it, but the pull replaced this file on
+    # disk, so everything below would still be the previous revision's logic.
+    # Restart as the pulled script; --skip-git keeps it from pulling again.
+    if ! git diff --quiet "${before_rev}" "${after_rev}" -- scripts/deploy.sh; then
+      log "scripts/deploy.sh changed; re-running the updated script"
+      exec bash "${script_dir}/deploy.sh" "${original_args[@]}" --skip-git
+    fi
   else
     log "git revision unchanged (${after_rev})"
   fi
