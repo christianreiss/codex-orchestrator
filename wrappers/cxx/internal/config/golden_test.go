@@ -109,6 +109,7 @@ func goldenFixtures() []goldenFixture {
 					AdminThemeHint:          goldenString("dark"),
 				},
 				AgentMessaging: AgentMessaging{
+					ReceiverEnabled:       true,
 					Enabled:               true,
 					RelayPollSeconds:      25,
 					QueuedTTLSeconds:      86400,
@@ -166,6 +167,7 @@ func goldenFixtures() []goldenFixture {
 				// the cross-check that Validate no longer vetoes the pairing of
 				// agent_messaging.enabled with host.secure:false.
 				AgentMessaging: AgentMessaging{
+					ReceiverEnabled:       true,
 					Enabled:               true,
 					RelayPollSeconds:      25,
 					QueuedTTLSeconds:      86400,

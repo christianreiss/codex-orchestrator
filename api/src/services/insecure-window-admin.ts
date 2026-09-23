@@ -126,7 +126,7 @@ function parseDate(s: string | Date | null | undefined): Date | null {
 function expiresAt(requestedAt: string): string | null {
   const requested = parseDate(requestedAt);
   if (!requested) return null;
-  return new Date(requested.getTime() + PENDING_APPROVAL_TTL_MS).toISOString().replace(/\.\d{3}Z$/, 'Z');
+  return isoOffsetSeconds(PENDING_APPROVAL_TTL_MS / 1000, requested);
 }
 
 function normalizeDomainCandidate(domain: string | null | undefined): string | null {
