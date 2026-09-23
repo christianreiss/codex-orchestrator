@@ -1,5 +1,11 @@
 # 2026-09-23
 
+- **Insecure approvals alert moved from the Overview to the sidebar.** Hosts waiting on an
+  insecure-window approval now surface as an amber **Insecure approvals** item (with a count) at the
+  top of the left-hand navigation on every console page, linking to `/hosts?insecure=1`; on mobile
+  it heads the Menu sheet and a dot marks the Menu button. A failed approvals check shows as a red
+  "Approvals check failed" item that retries on click. The dashboard banner is gone.
+
 - **`scripts/deploy.sh` now publishes the `cxx` wrappers itself.** Bumping `VERSION` in
   `wrappers/Makefile` and deploying is the whole release: the script builds all four platforms in the
   `wrappers/Dockerfile.build` container, embeds the database's active signing key and refuses to

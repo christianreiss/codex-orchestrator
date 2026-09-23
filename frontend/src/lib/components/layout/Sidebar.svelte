@@ -8,6 +8,7 @@
   import { authActions, authStore } from "$lib/stores/auth";
   import { getStoredOpenGroups, setStoredOpenGroups } from "$lib/stores/sidebar-groups";
   import BrandMark from "$lib/components/brand/BrandMark.svelte";
+  import InsecureApprovalsNavAlert from "./InsecureApprovalsNavAlert.svelte";
   import * as DropdownMenu from "$lib/components/ui/dropdown-menu";
   import * as Collapsible from "$lib/components/ui/collapsible";
   import ChevronDown from "@lucide/svelte/icons/chevron-down";
@@ -65,6 +66,7 @@
 
   <nav class="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-4" aria-label="Primary navigation">
     <div class="space-y-3">
+      <InsecureApprovalsNavAlert />
       {#each NAV_SECTIONS as section (section.id)}
         <section aria-labelledby={`nav-${section.id}`}>
           <Collapsible.Root bind:open={openGroups[section.id]}>

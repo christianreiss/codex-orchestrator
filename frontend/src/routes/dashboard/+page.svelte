@@ -4,7 +4,6 @@
   import ChatGptUsageCard from "./ChatGptUsageCard.svelte";
   import ClaudeUsageCard from "./ClaudeUsageCard.svelte";
   import RunnerCard from "$lib/components/dashboard/RunnerCard.svelte";
-  import DashboardAlerts from "./DashboardAlerts.svelte";
   import { Alert, AlertTitle, AlertDescription } from "$lib/components/ui/alert";
   import { engineInstallCounts, overviewQuery } from "$lib/api/overview";
   import Server from "@lucide/svelte/icons/server";
@@ -164,9 +163,6 @@
       {/snippet}
     </StatCard>
   </div>
-
-  <!-- Alerts row -->
-  <DashboardAlerts />
 
   <FleetCoverage distribution={$overview.data?.version_distribution} loading={$overview.isPending} />
 

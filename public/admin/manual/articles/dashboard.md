@@ -3,7 +3,7 @@ title: Dashboard
 summary: Reported engine coverage, Codex and Claude usage, runner verification, and refresh recovery.
 section: Admin workspace
 verified: 2026-09-09
-sources: api/src/routes/admin/overview/index.ts, api/src/routes/admin/setup/index.ts, api/src/services/setup-status.ts, api/src/services/setup-wizard.ts, api/src/services/chatgpt-usage.ts, api/src/services/dashboard-stats.ts, api/src/services/usage-scaling.ts, api/src/db/schema.ts, frontend/src/routes/dashboard/+page.svelte, frontend/src/routes/dashboard/OnboardingCard.svelte, frontend/src/lib/api/setup.ts, frontend/src/routes/dashboard/StatCard.svelte, frontend/src/routes/dashboard/ChatGptUsageCard.svelte, frontend/src/routes/dashboard/DashboardAlerts.svelte, frontend/src/lib/components/dashboard/RunnerCard.svelte, frontend/src/lib/api/overview.ts, frontend/src/lib/api/runner.ts
+sources: api/src/routes/admin/overview/index.ts, api/src/routes/admin/setup/index.ts, api/src/services/setup-status.ts, api/src/services/setup-wizard.ts, api/src/services/chatgpt-usage.ts, api/src/services/dashboard-stats.ts, api/src/services/usage-scaling.ts, api/src/db/schema.ts, frontend/src/routes/dashboard/+page.svelte, frontend/src/routes/dashboard/OnboardingCard.svelte, frontend/src/lib/api/setup.ts, frontend/src/routes/dashboard/StatCard.svelte, frontend/src/routes/dashboard/ChatGptUsageCard.svelte, frontend/src/lib/components/dashboard/RunnerCard.svelte, frontend/src/lib/api/overview.ts, frontend/src/lib/api/runner.ts
 ---
 
 # Dashboard
@@ -84,10 +84,7 @@ The Hosts card displays a relative-time hint derived from `last_refresh` (e.g. "
 
 ## Alerts
 
-`DashboardAlerts` renders below the stat cards. Its banners are conditional:
-
-- **Insecure approvals** (warning) — `insecureApprovalsPendingQuery()` counts hosts awaiting insecure-window approval. When the count is non-zero a warning banner lists the count and links to `/hosts?insecure=1` ("Review"), which opens the insecure access dialog described in [Hosts](/admin/manual/hosts). A new request also opens that dialog on its own from any console page, with a short beep, when the `insecure.requested` event arrives over the live feed.
-- **Could not check insecure approvals** (destructive) — shown instead of the warning banner when that query itself errors, with a "Retry" button.
+The dashboard no longer carries an insecure-approvals banner. Pending insecure-window approvals are surfaced in the left-hand navigation on every console page; see [Hosts](/admin/manual/hosts).
 
 Codex CLI updates do not produce a dashboard alert: managed hosts update automatically, so an older reported version is normally rollout telemetry rather than an operator action.
 
@@ -140,7 +137,6 @@ Failed first loads show an error and a retry control rather than a successful ze
 - frontend/src/routes/dashboard/ChatGptUsageCard.svelte
 - frontend/src/routes/dashboard/ClaudeUsageCard.svelte
 - frontend/src/routes/dashboard/FleetCoverage.svelte
-- frontend/src/routes/dashboard/DashboardAlerts.svelte
 - frontend/src/lib/components/dashboard/RunnerCard.svelte
 - frontend/src/lib/api/overview.ts, frontend/src/lib/api/runner.ts (query/mutation builders + response shapes)
 

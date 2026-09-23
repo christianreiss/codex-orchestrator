@@ -6,6 +6,8 @@
   import { cn } from "$lib/utils/cn";
   import { authActions, authStore } from "$lib/stores/auth";
   import * as Sheet from "$lib/components/ui/sheet";
+  import InsecureApprovalsNavAlert from "./InsecureApprovalsNavAlert.svelte";
+  import { insecureApprovalsPendingQuery } from "$lib/api/overview";
   import Menu from "@lucide/svelte/icons/menu";
   import LogOut from "@lucide/svelte/icons/log-out";
   import Keyboard from "@lucide/svelte/icons/keyboard";
@@ -13,6 +15,8 @@
   const path = $derived(page.url.pathname.replace(base, "") || "/");
   const auth = $derived($authStore);
   let menuOpen = $state(false);
+  const pendingApprovals = insecureApprovalsPendingQuery();
+  const approvalsAlert = $derived(($pendingApprovals.data?.requests?.length ?? 0) > 0 || $pendingApprovals.isError);
   const menuActive = $derived(MOBILE_NAV_OVERFLOW.some((item) => isActive(item, path)));
   const menuSections = $derived([
     ...NAV_SECTIONS.map((section) => ({ ...section, items: section.items.filter((item) => MOBILE_NAV_OVERFLOW.includes(item)) })).filter((section) => section.items.length),
@@ -38,8 +42,8 @@
       </li>
     {/each}
     <li>
-      <button type="button" class={cn("flex h-full w-full flex-col items-center justify-center gap-1 rounded-md text-[10px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring", menuActive ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted hover:text-foreground")} onclick={() => (menuOpen = true)} aria-label="Open navigation menu" aria-expanded={menuOpen} aria-current={menuActive ? "true" : undefined}>
-        <Menu class="h-5 w-5" /> <span>Menu</span>
+      <button type="button" class={cn("flex h-full w-full flex-col items-center justify-center gap-1 rounded-md text-[10px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring", menuActive ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted hover:text-foreground")} onclick={() => (menuOpen = true)} aria-label={approvalsAlert ? "Open navigation menu (insecure approvals need attention)" : "Open navigation menu"} aria-expanded={menuOpen} aria-current={menuActive ? "true" : undefined}>
+        <span class="relative"><Menu class="h-5 w-5" />{#if approvalsAlert}<span class="absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full bg-warning ring-2 ring-card" aria-hidden="true"></span>{/if}</span> <span>Menu</span>
       </button>
     </li>
   </ul>
@@ -49,6 +53,7 @@
   <Sheet.Content side="bottom" class="max-h-[86dvh] overflow-y-auto overscroll-contain rounded-t-lg border-x border-t bg-background px-4 pb-[calc(1rem+env(safe-area-inset-bottom))] pt-5">
     <Sheet.Header class="text-left"><Sheet.Title>Navigation</Sheet.Title><Sheet.Description>Control, coordinate, and sync Codex &amp; Claude.</Sheet.Description></Sheet.Header>
     <div class="mt-4 space-y-4">
+      <InsecureApprovalsNavAlert variant="sheet" onnavigate={() => (menuOpen = false)} />
       {#each menuSections as section (section.id)}
         <section>
           <h2 class="mb-1 px-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">{section.label}</h2>
