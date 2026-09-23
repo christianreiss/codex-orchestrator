@@ -51,14 +51,15 @@
   let setupLoading = $state(false);
   let setupError = $state<string | null>(null);
 
-  // sessionStorage can throw (private mode, blocked storage); a failure just
-  // means the redirect may be offered again, never that the app breaks.
+  // sessionStorage can throw (private mode, blocked storage); without it we
+  // cannot remember the redirect, so fail closed and never redirect rather
+  // than bouncing every navigation back to the wizard.
   const SETUP_REDIRECT_KEY = "codex:setup-redirected";
   function setupRedirected(): boolean {
     try {
       return sessionStorage.getItem(SETUP_REDIRECT_KEY) === "1";
     } catch {
-      return false;
+      return true;
     }
   }
   function markSetupRedirected(): void {

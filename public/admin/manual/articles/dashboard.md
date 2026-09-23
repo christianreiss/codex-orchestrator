@@ -64,7 +64,7 @@ remains readable until the configured retention period expires.
 - the wizard is neither completed nor dismissed (`wizard.completed_at` and `wizard.dismissed_at` are both null), **and**
 - at least one `next_actions` entry is still incomplete.
 
-It lists the open actions, titles itself *Resume setup* once `wizard.last_step` exists (*Finish setting up* before that), and links to `/setup?step=<last_step>` so you land where you stopped. **Dismiss** posts `{dismissed: true}` to `POST /admin/setup/wizard` and hides the card for good — half the wizard is opt-ins, and declining every optional module is a finished answer, not an unfinished checklist.
+Each open action links to its `href`. The card titles itself *Resume setup* once `wizard.last_step` exists (*Finish setting up* before that), and **Resume** opens the first incomplete step. `next_actions` include `fleet_defaults` while no Codex `client_config_documents` row exists, so the card cannot disappear with MCP still off. Separately, the layout sends a signed-in admin to `/setup` once per browser session while the same two conditions hold. **Dismiss** posts `{dismissed: true}` to `POST /admin/setup/wizard` and hides the card for good — half the wizard is opt-ins, and declining every optional module is a finished answer, not an unfinished checklist.
 
 Note that `setup_complete` on the same response is only `criticalComplete && ownerCreated`, so it is true from step two of nine; it is not what this card keys on.
 
