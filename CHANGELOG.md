@@ -1,5 +1,13 @@
 # 2026-09-23
 
+- **Quota provider question: bar rows and 1–4 hotkeys (wrapper `0.9.1`).** The two quota readings
+  now render as aligned usage bars with compact durations (`7d window · reset unknown · 12m ago`
+  instead of `168h0m0s window … measured 12m1s ago`). The choice is one keypress: `1` OpenAI
+  (cdx), `2` Claude (clx), `3`/`4` the same and remember it for today — replacing the separate
+  "Remember … for today?" question. Keys follow the provider, not keep/switch, so they mean the
+  same from `cdx` and `clx`; Enter still keeps the invoked engine and `3`/`4` appear only when
+  daily remembering is enabled. Pipes and `--minimal` keep the text details and accept the same keys.
+
 - **cdx / clx terminal UI refresh (wrapper `0.9.0`).** One message grammar on both engines:
   `✓ cdx sync  Codex updated …`, `▲ clx quota  Recommend OpenAI (cdx)`, `✗ cdx auth-upload  …`,
   replacing the old mix of `cdx:`, `quota:`, `auth-upload:`, `lane:`, `uninstall:` and bare prefixes

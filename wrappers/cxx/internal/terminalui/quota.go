@@ -263,3 +263,85 @@ func ProjectETA(used int, limitSeconds, resetAfterSeconds int64) time.Duration {
 	secsToHit := remaining / rate
 	return time.Duration(secsToHit) * time.Second
 }
+
+// QuotaCompare is one provider row of a side-by-side quota comparison.
+type QuotaCompare struct {
+	Label     string
+	Used      int           // 0..100
+	Projected int           // estimated % at reset; 0 = no forecast
+	Window    time.Duration // 0 = unknown
+	ResetIn   time.Duration // 0 = unknown
+	Age       time.Duration // time since the measurement
+}
+
+// QuotaCompareLines renders aligned bar rows for comparing providers:
+//
+//	OpenAI (cdx)  ━━━━━━━━━━━━━━━━━━━─  94%  7d window · reset unknown · 12m ago
+//	Claude (clx)  ━━━━━━━─────────────  35%  7d window · reset unknown · 1m ago
+//
+// The bar shrinks to fit width; metadata that still does not fit moves to an
+// indented continuation lines. Callers use this only on rich destinations.
+func QuotaCompareLines(caps Caps, rows []QuotaCompare, width int) []string {
+	p := caps.Palette
+	labelWidth := 0
+	sep := p.Dim + " · " + p.Reset
+	if !caps.UTF8 || caps.Dumb {
+		sep = p.Dim + " - " + p.Reset
+	}
+	metas := make([][]string, len(rows))
+	metaWidth := 0
+	for i, r := range rows {
+		labelWidth = max(labelWidth, VisibleWidth(inlineFor(caps, r.Label)))
+		metas[i] = r.meta(caps)
+		metaWidth = max(metaWidth, VisibleWidth(strings.Join(metas[i], sep)))
+	}
+	// label + gap + bar + gap + "100%" + gap + meta
+	barWidth := min(max(width-labelWidth-metaWidth-10, 10), 20)
+	lines := make([]string, 0, len(rows))
+	for i, r := range rows {
+		pct := fmt.Sprintf("%3d%%", clampPct(r.Used))
+		head := p.Bold + PadRight(inlineFor(caps, r.Label), labelWidth) + p.Reset + "  " +
+			buildBar(caps, r.Used, barWidth, 0, 0) + "  " +
+			tonePalette(caps, classifyPct(r.Used, 0, 0)) + pct + p.Reset
+		if meta := strings.Join(metas[i], sep); VisibleWidth(head)+2+VisibleWidth(meta) <= width {
+			lines = append(lines, head+"  "+meta)
+			continue
+		}
+		lines = append(lines, head)
+		indent := strings.Repeat(" ", labelWidth+2)
+		cur := ""
+		for _, part := range metas[i] {
+			if cur != "" && labelWidth+2+VisibleWidth(cur+sep+part) > width {
+				lines = append(lines, indent+cur)
+				cur = ""
+			}
+			if cur != "" {
+				cur += sep
+			}
+			cur += part
+		}
+		lines = append(lines, indent+cur)
+	}
+	return lines
+}
+
+func (r QuotaCompare) meta(caps Caps) []string {
+	p := caps.Palette
+	var parts []string
+	if r.Window > 0 {
+		parts = append(parts, p.Dim+DurationShort(r.Window)+" window"+p.Reset)
+	}
+	if r.Projected > 0 {
+		tone := ToneDim
+		if r.Projected >= 100 {
+			tone = ToneWarn
+		}
+		parts = append(parts, styleTone(caps, tone, fmt.Sprintf("~%d%% at reset", r.Projected)))
+	}
+	reset := "reset unknown"
+	if r.ResetIn > 0 {
+		reset = "resets in " + DurationShort(r.ResetIn)
+	}
+	parts = append(parts, p.Dim+reset+p.Reset, p.Dim+DurationShort(r.Age)+" ago"+p.Reset)
+	return parts
+}

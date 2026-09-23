@@ -198,3 +198,29 @@ func TestBuildBarFillRoundsAndClamps(t *testing.T) {
 		})
 	}
 }
+
+func TestQuotaCompareLinesAlignAndFit(t *testing.T) {
+	caps := richTestCaps(100)
+	rows := []QuotaCompare{
+		{Label: "OpenAI (cdx)", Used: 94, Window: 168 * time.Hour, Age: 12*time.Minute + time.Second},
+		{Label: "Claude (clx)", Used: 35, Window: 168 * time.Hour, ResetIn: 3*time.Hour + 5*time.Minute, Projected: 120, Age: 91 * time.Second},
+	}
+	lines := QuotaCompareLines(caps, rows, 90)
+	if len(lines) != 2 {
+		t.Fatalf("want 2 lines, got %q", lines)
+	}
+	a, b := StripANSI(lines[0]), StripANSI(lines[1])
+	if strings.Index(a, "94%") != strings.Index(b, "35%") {
+		t.Fatalf("percent columns misaligned:\n%s\n%s", a, b)
+	}
+	for _, want := range []string{"7d window", "reset unknown", "12m ago", "resets in 3h 5m", "~120% at reset", "1m ago"} {
+		if !strings.Contains(a+b, want) {
+			t.Fatalf("missing %q in\n%s\n%s", want, a, b)
+		}
+	}
+	for _, line := range QuotaCompareLines(caps, rows, 50) {
+		if VisibleWidth(line) > 50 {
+			t.Fatalf("line exceeds width: %q", StripANSI(line))
+		}
+	}
+}

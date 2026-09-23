@@ -16,7 +16,7 @@ func chooser(t *testing.T, input string) (Chooser, *bytes.Buffer) {
 	return Chooser{Input: strings.NewReader(input), Output: out, Now: testNow, Interactive: true, Available: func(string) bool { return true }, StatePath: filepath.Join(t.TempDir(), "choices", "day.json"), Instance: "https://example.test"}, out
 }
 func TestChooseAndRememberAcrossAliases(t *testing.T) {
-	u, _ := chooser(t, "2\ny\n")
+	u, _ := chooser(t, "4\n")
 	c := comparison()
 	got, err := u.Choose(context.Background(), c, "codex", false)
 	if err != nil || got.Engine != "claude" {
@@ -91,7 +91,7 @@ func TestResumeRequiresConfirmationEvenWhenRemembered(t *testing.T) {
 	}
 }
 func TestCancelAndEOF(t *testing.T) {
-	for _, answer := range []string{"q\n", "", "2\n"} {
+	for _, answer := range []string{"q\n", "", "5\n"} {
 		u, _ := chooser(t, answer)
 		got, err := u.Choose(context.Background(), comparison(), "codex", false)
 		if err != nil || !got.Cancel {
@@ -118,7 +118,7 @@ func TestUnavailableTargetAndStaleComparison(t *testing.T) {
 	}
 }
 func TestStateFailureDoesNotLoseCurrentSelection(t *testing.T) {
-	u, out := chooser(t, "2\ny\n")
+	u, out := chooser(t, "4\n")
 	u.StatePath = filepath.Join("/dev/null", "choice.json")
 	got, err := u.Choose(context.Background(), comparison(), "codex", false)
 	if err != nil || got.Engine != "claude" || !strings.Contains(out.String(), "this start only") {
@@ -188,5 +188,37 @@ func TestMissingRememberedProviderNeverFallsBackWithoutConsent(t *testing.T) {
 	got, err := u.Choose(context.Background(), comparison(), "codex", false)
 	if err != nil || !got.Cancel {
 		t.Fatalf("unapproved fallback: %+v %v", got, err)
+	}
+}
+
+func TestHotkeysFollowEngineAndRemember(t *testing.T) {
+	for _, tc := range []struct {
+		current, answer, want string
+		remember              bool
+	}{
+		{"codex", "1\n", "codex", false}, {"codex", "2\n", "claude", false},
+		{"codex", "3\n", "codex", true}, {"codex", "4\n", "claude", true},
+		{"codex", "\n", "codex", false},
+	} {
+		u, out := chooser(t, tc.answer)
+		got, err := u.Choose(context.Background(), comparison(), tc.current, false)
+		if err != nil || got.Cancel || got.Engine != tc.want {
+			t.Fatalf("%+v: %+v %v", tc, got, err)
+		}
+		if saved := LoadChoice(u.StatePath, u.Instance, testNow) != nil; saved != tc.remember {
+			t.Fatalf("%+v: remembered=%v", tc, saved)
+		}
+		if strings.Contains(out.String(), "Remember") {
+			t.Fatalf("%+v: follow-up remember question", tc)
+		}
+	}
+}
+func TestRememberOptionsHiddenWhenDisabled(t *testing.T) {
+	u, out := chooser(t, "3\n")
+	c := comparison()
+	c.Settings.RememberDay = false
+	got, err := u.Choose(context.Background(), c, "codex", false)
+	if err != nil || !got.Cancel || strings.Contains(out.String(), "[3]") {
+		t.Fatalf("remember option offered: %+v %v %s", got, err, out)
 	}
 }

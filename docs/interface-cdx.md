@@ -352,14 +352,24 @@ whether colour is used at all is still decided only by TTY, `TERM`, `NO_COLOR`
 and `--minimal`. `--version` output is identical for `cxx`, `cdx` and `clx`
 and stays plain text.
 
-Interactive questions (quota provider choice, “new session” and “remember for
-today” confirmations, Codex auth recovery) render as arrow-key menus on a real
-terminal (`↑/↓`, `Enter`, `y`/`n` on confirms; `q`, `Esc` or `Ctrl-C` cancels)
-and leave one `question → answer` receipt line in scrollback. When stdin or
-stderr is not a terminal, or under `TERM=dumb`/`--minimal`, the same question is
-a single line prompt: `[1] Keep OpenAI (cdx)  [2] Switch to Claude (clx)  [q]
-Cancel  (Enter: 1):`. Enter keeps the default, a listed key selects, anything
-else or EOF cancels; confirms accept `y`/`yes`.
+Interactive questions (quota provider choice, “new session” confirmation,
+Codex auth recovery) render as arrow-key menus on a real terminal (`↑/↓`,
+`Enter`, `y`/`n` on confirms; `q`, `Esc` or `Ctrl-C` cancels) and leave one
+`question → answer` receipt line in scrollback. Menu options with a
+single-character key also take that key as a hotkey, selecting without `Enter`.
+When stdin or stderr is not a terminal, or under `TERM=dumb`/`--minimal`, the
+same question is a single line prompt: `[1] Keep OpenAI (cdx)  [2] Switch to
+Claude (clx)  [3] Keep OpenAI (cdx), remember today  [4] Switch to Claude
+(clx), remember today  [q] Cancel  (Enter: 1):`. Enter keeps the default, a
+listed key selects, anything else or EOF cancels; confirms accept `y`/`yes`.
+
+From **cxx 0.9.1** the quota provider question keys follow the engine, not the
+action, so a digit means the same provider from either alias: `1` OpenAI (cdx),
+`2` Claude (clx), `3`/`4` the same plus “remember today” (offered only when
+daily remembering is enabled; replaces the former follow-up confirm). Enter
+keeps the invoking engine. On a terminal the two quota readings render as
+aligned bar rows (`OpenAI (cdx)  ━━━━━━━━━━━━━━━━━━━─  94%  7d window · reset
+unknown · 12m ago`); plain destinations keep the one-line text details.
 
 Suppressed boot screens skip the native CLI version subprocess used solely for
 presentation. Auth, quota, config, skills, and update policy still run; visible

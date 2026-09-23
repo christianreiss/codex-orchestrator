@@ -194,6 +194,37 @@ func formatRichNotice(caps Caps, prefix string, n Notice) string {
 	return b.String()
 }
 
+// noticeIndent is the column where a rich notice hangs its detail lines.
+func noticeIndent(caps Caps, prefix, topic string) int {
+	if prefix = CleanInline(prefix); prefix == "" {
+		prefix = "cxx"
+	}
+	indent := VisibleWidth(noticeGlyph(caps, ToneDim) + " " + prefix + " " + PadRight(inlineFor(caps, topic), noticeTopicWidth) + " ")
+	width := caps.Columns
+	if width <= 0 {
+		width = 80
+	}
+	if width > maxCardWidth+indent {
+		width = maxCardWidth + indent
+	}
+	if width-indent < 16 {
+		return 2
+	}
+	return indent
+}
+
+// PromptBodyWidth is the width available to Question.Body lines in both the
+// rich menu and the line-mode notice.
+func PromptBodyWidth(caps Caps, prefix, topic string) int {
+	width := caps.Columns
+	if width <= 0 {
+		width = 80
+	}
+	line := min(width, maxCardWidth+noticeIndent(caps, prefix, topic)) - noticeIndent(caps, prefix, topic)
+	rich := min(width-2, maxCardWidth) - 4
+	return max(min(line, rich), 16)
+}
+
 func noticeGlyph(caps Caps, tone Tone) string {
 	if !caps.UTF8 {
 		switch tone {

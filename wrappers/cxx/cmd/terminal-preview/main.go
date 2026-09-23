@@ -89,18 +89,30 @@ func preview(engine, scene string, minimal bool) {
 			self = "Claude (clx)"
 		}
 		ctx := context.Background()
+		width := cdx.PromptBodyWidth(caps, prefix, cdx.TopicQuota)
 		q := cdx.Question{Prefix: prefix, Topic: cdx.TopicQuota, Tone: cdx.ToneWarn, Title: "Recommend " + other, Details: []string{
 			self + ": 5h 97% used; resets in 1h12m",
 			other + ": 5h 18% used; resets in 3h5m",
-		}}
-		answer, err := cdx.Select(ctx, caps, os.Stdin, os.Stdout, q, []cdx.Option{{Key: "1", Label: "Keep " + self}, {Key: "2", Label: "Switch to " + other}}, "1")
+		}, Body: cdx.QuotaCompareLines(caps, []cdx.QuotaCompare{
+			{Label: self, Used: 97, Window: 5 * time.Hour, ResetIn: 72 * time.Minute, Age: 12 * time.Minute},
+			{Label: other, Used: 18, Window: 5 * time.Hour, ResetIn: 185 * time.Minute, Age: 90 * time.Second},
+		}, width)}
+		verb := func(name string) string {
+			if name == self {
+				return "Keep " + name
+			}
+			return "Switch to " + name
+		}
+		answer, err := cdx.Select(ctx, caps, os.Stdin, os.Stdout, q, []cdx.Option{
+			{Key: "1", Label: verb("OpenAI (cdx)")}, {Key: "2", Label: verb("Claude (clx)")},
+			{Key: "3", Label: verb("OpenAI (cdx)") + ", remember today"}, {Key: "4", Label: verb("Claude (clx)") + ", remember today"},
+		}, map[bool]string{true: "2", false: "1"}[engine == "claude"])
 		if err != nil {
 			fmt.Fprintln(os.Stdout)
 			cdx.PrintNotice(os.Stdout, caps, cdx.Notice{Prefix: prefix, Topic: cdx.TopicQuota, Tone: cdx.ToneDim, Message: "cancelled; nothing started"})
 			return
 		}
-		if answer == "2" {
-			_, _ = cdx.Confirm(ctx, caps, os.Stdin, os.Stdout, cdx.Question{Prefix: prefix, Topic: cdx.TopicQuota, Title: "Remember " + other + " for today on this computer?"})
+		if (answer == "2" || answer == "4") != (engine == "claude") {
 			cdx.PrintNotice(os.Stdout, caps, cdx.Notice{Prefix: prefix, Topic: cdx.TopicQuota, Tone: cdx.ToneOK, Message: "starting " + otherName})
 		}
 		return

@@ -479,7 +479,9 @@ remembering in **Engines → Quota and scaling → Quotas**. The comparison show
 reported usage, reset timing and estimated usage at reset; stale readings do not
 justify a recommendation.
 
-Choose either provider for this start, or remember it for today on this computer.
+Press `1` for OpenAI (cdx) or `2` for Claude (clx) for this start; `3` and `4` pick
+the same provider and remember it for today on this computer (shown only when daily
+remembering is enabled). Enter keeps the provider you invoked.
 Remembered choices apply to both aliases until local midnight; clear them with
 `cdx run --quota-choice-reset` or `clx run --quota-choice-reset`. Switching opens a
 new session in the same directory. Existing conversations, prompts and launch

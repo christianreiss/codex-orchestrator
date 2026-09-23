@@ -111,6 +111,15 @@ func Evaluate(s Snapshot, cfg Settings, now time.Time) Pressure {
 func Recommend(current, alternative Pressure, cfg Settings) bool {
 	return current.Valid && alternative.Valid && current.Score >= 100 && alternative.Score < 100 && current.Score-alternative.Score >= float64(cfg.MinGap)
 }
+
+// Compare renders p as one bar row of the interactive comparison.
+func (p Pressure) Compare(label string, now time.Time) terminalui.QuotaCompare {
+	r := terminalui.QuotaCompare{Label: label, Used: p.Used, Projected: p.Projected, Window: time.Duration(p.WindowSeconds) * time.Second, Age: p.Age}
+	if !p.ResetAt.IsZero() {
+		r.ResetIn = p.ResetAt.Sub(now)
+	}
+	return r
+}
 func (p Pressure) Description(now time.Time) string {
 	if !p.Valid {
 		return p.Reason

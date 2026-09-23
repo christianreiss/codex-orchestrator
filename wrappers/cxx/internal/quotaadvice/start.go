@@ -148,12 +148,11 @@ func (u *Chooser) Choose(ctx context.Context, c *Comparison, current string, has
 		return terminalui.Confirm(ctx, caps, u.Input, u.Output, terminalui.Question{Prefix: prefix, Topic: terminalui.TopicQuota, Title: title, Details: details})
 	}
 	selected := ""
-	remembered := false
+	remember := false
 	if u.Interactive && c.Settings.Mode == "ask" && c.Settings.RememberDay {
 		if day := LoadChoice(u.StatePath, u.Instance, u.Now); day != nil {
 			if u.Available(day.Engine) {
 				selected = day.Engine
-				remembered = true
 				say(terminalui.ToneDim, "Using today's choice: "+Name(selected), "until local midnight; undo with --quota-choice-reset")
 			} else {
 				if err := ClearChoice(u.StatePath); err != nil {
@@ -189,21 +188,42 @@ func (u *Chooser) Choose(ctx context.Context, c *Comparison, current string, has
 			say(terminalui.ToneWarn, "Recommend "+Name(other(current)), details...)
 			return stay, nil
 		}
+		// Keys follow the engine, not keep/switch, so the same digit means
+		// the same provider from either alias: 1/3 OpenAI, 2/4 Claude.
+		verb := func(engine string) string {
+			if engine == current {
+				return "Keep " + Name(engine)
+			}
+			return "Switch to " + Name(engine)
+		}
+		options := []terminalui.Option{{Key: "1", Label: verb("codex")}, {Key: "2", Label: verb("claude")}}
+		if c.Settings.RememberDay {
+			options = append(options,
+				terminalui.Option{Key: "3", Label: verb("codex") + ", remember today"},
+				terminalui.Option{Key: "4", Label: verb("claude") + ", remember today"})
+		}
+		def := "1"
+		if current == "claude" {
+			def = "2"
+		}
+		width := terminalui.PromptBodyWidth(caps, prefix, terminalui.TopicQuota)
 		answer, err := terminalui.Select(ctx, caps, u.Input, u.Output, terminalui.Question{
 			Prefix: prefix, Topic: terminalui.TopicQuota, Tone: terminalui.ToneWarn,
 			Title:   "Recommend " + Name(other(current)),
 			Details: details,
-		}, []terminalui.Option{
-			{Key: "1", Label: "Keep " + Name(current)},
-			{Key: "2", Label: "Switch to " + Name(other(current))},
-		}, "1")
+			Body: terminalui.QuotaCompareLines(caps, []terminalui.QuotaCompare{
+				a.Compare(Name(current), u.Now),
+				b.Compare(Name(other(current)), u.Now),
+			}, width),
+		}, options, def)
 		if err != nil {
 			return Choice{Cancel: true}, nil
 		}
-		selected = current
-		if answer == "2" {
-			selected = other(current)
+		selected = "codex"
+		if answer == "2" || answer == "4" {
+			selected = "claude"
 		}
+		remember = answer == "3" || answer == "4"
 	}
 	if selected != current && hasArgs {
 		ok, err := confirm("Continue in a new session?", "Switching starts a NEW session here, without the previous conversation, supplied prompt or launch arguments.")
@@ -214,15 +234,9 @@ func (u *Chooser) Choose(ctx context.Context, c *Comparison, current string, has
 			return stay, nil
 		}
 	}
-	if !remembered && c.Settings.RememberDay && u.Interactive && c.Settings.Mode == "ask" {
-		ok, err := confirm("Remember " + Name(selected) + " for today on this computer?")
-		if err != nil {
-			return Choice{Cancel: true}, nil
-		}
-		if ok {
-			if err := SaveChoice(u.StatePath, u.Instance, selected, u.Now); err != nil {
-				say(terminalui.ToneWarn, "Could not save the daily choice; this selection applies to this start only")
-			}
+	if remember {
+		if err := SaveChoice(u.StatePath, u.Instance, selected, u.Now); err != nil {
+			say(terminalui.ToneWarn, "Could not save the daily choice; this selection applies to this start only")
 		}
 	}
 	u.decisionApplied = true

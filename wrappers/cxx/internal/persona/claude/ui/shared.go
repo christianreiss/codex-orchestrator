@@ -13,6 +13,7 @@ type BannerGlyphs = terminalui.BannerGlyphs
 type Tone = terminalui.Tone
 type HealthDot = terminalui.HealthDot
 type QuotaRow = terminalui.QuotaRow
+type QuotaCompare = terminalui.QuotaCompare
 type SessionRow = terminalui.SessionRow
 type ExitFooter = terminalui.ExitFooter
 type DoctorRow = terminalui.DoctorRow
@@ -67,6 +68,8 @@ var (
 	PrintResult        = terminalui.PrintResult
 	PrintQuotaRow      = terminalui.PrintQuotaRow
 	BuildBar           = terminalui.BuildBar
+	QuotaCompareLines  = terminalui.QuotaCompareLines
+	PromptBodyWidth    = terminalui.PromptBodyWidth
 	PrintQuotaReason   = terminalui.PrintQuotaReason
 	ProjectUsage       = terminalui.ProjectUsage
 	ProjectionReady    = terminalui.ProjectionReady
