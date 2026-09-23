@@ -1,5 +1,12 @@
 # 2026-09-23
 
+- **The host installer now looks like the `cxx` it installs.** On a UTF-8 terminal the
+  `/install/{token}` script opens with an accent-edged host card (host, engines, bin dir), prints each
+  step in the wrapper's notice grammar (`✓ cdx codex  ready  0.144.1`, `▲` warnings, `›` progress)
+  with cdx orange / clx violet badges and the wrapper's colour tokens (truecolor, then 256, then
+  16 colours), and ends with a `✓ READY` line and accent-coloured next commands. Stale wrapper relic
+  cleanup now reports through the same lines. Piped, `LC_ALL=C`, and `TERM=dumb` output is unchanged.
+
 - **Insecure approvals alert moved from the Overview to the sidebar.** Hosts waiting on an
   insecure-window approval now surface as an amber **Insecure approvals** item (with a count) at the
   top of the left-hand navigation on every console page, linking to `/hosts?insecure=1`; on mobile

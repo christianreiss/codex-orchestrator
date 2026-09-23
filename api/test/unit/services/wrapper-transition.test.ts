@@ -471,9 +471,72 @@ describe('wrapper transition helpers', () => {
     });
     expect(out).toContain('cleanup_known_relics()');
     expect(out).toContain('"$HOME/.local/bin/cdx" "/usr/local/sbin/cdx"');
-    expect(out).toContain('Removed $label wrapper relic $relic');
+    expect(out).toContain('ui_ok "cxx" "relic" "$relic" "removed $label wrapper"');
     expect(out).toContain('sudo rm -f "$relic"');
-    expect(out).toContain('remove it with: sudo rm -f $relic');
+    expect(out).toContain('Remove it with: sudo rm -f $relic');
+  });
+
+  it('renders the cxx notice grammar and header card on a rich terminal', () => {
+    const script = buildWrapperV2InstallerScript({
+      fqdn: 'h.example',
+      apiKey: 'sk-codex-test',
+      baseUrl: 'https://o.example/',
+      engine: 'codex',
+      peerEngines: ['claude'],
+    });
+    const start = script.indexOf('UI_RESET=\n');
+    const end = script.indexOf('\ncleanup() {');
+    expect(start).toBeGreaterThan(0);
+    expect(end).toBeGreaterThan(start);
+    const dir = mkdtempSync(join(tmpdir(), 'wrapper-installer-ui-'));
+    try {
+      const helpers = join(dir, 'ui.sh');
+      writeFileSync(
+        helpers,
+        [
+          'set -eu',
+          'HAS_CODEX=1 HAS_CLAUDE=1 HOST_LABEL=h.example BIN_DIR=/usr/local/bin BIN_ROOT=/usr/local/bin STEP_LOG=',
+          "INSTALL_LABEL='Codex + Claude'",
+          'UI_TTY=1 UI_UTF8=1',
+          script.slice(start, end),
+          'ui_header',
+          'ui_progress cxx wrapper "" "installing…"',
+          'ui_ok cdx codex 1.0.0 ready',
+          'ui_warn cxx "background worker" "" "service unavailable"',
+          'ui_fail clx claude "" "version check failed" 2>&1',
+          'ui_result_ok READY "Codex + Claude installed successfully"',
+          'ui_hint_cmd clx doctor "Verify Claude setup"',
+        ].join('\n'),
+        'utf8',
+      );
+      const render = (env: Record<string, string>) => {
+        const { COLORTERM: _c, NO_COLOR: _n, ...base } = process.env;
+        return execFileSync('sh', [helpers], { encoding: 'utf8', env: { ...base, ...env } });
+      };
+
+      const truecolor = render({ COLORTERM: 'truecolor', TERM: 'xterm-256color' });
+      expect(truecolor).toContain('\x1b[38;2;255;138;61m\x1b[1mcdx');
+      expect(truecolor).toContain('\x1b[38;2;167;139;250m\x1b[1mclx');
+      expect(truecolor).toContain('\x1b[38;2;255;138;61m╭───');
+      expect(truecolor).toContain('─╮\x1b[0m\n');
+      expect(truecolor).toContain('CODEX ORCHESTRATOR');
+      for (const glyph of ['›', '✓', '▲', '✗', '✓ READY']) expect(truecolor).toContain(glyph);
+      // Every card row spans the same visible width.
+      const widths = truecolor
+        // eslint-disable-next-line no-control-regex -- stripping SGR escapes is the point
+        .replace(/\x1b\[[0-9;]*m/g, '')
+        .split('\n')
+        .filter((line) => /^[╭│╰]/.test(line))
+        .map((line) => [...line].length);
+      expect(widths.length).toBe(7);
+      expect(new Set(widths).size).toBe(1);
+
+      expect(render({ TERM: 'xterm-256color' })).toContain('\x1b[38;5;209m\x1b[1mcdx');
+      expect(render({ TERM: 'xterm' })).toContain('\x1b[33m\x1b[1mcdx');
+      expect(render({ TERM: 'xterm', NO_COLOR: '1' })).not.toContain('\x1b');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it('emits POSIX shell syntax that sh can parse', () => {

@@ -86,16 +86,16 @@ ui_divider
 if [ "$INSTALL_FAILED" = "0" ]; then
   ui_result_ok "READY" "$INSTALL_LABEL installed successfully"
   if [ "$HAS_CODEX" = "1" ]; then
-    ui_hint "cdx run       Start Codex"
+    ui_hint_cmd cdx run "Start Codex"
   fi
   if [ "$HAS_CLAUDE" = "1" ]; then
-    ui_hint "clx run       Start Claude Code"
+    ui_hint_cmd clx run "Start Claude Code"
   fi
   if [ "$HAS_CODEX" = "1" ]; then
-    ui_hint "cdx doctor    Verify Codex setup"
+    ui_hint_cmd cdx doctor "Verify Codex setup"
   fi
   if [ "$HAS_CLAUDE" = "1" ]; then
-    ui_hint "clx doctor    Verify Claude setup"
+    ui_hint_cmd clx doctor "Verify Claude setup"
   fi
   if [ "$BIN_ROOT_ON_PATH" = "0" ]; then
     ui_warn "setup" "PATH" "$BIN_ROOT" "not active in the parent shell"
@@ -184,52 +184,114 @@ esac
 UI_RESET=
 UI_BOLD=
 UI_DIM=
-UI_CYAN=
 UI_GREEN=
 UI_RED=
-UI_YELLOW=
+UI_ORANGE=
+UI_VIOLET=
 if [ "$UI_TTY" = "1" ] && [ -z "\${NO_COLOR:-}" ]; then
+  # The wrapper's 24-bit design tokens, downsampled to what the terminal
+  # advertises: truecolor, then xterm-256 nearest match, then basic SGR.
   UI_RESET=$(printf '\\033[0m')
   UI_BOLD=$(printf '\\033[1m')
-  UI_DIM=$(printf '\\033[2m')
-  UI_CYAN=$(printf '\\033[96m')
-  UI_GREEN=$(printf '\\033[32m')
-  UI_RED=$(printf '\\033[31m')
-  UI_YELLOW=$(printf '\\033[33m')
+  case "\${COLORTERM:-}" in
+    truecolor|24bit) UI_DEPTH=24 ;;
+    *)
+      case "\${TERM:-}" in
+        *256color*) UI_DEPTH=256 ;;
+        *) UI_DEPTH=16 ;;
+      esac
+      ;;
+  esac
+  if [ "$UI_DEPTH" = "24" ]; then
+    UI_DIM=$(printf '\\033[38;2;139;144;165m')
+    UI_GREEN=$(printf '\\033[38;2;52;211;153m')
+    UI_RED=$(printf '\\033[38;2;248;113;113m')
+    UI_ORANGE=$(printf '\\033[38;2;255;138;61m')
+    UI_VIOLET=$(printf '\\033[38;2;167;139;250m')
+  elif [ "$UI_DEPTH" = "256" ]; then
+    UI_DIM=$(printf '\\033[38;5;103m')
+    UI_GREEN=$(printf '\\033[38;5;78m')
+    UI_RED=$(printf '\\033[38;5;203m')
+    UI_ORANGE=$(printf '\\033[38;5;209m')
+    UI_VIOLET=$(printf '\\033[38;5;141m')
+  else
+    UI_DIM=$(printf '\\033[90m')
+    UI_GREEN=$(printf '\\033[32m')
+    UI_RED=$(printf '\\033[31m')
+    UI_ORANGE=$(printf '\\033[33m')
+    UI_VIOLET=$(printf '\\033[35m')
+  fi
 fi
+UI_ACCENT=$UI_ORANGE
+if [ "$HAS_CODEX" = "0" ]; then UI_ACCENT=$UI_VIOLET; fi
+
+# Card width follows the wrapper: min(columns - 2, 92). stdin is usually the
+# curl pipe, so the terminal size is read from /dev/tty.
+UI_COLS=
+if [ "$UI_TTY" = "1" ]; then
+  UI_COLS=$( { stty size </dev/tty; } 2>/dev/null | awk '{print $2}') || UI_COLS=
+  case "$UI_COLS" in
+    ''|*[!0-9]*) UI_COLS=$(tput cols 2>/dev/null) || UI_COLS= ;;
+  esac
+fi
+case "$UI_COLS" in
+  ''|*[!0-9]*) UI_COLS=80 ;;
+esac
+UI_WIDTH=$((UI_COLS - 2))
+if [ "$UI_WIDTH" -gt 92 ]; then UI_WIDTH=92; fi
+if [ "$UI_WIDTH" -lt 36 ]; then UI_WIDTH=36; fi
+
+ui_repeat() {
+  UI_REPEAT_N=$2
+  while [ "$UI_REPEAT_N" -gt 0 ]; do
+    printf '%s' "$1"
+    UI_REPEAT_N=$((UI_REPEAT_N - 1))
+  done
+}
+
+ui_badge() {
+  case "$1" in
+    cdx) printf '%s%s%s' "$UI_ORANGE$UI_BOLD" "$1" "$UI_RESET" ;;
+    clx) printf '%s%s%s' "$UI_VIOLET$UI_BOLD" "$1" "$UI_RESET" ;;
+    setup) printf '%s%s%s' "$UI_BOLD" "cxx" "$UI_RESET" ;;
+    *) printf '%s%s%s' "$UI_BOLD" "$1" "$UI_RESET" ;;
+  esac
+}
+
+# Rich form mirrors the wrapper notice: glyph, engine badge, padded topic,
+# message, then the version in muted text.
+ui_rich() {
+  UI_MSG_STYLE=
+  case "$1" in
+    warn|fail) UI_MSG_STYLE=$UI_BOLD ;;
+  esac
+  printf '%s%s%s %s %s%-17s%s %s%s%s' \\
+    "$2" "$3" "$UI_RESET" \\
+    "$(ui_badge "$4")" \\
+    "$UI_DIM" "$5" "$UI_RESET" \\
+    "$UI_MSG_STYLE" "$7" "$UI_RESET"
+  if [ -n "$6" ]; then
+    printf '  %s%s%s' "$UI_DIM" "$6" "$UI_RESET"
+  fi
+  printf '\\n'
+}
 
 ui_line() {
   UI_MARK=$1
-  UI_COLOR=$2
   UI_ENGINE=$3
   UI_COMPONENT=$4
   UI_VERSION=$5
   UI_STATUS=$6
-  if [ "$UI_UTF8" = "1" ]; then
-    if [ -n "$UI_VERSION" ]; then
-      printf '%s%s%s · %s%s%s · %s%s%s · %s%s%s · %s%s%s\n' \\
-        "$UI_COLOR" "$UI_MARK" "$UI_RESET" \\
-        "$UI_BOLD" "$UI_ENGINE" "$UI_RESET" \\
-        "$UI_DIM" "$UI_COMPONENT" "$UI_RESET" \\
-        "$UI_BOLD" "$UI_VERSION" "$UI_RESET" \\
-        "$UI_COLOR" "$UI_STATUS" "$UI_RESET"
-    else
-      printf '%s%s%s · %s%s%s · %s%s%s · %s%s%s\n' \\
-        "$UI_COLOR" "$UI_MARK" "$UI_RESET" \\
-        "$UI_BOLD" "$UI_ENGINE" "$UI_RESET" \\
-        "$UI_DIM" "$UI_COMPONENT" "$UI_RESET" \\
-        "$UI_COLOR" "$UI_STATUS" "$UI_RESET"
-    fi
-  elif [ -n "$UI_VERSION" ]; then
-    printf '%s | %s | %s | %s | %s\n' "$UI_MARK" "$UI_ENGINE" "$UI_COMPONENT" "$UI_VERSION" "$UI_STATUS"
+  if [ -n "$UI_VERSION" ]; then
+    printf '%s | %s | %s | %s | %s\\n' "$UI_MARK" "$UI_ENGINE" "$UI_COMPONENT" "$UI_VERSION" "$UI_STATUS"
   else
-    printf '%s | %s | %s | %s\n' "$UI_MARK" "$UI_ENGINE" "$UI_COMPONENT" "$UI_STATUS"
+    printf '%s | %s | %s | %s\\n' "$UI_MARK" "$UI_ENGINE" "$UI_COMPONENT" "$UI_STATUS"
   fi
 }
 
 ui_progress() {
   if [ "$UI_UTF8" = "1" ]; then
-    ui_line '↻' "$UI_CYAN" "$1" "$2" "$3" "$4"
+    ui_rich dim "$UI_DIM" '›' "$1" "$2" "$3" "$4"
   else
     UI_ASCII_STATUS=$(printf '%s' "$4" | sed 's/…/.../g')
     ui_line '..' '' "$1" "$2" "$3" "$UI_ASCII_STATUS"
@@ -238,7 +300,7 @@ ui_progress() {
 
 ui_ok() {
   if [ "$UI_UTF8" = "1" ]; then
-    ui_line '✓' "$UI_GREEN" "$1" "$2" "$3" "$4"
+    ui_rich ok "$UI_GREEN$UI_BOLD" '✓' "$1" "$2" "$3" "$4"
   else
     ui_line 'OK' '' "$1" "$2" "$3" "$4"
   fi
@@ -246,7 +308,7 @@ ui_ok() {
 
 ui_fail() {
   if [ "$UI_UTF8" = "1" ]; then
-    ui_line '✗' "$UI_RED" "$1" "$2" "$3" "$4" >&2
+    ui_rich fail "$UI_RED$UI_BOLD" '✗' "$1" "$2" "$3" "$4" >&2
   else
     ui_line 'FAIL' '' "$1" "$2" "$3" "$4" >&2
   fi
@@ -254,61 +316,118 @@ ui_fail() {
 
 ui_warn() {
   if [ "$UI_UTF8" = "1" ]; then
-    ui_line '!' "$UI_YELLOW" "$1" "$2" "$3" "$4"
+    ui_rich warn "$UI_ORANGE$UI_BOLD" '▲' "$1" "$2" "$3" "$4"
   else
     ui_line 'WARN' '' "$1" "$2" "$3" "$4"
   fi
 }
 
+# ui_fit TEXT MAX [left]: clamp ASCII text to MAX cells with an ellipsis;
+# "left" keeps the tail, which is the useful end of a path.
+ui_fit() {
+  UI_FIT=$1
+  if [ "\${#UI_FIT}" -gt "$2" ]; then
+    if [ "\${3:-}" = "left" ]; then
+      UI_FIT="…$(printf '%s' "$1" | cut -c "$((\${#1} - $2 + 2))-")"
+    else
+      UI_FIT="$(printf '%s' "$1" | cut -c "1-$(($2 - 1))")…"
+    fi
+    UI_FIT_LEN=$2
+  else
+    UI_FIT_LEN=\${#UI_FIT}
+  fi
+}
+
+# ui_card_row STYLED VISIBLE_WIDTH
+ui_card_row() {
+  printf '%s│%s %s' "$UI_DIM" "$UI_RESET" "$1"
+  ui_repeat ' ' $((UI_WIDTH - 4 - $2))
+  printf ' %s│%s\\n' "$UI_DIM" "$UI_RESET"
+}
+
+ui_card_edge() {
+  printf '%s%s───%s%s' "$UI_ACCENT" "$1" "$UI_RESET" "$UI_DIM"
+  ui_repeat '─' $((UI_WIDTH - 5))
+  printf '%s%s\\n' "$2" "$UI_RESET"
+}
+
 ui_header() {
   if [ "$UI_UTF8" = "1" ]; then
-    printf '\n%s╭─ CODEX ORCHESTRATOR · HOST SETUP%s\n' "$UI_BOLD" "$UI_RESET"
-    printf '│ %s · %s\n' "$HOST_LABEL" "$INSTALL_LABEL"
-    printf '│ %s\n' "$BIN_DIR"
-    printf '╰─────────────────────────────────────────────\n\n'
+    UI_INNER=$((UI_WIDTH - 4))
+    UI_ENGINES=
+    if [ "$HAS_CODEX" = "1" ]; then UI_ENGINES="$UI_ORANGE\${UI_BOLD}Codex$UI_RESET"; fi
+    if [ "$HAS_CLAUDE" = "1" ]; then
+      if [ -n "$UI_ENGINES" ]; then UI_ENGINES="$UI_ENGINES $UI_DIM+$UI_RESET "; fi
+      UI_ENGINES="$UI_ENGINES$UI_VIOLET\${UI_BOLD}Claude$UI_RESET"
+    fi
+    printf '\\n'
+    ui_card_edge '╭' '╮'
+    ui_card_row "$UI_ACCENT\${UI_BOLD}CODEX ORCHESTRATOR$UI_RESET $UI_DIM· host setup$UI_RESET" 31
+    ui_card_row '' 0
+    ui_fit "$HOST_LABEL" $((UI_INNER - 9))
+    ui_card_row "\${UI_DIM}host     $UI_RESET$UI_BOLD$UI_FIT$UI_RESET" $((UI_FIT_LEN + 9))
+    ui_card_row "\${UI_DIM}engines  $UI_RESET$UI_ENGINES" $((\${#INSTALL_LABEL} + 9))
+    ui_fit "$BIN_DIR" $((UI_INNER - 9)) left
+    ui_card_row "\${UI_DIM}bin      $UI_RESET$UI_FIT" $((UI_FIT_LEN + 9))
+    ui_card_edge '╰' '╯'
+    printf '\\n'
   else
-    printf '\n== CODEX ORCHESTRATOR / HOST SETUP ==\n'
-    printf '   %s | %s | %s\n\n' "$HOST_LABEL" "$INSTALL_LABEL" "$BIN_DIR"
+    printf '\\n== CODEX ORCHESTRATOR / HOST SETUP ==\\n'
+    printf '   %s | %s | %s\\n\\n' "$HOST_LABEL" "$INSTALL_LABEL" "$BIN_DIR"
   fi
 }
 
 ui_divider() {
   if [ "$UI_UTF8" = "1" ]; then
-    printf '%s──────────────────────────────────────────────%s\n' "$UI_DIM" "$UI_RESET"
+    printf '\\n%s' "$UI_DIM"
+    ui_repeat '─' "$UI_WIDTH"
+    printf '%s\\n' "$UI_RESET"
   else
-    printf '%s\n' '----------------------------------------------'
+    printf '%s\\n' '----------------------------------------------'
   fi
 }
 
 ui_result_ok() {
   if [ "$UI_UTF8" = "1" ]; then
-    printf '%s%s%s · %s\n' "$UI_GREEN$UI_BOLD" "$1" "$UI_RESET" "$2"
+    printf '%s✓ %s%s  %s\\n\\n' "$UI_GREEN$UI_BOLD" "$1" "$UI_RESET" "$2"
   else
-    printf '%s | %s\n' "$1" "$2"
+    printf '%s | %s\\n' "$1" "$2"
   fi
 }
 
 ui_result_fail() {
   if [ "$UI_UTF8" = "1" ]; then
-    printf '%s%s%s · %s\n' "$UI_RED$UI_BOLD" "$1" "$UI_RESET" "$2" >&2
+    printf '%s✗ %s%s  %s\\n\\n' "$UI_RED$UI_BOLD" "$1" "$UI_RESET" "$2" >&2
   else
-    printf '%s | %s\n' "$1" "$2" >&2
+    printf '%s | %s\\n' "$1" "$2" >&2
   fi
 }
 
 ui_hint() {
-  printf '  %s\n' "$1"
+  printf '  %s%s%s\\n' "$UI_DIM" "$1" "$UI_RESET"
+}
+
+# ui_hint_cmd ENGINE COMMAND DESCRIPTION: a next-step command in the engine
+# accent. The plain form keeps the historical fixed-column text.
+ui_hint_cmd() {
+  if [ "$UI_UTF8" = "1" ]; then
+    printf '  %s%-11s%s%s%s\\n' "$(ui_badge "$1")" " $2" "$UI_DIM" "$3" "$UI_RESET"
+  else
+    printf '  %-14s%s\\n' "$1 $2" "$3"
+  fi
 }
 
 ui_path_hint() {
   # $PATH must remain literal for the parent shell.
   # shellcheck disable=SC2016
-  printf '  Before running: export PATH="%s:$PATH"\n' "$BIN_ROOT"
+  printf '  %sBefore running:%s export PATH="%s:$PATH"\\n' "$UI_DIM" "$UI_RESET" "$BIN_ROOT"
 }
 
 show_step_log() {
   if [ -n "$STEP_LOG" ] && [ -s "$STEP_LOG" ]; then
+    printf '%s' "$UI_DIM" >&2
     tail -n 20 "$STEP_LOG" | sed 's/^/      /' >&2
+    printf '%s' "$UI_RESET" >&2
   fi
 }
 
@@ -891,12 +1010,13 @@ remove_relic() {
   fi
   if [ -w "$relic" ]; then
     rm -f "$relic"
-    echo ">> Removed $label wrapper relic $relic"
+    ui_ok "cxx" "relic" "$relic" "removed $label wrapper"
   elif command -v sudo >/dev/null 2>&1 && sudo -n true >/dev/null 2>&1; then
     sudo rm -f "$relic"
-    echo ">> Removed $label wrapper relic $relic via sudo"
+    ui_ok "cxx" "relic" "$relic" "removed $label wrapper via sudo"
   else
-    echo ">> $label wrapper relic remains; remove it with: sudo rm -f $relic"
+    ui_warn "cxx" "relic" "$relic" "$label wrapper remains"
+    ui_hint "Remove it with: sudo rm -f $relic"
   fi
 }
 

@@ -90,8 +90,8 @@ describe('install-token: shell builders', () => {
     expect(out).toContain('/wrapper/v2/config?engine=codex');
     expect(out).toContain('/wrapper/v2/config?engine=claude');
     expect(out).toContain('identities = {(entry["version"], entry["sha256"]) for entry in entries}');
-    expect(out).toContain('ui_hint "cdx run       Start Codex"');
-    expect(out).toContain('ui_hint "clx run       Start Claude Code"');
+    expect(out).toContain('ui_hint_cmd cdx run "Start Codex"');
+    expect(out).toContain('ui_hint_cmd clx run "Start Claude Code"');
     expect(out).not.toContain('Done. Try:');
   });
 
