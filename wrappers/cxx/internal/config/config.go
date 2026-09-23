@@ -100,6 +100,34 @@ type Wrapper struct {
 	BinarySHA256 string `json:"binary_sha256"`
 }
 
+// EngineDrift reports whether the server's engine set differs from the
+// locally baked one. An empty remote set (offline, old server) is never drift.
+func EngineDrift(local, remote []string) bool {
+	norm := func(in []string) map[string]bool {
+		out := map[string]bool{}
+		for _, engine := range in {
+			engine = strings.ToLower(strings.TrimSpace(engine))
+			if engine == EngineCodex || engine == EngineClaude {
+				out[engine] = true
+			}
+		}
+		return out
+	}
+	l, r := norm(local), norm(remote)
+	if len(r) == 0 {
+		return false
+	}
+	if len(l) != len(r) {
+		return true
+	}
+	for engine := range r {
+		if !l[engine] {
+			return true
+		}
+	}
+	return false
+}
+
 // EnabledEngines returns the signed host engine set with the selected persona
 // included as a fail-safe. It accepts both modern engines_list and the legacy
 // comma-separated engines field.

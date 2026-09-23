@@ -507,7 +507,7 @@ minutes; failures become eligible after five minutes (on the next scheduled tick
 or launch). A queued child that never starts becomes eligible after 30 seconds;
 a crashed coordinator releases its kernel lease and follows the retry cooldown.
 Clock corrections and malformed state cannot postpone work indefinitely.
-`cxx cron run` explicitly bypasses cooldown, while `--due` respects it. Coordinated network/engine work has a 12-minute deadline; legacy schedule
+`cxx cron run` explicitly bypasses cooldown, while `--due` respects it. From cxx 0.9.2, when the `/auth` host `engines_list` differs from the engine set baked into the local signed config (an operator enabled or disabled an engine), the launch queues `cxx cron run --minimal` instead, bypassing the success cooldown so the peer alias and CLI are provisioned or retired immediately; the coordinator rewrites the local config, which clears the drift. The 30-second queue de-dupe and the live lease still apply. Coordinated network/engine work has a 12-minute deadline; legacy schedule
 helper commands are individually capped at 20 seconds, including during rollback. Schedule/service failures remain visible
 and do not suppress the enabled engine ticks. Auto-update off skips binary
 replacement while retaining the shared schedule and content/auth sync.

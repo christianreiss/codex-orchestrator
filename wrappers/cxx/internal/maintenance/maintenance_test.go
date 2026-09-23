@@ -20,7 +20,7 @@ func TestCoordinatorCoalescesAndRetries(t *testing.T) {
 		t.Fatalf("manual overlap: %v", err)
 	}
 	called := false
-	if err := requestAt(dir, now, func() error { called = true; return nil }); err != nil || called {
+	if err := requestAt(dir, now, false, func() error { called = true; return nil }); err != nil || called {
 		t.Fatalf("launch overlapped run: %v, %v", called, err)
 	}
 	if err := run.finishAt(errors.New("secret provider detail"), now); err != nil {
@@ -60,11 +60,11 @@ func TestQueueSpawnsAfterReleasingCoordinatorLease(t *testing.T) {
 		child, err = beginAt(dir, true, now)
 		return err
 	}
-	if err := requestAt(dir, now, start); err != nil {
+	if err := requestAt(dir, now, false, start); err != nil {
 		t.Fatal(err)
 	}
 	defer child.Finish(nil)
-	if err := requestAt(dir, now, start); err != nil {
+	if err := requestAt(dir, now, false, start); err != nil {
 		t.Fatal(err)
 	}
 	if count != 1 {
@@ -77,7 +77,7 @@ func TestQueueRecoversMissingAndCrashedChild(t *testing.T) {
 	count := 0
 	start := func() error { count++; return nil }
 	for _, at := range []time.Time{now, now.Add(time.Second), now.Add(queueInterval)} {
-		if err := requestAt(dir, at, start); err != nil {
+		if err := requestAt(dir, at, false, start); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -103,18 +103,18 @@ func TestQueueRecoversMissingAndCrashedChild(t *testing.T) {
 func TestSpawnFailureIsBoundedAndRetryable(t *testing.T) {
 	dir, now := t.TempDir(), time.Now().UTC()
 	failure := errors.New("no executable")
-	if err := requestAt(dir, now, func() error { return failure }); !errors.Is(err, failure) {
+	if err := requestAt(dir, now, false, func() error { return failure }); !errors.Is(err, failure) {
 		t.Fatal(err)
 	}
 	count := 0
 	start := func() error { count++; return nil }
-	if err := requestAt(dir, now.Add(time.Minute), start); err != nil {
+	if err := requestAt(dir, now.Add(time.Minute), false, start); err != nil {
 		t.Fatal(err)
 	}
 	if count != 0 {
 		t.Fatal("failed spawn retried on next launch")
 	}
-	if err := requestAt(dir, now.Add(retryInterval), start); err != nil {
+	if err := requestAt(dir, now.Add(retryInterval), false, start); err != nil {
 		t.Fatal(err)
 	}
 	if count != 1 {
@@ -201,7 +201,7 @@ func TestDetachedSpawnReturnsBeforeChildAndRotatesPrivateLog(t *testing.T) {
 		t.Fatal(err)
 	}
 	start := time.Now()
-	if err := spawn(exe, dir, os.Environ()); err != nil {
+	if err := spawn(exe, dir, os.Environ(), true); err != nil {
 		t.Fatal(err)
 	}
 	defer os.WriteFile(filepath.Join(dir, "release"), nil, 0o600)
@@ -242,11 +242,33 @@ func TestLogSymlinkIsNotFollowed(t *testing.T) {
 	if err := os.Symlink(target, filepath.Join(dir, "cron.log")); err != nil {
 		t.Fatal(err)
 	}
-	if err := spawn("/bin/true", dir, os.Environ()); err == nil {
+	if err := spawn("/bin/true", dir, os.Environ(), true); err == nil {
 		t.Fatal("followed log symlink")
 	}
 	raw, _ := os.ReadFile(target)
 	if string(raw) != "preserve" {
 		t.Fatal("modified unrelated file")
+	}
+}
+
+func TestForcedRequestBypassesCooldownButStillDedupes(t *testing.T) {
+	dir, now := t.TempDir(), time.Now().UTC()
+	run, err := beginAt(dir, true, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := run.finishAt(nil, now); err != nil {
+		t.Fatal(err)
+	}
+	calls := 0
+	start := func() error { calls++; return nil }
+	if err := requestAt(dir, now.Add(time.Minute), false, start); err != nil || calls != 0 {
+		t.Fatalf("cooldown ignored: %d, %v", calls, err)
+	}
+	if err := requestAt(dir, now.Add(time.Minute), true, start); err != nil || calls != 1 {
+		t.Fatalf("forced request suppressed: %d, %v", calls, err)
+	}
+	if err := requestAt(dir, now.Add(time.Minute+time.Second), true, start); err != nil || calls != 1 {
+		t.Fatalf("forced request not de-duplicated: %d, %v", calls, err)
 	}
 }

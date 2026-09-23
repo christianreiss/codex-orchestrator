@@ -1,5 +1,12 @@
 # 2026-09-23
 
+- **Enabling or disabling an engine on a host now takes effect on the next `cdx`/`clx` launch.**
+  Previously a codex-only host that had Claude enabled (or the reverse) only picked up `clx`/`cdx`
+  once background maintenance was next due, up to 15 minutes after its last successful run. The
+  wrapper now compares the `/auth` engine set with its local signed config and, on any difference,
+  queues maintenance past its cooldown, which installs the new peer alias and CLI (or removes a
+  disabled one) in the background. Wrapper 0.9.2.
+
 - **The host installer now looks like the `cxx` it installs.** On a UTF-8 terminal the
   `/install/{token}` script opens with an accent-edged host card (host, engines, bin dir), prints each
   step in the wrapper's notice grammar (`✓ cdx codex  ready  0.144.1`, `▲` warnings, `›` progress)

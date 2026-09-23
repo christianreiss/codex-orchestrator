@@ -117,6 +117,17 @@ func (r *Run) finishAt(runErr error, now time.Time) error {
 // It never fetches config, probes a CLI, waits on a lock, or waits for the child.
 // Both personas share one queue and one coordinator lease in the user's home.
 func Request(engine, configPath string) error {
+	return request(engine, configPath, false)
+}
+
+// RequestNow is Request without the post-success cooldown: the caller has
+// observed server state (e.g. a changed engine set) that the last run did not
+// see. The queue de-dupe and the live-lease check still apply.
+func RequestNow(engine, configPath string) error {
+	return request(engine, configPath, true)
+}
+
+func request(engine, configPath string, force bool) error {
 	if os.Getenv("CXX_BACKGROUND_MAINTENANCE") == "0" {
 		return nil
 	}
@@ -139,10 +150,10 @@ func Request(engine, configPath string) error {
 	if err != nil {
 		return err
 	}
-	return requestAt(dir, time.Now().UTC(), func() error { return spawn(exe, dir, env) })
+	return requestAt(dir, time.Now().UTC(), force, func() error { return spawn(exe, dir, env, !force) })
 }
 
-func requestAt(dir string, now time.Time, start func() error) error {
+func requestAt(dir string, now time.Time, force bool, start func() error) error {
 	// The enqueue lock closes the interval between publishing the queue marker
 	// and spawning the child; the child takes only the coordinator lock.
 	queue, err := ipc.TryAcquireExclusivePath(filepath.Join(dir, "maintenance-queue.lock"))
@@ -165,7 +176,7 @@ func requestAt(dir string, now time.Time, start func() error) error {
 		_ = lock.Release()
 		return err
 	}
-	if inFuture(s.NextAttempt, now, successInterval) || inFuture(s.RequestedUntil, now, queueInterval) {
+	if (!force && inFuture(s.NextAttempt, now, successInterval)) || inFuture(s.RequestedUntil, now, queueInterval) {
 		_ = lock.Release()
 		return nil
 	}
@@ -274,7 +285,7 @@ func childEnv(engine, source string, env []string) ([]string, error) {
 	return append(result, key+"="+source), nil
 }
 
-func spawn(exe, dir string, env []string) error {
+func spawn(exe, dir string, env []string, due bool) error {
 	logPath := filepath.Join(dir, "cron.log")
 	if st, err := os.Lstat(logPath); err == nil && st.Mode().IsRegular() && st.Size() >= maxLogBytes {
 		if err := os.Rename(logPath, logPath+".1"); err != nil {
@@ -289,7 +300,11 @@ func spawn(exe, dir string, env []string) error {
 	if err := log.Chmod(0o600); err != nil {
 		return err
 	}
-	cmd := exec.Command(exe, "cron", "run", "--due", "--minimal")
+	args := []string{"cron", "run", "--due", "--minimal"}
+	if !due {
+		args = []string{"cron", "run", "--minimal"}
+	}
+	cmd := exec.Command(exe, args...)
 	cmd.Args[0] = "cxx" // Preserve global dispatch even when exe was an alias.
 	cmd.Env, cmd.Dir = env, dir
 	cmd.Stdout, cmd.Stderr = log, log

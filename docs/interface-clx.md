@@ -158,7 +158,9 @@ first-run theme or login flow.
 
 Normal startup and session exit never download or install wrapper, Claude, or
 peer binaries. A launch uses the installed Claude CLI and can queue detached
-maintenance after acquiring its auth session. Explicit `clx --update` and
+maintenance after acquiring its auth session; a changed host engine set
+bypasses the maintenance cooldown so an enabled/disabled peer lands on this
+launch. Explicit `clx --update` and
 `cxx cron run` remain visible maintenance commands. Missing Claude fails quickly
 with an installation command; it does not start a foreground npm repair.
 

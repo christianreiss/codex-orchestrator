@@ -330,6 +330,12 @@ func Run(ctx context.Context, opts Options) (exitCode int, retErr error) {
 			}
 		}
 
+		// An engine-set change skips the maintenance cooldown so the peer is
+		// provisioned (or removed) on this launch.
+		if !opts.SyncOnly {
+			reconcileEngineDrift(cfg, authResp, logger)
+		}
+
 		// Routine binary and peer maintenance belongs to the background tick.
 		// Foreground launches retain only local onboarding required by Claude.
 		// A content-only tick is the only thing that visits an idle host, and

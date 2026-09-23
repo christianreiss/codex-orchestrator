@@ -364,7 +364,11 @@ func Run(ctx context.Context, opts Options) (exitCode int, runErr error) {
 			}
 		}
 
-		// Binary upgrades and peer provisioning belong to background maintenance.
+		// Binary upgrades and peer provisioning belong to background maintenance;
+		// an engine-set change skips its cooldown so it lands on this launch.
+		if !opts.SyncOnly {
+			reconcileEngineDrift(cfg, authResp, logger)
+		}
 
 		// Skills are MCP-served in v2; we still ping /skills to detect
 		// fingerprint changes (lights the boot-screen "skills" dot) and
