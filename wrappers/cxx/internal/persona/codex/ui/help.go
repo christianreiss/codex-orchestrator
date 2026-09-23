@@ -25,7 +25,7 @@ var cdxHelpCommands = []wrapperHelpItem{
 	{"cdx profile <name> [-- args...]", "Launch a synced configuration profile."},
 	{"cdx --update", "Verify and install the wrapper target."},
 	{"cdx --uninstall", "Remove wrapper and managed engine state."},
-	{"cdx --cron [install|remove|run]", "Manage the background update schedule."},
+	{"cdx cron [install|remove|run]", "Manage the background update schedule."},
 }
 
 var cdxHelpFlags = []wrapperHelpItem{

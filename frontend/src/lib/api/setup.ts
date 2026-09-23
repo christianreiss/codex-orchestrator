@@ -49,12 +49,35 @@ export interface SetupStatus {
   setup_complete: boolean;
   checks: SetupCheck[];
   configured_engines: string[];
+  /**
+   * The engines this fleet runs: the wizard answer when one exists, else the
+   * server's `DEFAULT_HOST_ENGINES`. Optional only while an older API is served;
+   * read it through `defaultEnginesOf`.
+   */
+  default_engines?: ("codex" | "claude")[];
   canonical_auth: { codex: boolean; claude: boolean };
   hosts: { total: number; synced: number };
   public_base_url: string | null;
   warnings: string[];
   next_actions: SetupAction[];
   wizard: SetupWizardState;
+}
+
+/** Engines to pre-select for a new host; codex when the server says nothing. */
+export function defaultEnginesOf(status: SetupStatus | null | undefined): ("codex" | "claude")[] {
+  const engines = status?.default_engines;
+  return engines && engines.length > 0 ? [...engines] : ["codex"];
+}
+
+/**
+ * Wizard step that resolves a checklist action. `null` for actions that have
+ * no wizard step (none today; kept total so new ids fall through safely).
+ */
+export function stepForAction(id: string): SetupStep | null {
+  if (id.startsWith("auth_")) return "auth";
+  if (id === "fleet_defaults") return "defaults";
+  if (id === "first_host" || id === "first_sync") return "host";
+  return null;
 }
 
 export interface SetupWizardUpdate {
@@ -88,10 +111,10 @@ export function setupStatusQuery(enabled = true) {
  * collects is written by the endpoint that owns it; this only moves the
  * bookmark.
  *
- * Nothing invalidates `["setup","status"]` from the WS layer — `settings.changed`
- * is deliberately not published for progress writes — so callers that change
- * real state must invalidate it themselves. `invalidateSetup` below is the
- * one-liner for that.
+ * Only host WS events (`host.updated` / `host.created`) invalidate
+ * `["setup","status"]`; `settings.changed` is deliberately not published for
+ * progress writes, so callers that change any other real state must
+ * invalidate it themselves. `invalidateSetup` below is the one-liner for that.
  */
 export function createSetupWizardMutation(qc: QueryClient) {
   return createMutation<SetupWizardState, ApiError, SetupWizardUpdate>({

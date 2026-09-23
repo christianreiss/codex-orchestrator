@@ -22,6 +22,7 @@ type AuthChecker = terminalui.AuthChecker
 type Notice = terminalui.Notice
 type Question = terminalui.Question
 type Option = terminalui.Option
+type Progress = terminalui.Progress
 
 const (
 	ThemeAuto      = terminalui.ThemeAuto
@@ -85,6 +86,7 @@ var (
 	FormatNotice       = terminalui.FormatNotice
 	Confirm            = terminalui.Confirm
 	Select             = terminalui.Select
+	StartProgress      = terminalui.StartProgress
 	ErrPromptCancelled = terminalui.ErrPromptCancelled
 )
 

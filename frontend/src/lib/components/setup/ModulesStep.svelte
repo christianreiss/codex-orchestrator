@@ -10,12 +10,13 @@
    */
   import { createQuery, useQueryClient } from "@tanstack/svelte-query";
   import { toast } from "svelte-sonner";
-  import { Switch } from "$lib/components/ui/switch";
   import { Input } from "$lib/components/ui/input";
   import { Label } from "$lib/components/ui/label";
   import { Alert, AlertDescription, AlertTitle } from "$lib/components/ui/alert";
   import { fetchProjectsState, updateProjectsState, createProject } from "$lib/api/projects";
   import { secretsApi } from "$lib/api/secrets";
+  import ModuleSwitchRow from "$lib/components/layout/ModuleSwitchRow.svelte";
+  import StepQueryState from "./StepQueryState.svelte";
 
   const qc = useQueryClient();
 
@@ -33,8 +34,11 @@
   let slug = $state("");
   let slugError = $state<string | null>(null);
   let saving = $state(false);
-  let projectsLoaded = false;
-  let secretsLoaded = false;
+  let projectsLoaded = $state(false);
+  let secretsLoaded = $state(false);
+
+  const loading = $derived($projectsState.isLoading || $secretsState.isLoading);
+  const loadError = $derived($projectsState.error?.message ?? $secretsState.error?.message ?? null);
 
   $effect(() => {
     const value = $projectsState.data?.enabled;
@@ -67,15 +71,17 @@
 
     saving = true;
     try {
-      if (projectsOn !== ($projectsState.data?.enabled ?? false)) {
+      // An unloaded state is never written: "off" read from a failed query is
+      // not the operator's answer.
+      if (projectsLoaded && projectsOn !== ($projectsState.data?.enabled ?? false)) {
         await updateProjectsState(projectsOn);
         void qc.invalidateQueries({ queryKey: ["projects"] });
       }
-      if (secretsOn !== ($secretsState.data?.enabled ?? false)) {
+      if (secretsLoaded && secretsOn !== ($secretsState.data?.enabled ?? false)) {
         await secretsApi.setState(secretsOn);
         void qc.invalidateQueries({ queryKey: ["secrets"] });
       }
-      if (wantsProject) {
+      if (wantsProject && projectsLoaded) {
         await createProject({ slug: slug.trim() });
         void qc.invalidateQueries({ queryKey: ["projects"] });
         toast.success(`Project ${slug.trim()} created`);
@@ -90,6 +96,24 @@
   }
 </script>
 
+{#snippet projectNotice()}
+  <div class="space-y-1.5">
+    <Label for="setup-project-slug" class="text-xs">First project (optional)</Label>
+    <Input
+      id="setup-project-slug"
+      bind:value={slug}
+      placeholder="platform"
+      class="max-w-xs"
+      aria-invalid={slugError ? "true" : undefined}
+    />
+    {#if slugError}
+      <p class="text-xs text-destructive">{slugError}</p>
+    {:else}
+      <p class="text-xs text-muted-foreground">A slug is all that is required.</p>
+    {/if}
+  </div>
+{/snippet}
+
 <div class="space-y-5">
   <Alert>
     <AlertTitle>Both are off until you turn them on</AlertTitle>
@@ -99,42 +123,35 @@
     </AlertDescription>
   </Alert>
 
-  <div class="flex items-start justify-between gap-4 rounded-lg border p-4">
-    <div class="space-y-1">
-      <Label for="setup-projects" class="text-sm font-medium">Projects</Label>
-      <p class="text-xs text-muted-foreground">
-        Shared workstream state agents read and write over MCP — notes, todos, files and
-        per-project memory. Adds the coordination skill to every host.
-      </p>
-      {#if projectsOn}
-        <div class="pt-3 space-y-1.5">
-          <Label for="setup-project-slug" class="text-xs">First project (optional)</Label>
-          <Input
-            id="setup-project-slug"
-            bind:value={slug}
-            placeholder="platform"
-            class="max-w-xs"
-            aria-invalid={slugError ? "true" : undefined}
-          />
-          {#if slugError}
-            <p class="text-xs text-destructive">{slugError}</p>
-          {:else}
-            <p class="text-[11px] text-muted-foreground">A slug is all that is required.</p>
-          {/if}
-        </div>
-      {/if}
+  {#if loading || loadError}
+    <StepQueryState
+      {loading}
+      error={loadError}
+      subject="module settings"
+      onRetry={() => {
+        void $projectsState.refetch();
+        void $secretsState.refetch();
+      }}
+    />
+  {:else}
+    <div class="space-y-3">
+      <ModuleSwitchRow
+        id="setup-projects"
+        class="rounded-lg border"
+        label="Projects"
+        description="Shared workstream state agents read and write over MCP — notes, todos, files and per-project memory. Adds the coordination skill to every host."
+        checked={projectsOn}
+        onCheckedChange={(v) => (projectsOn = v)}
+        notice={projectsOn ? projectNotice : undefined}
+      />
+      <ModuleSwitchRow
+        id="setup-secrets"
+        class="rounded-lg border"
+        label="Secrets"
+        description="A fleet-wide credential store agents reach over MCP instead of hunting through env files. Values are encrypted at rest and never written to host disks."
+        checked={secretsOn}
+        onCheckedChange={(v) => (secretsOn = v)}
+      />
     </div>
-    <Switch id="setup-projects" checked={projectsOn} onCheckedChange={(v) => (projectsOn = v)} />
-  </div>
-
-  <div class="flex items-start justify-between gap-4 rounded-lg border p-4">
-    <div class="space-y-1">
-      <Label for="setup-secrets" class="text-sm font-medium">Secrets</Label>
-      <p class="text-xs text-muted-foreground">
-        A fleet-wide credential store agents reach over MCP instead of hunting through env
-        files. Values are encrypted at rest and never written to host disks.
-      </p>
-    </div>
-    <Switch id="setup-secrets" checked={secretsOn} onCheckedChange={(v) => (secretsOn = v)} />
-  </div>
+  {/if}
 </div>

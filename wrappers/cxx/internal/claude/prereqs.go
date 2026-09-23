@@ -16,13 +16,15 @@ import (
 var packageManagers = []string{"apt-get", "dnf", "yum", "apk", "pacman", "zypper", "brew"}
 
 // ensurePrerequisites makes a best-effort attempt to get `node` and `npm`
-// onto PATH via the host's OS package manager. It exists so a host that
-// enables the Claude engine after being minted without ever running the
-// bash installer (e.g. a Codex-only host) can still self-heal through the
-// ordinary cron/peer-reconcile path instead of failing forever with "npm
-// not available on PATH". Mirrors ensure_claude_prerequisites() in
-// api/src/services/wrapper-transition.ts, minus interactive UI output; the
-// bash installer remains the primary path and is unaffected by this.
+// onto PATH via the host's OS package manager. Mirrors
+// ensure_claude_prerequisites() in api/src/services/wrapper-transition.ts,
+// minus interactive UI output.
+//
+// Its only caller is the legacy EnsureClaude, which no production path uses.
+// The cron tick, peer reconcile, `clx sync` and the foreground launch install
+// through EnsureClaudeBackground, which never drives a package manager: on a
+// host without npm those paths fail with an actionable error instead, and the
+// host installer remains the place that provisions Node.js/npm.
 func ensurePrerequisites(ctx context.Context, logger *slog.Logger) error {
 	if logger == nil {
 		logger = slog.Default()

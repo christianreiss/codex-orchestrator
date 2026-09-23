@@ -36,6 +36,9 @@ type Inputs struct {
 	// SkipVersionProbe avoids spawning the native CLI for an unrendered screen.
 	// Quota and auth decisions are still derived from the supplied response.
 	SkipVersionProbe bool
+	// CodexVersion is a version the caller already probed (concurrently with
+	// the bundle); when set Build uses it instead of spawning the CLI again.
+	CodexVersion string
 	// Sessions carries the historical API `sessions` block. Its fleet values
 	// are recent-host / managed-sync activity, not proven engine launches.
 	// Nil hides the block; LocalNow is computed wrapper-side.
@@ -66,7 +69,9 @@ func Build(ctx context.Context, in Inputs) ui.ScreenInput {
 	auth := in.Auth
 
 	codexVer := "unknown"
-	if !in.SkipVersionProbe {
+	if in.CodexVersion != "" {
+		codexVer = in.CodexVersion
+	} else if !in.SkipVersionProbe {
 		codexVer = codex.Version(ctx)
 	}
 	codexTone := ui.ToneOK

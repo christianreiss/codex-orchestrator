@@ -30,7 +30,7 @@
       .min(3, "At least 3 characters")
       .regex(/^[a-z0-9._-]+$/, "Lowercase letters, digits, dot, underscore and dash only"),
     email: z.string().email("Enter a valid email address"),
-    password: z.string().min(12, "At least 12 characters — this floor is fixed in the API"),
+    password: z.string().min(12, "At least 12 characters"),
   });
 
   let name = $state("");
@@ -81,11 +81,11 @@
   </Alert>
 {:else}
   <div class="space-y-4">
-    <Alert>
-      <AlertTitle>This claim happens once</AlertTitle>
+    <Alert variant="warning">
+      <AlertTitle>Only one person can do this</AlertTitle>
       <AlertDescription>
-        The endpoint is reachable without a session only while no admin exists, and closes
-        permanently on success. Do not expose an unclaimed installation.
+        Until an owner exists, anyone who can open this page can become the owner. Create
+        your account now, and keep the console off the public internet until you have.
       </AlertDescription>
     </Alert>
 

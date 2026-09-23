@@ -9,11 +9,11 @@
  */
 
 import type { FastifyInstance } from 'fastify';
-import { eq } from 'drizzle-orm';
+import { desc, eq } from 'drizzle-orm';
 import type { RouteContext } from '../../index.js';
 import { ok } from '../../../http/reply.js';
 import { ValidationError, NotFoundError } from '../../../http/errors.js';
-import { adminEvents, hosts, insecureDomainAllows, logs } from '../../../db/schema.js';
+import { adminEvents, hosts, insecureDomainAllows, installTokens, logs } from '../../../db/schema.js';
 import { SettingsService } from '../../../services/settings.js';
 import { makeAdminEventsWriter } from '../../../services/admin-events-writer.js';
 import { InsecureWindowAdminService } from '../../../services/insecure-window-admin.js';
@@ -84,6 +84,24 @@ interface WsInfoEnv {
   ADMIN_WS_HEARTBEAT_SECONDS?: number;
   ADMIN_WS_BACKLOG_LIMIT?: number;
   PUBLIC_BASE_URL?: string;
+}
+
+interface InstallerTokenRow {
+  id: number;
+  hostId: number;
+  usedAt: string | null;
+  expiresAt: string;
+}
+
+/** The host's latest installer token: when it ran, and when it lapses. */
+function installerState(token: InstallerTokenRow | undefined): {
+  installer_used_at: string | null;
+  installer_expires_at: string | null;
+} {
+  return {
+    installer_used_at: token?.usedAt ?? null,
+    installer_expires_at: token?.expiresAt ?? null,
+  };
 }
 
 function hostEngines(raw: string | null | undefined): Engine[] {
@@ -363,11 +381,26 @@ export async function registerAdminOverviewRoutes(
 
   // ── /admin/hosts (JSON listing) ───────────────────────────────────────────
   app.get('/admin/hosts', { preHandler: [adminSpa, app.requireAdmin] }, async () => {
-    const [rows, codexCanonical, claudeCanonical] = await Promise.all([
+    const [rows, codexCanonical, claudeCanonical, tokenRows] = await Promise.all([
       ctx.db.select().from(hosts).orderBy(hosts.fqdn),
       runnerValidation.resolveCanonicalPayload(ENGINE_CODEX),
       runnerValidation.resolveCanonicalPayload(ENGINE_CLAUDE),
+      // One read for every host, not one per row. Minting deletes a host's
+      // older tokens, so this table stays about one row per host.
+      ctx.db
+        .select({
+          id: installTokens.id,
+          hostId: installTokens.hostId,
+          usedAt: installTokens.usedAt,
+          expiresAt: installTokens.expiresAt,
+        })
+        .from(installTokens),
     ]);
+    const latestInstaller = new Map<number, InstallerTokenRow>();
+    for (const token of tokenRows) {
+      const current = latestInstaller.get(Number(token.hostId));
+      if (!current || Number(token.id) > Number(current.id)) latestInstaller.set(Number(token.hostId), token);
+    }
     const canonicalDigests = {
       [ENGINE_CODEX]: codexCanonical?.sha256 ?? null,
       [ENGINE_CLAUDE]: claudeCanonical?.sha256 ?? null,
@@ -419,6 +452,7 @@ export async function registerAdminOverviewRoutes(
           auth_outdated: auth.auth_outdated,
           config_version: Number(h.configVersion ?? 0),
           wrapper_track: h.wrapperTrack,
+          ...installerState(latestInstaller.get(Number(h.id))),
         };
       }),
     });
@@ -444,6 +478,7 @@ export async function registerAdminOverviewRoutes(
       inactivityWindowDays,
       codexCanonical,
       claudeCanonical,
+      installerRows,
     ] =
       await Promise.all([
         clientVersions.versionSummary('codex'),
@@ -455,6 +490,17 @@ export async function registerAdminOverviewRoutes(
         settings.getInt('inactivity_window_days', 30),
         runnerValidation.resolveCanonicalPayload(ENGINE_CODEX),
         runnerValidation.resolveCanonicalPayload(ENGINE_CLAUDE),
+        ctx.db
+          .select({
+            id: installTokens.id,
+            hostId: installTokens.hostId,
+            usedAt: installTokens.usedAt,
+            expiresAt: installTokens.expiresAt,
+          })
+          .from(installTokens)
+          .where(eq(installTokens.hostId, id))
+          .orderBy(desc(installTokens.id))
+          .limit(1),
       ]);
     const auth = hostAuthSummary(h, {
       [ENGINE_CODEX]: codexCanonical?.sha256 ?? null,
@@ -502,6 +548,7 @@ export async function registerAdminOverviewRoutes(
           h.autoUpdateOverride === null ? autoUpdateEnabled : h.autoUpdateOverride === 1,
         auto_update_label: null,
         config_version: Number(h.configVersion ?? 0),
+        ...installerState(installerRows[0]),
       },
       overview: {
         versions: {

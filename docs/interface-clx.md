@@ -587,10 +587,10 @@ Engine-specific details:
   auth. Writeback or logout-marker failure exits non-zero.
 - Interactive `clx run` can recover missing or live-verification-failed
   credentials: when neither runnable local auth nor verified runnable server
-  auth exists, it directly runs `claude auth login`, uploads the resulting
+  auth exists, it asks `Run \`claude auth login\` now?` (default yes, same
+  prompt shape as cdx), runs `claude auth login`, uploads the resulting
   native credentials through `/auth command=store`, and re-runs the startup
-  auth check. There is no extra wrapper-owned `[y/N]` prompt (cdx asks one;
-  this is an intentional delta). Headless runs do
+  auth check. Headless runs (no TTY, e.g. the installer's `clx sync </dev/null`) do
   not open a browser flow; they fail with the actionable instruction to run
   `clx auth login` interactively.
 - Settings file mirrored to `~/.clx/config/settings.json` after the canonical

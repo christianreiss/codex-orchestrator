@@ -36,6 +36,8 @@ function runDualInstallerFixture(
     legacyRegularBinaries?: boolean;
     failBinarySwap?: boolean;
     splitArtifact?: boolean;
+    failSync?: boolean;
+    unwritableBin?: boolean;
   } = {},
 ): {
   status: number | null;
@@ -57,6 +59,9 @@ function runDualInstallerFixture(
     mkdirSync(fakeBin);
     mkdirSync(installBin);
     mkdirSync(home);
+    // A regular file where a directory is needed: mkdir fails even as root.
+    writeFileSync(join(dir, 'not-a-dir'), '', 'utf8');
+    writeExecutable(join(fakeBin, 'sudo'), '#!/bin/sh\nexit 1\n');
     if (options.legacyRegularBinaries) {
       writeExecutable(join(installBin, 'cdx'), '#!/bin/sh\necho legacy-cdx\n');
       writeExecutable(join(installBin, 'clx'), '#!/bin/sh\necho legacy-clx\n');
@@ -92,6 +97,10 @@ case "$*" in
       echo "forced Claude failure" >&2
       exit 44
     fi
+    exit 0
+    ;;
+  "--allow-concurrent-sync sync")
+    if [ "\${FAIL_SYNC:-0}" = "1" ]; then echo "forced sync failure" >&2; exit 49; fi
     exit 0
     ;;
   *) echo "unexpected wrapper invocation: $name $*" >&2; exit 45 ;;
@@ -189,7 +198,7 @@ printf '%s\n' "$url" >> "$CURL_LOG"
       encoding: 'utf8',
       env: {
         ...process.env,
-        BIN_DIR: installBin,
+        BIN_DIR: options.unwritableBin ? join(dir, 'not-a-dir', 'bin') : installBin,
         HOME: home,
         PATH: `${fakeBin}:/usr/bin:/bin`,
         TERM: 'dumb',
@@ -205,6 +214,7 @@ printf '%s\n' "$url" >> "$CURL_LOG"
         EMPTY_CLAUDE_VERSION: options.emptyClaudeVersion ? '1' : '0',
         BROKEN_NPM: options.brokenNpm ? '1' : '0',
         FAIL_CXX_SWAP: options.failBinarySwap ? '1' : '0',
+        FAIL_SYNC: options.failSync ? '1' : '0',
         REAL_MV: execFileSync('sh', ['-c', 'command -v mv'], { encoding: 'utf8' }).trim(),
       },
     });
@@ -435,6 +445,34 @@ describe('wrapper transition helpers', () => {
     expect(out).not.toContain('BIN_DIR=${BIN_DIR:-$HOME/.local/bin}');
   });
 
+  it('preflights python3, curl and a writable bin root before the header card', () => {
+    const out = buildWrapperV2InstallerScript({
+      fqdn: 'h.example',
+      apiKey: 'sk-codex-test',
+      baseUrl: 'https://o.example/',
+      engine: 'codex',
+    });
+    expect(out).toContain('command -v python3');
+    expect(out).toContain('"python3 is required"');
+    expect(out).toContain('command -v curl');
+    expect(out).toContain('"curl is required"');
+    expect(out).toContain('if ! ensure_bin_root; then');
+    const call = out.indexOf('\npreflight\n');
+    expect(call).toBeGreaterThan(-1);
+    expect(call).toBeLessThan(out.indexOf('\n  ui_header\n'));
+  });
+
+  it('stops on one preflight line with a fix when the bin root is not writable', () => {
+    const result = runDualInstallerFixture({ unwritableBin: true });
+    const output = result.stdout + result.stderr;
+    expect(result.status).toBe(1);
+    expect(output).toContain('cxx preflight: ');
+    expect(output).toContain('is not writable and sudo -n is unavailable');
+    expect(output).toContain('Cannot install cdx into');
+    expect(output).not.toContain('HOST SETUP');
+    expect(result.wrapperInvocations).toEqual([]);
+  });
+
   it('installer atomically replaces a canonical path symlink without a removal gap', () => {
     const out = buildWrapperV2InstallerScript({
       fqdn: 'h.example',
@@ -521,6 +559,12 @@ describe('wrapper transition helpers', () => {
       expect(truecolor).toContain('─╮\x1b[0m\n');
       expect(truecolor).toContain('CODEX ORCHESTRATOR');
       for (const glyph of ['›', '✓', '▲', '✗', '✓ READY']) expect(truecolor).toContain(glyph);
+      // eslint-disable-next-line no-control-regex -- stripping SGR escapes is the point
+      const plainText = truecolor.replace(/\x1b\[[0-9;]*m/g, '');
+      // Topic padded to 7; the detail hangs under the message column.
+      expect(plainText).toContain('› cxx wrapper installing…\n');
+      expect(plainText).toContain('✓ cdx codex   ready\n              1.0.0\n');
+      expect(plainText).toContain('▲ cxx background worker service unavailable\n');
       // Every card row spans the same visible width.
       const widths = truecolor
         // eslint-disable-next-line no-control-regex -- stripping SGR escapes is the point
@@ -534,6 +578,54 @@ describe('wrapper transition helpers', () => {
       expect(render({ TERM: 'xterm-256color' })).toContain('\x1b[38;5;209m\x1b[1mcdx');
       expect(render({ TERM: 'xterm' })).toContain('\x1b[33m\x1b[1mcdx');
       expect(render({ TERM: 'xterm', NO_COLOR: '1' })).not.toContain('\x1b');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('folds notice glyphs to ASCII on a terminal without UTF-8', () => {
+    const script = buildWrapperV2InstallerScript({
+      fqdn: 'h.example',
+      apiKey: 'sk-codex-test',
+      baseUrl: 'https://o.example/',
+      engine: 'codex',
+    });
+    const start = script.indexOf('UI_RESET=\n');
+    const end = script.indexOf('\ncleanup() {');
+    const dir = mkdtempSync(join(tmpdir(), 'wrapper-installer-ascii-'));
+    try {
+      const helpers = join(dir, 'ui.sh');
+      writeFileSync(
+        helpers,
+        [
+          'set -eu',
+          'HAS_CODEX=1 HAS_CLAUDE=0 HOST_LABEL=h.example BIN_DIR=/usr/local/bin BIN_ROOT=/usr/local/bin STEP_LOG=',
+          "INSTALL_LABEL='Codex'",
+          'UI_TTY=1 UI_UTF8=0',
+          script.slice(start, end),
+          'ui_progress cxx wrapper "" "installing…"',
+          'ui_ok cdx codex 1.0.0 ready',
+          'ui_warn cdx sync "retry: cdx sync" "did not finish"',
+          'ui_fail cxx preflight "" "curl is required" 2>&1',
+        ].join('\n'),
+        'utf8',
+      );
+      const { COLORTERM: _c, ...base } = process.env;
+      const out = execFileSync('sh', [helpers], {
+        encoding: 'utf8',
+        env: { ...base, TERM: 'xterm', NO_COLOR: '1' },
+      });
+      expect(out).toBe(
+        [
+          '> cxx wrapper installing...',
+          '+ cdx codex   ready',
+          '              1.0.0',
+          '! cdx sync    did not finish',
+          '              retry: cdx sync',
+          'x cxx preflight curl is required',
+          '',
+        ].join('\n'),
+      );
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -631,8 +723,11 @@ describe('wrapper transition helpers', () => {
     expect(out).toContain('ui_result_ok "READY"');
     expect(out).toContain('ui_result_fail "INCOMPLETE"');
     expect(out).toContain('INSTALL_FAILED=1');
-    expect(out).toContain('Retry host cron:    $BIN_ROOT/cxx cron install');
-    expect(out).toContain('Retry engine CLIs:  $BIN_ROOT/cxx cron run --minimal');
+    expect(out).toContain('Retry host cron:    $RETRY_NAME cron install');
+    expect(out).toContain('Retry engine CLIs:  $RETRY_NAME cron run');
+    expect(out).not.toContain('if [ "$INSTALL_FAILED" = "0" ]; then install_background_worker; fi');
+    expect(out).toContain('"$@" --allow-concurrent-sync sync </dev/null');
+    expect(out).toContain('set -- timeout 60 "$BIN_ROOT/$SYNC_NAME"');
     expect(out).toContain('CLAUDE_CONFIG_PATH=${CLX_CONFIG_PATH:-');
     expect(out).toContain('enabled wrapper configs disagree on cxx version/SHA');
     expect(out).not.toContain('pacman -Sy');
@@ -646,11 +741,15 @@ describe('wrapper transition helpers', () => {
     const output = result.stdout + result.stderr;
     expect(result.status).toBe(0);
     expect(output).toContain('READY | Codex + Claude installed successfully');
-    expect(output.match(/OK \| cxx \| wrapper/g)).toHaveLength(1);
-    expect(output).toContain('| cxx | background worker |');
+    expect(output.match(/^cxx wrapper: ready$/gm)).toHaveLength(1);
+    expect(output).toContain('cxx wrapper: ready\n  0.6.50\n');
+    // `cxx cron run` installs the worker service itself; no second install.
+    expect(output).not.toContain('background worker');
     expect(output).not.toContain('agent relay');
-    expect(output.match(/OK \| cdx \| codex/g)).toHaveLength(1);
-    expect(output.match(/OK \| clx \| claude/g)).toHaveLength(1);
+    expect(output.match(/^cdx codex: ready$/gm)).toHaveLength(1);
+    expect(output.match(/^clx claude: ready$/gm)).toHaveLength(1);
+    expect(output).toContain('cdx sync: credentials synced');
+    expect(output).toContain('clx sync: credentials synced');
     expect(result.binaryDownloads).toBe(1);
     expect(result.cxxExists).toBe(true);
     expect(result.cdxLink).toBe('cxx');
@@ -658,13 +757,24 @@ describe('wrapper transition helpers', () => {
     expect(result.wrapperInvocations).toEqual([
       'cron install --minimal',
       'cron run --minimal',
-      'agent service install',
+      '--allow-concurrent-sync sync',
+      '--allow-concurrent-sync sync',
     ]);
-    expect(output).toContain('WARN | setup | PATH');
+    expect(output).toContain('cxx PATH: not active in the parent shell');
     expect(output).toContain('Before running: export PATH=');
     expect(output).not.toContain('ATTENTION');
     expect(output).not.toMatch(/[\u0080-\uffff]/);
     expect(output).not.toContain('\x1b');
+  });
+
+  it('keeps READY when the credential sync fails and names the retry', () => {
+    const result = runDualInstallerFixture({ failSync: true });
+    const output = result.stdout + result.stderr;
+    expect(result.status).toBe(0);
+    expect(output).toContain('READY | Codex + Claude installed successfully');
+    expect(output).toContain('cdx sync: credential sync did not finish; the next cron tick retries it\n  retry: cdx sync\n');
+    expect(output).toContain('clx sync: credential sync did not finish');
+    expect(output).not.toContain('INCOMPLETE');
   });
 
   it('returns non-zero and prints INCOMPLETE when one peer engine fails', () => {
@@ -731,7 +841,7 @@ describe('wrapper transition helpers', () => {
     const result = runDualInstallerFixture({ emptyClaudeVersion: true });
     const output = result.stdout + result.stderr;
     expect(result.status).toBe(1);
-    expect(output).toContain('FAIL | clx | claude | version check failed');
+    expect(output).toContain('clx claude: version check failed');
     expect(output).toContain('INCOMPLETE | One or more requested components failed');
     expect(output).not.toContain('READY |');
   });

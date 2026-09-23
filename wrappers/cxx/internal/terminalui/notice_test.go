@@ -124,3 +124,26 @@ func TestForceMinimalReachesDeepCallers(t *testing.T) {
 		t.Fatalf("forced minimal caps = %+v", caps)
 	}
 }
+
+func TestLineConfirmDefaultYes(t *testing.T) {
+	q := Question{Prefix: "cdx", Topic: TopicAuth, Title: "Run `codex login` now?", DefaultYes: true}
+	for _, tc := range []struct {
+		in   string
+		want bool
+		err  bool
+	}{
+		{in: "\n", want: true},
+		{in: "y\n", want: true},
+		{in: "n\n", want: false},
+		{in: "", err: true},
+	} {
+		var out bytes.Buffer
+		got, err := Confirm(context.Background(), Caps{}, strings.NewReader(tc.in), &out, q)
+		if tc.err != errors.Is(err, ErrPromptCancelled) || (!tc.err && got != tc.want) {
+			t.Fatalf("%q: got %v err %v", tc.in, got, err)
+		}
+		if !strings.Contains(out.String(), "Run `codex login` now? [Y/n]: ") {
+			t.Fatalf("default-yes prompt = %q", out.String())
+		}
+	}
+}

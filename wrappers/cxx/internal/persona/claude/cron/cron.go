@@ -70,7 +70,7 @@ type Result struct {
 	Reported       bool
 }
 
-// Tick is the action taken by `clx --cron run`.
+// Tick is the action taken by `clx cron run`.
 func Tick(ctx context.Context, cfg *config.Config) (Result, error) {
 	return TickWithOptions(ctx, cfg, false)
 }

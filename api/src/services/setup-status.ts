@@ -1,10 +1,11 @@
-import { and, eq } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { join, resolve } from 'node:path';
 import type { Database } from '../db/client.js';
 import {
   adminUsers,
   authCanonicalHeads,
   authPayloads,
+  clientConfigDocuments,
   hosts,
   schemaMigrations,
   wrapperSigningKeys,
@@ -21,7 +22,7 @@ import {
 import { createWrapperSigningKeyService } from './wrapper-signing-key.js';
 import { parseEnginesInput } from './host-management.js';
 import { createSetupWizardService, type SetupWizardState } from './setup-wizard.js';
-import { ENGINE_CODEX } from '../util/engine.js';
+import { ENGINE_CODEX, type Engine } from '../util/engine.js';
 
 export interface SetupCheck {
   id: string;
@@ -37,6 +38,11 @@ export interface SetupStatus {
   setup_complete: boolean;
   checks: SetupCheck[];
   configured_engines: string[];
+  /**
+   * Engines the setup checklist is built for: the wizard's engine answer when
+   * the operator gave a non-empty one, otherwise `configured_engines`.
+   */
+  default_engines: Engine[];
   canonical_auth: { codex: boolean; claude: boolean };
   hosts: { total: number; synced: number };
   public_base_url: string | null;
@@ -59,26 +65,39 @@ export class SetupStatusService {
   ) {}
 
   async status(requestOrigin?: string | null): Promise<SetupStatus> {
-    const [migrations, runner, signer, wrappers, users, codexAuth, claudeAuth, hostRows, wizard] =
+    // Probed first so a dead database reports as a failing check instead of
+    // a 500: every read below it is skipped and falls back to "nothing yet".
+    const database = await this.databaseCheck();
+    const whenDb = <T>(read: () => Promise<T>, fallback: T): Promise<T> =>
+      database.ok ? read() : Promise.resolve(fallback);
+    const skipped = (id: string, label: string): SetupCheck =>
+      ({ id, label, ok: false, critical: true, detail: 'skipped: database unreachable' });
+    const [migrations, runner, signer, wrappers, users, codexAuth, claudeAuth, hostRows, wizard, fleetDefaults] =
       await Promise.all([
-        this.migrationCheck(),
+        whenDb(() => this.migrationCheck(), skipped('migrations', 'Migrations')),
         this.runnerCheck(),
-        this.signerCheck(),
+        whenDb(() => this.signerCheck(), skipped('signer', 'Wrapper signer')),
         this.wrapperCheck(),
-        this.db.select({ id: adminUsers.id }).from(adminUsers),
-        this.hasCanonicalAuth('codex'),
-        this.hasCanonicalAuth('claude'),
-        this.db
-          .select({ id: hosts.id, codex: hosts.lastRefresh, claude: hosts.claudeLastRefresh })
-          .from(hosts),
+        whenDb(() => this.db.select({ id: adminUsers.id }).from(adminUsers), []),
+        whenDb(() => this.hasCanonicalAuth('codex'), false),
+        whenDb(() => this.hasCanonicalAuth('claude'), false),
+        whenDb(
+          () => this.db
+            .select({ id: hosts.id, codex: hosts.lastRefresh, claude: hosts.claudeLastRefresh })
+            .from(hosts),
+          [],
+        ),
         // Carried here so the dashboard resume card and the wizard itself can
         // decide what to show from one request instead of two.
-        createSetupWizardService(this.db).get(),
+        whenDb(() => createSetupWizardService(this.db).get(), {
+          completed_at: null, dismissed_at: null, last_step: null, engines: null,
+        } satisfies SetupWizardState),
+        whenDb(() => this.hasFleetDefaults(), false),
       ]);
 
     const publicBaseUrl = normalizePublicUrl(this.env.PUBLIC_BASE_URL);
     const checks: SetupCheck[] = [
-      { id: 'database', label: 'Database', ok: true, critical: true, detail: 'query succeeded' },
+      database,
       migrations,
       runner,
       signer,
@@ -95,6 +114,7 @@ export class SetupStatusService {
     const ownerCreated = users.length > 0;
     const syncedHosts = hostRows.filter((row) => Boolean(row.codex || row.claude)).length;
     const configuredEngines = parseEnginesInput(this.env.DEFAULT_HOST_ENGINES, [ENGINE_CODEX]);
+    const defaultEngines = wizard.engines && wizard.engines.length > 0 ? wizard.engines : configuredEngines;
     const warnings: string[] = [];
     if (publicBaseUrl && requestOrigin && normalizeOrigin(requestOrigin) !== normalizeOrigin(publicBaseUrl)) {
       warnings.push(`Browser origin ${normalizeOrigin(requestOrigin)} differs from PUBLIC_BASE_URL ${normalizeOrigin(publicBaseUrl)}.`);
@@ -102,7 +122,7 @@ export class SetupStatusService {
     if (!ownerCreated) warnings.push('The first-owner claim is open. Do not expose this installation publicly until an owner is created.');
 
     const nextActions = [
-      ...configuredEngines.map((engine) => ({
+      ...defaultEngines.map((engine) => ({
         id: `auth_${engine}`,
         complete: engine === 'claude' ? claudeAuth : codexAuth,
         label: `Seed canonical ${engine === 'claude' ? 'Claude' : 'Codex'} authentication`,
@@ -111,6 +131,12 @@ export class SetupStatusService {
         // used to send the operator somewhere the task could not be done.
         href: '/admin/setup?step=auth',
       })),
+      {
+        id: 'fleet_defaults',
+        complete: fleetDefaults,
+        label: 'Save fleet model defaults',
+        href: '/admin/setup?step=defaults',
+      },
       { id: 'first_host', complete: hostRows.length > 0, label: 'Register the first host', href: '/admin/hosts?dialog=new-host' },
       { id: 'first_sync', complete: syncedHosts > 0, label: 'Confirm the first successful host sync', href: '/admin/hosts' },
     ];
@@ -121,6 +147,7 @@ export class SetupStatusService {
       setup_complete: criticalComplete && ownerCreated,
       checks,
       configured_engines: configuredEngines,
+      default_engines: defaultEngines,
       canonical_auth: { codex: codexAuth, claude: claudeAuth },
       hosts: { total: hostRows.length, synced: syncedHosts },
       public_base_url: publicBaseUrl,
@@ -128,6 +155,30 @@ export class SetupStatusService {
       next_actions: nextActions,
       wizard,
     };
+  }
+
+  private async databaseCheck(): Promise<SetupCheck> {
+    try {
+      await this.db.execute(sql`SELECT 1`);
+      return { id: 'database', label: 'Database', ok: true, critical: true, detail: 'query succeeded' };
+    } catch (error) {
+      return { id: 'database', label: 'Database', ok: false, critical: true, detail: safeError(error) };
+    }
+  }
+
+  /**
+   * Same row the managed feature context reads (`host-agents.ts`): without a
+   * Codex `client_config_documents` row it reports `config_missing` and turns
+   * skills, memory, projects and secrets off for every host.
+   */
+  private async hasFleetDefaults(): Promise<boolean> {
+    const rows = await this.db
+      .select({ id: clientConfigDocuments.id, engine: clientConfigDocuments.engine })
+      .from(clientConfigDocuments)
+      .where(eq(clientConfigDocuments.engine, ENGINE_CODEX))
+      .limit(1);
+    // Fakes may ignore WHERE; never count another engine's row.
+    return rows.some((row) => row.engine === ENGINE_CODEX);
   }
 
   private async migrationCheck(): Promise<SetupCheck> {

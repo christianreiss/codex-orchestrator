@@ -426,3 +426,48 @@ func TestSyncKeepsCredentialSyncWithoutContentOnly(t *testing.T) {
 		t.Fatalf("explicit sync stopped asking for credentials: %v", *bodies)
 	}
 }
+
+// TestSyncWithoutAnyCredentialsNeverLogsIn is the installer case:
+// `clx sync </dev/null` on a fresh host where neither the host nor the fleet
+// has Claude credentials. It must not prompt or start `claude auth login`. As
+// before, the sync still refuses with the one reason naming `clx auth login`.
+func TestSyncWithoutAnyCredentialsNeverLogsIn(t *testing.T) {
+	for _, headless := range []bool{true, false} {
+		t.Run(fmt.Sprintf("headless=%v", headless), func(t *testing.T) {
+			cfg, home := syncOnlyHost(t, "")
+			if err := os.RemoveAll(filepath.Join(home, ".claude")); err != nil {
+				t.Fatal(err)
+			}
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				if r.URL.Path == "/skills" {
+					_, _ = io.WriteString(w, `{"skills":[]}`)
+					return
+				}
+				_, _ = io.WriteString(w, `{"status":"success","data":{"status":"success","agents":"# fleet\n","auth":{"status":"missing","host":{"secure":true}}}}`)
+			}))
+			defer server.Close()
+			cfg.Orchestrator.BaseURL = server.URL
+			marker := filepath.Join(home, "login-started")
+			bin := filepath.Join(t.TempDir(), "claude")
+			writeTestScript(t, bin, "#!/bin/sh\ntouch \""+marker+"\"\n")
+			t.Setenv("CLX_CLAUDE_BIN", bin)
+			previousTerminal := lifecycleIsTerminal
+			lifecycleIsTerminal = func(int) bool { return false }
+			t.Cleanup(func() { lifecycleIsTerminal = previousTerminal })
+			var (
+				exit int
+				err  error
+			)
+			captureStderr(t, func() {
+				exit, err = Run(context.Background(), Options{Config: cfg, SyncOnly: true, Headless: headless, SkipBoot: true, Logger: slog.New(slog.DiscardHandler)})
+			})
+			if exit != 1 || err == nil || !strings.Contains(err.Error(), "run `clx auth login` interactively") {
+				t.Fatalf("Run() = %d, %v", exit, err)
+			}
+			if _, statErr := os.Stat(marker); !os.IsNotExist(statErr) {
+				t.Fatalf("unattended sync started claude auth login: %v", statErr)
+			}
+		})
+	}
+}

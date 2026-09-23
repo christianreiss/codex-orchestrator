@@ -126,7 +126,7 @@ func TestMissingClaudeFailsBeforeAuthAndNeverBootstrapsInstaller(t *testing.T) {
 	defer server.Close()
 	cfg := &config.Config{Host: config.Host{Secure: true}, Orchestrator: config.Orchestrator{BaseURL: server.URL, APIKey: "fixture"}}
 	exit, err := Run(context.Background(), Options{Config: cfg, SkipBoot: true, Logger: slog.New(slog.DiscardHandler)})
-	if exit != 127 || err == nil || !strings.Contains(err.Error(), "clx --cron run") {
+	if exit != 127 || err == nil || !strings.Contains(err.Error(), "clx cron run") {
 		t.Fatalf("missing CLI result=%d %v", exit, err)
 	}
 	if requests.Load() != 0 {

@@ -22,7 +22,7 @@ var clxHelpCommands = []wrapperHelpItem{
 	{"clx sync", "Apply managed files without launching."},
 	{"clx --update", "Verify and install the wrapper target."},
 	{"clx --uninstall", "Remove wrapper and managed engine state."},
-	{"clx --cron [install|remove|run]", "Manage the background update schedule."},
+	{"clx cron [install|remove|run]", "Manage the background update schedule."},
 }
 
 var clxHelpFlags = []wrapperHelpItem{

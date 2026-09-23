@@ -45,11 +45,21 @@ export function hostsListQuery() {
   });
 }
 
-export function hostDetailQuery(id: number | string) {
+export function hostDetailQuery(
+  id: number | string,
+  opts: {
+    /** Poll while the caller is waiting on something (install progress). */
+    refetchInterval?: (data: HostDetailResponse | undefined) => number | false;
+  } = {},
+) {
+  const { refetchInterval } = opts;
   return createQuery<HostDetailResponse>({
     queryKey: hostsKeys.detail(id),
     queryFn: () => api.get<HostDetailResponse>(`/admin/hosts/${id}/detail`),
     enabled: id !== undefined && id !== null && String(id) !== "",
+    ...(refetchInterval
+      ? { refetchInterval: (query: { state: { data: HostDetailResponse | undefined } }) => refetchInterval(query.state.data) }
+      : {}),
   });
 }
 

@@ -1,3 +1,8 @@
+<script lang="ts" module>
+  /** What `submit()` did. `empty` means there was nothing to upload. */
+  export type SeedOutcome = "verified" | "pending" | "failed" | "error" | "empty";
+</script>
+
 <script lang="ts">
   /**
    * Canonical provider-auth seeding, without any container chrome.
@@ -20,6 +25,8 @@
   import { untrack } from "svelte";
   import * as Tabs from "$lib/components/ui/tabs";
   import { RadioGroup, RadioGroupItem } from "$lib/components/ui/radio-group";
+  import { ChoiceCard } from "$lib/components/ui/choice-card";
+  import { ReadonlyCodeBlock } from "$lib/components/ui/code-block";
   import { Alert, AlertDescription, AlertTitle } from "$lib/components/ui/alert";
   import { Button } from "$lib/components/ui/button";
   import { Input } from "$lib/components/ui/input";
@@ -34,7 +41,6 @@
     type AuthEngine,
   } from "$lib/api/auth";
   import { invalidateSetup } from "$lib/api/setup";
-  import { CopyButton } from "$lib/components/ui/copy-button";
   import { autoCopyText } from "$lib/utils/clipboard";
 
   type Props = {
@@ -45,6 +51,11 @@
     runnerHealthy?: boolean;
     /** Rendered under the tabs; the dialog passes its footer buttons here. */
     footer?: import("svelte").Snippet<[{ busy: boolean; submit: () => Promise<void> }]>;
+    /**
+     * Hide the in-panel Upload button. The wizard sets it: its footer is the
+     * only commit action and calls the exported `submit()` instead.
+     */
+    hideActions?: boolean;
     onStored?: (outcome: "verified" | "pending" | "failed") => void;
   };
 
@@ -53,6 +64,7 @@
     defaultEngine = "codex",
     runnerHealthy = true,
     footer,
+    hideActions = false,
     onStored,
   }: Props = $props();
 
@@ -111,13 +123,23 @@
     }
   }
 
-  export async function submitUpload(): Promise<void> {
+  /** Whether the upload tab holds something `submit()` would send. */
+  export function hasPendingInput(): boolean {
+    return activeTab === "upload" && (isApiKeyMode ? apiKey.trim() !== "" : payload.trim() !== "");
+  }
+
+  export function isBusy(): boolean {
+    return busy;
+  }
+
+  /** Uploads whatever is pasted. Reports the outcome rather than throwing. */
+  export async function submit(): Promise<SeedOutcome> {
     let trimmed: string;
     if (isApiKeyMode) {
       const key = apiKey.trim();
       if (!key) {
         toast.error("Paste the OpenAI API key first.");
-        return;
+        return "empty";
       }
       // The server rejects a bare string for codex but wraps one for claude, so
       // codex gets its envelope here.
@@ -126,7 +148,7 @@
       trimmed = payload.trim();
       if (!trimmed) {
         toast.error("Paste auth payload or pick a file first.");
-        return;
+        return "empty";
       }
     }
     try {
@@ -139,17 +161,25 @@
       if (state === "verified") {
         toast.success(`${name} credentials verified`);
         onStored?.("verified");
+        return "verified";
       } else if (state === "failed") {
         toast.error(`${name} credentials stored but failed verification`);
         onStored?.("failed");
+        return "failed";
       } else {
         toast.warning(`${name} credentials stored, verification pending`);
         onStored?.("pending");
+        return "pending";
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Upload failed";
       toast.error(msg);
+      return "error";
     }
+  }
+
+  async function submitUpload(): Promise<void> {
+    await submit();
   }
 
   async function generateCommand(): Promise<void> {
@@ -174,19 +204,18 @@
 {#snippet enginePicker(idPrefix: string)}
   {#if allowedEngines.length > 1}
     <div class="space-y-2">
-      <Label>Engine</Label>
-      <RadioGroup
-        value={engine}
-        onValueChange={(v) => (engine = v as AuthEngine)}
-        class="flex gap-4"
-      >
+      <Label id="{idPrefix}-engine-label">Engine</Label>
+      <div role="radiogroup" aria-labelledby="{idPrefix}-engine-label" class="grid grid-cols-2 gap-2">
         {#each allowedEngines as option (option)}
-          <label class="flex items-center gap-2 text-sm">
-            <RadioGroupItem value={option} id="{idPrefix}-{option}" />
-            {option === "codex" ? "Codex" : "Claude"}
-          </label>
+          <ChoiceCard
+            id="{idPrefix}-{option}"
+            size="sm"
+            title={option === "codex" ? "Codex" : "Claude"}
+            checked={engine === option}
+            onSelect={() => (engine = option)}
+          />
         {/each}
-      </RadioGroup>
+      </div>
     </div>
   {/if}
 {/snippet}
@@ -204,7 +233,11 @@
 
 {#if result}
   <Alert
-    variant={result.state === "failed" ? "destructive" : "default"}
+    variant={result.state === "failed"
+      ? "destructive"
+      : result.state === "verified"
+        ? "default"
+        : "warning"}
     class="mb-4"
   >
     <AlertTitle>
@@ -270,7 +303,7 @@
           autocomplete="new-password"
           placeholder="sk-…"
         />
-        <p class="text-[11px] text-muted-foreground">
+        <p class="text-xs text-muted-foreground">
           Stored as the host's canonical credential, the same key you'd put in
           <code class="font-mono">OPENAI_API_KEY</code>.
         </p>
@@ -289,12 +322,12 @@
           bind:value={payload}
         />
         {#if engine === "codex"}
-          <p class="text-[11px] text-muted-foreground">
+          <p class="text-xs text-muted-foreground">
             Paste the contents of <code class="font-mono">~/.codex/auth.json</code> from a
             ChatGPT-authenticated session. These tokens are machine-generated, never hand-typed.
           </p>
         {:else}
-          <p class="text-[11px] text-muted-foreground">
+          <p class="text-xs text-muted-foreground">
             Paste the native Claude credentials JSON. A genuine Anthropic API key is also accepted.
           </p>
         {/if}
@@ -315,7 +348,7 @@
           class="hidden"
           onchange={handleFile}
         />
-        <p class="text-[11px] text-muted-foreground">
+        <p class="text-xs text-muted-foreground">
           Reads the file into the textarea — does not auto-submit.
         </p>
       </div>
@@ -323,7 +356,7 @@
 
     {#if footer}
       {@render footer({ busy, submit: submitUpload })}
-    {:else}
+    {:else if !hideActions}
       <Button
         onclick={submitUpload}
         disabled={busy || (isApiKeyMode ? !apiKey.trim() : !payload.trim())}
@@ -337,20 +370,14 @@
     {@render enginePicker("seed-cmd")}
 
     {#if command}
-      <div class="space-y-1.5">
-        <Label for="seed-cmd-output">One-time command</Label>
-        <textarea
-          id="seed-cmd-output"
-          readonly
-          class="h-32 w-full resize-none rounded-md border border-input bg-muted/40 p-3 font-mono text-xs"
-          value={command}
-        ></textarea>
-        {#if commandExpiresAt}
-          <p class="text-[11px] text-muted-foreground">
-            Expires {new Date(commandExpiresAt).toLocaleString()}.
-          </p>
-        {/if}
-      </div>
+      <ReadonlyCodeBlock
+        id="seed-cmd-output"
+        label="One-time command"
+        value={command}
+        wrap
+        rows={4}
+        expiresAt={commandExpiresAt ? new Date(commandExpiresAt).toLocaleString() : undefined}
+      />
     {:else}
       <p class="text-xs text-muted-foreground">
         Click <em>Generate</em> to mint a short-lived bash one-liner. The operator
@@ -360,10 +387,7 @@
     {/if}
 
     <div class="flex items-center gap-2">
-      {#if command}
-        <CopyButton value={command} label="Copy command" toastMessage="Command copied" />
-      {/if}
-      <Button onclick={generateCommand} disabled={$seedCmd.isPending}>
+      <Button variant={command ? "outline" : "default"} onclick={generateCommand} disabled={$seedCmd.isPending}>
         {$seedCmd.isPending ? "Generating…" : command ? "Regenerate" : "Generate"}
       </Button>
     </div>

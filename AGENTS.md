@@ -30,7 +30,7 @@ Treat Codex (`cdx`) as canonical and Claude (`clx`) as parity target. Before lan
 - ChatGPT quota lanes / Spark lane / `--lane` / `POST /host/lane` — Codex/ChatGPT-only concept.
 - Effort naming and persistence differ by engine: Codex writes `model_reasoning_effort` to `config.toml`, while Claude Code writes `effortLevel` to `settings.json`. Do not send the Codex key to Claude or confuse either CLI setting with the Anthropic API's `effort` request parameter.
 - Device-code CLI login (`/cli/auth/*`) — Claude Code accepts `ANTHROPIC_API_KEY` directly; the wrapper syncs credentials.
-- GitHub-release CLI download — Claude CLI is npm-only; `clx --update` uses `npm install -g @anthropic-ai/claude-code` (with a sudo fallback).
+- GitHub-release CLI download — Claude CLI is npm-only; `clx update` / `clx cron run` install a pinned private copy with `npm install --prefix` under `~/.cxx/engines/claude` (no global npm, no sudo).
 - SSH alt-screen suppression — Claude CLI handles its own terminal state.
 - OpenAI auth is `Bearer`-only (matches OpenAI's public API); the Anthropic-compatible API accepts Bearer / `x-api-key` / raw token (matches Anthropic's public API).
 
@@ -118,7 +118,7 @@ Conversely, some features are **Claude-only** (`clx`) because Codex has no on-di
 ## Operational Checkpoints
 
 - A fresh installation is provisioned by `bin/install.sh` (twelve re-runnable steps; `bin/setup.sh` is a shim for it) and then by the `/admin/setup` wizard. `--json` emits one object per step on stdout with the human UI on stderr, `--non-interactive` reports every missing value at once, and `doctor` maps each failing check to the command that fixes it. An empty database is bootstrapped by `migrate.js --init-schema`, which applies `api/src/db/baseline/schema.sql` only when no application tables exist and then migrates on top.
-- **A new install has no `client_config_documents` row, and without one the managed feature context reports `config_missing` and disables skills, memory, projects and secrets before their own switches are read.** `POST /admin/model-defaults/:engine` is the only writer that creates it; the `GET` returns an unpersisted default. The wizard's Fleet defaults step writes Codex defaults unconditionally for exactly this reason.
+- **A new install has no `client_config_documents` row, and without one the managed feature context reports `config_missing` and disables skills, memory, projects and secrets before their own switches are read.** `POST /admin/model-defaults/:engine` (and the admin config store routes) create it; the `GET` returns an unpersisted default. The wizard's Fleet defaults step writes Codex defaults even on Skip for exactly this reason, and setup status keeps a `fleet_defaults` next action open until the row exists.
 - Troubleshoot hosts with `CODEX_DEBUG=1 cdx --version`; shows baked base URL + masked API key.
 - Validate local `~/.codex/auth.json`: must include `last_refresh` + either `auths` entries or `tokens.access_token`. Server synthesizes `auths = {"api.openai.com": ...}` when only tokens exist.
 - Insecure hosts auto-open on register for 30 minutes unless `duration_minutes` overrides it; stored sliding window is clamped 0–480 minutes (default 10). Insecure retrieve/MCP/lane calls extend the active window.

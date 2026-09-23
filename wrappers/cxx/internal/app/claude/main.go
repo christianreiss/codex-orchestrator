@@ -417,6 +417,11 @@ func run(args []string, stdout, stderr io.Writer, choices ...*quotaadvice.Sessio
 		// managed config sync, or new insecure purge request.
 		return cmdSessionAuthSync(ctx, cfg, logger, stderr)
 	}
+	if sub == "run" || sub == "resume" || sub == "execute" || sub == "exec" {
+		if exit := ensureCLIForLaunch(ctx, cfg, f, logger, stderr); exit != 0 {
+			return exit
+		}
+	}
 	if exe, exeErr := os.Executable(); exeErr == nil {
 		layoutCtx, layoutCancel := context.WithTimeout(ctx, 150*time.Millisecond)
 		defer layoutCancel()
@@ -902,6 +907,45 @@ func cmdSync(ctx context.Context, cfg *config.Config, f flags, logger *slog.Logg
 		exit = engineExit
 	}
 	return exit
+}
+
+// ensureCLIForLaunch installs the orchestrator's pinned Claude CLI in the
+// foreground when a launch finds none (a fresh host whose first cron tick has
+// not run yet), then looks again. Interactive or not, the answer comes from
+// the same probe the cron tick uses, so a server that disables automatic
+// installs is honoured. Only when no CLI can be found afterwards does the
+// launch fail with exit 127.
+func ensureCLIForLaunch(ctx context.Context, cfg *config.Config, f flags, logger *slog.Logger, stderr io.Writer) int {
+	if _, err := claude.FindCLI(); err == nil {
+		return 0
+	}
+	var progress *ui.Progress
+	if !f.skipBoot && !f.silent && !f.minimal && !f.debug {
+		theme := ""
+		if cfg.EngineOptions.AdminThemeHint != nil {
+			theme = *cfg.EngineOptions.AdminThemeHint
+		}
+		progress = ui.StartProgress(stderr, ui.DetectCapsFor(stderr, theme), "clx", ui.TopicUpdate, "Claude CLI not found; installing the fleet version")
+	}
+	defer progress.Clear()
+	installCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	res, installErr := enginecron.EnsureEngineCurrent(installCtx, cfg, logger)
+	cancel()
+	_, findErr := claude.FindCLI()
+	if findErr == nil {
+		progress.Done("Claude CLI " + res.CodexVersion + " installed")
+		return 0
+	}
+	progress.Clear()
+	details := []string{"run `clx cron run` to install or repair it, or set CLX_CLAUDE_BIN to an existing executable"}
+	switch {
+	case installErr != nil:
+		details = append([]string{"automatic install failed: " + installErr.Error()}, details...)
+	case res.CodexAction == "disable":
+		details = append([]string{"automatic CLI installs are disabled by the orchestrator"}, details...)
+	}
+	ui.Say(stderr, "clx", ui.ToneFail, ui.TopicUpdate, "Claude CLI unavailable: "+findErr.Error(), details...)
+	return 127
 }
 
 // ensureEngineForSync brings the Claude CLI itself up to date as part of
@@ -1535,14 +1579,14 @@ func cmdCron(ctx context.Context, cfg *config.Config, args []string, stdout, std
 	switch action {
 	case "install":
 		if err := hostcron.Install(ctx, cfg); err != nil {
-			printBoundedPlain(stderr, "clx --cron install: "+err.Error(), minimal)
+			printBoundedPlain(stderr, "clx cron install: "+err.Error(), minimal)
 			return 1
 		}
 		ui.Say(stdout, "clx", ui.ToneOK, "cron", "installed")
 		return 0
 	case "remove":
 		if err := hostcron.Remove(ctx); err != nil {
-			printBoundedPlain(stderr, "clx --cron remove: "+err.Error(), minimal)
+			printBoundedPlain(stderr, "clx cron remove: "+err.Error(), minimal)
 			return 1
 		}
 		ui.Say(stdout, "clx", ui.ToneOK, "cron", "removed")
@@ -1550,14 +1594,14 @@ func cmdCron(ctx context.Context, cfg *config.Config, args []string, stdout, std
 	case "run":
 		if !hostcron.IsEngineOnly() {
 			if err := hostcron.Run(ctx, cfg, minimal, stdout, stderr); err != nil {
-				printBoundedPlain(stderr, "cxx cron: "+err.Error(), minimal)
+				printBoundedPlain(stderr, "clx cron: "+err.Error(), minimal)
 				return 1
 			}
 			return 0
 		}
 		res, err := enginecron.TickWithOptions(ctx, cfg, minimal)
 		if err != nil {
-			printBoundedPlain(stderr, "clx --cron: "+err.Error(), minimal)
+			printBoundedPlain(stderr, "clx cron: "+err.Error(), minimal)
 			return 1
 		}
 		printBoundedPlain(stdout, formatCronResult(res, minimal), minimal)

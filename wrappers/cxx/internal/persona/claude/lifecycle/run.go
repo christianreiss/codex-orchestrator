@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"os/user"
@@ -86,7 +87,11 @@ var localProbe = orchestrator.LocalAuthProbe{
 const authLoginRequiredReason = "Claude authentication required; run `clx auth login` interactively."
 
 var errAuthRecoveryNonInteractive = errors.New(authLoginRequiredReason)
+var errAuthRecoveryDeclined = errors.New("Claude authentication was not refreshed; run `clx auth login` when ready.")
 var lifecycleIsTerminal = term.IsTerminal
+
+// promptIn is the recovery prompt's input; tests replace it.
+var promptIn io.Reader = os.Stdin
 var requestBackgroundMaintenance = maintenance.Request
 
 type presentedError struct{ err error }
@@ -172,7 +177,7 @@ func Run(ctx context.Context, opts Options) (exitCode int, retErr error) {
 
 	if !opts.SyncOnly {
 		if _, err := claude.FindCLI(); err != nil {
-			return 127, fmt.Errorf("Claude CLI unavailable: %w; run `clx --cron run` to install or repair it, or set CLX_CLAUDE_BIN to an existing executable", err)
+			return 127, fmt.Errorf("Claude CLI unavailable: %w; run `clx cron run` to install or repair it, or set CLX_CLAUDE_BIN to an existing executable", err)
 		}
 	}
 
@@ -244,8 +249,16 @@ func Run(ctx context.Context, opts Options) (exitCode int, retErr error) {
 		dec              orchestrator.AuthDecision
 	)
 
+	// syncBundle runs one /sync/bootstrap exchange behind a progress line; the
+	// line is gone before anything else (approval box, login, boot card) draws.
+	syncBundle := func() {
+		progress := startProgress(ctx, opts, logger, ui.TopicSync, "syncing with orchestrator")
+		defer progress.Clear()
+		authResp, authErr, authSynced, agentsSync, configSync, nativeSkillsSync, fleetSessions = bootstrapWithProgress(ctx, client, logger, concurrent, authPath, !opts.SkipCredentialExchange, progress)
+	}
+
 	if !opts.SkipAuthSync {
-		authResp, authErr, authSynced, agentsSync, configSync, nativeSkillsSync, fleetSessions = bootstrap(ctx, client, logger, concurrent, authPath, !opts.SkipCredentialExchange)
+		syncBundle()
 		// A content-only pass leaves the decision at its zero value on purpose:
 		// there is no auth response to judge, and no host-secure state came back
 		// to persist — the signed config remains its source. Every branch that
@@ -271,7 +284,7 @@ func Run(ctx context.Context, opts Options) (exitCode int, retErr error) {
 					logger.Warn("approval poll failed", "err", perr)
 				}
 				if resolved {
-					authResp, authErr, authSynced, agentsSync, configSync, nativeSkillsSync, fleetSessions = bootstrap(ctx, client, logger, concurrent, authPath, !opts.SkipCredentialExchange)
+					syncBundle()
 					if err := updateAuthSessionSecurity(authSession, authResp); err != nil {
 						return 1, fmt.Errorf("persist API host security state: %w", err)
 					}
@@ -283,7 +296,14 @@ func Run(ctx context.Context, opts Options) (exitCode int, retErr error) {
 		var authCandidateErr error
 		if !opts.SkipCredentialExchange && !concurrent && dec.Allowed && (dec.Status == "missing" || dec.Status == "upload_required") {
 			if snap, rerr := claude.ReadAuthForUploadSnapshot(); rerr == nil && len(snap.Upload) > 0 {
-				if err := pushAuthCandidate(ctx, client, snap, logger, authSession); err != nil {
+				progress := startProgress(ctx, opts, logger, ui.TopicUpload, "uploading local credentials")
+				err := pushAuthCandidate(ctx, client, snap, logger, authSession)
+				if err != nil {
+					progress.Fail("local credentials were not uploaded")
+				} else {
+					progress.Done("local credentials uploaded")
+				}
+				if err != nil {
 					if errors.Is(err, claude.ErrAuthUploadBlockedByLogout) {
 						logger.Debug("auth-candidate upload cancelled by explicit logout")
 						dec = decideAuth(authResp, authErr, authPath, cfg.Host.Secure)
@@ -301,7 +321,7 @@ func Run(ctx context.Context, opts Options) (exitCode int, retErr error) {
 						dec.Reason = "Local Claude credentials were definitively rejected by live verification."
 					}
 				} else {
-					authResp, authErr, authSynced, agentsSync, configSync, nativeSkillsSync, fleetSessions = bootstrap(ctx, client, logger, concurrent, authPath, !opts.SkipCredentialExchange)
+					syncBundle()
 					if err := updateAuthSessionSecurity(authSession, authResp); err != nil {
 						return 1, fmt.Errorf("persist API host security state: %w", err)
 					}
@@ -322,7 +342,7 @@ func Run(ctx context.Context, opts Options) (exitCode int, retErr error) {
 				dec.Allowed = false
 				dec.Reason = err.Error()
 			} else {
-				authResp, authErr, authSynced, agentsSync, configSync, nativeSkillsSync, fleetSessions = bootstrap(ctx, client, logger, concurrent, authPath, !opts.SkipCredentialExchange)
+				syncBundle()
 				if err := updateAuthSessionSecurity(authSession, authResp); err != nil {
 					return 1, fmt.Errorf("persist API host security state: %w", err)
 				}
@@ -725,6 +745,17 @@ func footerCaps(caps ui.Caps, minimal bool) ui.Caps {
 	return caps
 }
 
+// startProgress opens a stderr progress line for one foreground step. Silent,
+// --skip-boot and --minimal runs stay exactly as quiet as before, and --debug
+// keeps its log lines unbroken: all of them get nil, which every Progress
+// method accepts.
+func startProgress(ctx context.Context, opts Options, logger *slog.Logger, topic, message string) *ui.Progress {
+	if opts.SkipBoot || opts.Minimal || (logger != nil && logger.Enabled(ctx, slog.LevelDebug)) {
+		return nil
+	}
+	return ui.StartProgress(os.Stderr, ui.DetectCapsFor(os.Stderr, themeFromConfig(opts.Config)), "clx", topic, message)
+}
+
 // includeAuth false makes this a content-only exchange: no snapshot, no
 // candidate, no digest, and no auth block applied. The auth response comes back
 // nil and the error return carries only the bundle/content outcome, so a caller
@@ -732,6 +763,16 @@ func footerCaps(caps ui.Caps, minimal bool) ui.Caps {
 func bootstrap(
 	ctx context.Context, client *orchestrator.Client, logger *slog.Logger,
 	concurrent bool, authPath string, includeAuth bool,
+) (*orchestrator.AuthRetrieveResponse, error, bool, summary.ResourceSync, summary.ResourceSync, summary.ResourceSync, *orchestrator.FleetSessions) {
+	return bootstrapWithProgress(ctx, client, logger, concurrent, authPath, includeAuth, nil)
+}
+
+// bootstrapWithProgress is bootstrap with an in-flight progress line that is
+// cleared as soon as the network exchange returns, before any apply step can
+// print its own notice.
+func bootstrapWithProgress(
+	ctx context.Context, client *orchestrator.Client, logger *slog.Logger,
+	concurrent bool, authPath string, includeAuth bool, progress *ui.Progress,
 ) (*orchestrator.AuthRetrieveResponse, error, bool, summary.ResourceSync, summary.ResourceSync, summary.ResourceSync, *orchestrator.FleetSessions) {
 	ctx, bootSpan := tracing.Start(ctx, "cxx.lifecycle.bootstrap",
 		tracing.String("wrapper.engine", "claude"),
@@ -832,6 +873,7 @@ func bootstrap(
 		Username:      username,
 		Artifacts:     reqArtifacts,
 	})
+	progress.Clear()
 	if berr != nil {
 		syncSpan.Fail(berr)
 	} else if resp != nil && resp.Auth != nil {
@@ -1258,7 +1300,21 @@ func recoverClaudeAuth(ctx context.Context, cfg *config.Config, client *orchestr
 	if strings.TrimSpace(reason) != "" {
 		details = append(details, reason)
 	}
-	ui.Say(os.Stderr, "clx", ui.ToneWarn, ui.TopicAuth, "Starting `claude auth login` to restore authentication.", details...)
+	ok, err := ui.Confirm(ctx, ui.DetectCapsFor(os.Stderr, ""), promptIn, os.Stderr, ui.Question{
+		Prefix: "clx", Topic: ui.TopicAuth, Tone: ui.ToneWarn,
+		Title:      "Run `claude auth login` now?",
+		Details:    append(details, "The new credentials are uploaded to the orchestrator and verified."),
+		DefaultYes: true,
+	})
+	if err != nil {
+		if errors.Is(err, ui.ErrPromptCancelled) {
+			return errAuthRecoveryDeclined
+		}
+		return fmt.Errorf("read auth recovery answer: %w", err)
+	}
+	if !ok {
+		return errAuthRecoveryDeclined
+	}
 
 	beforeLogin, beforeLoginErr := claude.ReadAuthSnapshot(false)
 	if beforeLoginErr != nil && !errors.Is(beforeLoginErr, os.ErrNotExist) {

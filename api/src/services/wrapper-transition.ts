@@ -109,8 +109,10 @@ if [ "$BIN_ROOT_ON_PATH" = "0" ]; then
   ui_warn "setup" "PATH" "$BIN_ROOT" "not active in the parent shell"
   ui_path_hint
 fi
-ui_hint "Retry host cron:    $BIN_ROOT/cxx cron install"
-ui_hint "Retry engine CLIs:  $BIN_ROOT/cxx cron run --minimal"
+RETRY_NAME=cdx
+if [ "$HAS_CODEX" = "0" ]; then RETRY_NAME=clx; fi
+ui_hint "Retry host cron:    $RETRY_NAME cron install"
+ui_hint "Retry engine CLIs:  $RETRY_NAME cron run"
 ui_hint "If wrapper/config installation failed, mint a fresh single-use installer."
 exit 1
 `;
@@ -258,68 +260,59 @@ ui_badge() {
   esac
 }
 
-# Rich form mirrors the wrapper notice: glyph, engine badge, padded topic,
-# message, then the version in muted text.
-ui_rich() {
+# ui_notice TONE STYLE GLYPH ASCII_GLYPH ENGINE TOPIC DETAIL MESSAGE mirrors
+# the wrapper notice (terminalui/notice.go). A terminal gets the glyph, engine
+# badge, topic padded to 7 and the message, with DETAIL hanging under the
+# message column; non-UTF-8 terminals fold the glyph to + ! x >. Pipes and
+# TERM=dumb get the greppable "cdx topic: message" form, DETAIL indented two.
+ui_notice() {
+  UI_PREFIX=$5
+  if [ "$UI_PREFIX" = "setup" ]; then UI_PREFIX=cxx; fi
+  UI_MSG=$8
+  UI_DETAIL=$7
+  if [ "$UI_UTF8" != "1" ]; then
+    UI_MSG=$(printf '%s' "$UI_MSG" | sed 's/…/.../g')
+    UI_DETAIL=$(printf '%s' "$UI_DETAIL" | sed 's/…/.../g')
+  fi
+  if [ "$UI_TTY" != "1" ]; then
+    printf '%s %s: %s\\n' "$UI_PREFIX" "$6" "$UI_MSG"
+    if [ -n "$UI_DETAIL" ]; then printf '  %s\\n' "$UI_DETAIL"; fi
+    return 0
+  fi
+  UI_GLYPH=$4
+  if [ "$UI_UTF8" = "1" ]; then UI_GLYPH=$3; fi
   UI_MSG_STYLE=
   case "$1" in
     warn|fail) UI_MSG_STYLE=$UI_BOLD ;;
   esac
-  printf '%s%s%s %s %s%-17s%s %s%s%s' \\
-    "$2" "$3" "$UI_RESET" \\
-    "$(ui_badge "$4")" \\
-    "$UI_DIM" "$5" "$UI_RESET" \\
-    "$UI_MSG_STYLE" "$7" "$UI_RESET"
-  if [ -n "$6" ]; then
-    printf '  %s%s%s' "$UI_DIM" "$6" "$UI_RESET"
-  fi
-  printf '\\n'
-}
-
-ui_line() {
-  UI_MARK=$1
-  UI_ENGINE=$3
-  UI_COMPONENT=$4
-  UI_VERSION=$5
-  UI_STATUS=$6
-  if [ -n "$UI_VERSION" ]; then
-    printf '%s | %s | %s | %s | %s\\n' "$UI_MARK" "$UI_ENGINE" "$UI_COMPONENT" "$UI_VERSION" "$UI_STATUS"
-  else
-    printf '%s | %s | %s | %s\\n' "$UI_MARK" "$UI_ENGINE" "$UI_COMPONENT" "$UI_STATUS"
+  printf '%s%s%s %s %s%-7s%s %s%s%s\\n' \\
+    "$2" "$UI_GLYPH" "$UI_RESET" \\
+    "$(ui_badge "$5")" \\
+    "$UI_DIM" "$6" "$UI_RESET" \\
+    "$UI_MSG_STYLE" "$UI_MSG" "$UI_RESET"
+  if [ -n "$UI_DETAIL" ]; then
+    # Longer topics push the message right, exactly as PadRight does.
+    UI_TOPIC_W=\${#6}
+    if [ "$UI_TOPIC_W" -lt 7 ]; then UI_TOPIC_W=7; fi
+    ui_repeat ' ' $((\${#UI_PREFIX} + UI_TOPIC_W + 4))
+    printf '%s%s%s\\n' "$UI_DIM" "$UI_DETAIL" "$UI_RESET"
   fi
 }
 
 ui_progress() {
-  if [ "$UI_UTF8" = "1" ]; then
-    ui_rich dim "$UI_DIM" '›' "$1" "$2" "$3" "$4"
-  else
-    UI_ASCII_STATUS=$(printf '%s' "$4" | sed 's/…/.../g')
-    ui_line '..' '' "$1" "$2" "$3" "$UI_ASCII_STATUS"
-  fi
+  ui_notice dim "$UI_DIM" '›' '>' "$1" "$2" "$3" "$4"
 }
 
 ui_ok() {
-  if [ "$UI_UTF8" = "1" ]; then
-    ui_rich ok "$UI_GREEN$UI_BOLD" '✓' "$1" "$2" "$3" "$4"
-  else
-    ui_line 'OK' '' "$1" "$2" "$3" "$4"
-  fi
+  ui_notice ok "$UI_GREEN$UI_BOLD" '✓' '+' "$1" "$2" "$3" "$4"
 }
 
 ui_fail() {
-  if [ "$UI_UTF8" = "1" ]; then
-    ui_rich fail "$UI_RED$UI_BOLD" '✗' "$1" "$2" "$3" "$4" >&2
-  else
-    ui_line 'FAIL' '' "$1" "$2" "$3" "$4" >&2
-  fi
+  ui_notice fail "$UI_RED$UI_BOLD" '✗' 'x' "$1" "$2" "$3" "$4" >&2
 }
 
 ui_warn() {
-  if [ "$UI_UTF8" = "1" ]; then
-    ui_rich warn "$UI_ORANGE$UI_BOLD" '▲' "$1" "$2" "$3" "$4"
-  else
-    ui_line 'WARN' '' "$1" "$2" "$3" "$4"
-  fi
+  ui_notice warn "$UI_ORANGE$UI_BOLD" '▲' '!' "$1" "$2" "$3" "$4"
 }
 
 # ui_fit TEXT MAX [left]: clamp ASCII text to MAX cells with an ellipsis;
@@ -482,13 +475,30 @@ ensure_bin_root() {
     return 0
   fi
   if command -v sudo >/dev/null 2>&1 && sudo -n true >/dev/null 2>&1; then
-    sudo mkdir -p "$BIN_ROOT"
+    sudo mkdir -p "$BIN_ROOT" || return 1
     INSTALL_WITH_SUDO=1
     return 0
   fi
-  echo "Cannot install $NAME into $BIN_ROOT without write access or passwordless sudo." >&2
-  echo "Run with sudo, configure passwordless sudo, or explicitly set BIN_DIR for a per-user install." >&2
-  exit 1
+  return 1
+}
+
+# Everything the installer cannot work around, checked before the header card
+# so a doomed run stops on one line per problem instead of halfway through.
+preflight() {
+  PREFLIGHT_FAILED=0
+  if ! command -v python3 >/dev/null 2>&1; then
+    ui_fail "cxx" "preflight" "install it: apt-get install python3 | dnf install python3 | apk add python3 | brew install python3" "python3 is required"
+    PREFLIGHT_FAILED=1
+  fi
+  if ! command -v curl >/dev/null 2>&1; then
+    ui_fail "cxx" "preflight" "install it: apt-get install curl | dnf install curl | apk add curl | brew install curl" "curl is required"
+    PREFLIGHT_FAILED=1
+  fi
+  if ! ensure_bin_root; then
+    ui_fail "cxx" "preflight" "Cannot install $NAME into $BIN_ROOT: re-run the pipe into 'sudo sh', allow passwordless sudo, or set BIN_DIR=\$HOME/.local/bin for a per-user install" "$BIN_ROOT is not writable and sudo -n is unavailable"
+    PREFLIGHT_FAILED=1
+  fi
+  if [ "$PREFLIGHT_FAILED" = "1" ]; then exit 1; fi
 }
 
 install_bin() {
@@ -799,7 +809,7 @@ fi
 
 if [ "$HAS_CODEX" = "1" ]; then mkdir -p "$(dirname "$CODEX_CONFIG_PATH")"; fi
 if [ "$HAS_CLAUDE" = "1" ]; then mkdir -p "$(dirname "$CLAUDE_CONFIG_PATH")"; fi
-ensure_bin_root
+preflight
 BIN_ROOT_ON_PATH=0
 case ":$PARENT_PATH:" in
   *":$BIN_ROOT:"*) BIN_ROOT_ON_PATH=1 ;;
@@ -1108,10 +1118,32 @@ if [ "$HAS_CLAUDE" = "1" ] && [ -n "$ORIGINAL_CLAUDE_BIN" ] && [ "$ORIGINAL_CLAU
   ui_hint "Refresh the parent shell: hash -r; or run directly: $BIN_ROOT/clx run"
 fi
 
+# One credentialed sync per engine so the host holds canonical auth before
+# the operator's first run. Non-fatal: the next cron tick retries it, so a
+# failure is a warning and never turns READY into INCOMPLETE.
+sync_engine() {
+  SYNC_NAME=$1
+  : > "$STEP_LOG"
+  if command -v timeout >/dev/null 2>&1; then
+    set -- timeout 60 "$BIN_ROOT/$SYNC_NAME"
+  else
+    set -- "$BIN_ROOT/$SYNC_NAME"
+  fi
+  if "$@" --allow-concurrent-sync sync </dev/null >"$STEP_LOG" 2>&1; then
+    ui_ok "$SYNC_NAME" "sync" "" "credentials synced"
+  else
+    ui_warn "$SYNC_NAME" "sync" "retry: $SYNC_NAME sync" "credential sync did not finish; the next cron tick retries it"
+  fi
+}
+
 if ! bootstrap_host; then INSTALL_FAILED=1; fi
 if [ "$HAS_CODEX" = "1" ] && ! verify_engine_cli "cdx" "codex"; then INSTALL_FAILED=1; fi
 if [ "$HAS_CLAUDE" = "1" ] && ! verify_engine_cli "clx" "claude"; then INSTALL_FAILED=1; fi
-if [ "$INSTALL_FAILED" = "0" ]; then install_background_worker; fi
+# \`cxx cron run\` above already installed the background worker service.
+if [ "$INSTALL_FAILED" = "0" ]; then
+  if [ "$HAS_CODEX" = "1" ]; then sync_engine cdx; fi
+  if [ "$HAS_CLAUDE" = "1" ]; then sync_engine clx; fi
+fi
 # These are consumed by the installer suffix. Keep the shared transition body
 # independently ShellCheck-clean even though its successful path execs above.
 : "$BIN_ROOT_ON_PATH" "$INSTALL_FAILED"`;

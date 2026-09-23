@@ -5,6 +5,10 @@
    * With both engines chosen this shows one panel per engine, each with its own
    * verified/pending state, because they are independent credentials with
    * independent failure modes.
+   *
+   * The panels' own Upload buttons are hidden: the wizard footer calls
+   * `submit()`, which uploads whatever has been pasted and holds position on a
+   * failure so the operator sees it.
    */
   import { Alert, AlertDescription, AlertTitle } from "$lib/components/ui/alert";
   import { Badge } from "$lib/components/ui/badge";
@@ -18,6 +22,29 @@
   };
 
   let { engines, canonical, runnerHealthy }: Props = $props();
+
+  let panels = $state<Record<AuthEngine, SeedAuthPanel | null>>({ codex: null, claude: null });
+
+  export function isBusy(): boolean {
+    return engines.some((engine) => panels[engine]?.isBusy() ?? false);
+  }
+
+  /** Whether Continue will upload something. */
+  export function hasPendingInput(): boolean {
+    return engines.some((engine) => panels[engine]?.hasPendingInput() ?? false);
+  }
+
+  /** Uploads every panel with pasted content. False holds the wizard in place. */
+  export async function submit(): Promise<boolean> {
+    let ok = true;
+    for (const engine of engines) {
+      const panel = panels[engine];
+      if (!panel?.hasPendingInput()) continue;
+      const outcome = await panel.submit();
+      if (outcome === "failed" || outcome === "error") ok = false;
+    }
+    return ok;
+  }
 
   const label = (engine: AuthEngine) => (engine === "codex" ? "Codex" : "Claude");
   const verified = (engine: AuthEngine) => (engine === "codex" ? canonical.codex : canonical.claude);
@@ -34,9 +61,9 @@
 {:else}
   <div class="space-y-6">
     <p class="text-sm text-muted-foreground">
-      One canonical credential per engine serves the whole fleet. Each is verified against
-      the live provider before it is stored, so a bad value fails here rather than on a
-      host at 3am.
+      One credential per engine serves the whole fleet. Each is checked with the provider
+      before it is stored, so a bad value fails here instead of on a host later. Paste it
+      below and press <strong>Save and continue</strong>.
     </p>
 
     {#each engines as engine (engine)}
@@ -44,7 +71,7 @@
         <header class="mb-3 flex items-center justify-between gap-2">
           <h3 class="text-sm font-medium">{label(engine)}</h3>
           {#if verified(engine)}
-            <Badge variant="secondary">Verified</Badge>
+            <Badge variant="success">Verified</Badge>
           {:else}
             <Badge variant="outline">Not seeded</Badge>
           {/if}
@@ -60,11 +87,23 @@
               Replace {label(engine)} credentials
             </summary>
             <div class="pt-3">
-              <SeedAuthPanel allowedEngines={[engine]} defaultEngine={engine} {runnerHealthy} />
+              <SeedAuthPanel
+                bind:this={panels[engine]}
+                allowedEngines={[engine]}
+                defaultEngine={engine}
+                {runnerHealthy}
+                hideActions
+              />
             </div>
           </details>
         {:else}
-          <SeedAuthPanel allowedEngines={[engine]} defaultEngine={engine} {runnerHealthy} />
+          <SeedAuthPanel
+            bind:this={panels[engine]}
+            allowedEngines={[engine]}
+            defaultEngine={engine}
+            {runnerHealthy}
+            hideActions
+          />
         {/if}
       </section>
     {/each}

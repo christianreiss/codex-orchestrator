@@ -35,6 +35,9 @@ var githubBaseURL = "https://api.github.com"
 //
 // When enforceExact is false and the local version already equals target,
 // the call is a no-op.
+//
+// Legacy and test-only: no production path calls it. Cron, peer reconcile,
+// sync and the foreground launch all use EnsureCodexBackground.
 func EnsureCodex(ctx context.Context, target string, enforceExact bool, logger *slog.Logger) error {
 	if logger == nil {
 		logger = slog.Default()

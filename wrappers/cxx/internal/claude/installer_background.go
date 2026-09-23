@@ -98,7 +98,7 @@ func EnsureClaudeBackground(ctx context.Context, target string, enforceExact boo
 	}
 	npm, err := exec.LookPath("npm")
 	if err != nil {
-		return errors.New("background Claude install requires npm on PATH; install Node.js/npm and rerun `clx --cron run`")
+		return errors.New("managed Claude CLI install requires npm on PATH, and none was found; install Node.js and npm (e.g. the `nodejs` and `npm` packages), then rerun `clx cron run`")
 	}
 	stage, err := os.MkdirTemp(root, target+"-")
 	if err != nil {

@@ -3,6 +3,7 @@
   import { onMount } from "svelte";
   import { goto } from "$app/navigation";
   import { base } from "$app/paths";
+  import { page } from "$app/state";
   import { Button } from "$lib/components/ui/button";
   import { Input } from "$lib/components/ui/input";
   import { Label } from "$lib/components/ui/label";
@@ -30,13 +31,24 @@
     username?: string;
   };
 
+  /**
+   * Where to land after sign-in. `?next=` is a base-relative path (e.g.
+   * `/setup`); anything that is not a single-slash path is dropped so the
+   * parameter cannot become an open redirect.
+   */
+  function landing(): string {
+    const next = page.url.searchParams.get("next");
+    if (next && /^\/(?!\/)/.test(next) && !next.includes("\\")) return `${base}${next}`;
+    return `${base}/dashboard`;
+  }
+
   onMount(() => {
     // If we're already authenticated, bounce.
     let signedIn = false;
     const unsub = authStore.subscribe((s) => {
       signedIn = s.authenticated && !s.loading;
       if (s.authenticated && !s.loading) {
-        void goto(`${base}/dashboard`, { replaceState: true });
+        void goto(landing(), { replaceState: true });
       }
     });
     passkeySupported = typeof PublicKeyCredential !== "undefined";
@@ -81,7 +93,7 @@
     submitting = true;
     try {
       await authActions.login({ username: username.trim(), password, method: "password" });
-      void goto(`${base}/dashboard`, { replaceState: true });
+      void goto(landing(), { replaceState: true });
     } catch (err) {
       error = err instanceof ApiError ? err.message : "Sign-in failed.";
     } finally {
@@ -108,7 +120,7 @@
         trimmedUsername ? { response, username: trimmedUsername } : { response },
       );
       await authActions.refresh();
-      void goto(`${base}/dashboard`, { replaceState: true });
+      void goto(landing(), { replaceState: true });
     } catch (err) {
       if (auto) {
         phase = "username";

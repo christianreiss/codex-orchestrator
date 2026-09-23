@@ -55,7 +55,35 @@ func legacyCleanupSentinel(version string) string {
 // syncSkills pings /skills and returns a truthful best-effort health result.
 // Failures remain non-fatal, but callers must render them as warnings rather
 // than treating "not updated" as proof that the resource is healthy.
-func syncSkills(ctx context.Context, client *orchestrator.Client, logger *slog.Logger) (state summary.ResourceSync) {
+func syncSkills(ctx context.Context, client *orchestrator.Client, logger *slog.Logger) summary.ResourceSync {
+	return syncSkillsListed(ctx, client, logger, nil)
+}
+
+// skillsListing is a /skills response fetched ahead of time.
+type skillsListing struct {
+	list []orchestrator.Skill
+	err  error
+}
+
+// prefetchSkills starts the read-only /skills request so it overlaps the
+// bundle round-trip. The returned function blocks for the result.
+func prefetchSkills(ctx context.Context, client *orchestrator.Client) func() skillsListing {
+	ch := make(chan skillsListing, 1)
+	go func() {
+		if client == nil {
+			ch <- skillsListing{err: errors.New("skills client unavailable")}
+			return
+		}
+		list, err := client.ListSkills(ctx)
+		ch <- skillsListing{list: list, err: err}
+	}()
+	return func() skillsListing { return <-ch }
+}
+
+// syncSkillsListed is syncSkills with an optional prefetched listing. A nil
+// listing fetches inline. Only the network read is ever overlapped; the digest
+// compare and write still happen here, after the bundle has been applied.
+func syncSkillsListed(ctx context.Context, client *orchestrator.Client, logger *slog.Logger, prefetched *skillsListing) (state summary.ResourceSync) {
 	ctx, span := tracing.Start(ctx, "cxx.sync.skills", tracing.String("wrapper.engine", "codex"))
 	defer func() {
 		span.SetBool("wrapper.skills_changed", state.Updated)
@@ -68,7 +96,15 @@ func syncSkills(ctx context.Context, client *orchestrator.Client, logger *slog.L
 		state.Err = errors.New("skills client unavailable")
 		return state
 	}
-	list, err := client.ListSkills(ctx)
+	var (
+		list []orchestrator.Skill
+		err  error
+	)
+	if prefetched != nil {
+		list, err = prefetched.list, prefetched.err
+	} else {
+		list, err = client.ListSkills(ctx)
+	}
 	if err != nil {
 		logger.Debug("skills sync skipped", "err", err)
 		state.Err = err

@@ -11,6 +11,7 @@ import {
 import { Keyring } from '../../../src/security/keyring.js';
 import { sha256 } from '../../../src/security/hash.js';
 import { encrypt } from '../../../src/security/secret-box.js';
+import { wsPublisher } from '../../../src/ws/publisher.js';
 
 const env = {
   INSTALLATION_ID: 'inst',
@@ -106,8 +107,17 @@ describe('GET /install/:token', () => {
       },
     ]);
     const app = await buildHostApiTestApp({ db: db as any, env, keyring: makeKeyring() });
+    const events: Array<{ type: string; payload: unknown }> = [];
+    const unsubscribe = wsPublisher.subscribe((e) => events.push({ type: e.type, payload: e.payload }));
     const r = await app.inject({ method: 'GET', url: `/install/${installToken}` });
+    unsubscribe();
     expect(r.statusCode).toBe(200);
+    expect(r.headers['x-installer-error']).toBeUndefined();
+    // Consuming the token changes the host list's installer state.
+    expect(events).toContainEqual({
+      type: 'host.updated',
+      payload: { id: 9, fqdn: 'install.example', engine: 'codex' },
+    });
     expect(r.headers['content-type']).toContain('text/x-shellscript');
     expect(r.payload).toContain('#!/bin/sh');
     expect(r.payload).toContain('install.example');
@@ -236,7 +246,7 @@ describe('GET /install/:token', () => {
     await app.close();
   });
 
-  it('returns shell error 404 for unknown token', async () => {
+  it('serves an unknown token as a 200 error script that curl -f still pipes to sh', async () => {
     const db = createDbFake();
     db.tables.set(installTokens, []);
     const app = await buildHostApiTestApp({ db: db as any, env, keyring: makeKeyring() });
@@ -244,13 +254,16 @@ describe('GET /install/:token', () => {
       method: 'GET',
       url: '/install/00000000-0000-0000-0000-000000000000',
     });
-    expect(r.statusCode).toBe(404);
+    expect(r.statusCode).toBe(200);
+    expect(r.headers['x-installer-error']).toBe('installer_not_found');
     expect(r.headers['content-type']).toContain('text/x-shellscript');
     expect(r.payload).toContain('Installer not found');
+    expect(r.payload).toContain('>&2');
+    expect(r.payload).toContain('exit 1');
     await app.close();
   });
 
-  it('returns shell error 410 for expired token', async () => {
+  it('serves an expired token as a 200 error script with its reason header', async () => {
     const db = createDbFake();
     db.tables.set(hostsTable, [
       {
@@ -291,8 +304,27 @@ describe('GET /install/:token', () => {
     ]);
     const app = await buildHostApiTestApp({ db: db as any, env, keyring: makeKeyring() });
     const r = await app.inject({ method: 'GET', url: `/install/${installToken}` });
-    expect(r.statusCode).toBe(410);
+    expect(r.statusCode).toBe(200);
+    expect(r.headers['x-installer-error']).toBe('installer_expired');
     expect(r.payload).toContain('Installer expired');
+    expect(r.payload).toContain('exit 1');
+    // An expired token is not consumed, so nothing changed for the console.
+    expect(db.tables.get(installTokens)![0]!.usedAt).toBeNull();
+    await app.close();
+  });
+});
+
+describe('GET /seed/auth/:token errors', () => {
+  it('serves an unknown seed token as a 200 error script with its reason header', async () => {
+    const db = createDbFake();
+    db.tables.set(authSeedTokens, []);
+    const app = await buildHostApiTestApp({ db: db as any, env, keyring: makeKeyring() });
+    const r = await app.inject({ method: 'GET', url: `/seed/auth/${seedToken}` });
+    expect(r.statusCode).toBe(200);
+    expect(r.headers['x-installer-error']).toBe('seed_not_found');
+    expect(r.headers['content-type']).toContain('text/x-shellscript');
+    expect(r.payload).toContain('Seed token not found');
+    expect(r.payload).toContain('exit 1');
     await app.close();
   });
 });

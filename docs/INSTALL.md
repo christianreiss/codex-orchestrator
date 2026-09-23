@@ -44,8 +44,8 @@ Twelve, in order, each independently re-runnable:
 |------|--------------|
 | `prereqs` | Docker, Compose v2, curl, openssl. Reports whether wrapper builds will use the host toolchain or a container. |
 | `secrets` | `.env` from `.env.example` at mode 0600; generates `AUTH_ENCRYPTION_KEY`, `INSTALLATION_ID`, database credentials, and one runner shared secret written to both names. |
-| `dataroot` | Prompts for `DATA_ROOT` and creates the directory tree. |
-| `urls` | `PUBLIC_BASE_URL`, `CODEX_SYNC_BASE_URL`, `AUTH_RUNNER_CODEX_BASE_URL`, `CADDY_DOMAIN`. |
+| `urls` | `PUBLIC_BASE_URL`, `CODEX_SYNC_BASE_URL`, `CADDY_DOMAIN`, and `AUTH_RUNNER_CODEX_BASE_URL` (not prompted: `--runner-url`, else the stored value, else the public URL). |
+| `dataroot` | Prompts for `DATA_ROOT` (default `/var/docker_data/<public host>`) and creates the directory tree. |
 | `tls` | `acme`, `file`, `selfsigned` or `none`; sets `TRUST_X_FORWARDED` + `TRUSTED_PROXY_CIDRS` to match. |
 | `wrappers` | Generates this installation's Ed25519 keypair, then cross-compiles and publishes `cxx` for four platforms with that public key baked in. |
 | `datatier` | Builds images, starts `mysql` and `auth-runner`, waits for both to be healthy. |
@@ -101,7 +101,8 @@ stderr, so both can be consumed from the same run:
 ```
 
 `--non-interactive` never prompts. Missing values produce a single error naming
-all of them at once rather than failing on the first. Passwords are passed as
+all of them at once rather than failing on the first. `--tls` is one of them:
+it has no safe default, so a scripted run must name the mode, including `none`. Passwords are passed as
 files, never as flag values — arguments are visible in the process list.
 
 Other useful flags: `--dry-run` (print every change, make none),
@@ -346,7 +347,7 @@ from anyone else. Nothing in the API authorizes on them today.
 
 ## The first-run wizard
 
-Opening the console for the first time lands on `/admin/setup`. Nine steps:
+After `bin/install.sh` prints `READY`, open `/admin/setup` (the closing message links it). When the installer already created the owner, the wizard starts at Engines; a signed-in admin whose wizard is unfinished and whose checklist still has open items is also redirected there once per browser session. Nine steps:
 
 | Step | What it does | Blocking |
 |------|--------------|----------|
@@ -369,14 +370,16 @@ the dashboard card; finishing or dismissing hides that card for good.
 A fresh install has no fleet client-config row. Without one the managed feature
 context reports `config_missing`, and skills, memory, projects and secrets all
 resolve disabled *before their own switches are read* — so enabling Projects on
-a brand-new install does nothing at all. `POST /admin/model-defaults/codex` is
-the only thing that creates that row, and the GET happily returns a default that
-was never persisted, which is how a console can look configured while every
-managed feature is dark.
+a brand-new install does nothing at all. `POST /admin/model-defaults/codex`
+creates that row (so do `POST /admin/config/store` and the Claude config store),
+and the GET happily returns a default that was never persisted, which is how a
+console can look configured while every managed feature is dark.
 
-The wizard therefore saves codex defaults on that step **unconditionally**,
-including when you answered "neither" on the engines step: it is about MCP
-activation, not credentials.
+The wizard therefore saves codex defaults on that step even when you press
+**Skip** (Skip saves the catalog defaults), including when you answered
+"neither" on the engines step: it is about MCP activation, not credentials. If
+the row is still missing, the `fleet_defaults` next action keeps the dashboard
+setup card open.
 
 ### Seeding credentials by hand
 

@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"os/user"
@@ -80,6 +81,15 @@ var localProbe = orchestrator.LocalAuthProbe{
 }
 
 var errAuthRecoveryDeclined = errors.New("Codex authentication was not refreshed")
+
+// missingLoginNotice is the one line an unattended run prints when neither this
+// host nor the orchestrator holds Codex credentials.
+const missingLoginNotice = "no Codex credentials on this host or the orchestrator; run `cdx login` in an interactive terminal"
+
+// lifecycleIsTerminal and promptIn are seams for the interactive-recovery
+// tests; production reads the real descriptors and stdin.
+var lifecycleIsTerminal = term.IsTerminal
+var promptIn io.Reader = os.Stdin
 var errAuthRecoveryNonInteractive = errors.New("Codex authentication refresh requires an interactive terminal")
 
 type presentedError struct{ err error }
@@ -285,8 +295,33 @@ func Run(ctx context.Context, opts Options) (exitCode int, runErr error) {
 		}
 	}()
 
+	// syncBundle runs one /sync/bootstrap exchange behind a progress line; the
+	// line is gone before anything else (approval box, prompt, boot card) draws.
+	bundleRounds := 0
+	syncBundle := func() {
+		bundleRounds++
+		progress := startProgress(ctx, opts, logger, ui.TopicSync, "syncing with orchestrator")
+		defer progress.Clear()
+		authResp, authErr, authSynced, agentsSync, configSync, fleetSessions = bootstrapWithProgress(ctx, client, logger, concurrent, authPath, !opts.SkipCredentialExchange, progress)
+	}
+
+	// Overlap the read-only probes the boot card needs with the first bundle
+	// round-trip: the native `codex --version` subprocess and the /skills
+	// listing. Their results are consumed only after the bundle is applied, so
+	// the order of every write stays exactly as before.
+	probedVersion := func() string { return "" }
+	if !opts.SkipBoot {
+		versionCh := make(chan string, 1)
+		go func() { versionCh <- codex.Version(ctx) }()
+		probedVersion = func() string { return <-versionCh }
+	}
+	var skillsPrefetch func() skillsListing
+	if !opts.SkipAuthSync && !concurrent {
+		skillsPrefetch = prefetchSkills(ctx, client)
+	}
+
 	if !opts.SkipAuthSync {
-		authResp, authErr, authSynced, agentsSync, configSync, fleetSessions = bootstrap(ctx, client, logger, concurrent, authPath, !opts.SkipCredentialExchange)
+		syncBundle()
 		// A content-only pass leaves the decision at its zero value on purpose:
 		// there is no auth response to judge. Every branch that reads `dec`
 		// below carries the same `!opts.SkipCredentialExchange` guard, so the
@@ -310,7 +345,7 @@ func Run(ctx context.Context, opts Options) (exitCode int, runErr error) {
 					logger.Warn("approval poll failed", "err", perr)
 				}
 				if resolved {
-					authResp, authErr, authSynced, agentsSync, configSync, fleetSessions = bootstrap(ctx, client, logger, concurrent, authPath, !opts.SkipCredentialExchange)
+					syncBundle()
 					dec = decideAuth(authResp, authErr, authPath, cfg.Host.Secure)
 				}
 			}
@@ -321,7 +356,14 @@ func Run(ctx context.Context, opts Options) (exitCode int, runErr error) {
 		var authCandidateErr error
 		if !opts.SkipCredentialExchange && dec.Allowed && (dec.Status == "missing" || dec.Status == "upload_required") {
 			if raw, rerr := codex.ReadAuth(); rerr == nil && len(raw) > 0 {
-				if err := pushAuthCandidate(ctx, client, logger, false); err != nil {
+				progress := startProgress(ctx, opts, logger, ui.TopicUpload, "uploading local credentials")
+				err := pushAuthCandidate(ctx, client, logger, false)
+				if err != nil {
+					progress.Fail("local credentials were not uploaded")
+				} else {
+					progress.Done("local credentials uploaded")
+				}
+				if err != nil {
 					authCandidateErr = err
 					logger.Warn("auth-candidate upload failed", "err", err)
 					if orchestrator.IsUnsafeRunnerUpdatedAuthError(err) {
@@ -330,7 +372,7 @@ func Run(ctx context.Context, opts Options) (exitCode int, runErr error) {
 						dec.Reason = "The auth runner rotated credentials but returned an unusable replacement; refusing to launch with the superseded local token. Retry after the runner is healthy."
 					}
 				} else {
-					authResp, authErr, authSynced, agentsSync, configSync, fleetSessions = bootstrap(ctx, client, logger, concurrent, authPath, !opts.SkipCredentialExchange)
+					syncBundle()
 					dec = decideAuth(authResp, authErr, authPath, cfg.Host.Secure)
 				}
 			} else if rerr != nil {
@@ -344,7 +386,17 @@ func Run(ctx context.Context, opts Options) (exitCode int, runErr error) {
 		// Offer to run `codex login` here, upload the freshly minted token, and
 		// re-verify — the only fix for a rotated/expired refresh token. Headless
 		// runs (cron, --execute) fail closed instead of opening a login flow.
-		switch decideAuthRecovery(concurrent, opts.Headless, !opts.SkipCredentialExchange && needsInteractiveAuthRecovery(dec, authCandidateErr, cfg.Host.Secure)) {
+		//
+		// A host with no local auth.json at all (fresh install) cannot prompt
+		// without a terminal either, but it has nothing to lose by continuing:
+		// such runs say which command fixes it and keep today's decision.
+		missingLocalAuth := errors.Is(authCandidateErr, os.ErrNotExist)
+		recovery := decideAuthRecovery(concurrent, opts.Headless, !opts.SkipCredentialExchange && needsInteractiveAuthRecovery(dec, authCandidateErr, cfg.Host.Secure))
+		if recovery != authRecoverySkip && missingLocalAuth && (recovery == authRecoveryFailClosed || !attendedTerminal()) {
+			ui.Say(os.Stderr, "cdx", ui.ToneWarn, ui.TopicAuth, missingLoginNotice)
+			recovery = authRecoverySkip
+		}
+		switch recovery {
 		case authRecoveryFailClosed:
 			// Non-interactive callers (cron, --execute) must not open a
 			// `codex login` prompt — fail closed with the underlying reason.
@@ -359,7 +411,7 @@ func Run(ctx context.Context, opts Options) (exitCode int, runErr error) {
 				dec.Allowed = false
 				dec.Reason = err.Error()
 			} else {
-				authResp, authErr, authSynced, agentsSync, configSync, fleetSessions = bootstrap(ctx, client, logger, concurrent, authPath, !opts.SkipCredentialExchange)
+				syncBundle()
 				dec = decideAuth(authResp, authErr, authPath, cfg.Host.Secure)
 			}
 		}
@@ -375,7 +427,16 @@ func Run(ctx context.Context, opts Options) (exitCode int, runErr error) {
 		// purge bash-era on-disk caches once per wrapper version so they
 		// don't shadow MCP resolution. Both are best-effort.
 		if !concurrent {
-			skillsSync = syncSkills(ctx, client, logger)
+			// A failed prefetch raced only the first bundle round; once a later
+			// round has run (approval, upload, login) the host state may have
+			// changed, so ask again.
+			var listed *skillsListing
+			if skillsPrefetch != nil {
+				if got := skillsPrefetch(); got.err == nil || bundleRounds <= 1 {
+					listed = &got
+				}
+			}
+			skillsSync = syncSkillsListed(ctx, client, logger, listed)
 			skillsSync = combineResourceSync(skillsSync, pruneLegacySkillDirs(wrapperVersion(cfg), logger))
 		}
 	}
@@ -396,6 +457,7 @@ func Run(ctx context.Context, opts Options) (exitCode int, runErr error) {
 		Config:           cfg,
 		WrapperVersion:   currentWrapperVersion(opts, cfg),
 		SkipVersionProbe: opts.SkipBoot,
+		CodexVersion:     probedVersion(),
 		Auth:             authResp,
 		AuthErr:          authErr,
 		Concurrent:       concurrent,
@@ -640,6 +702,17 @@ func footerCaps(caps ui.Caps, minimal bool) ui.Caps {
 	return caps
 }
 
+// startProgress opens a stderr progress line for one foreground step. Silent,
+// --skip-boot and --minimal runs stay exactly as quiet as before, and --debug
+// keeps its log lines unbroken: all of them get nil, which every Progress
+// method accepts.
+func startProgress(ctx context.Context, opts Options, logger *slog.Logger, topic, message string) *ui.Progress {
+	if opts.SkipBoot || opts.Minimal || (logger != nil && logger.Enabled(ctx, slog.LevelDebug)) {
+		return nil
+	}
+	return ui.StartProgress(os.Stderr, ui.DetectCapsFor(os.Stderr, themeFromConfig(opts.Config)), "cdx", topic, message)
+}
+
 // bootstrap tries SyncBootstrap first and, on 404/501, falls back to the
 // per-resource pulls. Returns the same tuple regardless of which path ran.
 // The last value carries the fleet activity counters when the bundle path was
@@ -652,6 +725,16 @@ func footerCaps(caps ui.Caps, minimal bool) ui.Caps {
 func bootstrap(
 	ctx context.Context, client *orchestrator.Client, logger *slog.Logger,
 	concurrent bool, authPath string, includeAuth bool,
+) (*orchestrator.AuthRetrieveResponse, error, bool, summary.ResourceSync, summary.ResourceSync, *orchestrator.FleetSessions) {
+	return bootstrapWithProgress(ctx, client, logger, concurrent, authPath, includeAuth, nil)
+}
+
+// bootstrapWithProgress is bootstrap with an in-flight progress line that is
+// cleared as soon as the network exchange returns, before any apply step can
+// print its own notice.
+func bootstrapWithProgress(
+	ctx context.Context, client *orchestrator.Client, logger *slog.Logger,
+	concurrent bool, authPath string, includeAuth bool, progress *ui.Progress,
 ) (*orchestrator.AuthRetrieveResponse, error, bool, summary.ResourceSync, summary.ResourceSync, *orchestrator.FleetSessions) {
 	ctx, bootSpan := tracing.Start(ctx, "cxx.lifecycle.bootstrap",
 		tracing.String("wrapper.engine", "codex"),
@@ -748,6 +831,7 @@ func bootstrap(
 		Home:          home,
 		Username:      username,
 	})
+	progress.Clear()
 	if berr != nil {
 		syncSpan.Fail(berr)
 	} else if resp != nil && resp.Auth != nil {
@@ -1074,6 +1158,10 @@ func needsInteractiveAuthRecovery(dec orchestrator.AuthDecision, uploadErr error
 	}
 	switch strings.ToLower(strings.TrimSpace(dec.Status)) {
 	case "missing", "upload_required":
+		if errors.Is(uploadErr, os.ErrNotExist) {
+			// No local auth.json and nothing on the fleet: only a login helps.
+			return true
+		}
 		if uploadErr != nil {
 			// Only a definitive server-side rejection (4xx) means the local
 			// credentials are actually bad and a re-login can fix things. An
@@ -1096,6 +1184,9 @@ func authUploadRejected(err error) bool {
 
 // recoveryReason renders the human-facing line shown before the login prompt.
 func recoveryReason(dec orchestrator.AuthDecision, uploadErr error) string {
+	if errors.Is(uploadErr, os.ErrNotExist) {
+		return "No Codex credentials exist on this host or the orchestrator."
+	}
 	if uploadErr != nil {
 		return "Local Codex credentials were not accepted by the server: " + uploadErr.Error()
 	}
@@ -1154,9 +1245,9 @@ func insertCodexOverrides(args []string, overrides []string) []string {
 // reviewer; with no terminal there is nobody to answer and every agent_* call
 // returns "user cancelled MCP tool call".
 func attendedTerminal() bool {
-	return term.IsTerminal(int(os.Stdin.Fd())) &&
-		term.IsTerminal(int(os.Stdout.Fd())) &&
-		term.IsTerminal(int(os.Stderr.Fd()))
+	return lifecycleIsTerminal(int(os.Stdin.Fd())) &&
+		lifecycleIsTerminal(int(os.Stdout.Fd())) &&
+		lifecycleIsTerminal(int(os.Stderr.Fd()))
 }
 
 // recoverCodexAuth runs the interactive `codex login` flow, uploads the freshly
@@ -1164,7 +1255,7 @@ func attendedTerminal() bool {
 // server has accepted them. Refuses outside an interactive terminal so cron and
 // --execute fail closed rather than hanging on a prompt.
 func recoverCodexAuth(ctx context.Context, cfg *config.Config, client *orchestrator.Client, reason string) error {
-	if !term.IsTerminal(int(os.Stdin.Fd())) || !term.IsTerminal(int(os.Stdout.Fd())) || !term.IsTerminal(int(os.Stderr.Fd())) {
+	if !attendedTerminal() {
 		return errAuthRecoveryNonInteractive
 	}
 	fmt.Fprintln(os.Stderr)
@@ -1172,10 +1263,11 @@ func recoverCodexAuth(ctx context.Context, cfg *config.Config, client *orchestra
 	if strings.TrimSpace(reason) != "" {
 		details = append(details, reason)
 	}
-	ok, err := ui.Confirm(ctx, ui.DetectCapsFor(os.Stderr, ""), os.Stdin, os.Stderr, ui.Question{
+	ok, err := ui.Confirm(ctx, ui.DetectCapsFor(os.Stderr, ""), promptIn, os.Stderr, ui.Question{
 		Prefix: "cdx", Topic: ui.TopicAuth, Tone: ui.ToneFail,
-		Title:   "Run `codex login`, upload credentials, and verify with the server now?",
-		Details: details,
+		Title:      "Run `codex login` now?",
+		Details:    append(details, "The new credentials are uploaded to the orchestrator and verified."),
+		DefaultYes: true,
 	})
 	if err != nil {
 		if errors.Is(err, ui.ErrPromptCancelled) {

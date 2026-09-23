@@ -147,7 +147,7 @@ SKIP_OWNER=0
 SKIP_PUBLIC_READY=0
 SKIP_BUILD=0
 
-ALL_STEPS=(prereqs secrets dataroot urls tls wrappers datatier schema apptier signer owner verify)
+ALL_STEPS=(prereqs secrets urls dataroot tls wrappers datatier schema apptier signer owner verify)
 
 usage() {
   cat <<'EOF'
@@ -176,10 +176,13 @@ Options
                              replace artifacts it would otherwise refuse to
                              touch. Repeatable.
 
-  --data-root PATH           Where persistent data lives.
+  --data-root PATH           Where persistent data lives. Defaults to
+                             /var/docker_data/<domain of --url>.
   --url URL                  Public HTTPS URL hosts will use (PUBLIC_BASE_URL).
-  --runner-url URL           Legacy AUTH_RUNNER_CODEX_BASE_URL; defaults to --url.
-  --tls MODE                 acme | file | selfsigned | none.
+  --runner-url URL           Legacy AUTH_RUNNER_CODEX_BASE_URL; defaults to the
+                             stored value, else --url. Never prompted for.
+  --tls MODE                 acme | file | selfsigned | none. Required with
+                             --non-interactive: there is no safe default.
                              `none` means a reverse proxy you run terminates TLS.
   --domain DOMAIN            Domain for the bundled proxy; defaults from --url.
   --acme-email EMAIL         Contact address for ACME (--tls acme).
@@ -206,7 +209,7 @@ Options
   -h, --help                 This text.
 
 Steps, in order
-  prereqs secrets dataroot urls tls wrappers datatier schema apptier signer
+  prereqs secrets urls dataroot tls wrappers datatier schema apptier signer
   owner verify
 
 Examples
@@ -505,16 +508,24 @@ require_cmd() { command -v "$1" >/dev/null 2>&1; }
 
 API_LOCAL="http://127.0.0.1:8488"
 
+# fetch_url URL [ATTEMPTS] [any]
+#
+# Retries until a 2xx. With `any`, the last attempt's body is returned whatever
+# its status: /readyz answers 503 with the failing checks in the body, and `-f`
+# threw exactly that diagnosis away. Only a connection failure returns non-zero.
 fetch_url() {
-  local url="$1" attempts="${2:-1}" ca=() body
+  local url="$1" attempts="${2:-1}" keep="${3:-}" ca=() body code
   if [[ -n "${DATA_ROOT_RESOLVED:-}" && -f "${DATA_ROOT_RESOLVED}/caddy/tls/ca.crt" && "$url" == https://* ]]; then
     ca=(--cacert "${DATA_ROOT_RESOLVED}/caddy/tls/ca.crt")
   fi
   local i
   for ((i = 1; i <= attempts; i++)); do
-    if body="$(curl -fsS --max-time 8 "${ca[@]}" "$url" 2>/dev/null)"; then
-      printf '%s' "$body"
-      return 0
+    if body="$(curl -sS --max-time 8 "${ca[@]}" -w $'\n%{http_code}' "$url" 2>/dev/null)"; then
+      code="${body##*$'\n'}"; body="${body%$'\n'*}"
+      if [[ "$code" == 2?? ]] || { [[ "$keep" == "any" ]] && (( i == attempts )); }; then
+        printf '%s' "$body"
+        return 0
+      fi
     fi
     (( i < attempts )) && sleep 2
   done
@@ -541,8 +552,8 @@ readyz_check_ok() {
 }
 
 readyz_failures() {
-  local body="$1"
-  printf '%s' "$body" | compose exec -T api node -e '
+  local body="$1" out
+  if out="$(printf '%s' "$body" | compose exec -T api node -e '
     let raw = "";
     process.stdin.on("data", (c) => (raw += c));
     process.stdin.on("end", () => {
@@ -552,7 +563,34 @@ readyz_failures() {
         }
       } catch { process.exit(2); }
     });
-  ' 2>/dev/null || true
+  ' 2>/dev/null)"; then
+    [[ -n "$out" ]] && printf '%s\n' "$out"
+    return 0
+  fi
+  # No container to parse with (doctor on a half-up stack). /readyz is compact
+  # JSON of flat {id,label,ok,critical,detail} objects, so a grep is enough —
+  # and an empty answer here would read as "all checks pass".
+  out="$(printf '%s' "$body" | grep -o '{[^{}]*}' | grep '"ok":false' |
+    sed -n 's/.*"id":"\([^"]*\)".*"detail":"\([^"]*\)".*/\1'$'\t''\2/p' || true)"
+  if [[ -z "$out" && "$body" == *'"ok":false'* ]]; then
+    out="$(printf 'readyz\tnot ready, and the failing checks could not be read')"
+  fi
+  # `read` drops a final line without its newline; $(…) stripped it above.
+  [[ -n "$out" ]] && printf '%s\n' "$out"
+  return 0
+}
+
+# report_readyz_failures BODY [fail|warn]: one line per failing check plus its
+# fix. Returns 0 when something failed.
+report_readyz_failures() {
+  local body="$1" level="${2:-fail}" id detail found=1
+  while IFS=$'\t' read -r id detail; do
+    [[ -z "$id" ]] && continue
+    "$level" "$id — ${detail:-failing}"
+    printf '        fix: %s\n' "$(remedy_for "$id")" >&2
+    found=0
+  done < <(readyz_failures "$body")
+  return "$found"
 }
 
 # What to do about each failing readiness check. A diagnosis without a next
@@ -586,6 +624,7 @@ remedy_for() {
 # ─── steps ───────────────────────────────────────────────────────────────────
 
 DATA_ROOT_RESOLVED=""
+PUBLIC_HOST_RESOLVED=""
 WRAPPER_KEY_DIR=""
 WRAPPER_PRIVATE_KEY=""
 WRAPPER_PUBLIC_KEY=""
@@ -681,9 +720,14 @@ step_secrets() {
 }
 
 step_dataroot() {
-  local current default_root="/var/docker_data/codex-auth.example.com" chosen
+  local current domain default_root="/var/docker_data/codex-orchestrator" chosen
+  # Derived from the public host, which is why `urls` runs first. The global
+  # covers --dry-run (env_set writes nothing); the env file covers --only.
+  domain="${ARG_DOMAIN:-${PUBLIC_HOST_RESOLVED:-$(env_get CADDY_DOMAIN || true)}}"
+  [[ -n "$domain" && "$domain" != *example.com* ]] && default_root="/var/docker_data/$domain"
   current="$(env_get DATA_ROOT || true)"
-  [[ -n "$current" ]] && default_root="$current"
+  # .env.example ships a placeholder root; only a real one outranks the default.
+  [[ -n "$current" && "$current" != *example.com* ]] && default_root="$current"
   ask chosen "Where should persistent data live?" "$default_root" "$ARG_DATA_ROOT"
   require_inputs
   [[ "$chosen" != /* ]] && chosen="$ROOT_DIR/${chosen#./}"
@@ -713,9 +757,10 @@ step_dataroot() {
 }
 
 step_urls() {
-  local public_url runner_url host default_url
+  local public_url runner_url host default_url previous_url
   default_url="$(env_get PUBLIC_BASE_URL || true)"
   [[ -z "$default_url" || "$default_url" == *example.com* ]] && default_url=""
+  previous_url="$default_url"
   ask public_url "Public HTTPS URL hosts will use" "$default_url" "$ARG_URL"
   require_inputs
   [[ -n "$public_url" ]] || fatal "a public base URL is required; hosts bake it into their wrapper config"
@@ -724,11 +769,21 @@ step_urls() {
   env_set PUBLIC_BASE_URL "$public_url"
   env_set CODEX_SYNC_BASE_URL "$public_url"
 
-  ask runner_url "URL the auth runner should use" "$public_url" "$ARG_RUNNER_URL"
+  # Nobody knows what to answer for this, so it is not asked: --runner-url,
+  # else a value someone deliberately set, else the public URL. A stored value
+  # that merely tracked the old public URL follows the new one.
+  runner_url="$ARG_RUNNER_URL"
+  if [[ -z "$runner_url" ]]; then
+    runner_url="$(env_get AUTH_RUNNER_CODEX_BASE_URL || true)"
+    runner_url="${runner_url%/}"
+    [[ -z "$runner_url" || "$runner_url" == *example.com* || "$runner_url" == "$previous_url" ]] &&
+      runner_url="$public_url"
+  fi
   env_set AUTH_RUNNER_CODEX_BASE_URL "${runner_url%/}"
 
   host="${public_url#*://}"; host="${host%%/*}"; host="${host%%:*}"
   [[ -n "$host" ]] && env_set CADDY_DOMAIN "$host"
+  PUBLIC_HOST_RESOLVED="$host"
 
   # Passkey registration derives its relying-party origin from the request, and
   # enabling proxy trust in the next step changes which host that resolves to.
@@ -747,7 +802,11 @@ step_tls() {
   if [[ -n "$ARG_TLS" ]]; then
     mode="$ARG_TLS"
   elif (( NON_INTERACTIVE )); then
-    mode="none"
+    # cmd_install queued the missing --tls with every other missing value;
+    # this reports the lot. Defaulting to `none` silently dropped the bundled
+    # proxy from a box whose operator expected HTTPS.
+    require_inputs
+    fatal "--tls is required with --non-interactive (acme, file, selfsigned or none)"
   else
     ui ""
     ui "    1) acme        bundled Caddy gets certificates from Let's Encrypt (needs public :80/:443)"
@@ -1114,8 +1173,11 @@ step_owner() {
   (( DRY_RUN )) && { step_skipped "would create the first owner"; return 0; }
 
   local status
-  status="$(fetch_url "$API_LOCAL/readyz" 30 || true)"
+  status="$(fetch_url "$API_LOCAL/readyz" 30 any || true)"
   [[ -n "$status" ]] || fatal "the API is not answering on $API_LOCAL; run \`bin/install.sh --only apptier\` first"
+  # The claim needs only the database; anything else failing is reported here
+  # and gated by `verify`, not by the owner step.
+  report_readyz_failures "$status" warn || true
 
   # The claim is open only while no admin exists, and it closes permanently on
   # the first success.
@@ -1126,8 +1188,23 @@ step_owner() {
 
   local name username email password
   ask name "Owner's full name" "" "$ARG_ADMIN_NAME"
-  ask username "Owner's username" "" "$ARG_ADMIN_USER"
-  ask email "Owner's email" "" "$ARG_ADMIN_EMAIL"
+  # Same rules the server applies (admin-users.ts), checked here so a typo is
+  # one re-ask rather than a failed POST. Flag values cannot be re-asked.
+  while true; do
+    ask username "Owner's username (lowercase letters, digits, . _ -)" "" "$ARG_ADMIN_USER"
+    username="${username,,}"
+    [[ -z "$username" || "$username" =~ ^[a-z0-9._-]{3,64}$ ]] && break
+    (( NON_INTERACTIVE )) || [[ -n "$ARG_ADMIN_USER" ]] &&
+      fatal "invalid owner username '$username': 3-64 characters of a-z, 0-9, . _ -"
+    warn "3-64 characters of a-z, 0-9, . _ -"
+  done
+  while true; do
+    ask email "Owner's email" "" "$ARG_ADMIN_EMAIL"
+    [[ -z "$email" || "$email" =~ ^[^[:space:]@]+@[^[:space:]@]+\.[^[:space:]@]+$ ]] && break
+    (( NON_INTERACTIVE )) || [[ -n "$ARG_ADMIN_EMAIL" ]] &&
+      fatal "invalid owner email '$email'"
+    warn "that does not look like an email address"
+  done
   if [[ -n "$ARG_ADMIN_PASS_FILE" ]]; then
     password="$(< "$ARG_ADMIN_PASS_FILE")"
     password="${password%$'\n'}"
@@ -1139,16 +1216,21 @@ step_owner() {
 
   # The body goes in on stdin: a password in argv is readable from the process
   # list by every user on the box.
-  local body response
+  local body response code message
   body="$(printf '{"name":"%s","username":"%s","email":"%s","password":"%s"}' \
     "$(json_escape "$name")" "$(json_escape "$username")" \
     "$(json_escape "$email")" "$(json_escape "$password")")"
-  response="$(printf '%s' "$body" | curl -sS -o /dev/null -w '%{http_code}' \
+  response="$(printf '%s' "$body" | curl -sS -w $'\n%{http_code}' \
     -X POST "$API_LOCAL/admin/setup/owner" \
     -H 'Content-Type: application/json' --data-binary @- 2>/dev/null || true)"
   password=""; body=""
 
-  [[ "$response" == "200" ]] || fatal "owner creation failed (HTTP ${response:-no response}); see \`docker compose logs api\`"
+  code="${response##*$'\n'}"
+  if [[ "$code" != 2?? ]]; then
+    # The API's own error message says what to change; fall back to the logs.
+    message="$(printf '%s' "${response%$'\n'*}" | sed -n 's/.*"message":"\([^"]*\)".*/\1/p' | head -n 1)"
+    fatal "owner creation failed (HTTP ${code:-no response})${message:+: $message}; see \`docker compose logs api\`"
+  fi
   step_done "owner '$username' created"
 }
 
@@ -1166,19 +1248,13 @@ run_checks() {
   health="$(fetch_url "$API_LOCAL/healthz" 30 || true)"
   if [[ -n "$health" ]]; then good "API liveness"; else fail "API liveness — the container is not answering"; failed=1; fi
 
-  ready="$(fetch_url "$API_LOCAL/readyz" 30 || true)"
+  ready="$(fetch_url "$API_LOCAL/readyz" 30 any || true)"
   if [[ -z "$ready" ]]; then
-    fail "readiness — /readyz did not answer; \`docker compose logs api\`"
+    fail "readiness — /readyz is unreachable; \`docker compose logs api\`"
     failed=1
   else
-    local id detail line
-    if [[ -n "$(readyz_failures "$ready")" ]]; then
-      while IFS=$'\t' read -r id detail; do
-        [[ -z "$id" ]] && continue
-        fail "$id — ${detail:-failing}"
-        printf '        fix: %s\n' "$(remedy_for "$id")" >&2
-        failed=1
-      done < <(readyz_failures "$ready")
+    if report_readyz_failures "$ready" fail; then
+      failed=1
     else
       good "all critical readiness checks"
     fi
@@ -1190,10 +1266,17 @@ run_checks() {
   if (( SKIP_PUBLIC_READY )); then
     info "public readiness bypassed (--skip-public-ready)"
   elif [[ -n "$public_url" ]]; then
-    if [[ -n "$(fetch_url "${public_url%/}/readyz" 30 || true)" ]]; then
+    local public_ready
+    public_ready="$(fetch_url "${public_url%/}/readyz" 30 any || true)"
+    if [[ "$public_ready" == *'"ok":true'* ]]; then
       good "public readiness at $public_url"
+    elif [[ "$public_ready" == *'"checks"'* ]]; then
+      # Reaches this API, which is not ready: the local checks above say why.
+      fail "public readiness — $public_url reaches the API, but it reports not ready"
+      failed=1
     else
-      fail "public readiness — $public_url/readyz did not answer (DNS, firewall, or proxy)"
+      # Nothing, or some other server's error page (a proxy 502 is a body too).
+      fail "public readiness — $public_url/readyz did not answer from this API (DNS, firewall, or proxy)"
       failed=1
     fi
   fi
@@ -1245,7 +1328,7 @@ cmd_doctor() {
   # and being down is exactly when someone runs doctor — so a missing API is one
   # clear line, not a crash inside `compose exec`.
   local ready
-  ready="$(fetch_url "$API_LOCAL/readyz" 1 || true)"
+  ready="$(fetch_url "$API_LOCAL/readyz" 1 any || true)"
   if [[ -z "$ready" ]]; then
     fail "API unreachable on $API_LOCAL — \`docker compose ps\` and \`docker compose logs api\`"
     ui ""
@@ -1253,14 +1336,8 @@ cmd_doctor() {
     return 1
   fi
 
-  local id detail
-  if [[ -n "$(readyz_failures "$ready")" ]]; then
-    while IFS=$'\t' read -r id detail; do
-      [[ -z "$id" ]] && continue
-      fail "$id — ${detail:-failing}"
-      printf '        fix: %s\n' "$(remedy_for "$id")" >&2
-      failed=1
-    done < <(readyz_failures "$ready")
+  if report_readyz_failures "$ready" fail; then
+    failed=1
   else
     good "all critical readiness checks"
   fi
@@ -1341,6 +1418,12 @@ cmd_install() {
   banner
   local total="${#ALL_STEPS[@]}" index=0 step
 
+  # Queued before any step runs so the first require_inputs names it alongside
+  # every other missing value, instead of failing on it three steps later.
+  if (( NON_INTERACTIVE )) && [[ -z "$ARG_TLS" ]] && should_run tls; then
+    MISSING_INPUTS+=("TLS mode (--tls acme|file|selfsigned|none)")
+  fi
+
   # Steps 1-5 write configuration and re-derive their own state cheaply, so they
   # always run: they are how a re-run picks up a changed URL or TLS choice.
   # Later steps do expensive or destructive work and honour the state file.
@@ -1373,10 +1456,9 @@ cmd_install() {
 
   ui ""
   hr
-  ui "  Next, at ${C_BOLD}$(env_get PUBLIC_BASE_URL || printf 'your base URL')/admin${C_OFF}:"
-  ui "    · seed canonical Codex and/or Claude credentials"
-  ui "    · register your first host and run its installer command"
-  ui "  Both are tracked on the dashboard until done; neither blocks the console."
+  ui "  Next, open ${C_BOLD}$(env_get PUBLIC_BASE_URL || printf 'your base URL')/admin/setup${C_OFF}"
+  ui "  The setup wizard continues after the owner step: engines, credentials,"
+  ui "  fleet defaults, first host."
   hr
 }
 

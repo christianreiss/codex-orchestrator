@@ -51,6 +51,24 @@
   let setupLoading = $state(false);
   let setupError = $state<string | null>(null);
 
+  // sessionStorage can throw (private mode, blocked storage); a failure just
+  // means the redirect may be offered again, never that the app breaks.
+  const SETUP_REDIRECT_KEY = "codex:setup-redirected";
+  function setupRedirected(): boolean {
+    try {
+      return sessionStorage.getItem(SETUP_REDIRECT_KEY) === "1";
+    } catch {
+      return false;
+    }
+  }
+  function markSetupRedirected(): void {
+    try {
+      sessionStorage.setItem(SETUP_REDIRECT_KEY, "1");
+    } catch {
+      // ignored — see above
+    }
+  }
+
   function openNewHostSheet(): void {
     void goto(`${base}/hosts?dialog=new-host`);
     window.dispatchEvent(new CustomEvent("codex:open-new-host"));
@@ -66,12 +84,20 @@
         void goto(`${base}/setup`, { replaceState: true });
       } else if (!state.loading && state.enforced && !state.authenticated && !isStandalone) {
         void goto(`${base}/login`, { replaceState: true });
-      } else if (!state.loading && state.authenticated && !isStandalone) {
+      } else if (!state.loading && state.authenticated && !isStandalone && !setupRedirected()) {
+        // The wizard is offered once per browser session, and only while it is
+        // neither finished nor dismissed and something is actually still open.
+        // Checked before the fetch so a flagged session never sees the gate.
         setupLoading = true;
         setupError = null;
         void getSetupStatus()
           .then((status) => {
-            if (!status.setup_complete) void goto(`${base}/setup`, { replaceState: true });
+            const wizard = status.wizard;
+            const open = status.next_actions.some((action) => !action.complete);
+            if (!wizard.completed_at && !wizard.dismissed_at && open) {
+              markSetupRedirected();
+              void goto(`${base}/setup`, { replaceState: true });
+            }
           })
           .catch((err) => { setupError = err instanceof Error ? err.message : "API unreachable"; })
           .finally(() => { setupLoading = false; });

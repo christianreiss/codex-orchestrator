@@ -744,7 +744,7 @@ export interface CliAuthLookup {
   id: number;
   /** Fully-qualified hostname the CLI was started from. */
   fqdn: string;
-  /** Whether the host will be registered as secure (mTLS). */
+  /** Whether the host will be registered as trusted (no insecure approval window). */
   secure: boolean;
   /** Source IP that initiated the request, if recorded. */
   ip: string | null;
@@ -805,6 +805,10 @@ export interface HostListItem {
   curl_insecure: boolean;
   browseros_mcp_enabled: boolean;
   last_cron_check: string | null;
+  /** When the one-time installer token was fetched by `/install/:token`. */
+  installer_used_at?: string | null;
+  /** When the most recently minted installer token expires. */
+  installer_expires_at?: string | null;
   reverse_dns_mode: string | null;
   lane_preference: string | null;
   model_override: string | null;

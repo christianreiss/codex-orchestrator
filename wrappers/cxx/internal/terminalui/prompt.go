@@ -30,6 +30,9 @@ type Question struct {
 	// Body replaces Details on rich destinations with pre-styled lines
 	// (for example QuotaCompareLines). Plain destinations keep Details.
 	Body []string
+	// DefaultYes makes Confirm answer Yes on a bare Enter ([Y/n]) and
+	// preselects Yes in the rich form. EOF and cancellation still refuse.
+	DefaultYes bool
 }
 
 // Option is one Select choice. Key is what a line-mode user types and what
@@ -74,8 +77,9 @@ func Select(ctx context.Context, caps Caps, in io.Reader, out io.Writer, q Quest
 	return "", ErrPromptCancelled
 }
 
-// Confirm asks a yes/no question that defaults to No. Line mode accepts y or
-// yes; any other answer is No and a read failure is ErrPromptCancelled.
+// Confirm asks a yes/no question that defaults to No (Yes with DefaultYes).
+// Line mode accepts y or yes, plus a bare Enter under DefaultYes; any other
+// answer is No and a read failure is ErrPromptCancelled.
 func Confirm(ctx context.Context, caps Caps, in io.Reader, out io.Writer, q Question) (bool, error) {
 	if interactiveTerminal(caps, in, out) {
 		return confirmRich(ctx, caps, in, out, q)
@@ -85,6 +89,9 @@ func Confirm(ctx context.Context, caps Caps, in io.Reader, out io.Writer, q Ques
 	answer, err := readLine(ctx, in)
 	if err != nil {
 		return false, ErrPromptCancelled
+	}
+	if answer == "" {
+		return q.DefaultYes, nil
 	}
 	return answer == "y" || answer == "yes", nil
 }
@@ -121,13 +128,17 @@ func lineOptions(caps Caps, prefix string, options []Option, def string) string 
 func lineConfirm(caps Caps, q Question) string {
 	caps = engineCaps(caps, q.Prefix)
 	width := promptWidth(caps)
+	choice := "[y/N]"
+	if q.DefaultYes {
+		choice = "[Y/n]"
+	}
 	if noticePlain(caps) {
-		return strings.Join(WrapText(PlainInline(q.Title)+" [y/N]:", width), "\n") + " "
+		return strings.Join(WrapText(PlainInline(q.Title)+" "+choice+":", width), "\n") + " "
 	}
 	p := caps.Palette
 	tone := questionTone(q)
 	lead := noticeGlyph(caps, tone) + " "
-	lines := WrapText(inlineFor(caps, q.Title)+" [y/N]:", width-VisibleWidth(lead))
+	lines := WrapText(inlineFor(caps, q.Title)+" "+choice+":", width-VisibleWidth(lead))
 	var b strings.Builder
 	for i, line := range lines {
 		if i == 0 {
@@ -135,7 +146,7 @@ func lineConfirm(caps Caps, q Question) string {
 		} else {
 			b.WriteString("\n" + strings.Repeat(" ", VisibleWidth(lead)))
 		}
-		line = strings.Replace(line, "[y/N]:", p.Dim+"[y/N]"+p.Reset+":", 1)
+		line = strings.Replace(line, choice+":", p.Dim+choice+p.Reset+":", 1)
 		b.WriteString(p.Bold + line + p.Reset)
 	}
 	return b.String() + " "
@@ -300,7 +311,7 @@ func selectRich(ctx context.Context, caps Caps, in io.Reader, out io.Writer, q Q
 }
 
 func confirmRich(ctx context.Context, caps Caps, in io.Reader, out io.Writer, q Question) (bool, error) {
-	value := false
+	value := q.DefaultYes
 	field := huh.NewConfirm().
 		Title(richQuestionTitle(caps, q)).
 		Description(strings.Join(cleanDetails(q.Details), "\n")).

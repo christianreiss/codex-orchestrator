@@ -17,14 +17,14 @@ import (
 
 func main() {
 	engine := flag.String("engine", "codex", "codex or claude")
-	scene := flag.String("scene", "startup", "startup, attention, blocked, concurrent, stale, forecast, security, doctor, help, session, updates, notices, or prompt")
+	scene := flag.String("scene", "startup", "startup, attention, blocked, concurrent, stale, forecast, security, doctor, help, session, updates, notices, progress, or prompt")
 	minimal := flag.Bool("minimal", false, "portable ASCII output")
 	flag.Parse()
 	if (*engine != "codex" && *engine != "claude") || flag.NArg() != 0 {
 		fmt.Fprintln(os.Stderr, "terminal-preview: use -engine codex or -engine claude")
 		os.Exit(2)
 	}
-	valid := map[string]bool{"startup": true, "attention": true, "blocked": true, "concurrent": true, "stale": true, "forecast": true, "security": true, "doctor": true, "help": true, "session": true, "updates": true, "notices": true, "prompt": true}
+	valid := map[string]bool{"startup": true, "attention": true, "blocked": true, "concurrent": true, "stale": true, "forecast": true, "security": true, "doctor": true, "help": true, "session": true, "updates": true, "notices": true, "progress": true, "prompt": true}
 	if !valid[*scene] || (*scene == "security" && *engine != "claude") {
 		fmt.Fprintln(os.Stderr, "terminal-preview: unknown scene; security requires Claude")
 		os.Exit(2)
@@ -78,6 +78,18 @@ func preview(engine, scene string, minimal bool) {
 		} {
 			cdx.PrintNotice(os.Stdout, caps, n)
 		}
+		return
+	case "progress":
+		title := strings.ToUpper(engine[:1]) + engine[1:]
+		p := cdx.StartProgress(os.Stdout, caps, prefix, cdx.TopicSync, "syncing with orchestrator")
+		time.Sleep(700 * time.Millisecond)
+		p.Done("synced with orchestrator")
+		p = cdx.StartProgress(os.Stdout, caps, prefix, cdx.TopicUpload, "uploading credentials")
+		time.Sleep(700 * time.Millisecond)
+		p.Done("credentials uploaded and accepted")
+		p = cdx.StartProgress(os.Stdout, caps, prefix, cdx.TopicUpdate, "installing "+title+" CLI "+version)
+		time.Sleep(700 * time.Millisecond)
+		p.Fail(title + " CLI install failed: download unavailable")
 		return
 	case "prompt":
 		other, otherName := "Claude (clx)", "claude"

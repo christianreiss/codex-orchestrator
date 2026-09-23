@@ -437,9 +437,8 @@ func run(args []string, stdout, stderr io.Writer, choices ...*quotaadvice.Sessio
 		return cmdAuthUploadAuto(ctx, cfg, stdout, stderr)
 	}
 	if sub == "run" || sub == "resume" || sub == "execute" || sub == "exec" || sub == "profile" || (isProfileShorthand(sub) && codex.HasProfile(sub)) {
-		if _, err := codex.FindCLI(); err != nil {
-			printBoundedPlain(stderr, "cdx: "+err.Error(), f.minimal)
-			return 127
+		if exit := ensureCLIForLaunch(ctx, cfg, f, logger, stderr); exit != 0 {
+			return exit
 		}
 	}
 	if exe, exeErr := os.Executable(); exeErr == nil {
@@ -830,6 +829,45 @@ func cmdSync(ctx context.Context, cfg *config.Config, f flags, logger *slog.Logg
 		exit = engineExit
 	}
 	return exit
+}
+
+// ensureCLIForLaunch installs the orchestrator's pinned Codex CLI in the
+// foreground when a launch finds none (a fresh host whose first cron tick has
+// not run yet), then looks again. Interactive or not, the answer comes from
+// the same probe the cron tick uses, so a server that disables automatic
+// installs is honoured. Only when no CLI can be found afterwards does the
+// launch fail with exit 127.
+func ensureCLIForLaunch(ctx context.Context, cfg *config.Config, f flags, logger *slog.Logger, stderr io.Writer) int {
+	if _, err := codex.FindCLI(); err == nil {
+		return 0
+	}
+	var progress *ui.Progress
+	if !f.skipBoot && !f.silent && !f.minimal && !f.debug {
+		theme := ""
+		if cfg.EngineOptions.AdminThemeHint != nil {
+			theme = *cfg.EngineOptions.AdminThemeHint
+		}
+		progress = ui.StartProgress(stderr, ui.DetectCapsFor(stderr, theme), "cdx", ui.TopicUpdate, "Codex CLI not found; installing the fleet version")
+	}
+	defer progress.Clear()
+	installCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	res, installErr := enginecron.EnsureEngineCurrent(installCtx, cfg, logger)
+	cancel()
+	_, findErr := codex.FindCLI()
+	if findErr == nil {
+		progress.Done("Codex CLI " + res.CodexVersion + " installed")
+		return 0
+	}
+	progress.Clear()
+	var details []string
+	switch {
+	case installErr != nil:
+		details = append(details, "automatic install failed: "+installErr.Error())
+	case res.CodexAction == "disable":
+		details = append(details, "automatic CLI installs are disabled by the orchestrator")
+	}
+	ui.Say(stderr, "cdx", ui.ToneFail, ui.TopicUpdate, findErr.Error(), details...)
+	return 127
 }
 
 // ensureEngineForSync brings the Codex CLI itself up to date as part of
@@ -1652,14 +1690,14 @@ func cmdCron(ctx context.Context, cfg *config.Config, args []string, stdout, std
 	switch action {
 	case "install":
 		if err := hostcron.Install(ctx, cfg); err != nil {
-			printBoundedPlain(stderr, "cdx --cron install: "+err.Error(), minimal)
+			printBoundedPlain(stderr, "cdx cron install: "+err.Error(), minimal)
 			return 1
 		}
 		ui.Say(stdout, "cdx", ui.ToneOK, "cron", "installed")
 		return 0
 	case "remove":
 		if err := hostcron.Remove(ctx); err != nil {
-			printBoundedPlain(stderr, "cdx --cron remove: "+err.Error(), minimal)
+			printBoundedPlain(stderr, "cdx cron remove: "+err.Error(), minimal)
 			return 1
 		}
 		ui.Say(stdout, "cdx", ui.ToneOK, "cron", "removed")
@@ -1667,7 +1705,7 @@ func cmdCron(ctx context.Context, cfg *config.Config, args []string, stdout, std
 	case "run":
 		if !hostcron.IsEngineOnly() {
 			if err := hostcron.Run(ctx, cfg, minimal, stdout, stderr); err != nil {
-				printBoundedPlain(stderr, "cxx cron: "+err.Error(), minimal)
+				printBoundedPlain(stderr, "cdx cron: "+err.Error(), minimal)
 				return 1
 			}
 			return 0
@@ -1675,7 +1713,7 @@ func cmdCron(ctx context.Context, cfg *config.Config, args []string, stdout, std
 		// Non-interactive auto-update tick.
 		res, err := enginecron.TickWithOptions(ctx, cfg, minimal)
 		if err != nil {
-			printBoundedPlain(stderr, "cdx --cron: "+err.Error(), minimal)
+			printBoundedPlain(stderr, "cdx cron: "+err.Error(), minimal)
 			return 1
 		}
 		printBoundedPlain(stdout, formatCronResult(res, minimal), minimal)

@@ -6,7 +6,7 @@
   import Layers from "@lucide/svelte/icons/layers";
   import { toast } from "svelte-sonner";
   import { createQuickRegisterMutation } from "$lib/api/hosts";
-  import { CopyButton } from "$lib/components/ui/copy-button";
+  import { ReadonlyCodeBlock } from "$lib/components/ui/code-block";
   import { autoCopyText } from "$lib/utils/clipboard";
   import type { HostRegisterResponse } from "$lib/api/types";
 
@@ -50,8 +50,8 @@
     <Dialog.Header>
       <Dialog.Title>Quick VM</Dialog.Title>
       <Dialog.Description>
-        Spin up a throwaway, temporary host with a single click. The token expires
-        in two hours.
+        Register a throwaway host with a single click. The install command works for
+        30 minutes; the host itself expires after 2 hours.
       </Dialog.Description>
     </Dialog.Header>
 
@@ -65,8 +65,8 @@
         >
           <Cpu class="h-7 w-7 text-persona-codex" />
           <span class="text-sm font-semibold">Codex only</span>
-          <span class="text-[11px] text-muted-foreground">Default engine</span>
-          {#if pending === "codex"}<span class="text-[11px] text-muted-foreground">Working…</span>{/if}
+          <span class="text-xs text-muted-foreground">Default engine</span>
+          {#if pending === "codex"}<span class="text-xs text-muted-foreground">Working…</span>{/if}
         </button>
         <button
           type="button"
@@ -76,8 +76,8 @@
         >
           <Sparkles class="h-7 w-7 text-persona-claude" />
           <span class="text-sm font-semibold">Claude only</span>
-          <span class="text-[11px] text-muted-foreground">Claude Code</span>
-          {#if pending === "claude"}<span class="text-[11px] text-muted-foreground">Working…</span>{/if}
+          <span class="text-xs text-muted-foreground">Claude Code</span>
+          {#if pending === "claude"}<span class="text-xs text-muted-foreground">Working…</span>{/if}
         </button>
         <button
           type="button"
@@ -87,28 +87,23 @@
         >
           <Layers class="h-7 w-7 text-violet-500" />
           <span class="text-sm font-semibold">Both</span>
-          <span class="text-[11px] text-muted-foreground">Codex + Claude</span>
-          {#if pending === "both"}<span class="text-[11px] text-muted-foreground">Working…</span>{/if}
+          <span class="text-xs text-muted-foreground">Codex + Claude</span>
+          {#if pending === "both"}<span class="text-xs text-muted-foreground">Working…</span>{/if}
         </button>
       </div>
     {:else}
       <div class="space-y-3 py-2">
         <div class="rounded-md border border-success/25 bg-success-muted px-3 py-2 text-sm">
-          Provisioned <span class="font-mono">{result.host.fqdn ?? "(unknown)"}</span>. Token expires {new Date(result.installer.expires_at).toLocaleString()}.
+          Provisioned <span class="font-mono">{result.host.fqdn ?? "(unknown)"}</span>. The command expires {new Date(result.installer.expires_at).toLocaleString()}.
         </div>
-        <label class="block text-xs font-medium text-muted-foreground" for="quickvm-installer">Installer command</label>
-        <textarea
+        <ReadonlyCodeBlock
           id="quickvm-installer"
-          readonly
-          class="h-32 w-full resize-none rounded-md border border-input bg-muted/40 p-3 font-mono text-xs"
+          label="Installer command"
           value={result.installer.command}
-        ></textarea>
-        <div class="flex justify-between gap-2">
-          <CopyButton
-            value={result.installer.command}
-            label="Copy command"
-            toastMessage="Installer command copied"
-          />
+          wrap
+          rows={4}
+        />
+        <div class="flex justify-end gap-2">
           <Button variant="secondary" onclick={() => (result = null)}>Spin another</Button>
         </div>
       </div>

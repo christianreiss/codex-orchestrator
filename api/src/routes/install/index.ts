@@ -16,6 +16,7 @@ import { hostEnginesList } from '../../services/host-engine-policy.js';
 import { createRunnerValidationService } from '../../services/runner-validation.js';
 import { createRunnerClient } from '../../services/runner-client.js';
 import { createCanonicalAuthStoreService } from '../../services/canonical-auth-store.js';
+import { wsPublisher } from '../../ws/publisher.js';
 
 const INSTALL_TOKEN_RE = /^(?:[a-f0-9]{32}|[a-f0-9-]{36})$/;
 // Seed-auth tokens are minted as randomBytes(32).toString('hex') → 64 hex chars
@@ -39,9 +40,10 @@ const SEED_TOKEN_RE = /^(?:[a-f0-9]{32}|[a-f0-9]{64}|[a-f0-9-]{36})$/;
  * Install tokens are 32 hex chars or a 36-char UUID; seed tokens additionally
  * accept the 64-hex shape; all are single-use and expire per the row's
  * `expires_at`.
- * Bash error scripts get a `text/x-shellscript` content type with non-200
- * status, so the wrapper's `curl | sh` surfaces the message in the user's
- * terminal.
+ * Error scripts are served as HTTP 200 `text/x-shellscript` that prints the
+ * message to stderr and exits 1, with the machine-readable reason in
+ * `X-Installer-Error`. A 4xx would make `curl -fsSL … | sh` swallow the body
+ * and hand `sh` an empty script, so the operator saw nothing at all.
  */
 export async function registerInstallRoutes(app: FastifyInstance, ctx: RouteContext): Promise<void> {
   const installSvc = createInstallTokenService({ db: ctx.db, keyring: ctx.keyring });
@@ -54,15 +56,15 @@ export async function registerInstallRoutes(app: FastifyInstance, ctx: RouteCont
   });
 
   const installHandler = async (token: string, reply: FastifyReply): Promise<void> => {
-    if (!INSTALL_TOKEN_RE.test(token)) return shellishError(reply, 'Installer not found', 404);
+    if (!INSTALL_TOKEN_RE.test(token)) return shellishError(reply, 'Installer not found', 'installer_not_found');
     const row = await installSvc.findInstall(token);
-    if (!row) return shellishError(reply, 'Installer not found', 404);
-    if (row.usedAt) return shellishError(reply, 'Installer already used', 410, row.expiresAt);
-    if (tokenExpired(row.expiresAt)) return shellishError(reply, 'Installer expired', 410, row.expiresAt);
+    if (!row) return shellishError(reply, 'Installer not found', 'installer_not_found');
+    if (row.usedAt) return shellishError(reply, 'Installer already used', 'installer_used', row.expiresAt);
+    if (tokenExpired(row.expiresAt)) return shellishError(reply, 'Installer expired', 'installer_expired', row.expiresAt);
 
     const hostRows = await ctx.db.select().from(hostsTable).where(eq(hostsTable.id, row.hostId)).limit(1);
     const host = hostRows[0];
-    if (!host) return shellishError(reply, 'Installer host missing', 404);
+    if (!host) return shellishError(reply, 'Installer host missing', 'installer_host_missing');
 
     let apiKey = row.apiKey;
     if (!apiKey) {
@@ -70,16 +72,18 @@ export async function registerInstallRoutes(app: FastifyInstance, ctx: RouteCont
       if (fallback) apiKey = fallback;
     }
     const baseUrl = resolveBaseUrl(row.baseUrl, ctx);
-    if (!baseUrl) return shellishError(reply, 'Installer base URL invalid', 500, row.expiresAt);
+    if (!baseUrl) return shellishError(reply, 'Installer base URL invalid', 'installer_base_url_invalid', row.expiresAt);
 
     const claimed = await installSvc.markInstallUsed(row.id);
-    if (!claimed) return shellishError(reply, 'Installer already used', 410, row.expiresAt);
+    if (!claimed) return shellishError(reply, 'Installer already used', 'installer_used', row.expiresAt);
     await ctx.db.insert(logsTable).values({
       hostId: row.hostId,
       action: 'install.v2.token.consume',
       details: JSON.stringify({ token: token.slice(0, 8) + '…', engine: row.engine }),
       createdAt: nowIso(),
     });
+    // The host list shows installer state; tell open consoles it just changed.
+    wsPublisher.publish('host.updated', { id: host.id, fqdn: host.fqdn, engine: row.engine });
 
     let body: string;
     try {
@@ -95,7 +99,7 @@ export async function registerInstallRoutes(app: FastifyInstance, ctx: RouteCont
       return shellishError(
         reply,
         err instanceof Error ? err.message : 'installer build failed',
-        500,
+        'installer_build_failed',
         row.expiresAt,
       );
     }
@@ -110,14 +114,14 @@ export async function registerInstallRoutes(app: FastifyInstance, ctx: RouteCont
   );
 
   const seedScriptHandler = async (token: string, reply: FastifyReply): Promise<void> => {
-    if (!SEED_TOKEN_RE.test(token)) return shellishSeedError(reply, 'Seed token not found', 404);
+    if (!SEED_TOKEN_RE.test(token)) return shellishSeedError(reply, 'Seed token not found', 'seed_not_found');
     const row = await installSvc.findSeed(token);
-    if (!row) return shellishSeedError(reply, 'Seed token not found', 404);
-    if (row.usedAt) return shellishSeedError(reply, 'Seed token already used', 410, row.expiresAt);
+    if (!row) return shellishSeedError(reply, 'Seed token not found', 'seed_not_found');
+    if (row.usedAt) return shellishSeedError(reply, 'Seed token already used', 'seed_used', row.expiresAt);
     if (tokenExpired(row.expiresAt))
-      return shellishSeedError(reply, 'Seed token expired', 410, row.expiresAt);
+      return shellishSeedError(reply, 'Seed token expired', 'seed_expired', row.expiresAt);
     const baseUrl = resolveBaseUrl(row.baseUrl, ctx);
-    if (!baseUrl) return shellishSeedError(reply, 'Seed base URL invalid', 500, row.expiresAt);
+    if (!baseUrl) return shellishSeedError(reply, 'Seed base URL invalid', 'seed_base_url_invalid', row.expiresAt);
 
     let body: string;
     try {
@@ -126,7 +130,7 @@ export async function registerInstallRoutes(app: FastifyInstance, ctx: RouteCont
       return shellishSeedError(
         reply,
         err instanceof Error ? err.message : 'seed build failed',
-        500,
+        'seed_build_failed',
         row.expiresAt,
       );
     }
@@ -229,10 +233,12 @@ function emitSeed(reply: FastifyReply, body: string, status: number, expiresAt?:
   reply.status(status).send(body);
 }
 
-function shellishError(reply: FastifyReply, message: string, status = 400, expiresAt?: string): void {
-  emitInstaller(reply, shellErrorScript(message), status, expiresAt);
+function shellishError(reply: FastifyReply, message: string, code: string, expiresAt?: string): void {
+  reply.header('x-installer-error', code);
+  emitInstaller(reply, shellErrorScript(message), 200, expiresAt);
 }
 
-function shellishSeedError(reply: FastifyReply, message: string, status = 400, expiresAt?: string): void {
-  emitSeed(reply, shellErrorScript(message), status, expiresAt);
+function shellishSeedError(reply: FastifyReply, message: string, code: string, expiresAt?: string): void {
+  reply.header('x-installer-error', code);
+  emitSeed(reply, shellErrorScript(message), 200, expiresAt);
 }

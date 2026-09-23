@@ -12,7 +12,7 @@
 
   let { session, class: className }: Props = $props();
 
-  const scopeLabel = $derived(session.secure ? "Secure (mTLS)" : "Insecure (HTTP API key only)");
+  const scopeLabel = $derived(session.secure ? "Trusted (no approval window)" : "Insecure (approval window required)");
   const ScopeIcon = $derived(session.secure ? ShieldCheck : ShieldAlert);
   const scopeTone = $derived(
     session.secure ? "text-success" : "text-warning",

@@ -18,6 +18,9 @@ import (
 // EnsureClaude makes sure the locally-installed Claude CLI is at the target
 // version (or just installed at all). enforceExact=true allows downgrades to
 // the pinned version; an already-matching local version is always a no-op.
+//
+// Legacy and test-only: no production path calls it. Cron, peer reconcile,
+// sync and the foreground launch all use EnsureClaudeBackground.
 func EnsureClaude(ctx context.Context, target string, enforceExact bool, logger *slog.Logger) error {
 	if isManagedClaudeCLI(cachedClaudeBin()) {
 		return EnsureClaudeBackground(ctx, target, enforceExact, logger)

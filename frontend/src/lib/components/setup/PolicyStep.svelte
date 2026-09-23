@@ -18,6 +18,7 @@
   import { Textarea } from "$lib/components/ui/textarea";
   import { Alert, AlertDescription, AlertTitle } from "$lib/components/ui/alert";
   import { agentsApi } from "$lib/api/agents";
+  import StepQueryState from "./StepQueryState.svelte";
   import type { AgentPolicyComposition } from "$lib/api/types";
 
   const qc = useQueryClient();
@@ -70,13 +71,13 @@
 </script>
 
 <div class="space-y-4">
-  {#if $doc.isLoading}
-    <p class="text-sm text-muted-foreground">Loading the fleet policy…</p>
-  {:else if $doc.isError}
-    <Alert variant="destructive">
-      <AlertTitle>Could not load the fleet policy</AlertTitle>
-      <AlertDescription>{$doc.error.message}</AlertDescription>
-    </Alert>
+  {#if $doc.isLoading || $doc.isError}
+    <StepQueryState
+      loading={$doc.isLoading}
+      error={$doc.error?.message ?? null}
+      subject="the fleet policy"
+      onRetry={() => $doc.refetch()}
+    />
   {:else}
     <Alert>
       <AlertTitle>Already configured</AlertTitle>
@@ -106,7 +107,7 @@
         placeholder="Anything specific to your fleet — deploy conventions, naming, which environments are off limits."
         bind:value={houseRules}
       />
-      <p class="text-[11px] text-muted-foreground">
+      <p class="text-xs text-muted-foreground">
         Appended to the policy every host receives. Leave blank to keep the default as-is;
         the full builder lives on the Instructions page.
       </p>

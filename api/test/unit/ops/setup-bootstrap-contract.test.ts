@@ -97,6 +97,45 @@ describe('fresh-install setup contract', () => {
     expect(install.indexOf('run_checks')).toBeLessThan(install.lastIndexOf('READY'));
   });
 
+  it('derives the data root from the public URL, so urls runs first', () => {
+    const steps = install.slice(install.indexOf('ALL_STEPS=('), install.indexOf(')', install.indexOf('ALL_STEPS=(')));
+    expect(steps.indexOf('urls')).toBeLessThan(steps.indexOf('dataroot'));
+    expect(install).toContain('default_root="/var/docker_data/$domain"');
+    // .env.example ships a placeholder DATA_ROOT that must not outrank it.
+    expect(install).toContain('[[ -n "$current" && "$current" != *example.com* ]]');
+  });
+
+  it('never prompts for the runner URL', () => {
+    expect(install).not.toContain('ask runner_url');
+    expect(install).toContain('env_set AUTH_RUNNER_CODEX_BASE_URL');
+  });
+
+  it('requires --tls in --non-interactive mode instead of defaulting to none', () => {
+    expect(install).toContain('MISSING_INPUTS+=("TLS mode (--tls acme|file|selfsigned|none)")');
+    expect(install).not.toMatch(/elif \(\( NON_INTERACTIVE \)\); then\n\s*mode="none"/);
+  });
+
+  it('reads the failing checks out of a 503 /readyz instead of calling it unreachable', () => {
+    // `curl -f` discards the body of the 503 that carries the diagnosis.
+    for (const call of [
+      'fetch_url "$API_LOCAL/readyz" 30 any',
+      'fetch_url "$API_LOCAL/readyz" 1 any',
+    ]) {
+      expect(install).toContain(call);
+    }
+    expect(install).toContain('report_readyz_failures "$status" warn');
+    expect(install).toContain('printf \'        fix: %s\\n\' "$(remedy_for "$id")"');
+    // owner_exists relies on the 401 after the claim, so it keeps -f.
+    expect(install).toContain('fetch_url "$API_LOCAL/admin/setup/status" 1)');
+  });
+
+  it('validates the owner like the server does and surfaces its error message', () => {
+    expect(install).toContain('username="${username,,}"');
+    expect(install).toContain('^[a-z0-9._-]{3,64}$');
+    expect(install).toContain('"message":"');
+    expect(install).toContain('/admin/setup${C_OFF}');
+  });
+
   it('exports the env file into compose rather than only naming it', () => {
     // Keys listed under `environment:` shadow `env_file:`, and their
     // `${VAR:-default}` interpolates from compose's own environment. Naming

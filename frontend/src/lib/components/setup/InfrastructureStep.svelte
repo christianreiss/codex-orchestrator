@@ -35,7 +35,7 @@
 
 <div class="space-y-4">
   {#each warnings as warning}
-    <Alert>
+    <Alert variant="warning">
       <AlertTitle>Attention</AlertTitle>
       <AlertDescription>{warning}</AlertDescription>
     </Alert>
@@ -46,7 +46,7 @@
       <li class="flex items-start justify-between gap-4 p-3 text-sm">
         <span class="flex items-center gap-2">
           <span
-            class={check.ok ? "text-emerald-600 dark:text-emerald-400" : "text-destructive"}
+            class={check.ok ? "text-success" : "text-destructive"}
             aria-hidden="true">{check.ok ? "✓" : "✕"}</span
           >
           <span class="font-medium">{check.label}</span>

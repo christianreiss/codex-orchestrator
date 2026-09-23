@@ -571,6 +571,7 @@ interface FakeDb {
   update: (table: unknown) => unknown;
   delete: (table: unknown) => unknown;
   transaction: <T>(fn: (tx: FakeDb) => Promise<T>) => Promise<T>;
+  execute: (query: unknown) => Promise<unknown>;
 }
 
 function makeFakeDb(store: AdminStore): FakeDb {
@@ -592,6 +593,10 @@ function makeFakeDb(store: AdminStore): FakeDb {
     // callback just runs against the same fake handle.
     async transaction<T>(fn: (tx: FakeDb) => Promise<T>): Promise<T> {
       return fn(db);
+    },
+    // Raw SQL is only used for the readiness `SELECT 1` probe.
+    async execute(): Promise<unknown> {
+      return [[{ '1': 1 }]];
     },
   };
   return db;

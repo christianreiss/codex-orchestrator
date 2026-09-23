@@ -35,7 +35,8 @@ import { wsPublisher } from '../ws/publisher.js';
 const MIN_WINDOW = 0;
 const MAX_WINDOW = 480;
 const DEFAULT_WINDOW = 10;
-const PROVISIONING_WINDOW_MINUTES = 30;
+/** Window a freshly registered insecure host gets to install and sync. */
+export const PROVISIONING_WINDOW_MINUTES = 30;
 const APPROVAL_DENY_COOLDOWN_SECONDS = 60;
 
 /** A pending approval auto-denies once it has been waiting this long. */

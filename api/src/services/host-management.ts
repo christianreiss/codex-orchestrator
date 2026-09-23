@@ -32,6 +32,7 @@ import {
 } from './config-normalizer.js';
 import { coerceCodexVersionToMinimum, isSemanticVersion } from './client-versions.js';
 import { suspendAgentMessagingRuntimeLocked } from './agent-messaging.js';
+import { PROVISIONING_WINDOW_MINUTES } from './insecure-window.js';
 
 // ────────────────────────────────────────────────────────────────────────────
 // Constants (mirrored from legacy PHP)
@@ -40,7 +41,7 @@ import { suspendAgentMessagingRuntimeLocked } from './agent-messaging.js';
 export const MIN_INSECURE_WINDOW_MINUTES = 0;
 export const MAX_INSECURE_WINDOW_MINUTES = 480;
 export const DEFAULT_INSECURE_WINDOW_MINUTES = 10;
-export const PROVISIONING_WINDOW_MINUTES = 30;
+export { PROVISIONING_WINDOW_MINUTES };
 export const QUICK_REGISTER_TTL_SECONDS = 7200;
 export const INSTALL_TOKEN_TTL_SECONDS_DEFAULT = 1800;
 

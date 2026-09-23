@@ -27,8 +27,10 @@ export const DEFAULT_INVALIDATIONS: WsInvalidationMap = {
   "mcp.invoked": [["logs", "mcp"]],
 
   // Hosts + overview dashboard counters
-  "host.updated": [["hosts"], ["overview"], ["agent-messaging"]],
-  "host.created": [["hosts"], ["overview"]],
+  // `setup` too: the checklist counts registered and synced hosts, and the
+  // installer-progress view in the wizard reads both.
+  "host.updated": [["hosts"], ["overview"], ["agent-messaging"], ["setup"]],
+  "host.created": [["hosts"], ["overview"], ["setup"]],
   "host.deleted": [["hosts"], ["overview"], ["agent-messaging"]],
   "host.pruned": [["hosts"], ["overview"], ["agent-messaging"]],
 

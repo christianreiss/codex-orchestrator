@@ -28,6 +28,7 @@ export interface DbFake {
   update(table: unknown): unknown;
   delete(table: unknown): unknown;
   transaction<T>(cb: (tx: DbFake) => Promise<T>, config?: unknown): Promise<T>;
+  execute(query: unknown): Promise<unknown>;
 }
 
 export function createDbFake(initial: Map<unknown, Row[]> = new Map()): DbFake {
@@ -63,6 +64,11 @@ export function createDbFake(initial: Map<unknown, Row[]> = new Map()): DbFake {
     transaction<T>(cb: (tx: DbFake) => Promise<T>, config?: unknown): Promise<T> {
       fake.transactions.push(config);
       return cb(fake);
+    },
+
+    // Raw SQL is only used for the readiness `SELECT 1` probe.
+    execute(_query: unknown): Promise<unknown> {
+      return Promise.resolve([[{ '1': 1 }]]);
     },
 
     select(_fields?: unknown) {

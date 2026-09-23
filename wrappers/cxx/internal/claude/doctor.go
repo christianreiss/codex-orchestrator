@@ -408,7 +408,7 @@ func checkCron() ui.DoctorRow {
 	if strings.Contains(string(out), "# cxx-managed-cron") {
 		return ui.DoctorRow{Label: "Cron", Tone: ui.ToneOK, Value: "installed (user crontab)"}
 	}
-	return ui.DoctorRow{Label: "Cron", Tone: ui.ToneWarn, Value: "not installed (run `clx --cron install`)"}
+	return ui.DoctorRow{Label: "Cron", Tone: ui.ToneWarn, Value: "not installed (run `clx cron install`)"}
 }
 
 func checkSSHEnv() ui.DoctorRow {

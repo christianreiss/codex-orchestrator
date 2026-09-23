@@ -9,10 +9,10 @@
    *
    * This is a wizard answer, not a server default: `DEFAULT_HOST_ENGINES` is
    * env-only and needs a restart. The answer picks which auth panels the next
-   * step renders and pre-selects engines on the host step.
+   * step renders, pre-selects engines on the host step, and becomes setup
+   * status's `default_engines`, which drives the checklist's auth items.
    */
-  import { Badge } from "$lib/components/ui/badge";
-  import { cn } from "$lib/utils/cn";
+  import { ChoiceCard } from "$lib/components/ui/choice-card";
 
   type Engine = "codex" | "claude";
   type Choice = "none" | "codex" | "claude" | "both";
@@ -61,24 +61,16 @@
 </script>
 
 <div class="space-y-3">
-  {#each CHOICES as choice (choice.id)}
-    {@const active = selected === choice.id}
-    <button
-      type="button"
-      onclick={() => choose(choice)}
-      aria-pressed={active}
-      class={cn(
-        "flex w-full items-start justify-between gap-4 rounded-lg border p-4 text-left transition-colors",
-        active ? "border-primary bg-primary/5" : "hover:bg-muted/50",
-      )}
-    >
-      <span>
-        <span class="block text-sm font-medium">{choice.label}</span>
-        <span class="block text-xs text-muted-foreground">{choice.detail}</span>
-      </span>
-      {#if active}<Badge variant="secondary">Selected</Badge>{/if}
-    </button>
-  {/each}
+  <div role="radiogroup" aria-label="Engines" class="space-y-3">
+    {#each CHOICES as choice (choice.id)}
+      <ChoiceCard
+        title={choice.label}
+        description={choice.detail}
+        checked={selected === choice.id}
+        onSelect={() => choose(choice)}
+      />
+    {/each}
+  </div>
 
   <p class="text-xs text-muted-foreground">
     Nothing is locked in. Engines are chosen per host at registration, and credentials can

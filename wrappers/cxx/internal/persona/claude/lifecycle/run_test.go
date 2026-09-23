@@ -925,6 +925,7 @@ printf '%s' '{"claudeAiOauth":{"accessToken":"interactive-login","refreshToken":
 	})
 	previousTerminal := lifecycleIsTerminal
 	lifecycleIsTerminal = func(int) bool { return true }
+	stubRecoveryPrompt(t, "\n")
 	t.Cleanup(func() { lifecycleIsTerminal = previousTerminal })
 
 	var recoverErr error
@@ -941,11 +942,8 @@ printf '%s' '{"claudeAiOauth":{"accessToken":"interactive-login","refreshToken":
 	if recoverErr != nil {
 		t.Fatal(recoverErr)
 	}
-	if strings.Contains(stderr, "[y/N]") {
-		t.Fatalf("direct recovery retained confirmation prompt: %q", stderr)
-	}
-	if !strings.Contains(stderr, "Starting `claude auth login`") {
-		t.Fatalf("direct login was not announced: %q", stderr)
+	if !strings.Contains(stderr, "Run `claude auth login` now? [Y/n]") {
+		t.Fatalf("recovery did not confirm the login (default yes): %q", stderr)
 	}
 	if !claude.HasUsableAuth() {
 		t.Fatal("direct concurrent recovery did not leave runnable auth")
@@ -997,6 +995,7 @@ printf '%s' '{"claudeAiOauth":{"accessToken":"submitted-login","refreshToken":"r
 	}
 	previousTerminal := lifecycleIsTerminal
 	lifecycleIsTerminal = func(int) bool { return true }
+	stubRecoveryPrompt(t, "\n")
 	t.Cleanup(func() { lifecycleIsTerminal = previousTerminal })
 
 	var recoverErr error
@@ -1063,6 +1062,7 @@ printf '%s' '{"claudeAiOauth":{"accessToken":"fresh-offline-login","refreshToken
 	}
 	previousTerminal := lifecycleIsTerminal
 	lifecycleIsTerminal = func(int) bool { return true }
+	stubRecoveryPrompt(t, "\n")
 	t.Cleanup(func() { lifecycleIsTerminal = previousTerminal })
 
 	if err := recoverClaudeAuth(context.Background(), &config.Config{}, client, logger, "logged out", nil); err != nil {
@@ -1111,6 +1111,7 @@ printf '%s' '{"metadata":"changed","claudeAiOauth":{"refreshToken":"same-refresh
 	}
 	previousTerminal := lifecycleIsTerminal
 	lifecycleIsTerminal = func(int) bool { return true }
+	stubRecoveryPrompt(t, "\n")
 	t.Cleanup(func() { lifecycleIsTerminal = previousTerminal })
 
 	err = recoverClaudeAuth(context.Background(), &config.Config{}, client, logger, "logged out", nil)
@@ -1159,6 +1160,7 @@ func TestRecoverClaudeAuthNoOpLoginCannotBlessExpiredOAuth(t *testing.T) {
 	}
 	previousTerminal := lifecycleIsTerminal
 	lifecycleIsTerminal = func(int) bool { return true }
+	stubRecoveryPrompt(t, "\n")
 	t.Cleanup(func() { lifecycleIsTerminal = previousTerminal })
 
 	err = recoverClaudeAuth(context.Background(), &config.Config{}, client, logger, "expired", nil)
@@ -1746,9 +1748,55 @@ func captureStderr(t *testing.T, fn func()) string {
 	return string(out)
 }
 
+func stubRecoveryPrompt(t *testing.T, answer string) {
+	t.Helper()
+	previous := promptIn
+	promptIn = strings.NewReader(answer)
+	t.Cleanup(func() { promptIn = previous })
+}
+
 func writeTestScript(t *testing.T, path, body string) {
 	t.Helper()
 	if err := os.WriteFile(path, []byte(body), 0o755); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// TestRecoverClaudeAuthNeverStartsLoginWithoutConsent pins the unified recovery
+// gate: no terminal means no prompt and no login (an installer's
+// `clx sync </dev/null`), and a declined prompt on a terminal starts nothing.
+func TestRecoverClaudeAuthNeverStartsLoginWithoutConsent(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		terminal bool
+		answer   string
+		wantErr  error
+	}{
+		{name: "no terminal", terminal: false, wantErr: errAuthRecoveryNonInteractive},
+		{name: "declined", terminal: true, answer: "n\n", wantErr: errAuthRecoveryDeclined},
+		{name: "cancelled", terminal: true, answer: "", wantErr: errAuthRecoveryDeclined},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			home := t.TempDir()
+			t.Setenv("HOME", home)
+			marker := filepath.Join(home, "login-started")
+			bin := filepath.Join(t.TempDir(), "claude")
+			writeTestScript(t, bin, "#!/bin/sh\ntouch \""+marker+"\"\n")
+			t.Setenv("CLX_CLAUDE_BIN", bin)
+			previousTerminal := lifecycleIsTerminal
+			lifecycleIsTerminal = func(int) bool { return tc.terminal }
+			t.Cleanup(func() { lifecycleIsTerminal = previousTerminal })
+			stubRecoveryPrompt(t, tc.answer)
+			var err error
+			captureStderr(t, func() {
+				err = recoverClaudeAuth(context.Background(), &config.Config{}, nil, slog.New(slog.DiscardHandler), "Claude credentials are missing.", nil)
+			})
+			if !errors.Is(err, tc.wantErr) {
+				t.Fatalf("recoverClaudeAuth() = %v, want %v", err, tc.wantErr)
+			}
+			if _, statErr := os.Stat(marker); !os.IsNotExist(statErr) {
+				t.Fatalf("login started without consent: %v", statErr)
+			}
+		})
 	}
 }
