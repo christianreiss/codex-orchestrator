@@ -297,21 +297,38 @@ func QuotaCompareLines(caps Caps, rows []QuotaCompare, width int) []string {
 	}
 	// label + gap + bar + gap + "100%" + gap + meta
 	barWidth := min(max(width-labelWidth-metaWidth-10, 10), 20)
+	// The head row (label, bar, percentage) must fit on its own; on narrow
+	// terminals the bar shrinks and finally disappears rather than overflow.
+	barWidth = min(barWidth, width-labelWidth-8)
 	lines := make([]string, 0, len(rows))
 	for i, r := range rows {
 		pct := fmt.Sprintf("%3d%%", clampPct(r.Used))
+		bar := ""
+		if barWidth >= 3 {
+			bar = buildBar(caps, r.Used, barWidth, 0, 0) + "  "
+		}
 		head := p.Bold + PadRight(inlineFor(caps, r.Label), labelWidth) + p.Reset + "  " +
-			buildBar(caps, r.Used, barWidth, 0, 0) + "  " +
-			tonePalette(caps, classifyPct(r.Used, 0, 0)) + pct + p.Reset
+			bar + tonePalette(caps, classifyPct(r.Used, 0, 0)) + pct + p.Reset
 		if meta := strings.Join(metas[i], sep); VisibleWidth(head)+2+VisibleWidth(meta) <= width {
 			lines = append(lines, head+"  "+meta)
 			continue
 		}
 		lines = append(lines, head)
-		indent := strings.Repeat(" ", labelWidth+2)
+		// Hang metadata under the bar, unless a single part would then overflow
+		// a narrow terminal; drop the indent first, truncate as a last resort.
+		hang := labelWidth + 2
+		for _, part := range metas[i] {
+			if hang+VisibleWidth(part) > width {
+				hang = 0
+			}
+		}
+		indent := strings.Repeat(" ", hang)
 		cur := ""
 		for _, part := range metas[i] {
-			if cur != "" && labelWidth+2+VisibleWidth(cur+sep+part) > width {
+			if VisibleWidth(part) > width {
+				part = TruncateText(part, width, caps)
+			}
+			if cur != "" && hang+VisibleWidth(cur+sep+part) > width {
 				lines = append(lines, indent+cur)
 				cur = ""
 			}

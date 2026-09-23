@@ -141,12 +141,11 @@ func lineConfirm(caps Caps, q Question) string {
 	return b.String() + " "
 }
 
-// promptWidth leaves one cell for the cursor after the trailing space. Only
-// real terminals wrap; a piped prompt stays on one line like a notice.
+// promptWidth leaves one cell for the cursor after the trailing space. Unlike
+// notices, prompt lines wrap on every destination: options are packed whole,
+// so wrapping never splits a key from its label, and a menu is not a log
+// record anyone greps.
 func promptWidth(caps Caps) int {
-	if !caps.IsTTY {
-		return 1 << 20
-	}
 	w := caps.Columns
 	if w <= 0 {
 		w = 80
