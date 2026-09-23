@@ -116,6 +116,8 @@ describe('openai-models', () => {
 
   it('passes supported models through verbatim', () => {
     expect(resolveRequestedModel('gpt-6-astra')).toBe('gpt-6-astra');
+    expect(resolveRequestedModel('gpt-6-sol')).toBe('gpt-6-sol');
+    expect(resolveRequestedModel('gpt-6-luna')).toBe('gpt-6-luna');
     expect(resolveRequestedModel('gpt-5.6-sol')).toBe('gpt-5.6-sol');
     expect(resolveRequestedModel('gpt-5.6-terra')).toBe('gpt-5.6-terra');
     expect(resolveRequestedModel('gpt-5.6-luna')).toBe('gpt-5.6-luna');
@@ -134,6 +136,8 @@ describe('openai-models', () => {
     expect(list.object).toBe('list');
     expect(list.data.map((m) => m.id)).toEqual([
       'gpt-6-astra',
+      'gpt-6-sol',
+      'gpt-6-luna',
       'gpt-5.6-sol',
       'gpt-5.6-terra',
       'gpt-5.6-luna',

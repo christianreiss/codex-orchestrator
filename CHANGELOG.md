@@ -1,5 +1,9 @@
 # 2026-09-23
 
+- **Codex model catalog: added `gpt-6-sol` and `gpt-6-luna`.** Both are selectable as fleet
+  default and per-host override, and served via `/v1/models`; both default to `medium` effort (Sol
+  up to `ultra`, Luna up to `max`). Mirrors codex-cli 0.156.1. `gpt-5.5` stays offered until its
+  upstream retirement on 2026-10-14.
 - **Insecure-access approval dialog no longer shows dead requests, and was redesigned around the
   decision.**
   - Stale requests are now retired server-side every 10 seconds instead of only when someone reads

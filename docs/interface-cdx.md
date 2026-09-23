@@ -244,6 +244,8 @@ The fleet starts on `gpt-6-astra` at its native `medium` effort.
 | Models | Persistent efforts | Default effort |
 |---|---|---|
 | `gpt-6-astra` | `low`, `medium`, `high`, `xhigh`, `max`, `ultra` | `medium` |
+| `gpt-6-sol` | `low`, `medium`, `high`, `xhigh`, `max`, `ultra` | `medium` |
+| `gpt-6-luna` | `low`, `medium`, `high`, `xhigh`, `max` | `medium` |
 | `gpt-5.6-sol` | `low`, `medium`, `high`, `xhigh`, `max`, `ultra` | `low` |
 | `gpt-5.6-terra` | `low`, `medium`, `high`, `xhigh`, `max`, `ultra` | `medium` |
 | `gpt-5.6-luna` | `low`, `medium`, `high`, `xhigh`, `max` | `medium` |
@@ -252,8 +254,10 @@ The fleet starts on `gpt-6-astra` at its native `medium` effort.
 
 `gpt-5.4-mini` was retired upstream on 2026-08-31 and is no longer offered; a
 stored override naming it heals to `gpt-5.6-luna`, the replacement the Codex
-model catalog names, at the retained `high` migration effort. This table mirrors
-`codex debug models` on codex-cli 0.153.4 (verified 2026-09-06).
+model catalog names, at the retained `high` migration effort. `gpt-5.5` carries an
+upstream `upgrade` block (→ `gpt-5.6-sol`, retiring 2026-10-14) and stays offered
+until then. This table mirrors `codex debug models` on codex-cli 0.156.1
+(verified 2026-09-23).
 
 The GET response's `catalog` is the machine-readable source of truth for these
 model/effort pairs. POST accepts strict

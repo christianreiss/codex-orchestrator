@@ -339,8 +339,8 @@ visible with a choice to load the latest values or discard the draft.
 - Set fleet CLI model defaults from the direct `/admin/engines` workspace. Both
   engine sections call `GET/POST /admin/model-defaults/:engine` and constrain
   effort to the selected model. Codex persists `model` /
-  `model_reasoning_effort` in canonical `config.toml`; Sol/Terra/Luna/GPT-5.5/
-  GPT-5.4/GPT-5.4 mini default to `medium`, while Spark defaults to `high`.
+  `model_reasoning_effort` in canonical `config.toml`; Astra/GPT-6 Sol/GPT-6 Luna/
+  Terra/GPT-5.6 Luna/GPT-5.5 default to `medium`, GPT-5.6 Sol to `low`, while Spark defaults to `high`.
   Claude persists `model` / `effortLevel` in the deep-merged `settings.json`
   partial and defaults to Sonnet 5 at `high`. Fable 5, Opus 5, Opus 4.8, and
   Sonnet 5 persist `low|medium|high|xhigh` with default `high`; Opus 4.7 uses

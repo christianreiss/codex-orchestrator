@@ -49,10 +49,16 @@ export const FORCE_UPGRADE_REASONING_EFFORT = 'high';
  * auth. `gpt-5.3-codex-spark` is `supported_in_api: false` yet fully servable
  * on that path.
  *
- * Verified against codex-cli 0.153.4, 2026-09-06.
+ * `gpt-5.5` has grown an `upgrade` block (→ `gpt-5.6-sol`, retiring
+ * 2026-10-14) but stays selectable here until that date; move it to
+ * LEGACY_MODEL_UPGRADES once retired.
+ *
+ * Verified against codex-cli 0.156.1, 2026-09-23.
  */
 export const SUPPORTED_MODELS: readonly string[] = [
   'gpt-6-astra',
+  'gpt-6-sol',
+  'gpt-6-luna',
   'gpt-5.6-sol',
   'gpt-5.6-terra',
   'gpt-5.6-luna',
@@ -115,6 +121,8 @@ export const REASONING_EFFORTS: readonly string[] = [
 
 export const MODEL_REASONING_EFFORTS: Readonly<Record<string, readonly string[]>> = {
   'gpt-6-astra': ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
+  'gpt-6-sol': ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
+  'gpt-6-luna': ['low', 'medium', 'high', 'xhigh', 'max'],
   'gpt-5.6-sol': ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
   'gpt-5.6-terra': ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
   'gpt-5.6-luna': ['low', 'medium', 'high', 'xhigh', 'max'],
@@ -124,10 +132,12 @@ export const MODEL_REASONING_EFFORTS: Readonly<Record<string, readonly string[]>
 
 /**
  * `default_reasoning_level` as reported by the Codex CLI model catalog.
- * Verified against `codex debug models` on codex-cli 0.153.4, 2026-09-06.
+ * Verified against `codex debug models` on codex-cli 0.156.1, 2026-09-23.
  */
 export const CODEX_MODEL_DEFAULT_REASONING_EFFORTS: Readonly<Record<string, string>> = {
   'gpt-6-astra': 'medium',
+  'gpt-6-sol': 'medium',
+  'gpt-6-luna': 'medium',
   'gpt-5.6-sol': 'low',
   'gpt-5.6-terra': 'medium',
   'gpt-5.6-luna': 'medium',

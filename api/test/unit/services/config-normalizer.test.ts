@@ -39,6 +39,8 @@ describe('config-normalizer constants', () => {
     // `codex exec`, not OpenAI's platform API.
     expect(SUPPORTED_MODELS).toEqual([
       'gpt-6-astra',
+      'gpt-6-sol',
+      'gpt-6-luna',
       'gpt-5.6-sol',
       'gpt-5.6-terra',
       'gpt-5.6-luna',
@@ -52,9 +54,11 @@ describe('config-normalizer constants', () => {
   });
 
   it('matches the current Codex CLI model effort catalog and defaults', () => {
-    // Mirrors `codex debug models` on codex-cli 0.153.4, 2026-09-06.
+    // Mirrors `codex debug models` on codex-cli 0.156.1, 2026-09-23.
     expect(MODEL_REASONING_EFFORTS).toEqual({
       'gpt-6-astra': ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
+      'gpt-6-sol': ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
+      'gpt-6-luna': ['low', 'medium', 'high', 'xhigh', 'max'],
       'gpt-5.6-sol': ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
       'gpt-5.6-terra': ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
       'gpt-5.6-luna': ['low', 'medium', 'high', 'xhigh', 'max'],
@@ -63,6 +67,8 @@ describe('config-normalizer constants', () => {
     });
     expect(CODEX_MODEL_DEFAULT_REASONING_EFFORTS).toEqual({
       'gpt-6-astra': 'medium',
+      'gpt-6-sol': 'medium',
+      'gpt-6-luna': 'medium',
       // Sol's catalog `default_reasoning_level` is `low`, not `medium`.
       'gpt-5.6-sol': 'low',
       'gpt-5.6-terra': 'medium',

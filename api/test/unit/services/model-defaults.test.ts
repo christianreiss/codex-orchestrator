@@ -35,6 +35,16 @@ describe('ModelDefaultsService', () => {
         default_effort: 'medium',
       },
       {
+        model: 'gpt-6-sol',
+        persistent_efforts: ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
+        default_effort: 'medium',
+      },
+      {
+        model: 'gpt-6-luna',
+        persistent_efforts: ['low', 'medium', 'high', 'xhigh', 'max'],
+        default_effort: 'medium',
+      },
+      {
         model: 'gpt-5.6-sol',
         persistent_efforts: ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
         default_effort: 'low',
