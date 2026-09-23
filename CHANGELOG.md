@@ -1,5 +1,6 @@
 # 2026-09-23
 
+- **Hotfix: IPv6-bound hosts rejected with `ip_mismatch` since wrapper 0.8.14.** 47 hosts were bound IPv6-only and now dial over IPv4; migration `0033` releases those bindings so each host rebinds on its next request (same as *Release IP binding*).
 - **Engine enable/disable applies on the next `cdx`/`clx` launch (wrapper 0.9.2).** A changed `/auth` engine set queues maintenance past its cooldown instead of waiting up to 15 minutes.
 - **Host installer adopts the `cxx` terminal UI.** `/install/{token}` shows a host card, wrapper notice lines and engine badges on UTF-8 terminals; piped/`LC_ALL=C`/`TERM=dumb` output unchanged.
 - **Insecure approvals alert moved to the sidebar.** Amber nav item with count linking to `/hosts?insecure=1` on every page; the Overview banner is gone.

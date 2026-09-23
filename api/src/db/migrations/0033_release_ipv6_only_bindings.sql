@@ -1,0 +1,16 @@
+-- Release IPv6-only host IP bindings so they rebind on the next request.
+--
+-- Wrapper 0.8.14 dials the orchestrator over IPv4 first (58005007) to stop
+-- IPv6 privacy-address churn from tripping `ip_mismatch`. It assumed almost
+-- every host was bound over IPv4; on 2026-09-23 47 of 127 hosts were bound
+-- IPv6-only, and every one of them now arrives over IPv4, hits the "other
+-- family is bound" branch of enforceIpBinding and is rejected with
+-- `ip_mismatch` — including on the self-update path, so they cannot recover.
+--
+-- Clearing `ip6` where `ip4` is NULL is the same as an admin pressing
+-- "Release IP binding" on each of those hosts: the next authenticated request
+-- binds its source address through the existing unbound-host path (IPv4 for
+-- dual-stack hosts, IPv6 again for hosts without an IPv4 route). Rows with an
+-- IPv4 binding are untouched. Re-running it only releases rows that are still
+-- IPv6-only, which is harmless.
+UPDATE hosts SET ip6 = NULL WHERE ip4 IS NULL AND ip6 IS NOT NULL;
