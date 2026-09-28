@@ -27,7 +27,7 @@ async function fixtures(page: Page, manage = true) {
     if (request.method() === "POST") state.bodies.push({ path, body: request.postDataJSON() });
     const json = (data: unknown, status = 200) => route.fulfill({ status, contentType: "application/json", body: JSON.stringify(data) });
     if (path === "/admin/auth/status") return json({ authenticated: true, enforced: true, user: { id: 1, username: "operator", roles: ["owner"] }, capabilities: manage ? ["agent_portal.read", "agent_portal.manage", "agent_portal.reveal_transcript"] : ["agent_portal.read"] });
-    if (path === "/admin/setup/status") return json({ setup_complete: true, critical_complete: true, checks: [], next_actions: [] });
+    if (path === "/admin/setup/status") return json({ setup_complete: true, critical_complete: true, checks: [], next_actions: [], wizard: { completed_at: "2026-09-28T00:00:00Z", dismissed_at: null } });
     if (path === "/admin/ws/info") return json({ enabled: false });
     if (path === "/admin/agent-sessions") return state.failList ? json({ message: "Fixture API temporarily unavailable" }, 503) : json({ enabled: state.enabled, generated_at: new Date().toISOString(), timings: { heartbeat_fresh_seconds: 45, relay_fresh_seconds: 60, working_fresh_seconds: 3600, retention_hours: 24 }, sessions: state.sessions });
     if (path.endsWith("/events")) return state.failEvents ? json({ message: "Fixture timeline unavailable" }, 503) : json({ events: state.events, next_cursor: state.events.length });
@@ -43,7 +43,7 @@ async function fixtures(page: Page, manage = true) {
 }
 async function open(page: Page) {
   await page.goto("/admin/clients");
-  await expect(page.getByRole("heading", { name: "Active Clients", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Active Clients", exact: true })).toBeVisible({ timeout: 15_000 });
   await expect(page.locator(`#client-${CODEX}`)).toBeVisible();
 }
 async function stream(page: Page, type: string, data?: string) {

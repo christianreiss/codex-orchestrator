@@ -17,9 +17,12 @@ Use these canonical destinations from the sidebar or command palette:
 
 | Destination | URL | Contents |
 |---|---|---|
+| **Quick Settings** | `/quick-settings` | Codex and Claude default model buttons and model-specific effort segments, saved immediately. |
 | **Engines** | `/engines` | Codex and Claude fleet models, effort, CLI versions, Codex silent mode, quota and scaling, and Claude client settings. |
 | **Policies** | `/policies` | Auto-update, reverse DNS, API keys in chat, access control (authorization mode), insecure approvals, host lifecycle, and log retention. |
 | **API Access** | `/api-keys` | Service availability, engine proxy settings, endpoints, and issued keys. |
+
+**Quick Settings** saves each selection immediately, with independent Codex and Claude cards. Selecting a model also selects its catalog default effort; only supported effort levels appear, and models without effort support show **No effort setting**. A failed save restores the confirmed selection and refreshes the server state before another change. Clients receive defaults on their next sync; host overrides take precedence.
 
 The **Engines** page has jump links for **Codex**, **Claude**, **Quota and scaling**, and **Claude client**. These scroll within the page, preserving open forms. **Host overrides** opens Hosts, where individual model and version choices take precedence over fleet defaults.
 

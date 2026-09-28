@@ -90,6 +90,10 @@ const REGISTRY: NavDefinition[] = [
     mobilePriority: 2,
   },
   {
+    id: "quick-settings", group: "Fleet", route: "/quick-settings", label: "Quick Settings",
+    description: "Set default models and reasoning effort", keywords: ["models", "effort", "defaults", "codex", "claude", "quick"], icon: Settings,
+  },
+  {
     id: "engines", group: "Fleet", route: "/engines", label: "Engines",
     description: "Codex and Claude defaults", keywords: ["models", "versions", "quota", "codex", "claude", "sync"], icon: Settings,
   },

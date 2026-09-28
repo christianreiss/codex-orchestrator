@@ -1,5 +1,6 @@
 # 2026-09-28
 
+- **Quick Settings for Codex and Claude.** A new Fleet page offers model buttons and model-specific effort segments with immediate saving. Switching models selects their catalog default effort; failures restore the confirmed selection and refresh before another change. Available in desktop navigation, the mobile menu, and the command palette.
 - **Fixed: skill/project AI drafting (`/admin/skills/{generate,assist}`, `/admin/projects/:slug/assist`) timed out after 8s.** `generateSkillDraft`/`assistSkillDraft`/`assistProjectDraft` inherited `AUTH_RUNNER_TIMEOUT` (the fast credential-probe budget) instead of `AUTH_RUNNER_EXEC_TIMEOUT` (the full-CLI-turn budget the OpenAI/Claude compat adapters already use), so any draft call that legitimately took the runner more than ~8s to complete a non-streaming LLM turn came back as `runner_failed`. All three now default to `AUTH_RUNNER_EXEC_TIMEOUT` (600s).
 - **Live conference inspector in Agent Messaging.** A Conferences tab shows open, adjourning, and past rooms, all members, task deadlines, delivery failures, and the combined message timeline. Operators with content access can explicitly reveal an audited transcript and follow new replies. Inspection is read-only, supports both engines, and works with existing conferences.
 

@@ -342,7 +342,13 @@ visible with a choice to load the latest values or discard the draft.
 - For managed hosts: `New Host` → paste the auto-copied `curl …/install/{token} | bash` command on the host. For disposable VMs: `Quick VM` → choose Codex, Claude, or Both → paste the auto-copied installer. Every host receives one `cxx`; Codex hosts receive `cdx -> cxx`, Claude hosts `clx -> cxx`, and dual-engine hosts both aliases against the same host key. Treat only a final `READY` plus exit 0 as success; `INCOMPLETE` means the named retry must be run (or a fresh single-use installer minted for wrapper/config failures).
 - Host-side usage (how to run Codex via `cdx`, what files it manages, troubleshooting): see `docs/USAGE.md`.
 - `cdx` pre-launch helpers are intentionally no-op safe: if `config.toml` yields no OTel exports or the current directory is already trusted, the wrapper continues into Codex instead of treating that as a fatal shell step.
-- Set fleet CLI model defaults from the direct `/admin/engines` workspace. Both
+- Use `/admin/quick-settings` for immediate model and effort changes through
+  button selections. Each engine saves independently; selecting a model also
+  saves its catalog default effort. Models without effort support show “No
+  effort setting”. Failed saves restore the confirmed selection and refresh
+  current defaults before further changes. Host overrides take precedence,
+  and clients receive defaults on their next sync. The full `/admin/engines`
+  workspace retains its explicit Save controls. Both
   engine sections call `GET/POST /admin/model-defaults/:engine` and constrain
   effort to the selected model. Codex persists `model` /
   `model_reasoning_effort` in canonical `config.toml`; Astra/GPT-6 Sol/GPT-6 Luna/

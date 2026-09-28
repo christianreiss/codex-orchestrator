@@ -1,1 +1,0 @@
-import{Pt as e,ft as t}from"./CKSoTDRD.js";import"./BULyj5nZ.js";function n(n){let r=e(n());return t(()=>{r.set(n())}),{subscribe:r.subscribe}}export{n as t};

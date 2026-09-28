@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
+import type { ModelDefaultsValue } from "../src/lib/api/types";
 
 const user = {
   id: 1,
@@ -121,6 +122,7 @@ const CANONICAL_DESTINATIONS = [
   { path: "/clients", heading: "Active Clients", title: "Active Clients" },
   { path: "/logs/events", heading: "Activity", title: "Activity / Audit trail" },
   { path: "/hosts", heading: "Hosts", title: "Hosts" },
+  { path: "/quick-settings", heading: "Quick Settings", title: "Quick Settings" },
   { path: "/engines", heading: "Engines", title: "Engines" },
   { path: "/policies", heading: "Policies", title: "Policies" },
   { path: "/projects", heading: "Projects", title: "Projects" },
@@ -297,6 +299,7 @@ function fixture(pathname: string): Record<string, unknown> {
         projects: [{ slug: "fleet-console", title: "Fleet console", description: "Admin redesign", updated_at: "2026-08-01T08:00:00Z", latest_seq: 4 }],
       };
     case "/admin/projects/fleet-console":
+    case "/admin/projects/fleet-console/summary":
       return {
         project: {
           slug: "fleet-console",
@@ -791,6 +794,177 @@ test.beforeEach(async ({ page }) => {
   await installFixtures(page);
 });
 
+function quickDefaults(): Record<"codex" | "claude", ModelDefaultsValue> {
+  return {
+    codex: {
+      engine: "codex", model: "gpt-6-astra", reasoning_effort: "ultra",
+      catalog: [
+        { model: "gpt-6-astra", persistent_efforts: ["low", "medium", "high", "xhigh", "max", "ultra"], default_effort: "medium" },
+        { model: "gpt-6-luna", persistent_efforts: ["low", "medium", "high", "xhigh", "max"], default_effort: "medium" },
+        { model: "gpt-5.6-sol", persistent_efforts: ["low", "medium", "high", "xhigh", "max", "ultra"], default_effort: "low" },
+        { model: "gpt-5.3-codex-spark", persistent_efforts: ["low", "medium", "high", "xhigh"], default_effort: "high" },
+      ],
+    },
+    claude: {
+      engine: "claude", model: "claude-fable-5-1", reasoning_effort: "high",
+      catalog: [
+        { model: "claude-fable-5-1", persistent_efforts: ["low", "medium", "high", "xhigh"], default_effort: "high" },
+        { model: "claude-opus-5-5", persistent_efforts: ["low", "medium", "high", "xhigh"], default_effort: "medium" },
+        { model: "claude-sonnet-4-6", persistent_efforts: ["low", "medium", "high"], default_effort: "high" },
+        { model: "claude-haiku-4-5-20251001", persistent_efforts: [], default_effort: null },
+      ],
+    },
+  };
+}
+
+test("quick settings save model and catalog effort together for both engines and survive reload", async ({ page }) => {
+  const defaults = quickDefaults();
+  const writes: unknown[] = [];
+  await installFixtures(page, (path, body) => {
+    const engine = path.split("/").at(-1) as "codex" | "claude";
+    if (!path.startsWith("/admin/model-defaults/")) return;
+    if (body) { writes.push({ engine, body }); Object.assign(defaults[engine], body); }
+    return { ...defaults[engine] };
+  });
+  await page.goto("/admin/quick-settings");
+  const codex = page.getByRole("region", { name: "Codex", exact: true });
+  const claude = page.getByRole("region", { name: "Claude", exact: true });
+  await expect(codex.getByRole("radio", { name: "Ultra", exact: true })).toBeChecked({ timeout: 15_000 });
+  await codex.getByRole("radio", { name: "GPT-6 Astra", exact: true }).locator("..").click();
+  expect(writes).toEqual([]);
+  await codex.getByRole("radio", { name: "GPT-6 Luna", exact: true }).locator("..").click();
+  await expect(codex.getByRole("radio", { name: "Medium Default", exact: true })).toBeChecked();
+  await expect(codex.getByRole("radio", { name: "Ultra", exact: true })).toHaveCount(0);
+  await expect(codex.getByRole("status")).toHaveText("Saved");
+  await codex.getByRole("radio", { name: "Max", exact: true }).locator("..").click();
+  await expect(codex.getByRole("status")).toHaveText("Saved");
+  await claude.getByRole("radio", { name: "Opus 5.5", exact: true }).locator("..").click();
+  await expect(claude.getByRole("radio", { name: "Medium Default", exact: true })).toBeChecked();
+  await expect(claude.getByRole("radio", { name: "Max", exact: true })).toHaveCount(0);
+  await expect(claude.getByRole("status")).toHaveText("Saved");
+  await claude.getByRole("radio", { name: "Sonnet 4.6", exact: true }).locator("..").click();
+  await expect(claude.getByRole("radio", { name: "Extra high", exact: true })).toHaveCount(0);
+  await expect(claude.getByRole("status")).toHaveText("Saved");
+  await claude.getByRole("radio", { name: "Haiku 4.5", exact: true }).locator("..").click();
+  await expect(claude.getByText("No effort setting", { exact: true })).toBeVisible();
+  await expect(claude.getByRole("status")).toHaveText("Saved");
+  expect(writes).toEqual([
+    { engine: "codex", body: { model: "gpt-6-luna", reasoning_effort: "medium" } },
+    { engine: "codex", body: { model: "gpt-6-luna", reasoning_effort: "max" } },
+    { engine: "claude", body: { model: "claude-opus-5-5", reasoning_effort: "medium" } },
+    { engine: "claude", body: { model: "claude-sonnet-4-6", reasoning_effort: "high" } },
+    { engine: "claude", body: { model: "claude-haiku-4-5-20251001", reasoning_effort: null } },
+  ]);
+  await page.reload();
+  await expect(codex.getByRole("radio", { name: "Max", exact: true })).toBeChecked();
+  await expect(claude.getByRole("radio", { name: "Haiku 4.5", exact: true })).toBeChecked();
+  await claude.getByRole("radio", { name: "Fable 5.1", exact: true }).locator("..").click();
+  await expect(claude.getByRole("radio", { name: "High Default", exact: true })).toBeChecked();
+});
+
+test("quick settings isolate saving, follow live updates, and ignore stale reads during a write", async ({ page }) => {
+  const defaults = quickDefaults();
+  let emit: ((data: string) => void) | undefined;
+  let finishWrite: (() => void) | undefined;
+  let writes = 0;
+  await page.routeWebSocket("**/quick-ws", (ws) => { emit = (data) => ws.send(data); });
+  await installFixtures(page, (path) => {
+    if (path === "/admin/ws/info") return { enabled: true, url: "ws://127.0.0.1:4173/quick-ws" };
+    if (path.startsWith("/admin/model-defaults/")) return { ...defaults[path.split("/").at(-1) as "codex" | "claude"] };
+  });
+  await page.route("**/admin/model-defaults/codex", async (route) => {
+    if (route.request().method() !== "POST") return route.fallback();
+    writes++;
+    await new Promise<void>((resolve) => { finishWrite = resolve; });
+    Object.assign(defaults.codex, route.request().postDataJSON());
+    await route.fulfill({ json: defaults.codex });
+  });
+  await page.goto("/admin/quick-settings");
+  const codex = page.getByRole("region", { name: "Codex", exact: true });
+  const claude = page.getByRole("region", { name: "Claude", exact: true });
+  await expect.poll(() => Boolean(emit)).toBe(true);
+  defaults.codex.reasoning_effort = "high";
+  emit!(JSON.stringify({ type: "settings.changed", payload: {}, ts: new Date().toISOString() }));
+  await expect(codex.getByRole("radio", { name: "High", exact: true })).toBeChecked();
+  await codex.getByRole("radio", { name: "GPT-6 Luna", exact: true }).locator("..").click();
+  await expect.poll(() => Boolean(finishWrite)).toBe(true);
+  await expect(codex.getByRole("radio", { name: "Max", exact: true })).toBeDisabled();
+  await expect(claude.getByRole("radio", { name: "Opus 5.5", exact: true })).toBeEnabled();
+  const refreshed = page.waitForResponse((response) => response.url().endsWith("/admin/model-defaults/codex") && response.request().method() === "GET");
+  emit!(JSON.stringify({ type: "settings.changed", payload: {}, ts: new Date().toISOString() }));
+  await refreshed;
+  await expect(codex.getByRole("radio", { name: "GPT-6 Luna", exact: true })).toBeChecked();
+  await expect(codex.getByRole("status")).toHaveText("Saving…");
+  finishWrite!();
+  await expect(codex.getByRole("status")).toHaveText("Saved");
+  await expect(codex.getByRole("radio", { name: "Medium Default", exact: true })).toBeChecked();
+  expect(writes).toBe(1);
+});
+
+test("quick settings recover failed saves and keep controls locked until authoritative refresh succeeds", async ({ page }) => {
+  const defaults = quickDefaults();
+  let failed = false;
+  let readsFail = true;
+  await installFixtures(page, (path) => {
+    if (path.startsWith("/admin/model-defaults/")) return { ...defaults[path.split("/").at(-1) as "codex" | "claude"] };
+  });
+  await page.route("**/admin/model-defaults/codex", async (route) => {
+    if (route.request().method() === "POST") {
+      failed = true;
+      return route.fulfill({ status: 409, json: { status: "error", message: "Configuration changed elsewhere" } });
+    }
+    if (failed && readsFail) return route.fulfill({ status: 503, json: { status: "error", message: "Temporarily unavailable" } });
+    return route.fallback();
+  });
+  await page.goto("/admin/quick-settings");
+  const codex = page.getByRole("region", { name: "Codex", exact: true });
+  await codex.getByRole("radio", { name: "GPT-6 Luna", exact: true }).locator("..").click();
+  await expect(codex.getByRole("alert").filter({ hasText: "Could not save" })).toContainText("Configuration changed elsewhere");
+  await expect(codex.getByRole("radio", { name: "GPT-6 Astra", exact: true })).toBeChecked();
+  await expect(codex.getByRole("radio", { name: "GPT-6 Luna", exact: true })).toBeDisabled();
+  await expect(codex.getByRole("button", { name: "Retry Codex defaults" })).toBeEnabled();
+  defaults.codex.reasoning_effort = "low";
+  readsFail = false;
+  await codex.getByRole("button", { name: "Retry Codex defaults" }).click();
+  await expect(codex.getByRole("radio", { name: "Low", exact: true })).toBeChecked();
+  await expect(codex.getByRole("radio", { name: "GPT-6 Luna", exact: true })).toBeEnabled();
+});
+
+test("quick settings support keyboard selection, mobile layout, themes, and palette navigation", async ({ page }, info) => {
+  const defaults = quickDefaults();
+  await installFixtures(page, (path, body) => {
+    if (!path.startsWith("/admin/model-defaults/")) return;
+    const engine = path.split("/").at(-1) as "codex" | "claude";
+    if (body) Object.assign(defaults[engine], body);
+    return { ...defaults[engine] };
+  });
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto("/admin/quick-settings");
+  const codex = page.getByRole("region", { name: "Codex", exact: true });
+  await codex.getByRole("radio", { name: "GPT-6 Astra", exact: true }).focus();
+  await page.keyboard.press("ArrowRight");
+  await expect(codex.getByRole("radio", { name: "GPT-6 Luna", exact: true })).toBeChecked();
+  await expect(codex.getByRole("status")).toHaveText("Saved");
+  await expect(codex.getByRole("radio", { name: "GPT-6 Luna", exact: true })).toBeFocused();
+  await page.keyboard.press("Tab");
+  await page.keyboard.press("ArrowRight");
+  await expect(codex.getByRole("radio", { name: "High", exact: true })).toBeChecked();
+  await expect(codex.getByRole("status")).toHaveText("Saved");
+  for (const theme of ["light", "dark"]) {
+    await page.evaluate((theme) => document.documentElement.classList.toggle("dark", theme === "dark"), theme);
+    for (const width of [1440, 390, 320]) {
+      await page.setViewportSize({ width, height: 1000 });
+      await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+      await expectNoSeriousAxeFindings(page);
+      if (width !== 320) await page.screenshot({ path: info.outputPath(`quick-settings-${theme}-${width}.png`), fullPage: true });
+    }
+  }
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.keyboard.press("Control+K");
+  await page.getByRole("combobox", { name: "Search fleet and commands" }).fill("Quick Settings");
+  await expect(page.getByRole("option", { name: /Quick Settings/ })).toBeVisible();
+});
+
 test("every canonical destination deep-links into a bounded desktop workspace", async ({ page }) => {
   test.setTimeout(180_000);
   await page.setViewportSize({ width: 1440, height: 900 });
@@ -824,7 +998,7 @@ test("desktop shell exposes direct task navigation and the command palette", asy
   // destination stays reachable after an operator changes those disclosures.
   const primary = page.getByRole("navigation", { name: "Primary navigation" });
   const destinations: Array<[string, string[]]> = [
-    ["Fleet", ["Hosts", "Engines", "Policies"]],
+    ["Fleet", ["Hosts", "Quick Settings", "Engines", "Policies"]],
     ["Coordinate", ["Projects", "Agent Messaging", "Agent Portal"]],
     ["Knowledge", ["Skills", "Fleet Instructions"]],
     ["Access", ["Admin Users"]],
@@ -1261,7 +1435,7 @@ test("project detail and standalone approval keep their task-focused layouts", a
 test("host detail uses one ordered operational workspace", async ({ page }) => {
   await page.goto("/admin/hosts/1");
   await expect(page.getByRole("heading", { name: "console.example.test", level: 1 })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Identity & reachability", level: 2 })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Identity & network", level: 2 })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Engines & versions", level: 2 })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Access & security", level: 2 })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Fleet policy overrides", level: 2 })).toBeVisible();
@@ -1297,7 +1471,7 @@ test("project peer views keep records dense, readable, and inspectable", async (
   await expect(page.getByText("docs/rollout.md", { exact: true })).toBeVisible();
 
   await page.goto("/admin/projects/fleet-console/feedback");
-  await expect(page.getByRole("heading", { name: /1 entry.*read-only log/, level: 2 })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "1 entry · 1 open", level: 2 })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Runner label is stale", level: 3 })).toBeVisible();
 
   await page.goto("/admin/projects/fleet-console/activity");

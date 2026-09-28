@@ -1,1 +1,0 @@
-import{$ as e,Pt as t,et as n,lt as r,nt as i,rt as a,ut as o}from"./CKSoTDRD.js";function s(s,c){var l=e,u=n,d=s();let f=t(d,t=>{var c=d!==s(),f,p=n,m=e;a(u),i(l);try{f=r(()=>{o(()=>{let e=s();c&&t(e)})})}finally{a(p),i(m)}return c=!0,f});return c?{set:c,update:e=>c(e(s())),subscribe:f.subscribe}:{subscribe:f.subscribe}}export{s as t};

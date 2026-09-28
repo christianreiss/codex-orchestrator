@@ -1,1 +1,0 @@
-import{Pt as e}from"./CKSoTDRD.js";import"./BULyj5nZ.js";var t={activeInsecureWindows:0,fleetWindowUntil:null};function n(){let{subscribe:n,update:r}=e(t);return{subscribe:n,setActiveInsecureWindows(e){r(t=>({...t,activeInsecureWindows:Math.max(0,e|0)}))},setFleetWindowUntil(e){r(t=>({...t,fleetWindowUntil:e}))}}}var r=n();export{r as t};
