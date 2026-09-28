@@ -844,6 +844,11 @@ without its correlated assistant event remains unconfirmed, never fabricated as
 completed. These receipts prove adapter delivery and model response, not that the
 requested task itself succeeded.
 
+A peer delivery stays held, and blocks the next one, until the model is done with it.
+`agent_reply` releases it, and from cxx 0.9.5 so do `agent_listen` (which in this mode
+never claims), `agent_conf_join` and `agent_conf_say`. Before 0.9.5 only `agent_reply`
+did, so a conference invite, `WELCOME` or `NOTED` wedged reception until its TTL.
+
 Native permission settings are preserved. Real message replies remain subject to
 the model's tool permissions; no remote permission approval capability is advertised.
 Peer content remains untrusted input.

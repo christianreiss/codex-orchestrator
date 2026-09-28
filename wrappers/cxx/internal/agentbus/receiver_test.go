@@ -27,18 +27,137 @@ func (r rewriteTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	return http.DefaultTransport.RoundTrip(req)
 }
 
-func TestAutomaticListenDoesNotClaimOrCompleteNativeDeliveries(t *testing.T) {
-	c := &sessionClient{}
+// heldDeliveryServer answers every session call with an empty object and
+// records which operations were posted, checking that the held delivery is
+// completed under the claim that produced it.
+func heldDeliveryServer(t *testing.T, calls *[]string) *sessionClient {
+	t.Helper()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		var args map[string]any
+		_ = json.NewDecoder(req.Body).Decode(&args)
+		op := strings.TrimPrefix(req.URL.Path, "/host/agent-sessions/session/agent-messaging/")
+		*calls = append(*calls, op)
+		if op == "deliveries/held/ack" && (args["outcome"] != "completed" || args["claim_id"] != "claim") {
+			t.Errorf("held delivery acknowledged as %v", args)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{})
+	}))
+	t.Cleanup(server.Close)
+	return &sessionClient{id: "session", http: &http.Client{Transport: rewriteTransport{server: server}}}
+}
+
+func holdDelivery(c *sessionClient) *channelTracker {
 	tracker := newChannelTracker(c)
-	tracker.receiver = &autoReceiver{client: c}
-	tracker.items["pending"] = &channelPending{}
+	tracker.receiver = &autoReceiver{client: c, tracker: tracker}
+	tracker.items["held"] = &channelPending{claimID: "claim", cancel: func() {}}
+	return tracker
+}
+
+// The receiver claims only while it holds nothing, and the server leases one
+// delivery per address, so a message finished without agent_reply -- a joined
+// invite, a WELCOME or NOTED -- wedged reception until its TTL. Listening means
+// "done with the previous message" in the automatic lane too, but it still never
+// claims: the receiver owns claiming.
+func TestAutomaticListenReleasesHeldDeliveryWithoutClaiming(t *testing.T) {
+	var calls []string
+	c := heldDeliveryServer(t, &calls)
+	tracker := holdDelivery(c)
 	out, err := agentListen(context.Background(), c, tracker, map[string]any{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if out["status"] != "automatic" || len(tracker.items) != 1 {
-		t.Fatal("manual listen competed with native receiver")
+	if out["status"] != "automatic" {
+		t.Fatalf("status = %v", out["status"])
 	}
+	if len(tracker.items) != 0 {
+		t.Fatal("held delivery still blocks the receiver")
+	}
+	if strings.Join(calls, ",") != "deliveries/held/ack" {
+		t.Fatalf("listen posted %v; want only the completion", calls)
+	}
+}
+
+// Conference messages are answered in the room, not with agent_reply: an invite
+// by joining, a chair's message by speaking. Either must release the delivery.
+func TestConferenceAnswersReleaseHeldDelivery(t *testing.T) {
+	for _, tc := range []struct {
+		tool string
+		args map[string]any
+		op   string
+	}{
+		{"agent_conf_join", map[string]any{"conference_id": "room"}, "conf/join"},
+		{"agent_conf_say", map[string]any{"conference_id": "room", "content": "HELLO"}, "conf/say"},
+	} {
+		t.Run(tc.tool, func(t *testing.T) {
+			var calls []string
+			c := heldDeliveryServer(t, &calls)
+			tracker := holdDelivery(c)
+			if _, err := callMCPTool(context.Background(), c, tracker, tc.tool, tc.args); err != nil {
+				t.Fatal(err)
+			}
+			if len(tracker.items) != 0 {
+				t.Fatal("held delivery still blocks the receiver")
+			}
+			if strings.Join(calls, ",") != tc.op+",deliveries/held/ack" {
+				t.Fatalf("%s posted %v", tc.tool, calls)
+			}
+		})
+	}
+}
+
+// The live shape of the conference stall: the receiver pushes an invite, the
+// model joins instead of replying, and every later message waits behind it.
+// The loop must stay serialized while the delivery is held and pick up the
+// next one on its own once the model moves on -- no prompt in between.
+func TestReceiverDeliversNextMessageOnceHeldDeliveryIsReleased(t *testing.T) {
+	t.Setenv("CXX_AGENT_PORTAL_ENGINE", "claude")
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	var claims, delivered atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		out := map[string]any{}
+		switch path.Base(req.URL.Path) {
+		case "native":
+			out["native_session_id"] = "native"
+		case "register":
+			out["sources"] = []string{"peer"}
+		case "claim":
+			// Only the first two claims carry a message; the rest find the queue empty.
+			if n := claims.Add(1); n <= 2 {
+				out["delivery"] = map[string]any{"message_id": fmt.Sprintf("m%d", n), "content": "invite"}
+			}
+		}
+		_ = json.NewEncoder(w).Encode(out)
+	}))
+	defer server.Close()
+	c := &sessionClient{id: "session", http: &http.Client{Transport: rewriteTransport{server: server}}}
+	tracker := newChannelTracker(c)
+	r := &autoReceiver{client: c, tracker: tracker}
+	tracker.receiver = r
+	r.output = &mcpWriter{w: receiverHealthWriter{r: r, deliveries: &delivered}}
+	done := make(chan error, 1)
+	go func() { done <- r.connection(ctx) }()
+
+	waitFor := func(what string, cond func() bool) {
+		t.Helper()
+		for !cond() {
+			if ctx.Err() != nil {
+				t.Fatalf("timed out waiting for %s (claims %d, delivered %d)", what, claims.Load(), delivered.Load())
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+	}
+	waitFor("first delivery", func() bool { return delivered.Load() == 1 })
+	time.Sleep(2500 * time.Millisecond)
+	if claims.Load() != 1 || delivered.Load() != 1 {
+		t.Fatalf("receiver claimed past a held delivery (claims %d, delivered %d)", claims.Load(), delivered.Load())
+	}
+	if _, err := callMCPTool(ctx, c, tracker, "agent_conf_join", map[string]any{"conference_id": "room"}); err != nil {
+		t.Fatal(err)
+	}
+	waitFor("second delivery", func() bool { return delivered.Load() == 2 })
+	cancel()
+	<-done
 }
 
 // A receiver can look "ready" from MCP-pipe liveness and hook identity alone
