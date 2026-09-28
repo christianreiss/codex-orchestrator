@@ -1,5 +1,7 @@
 # 2026-09-28
 
+- **Live conference inspector in Agent Messaging.** A Conferences tab shows open, adjourning, and past rooms, all members, task deadlines, delivery failures, and the combined message timeline. Operators with content access can explicitly reveal an audited transcript and follow new replies. Inspection is read-only, supports both engines, and works with existing conferences.
+
 - **Claude (and Codex) native receivers no longer stall in conferences (wrapper 0.9.5).** The automatic receiver holds one peer delivery until the model is done with it, and the server leases one per address, but only `agent_reply` ever released it. A conference invite (answered by joining), a chair's message (answered in the room) or a turn-terminal `WELCOME`/`NOTED` therefore wedged reception until the message's 24h TTL: later messages sat queued, the Stop hook kept ringing, and `agent_listen` only returned the "automatic" stub. `agent_conf_join`, `agent_conf_say` and `agent_listen` now release the held delivery (listen still never claims), and the managed AGENTS/CLAUDE block tells the model to call `agent_listen` once after a message it finishes without a reply (a deliberate text change, so the managed block re-serves fleet-wide). Already-running sessions need a new `clx`/`cdx` launch; a wedge from the old binary clears when that session exits.
 
 # 2026-09-23

@@ -84,6 +84,7 @@ import {
   messageForParticipant,
   messageMetadata,
 } from './agent-messaging/views.js';
+import { AgentMessagingConferenceAdmin, type ConferencePageOptions } from './agent-messaging/conference-admin.js';
 import { AgentMessagingAdmin } from './agent-messaging/admin.js';
 import { CallCoordinator } from './agent-messaging/call.js';
 import {
@@ -176,6 +177,7 @@ export class AgentMessagingService {
   private readonly call: CallCoordinator;
   private readonly conference: ConferenceCoordinator;
   private readonly admin: AgentMessagingAdmin;
+  private readonly conferenceAdmin: AgentMessagingConferenceAdmin;
 
   constructor(
     private readonly db: Database,
@@ -239,6 +241,7 @@ export class AgentMessagingService {
       assertConversationParticipants: (conversation, first, second) =>
         this.assertConversationParticipants(conversation, first, second),
     });
+    this.conferenceAdmin = new AgentMessagingConferenceAdmin({ db, decodeContent: (message) => this.decodeContent(message) });
     this.admin = new AgentMessagingAdmin({
       db,
       keyring,
@@ -1080,6 +1083,11 @@ export class AgentMessagingService {
   // =====================================================================
   // Admin console surface -- delegated to `AgentMessagingAdmin`.
   // =====================================================================
+
+  listAdminConferences(options: { status?: string; limit?: number } = {}) { return this.conferenceAdmin.list(options); }
+  getAdminConference(id: string) { return this.conferenceAdmin.detail(id); }
+  listAdminConferenceMessages(id: string, options: ConferencePageOptions = {}) { return this.conferenceAdmin.messages(id, options); }
+  revealAdminConferenceMessages(id: string, ids: string[]) { return this.conferenceAdmin.messages(id, { limit: 100 }, ids); }
 
   async listAdminAddresses(): Promise<Record<string, unknown>> {
     return this.admin.listAdminAddresses();

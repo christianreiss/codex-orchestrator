@@ -495,7 +495,7 @@ preflight() {
     PREFLIGHT_FAILED=1
   fi
   if ! ensure_bin_root; then
-    ui_fail "cxx" "preflight" "Cannot install $NAME into $BIN_ROOT: re-run the pipe into 'sudo sh', allow passwordless sudo, or set BIN_DIR=\$HOME/.local/bin for a per-user install" "$BIN_ROOT is not writable and sudo -n is unavailable"
+    ui_fail "cxx" "preflight" "Cannot install $NAME into $BIN_ROOT: re-run the pipe into 'sudo sh', allow passwordless sudo, or set BIN_DIR=$HOME/.local/bin for a per-user install" "$BIN_ROOT is not writable and sudo -n is unavailable"
     PREFLIGHT_FAILED=1
   fi
   if [ "$PREFLIGHT_FAILED" = "1" ]; then exit 1; fi

@@ -841,3 +841,22 @@ may read state and users but cannot change rollout or identity state.
 - `POST /admin/agent-portal/users/{id}/rotate` — explicitly replace the reusable secret, revoke browser sessions, and return the new URL.
 - `GET /admin/agent-portal/users/{id}/link` — re-render the stored permanent link without rotating it, so an operator can bookmark it on another device. Owner/admin only, and audited as `agent_portal.user.link_revealed`; the link is bearer material and is deliberately absent from the `GET /admin/agent-portal/users` listing, which every authenticated admin may read.
 - `DELETE /admin/agent-portal/users/{id}` — soft-delete the user, revoke sessions, and cancel pending work.
+
+### Conference inspector
+
+The admin conference inspector is read-only. `GET /admin/agent-messaging/conferences`
+lists the newest rooms (`status=open|adjourned`, omitted for all; `limit=1..500`,
+default 100). Open includes adjourning rooms.
+`GET /admin/agent-messaging/conferences/{id}` returns the room and its full roster,
+including departed members and dispatch delivery metadata.
+`GET /admin/agent-messaging/conferences/{id}/messages` merges the linked member
+conversations in chronological dispatch order, including ordinary replies;
+`limit=1..100` defaults to 100, with mutually exclusive `before` and `after` cursors.
+The response includes `oldest_cursor`, `newest_cursor`, and `has_more`.
+
+`POST /admin/agent-messaging/conferences/{id}/reveal` accepts
+`{ "message_ids": ["uuid", ...] }` (1..100), refuses IDs outside the room, and
+returns message bodies with no-store headers and an audit event containing IDs
+and the actor only. GETs require `agent_messaging.read`; reveal requires
+`agent_messaging.reveal_content`. No route joins, claims, acknowledges, sweeps,
+or changes conference work. See `docs/interface-api.md` for the full contract.

@@ -548,3 +548,7 @@ and checks replies again in the same native conversation, without sending fleet 
 accepts only its own temporary-directory/development-channel prompts and grants
 only its receipt tools; it cannot approve arbitrary commands. Normal test suites
 use an isolated database and deterministic native-socket fixtures.
+
+### Conference inspection
+
+Agent Messaging → Conferences exposes retained rooms and a live member/task overview for both engines. Its combined timeline uses the existing member conversation links, including ordinary replies. Metadata refreshes through the central WebSocket invalidations and a 15-second visible-page poll; an explicit audited transcript reveal requires the existing content capability. No schema migration or wrapper update is required.

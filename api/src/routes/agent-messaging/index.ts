@@ -95,6 +95,29 @@ export async function registerAgentMessagingRoutes(
       return result;
     },
   );
+  app.get('/admin/agent-messaging/conferences', { preHandler: app.requireAdmin }, async (req) => {
+    const query = z.object({ status: z.enum(['open', 'adjourned']).optional(), limit: z.coerce.number().int().min(1).max(500).default(100) }).strict().parse(req.query);
+    return messaging.listAdminConferences(query);
+  });
+  app.get('/admin/agent-messaging/conferences/:id', { preHandler: app.requireAdmin }, async (req) =>
+    messaging.getAdminConference(z.string().uuid().parse(stringParam(req.params, 'id'))));
+  app.get('/admin/agent-messaging/conferences/:id/messages', { preHandler: app.requireAdmin }, async (req) => {
+    const cursor = z.coerce.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional();
+    const query = z.object({ before: cursor, after: cursor, limit: z.coerce.number().int().min(1).max(100).default(100) })
+      .strict().refine((value) => value.before === undefined || value.after === undefined, 'Use before or after, not both').parse(req.query);
+    return messaging.listAdminConferenceMessages(z.string().uuid().parse(stringParam(req.params, 'id')), query);
+  });
+  app.post('/admin/agent-messaging/conferences/:id/reveal', { preHandler: app.requireAdmin }, async (req, reply) => {
+    const id = z.string().uuid().parse(stringParam(req.params, 'id'));
+    const body = z.object({ message_ids: z.array(z.string().uuid()).min(1).max(100) }).strict().parse(req.body);
+    const result = await messaging.revealAdminConferenceMessages(id, body.message_ids);
+    await events.record({ type: 'agent_messaging.conference.revealed', payload: {
+      conference_id: id, message_ids: body.message_ids, admin_user_id: actor(req),
+    } }, { broadcast: false });
+    reply.header('cache-control', 'no-store');
+    reply.header('pragma', 'no-cache');
+    return result;
+  });
   app.get('/admin/agent-messaging/conversations', { preHandler: app.requireAdmin }, async (req) => {
     const query = (req.query ?? {}) as Record<string, unknown>;
     return await messaging.listAdminConversations({

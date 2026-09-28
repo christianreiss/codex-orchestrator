@@ -480,6 +480,7 @@ export class ConferenceCoordinator {
       return { conference: { ...conference, pin } as AgentBusConference, self, reused: false };
     });
     const roster = await this.core.db.transaction(async (tx) => await this.rosterRowsLocked(tx, result.conference.id));
+    wsPublisher.publish('agent_messaging.conference.changed', { conference_id: result.conference.id });
     return {
       enabled: true,
       conference_id: result.conference.id,

@@ -162,6 +162,45 @@ describe.skipIf(!handle)('conferences against a real database', { timeout: 120_0
     return { chair, one, two, conferenceId, pin, opened };
   }
 
+  it('inspects four members, ordinary replies and paginated transcript without changing delivery state', async () => {
+    const { chair, one, conferenceId, pin } = await room();
+    const third = await register('codex', 'three');
+    await service.joinConference(third.sessionId, third.bridgeToken, { pin, purpose: 'third worker' });
+    const task = await service.conferenceDispatch(chair.sessionId, chair.bridgeToken, { conferenceId, to: one.address, task: 'private task' });
+    let detail = await service.getAdminConference(conferenceId);
+    expect(detail.members).toHaveLength(4);
+    expect(detail.members.find((m) => m.address_id === one.addressId)).toMatchObject({ state: 'dispatched', dispatch_status: 'queued' });
+    await service.replyMessage(one.sessionId, one.bridgeToken, String(task.message_id), { content: 'private ordinary report', clientMessageId: randomUUID() });
+    detail = await service.getAdminConference(conferenceId);
+    expect(detail.members.find((m) => m.address_id === one.addressId)).toMatchObject({ state: 'seated' });
+    const listing = await service.listAdminConferences({ status: 'open' });
+    expect(listing.conferences.find((r) => r.id === conferenceId)).toMatchObject({ member_count: 4, total_members: 4, chair: { engine: 'claude' } });
+    const before = await db.select().from(agentBusMessages);
+    const latest = await service.listAdminConferenceMessages(conferenceId, { limit: 2 });
+    expect(latest.messages).toHaveLength(2);
+    expect(latest.has_more).toBe(true);
+    expect(JSON.stringify(latest)).not.toContain('private ordinary report');
+    expect(JSON.stringify(latest)).not.toContain('contentEnc');
+    const older = await service.listAdminConferenceMessages(conferenceId, { before: latest.oldest_cursor!, limit: 100 });
+    const newer = await service.listAdminConferenceMessages(conferenceId, { after: older.newest_cursor!, limit: 1 });
+    expect(newer.messages[0]?.dispatch_order).toBe(latest.oldest_cursor);
+    expect(newer.has_more).toBe(true);
+    const all = [...older.messages, ...latest.messages];
+    expect(new Set(all.map((m) => m.id)).size).toBe(all.length);
+    const revealed = await service.revealAdminConferenceMessages(conferenceId, latest.messages.map((m) => String(m.id)));
+    expect(revealed.messages.some((m) => m.content === 'private ordinary report')).toBe(true);
+    expect(await db.select().from(agentBusMessages)).toEqual(before);
+    const otherChair = await register('codex', 'other-chair');
+    const other = await service.openConference(otherChair.sessionId, otherChair.bridgeToken, {});
+    expect((await service.listAdminConferenceMessages(String(other.conference_id))).messages).toEqual([]);
+    await expect(service.revealAdminConferenceMessages(String(other.conference_id), [String(task.message_id)])).rejects.toMatchObject({ code: 'agent_messaging_message_not_found' });
+    await expect(service.getAdminConference(randomUUID())).rejects.toMatchObject({ code: 'agent_messaging_conference_not_found' });
+    await service.adjournConference(chair.sessionId, chair.bridgeToken, { conferenceId, reason: 'inspection complete' });
+    expect((await service.listAdminConferences({ status: 'open' })).conferences.some((r) => r.id === conferenceId)).toBe(false);
+    expect((await service.getAdminConference(conferenceId)).members).toHaveLength(4);
+    expect((await service.listAdminConferences({ status: 'adjourned' })).conferences.find((r) => r.id === conferenceId)).toMatchObject({ adjourn_reason: 'inspection complete' });
+  });
+
   it('opens a room, tells the chair its own address, and mints a four-digit PIN', async () => {
     const chair = await register('claude', 'chair');
     const opened = await service.openConference(chair.sessionId, chair.bridgeToken, { topic: 'standup' });

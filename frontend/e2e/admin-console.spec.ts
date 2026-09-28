@@ -144,7 +144,7 @@ function fixture(pathname: string): Record<string, unknown> {
     case "/admin/auth/status":
       return { authenticated: true, enforced: true, user, roles: ["owner"] };
     case "/admin/setup/status":
-      return { setup_complete: true, critical_complete: true, checks: [], next_actions: [] };
+      return { setup_complete: true, critical_complete: true, checks: [], next_actions: [], wizard: { completed_at: "2026-09-28T00:00:00Z", dismissed_at: null } };
     case "/admin/ws/info":
       return { enabled: false };
     case "/admin/agent-sessions":
@@ -1562,4 +1562,89 @@ test("Claude login expiry remains visible with successful verification and clear
   expiryState = "ok";
   // Existing polling must remove the warning after canonical renewal.
   await expect(page.getByText("Claude login expired", { exact: true })).toHaveCount(0, { timeout: 20_000 });
+});
+
+const CONFERENCE_ID = '44444444-4444-4444-8444-444444444444';
+const CONFERENCE_PEER = { id: '55555555-5555-4555-8555-555555555555', address: 'agent:worker', alias: 'Worker One', engine: 'claude', fqdn: 'worker.example', presence: 'listening' };
+function conferenceFixture(pathname: string): Record<string, unknown> | undefined {
+  const room = { id: CONFERENCE_ID, topic: 'Four node inspection', purpose: 'Check the live room', status: 'open', deadline_at: '2026-09-28T23:00:00Z', created_at: '2026-09-28T12:00:00Z', chair: CONFERENCE_PEER, member_count: 4, total_members: 4, max_members: 8 };
+  if (pathname === '/admin/auth/status') return { authenticated: true, enforced: true, user, roles: ['owner'], capabilities: ['agent_messaging.read', 'agent_messaging.reveal_content'] };
+  if (pathname === '/admin/agent-messaging/conferences') return { conferences: [room] };
+  if (pathname === `/admin/agent-messaging/conferences/${CONFERENCE_ID}`) return { conference: room, members: Array.from({ length: 4 }, (_, i) => ({ id: `member-${i}`, peer: { ...CONFERENCE_PEER, alias: `Worker ${i}`, engine: i % 2 ? 'codex' : 'claude' }, role: i ? 'participant' : 'owner', state: i === 1 ? 'dispatched' : 'seated', mode: 'attached', messages_used: 3, messages_budget: 20, dispatch_status: i === 1 ? 'dead' : null, dispatch_error: i === 1 ? 'delivery_attempts_exhausted' : null, dispatch_deadline_at: i === 1 ? '2020-01-01T00:00:00Z' : null })) };
+  return undefined;
+}
+function conferenceMessage(order: number) {
+  return { id: `66666666-6666-4666-8666-${String(order).padStart(12, '0')}`, dispatch_order: order, sender: CONFERENCE_PEER, target: { ...CONFERENCE_PEER, alias: 'Chair' }, status: 'completed', attempts: 1, content_bytes: 14, created_at: '2026-09-28T12:10:00Z' };
+}
+
+test('conference inspector deep links, reveals history and follows updates without retaining bodies on navigation', async ({ page }) => {
+  await installFixtures(page, conferenceFixture);
+  let latest = 2;
+  let deny = false;
+  await page.route(`**/admin/agent-messaging/conferences/${CONFERENCE_ID}/messages*`, async (route) => {
+    const before = new URL(route.request().url()).searchParams.get('before');
+    const messages = before ? [conferenceMessage(1)] : [conferenceMessage(2), ...(latest > 2 ? [conferenceMessage(3)] : [])];
+    await route.fulfill({ json: { messages, oldest_cursor: before ? 1 : 2, newest_cursor: before ? 1 : latest, has_more: !before } });
+  });
+  await page.route(`**/admin/agent-messaging/conferences/${CONFERENCE_ID}/reveal`, async (route) => {
+    if (deny) return route.fulfill({ status: 403, json: { message: 'Content permission revoked' } });
+    const ids = route.request().postDataJSON().message_ids as string[];
+    await route.fulfill({ json: { messages: ids.map((id) => ({ id, content: `Private report ${Number(id.slice(-12))}` })) } });
+  });
+  await page.goto(`/admin/agent-messaging?view=conferences&conference_id=${CONFERENCE_ID}`);
+  await expect(page.getByRole('heading', { name: 'Members (4)' })).toBeVisible();
+  await expect(page.getByText('Dispatch delivery: dead (delivery_attempts_exhausted)')).toBeVisible();
+  await expect(page.getByText(/Task deadline.*overdue/)).toBeVisible();
+  await expect(page.getByText('Private report 2', { exact: true })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Reveal transcript' }).click();
+  await expect(page.getByText('Private report 2', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Load older messages' }).click();
+  await expect(page.getByText('Private report 1', { exact: true })).toBeVisible();
+  latest = 3;
+  await page.getByRole('button', { name: 'Refresh', exact: true }).click();
+  await expect(page.getByText('Private report 3', { exact: true })).toBeVisible();
+  await page.getByRole('tab', { name: 'Addresses', exact: true }).click();
+  await page.getByRole('tab', { name: 'Conferences', exact: true }).click();
+  await expect(page.getByText('Private report 2', { exact: true })).toHaveCount(0);
+  deny = true;
+  await page.getByRole('button', { name: 'Reveal transcript' }).click();
+  await expect(page.getByRole('alert')).toContainText('Content permission revoked');
+  await expect(page.getByText('Private report 1', { exact: true })).toHaveCount(0);
+});
+
+test('conference inspector fits mobile and withholds reveal for metadata-only viewers', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await installFixtures(page, (path) => path === '/admin/auth/status'
+    ? { authenticated: true, enforced: true, user: { ...user, access_level: 'viewer' }, roles: ['viewer'], capabilities: ['agent_messaging.read'] }
+    : conferenceFixture(path));
+  await page.route(`**/admin/agent-messaging/conferences/${CONFERENCE_ID}/messages*`, (route) => route.fulfill({ json: { messages: [], has_more: false } }));
+  await page.goto(`/admin/agent-messaging?view=conferences&conference_id=${CONFERENCE_ID}`);
+  await expect(page.getByRole('heading', { name: 'Members (4)' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Reveal transcript' })).toHaveCount(0);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await expectNoSeriousAxeFindings(page);
+});
+
+test('conference inspector rejects a late reveal after closing and refreshes new messages automatically', async ({ page }) => {
+  test.setTimeout(45_000);
+  await installFixtures(page, conferenceFixture);
+  let latest = 1;
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  await page.route(`**/admin/agent-messaging/conferences/${CONFERENCE_ID}/messages*`, (route) => route.fulfill({ json: { messages: [conferenceMessage(latest)], has_more: false } }));
+  await page.route(`**/admin/agent-messaging/conferences/${CONFERENCE_ID}/reveal`, async (route) => {
+    await gate;
+    await route.fulfill({ json: { messages: [{ ...conferenceMessage(1), content: 'Late secret report' }] } });
+  });
+  await page.goto(`/admin/agent-messaging?view=conferences&conference_id=${CONFERENCE_ID}`);
+  await expect(page.locator('[data-message-id]')).toHaveCount(1);
+  const request = page.waitForRequest((r) => r.url().endsWith('/reveal'));
+  await page.getByRole('button', { name: 'Reveal transcript' }).click();
+  await request;
+  await page.getByRole('button', { name: 'Hide transcript' }).click();
+  release();
+  await expect(page.getByText('Late secret report')).toHaveCount(0);
+  latest = 3;
+  await expect(page.locator(`[data-message-id="${conferenceMessage(3).id}"]`)).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByText('Late secret report')).toHaveCount(0);
 });

@@ -6,6 +6,7 @@
   import RefreshCw from "@lucide/svelte/icons/refresh-cw";
   import MessageSquareShare from "@lucide/svelte/icons/message-square-share";
   import { toast } from "svelte-sonner";
+  import Conferences from "$lib/components/agent-messaging/Conferences.svelte";
   import PageHeader from "$lib/components/layout/PageHeader.svelte";
   import LogToolbar from "$lib/components/logs/LogToolbar.svelte";
   import AgentMessagingSection from "$lib/components/settings/AgentMessagingSection.svelte";
@@ -58,7 +59,7 @@
     "canceled",
   ] as const;
   const LIMITS = [50, 100, 250, 500] as const;
-  const WORKSPACE_VIEWS = ["addresses", "conversations", "deliveries"] as const;
+  const WORKSPACE_VIEWS = ["addresses", "conferences", "conversations", "deliveries"] as const;
   type ConversationStatusFilter = (typeof CONVERSATION_STATUSES)[number]["value"];
   type MessageStatusFilter = (typeof MESSAGE_STATUSES)[number];
   type WorkspaceView = (typeof WORKSPACE_VIEWS)[number];
@@ -314,7 +315,7 @@
 
 <PageHeader
   title="Agent Messaging"
-  subtitle="Operate direct Codex ↔ Claude conversations, stable addresses, relays, retries, and audited content reveal."
+  subtitle="Inspect conferences and operate direct Codex ↔ Claude conversations, stable addresses, relays, retries, and audited content reveal."
 >
   {#snippet actions()}
     <Button variant="outline" onclick={refresh}>
@@ -377,6 +378,7 @@
   onValueChange={(value) => (workspaceView = value as WorkspaceView)}>
   <Tabs.List aria-label="Agent Messaging workspace">
     <Tabs.Trigger value="addresses">Addresses</Tabs.Trigger>
+    <Tabs.Trigger value="conferences">Conferences</Tabs.Trigger>
     <Tabs.Trigger value="conversations">Conversations</Tabs.Trigger>
     <Tabs.Trigger value="deliveries">Deliveries</Tabs.Trigger>
   </Tabs.List>
@@ -384,6 +386,8 @@
   <LogToolbar class="mt-3">
     {#if workspaceView === "addresses"}
       <p class="min-w-0 flex-1 text-sm text-muted-foreground">Addresses are created from eligible secure managed sessions. Aliases are optional; stable addresses always work.</p>
+    {:else if workspaceView === "conferences"}
+      <p class="text-sm text-muted-foreground">Read-only conference inspector · metadata refreshes every 15 seconds.</p>
     {:else if workspaceView === "conversations"}
       <Select
         type="single"
@@ -455,6 +459,10 @@
       </SelectContent>
     </Select>
   </LogToolbar>
+
+  <Tabs.Content value="conferences" class="mt-3">
+    {#if workspaceView === "conferences"}<Conferences {limit} />{/if}
+  </Tabs.Content>
 
   <Tabs.Content value="addresses" class="mt-3">
     <section class="border-y border-border" aria-labelledby="addresses-heading">

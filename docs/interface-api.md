@@ -916,6 +916,25 @@ that metadata; every mutation and plaintext reveal requires `owner` or `admin`:
   human alias.
 - `POST /admin/agent-messaging/addresses/{id}/enabled` — enable/disable one
   address; enabling rechecks every upstream gate.
+- `GET /admin/agent-messaging/conferences` — metadata for the newest rooms; optional
+  `status=open|adjourned` (`open` includes `adjourning`; omitted means all),
+  `limit=1..500` (default 100). Includes chair, active/total members and last activity.
+- `GET /admin/agent-messaging/conferences/{id}` — room metadata and all members,
+  including departed members, fleet-derived host/engine/presence, dispatch delivery
+  status/error, task deadline, last report, and message budget. The room PIN is omitted.
+- `GET /admin/agent-messaging/conferences/{id}/messages` — merged metadata timeline
+  from the members' stored conversation IDs, including ordinary replies. `limit=1..100`
+  defaults to 100; use either `before` or `after` with a positive safe integer
+  `dispatch_order` cursor. No cursor returns the latest page; `before` returns its
+  preceding page; `after` returns the next page. Each response is chronological and
+  includes `oldest_cursor`, `newest_cursor`, and `has_more` in the requested direction.
+- `POST /admin/agent-messaging/conferences/{id}/reveal` — body
+  `{ "message_ids": ["uuid", ...] }` (1..100 IDs); all IDs must belong to that room.
+  Returns those messages with decrypted `content`. Requires
+  `agent_messaging.reveal_content`; records `agent_messaging.conference.revealed`
+  with actor, room and message IDs only, without broadcast, and sets no-store headers.
+  Conference GETs require `agent_messaging.read`. These routes never claim,
+  acknowledge, sweep, or alter work, and remain usable when messaging is disabled.
 - `GET /admin/agent-messaging/conversations` — metadata listing, optionally
   filtered by status and bounded to 1..500.
 - `POST /admin/agent-messaging/conversations/{id}/cancel` — cancel an open
