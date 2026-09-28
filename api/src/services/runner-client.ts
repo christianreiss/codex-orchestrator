@@ -99,6 +99,12 @@ export function createRunnerClient(deps: RunnerClientDeps): RunnerClient {
   const url = env.AUTH_RUNNER_URL ?? '';
   const secret = env.AUTH_RUNNER_SHARED_SECRET ?? '';
   const defaultTimeout = (env.AUTH_RUNNER_TIMEOUT ?? 8) * 1000;
+  // Skill/project drafting is a full CLI turn against an LLM (a minute or two
+  // is normal), not the fast credential probe `verify`/`verifyClaude` run —
+  // it must inherit AUTH_RUNNER_EXEC_TIMEOUT's budget, same as the OpenAI/
+  // Claude compat adapters, or the API times out while the runner is still
+  // legitimately working.
+  const execDefaultTimeout = (env.AUTH_RUNNER_EXEC_TIMEOUT ?? 600) * 1000;
 
   async function send(target: string, body: Record<string, unknown>, timeoutMs: number): Promise<RunnerVerifyResult> {
     if (!url) return { ok: false, status: 'unconfigured', reachable: false, reason: 'AUTH_RUNNER_URL not set' };
@@ -256,7 +262,7 @@ export function createRunnerClient(deps: RunnerClientDeps): RunnerClient {
           reason: 'skill generation endpoint is not configured',
         };
       }
-      const timeout = (input.timeoutSeconds ?? env.AUTH_RUNNER_TIMEOUT ?? 8) * 1000;
+      const timeout = (input.timeoutSeconds ?? env.AUTH_RUNNER_EXEC_TIMEOUT ?? 600) * 1000;
       const body: Record<string, unknown> = {
         auth_json: input.authJson,
         prompt: input.prompt,
@@ -265,7 +271,7 @@ export function createRunnerClient(deps: RunnerClientDeps): RunnerClient {
       };
       const hint = typeof input.slugHint === 'string' ? input.slugHint.trim() : '';
       if (hint !== '') body.slug_hint = hint;
-      return send(target, body, timeout || defaultTimeout);
+      return send(target, body, timeout || execDefaultTimeout);
     },
     async assistSkillDraft(input) {
       const target = deriveFeatureUrl(url, '/skills/assist');
@@ -277,7 +283,7 @@ export function createRunnerClient(deps: RunnerClientDeps): RunnerClient {
           reason: 'skill assist endpoint is not configured',
         };
       }
-      const timeout = (input.timeoutSeconds ?? env.AUTH_RUNNER_TIMEOUT ?? 8) * 1000;
+      const timeout = (input.timeoutSeconds ?? env.AUTH_RUNNER_EXEC_TIMEOUT ?? 600) * 1000;
       const mode = input.mode === 'edit' ? 'edit' : 'new';
       return send(
         target,
@@ -290,7 +296,7 @@ export function createRunnerClient(deps: RunnerClientDeps): RunnerClient {
           engine: input.engine,
           timeout_seconds: timeout / 1000,
         },
-        timeout || defaultTimeout,
+        timeout || execDefaultTimeout,
       );
     },
     async assistProjectDraft(input) {
@@ -303,7 +309,7 @@ export function createRunnerClient(deps: RunnerClientDeps): RunnerClient {
           reason: 'project assist endpoint is not configured',
         };
       }
-      const timeout = (input.timeoutSeconds ?? env.AUTH_RUNNER_TIMEOUT ?? 8) * 1000;
+      const timeout = (input.timeoutSeconds ?? env.AUTH_RUNNER_EXEC_TIMEOUT ?? 600) * 1000;
       return send(
         target,
         {
@@ -313,7 +319,7 @@ export function createRunnerClient(deps: RunnerClientDeps): RunnerClient {
           engine: input.engine,
           timeout_seconds: timeout / 1000,
         },
-        timeout || defaultTimeout,
+        timeout || execDefaultTimeout,
       );
     },
   };
