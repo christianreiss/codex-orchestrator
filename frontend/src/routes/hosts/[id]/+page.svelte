@@ -419,6 +419,24 @@
         </Button>
       </CardHeader>
       <CardContent>
+        <div class="mb-4 grid grid-cols-1 gap-3 rounded-md border p-2.5 sm:grid-cols-2">
+          <ToggleRow
+            label="Codex engine"
+            checked={codexEngine}
+            disabled={codexSwitchDisabled}
+            onchange={(v) => setHostEngine("codex", v)}
+          />
+          <ToggleRow
+            label="Claude engine"
+            checked={claudeEngine}
+            disabled={claudeSwitchDisabled}
+            onchange={(v) => setHostEngine("claude", v)}
+          />
+        </div>
+        <p class="mb-4 text-xs text-muted-foreground">
+          Engine changes apply on the host's next <code>cdx</code>/<code>clx</code> run, or its next
+          scheduled maintenance tick if neither runs interactively.
+        </p>
         <div class="grid gap-3 md:grid-cols-2">
           {#if codexEngine}
             <EnginePanel
@@ -668,23 +686,7 @@
             checked={host.browseros_mcp_enabled}
             onchange={(v) => runQuiet($browserOsMcp.mutateAsync({ id, value: v }))}
           />
-          <ToggleRow
-            label="Codex engine"
-            checked={codexEngine}
-            disabled={codexSwitchDisabled}
-            onchange={(v) => setHostEngine("codex", v)}
-          />
-          <ToggleRow
-            label="Claude engine"
-            checked={claudeEngine}
-            disabled={claudeSwitchDisabled}
-            onchange={(v) => setHostEngine("claude", v)}
-          />
         </div>
-        <p class="mt-3 text-xs text-muted-foreground">
-          Engine changes apply on the host's next <code>cdx</code>/<code>clx</code> run, or its next
-          scheduled maintenance tick if neither runs interactively.
-        </p>
       </CardContent>
     </Card>
 
