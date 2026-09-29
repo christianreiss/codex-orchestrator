@@ -1,5 +1,7 @@
 # 2026-09-29
 
+- **GPT-6.1 Sol supported.** Added `gpt-6.1-sol` to Codex model selection and OpenAI-compatible inference, with native `low` default effort and all six effort levels through `ultra`.
+
 - **Codex profiles are delivered as `<name>.config.toml` files (wrapper 0.9.6).** codex-cli 0.156.1+ fails `--profile <name>` ("failed to load configuration") when `config.toml` carries `[profiles.*]`, so `cdx <profile>` was broken on current hosts. For a host reporting Codex 0.156.1+ (or none) the server now leaves `[profiles.*]` out of `config.toml` and returns a `profiles` list on `/config/retrieve` and `/sync/bootstrap`; the wrapper writes `$CODEX_HOME/<name>.config.toml`, tracks what it wrote in `.cxx-managed-profiles.json`, and prunes only those files (a user-authored profile file is never removed or overwritten). Older Codex builds keep the tables. The layout was verified live on 0.156.1, 0.157.0 and 0.158.0, and a rendered profile passes `codex --strict-config`.
 - **Fixed: Contained / Restricted posture levels rendered `approval_policy = "untrusted"`, which codex-cli 0.158.0 rejects.** Codex refuses to load the whole config ("no longer supported; remove this setting"), so `cdx` and `codex mcp list` failed on those hosts. Levels 0–2 now render `on-request` (still under the read-only sandbox at 0–1), and a stored `untrusted` heals to `on-request`.
 - **Codex feature flags `guardian_ext`, `personality` and `remote_compaction_v2` are dropped** (stage `removed` on 0.158.0). The top-level `personality` key is unchanged.

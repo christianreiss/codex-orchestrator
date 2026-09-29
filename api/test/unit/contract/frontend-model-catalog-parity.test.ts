@@ -212,7 +212,7 @@ describe('frontend model catalog parity', () => {
     // stringConst throws on a rename; this pins that it read a mode, not ''.
     expect(FRONTEND_DEFAULT_PERMISSION_MODE, 'DEFAULT_CLAUDE_PERMISSION_MODE').not.toEqual('');
     expect(optionValues('CLAUDE_MODEL_OPTIONS')).toContain('claude-sonnet-5');
-    expect(optionValues('CODEX_MODELS')[0]).toBe('gpt-6-astra');
+    expect(optionValues('CODEX_MODELS')[0]).toBe('gpt-6.1-sol');
     expect(optionValues('CLAUDE_PERMISSION_MODES')).toContain('bypassPermissions');
     // The sentinels are resolved through their identifiers, then dropped.
     expect(optionValues('ADVISOR_MODELS')).toContain(ADVISOR_OFF);

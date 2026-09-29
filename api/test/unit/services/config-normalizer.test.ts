@@ -38,6 +38,7 @@ describe('config-normalizer constants', () => {
     // LEGACY_MODEL_UPGRADES. `gpt-5.3-codex-spark` left with codex-cli 0.158.0
     // (catalog, binary, and a live call all reject it) and heals the same way.
     expect(SUPPORTED_MODELS).toEqual([
+      'gpt-6.1-sol',
       'gpt-6-astra',
       'gpt-6-sol',
       'gpt-6-luna',
@@ -55,6 +56,7 @@ describe('config-normalizer constants', () => {
   it('matches the current Codex CLI model effort catalog and defaults', () => {
     // Mirrors `codex debug models` on codex-cli 0.158.0, 2026-09-29.
     expect(MODEL_REASONING_EFFORTS).toEqual({
+      'gpt-6.1-sol': ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
       'gpt-6-astra': ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
       'gpt-6-sol': ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
       'gpt-6-luna': ['low', 'medium', 'high', 'xhigh', 'max'],
@@ -64,6 +66,7 @@ describe('config-normalizer constants', () => {
       'gpt-5.5': ['low', 'medium', 'high', 'xhigh'],
     });
     expect(CODEX_MODEL_DEFAULT_REASONING_EFFORTS).toEqual({
+      'gpt-6.1-sol': 'low',
       'gpt-6-astra': 'medium',
       'gpt-6-sol': 'medium',
       'gpt-6-luna': 'medium',

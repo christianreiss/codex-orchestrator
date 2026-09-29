@@ -264,6 +264,7 @@ The fleet starts on `gpt-6-astra` at its native `medium` effort.
 
 | Models | Persistent efforts | Default effort |
 |---|---|---|
+| `gpt-6.1-sol` | `low`, `medium`, `high`, `xhigh`, `max`, `ultra` | `low` |
 | `gpt-6-astra` | `low`, `medium`, `high`, `xhigh`, `max`, `ultra` | `medium` |
 | `gpt-6-sol` | `low`, `medium`, `high`, `xhigh`, `max`, `ultra` | `medium` |
 | `gpt-6-luna` | `low`, `medium`, `high`, `xhigh`, `max` | `medium` |
@@ -276,7 +277,7 @@ The fleet starts on `gpt-6-astra` at its native `medium` effort.
 stored override naming it heals to `gpt-5.6-luna`, the replacement the Codex
 model catalog names, at the retained `high` migration effort. `gpt-5.5` carries an
 upstream `upgrade` block (→ `gpt-5.6-sol`, retiring 2026-10-14) and stays offered
-until then. This table mirrors `codex debug models` on codex-cli 0.158.0
+until then. GPT-6.1 Sol was verified from the active session model cache on 2026-09-29. The other rows mirror `codex debug models` on codex-cli 0.158.0
 (verified 2026-09-29). `gpt-5.3-codex-spark` is retired: it left the catalog and
 binary, a live `codex exec -m gpt-5.3-codex-spark` is rejected ("not supported
 when using Codex with a ChatGPT account"), and its quota bucket is gone. A stored

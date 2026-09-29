@@ -557,3 +557,5 @@ use an isolated database and deterministic native-socket fixtures.
 ### Conference inspection
 
 Agent Messaging → Conferences exposes retained rooms and a live member/task overview for both engines. Its combined timeline uses the existing member conversation links, including ordinary replies. Metadata refreshes through the central WebSocket invalidations and a 15-second visible-page poll; an explicit audited transcript reveal requires the existing content capability. No schema migration or wrapper update is required.
+
+GPT-6.1 Sol (`gpt-6.1-sol`) is selectable for Codex fleet defaults, host overrides, and OpenAI-compatible inference; its native default effort is `low`, with `low|medium|high|xhigh|max|ultra` available.

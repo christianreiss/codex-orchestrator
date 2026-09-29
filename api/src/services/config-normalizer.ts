@@ -52,12 +52,14 @@ export const FORCE_UPGRADE_REASONING_EFFORT = 'high';
  * 2026-10-14) but stays selectable here until that date; move it to
  * LEGACY_MODEL_UPGRADES once retired.
  *
- * Verified against codex-cli 0.158.0, 2026-09-29. `gpt-5.3-codex-spark` was
+ * GPT-6.1 Sol verified against the active session models_cache.json, 2026-09-29.
+ * Other entries verified against codex-cli 0.158.0, 2026-09-29. `gpt-5.3-codex-spark` was
  * removed the same day: gone from the catalog and binary, rejected by a live
  * `codex exec -m`, and its rate-limit bucket is no longer reported. It now heals
  * through LEGACY_MODEL_UPGRADES, and the `spark` lane went with it.
  */
 export const SUPPORTED_MODELS: readonly string[] = [
+  'gpt-6.1-sol',
   'gpt-6-astra',
   'gpt-6-sol',
   'gpt-6-luna',
@@ -125,6 +127,7 @@ export const REASONING_EFFORTS: readonly string[] = [
 ];
 
 export const MODEL_REASONING_EFFORTS: Readonly<Record<string, readonly string[]>> = {
+  'gpt-6.1-sol': ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
   'gpt-6-astra': ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
   'gpt-6-sol': ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
   'gpt-6-luna': ['low', 'medium', 'high', 'xhigh', 'max'],
@@ -139,6 +142,7 @@ export const MODEL_REASONING_EFFORTS: Readonly<Record<string, readonly string[]>
  * Verified against `codex debug models` on codex-cli 0.158.0, 2026-09-29.
  */
 export const CODEX_MODEL_DEFAULT_REASONING_EFFORTS: Readonly<Record<string, string>> = {
+  'gpt-6.1-sol': 'low',
   'gpt-6-astra': 'medium',
   'gpt-6-sol': 'medium',
   'gpt-6-luna': 'medium',

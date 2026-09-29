@@ -30,6 +30,11 @@ describe('ModelDefaultsService', () => {
     });
     expect(codex.catalog).toEqual([
       {
+        model: 'gpt-6.1-sol',
+        persistent_efforts: ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
+        default_effort: 'low',
+      },
+      {
         model: 'gpt-6-astra',
         persistent_efforts: ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
         default_effort: 'medium',
