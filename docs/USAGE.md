@@ -171,11 +171,8 @@ cdx ultra
 # Show the effective lane
 cdx lane
 
-# Select and persist the Spark lane for this host
-cdx lane spark
-
-# Shortcut for spark lane
-cdx ls
+# The Spark lane (`cdx lane spark`, `cdx ls`) was retired upstream on 2026-09-29:
+# both print a one-line notice and change nothing.
 
 # Select and persist the normal lane (`--persist` is accepted but redundant)
 cdx lane normal --persist

@@ -46,14 +46,16 @@ export const FORCE_UPGRADE_REASONING_EFFORT = 'high';
  * Deliberately NOT filtered on the catalog's `supported_in_api` flag: that
  * describes OpenAI's platform API, and this list also feeds `/v1/models`, which
  * is served by the codex runner shelling out to `codex exec` under ChatGPT
- * auth. `gpt-5.3-codex-spark` is `supported_in_api: false` yet fully servable
- * on that path.
+ * auth, so an entry with `supported_in_api: false` would still be servable.
  *
  * `gpt-5.5` has grown an `upgrade` block (→ `gpt-5.6-sol`, retiring
  * 2026-10-14) but stays selectable here until that date; move it to
  * LEGACY_MODEL_UPGRADES once retired.
  *
- * Verified against codex-cli 0.156.1, 2026-09-23.
+ * Verified against codex-cli 0.158.0, 2026-09-29. `gpt-5.3-codex-spark` was
+ * removed the same day: gone from the catalog and binary, rejected by a live
+ * `codex exec -m`, and its rate-limit bucket is no longer reported. It now heals
+ * through LEGACY_MODEL_UPGRADES, and the `spark` lane went with it.
  */
 export const SUPPORTED_MODELS: readonly string[] = [
   'gpt-6-astra',
@@ -63,7 +65,6 @@ export const SUPPORTED_MODELS: readonly string[] = [
   'gpt-5.6-terra',
   'gpt-5.6-luna',
   'gpt-5.5',
-  'gpt-5.3-codex-spark',
 ];
 
 export const LEGACY_MODEL_UPGRADES: Readonly<Record<string, string>> = {
@@ -78,6 +79,10 @@ export const LEGACY_MODEL_UPGRADES: Readonly<Record<string, string>> = {
   'gpt-5.2-codex': FORCE_UPGRADE_MODEL,
   'gpt-5.1-codex-max': FORCE_UPGRADE_MODEL,
   'gpt-5.1-codex-mini': FORCE_UPGRADE_MODEL,
+  // Retired upstream (codex-cli 0.158.0: gone from the catalog and binary, a live
+  // call is rejected "not supported when using Codex with a ChatGPT account").
+  // The catalog names no replacement, so it takes the forced upgrade.
+  'gpt-5.3-codex-spark': FORCE_UPGRADE_MODEL,
 };
 
 // Legacy stored-override ids mapped onto the canonical gate ids defined in
@@ -127,12 +132,11 @@ export const MODEL_REASONING_EFFORTS: Readonly<Record<string, readonly string[]>
   'gpt-5.6-terra': ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
   'gpt-5.6-luna': ['low', 'medium', 'high', 'xhigh', 'max'],
   'gpt-5.5': ['low', 'medium', 'high', 'xhigh'],
-  'gpt-5.3-codex-spark': ['low', 'medium', 'high', 'xhigh'],
 };
 
 /**
  * `default_reasoning_level` as reported by the Codex CLI model catalog.
- * Verified against `codex debug models` on codex-cli 0.156.1, 2026-09-23.
+ * Verified against `codex debug models` on codex-cli 0.158.0, 2026-09-29.
  */
 export const CODEX_MODEL_DEFAULT_REASONING_EFFORTS: Readonly<Record<string, string>> = {
   'gpt-6-astra': 'medium',
@@ -142,7 +146,6 @@ export const CODEX_MODEL_DEFAULT_REASONING_EFFORTS: Readonly<Record<string, stri
   'gpt-5.6-terra': 'medium',
   'gpt-5.6-luna': 'medium',
   'gpt-5.5': 'medium',
-  'gpt-5.3-codex-spark': 'high',
 };
 
 /**
@@ -172,6 +175,7 @@ export const CLAUDE_MODEL_REASONING_EFFORTS: Readonly<Record<string, readonly st
   'claude-opus-5-5': ['low', 'medium', 'high', 'xhigh'],
   'claude-opus-5': ['low', 'medium', 'high', 'xhigh'],
   'claude-opus-4-8': ['low', 'medium', 'high', 'xhigh'],
+  'claude-sonnet-5-5': ['low', 'medium', 'high', 'xhigh'],
   'claude-sonnet-5': ['low', 'medium', 'high', 'xhigh'],
   'claude-opus-4-7': ['low', 'medium', 'high', 'xhigh'],
   'claude-sonnet-4-6': ['low', 'medium', 'high'],
@@ -180,8 +184,9 @@ export const CLAUDE_MODEL_REASONING_EFFORTS: Readonly<Record<string, readonly st
 
 /**
  * Fleet defaults used when an operator selects a Claude model without an
- * effort. `claude-opus-5-5` defaults to `medium` per Anthropic's own models
- * table — one step below every other Opus/Fable/Sonnet tier's `high`.
+ * effort. `claude-opus-5-5` and `claude-sonnet-5-5` default to `medium` (the
+ * CLI catalog's `default_effort`) — one step below every other Opus/Fable/Sonnet
+ * tier's `high`.
  */
 export const CLAUDE_MODEL_DEFAULT_REASONING_EFFORTS: Readonly<Record<string, string | null>> = {
   'claude-fable-5-1': 'high',
@@ -189,6 +194,7 @@ export const CLAUDE_MODEL_DEFAULT_REASONING_EFFORTS: Readonly<Record<string, str
   'claude-opus-5-5': 'medium',
   'claude-opus-5': 'high',
   'claude-opus-4-8': 'high',
+  'claude-sonnet-5-5': 'medium',
   'claude-sonnet-5': 'high',
   'claude-opus-4-7': 'xhigh',
   'claude-sonnet-4-6': 'high',
@@ -197,7 +203,11 @@ export const CLAUDE_MODEL_DEFAULT_REASONING_EFFORTS: Readonly<Record<string, str
 
 export const PERSONALITIES: readonly string[] = ['friendly', 'pragmatic', 'none'];
 
-export const APPROVAL_POLICIES: readonly string[] = ['untrusted', 'on-request', 'on-failure', 'never'];
+// `untrusted` is gone: codex-cli 0.158.0 refuses to load a config that carries it
+// ("approval_policy = \"untrusted\" is no longer supported; remove this setting"),
+// which takes `codex mcp list` and every launch down with it. normalizeApprovalPolicy
+// heals a stored `untrusted` to the nearest remaining policy, `on-request`.
+export const APPROVAL_POLICIES: readonly string[] = ['on-request', 'on-failure', 'never'];
 
 export const DROPPED_FEATURE_KEYS: readonly string[] = [
   'steer',
@@ -253,6 +263,10 @@ export const DROPPED_FEATURE_KEYS: readonly string[] = [
   'undo',
   'unified_exec_zsh_fork',
   'workspace_owner_usage_nudge',
+  // `removed` in `codex features list` on codex-cli 0.158.0, 2026-09-29.
+  'guardian_ext',
+  'personality',
+  'remote_compaction_v2',
 ];
 
 export interface NormalizedSettings {
@@ -390,6 +404,7 @@ export function normalizeApprovalPolicy(value: unknown): string | null {
   const s = normalizeString(value);
   if (s === null) return null;
   const lower = s.toLowerCase();
+  if (lower === 'untrusted') return 'on-request';
   return APPROVAL_POLICIES.includes(lower) ? lower : null;
 }
 
@@ -577,11 +592,13 @@ export const CLAUDE_ADVISOR_RANKS: Readonly<Record<string, number>> = {
   'claude-haiku-4-5': 1,
   'claude-haiku-4-5-20251001': 1,
   'claude-sonnet-4-6': 2,
+  'claude-sonnet-5-5': 3,
   'claude-sonnet-5': 3,
   'claude-opus-4-6': 3,
   'claude-opus-4-7': 4,
   'claude-opus-4-8': 4,
   'claude-opus-5': 4,
+  'claude-opus-5-5': 4,
   'claude-fable-5': 5,
   'claude-fable-5-1': 5,
 };
@@ -591,15 +608,15 @@ export const CLAUDE_MIN_ADVISOR_RANK = 2;
 
 /**
  * Tier alias -> concrete model, as the CLI's own catalog resolves them
- * (`aliases:{opus:{default:"claude-opus-5"},sonnet:{default:"claude-sonnet-5"},
+ * (`aliases:{opus:{default:"claude-opus-5-5"},sonnet:{default:"claude-sonnet-5-5"},
  * fable:{default:"claude-fable-5-1"}}`). `haiku` is deliberately absent from
  * ADVISOR_MODEL_ALIASES above: it resolves to claude-haiku-4-5, whose
  * advisor_rank is 1, so `Mtn` rejects it outright — and the CLI's own advisor
  * picker list is `["fable","opus","sonnet"]`, with no haiku either.
  */
 export const CLAUDE_ADVISOR_ALIAS_TARGETS: Readonly<Record<string, string>> = {
-  opus: 'claude-opus-5',
-  sonnet: 'claude-sonnet-5',
+  opus: 'claude-opus-5-5',
+  sonnet: 'claude-sonnet-5-5',
   fable: 'claude-fable-5-1',
 };
 
@@ -721,7 +738,16 @@ export function normalizeClaudeStatusLine(value: unknown): Record<string, unknow
   if (Object.keys(rec).length === 0) return null;
   if (rec.type !== 'command') return null;
   if (typeof rec.command !== 'string' || rec.command.trim() === '') return null;
-  return rec;
+  // `padding` and `refreshInterval` are typed in the claude-cli 2.1.284 schema
+  // (`padding: k().optional()` has no `.catch`), so a wrongly-typed value would
+  // fail the whole statusLine and take the quota telemetry with it. Keep the
+  // typed keys only when valid and drop everything else.
+  const out: Record<string, unknown> = { type: 'command', command: rec.command };
+  if (typeof rec.padding === 'number' && Number.isFinite(rec.padding)) out.padding = rec.padding;
+  if (typeof rec.refreshInterval === 'number' && Number.isFinite(rec.refreshInterval) && rec.refreshInterval >= 1) {
+    out.refreshInterval = rec.refreshInterval;
+  }
+  return out;
 }
 
 /** Claude settings.json `hooks` block (event -> matcher[]): passed through verbatim. */

@@ -66,3 +66,41 @@ func TestHasProfileNoConfigFile(t *testing.T) {
 		t.Fatal("missing config.toml must not match")
 	}
 }
+
+func TestHasProfileSidecarFile(t *testing.T) {
+	writeConfig(t, "model = \"gpt-5\"\n")
+	home, err := CodexHome()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if HasProfile("fast") {
+		t.Fatal("no sidecar yet")
+	}
+	if err := os.WriteFile(filepath.Join(home, "fast.config.toml"), []byte("model = \"x\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if !HasProfile("fast") {
+		t.Fatal("expected fast.config.toml to define the profile")
+	}
+	if HasProfile("../fast") || HasProfile("a b") {
+		t.Fatal("unsafe names must never match")
+	}
+}
+
+func TestManagedProfileNamesReadsOnlyValidManifestEntries(t *testing.T) {
+	writeConfig(t, "")
+	home, err := CodexHome()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := ManagedProfileNames(home); len(got) != 0 {
+		t.Fatalf("no manifest, got %v", got)
+	}
+	if err := os.WriteFile(filepath.Join(home, ProfileManifestFile), []byte(`{"names":["fast","../evil","a b","slow"]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got := ManagedProfileNames(home)
+	if len(got) != 2 || !got["fast"] || !got["slow"] {
+		t.Fatalf("names = %v", got)
+	}
+}

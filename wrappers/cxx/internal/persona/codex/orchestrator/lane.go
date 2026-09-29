@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-// LaneInfo describes a host's quota lane (normal vs spark). The orchestrator's
+// LaneInfo describes a host's quota lane (normal). The orchestrator's
 // GET/POST /host/lane handlers return {lane_preference, effective_lane, ...},
 // and the standard envelope duplicates those fields both at the root and under
 // `data`. We read both positions so the client stays correct regardless of
@@ -45,8 +45,8 @@ func (c *Client) GetLane(ctx context.Context) (string, error) {
 
 func (c *Client) SetLane(ctx context.Context, lane string) error {
 	lane = strings.ToLower(strings.TrimSpace(lane))
-	if lane != "normal" && lane != "spark" {
-		return fmt.Errorf("invalid lane %q (want normal|spark)", lane)
+	if lane != "normal" {
+		return fmt.Errorf("invalid lane %q (want normal)", lane)
 	}
 	out := &LaneInfo{}
 	return c.JSON(ctx, http.MethodPost, "/host/lane", map[string]string{"lane": lane}, out, 1)

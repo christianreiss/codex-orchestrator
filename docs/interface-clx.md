@@ -758,7 +758,7 @@ this run.
 
 - `advisorModel` enables Claude Code's experimental advisor tool (routes the full
   transcript to a stronger reviewer model). Restricted to the tier aliases
-  `opus` / `sonnet` / `haiku`; any other value is treated as off and the key is
+  `opus` / `sonnet` / `fable`; any other value is treated as off and the key is
   omitted (and removed on the host via the stale-path cleanup).
 
 - The server renders the partial **only** from the Claude-engine `client_config`

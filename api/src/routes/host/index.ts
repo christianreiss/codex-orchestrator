@@ -89,10 +89,15 @@ export async function registerHostRoutes(app: FastifyInstance, ctx: RouteContext
     const body = (req.body && typeof req.body === 'object' ? req.body : null) as Record<string, unknown> | null;
     if (!body || !('lane' in body)) throw new ValidationError('lane is required (set null to clear)', { param: 'lane' });
     const lane = body.lane;
-    if (lane !== null && typeof lane !== 'string') throw new ValidationError('lane must be one of: normal, spark, or null', { param: 'lane' });
+    if (lane !== null && typeof lane !== 'string') throw new ValidationError('lane must be one of: normal or null', { param: 'lane' });
+    // `spark` is retired (codex-cli 0.158.0 removed the model, the usage endpoint
+    // dropped its bucket). wrapper <= 0.9.5 still POSTs it for `cdx lane spark`,
+    // so accept it and store null (inherit) — `normal` would pin gpt-6-astra over
+    // a per-host model override the operator may have chosen.
+    const retired = typeof lane === 'string' && lane.toLowerCase().trim() === 'spark';
     const normalized = normalizeLane(lane);
-    if (lane !== null && typeof lane === 'string' && lane.trim() !== '' && normalized === null) {
-      throw new ValidationError('lane must be one of: normal, spark, or null', { param: 'lane' });
+    if (!retired && lane !== null && typeof lane === 'string' && lane.trim() !== '' && normalized === null) {
+      throw new ValidationError('lane must be one of: normal or null', { param: 'lane' });
     }
     await ctx.db
       .update(hostsTable)
@@ -271,11 +276,9 @@ function resolvePublicBaseUrl(req: FastifyRequest, envBase: string | undefined):
   return `${proto}://${host}`;
 }
 
-function normalizeLane(value: unknown): 'normal' | 'spark' | null {
+function normalizeLane(value: unknown): 'normal' | null {
   if (typeof value !== 'string') return null;
-  const v = value.toLowerCase().trim();
-  if (v === 'normal' || v === 'spark') return v;
-  return null;
+  return value.toLowerCase().trim() === 'normal' ? 'normal' : null;
 }
 
 function normalizeVersionForCompare(value: string): string {

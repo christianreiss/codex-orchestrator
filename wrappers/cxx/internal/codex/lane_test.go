@@ -12,10 +12,9 @@ func TestApplyLanePreference(t *testing.T) {
 	if got := ApplyLanePreference(base, "normal"); !reflect.DeepEqual(got, []string{"--model", "gpt-6-astra", "resume", "abc"}) {
 		t.Fatalf("normal lane args = %v", got)
 	}
-	spark := ApplyLanePreference(base, "spark")
-	wantSpark := []string{"--model", "gpt-5.3-codex-spark", "--config", "model_reasoning_effort=high", "--config", "model_reasoning_summary=none", "resume", "abc"}
-	if !reflect.DeepEqual(spark, wantSpark) {
-		t.Fatalf("spark lane args = %v, want %v", spark, wantSpark)
+	// The spark lane is retired: a stale preference launches no lane model.
+	if got := ApplyLanePreference(base, "spark"); !reflect.DeepEqual(got, base) {
+		t.Fatalf("retired spark lane changed args: %v", got)
 	}
 	for _, explicit := range [][]string{{"--model", "custom"}, {"--model=custom"}, {"-m", "custom"}, {"--profile", "work"}, {"-p", "work"}} {
 		if got := ApplyLanePreference(explicit, "spark"); !reflect.DeepEqual(got, explicit) {
@@ -37,17 +36,20 @@ func TestAgentMessagingNeverInheritsDangerousBypass(t *testing.T) {
 }
 
 func TestModelContextMatchesLaunchSelection(t *testing.T) {
-	if got := ModelContext(nil, "spark"); got != "gpt-5.3-codex-spark" {
-		t.Fatalf("spark context = %q", got)
+	if got := ModelContext(nil, "spark"); got != "" {
+		t.Fatalf("retired spark context = %q", got)
+	}
+	if got := ModelContext(nil, "normal"); got != "gpt-6-astra" {
+		t.Fatalf("normal context = %q", got)
 	}
 	if got := ModelContext([]string{"--profile", "work"}, "spark"); got != "profile:work" {
 		t.Fatalf("profile context = %q", got)
 	}
 }
 
-func TestEffortContextMatchesSparkInjection(t *testing.T) {
-	if got := EffortContext(nil, "spark"); got != "high" {
-		t.Fatalf("spark effort = %q, want high", got)
+func TestEffortContextHonoursExplicitConfigOnly(t *testing.T) {
+	if got := EffortContext(nil, "spark"); got != "" {
+		t.Fatalf("retired spark lane injected effort %q", got)
 	}
 	if got := EffortContext([]string{"--profile", "work"}, "spark"); got != "" {
 		t.Fatalf("profile effort was overwritten: %q", got)
@@ -63,8 +65,9 @@ func TestEffectiveLaneMatchesHostContract(t *testing.T) {
 		reported   string
 		want       string
 	}{
-		{preference: "spark", reported: "normal", want: "spark"},
-		{preference: "", reported: "spark", want: "spark"},
+		{preference: "spark", reported: "normal", want: "normal"},
+		{preference: "", reported: "spark", want: "normal"},
+		{preference: "normal", reported: "", want: "normal"},
 		{preference: "", reported: "", want: "normal"},
 		{preference: "garbage", reported: "normal", want: "normal"},
 	} {

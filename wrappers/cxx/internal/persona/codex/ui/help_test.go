@@ -21,7 +21,6 @@ func TestPrintWrapperHelpPlainIsANSIFreeAndComplete(t *testing.T) {
 		"CDX WRAPPER HELP",
 		"cdx auth-upload",
 		"cdx lane",
-		"cdx ls",
 		"cdx profile",
 		"--minimal",
 		"--silent",

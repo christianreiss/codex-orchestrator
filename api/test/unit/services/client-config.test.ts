@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import {
   applyPostureToSettings,
@@ -6,6 +7,7 @@ import {
   renderClaudeSettingsPartial,
   renderClaudeSettingsPartialForHost,
   renderToml,
+  codexUsesProfileFiles,
   renderTomlForHost,
 } from '../../../src/services/client-config.js';
 import { DEFAULT_CLAUDE_PERMISSION_MODE, normalizeSettings } from '../../../src/services/config-normalizer.js';
@@ -321,7 +323,12 @@ describe('client-config: renderToml', () => {
     expect(switched.content).toContain('model = "gpt-5.5"');
     expect(switched.content).toContain('model_reasoning_effort = "medium"');
     expect(switched.content).not.toContain('model_reasoning_effort = "ultra"');
-    expect(switched.content).toContain('[profiles.workhorse]');
+    // Current Codex takes profiles as sidecar files, so config.toml carries no tables
+    // and the overridden model reaches the profile through its own document.
+    expect(switched.content).not.toContain('[profiles.');
+    expect(switched.profiles).toEqual([
+      expect.objectContaining({ name: 'workhorse', content: expect.stringContaining('model = "gpt-5.5"') }),
+    ]);
 
     const inherited = renderTomlForHost({
       settings: {
@@ -835,7 +842,7 @@ describe('client-config: security posture overlay', () => {
       apiKey: null,
       securityLevels: presetLevels('contained'),
     }).content;
-    expect(toml).toContain('approval_policy = "untrusted"');
+    expect(toml).toContain('approval_policy = "on-request"');
     expect(toml).toContain('sandbox_mode = "read-only"');
     expect(toml).toContain('network_access = false');
   });
@@ -889,5 +896,41 @@ describe('client-config: security posture overlay', () => {
     expect((std.partial['permissions'] as Record<string, unknown>)['defaultMode']).toBe(
       DEFAULT_CLAUDE_PERMISSION_MODE,
     );
+  });
+});
+
+describe('client-config: Codex profiles as sidecar files', () => {
+  const settings = {
+    model: 'gpt-6-astra',
+    profiles: [
+      { name: 'fast', model: 'gpt-6-luna', model_reasoning_effort: 'low', features: { apps: false } },
+      { name: 'bad name', model: 'gpt-5.5' },
+    ],
+  };
+  const render = (clientVersion: string | null) =>
+    renderTomlForHost({ settings, host: { clientVersion } as never, baseUrl: null, apiKey: null });
+
+  it('uses the sidecar layout from codex-cli 0.156.1 and for an unreported version', () => {
+    expect(codexUsesProfileFiles(null)).toBe(true);
+    expect(codexUsesProfileFiles('codex-cli 0.158.0')).toBe(true);
+    expect(codexUsesProfileFiles('0.156.1')).toBe(true);
+    expect(codexUsesProfileFiles('0.156.0')).toBe(false);
+    expect(codexUsesProfileFiles('0.125.0')).toBe(false);
+  });
+
+  it('renders each profile as a top-level config layer and drops names that are not file-safe', () => {
+    const out = render('0.158.0');
+    expect(out.content).not.toContain('[profiles.');
+    expect(out.profiles).toHaveLength(1);
+    const fast = out.profiles![0]!;
+    expect(fast.name).toBe('fast');
+    expect(fast.content).toBe('model = "gpt-6-luna"\nmodel_reasoning_effort = "low"\n\n[features]\napps = false\n');
+    expect(fast.sha256).toBe(createHash('sha256').update(fast.content).digest('hex'));
+  });
+
+  it('keeps [profiles.*] in config.toml and sends no sidecars to a pre-0.156.1 Codex', () => {
+    const out = render('0.155.0');
+    expect(out.content).toContain('[profiles.fast]');
+    expect(out.profiles).toBeUndefined();
   });
 });

@@ -240,16 +240,18 @@ func TestBuildFallsBackToLocalCodexPreferencesPerField(t *testing.T) {
 	}
 }
 
-func TestBuildShowsSparkLaunchEffortInsteadOfConfiguredFallback(t *testing.T) {
+func TestBuildIgnoresRetiredSparkLanePreference(t *testing.T) {
 	withCodexVersion(t, "0.144.1")
 	t.Setenv("HOME", t.TempDir())
 	auth := &orchestrator.AuthRetrieveResponse{Status: "valid", Host: &orchestrator.HostInfo{
 		LanePreference:  "spark",
 		ReasoningEffort: "ultra",
 	}}
+	// A stale stored `spark` preference launches no lane model and injects no
+	// effort: the configured effort shows through.
 	got := Build(context.Background(), Inputs{Auth: auth})
-	if got.Model != "gpt-5.3-codex-spark" || got.Effort != "high" {
-		t.Fatalf("spark launch context = model %q effort %q", got.Model, got.Effort)
+	if strings.Contains(got.Model, "spark") || got.Effort != "ultra" {
+		t.Fatalf("retired spark lane context = model %q effort %q", got.Model, got.Effort)
 	}
 
 	got = Build(context.Background(), Inputs{Auth: auth, LaunchArgs: []string{"--profile", "work"}})
@@ -401,7 +403,7 @@ func TestBuildQuotaOnlyActiveLaneCanGateLaunch(t *testing.T) {
 		wantBlock bool
 	}{
 		{name: "normal ignores exhausted spark", lane: "normal", wantBlock: false},
-		{name: "spark enforces exhausted spark", lane: "spark", wantBlock: true},
+		{name: "retired spark preference still ignores exhausted spark", lane: "spark", wantBlock: false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			_, _, block := buildQuota(&orchestrator.AuthRetrieveResponse{

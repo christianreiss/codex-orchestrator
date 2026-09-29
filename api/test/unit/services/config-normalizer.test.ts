@@ -22,6 +22,7 @@ import {
   normalizeClaudeEffortLevel,
   normalizeClaudeModel,
   normalizeClaudePermissionMode,
+  normalizeClaudeStatusLine,
   normalizeReasoningEffort,
   normalizeReasoningEffortForModel,
   normalizeSettings,
@@ -34,9 +35,8 @@ describe('config-normalizer constants', () => {
   it('exposes the supported model list', () => {
     // `gpt-5.4-mini` is absent on purpose: its catalog entry carries an
     // `upgrade` block with `retirement_at` 2026-08-31, so it moved to
-    // LEGACY_MODEL_UPGRADES. `gpt-5.3-codex-spark` stays despite the catalog's
-    // `supported_in_api: false` — /v1 is served by the runner driving
-    // `codex exec`, not OpenAI's platform API.
+    // LEGACY_MODEL_UPGRADES. `gpt-5.3-codex-spark` left with codex-cli 0.158.0
+    // (catalog, binary, and a live call all reject it) and heals the same way.
     expect(SUPPORTED_MODELS).toEqual([
       'gpt-6-astra',
       'gpt-6-sol',
@@ -45,7 +45,6 @@ describe('config-normalizer constants', () => {
       'gpt-5.6-terra',
       'gpt-5.6-luna',
       'gpt-5.5',
-      'gpt-5.3-codex-spark',
     ]);
   });
 
@@ -54,7 +53,7 @@ describe('config-normalizer constants', () => {
   });
 
   it('matches the current Codex CLI model effort catalog and defaults', () => {
-    // Mirrors `codex debug models` on codex-cli 0.156.1, 2026-09-23.
+    // Mirrors `codex debug models` on codex-cli 0.158.0, 2026-09-29.
     expect(MODEL_REASONING_EFFORTS).toEqual({
       'gpt-6-astra': ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
       'gpt-6-sol': ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
@@ -63,7 +62,6 @@ describe('config-normalizer constants', () => {
       'gpt-5.6-terra': ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
       'gpt-5.6-luna': ['low', 'medium', 'high', 'xhigh', 'max'],
       'gpt-5.5': ['low', 'medium', 'high', 'xhigh'],
-      'gpt-5.3-codex-spark': ['low', 'medium', 'high', 'xhigh'],
     });
     expect(CODEX_MODEL_DEFAULT_REASONING_EFFORTS).toEqual({
       'gpt-6-astra': 'medium',
@@ -74,7 +72,6 @@ describe('config-normalizer constants', () => {
       'gpt-5.6-terra': 'medium',
       'gpt-5.6-luna': 'medium',
       'gpt-5.5': 'medium',
-      'gpt-5.3-codex-spark': 'high',
     });
   });
 
@@ -92,7 +89,7 @@ describe('config-normalizer constants', () => {
     expect(LEGACY_MODEL_UPGRADES['gpt-5.4-mini']).toBe('gpt-5.6-luna');
     // The forced migration effort must be one the replacement accepts.
     expect(MODEL_REASONING_EFFORTS['gpt-5.6-luna']).toContain(FORCE_UPGRADE_REASONING_EFFORT);
-    expect(LEGACY_MODEL_UPGRADES['gpt-5.3-codex-spark']).toBeUndefined();
+    expect(LEGACY_MODEL_UPGRADES['gpt-5.3-codex-spark']).toBe(FORCE_UPGRADE_MODEL);
   });
 
   it('maps legacy Claude models onto current gate ids', () => {
@@ -112,6 +109,7 @@ describe('config-normalizer constants', () => {
       'claude-opus-5-5': ['low', 'medium', 'high', 'xhigh'],
       'claude-opus-5': ['low', 'medium', 'high', 'xhigh'],
       'claude-opus-4-8': ['low', 'medium', 'high', 'xhigh'],
+      'claude-sonnet-5-5': ['low', 'medium', 'high', 'xhigh'],
       'claude-sonnet-5': ['low', 'medium', 'high', 'xhigh'],
       'claude-opus-4-7': ['low', 'medium', 'high', 'xhigh'],
       'claude-sonnet-4-6': ['low', 'medium', 'high'],
@@ -123,6 +121,7 @@ describe('config-normalizer constants', () => {
       'claude-opus-5-5': 'medium',
       'claude-opus-5': 'high',
       'claude-opus-4-8': 'high',
+      'claude-sonnet-5-5': 'medium',
       'claude-sonnet-5': 'high',
       'claude-opus-4-7': 'xhigh',
       'claude-sonnet-4-6': 'high',
@@ -135,7 +134,7 @@ describe('normalizeStoredModel', () => {
   it('passes through supported models', () => {
     expect(normalizeStoredModel('gpt-6-astra')).toBe('gpt-6-astra');
     expect(normalizeStoredModel('gpt-5.6-terra')).toBe('gpt-5.6-terra');
-    expect(normalizeStoredModel('gpt-5.3-codex-spark')).toBe('gpt-5.3-codex-spark');
+    expect(normalizeStoredModel('gpt-5.3-codex-spark')).toBe('gpt-6-astra');
   });
 
   it('upgrades legacy models', () => {
@@ -292,7 +291,6 @@ describe('normalizeReasoningEffort', () => {
     // Astra gained `ultra` in the CLI catalog.
     expect(normalizeReasoningEffortForModel('ultra', 'gpt-6-astra')).toBe('ultra');
     expect(normalizeReasoningEffortForModel('high', 'gpt-5.5')).toBe('high');
-    expect(normalizeReasoningEffortForModel('xhigh', 'gpt-5.3-codex-spark')).toBe('xhigh');
     expect(normalizeReasoningEffortForModel('ultra', 'gpt-5.6-terra')).toBe('ultra');
     expect(normalizeReasoningEffortForModel('ultra', 'gpt-5.6-luna')).toBeNull();
     expect(normalizeReasoningEffortForModel('minimal', 'gpt-5.5')).toBeNull();
@@ -303,7 +301,6 @@ describe('normalizeReasoningEffort', () => {
     expect(defaultCodexReasoningEffortForModel('gpt-6-astra')).toBe('medium');
     expect(defaultCodexReasoningEffortForModel('gpt-5.6-sol')).toBe('low');
     expect(defaultCodexReasoningEffortForModel('gpt-5.6-terra')).toBe('medium');
-    expect(defaultCodexReasoningEffortForModel('gpt-5.3-codex-spark')).toBe('high');
     expect(defaultCodexReasoningEffortForModel('unknown')).toBeNull();
   });
 });
@@ -435,5 +432,25 @@ describe('settingsHash', () => {
 
   it('differs when values differ', () => {
     expect(settingsHash({ a: 1 })).not.toBe(settingsHash({ a: 2 }));
+  });
+});
+
+describe('normalizeClaudeStatusLine', () => {
+  it('keeps typed padding/refreshInterval and drops wrongly typed or unknown keys', () => {
+    expect(
+      normalizeClaudeStatusLine({ type: 'command', command: 'x', padding: 2, refreshInterval: 5, extra: 1 }),
+    ).toEqual({ type: 'command', command: 'x', padding: 2, refreshInterval: 5 });
+    expect(
+      normalizeClaudeStatusLine({ type: 'command', command: 'x', padding: '2', refreshInterval: 0 }),
+    ).toEqual({ type: 'command', command: 'x' });
+  });
+});
+
+describe('normalizeApprovalPolicy', () => {
+  it('heals the removed `untrusted` policy to `on-request`', () => {
+    expect(normalizeApprovalPolicy('untrusted')).toBe('on-request');
+    expect(normalizeApprovalPolicy(' Untrusted ')).toBe('on-request');
+    expect(normalizeApprovalPolicy('never')).toBe('never');
+    expect(normalizeApprovalPolicy('bogus')).toBeNull();
   });
 });

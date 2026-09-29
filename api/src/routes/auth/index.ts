@@ -482,7 +482,7 @@ async function handleRetrieve(
     engine,
   };
   const [chatgpt, claude, advice] = await Promise.all([
-    readChatgptSnapshot(ctx, host.lanePreference), readClaudeSnapshot(ctx),
+    readChatgptSnapshot(ctx), readClaudeSnapshot(ctx),
     readQuotaAdvice(new SettingsService(ctx.db)),
   ]);
   if (engine === ENGINE_CODEX) baseResponse.chatgpt = chatgpt;
@@ -593,7 +593,7 @@ async function buildRetrieveBaseResponse(
     engine,
   };
   const [chatgpt, claude, advice] = await Promise.all([
-    readChatgptSnapshot(ctx, host.lanePreference), readClaudeSnapshot(ctx),
+    readChatgptSnapshot(ctx), readClaudeSnapshot(ctx),
     readQuotaAdvice(new SettingsService(ctx.db)),
   ]);
   if (engine === ENGINE_CODEX) baseResponse.chatgpt = chatgpt;
@@ -897,7 +897,7 @@ async function handleStore(
     host: buildHostPayload(host),
   };
   const [chatgpt, claude, advice] = await Promise.all([
-    readChatgptSnapshot(ctx, host.lanePreference), readClaudeSnapshot(ctx),
+    readChatgptSnapshot(ctx), readClaudeSnapshot(ctx),
     readQuotaAdvice(new SettingsService(ctx.db)),
   ]);
   if (engine === ENGINE_CODEX) response.chatgpt = chatgpt;
@@ -1054,7 +1054,7 @@ function buildHostPayload(host: Host): Record<string, unknown> {
     insecure_grace_until: host.insecureGraceUntil ?? null,
     insecure_window_minutes: host.insecureWindowMinutes ?? null,
     browseros_mcp_enabled: host.browserosMcpEnabled === 1,
-    lane_preference: host.lanePreference ?? null,
+    lane_preference: host.lanePreference === 'spark' ? null : (host.lanePreference ?? null),
     model_override: host.modelOverride ?? null,
     reasoning_effort_override: host.reasoningEffortOverride ?? null,
     auto_update_override:
@@ -1092,11 +1092,10 @@ async function readQuotaControls(
 
 async function readChatgptSnapshot(
   ctx: RouteContext,
-  lanePreference: string | null | undefined,
 ): Promise<Record<string, unknown>> {
   const unavailable = {
     status: 'unavailable',
-    active_quota_lane: lanePreference === 'spark' ? 'spark' : 'normal',
+    active_quota_lane: 'normal',
   };
   try {
     const svc = new ChatGptUsageService(ctx.db, undefined, { env: ctx.env, keyring: ctx.keyring });
@@ -1106,8 +1105,9 @@ async function readChatgptSnapshot(
       ...normalizeChatGptUsageSnapshot(row),
       // Usage snapshots are account-wide, but the active lane is host state.
       // Shape it at the host response boundary instead of leaking the
-      // normal-lane default baked into the account snapshot normalizer.
-      active_quota_lane: lanePreference === 'spark' ? 'spark' : 'normal',
+      // normal-lane default baked into the account snapshot normalizer. The
+      // `spark` lane is retired, so a stale stored preference still reads normal.
+      active_quota_lane: 'normal',
     };
   } catch {
     return unavailable;

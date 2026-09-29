@@ -2,7 +2,6 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import {
-  CODEX_MODEL_DEFAULT_REASONING_EFFORTS,
   DEFAULT_CODEX_MODEL,
   SUPPORTED_MODELS,
 } from '../../../src/services/config-normalizer.js';
@@ -62,43 +61,24 @@ const laneModel = (lane: string): string => {
   return arm[1]!;
 };
 
-/** The effort `ApplyLanePreference` injects with `--config` on a spark launch. */
-const injectedEffort = (): string => {
-  const config = /"model_reasoning_effort=([^"]*)"/.exec(APPLY_LANE_PREFERENCE);
-  if (!config) {
-    throw new Error(`model_reasoning_effort= literal not found in ApplyLanePreference of ${LANE_FILE}`);
-  }
-  return config[1]!;
-};
+/** Whether `LaneModel` still has a `case "<lane>":` arm at all. */
+const hasLaneArm = (lane: string): boolean => new RegExp(`case "${lane}":`).test(LANE_MODEL);
 
-const SPARK_MODEL = laneModel('spark');
 const NORMAL_MODEL = laneModel('normal');
-const SPARK_EFFORT = injectedEffort();
 
 describe('cdx lane model parity', () => {
-  it('extracts the literals it is meant to compare', () => {
+  it('extracts the literal it is meant to compare', () => {
     // Extraction throws on a rename, so this only has to rule out a match that
-    // reads as empty — an id of `""` is in no catalog and would fail loudly
-    // below, but an empty effort would compare equal to a missing table entry.
-    expect(SPARK_MODEL, 'spark lane model').not.toEqual('');
+    // reads as empty — an id of `""` is in no catalog and would fail loudly below.
     expect(NORMAL_MODEL, 'normal lane model').not.toEqual('');
-    expect(SPARK_EFFORT, 'injected spark effort').not.toEqual('');
   });
 
   it('launches only models the fleet still supports', () => {
-    const violations = (
-      [
-        ['spark', SPARK_MODEL],
-        ['normal', NORMAL_MODEL],
-      ] as const
-    )
-      .filter(([, model]) => !SUPPORTED_MODELS.includes(model))
-      .map(([lane, model]) => `LaneModel("${lane}") returns "${model}", absent from SUPPORTED_MODELS`);
     expect(
-      violations,
-      `${LANE_FILE} hardcodes lane models: an id outside SUPPORTED_MODELS makes every launch on ` +
-        'that lane request a model the inference gate rejects',
-    ).toEqual([]);
+      SUPPORTED_MODELS.includes(NORMAL_MODEL),
+      `${LANE_FILE} hardcodes LaneModel("normal") = "${NORMAL_MODEL}": an id outside ` +
+        'SUPPORTED_MODELS makes every launch on that lane request a model the inference gate rejects',
+    ).toBe(true);
   });
 
   it('falls back to the fleet default model on the normal lane', () => {
@@ -108,11 +88,11 @@ describe('cdx lane model parity', () => {
     ).toBe(DEFAULT_CODEX_MODEL);
   });
 
-  it("injects spark's own catalog default reasoning effort", () => {
-    expect(
-      CODEX_MODEL_DEFAULT_REASONING_EFFORTS[SPARK_MODEL],
-      `ApplyLanePreference in ${LANE_FILE} injects model_reasoning_effort=${SPARK_EFFORT} for ` +
-        `"${SPARK_MODEL}", which must be that model's CODEX_MODEL_DEFAULT_REASONING_EFFORTS entry`,
-    ).toBe(SPARK_EFFORT);
+  it('keeps the retired spark lane out of the wrapper launch path', () => {
+    // gpt-5.3-codex-spark left the catalog in codex-cli 0.158.0. A `spark` arm
+    // would launch a model the inference gate now rejects.
+    expect(hasLaneArm('spark'), `${LANE_FILE} LaneModel still has a "spark" arm`).toBe(false);
+    expect(LANE_MODEL).not.toContain('gpt-5.3-codex-spark');
+    expect(APPLY_LANE_PREFERENCE).not.toContain('model_reasoning_effort=');
   });
 });

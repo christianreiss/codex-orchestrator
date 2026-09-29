@@ -304,11 +304,28 @@ func TestExplicitLaneSelectionPersists(t *testing.T) {
 	defer server.Close()
 	cfg := &config.Config{Orchestrator: config.Orchestrator{BaseURL: server.URL, APIKey: "test"}}
 	var stdout, stderr bytes.Buffer
-	if code := cmdLane(context.Background(), cfg, []string{"spark"}, &stdout, &stderr); code != 0 {
+	if code := cmdLane(context.Background(), cfg, []string{"normal"}, &stdout, &stderr); code != 0 {
 		t.Fatalf("lane exit = %d, stderr=%q", code, stderr.String())
 	}
-	if method != http.MethodPost || lane != "spark" || !strings.Contains(stdout.String(), "persisted") {
+	if method != http.MethodPost || lane != "normal" || !strings.Contains(stdout.String(), "persisted") {
 		t.Fatalf("lane was not persisted: method=%q lane=%q stdout=%q", method, lane, stdout.String())
+	}
+}
+
+func TestRetiredSparkLaneIsRejectedWithoutARequest(t *testing.T) {
+	calls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer server.Close()
+	cfg := &config.Config{Orchestrator: config.Orchestrator{BaseURL: server.URL, APIKey: "test"}}
+	var stdout, stderr bytes.Buffer
+	if code := cmdLane(context.Background(), cfg, []string{"spark"}, &stdout, &stderr); code != 2 {
+		t.Fatalf("lane spark exit = %d, want 2", code)
+	}
+	if calls != 0 || !strings.Contains(stderr.String(), "retired") {
+		t.Fatalf("calls=%d stderr=%q", calls, stderr.String())
 	}
 }
 

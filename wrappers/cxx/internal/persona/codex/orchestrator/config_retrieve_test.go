@@ -102,3 +102,40 @@ func TestRetrieveConfigPropagatesHTTPError(t *testing.T) {
 		t.Fatalf("unexpected error: %T %v", err, err)
 	}
 }
+
+func TestRetrieveConfigBundleReadsProfiles(t *testing.T) {
+	profile := `{"name":"fast","sha256":"abc","content":"model = \"gpt-6-luna\"\n"}`
+	for name, reply := range map[string]string{
+		"under data": `{"status":"ok","data":{"status":"unchanged","profiles":[` + profile + `]}}`,
+		"at root":    `{"status":"ok","profiles":[` + profile + `],"data":{"status":"unchanged"}}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) { _, _ = io.WriteString(w, reply) })
+			bundle, err := c.RetrieveConfigBundle(context.Background(), "d")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(bundle.Content) != 0 || len(bundle.Profiles) != 1 || bundle.Profiles[0].Name != "fast" || bundle.Profiles[0].SHA256 != "abc" {
+				t.Fatalf("bundle = %+v", bundle)
+			}
+		})
+	}
+}
+
+// Only a present list may prune, so an absent key and an empty list must differ.
+func TestRetrieveConfigBundleDistinguishesAbsentFromEmptyProfiles(t *testing.T) {
+	for reply, wantNil := range map[string]bool{
+		`{"status":"ok","data":{"status":"unchanged"}}`:                 true,
+		`{"status":"ok","data":{"status":"unchanged","profiles":[]}}`:   false,
+		`{"status":"ok","data":{"status":"unchanged","profiles":null}}`: true,
+	} {
+		c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) { _, _ = io.WriteString(w, reply) })
+		bundle, err := c.RetrieveConfigBundle(context.Background(), "d")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if (bundle.Profiles == nil) != wantNil {
+			t.Fatalf("%s: Profiles nil = %v, want %v", reply, bundle.Profiles == nil, wantNil)
+		}
+	}
+}

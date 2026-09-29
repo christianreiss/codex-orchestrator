@@ -212,3 +212,23 @@ func TestSyncBootstrap_ContentOnlyOmitsAuth(t *testing.T) {
 		}
 	}
 }
+
+func TestUnwrapResourcesKeepsConfigProfiles(t *testing.T) {
+	raw := json.RawMessage(`{"status":"ok","data":{"status":"unchanged","config":{"status":"unchanged","profiles":[{"name":"fast","sha256":"abc","content":"a = 1\n"}]}}}`)
+	out, err := decodeBundleResponse(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := out.unwrapResources(); err != nil {
+		t.Fatal(err)
+	}
+	if len(out.Config) != 0 || len(out.ConfigProfiles) != 1 || out.ConfigProfiles[0].Name != "fast" {
+		t.Fatalf("config=%q profiles=%+v", out.Config, out.ConfigProfiles)
+	}
+	bare := json.RawMessage(`{"status":"ok","data":{"config":{"status":"unchanged"}}}`)
+	out, _ = decodeBundleResponse(bare)
+	_ = out.unwrapResources()
+	if out.ConfigProfiles != nil {
+		t.Fatalf("absent profiles must stay nil so nothing prunes: %+v", out.ConfigProfiles)
+	}
+}

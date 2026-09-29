@@ -27,7 +27,7 @@ The orchestrator supports two engines: **Codex** (OpenAI) and **Claude** (Anthro
 ## Dual-engine parity (kept current)
 
 Treat Codex (`cdx`) as canonical and Claude (`clx`) as parity target. Before landing any engine-agnostic feature, add both paths. Intentional deltas (documented, not implemented for Claude) are:
-- ChatGPT quota lanes / Spark lane / `--lane` / `POST /host/lane` — Codex/ChatGPT-only concept.
+- ChatGPT quota lanes / `--lane` / `POST /host/lane` — Codex/ChatGPT-only concept. The Spark lane itself is retired (2026-09-29): `spark` heals to a cleared preference.
 - Effort naming and persistence differ by engine: Codex writes `model_reasoning_effort` to `config.toml`, while Claude Code writes `effortLevel` to `settings.json`. Do not send the Codex key to Claude or confuse either CLI setting with the Anthropic API's `effort` request parameter.
 - Device-code CLI login (`/cli/auth/*`) — Claude Code accepts `ANTHROPIC_API_KEY` directly; the wrapper syncs credentials.
 - GitHub-release CLI download — Claude CLI ships via npm; `clx update` / `clx cron run` install a pinned private copy with `npm install --prefix` under `~/.cxx/engines/claude` (no global npm, no sudo), or, when npm is absent, the pinned native binary from the registry's platform package (sha512-verified).
@@ -102,7 +102,7 @@ Conversely, some features are **Claude-only** (`clx`) because Codex has no on-di
    - `/host/users` records username/hostname combos for uninstall cleanup and returns known users.
    - `/skills` lists/retrieves/stores canonical skill manifests by slug/sha.
    - `/agents/retrieve` syncs canonical AGENTS doc; `/config/retrieve` syncs rendered client config.
-   - `/host/lane` gets/sets lane preference (`normal`, `spark`, `null`) with insecure-window enforcement.
+   - `/host/lane` gets/sets lane preference (`normal`, `null`; legacy `spark` heals to `null`) with insecure-window enforcement.
    - `/wrapper/v2/meta` + `/wrapper/v2/config` + `/wrapper/v2/download` serve the v2 binary bakery; `/wrapper/download` is the legacy POSIX transition launcher that writes config before exec.
    - `/mcp/memories/*` manages host-scoped memory records; `/mcp` serves JSON-RPC MCP tools/resources (GET probe advertises POST-only, with origin allowlist checks).
    - `/versions` is unauthenticated and returns version snapshot metadata when kill switch is off.

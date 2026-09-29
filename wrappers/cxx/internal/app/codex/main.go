@@ -131,8 +131,8 @@ type flags struct {
 }
 
 // wrapperOwnedSubcommands are subcommand tokens owned by the wrapper itself —
-// these must never be re-routed as profile shorthand even if a matching
-// [profiles.NAME] section exists in config.toml.
+// these must never be re-routed as profile shorthand even if a matching profile
+// (`<NAME>.config.toml`, or a legacy [profiles.NAME] section) exists.
 var wrapperOwnedSubcommands = map[string]bool{
 	"run":              true,
 	"status":           true,
@@ -488,16 +488,17 @@ func run(args []string, stdout, stderr io.Writer, choices ...*quotaadvice.Sessio
 		}
 	}
 
-	// Legacy shorthand: `cdx ls` ↔ `cdx lane spark` — give frequent
-	// spark-switchers a one-keystroke path.
+	// Legacy shorthand: `cdx ls` was `cdx lane spark`. The lane is retired, so the
+	// token stays recognised and says so instead of falling through to codex.
 	if sub == "ls" {
-		sub = "lane"
-		subArgs = []string{"spark"}
+		ui.Say(stderr, "cdx", ui.ToneWarn, "lane", sparkLaneRetired)
+		return 2
 	}
 
 	// Legacy shorthand: `cdx <profile-name>` dispatches to
-	// `codex --profile <name>` when ~/.codex/config.toml has a matching
-	// `[profiles.<name>]` section and the token is not one of our internal
+	// `codex --profile <name>` when the Codex home defines that profile (a
+	// `<name>.config.toml`, or a legacy `[profiles.<name>]` section of
+	// config.toml) and the token is not one of our internal
 	// subcommands. Mirrors fe70ac3:bin/cdx.d/05-main-46-entry.sh.
 	if isProfileShorthand(sub) && codex.HasProfile(sub) {
 		if err := maintenance.Request(config.EngineCodex, f.configPath); err != nil {
@@ -725,7 +726,7 @@ func run(args []string, stdout, stderr io.Writer, choices ...*quotaadvice.Sessio
 			return finishAuthMutation(exit)
 		}
 		ui.Say(stderr, "cdx", ui.ToneFail, "usage", "unknown subcommand: "+fmt.Sprint(sub))
-		fmt.Fprintln(stderr, "subcommands: run | resume [<session>] | sync | status | doctor | auth-upload | lane <normal|spark|clear> | profile <name> | exec -- <cmd...>")
+		fmt.Fprintln(stderr, "subcommands: run | resume [<session>] | sync | status | doctor | auth-upload | lane <normal|clear> | profile <name> | exec -- <cmd...>")
 		fmt.Fprintln(stderr, "flags: --wrapper-help | --version | --status | --doctor | --update | --uninstall | --resume[=<session>] | --execute <prompt> | --cron [install|remove|run] | --silent | --debug | --minimal | --skip-boot | -4 | --allow-concurrent-sync")
 		return 2
 	}
@@ -1444,6 +1445,9 @@ func statusCanonicalAuthMayReplace(localPath string, canonical []byte) bool {
 	return !localTime.After(canonicalTime)
 }
 
+// sparkLaneRetired is the one-line answer to `cdx lane spark` / `cdx ls`.
+const sparkLaneRetired = "the spark lane was retired upstream (2026-09-29); use `cdx lane normal` or `cdx lane clear`"
+
 func cmdLane(ctx context.Context, cfg *config.Config, args []string, stdout, stderr io.Writer) int {
 	client, err := orchestrator.New(orchestrator.Options{
 		BaseURL:       cfg.Orchestrator.BaseURL,
@@ -1465,15 +1469,14 @@ func cmdLane(ctx context.Context, cfg *config.Config, args []string, stdout, std
 			// server-side preferences and therefore always persist.
 		case "clear":
 			clear = true
-		case "normal", "spark":
-			if target != "" && target != a {
-				ui.Say(stderr, "cdx", ui.ToneWarn, "lane", "choose exactly one of normal, spark, or clear")
-				return 2
-			}
+		case "spark":
+			ui.Say(stderr, "cdx", ui.ToneWarn, "lane", sparkLaneRetired)
+			return 2
+		case "normal":
 			target = a
 		default:
 			ui.Say(stderr, "cdx", ui.ToneFail, "lane", "unrecognized argument: "+fmt.Sprint(a))
-			fmt.Fprintln(stderr, "usage: cdx lane [normal|spark|clear] [--persist]")
+			fmt.Fprintln(stderr, "usage: cdx lane [normal|clear] [--persist]")
 			return 2
 		}
 	}

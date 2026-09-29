@@ -350,7 +350,7 @@ func TestRetryOn5xx(t *testing.T) {
 		_, _ = w.Write([]byte(`{"status":"ok"}`))
 	})
 	// SetLane passes retries=1, so total attempts is 2.
-	err := c.SetLane(context.Background(), "spark")
+	err := c.SetLane(context.Background(), "normal")
 	if err != nil {
 		t.Fatalf("retry: %v", err)
 	}

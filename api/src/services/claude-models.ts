@@ -31,6 +31,11 @@ export const CLAUDE_DEFAULT_MODEL = 'claude-sonnet-5';
  * platform.claude.com/docs/en/about-claude/models/overview. Every model
  * already in this list is still listed there too, under "Legacy models
  * (still available)" — nothing here is retired, so nothing was removed.
+ *
+ * `claude-sonnet-5-5` added 2026-09-29: present in the claude-cli 2.1.284 model
+ * catalog (`first_party` id, 1M context, 128k max output) and now what the
+ * CLI's `sonnet` alias resolves to. `CLAUDE_DEFAULT_MODEL` deliberately stays
+ * on `claude-sonnet-5`: this change makes 5.5 supported, not the default.
  */
 export const CLAUDE_SUPPORTED_MODELS = [
   'claude-fable-5-1',
@@ -38,6 +43,7 @@ export const CLAUDE_SUPPORTED_MODELS = [
   'claude-opus-5-5',
   'claude-opus-5',
   'claude-opus-4-8',
+  'claude-sonnet-5-5',
   'claude-sonnet-5',
   'claude-opus-4-7',
   'claude-sonnet-4-6',
@@ -82,6 +88,7 @@ export const CLAUDE_MODEL_METADATA: Record<
   'claude-opus-5-5': { displayName: 'Claude Opus 5.5', maxInputTokens: 1_000_000, maxTokens: 128_000 },
   'claude-opus-5': { displayName: 'Claude Opus 5', maxInputTokens: 1_000_000, maxTokens: 128_000 },
   'claude-opus-4-8': { displayName: 'Claude Opus 4.8', maxInputTokens: 1_000_000, maxTokens: 128_000 },
+  'claude-sonnet-5-5': { displayName: 'Claude Sonnet 5.5', maxInputTokens: 1_000_000, maxTokens: 128_000 },
   'claude-sonnet-5': { displayName: 'Claude Sonnet 5', maxInputTokens: 1_000_000, maxTokens: 128_000 },
   'claude-opus-4-7': { displayName: 'Claude Opus 4.7', maxInputTokens: 1_000_000, maxTokens: 128_000 },
   'claude-sonnet-4-6': { displayName: 'Claude Sonnet 4.6', maxInputTokens: 1_000_000, maxTokens: 128_000 },

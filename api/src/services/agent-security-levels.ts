@@ -957,7 +957,7 @@ function composeAskBullets(asked: readonly StancedOperation[]): string[] {
 export const CODEX_SANDBOX_MODES = ['read-only', 'workspace-write', 'danger-full-access'] as const;
 export type CodexSandboxMode = (typeof CODEX_SANDBOX_MODES)[number];
 
-export const CODEX_APPROVAL_POLICIES = ['untrusted', 'on-request', 'on-failure', 'never'] as const;
+export const CODEX_APPROVAL_POLICIES = ['on-request', 'on-failure', 'never'] as const;
 export type CodexApprovalPolicy = (typeof CODEX_APPROVAL_POLICIES)[number];
 
 /**
@@ -1033,8 +1033,11 @@ function knob<T>(
 }
 
 const APPROVAL_BY_LEVEL: readonly CodexApprovalPolicy[] = [
-  'untrusted',
-  'untrusted',
+  // `untrusted` (levels 0-1) was removed in codex-cli 0.158.0, which then refuses
+  // to load the config at all. `on-request` under the read-only sandbox at these
+  // levels is the nearest posture that still loads.
+  'on-request',
+  'on-request',
   'on-request',
   'on-failure',
   'never',

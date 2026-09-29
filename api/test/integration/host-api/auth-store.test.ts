@@ -530,7 +530,7 @@ describe('POST /auth command=retrieve quota lane shaping', () => {
     await app.close();
   });
 
-  it('reports the requesting host Spark preference as the active quota lane', async () => {
+  it('reports a stale stored Spark preference as the normal quota lane (lane retired)', async () => {
     const apiKey = 'sk-retrieve-spark-lane';
     const db = seedDb(apiKey);
     db.tables.set(hostsTable, [hostRow(apiKey, { lanePreference: 'spark' })]);
@@ -565,7 +565,7 @@ describe('POST /auth command=retrieve quota lane shaping', () => {
     });
 
     expect(r.statusCode).toBe(200);
-    expect(JSON.parse(r.payload).chatgpt.active_quota_lane).toBe('spark');
+    expect(JSON.parse(r.payload).chatgpt.active_quota_lane).toBe('normal');
     await app.close();
   });
 

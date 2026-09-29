@@ -197,6 +197,27 @@ every upload carries a required `ttl_seconds`, nobody is notified of an upload,
 and a received file is untrusted input. Both are byte-identical across engines
 and are rendered last, in that order.
 
+## Profile files (cxx 0.9.6)
+
+codex-cli 0.156.1 and newer refuse `--profile <name>` while `config.toml` holds
+`[profiles.*]` ("failed to load configuration") and layer
+`$CODEX_HOME/<name>.config.toml` on top of the base config instead (confirmed on
+0.156.1, 0.157.0 and 0.158.0, 2026-09-29). For those hosts the server keeps
+`[profiles.*]` out of the rendered `config.toml` and ships each fleet profile as a
+`profiles: [{name, sha256, content}]` entry on the config reply (`/config/retrieve`
+and the `config` block of `/sync/bootstrap`; see `docs/interface-api.md`). A host
+counts as new when its last reported `client_version` is 0.156.1+ or unknown.
+
+The wrapper writes each entry to `$CODEX_HOME/<name>.config.toml` only when its
+digest differs, and records the names it wrote in
+`$CODEX_HOME/.cxx-managed-profiles.json`. That manifest is the whole pruning
+contract: a fleet profile dropped from the list is deleted, an empty list deletes
+everything the fleet wrote, and a reply with no `profiles` key (older server, older
+Codex) changes nothing. A file the fleet did not write is never removed, and one
+already sitting under a fleet profile's name is left alone rather than
+overwritten. Names outside `[A-Za-z0-9_-]{1,64}` are skipped on both sides.
+`cdx <profile>` and `cdx profile <name>` resolve through the same files.
+
 ## Skill delivery
 
 Codex does not receive Skill directories from `cxx`. The wrapper only probes
@@ -250,14 +271,17 @@ The fleet starts on `gpt-6-astra` at its native `medium` effort.
 | `gpt-5.6-terra` | `low`, `medium`, `high`, `xhigh`, `max`, `ultra` | `medium` |
 | `gpt-5.6-luna` | `low`, `medium`, `high`, `xhigh`, `max` | `medium` |
 | `gpt-5.5` | `low`, `medium`, `high`, `xhigh` | `medium` |
-| `gpt-5.3-codex-spark` | `low`, `medium`, `high`, `xhigh` | `high` |
 
 `gpt-5.4-mini` was retired upstream on 2026-08-31 and is no longer offered; a
 stored override naming it heals to `gpt-5.6-luna`, the replacement the Codex
 model catalog names, at the retained `high` migration effort. `gpt-5.5` carries an
 upstream `upgrade` block (→ `gpt-5.6-sol`, retiring 2026-10-14) and stays offered
-until then. This table mirrors `codex debug models` on codex-cli 0.156.1
-(verified 2026-09-23).
+until then. This table mirrors `codex debug models` on codex-cli 0.158.0
+(verified 2026-09-29). `gpt-5.3-codex-spark` is retired: it left the catalog and
+binary, a live `codex exec -m gpt-5.3-codex-spark` is rejected ("not supported
+when using Codex with a ChatGPT account"), and its quota bucket is gone. A stored
+override naming it heals to `gpt-6-astra` at the retained `high` migration
+effort.
 
 The GET response's `catalog` is the machine-readable source of truth for these
 model/effort pairs. POST accepts strict
@@ -277,10 +301,10 @@ server bakes effective `CODEX_HOME/config.toml`.
 | `login` | Run upstream login, then upload every successful non-status result with usable auth, even when its bytes match the pre-login file. Logout intent is superseded only after the server accepts the exact auth + marker snapshot. |
 | `login status` | Read-only upstream login probe. It never uploads credentials or acknowledges logout intent. |
 | `logout` | Wrapper-owned, pre-journaled logout. With no peer session it holds exclusive session + active-child writer leases across native logout; with any peer it records intent and defers native removal until the final session exits. |
-| `lane [normal\|spark\|clear] [--persist]` | Inspect the effective quota lane, set a persistent host preference, or clear it back to the inherited default (`/host/lane`). `--persist` is retained as a compatibility no-op; explicit selections always persist. A stored `normal` selects `gpt-6-astra`; stored `spark` selects `gpt-5.3-codex-spark` with high effort and reasoning summaries disabled. Clearing the preference preserves the signed fleet/per-host launch model while quota policy falls back to `normal`. An explicit per-run model/profile flag wins. |
-| `ls` | Shorthand for `cdx lane spark` |
+| `lane [normal\|clear] [--persist]` | Inspect the effective quota lane, set a persistent host preference, or clear it back to the inherited default (`/host/lane`). `--persist` is retained as a compatibility no-op; explicit selections always persist. A stored `normal` selects `gpt-6-astra`. The `spark` lane is retired (2026-09-29): `cdx lane spark` and `cdx ls` print a notice and exit 2 without a request, and a stored `spark` preference is cleared server-side (migration 0034) and launches no lane model. Clearing the preference preserves the signed fleet/per-host launch model while quota policy falls back to `normal`. An explicit per-run model/profile flag wins. |
+| `ls` | Retired shorthand for the retired `spark` lane: prints a notice, exits 2 |
 | `profile <name>` | Forward `--profile <name>` to the upstream `codex` CLI |
-| `<profile-name>` | Shorthand for `cdx profile <name>` when `[profiles.<name>]` exists in the synced `config.toml` and the token is not a wrapper-owned or reserved-Codex subcommand |
+| `<profile-name>` | Shorthand for `cdx profile <name>` when the profile exists — as `$CODEX_HOME/<name>.config.toml` (codex-cli >= 0.156.1) or, for an older Codex, as a `[profiles.<name>]` section of `config.toml` — and the token is not a wrapper-owned or reserved-Codex subcommand |
 | `exec -- <cmd...>` | Bypass the startup sequence and run a single Codex command |
 | `cxx agent ...` | Shared Agent Messaging control surface: `list` (alias `peers`, `--engine codex\|claude`, `--online`), `send`, `request`, `wait`, `reply`, `message <id>`, `cancel`, `call-open`, `call-join --pin`, `listen`, `poll --hook Stop\|UserPromptSubmit` (the Claude ringer hook), `status`, `service install\|remove\|start\|stop\|restart\|status`, `worker --foreground`, and `mcp [--channel|--auto]` (the stdio MCP server the managed `cxx-agent` entry launches). Message and reply content is accepted only on stdin. |
 | `cxx remote ...` | Shared remote-execution surface, default off behind the signed `remote.enabled` switch: `info`, `exec -- ARGV...`, `read`, `write`, `wait`, `signal`, `ps`, `rm`, `get`, `put`, `push`, `pull`, `down`. One ssh connection per destination is established and reused through a private `ControlMaster` path, so a command is a channel on it rather than a new handshake. Jobs live in a directory on the target and survive a dropped connection: a cursor is a byte offset into the job's log, and reconnecting reads on rather than re-running. Everything after `--` is argv, verbatim, with no shell unless one is asked for explicitly. One JSON object per invocation on stdout; diagnostics on stderr. A destination is whatever `ssh` accepts, so `~/.ssh/config` aliases work, and the target needs only SSH access — the binary installs itself there on first contact. |
@@ -409,9 +433,7 @@ response with no readable snapshot carries `chatgpt.status="unavailable"`, so
 absence is visible as unknown health instead of being treated as a green check.
 
 A non-null persisted lane affects execution as well as quota selection and display:
-`normal` prepends `--model gpt-6-astra`; `spark` selects
-`gpt-5.3-codex-spark` with `model_reasoning_effort=high` and
-`model_reasoning_summary=none`. Explicit `--model`/`-m` or `--profile`/`-p`
+`normal` prepends `--model gpt-6-astra`. Explicit `--model`/`-m` or `--profile`/`-p`
 arguments suppress lane injection and are shown as the effective launch choice.
 Clearing the stored lane preserves the signed fleet/per-host model; the
 effective quota lane still falls back to `normal` for policy and display.

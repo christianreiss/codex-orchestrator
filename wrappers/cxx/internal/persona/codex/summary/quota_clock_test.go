@@ -51,7 +51,6 @@ func TestQuotaExpiredWindowNeverGatesAndOtherEvidenceSurvives(t *testing.T) {
 		{name: "expired percentage and provider flag", active: "normal", provider: &allowed},
 		{name: "other current window below limit", active: "normal", weekly: &low, provider: &allowed},
 		{name: "other current window at limit", active: "normal", weekly: &used, provider: &allowed, wantBlock: true},
-		{name: "inactive expired window leaves active provider evidence", active: "spark", sparkProvider: &allowed, wantBlock: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			rows, warning, block := buildQuota(&orchestrator.AuthRetrieveResponse{QuotaLimitPercent: &limit, Host: &orchestrator.HostInfo{LanePreference: tc.active}, ChatGPT: &orchestrator.ChatGPTQuota{

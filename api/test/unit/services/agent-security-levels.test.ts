@@ -284,7 +284,7 @@ describe('renderSecurityPolicyMarkdown', () => {
 describe('securityLevelEnforcement', () => {
   it('derives the documented endpoints', () => {
     const contained = securityLevelEnforcement(CONTAINED);
-    expect(contained.codex.approval_policy.value).toBe('untrusted');
+    expect(contained.codex.approval_policy.value).toBe('on-request');
     expect(contained.codex.sandbox_mode.value).toBe('read-only');
     expect(contained.codex.network_access.value).toBe(false);
     expect(contained.claude.permission_mode.value).toBe('plan');
@@ -315,7 +315,7 @@ describe('securityLevelEnforcement', () => {
 
   it('never loosens a knob when a single axis is raised', () => {
     const order = {
-      approval: ['untrusted', 'on-request', 'on-failure', 'never'],
+      approval: ['on-request', 'on-failure', 'never'],
       sandbox: [...CODEX_SANDBOX_MODES],
       claude: [...CLAUDE_PERMISSION_MODES_BY_LEVEL],
     };

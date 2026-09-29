@@ -160,6 +160,12 @@ func Run(ctx context.Context, cfg *config.Config, stdout, stderr io.Writer) (run
 		filepath.Join(home, ".config", "codex-orchestrator", "cdx-codex-bin"),
 		filepath.Join(home, ".config", "codex-orchestrator", "cdx-code-mode-host-state"),
 	}
+	// Fleet-written profile files (`<name>.config.toml`) go with config.toml; the
+	// manifest names exactly those, so a user-authored profile file stays.
+	for name := range codex.ManagedProfileNames(codexHome) {
+		targets = append(targets, filepath.Join(codexHome, name+".config.toml"))
+	}
+	targets = append(targets, filepath.Join(codexHome, codex.ProfileManifestFile))
 	for _, p := range targets {
 		_ = removeReport(stdout, stderr, p)
 	}

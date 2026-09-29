@@ -147,7 +147,7 @@ visible with a choice to load the latest values or discard the draft.
 
 4) **Wrapper distribution**
    - `/wrapper/v2/meta` (and the legacy `/wrapper` alias) returns an engine-scoped projection of the common per-platform binary matrix. `/wrapper/v2/download` returns the raw Go binary for v2-aware clients, and `/wrapper/download` remains the legacy shell-transition path for date-versioned wrappers. New wrapper versions roll out as one complete four-platform matrix under `storage/wrapper/v2/bin/cxx/<os>-<arch>/v<version>/cxx`; both signed engine configs resolve to those same bytes and hosts converge on the next run.
-   - The wrapper exposes a short Spark-lane alias: `cdx ls` rewrites to `cdx lane spark` before normal lane/profile parsing. Every explicit lane selection is a server-side preference and therefore persists; the old `--persist` spelling remains accepted as a compatibility no-op.
+   - `cdx ls` / `cdx lane spark` are retired (the Spark model and quota bucket left Codex on 2026-09-29): both print a one-line notice and exit 2 without a request, and the server heals a `spark` POST from an older wrapper to a cleared preference. Every explicit lane selection is a server-side preference and therefore persists; the old `--persist` spelling remains accepted as a compatibility no-op.
    - Help-only invocations (`cdx --help`, `cdx -h`, `cdx help`, and Codex subcommand help such as `cdx exec --help`) bypass wrapper startup noise and print only upstream Codex help text. They skip the managed run lock, sync, update, MOTD, and footer, but remain supervised so the native child inherits both auth-session and active-child descriptors until it exits.
 - Wrapper startup pull sync is batched: it probes `POST /sync/status` and, when updates exist, pulls content via `POST /sync/bootstrap` (agent document/config in one flow). The server combines the canonical base with one deterministic managed-feature block tailored to the engine and host; feature-state changes affect the final digest without creating a new canonical version. When local auth is already valid, that same bundle path also carries auth metadata/refresh inline (`include_auth=true`), and `auth_candidate` is processed before canonical auth is returned so fresh local logins upload to canonical storage before launch. Native Claude credentials without `last_refresh` are compared against canonical form first and only stored when they actually differ, preventing a server copy from overwriting a fresh local OAuth credential. Older servers automatically fall back to legacy per-resource pull endpoints, but transient bundle failures do not trigger extra per-resource retries during startup. For Claude, cxx 0.7.3 consumes complete `claude_skills` bundles and atomically replaces each fleet-owned native directory; for Codex, manifests and support files remain live MCP resources at `skill://<slug>` and `skill://<slug>/<path>`.
 - Wrapper Codex updates now key off `/auth` `client_version_enforce_exact`: floor-only targets only trigger upgrades, while explicit above-floor pins can still downgrade to match.
@@ -283,8 +283,7 @@ visible with a choice to load the latest values or discard the draft.
      `/auth` sends an explicit `status:"unavailable"` quota object rather than
      omitting the evidence.
    - A non-null persisted Codex lane also selects the actual launch model: `normal`
-     injects `gpt-6-astra`; `spark` injects `gpt-5.3-codex-spark`, high effort,
-     and disabled reasoning summaries. Explicit per-run model/profile flags win
+     injects `gpt-6-astra`; the retired `spark` value injects nothing. Explicit per-run model/profile flags win
      over that mapping, and the at-a-glance card mirrors the resulting choice.
      Clearing the lane leaves the signed fleet/per-host model in charge; only
      quota display and policy fall back to `normal`.
@@ -295,7 +294,7 @@ visible with a choice to load the latest values or discard the draft.
 
 5) **Host telemetry**
    - `/host/users` records current username/hostname for the host and returns the known list (used by `cdx --uninstall`).
-   - `/host/lane` exposes/stores host lane preference (`normal|spark|null`) so wrappers can persist lane steering without admin login.
+   - `/host/lane` exposes/stores host lane preference (`normal|null`; a posted `spark` is stored as `null`) so wrappers can persist lane steering without admin login.
    - Host sync uses `/skills` list/retrieve/store. Agents can also create/update/revive shared manifest-only Skills with MCP `skill_store` and write recoverable delete markers with `skill_delete`; the managed `skill-manager` Skill explains and executes that flow. Codex's served guidance requires `skill_list` before answering or acting on a Skill request. When project coordination is enabled, the same delivery path also ships managed `coco`.
    - Shared project state itself is served live through `/projects*` and project-aware MCP tools/resources rather than through startup sync payloads.
 
@@ -352,7 +351,7 @@ visible with a choice to load the latest values or discard the draft.
   engine sections call `GET/POST /admin/model-defaults/:engine` and constrain
   effort to the selected model. Codex persists `model` /
   `model_reasoning_effort` in canonical `config.toml`; Astra/GPT-6 Sol/GPT-6 Luna/
-  Terra/GPT-5.6 Luna/GPT-5.5 default to `medium`, GPT-5.6 Sol to `low`, while Spark defaults to `high`.
+  Terra/GPT-5.6 Luna/GPT-5.5 default to `medium`, GPT-5.6 Sol to `low`.
   Claude persists `model` / `effortLevel` in the deep-merged `settings.json`
   partial and defaults to Sonnet 5 at `high`. Fable 5, Opus 5, Opus 4.8, and
   Sonnet 5 persist `low|medium|high|xhigh` with default `high`; Opus 4.7 uses

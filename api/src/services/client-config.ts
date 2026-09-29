@@ -166,7 +166,48 @@ function addKeyValue(lines: string[], key: string, value: unknown): void {
   lines.push(`${tomlBareKey(key)} = ${rendered}`);
 }
 
-export function renderToml(normalized: NormalizedSettings): string {
+/**
+ * First codex-cli that refuses `--profile <name>` while `config.toml` carries
+ * `[profiles.*]` and instead layers `$CODEX_HOME/<name>.config.toml` (confirmed
+ * live on 0.156.1, 0.157.0 and 0.158.0, 2026-09-29: tables + `--profile` fail
+ * with "failed to load configuration"; the sidecar file loads).
+ */
+/** A name the wrapper may safely turn into `$CODEX_HOME/<name>.config.toml`. */
+const PROFILE_FILE_NAME = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
+
+export const CODEX_PROFILE_FILES_MIN_VERSION = '0.156.1';
+
+/**
+ * Whether a host's Codex takes profiles as sidecar files. An unreported version
+ * is treated as current: the fleet target is the latest release.
+ */
+export function codexUsesProfileFiles(clientVersion: string | null | undefined): boolean {
+  const version = typeof clientVersion === 'string' ? clientVersion.match(/\d+\.\d+\.\d+/)?.[0] : undefined;
+  if (!version) return true;
+  return versionCompare(version, CODEX_PROFILE_FILES_MIN_VERSION) >= 0;
+}
+
+/**
+ * One profile as its own `<name>.config.toml`: a config layer, so its keys sit
+ * at the top level rather than under `[profiles.<name>]`.
+ */
+export function renderProfileToml(profile: Record<string, unknown>): string {
+  const lines: string[] = [];
+  for (const key of SCALAR_KEYS) {
+    if (key === 'profile' || key === 'local_provider') continue;
+    if (DROPPED_SCALAR_RENDER_KEYS.has(key)) continue;
+    addKeyValue(lines, key, profile[key]);
+  }
+  const features = asRecord(profile['features']);
+  if (isPresentRecord(features)) {
+    if (lines.length > 0) lines.push('');
+    lines.push('[features]');
+    for (const k of Object.keys(features).sort()) addKeyValue(lines, k, features[k]);
+  }
+  return lines.length > 0 ? lines.join('\n') + '\n' : '';
+}
+
+export function renderToml(normalized: NormalizedSettings, opts: { profileTables?: boolean } = {}): string {
   const lines: string[] = [];
 
   for (const key of SCALAR_KEYS) {
@@ -232,31 +273,33 @@ export function renderToml(normalized: NormalizedSettings): string {
     addKeyValue(lines, 'include_only', sep.include_only);
   }
 
-  for (const profile of sortEntriesByName(normalized.profiles)) {
-    const name = normalizeName(profile['name']);
-    if (!name) continue;
-    if (lines.length > 0) lines.push('');
-    lines.push(`[profiles.${tomlBareKey(name)}]`);
-    for (const key of SCALAR_KEYS) {
-      // `local_provider`/`profile` never applied per-profile. `model_context_window`
-      // is top-level-only on codex-cli — nested under a profile it is reported
-      // `is ignored.` (confirmed live, 0.156.1, 2026-09-23), same as the
-      // always-dropped keys below.
-      if (key === 'profile' || key === 'local_provider' || key === 'model_context_window') continue;
-      if (DROPPED_SCALAR_RENDER_KEYS.has(key)) continue;
-      addKeyValue(lines, key, profile[key]);
-    }
-    if (isPresentRecord(asRecord(profile['features']))) {
-      lines.push('');
-      lines.push(`[profiles.${tomlBareKey(name)}.features]`);
-      for (const k of Object.keys(asRecord(profile['features'])).sort()) {
-        addKeyValue(lines, k, asRecord(profile['features'])[k]);
+  if (opts.profileTables !== false) {
+    for (const profile of sortEntriesByName(normalized.profiles)) {
+      const name = normalizeName(profile['name']);
+      if (!name) continue;
+      if (lines.length > 0) lines.push('');
+      lines.push(`[profiles.${tomlBareKey(name)}]`);
+      for (const key of SCALAR_KEYS) {
+        // `local_provider`/`profile` never applied per-profile. `model_context_window`
+        // is top-level-only on codex-cli — nested under a profile it is reported
+        // `is ignored.` (confirmed live, 0.156.1, 2026-09-23), same as the
+        // always-dropped keys below.
+        if (key === 'profile' || key === 'local_provider' || key === 'model_context_window') continue;
+        if (DROPPED_SCALAR_RENDER_KEYS.has(key)) continue;
+        addKeyValue(lines, key, profile[key]);
       }
+      if (isPresentRecord(asRecord(profile['features']))) {
+        lines.push('');
+        lines.push(`[profiles.${tomlBareKey(name)}.features]`);
+        for (const k of Object.keys(asRecord(profile['features'])).sort()) {
+          addKeyValue(lines, k, asRecord(profile['features'])[k]);
+        }
+      }
+      // codex-cli has no per-profile `sandbox_workspace_write` table at all: the
+      // whole table is reported `is ignored.` (confirmed live, 0.156.1,
+      // 2026-09-23), not just an unknown sub-key. `[sandbox_workspace_write]` is
+      // top-level only — see above.
     }
-    // codex-cli has no per-profile `sandbox_workspace_write` table at all: the
-    // whole table is reported `is ignored.` (confirmed live, 0.156.1,
-    // 2026-09-23), not just an unknown sub-key. `[sandbox_workspace_write]` is
-    // top-level only — see above.
   }
 
   for (const server of sortEntriesByName(normalized.mcp_servers)) {
@@ -333,9 +376,18 @@ export function renderTomlForHost(opts: HostRenderOptions): RenderResult {
   const managedMcpInjected = withManaged.mcp_servers.some(
     (server) => normalizeName(server['name'])?.toLowerCase() === managedServerName,
   );
+  const profileFiles = engine === ENGINE_CODEX && codexUsesProfileFiles(opts.host?.clientVersion);
   let content = engine === ENGINE_CLAUDE
     ? renderClaudeSettings(withManaged)
-    : renderToml(withManaged);
+    : renderToml(withManaged, { profileTables: !profileFiles });
+  const profiles: RenderedProfile[] | undefined = profileFiles
+    ? sortEntriesByName(withManaged.profiles).flatMap((profile) => {
+        const name = normalizeName(profile['name']);
+        if (!name || !PROFILE_FILE_NAME.test(name)) return [];
+        const body = renderProfileToml(profile);
+        return [{ name, sha256: createHash('sha256').update(body).digest('hex'), content: body }];
+      })
+    : undefined;
   if (engine !== ENGINE_CLAUDE) {
     if (managedMcpInjected) content = injectManagedCodexSkillPolicyToml(content);
     content = injectTrustedProjectToml(content, normalizeHomePath(opts.home, opts.username));
@@ -345,6 +397,7 @@ export function renderTomlForHost(opts: HostRenderOptions): RenderResult {
     sha256: createHash('sha256').update(content).digest('hex'),
     size_bytes: Buffer.byteLength(content, 'utf8'),
     settings: normalized,
+    ...(profiles !== undefined && { profiles }),
   };
 }
 
@@ -1029,7 +1082,16 @@ export function injectTrustedProjectToml(content: string, homePath: string | nul
   return content.replace(/\s*$/, '\n\n') + stanza;
 }
 
+/** A Codex profile shipped as its own `<name>.config.toml`. */
+export interface RenderedProfile {
+  name: string;
+  sha256: string;
+  content: string;
+}
+
 export interface RenderResult {
+  /** Present (possibly empty) only for a host whose Codex takes profiles as files. */
+  profiles?: RenderedProfile[];
   content: string;
   sha256: string;
   size_bytes: number;

@@ -159,8 +159,9 @@ describe('POST /host/lane', () => {
     });
     expect(r.statusCode).toBe(200);
     const body = JSON.parse(r.payload);
-    expect(body.lane_preference).toBe('spark');
-    expect(body.effective_lane).toBe('spark');
+    // `spark` is retired: wrapper <= 0.9.5 still sends it, so it is accepted and stored as null.
+    expect(body.lane_preference).toBeNull();
+    expect(body.effective_lane).toBe('normal');
     await app.close();
   });
 

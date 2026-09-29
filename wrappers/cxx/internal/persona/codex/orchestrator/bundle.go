@@ -42,12 +42,16 @@ type BundleRequest struct {
 // There is intentionally no Host field here; don't add one back without
 // confirming the server side actually populates it.
 type BundleResponse struct {
-	Status   string                `json:"status"`
-	Reasons  []string              `json:"reasons,omitempty"`
-	Auth     *AuthRetrieveResponse `json:"auth,omitempty"`
-	Agents   json.RawMessage       `json:"agents,omitempty"`
-	Config   json.RawMessage       `json:"config,omitempty"`
-	Sessions *FleetSessions        `json:"sessions,omitempty"`
+	Status  string                `json:"status"`
+	Reasons []string              `json:"reasons,omitempty"`
+	Auth    *AuthRetrieveResponse `json:"auth,omitempty"`
+	Agents  json.RawMessage       `json:"agents,omitempty"`
+	Config  json.RawMessage       `json:"config,omitempty"`
+	// ConfigProfiles is the `profiles` list of the config block (Codex profile
+	// sidecar files), read by unwrapResources before Config is flattened to its
+	// body. Nil means the server sent none.
+	ConfigProfiles []ConfigProfile `json:"-"`
+	Sessions       *FleetSessions  `json:"sessions,omitempty"`
 }
 
 // FleetSessions is the historical response name for boot-screen sync activity
@@ -115,6 +119,7 @@ func (r *BundleResponse) unwrapResources() error {
 	if err != nil {
 		return err
 	}
+	r.ConfigProfiles = profilesFromRaw(r.Config)
 	r.Config, err = resourceContent(r.Config)
 	if err != nil {
 		return err

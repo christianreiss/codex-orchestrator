@@ -252,7 +252,12 @@ export class HostAgentsService {
     }
     const body = row.body ?? '';
     const baseSha = row.sha256 || createHash('sha256').update(body).digest('hex');
-    let rendered = {
+    let rendered: {
+      content: string;
+      sha256: string;
+      size_bytes: number;
+      profiles?: Array<{ name: string; sha256: string; content: string }>;
+    } = {
       content: body,
       sha256: baseSha,
       size_bytes: Buffer.byteLength(body, 'utf8'),
@@ -291,6 +296,11 @@ export class HostAgentsService {
       size_bytes: rendered.size_bytes,
     };
     if (status !== 'unchanged') out['content'] = rendered.content;
+    // Profile sidecars ride every response, `unchanged` included: they have their
+    // own digests and the wrapper prunes what is missing from a present list. The
+    // key is absent for a Codex that still reads `[profiles.*]` from config.toml,
+    // and for engines without profiles, so an older reply can never prune.
+    if (rendered.profiles !== undefined) out['profiles'] = rendered.profiles;
     await this.recordLog(host.id, 'config.retrieve', { status, base_sha256: baseSha, baked_sha256: rendered.sha256 });
     return out;
   }

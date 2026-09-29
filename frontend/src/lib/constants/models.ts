@@ -25,6 +25,7 @@ export const CLAUDE_MODEL_OPTIONS: ModelOption[] = [
   { label: "Opus 5.5", value: "claude-opus-5-5" },
   { label: "Opus 5", value: "claude-opus-5" },
   { label: "Opus 4.8", value: "claude-opus-4-8" },
+  { label: "Sonnet 5.5", value: "claude-sonnet-5-5" },
   { label: "Sonnet 5", value: "claude-sonnet-5" },
   { label: "Opus 4.7", value: "claude-opus-4-7" },
   { label: "Sonnet 4.6", value: "claude-sonnet-4-6" },
@@ -48,7 +49,6 @@ export const CODEX_MODELS: ModelOption[] = [
   { label: "GPT-5.6 Terra", value: "gpt-5.6-terra" },
   { label: "GPT-5.6 Luna", value: "gpt-5.6-luna" },
   { label: "GPT-5.5", value: "gpt-5.5" },
-  { label: "GPT-5.3 Codex Spark", value: "gpt-5.3-codex-spark" },
 ];
 
 /**
@@ -123,7 +123,7 @@ export const REASONING_EFFORT_OPTIONS: Array<{ value: string; label: string }> =
 
 /**
  * Hook event names offered by the fleet hooks editor. A deliberate subset of the
- * 33 events claude-cli 2.1.263 accepts (its `wy` array) — these are the ones a
+ * 33 events claude-cli 2.1.284 accepts (its `Bm` array) — these are the ones a
  * fleet-wide hook makes sense on. `SessionEnd` and `PostCompact` were missing
  * purely by omission: their counterparts `SessionStart` and `PreCompact` were
  * already offered, so a fleet could open a session or a compaction but never
@@ -140,4 +140,11 @@ export const HOOK_EVENTS = [
   "SubagentStop",
   "PreCompact",
   "PostCompact",
+  "PostToolUseFailure",
+  "SubagentStart",
+  "PermissionRequest",
+  "PermissionDenied",
+  "TaskCompleted",
+  "ConfigChange",
+  "Setup",
 ] as const;

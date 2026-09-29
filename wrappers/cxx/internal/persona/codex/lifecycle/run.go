@@ -940,6 +940,21 @@ func bootstrapWithProgress(
 				configSync.Updated = true
 			}
 		}
+		// Profile sidecars ride every bundle reply, `unchanged` included.
+		if configSync.Err == nil && resp.ConfigProfiles != nil {
+			if home, herr := codex.CodexHome(); herr != nil {
+				configSync.Err = herr
+			} else {
+				// Profiles are auxiliary: a refusal (a user-authored file under a
+				// fleet profile's name) or a write failure must not fail the sync
+				// of the config that did arrive, and would repeat every launch.
+				changed, perr := syncProfileFiles(home, resp.ConfigProfiles)
+				if perr != nil {
+					logger.Warn("profile files not fully synced", "err", perr)
+				}
+				configSync.Updated = configSync.Updated || changed
+			}
+		}
 	}
 	if applyErr != nil {
 		applyErr = &authMaterializationError{err: applyErr}
@@ -1503,17 +1518,33 @@ func writeConfigToml(ctx context.Context, client *orchestrator.Client) (bool, er
 		return false, err
 	}
 	digest := fileDigest(dst)
-	body, err := client.RetrieveConfig(ctx, digest)
+	bundle, err := client.RetrieveConfigBundle(ctx, digest)
 	if err != nil {
 		return false, err
 	}
-	if len(body) == 0 {
-		return false, nil
+	updated := false
+	if len(bundle.Content) > 0 {
+		if err := atomicWrite(dst, bundle.Content, 0o644); err != nil {
+			return false, err
+		}
+		updated = true
 	}
-	if err := atomicWrite(dst, body, 0o644); err != nil {
-		return false, err
+	// Profiles ride every reply, `unchanged` included; nil means the server sent
+	// none (older server, or a Codex that reads [profiles.*] from config.toml).
+	if bundle.Profiles != nil {
+		home, err := codex.CodexHome()
+		if err != nil {
+			return updated, err
+		}
+		// Same policy as the bundle path: the base config did arrive, so a profile
+		// refusal or write failure is logged, not turned into a failed sync.
+		profilesChanged, err := syncProfileFiles(home, bundle.Profiles)
+		if err != nil {
+			slog.Warn("profile files not fully synced", "err", err)
+		}
+		updated = updated || profilesChanged
 	}
-	return true, nil
+	return updated, nil
 }
 
 func agentsPath() (string, error) {

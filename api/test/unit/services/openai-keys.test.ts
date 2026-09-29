@@ -124,7 +124,8 @@ describe('openai-models', () => {
     expect(resolveRequestedModel('gpt-5.5')).toBe('gpt-5.5');
     // Retired upstream 2026-08-31: heals to the replacement the catalog names.
     expect(resolveRequestedModel('gpt-5.4-mini')).toBe('gpt-5.6-luna');
-    expect(resolveRequestedModel('gpt-5.3-codex-spark')).toBe('gpt-5.3-codex-spark');
+    // Retired upstream 2026-09-29: heals to the forced-upgrade model.
+    expect(resolveRequestedModel('gpt-5.3-codex-spark')).toBe('gpt-6-astra');
   });
 
   it('throws UnsupportedModelError for unknown models', () => {
@@ -142,7 +143,6 @@ describe('openai-models', () => {
       'gpt-5.6-terra',
       'gpt-5.6-luna',
       'gpt-5.5',
-      'gpt-5.3-codex-spark',
     ]);
     for (const m of list.data) {
       expect(m).toMatchObject({ object: 'model', owned_by: 'codex-orchestrator' });

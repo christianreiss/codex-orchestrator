@@ -55,8 +55,8 @@ func TestLaunchArgsForAuthUsesEffectiveLaneWithoutGuessingOffline(t *testing.T) 
 		Status: "valid",
 		Host:   &orchestrator.HostInfo{LanePreference: "spark"},
 	})
-	if len(spark) < 2 || spark[1] != "gpt-5.3-codex-spark" {
-		t.Fatalf("spark lane args = %v", spark)
+	if !reflect.DeepEqual(spark, base) {
+		t.Fatalf("retired spark lane changed args: %v", spark)
 	}
 	offline := launchArgsForAuth(base, &orchestrator.AuthRetrieveResponse{Status: "offline"})
 	if !reflect.DeepEqual(offline, base) {

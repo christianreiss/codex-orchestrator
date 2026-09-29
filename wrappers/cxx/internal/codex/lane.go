@@ -13,8 +13,11 @@ import (
 //
 // Mapping (mirroring the legacy bash wrapper):
 //
-//	spark  → --model gpt-5.3-codex-spark
 //	normal → --model gpt-6-astra
+//
+// The `spark` lane is retired (gpt-5.3-codex-spark left the catalog in
+// codex-cli 0.158.0); a stored `spark` preference maps to no model, so the fleet
+// or per-host model applies.
 //
 // If the user already supplied --model or --profile we leave args alone.
 func applyLaneAndProfile(cfg *config.Config, args []string) []string {
@@ -50,24 +53,12 @@ func ApplyLanePreference(args []string, lane string) []string {
 	if model == "" {
 		return args
 	}
-	prefix := []string{"--model", model}
-	if strings.EqualFold(strings.TrimSpace(lane), "spark") {
-		// Spark does not accept reasoning summaries, and its fleet default effort
-		// is high. Make both explicit so a Terra-oriented config cannot leak an
-		// incompatible ultra/summary setting into a Spark launch.
-		prefix = append(prefix,
-			"--config", "model_reasoning_effort=high",
-			"--config", "model_reasoning_summary=none",
-		)
-	}
-	return append(prefix, args...)
+	return append([]string{"--model", model}, args...)
 }
 
 // LaneModel is the fallback model for a persisted lane preference.
 func LaneModel(lane string) string {
 	switch strings.ToLower(strings.TrimSpace(lane)) {
-	case "spark":
-		return "gpt-5.3-codex-spark"
 	case "normal":
 		return "gpt-6-astra"
 	default:
@@ -81,10 +72,7 @@ func LaneModel(lane string) string {
 // remain effective when lane steering is cleared.
 func EffectiveLane(preference, reported string) string {
 	for _, candidate := range []string{preference, reported} {
-		switch strings.ToLower(strings.TrimSpace(candidate)) {
-		case "spark":
-			return "spark"
-		case "normal":
+		if strings.EqualFold(strings.TrimSpace(candidate), "normal") {
 			return "normal"
 		}
 	}
@@ -114,9 +102,8 @@ func ModelContext(args []string, lane string) string {
 }
 
 // EffortContext mirrors the effective per-launch effort override. Explicit
-// --config values win; otherwise Spark's injected compatibility value is high.
-// Normal lane and explicit model/profile launches retain their configured
-// effort, so an empty result tells the summary to keep its existing fallback.
+// --config values win; otherwise the launch keeps its configured effort, so an
+// empty result tells the summary to keep its existing fallback.
 func EffortContext(args []string, lane string) string {
 	for i, arg := range args {
 		if arg != "--config" || i+1 >= len(args) {
@@ -126,9 +113,6 @@ func EffortContext(args []string, lane string) string {
 		if strings.HasPrefix(args[i+1], key) {
 			return strings.TrimSpace(strings.TrimPrefix(args[i+1], key))
 		}
-	}
-	if !hasModelOrProfile(args) && strings.EqualFold(strings.TrimSpace(lane), "spark") {
-		return "high"
 	}
 	return ""
 }

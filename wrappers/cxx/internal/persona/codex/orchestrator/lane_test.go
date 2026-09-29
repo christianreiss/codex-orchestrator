@@ -89,9 +89,9 @@ func TestSetLaneNormalizesLane(t *testing.T) {
 		in   string
 		want string
 	}{
-		{name: "trims and lowercases", in: " SPARK ", want: `{"lane":"spark"}`},
+		{name: "trims and lowercases", in: " NORMAL ", want: `{"lane":"normal"}`},
 		{name: "mixed case normal", in: "Normal", want: `{"lane":"normal"}`},
-		{name: "already canonical", in: "spark", want: `{"lane":"spark"}`},
+		{name: "already canonical", in: "normal", want: `{"lane":"normal"}`},
 	}
 
 	for _, tc := range cases {
@@ -123,7 +123,7 @@ func TestSetLaneNormalizesLane(t *testing.T) {
 // SetLane is the only place an unknown lane is rejected before it reaches the
 // API, so a bad value must never leave the wrapper.
 func TestSetLaneRejectsUnknownLaneWithoutRequest(t *testing.T) {
-	for _, lane := range []string{"turbo", "", "   ", "sparky", "spark spark"} {
+	for _, lane := range []string{"turbo", "", "   ", "sparky", "spark", "spark spark"} {
 		t.Run(lane, func(t *testing.T) {
 			calls := 0
 			c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
@@ -134,7 +134,7 @@ func TestSetLaneRejectsUnknownLaneWithoutRequest(t *testing.T) {
 			if err == nil {
 				t.Fatalf("SetLane(%q) accepted an invalid lane", lane)
 			}
-			if !strings.Contains(err.Error(), "normal|spark") {
+			if !strings.Contains(err.Error(), "want normal") {
 				t.Errorf("error must name the valid lanes: %v", err)
 			}
 			if calls != 0 {

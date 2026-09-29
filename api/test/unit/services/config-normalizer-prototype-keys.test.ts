@@ -46,7 +46,7 @@ describe('per-model effort tables: real models', () => {
   });
 
   it('reports the Codex per-model default effort', () => {
-    expect(defaultCodexReasoningEffortForModel('gpt-5.3-codex-spark')).toBe('high');
+    expect(defaultCodexReasoningEffortForModel('gpt-6-astra')).toBe('medium');
   });
 
   it('constrains Claude effort levels to the model table', () => {

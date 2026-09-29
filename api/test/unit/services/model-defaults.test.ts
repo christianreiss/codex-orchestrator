@@ -64,11 +64,6 @@ describe('ModelDefaultsService', () => {
         persistent_efforts: ['low', 'medium', 'high', 'xhigh'],
         default_effort: 'medium',
       },
-      {
-        model: 'gpt-5.3-codex-spark',
-        persistent_efforts: ['low', 'medium', 'high', 'xhigh'],
-        default_effort: 'high',
-      },
     ]);
 
     const claude = await service.get(ENGINE_CLAUDE);
@@ -102,6 +97,11 @@ describe('ModelDefaultsService', () => {
         model: 'claude-opus-4-8',
         persistent_efforts: ['low', 'medium', 'high', 'xhigh'],
         default_effort: 'high',
+      },
+      {
+        model: 'claude-sonnet-5-5',
+        persistent_efforts: ['low', 'medium', 'high', 'xhigh'],
+        default_effort: 'medium',
       },
       {
         model: 'claude-sonnet-5',
@@ -195,7 +195,7 @@ describe('ModelDefaultsService', () => {
 
     await expect(
       service.set(ENGINE_CODEX, {
-        model: 'gpt-5.3-codex-spark',
+        model: 'gpt-5.5',
         reasoning_effort: 'max',
       }),
     ).rejects.toMatchObject({ status: 422, param: 'reasoning_effort' });
