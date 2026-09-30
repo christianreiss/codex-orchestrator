@@ -1,5 +1,7 @@
 # 2026-09-30
 
+- Host approval requests now open the modal on connected admin clients as soon as they arrive, including before the host polls again and when the pending count stays unchanged. The modal closes after all requests are approved or declined, including in management mode, once result feedback finishes.
+
 - Account consolidation retains compatibility aliases for already-running wrappers, preserving auth uploads, session reservations and quota reports after duplicate rows are merged.
 
 - Fixed account/session conflation: fresh opaque OAuth tokens reuse the sole account or their explicit session/host assignment instead of enrolling phantom accounts. Additional opaque accounts require Add account or an untargeted seed command; migrated provider identities are recovered from their existing head. Multiple unassigned opaque accounts return `account_assignment_required`, and known cross-account replacements remain rejected.
