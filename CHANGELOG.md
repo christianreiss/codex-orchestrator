@@ -1,3 +1,8 @@
+# 2026-09-30
+
+- Added independent ChatGPT and Claude account pools with automatic enrollment, account-scoped credential verification/refresh and quotas, and launch-time balancing across verified accounts. Concurrent native sessions keep the same account and existing quota/VIP policy remains in force.
+- Added Fleet → Accounts for enrollment, naming, credential replacement, verification, pause/resume, quota/assignment inspection and removal after sessions drain; dashboard usage is shown per account. cxx 0.9.7 scopes both cdx and clx auth synchronization to their selected account.
+
 # 2026-09-29
 
 - **GPT-6.1 Sol supported.** Added `gpt-6.1-sol` to Codex model selection and OpenAI-compatible inference, with native `low` default effort and all six effort levels through `ultra`.

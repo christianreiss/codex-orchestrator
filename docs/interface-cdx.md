@@ -896,3 +896,9 @@ binding fails closed. An explicit user `--remote` endpoint is preserved and does
 not acquire this local adapter. The installed CLI must support the app-server Unix
 listener, remote TUI and experimental thread queue API; unsupported clients remain
 not listening. These native APIs are experimental.
+
+## Multiple provider accounts (cxx 0.9.7)
+
+A launch reserves one verified account from this engine's pool before starting the native child. The wrapper persists identifiers only in `.cxx-account-<server-hash>.json` beside the native credential file (0600), and scopes subsequent auth/bootstrap requests to that account. Credentials stay in the normal native file and retain its CAS/logout/security protections. Account switching uses strict generation CAS and requires an idle native child lease; overlapping invocations with the same host/engine/auth-directory scope share their live account. Heartbeats run every 30 seconds and leases expire after five minutes if a wrapper disappears; normal exit releases the reservation. Content-only sync and maintenance never rebalance accounts. Older servers omit `account_pool` and retain the existing single-account path. Existing secure-host offline fallback and insecure purge/logout behavior remain in force.
+
+Quota gating and advice read the selected account only. The startup account label identifies the selection. A missing compatible account fails with an engine-specific error; Claude accounts do not supply Codex and ChatGPT accounts do not supply Claude. Manage pools through **Fleet → Accounts**; assignments are automatic. Client uploads enroll distinct validated credentials. Opaque Claude OAuth logins are matched by known access/refresh lineage; for a fresh reauthentication with wholly new opaque tokens, replace the existing account's credentials explicitly in Accounts to retain its identity and label.

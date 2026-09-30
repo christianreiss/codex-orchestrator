@@ -662,7 +662,7 @@ func writeAuthPayload(payload json.RawMessage, expected *AuthGeneration) (AuthWr
 	return writeAuthPayloadContext(context.Background(), payload, expected)
 }
 
-func writeAuthPayloadContext(ctx context.Context, payload json.RawMessage, expected *AuthGeneration) (AuthWriteResult, error) {
+func writeAuthPayloadContext(ctx context.Context, payload json.RawMessage, expected *AuthGeneration, requireIdle ...bool) (AuthWriteResult, error) {
 	if len(payload) == 0 {
 		return AuthWriteResult{}, errors.New("empty auth payload")
 	}
@@ -696,7 +696,7 @@ func writeAuthPayloadContext(ctx context.Context, payload json.RawMessage, expec
 			return err
 		}
 		wroteNow := false
-		if expected != nil {
+		if expected != nil && !(len(requireIdle) > 0 && requireIdle[0]) {
 			wroteNow, err = atomicWriteFileIfCurrent(path, payload, 0o600, expected)
 			if err != nil {
 				return err
@@ -1331,4 +1331,9 @@ func syncDirectory(path string) error {
 
 func unsupportedDirectorySync(err error) bool {
 	return errors.Is(err, syscall.EINVAL) || errors.Is(err, syscall.ENOTSUP)
+}
+
+// WriteAssignedAccountIfCurrent prevents a cross-account switch beside a native child.
+func WriteAssignedAccountIfCurrent(payload json.RawMessage, expected AuthGeneration, switching bool) (AuthWriteResult, error) {
+	return writeAuthPayloadContext(context.Background(), payload, &expected, switching)
 }

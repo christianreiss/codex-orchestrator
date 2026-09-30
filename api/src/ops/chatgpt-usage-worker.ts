@@ -1,3 +1,5 @@
+import { and, eq } from 'drizzle-orm';
+import { providerAccounts } from '../db/schema.js';
 import { mkdir, rename, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { createDb } from '../db/client.js';
@@ -34,13 +36,10 @@ export interface ChatGptUsageWorkerTickDeps {
  * Compose health accurately represents telemetry freshness rather than merely
  * a process that is still alive.
  */
-export async function runChatGptUsageWorkerTick(
-  deps: ChatGptUsageWorkerTickDeps,
-): Promise<FetchResult> {
+export async function runChatGptUsageWorkerTick(deps: ChatGptUsageWorkerTickDeps): Promise<FetchResult> {
   const result = await deps.usage.fetchLatest(false);
-  const snapshotStatus = typeof result.snapshot?.['status'] === 'string'
-    ? result.snapshot['status']
-    : 'unavailable';
+  const snapshotStatus =
+    typeof result.snapshot?.['status'] === 'string' ? result.snapshot['status'] : 'unavailable';
   const fields = {
     status: result.status,
     snapshot_status: snapshotStatus,
@@ -52,9 +51,7 @@ export async function runChatGptUsageWorkerTick(
   if (result.status === 'ok' && snapshotStatus === 'ok') {
     await writeUsageHeartbeat(deps.healthPath, {
       checked_at: (deps.now ?? nowIso)(),
-      fetched_at: typeof result.snapshot?.['fetched_at'] === 'string'
-        ? result.snapshot['fetched_at']
-        : null,
+      fetched_at: typeof result.snapshot?.['fetched_at'] === 'string' ? result.snapshot['fetched_at'] : null,
       next_eligible_at: result.next_eligible_at,
     });
     deps.log.info(fields, 'chatgpt usage refresh succeeded');
@@ -91,7 +88,36 @@ async function main(): Promise<void> {
     running = true;
     try {
       await runChatGptUsageWorkerTick({
-        usage,
+        usage: {
+          async fetchLatest(force) {
+            const accounts = await db
+              .select()
+              .from(providerAccounts)
+              .where(and(eq(providerAccounts.engine, 'codex'), eq(providerAccounts.state, 'enabled')));
+            if (!accounts.length) return usage.fetchLatest(force);
+            const results: FetchResult[] = [];
+            for (const account of accounts) {
+              try {
+                results.push(
+                  await new ChatGptUsageService(db, log, {
+                    env,
+                    keyring: Keyring.fromEnv(env),
+                    accountId: account.id,
+                  }).fetchLatest(force),
+                );
+              } catch (err) {
+                log.warn(
+                  { account_id: account.id, error: errorMessage(err) },
+                  'account quota refresh failed',
+                );
+              }
+            }
+            return (
+              results.find((r) => r.status === 'ok') ??
+              results[0] ?? { status: 'unavailable', snapshot: null, cached: false, next_eligible_at: null }
+            );
+          },
+        },
         healthPath: env.CHATGPT_USAGE_HEALTH_PATH,
         log,
       });
@@ -134,7 +160,7 @@ function workerLog(): WorkerLog {
 
 function logData(value: unknown): Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
-    ? value as Record<string, unknown>
+    ? (value as Record<string, unknown>)
     : { detail: value ?? null };
 }
 

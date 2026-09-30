@@ -22,7 +22,7 @@ func TestHiddenBootKeepsClaudeQuotaAdvisory(t *testing.T) {
 		"status":"ok","fetched_at":%q,"five_hour_used_percent":96,"five_hour_resets_at":%q,
 		"seven_day_used_percent":null,"seven_day_resets_at":null,
 		"five_hour_window":{"used_percent":96,"resets_at":%q},
-		"seven_day_window":{"used_percent":null,"resets_at":null}}}`, now.Format(time.RFC3339), reset, reset)
+		"seven_day_window":{"used_percent":null,"resets_at":null}}`, now.Format(time.RFC3339), reset, reset)
 	cfg, home := syncOnlyHost(t, extra)
 	t.Setenv("CLX_CLAUDE_BIN", filepath.Join(home, "no-cli"))
 	stderr := captureStderr(t, func() {

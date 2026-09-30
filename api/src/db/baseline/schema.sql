@@ -481,6 +481,7 @@ CREATE TABLE `auth_entries` (
 
 CREATE TABLE `auth_payloads` (
 	`id` bigint unsigned AUTO_INCREMENT NOT NULL,
+	`account_id` bigint unsigned,
 	`last_refresh` varchar(100) NOT NULL,
 	`sha256` char(64) NOT NULL,
 	`source_host_id` bigint unsigned,
@@ -504,11 +505,12 @@ CREATE TABLE `auth_payloads` (
 	`superseded_at` varchar(100),
 	`purge_after` varchar(100),
 	CONSTRAINT `auth_payloads_id` PRIMARY KEY(`id`),
-	CONSTRAINT `uq_auth_payloads_engine_generation` UNIQUE(`engine`,`generation`)
+	CONSTRAINT `uq_auth_payloads_engine_generation` UNIQUE(`engine`,`account_id`,`generation`)
 );
 
 CREATE TABLE `auth_seed_tokens` (
 	`id` bigint unsigned AUTO_INCREMENT NOT NULL,
+	`account_id` bigint unsigned,
 	`token` char(64) NOT NULL,
 	`token_enc` longtext,
 	`base_url` varchar(255),
@@ -522,6 +524,7 @@ CREATE TABLE `auth_seed_tokens` (
 
 CREATE TABLE `chatgpt_usage_snapshots` (
 	`id` bigint unsigned AUTO_INCREMENT NOT NULL,
+	`account_id` bigint unsigned,
 	`host_id` bigint unsigned,
 	`status` varchar(16) NOT NULL,
 	`plan_type` varchar(64),
@@ -581,6 +584,7 @@ CREATE TABLE `claude_artifacts` (
 
 CREATE TABLE `claude_usage_snapshots` (
 	`id` bigint unsigned AUTO_INCREMENT NOT NULL,
+	`account_id` bigint unsigned,
 	`host_id` bigint unsigned,
 	`source` varchar(32) NOT NULL DEFAULT 'statusline',
 	`five_hour_used_percent` int unsigned,
@@ -1088,6 +1092,32 @@ CREATE TABLE `openai_api_keys` (
 	CONSTRAINT `key_hash` UNIQUE(`key_hash`)
 );
 
+CREATE TABLE `provider_account_sessions` (
+	`id` varchar(64) NOT NULL,
+	`host_id` bigint unsigned NOT NULL,
+	`engine` varchar(16) NOT NULL,
+	`scope_id` varchar(64) NOT NULL,
+	`account_id` bigint unsigned NOT NULL,
+	`expires_at` varchar(100) NOT NULL,
+	`created_at` varchar(100) NOT NULL,
+	CONSTRAINT `provider_account_sessions_id` PRIMARY KEY(`id`)
+);
+
+CREATE TABLE `provider_accounts` (
+	`id` bigint unsigned AUTO_INCREMENT NOT NULL,
+	`engine` varchar(16) NOT NULL,
+	`label` varchar(191) NOT NULL,
+	`identity_key` varchar(191),
+	`state` varchar(16) NOT NULL DEFAULT 'enabled',
+	`payload_id` bigint unsigned,
+	`generation` bigint unsigned,
+	`last_selected_at` varchar(100),
+	`created_at` varchar(100) NOT NULL,
+	`updated_at` varchar(100) NOT NULL,
+	CONSTRAINT `provider_accounts_id` PRIMARY KEY(`id`),
+	CONSTRAINT `uq_provider_account_identity` UNIQUE(`engine`,`identity_key`)
+);
+
 CREATE TABLE `schema_migrations` (
 	`version` varchar(32) NOT NULL,
 	`name` varchar(191) NOT NULL,
@@ -1370,6 +1400,8 @@ CREATE INDEX `idx_openai_keys_active` ON `openai_api_keys` (`is_active`);
 CREATE INDEX `idx_openai_keys_prefix` ON `openai_api_keys` (`key_prefix`);
 CREATE INDEX `idx_openai_keys_admin` ON `openai_api_keys` (`admin_user_id`);
 CREATE INDEX `idx_openai_keys_engine` ON `openai_api_keys` (`engine`);
+CREATE INDEX `idx_account_session_active` ON `provider_account_sessions` (`account_id`,`expires_at`);
+CREATE INDEX `idx_account_session_scope` ON `provider_account_sessions` (`host_id`,`engine`,`scope_id`);
 CREATE INDEX `idx_secrets_engine` ON `secrets` (`engine`);
 CREATE INDEX `idx_secrets_updated_at` ON `secrets` (`updated_at`);
 CREATE INDEX `idx_secrets_deleted_at` ON `secrets` (`deleted_at`);

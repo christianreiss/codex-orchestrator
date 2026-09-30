@@ -9,7 +9,7 @@
  * percentages here. This service only ever stores what was reported.
  */
 
-import { desc, eq, gte, lte, and } from 'drizzle-orm';
+import { desc, eq, gte, lte, and, isNull } from 'drizzle-orm';
 import type { Database } from '../db/client.js';
 import { claudeUsageSnapshots } from '../db/schema.js';
 import { isoOffsetSeconds, nowIso } from '../util/timestamp.js';
@@ -18,6 +18,7 @@ type ClaudeSnapshotRow = typeof claudeUsageSnapshots.$inferSelect;
 type ClaudeSnapshotInsert = typeof claudeUsageSnapshots.$inferInsert;
 
 export interface ClaudeUsageReport {
+  accountId?: number;
   hostId?: number | null;
   source?: string | null;
   fiveHourUsedPercent?: number | null;
@@ -31,7 +32,10 @@ interface ClaudeWindow {
   resets_at: string | null;
 }
 
-function windowFrom(usedPercent: number | null | undefined, resetsAt: string | null | undefined): ClaudeWindow {
+function windowFrom(
+  usedPercent: number | null | undefined,
+  resetsAt: string | null | undefined,
+): ClaudeWindow {
   return { used_percent: usedPercent ?? null, resets_at: resetsAt ?? null };
 }
 
@@ -39,6 +43,7 @@ export function normalizeClaudeUsageSnapshot(row: ClaudeSnapshotRow): Record<str
   return {
     id: row.id,
     host_id: row.hostId,
+    account_id: row.accountId ?? null,
     source: row.source,
     five_hour_used_percent: row.fiveHourUsedPercent,
     five_hour_resets_at: row.fiveHourResetsAt,
@@ -64,12 +69,20 @@ function normalizeResetsAt(value: string | null | undefined): string | null {
 }
 
 export class ClaudeUsageService {
-  constructor(private readonly db: Database) {}
+  constructor(
+    private readonly db: Database,
+    private readonly accountId?: number,
+  ) {}
 
   async latest(): Promise<ClaudeSnapshotRow | null> {
     const rows = await this.db
       .select()
       .from(claudeUsageSnapshots)
+      .where(
+        this.accountId === undefined
+          ? isNull(claudeUsageSnapshots.accountId)
+          : eq(claudeUsageSnapshots.accountId, this.accountId),
+      )
       .orderBy(desc(claudeUsageSnapshots.fetchedAt), desc(claudeUsageSnapshots.id))
       .limit(1);
     return rows[0] ?? null;
@@ -88,6 +101,7 @@ export class ClaudeUsageService {
     }
     const now = nowIso();
     const values: ClaudeSnapshotInsert = {
+      accountId: report.accountId ?? this.accountId,
       hostId: report.hostId ?? null,
       source: report.source?.trim() || 'statusline',
       fiveHourUsedPercent,
@@ -110,11 +124,7 @@ export class ClaudeUsageService {
     return this.latest();
   }
 
-  async history(params: {
-    days?: number;
-    from?: string | null;
-    until?: string | null;
-  }): Promise<{
+  async history(params: { days?: number; from?: string | null; until?: string | null }): Promise<{
     days: number;
     from: string;
     until: string;
@@ -130,7 +140,15 @@ export class ClaudeUsageService {
         sevenDayUsedPercent: claudeUsageSnapshots.sevenDayUsedPercent,
       })
       .from(claudeUsageSnapshots)
-      .where(and(gte(claudeUsageSnapshots.fetchedAt, fromIso), lte(claudeUsageSnapshots.fetchedAt, untilIso)))
+      .where(
+        and(
+          gte(claudeUsageSnapshots.fetchedAt, fromIso),
+          lte(claudeUsageSnapshots.fetchedAt, untilIso),
+          this.accountId === undefined
+            ? isNull(claudeUsageSnapshots.accountId)
+            : eq(claudeUsageSnapshots.accountId, this.accountId),
+        ),
+      )
       .orderBy(claudeUsageSnapshots.fetchedAt);
 
     const fiveHour: Array<{ ts: string; value: number }> = [];

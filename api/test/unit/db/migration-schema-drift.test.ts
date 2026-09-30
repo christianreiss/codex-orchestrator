@@ -37,7 +37,8 @@ const DROP_TABLE = /^DROP\s+TABLE\s+(?:IF\s+EXISTS\s+)?([`A-Za-z0-9_$,\s]+)/i;
  * `DROP COLUMN IF EXISTS`, so the table name arrives via `CALL`.
  */
 const DROP_COLUMN = /DROP\s+COLUMN\s+`?([A-Za-z0-9_$]+)`?/gi;
-const DROP_COLUMN_CALL = /CALL\s+drop_[A-Za-z0-9_$]*column\s*\(\s*'([A-Za-z0-9_$]+)'\s*,\s*'([A-Za-z0-9_$]+)'\s*\)/gi;
+const DROP_COLUMN_CALL =
+  /CALL\s+drop_[A-Za-z0-9_$]*column\s*\(\s*'([A-Za-z0-9_$]+)'\s*,\s*'([A-Za-z0-9_$]+)'\s*\)/gi;
 
 interface Addition {
   migration: string;
@@ -194,10 +195,10 @@ describe('migrations against the test baseline', () => {
       'agent_transfers',
       'agent_transfer_events',
       'coord_project_card_deps',
+      'provider_accounts',
+      'provider_account_sessions',
     ]);
-    expect(
-      additions.filter((a) => a.column !== undefined).map((a) => `${a.table}.${a.column}`),
-    ).toEqual([
+    expect(additions.filter((a) => a.column !== undefined).map((a) => `${a.table}.${a.column}`)).toEqual([
       'auth_payloads.generation',
       'auth_payloads.source_kind',
       'auth_payloads.parent_payload_id',
@@ -236,6 +237,10 @@ describe('migrations against the test baseline', () => {
       'agent_sessions.receiver',
       'coord_project_files.content_encoding',
       'coord_project_cards.due_at',
+      'auth_payloads.account_id',
+      'chatgpt_usage_snapshots.account_id',
+      'claude_usage_snapshots.account_id',
+      'auth_seed_tokens.account_id',
     ]);
   });
 

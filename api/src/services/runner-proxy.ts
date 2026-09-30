@@ -81,6 +81,7 @@ export interface RunnerRunResult {
 }
 
 export interface SeedTokenGrant {
+  accountId?: number;
   token: string;
   baseUrl: string;
   engine: Engine;
@@ -118,6 +119,7 @@ export function createSeedTokenStore(db: Database): SeedTokenStore {
     },
     async issue(grant) {
       await db.insert(authSeedTokens).values({
+        accountId: grant.accountId,
         token: grant.token,
         tokenEnc: null,
         baseUrl: grant.baseUrl,
@@ -170,10 +172,22 @@ export class RunnerProxyService {
     const secret = this.env.AUTH_RUNNER_SHARED_SECRET ?? '';
     const persisted = await this.readPersistedStatus();
     if (!url) {
-      return { ...persisted, configured: false, url: null, ready: false, detail: 'AUTH_RUNNER_URL is not set' };
+      return {
+        ...persisted,
+        configured: false,
+        url: null,
+        ready: false,
+        detail: 'AUTH_RUNNER_URL is not set',
+      };
     }
     if (!secret) {
-      return { ...persisted, configured: true, url, ready: false, detail: 'AUTH_RUNNER_SHARED_SECRET missing' };
+      return {
+        ...persisted,
+        configured: true,
+        url,
+        ready: false,
+        detail: 'AUTH_RUNNER_SHARED_SECRET missing',
+      };
     }
     return {
       configured: true,
@@ -281,7 +295,14 @@ export class RunnerProxyService {
     await this.deps.seedTokens.purgeExpired(createdAt);
 
     const token = randomBytes(32).toString('hex');
-    await this.deps.seedTokens.issue({ token, baseUrl, engine, expiresAt, createdAt });
+    await this.deps.seedTokens.issue({
+      token,
+      baseUrl,
+      engine,
+      expiresAt,
+      createdAt,
+      accountId: typeof payload.account_id === 'number' ? payload.account_id : undefined,
+    });
     this.log?.info?.({ engine, expires_at: expiresAt }, 'runner-proxy.seedCommand issued');
 
     const command = `curl -fsSL "${baseUrl.replace(/\/+$/, '')}/seed/auth/${token}" | bash`;
@@ -317,7 +338,7 @@ export class RunnerProxyService {
       last_error: state === 'fail' ? latestFailureLabel(codex, claude) : null,
       last_result: { codex, claude },
       engines: { codex, claude },
-      ...(canonicalStatusDetail(codexCanonical, claudeCanonical)),
+      ...canonicalStatusDetail(codexCanonical, claudeCanonical),
     };
   }
 
@@ -335,11 +356,11 @@ export class RunnerProxyService {
     // A failed verification must not hide the selected login's expiry.
     const validated = validation.validateCanonicalPayload(row);
     return {
-      verified: row?.verificationState === 'verified' &&
-        validated !== null && auth !== null,
-      expiry: engine === ENGINE_CODEX
-        ? { state: 'not_applicable', expires_at: null, days_remaining: null }
-        : assessLoginExpiry(validated ? inspectCredential(validated.auth, engine) : null),
+      verified: row?.verificationState === 'verified' && validated !== null && auth !== null,
+      expiry:
+        engine === ENGINE_CODEX
+          ? { state: 'not_applicable', expires_at: null, days_remaining: null }
+          : assessLoginExpiry(validated ? inspectCredential(validated.auth, engine) : null),
     };
   }
 }
@@ -399,14 +420,10 @@ function normalizeRunnerEngineStatus(
   };
 }
 
-function canonicalStatusDetail(
-  codexCanonical: boolean,
-  claudeCanonical: boolean,
-): Partial<RunnerStatus> {
-  const missing = [
-    codexCanonical ? null : 'Codex',
-    claudeCanonical ? null : 'Claude',
-  ].filter((engine): engine is string => engine !== null);
+function canonicalStatusDetail(codexCanonical: boolean, claudeCanonical: boolean): Partial<RunnerStatus> {
+  const missing = [codexCanonical ? null : 'Codex', claudeCanonical ? null : 'Claude'].filter(
+    (engine): engine is string => engine !== null,
+  );
   if (missing.length === 0) return {};
   return { detail: `configured; no verified canonical auth for ${missing.join(' or ')}` };
 }

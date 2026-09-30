@@ -559,3 +559,7 @@ use an isolated database and deterministic native-socket fixtures.
 Agent Messaging → Conferences exposes retained rooms and a live member/task overview for both engines. Its combined timeline uses the existing member conversation links, including ordinary replies. Metadata refreshes through the central WebSocket invalidations and a 15-second visible-page poll; an explicit audited transcript reveal requires the existing content capability. No schema migration or wrapper update is required.
 
 GPT-6.1 Sol (`gpt-6.1-sol`) is selectable for Codex fleet defaults, host overrides, and OpenAI-compatible inference; its native default effort is `low`, with `low|medium|high|xhigh|max|ultra` available.
+
+## Account management
+
+Fleet → Accounts manages any number of ChatGPT and Claude subscriptions independently: add or replace credentials through the shared auth panel, rename, verify, pause/resume, or remove after sessions drain. Quota percentages and active host assignments are shown separately for every account in Accounts and the dashboard. New CLI sessions balance short and weekly utilization; overlapping sessions sharing native credentials stay on one account. Existing canonical credentials migrate to the first account for their engine. Client uploads can enroll additional verified accounts, and no ChatGPT account is required for a Claude-only fleet. See `interface-api.md` for lease and credential APIs.

@@ -21,6 +21,7 @@ import { registerAdminOverviewSettingsRoutes } from './admin-overview-settings/i
 import { registerAdminContentRoutes } from './admin-content/index.js';
 import { registerAdminManualRoutes } from './admin/manual/index.js';
 import { registerAdminMemoriesRoutes } from './admin/memories/index.js';
+import { registerAdminAccountsRoutes } from './admin/accounts/index.js';
 import { registerAdminSecretsRoutes } from './admin/secrets/index.js';
 import { registerAdminGitDirectorRoutes } from './admin/git-director/index.js';
 import { registerAdminTransfersRoutes } from './admin/transfers/index.js';
@@ -61,6 +62,7 @@ export async function registerAllRoutes(app: FastifyInstance, ctx: RouteContext)
   await registerAdminContentRoutes(app, ctx);
   await registerAdminMemoriesRoutes(app, ctx);
   await registerAdminSecretsRoutes(app, ctx);
+  await registerAdminAccountsRoutes(app, ctx);
   await registerAdminGitDirectorRoutes(app, ctx);
   await registerAdminTransfersRoutes(app, ctx);
   await registerAdminAgentSessionsRoutes(app, ctx);

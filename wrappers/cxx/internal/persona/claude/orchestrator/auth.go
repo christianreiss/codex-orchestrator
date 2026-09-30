@@ -13,6 +13,8 @@ import (
 // AuthRetrieveResponse mirrors POST /auth?engine=claude. The orchestrator may
 // add fields freely; unknown fields are tolerated.
 type AuthRetrieveResponse struct {
+	AccountID   int64                   `json:"account_id,omitempty"`
+	AccountPool bool                    `json:"account_pool,omitempty"`
 	QuotaAdvice *quotaadvice.Comparison `json:"quota_advice,omitempty"`
 
 	Status                      string               `json:"status"`
@@ -112,6 +114,9 @@ type HostInfo struct {
 }
 
 func (c *Client) AuthRetrieve(ctx context.Context, digest string) (*AuthRetrieveResponse, error) {
+	if c.Pool == nil {
+		c.Pool = c.loadAccountPool()
+	}
 	body := map[string]any{
 		"command": "retrieve",
 		"engine":  "claude",

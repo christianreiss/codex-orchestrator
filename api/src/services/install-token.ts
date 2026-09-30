@@ -28,6 +28,7 @@ export interface InstallTokenRow {
 }
 
 export interface SeedTokenRow {
+  accountId?: number | null;
   id: number;
   token: string;
   baseUrl: string | null;
@@ -107,6 +108,7 @@ export function createInstallTokenService(deps: InstallTokenDeps): InstallTokenS
         baseUrl: r.baseUrl ?? null,
         expiresAt: r.expiresAt,
         usedAt: r.usedAt ?? null,
+        accountId: r.accountId ?? null,
         engine: asEngine(r.engine),
       };
     },

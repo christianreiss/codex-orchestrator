@@ -1,7 +1,7 @@
 ---
 title: The auth distribution pipeline
 section: Fleet operations
-verified: 2026-09-09
+verified: 2026-09-30
 sources: api/src/routes/auth/index.ts, api/src/services/host-auth.ts, api/src/services/insecure-window.ts, api/src/services/canonical-auth-store.ts, api/src/services/runner-validation.ts, api/src/services/runner-client.ts, api/src/ops/auth-verification-worker.ts, api/src/services/reverse-dns.ts, api/src/security/keyring.ts, api/src/security/secret-box.ts, api/src/db/schema.ts, wrappers/cxx/internal/codex/auth_writer.go, wrappers/cxx/internal/codex/auth_session.go, wrappers/cxx/internal/claude/auth_writer.go, wrappers/cxx/internal/claude/auth_session.go
 ---
 
@@ -23,8 +23,8 @@ API keys are read from HTTP **headers** in all cases via `extractApiKey(req.head
 
 1. **Authenticate** — API key extracted from headers, hashed, matched against `hosts.api_key_hash` (fallback to plaintext `hosts.api_key` for legacy rows).
 2. **Check the insecure window** — `maybeEnforceInsecure` tests whether the host may receive auth. If outside both window and grace, and no `insecure_domain_allows` match exists, an `insecure_auth_requests` row is inserted and the caller sees a 423.
-3. **Resolve the canonical payload** — follows the engine's explicit
-   `auth_canonical_heads` pointer and decrypts/validates that row. Timestamp
+3. **Resolve the canonical payload** — account-aware requests follow the selected
+   `provider_accounts` pointer; older clients follow the stable `auth_canonical_heads` pointer and decrypts/validates that row. Timestamp
    ordering remains only as a legacy fallback before the generation-ledger
    backfill. An older verified history row is never resurrected behind a newer
    lineage. Decryption happens in `validateCanonicalPayload` /
@@ -221,3 +221,7 @@ participate in these leases.
 - api/src/security/secret-box.ts, api/src/security/keyring.ts
 - api/src/db/schema.ts (auth_entries, auth_payloads, host_auth_digests, host_auth_states, insecure_auth_requests, insecure_domain_allows)
 - wrappers/cxx/internal/claude/auth_writer.go (host-side credentials file selection/write)
+
+## Multiple provider accounts
+
+Each account has an independent canonical head, verification lineage and usage snapshots. Fleet → Accounts manages enrollment and lifecycle; cxx 0.9.7 reserves a balanced account at launch and scopes subsequent auth requests and usage reports to it. Overlapping native sessions keep their account. See [Provider accounts](accounts) for management, quota policy and rollout behavior.

@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/accountpool"
 	"io"
 	"log/slog"
 	"os"
@@ -274,6 +275,9 @@ func Run(ctx context.Context, opts Options) (exitCode int, runErr error) {
 	}
 
 	authPath, _ := codex.AuthPath()
+	client.Pool = accountpool.Load("codex", authPath, client.BaseURL)
+	restoreInitialAccountEnv := client.Pool.ActivateEnvironment()
+	defer restoreInitialAccountEnv()
 
 	var (
 		authResp      *orchestrator.AuthRetrieveResponse
@@ -380,6 +384,35 @@ func Run(ctx context.Context, opts Options) (exitCode int, runErr error) {
 			}
 		}
 
+		if !opts.SyncOnly && !opts.SkipAuthSync && !opts.SkipCredentialExchange && authResp != nil && authResp.AccountPool && authErr == nil && !dec.NeedsApprovalPoll && dec.Status != "disabled" && dec.Status != "insecure" && dec.Status != "denied" {
+			expected, err := codex.CurrentAuthGeneration()
+			if err != nil {
+				return 1, err
+			}
+			active, err := codex.HasActiveAuthChild()
+			if err != nil {
+				return 1, err
+			}
+			stopAccount, lease, poolErr := client.Pool.Start(ctx, client, active, func(raw json.RawMessage, _ string, switching bool) (bool, error) {
+				result, err := codex.WriteAssignedAccountIfCurrent(raw, expected, switching)
+				return result.Written, err
+			})
+			if poolErr != nil {
+				return 1, fmt.Errorf("assign provider account: %w", poolErr)
+			}
+			defer stopAccount()
+			if lease != nil {
+				authCandidateErr = nil
+				restoreAccountEnv := client.Pool.ActivateEnvironment()
+				defer restoreAccountEnv()
+				authResp, authErr = client.AuthRetrieve(ctx, lease.CanonicalDigest)
+				dec = decideAuth(authResp, authErr, authPath, cfg.Host.Secure)
+				if !opts.SkipBoot {
+					ui.Say(os.Stderr, "cdx", ui.ToneDim, "account", lease.AccountLabel)
+				}
+			}
+		}
+
 		// Interactive recovery: a live-verification failure (server reached the
 		// provider and the canonical token is dead) or a missing/rejected
 		// candidate means there is no usable credential anywhere on the fleet.
@@ -446,6 +479,7 @@ func Run(ctx context.Context, opts Options) (exitCode int, runErr error) {
 	// on the current on-disk auth.json being usable. Applied
 	// as the final verdict (before the boot screen renders it) so it can only
 	// downgrade an allow to a refusal, never override a server-side hard stop.
+
 	if concurrent {
 		dec = orchestrator.ApplyConcurrent(dec, authPath, localProbe)
 	}

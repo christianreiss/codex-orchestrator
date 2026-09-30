@@ -48,27 +48,36 @@ export interface UploadAuthResponse {
 }
 
 export interface SeedCommandVars {
+  accountId?: number;
   engine: AuthEngine;
 }
 
 export interface UploadAuthVars {
+  accountId?: number;
+  accountLabel?: string;
+  accountManagement?: boolean;
   engine: AuthEngine;
   payload: string;
 }
 
 export function createSeedCommandMutation() {
   return createMutation<SeedCommandResponse, ApiError, SeedCommandVars>({
-    mutationFn: ({ engine }) =>
-      api.post<SeedCommandResponse>("/admin/auth/seed-command", { engine }),
+    mutationFn: ({ engine, accountId }) =>
+      api.post<SeedCommandResponse>("/admin/auth/seed-command", { engine, ...(accountId === undefined ? {} : { account_id: accountId }) }),
   });
 }
 
 export function createUploadAuthMutation(qc: QueryClient) {
   return createMutation<UploadAuthResponse, ApiError, UploadAuthVars>({
-    mutationFn: ({ engine, payload }) =>
-      api.post<UploadAuthResponse>("/admin/auth/upload", { engine, payload }),
+    mutationFn: ({ engine, payload, accountId, accountLabel, accountManagement }) =>
+      accountManagement
+        ? accountId !== undefined
+          ? api.post<UploadAuthResponse>(`/admin/accounts/${accountId}/credentials`, { payload })
+          : api.post<UploadAuthResponse>("/admin/accounts", { engine, payload, label: accountLabel })
+        : api.post<UploadAuthResponse>("/admin/auth/upload", { engine, payload, ...(accountId === undefined ? {} : { account_id: accountId }) }),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: hostsKeys.all() });
+      void qc.invalidateQueries({ queryKey: ["accounts"] });
     },
   });
 }

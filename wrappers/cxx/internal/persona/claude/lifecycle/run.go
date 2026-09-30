@@ -7,8 +7,10 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/accountpool"
 	"io"
 	"log/slog"
 	"os"
@@ -236,6 +238,9 @@ func Run(ctx context.Context, opts Options) (exitCode int, retErr error) {
 	}
 
 	authPath, _ := claude.AuthPath()
+	client.Pool = accountpool.Load("claude", authPath, client.BaseURL)
+	restoreInitialAccountEnv := client.Pool.ActivateEnvironment()
+	defer restoreInitialAccountEnv()
 
 	var (
 		authResp         *orchestrator.AuthRetrieveResponse
@@ -329,6 +334,41 @@ func Run(ctx context.Context, opts Options) (exitCode int, retErr error) {
 				}
 			} else if rerr != nil {
 				authCandidateErr = rerr
+			}
+		}
+
+		if !opts.SyncOnly && !opts.SkipAuthSync && !opts.SkipCredentialExchange && authResp != nil && authResp.AccountPool && authErr == nil && !dec.NeedsApprovalPoll && dec.Status != "disabled" && dec.Status != "insecure" && dec.Status != "denied" {
+			logoutHold, logoutErr := claude.LogoutIntentActive()
+			if logoutErr != nil {
+				return 1, logoutErr
+			}
+			if logoutHold {
+				return 1, errors.New("Claude is explicitly logged out; run clx auth login")
+			}
+			snapshot, err := claude.ReadAuthForRetrieveSnapshot()
+			if err != nil && !errors.Is(err, os.ErrNotExist) {
+				return 1, err
+			}
+			active, err := claude.HasActiveAuthChild()
+			if err != nil {
+				return 1, err
+			}
+			stopAccount, lease, poolErr := client.Pool.Start(ctx, client, active, func(raw json.RawMessage, digest string, switching bool) (bool, error) {
+				return claude.WriteAssignedAccountIfCurrent(raw, digest, snapshot.Generation, switching)
+			})
+			if poolErr != nil {
+				return 1, fmt.Errorf("assign provider account: %w", poolErr)
+			}
+			defer stopAccount()
+			if lease != nil {
+				authCandidateErr = nil
+				restoreAccountEnv := client.Pool.ActivateEnvironment()
+				defer restoreAccountEnv()
+				authResp, authErr = client.AuthRetrieve(ctx, lease.CanonicalDigest)
+				dec = decideAuth(authResp, authErr, authPath, cfg.Host.Secure)
+				if !opts.SkipBoot {
+					ui.Say(os.Stderr, "clx", ui.ToneDim, "account", lease.AccountLabel)
+				}
 			}
 		}
 

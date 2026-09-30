@@ -12,6 +12,7 @@ describe('ChatGPT usage compatibility shape', () => {
   it('normalizes flat snapshot rows into nested quota windows', () => {
     const snapshot = normalizeChatGptUsageSnapshot({
       id: 1,
+      accountId: null,
       hostId: 12,
       status: 'ok',
       planType: 'pro',

@@ -1,6 +1,7 @@
 import { and, eq, inArray, lt } from 'drizzle-orm';
 import {
   authCanonicalHeads,
+  providerAccounts,
   authEntries,
   authPayloads,
   hostAuthStates,
@@ -36,6 +37,7 @@ export async function ensureAuthGenerationBackfill(db: Database, keyring: Keyrin
     const currentId = selected.get(engine);
     for (let i = 0; i < engineRows.length; i += 1) {
       const row = engineRows[i]!;
+      if (row.accountId != null) continue;
       const generation = i + 1;
       const plaintext = decryptOrNull(row.body, keyring);
       let extracted: ReturnType<typeof credentialMetadata> | null = null;
@@ -49,9 +51,7 @@ export async function ensureAuthGenerationBackfill(db: Database, keyring: Keyrin
           // participate in credential replay matching.
         }
       }
-      const supersededAt = row.id === currentId
-        ? null
-        : (engineRows[i + 1]?.createdAt ?? nowIso());
+      const supersededAt = row.id === currentId ? null : (engineRows[i + 1]?.createdAt ?? nowIso());
       await db
         .update(authPayloads)
         .set({
@@ -64,7 +64,12 @@ export async function ensureAuthGenerationBackfill(db: Database, keyring: Keyrin
     }
     if (currentId) {
       const current = engineRows.find((row) => row.id === currentId);
-      const generation = current ? engineRows.indexOf(current) + 1 : engineRows.length;
+      const generation =
+        current?.accountId != null
+          ? (current.generation ?? 0)
+          : current
+            ? engineRows.indexOf(current) + 1
+            : engineRows.length;
       await db
         .insert(authCanonicalHeads)
         .values({ engine, payloadId: currentId, generation, updatedAt: nowIso() })
@@ -84,13 +89,18 @@ export async function pruneSupersededAuth(
   limit = AUTH_PRUNE_BATCH_LIMIT,
 ): Promise<number> {
   const heads = await db.select().from(authCanonicalHeads);
-  const protectedIds = new Set(heads.map((head) => head.payloadId));
+  const accountHeads = await db.select().from(providerAccounts);
+  const removedAccounts = new Set(accountHeads.filter((a) => a.state === 'removed').map((a) => a.id));
+  const protectedIds = new Set([
+    ...heads.map((head) => head.payloadId),
+    ...accountHeads.map((a) => a.payloadId),
+  ]);
   const candidates = await db
     .select()
     .from(authPayloads)
     .where(and(lt(authPayloads.purgeAfter, now), lt(authPayloads.supersededAt, now)));
   const ids = candidates
-    .filter((row) => !protectedIds.has(row.id))
+    .filter((row) => !protectedIds.has(row.id) && !removedAccounts.has(row.accountId ?? -1))
     .slice(0, limit)
     .map((row) => row.id);
   if (ids.length === 0) return 0;

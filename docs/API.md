@@ -860,3 +860,21 @@ returns message bodies with no-store headers and an audit event containing IDs
 and the actor only. GETs require `agent_messaging.read`; reveal requires
 `agent_messaging.reveal_content`. No route joins, claims, acknowledges, sweeps,
 or changes conference work. See `docs/interface-api.md` for the full contract.
+
+## Provider accounts and launch reservations
+
+ChatGPT (`codex`) and Claude (`claude`) have independent account pools. Provider identity, or access/refresh credential lineage for opaque credentials, matches validated uploads to an account. A distinct login enrolls an additional account; replacing a known account can explicitly supply `account_id`. Identity conflicts are rejected. Existing runner validation, quarantine, generation/CAS, replay protection and secretbox encryption apply within each account.
+
+- `GET /admin/accounts` — session-gated metadata list: `accounts[]` with `id`, `engine`, `label`, lifecycle state, verification verdict/reason/time, generation, normalized short/weekly quota percentages, reset times, observation time/staleness, and active host sessions. Never returns credential bytes or provider identity fingerprints. The same URL serves the Accounts SPA for HTML navigation.
+- `POST /admin/accounts` — `{engine, payload, label?}`; `payload` is auth JSON text or a Claude API key. Live-validates enrollment and returns account ID and verdict metadata.
+- `PATCH /admin/accounts/:id` — `{label?, state?: "enabled"|"paused"}`. Paused accounts accept same-account refreshes for existing sessions but receive no new scopes.
+- `POST /admin/accounts/:id/credentials` — `{payload}`; validates replacement for the specified engine/account. Known different account identities cannot overwrite it.
+- `POST /admin/accounts/:id/verify` — live runner verification; returns verdict metadata only.
+- `DELETE /admin/accounts/:id` — stops new assignments immediately (`removing`); after live sessions drain or expire, clears encrypted payload bodies and auth entries and retains an identity tombstone (`removed`).
+- `POST /auth/sessions` — host-key/IP/security gated `{engine, scope_id, session_id, account_id?}`. IDs are opaque strings of 16–64 characters; `scope_id` represents the native auth directory. Returns verified `auth`, `account_id`, `account_label`, `session_id`, `expires_at`, `canonical_digest`, `canonical_last_refresh` and existing quota controls. Retries with one session ID are idempotent. An optional account ID supports retaining an already active native child, rather than a user pin.
+- `POST /auth/sessions/heartbeat` — `{engine, session_id}` extends a live, host-owned lease by five minutes; expired/foreign sessions are rejected.
+- `POST /auth/sessions/release` — `{engine, session_id}` idempotently releases that host's reservation and drains pending removal.
+
+Admin mutations require `auth.manage`; listing requires `auth.metadata.read`. All host routes retain the API kill switch, engine membership, host/IP authentication and insecure credential-distribution window. `/auth` and `/sync/bootstrap` accept `account_id` and advertise `account_pool: true`; returned digests, generations, verdicts and quota readings belong to that account. `/claude/usage/report` accepts `account_id` and `session_id`, rejecting a mismatched binding.
+
+Selection runs once per native CLI launch. It prefers verified enabled accounts with lower short/weekly utilization below the configured quota threshold; readings within five percentage points share assignments by active session count, then least recent selection. Unknown/reset accounts get bounded trials to obtain usage. Stale utilization stays conservative until its reset; reset windows become unknown rather than fabricated zero usage. Active sessions retain their account, including overlapping launches sharing native files. If all known quotas are exhausted, existing hard-fail/warn and VIP behavior still governs the selected account. There is no cross-engine fallback or manual host pinning.

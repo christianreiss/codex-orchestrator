@@ -1,3 +1,4 @@
+import { ProviderAccountsService } from '../../../services/provider-accounts.js';
 /**
  * Admin projects routes. Owns the full project tree:
  *
@@ -54,7 +55,9 @@ function positiveId(value: unknown, label: string): number {
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
-  return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
 }
 
 export async function registerAdminProjectsRoutes(app: FastifyInstance, ctx: RouteContext): Promise<void> {
@@ -71,6 +74,7 @@ export async function registerAdminProjectsRoutes(app: FastifyInstance, ctx: Rou
           db: ctx.db,
           projects,
           runner: draftRunner,
+          accounts: new ProviderAccountsService(ctx.db, ctx.keyring),
           runnerValidation: createRunnerValidationService({ db: ctx.db, keyring: ctx.keyring }),
         }
       : { db: ctx.db, projects },
@@ -305,7 +309,8 @@ export async function registerAdminProjectsRoutes(app: FastifyInstance, ctx: Rou
   app.get<{ Params: { slug: string; id: string } }>(
     '/admin/projects/:slug/files/:id',
     { preHandler: app.requireAdmin },
-    async (req) => content.readFile(decodeURIComponent(req.params.slug), positiveId(req.params.id, 'file id')),
+    async (req) =>
+      content.readFile(decodeURIComponent(req.params.slug), positiveId(req.params.id, 'file id')),
   );
 
   app.delete<{ Params: { slug: string; id: string } }>(

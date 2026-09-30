@@ -1,5 +1,5 @@
 {
-    "version": "2026-09-15T00:00:00Z",
+    "version": "2026-09-30T00:00:00Z",
     "docs": [
         {
             "slug": "welcome",
@@ -384,7 +384,7 @@
                 },
                 {
                     "id": "the-role-capability-matrix",
-                    "text": "The role → capability matrix",
+                    "text": "The role \u2192 capability matrix",
                     "level": 2
                 },
                 {
@@ -431,13 +431,13 @@
         },
         {
             "slug": "hosts",
-            "title": "Hosts — secure, insecure, unprovisioned",
+            "title": "Hosts \u2014 secure, insecure, unprovisioned",
             "section": "Fleet operations",
             "summary": "Filter chips, host detail page, registration, pruning, and the insecure access dialog with its approval queue, domain allows, and fleet window.",
             "anchors": [
                 {
                     "id": "hosts-secure-insecure-unprovisioned",
-                    "text": "Hosts — secure, insecure, unprovisioned",
+                    "text": "Hosts \u2014 secure, insecure, unprovisioned",
                     "level": 1
                 },
                 {
@@ -525,7 +525,7 @@
                 },
                 {
                     "id": "post-auth-the-two-command-paths",
-                    "text": "`POST /auth` — the two command paths",
+                    "text": "`POST /auth` \u2014 the two command paths",
                     "level": 2
                 },
                 {
@@ -665,7 +665,7 @@
         },
         {
             "slug": "clx",
-            "title": "clx — the Claude Code wrapper",
+            "title": "clx \u2014 the Claude Code wrapper",
             "section": "Fleet operations",
             "summary": "The Claude persona of cxx: config schema, subcommands and flags, startup sequence, auth model, cron, settings deep-merge, and Claude-native collections.",
             "anchors": [
@@ -861,7 +861,7 @@
             "slug": "settings",
             "title": "Engines, Policies, and API Access",
             "section": "Admin workspace",
-            "summary": "Every fleet configuration control under Engines, Policies, and API Access — what each one changes and which endpoint it touches.",
+            "summary": "Every fleet configuration control under Engines, Policies, and API Access \u2014 what each one changes and which endpoint it touches.",
             "anchors": [
                 {
                     "id": "finding-configuration-controls",
@@ -985,17 +985,17 @@
                 },
                 {
                     "id": "users-admin-users",
-                    "text": "/users — Admin Users",
+                    "text": "/users \u2014 Admin Users",
                     "level": 3
                 },
                 {
                     "id": "instructions-fleet-instructions",
-                    "text": "/instructions — Fleet Instructions",
+                    "text": "/instructions \u2014 Fleet Instructions",
                     "level": 3
                 },
                 {
                     "id": "skills-skills-library",
-                    "text": "/skills — Skills library",
+                    "text": "/skills \u2014 Skills library",
                     "level": 3
                 },
                 {
@@ -1005,7 +1005,7 @@
                 },
                 {
                     "id": "memories-memory-atlas",
-                    "text": "/memories — Memory Atlas",
+                    "text": "/memories \u2014 Memory Atlas",
                     "level": 3
                 },
                 {
@@ -1015,7 +1015,7 @@
                 },
                 {
                     "id": "projects-projects-module",
-                    "text": "/projects — Projects module",
+                    "text": "/projects \u2014 Projects module",
                     "level": 3
                 },
                 {
@@ -1406,7 +1406,7 @@
         },
         {
             "slug": "logs",
-            "title": "Logs — MCP and Events",
+            "title": "Logs \u2014 MCP and Events",
             "section": "Admin workspace",
             "summary": "Where each log stream originates, retention, filtering, and the admin-ws live feed.",
             "anchors": [
@@ -1620,6 +1620,34 @@
                     "id": "openai--and-anthropic-compatible-apis",
                     "text": "OpenAI- and Anthropic-compatible APIs",
                     "level": 3
+                },
+                {
+                    "id": "source-references",
+                    "text": "Source references",
+                    "level": 2
+                }
+            ]
+        },
+        {
+            "slug": "accounts",
+            "title": "Provider accounts",
+            "section": "Fleet operations",
+            "summary": "Manage independent ChatGPT and Claude account pools, quota balancing, active assignments and retiring credentials.",
+            "anchors": [
+                {
+                    "id": "add-and-maintain-accounts",
+                    "text": "Add and maintain accounts",
+                    "level": 2
+                },
+                {
+                    "id": "usage-and-assignments",
+                    "text": "Usage and assignments",
+                    "level": 2
+                },
+                {
+                    "id": "permissions-and-rollout",
+                    "text": "Permissions and rollout",
+                    "level": 2
                 },
                 {
                     "id": "source-references",
@@ -2216,7 +2244,7 @@
         "/admin/agent-sessions/events": [
             23
         ],
-        "/admin/agent-sessions/events?session_id=…": [
+        "/admin/agent-sessions/events?session_id=\u2026": [
             11
         ],
         "/admin/agent-sessions/{id}/events": [
@@ -2784,7 +2812,7 @@
         "/admin/memories/audit": [
             23
         ],
-        "/admin/memories/audit?node_id=…": [
+        "/admin/memories/audit?node_id=\u2026": [
             17
         ],
         "/admin/memories/graph": [
@@ -2919,7 +2947,7 @@
         "/admin/projects/{slug}/todos": [
             14
         ],
-        "/admin/projects/…": [
+        "/admin/projects/\u2026": [
             14
         ],
         "/admin/prune-policy": [
@@ -3752,10 +3780,10 @@
         "0`.": [
             3
         ],
-        "0–4": [
+        "0\u20134": [
             13
         ],
-        "0–60": [
+        "0\u201360": [
             6,
             12
         ],
@@ -3881,7 +3909,7 @@
         "1h": [
             10
         ],
-        "1–365": [
+        "1\u2013365": [
             21
         ],
         "2).": [
@@ -4011,7 +4039,7 @@
         "250": [
             21
         ],
-        "256–200": [
+        "256\u2013200": [
             12
         ],
         "28800": [
@@ -4233,7 +4261,7 @@
         "503.": [
             2
         ],
-        "50–100": [
+        "50\u2013100": [
             12
         ],
         "5h/weekly": [
@@ -4245,10 +4273,10 @@
         "5xx": [
             7
         ],
-        "5–1440": [
+        "5\u20131440": [
             6
         ],
-        "5–1440).": [
+        "5\u20131440).": [
             6
         ],
         "6.": [
@@ -10777,7 +10805,7 @@
         "command/flag": [
             9
         ],
-        "command:[…": [
+        "command:[\u2026": [
             9
         ],
         "command=retrieve": [
@@ -14751,7 +14779,7 @@
             8,
             9
         ],
-        "exists—even": [
+        "exists\u2014even": [
             9
         ],
         "exit": [
@@ -22966,7 +22994,7 @@
             19,
             23
         ],
-        "output-style\":[…": [
+        "output-style\":[\u2026": [
             9
         ],
         "output-styles": [
@@ -28516,7 +28544,7 @@
         "seeds": [
             14
         ],
-        "seed—requires": [
+        "seed\u2014requires": [
             7
         ],
         "seeing": [
@@ -29571,22 +29599,22 @@
         "sk-ant-api...": [
             9
         ],
-        "sk-ant-api…": [
+        "sk-ant-api\u2026": [
             9
         ],
         "sk-ant-oat...": [
             9
         ],
-        "sk-ant-oat…": [
+        "sk-ant-oat\u2026": [
             9
         ],
-        "sk-ant-…": [
+        "sk-ant-\u2026": [
             23
         ],
         "sk-cdx-": [
             23
         ],
-        "sk-cdx-…": [
+        "sk-cdx-\u2026": [
             23
         ],
         "sk-claude-": [
@@ -29948,7 +29976,7 @@
             21,
             23
         ],
-        "source—host": [
+        "source\u2014host": [
             7
         ],
         "spa": [
@@ -30194,7 +30222,7 @@
             21,
             22
         ],
-        "starts—the": [
+        "starts\u2014the": [
             9
         ],
         "startup": [
@@ -30643,7 +30671,7 @@
         "subagent/command/output-style": [
             9
         ],
-        "subagent:[…": [
+        "subagent:[\u2026": [
             9
         ],
         "subagents": [
@@ -31919,7 +31947,7 @@
         "todos": [
             14
         ],
-        "todo→card": [
+        "todo\u2192card": [
             14
         ],
         "together": [
@@ -33707,7 +33735,7 @@
             8,
             14
         ],
-        "verifying…": [
+        "verifying\u2026": [
             10
         ],
         "version": [
@@ -34902,7 +34930,7 @@
         "xsalsa20-poly1305": [
             1
         ],
-        "x→y": [
+        "x\u2192y": [
             8
         ],
         "y's": [
@@ -35115,10 +35143,10 @@
         "~1": [
             7
         ],
-        "…/close": [
+        "\u2026/close": [
             11
         ],
-        "…/close/force": [
+        "\u2026/close/force": [
             11
         ]
     }

@@ -192,7 +192,7 @@ If a proxy you run in front terminates mTLS, it may forward `X-MTLS-Fingerprint`
 
 ## Seeding the canonical auth
 
-Hosts cannot fetch auth until the orchestrator has its own copy. One form, reachable from two places: the wizard's **Credentials** step, and *Hosts → More → Seed canonical auth* afterwards. Both mount the same `SeedAuthPanel`, so the product's only canonical-auth UI cannot drift into two versions. It offers two paths:
+Hosts cannot fetch auth until the orchestrator has its own copy. One shared form, reachable from the Accounts page and two setup paths: the wizard's **Credentials** step, and *Hosts → More → Seed canonical auth* afterwards. All mount the same `SeedAuthPanel`, so the product's only canonical-auth UI cannot drift into two versions. It offers two paths:
 
 - **Upload.** Paste the credential or pick the file. The route is `POST /admin/auth/upload`. This is the normal path once you are running.
 - **Seed auth token.** `POST /admin/auth/seed-command` mints a single-use token, backed by an `auth_seed_tokens` row. The generated `curl | bash` snippet is copied automatically; the admin runs it on the machine that currently holds the canonical `~/.codex/auth.json` (or `~/.claude/.credentials.json`). The seed endpoint is `POST /seed/auth/{token}` (aliased to `/seed/v2/auth/{token}`). Tokens are UUIDs and are consumed on success. Token TTL is controlled by `AUTH_SEED_TOKEN_TTL_SECONDS` (default 900 s).

@@ -44,6 +44,9 @@
   import { autoCopyText } from "$lib/utils/clipboard";
 
   type Props = {
+    accountId?: number;
+    accountLabel?: string;
+    accountManagement?: boolean;
     /** Engines offered. One entry hides the engine picker entirely. */
     allowedEngines?: AuthEngine[];
     defaultEngine?: AuthEngine;
@@ -60,6 +63,7 @@
   };
 
   let {
+    accountId, accountLabel, accountManagement = false,
     allowedEngines = ["codex", "claude"],
     defaultEngine = "codex",
     runnerHealthy = true,
@@ -152,7 +156,7 @@
       }
     }
     try {
-      const res = await $uploadAuth.mutateAsync({ engine, payload: trimmed });
+      const res = await $uploadAuth.mutateAsync({ engine, payload: trimmed, accountId, accountLabel, accountManagement });
       const state = res.verification_state ?? "unknown";
       result = { engine, state };
       invalidateSetup(qc);
@@ -184,7 +188,7 @@
 
   async function generateCommand(): Promise<void> {
     try {
-      const res = await $seedCmd.mutateAsync({ engine });
+      const res = await $seedCmd.mutateAsync({ engine, accountId });
       command = res.command ?? null;
       commandExpiresAt = res.expires_at ?? null;
       if (!command) {

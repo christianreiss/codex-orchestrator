@@ -152,15 +152,15 @@ describe("createUploadAuthMutation", () => {
     assert.equal(wire(), JSON.stringify({ engine: "codex", payload: PAYLOAD }));
   });
 
-  it("invalidates exactly hostsKeys.all() on success", () => {
+  it("invalidates hosts and provider accounts on success", () => {
     const built = asMutation(auth.createUploadAuthMutation(queryClient));
     built.onSuccess?.(null, { engine: "codex", payload: PAYLOAD }, undefined);
 
     // A repair can heal any host in the fleet, so the whole `hosts` tree is
-    // refreshed -- and nothing else; the key has to stay the one the host list
+    // refreshed along with provider account metadata; the key has to stay the one the host list
     // registers or the drift banner keeps showing the pre-upload state.
-    assert.deepEqual(invalidations, [hostsKeys.all()]);
-    assert.deepEqual(invalidations, [["hosts"]]);
+
+    assert.deepEqual(invalidations, [["hosts"], ["accounts"]]);
   });
 });
 

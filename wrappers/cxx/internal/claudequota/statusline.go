@@ -29,11 +29,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/accountpool"
 	"io"
 	"math"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -231,7 +233,11 @@ func stateFilePath() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(home, ".clx", "state", "claude-quota-report.json"), nil
+	name := "claude-quota-report.json"
+	if id, err := strconv.ParseInt(os.Getenv("CXX_PROVIDER_ACCOUNT_ID"), 10, 64); err == nil && id > 0 {
+		name = fmt.Sprintf("claude-quota-report-%d.json", id)
+	}
+	return filepath.Join(home, ".clx", "state", name), nil
 }
 
 func readState(path string) *reportState {
@@ -257,6 +263,7 @@ func writeState(path string, st reportState) {
 
 func reportBody(fiveHour, sevenDay *reportWindow) map[string]any {
 	body := map[string]any{"source": "statusline"}
+	accountpool.AddEnvironmentBinding(body)
 	if fiveHour != nil {
 		body["five_hour"] = map[string]any{"used_percent": fiveHour.UsedPercent, "resets_at": fiveHour.ResetsAt}
 	}
