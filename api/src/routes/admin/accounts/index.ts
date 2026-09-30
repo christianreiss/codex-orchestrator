@@ -50,6 +50,7 @@ export async function registerAdminAccountsRoutes(app: FastifyInstance, ctx: Rou
     const result = await store.storeCandidate({
       auth: decode(input.payload, input.engine),
       engine: input.engine,
+      enrollAccount: true,
       sourceHostId: null,
       requireLastRefresh: false,
       sourceKind: 'admin',

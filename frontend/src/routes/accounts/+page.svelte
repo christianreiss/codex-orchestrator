@@ -63,7 +63,7 @@
     <Button variant={engine === "claude" ? "default" : "outline"} onclick={() => engine = "claude"}>Claude</Button>
     {#if canManage}<Button class="ml-auto" onclick={() => open(null)}>Add account</Button>{/if}
   </div>
-  <p class="text-sm text-muted-foreground">Accounts stay fixed during a session. Overlapping sessions using the same local credentials share one account. Client uploads can automatically enroll additional accounts.</p>
+  <p class="text-sm text-muted-foreground">Accounts stay fixed during a session. Overlapping sessions using the same local credentials share one account. Fresh logins keep the sole or assigned account. Use Add account for additional subscriptions.</p>
   {#if $query.isPending}
     <p class="text-muted-foreground">Loading accounts…</p>
   {:else if $query.error}

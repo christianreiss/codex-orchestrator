@@ -19,6 +19,7 @@ export function createPooledAuthStoreService(deps: CanonicalAuthStoreDeps): Cano
         input.accountId,
         input.sourceHostId,
         input.accountHint === true,
+        input.enrollAccount === true,
       );
       const result = await base.storeCandidate({ ...input, accountId: account.id });
       wsPublisher.publish('accounts.updated', { account_id: account.id });

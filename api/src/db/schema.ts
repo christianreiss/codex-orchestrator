@@ -184,6 +184,7 @@ export const providerAccounts = mysqlTable(
     engine: varchar('engine', { length: 16 }).notNull(),
     label: varchar('label', { length: 191 }).notNull(),
     identityKey: varchar('identity_key', { length: 191 }),
+    mergedIntoAccountId: bigint('merged_into_account_id', { mode: 'number', unsigned: true }),
     state: varchar('state', { length: 16 }).notNull().default('enabled'),
     payloadId: bigint('payload_id', { mode: 'number', unsigned: true }),
     generation: bigint('generation', { mode: 'number', unsigned: true }),

@@ -350,6 +350,7 @@ export async function registerAuthRoutes(app: FastifyInstance, ctx: RouteContext
     const fiveHour = asPlainRecord(payload.five_hour);
     const sevenDay = asPlainRecord(payload.seven_day);
     let accountId = accountIdFrom(payload.account_id);
+    if (accountId !== undefined) accountId = await accounts.canonicalId(accountId, ENGINE_CLAUDE);
     if (payload.session_id !== undefined) {
       const session = await accounts.session(
         host.id,
@@ -1269,6 +1270,8 @@ async function enforceAccountSession(
   engine: Engine,
   payload: Record<string, unknown>,
 ) {
+  const submitted = accountIdFrom(payload.account_id);
+  if (submitted !== undefined) payload.account_id = await accounts.canonicalId(submitted, engine);
   if (payload.session_id === undefined) return;
   const session = await accounts.session(hostId, engine, opaqueId(payload.session_id, 'session_id'));
   const accountId = accountIdFrom(payload.account_id);

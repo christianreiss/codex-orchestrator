@@ -53,6 +53,7 @@ describe.skipIf(!handle)('provider accounts on MySQL', () => {
         sourceHostId: null,
         requireLastRefresh: false,
         logAction: 'test.account',
+        enrollAccount: true,
       })
     ).account_id!;
   const cleanup = async () => {
@@ -106,6 +107,12 @@ describe.skipIf(!handle)('provider accounts on MySQL', () => {
     expect(rows).toHaveLength(1);
     const adopted = await validation.resolveCanonicalPayload('codex', rows[0]!.id);
     expect(adopted).toMatchObject({ id, body, sha256: sha256(raw), generation: 7 });
+    const freshLogin = {
+      ...native,
+      tokens: { ...native.tokens, access_token: 'new-access', refresh_token: 'new-refresh' },
+    };
+    expect((await accounts.resolveCandidate(freshLogin, 'codex')).id).toBe(rows[0]!.id);
+    expect(await accounts.list('codex')).toHaveLength(1);
   });
 
   it('enrolls both engine pools independently, deduplicates refresh lineage and keeps admin metadata secret-free', async () => {
@@ -158,6 +165,90 @@ describe.skipIf(!handle)('provider accounts on MySQL', () => {
       original,
     );
     expect(await accounts.list('codex')).toHaveLength(2);
+  });
+
+  it.each(['codex', 'claude'] as const)('keeps new login tokens in the sole %s account', async (engine) => {
+    const id = await enroll(engine, 'original');
+    const candidate = auth(engine, 'new-login');
+    if (engine === 'codex') delete (candidate.tokens as Record<string, unknown>).account_id;
+    const updated = await store.storeCandidate({
+      engine,
+      auth: { ...candidate, last_refresh: '2026-09-30T09:01:00Z' },
+      sourceHostId: 1,
+      requireLastRefresh: false,
+      logAction: 'test.login',
+    });
+    expect(updated.account_id).toBe(id);
+    expect(await accounts.list(engine)).toHaveLength(1);
+    const selected = await validation.resolveCanonicalPayload(engine, id);
+    expect(selected?.generation).toBe(2);
+    expect(validation.validateCanonicalPayload(selected)?.auth).toMatchObject({
+      ...candidate,
+      last_refresh: '2026-09-30T09:01:00Z',
+    });
+  });
+
+  it('attributes opaque full rotations to their session and requires assignment with multiple accounts', async () => {
+    const a = await enroll('claude', 'a');
+    const b = await enroll('claude', 'b');
+    const beforeB = await accounts.get(b);
+    await accounts.acquire(1, 'claude', 'scope', 'lease', 95, a);
+    const rotated = auth('claude', 'fully-rotated');
+    const updated = await store.storeCandidate({
+      engine: 'claude',
+      accountId: a,
+      auth: { ...rotated, last_refresh: '2026-09-30T09:01:00Z' },
+      sourceHostId: 1,
+      requireLastRefresh: false,
+      logAction: 'test.rotation',
+    });
+    expect(updated.account_id).toBe(a);
+    expect(await accounts.list('claude')).toHaveLength(2);
+    await expect(accounts.resolveCandidate(auth('claude', 'unassigned'), 'claude')).rejects.toMatchObject({
+      code: 'account_assignment_required',
+    });
+    await expect(accounts.resolveCandidate(auth('claude', 'b'), 'claude', a)).rejects.toMatchObject({
+      code: 'account_identity_mismatch',
+    });
+    expect(await accounts.get(b)).toEqual(beforeB);
+  });
+
+  it('keeps merged IDs usable for canonical reads, preferred reservations and uploads', async () => {
+    const a = await enroll('claude', 'a');
+    const b = await enroll('claude', 'b');
+    const head = await validation.resolveCanonicalPayload('claude', b);
+    await accounts.acquire(1, 'claude', 'scope', 'existing-lease', 95, b);
+    await db.transaction(async (tx) => {
+      await tx.update(authPayloads).set({ accountId: a }).where(eq(authPayloads.accountId, b));
+      await tx
+        .update(providerAccountSessions)
+        .set({ accountId: a })
+        .where(eq(providerAccountSessions.accountId, b));
+      await tx
+        .update(providerAccounts)
+        .set({ payloadId: head!.id, generation: head!.generation })
+        .where(eq(providerAccounts.id, a));
+      await tx
+        .update(providerAccounts)
+        .set({ state: 'removed', payloadId: null, mergedIntoAccountId: a })
+        .where(eq(providerAccounts.id, b));
+    });
+    expect((await accounts.get(b, 'claude')).id).toBe(a);
+    expect(await accounts.canonicalId(b, 'claude')).toBe(a);
+    expect((await validation.resolveCanonicalPayload('claude', b))?.id).toBe(head!.id);
+    expect((await accounts.acquire(1, 'claude', 'scope', 'existing-lease', 95, b)).account.id).toBe(a);
+    expect((await accounts.acquire(2, 'claude', 'fresh-scope', 'fresh-lease', 95, b)).account.id).toBe(a);
+    const upload = await store.storeCandidate({
+      engine: 'claude',
+      accountId: b,
+      auth: { ...auth('claude', 'rotated'), last_refresh: '2026-09-30T09:01:00Z' },
+      sourceHostId: 1,
+      requireLastRefresh: false,
+      logAction: 'test.merged-upload',
+    });
+    expect(upload.account_id).toBe(a);
+    expect(await accounts.list('claude')).toHaveLength(1);
+    await expect(accounts.get(b, 'codex')).rejects.toThrow('not found');
   });
 
   it('balances atomic reservations, pins overlapping scopes, and excludes paused accounts from new scopes', async () => {

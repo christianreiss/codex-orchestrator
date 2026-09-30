@@ -179,6 +179,7 @@ export async function registerInstallRoutes(app: FastifyInstance, ctx: RouteCont
       stored = await authStore.storeCandidate({
         auth: candidate as Record<string, unknown>,
         accountId: row.accountId ?? undefined,
+        enrollAccount: row.accountId == null,
         engine,
         sourceHostId: null,
         requireLastRefresh: false,

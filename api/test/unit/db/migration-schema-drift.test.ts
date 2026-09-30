@@ -241,6 +241,7 @@ describe('migrations against the test baseline', () => {
       'chatgpt_usage_snapshots.account_id',
       'claude_usage_snapshots.account_id',
       'auth_seed_tokens.account_id',
+      'provider_accounts.merged_into_account_id',
     ]);
   });
 

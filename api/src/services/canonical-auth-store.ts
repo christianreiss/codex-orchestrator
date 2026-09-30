@@ -72,6 +72,8 @@ export interface StoreAuthCandidateInput {
   accountId?: number;
   /** Host binding before launch is a hint; active reservations and admin targets are strict. */
   accountHint?: boolean;
+  /** Explicit operator enrollment; opaque token changes alone never create another account. */
+  enrollAccount?: boolean;
   auth: Record<string, unknown>;
   engine: Engine;
   sourceHostId: number | null;

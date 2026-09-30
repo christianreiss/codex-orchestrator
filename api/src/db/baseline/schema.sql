@@ -1108,6 +1108,7 @@ CREATE TABLE `provider_accounts` (
 	`engine` varchar(16) NOT NULL,
 	`label` varchar(191) NOT NULL,
 	`identity_key` varchar(191),
+	`merged_into_account_id` bigint unsigned,
 	`state` varchar(16) NOT NULL DEFAULT 'enabled',
 	`payload_id` bigint unsigned,
 	`generation` bigint unsigned,

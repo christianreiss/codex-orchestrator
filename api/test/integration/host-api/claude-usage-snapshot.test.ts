@@ -212,7 +212,7 @@ describe('Claude usage in authentication and startup responses', () => {
     }
   });
 
-  it('includes only the selected account snapshot after an accepted Claude credential upload', async () => {
+  it.each([1, 5])('includes only the selected account snapshot after a Claude upload through account ID %s', async (accountId) => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async () => new Response(JSON.stringify({ status: 'ok', reachable: true }), { status: 200 })),
@@ -228,6 +228,7 @@ describe('Claude usage in authentication and startup responses', () => {
         createdAt: stamp,
         updatedAt: stamp,
       },
+      { id: 5, engine: 'claude', state: 'removed', mergedIntoAccountId: 1 },
     ]);
     const app = await build(db);
     try {
@@ -238,11 +239,12 @@ describe('Claude usage in authentication and startup responses', () => {
         payload: {
           engine: 'claude',
           command: 'store',
-          account_id: 1,
+          account_id: accountId,
           auth: { last_refresh: stamp, api_key: 'sk-ant-api03-local-test-valid-credential' },
         },
       });
       expect(response.statusCode).toBe(200);
+      expect(response.json().account_id).toBe(1);
       assertContract('auth-store.schema.json', response.json());
       expect(response.json().claude_usage).toMatchObject({
         status: 'ok',

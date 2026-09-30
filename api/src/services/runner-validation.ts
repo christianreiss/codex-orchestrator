@@ -8,6 +8,7 @@ import { ValidationError } from '../http/errors.js';
 import { compareRfc3339, isRfc3339, parseRfc3339Millis, parseRfc3339Nanos } from '../util/timestamp.js';
 import type { Engine } from '../util/engine.js';
 import { ENGINE_CODEX, ENGINE_CLAUDE } from '../util/engine.js';
+import { resolveProviderAccount } from './provider-account-reference.js';
 import {
   fingerprintMatches,
   inspectCredential,
@@ -99,15 +100,11 @@ export function createRunnerValidationService(deps: RunnerValidationDeps): Runne
   const service: RunnerValidationService = {
     async resolveCanonicalPayload(engine, accountId) {
       if (accountId !== undefined) {
-        const accounts = await db
-          .select()
-          .from(providerAccounts)
-          .where(and(eq(providerAccounts.id, accountId), eq(providerAccounts.engine, engine)));
-        const account = accounts[0];
+        const account = await resolveProviderAccount(db, accountId, engine);
         if (!account || account.state === 'removed' || !account.payloadId) return null;
         const rows = await db.select().from(authPayloads).where(eq(authPayloads.id, account.payloadId));
         const row = rows[0];
-        return row?.accountId === accountId && row.engine === engine ? toCanonicalPayloadRow(row) : null;
+        return row?.accountId === account.id && row.engine === engine ? toCanonicalPayloadRow(row) : null;
       }
       const heads = await db.select().from(authCanonicalHeads).where(eq(authCanonicalHeads.engine, engine));
       const head = heads[0];

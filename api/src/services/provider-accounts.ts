@@ -20,6 +20,7 @@ import { quotaWindowScore, selectAccount } from './account-selection.js';
 import { wsPublisher } from '../ws/publisher.js';
 import { decrypt } from '../security/secret-box.js';
 import { createRunnerValidationService } from './runner-validation.js';
+import { resolveProviderAccount } from './provider-account-reference.js';
 
 type Account = typeof providerAccounts.$inferSelect;
 export function providerIdentity(auth: Record<string, unknown>, engine: Engine): string | null {
@@ -37,12 +38,13 @@ export class ProviderAccountsService {
   ) {}
 
   async get(id: number, engine?: Engine): Promise<Account> {
-    const rows = await this.db
-      .select()
-      .from(providerAccounts)
-      .where(and(eq(providerAccounts.id, id), engine ? eq(providerAccounts.engine, engine) : undefined));
-    if (!rows[0]) throw new NotFoundError('Provider account not found');
-    return rows[0];
+    const account = await resolveProviderAccount(this.db, id, engine);
+    if (!account) throw new NotFoundError('Provider account not found');
+    return account;
+  }
+
+  async canonicalId(id: number, engine: Engine): Promise<number> {
+    return (await resolveProviderAccount(this.db, id, engine))?.id ?? id;
   }
 
   async resolveCandidate(
@@ -51,11 +53,14 @@ export class ProviderAccountsService {
     target?: number,
     sourceHostId?: number | null,
     targetIsHint = false,
+    enrollAccount = false,
   ): Promise<Account> {
     const identity = inspectCredential(auth, engine);
     if (!identity) throw new ValidationError('payload contains no usable auth tokens');
     const identityKey = providerIdentity(auth, engine);
-    let accounts = await this.db.select().from(providerAccounts).where(eq(providerAccounts.engine, engine));
+    let accounts = (
+      await this.db.select().from(providerAccounts).where(eq(providerAccounts.engine, engine))
+    ).filter((a) => !a.mergedIntoAccountId);
     // A legacy head can be backfilled after schema migration on fresh installs.
     if (!accounts.length) {
       const legacy = await createRunnerValidationService({
@@ -89,8 +94,17 @@ export class ProviderAccountsService {
       }
     }
     const history = await this.db.select().from(authPayloads).where(eq(authPayloads.engine, engine));
+    const accountIdentity = (a: Account): string | null => {
+      if (a.identityKey && !a.identityKey.startsWith('credential:')) return a.identityKey;
+      const head = history.find((r) => r.id === a.payloadId);
+      try {
+        return head?.body ? providerIdentity(JSON.parse(decrypt(head.body, this.keyring)), engine) : null;
+      } catch {
+        return null;
+      }
+    };
     const metadata = this.keyring.all().map((k) => credentialMetadata(identity, k));
-    const matched = history.find((r) => {
+    const matches = history.filter((r) => {
       if (
         metadata.some(
           (m) =>
@@ -111,24 +125,20 @@ export class ProviderAccountsService {
         return false;
       }
     });
+    // Pre-migration history is deliberately unassigned. Prefer an attributed
+    // occurrence of the same credential over an older unassigned login.
+    const matched =
+      matches.find((r) => accounts.some((a) => a.id === r.accountId || a.payloadId === r.id)) ?? matches[0];
     const key =
       identityKey ?? `credential:${credentialMetadata(identity, this.keyring.active()).pairFingerprint}`;
-    let account = identityKey ? accounts.find((a) => a.identityKey === identityKey) : undefined;
+    // Migrated heads have no identity_key yet. Their native identity still
+    // identifies the same subscription across a completely new login.
+    let account = identityKey ? accounts.find((a) => accountIdentity(a) === identityKey) : undefined;
     account ??= accounts.find((a) => a.id === matched?.accountId || a.payloadId === matched?.id);
     account ??= accounts.find((a) => a.identityKey === key);
     if (target !== undefined) {
       const requested = await this.get(target, engine);
-      let requestedIdentity = requested.identityKey;
-      if (!requestedIdentity || requestedIdentity.startsWith('credential:')) {
-        const head = history.find((r) => r.id === requested.payloadId);
-        try {
-          requestedIdentity = head?.body
-            ? providerIdentity(JSON.parse(decrypt(head.body, this.keyring)), engine)
-            : null;
-        } catch {
-          requestedIdentity = null;
-        }
-      }
+      const requestedIdentity = accountIdentity(requested);
       const different =
         (account && account.id !== requested.id) ||
         (identityKey && requestedIdentity && identityKey !== requestedIdentity);
@@ -136,6 +146,21 @@ export class ProviderAccountsService {
         throw new ConflictError('Credentials belong to a different account', 'account_identity_mismatch');
       }
       if (!different) account = requested;
+    }
+    if (!account && !enrollAccount) {
+      const existing = accounts.filter((a) => a.state !== 'removed' && a.state !== 'removing');
+      // OAuth tokens identify a login/rotation, not a provider account. With
+      // no contrary provider identity, the only account owns this upload.
+      if (
+        existing.length === 1 &&
+        (!identityKey || !accountIdentity(existing[0]!) || accountIdentity(existing[0]!) === identityKey)
+      )
+        account = existing[0];
+      else if (!identityKey && existing.length > 1)
+        throw new ConflictError(
+          'Opaque credentials require an account assignment; use Add account to enroll another account',
+          'account_assignment_required',
+        );
     }
     if (!account && matched?.supersededAt)
       throw new ConflictError(
@@ -289,6 +314,7 @@ export class ProviderAccountsService {
     threshold: number,
     preferred?: number,
   ) {
+    if (preferred !== undefined) preferred = await this.canonicalId(preferred, engine);
     await this.drainRemoved();
     return this.db.transaction(async (tx) => {
       // Lock a stable row for this host/engine/scope. Account rows serialize

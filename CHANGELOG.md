@@ -1,5 +1,9 @@
 # 2026-09-30
 
+- Account consolidation retains compatibility aliases for already-running wrappers, preserving auth uploads, session reservations and quota reports after duplicate rows are merged.
+
+- Fixed account/session conflation: fresh opaque OAuth tokens reuse the sole account or their explicit session/host assignment instead of enrolling phantom accounts. Additional opaque accounts require Add account or an untargeted seed command; migrated provider identities are recovered from their existing head. Multiple unassigned opaque accounts return `account_assignment_required`, and known cross-account replacements remain rejected.
+
 - Added independent ChatGPT and Claude account pools with automatic enrollment, account-scoped credential verification/refresh and quotas, and launch-time balancing across verified accounts. Concurrent native sessions keep the same account and existing quota/VIP policy remains in force.
 - Added Fleet → Accounts for enrollment, naming, credential replacement, verification, pause/resume, quota/assignment inspection and removal after sessions drain; dashboard usage is shown per account. cxx 0.9.7 scopes both cdx and clx auth synchronization to their selected account.
 
