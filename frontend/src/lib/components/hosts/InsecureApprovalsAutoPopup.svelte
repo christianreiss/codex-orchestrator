@@ -1,11 +1,11 @@
 <script lang="ts">
-  import { onMount, onDestroy } from "svelte";
+  import { onMount, onDestroy, untrack } from "svelte";
   import { browser } from "$app/environment";
   import type { Readable } from "svelte/store";
   import type { WsEvent } from "$lib/ws/client";
   import { insecureApprovalsQuery, insecureSummaryQuery } from "$lib/api/insecure";
   import { hostsSummary } from "$lib/stores/hosts-summary";
-  import { ghostCount } from "$lib/stores/insecure-resolutions";
+  import { ghostCount, resolutions } from "$lib/stores/insecure-resolutions";
   import InsecureApprovalsDialog, {
     type InsecureDialogMode,
   } from "./InsecureApprovalsDialog.svelte";
@@ -35,12 +35,18 @@
 
   const approvals = insecureApprovalsQuery();
 
+  let now = $state(Date.now());
+
   function isPending(r: InsecureApprovalRequest, at: number): boolean {
+    if (r.status !== "pending") return false;
     const exp = r.expires_at ? Date.parse(r.expires_at) : NaN;
     return !Number.isFinite(exp) || exp > at;
   }
-  const pending = $derived(($approvals.data?.requests ?? []).filter((r) => isPending(r, Date.now())));
+  const pending = $derived(($approvals.data?.requests ?? []).filter((r) => isPending(r, now)));
   const pendingCount = $derived(pending.length);
+  // A request only becomes actionable once the host is waiting. Resolved rows
+  // can still be present in a cached read while the server refetch is in flight.
+  const waiting = $derived(pending.filter((r) => r.live !== false && !$resolutions.has(r.id)));
 
   // This component is mounted in the root layout, which makes it the only place
   // that can keep the TopBar honest about a fleet-wide auto-allow from every
@@ -118,15 +124,18 @@
   $effect(() => {
     if (!$approvals.isSuccess || $approvals.isFetching) return;
     const prev = lastSettledIds;
-    const incoming = pending.filter((r) => !prev?.has(r.id));
-    lastSettledIds = new Set(pending.map((r) => r.id));
+    const incoming = waiting.filter((r) => !prev?.has(r.id));
+    lastSettledIds = new Set(waiting.map((r) => r.id));
     if (incoming.length === 0) return;
     if (prev !== null) {
       playBeep();
       maybeNotify(incoming[incoming.length - 1]?.fqdn);
     }
-    if (!open) mode = "triage";
-    open = true;
+    untrack(() => {
+      if (!open) mode = "triage";
+      hadPendingRequests = true;
+      open = true;
+    });
   });
 
   // A manually opened management panel with no requests stays available.
@@ -135,7 +144,7 @@
     if (open && pendingCount > 0) hadPendingRequests = true;
   });
   $effect(() => {
-    if (!open || !hadPendingRequests) return;
+    if (!open || (mode === "manage" && !hadPendingRequests)) return;
     if (!$approvals.isSuccess || $approvals.isFetching) return;
     // Let the final approval/denial feedback finish before closing.
     if (pendingCount === 0 && $ghostCount === 0) {
@@ -154,6 +163,7 @@
 
   onMount(() => {
     if (!browser) return;
+    const clock = setInterval(() => (now = Date.now()), 1000);
 
     // The live `insecure.requested` push only needs to *wake the query*: the
     // global WS→query wiring already invalidates ["insecure-approvals"], but we
@@ -171,6 +181,7 @@
       hadPendingRequests = false;
     };
     window.addEventListener("codex:open-insecure-approvals", manualOpenListener);
+    return () => clearInterval(clock);
   });
 
   onDestroy(() => {

@@ -1,5 +1,7 @@
 # 2026-09-30
 
+- Fixed empty host-approval popups: only live, unexpired, unresolved pending requests trigger an automatic dialog; resolved or non-waiting rows cannot reopen it, and automatic dialogs close when the queue drains.
+
 - Host approval requests now open the modal on connected admin clients as soon as they arrive, including before the host polls again and when the pending count stays unchanged. The modal closes after all requests are approved or declined, including in management mode, once result feedback finishes.
 
 - Account consolidation retains compatibility aliases for already-running wrappers, preserving auth uploads, session reservations and quota reports after duplicate rows are merged.

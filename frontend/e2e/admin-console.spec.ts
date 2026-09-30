@@ -1849,8 +1849,24 @@ for (const mode of ["triage", "manage"] as const) {
     }
     await expect.poll(() => emitters.length).toBe(2);
     await expect.poll(() => reads).toBeGreaterThanOrEqual(2);
-    const request = (id: number) => ({ id, host_id: id, fqdn: `host${id}.example.test`, status: "pending", live: false,
+    const request = (id: number) => ({ id, host_id: id, fqdn: `host${id}.example.test`, status: "pending", live: true,
       requested_at: new Date().toISOString(), expires_at: new Date(Date.now() + 300_000).toISOString() });
+    const refresh = async () => {
+      const before = reads;
+      broadcast("insecure.requested");
+      await expect.poll(() => reads).toBeGreaterThanOrEqual(before + 2);
+      // Observe the settled render, not only the state before the refetch.
+      for (const client of clients) await client.waitForTimeout(200);
+    };
+    await refresh();
+    for (const client of clients) await expect(client.getByRole("dialog")).toBeHidden();
+    requests = [{ ...request(1), live: false }];
+    await refresh();
+    for (const client of clients) await expect(client.getByRole("dialog")).toBeHidden();
+    requests = [{ ...request(1), expires_at: new Date(Date.now() - 1000).toISOString() }];
+    await refresh();
+    for (const client of clients) await expect(client.getByRole("dialog")).toBeHidden();
+    // The same request becoming live must now open both clients.
     requests = [request(1)];
     broadcast("insecure.requested");
     for (const client of clients) {
