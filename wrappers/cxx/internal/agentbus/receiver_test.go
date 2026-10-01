@@ -193,6 +193,7 @@ func TestPortalReplyRequiresOwnedMessage(t *testing.T) {
 }
 
 func TestChannelDeliveryPreservesFullContentAndMessageID(t *testing.T) {
+	t.Setenv("CXX_AGENT_PORTAL_ENGINE", "claude")
 	var output strings.Builder
 	r := &autoReceiver{output: &mcpWriter{w: &output}}
 	text := "Peer input with \"quotes\"\nand a newline"
