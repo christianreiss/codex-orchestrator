@@ -139,8 +139,8 @@ func (q *nativeQueue) send(id, content string) error {
 	return nil
 }
 
-// status is the thread's native status type ("idle", "active", ...). Kept apart
-// from idle() so the receiver can say *why* it is not claiming.
+// status is the thread's native status type ("idle", "active", ...), so the
+// receiver can say why it is not claiming.
 func (q *nativeQueue) status() (string, error) {
 	var read struct {
 		Thread struct {
@@ -151,9 +151,4 @@ func (q *nativeQueue) status() (string, error) {
 	}
 	err := q.call("thread/read", map[string]any{"threadId": q.thread, "includeTurns": false}, &read)
 	return read.Thread.Status.Type, err
-}
-
-func (q *nativeQueue) idle() (bool, error) {
-	status, err := q.status()
-	return status == "idle", err
 }
