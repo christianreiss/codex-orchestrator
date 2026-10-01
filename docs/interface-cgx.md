@@ -17,6 +17,11 @@ decoding Brotli. It does not run npm lifecycle scripts. A verified private CLI
 lives below `~/.cxx/engines/grok`; updates retain the previous installation.
 Grok's native self-updater is disabled for managed processes.
 
+On API startup, the verified four-platform `cxx` matrix publishes the same
+wrapper version, Linux checksum, and download URL for all three engines.
+Runner health is recorded independently for Grok, so a failure in another
+engine does not mark a healthy Grok runner unavailable.
+
 `CGX_CONFIG_PATH` selects the signed wrapper JSON config. Native CLI configuration
 uses `~/.grok/config.toml`: `[models].default` and
 `[models].default_reasoning_effort`, plus `[mcp_servers.cgx]`. The bundled catalog

@@ -7,6 +7,7 @@ import type { Database } from '../db/client.js';
 import { Keyring } from '../security/keyring.js';
 import { sql } from 'drizzle-orm';
 import { nowIso } from '../util/timestamp.js';
+import { ENGINES, type Engine } from '../util/engine.js';
 import { writeRunnerTelemetry } from '../services/runner-telemetry.js';
 import { ensureAuthGenerationBackfill } from '../services/auth-generation-retention.js';
 import {
@@ -84,10 +85,11 @@ async function refreshWrapperVersions(env: Env, db: Database): Promise<void> {
       'amd64',
       commonBuild.version,
     );
-    // Keep the compatibility DB keys, but make both engine projections share
+    // Keep the compatibility DB keys, but make every engine projection share
     // one source of truth. There is no per-engine cxx target to drift.
-    await publishWrapperProjection(db, 'codex', commonBuild, url, publishedAt);
-    await publishWrapperProjection(db, 'claude', commonBuild, url, publishedAt);
+    for (const engine of ENGINES) {
+      await publishWrapperProjection(db, engine, commonBuild, url, publishedAt);
+    }
     return;
   }
 
@@ -146,7 +148,7 @@ async function publishWrapperVersion(
 
 async function publishWrapperProjection(
   db: Database,
-  engine: 'codex' | 'claude',
+  engine: Engine,
   build: { version: string; sha256: string },
   url: string,
   publishedAt: string,
@@ -192,11 +194,13 @@ async function refreshRunnerHealth(env: Env, db: Database): Promise<void> {
     const res = await fetch(healthUrl, { signal: AbortSignal.timeout(timeoutMs) });
     const body = (await res.json().catch(() => null)) as RunnerHealthResponse | null;
 
-    await writeRunnerState(db, 'codex', runnerEngineState(res.ok, body, 'codex'), checkedAt);
-    await writeRunnerState(db, 'claude', runnerEngineState(res.ok, body, 'claude'), checkedAt);
+    for (const engine of ENGINES) {
+      await writeRunnerState(db, engine, runnerEngineState(res.ok, body, engine), checkedAt);
+    }
   } catch {
-    await writeRunnerState(db, 'codex', 'fail', checkedAt);
-    await writeRunnerState(db, 'claude', 'fail', checkedAt);
+    for (const engine of ENGINES) {
+      await writeRunnerState(db, engine, 'fail', checkedAt);
+    }
   }
 }
 
@@ -210,10 +214,7 @@ interface RunnerHealthEngine {
 interface RunnerHealthResponse {
   status?: string;
   required_engines?: string[];
-  engines?: {
-    codex?: RunnerHealthEngine;
-    claude?: RunnerHealthEngine;
-  };
+  engines?: Partial<Record<Engine, RunnerHealthEngine>>;
   problems?: string[];
 }
 
@@ -222,7 +223,7 @@ interface RunnerHealthResponse {
  *
  * Deliberately per-engine rather than gated on the top-level `status`: the
  * runner reports `degraded` when *any* required engine is broken, and reading
- * that as "both engines failed" marks a perfectly healthy Codex runner dead
+ * that as "every engine failed" marks a perfectly healthy Codex runner dead
  * because its Claude CLI drifted. `version_matches` counts as a failure for the
  * engine it belongs to — a CLI that is not the one the image was verified with
  * cannot be trusted to say whether a credential is valid.
@@ -230,7 +231,7 @@ interface RunnerHealthResponse {
 function runnerEngineState(
   ok: boolean,
   body: RunnerHealthResponse | null,
-  engine: 'codex' | 'claude',
+  engine: Engine,
 ): 'ok' | 'fail' {
   if (!ok || !body) return 'fail';
   const state = body.engines?.[engine];
@@ -242,7 +243,7 @@ function runnerEngineState(
 
 async function writeRunnerState(
   db: Database,
-  engine: 'codex' | 'claude',
+  engine: Engine,
   state: 'ok' | 'fail',
   checkedAt: string,
 ): Promise<void> {
