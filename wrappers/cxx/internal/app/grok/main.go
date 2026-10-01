@@ -672,7 +672,7 @@ func maintenance(ctx context.Context, cfg *config.Config, client *orchestrator.C
 		return err
 	}
 	if check.Wrapper != nil && check.Wrapper.Action == "update" {
-		installed, err := coreupdate.Install(ctx, cfg, check.Wrapper.URL, check.Wrapper.SHA256, check.Wrapper.TargetVersion, nil)
+		installed, err := coreupdate.Install(ctx, cfg, check.Wrapper.URL, check.Wrapper.SHA256, check.Wrapper.TargetVersion, client.Logger)
 		if err != nil {
 			return err
 		}

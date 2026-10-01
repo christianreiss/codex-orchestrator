@@ -22,6 +22,13 @@ wrapper version, Linux checksum, and download URL for all three engines.
 Runner health is recorded independently for Grok, so a failure in another
 engine does not mark a healthy Grok runner unavailable.
 
+`cgx update` checks for offered wrapper releases through the shared verified
+binary updater. Wrappers 0.9.9–0.9.12 have a Grok-only logger panic in that
+branch. When Codex or Claude is also installed, use `cxx update` to recover to
+0.9.13 or later through that engine. Grok-only hosts should run a newly issued
+installer for their existing host. Recovery preserves the host's API key,
+enabled engines, and native auth.
+
 `CGX_CONFIG_PATH` selects the signed wrapper JSON config. Native CLI configuration
 uses `~/.grok/config.toml`: `[models].default` and
 `[models].default_reasoning_effort`, plus `[mcp_servers.cgx]`. The bundled catalog
