@@ -4,6 +4,8 @@
 - Grok host provisioning initializes missing fleet defaults so managed MCP features activate; concurrent provisioning and operator saves preserve authored policy.
 - Startup publishes the verified shared wrapper version and per-engine runner health for Grok alongside Codex and Claude, so new Grok hosts receive the served binary and an independent runner verdict.
 - **cgx bootstrap sync (wrapper 0.9.10).** Consume the already-decoded instruction and config resources from the shared bootstrap client directly; real Grok content no longer fails with `invalid managed Grok resource`.
+- Grok maintenance reports update its own measured CLI and wrapper versions, preserve unreported values, and leave Codex and Claude telemetry intact. Auth responses expose Grok's parallel host metadata, with unknown values reported as null.
+- **cgx background maintenance (wrapper 0.9.11).** Normal launches, sync, status, and doctor request the shared coordinator with Grok's config path, restoring automatic updates, schedule repair, and version reporting on Grok-only hosts without queuing another maintenance loop.
 
 - **Call receiver readiness and silence notices (wrapper 0.9.8).** Call opening reports derived presence; joining an opener that is not listening returns `agent_messaging_call_peer_not_listening` and preserves the PIN. Automatic `agent_listen` reports receiver health and the current claim gate. Unanswered outbound `CALL/1` messages trigger a local status notice after 90 seconds, with one reminder at most; replies and cancellation stop the watch. Managed call/conference guidance now distinguishes automatic reception from timed listening. Reminders use separate native queue IDs, and a disconnected Codex queue cannot fall through to Claude channel transport.
 

@@ -54,6 +54,9 @@ removed fleet paths are pruned only while their values still match the last sync
 Other user settings and subsequent user edits survive.
 `cgx sync` consumes the bootstrap documents after the shared client unwraps their
 resource envelopes, retaining the config's `owned_paths` for reconciliation.
+Normal Grok launches, sync, status, and doctor request the shared background
+coordinator so updates, schedule repairs, and version reports continue on Grok-only
+hosts. Maintenance commands do not enqueue another coordinator.
 
 `cgx login` accepts subscription OAuth only. Login runs in a temporary home,
 uploads the modern credential map to the central account owner, then erases the

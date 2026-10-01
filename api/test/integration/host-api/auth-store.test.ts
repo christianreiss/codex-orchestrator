@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { Database } from '../../../src/db/client.js';
 import { buildHostApiTestApp } from '../../helpers/build-host-api-app.js';
 import { createDbFake } from '../../helpers/db-fake.js';
 import {
@@ -482,6 +483,57 @@ describe('POST /auth command=retrieve quota lane shaping', () => {
     await app.close();
   });
 
+  it.each(['codex', 'claude'])('preserves all three engines in the %s retrieve host metadata', async (engine) => {
+    const apiKey = 'sk-retrieve-engine-host-metadata';
+    const db = seedDb(apiKey);
+    db.tables.set(hostsTable, [hostRow(apiKey, {
+      engines: 'codex,claude,grok',
+      lastRefresh: '2026-09-29T10:00:00Z',
+      clientVersion: '0.153.4',
+      wrapperVersion: '0.9.10',
+      claudeLastRefresh: '2026-09-30T11:00:00Z',
+      claudeClientVersion: '2.1.89',
+      claudeWrapperVersion: '0.9.9',
+      grokLastRefresh: '2026-10-01T12:00:00Z',
+      grokClientVersion: '1.0.46',
+      grokClientVersionOverride: '1.0.46',
+      grokWrapperVersion: '0.9.11',
+      grokAuthDigest: 'grok-canonical-digest',
+      grokModelOverride: 'grok-4.5',
+      grokReasoningEffortOverride: 'medium',
+    })]);
+    const app = await buildHostApiTestApp({ db: db as unknown as Database, env: baseEnv, keyring: makeKeyring() });
+    try {
+      const r = await app.inject({
+        method: 'POST',
+        url: '/auth',
+        headers: { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json' },
+        payload: JSON.stringify({ command: 'retrieve', engine }),
+      });
+      expect(r.statusCode).toBe(200);
+      const body = JSON.parse(r.payload);
+      assertContract('auth-retrieve.schema.json', body);
+      expect(body.host).toMatchObject({
+        engines_list: ['codex', 'claude', 'grok'],
+        last_refresh: '2026-09-29T10:00:00Z',
+        client_version: '0.153.4',
+        wrapper_version: '0.9.10',
+        claude_last_refresh: '2026-09-30T11:00:00Z',
+        claude_client_version: '2.1.89',
+        claude_wrapper_version: '0.9.9',
+        grok_last_refresh: '2026-10-01T12:00:00Z',
+        grok_client_version: '1.0.46',
+        grok_client_version_override: '1.0.46',
+        grok_wrapper_version: '0.9.11',
+        grok_auth_digest: 'grok-canonical-digest',
+        grok_model_override: 'grok-4.5',
+        grok_reasoning_effort_override: 'medium',
+      });
+    } finally {
+      await app.close();
+    }
+  });
+
   it('reports unavailable telemetry when no snapshot exists', async () => {
     const apiKey = 'sk-retrieve-no-quota';
     const db = seedDb(apiKey);
@@ -495,6 +547,15 @@ describe('POST /auth command=retrieve quota lane shaping', () => {
     expect(r.statusCode).toBe(200);
     const body = JSON.parse(r.payload);
     assertContract('auth-retrieve.schema.json', body);
+    expect(body.host).toMatchObject({
+      grok_last_refresh: null,
+      grok_client_version: null,
+      grok_client_version_override: null,
+      grok_wrapper_version: null,
+      grok_auth_digest: null,
+      grok_model_override: null,
+      grok_reasoning_effort_override: null,
+    });
     expect(body.chatgpt).toMatchObject({
       status: 'unavailable',
       active_quota_lane: 'normal',

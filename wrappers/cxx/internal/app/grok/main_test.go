@@ -4,12 +4,15 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/accountpool"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
@@ -58,6 +61,54 @@ func TestWrapperVersionDoesNotRequireConfiguration(t *testing.T) {
 	}
 	if out.Len() == 0 || errout.Len() != 0 {
 		t.Fatal("wrapper version did not produce clean stdout")
+	}
+}
+
+func TestNormalCommandsQueueGrokMaintenanceWithLoadedConfig(t *testing.T) {
+	fixture, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "testdata", "host-grok.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var document map[string]any
+	if err := json.Unmarshal(fixture, &document); err != nil {
+		t.Fatal(err)
+	}
+	document["expires_at"] = time.Now().Add(time.Hour).UTC().Format(time.RFC3339)
+	fixture, err = json.Marshal(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "cgx.json")
+	if err := os.WriteFile(path, fixture, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.LoadForEngine(path, nil, true, config.EngineGrok)
+	if err != nil {
+		t.Fatal(err)
+	}
+	original := requestHostMaintenance
+	t.Cleanup(func() { requestHostMaintenance = original })
+	var calls []string
+	requestHostMaintenance = func(engine, source string) error {
+		if engine != config.EngineGrok || source != cfg.SourcePath() || !filepath.IsAbs(source) {
+			t.Errorf("background request engine=%q config=%q", engine, source)
+		}
+		calls = append(calls, engine)
+		return errors.New("fixture worker unavailable")
+	}
+	logger := slog.New(slog.DiscardHandler)
+	for _, command := range []string{"run", "execute", "sync", "auth-sync", "status", "doctor"} {
+		before := len(calls)
+		queueHostMaintenance(command, cfg, logger)
+		if len(calls) != before+1 {
+			t.Errorf("%s did not request maintenance", command)
+		}
+	}
+	for _, command := range []string{"cron", "update", "login", "logout", "uninstall", "auth-upload-auto", "version", "help"} {
+		queueHostMaintenance(command, cfg, logger)
+	}
+	if len(calls) != 6 {
+		t.Fatalf("maintenance/login command recursively enqueued upkeep: %d requests", len(calls))
 	}
 }
 

@@ -29,6 +29,7 @@ import (
 	native "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/grok"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/ipc"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/layout"
+	hostmaintenance "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/maintenance"
 	orchestrator "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/codex/orchestrator"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/quotaadvice"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/signing"
@@ -39,6 +40,7 @@ import (
 
 var Version, Commit, BuildDate = "dev", "unknown", "unknown"
 var HostSyncAfterUpdate bool
+var requestHostMaintenance = hostmaintenance.Request
 
 type options struct {
 	configPath                        string
@@ -182,6 +184,7 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		logger = slog.New(slog.NewTextHandler(stderr, &slog.HandlerOptions{Level: slog.LevelDebug}))
 	}
 	client.Logger = logger
+	queueHostMaintenance(o.command, cfg, logger)
 	switch o.command {
 	case "auth-upload-auto":
 		return 0 // Managed runtimes intentionally have no canonical refresh token.
@@ -215,6 +218,15 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	return 0
+}
+
+func queueHostMaintenance(command string, cfg *config.Config, logger *slog.Logger) {
+	switch command {
+	case "run", "execute", "sync", "auth-sync", "status", "doctor":
+		if err := requestHostMaintenance(config.EngineGrok, cfg.SourcePath()); err != nil {
+			logger.Debug("background maintenance request deferred", "err", err)
+		}
+	}
 }
 
 func PrintWrapperHelp(w io.Writer, caps terminalui.Caps) {

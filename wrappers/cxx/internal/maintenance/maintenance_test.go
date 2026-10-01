@@ -8,7 +8,39 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
 )
+
+func TestGrokRequestIsAcceptedWithoutLaunchingTestRunner(t *testing.T) {
+	t.Setenv("CXX_BACKGROUND_MAINTENANCE", "1")
+	if err := Request(config.EngineGrok, filepath.Join(t.TempDir(), "cgx.json")); err != nil {
+		t.Fatalf("Grok launch cannot request background upkeep: %v", err)
+	}
+}
+
+func TestGrokChildEnvironmentKeepsItsOwnConfigAndNativePaths(t *testing.T) {
+	env, err := childEnv(config.EngineGrok, "configs/cgx.json", []string{
+		"CDX_CONFIG_PATH=peer-cdx.json", "CLX_CONFIG_PATH=peer-clx.json", "CGX_CONFIG_PATH=stale-cgx.json",
+		"GROK_HOME=  native/grok  ", "CGX_GROK_BIN=  native/bin/grok  ", "CXX_CRON_ENGINE_ONLY=1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	joined := strings.Join(env, "\n")
+	if strings.Contains(joined, "stale-cgx.json") || strings.Contains(joined, "CXX_CRON_ENGINE_ONLY") {
+		t.Fatalf("stale coordinator metadata retained: %s", joined)
+	}
+	for _, item := range []struct{ key, path string }{
+		{"CGX_CONFIG_PATH", "configs/cgx.json"}, {"CDX_CONFIG_PATH", "peer-cdx.json"}, {"CLX_CONFIG_PATH", "peer-clx.json"},
+		{"GROK_HOME", "native/grok"}, {"CGX_GROK_BIN", "native/bin/grok"},
+	} {
+		absolute, _ := filepath.Abs(item.path)
+		if !strings.Contains(joined, item.key+"="+absolute) {
+			t.Fatalf("lost %s after changing coordinator directory: %s", item.key, joined)
+		}
+	}
+}
 
 func TestCoordinatorCoalescesAndRetries(t *testing.T) {
 	dir, now := t.TempDir(), time.Now().UTC()

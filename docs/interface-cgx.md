@@ -71,8 +71,12 @@ recover the account. OAuth discovery is constrained to `https://auth.x.ai`;
 uploaded issuer URLs cannot redirect credentials to another endpoint.
 
 `/auth` returns the access-only envelope with `canonical_generation`,
-`access_token_digest`, `expires_at`, and refresh-state metadata. Reactive refresh
-supplies `refresh_if_generation` with the exact active leased account/session.
+`access_token_digest`, `expires_at`, and refresh-state metadata.
+The shared `host` block includes `grok_last_refresh`, `grok_client_version`,
+`grok_client_version_override`, `grok_wrapper_version`, `grok_auth_digest`,
+`grok_model_override`, and `grok_reasoning_effort_override`; unknown values are
+`null`. Reactive refresh supplies `refresh_if_generation` with the exact active
+leased account/session.
 An already-advanced head returns its successor; otherwise one owner refreshes
 that generation. Pending/ambiguous renewal returns a typed error, never the same
 failed generation. Host startup needs 600 seconds of lifetime; runner/gateway

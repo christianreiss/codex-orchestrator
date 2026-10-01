@@ -115,7 +115,7 @@ func (r *Run) finishAt(runErr error, now time.Time) error {
 
 // Request queues a detached coordinator, returning after local process creation.
 // It never fetches config, probes a CLI, waits on a lock, or waits for the child.
-// Both personas share one queue and one coordinator lease in the user's home.
+// All personas share one queue and one coordinator lease in the user's home.
 func Request(engine, configPath string) error {
 	return request(engine, configPath, false)
 }
@@ -131,7 +131,7 @@ func request(engine, configPath string, force bool) error {
 	if os.Getenv("CXX_BACKGROUND_MAINTENANCE") == "0" {
 		return nil
 	}
-	if engine != config.EngineCodex && engine != config.EngineClaude {
+	if engine != config.EngineCodex && engine != config.EngineClaude && engine != config.EngineGrok {
 		return errors.New("unknown maintenance engine")
 	}
 	// Unit/integration binaries must never recursively launch their test runner.
@@ -255,6 +255,8 @@ func childEnv(engine, source string, env []string) ([]string, error) {
 	key := "CDX_CONFIG_PATH"
 	if engine == config.EngineClaude {
 		key = "CLX_CONFIG_PATH"
+	} else if engine == config.EngineGrok {
+		key = "CGX_CONFIG_PATH"
 	}
 	drop := map[string]bool{
 		key: true, "CXX_CRON_ENGINE_ONLY": true, "CXX_CRON_COORDINATED": true,
@@ -271,10 +273,10 @@ func childEnv(engine, source string, env []string) ([]string, error) {
 		}
 		// Match each resolver's whitespace semantics before changing directory.
 		switch name {
-		case "CDX_CONFIG_PATH", "CLX_CONFIG_PATH", "CODEX_HOME", "CDX_CODEX_BIN", "CLX_CLAUDE_BIN", "XDG_CONFIG_HOME":
+		case "CDX_CONFIG_PATH", "CLX_CONFIG_PATH", "CGX_CONFIG_PATH", "CODEX_HOME", "GROK_HOME", "CDX_CODEX_BIN", "CLX_CLAUDE_BIN", "CGX_GROK_BIN", "XDG_CONFIG_HOME":
 			value = strings.TrimSpace(value)
 		}
-		if value != "" && (name == "CDX_CONFIG_PATH" || name == "CLX_CONFIG_PATH" || name == "CODEX_HOME" || name == "XDG_CONFIG_HOME" || name == "HOME" || name == "CDX_CODEX_BIN" || name == "CLX_CLAUDE_BIN") {
+		if value != "" && (name == "CDX_CONFIG_PATH" || name == "CLX_CONFIG_PATH" || name == "CGX_CONFIG_PATH" || name == "CODEX_HOME" || name == "GROK_HOME" || name == "XDG_CONFIG_HOME" || name == "HOME" || name == "CDX_CODEX_BIN" || name == "CLX_CLAUDE_BIN" || name == "CGX_GROK_BIN") {
 			value, err = filepath.Abs(value)
 			if err != nil {
 				return nil, err

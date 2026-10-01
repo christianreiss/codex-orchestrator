@@ -5,7 +5,7 @@ import { hosts as hostsTable, logs as logsTable, type Host } from '../../db/sche
 import type { RouteContext } from '../index.js';
 import { ApiError, ValidationError } from '../../http/errors.js';
 import { nowIso } from '../../util/timestamp.js';
-import { ENGINE_CODEX } from '../../util/engine.js';
+import { ENGINE_CODEX, ENGINE_HOST_FIELDS } from '../../util/engine.js';
 import { resolveRequestEngine } from '../../util/engine-resolution.js';
 import { resolveWrapperPlatform } from '../../util/wrapper-platform.js';
 import { wsPublisher } from '../../ws/publisher.js';
@@ -225,18 +225,12 @@ export async function registerHostRoutes(app: FastifyInstance, ctx: RouteContext
     }
     const engine = resolveRequestEngine(req, body, { legacyUserAgentInference: true, fallback: ENGINE_CODEX });
     assertHostEngineEnabled(host, engine);
-    const patch =
-      engine === 'claude'
-        ? {
-            claudeClientVersion: clientVersion ?? undefined,
-            claudeWrapperVersion: wrapperVersion ?? undefined,
-            updatedAt: nowIso(),
-          }
-        : {
-            clientVersion: clientVersion ?? undefined,
-            wrapperVersion: wrapperVersion ?? undefined,
-            updatedAt: nowIso(),
-          };
+    const fields = ENGINE_HOST_FIELDS[engine];
+    const patch = {
+      ...(clientVersion ? { [fields.clientVersion]: clientVersion } : {}),
+      ...(wrapperVersion ? { [fields.wrapperVersion]: wrapperVersion } : {}),
+      updatedAt: nowIso(),
+    };
     await ctx.db.update(hostsTable).set(patch).where(eq(hostsTable.id, host.id));
     await ctx.db.insert(logsTable).values({
       hostId: host.id,

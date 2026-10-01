@@ -627,6 +627,37 @@ describe('POST /cron/check (claude engine)', () => {
 });
 
 describe('cron engine routing', () => {
+  it.each([
+    { headers: { 'x-engine': 'grok' }, url: '/cron/report', payload: { client_version: '1.0.46', wrapper_version: '0.9.10' } },
+    { headers: {}, url: '/cron/report?engine=grok', payload: { client_version: '1.0.46' } },
+    { headers: {}, url: '/cron/report', payload: { engine: 'grok', wrapper_version: '0.9.10' } },
+  ])('records Grok reports in its own columns and preserves unreported versions', async ({ headers, url, payload }) => {
+    const db = createDbFake();
+    const apiKey = 'sk-grok-engine-report-test';
+    db.tables.set(hostsTable, [{
+      ...hostRow(apiKey), engines: 'codex,claude,grok',
+      clientVersion: '0.154.0', wrapperVersion: 'codex-wrapper',
+      claudeClientVersion: '2.1.233', claudeWrapperVersion: 'claude-wrapper',
+      grokClientVersion: '1.0.45', grokWrapperVersion: '0.9.9',
+    }]);
+    const app = await buildHostApiTestApp({ db: db as never, env, keyring: makeKeyring() });
+    try {
+      const response = await app.inject({
+        method: 'POST', url,
+        headers: { authorization: `Bearer ${apiKey}`, ...headers }, payload,
+      });
+      expect(response.statusCode).toBe(200);
+      expect(db.tables.get(hostsTable)?.[0]).toMatchObject({
+        clientVersion: '0.154.0', wrapperVersion: 'codex-wrapper',
+        claudeClientVersion: '2.1.233', claudeWrapperVersion: 'claude-wrapper',
+        grokClientVersion: payload.client_version ?? '1.0.45',
+        grokWrapperVersion: payload.wrapper_version ?? '0.9.9',
+      });
+    } finally {
+      await app.close();
+    }
+  });
+
   it.each(['/cron/check', '/cron/report'])('rejects conflicting engine hints on %s before recording versions or cron activity', async (url) => {
     const db = createDbFake();
     const apiKey = 'sk-engine-routing-test';

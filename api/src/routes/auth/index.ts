@@ -1229,6 +1229,13 @@ function buildHostPayload(host: Host): Record<string, unknown> {
     claude_auth_digest: host.claudeAuthDigest ?? null,
     claude_model_override: host.claudeModelOverride ?? null,
     claude_reasoning_effort_override: host.claudeReasoningEffortOverride ?? null,
+    grok_last_refresh: host.grokLastRefresh ?? null,
+    grok_client_version: host.grokClientVersion ?? null,
+    grok_client_version_override: host.grokClientVersionOverride ?? null,
+    grok_wrapper_version: host.grokWrapperVersion ?? null,
+    grok_auth_digest: host.grokAuthDigest ?? null,
+    grok_model_override: host.grokModelOverride ?? null,
+    grok_reasoning_effort_override: host.grokReasoningEffortOverride ?? null,
   };
 }
 
