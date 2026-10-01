@@ -358,6 +358,7 @@ func TestBackgroundWorkerRequiredForBothEnginesWithoutAgentMessaging(t *testing.
 }
 
 func TestAuthoritativeDualToSingleRemovesOnlyDisabledEngineState(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
 	dir := t.TempDir()
 	cxx := filepath.Join(dir, "cxx")
 	if err := os.WriteFile(cxx, []byte("common"), 0o755); err != nil {
@@ -464,6 +465,7 @@ func TestAuthoritativeEmptyFetchFailsClosed(t *testing.T) {
 }
 
 func TestAuthoritativeBothDisabledCleansUpBothAliases(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
 	dir := t.TempDir()
 	cxx := filepath.Join(dir, "cxx")
 	if err := os.WriteFile(cxx, []byte("common"), 0o755); err != nil {
@@ -506,6 +508,7 @@ func TestAuthoritativeBothDisabledCleansUpBothAliases(t *testing.T) {
 }
 
 func TestAuthoritativeDisabledCleanupFailureDoesNotBlockEnabledEngine(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
 	dir := t.TempDir()
 	cxx := filepath.Join(dir, "cxx")
 	if err := os.WriteFile(cxx, []byte("common"), 0o755); err != nil {

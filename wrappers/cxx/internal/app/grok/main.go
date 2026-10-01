@@ -281,28 +281,6 @@ func newClient(cfg *config.Config, forceIPv4 ...bool) (*orchestrator.Client, err
 	return client, err
 }
 
-func resource(raw json.RawMessage) ([]byte, error) {
-	if len(raw) == 0 || string(raw) == "null" {
-		return nil, nil
-	}
-	var value string
-	if json.Unmarshal(raw, &value) == nil {
-		return []byte(value), nil
-	}
-	var entry struct {
-		Content json.RawMessage `json:"content"`
-		Body    json.RawMessage `json:"body"`
-	}
-	if json.Unmarshal(raw, &entry) == nil {
-		if len(entry.Content) > 0 {
-			return resource(entry.Content)
-		}
-		if len(entry.Body) > 0 {
-			return resource(entry.Body)
-		}
-	}
-	return nil, errors.New("invalid managed Grok resource")
-}
 func syncManaged(ctx context.Context, cfg *config.Config, client *orchestrator.Client) error {
 	lock, err := ipc.TryAcquireExclusive("cgx-sync")
 	if err != nil {
@@ -317,9 +295,8 @@ func syncManaged(ctx context.Context, cfg *config.Config, client *orchestrator.C
 	if err != nil {
 		return fmt.Errorf("Grok managed sync unavailable: %w", err)
 	}
-	if body, err := resource(bundle.Agents); err != nil {
-		return err
-	} else if len(body) > 0 {
+	// SyncBootstrap already unwraps resource objects to document bytes.
+	if body := bundle.Agents; len(body) > 0 {
 		if err := native.AtomicWrite(filepath.Join(home, "AGENTS.md"), body, 0o600); err != nil {
 			return err
 		}
@@ -332,9 +309,7 @@ func syncManaged(ctx context.Context, cfg *config.Config, client *orchestrator.C
 			return err
 		}
 	}
-	if body, err := resource(bundle.Config); err != nil {
-		return err
-	} else if len(body) > 0 || bundle.ConfigOwnedPaths != nil {
+	if body := bundle.Config; len(body) > 0 || bundle.ConfigOwnedPaths != nil {
 		if err := native.SyncConfig(home, body, bundle.ConfigOwnedPaths); err != nil {
 			return err
 		}
