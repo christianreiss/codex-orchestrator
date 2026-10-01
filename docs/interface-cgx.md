@@ -35,6 +35,29 @@ client-config row exists, activating the managed MCP feature context. Concurrent
 provisioning and config saves serialize before creating a row; an existing
 operator-authored policy is preserved. Reading defaults remains read-only.
 
+## Startup and checks
+
+`cgx` prints the shared startup card before the native UI, with the effective
+model/effort, installed and target versions, API/auth/runner health, measured
+content-sync outcomes, and the server's fleet sync activity. Actual native
+model and effort options override the displayed settings. Grok quota usage is
+shown as unavailable, and MCP connectivity remains unknown until probed;
+an MCP configuration does not prove a healthy connection. Concurrent content
+sync remains visibly paused rather than reporting success.
+
+`status` and `doctor` show the same installation/auth metadata without claiming
+that they synchronized skills or config. `--minimal` remains a native option
+and also selects compact wrapper output; `status --minimal` and
+`doctor --minimal-output` request compact checks. Silent/`--skip-boot` launches
+retain banner/footer suppression. The configured terminal theme is respected.
+
+Visible interactive launches use native `--no-alt-screen` so the startup card
+remains in terminal scrollback instead of being hidden by the native alternate
+screen. Native `--minimal` is passed through unchanged, while `--fullscreen`
+still selects the native fullscreen layout within the inline terminal.
+Headless and silent launches retain their existing terminal policy. The exit
+footer uses the final session/auth outcome after private-runtime cleanup.
+
 ## Subscription auth and canonical ownership
 
 Only modern xAI subscription OAuth is supported. `grok login --device-auth`
@@ -97,6 +120,15 @@ auth files, auth locks, and MCP credentials are never shared into the managed
 runtime. Fleet hooks live in a real owned hooks directory with user hooks copied
 alongside them. Direct credential overrides and metered-key fallbacks are removed
 from managed subprocess environments.
+
+Managed runtimes disable Grok's implicit Claude and Cursor MCP imports through
+their private config and process environment. This prevents another engine's
+fleet headers or obsolete local MCP endpoints from entering Grok. Explicit
+Grok and project MCP entries and other compatibility features are preserved;
+BrowserOS or Playwright must be configured explicitly for Grok. Native 1.0.46's
+all-server `mcp doctor` deliberately inspects vendor imports even when runtime
+imports are disabled. Use named checks such as `cgx mcp doctor cgx --json` and
+`cgx mcp doctor cxx-agent --json` to check the actual managed servers.
 
 Active runtimes hold the original home's shared session guard. Owned native
 children inherit it, so an orphaned leader or TUI still prevents uninstall from

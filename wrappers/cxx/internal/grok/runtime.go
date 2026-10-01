@@ -533,7 +533,13 @@ func (r *Runtime) Configure(executable string, cfg *config.Config, portal bool) 
 	gcc, _ := m["grok_com_config"].(map[string]any)
 	delete(gcc, "oidc")
 	delete(gcc, "oauth2")
-	managed := map[string]any{"grok_com_config": map[string]any{"auth_provider_command": shellQuote(executable) + " grok-auth", "disable_api_key_auth": true, "preferred_method": "oidc", "oauth2": map[string]any{"issuer": "https://auth.x.ai", "client_id": OfficialClientID}}}
+	managed := map[string]any{
+		"grok_com_config": map[string]any{"auth_provider_command": shellQuote(executable) + " grok-auth", "disable_api_key_auth": true, "preferred_method": "oidc", "oauth2": map[string]any{"issuer": "https://auth.x.ai", "client_id": OfficialClientID}},
+		// Native vendor discovery can import another engine's fleet headers or
+		// stale local endpoints. Keep explicit Grok/project MCP definitions and
+		// all other compatibility surfaces, but disable these implicit imports.
+		"compat": map[string]any{"claude": map[string]any{"mcps": false}, "cursor": map[string]any{"mcps": false}},
+	}
 	if portal {
 		if servers, ok := m["mcp_servers"].(map[string]any); ok {
 			delete(servers, "cxx-agent")
@@ -591,6 +597,10 @@ func (r *Runtime) Environment(env []string) []string {
 		out = SetEnv(out, "GROK_CONFIG", r.effective)
 	}
 	out = SetEnv(out, "GROK_DISABLE_API_KEY_AUTH", "1")
+	// Compatibility environment cells outrank config and remote defaults.
+	// Pin them for the private leader as well as every native child.
+	out = SetEnv(out, "GROK_CLAUDE_MCPS_ENABLED", "false")
+	out = SetEnv(out, "GROK_CURSOR_MCPS_ENABLED", "false")
 	return NativeEnv(out)
 }
 func (r *Runtime) Close() error {

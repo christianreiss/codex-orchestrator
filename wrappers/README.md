@@ -83,6 +83,19 @@ skills, commands, plugins, instructions, and hooks are retained; `GROK_CONFIG`
 and `GROK_CONFIG_PATH` overlays are merged before pinning the managed auth scope.
 The owned runtime is removed when the native process ends.
 
+Managed Grok processes disable automatic Claude/Cursor MCP imports with the
+native compatibility controls. MCP servers explicitly configured in Grok's
+`config.toml` or the project remain available, and skills, rules, hooks, and
+other compatibility settings retain their values. This prevents an inherited
+`clx` server from routing Grok tools as Claude and avoids stale endpoints from
+another CLI's configuration. The original Claude/Cursor files and unwrapped
+Grok sessions are preserved. BrowserOS and Playwright entries imported from
+Claude are also excluded; add them explicitly to Grok configuration when wanted.
+Grok 1.0.46's all-server `mcp doctor` checks raw vendor entries even when disabled.
+Use `cgx mcp doctor cgx --json` and `cgx mcp doctor cxx-agent --json` to check the
+two managed servers; `cgx inspect --json` distinguishes active and disabled
+configuration entries. A successful prompt alone does not establish MCP health.
+
 Interactive managed launches supervise a private leader with relay-on-demand.
 Automatic reception uses `grok-acp-v1`: a stdio-only, length-prefixed ACP client
 checks native identity and queues prompts with `sendNow:false`. A correlated

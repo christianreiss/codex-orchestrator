@@ -13,6 +13,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/pelletier/go-toml"
+
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/accountpool"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/ipc"
@@ -166,6 +168,55 @@ func TestRuntimePreservesUserOverlayAndPinsBrokerScope(t *testing.T) {
 	servers := effective["mcp_servers"].(map[string]any)
 	if servers["mine"] == nil || servers["cxx-agent"] == nil {
 		t.Fatal("MCP merge lost user or managed server")
+	}
+}
+func TestRuntimeDisablesVendorMCPImportsAndPreservesNativeConfiguration(t *testing.T) {
+	for _, portal := range []bool{false, true} {
+		t.Run(map[bool]string{false: "headless", true: "interactive"}[portal], func(t *testing.T) {
+			r, _ := runtimeFixture(t)
+			// A previously enabled compatibility cell must not pull another
+			// engine's fleet MCP or a stale local endpoint into a managed run.
+			t.Setenv("GROK_CONFIG", `{"compat":{"claude":{"mcps":true,"skills":false,"hooks":true},"cursor":{"mcps":true,"rules":false}},"mcp_servers":{"mine":{"command":"my-tool"},"browseros":{"url":"http://127.0.0.1:9000/mcp"}}}`)
+			if err := r.Configure("/fixture/cxx", &config.Config{}, portal); err != nil {
+				t.Fatal(err)
+			}
+			for _, envKey := range []string{"GROK_CLAUDE_MCPS_ENABLED", "GROK_CURSOR_MCPS_ENABLED"} {
+				count := 0
+				for _, entry := range r.Environment([]string{envKey + "=true", envKey + "=1", "GROK_CLAUDE_SKILLS_ENABLED=true"}) {
+					if strings.HasPrefix(entry, envKey+"=") {
+						count++
+						if entry != envKey+"=false" {
+							t.Fatalf("vendor MCP import override survived: %s", entry)
+						}
+					}
+				}
+				if count != 1 {
+					t.Fatalf("%s has %d managed environment values", envKey, count)
+				}
+			}
+			raw, err := os.ReadFile(filepath.Join(r.Home, "config.toml"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			tree, err := toml.LoadBytes(raw)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, key := range []string{"compat.claude.mcps", "compat.cursor.mcps"} {
+				if tree.Get(key) != false {
+					t.Fatalf("private native config does not disable %s", key)
+				}
+			}
+			if tree.Get("compat.claude.skills") != false || tree.Get("compat.claude.hooks") != true || tree.Get("compat.cursor.rules") != false {
+				t.Fatal("non-MCP compatibility settings changed")
+			}
+			if tree.Get("mcp_servers.mine.command") != "my-tool" || tree.Get("mcp_servers.browseros.url") != "http://127.0.0.1:9000/mcp" {
+				t.Fatal("explicit native Grok MCP servers changed")
+			}
+			if _, err := os.Stat(filepath.Join(r.BaseHome, "config.toml")); !os.IsNotExist(err) {
+				t.Fatal("unwrapped native config changed")
+			}
+		})
 	}
 }
 func TestAuthAccessorUsesIssuedGenerationAndNeverUploads(t *testing.T) {

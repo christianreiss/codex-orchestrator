@@ -37,6 +37,7 @@ type ScreenInput struct {
 	Dots           []HealthDot
 
 	QuotaRows   []QuotaRow
+	QuotaNote   string
 	QuotaWarn   string
 	QuotaBlock  string
 	SessionRows []SessionRow
@@ -160,12 +161,15 @@ func printBootScreen(w io.Writer, in ScreenInput, caps Caps) {
 		renderPlainText(c, strOr(in.ConcurrentNote, "Managed content sync paused; auth freshness remains active."))
 	}
 
-	if len(in.QuotaRows) > 0 || in.QuotaWarn != "" || in.QuotaBlock != "" {
+	if len(in.QuotaRows) > 0 || in.QuotaNote != "" || in.QuotaWarn != "" || in.QuotaBlock != "" {
 		c.divider("quota")
 		for _, row := range in.QuotaRows {
 			for _, line := range formatQuotaLines(caps, row, c.inner) {
 				c.line(line)
 			}
+		}
+		if in.QuotaNote != "" {
+			renderToneText(c, ToneDim, in.QuotaNote)
 		}
 		if in.QuotaWarn != "" {
 			renderToneText(c, ToneWarn, in.QuotaWarn)
@@ -363,6 +367,9 @@ func printMinimalScreen(w io.Writer, in ScreenInput, caps Caps) {
 			forecast = " | forecast=" + PlainInline(row.Projection)
 		}
 		printPlainLine(w, caps, fmt.Sprintf("quota | %s=%d%%%s%s%s", PlainInline(row.Label), clampPct(row.Used), reset, forecast, quotaFreshness(row)))
+	}
+	if in.QuotaNote != "" {
+		printPlainLine(w, caps, "quota | "+PlainInline(in.QuotaNote))
 	}
 	if len(in.SessionRows) > 0 {
 		parts := make([]string, 0, len(in.SessionRows))
