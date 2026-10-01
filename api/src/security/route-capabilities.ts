@@ -156,6 +156,12 @@ export const ROUTE_CAPABILITIES: Readonly<Record<string, RouteGuard>> = {
   // ── Fleet credentials ────────────────────────────────────────────────────
   'GET /admin/hosts/:id/auth': cap('auth.read_metadata'),
   'POST /cli/auth/lookup': cap('auth.read_metadata'),
+  'GET /admin/accounts': cap('auth.read_metadata'),
+  'POST /admin/accounts': cap('auth.manage'),
+  'PATCH /admin/accounts/:id': cap('auth.manage'),
+  'DELETE /admin/accounts/:id': cap('auth.manage'),
+  'POST /admin/accounts/:id/credentials': cap('auth.manage'),
+  'POST /admin/accounts/:id/verify': cap('auth.manage'),
   'POST /admin/auth/upload': cap('auth.manage'),
   'POST /admin/auth/seed-command': cap('auth.manage'),
   'POST /admin/runner/run': cap('auth.manage'),

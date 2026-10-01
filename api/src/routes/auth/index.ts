@@ -1,3 +1,5 @@
+import { ProviderAccountsService } from '../../services/provider-accounts.js';
+import { createPooledAuthStoreService as createCanonicalAuthStoreService } from '../../services/pooled-auth-store.js';
 import { readQuotaAdvice, quotaAdviceSnapshot } from '../../services/quota-advice.js';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { join, resolve } from 'node:path';
@@ -11,7 +13,7 @@ import {
   type Host,
 } from '../../db/schema.js';
 import type { RouteContext } from '../index.js';
-import { ApiError, ValidationError } from '../../http/errors.js';
+import { ApiError, ValidationError, ServiceUnavailableError } from '../../http/errors.js';
 import { compareRfc3339, nowIso } from '../../util/timestamp.js';
 import { isEngine, type Engine, ENGINE_CLAUDE, ENGINE_CODEX } from '../../util/engine.js';
 import { wsPublisher } from '../../ws/publisher.js';
@@ -35,7 +37,6 @@ import { createRunnerValidationService, extractAuthPayload } from '../../service
 import { createRunnerClient } from '../../services/runner-client.js';
 import {
   assertReasonableLastRefresh,
-  createCanonicalAuthStoreService,
   touchHostAuthFields,
   touchHostAuthState,
 } from '../../services/canonical-auth-store.js';
@@ -112,6 +113,63 @@ export async function registerAuthRoutes(app: FastifyInstance, ctx: RouteContext
     runner,
   });
 
+  const accounts = new ProviderAccountsService(ctx.db, ctx.keyring);
+  // Launch reservations are idempotent and scoped to a local auth directory.
+  app.post('/auth/sessions', async (req) => {
+    await assertApiNotDisabled(versions);
+    const host = await hostAuth.authenticate(req);
+    const payload = readPayload(req.body);
+    const engine = resolveAuthRequestEngine(req, payload);
+    assertHostEngineEnabled(host, engine);
+    await maybeEnforceInsecure(insecure, host, 'retrieve', req.clientIp);
+    const scope = opaqueId(payload.scope_id, 'scope_id');
+    const sessionId = opaqueId(payload.session_id, 'session_id');
+    const quota = await readQuotaControls(ctx, host.vip === 1);
+    const preferred = accountIdFrom(payload.account_id);
+    const lease = await accounts.acquire(
+      host.id,
+      engine,
+      scope,
+      sessionId,
+      quota.quota_limit_percent,
+      preferred,
+    );
+    const row = await runnerValidation.resolveCanonicalPayload(engine, lease.account.id);
+    const auth = row ? runnerValidation.canonicalAuthFromPayload(row) : null;
+    if (!row || !auth) {
+      await accounts.release(host.id, engine, sessionId);
+      throw new ServiceUnavailableError('Selected account is unavailable', 'account_unavailable');
+    }
+    return {
+      account_id: lease.account.id,
+      account_label: lease.account.label,
+      session_id: sessionId,
+      expires_at: lease.expires_at,
+      auth,
+      canonical_digest: row.sha256,
+      canonical_last_refresh: row.lastRefresh,
+      verification_state: row.verificationState,
+      ...quota,
+    };
+  });
+  app.post('/auth/sessions/heartbeat', async (req) => {
+    await assertApiNotDisabled(versions);
+    const host = await hostAuth.authenticate(req);
+    const payload = readPayload(req.body);
+    const engine = resolveAuthRequestEngine(req, payload);
+    assertHostEngineEnabled(host, engine);
+    await maybeEnforceInsecure(insecure, host, 'retrieve', req.clientIp);
+    return accounts.heartbeat(host.id, engine, opaqueId(payload.session_id, 'session_id'));
+  });
+  app.post('/auth/sessions/release', async (req) => {
+    await assertApiNotDisabled(versions);
+    const host = await hostAuth.authenticate(req);
+    const payload = readPayload(req.body);
+    const engine = resolveAuthRequestEngine(req, payload);
+    await accounts.release(host.id, engine, opaqueId(payload.session_id, 'session_id'));
+    return { status: 'ok' };
+  });
+
   // POST /auth — primary wrapper probe.
   app.post('/auth', async (req) => {
     await assertApiNotDisabled(versions);
@@ -119,6 +177,7 @@ export async function registerAuthRoutes(app: FastifyInstance, ctx: RouteContext
     const payload = readPayload(req.body);
     const engine = resolveAuthRequestEngine(req, payload);
     assertHostEngineEnabled(host, engine);
+    await enforceAccountSession(accounts, host.id, engine, payload);
     const command = normalizeCommand(payload.command);
     const enforcedHost = await maybeEnforceInsecure(insecure, host, command, req.clientIp);
     const projectedVersions = requestVersions(req, enforcedHost);
@@ -243,7 +302,12 @@ export async function registerAuthRoutes(app: FastifyInstance, ctx: RouteContext
     const engine = resolveAuthRequestEngine(req, payload);
     assertHostEngineEnabled(host, engine);
     const includeAuth = normalizeBoolean(payload.include_auth) !== false;
-    const enforced = await maybeEnforceInsecure(insecure, host, includeAuth ? 'retrieve' : null, req.clientIp);
+    const enforced = await maybeEnforceInsecure(
+      insecure,
+      host,
+      includeAuth ? 'retrieve' : null,
+      req.clientIp,
+    );
     const projectedVersions = requestVersions(req, enforced);
 
     const userInput = extractHostUserInput(payload);
@@ -285,8 +349,23 @@ export async function registerAuthRoutes(app: FastifyInstance, ctx: RouteContext
     const payload = readPayload(req.body);
     const fiveHour = asPlainRecord(payload.five_hour);
     const sevenDay = asPlainRecord(payload.seven_day);
-    const svc = new ClaudeUsageService(ctx.db);
+    let accountId = accountIdFrom(payload.account_id);
+    if (accountId !== undefined) accountId = await accounts.canonicalId(accountId, ENGINE_CLAUDE);
+    if (payload.session_id !== undefined) {
+      const session = await accounts.session(
+        host.id,
+        ENGINE_CLAUDE,
+        opaqueId(payload.session_id, 'session_id'),
+      );
+      if (accountId !== session.accountId)
+        throw new ValidationError('Usage report account does not match session');
+      accountId = session.accountId;
+    } else if (accountId !== undefined) {
+      await accounts.get(accountId, ENGINE_CLAUDE);
+    }
+    const svc = new ClaudeUsageService(ctx.db, accountId);
     const row = await svc.store({
+      accountId,
       hostId: host.id,
       source: typeof payload.source === 'string' ? payload.source : null,
       fiveHourUsedPercent: toFiniteNumber(fiveHour.used_percent),
@@ -307,8 +386,14 @@ export async function registerAuthRoutes(app: FastifyInstance, ctx: RouteContext
     const payload = readPayload(req.body);
     const engine = resolveAuthRequestEngine(req, payload);
     assertHostEngineEnabled(host, engine);
+    await enforceAccountSession(accounts, host.id, engine, payload);
     const includeAuth = normalizeBoolean(payload.include_auth) !== false;
-    const enforced = await maybeEnforceInsecure(insecure, host, includeAuth ? 'retrieve' : null, req.clientIp);
+    const enforced = await maybeEnforceInsecure(
+      insecure,
+      host,
+      includeAuth ? 'retrieve' : null,
+      req.clientIp,
+    );
     const projectedVersions = requestVersions(req, enforced);
 
     const userInput = extractHostUserInput(payload);
@@ -433,10 +518,7 @@ function readArtifactDigests(payload: Record<string, unknown>): ArtifactDigestMa
 // /auth retrieve / store
 // ───────────────────────────────────────────────────────────────────────────
 
-type RequestVersionProjector = (
-  engine: Engine,
-  submittedWrapperVersion: unknown,
-) => Promise<VersionSnapshot>;
+type RequestVersionProjector = (engine: Engine, submittedWrapperVersion: unknown) => Promise<VersionSnapshot>;
 
 async function handleRetrieve(
   app: FastifyInstance,
@@ -455,7 +537,8 @@ async function handleRetrieve(
       : null;
   if (incomingLast) assertReasonableLastRefresh(incomingLast, 'last_refresh');
 
-  const canonicalRow = await runnerValidation.resolveCanonicalPayload(engine);
+  const accountId = accountIdFrom(payload.account_id);
+  const canonicalRow = await runnerValidation.resolveCanonicalPayload(engine, accountId);
   const validated = runnerValidation.validateCanonicalPayload(canonicalRow);
   const canonicalDigest = validated?.digest ?? null;
   const canonicalLast = validated?.last_refresh ?? null;
@@ -471,6 +554,8 @@ async function handleRetrieve(
   const versions = await projectVersions(engine, payload.wrapper_version);
   const quota = await readQuotaControls(ctx, host.vip === 1);
   const baseResponse: Record<string, unknown> = {
+    account_pool: true,
+    account_id: accountId ?? canonicalRow?.accountId ?? undefined,
     canonical_last_refresh: canonicalLast,
     canonical_digest: canonicalDigest,
     canonical_generation: canonicalRow?.generation ?? undefined,
@@ -482,7 +567,8 @@ async function handleRetrieve(
     engine,
   };
   const [chatgpt, claude, advice] = await Promise.all([
-    readChatgptSnapshot(ctx), readClaudeSnapshot(ctx),
+    readChatgptSnapshot(ctx, accountId ?? canonicalRow?.accountId ?? undefined),
+    readClaudeSnapshot(ctx, accountId ?? canonicalRow?.accountId ?? undefined),
     readQuotaAdvice(new SettingsService(ctx.db)),
   ]);
   if (engine === ENGINE_CODEX) baseResponse.chatgpt = chatgpt;
@@ -593,7 +679,8 @@ async function buildRetrieveBaseResponse(
     engine,
   };
   const [chatgpt, claude, advice] = await Promise.all([
-    readChatgptSnapshot(ctx), readClaudeSnapshot(ctx),
+    readChatgptSnapshot(ctx, accountIdFrom(payload.account_id)),
+    readClaudeSnapshot(ctx, accountIdFrom(payload.account_id)),
     readQuotaAdvice(new SettingsService(ctx.db)),
   ]);
   if (engine === ENGINE_CODEX) baseResponse.chatgpt = chatgpt;
@@ -616,15 +703,40 @@ async function handleBootstrapAuth(
   if (!candidate)
     return handleRetrieve(app, ctx, host, payload, engine, runnerValidation, projectVersions, authStore);
 
-  const canonicalRow = await runnerValidation.resolveCanonicalPayload(engine);
+  const fallbackPayload = payload;
+  let discoveryError: unknown;
+  try {
+    const matchedAccount = await new ProviderAccountsService(ctx.db, ctx.keyring).resolveCandidate(
+      candidate,
+      engine,
+      accountIdFrom(payload.account_id),
+      host.id,
+      payload.session_id === undefined,
+    );
+    payload = { ...payload, account_id: matchedAccount.id };
+  } catch (err) {
+    if (!(err instanceof ValidationError) && !(err instanceof ApiError && err.code === 'account_removed'))
+      throw err;
+    discoveryError = err;
+  }
+  const accountId = accountIdFrom(payload.account_id);
+  const canonicalRow = await runnerValidation.resolveCanonicalPayload(engine, accountId);
   const validated = runnerValidation.validateCanonicalPayload(canonicalRow);
   const canonicalDigest = validated?.digest ?? null;
   const canonicalLast = validated?.last_refresh ?? null;
   const canonicalAuth = canonicalRow ? runnerValidation.canonicalAuthFromPayload(canonicalRow) : null;
   const candidateLast = typeof candidate.last_refresh === 'string' ? candidate.last_refresh.trim() : '';
+  const fallbackRow =
+    canonicalRow ??
+    (await runnerValidation.resolveCanonicalPayload(engine, accountIdFrom(fallbackPayload.account_id)));
+  const fallbackValidated = runnerValidation.validateCanonicalPayload(fallbackRow);
   const candidateMatchesFailedCanonical =
-    canonicalRow?.verificationState === 'failed' && validated
-      ? credentialPairMatches(runnerValidation.ensureAuthsFallback(candidate, engine), validated.auth, engine)
+    fallbackRow?.verificationState === 'failed' && fallbackValidated
+      ? credentialPairMatches(
+          runnerValidation.ensureAuthsFallback(candidate, engine),
+          fallbackValidated.auth,
+          engine,
+        )
       : null;
   const annotateFailedCanonicalMatch = (response: Record<string, unknown>): Record<string, unknown> =>
     candidateMatchesFailedCanonical === null
@@ -635,7 +747,16 @@ async function handleBootstrapAuth(
         };
   const serveDefinitiveCandidateFallback = async (): Promise<Record<string, unknown>> => {
     const fallback = annotateFailedCanonicalMatch(
-      await handleRetrieve(app, ctx, host, payload, engine, runnerValidation, projectVersions, authStore),
+      await handleRetrieve(
+        app,
+        ctx,
+        host,
+        canonicalRow ? payload : fallbackPayload,
+        engine,
+        runnerValidation,
+        projectVersions,
+        authStore,
+      ),
     );
     // This signal authorizes the wrapper to replace a locally newer candidate
     // with the older canonical. Emit it only when the candidate failure was
@@ -650,6 +771,7 @@ async function handleBootstrapAuth(
         }
       : { ...fallback, candidate_credential_rejected: true };
   };
+  if (discoveryError) return serveDefinitiveCandidateFallback();
   if (candidateLast) {
     try {
       assertReasonableLastRefresh(candidateLast, 'auth_candidate.last_refresh');
@@ -672,6 +794,8 @@ async function handleBootstrapAuth(
       // verdict from the background auth-verification worker.
       const baseResponse = await buildRetrieveBaseResponse(ctx, host, payload, engine, projectVersions);
       baseResponse.canonical_generation = canonicalRow.generation ?? undefined;
+      baseResponse.account_id = canonicalRow.accountId ?? undefined;
+      baseResponse.account_pool = true;
       let servedDigest = canonicalDigest;
       let servedLast = canonicalLast;
       {
@@ -734,6 +858,7 @@ async function handleBootstrapAuth(
   try {
     const stored = await authStore.storeCandidate({
       auth: candidate,
+      accountId,
       engine,
       sourceHostId: host.id,
       requireLastRefresh: false,
@@ -744,7 +869,7 @@ async function handleBootstrapAuth(
         typeof payload.base_canonical_generation === 'number' ? payload.base_canonical_generation : null,
     });
     const baseResponse = await buildRetrieveBaseResponse(ctx, host, payload, engine, projectVersions);
-    return { ...baseResponse, ...stored };
+    return { ...baseResponse, ...stored, account_pool: true };
   } catch (err) {
     app.log.warn(
       { err, host: host.fqdn, engine },
@@ -776,7 +901,7 @@ async function handleBootstrapAuth(
         app,
         ctx,
         host,
-        retrievePayloadWithCandidateFreshness(payload, candidateLast),
+        retrievePayloadWithCandidateFreshness(canonicalRow ? payload : fallbackPayload, candidateLast),
         engine,
         runnerValidation,
         projectVersions,
@@ -865,6 +990,8 @@ async function handleStore(
   try {
     stored = await authStore.storeCandidate({
       auth: incoming,
+      accountId: accountIdFrom(payload.account_id),
+      accountHint: payload.session_id === undefined,
       engine,
       sourceHostId: host.id,
       requireLastRefresh: true,
@@ -890,6 +1017,7 @@ async function handleStore(
 
   const response: Record<string, unknown> = {
     ...stored,
+    account_pool: true,
     api_calls: Number(host.apiCalls ?? 0) + 1,
     versions: summary,
     ...quota,
@@ -897,7 +1025,8 @@ async function handleStore(
     host: buildHostPayload(host),
   };
   const [chatgpt, claude, advice] = await Promise.all([
-    readChatgptSnapshot(ctx), readClaudeSnapshot(ctx),
+    readChatgptSnapshot(ctx, stored.account_id),
+    readClaudeSnapshot(ctx, stored.account_id),
     readQuotaAdvice(new SettingsService(ctx.db)),
   ]);
   if (engine === ENGINE_CODEX) response.chatgpt = chatgpt;
@@ -913,8 +1042,7 @@ async function handleStore(
 function resolvePublicBaseUrl(req: FastifyRequest, envBase: string | undefined): string {
   if (envBase) return envBase.replace(/\/+$/, '');
   const proto = headerString(req.headers['x-forwarded-proto']) ?? req.protocol ?? 'http';
-  const host =
-    headerString(req.headers['x-forwarded-host']) ?? headerString(req.headers.host) ?? 'localhost';
+  const host = headerString(req.headers['x-forwarded-host']) ?? headerString(req.headers.host) ?? 'localhost';
   return `${proto}://${host}`;
 }
 
@@ -1073,7 +1201,7 @@ function buildHostPayload(host: Host): Record<string, unknown> {
   };
 }
 
-async function readQuotaControls(
+export async function readQuotaControls(
   ctx: RouteContext,
   vip: boolean,
 ): Promise<{
@@ -1090,15 +1218,13 @@ async function readQuotaControls(
   };
 }
 
-async function readChatgptSnapshot(
-  ctx: RouteContext,
-): Promise<Record<string, unknown>> {
+async function readChatgptSnapshot(ctx: RouteContext, accountId?: number): Promise<Record<string, unknown>> {
   const unavailable = {
     status: 'unavailable',
     active_quota_lane: 'normal',
   };
   try {
-    const svc = new ChatGptUsageService(ctx.db, undefined, { env: ctx.env, keyring: ctx.keyring });
+    const svc = new ChatGptUsageService(ctx.db, undefined, { env: ctx.env, keyring: ctx.keyring, accountId });
     const row = await svc.latest();
     if (!row) return unavailable;
     return {
@@ -1114,14 +1240,42 @@ async function readChatgptSnapshot(
   }
 }
 
-async function readClaudeSnapshot(ctx: RouteContext): Promise<Record<string, unknown>> {
+async function readClaudeSnapshot(ctx: RouteContext, accountId?: number): Promise<Record<string, unknown>> {
   // Statusline reports are already computed by Claude Code. A startup read
   // never polls the provider or renews fetched_at on an old observation.
   try {
-    const row = await new ClaudeUsageService(ctx.db).latest();
+    const row = await new ClaudeUsageService(ctx.db, accountId).latest();
     if (row) return { status: 'ok', ...normalizeClaudeUsageSnapshot(row) };
   } catch {
     // Usage telemetry is advisory; an unavailable snapshot must not break auth.
   }
   return { status: 'unavailable' };
+}
+
+function accountIdFrom(value: unknown): number | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 1)
+    throw new ValidationError('account_id must be a positive integer');
+  return value;
+}
+function opaqueId(value: unknown, field: string): string {
+  if (typeof value !== 'string' || !/^[a-zA-Z0-9_-]{16,64}$/.test(value))
+    throw new ValidationError(`${field} must be an opaque 16-64 character identifier`);
+  return value;
+}
+
+async function enforceAccountSession(
+  accounts: ProviderAccountsService,
+  hostId: number,
+  engine: Engine,
+  payload: Record<string, unknown>,
+) {
+  const submitted = accountIdFrom(payload.account_id);
+  if (submitted !== undefined) payload.account_id = await accounts.canonicalId(submitted, engine);
+  if (payload.session_id === undefined) return;
+  const session = await accounts.session(hostId, engine, opaqueId(payload.session_id, 'session_id'));
+  const accountId = accountIdFrom(payload.account_id);
+  if (accountId !== undefined && accountId !== session.accountId)
+    throw new ValidationError('Account does not match session');
+  payload.account_id = session.accountId;
 }

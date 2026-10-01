@@ -8,6 +8,7 @@
  * or routed by the frontend's `DEFAULT_INVALIDATIONS`.
  */
 export const WS_EVENT_TYPES = [
+  'accounts.updated',
   // Logs
   'log.created',
   'log.updated',

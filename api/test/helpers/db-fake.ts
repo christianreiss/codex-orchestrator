@@ -91,6 +91,10 @@ export function createDbFake(initial: Map<unknown, Row[]> = new Map()): DbFake {
             inner.orderBy = (..._args: unknown[]) => {
               const o: any = Promise.resolve(filtered);
               o.limit = (_n: number) => Promise.resolve(filtered.slice(0, _n));
+              o.for = (_strength: unknown) => {
+                fake.locks.push({ table, where: _w, strength: _strength });
+                return o;
+              };
               return o;
             };
             // Row locking is a no-op here: the fake is single-threaded, so

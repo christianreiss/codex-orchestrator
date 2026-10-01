@@ -1,11 +1,11 @@
 <script lang="ts">
-  import { onMount, onDestroy } from "svelte";
+  import { onMount, onDestroy, untrack } from "svelte";
   import { browser } from "$app/environment";
   import type { Readable } from "svelte/store";
   import type { WsEvent } from "$lib/ws/client";
   import { insecureApprovalsQuery, insecureSummaryQuery } from "$lib/api/insecure";
   import { hostsSummary } from "$lib/stores/hosts-summary";
-  import { ghostCount } from "$lib/stores/insecure-resolutions";
+  import { ghostCount, resolutions } from "$lib/stores/insecure-resolutions";
   import InsecureApprovalsDialog, {
     type InsecureDialogMode,
   } from "./InsecureApprovalsDialog.svelte";
@@ -14,8 +14,8 @@
   /**
    * Global owner of the InsecureApprovalsDialog state.
    *
-   * Auto-opens the modal (in `triage` mode) when a request someone is actually
-   * waiting on appears — on a WS push, a poll, or already on first load — and in
+   * Auto-opens the modal (in `triage` mode) when a pending request appears
+   * — on a WS push, a poll, or already on first load — and in
    * `manage` mode when any component dispatches
    * `codex:open-insecure-approvals` on window. Also
    * plays a short beep and (if the tab is in the background and the user
@@ -29,27 +29,24 @@
 
   let open = $state(false);
   let mode = $state<InsecureDialogMode>("triage");
-  let openedByPush = $state(false);
-  // Last *settled* pending count we acted on. `null` until the first
-  // non-loading fetch so we can distinguish "pending already existed on load"
-  // from "a new request just arrived".
-  let lastSettledCount: number | null = null;
+  let hadPendingRequests = $state(false);
+  // Compare identities, so replacing one request with another also opens the box.
+  let lastSettledIds: Set<number> | null = null;
 
   const approvals = insecureApprovalsQuery();
 
-  /**
-   * Only requests a human is parked on may pop the dialog. A one-shot headless
-   * call never polls again (`live` stays false) and is retired by the server
-   * within 30 s, so popping — and beeping — for it would interrupt the operator
-   * for something nobody can use. Those still show in "Manage access".
-   */
-  function isWaiting(r: InsecureApprovalRequest, at: number): boolean {
-    if (r.live === false) return false;
+  let now = $state(Date.now());
+
+  function isPending(r: InsecureApprovalRequest, at: number): boolean {
+    if (r.status !== "pending") return false;
     const exp = r.expires_at ? Date.parse(r.expires_at) : NaN;
     return !Number.isFinite(exp) || exp > at;
   }
-  const waiting = $derived(($approvals.data?.requests ?? []).filter((r) => isWaiting(r, Date.now())));
-  const pendingCount = $derived(waiting.length);
+  const pending = $derived(($approvals.data?.requests ?? []).filter((r) => isPending(r, now)));
+  const pendingCount = $derived(pending.length);
+  // A request only becomes actionable once the host is waiting. Resolved rows
+  // can still be present in a cached read while the server refetch is in flight.
+  const waiting = $derived(pending.filter((r) => r.live !== false && !$resolutions.has(r.id)));
 
   // This component is mounted in the root layout, which makes it the only place
   // that can keep the TopBar honest about a fleet-wide auto-allow from every
@@ -59,7 +56,6 @@
     const fleet = $summary.data?.fleet_window;
     hostsSummary.setFleetWindowUntil(fleet?.open ? (fleet.until ?? null) : null);
   });
-  const newestFqdn = $derived(waiting[waiting.length - 1]?.fqdn);
 
   // Short cooldown so a backlog replay or burst of requests doesn't spam audio.
   let lastSoundAt = 0;
@@ -123,65 +119,43 @@
     }
   }
 
-  // Auto-open whenever the pending count rises — covers both the live
-  // `insecure.requested` WS push (which invalidates this query, so the refetch
-  // bumps the count almost instantly) and the polling refetch fallback used
-  // when the WS transport is disabled or down. Driving off the count instead of
-  // only the WS event means a fresh request pops the box without an F5, even if
-  // the push never arrived.
+  // WS invalidation and polling both drive the same identity comparison.
+  // Ignore failed/in-flight reads: only a settled queue can open or close it.
   $effect(() => {
-    if ($approvals.isLoading) return;
-    const count = pendingCount;
-    const prev = lastSettledCount;
-    lastSettledCount = count;
-    // First settled fetch: open if something is already pending, but don't beep
-    // for a backlog the operator hasn't seen as "new".
-    if (prev === null) {
-      if (count > 0 && !open) {
-        mode = "triage";
-        open = true;
-        openedByPush = true;
-      }
-      return;
-    }
-    // A genuinely new request appeared since we last looked.
-    if (count > prev) {
+    if (!$approvals.isSuccess || $approvals.isFetching) return;
+    const prev = lastSettledIds;
+    const incoming = waiting.filter((r) => !prev?.has(r.id));
+    lastSettledIds = new Set(waiting.map((r) => r.id));
+    if (incoming.length === 0) return;
+    if (prev !== null) {
       playBeep();
-      maybeNotify(newestFqdn);
-      // Never yank an operator who is already in "manage" back to triage; the
-      // new row shows up in their Requests tab.
-      if (!open) mode = "triage";
-      open = true;
-      openedByPush = mode === "triage";
+      maybeNotify(incoming[incoming.length - 1]?.fqdn);
     }
+    untrack(() => {
+      if (!open) mode = "triage";
+      hadPendingRequests = true;
+      open = true;
+    });
   });
 
-  // Auto-close the modal when there's nothing pending left AND it was
-  // opened by a push (so we don't close it under a user who opened it
-  // manually via the /hosts button to view Active Windows / Allowed Domains).
-  //
-  // Waiting on `ghostCount` too is what makes the last resolution legible: the
-  // row the operator just approved is still fading out, and closing the dialog
-  // on top of it turns the one piece of feedback they get into a flicker.
+  // A manually opened management panel with no requests stays available.
+  // Once a queue has been shown, close after it drains in either dialog mode.
   $effect(() => {
-    if (!open) return;
-    if (!openedByPush) return;
-    if ($approvals.isLoading) return;
+    if (open && pendingCount > 0) hadPendingRequests = true;
+  });
+  $effect(() => {
+    if (!open || (mode === "manage" && !hadPendingRequests)) return;
+    if (!$approvals.isSuccess || $approvals.isFetching) return;
+    // Let the final approval/denial feedback finish before closing.
     if (pendingCount === 0 && $ghostCount === 0) {
       open = false;
-      openedByPush = false;
+      hadPendingRequests = false;
     }
-  });
-
-  // Switching to "manage" makes it the operator's dialog: it must not vanish
-  // under them when the last request is answered.
-  $effect(() => {
-    if (mode === "manage") openedByPush = false;
   });
 
   function onDialogOpenChange(value: boolean): void {
     open = value;
-    if (!value) openedByPush = false;
+    if (!value) hadPendingRequests = false;
   }
 
   let unsubEvents: (() => void) | null = null;
@@ -189,10 +163,11 @@
 
   onMount(() => {
     if (!browser) return;
+    const clock = setInterval(() => (now = Date.now()), 1000);
 
     // The live `insecure.requested` push only needs to *wake the query*: the
     // global WS→query wiring already invalidates ["insecure-approvals"], but we
-    // also nudge an explicit refetch so the count-transition effect fires with
+    // also nudge an explicit refetch so the identity comparison runs with
     // the smallest possible latency. The actual open/beep/notify is owned by
     // that effect, so the WS-on and WS-off paths behave identically.
     unsubEvents = events.subscribe((evt) => {
@@ -203,9 +178,10 @@
     manualOpenListener = () => {
       mode = "manage";
       open = true;
-      openedByPush = false;
+      hadPendingRequests = false;
     };
     window.addEventListener("codex:open-insecure-approvals", manualOpenListener);
+    return () => clearInterval(clock);
   });
 
   onDestroy(() => {

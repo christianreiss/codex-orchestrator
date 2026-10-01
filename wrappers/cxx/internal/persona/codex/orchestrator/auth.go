@@ -15,6 +15,8 @@ import (
 // ~30 side-channel fields here — they're now strongly typed so the boot
 // banner, health dots, and quota panel can read them without re-parsing JSON.
 type AuthRetrieveResponse struct {
+	AccountID   int64                   `json:"account_id,omitempty"`
+	AccountPool bool                    `json:"account_pool,omitempty"`
 	QuotaAdvice *quotaadvice.Comparison `json:"quota_advice,omitempty"`
 
 	Status               string          `json:"status"`
@@ -209,6 +211,9 @@ func fillSparkFromWindow(win *quotaWindow, used **int, limit **int64, resetAfter
 
 // AuthRetrieve calls POST /auth with command=retrieve.
 func (c *Client) AuthRetrieve(ctx context.Context, digest string) (*AuthRetrieveResponse, error) {
+	if c.Pool == nil {
+		c.Pool = c.loadAccountPool()
+	}
 	body := map[string]any{
 		"command": "retrieve",
 		"engine":  "codex",

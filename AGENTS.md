@@ -1,6 +1,6 @@
 # Agents & Responsibilities
 
-Source-of-truth references live in `docs/interface-api.md`, `docs/interface-db.md`, `docs/interface-cdx.md`, and `docs/interface-clx.md`. Keep them in lock-step with code. This service keeps one canonical auth store per engine (Codex `auth.json` and Claude credentials) for the whole fleet, so every change needs a paper trail.
+Source-of-truth references live in `docs/interface-api.md`, `docs/interface-db.md`, `docs/interface-cdx.md`, and `docs/interface-clx.md`. Keep them in lock-step with code. This service keeps multiple provider accounts per engine for the whole fleet, each with an independent canonical auth head and quota snapshots. Account leases balance new CLI launches while preserving active native sessions; every auth change needs a paper trail.
 
 ## Backend stack
 
@@ -151,6 +151,6 @@ Conversely, some features are **Claude-only** (`clx`) because Codex has no on-di
 - Build output: `public/admin/` (committed). The API serves `index.html` verbatim from `STATIC_ROOT` for any unknown `/admin/*` route — no server-side injection; the SPA hydrates its session state from `GET /admin/auth/status`. `public/admin/manual/` ships article content consumed by the in-app help system.
 - Develop with `cd frontend && npm install && npm run dev`; produce the deploy artifacts with `npm run build` (output is copied into `public/admin/` by `scripts/copy-build.mjs`). `npm run check` runs `svelte-check`.
 - Routing uses `paths.base = '/admin'`. Routes live under `frontend/src/routes/` (`dashboard`, `hosts`, `projects`, `api-keys`, `authoring`, `logs`, `users`, `settings`, `account`, `manual`, `setup`, `cli-auth/verify`, `login`).
-- `setup` is the first-run wizard and renders outside `AppShell` (it is in the layout's `STANDALONE` list). Its steps live in `frontend/src/lib/components/setup/`; `SeedAuthPanel.svelte` is shared with the hosts-page seed dialog and is the product's only canonical-auth UI — do not fork a second copy.
+- `setup` is the first-run wizard and renders outside `AppShell` (it is in the layout's `STANDALONE` list). Its steps live in `frontend/src/lib/components/setup/`; `SeedAuthPanel.svelte` is shared with the hosts-page seed dialog and Accounts management and is the product's only provider-auth upload UI — do not fork a second copy.
 - Server state: `@tanstack/svelte-query` everywhere. WebSocket events invalidate query keys via `frontend/src/lib/ws/events.ts` — feature additions append to `DEFAULT_INVALIDATIONS`, views never wire their own listeners.
 - Cmd-K command palette + `?` shortcuts modal in `frontend/src/lib/components/{command-palette,shortcuts}/`. Multi-key chord shortcuts from the legacy UI have been removed in favor of the palette.

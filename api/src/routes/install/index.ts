@@ -1,3 +1,4 @@
+import { createPooledAuthStoreService as createCanonicalAuthStoreService } from '../../services/pooled-auth-store.js';
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { eq } from 'drizzle-orm';
 import { hosts as hostsTable, logs as logsTable } from '../../db/schema.js';
@@ -15,7 +16,6 @@ import {
 import { hostEnginesList } from '../../services/host-engine-policy.js';
 import { createRunnerValidationService } from '../../services/runner-validation.js';
 import { createRunnerClient } from '../../services/runner-client.js';
-import { createCanonicalAuthStoreService } from '../../services/canonical-auth-store.js';
 import { wsPublisher } from '../../ws/publisher.js';
 
 const INSTALL_TOKEN_RE = /^(?:[a-f0-9]{32}|[a-f0-9-]{36})$/;
@@ -56,11 +56,13 @@ export async function registerInstallRoutes(app: FastifyInstance, ctx: RouteCont
   });
 
   const installHandler = async (token: string, reply: FastifyReply): Promise<void> => {
-    if (!INSTALL_TOKEN_RE.test(token)) return shellishError(reply, 'Installer not found', 'installer_not_found');
+    if (!INSTALL_TOKEN_RE.test(token))
+      return shellishError(reply, 'Installer not found', 'installer_not_found');
     const row = await installSvc.findInstall(token);
     if (!row) return shellishError(reply, 'Installer not found', 'installer_not_found');
     if (row.usedAt) return shellishError(reply, 'Installer already used', 'installer_used', row.expiresAt);
-    if (tokenExpired(row.expiresAt)) return shellishError(reply, 'Installer expired', 'installer_expired', row.expiresAt);
+    if (tokenExpired(row.expiresAt))
+      return shellishError(reply, 'Installer expired', 'installer_expired', row.expiresAt);
 
     const hostRows = await ctx.db.select().from(hostsTable).where(eq(hostsTable.id, row.hostId)).limit(1);
     const host = hostRows[0];
@@ -72,7 +74,8 @@ export async function registerInstallRoutes(app: FastifyInstance, ctx: RouteCont
       if (fallback) apiKey = fallback;
     }
     const baseUrl = resolveBaseUrl(row.baseUrl, ctx);
-    if (!baseUrl) return shellishError(reply, 'Installer base URL invalid', 'installer_base_url_invalid', row.expiresAt);
+    if (!baseUrl)
+      return shellishError(reply, 'Installer base URL invalid', 'installer_base_url_invalid', row.expiresAt);
 
     const claimed = await installSvc.markInstallUsed(row.id);
     if (!claimed) return shellishError(reply, 'Installer already used', 'installer_used', row.expiresAt);
@@ -121,7 +124,8 @@ export async function registerInstallRoutes(app: FastifyInstance, ctx: RouteCont
     if (tokenExpired(row.expiresAt))
       return shellishSeedError(reply, 'Seed token expired', 'seed_expired', row.expiresAt);
     const baseUrl = resolveBaseUrl(row.baseUrl, ctx);
-    if (!baseUrl) return shellishSeedError(reply, 'Seed base URL invalid', 'seed_base_url_invalid', row.expiresAt);
+    if (!baseUrl)
+      return shellishSeedError(reply, 'Seed base URL invalid', 'seed_base_url_invalid', row.expiresAt);
 
     let body: string;
     try {
@@ -174,6 +178,8 @@ export async function registerInstallRoutes(app: FastifyInstance, ctx: RouteCont
     try {
       stored = await authStore.storeCandidate({
         auth: candidate as Record<string, unknown>,
+        accountId: row.accountId ?? undefined,
+        enrollAccount: row.accountId == null,
         engine,
         sourceHostId: null,
         requireLastRefresh: false,

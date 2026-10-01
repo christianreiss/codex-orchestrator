@@ -527,7 +527,7 @@ func writeAuth(payload json.RawMessage, canonicalDigest string, expected *AuthGe
 	return applied, err
 }
 
-func writeAuthContext(ctx context.Context, payload json.RawMessage, canonicalDigest string, expected *AuthGeneration, allowLogoutRecovery, strictExpected bool) (AuthGeneration, bool, error) {
+func writeAuthContext(ctx context.Context, payload json.RawMessage, canonicalDigest string, expected *AuthGeneration, allowLogoutRecovery, strictExpected bool, requireIdle ...bool) (AuthGeneration, bool, error) {
 	if len(payload) == 0 {
 		return AuthGeneration{}, false, errors.New("empty auth payload")
 	}
@@ -551,7 +551,7 @@ func writeAuthContext(ctx context.Context, payload json.RawMessage, canonicalDig
 	}
 	defer unlock()
 	var childLease *authChildLease
-	if expected == nil {
+	if expected == nil || (len(requireIdle) > 0 && requireIdle[0]) {
 		childLease, err = tryAcquireAuthChildWriter()
 		if err != nil {
 			return AuthGeneration{}, false, err
@@ -1150,4 +1150,10 @@ func syncDir(dir string) error {
 		return nil
 	}
 	return err
+}
+
+// WriteAssignedAccountIfCurrent uses strict CAS and holds an idle-child lease for account switches.
+func WriteAssignedAccountIfCurrent(payload json.RawMessage, digest string, expected AuthGeneration, switching bool) (bool, error) {
+	_, wrote, err := writeAuthContext(context.Background(), payload, digest, &expected, false, true, switching)
+	return wrote, err
 }

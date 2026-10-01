@@ -1007,7 +1007,7 @@ A peer delivery stays held, and blocks the next one, until the model is done wit
 never claims), `agent_conf_join` and `agent_conf_say`. Before 0.9.5 only `agent_reply`
 did, so a conference invite, `WELCOME` or `NOTED` wedged reception until its TTL.
 
-From cxx 0.9.7 the automatic `agent_listen` reports the receiver's real state
+From cxx 0.9.8 the automatic `agent_listen` reports the receiver's real state
 instead of a fixed string: `status: "automatic"` with `receiver.state: "ready"` and
 the current `claim_gate` (`open`, `held_delivery`, `portal_pending`, or
 `thread_<status>` for a busy Codex thread; anything but `open` only delays delivery
@@ -1086,3 +1086,11 @@ receiver (`agent mcp`, no `--auto`, no channel), since the plugin is now the onl
 source of the messaging tools on Claude. MCP ping replies keep transport health
 independent of long-running model/tool calls. The Channels API remains a research
 preview.
+
+## Multiple provider accounts (cxx 0.9.7)
+
+A launch reserves one verified account from this engine's pool before starting the native child. The wrapper persists identifiers only in `.cxx-account-<server-hash>.json` beside the native credential file (0600), and scopes subsequent auth/bootstrap requests to that account. Credentials stay in the normal native file and retain its CAS/logout/security protections. Account switching uses strict generation CAS and requires an idle native child lease; overlapping invocations with the same host/engine/auth-directory scope share their live account. Heartbeats run every 30 seconds and leases expire after five minutes if a wrapper disappears; normal exit releases the reservation. Content-only sync and maintenance never rebalance accounts. Older servers omit `account_pool` and retain the existing single-account path. Existing secure-host offline fallback and insecure purge/logout behavior remain in force.
+
+Quota gating and advice read the selected account only. The startup account label identifies the selection. A missing compatible account fails with an engine-specific error; Claude accounts do not supply Codex and ChatGPT accounts do not supply Claude. Manage pools through **Fleet → Accounts**; assignments are automatic. OAuth login sessions are not separate provider accounts. Fresh opaque Claude OAuth tokens reuse the sole account or their session/host assignment; known access/refresh lineage also identifies previous credentials. With multiple accounts and no assignment, use Replace credentials on the intended account. Use Add account or an untargeted seed command to explicitly enroll another opaque account.
+
+Claude statusline reports inherit `CXX_PROVIDER_ACCOUNT_ID` and `CXX_PROVIDER_SESSION_ID` from their native child. Both usage snapshots and the report throttle are account-scoped, preventing an older session from reporting under a newly selected account.

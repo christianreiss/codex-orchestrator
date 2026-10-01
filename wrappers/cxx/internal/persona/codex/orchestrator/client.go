@@ -10,12 +10,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/accountpool"
 	"io"
 	"log/slog"
 	"math/rand"
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"time"
@@ -30,6 +32,7 @@ const (
 
 // Client wraps net/http with the per-host API key, retry logic, and a base URL.
 type Client struct {
+	Pool      *accountpool.Context
 	BaseURL   string
 	APIKey    string
 	HTTP      *http.Client
@@ -154,6 +157,7 @@ func (c *Client) Do(ctx context.Context, req *http.Request, retries int) (*http.
 
 // JSON is a convenience for POSTing JSON and decoding a JSON response envelope.
 func (c *Client) JSON(ctx context.Context, method, path string, in any, out any, retries int) error {
+	in = c.Pool.Inject(path, in)
 	var body io.Reader
 	if in != nil {
 		buf, err := json.Marshal(in)
@@ -188,7 +192,19 @@ func (c *Client) JSON(ctx context.Context, method, path string, in any, out any,
 	if out == nil {
 		return nil
 	}
-	return json.NewDecoder(resp.Body).Decode(out)
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, 64<<20))
+	if err != nil {
+		return err
+	}
+	if err := json.Unmarshal(raw, out); err != nil {
+		return err
+	}
+	observer := c.Pool
+	if observer == nil {
+		observer = c.loadAccountPool()
+	}
+	observer.Observe(path, raw)
+	return nil
 }
 
 // Get is a convenience wrapper for GET requests returning a parsed body.
@@ -262,4 +278,13 @@ type Envelope[T any] struct {
 	Message string         `json:"message,omitempty"`
 	Data    T              `json:"data,omitempty"`
 	Errors  map[string]any `json:"errors,omitempty"`
+}
+
+func (c *Client) loadAccountPool() *accountpool.Context {
+	home, _ := os.UserHomeDir()
+	directory := filepath.Join(home, ".codex")
+	if override := os.Getenv("CODEX_HOME"); override != "" {
+		directory = override
+	}
+	return accountpool.Load("codex", filepath.Join(directory, "auth.json"), c.BaseURL)
 }

@@ -10,7 +10,7 @@
  * until the host-runner pipeline owned by Phase 2.1 is wired.
  */
 
-import { and, desc, eq, gte, lte } from 'drizzle-orm';
+import { and, desc, eq, gte, lte, isNull } from 'drizzle-orm';
 import type { Database } from '../db/client.js';
 import { chatgptUsageSnapshots, dashboardGraphQuotaSnapshots } from '../db/schema.js';
 import { wsPublisher } from '../ws/publisher.js';
@@ -74,6 +74,7 @@ interface ChatGptHistorySeries {
 }
 
 interface ChatGptUsageDeps {
+  accountId?: number;
   env?: Pick<Env, 'CHATGPT_BASE_URL' | 'CHATGPT_USAGE_TIMEOUT'>;
   keyring?: Keyring;
   runnerValidation?: RunnerValidationService;
@@ -136,6 +137,7 @@ export function normalizeChatGptUsageSnapshot(row: ChatGptSnapshotRow): Record<s
   return {
     id: row.id,
     host_id: row.hostId,
+    account_id: row.accountId ?? null,
     status: row.status,
     plan_type: row.planType,
     rate_allowed: boolFromTinyint(row.rateAllowed),
@@ -358,6 +360,11 @@ export class ChatGptUsageService {
     const rows = await this.db
       .select()
       .from(chatgptUsageSnapshots)
+      .where(
+        this.deps.accountId === undefined
+          ? isNull(chatgptUsageSnapshots.accountId)
+          : eq(chatgptUsageSnapshots.accountId, this.deps.accountId),
+      )
       .orderBy(desc(chatgptUsageSnapshots.fetchedAt), desc(chatgptUsageSnapshots.id))
       .limit(1);
     return rows[0] ?? null;
@@ -436,7 +443,13 @@ export class ChatGptUsageService {
       })
       .from(chatgptUsageSnapshots)
       .where(
-        and(gte(chatgptUsageSnapshots.fetchedAt, fromIso), lte(chatgptUsageSnapshots.fetchedAt, untilIso)),
+        and(
+          gte(chatgptUsageSnapshots.fetchedAt, fromIso),
+          lte(chatgptUsageSnapshots.fetchedAt, untilIso),
+          this.deps.accountId === undefined
+            ? isNull(chatgptUsageSnapshots.accountId)
+            : eq(chatgptUsageSnapshots.accountId, this.deps.accountId),
+        ),
       )
       .orderBy(chatgptUsageSnapshots.fetchedAt);
 
@@ -496,7 +509,7 @@ export class ChatGptUsageService {
   private async fetchAndStore(): Promise<FetchResult> {
     const now = nowIso();
     const nextEligible = isoOffsetSeconds(MIN_REFRESH_SECONDS);
-    const canonical = await this.validation.resolveCanonicalPayload(ENGINE_CODEX);
+    const canonical = await this.validation.resolveCanonicalPayload(ENGINE_CODEX, this.deps.accountId);
     const auth = canonical ? this.validation.canonicalAuthFromPayload(canonical) : null;
     if (!auth) {
       return this.storeError('missing_canonical_auth', 'Canonical Codex auth.json not available');
@@ -626,7 +639,9 @@ export class ChatGptUsageService {
   }
 
   private async insertSnapshot(values: ChatGptSnapshotInsert): Promise<ChatGptSnapshotRow> {
-    const result = await this.db.insert(chatgptUsageSnapshots).values(values);
+    const result = await this.db
+      .insert(chatgptUsageSnapshots)
+      .values({ ...values, accountId: this.deps.accountId });
     // mysql2 returns [{ insertId, affectedRows }, fields]; select the row we just
     // inserted by id instead of "latest by fetchedAt" so concurrent refreshes
     // (e.g. a manual refresh racing a scheduled one) can't hand this call back
@@ -646,6 +661,7 @@ export class ChatGptUsageService {
   }
 
   private async recordGraphSnapshot(row: ChatGptSnapshotRow): Promise<void> {
+    if (this.deps.accountId !== undefined) return;
     try {
       await this.db.insert(dashboardGraphQuotaSnapshots).values({
         fetchedAt: row.fetchedAt,

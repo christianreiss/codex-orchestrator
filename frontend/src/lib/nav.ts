@@ -69,6 +69,8 @@ function define(item: NavDefinition): NavItem {
 }
 
 const REGISTRY: NavDefinition[] = [
+  { id: "provider-accounts", group: "Fleet", route: "/accounts", label: "Accounts",
+    description: "ChatGPT and Claude accounts, quotas, and assignments", keywords: ["accounts", "chatgpt", "claude", "quota", "credentials", "balance"], icon: Users },
   {
     id: "overview", group: "Monitor", route: "/dashboard", label: "Overview",
     description: "Fleet health and exceptions", keywords: ["home", "health", "usage"], icon: LayoutDashboard,

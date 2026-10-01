@@ -18,9 +18,12 @@ import {
   normalizeSkillDraft,
   type SkillDraft,
 } from './skill-manifest.js';
+import { withAccountTask } from './account-task.js';
+import type { ProviderAccountsService } from './provider-accounts.js';
 import { ENGINE_CODEX, type Engine } from '../util/engine.js';
 
 export interface SkillDraftsServiceDeps {
+  accounts?: ProviderAccountsService;
   db?: Database;
   runner?: RunnerClient;
   runnerValidation?: RunnerValidationService;
@@ -47,19 +50,26 @@ export class SkillDraftsService {
       throw runnerUnavailable();
     }
 
-    const auth = await this.requireCanonicalAuth('skill.generate');
     if (!this.deps.runner.generateSkillDraft) {
       throw new ApiError('Skill generation endpoint is not configured', {
         status: 503,
         code: 'runner_unavailable',
       });
     }
-    const result = await this.deps.runner.generateSkillDraft({
-      prompt,
-      authJson: auth,
-      engine: this.engine,
-      slugHint: slugHintRaw !== '' ? slugHintRaw : null,
-    });
+    const result = await withAccountTask(
+      this.deps.accounts,
+      this.deps.db,
+      this.deps.runnerValidation,
+      this.engine,
+      () => this.requireCanonicalAuth('skill.generate'),
+      (auth) =>
+        this.deps.runner!.generateSkillDraft!({
+          prompt,
+          authJson: auth,
+          engine: this.engine,
+          slugHint: slugHintRaw !== '' ? slugHintRaw : null,
+        }),
+    );
 
     const status = typeof result.status === 'string' ? result.status.toLowerCase().trim() : '';
     if (status !== 'ok') {
@@ -118,21 +128,28 @@ export class SkillDraftsService {
       throw runnerUnavailable();
     }
 
-    const auth = await this.requireCanonicalAuth('skill.assist', { mode });
     if (!this.deps.runner.assistSkillDraft) {
       throw new ApiError('Skill assist endpoint is not configured', {
         status: 503,
         code: 'runner_unavailable',
       });
     }
-    const result = await this.deps.runner.assistSkillDraft({
-      messages,
-      skill: currentSkill as unknown as Record<string, unknown>,
-      authJson: auth,
-      engine: this.engine,
-      mode,
-      slugLocked: mode === 'edit',
-    });
+    const result = await withAccountTask(
+      this.deps.accounts,
+      this.deps.db,
+      this.deps.runnerValidation,
+      this.engine,
+      () => this.requireCanonicalAuth('skill.assist'),
+      (auth) =>
+        this.deps.runner!.assistSkillDraft!({
+          messages,
+          skill: currentSkill as unknown as Record<string, unknown>,
+          authJson: auth,
+          engine: this.engine,
+          mode,
+          slugLocked: mode === 'edit',
+        }),
+    );
 
     const status = typeof result.status === 'string' ? result.status.toLowerCase().trim() : '';
     if (status !== 'ok') {

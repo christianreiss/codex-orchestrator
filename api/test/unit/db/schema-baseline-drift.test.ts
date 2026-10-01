@@ -52,7 +52,10 @@ const schemaTables = (): Map<string, string[]> => {
     // The `{` the match ends on opens the column object; the index config that
     // may follow it is a separate argument and stays out of the slice.
     const body = objectLiteral(source, table.index + table[0].length - 1);
-    tables.set(table[1]!, [...body.matchAll(COLUMN)].map((column) => column[1]!));
+    tables.set(
+      table[1]!,
+      [...body.matchAll(COLUMN)].map((column) => column[1]!),
+    );
   }
   return tables;
 };
@@ -101,13 +104,8 @@ describe('schema.ts against the test baseline', () => {
     const tables = schemaTables();
 
     // Bump this with the table you added, in the same commit.
-    expect(tables.size).toBe(71);
+    expect(tables.size).toBe(73);
     expect([...tables].filter(([, columns]) => columns.length === 0)).toEqual([]);
-    expect(tables.get('auth_canonical_heads')).toEqual([
-      'engine',
-      'payload_id',
-      'generation',
-      'updated_at',
-    ]);
+    expect(tables.get('auth_canonical_heads')).toEqual(['engine', 'payload_id', 'generation', 'updated_at']);
   });
 });

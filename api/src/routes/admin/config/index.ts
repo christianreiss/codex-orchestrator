@@ -45,6 +45,7 @@
  * Every route is gated by `app.requireAdmin` from the auth-admin plugin.
  */
 import type { FastifyInstance } from 'fastify';
+import { ProviderAccountsService } from '../../../services/provider-accounts.js';
 import { desc, eq, sql } from 'drizzle-orm';
 import { hosts, mcpAccessLogs, versions } from '../../../db/schema.js';
 import { NotFoundError, ValidationError } from '../../../http/errors.js';
@@ -94,6 +95,7 @@ export async function registerAdminConfigRoutes(app: FastifyInstance, ctx: Route
       ? {
           db,
           runner: skillRunner,
+          accounts: new ProviderAccountsService(db, ctx.keyring),
           runnerValidation: createRunnerValidationService({ db, keyring: ctx.keyring }),
         }
       : { db },

@@ -1,3 +1,5 @@
+import { eq } from 'drizzle-orm';
+import { providerAccounts } from '../db/schema.js';
 import type { FastifyInstance } from 'fastify';
 import type { Env } from '../env.js';
 import type { Database } from '../db/client.js';
@@ -78,6 +80,7 @@ export function startAuthVerificationWorker(
     write: (engine, state, checkedAt) => writeRunnerTelemetry(db, engine, state, checkedAt),
   };
   const scheduleMemory: AuthProbeScheduleMemory = new Map();
+  const accountSchedules = new Map<number, AuthProbeScheduleMemory>();
   let running = false;
   let stopped = false;
 
@@ -85,16 +88,53 @@ export function startAuthVerificationWorker(
     if (running || stopped) return;
     running = true;
     try {
-      await runAuthVerificationWorkerTick({
-        runnerValidation,
-        authStore,
-        telemetry,
-        ttlSeconds,
-        maxIntervalSeconds,
-        scheduleMemory,
-        reason,
-        log: app.log,
-      });
+      const accounts = await db.select().from(providerAccounts).where(eq(providerAccounts.state, 'enabled'));
+      if (accounts.length) {
+        const states = new Map<Engine, Array<'ok' | 'fail'>>();
+        for (const account of accounts) {
+          const scoped: RunnerValidationService = {
+            ...runnerValidation,
+            resolveCanonicalPayload: (engine) =>
+              engine === account.engine
+                ? runnerValidation.resolveCanonicalPayload(engine, account.id)
+                : Promise.resolve(null),
+            resolvePendingQuarantine: (engine) =>
+              engine === account.engine
+                ? runnerValidation.resolvePendingQuarantine!(engine, account.id)
+                : Promise.resolve(null),
+          };
+          const accountSchedule = accountSchedules.get(account.id) ?? new Map();
+          accountSchedules.set(account.id, accountSchedule);
+          await runAuthVerificationWorkerTick({
+            runnerValidation: scoped,
+            authStore,
+            scheduleMemory: accountSchedule,
+            telemetry: {
+              async write(engine, state) {
+                const values = states.get(engine) ?? [];
+                values.push(state);
+                states.set(engine, values);
+              },
+            },
+            ttlSeconds,
+            maxIntervalSeconds,
+            reason,
+            log: app.log,
+          });
+        }
+        for (const [engine, values] of states)
+          await telemetry.write(engine, values.includes('ok') ? 'ok' : 'fail', nowIso());
+      } else
+        await runAuthVerificationWorkerTick({
+          runnerValidation,
+          authStore,
+          telemetry,
+          ttlSeconds,
+          maxIntervalSeconds,
+          scheduleMemory,
+          reason,
+          log: app.log,
+        });
     } catch (err) {
       app.log.warn({ err, reason }, 'auth verification worker tick failed');
     } finally {
@@ -218,10 +258,7 @@ export function isProbeDue(input: {
 
 async function verifyEngine(engine: Engine, deps: AuthVerificationTickDeps): Promise<void> {
   const { runnerValidation, authStore, ttlSeconds, reason, log } = deps;
-  const maxIntervalSeconds = Math.max(
-    ttlSeconds,
-    deps.maxIntervalSeconds ?? DEFAULT_MAX_INTERVAL_SECONDS,
-  );
+  const maxIntervalSeconds = Math.max(ttlSeconds, deps.maxIntervalSeconds ?? DEFAULT_MAX_INTERVAL_SECONDS);
   const scheduleMemory = deps.scheduleMemory ?? new Map<Engine, AuthProbeAttempt>();
   const nowMsFn = deps.nowMs ?? Date.now;
   const quarantine = await runnerValidation.resolvePendingQuarantine?.(engine);
@@ -244,8 +281,7 @@ async function verifyEngine(engine: Engine, deps: AuthVerificationTickDeps): Pro
       verificationState: 'verified',
     }) === null;
   const forceImmediateRepair =
-    row.verificationState === 'verified' &&
-    (requiresNormalization || requiresCanonicalReissue);
+    row.verificationState === 'verified' && (requiresNormalization || requiresCanonicalReissue);
   const authToProbe = requiresNormalization ? normalizedAuth : validated.auth;
 
   const writeRowStateTelemetry = async (): Promise<void> => {
@@ -291,7 +327,13 @@ async function verifyEngine(engine: Engine, deps: AuthVerificationTickDeps): Pro
         await writeRowStateTelemetry();
       }
       log?.debug?.(
-        { engine, reason, state: row.verificationState, interval_seconds: schedule.intervalSeconds, source: schedule.source },
+        {
+          engine,
+          reason,
+          state: row.verificationState,
+          interval_seconds: schedule.intervalSeconds,
+          source: schedule.source,
+        },
         'canonical auth verification still fresh',
       );
       return;
@@ -317,6 +359,7 @@ async function verifyEngine(engine: Engine, deps: AuthVerificationTickDeps): Pro
     hostId: null,
     row: {
       id: row.id,
+      accountId: row.accountId,
       verificationState: row.verificationState,
       verificationCheckedAt: row.verificationCheckedAt,
       verificationReason: row.verificationReason,

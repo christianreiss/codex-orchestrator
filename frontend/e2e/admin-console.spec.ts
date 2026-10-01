@@ -1822,3 +1822,80 @@ test('conference inspector rejects a late reveal after closing and refreshes new
   await expect(page.locator(`[data-message-id="${conferenceMessage(3).id}"]`)).toBeVisible({ timeout: 20_000 });
   await expect(page.getByText('Late secret report')).toHaveCount(0);
 });
+
+for (const mode of ["triage", "manage"] as const) {
+  test(`host approvals open on connected clients and drain in ${mode} mode`, async ({ page, context }) => {
+    const clients = [page, await context.newPage()];
+    let requests: Record<string, unknown>[] = [];
+    const emitters: ((data: string) => void)[] = [];
+    let reads = 0;
+    const broadcast = (type: string, payload = {}) => {
+      for (const emit of emitters) emit(JSON.stringify({ type, payload, ts: new Date().toISOString() }));
+    };
+    for (const client of clients) {
+      await client.routeWebSocket("**/approvals-ws", (ws) => { emitters.push((data) => ws.send(data)); });
+      await installFixtures(client, (path) => {
+        if (path === "/admin/hosts/insecure") return { hosts: [], domains: [], domains_active: 0 };
+        if (path === "/admin/ws/info") return { enabled: true, url: "ws://127.0.0.1:4173/approvals-ws" };
+        if (path === "/admin/insecure-approvals/pending") { reads++; return { requests }; }
+        const match = path.match(/\/admin\/insecure-approvals\/(\d+)\/(approve|deny)$/);
+        if (match) {
+          requests = requests.filter((r) => r.id !== Number(match[1]));
+          broadcast(match[2] === "approve" ? "insecure.approved" : "insecure.denied", { request_id: Number(match[1]) });
+          return {};
+        }
+      });
+      await client.goto("/admin/quick-settings");
+    }
+    await expect.poll(() => emitters.length).toBe(2);
+    await expect.poll(() => reads).toBeGreaterThanOrEqual(2);
+    const request = (id: number) => ({ id, host_id: id, fqdn: `host${id}.example.test`, status: "pending", live: true,
+      requested_at: new Date().toISOString(), expires_at: new Date(Date.now() + 300_000).toISOString() });
+    const refresh = async () => {
+      const before = reads;
+      broadcast("insecure.requested");
+      await expect.poll(() => reads).toBeGreaterThanOrEqual(before + 2);
+      // Observe the settled render, not only the state before the refetch.
+      for (const client of clients) await client.waitForTimeout(200);
+    };
+    await refresh();
+    for (const client of clients) await expect(client.getByRole("dialog")).toBeHidden();
+    requests = [{ ...request(1), live: false }];
+    await refresh();
+    for (const client of clients) await expect(client.getByRole("dialog")).toBeHidden();
+    requests = [{ ...request(1), expires_at: new Date(Date.now() - 1000).toISOString() }];
+    await refresh();
+    for (const client of clients) await expect(client.getByRole("dialog")).toBeHidden();
+    // The same request becoming live must now open both clients.
+    requests = [request(1)];
+    broadcast("insecure.requested");
+    for (const client of clients) {
+      await expect(client.getByRole("dialog")).toContainText("host1.example.test");
+      await client.keyboard.press("Escape");
+      await expect(client.getByRole("dialog")).toBeHidden();
+    }
+    // Replacing an ID without increasing the count must reopen dismissed boxes.
+    requests = [request(2)];
+    broadcast("insecure.requested");
+    for (const client of clients) {
+      await expect(client.getByRole("dialog")).toContainText("host2.example.test");
+      if (mode === "manage") {
+        await client.keyboard.press("Escape");
+        await client.evaluate(() => window.dispatchEvent(new Event("codex:open-insecure-approvals")));
+        await expect(client.getByRole("dialog")).toBeVisible();
+      }
+    }
+    requests = [...requests, request(3)];
+    broadcast("insecure.requested");
+    for (const client of clients) await expect(client.getByRole("dialog")).toContainText("host3.example.test");
+    await page.getByRole("dialog").getByRole("button", { name: "Approve for 8 hours" }).first().click();
+    for (const client of clients) await expect(client.getByRole("dialog")).toBeVisible();
+    await expect(page.getByRole("dialog").getByRole("button", { name: "Deny", exact: true })).toHaveCount(1);
+    await page.getByRole("dialog").getByRole("button", { name: "Deny", exact: true }).click();
+    for (const client of clients) await expect(client.getByRole("dialog")).toBeHidden();
+    if (mode === "manage") {
+      await page.evaluate(() => window.dispatchEvent(new Event("codex:open-insecure-approvals")));
+      await expect(page.getByRole("dialog")).toContainText("No host is waiting for access.");
+    }
+  });
+}

@@ -2,6 +2,8 @@
   import PageHeader from "$lib/components/layout/PageHeader.svelte";
   import StatCard from "$lib/components/dashboard/StatCard.svelte";
   import ChatGptUsageCard from "./ChatGptUsageCard.svelte";
+  import AccountUsageCards from "./AccountUsageCards.svelte";
+  import { accountsQuery } from "$lib/api/accounts";
   import ClaudeUsageCard from "./ClaudeUsageCard.svelte";
   import RunnerCard from "$lib/components/dashboard/RunnerCard.svelte";
   import { Alert, AlertTitle, AlertDescription } from "$lib/components/ui/alert";
@@ -19,6 +21,7 @@
   import RefreshCw from "@lucide/svelte/icons/refresh-cw";
 
   const overview = overviewQuery();
+  const accounts = accountsQuery();
 
   /** The endpoint exposes the fleet total and its latest refresh directly. */
   const stats = $derived.by(() => {
@@ -168,8 +171,12 @@
 
   <!-- Usage + runner cards -->
   <div class="grid grid-cols-1 gap-4 xl:grid-cols-2">
-    <ChatGptUsageCard />
-    <ClaudeUsageCard />
+    {#if $accounts.data?.accounts.length}
+      <AccountUsageCards accounts={$accounts.data.accounts} />
+    {:else}
+      <ChatGptUsageCard />
+      <ClaudeUsageCard />
+    {/if}
   </div>
   <RunnerCard />
 </div>

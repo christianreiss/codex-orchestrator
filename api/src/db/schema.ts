@@ -141,6 +141,7 @@ export const authPayloads = mysqlTable(
   'auth_payloads',
   {
     id: bigint('id', { mode: 'number', unsigned: true }).primaryKey().autoincrement(),
+    accountId: bigint('account_id', { mode: 'number', unsigned: true }),
     lastRefresh: varchar('last_refresh', { length: 100 }).notNull(),
     sha256: char('sha256', { length: 64 }).notNull(),
     sourceHostId: bigint('source_host_id', { mode: 'number', unsigned: true }),
@@ -167,14 +168,47 @@ export const authPayloads = mysqlTable(
   (t) => ({
     lastRefreshIdx: index('idx_auth_payloads_last_refresh').on(t.lastRefresh),
     createdAtIdx: index('idx_auth_payloads_created_at').on(t.createdAt),
-    verificationStateIdx: index('idx_auth_payloads_verification_state').on(
-      t.verificationState,
-      t.createdAt,
-    ),
+    verificationStateIdx: index('idx_auth_payloads_verification_state').on(t.verificationState, t.createdAt),
     engineIdx: index('idx_auth_payloads_engine').on(t.engine),
-    generationIdx: uniqueIndex('uq_auth_payloads_engine_generation').on(t.engine, t.generation),
+    generationIdx: uniqueIndex('uq_auth_payloads_engine_generation').on(t.engine, t.accountId, t.generation),
     pairFingerprintIdx: index('idx_auth_payloads_pair_fingerprint').on(t.engine, t.pairFingerprint),
     purgeAfterIdx: index('idx_auth_payloads_purge_after').on(t.purgeAfter),
+  }),
+);
+
+// One independently synchronized credential lineage per provider account.
+export const providerAccounts = mysqlTable(
+  'provider_accounts',
+  {
+    id: bigint('id', { mode: 'number', unsigned: true }).primaryKey().autoincrement(),
+    engine: varchar('engine', { length: 16 }).notNull(),
+    label: varchar('label', { length: 191 }).notNull(),
+    identityKey: varchar('identity_key', { length: 191 }),
+    mergedIntoAccountId: bigint('merged_into_account_id', { mode: 'number', unsigned: true }),
+    state: varchar('state', { length: 16 }).notNull().default('enabled'),
+    payloadId: bigint('payload_id', { mode: 'number', unsigned: true }),
+    generation: bigint('generation', { mode: 'number', unsigned: true }),
+    lastSelectedAt: varchar('last_selected_at', { length: 100 }),
+    createdAt: varchar('created_at', { length: 100 }).notNull(),
+    updatedAt: varchar('updated_at', { length: 100 }).notNull(),
+  },
+  (t) => ({ identityIdx: uniqueIndex('uq_provider_account_identity').on(t.engine, t.identityKey) }),
+);
+
+export const providerAccountSessions = mysqlTable(
+  'provider_account_sessions',
+  {
+    id: varchar('id', { length: 64 }).primaryKey(),
+    hostId: bigint('host_id', { mode: 'number', unsigned: true }).notNull(),
+    engine: varchar('engine', { length: 16 }).notNull(),
+    scopeId: varchar('scope_id', { length: 64 }).notNull(),
+    accountId: bigint('account_id', { mode: 'number', unsigned: true }).notNull(),
+    expiresAt: varchar('expires_at', { length: 100 }).notNull(),
+    createdAt: varchar('created_at', { length: 100 }).notNull(),
+  },
+  (t) => ({
+    accountIdx: index('idx_account_session_active').on(t.accountId, t.expiresAt),
+    scopeIdx: index('idx_account_session_scope').on(t.hostId, t.engine, t.scopeId),
   }),
 );
 
@@ -250,6 +284,7 @@ export const authSeedTokens = mysqlTable(
   'auth_seed_tokens',
   {
     id: bigint('id', { mode: 'number', unsigned: true }).primaryKey().autoincrement(),
+    accountId: bigint('account_id', { mode: 'number', unsigned: true }),
     token: char('token', { length: 64 }).notNull(),
     tokenEnc: longtext('token_enc'),
     baseUrl: varchar('base_url', { length: 255 }),
@@ -752,9 +787,7 @@ export const coordProjectBoards = mysqlTable(
     projectId: bigint('project_id', { mode: 'number', unsigned: true }).notNull(),
     slug: varchar('slug', { length: 64 }).notNull().default('default'),
     title: varchar('title', { length: 255 }).notNull(),
-    nextCardNumber: bigint('next_card_number', { mode: 'number', unsigned: true })
-      .notNull()
-      .default(1),
+    nextCardNumber: bigint('next_card_number', { mode: 'number', unsigned: true }).notNull().default(1),
     claimTtlSeconds: int('claim_ttl_seconds', { unsigned: true }),
     archivedAt: varchar('archived_at', { length: 100 }),
     createdAt: varchar('created_at', { length: 100 }).notNull(),
@@ -847,15 +880,8 @@ export const coordProjectCards = mysqlTable(
     numberUnique: uniqueIndex('uq_coord_project_cards_number').on(t.projectId, t.cardNumber),
     todoUnique: uniqueIndex('uq_coord_project_cards_todo').on(t.projectId, t.sourceTodoId),
     columnIdx: index('idx_coord_project_cards_column').on(t.columnId, t.priority, t.enteredColumnAt),
-    projectIdx: index('idx_coord_project_cards_project').on(
-      t.projectId,
-      t.archivedAt,
-      t.updatedAt,
-    ),
-    claimIdx: index('idx_coord_project_cards_claim').on(
-      t.claimedAgentBusAddressId,
-      t.claimExpiresAt,
-    ),
+    projectIdx: index('idx_coord_project_cards_project').on(t.projectId, t.archivedAt, t.updatedAt),
+    claimIdx: index('idx_coord_project_cards_claim').on(t.claimedAgentBusAddressId, t.claimExpiresAt),
   }),
 );
 
@@ -1163,6 +1189,7 @@ export const chatgptUsageSnapshots = mysqlTable(
   'chatgpt_usage_snapshots',
   {
     id: bigint('id', { mode: 'number', unsigned: true }).primaryKey().autoincrement(),
+    accountId: bigint('account_id', { mode: 'number', unsigned: true }),
     hostId: bigint('host_id', { mode: 'number', unsigned: true }),
     status: varchar('status', { length: 16 }).notNull(),
     planType: varchar('plan_type', { length: 64 }),
@@ -1221,6 +1248,7 @@ export const claudeUsageSnapshots = mysqlTable(
   'claude_usage_snapshots',
   {
     id: bigint('id', { mode: 'number', unsigned: true }).primaryKey().autoincrement(),
+    accountId: bigint('account_id', { mode: 'number', unsigned: true }),
     hostId: bigint('host_id', { mode: 'number', unsigned: true }),
     source: varchar('source', { length: 32 }).notNull().default('statusline'),
     fiveHourUsedPercent: int('five_hour_used_percent', { unsigned: true }),
@@ -1610,7 +1638,12 @@ export const agentBusAddresses = mysqlTable(
     sessionUnique: uniqueIndex('uq_agent_bus_addresses_session').on(t.currentSessionId),
     callPinUnique: uniqueIndex('uq_agent_bus_addresses_call_pin').on(t.callPin),
     discoveryIdx: index('idx_agent_bus_addresses_discovery').on(t.enabled, t.archivedAt, t.engine, t.hostId),
-    nativeIdx: index('idx_agent_bus_addresses_native').on(t.hostId, t.engine, t.username, t.lastUpstreamSessionId),
+    nativeIdx: index('idx_agent_bus_addresses_native').on(
+      t.hostId,
+      t.engine,
+      t.username,
+      t.lastUpstreamSessionId,
+    ),
     cwdIdx: index('idx_agent_bus_addresses_cwd').on(t.hostId, t.engine, t.username, t.cwdHash),
   }),
 );
@@ -1742,9 +1775,20 @@ export const agentBusMessages = mysqlTable(
   },
   (t) => ({
     dispatchOrderUnique: uniqueIndex('uq_agent_bus_messages_dispatch_order').on(t.dispatchOrder),
-    senderClientUnique: uniqueIndex('uq_agent_bus_messages_sender_client').on(t.senderAddressId, t.clientMessageId),
-    conversationSequenceUnique: uniqueIndex('uq_agent_bus_messages_conversation_sequence').on(t.conversationId, t.sequence),
-    dispatchIdx: index('idx_agent_bus_messages_dispatch').on(t.targetAddressId, t.status, t.nextAttemptAt, t.dispatchOrder),
+    senderClientUnique: uniqueIndex('uq_agent_bus_messages_sender_client').on(
+      t.senderAddressId,
+      t.clientMessageId,
+    ),
+    conversationSequenceUnique: uniqueIndex('uq_agent_bus_messages_conversation_sequence').on(
+      t.conversationId,
+      t.sequence,
+    ),
+    dispatchIdx: index('idx_agent_bus_messages_dispatch').on(
+      t.targetAddressId,
+      t.status,
+      t.nextAttemptAt,
+      t.dispatchOrder,
+    ),
     conversationIdx: index('idx_agent_bus_messages_conversation').on(t.conversationId, t.sequence),
     statusIdx: index('idx_agent_bus_messages_status').on(t.status, t.updatedAt),
     expiryIdx: index('idx_agent_bus_messages_expiry').on(t.status, t.expiresAt),

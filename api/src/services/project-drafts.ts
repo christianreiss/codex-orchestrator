@@ -5,6 +5,8 @@
  * changed-fields diff. Without runner+db deps it returns the legacy 503
  * `runner_unavailable` shape.
  */
+import { withAccountTask } from './account-task.js';
+import type { ProviderAccountsService } from './provider-accounts.js';
 import { ApiError } from '../http/errors.js';
 import type { Database } from '../db/client.js';
 import { logs } from '../db/schema.js';
@@ -15,6 +17,7 @@ import type { RunnerClient } from './runner-client.js';
 import type { RunnerValidationService } from './runner-validation.js';
 
 export interface ProjectDraftsServiceDeps {
+  accounts?: ProviderAccountsService;
   db?: Database;
   projects?: ProjectsService;
   runner?: RunnerClient;
@@ -46,19 +49,23 @@ export class ProjectDraftsService {
 
     const validation = this.deps.runnerValidation;
     const engine = this.deps.engine ?? ENGINE_CODEX;
-    const row = await validation.resolveCanonicalPayload(engine);
-    const auth = row ? validation.canonicalAuthFromPayload(row) : null;
-    if (!auth) {
-      await this.recordLog('project.assist', {
-        status: 'skipped',
-        reason: 'canonical auth missing',
-        slug,
-      });
-      throw new ApiError('Canonical auth missing', {
-        status: 503,
-        code: 'canonical_auth_missing',
-      });
-    }
+    const fallback = async () => {
+      const row = await validation.resolveCanonicalPayload(engine);
+      const auth = row ? validation.canonicalAuthFromPayload(row) : null;
+      if (!auth) {
+        await this.recordLog('project.assist', {
+          status: 'skipped',
+          reason: 'canonical auth missing',
+          slug,
+        });
+        throw new ApiError('Canonical auth missing', {
+          status: 503,
+          code: 'canonical_auth_missing',
+        });
+      }
+
+      return auth;
+    };
 
     const detail = await this.deps.projects.detail(slug);
     const currentDraft = currentDraftFromDetail(detail);
@@ -70,12 +77,20 @@ export class ProjectDraftsService {
         code: 'runner_unavailable',
       });
     }
-    const result = await this.deps.runner.assistProjectDraft({
-      slug,
-      project: runnerProject,
-      authJson: auth,
+    const result = await withAccountTask(
+      this.deps.accounts,
+      this.deps.db,
+      validation,
       engine,
-    });
+      fallback,
+      (auth) =>
+        this.deps.runner!.assistProjectDraft!({
+          slug,
+          project: runnerProject,
+          authJson: auth,
+          engine,
+        }),
+    );
 
     const status = typeof result.status === 'string' ? result.status.toLowerCase().trim() : '';
     if (status !== 'ok') {

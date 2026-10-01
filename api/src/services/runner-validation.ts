@@ -1,5 +1,5 @@
-import { eq } from 'drizzle-orm';
-import { authCanonicalHeads, authPayloads } from '../db/schema.js';
+import { and, eq, isNull } from 'drizzle-orm';
+import { authCanonicalHeads, authPayloads, providerAccounts } from '../db/schema.js';
 import type { Database } from '../db/client.js';
 import { sha256 } from '../security/hash.js';
 import { decryptOrNull } from '../security/secret-box.js';
@@ -8,6 +8,7 @@ import { ValidationError } from '../http/errors.js';
 import { compareRfc3339, isRfc3339, parseRfc3339Millis, parseRfc3339Nanos } from '../util/timestamp.js';
 import type { Engine } from '../util/engine.js';
 import { ENGINE_CODEX, ENGINE_CLAUDE } from '../util/engine.js';
+import { resolveProviderAccount } from './provider-account-reference.js';
 import {
   fingerprintMatches,
   inspectCredential,
@@ -36,6 +37,7 @@ const TOKEN_MIN_LENGTH_FLOOR = 8;
 
 export interface CanonicalPayloadRow {
   id: number;
+  accountId?: number | null;
   lastRefresh: string;
   sha256: string;
   body: string | null;
@@ -60,8 +62,8 @@ export interface NormalizedAuthEntry {
 }
 
 export interface RunnerValidationService {
-  resolveCanonicalPayload(engine: Engine): Promise<CanonicalPayloadRow | null>;
-  resolvePendingQuarantine?(engine: Engine): Promise<CanonicalPayloadRow | null>;
+  resolveCanonicalPayload(engine: Engine, accountId?: number): Promise<CanonicalPayloadRow | null>;
+  resolvePendingQuarantine?(engine: Engine, accountId?: number): Promise<CanonicalPayloadRow | null>;
   validateCanonicalPayload(
     row: CanonicalPayloadRow | null,
   ): { auth: Record<string, unknown>; digest: string; last_refresh: string } | null;
@@ -96,7 +98,14 @@ export function createRunnerValidationService(deps: RunnerValidationDeps): Runne
   const { db } = deps;
   const tokenMinLength = resolveTokenMinLength(deps.tokenMinLength);
   const service: RunnerValidationService = {
-    async resolveCanonicalPayload(engine) {
+    async resolveCanonicalPayload(engine, accountId) {
+      if (accountId !== undefined) {
+        const account = await resolveProviderAccount(db, accountId, engine);
+        if (!account || account.state === 'removed' || !account.payloadId) return null;
+        const rows = await db.select().from(authPayloads).where(eq(authPayloads.id, account.payloadId));
+        const row = rows[0];
+        return row?.accountId === account.id && row.engine === engine ? toCanonicalPayloadRow(row) : null;
+      }
       const heads = await db.select().from(authCanonicalHeads).where(eq(authCanonicalHeads.engine, engine));
       const head = heads[0];
       if (head) {
@@ -104,6 +113,13 @@ export function createRunnerValidationService(deps: RunnerValidationDeps): Runne
         // Once an explicit head exists it is the lineage authority. Returning
         // null for a dangling pointer, or the selected invalid row for callers
         // to fail closed on, prevents silent resurrection of older history.
+        if (selected[0]?.accountId) {
+          const accounts = await db
+            .select()
+            .from(providerAccounts)
+            .where(eq(providerAccounts.id, selected[0].accountId));
+          if (accounts[0]?.state !== 'enabled') return null;
+        }
         return selected[0] ? toCanonicalPayloadRow(selected[0]) : null;
       }
       // RFC3339 values can contain offsets, so VARCHAR ordering is not
@@ -111,7 +127,15 @@ export function createRunnerValidationService(deps: RunnerValidationDeps): Runne
       // parsed instant instead. Before explicit heads were introduced, only a
       // verified row was distributable; pending/failed history is quarantine,
       // not an implicit canonical head.
-      const rows = await db.select().from(authPayloads).where(eq(authPayloads.engine, engine));
+      const rows = await db
+        .select()
+        .from(authPayloads)
+        .where(
+          and(
+            eq(authPayloads.engine, engine),
+            accountId === undefined ? isNull(authPayloads.accountId) : eq(authPayloads.accountId, accountId),
+          ),
+        );
       const ordered = rows.map(toCanonicalPayloadRow).sort(compareCanonicalRowsNewestFirst);
       return (
         ordered.find(
@@ -120,10 +144,18 @@ export function createRunnerValidationService(deps: RunnerValidationDeps): Runne
       );
     },
 
-    async resolvePendingQuarantine(engine) {
-      const current = await service.resolveCanonicalPayload(engine);
+    async resolvePendingQuarantine(engine, accountId) {
+      const current = await service.resolveCanonicalPayload(engine, accountId);
       const currentGeneration = current?.generation ?? 0;
-      const rows = await db.select().from(authPayloads).where(eq(authPayloads.engine, engine));
+      const rows = await db
+        .select()
+        .from(authPayloads)
+        .where(
+          and(
+            eq(authPayloads.engine, engine),
+            accountId === undefined ? isNull(authPayloads.accountId) : eq(authPayloads.accountId, accountId),
+          ),
+        );
       const newestQuarantine = rows
         .map(toCanonicalPayloadRow)
         .filter(
@@ -503,6 +535,7 @@ function nonEmptyString(value: unknown): string | null {
 function toCanonicalPayloadRow(row: typeof authPayloads.$inferSelect): CanonicalPayloadRow {
   return {
     id: row.id,
+    accountId: row.accountId ?? null,
     lastRefresh: row.lastRefresh,
     sha256: row.sha256,
     body: row.body ?? null,

@@ -1,3 +1,5 @@
+import { ProviderAccountsService } from '../../../services/provider-accounts.js';
+import { createPooledAuthStoreService as createCanonicalAuthStoreService } from '../../../services/pooled-auth-store.js';
 /**
  * /admin/overview, /admin/hosts (JSON listing), /admin/logs,
  * /admin/chatgpt/usage*, /admin/runner/*, /admin/auth/{seed-command,upload},
@@ -17,10 +19,7 @@ import { adminEvents, hosts, insecureDomainAllows, installTokens, logs } from '.
 import { SettingsService } from '../../../services/settings.js';
 import { makeAdminEventsWriter } from '../../../services/admin-events-writer.js';
 import { InsecureWindowAdminService } from '../../../services/insecure-window-admin.js';
-import {
-  ClientVersionsService,
-  isClientVersionStale,
-} from '../../../services/client-versions.js';
+import { ClientVersionsService, isClientVersionStale } from '../../../services/client-versions.js';
 import { ChatGptUsageService } from '../../../services/chatgpt-usage.js';
 import { ClaudeUsageService, normalizeClaudeUsageSnapshot } from '../../../services/claude-usage.js';
 import { DashboardStatsService } from '../../../services/dashboard-stats.js';
@@ -34,7 +33,6 @@ import {
 } from '../../../services/runner-proxy.js';
 import { createRunnerClient } from '../../../services/runner-client.js';
 import { createRunnerValidationService } from '../../../services/runner-validation.js';
-import { createCanonicalAuthStoreService } from '../../../services/canonical-auth-store.js';
 import { createAdminEventsService } from '../../../services/admin-events.js';
 import { ENGINE_CODEX, ENGINE_CLAUDE, isEngine, type Engine } from '../../../util/engine.js';
 import { nowIso, parseIso } from '../../../util/timestamp.js';
@@ -112,11 +110,8 @@ function hostEngines(raw: string | null | undefined): Engine[] {
   return engines.length ? engines : [ENGINE_CODEX];
 }
 
-function hostDigestForEngine(
-  h: typeof hosts.$inferSelect,
-  engine: Engine,
-): string | null {
-  return engine === ENGINE_CLAUDE ? h.claudeAuthDigest ?? null : h.authDigest ?? null;
+function hostDigestForEngine(h: typeof hosts.$inferSelect, engine: Engine): string | null {
+  return engine === ENGINE_CLAUDE ? (h.claudeAuthDigest ?? null) : (h.authDigest ?? null);
 }
 
 // Resolves the "latest"/"auto" policy alias to the concrete cached upstream
@@ -318,7 +313,12 @@ export async function registerAdminOverviewRoutes(
       version_distribution: {
         codex: toSortedArr(codexVersionCounts),
         claude: toSortedArr(claudeVersionCounts),
-        install: { both: installBoth, codex_only: installCodexOnly, claude_only: installClaudeOnly, neither: installNeither },
+        install: {
+          both: installBoth,
+          codex_only: installCodexOnly,
+          claude_only: installClaudeOnly,
+          neither: installNeither,
+        },
       },
       versions: {
         ...versionSummary,
@@ -850,13 +850,28 @@ export async function registerAdminOverviewRoutes(
 
   // ── /admin/auth/seed-command ──────────────────────────────────────────────
   app.post('/admin/auth/seed-command', { preHandler: app.requireAdmin }, async (req) => {
-    const result = await runnerProxy.seedCommand((req.body ?? {}) as Record<string, unknown>);
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    if (body.account_id !== undefined) {
+      if (
+        typeof body.account_id !== 'number' ||
+        !Number.isSafeInteger(body.account_id) ||
+        body.account_id < 1
+      )
+        throw new ValidationError('Invalid account ID');
+      const account = await new ProviderAccountsService(ctx.db, ctx.keyring).get(
+        body.account_id,
+        body.engine === 'claude' ? 'claude' : 'codex',
+      );
+      if (account.state === 'removed' || account.state === 'removing')
+        throw new ValidationError('Account is retired');
+    }
+    const result = await runnerProxy.seedCommand(body);
     return ok(result);
   });
 
   // ── /admin/auth/upload ────────────────────────────────────────────────────
   app.post('/admin/auth/upload', { preHandler: app.requireAdmin }, async (req) => {
-    const body = (req.body ?? {}) as { engine?: unknown; payload?: unknown };
+    const body = (req.body ?? {}) as { engine?: unknown; payload?: unknown; account_id?: number };
     const engineRaw = typeof body.engine === 'string' ? body.engine.trim().toLowerCase() : '';
     if (!isEngine(engineRaw)) {
       throw new ValidationError('engine must be "codex" or "claude"', { param: 'engine' });
@@ -894,6 +909,7 @@ export async function registerAdminOverviewRoutes(
 
     const stored = await authStore.storeCandidate({
       auth: incoming,
+      accountId: body.account_id,
       engine,
       sourceHostId: null,
       requireLastRefresh: false,

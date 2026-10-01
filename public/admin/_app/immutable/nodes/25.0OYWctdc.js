@@ -1,0 +1,1 @@
+import{t as e}from"../chunks/Cfamsk8i.js";export{e as component};
