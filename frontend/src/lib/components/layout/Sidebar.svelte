@@ -60,7 +60,7 @@
     <BrandMark class="h-8 w-8 rounded-md" />
     <span class="min-w-0">
       <span class="block truncate text-sm font-semibold tracking-tight text-foreground">Codex Orchestrator</span>
-      <span class="mt-0.5 block text-[11px] text-muted-foreground">Codex &amp; Claude control</span>
+      <span class="mt-0.5 block text-[11px] text-muted-foreground">Codex · Claude · Grok</span>
     </span>
   </a>
 

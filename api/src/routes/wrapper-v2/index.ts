@@ -1,7 +1,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { join, resolve } from 'node:path';
 import type { RouteContext } from '../index.js';
-import { isEngine, parseEngine, type Engine } from '../../util/engine.js';
+import { isEngine, parseEngine, ENGINE_COMMANDS, type Engine } from '../../util/engine.js';
 import { resolveWrapperPlatform } from '../../util/wrapper-platform.js';
 import { ServiceUnavailableError, NotFoundError, ValidationError } from '../../http/errors.js';
 import {
@@ -315,7 +315,7 @@ export async function registerWrapperV2Routes(
     });
     reply.envelopeRaw = true;
     reply.header('content-type', 'text/x-shellscript; charset=utf-8');
-    reply.header('content-disposition', `attachment; filename="${engine === 'claude' ? 'clx' : 'cdx'}"`);
+    reply.header('content-disposition', `attachment; filename="${ENGINE_COMMANDS[engine]}"`);
     reply.header('cache-control', 'no-store');
     reply.header('x-config-version', String(result.configVersion));
     reply.header('content-length', Buffer.byteLength(body));

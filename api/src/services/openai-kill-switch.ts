@@ -21,14 +21,14 @@ export interface KillSwitch {
   throwIfDisabled(): Promise<void>;
 }
 
-export function makeOpenAiKillSwitch(db: Database): KillSwitch {
+export function makeOpenAiKillSwitch(db: Database, flagName = FLAG_NAME, label = 'OpenAI'): KillSwitch {
   return {
     async isDisabled() {
       try {
         const rows = await db
           .select({ value: versions.version })
           .from(versions)
-          .where(eq(versions.name, FLAG_NAME))
+          .where(eq(versions.name, flagName))
           .limit(1);
         return isTruthyFlagValue(rows[0]?.value);
       } catch {
@@ -39,7 +39,7 @@ export function makeOpenAiKillSwitch(db: Database): KillSwitch {
     },
     async throwIfDisabled() {
       if (await this.isDisabled()) {
-        throw new ApiError('OpenAI API disabled by administrator', {
+        throw new ApiError(`${label} API disabled by administrator`, {
           status: 503,
           code: 'api_disabled',
           type: 'api_error',

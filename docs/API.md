@@ -878,3 +878,32 @@ ChatGPT (`codex`) and Claude (`claude`) have independent account pools. Provider
 Admin mutations require `auth.manage`; listing requires `auth.metadata.read`. All host routes retain the API kill switch, engine membership, host/IP authentication and insecure credential-distribution window. `/auth` and `/sync/bootstrap` accept `account_id` and advertise `account_pool: true`; returned digests, generations, verdicts and quota readings belong to that account. `/claude/usage/report` accepts `account_id` and `session_id`, rejecting a mismatched binding.
 
 Selection runs once per native CLI launch. It prefers verified enabled accounts with lower short/weekly utilization below the configured quota threshold; readings within five percentage points share assignments by active session count, then least recent selection. Unknown/reset accounts get bounded trials to obtain usage. Stale utilization stays conservative until its reset; reset windows become unknown rather than fabricated zero usage. Active sessions retain their account, including overlapping launches sharing native files. If all known quotas are exhausted, existing hard-fail/warn and VIP behavior still governs the selected account. There is no cross-engine fallback or manual host pinning.
+
+## Grok endpoint inventory
+
+- `OPTIONS /grok/v1/*` — CORS preflight, without gateway auth.
+- `POST /grok/v1/chat/completions` — Grok subscription chat completion, scoped bearer required.
+- `POST /grok/v1/responses` — Grok text response, scoped bearer required.
+- `POST /grok/v1/completions` — Grok legacy text completion, scoped bearer required.
+- `POST /grok/v1/embeddings` — Unsupported endpoint, explicit non-retriable400.
+- `GET /grok/v1/models` — Enabled Grok native model catalog.
+- `GET /grok/v1/models/:model` — Retrieve an enabled native model.
+- `GET /admin/grok/keys` — List Grok gateway keys without credential bodies.
+- `POST /admin/grok/keys` — Issue a scoped sk-cgx- gateway key, returned once.
+- `POST /admin/grok/keys/:id/toggle` — Change a Grok gateway key active state.
+- `DELETE /admin/grok/keys/:id` — Remove a Grok gateway key.
+- `GET /admin/grok/state` — Read the independent Grok API switch.
+- `POST /admin/grok/state` — Set the independent Grok API switch.
+- `GET /admin/grok/settings` — Read gateway default_model and disabled.
+- `POST /admin/grok/settings` — Change gateway default model/switch; unsupported parameters rejected.
+- `GET /admin/grok/models` — List native catalog with enabled flags.
+- `POST /admin/grok/models/:model/toggle` — Enable/disable a Grok gateway model.
+- `GET /admin/grok/config` — Read engine-specific managed config metadata.
+- `GET /admin/grok/config/retrieve` — Retrieve engine-specific managed config.
+- `POST /admin/grok/config/render` — Preview native TOML config.
+- `POST /admin/grok/config/store` — Save managed Grok config.
+- `GET /admin/grok/version` — Read Grok CLI version metadata.
+- `GET /admin/grok/version/lock` — Read the independent exact CLI pin.
+- `POST /admin/grok/version` — Set/clear the independent exact CLI pin.
+- `POST /admin/hosts/:id/grok-version` — Set/clear a host-specific Grok CLI pin.
+- `POST /admin/runner/run-grok` — Run a read-only subscription verification with no credential bytes returned.

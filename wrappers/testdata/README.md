@@ -1,6 +1,6 @@
 # Round-trip golden config fixtures
 
-Three baked per-host wrapper configs, checked in as the exact bytes the
+Four baked per-host wrapper configs, checked in as the exact bytes the
 orchestrator signs and a host stores on disk, plus their detached Ed25519
 signatures.
 
@@ -9,6 +9,7 @@ signatures.
 | `host-codex.json` | secure host, `curl_insecure=0`, agent messaging enabled, both `documents` non-null, two skills, `model_override` + `reasoning_effort_override` set |
 | `host-codex-insecure.json` | `secure=0` **and** `curl_insecure=1`: `host.secure:false`, `orchestrator.allow_insecure:true`, `agent_messaging.enabled:false`; `documents.client_config:null` and an empty `skills` array |
 | `host-claude.json` | `engine: claude`, whose `engine_options` carries `claude_model_override` instead of `model_override`/`reasoning_effort_override` |
+| `host-grok.json` | secure three-engine host, Grok 4.6 / xhigh overrides, automatic reception enabled, shared and Grok-specific skills |
 | `signing-seed.TEST-ONLY.txt` | base64 Ed25519 seed, **test material only** |
 
 Both sides of the wire consume the same files:
@@ -31,7 +32,7 @@ therefore shows up as a fixture diff instead of drifting silently.
 cd api && UPDATE_GOLDEN=1 npx vitest run test/unit/contract/wrapper-config-golden.test.ts
 ```
 
-That rewrites all six files from a live bake. Then run the Go half and read the
+That rewrites all eight JSON/signature files from a live bake. Then run the Go half and read the
 diff: `cd wrappers/cxx && go test ./internal/config/...`. The Go expectations
 are literals on purpose, so a genuine baker change fails there until someone
 decides the new value is correct. A fixture edited by hand instead of

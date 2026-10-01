@@ -194,7 +194,7 @@ export async function registerAgentMessagingRoutes(
     const id = stringParam(req.params, 'id');
     const token = requireToken(req, BRIDGE_TOKEN_HEADER, 'agent_bridge_token_required');
     const body = z
-      .object({ engine: z.enum(['codex', 'claude']).optional(), host_id: z.number().int().positive().optional(), include_offline: z.boolean().optional() })
+      .object({ engine: z.enum(['codex', 'claude', 'grok']).optional(), host_id: z.number().int().positive().optional(), include_offline: z.boolean().optional() })
       .strict()
       .parse(req.body ?? {});
     return await messaging.listAddresses(id, token, {

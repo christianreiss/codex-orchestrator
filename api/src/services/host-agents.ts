@@ -257,6 +257,7 @@ export class HostAgentsService {
       sha256: string;
       size_bytes: number;
       profiles?: Array<{ name: string; sha256: string; content: string }>;
+      owned_paths?: string[];
     } = {
       content: body,
       sha256: baseSha,
@@ -301,6 +302,7 @@ export class HostAgentsService {
     // key is absent for a Codex that still reads `[profiles.*]` from config.toml,
     // and for engines without profiles, so an older reply can never prune.
     if (rendered.profiles !== undefined) out['profiles'] = rendered.profiles;
+    if (rendered.owned_paths !== undefined) out['owned_paths'] = rendered.owned_paths;
     await this.recordLog(host.id, 'config.retrieve', { status, base_sha256: baseSha, baked_sha256: rendered.sha256 });
     return out;
   }
@@ -438,7 +440,7 @@ export class HostAgentsService {
       ? state(false, 'service_unavailable')
       : skillCount === 0
         ? state(false, 'no_skills', 0)
-        : engine === ENGINE_CODEX && !mcp.enabled
+        : engine !== ENGINE_CLAUDE && !mcp.enabled
           ? state(false, mcp.reason, skillCount)
           : state(true, 'ok', skillCount);
     const memory = state(mcp.enabled, mcp.reason);
@@ -578,7 +580,7 @@ export class HostAgentsService {
       }
     }
 
-    const stateId = engine === ENGINE_CLAUDE ? STATE_ID_CLAUDE : STATE_ID_CODEX;
+    const stateId = engine === 'grok' ? 3 : engine === ENGINE_CLAUDE ? STATE_ID_CLAUDE : STATE_ID_CODEX;
     const state = await this.db
       .select()
       .from(agentsDocumentState)

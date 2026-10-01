@@ -15,7 +15,7 @@ const USER = { id: 1, display_name: "Operator" };
 
 interface AgentOverrides {
   receiver?: import("../src/lib/portal/types").ReceiverEvidence;
-  engine?: "codex" | "claude";
+  engine?: "codex" | "claude" | "grok";
   presence?: string;
   relay_ready?: boolean;
   active_turn_started_at?: string | null;
@@ -238,7 +238,7 @@ test("the portal has no serious Axe findings", async ({ page }) => {
     .withTags(["wcag2a", "wcag2aa"])
     .analyze();
   const serious = results.violations.filter((violation) => ["serious", "critical"].includes(violation.impact ?? ""));
-  expect(serious.map((violation) => violation.id)).toEqual([]);
+  expect(serious.map((violation) => ({ id: violation.id, nodes: violation.nodes.map(node => ({ target: node.target, failure: node.failureSummary })) }))).toEqual([]);
 });
 
 
@@ -344,4 +344,18 @@ test("receiver health offers silent reconnection without model verification", as
   await page.getByRole("button", { name: "Reconnect receiver", exact: true }).click();
   await expect.poll(() => stub.calls.filter((c) => c.endsWith("/receiver/verify")).length).toBe(1);
   expect(stub.calls.some((c) => c.endsWith("/messages"))).toBe(false);
+});
+
+
+test("Grok portal identity and receiver evidence use native ACP state", async ({ page }) => {
+  await stubPortal(page, { agent: { engine: "grok", receiver: {
+    protocol: "grok-acp-v1", native_session_id: "native-grok-1", state: "ready", heartbeat_at: new Date().toISOString(), failure: null,
+    sources: [{ source: "portal", state: "ready" }],
+  } } });
+  await openPortal(page);
+  await expect(page.getByText("Grok · crane.example", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: /info|details/i }).click();
+  await page.getByText("Reception: ready", { exact: true }).click();
+  await expect(page.getByText("grok-acp-v1 · Native session native-grok-1", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Reconnect receiver" })).toBeVisible();
 });

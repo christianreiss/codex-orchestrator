@@ -41,6 +41,7 @@ export const api = {
 registerHooks({
   resolve(specifier, context, nextResolve) {
     if (specifier === "@tanstack/svelte-query") return { url: QUERY_STUB, shortCircuit: true };
+    if (specifier === "../constants/engines") return nextResolve("../constants/engines.ts", context);
     if (specifier === "./client") return { url: CLIENT_STUB, shortCircuit: true };
     return nextResolve(specifier, context);
   },

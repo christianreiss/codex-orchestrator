@@ -51,7 +51,7 @@
 
 <Sheet.Root bind:open={menuOpen}>
   <Sheet.Content side="bottom" class="max-h-[86dvh] overflow-y-auto overscroll-contain rounded-t-lg border-x border-t bg-background px-4 pb-[calc(1rem+env(safe-area-inset-bottom))] pt-5">
-    <Sheet.Header class="text-left"><Sheet.Title>Navigation</Sheet.Title><Sheet.Description>Control, coordinate, and sync Codex &amp; Claude.</Sheet.Description></Sheet.Header>
+    <Sheet.Header class="text-left"><Sheet.Title>Navigation</Sheet.Title><Sheet.Description>Control, coordinate, and sync Codex, Claude, and Grok.</Sheet.Description></Sheet.Header>
     <div class="mt-4 space-y-4">
       <InsecureApprovalsNavAlert variant="sheet" onnavigate={() => (menuOpen = false)} />
       {#each menuSections as section (section.id)}

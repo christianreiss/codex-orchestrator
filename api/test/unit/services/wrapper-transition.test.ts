@@ -20,6 +20,7 @@ import {
   isLegacyShellWrapperVersion,
   withLegacyShellWrapperTransition,
 } from '../../../src/services/wrapper-transition.js';
+import { ENGINE_COMMANDS, type Engine } from '../../../src/util/engine.js';
 import type { VersionSnapshot } from '../../../src/services/version-snapshot.js';
 
 function writeExecutable(path: string, body: string): void {
@@ -29,6 +30,7 @@ function writeExecutable(path: string, body: string): void {
 
 function runDualInstallerFixture(
   options: {
+    engines?: Engine[];
     failClaude?: boolean;
     emptyClaudeVersion?: boolean;
     brokenNpm?: boolean;
@@ -47,12 +49,15 @@ function runDualInstallerFixture(
   cxxExists: boolean;
   cdxLink: string | null;
   clxLink: string | null;
+  cgxLink: string | null;
+  configEngines: string[];
   cxxBody: string | null;
   installTemps: string[];
   wrapperInvocations: string[];
 } {
   const dir = mkdtempSync(join(tmpdir(), 'wrapper-installer-run-'));
   try {
+    const enabled = options.engines ?? ['codex', 'claude'];
     const fakeBin = join(dir, 'fake-bin');
     const installBin = join(dir, 'install-bin');
     const home = join(dir, 'home');
@@ -82,6 +87,12 @@ case "$*" in
       echo "custom Claude config path was not populated" >&2
       exit 47
     fi
+    grok_path="$HOME/.local/bin/grok"
+    grok_cache="$HOME/.cgx/state/grok-bin"
+    mkdir -p "$(dirname "$grok_path")" "$(dirname "$grok_cache")"
+    cp "$FAKE_CLI" "$grok_path"
+    chmod 755 "$grok_path"
+    printf '%s\n' "$grok_path" > "$grok_cache"
     codex_path="$HOME/.local/bin/codex"
     codex_cache="$HOME/.config/codex-orchestrator/cdx-codex-bin"
     claude_path="$HOME/.local/share/codex-orchestrator/npm/bin/claude"
@@ -161,6 +172,7 @@ done
 case "$url" in
   */wrapper/v2/config*engine=codex*) cp "$FAKE_BUNDLE" "$out" ;;
   */wrapper/v2/config*engine=claude*) cp "$FAKE_CLAUDE_BUNDLE" "$out" ;;
+  */wrapper/v2/config*engine=grok*) cp "$FAKE_BUNDLE" "$out" ;;
   */wrapper/v2/bin/cxx/*/cxx) cp "$FAKE_WRAPPER" "$out" ;;
   *) echo "unexpected curl URL: $url" >&2; exit 46 ;;
 esac
@@ -179,7 +191,7 @@ printf '%s\n' "$url" >> "$CURL_LOG"
     const fakeCli = join(dir, 'fake-cli');
     writeExecutable(
       fakeCli,
-      '#!/bin/sh\ncase "$(basename "$0")" in codex) echo "codex-cli 0.144.6" ;; claude) if [ "${EMPTY_CLAUDE_VERSION:-0}" = "1" ]; then exit 0; fi; echo "2.1.215 (Claude Code)" ;; esac\n',
+      '#!/bin/sh\ncase "$(basename "$0")" in codex) echo "codex-cli 0.144.6" ;; claude) if [ "${EMPTY_CLAUDE_VERSION:-0}" = "1" ]; then exit 0; fi; echo "2.1.215 (Claude Code)" ;; grok) echo "grok 1.0.46 (stable)" ;; esac\n',
     );
 
     const installer = join(dir, 'installer.sh');
@@ -189,8 +201,8 @@ printf '%s\n' "$url" >> "$CURL_LOG"
         fqdn: 'fixture.example',
         apiKey: 'sk-fixture',
         baseUrl: 'https://o.example',
-        engine: 'codex',
-        peerEngines: ['claude'],
+        engine: enabled[0]!,
+        peerEngines: enabled.slice(1),
       }),
       'utf8',
     );
@@ -209,7 +221,8 @@ printf '%s\n' "$url" >> "$CURL_LOG"
         FAKE_CLI: fakeCli,
         WRAPPER_LOG: wrapperLog,
         CURL_LOG: curlLog,
-        CLX_CONFIG_PATH: join(home, 'custom', 'clx.json'),
+        CLX_CONFIG_PATH: enabled.includes('claude') ? join(home, 'custom', 'clx.json') : '',
+        CGX_CONFIG_PATH: enabled.includes('grok') ? join(home, 'custom', 'cgx.json') : '',
         FAIL_CLAUDE: options.failClaude ? '1' : '0',
         EMPTY_CLAUDE_VERSION: options.emptyClaudeVersion ? '1' : '0',
         BROKEN_NPM: options.brokenNpm ? '1' : '0',
@@ -234,6 +247,8 @@ printf '%s\n' "$url" >> "$CURL_LOG"
       cxxExists: existsSync(join(installBin, 'cxx')),
       cdxLink: linkTarget('cdx'),
       clxLink: linkTarget('clx'),
+      cgxLink: linkTarget('cgx'),
+      configEngines: curlUrls.filter(url => url.includes('/wrapper/v2/config')).map(url => new URL(url).searchParams.get('engine')!),
       cxxBody: existsSync(join(installBin, 'cxx'))
         ? readFileSync(join(installBin, 'cxx'), 'utf8')
         : null,
@@ -247,7 +262,7 @@ printf '%s\n' "$url" >> "$CURL_LOG"
   }
 }
 
-function runLegacyTransitionFixture(engine: 'codex' | 'claude'): {
+function runLegacyTransitionFixture(engine: Engine): {
   status: number | null;
   stdout: string;
   stderr: string;
@@ -302,7 +317,7 @@ esac
     // A legacy wrapper installs this launcher over its own resolved cdx/clx
     // path before re-execing it. Keep that exact basename/path in the fixture
     // so the test proves the regular shell is replaced by the managed alias.
-    const launcher = join(dir, engine === 'claude' ? 'clx' : 'cdx');
+    const launcher = join(dir, ENGINE_COMMANDS[engine]);
     writeFileSync(
       launcher,
       buildLegacyWrapperTransitionScript({
@@ -329,7 +344,7 @@ esac
     const binRoot = dir;
     let aliasTarget: string | null = null;
     try {
-      aliasTarget = readlinkSync(join(binRoot, engine === 'claude' ? 'clx' : 'cdx'));
+      aliasTarget = readlinkSync(join(binRoot, ENGINE_COMMANDS[engine]));
     } catch {
       // Assertion below reports a missing/non-link alias clearly.
     }
@@ -357,6 +372,7 @@ function snapshot(): VersionSnapshot {
     auto_update_enabled: true,
     cdx_silent: false,
     clx_silent: false,
+    cgx_silent: false,
     agent_messaging_enabled: false,
     installation_id: 'inst',
     engine: 'codex',
@@ -364,6 +380,24 @@ function snapshot(): VersionSnapshot {
 }
 
 describe('wrapper transition helpers', () => {
+  it.each<Engine[]>([['codex'], ['claude'], ['grok'], ['codex', 'claude'], ['codex', 'grok'], ['claude', 'grok'], ['codex', 'claude', 'grok']])('installs and syncs exactly the selected engine combination %j', (...engines) => {
+    const result = runDualInstallerFixture({ engines });
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.binaryDownloads).toBe(1);
+    expect(result.configEngines).toEqual(engines);
+    for (const engine of ['codex', 'claude', 'grok'] as const) {
+      expect(result[({ codex: 'cdxLink', claude: 'clxLink', grok: 'cgxLink' } as const)[engine]]).toBe(engines.includes(engine) ? 'cxx' : null);
+    }
+    expect(result.wrapperInvocations.filter(command => command.includes('sync'))).toHaveLength(engines.length);
+  });
+
+  it('transitions a Grok shell persona to the shared cxx binary', () => {
+    const result = runLegacyTransitionFixture('grok');
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.aliasTarget).toBe('cxx');
+    expect(result.stdout).toContain('grok --status');
+  });
+
   it('detects date-style shell wrapper versions only', () => {
     expect(isLegacyShellWrapperVersion('2026.05.11-01')).toBe(true);
     expect(isLegacyShellWrapperVersion('2026.05.11-01+local')).toBe(true);

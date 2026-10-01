@@ -27,6 +27,7 @@ const (
 	ThemeOrange
 	ThemePink
 	ThemeViolet
+	ThemeGreen
 )
 
 // Palette is the resolved ANSI colour table. All fields are valid escape
@@ -463,6 +464,8 @@ func (c Caps) BannerColor() string {
 		return c.Palette.Pink + c.Palette.Bold
 	case ThemeViolet:
 		return c.Palette.Violet + c.Palette.Bold
+	case ThemeGreen:
+		return c.Palette.Green + c.Palette.Bold
 	default:
 		return c.Palette.Orange + c.Palette.Bold
 	}

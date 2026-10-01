@@ -1,79 +1,22 @@
 <script lang="ts">
-  /**
-   * "Which engines will this fleet run?" — the question that has never existed
-   * anywhere in the UI.
-   *
-   * It matters because `DEFAULT_HOST_ENGINES` defaults to `codex`, so the old
-   * checklist derived its auth steps from that and Claude simply never
-   * appeared, even though the server reports canonical auth for both engines.
-   *
-   * This is a wizard answer, not a server default: `DEFAULT_HOST_ENGINES` is
-   * env-only and needs a restart. The answer picks which auth panels the next
-   * step renders, pre-selects engines on the host step, and becomes setup
-   * status's `default_engines`, which drives the checklist's auth items.
-   */
   import { ChoiceCard } from "$lib/components/ui/choice-card";
-
-  type Engine = "codex" | "claude";
-  type Choice = "none" | "codex" | "claude" | "both";
-
+  import { ENGINES, ENGINE_META, type Engine } from "$lib/constants/engines";
+  import { Button } from "$lib/components/ui/button";
   let { engines = $bindable() }: { engines: Engine[] } = $props();
-
-  const CHOICES: { id: Choice; label: string; detail: string; engines: Engine[] }[] = [
-    {
-      id: "codex",
-      label: "Codex only",
-      detail: "OpenAI Codex CLI. Hosts get the cdx alias.",
-      engines: ["codex"],
-    },
-    {
-      id: "claude",
-      label: "Claude only",
-      detail: "Anthropic Claude Code. Hosts get the clx alias.",
-      engines: ["claude"],
-    },
-    {
-      id: "both",
-      label: "Both",
-      detail: "One cxx binary, both aliases. Each host can still run either.",
-      engines: ["codex", "claude"],
-    },
-    {
-      id: "none",
-      label: "Neither yet",
-      detail: "Skip credentials for now. Everything else still gets configured.",
-      engines: [],
-    },
-  ];
-
-  const selected = $derived.by((): Choice => {
-    const codex = engines.includes("codex");
-    const claude = engines.includes("claude");
-    if (codex && claude) return "both";
-    if (codex) return "codex";
-    if (claude) return "claude";
-    return "none";
-  });
-
-  function choose(choice: (typeof CHOICES)[number]) {
-    engines = [...choice.engines];
+  function toggle(engine: Engine) {
+    engines = engines.includes(engine) ? engines.filter((item) => item !== engine) : [...engines, engine];
   }
 </script>
 
 <div class="space-y-3">
-  <div role="radiogroup" aria-label="Engines" class="space-y-3">
-    {#each CHOICES as choice (choice.id)}
-      <ChoiceCard
-        title={choice.label}
-        description={choice.detail}
-        checked={selected === choice.id}
-        onSelect={() => choose(choice)}
-      />
+  <div role="group" aria-label="Engines" class="grid gap-3 sm:grid-cols-3">
+    {#each ENGINES as engine (engine)}
+      <ChoiceCard mode="checkbox" title={ENGINE_META[engine].label} description={`Hosts get the ${ENGINE_META[engine].command} alias.`} checked={engines.includes(engine)} onSelect={() => toggle(engine)} />
     {/each}
   </div>
-
-  <p class="text-xs text-muted-foreground">
-    Nothing is locked in. Engines are chosen per host at registration, and credentials can
-    be seeded at any time from Hosts.
-  </p>
+  <div class="flex gap-2">
+    <Button variant="outline" size="sm" onclick={() => engines = [...ENGINES]}>All engines</Button>
+    <Button variant="outline" size="sm" onclick={() => engines = []}>None yet</Button>
+  </div>
+  <p class="text-xs text-muted-foreground">Choose any combination. Engines can still be chosen per host, and credentials can be seeded later from Accounts or Hosts.</p>
 </div>

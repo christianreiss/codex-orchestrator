@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { clientConfigDocuments } from '../../../src/db/schema.js';
 import { ModelDefaultsService } from '../../../src/services/model-defaults.js';
-import { ENGINE_CLAUDE, ENGINE_CODEX } from '../../../src/util/engine.js';
+import { ENGINE_CLAUDE, ENGINE_CODEX, ENGINE_GROK, type Engine } from '../../../src/util/engine.js';
 import { createDbFake } from '../../helpers/db-fake.js';
 
-function configRow(engine: 'codex' | 'claude', settings: Record<string, unknown>, sha = 'a'.repeat(64)) {
+function configRow(engine: Engine, settings: Record<string, unknown>, sha = 'a'.repeat(64)) {
   return {
     id: 1,
     engine,
@@ -18,6 +18,38 @@ function configRow(engine: 'codex' | 'claude', settings: Record<string, unknown>
 }
 
 describe('ModelDefaultsService', () => {
+  it('initializes Grok once through its native store path while defaults reads stay unpersisted', async () => {
+    const db = createDbFake();
+    const service = new ModelDefaultsService(db as never);
+    expect(await service.get(ENGINE_GROK)).toMatchObject({ model: 'grok-4.6', reasoning_effort: 'high' });
+    expect(db.inserts).toHaveLength(0);
+    expect(await service.ensureGrokDefaults()).toBe(true);
+    expect(await service.ensureGrokDefaults()).toBe(false);
+    expect(db.tables.get(clientConfigDocuments)).toHaveLength(1);
+    const saved = db.tables.get(clientConfigDocuments)![0]!;
+    expect(saved.body).toContain('[models]\ndefault = "grok-4.6"');
+    expect(saved.body).not.toContain('model_reasoning_effort');
+    expect(saved.settings).toMatchObject({ model: 'grok-4.6', reasoning_effort: 'high' });
+    expect(db.transactions).toEqual([
+      { isolationLevel: 'repeatable read' }, { isolationLevel: 'repeatable read' },
+    ]);
+  });
+
+  it('preserves existing Grok policy and does not initialize from another engine document', async () => {
+    const db = createDbFake();
+    const codex = configRow('codex', { model: 'gpt-6-astra', approval_policy: 'never' });
+    db.tables.set(clientConfigDocuments, [codex]);
+    const service = new ModelDefaultsService(db as never);
+    expect(await service.ensureGrokDefaults()).toBe(true);
+    expect(db.tables.get(clientConfigDocuments)![0]).toEqual(codex);
+    const rows = db.tables.get(clientConfigDocuments)!;
+    const existingGrok = rows.find(row => row.engine === ENGINE_GROK)!;
+    existingGrok.settings = { model: 'grok-4.5', reasoning_effort: 'low', orchestrator_mcp_enabled: false };
+    const before = structuredClone(rows);
+    expect(await service.ensureGrokDefaults()).toBe(false);
+    expect(db.tables.get(clientConfigDocuments)).toEqual(before);
+  });
+
   it('reports greenfield defaults and the complete per-engine catalogs', async () => {
     const db = createDbFake();
     const service = new ModelDefaultsService(db as never);

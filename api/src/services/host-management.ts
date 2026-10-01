@@ -14,7 +14,8 @@ import type { Host } from '../db/schema.js';
 import { decryptOrNull, encrypt as sboxEncrypt } from '../security/secret-box.js';
 import { sha256 } from '../security/hash.js';
 import { nowIso, isoOffsetSeconds } from '../util/timestamp.js';
-import { ENGINE_CODEX, ENGINE_CLAUDE, type Engine } from '../util/engine.js';
+import { ENGINE_CODEX, ENGINE_CLAUDE, ENGINE_GROK, ENGINES, ENGINE_LABELS, isEngine, type Engine } from '../util/engine.js';
+import { normalizeGrokEffort, normalizeGrokModel } from './grok-models.js';
 import { NotFoundError, ValidationError, ApiError, ConflictError } from '../http/errors.js';
 import type { AdminEventsWriter } from './admin-events-writer.js';
 import {
@@ -30,9 +31,10 @@ import {
   REASONING_EFFORTS,
   SUPPORTED_MODELS,
 } from './config-normalizer.js';
-import { coerceCodexVersionToMinimum, isSemanticVersion } from './client-versions.js';
+import { coerceCodexVersionToMinimum, isSemanticVersion, isSupportedGrokVersion } from './client-versions.js';
 import { suspendAgentMessagingRuntimeLocked } from './agent-messaging.js';
 import { PROVISIONING_WINDOW_MINUTES } from './insecure-window.js';
+import { ModelDefaultsService } from './model-defaults.js';
 
 // ────────────────────────────────────────────────────────────────────────────
 // Constants (mirrored from legacy PHP)
@@ -62,7 +64,7 @@ export function parseEnginesInput(raw: unknown, fallback: Engine[]): Engine[] {
   const out: Engine[] = [];
   for (const p of parts) {
     const t = p.trim().toLowerCase();
-    if (t === ENGINE_CODEX || t === ENGINE_CLAUDE) {
+    if (isEngine(t)) {
       if (!out.includes(t as Engine)) out.push(t as Engine);
     }
   }
@@ -72,23 +74,20 @@ export function parseEnginesInput(raw: unknown, fallback: Engine[]): Engine[] {
 export function serializeEngines(engines: Engine[]): string {
   if (!engines.length) return ENGINE_CODEX;
   // canonical order: codex,claude
-  const order: Engine[] = [];
-  if (engines.includes(ENGINE_CODEX)) order.push(ENGINE_CODEX);
-  if (engines.includes(ENGINE_CLAUDE)) order.push(ENGINE_CLAUDE);
+  const order = ENGINES.filter(engine => engines.includes(engine));
   return order.join(',');
 }
 
-export function installerModeForEngines(engines: Engine[]): 'codex' | 'claude' | 'both' {
+export type InstallerMode = Engine | 'both' | 'codex,grok' | 'claude,grok' | 'codex,claude,grok';
+export function installerModeForEngines(engines: Engine[]): InstallerMode {
   const s = serializeEngines(engines);
   if (s === `${ENGINE_CODEX},${ENGINE_CLAUDE}`) return 'both';
-  if (s === ENGINE_CLAUDE) return 'claude';
-  return 'codex';
+  return s as InstallerMode;
 }
 
-export function installerModeLabel(mode: 'codex' | 'claude' | 'both'): string {
-  if (mode === 'claude') return 'Claude';
+export function installerModeLabel(mode: InstallerMode): string {
   if (mode === 'both') return 'Codex + Claude';
-  return 'Codex';
+  return mode.split(',').map(engine => ENGINE_LABELS[engine as Engine]).join(' + ');
 }
 
 export function installerCommand(url: string, curlInsecure: boolean): string {
@@ -161,7 +160,7 @@ export interface HostManagementOptions {
 
 export interface InstallerInfo {
   token: string;
-  mode: 'codex' | 'claude' | 'both';
+  mode: InstallerMode;
   label: string;
   url: string;
   command: string;
@@ -322,6 +321,10 @@ export class HostManagementService {
       });
     }
 
+    if (engines.includes(ENGINE_GROK)) {
+      await new ModelDefaultsService(this.db).ensureGrokDefaults();
+    }
+
     // Open the initial insecure window for newly-provisioned insecure hosts.
     if (!secure) {
       const provisioningMinutes = clampInsecureMinutes(
@@ -404,7 +407,7 @@ export class HostManagementService {
         ? req.engines
         : parseEnginesInput(this.env.DEFAULT_HOST_ENGINES, [ENGINE_CODEX]);
     if (!engines.length) {
-      throw new ValidationError('engines must contain at least one of: codex, claude', { param: 'engines' });
+      throw new ValidationError('engines must contain at least one of: codex, claude, grok', { param: 'engines' });
     }
     const fqdn = await this.generateQuickHostName();
     const result = await this.register({
@@ -448,6 +451,9 @@ export class HostManagementService {
       }
     }
     const engines = union.length ? union : [ENGINE_CODEX];
+    if (engines.includes(ENGINE_GROK)) {
+      await new ModelDefaultsService(this.db).ensureGrokDefaults();
+    }
     const enginesChanged = serializeEngines(engines) !== serializeEngines(currentEngines);
     const curlInsecureChanged =
       typeof options.curlInsecure === 'boolean' && (host.curlInsecure === 1) !== options.curlInsecure;
@@ -546,7 +552,7 @@ export class HostManagementService {
         ? requestedEngines[0]!
         : engines.includes(ENGINE_CODEX)
           ? ENGINE_CODEX
-          : ENGINE_CLAUDE;
+          : engines[0] ?? ENGINE_GROK;
 
     await this.db.insert(installTokens).values({
       token: tokenHash,
@@ -623,6 +629,8 @@ export class HostManagementService {
         authDigest: null,
         claudeLastRefresh: null,
         claudeAuthDigest: null,
+        grokLastRefresh: null,
+        grokAuthDigest: null,
         updatedAt: nowIso(),
       })
       .where(eq(hosts.id, id));
@@ -771,11 +779,14 @@ export class HostManagementService {
     const host = await this.requireById(id);
     const engines = enginesIn.length ? enginesIn : [];
     if (!engines.length) {
-      throw new ValidationError('engines must contain at least one of: codex, claude', { param: 'engines' });
+      throw new ValidationError('engines must contain at least one of: codex, claude, grok', { param: 'engines' });
     }
     const previous = serializeEngines(parseEnginesInput(host.engines, [ENGINE_CODEX]));
     const next = serializeEngines(engines);
-    const disabled = [ENGINE_CODEX, ENGINE_CLAUDE].filter((engine) => !engines.includes(engine));
+    if (engines.includes(ENGINE_GROK)) {
+      await new ModelDefaultsService(this.db).ensureGrokDefaults();
+    }
+    const disabled = ENGINES.filter((engine) => !engines.includes(engine));
     await this.db.transaction(async (tx) => {
       if (disabled.length > 0) {
         await suspendAgentMessagingRuntimeLocked(tx, id, 'engine_disabled', disabled);
@@ -819,6 +830,8 @@ export class HostManagementService {
       model_override?: string | null | undefined;
       reasoning_effort_override?: string | null | undefined;
       claude_model_override?: string | null | undefined;
+      grok_model_override?: string | null | undefined;
+      grok_reasoning_effort_override?: string | null | undefined;
       includeClaudeOverride?: boolean;
     },
   ): Promise<Host> {
@@ -863,12 +876,26 @@ export class HostManagementService {
         ? payload.claude_model_override.trim() || null
         : null;
     }
+    if (payload.grok_model_override !== undefined) {
+      const value = payload.grok_model_override?.trim() ?? '';
+      const model = value ? normalizeGrokModel(value) : null;
+      if (value && !model) throw new ValidationError('Unsupported Grok model override', { param: 'grok_model_override' });
+      patch.grokModelOverride = model;
+    }
+    if (payload.grok_reasoning_effort_override !== undefined) {
+      const value = payload.grok_reasoning_effort_override?.trim() ?? '';
+      const effort = value ? normalizeGrokEffort(value, patch.grokModelOverride ?? host.grokModelOverride) : null;
+      if (value && !effort) throw new ValidationError('Unsupported Grok reasoning effort override', { param: 'grok_reasoning_effort_override' });
+      patch.grokReasoningEffortOverride = effort;
+    }
     await this.db.update(hosts).set(patch).where(eq(hosts.id, id));
     await this.writeLog(id, 'admin.host.model_overrides', {
       fqdn: host.fqdn,
       model_override: patch.modelOverride ?? host.modelOverride ?? null,
       reasoning_effort_override: patch.reasoningEffortOverride ?? host.reasoningEffortOverride ?? null,
       ...(payload.includeClaudeOverride ? { claude_model_override: patch.claudeModelOverride ?? null } : {}),
+      ...(payload.grok_model_override !== undefined ? { grok_model_override: patch.grokModelOverride } : {}),
+      ...(payload.grok_reasoning_effort_override !== undefined ? { grok_reasoning_effort_override: patch.grokReasoningEffortOverride } : {}),
     });
     return await this.publishUpdate(id, host.fqdn, { model_overrides_changed: true });
   }
@@ -921,6 +948,16 @@ export class HostManagementService {
     return await this.publishUpdate(id, host.fqdn, {
       claude_client_version_override: stored,
     });
+  }
+
+  async setGrokVersionOverride(id: number, selection: string | null): Promise<Host> {
+    const host = await this.requireById(id);
+    const stored = selection === null ? null : normalizeSemver(selection);
+    if (stored !== null && !isSemanticVersion(stored)) throw new ValidationError('selection must be a semantic version like 1.0.46', { param: 'selection' });
+    if (stored !== null && !isSupportedGrokVersion(stored)) throw new ValidationError('Grok requires version 1.0.46 or later', { param: 'selection' });
+    await this.db.update(hosts).set({ grokClientVersionOverride: stored, updatedAt: nowIso() }).where(eq(hosts.id, id));
+    await this.writeLog(id, 'admin.host.grok_client_version_override', { fqdn: host.fqdn, grok_client_version_override: stored });
+    return this.publishUpdate(id, host.fqdn, { grok_client_version_override: stored });
   }
 
   async setAgentsDocumentOverride(id: number, selection: string | number | null): Promise<Host> {

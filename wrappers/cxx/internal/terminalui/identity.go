@@ -6,6 +6,9 @@ func engineCaps(caps Caps, engine string) Caps {
 	if strings.EqualFold(engine, "clx") || strings.EqualFold(engine, "claude") {
 		caps.Theme = ThemeViolet
 	}
+	if strings.EqualFold(engine, "cgx") || strings.EqualFold(engine, "grok") {
+		caps.Theme = ThemeGreen
+	}
 	if !caps.IsTTY || caps.Dumb || caps.NoColor {
 		caps.Palette = Palette{}
 	}
@@ -22,6 +25,9 @@ func normalizeScreen(in ScreenInput) ScreenInput {
 		in.EngineName = "codex"
 		if in.Prefix == "clx" {
 			in.EngineName = "claude"
+		}
+		if in.Prefix == "cgx" {
+			in.EngineName = "grok"
 		}
 	}
 	return in

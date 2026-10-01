@@ -1,6 +1,6 @@
 import { sql } from 'drizzle-orm';
 import type { Database } from '../db/client.js';
-import { ENGINE_CLAUDE, type Engine } from '../util/engine.js';
+import { ENGINE_CODEX, type Engine } from '../util/engine.js';
 
 export type RunnerTelemetryState = 'ok' | 'fail';
 
@@ -10,7 +10,7 @@ export async function writeRunnerTelemetry(
   state: RunnerTelemetryState,
   checkedAt: string,
 ): Promise<void> {
-  const suffix = engine === ENGINE_CLAUDE ? '_claude' : '';
+  const suffix = engine === ENGINE_CODEX ? '' : `_${engine}`;
   await upsertVersion(db, `runner_state${suffix}`, state, checkedAt);
   await upsertVersion(db, `runner_last_check${suffix}`, checkedAt, checkedAt);
   await upsertVersion(
@@ -21,12 +21,7 @@ export async function writeRunnerTelemetry(
   );
 }
 
-async function upsertVersion(
-  db: Database,
-  name: string,
-  version: string,
-  updatedAt: string,
-): Promise<void> {
+async function upsertVersion(db: Database, name: string, version: string, updatedAt: string): Promise<void> {
   await db.execute(sql`
     INSERT INTO versions (name, version, updated_at)
     VALUES (${name}, ${version}, ${updatedAt})

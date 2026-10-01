@@ -11,7 +11,7 @@ import {
   unverifiableWithoutRefreshSpend,
 } from '../services/canonical-auth-store.js';
 import { inspectCredential } from '../services/auth-generation.js';
-import { ENGINE_CLAUDE, ENGINE_CODEX, type Engine } from '../util/engine.js';
+import { ENGINES, type Engine } from '../util/engine.js';
 import { nowIso } from '../util/timestamp.js';
 import { writeRunnerTelemetry, type RunnerTelemetryState } from '../services/runner-telemetry.js';
 import type { RunnerValidationService } from '../services/runner-validation.js';
@@ -160,7 +160,7 @@ export function startAuthVerificationWorker(
 }
 
 export async function runAuthVerificationWorkerTick(deps: AuthVerificationTickDeps): Promise<void> {
-  await Promise.all([verifyEngine(ENGINE_CODEX, deps), verifyEngine(ENGINE_CLAUDE, deps)]);
+  await Promise.all(ENGINES.map(engine => verifyEngine(engine, deps)));
 }
 
 /**

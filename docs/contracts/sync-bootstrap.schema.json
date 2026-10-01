@@ -32,7 +32,7 @@
         "engine": {
           "enum": [
             "codex",
-            "claude"
+            "claude", "grok"
           ]
         },
         "reasons": {

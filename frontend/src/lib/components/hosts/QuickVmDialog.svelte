@@ -18,9 +18,9 @@
 
   const mutation = createQuickRegisterMutation();
   let result = $state<HostRegisterResponse | null>(null);
-  let pending = $state<"codex" | "claude" | "both" | null>(null);
+  let pending = $state<"codex" | "claude" | "grok" | "all" | null>(null);
 
-  async function spin(engines: ("codex" | "claude")[], key: "codex" | "claude" | "both"): Promise<void> {
+  async function spin(engines: ("codex" | "claude" | "grok")[], key: "codex" | "claude" | "grok" | "all"): Promise<void> {
     pending = key;
     try {
       const data = await $mutation.mutateAsync({ engines });
@@ -56,7 +56,7 @@
     </Dialog.Header>
 
     {#if !result}
-      <div class="grid grid-cols-1 gap-3 py-2 sm:grid-cols-3">
+      <div class="grid grid-cols-1 gap-3 py-2 sm:grid-cols-2">
         <button
           type="button"
           class="flex flex-col items-center justify-center gap-2 rounded-lg border border-input bg-background p-4 transition-colors hover:bg-accent disabled:opacity-50"
@@ -79,16 +79,24 @@
           <span class="text-xs text-muted-foreground">Claude Code</span>
           {#if pending === "claude"}<span class="text-xs text-muted-foreground">Working…</span>{/if}
         </button>
+        <button type="button"
+          class="flex flex-col items-center justify-center gap-2 rounded-lg border border-input bg-background p-4 transition-colors hover:bg-accent disabled:opacity-50"
+          disabled={pending !== null} onclick={() => spin(["grok"], "grok")}>
+          <Cpu class="h-7 w-7 text-persona-grok" />
+          <span class="text-sm font-semibold">Grok only</span>
+          <span class="text-xs text-muted-foreground">Grok Build · cgx</span>
+          {#if pending === "grok"}<span class="text-xs text-muted-foreground">Working…</span>{/if}
+        </button>
         <button
           type="button"
           class="flex flex-col items-center justify-center gap-2 rounded-lg border border-input bg-background p-4 transition-colors hover:bg-accent disabled:opacity-50"
           disabled={pending !== null}
-          onclick={() => spin(["codex", "claude"], "both")}
+          onclick={() => spin(["codex", "claude", "grok"], "all")}
         >
           <Layers class="h-7 w-7 text-violet-500" />
-          <span class="text-sm font-semibold">Both</span>
-          <span class="text-xs text-muted-foreground">Codex + Claude</span>
-          {#if pending === "both"}<span class="text-xs text-muted-foreground">Working…</span>{/if}
+          <span class="text-sm font-semibold">All engines</span>
+          <span class="text-xs text-muted-foreground">Codex + Claude + Grok</span>
+          {#if pending === "all"}<span class="text-xs text-muted-foreground">Working…</span>{/if}
         </button>
       </div>
     {:else}

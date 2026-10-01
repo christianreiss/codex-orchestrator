@@ -113,6 +113,8 @@ func DefaultPathForEngine(engine string) (string, error) {
 		envName, filename = "CDX_CONFIG_PATH", "cdx.json"
 	case EngineClaude:
 		envName, filename = "CLX_CONFIG_PATH", "clx.json"
+	case EngineGrok:
+		envName, filename = "CGX_CONFIG_PATH", "cgx.json"
 	default:
 		return "", fmt.Errorf("unsupported engine %q", engine)
 	}
@@ -158,7 +160,7 @@ func (c *Config) ValidateForEngine(expectedEngine string) error {
 	if c.SchemaVersion != SchemaVersion {
 		return fmt.Errorf("unsupported schema_version %d (want %d)", c.SchemaVersion, SchemaVersion)
 	}
-	if expectedEngine != EngineCodex && expectedEngine != EngineClaude {
+	if expectedEngine != EngineCodex && expectedEngine != EngineClaude && expectedEngine != EngineGrok {
 		return fmt.Errorf("unsupported expected engine %q", expectedEngine)
 	}
 	if c.Engine != expectedEngine {

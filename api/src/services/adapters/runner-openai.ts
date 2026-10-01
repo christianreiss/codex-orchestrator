@@ -5,7 +5,7 @@ import {
   capabilitiesFor,
   stopReasonFor,
 } from '../transport-capabilities.js';
-import { ENGINE_CODEX } from '../../util/engine.js';
+import { ENGINE_CODEX, ENGINE_GROK, type Engine } from '../../util/engine.js';
 import type { Env } from '../../env.js';
 
 /**
@@ -59,7 +59,9 @@ export interface ChatCompletionResult {
     prompt_tokens: number;
     completion_tokens: number;
     total_tokens: number;
-  };
+    prompt_tokens_details?: { cached_tokens: number };
+    completion_tokens_details?: { reasoning_tokens: number };
+  } | null;
 }
 
 export interface CompletionResult {
@@ -82,20 +84,20 @@ export interface CompletionResult {
     prompt_tokens: number;
     completion_tokens: number;
     total_tokens: number;
-  };
+  } | null;
 }
 
 export interface ResponsesResult {
   id: string;
   object: 'response';
   created_at: number;
-  status: 'completed';
+  status: 'completed' | 'incomplete';
   model: string;
   // Nullable-default fields the upstream `response` object always carries.
   // Required-without-default fields (`tools`, `tool_choice`, `text`) below
   // otherwise AttributeError under openai-python's typed Response object.
   error: null;
-  incomplete_details: null;
+  incomplete_details: { reason: 'max_output_tokens' | 'content_filter' } | null;
   instructions: string | null;
   metadata: Record<string, never>;
   tools: never[];
@@ -104,7 +106,7 @@ export interface ResponsesResult {
   output: Array<{
     id: string;
     type: 'message';
-    status: 'completed';
+    status: 'completed' | 'incomplete';
     role: 'assistant';
     content: Array<{
       type: 'output_text';
@@ -116,14 +118,15 @@ export interface ResponsesResult {
   parallel_tool_calls: false;
   usage: {
     input_tokens: number;
-    input_tokens_details: { cached_tokens: 0 };
+    input_tokens_details: { cached_tokens: number } | null;
     output_tokens: number;
-    output_tokens_details: { reasoning_tokens: 0 };
+    output_tokens_details: { reasoning_tokens: number } | null;
     total_tokens: number;
-  };
+  } | null;
 }
 
 export interface RunnerOpenAiConfig {
+  engine?: Engine;
   execUrl: string;
   sharedSecret: string;
   timeoutSeconds: number;
@@ -142,12 +145,13 @@ export interface RunnerOpenAiConfig {
   onExecSuccess?: (authSnapshot: unknown) => void;
 }
 
-export function makeRunnerConfig(env: Env): RunnerOpenAiConfig | null {
-  const url = env.AUTH_RUNNER_URL ?? env.AUTH_RUNNER_CODEX_BASE_URL;
+export function makeRunnerConfig(env: Env, engine: Engine = ENGINE_CODEX): RunnerOpenAiConfig | null {
+  const url = env.AUTH_RUNNER_URL ?? (engine === ENGINE_CODEX ? env.AUTH_RUNNER_CODEX_BASE_URL : undefined);
   if (!url || !env.AUTH_RUNNER_SHARED_SECRET) return null;
   const execUrl = runnerExecUrl(url);
   return {
     execUrl,
+    engine,
     sharedSecret: env.AUTH_RUNNER_SHARED_SECRET,
     timeoutSeconds: env.AUTH_RUNNER_EXEC_TIMEOUT ?? 600,
   };
@@ -156,24 +160,30 @@ export function makeRunnerConfig(env: Env): RunnerOpenAiConfig | null {
 export function runnerExecUrl(url: string): string {
   const trimmed = url.replace(/\/$/, '');
   if (trimmed.endsWith('/exec')) return trimmed;
-  if (trimmed.endsWith('/verify')) return trimmed.replace(/\/verify$/, '/exec');
+  if (/\/verify(?:-grok|-claude)?$/.test(trimmed)) return trimmed.replace(/\/verify(?:-grok|-claude)?$/, '/exec');
   return `${trimmed}/exec`;
 }
 
-/** One transport, one engine: the runner's CLI shell-out for Codex. */
-const CAPABILITIES = capabilitiesFor('runner-cli', ENGINE_CODEX);
-
 export class RunnerOpenAiAdapter {
-  constructor(private readonly config: RunnerOpenAiConfig) {}
+  private readonly capabilities;
+  constructor(private readonly config: RunnerOpenAiConfig) {
+    this.capabilities = capabilitiesFor('runner-cli', config.engine ?? ENGINE_CODEX);
+  }
 
   async chatCompletions(
     messages: OpenAiMessage[],
     model: string,
     params: OpenAiGenerationParams = {},
   ): Promise<ChatCompletionResult> {
-    const { prompt, images } = buildPromptPayload(messages);
+    const grok = this.config.engine === ENGINE_GROK;
+    const systemMessages = grok ? messages.filter(message => ['system', 'developer'].includes(message.role)) : [];
+    const systemImages: OpenAiMessageImage[] = [];
+    const system = systemMessages.map(message => renderMessageContent(message.content, systemImages, () => systemImages.length + 1)).filter(Boolean).join('\n');
+    const { prompt, images } = buildPromptPayload(grok ? messages.filter(message => !systemMessages.includes(message)) : messages);
+    images.push(...systemImages);
+    if (system) params = { ...params, system: [params.system, system].filter(Boolean).join('\n') };
     const result = await this.runPrompt(prompt, model, images, params);
-    const usage = extractUsage(result);
+    const usage = extractUsage(result, this.config.engine === ENGINE_GROK);
     return {
       id: `chatcmpl-${randomBytes(12).toString('hex')}`,
       object: 'chat.completion',
@@ -183,7 +193,7 @@ export class RunnerOpenAiAdapter {
         {
           index: 0,
           message: { role: 'assistant', content: stringOrEmpty(result.output) },
-          finish_reason: stopReasonFor(CAPABILITIES, result.finish_reason),
+          finish_reason: stopReasonFor(this.capabilities, result.finish_reason),
         },
       ],
       usage,
@@ -196,7 +206,7 @@ export class RunnerOpenAiAdapter {
     params: OpenAiGenerationParams = {},
   ): Promise<ResponsesResult> {
     const completion = await this.chatCompletions(messages, model, params);
-    return responseFromChatCompletion(completion);
+    return responseFromChatCompletion(completion, this.config.engine === ENGINE_GROK);
   }
 
   async completions(
@@ -205,7 +215,7 @@ export class RunnerOpenAiAdapter {
     params: OpenAiGenerationParams = {},
   ): Promise<CompletionResult> {
     const result = await this.runPrompt(prompt, model, [], params);
-    const usage = extractUsage(result);
+    const usage = extractUsage(result, this.config.engine === ENGINE_GROK);
     return {
       id: `cmpl-${randomBytes(12).toString('hex')}`,
       object: 'text_completion',
@@ -216,7 +226,7 @@ export class RunnerOpenAiAdapter {
           text: stringOrEmpty(result.output),
           index: 0,
           logprobs: null,
-          finish_reason: stopReasonFor(CAPABILITIES, result.finish_reason),
+          finish_reason: stopReasonFor(this.capabilities, result.finish_reason),
         },
       ],
       usage,
@@ -229,16 +239,13 @@ export class RunnerOpenAiAdapter {
     images: OpenAiMessageImage[],
     params: OpenAiGenerationParams,
   ): Promise<RunnerResponse> {
+    if (this.config.engine === ENGINE_GROK && images.length > 0) {
+      throw new ApiError('Image inputs are not supported by the Grok CLI transport', {
+        status: 400, code: 'unsupported_generation_control', type: 'invalid_request_error', param: 'images',
+      });
+    }
     if (prompt.trim() === '') {
       return { status: 'ok', output: '', input_tokens: 0, output_tokens: 0 };
-    }
-
-    const authPayload = this.config.authSnapshot ? await this.config.authSnapshot() : null;
-    if (this.config.authSnapshot && authPayload === null) {
-      throw new ApiError(
-        'No auth credentials available. Upload auth.json first.',
-        { status: 502, code: 'no_auth_snapshot', type: 'api_error' },
-      );
     }
 
     // Refuse before dispatch. `codex exec` has no flags for the sampling
@@ -253,21 +260,30 @@ export class RunnerOpenAiAdapter {
         system: params.system,
         stop_sequences: params.stop,
       },
-      CAPABILITIES,
+      this.capabilities,
     );
+
+    const authPayload = this.config.authSnapshot ? await this.config.authSnapshot() : null;
+    if (this.config.authSnapshot && authPayload === null) {
+      throw new ApiError(
+        'No auth credentials available. Upload auth.json first.',
+        { status: 502, code: 'no_auth_snapshot', type: 'api_error' },
+      );
+    }
 
     const body: Record<string, unknown> = {
       auth_json: authPayload,
       prompt,
       images,
       model,
-      engine: 'codex',
+      engine: this.config.engine ?? ENGINE_CODEX,
       timeout_seconds: this.config.timeoutSeconds,
     };
     // `max_tokens` is `accepted-unenforceable`: it is forwarded because callers
     // and the protocol expect to be able to send it, and nothing downstream
     // reports a `max_tokens` finish reason on this transport as a result.
     if (params.max_tokens !== undefined) body.max_tokens = params.max_tokens;
+    if (params.system !== undefined) body.system = params.system;
 
     const headers: Record<string, string> = { 'content-type': 'application/json' };
     if (this.config.sharedSecret.trim()) {
@@ -328,9 +344,12 @@ export class RunnerOpenAiAdapter {
 
 interface RunnerResponse {
   status?: string;
+  usage_known?: boolean;
   output?: unknown;
   input_tokens?: unknown;
   output_tokens?: unknown;
+  cache_read_input_tokens?: unknown;
+  reasoning_tokens?: unknown;
   /**
    * The runner's `/exec` does not report one today, so this is always absent
    * and `stopReasonFor` answers `null`. It is declared so a transport that
@@ -339,17 +358,24 @@ interface RunnerResponse {
   finish_reason?: string | null;
 }
 
-function extractUsage(result: RunnerResponse): {
+function extractUsage(result: RunnerResponse, requireExact = false): {
   prompt_tokens: number;
   completion_tokens: number;
   total_tokens: number;
-} {
+  prompt_tokens_details?: { cached_tokens: number };
+  completion_tokens_details?: { reasoning_tokens: number };
+} | null {
+  if (requireExact && (result.usage_known !== true || ![result.input_tokens, result.output_tokens].every(value => typeof value === 'number' && Number.isSafeInteger(value) && value >= 0))) return null;
   const prompt = numberOrZero(result.input_tokens);
   const completion = numberOrZero(result.output_tokens);
   return {
     prompt_tokens: prompt,
     completion_tokens: completion,
     total_tokens: prompt + completion,
+    ...(requireExact ? {
+      ...(typeof result.cache_read_input_tokens === 'number' ? { prompt_tokens_details: { cached_tokens: result.cache_read_input_tokens } } : {}),
+      ...(typeof result.reasoning_tokens === 'number' ? { completion_tokens_details: { reasoning_tokens: result.reasoning_tokens } } : {}),
+    } : {}),
   };
 }
 
@@ -426,19 +452,22 @@ function renderMessageContent(
 
 export function responseFromChatCompletion(
   completion: ChatCompletionResult,
+  nativeGrok = false,
 ): ResponsesResult {
   const responseId = deriveId(completion.id, 'resp_');
   const messageId = deriveId(completion.id, 'msg_');
   const content = completion.choices[0]?.message.content ?? '';
   const usage = completion.usage;
+  const reason = completion.choices[0]?.finish_reason;
+  const incomplete = nativeGrok && (reason === 'length' || reason === 'content_filter');
   return {
     id: responseId,
     object: 'response',
     created_at: completion.created,
-    status: 'completed',
+    status: incomplete ? 'incomplete' : 'completed',
     model: completion.model,
     error: null,
-    incomplete_details: null,
+    incomplete_details: incomplete ? { reason: reason === 'length' ? 'max_output_tokens' : 'content_filter' } : null,
     instructions: null,
     metadata: {},
     tools: [],
@@ -448,7 +477,7 @@ export function responseFromChatCompletion(
       {
         id: messageId,
         type: 'message',
-        status: 'completed',
+        status: incomplete ? 'incomplete' : 'completed',
         role: 'assistant',
         content: [
           {
@@ -461,13 +490,13 @@ export function responseFromChatCompletion(
       },
     ],
     parallel_tool_calls: false,
-    usage: {
+    usage: usage ? {
       input_tokens: usage.prompt_tokens,
-      input_tokens_details: { cached_tokens: 0 },
+      input_tokens_details: nativeGrok ? usage.prompt_tokens_details ?? null : { cached_tokens: 0 },
       output_tokens: usage.completion_tokens,
-      output_tokens_details: { reasoning_tokens: 0 },
+      output_tokens_details: nativeGrok ? usage.completion_tokens_details ?? null : { reasoning_tokens: 0 },
       total_tokens: usage.total_tokens,
-    },
+    } : null,
   };
 }
 

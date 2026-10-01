@@ -24,7 +24,7 @@ export async function registerAgentReceiverRoutes(app: FastifyInstance, ctx: Rou
         z
           .object({
             generation,
-            protocol: z.enum(['codex-queue-v1', 'claude-channel-v1']),
+            protocol: z.enum(['codex-queue-v1', 'claude-channel-v1', 'grok-acp-v1']),
             native_session_id: z.string().min(1).max(255),
           })
           .strict()

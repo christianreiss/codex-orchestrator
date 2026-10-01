@@ -8,7 +8,7 @@ import { and, eq, isNull } from 'drizzle-orm';
 import { authPayloads } from '../db/schema.js';
 import type { Database } from '../db/client.js';
 import type { Engine } from '../util/engine.js';
-import type { RunnerValidationService } from './runner-validation.js';
+import type { CanonicalPayloadRow, RunnerValidationService } from './runner-validation.js';
 import { writeRunnerTelemetry } from './runner-telemetry.js';
 import { nowIso } from '../util/timestamp.js';
 
@@ -26,6 +26,8 @@ export interface AuthTrafficVerifierDeps {
   db: Database;
   runnerValidation: RunnerValidationService;
   engine: Engine;
+  /** A renewal owner may provide an access-only projection of its exact account head. */
+  snapshotProvider?: () => Promise<{ row: CanonicalPayloadRow; auth: Record<string, unknown> }>;
   /** Minimum gap between touches; default one minute. */
   minIntervalMs?: number;
   now?: () => string;
@@ -38,26 +40,28 @@ export function createAuthTrafficVerifier(deps: AuthTrafficVerifierDeps): AuthTr
   const minIntervalMs = deps.minIntervalMs ?? 60_000;
   const now = deps.now ?? nowIso;
   const nowMs = deps.nowMs ?? Date.now;
-  const servedRows = new WeakMap<object, number>();
+  const servedRows = new WeakMap<object, { id: number; accountId?: number | null }>();
   let lastTouchRowId: number | null = null;
   let lastTouchMs = -Infinity;
 
   return {
     async getAuthSnapshot(): Promise<unknown | null> {
-      const row = await runnerValidation.resolveCanonicalPayload(engine);
-      const auth = row ? runnerValidation.canonicalAuthFromPayload(row) : null;
+      const provided = deps.snapshotProvider ? await deps.snapshotProvider() : null;
+      const row = provided?.row ?? await runnerValidation.resolveCanonicalPayload(engine);
+      const auth = provided?.auth ?? (row ? runnerValidation.canonicalAuthFromPayload(row) : null);
       if (auth === null || row === null) return null;
       // Give every request a distinct identity, even if a provider caches its
       // decoded object. Weak keys retain no credential after the request ends.
       const snapshot = { ...auth };
-      servedRows.set(snapshot, row.id);
+      servedRows.set(snapshot, { id: row.id, accountId: row.accountId });
       return snapshot;
     },
 
     recordExecSuccess(snapshot: unknown): void {
       if (snapshot === null || typeof snapshot !== 'object') return;
-      const rowId = servedRows.get(snapshot);
-      if (rowId === undefined) return;
+      const served = servedRows.get(snapshot);
+      if (served === undefined) return;
+      const rowId = served.id;
       // Optimistic synchronous guard: concurrent successes inside the window
       // collapse to one touch without awaiting anything on the request path.
       const at = nowMs();
@@ -66,7 +70,7 @@ export function createAuthTrafficVerifier(deps: AuthTrafficVerifierDeps): AuthTr
         // Only touch the row the snapshot came from, and only while it is
         // still the verified canonical head — traffic proof must never
         // resurrect a failed or pending lineage.
-        const head = await runnerValidation.resolveCanonicalPayload(engine);
+        const head = await runnerValidation.resolveCanonicalPayload(engine, served.accountId ?? undefined);
         if (!head || head.id !== rowId || head.verificationState !== 'verified') return;
         // A stale completion must neither credit nor throttle the replacement.
         // Recheck after the read so concurrent first successes still coalesce.

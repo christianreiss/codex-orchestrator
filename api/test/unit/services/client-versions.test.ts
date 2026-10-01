@@ -3,6 +3,8 @@ import {
   CACHE_TTL_SECONDS,
   ClientVersionsService,
   CODEX_MIN_CLIENT_VERSION,
+  GROK_MIN_CLIENT_VERSION,
+  isSupportedGrokVersion,
   isClientVersionStale,
   STALE_AFTER_SECONDS,
   coerceCodexVersionToMinimum,
@@ -496,5 +498,67 @@ describe('isClientVersionStale', () => {
     expect(isClientVersionStale(null, now)).toBe(false);
     expect(isClientVersionStale(undefined, now)).toBe(false);
     expect(isClientVersionStale('not a date', now)).toBe(false);
+  });
+});
+
+describe('Grok version isolation', () => {
+  it('discovers official npm releases in its own cache', async () => {
+    const settings = makeSettings();
+    const upstream = vi.spyOn(globalThis, 'fetch').mockResolvedValue(okJson({ version: '1.0.46' }));
+    const release = await new ClientVersionsService(settings as never).availableClientVersion(true, 'grok');
+    expect(upstream).toHaveBeenCalledWith(
+      'https://registry.npmjs.org/@xai-official%2Fgrok/latest',
+      expect.any(Object),
+    );
+    expect(release).toMatchObject({ name: 'grok-cli', version: '1.0.46', cached: false });
+    expect(settings.set).toHaveBeenCalledWith(
+      'github_release_grok-cli',
+      expect.stringContaining('"version":"1.0.46"'),
+      { publish: false },
+    );
+    expect(settings.store.has('github_release_codex-cli')).toBe(false);
+  });
+  it('serves only the Grok cache and preserves its age on upstream failure', async () => {
+    const cached = { ...cachedRelease('grok-cli', '1.0.46'), updatedAt: agedIso(9000) };
+    const settings = makeSettings({
+      'github_release_grok-cli': cached,
+      'github_release_codex-cli': cachedRelease('codex-cli', '0.137.0'),
+    });
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue({ ok: false } as Response);
+    const release = await new ClientVersionsService(settings as never).availableClientVersion(false, 'grok');
+    expect(release).toMatchObject({ name: 'grok-cli', version: '1.0.46', cached: true });
+    expect(settings.set).not.toHaveBeenCalled();
+    expect(settings.store.get('github_release_grok-cli')).toEqual(cached);
+  });
+  it('uses the reviewed baseline without creating a forced global lock', async () => {
+    const settings = makeSettings({ client_version_codex: '0.137.0', client_version_lock: '0.136.0' });
+    const summary = await new ClientVersionsService(settings as never).versionSummary('grok');
+    expect(summary).toMatchObject({
+      client_version: GROK_MIN_CLIENT_VERSION,
+      client_version_lock: null,
+      client_version_enforce_exact: false,
+    });
+    expect(settings.set).not.toHaveBeenCalled();
+  });
+  it('stores and clears Grok locks independently', async () => {
+    const settings = makeSettings({ client_version_lock: '0.137.0', client_version_lock_claude: '2.1.170' });
+    vi.spyOn(wsPublisher, 'publish').mockImplementation(() => {});
+    const service = new ClientVersionsService(settings as never);
+    expect(await service.setGrokVersionLock('1.0.46')).toEqual({
+      locked_version: '1.0.46',
+      locked_at: SET_AT,
+    });
+    expect((await service.versionSummary('grok')).client_version_lock).toBe('1.0.46');
+    await service.setGrokVersionLock(null);
+    expect(settings.store.has('client_version_lock_grok')).toBe(false);
+    expect(settings.store.get('client_version_lock')?.value).toBe('0.137.0');
+    expect(settings.store.get('client_version_lock_claude')?.value).toBe('2.1.170');
+  });
+  it('rejects releases older than the verified native baseline', () => {
+    expect(isSupportedGrokVersion('1.0.45')).toBe(false);
+    expect(isSupportedGrokVersion('1.0.46-rc.1')).toBe(false);
+    expect(isSupportedGrokVersion('1.0.46')).toBe(true);
+    expect(isSupportedGrokVersion('1.0.47')).toBe(true);
+    expect(isSupportedGrokVersion('latest')).toBe(false);
   });
 });

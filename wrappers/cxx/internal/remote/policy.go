@@ -11,7 +11,7 @@ import (
 // policyEngines is the order in which installed signed configs are consulted.
 // The switch is a fleet setting mirrored into both engines' configs, so the
 // first one that exists answers for the host.
-var policyEngines = []string{config.EngineCodex, config.EngineClaude}
+var policyEngines = []string{config.EngineCodex, config.EngineClaude, config.EngineGrok}
 
 // loadSignedConfig is a seam so the gate can be tested without a signing key.
 var loadSignedConfig = loadSignedConfigForEngine

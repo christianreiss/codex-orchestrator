@@ -1,12 +1,12 @@
-# Codex / Claude Auth Runner
+# Codex / Claude / Grok Auth Runner
 
 Lightweight HTTP microservice that validates an `auth.json`, generates short summaries, and drafts/revises skills by running the Codex or Claude CLI inside an isolated temp `$HOME`. Intended to run on the internal Docker network (no host ports).
 
-Both engines are supported end-to-end:
+All three engines are supported:
 
 - **Codex** path uses `/usr/local/bin/codex exec` with the installed Codex Rust CLI.
 - **Claude** path uses `/usr/local/bin/claude --print` with the installed `@anthropic-ai/claude-code` npm CLI.
-- Skill/memory/project endpoints accept an `engine: "codex" | "claude"` field in the request body (defaults to `codex` for back-compat).
+- Skill/memory/project endpoints accept an `engine: "codex" | "claude" | "grok"` field in the request body (defaults to `codex` for back-compat).
 - A dedicated `POST /verify-claude` endpoint validates Anthropic API keys against
   `api.anthropic.com/v1/messages`, and validates Claude Code OAuth credentials
   through the native Claude CLI so account-login tokens are not treated as public
@@ -20,12 +20,14 @@ docker build -t codex-auth-runner -f runner/Dockerfile .
 
 The image bundles:
 
+- Grok Build 1.0.46 from the official `@xai-official/grok-linux-{x64,arm64}` native package, installed by `install-grok.mjs` using Node's built-in Brotli decoder.
+
 - The Codex CLI (default `rust-v0.154.0`, musl builds; see `CODEX_TAG` in `runner/Dockerfile`). The pin has to stay in step with the fleet's codex target so the probe runs the same model catalog as real hosts — an older CLI without the default probe model fails every valid fresh login. Override via build args `CODEX_TAG`, `CODEX_VERSION`, `CODEX_ASSET_AMD64`, `CODEX_ASSET_ARM64`, `CODEX_SHA256_AMD64`, `CODEX_SHA256_ARM64`. Supported `TARGETARCH` values are `amd64` and `arm64`.
 - Node.js 22.14.0 plus `@anthropic-ai/claude-code@2.1.233` (installed globally), so `/verify-claude` and the Claude `exec` path work without extra setup.
 
-Every downloaded archive is checked against a pinned SHA256 before it is unpacked, and both CLIs are asked for their version after installation: a build whose `codex` or `claude` is missing, unreadable, or a different version **fails**. There is no `|| true`. The base image is pinned by multi-arch index digest — `scripts/update-base-images.sh` refreshes that pin and the Node/Codex checksums together.
+Codex and Node archives are checked against pinned SHA256 digests. The official Grok native package is pinned to 1.0.46 with a sha512 integrity digest and only `package/bin/grok.br` is decoded; npm lifecycle scripts are never run. All three CLIs must report the expected version after installation; a missing, unreadable, or mismatched binary fails the build. There is no `|| true`. The base image is pinned by multi-arch index digest — `scripts/update-base-images.sh` refreshes that pin and the Node/Codex checksums together.
 
-The image records what it installed in `RUNNER_CODEX_VERSION` and `RUNNER_CLAUDE_VERSION`, and names the engines it must have in `RUNNER_REQUIRED_ENGINES` (`codex,claude`). `entrypoint.sh` and `app.py` both refuse to start when one of those is absent or has drifted, so a runner can never advertise an engine it cannot actually run.
+The image records what it installed in `RUNNER_CODEX_VERSION`, `RUNNER_CLAUDE_VERSION`, and `RUNNER_GROK_VERSION`, and names the engines it must have in `RUNNER_REQUIRED_ENGINES` (`codex,claude,grok`). `entrypoint.sh` and `app.py` both refuse to start when one of those is absent or has drifted, so a runner can never advertise an engine it cannot actually run.
 
 ## Run (standalone)
 
@@ -41,13 +43,13 @@ The container serves FastAPI via uvicorn on `0.0.0.0:8080`.
 - `ANTHROPIC_API_BASE` (optional) — Anthropic API base URL used by `POST /verify-claude`; defaults to `https://api.anthropic.com`.
 - `RUNNER_SHARED_SECRET` (required) — every POST (`/verify`, `/verify-claude`, `/skills/summarize`, `/memories/summarize`, `/skills/generate`, `/skills/assist`, `/projects/assist`, and `/exec`) requires header `X-Runner-Auth` with an exact secret match. The guard fails closed: a wrong or missing header returns HTTP 401, and an unset `RUNNER_SHARED_SECRET` returns HTTP 500 rather than skipping auth. `GET /health` and the readiness GETs answer without the secret.
 - `RUNNER_HOME_PARENT` (optional) — parent directory for the isolated temporary runner `$HOME`; the bundled image sets it to `/dev/shm`, which is writable in the hardened container while still avoiding CLI homes under `/tmp`.
-- `RUNNER_REQUIRED_ENGINES` (optional) — comma-separated engines that must be installed and answering `--version` before the process serves traffic; the bundled image sets it to `codex,claude`. Unset means "whatever is installed is fine", which suits a source checkout but never an image. An unknown name here is a startup error, not a warning.
+- `RUNNER_REQUIRED_ENGINES` (optional) — comma-separated engines that must be installed and answering `--version` before the process serves traffic; the bundled image sets it to `codex,claude,grok`. Unset means "whatever is installed is fine", which suits a source checkout but never an image. An unknown name here is a startup error, not a warning.
 - `RUNNER_MAX_IMAGES` (optional, default `8`) — how many images one `/exec` request may attach.
 - `RUNNER_MAX_IMAGE_BYTES` (optional, default `10485760`) — per-image ceiling. For a data URL the encoded length is checked *before* decoding, so an oversized payload is refused without being materialized in memory.
 - `RUNNER_MAX_IMAGE_TOTAL_BYTES` (optional, default `33554432`) — aggregate ceiling across one request, so many images that each fit cannot add up past it.
 
   All three are read once at import. An unparseable or out-of-range value fails startup rather than silently restoring the default.
-- `RUNNER_CODEX_VERSION` / `RUNNER_CLAUDE_VERSION` (optional) — the versions the image installed. When set, a CLI reporting anything else is treated as unavailable, so a hand-patched container cannot silently answer probes with a different CLI than the one that was verified at build time.
+- `RUNNER_CODEX_VERSION` / `RUNNER_CLAUDE_VERSION` / `RUNNER_GROK_VERSION` (optional) — the versions the image installed. When set, a CLI reporting anything else is treated as unavailable, so a hand-patched container cannot silently answer probes with a different CLI than the one that was verified at build time.
 - `RUNNER_DEBUG_DUMP_AUTH=1` (optional) — enables debug dumping only when `RUNNER_ALLOW_SECRET_DUMP=1` is also set and `APP_ENV` is not `production`. Dumps land at `/tmp/last-auth.json` (Codex) and `/tmp/last-claude-auth.json` (Claude).
 - `RUNNER_ALLOW_SECRET_DUMP=1` (optional) — second explicit opt-in for debug secret dumps.
 - `APP_ENV` (optional) — when `production`, secret dump is always disabled.
@@ -63,6 +65,7 @@ so this list cannot drift from the code.
 - `GET /health` — per-engine CLI availability.
 - `POST /verify` — Codex credential probe.
 - `POST /verify-claude` — Claude credential probe.
+- `POST /verify-grok` — read-only Grok subscription credential probe.
 - `GET /skills/summarize` / `POST /skills/summarize` — readiness probe / skill summary.
 - `GET /memories/summarize` / `POST /memories/summarize` — readiness probe / memory summary.
 - `GET /skills/generate` / `POST /skills/generate` — readiness probe / structured skill draft.
@@ -77,7 +80,7 @@ Returns what the image actually carries, probed once at import:
 ```json
 {
   "status": "ok",
-  "required_engines": ["codex", "claude"],
+  "required_engines": ["codex", "claude", "grok"],
   "engines": {
     "codex": {
       "available": true,
@@ -177,6 +180,24 @@ Behavior details:
 - `status` is `ok` only when the command exits 0 and stdout contains `banana` (case-insensitive); otherwise `status` is `fail` and `reason` includes trimmed stderr/stdout (up to 400 chars).
 - `codex_version` is taken from `/usr/local/bin/codex --version` (last whitespace-separated token), or `"unknown"` when the version call fails.
 - The temp `$HOME` directory is always removed after the probe.
+
+### `POST /verify-grok`
+
+Accepts `auth_json` with a selected modern OIDC `grok_auth` scope and optional
+`timeout_seconds`. Calls the fixed subscription endpoint
+`https://cli-chat-proxy.grok.com/v1/user?include=subscription` without redirects.
+Returns `status`, `reachable`, `definitive`, `grok_version`, and allowlisted
+`provider_metadata`. It neither invokes generation nor refreshes OAuth.
+Legacy web-login and xAI API-key payloads are rejected. Access tokens need at
+least 300 seconds remaining. Canonical refresh tokens never enter a runner home.
+
+Grok `/exec` uses `--prompt-file`, JSON output, an isolated `GROK_HOME`, and
+`--no-leader`. It accepts model and system prompt; sampling, output caps,
+stop sequences, tools, streaming, and images are unsupported. The token must
+last for the execution timeout plus the native 300-second refresh buffer.
+Native `text` / `stopReason` / `usage` are parsed explicitly: cache input buckets
+are included in OpenAI input counts; missing or incomplete usage remains unknown.
+No native rewrite is returned as `updated_auth`.
 
 ### `POST /verify-claude`
 
@@ -582,7 +603,7 @@ Fields:
 - `prompt` (required string) — the prompt to execute.
 - `images` (optional array) — attachments with `url` (http(s) or `data:` URL) and optional `detail`; materialized into the temp `$HOME` and passed to the CLI as image paths.
 - `model` (optional string) — model passed to the CLI.
-- `engine` (optional string) — `codex` or `claude`; defaults to `codex`.
+- `engine` (optional string) — `codex`, `claude`, or `grok`; defaults to `codex`.
 - `system` (optional string) — system prompt; read only on the `claude` path.
 - `max_tokens` (optional int) — read only on the `claude` path, and dropped there too because the Claude CLI has no such flag.
 - `temperature`, `top_p`, `top_k`, `stop_sequences` (optional) — accepted for wire-format compatibility and passed to neither CLI.
@@ -612,7 +633,7 @@ Response (failure):
 ```
 
 Behavior details:
-- Uses the same temporary `$HOME` flow as `/verify`, writing `~/.codex/auth.json` or `~/.claude/.credentials.json` depending on `engine`, and includes `updated_auth` when the CLI rewrites the credential file.
+- Uses an isolated temporary `$HOME` per execution, writing an access-only native credential file for the selected engine. Execution never returns rewritten auth as a canonical candidate.
 - The `claude` path runs with `--output-format json`; a 0-exit response that is not that JSON shape is reported as `status:"fail"` rather than being passed through as reply text, and an `is_error` result inside a 0-exit response is a failure too.
 - The `claude` path also returns `input_tokens`, `output_tokens`, `cache_creation_input_tokens`, and `cache_read_input_tokens`.
 - HTTP 504 on exec timeout (`"exec timeout"`); HTTP 500 on runner exceptions.

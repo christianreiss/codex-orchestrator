@@ -10,22 +10,26 @@ import {
   chatgptUsageSnapshots,
   claudeUsageSnapshots,
   logs,
+  grokAuthRefreshState,
 } from '../db/schema.js';
 import type { Keyring } from '../security/keyring.js';
 import { ConflictError, NotFoundError, ServiceUnavailableError, ValidationError } from '../http/errors.js';
 import { nowIso } from '../util/timestamp.js';
 import type { Engine } from '../util/engine.js';
+import { selectGrokCredential } from './grok-auth.js';
 import { credentialMetadata, inspectCredential } from './auth-generation.js';
 import { quotaWindowScore, selectAccount } from './account-selection.js';
 import { wsPublisher } from '../ws/publisher.js';
 import { decrypt } from '../security/secret-box.js';
 import { createRunnerValidationService } from './runner-validation.js';
 import { resolveProviderAccount } from './provider-account-reference.js';
+import { withGrokAccountLock } from './grok-auth-lock.js';
 
 type Account = typeof providerAccounts.$inferSelect;
+const PROVIDER_LABELS: Record<Engine, string> = { codex: 'ChatGPT', claude: 'Claude', grok: 'Grok' };
 export function providerIdentity(auth: Record<string, unknown>, engine: Engine): string | null {
   const tokens = auth.tokens as Record<string, unknown> | undefined;
-  const value = engine === 'codex' ? tokens?.account_id : auth.account_identity;
+  const value = engine === 'codex' ? tokens?.account_id : engine === 'grok' ? selectGrokCredential(auth, true)?.native.user_id : auth.account_identity;
   return typeof value === 'string' && value.trim()
     ? createHash('sha256').update(`${engine}:${value.trim()}`).digest('hex')
     : null;
@@ -72,7 +76,7 @@ export class ProviderAccountsService {
         await this.db.insert(providerAccounts).values({
           engine,
           state: 'enabled',
-          label: engine === 'claude' ? 'Claude 1' : 'ChatGPT 1',
+          label: `${PROVIDER_LABELS[engine]} 1`,
           payloadId: legacy.id,
           generation: legacy.generation,
           createdAt: now,
@@ -202,7 +206,7 @@ export class ProviderAccountsService {
         payloadId: null,
         generation: null,
         lastSelectedAt: null,
-        label: engine === 'claude' ? 'Claude account' : 'ChatGPT account',
+        label: `${PROVIDER_LABELS[engine]} account`,
         identityKey: key,
         createdAt: now,
         updatedAt: now,
@@ -245,11 +249,13 @@ export class ProviderAccountsService {
                   .limit(1)
               )[0];
           const usage = await this.usage(a.id, a.engine as Engine);
+          const refresh = a.engine === 'grok' ? (await this.db.select().from(grokAuthRefreshState).where(eq(grokAuthRefreshState.accountId, a.id)))[0] : null;
           return {
             id: a.id,
             engine: a.engine,
             label: a.label,
             state: a.state,
+            ...(a.engine === 'grok' ? { refresh_state: refresh?.state ?? 'idle', refresh_error: refresh?.errorCode ?? null } : {}),
             verification_state: payload?.verificationState ?? 'pending',
             verification_reason: payload?.verificationReason ?? null,
             verification_checked_at: payload?.verificationCheckedAt ?? null,
@@ -268,6 +274,7 @@ export class ProviderAccountsService {
 
   async usage(accountId: number, engine: Engine, reader: Pick<Database, 'select'> = this.db) {
     const now = Date.now();
+    if (engine === 'grok') return { supported: false, fetched_at: null, stale: false, short_used_percent: null, short_resets_at: null, weekly_used_percent: null, weekly_resets_at: null };
     if (engine === 'claude') {
       const rows = await reader
         .select()
@@ -366,7 +373,7 @@ export class ProviderAccountsService {
       }
       if (!account)
         throw new ServiceUnavailableError(
-          `No verified ${engine === 'claude' ? 'Claude' : 'ChatGPT'} account available`,
+          `No verified ${PROVIDER_LABELS[engine]} account available`,
           'account_unavailable',
         );
       const expiresAt = new Date(Date.now() + 300_000).toISOString();
@@ -407,7 +414,8 @@ export class ProviderAccountsService {
     await this.db
       .update(providerAccountSessions)
       .set({ expiresAt })
-      .where(eq(providerAccountSessions.id, id));
+      .where(and(eq(providerAccountSessions.id, id), eq(providerAccountSessions.hostId, hostId), eq(providerAccountSessions.engine, engine), gt(providerAccountSessions.expiresAt, nowIso())));
+    if (engine === 'grok') await this.session(hostId, engine, id);
     return { account_id: session.accountId, expires_at: expiresAt };
   }
 
@@ -450,7 +458,7 @@ export class ProviderAccountsService {
       .from(providerAccounts)
       .where(eq(providerAccounts.state, 'removing'));
     if (!candidates.length) return;
-    await this.db.transaction(async (tx) => {
+    const drain = async (db: Database, candidates: Account[]) => db.transaction(async (tx) => {
       const removing = await tx
         .select()
         .from(providerAccounts)
@@ -488,8 +496,14 @@ export class ProviderAccountsService {
           .update(providerAccounts)
           .set({ state: 'removed', payloadId: null, updatedAt: nowIso() })
           .where(eq(providerAccounts.id, a.id));
+        if (a.engine === 'grok') await tx.delete(grokAuthRefreshState).where(eq(grokAuthRefreshState.accountId, a.id));
         // Leave the legacy pointer as a tombstone, never resurrect old history.
       }
     });
+    for (const account of candidates.filter(a => a.engine === 'grok')) {
+      await withGrokAccountLock(this.db, account.id, owner => drain(owner.db, [account]));
+    }
+    const otherAccounts = candidates.filter(a => a.engine !== 'grok');
+    if (otherAccounts.length) await drain(this.db, otherAccounts);
   }
 }

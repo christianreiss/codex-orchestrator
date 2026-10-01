@@ -197,6 +197,7 @@ describe('migrations against the test baseline', () => {
       'coord_project_card_deps',
       'provider_accounts',
       'provider_account_sessions',
+      'grok_auth_refresh_state',
     ]);
     expect(additions.filter((a) => a.column !== undefined).map((a) => `${a.table}.${a.column}`)).toEqual([
       'auth_payloads.generation',
@@ -242,6 +243,13 @@ describe('migrations against the test baseline', () => {
       'claude_usage_snapshots.account_id',
       'auth_seed_tokens.account_id',
       'provider_accounts.merged_into_account_id',
+      'hosts.grok_client_version',
+      'hosts.grok_client_version_override',
+      'hosts.grok_wrapper_version',
+      'hosts.grok_auth_digest',
+      'hosts.grok_model_override',
+      'hosts.grok_reasoning_effort_override',
+      'hosts.grok_last_refresh',
     ]);
   });
 

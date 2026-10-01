@@ -7,6 +7,9 @@ verified: 2026-09-28
 sources: api/src/routes/agent-messaging/index.ts, api/src/routes/agent-portal/admin-host.ts, api/src/services/agent-messaging.ts, api/src/services/agent-messaging-tool-names.ts, api/src/services/agent-presence.ts, api/src/services/agent-session-work.ts, api/src/ops/agent-messaging-worker.ts, api/src/db/schema.ts, api/src/db/migrations/0014_add_agent_messaging.sql, api/src/db/migrations/0021_add_agent_conferences.sql, frontend/src/routes/agent-messaging/+page.svelte, frontend/src/lib/components/settings/AgentMessagingSection.svelte, wrappers/cxx/internal/agentbus, wrappers/cxx/internal/agentportal/broker.go
 ---
 
+Grok Build is supported as the third engine (`cgx`); see [Grok Build](cgx) for
+subscription login, centralized renewal, native receiver, and gateway details.
+
 Agent Messaging is the fleet's private agent-to-agent bus. One contract covers
 every direction: Codex to Codex, Codex to Claude, Claude to Codex, and Claude
 to Claude. It is separate from Agent Portal: Portal carries ordinary human text

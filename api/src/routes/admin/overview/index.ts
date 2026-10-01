@@ -34,7 +34,7 @@ import {
 import { createRunnerClient } from '../../../services/runner-client.js';
 import { createRunnerValidationService } from '../../../services/runner-validation.js';
 import { createAdminEventsService } from '../../../services/admin-events.js';
-import { ENGINE_CODEX, ENGINE_CLAUDE, isEngine, type Engine } from '../../../util/engine.js';
+import { ENGINE_CODEX, ENGINE_CLAUDE, ENGINE_GROK, ENGINE_HOST_FIELDS, isEngine, type Engine } from '../../../util/engine.js';
 import { nowIso, parseIso } from '../../../util/timestamp.js';
 import { wsPublisher } from '../../../ws/publisher.js';
 import { adminSpaHtmlPreHandler } from '../pages/static.js';
@@ -111,7 +111,7 @@ function hostEngines(raw: string | null | undefined): Engine[] {
 }
 
 function hostDigestForEngine(h: typeof hosts.$inferSelect, engine: Engine): string | null {
-  return engine === ENGINE_CLAUDE ? (h.claudeAuthDigest ?? null) : (h.authDigest ?? null);
+  return h[ENGINE_HOST_FIELDS[engine].authDigest] ?? null;
 }
 
 // Resolves the "latest"/"auto" policy alias to the concrete cached upstream
@@ -217,13 +217,15 @@ export async function registerAdminOverviewRoutes(
     const hostRows = await ctx.db.select().from(hosts);
     const latestLog = await dashboard.latestLog();
 
-    const [versionSummary, claudeVersionSummary, codexAvailable, claudeAvailable] = await Promise.all([
+    const [versionSummary, claudeVersionSummary, codexAvailable, claudeAvailable, grokVersionSummary, grokAvailable] = await Promise.all([
       clientVersions.versionSummary('codex'),
       clientVersions.versionSummary('claude'),
       // Live upstream latest (GitHub for Codex, npm for Claude); cached 1h so
       // the dashboard poll only hits upstream once the cache goes stale.
       clientVersions.availableClientVersion(false, 'codex'),
       clientVersions.availableClientVersion(false, 'claude'),
+      clientVersions.versionSummary('grok'),
+      clientVersions.availableClientVersion(false, 'grok'),
     ]);
 
     let lastRefresh: string | null = null;
@@ -289,12 +291,20 @@ export async function registerAdminOverviewRoutes(
     // Version distribution — derived from hostRows already in scope, no extra queries.
     const codexVersionCounts = new Map<string, number>();
     const claudeVersionCounts = new Map<string, number>();
+    const grokVersionCounts = new Map<string, number>();
+    const engineCounts = { codex: 0, claude: 0, grok: 0 };
+    const combinations = new Map<string, number>();
     let installBoth = 0, installCodexOnly = 0, installClaudeOnly = 0, installNeither = 0;
     for (const h of hostRows) {
       const cv = h.clientVersion ?? 'unknown';
       const clv = h.claudeClientVersion ?? null;
       codexVersionCounts.set(cv, (codexVersionCounts.get(cv) ?? 0) + 1);
       if (clv) claudeVersionCounts.set(clv, (claudeVersionCounts.get(clv) ?? 0) + 1);
+      if (h.grokClientVersion) grokVersionCounts.set(h.grokClientVersion, (grokVersionCounts.get(h.grokClientVersion) ?? 0) + 1);
+      const installed = (['codex', 'claude', 'grok'] as const).filter(engine => h[ENGINE_HOST_FIELDS[engine].clientVersion] != null);
+      for (const engine of installed) engineCounts[engine]++;
+      const combination = installed.join(',');
+      combinations.set(combination, (combinations.get(combination) ?? 0) + 1);
       const hasCodex = h.clientVersion != null;
       const hasClaude = h.claudeClientVersion != null;
       if (hasCodex && hasClaude) installBoth++;
@@ -313,6 +323,9 @@ export async function registerAdminOverviewRoutes(
       version_distribution: {
         codex: toSortedArr(codexVersionCounts),
         claude: toSortedArr(claudeVersionCounts),
+        grok: toSortedArr(grokVersionCounts),
+        engine_counts: engineCounts,
+        install_combinations: [...combinations].sort(([a], [b]) => a.localeCompare(b)).map(([engines, count]) => ({ engines: engines ? engines.split(',') : [], count })),
         install: {
           both: installBoth,
           codex_only: installCodexOnly,
@@ -323,6 +336,11 @@ export async function registerAdminOverviewRoutes(
       versions: {
         ...versionSummary,
         claude_version: claudeVersionSummary.client_version,
+        grok_version: grokVersionSummary.client_version,
+        grok_wrapper_version: grokVersionSummary.wrapper_version,
+        grok_version_available: grokAvailable?.version ?? null,
+        grok_version_checked_at: grokAvailable?.fetched_at ?? null,
+        grok_version_stale: isClientVersionStale(grokAvailable?.fetched_at),
         claude_wrapper_version: claudeVersionSummary.wrapper_version,
         cdx_version_available: codexAvailable?.version ?? null,
         cdx_version_checked_at: codexAvailable?.fetched_at ?? null,
@@ -381,7 +399,7 @@ export async function registerAdminOverviewRoutes(
 
   // ── /admin/hosts (JSON listing) ───────────────────────────────────────────
   app.get('/admin/hosts', { preHandler: [adminSpa, app.requireAdmin] }, async () => {
-    const [rows, codexCanonical, claudeCanonical, tokenRows] = await Promise.all([
+    const [rows, codexCanonical, claudeCanonical, tokenRows, grokCanonical] = await Promise.all([
       ctx.db.select().from(hosts).orderBy(hosts.fqdn),
       runnerValidation.resolveCanonicalPayload(ENGINE_CODEX),
       runnerValidation.resolveCanonicalPayload(ENGINE_CLAUDE),
@@ -395,6 +413,7 @@ export async function registerAdminOverviewRoutes(
           expiresAt: installTokens.expiresAt,
         })
         .from(installTokens),
+      runnerValidation.resolveCanonicalPayload(ENGINE_GROK),
     ]);
     const latestInstaller = new Map<number, InstallerTokenRow>();
     for (const token of tokenRows) {
@@ -404,6 +423,7 @@ export async function registerAdminOverviewRoutes(
     const canonicalDigests = {
       [ENGINE_CODEX]: codexCanonical?.sha256 ?? null,
       [ENGINE_CLAUDE]: claudeCanonical?.sha256 ?? null,
+      [ENGINE_GROK]: grokCanonical?.sha256 ?? null,
     };
     return ok({
       hosts: rows.map((h) => {
@@ -441,6 +461,13 @@ export async function registerAdminOverviewRoutes(
           reasoning_effort_override: h.reasoningEffortOverride,
           claude_model_override: h.claudeModelOverride,
           claude_reasoning_effort_override: h.claudeReasoningEffortOverride,
+          grok_client_version: h.grokClientVersion,
+          grok_client_version_override: h.grokClientVersionOverride,
+          grok_wrapper_version: h.grokWrapperVersion,
+          grok_canonical_digest: h.grokAuthDigest,
+          grok_model_override: h.grokModelOverride,
+          grok_reasoning_effort_override: h.grokReasoningEffortOverride,
+          grok_last_refresh: h.grokLastRefresh,
           engines: h.engines,
           engines_list: hostEngines(h.engines),
           auto_update_override: h.autoUpdateOverride === null ? null : h.autoUpdateOverride === 1,
@@ -448,6 +475,7 @@ export async function registerAdminOverviewRoutes(
           claude_canonical_digest: h.claudeAuthDigest,
           recent_digests: [],
           claude_recent_digests: [],
+          grok_recent_digests: [],
           authed: auth.authed,
           auth_outdated: auth.auth_outdated,
           config_version: Number(h.configVersion ?? 0),
@@ -502,15 +530,22 @@ export async function registerAdminOverviewRoutes(
           .orderBy(desc(installTokens.id))
           .limit(1),
       ]);
+    const [grokCanonical, grokVersions, grokAvailable] = await Promise.all([
+      runnerValidation.resolveCanonicalPayload(ENGINE_GROK),
+      clientVersions.versionSummary(ENGINE_GROK),
+      clientVersions.availableClientVersion(false, ENGINE_GROK),
+    ]);
     const auth = hostAuthSummary(h, {
       [ENGINE_CODEX]: codexCanonical?.sha256 ?? null,
       [ENGINE_CLAUDE]: claudeCanonical?.sha256 ?? null,
+      [ENGINE_GROK]: grokCanonical?.sha256 ?? null,
     });
     return ok({
       host: {
         id: Number(h.id),
         fqdn: h.fqdn,
         status: h.status,
+        engines_list: hostEngines(h.engines),
         last_refresh: h.lastRefresh,
         claude_last_refresh: h.claudeLastRefresh,
         updated_at: h.updatedAt,
@@ -529,11 +564,19 @@ export async function registerAdminOverviewRoutes(
         insecure_enabled_until: h.insecureEnabledUntil,
         last_cron_check: h.lastCronCheck,
         reverse_dns_mode: h.reverseDnsMode,
+        grok_client_version: h.grokClientVersion,
+        grok_client_version_override: h.grokClientVersionOverride,
+        grok_wrapper_version: h.grokWrapperVersion,
+        grok_canonical_digest: h.grokAuthDigest,
+        grok_model_override: h.grokModelOverride,
+        grok_reasoning_effort_override: h.grokReasoningEffortOverride,
+        grok_last_refresh: h.grokLastRefresh,
         engines: h.engines,
         canonical_digest: h.authDigest,
         claude_canonical_digest: h.claudeAuthDigest,
         recent_digests: [],
         claude_recent_digests: [],
+        grok_recent_digests: [],
         authed: auth.authed,
         auth_outdated: auth.auth_outdated,
         lane_preference: h.lanePreference,
@@ -556,6 +599,10 @@ export async function registerAdminOverviewRoutes(
           wrapper_version: codexVersions.wrapper_version,
           client_version_checked_at: codexVersions.client_version_checked_at,
           claude_version: resolveAliasedVersion(claudeVersions.client_version, claudeAvailable),
+          grok_version: resolveAliasedVersion(grokVersions.client_version, grokAvailable),
+          grok_version_available: grokAvailable?.version ?? null,
+          grok_version_checked_at: grokAvailable?.fetched_at ?? null,
+          grok_version_stale: isClientVersionStale(grokAvailable?.fetched_at),
         },
         reverse_dns_enabled: reverseDnsEnabled,
         auto_update_enabled: autoUpdateEnabled,
@@ -848,6 +895,8 @@ export async function registerAdminOverviewRoutes(
     return ok(await runnerProxy.run(runRequest(req.body), 'claude'));
   });
 
+  app.post('/admin/runner/run-grok', { preHandler: app.requireAdmin }, async req => ok(await runnerProxy.run(runRequest(req.body), 'grok')));
+
   // ── /admin/auth/seed-command ──────────────────────────────────────────────
   app.post('/admin/auth/seed-command', { preHandler: app.requireAdmin }, async (req) => {
     const body = (req.body ?? {}) as Record<string, unknown>;
@@ -860,7 +909,7 @@ export async function registerAdminOverviewRoutes(
         throw new ValidationError('Invalid account ID');
       const account = await new ProviderAccountsService(ctx.db, ctx.keyring).get(
         body.account_id,
-        body.engine === 'claude' ? 'claude' : 'codex',
+        isEngine(body.engine) ? body.engine : ENGINE_CODEX,
       );
       if (account.state === 'removed' || account.state === 'removing')
         throw new ValidationError('Account is retired');
@@ -874,7 +923,7 @@ export async function registerAdminOverviewRoutes(
     const body = (req.body ?? {}) as { engine?: unknown; payload?: unknown; account_id?: number };
     const engineRaw = typeof body.engine === 'string' ? body.engine.trim().toLowerCase() : '';
     if (!isEngine(engineRaw)) {
-      throw new ValidationError('engine must be "codex" or "claude"', { param: 'engine' });
+      throw new ValidationError('engine must be "codex", "claude" or "grok"', { param: 'engine' });
     }
     const engine: Engine = engineRaw;
     if (typeof body.payload !== 'string' || body.payload.trim() === '') {

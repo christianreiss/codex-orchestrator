@@ -24,7 +24,7 @@ type autoReceiver struct {
 	generation    string
 	pendingPortal map[string]any
 	lastPong      time.Time
-	queue         *nativeQueue
+	queue         nativeDelivery
 	boundNativeID string
 	// connected, lastBeatOK, gate and gateSince are this process's own account of
 	// whether it can wake the session. They exist so agent_listen can tell "on the
@@ -36,6 +36,15 @@ type autoReceiver struct {
 	gateSince  time.Time
 	// stall is the dead-air watch for messages this process sent (see stall.go).
 	stall *stallWatcher
+}
+
+// A native delivery transport proves identity and admission without granting
+// tool approvals or treating submission as a model reply.
+type nativeDelivery interface {
+	identity() (string, error)
+	status() (string, error)
+	send(string, string) error
+	close()
 }
 
 // receiverStaleAfter matches the server's freshness window for a receiver
@@ -138,8 +147,12 @@ func (r *autoReceiver) connection(parent context.Context) error {
 	r.mu.Unlock()
 	nativeID := ""
 	protocol := "claude-channel-v1"
-	if os.Getenv("CXX_AGENT_PORTAL_ENGINE") == "codex" {
+	engine := os.Getenv("CXX_AGENT_PORTAL_ENGINE")
+	if engine == "codex" || engine == "grok" {
 		protocol = "codex-queue-v1"
+		if engine == "grok" {
+			protocol = "grok-acp-v1"
+		}
 		if r.boundNativeID == "" {
 			// An MCP subprocess restart retains the wrapper session. Recover
 			// its established binding rather than guessing among loaded roots.
@@ -153,11 +166,24 @@ func (r *autoReceiver) connection(parent context.Context) error {
 				r.boundNativeID = prior.Receiver.NativeID
 			}
 		}
-		q, err := openNativeQueue(ctx, os.Getenv("CXX_CODEX_SOCKET"))
+		var q nativeDelivery
+		var err error
+		if engine == "grok" {
+			if r.boundNativeID == "" {
+				r.boundNativeID, _ = r.claudeIdentity(ctx)
+			}
+			q, err = openGrokQueue(ctx, os.Getenv("CXX_GROK_SOCKET"), r.boundNativeID)
+		} else {
+			var codexQueue *nativeQueue
+			codexQueue, err = openNativeQueue(ctx, os.Getenv("CXX_CODEX_SOCKET"))
+			if codexQueue != nil {
+				codexQueue.thread = r.boundNativeID
+			}
+			q = codexQueue
+		}
 		if err != nil {
 			return err
 		}
-		q.thread = r.boundNativeID
 		r.mu.Lock()
 		r.queue = q
 		r.mu.Unlock()
@@ -373,8 +399,8 @@ func (r *autoReceiver) deliver(id, content string) error {
 	if queue != nil {
 		return queue.send(id, content)
 	}
-	if os.Getenv("CXX_AGENT_PORTAL_ENGINE") == "codex" {
-		return errors.New("Codex native queue is disconnected")
+	if engine := os.Getenv("CXX_AGENT_PORTAL_ENGINE"); engine == "codex" || engine == "grok" {
+		return errors.New(engine + " native queue is disconnected")
 	}
 	return r.output.send(map[string]any{"jsonrpc": "2.0", "method": "notifications/claude/channel", "params": map[string]any{"content": content, "meta": map[string]string{"message_id": id}}})
 }
@@ -479,6 +505,10 @@ func channelPolicyFor(socket string) string {
 func reportNativeSession(stdin io.Reader) error {
 	var input struct {
 		SessionID string `json:"session_id"`
+		GrokID    string `json:"sessionId"`
+	}
+	if input.SessionID == "" {
+		input.SessionID = input.GrokID
 	}
 	if err := json.NewDecoder(io.LimitReader(stdin, 1<<20)).Decode(&input); err != nil {
 		return err

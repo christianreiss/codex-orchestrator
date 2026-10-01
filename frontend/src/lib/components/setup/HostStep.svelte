@@ -11,7 +11,7 @@
   import HostInstallProgress from "$lib/components/hosts/HostInstallProgress.svelte";
   import type { HostRegisterResponse } from "$lib/api/types";
 
-  type Engine = "codex" | "claude";
+  type Engine = "codex" | "claude" | "grok";
   type Props = {
     defaultEngines: Engine[];
     /** Enter in the hostname field runs the same path as the footer. */

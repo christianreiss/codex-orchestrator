@@ -266,6 +266,13 @@ function host(overrides: Partial<Host>): Host {
     claudeModelOverride: null,
     claudeReasoningEffortOverride: null,
     claudeLastRefresh: null,
+    grokClientVersion: null,
+    grokClientVersionOverride: null,
+    grokWrapperVersion: null,
+    grokAuthDigest: null,
+    grokModelOverride: null,
+    grokReasoningEffortOverride: null,
+    grokLastRefresh: null,
     configVersion: 0,
     wrapperTrack: 'v2',
     createdAt: '2026-01-01T00:00:00Z',
@@ -310,6 +317,12 @@ const RETIRED_SKILL = {
   sha256: 'b7'.repeat(32),
   deletedAt: '2026-01-04T00:00:00Z',
   engine: null,
+};
+const GROK_SKILL = {
+  slug: 'grok-build',
+  sha256: 'e8'.repeat(32),
+  deletedAt: null,
+  engine: 'grok',
 };
 
 const FIXTURES: Fixture[] = [
@@ -402,6 +415,13 @@ const FIXTURES: Fixture[] = [
     },
     settings: { silent: false, adminTheme: 'auto', autoUpdate: true, track: 'stable' },
   },
+  {
+    name: 'host-grok',
+    engine: 'grok',
+    host: host({ id: 45, fqdn: 'host-grok.fleet.example.com', apiKey: 'sk-golden-grok-not-a-real-key', secure: 1, curlInsecure: 0, engines: 'codex,claude,grok', grokModelOverride: 'grok-4.6', grokReasoningEffortOverride: 'xhigh', grokWrapperVersion: WRAPPER_VERSION, configVersion: 9 }),
+    rows: { configVersion: 9, agentsDocumentId: 10, clientConfigId: 3, skills: [SHARED_SKILL, CODEX_SKILL, CLAUDE_SKILL, GROK_SKILL, RETIRED_SKILL], agentMessagingFlag: '1' },
+    settings: { silent: true, adminTheme: 'auto', autoUpdate: true, track: 'stable' },
+  },
 ];
 
 function bake(fixture: Fixture, ...signers: WrapperSigner[]): Promise<BakeResult> {
@@ -477,8 +497,8 @@ describe('wrapper config golden fixtures', () => {
     );
   });
 
-  it('shapes the three fixtures differently enough to be worth having', async () => {
-    const [secure, insecure, claude] = await Promise.all(FIXTURES.map((f) => bake(f)));
+  it('shapes the engine fixtures independently', async () => {
+    const [secure, insecure, claude, grok] = await Promise.all(FIXTURES.map((f) => bake(f)));
 
     expect(secure!.payload.host.secure).toBe(true);
     expect(secure!.payload.orchestrator.allow_insecure).toBe(false);
@@ -504,6 +524,11 @@ describe('wrapper config golden fixtures', () => {
       'fleet-bootstrap',
       'claude-artifacts',
     ]);
+    expect(grok!.payload.engine).toBe('grok');
+    expect(grok!.payload.host.engines_list).toEqual(['codex', 'claude', 'grok']);
+    expect(grok!.payload.engine_options).toMatchObject({ silent: true, model_override: 'grok-4.6', reasoning_effort_override: 'xhigh', grok_model_override: 'grok-4.6', grok_reasoning_effort_override: 'xhigh' });
+    expect(grok!.payload.skills.map(s => s.slug)).toEqual(['fleet-bootstrap', 'grok-build']);
+    expect(grok!.payload.agent_messaging.enabled).toBe(true);
   });
 
   describe('pre-0.7.8 compatibility hold-back', () => {

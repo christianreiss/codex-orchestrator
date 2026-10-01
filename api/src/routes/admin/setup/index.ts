@@ -7,7 +7,7 @@ import { createAdminEventsService } from '../../../services/admin-events.js';
 import { createAdminUsersService } from '../../../services/admin-users.js';
 import { createSetupStatusService } from '../../../services/setup-status.js';
 import { SETUP_WIZARD_STEPS, createSetupWizardService } from '../../../services/setup-wizard.js';
-import { ENGINE_CLAUDE, ENGINE_CODEX } from '../../../util/engine.js';
+import { ENGINE_CLAUDE, ENGINE_CODEX, ENGINE_GROK } from '../../../util/engine.js';
 
 export async function registerAdminSetupRoutes(app: FastifyInstance, ctx: RouteContext): Promise<void> {
   const auth = createAdminAuthService(ctx.db, ctx.env);
@@ -64,7 +64,7 @@ export async function registerAdminSetupRoutes(app: FastifyInstance, ctx: RouteC
   const wizardSchema = z
     .object({
       last_step: z.enum(SETUP_WIZARD_STEPS).optional(),
-      engines: z.array(z.enum([ENGINE_CODEX, ENGINE_CLAUDE])).optional(),
+      engines: z.array(z.enum([ENGINE_CODEX, ENGINE_CLAUDE, ENGINE_GROK])).optional(),
       completed: z.boolean().optional(),
       dismissed: z.boolean().optional(),
     })

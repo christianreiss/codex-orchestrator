@@ -6,7 +6,7 @@
  * globs src/**\/*.test.ts.
  */
 
-export type Engine = "codex" | "claude";
+export type Engine = "codex" | "claude" | "grok";
 
 /**
  * Server-derived liveness. `Agent.status` cannot answer this: the API writes it

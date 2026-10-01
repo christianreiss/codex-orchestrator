@@ -15,7 +15,9 @@ import {
 import type { RouteContext } from '../index.js';
 import { ApiError, ValidationError, ServiceUnavailableError } from '../../http/errors.js';
 import { compareRfc3339, nowIso } from '../../util/timestamp.js';
-import { isEngine, type Engine, ENGINE_CLAUDE, ENGINE_CODEX } from '../../util/engine.js';
+import { isEngine, type Engine, ENGINE_CLAUDE, ENGINE_CODEX, ENGINE_GROK } from '../../util/engine.js';
+import { createGrokAuthOwner } from '../../services/grok-auth-owner.js';
+import { grokProjectionMetadata } from '../../services/grok-auth.js';
 import { wsPublisher } from '../../ws/publisher.js';
 
 import { ClientVersionsService } from '../../services/client-versions.js';
@@ -134,6 +136,12 @@ export async function registerAuthRoutes(app: FastifyInstance, ctx: RouteContext
       quota.quota_limit_percent,
       preferred,
     );
+    if (engine === ENGINE_GROK) {
+      try {
+        const snapshot = await createGrokAuthOwner({ db: ctx.db, keyring: ctx.keyring, runner }).ensureFresh({ accountId: lease.account.id, sourceHostId: host.id, sessionId });
+        return { account_id: lease.account.id, account_label: lease.account.label, session_id: sessionId, expires_at: lease.expires_at, access_expires_at: snapshot.expires_at, auth: snapshot.auth, canonical_digest: snapshot.digest, canonical_last_refresh: snapshot.last_refresh, canonical_generation: snapshot.canonical_generation, access_token_digest: snapshot.access_token_digest, verification_state: 'verified', refresh_state: snapshot.refresh_state, usage: { supported: false }, ...quota };
+      } catch (error) { await accounts.release(host.id, engine, sessionId); throw error; }
+    }
     const row = await runnerValidation.resolveCanonicalPayload(engine, lease.account.id);
     const auth = row ? runnerValidation.canonicalAuthFromPayload(row) : null;
     if (!row || !auth) {
@@ -159,7 +167,11 @@ export async function registerAuthRoutes(app: FastifyInstance, ctx: RouteContext
     const engine = resolveAuthRequestEngine(req, payload);
     assertHostEngineEnabled(host, engine);
     await maybeEnforceInsecure(insecure, host, 'retrieve', req.clientIp);
-    return accounts.heartbeat(host.id, engine, opaqueId(payload.session_id, 'session_id'));
+    const sessionId = opaqueId(payload.session_id, 'session_id');
+    const heartbeat = await accounts.heartbeat(host.id, engine, sessionId);
+    if (engine !== ENGINE_GROK) return heartbeat;
+    const snapshot = await createGrokAuthOwner({ db: ctx.db, keyring: ctx.keyring, runner }).ensureFresh({ accountId: heartbeat.account_id, sourceHostId: host.id, sessionId });
+    return { ...heartbeat, canonical_generation: snapshot.canonical_generation, access_token_digest: snapshot.access_token_digest, access_expires_at: snapshot.expires_at, refresh_state: snapshot.refresh_state };
   });
   app.post('/auth/sessions/release', async (req) => {
     await assertApiNotDisabled(versions);
@@ -215,7 +227,7 @@ export async function registerAuthRoutes(app: FastifyInstance, ctx: RouteContext
     if (explicitEngine) {
       const engine = query.engine!.trim().toLowerCase();
       if (!isEngine(engine)) {
-        throw new ValidationError('engine must be "codex" or "claude"', { param: 'engine' });
+        throw new ValidationError('engine must be "codex", "claude" or "grok"', { param: 'engine' });
       }
       assertHostEngineEnabled(host, engine);
       const remaining = hostEnginesList(host.engines).filter((item) => item !== engine);
@@ -245,7 +257,17 @@ export async function registerAuthRoutes(app: FastifyInstance, ctx: RouteContext
             .update(hostsTable)
             .set({
               engines: remaining.join(','),
-              ...(engine === ENGINE_CLAUDE
+              ...(engine === ENGINE_GROK
+                ? {
+                    grokAuthDigest: null,
+                    grokLastRefresh: null,
+                    grokClientVersion: null,
+                    grokClientVersionOverride: null,
+                    grokWrapperVersion: null,
+                    grokModelOverride: null,
+                    grokReasoningEffortOverride: null,
+                  }
+                : engine === ENGINE_CLAUDE
                 ? {
                     claudeAuthDigest: null,
                     claudeLastRefresh: null,
@@ -530,6 +552,15 @@ async function handleRetrieve(
   projectVersions: RequestVersionProjector,
   authStore: ReturnType<typeof createCanonicalAuthStoreService>,
 ): Promise<Record<string, unknown>> {
+  if (engine === ENGINE_GROK) {
+    const refresh = payload.refresh_if_generation;
+    if (refresh !== undefined && (!Number.isSafeInteger(refresh) || Number(refresh) < 0)) throw new ValidationError('refresh_if_generation must be a non-negative integer', { param: 'refresh_if_generation' });
+    const snapshot = await createGrokAuthOwner({ db: ctx.db, keyring: ctx.keyring, runner: createRunnerClient({ env: ctx.env }) }).ensureFresh({ accountId: accountIdFrom(payload.account_id), sourceHostId: host.id, sessionId: typeof payload.session_id === 'string' ? payload.session_id : undefined, refreshIfGeneration: refresh === undefined ? undefined : Number(refresh) });
+    const base = await buildRetrieveBaseResponse(ctx, host, payload, engine, projectVersions);
+    await touchHostAuthState(ctx.db, host.id, snapshot.row.id, snapshot.digest, engine);
+    await touchHostAuthFields(ctx.db, host.id, snapshot.last_refresh, snapshot.digest, engine);
+    return { ...base, account_pool: true, account_id: snapshot.row.accountId, canonical_digest: snapshot.digest, canonical_last_refresh: snapshot.last_refresh, canonical_generation: snapshot.canonical_generation, ...grokProjectionMetadata(snapshot.auth), verification_state: 'verified', refresh_state: snapshot.refresh_state, status: extractDigest(payload, false) === snapshot.digest ? 'valid' : 'outdated', auth: snapshot.auth, usage: { supported: false, short_used_percent: null, short_resets_at: null, weekly_used_percent: null, weekly_resets_at: null } };
+  }
   const providedDigest = extractDigest(payload, false);
   const incomingLast =
     typeof payload.last_refresh === 'string' && payload.last_refresh.trim() !== ''

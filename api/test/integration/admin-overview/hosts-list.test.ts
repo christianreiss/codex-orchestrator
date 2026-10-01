@@ -120,4 +120,23 @@ describe('GET /admin/hosts', () => {
     });
     await local.close();
   });
+  it('returns independent Grok host metadata and release freshness in the detail response', async () => {
+    const mock = createMockDb();
+    const fetchedAt = new Date().toISOString();
+    mock.insertRow('hosts', { id: 3, fqdn: 'third.example.test', status: 'active', engines: 'grok', secure: 1, vip: 0, allow_roaming_ips: 0, scaling_exempt: 0, curl_insecure: 0, browseros_mcp_enabled: 0, agent_messaging_enabled: 0, api_calls: 0, config_version: 0, grok_client_version: '1.0.46', grok_client_version_override: '1.0.46', grok_wrapper_version: '0.8.0', grok_model_override: 'grok-4.6', grok_reasoning_effort_override: 'xhigh' });
+    mock.insertRow('versions', { name: 'client_version_grok', version: '1.0.46', updated_at: fetchedAt });
+    for (const [name, version] of [['grok-cli', '1.0.47'], ['codex-cli', '0.137.0'], ['claude-cli', '2.1.170']]) mock.insertRow('versions', { name: `github_release_${name}`, version: JSON.stringify({ name, version, fetched_at: fetchedAt }), updated_at: fetchedAt });
+    const local = Fastify({ logger: false });
+    await local.register(cookie);
+    await local.register(requestIdPlugin);
+    await local.register(envelopePlugin);
+    local.decorate('requireAdmin', async () => undefined);
+    local.decorate('resolveAdmin', async () => null);
+    await registerAdminOverviewRoutes(local, { db: mock.db, env: { ...loadTestEnv(), ADMIN_WS_ENABLED: false }, keyring: testKeyring() });
+    const response = await local.inject({ method: 'GET', url: '/admin/hosts/3/detail' });
+    expect(response.statusCode).toBe(200);
+    expect(response.json().data.host).toMatchObject({ engines_list: ['grok'], grok_client_version: '1.0.46', grok_client_version_override: '1.0.46', grok_wrapper_version: '0.8.0', grok_model_override: 'grok-4.6', grok_reasoning_effort_override: 'xhigh' });
+    expect(response.json().data.overview.versions).toMatchObject({ grok_version: '1.0.46', grok_version_available: '1.0.47', grok_version_checked_at: fetchedAt, grok_version_stale: false });
+    await local.close();
+  });
 });

@@ -7,7 +7,12 @@ import {
   pruneSupersededAuth,
   retentionDeadline,
 } from '../../../src/services/auth-generation-retention.js';
-import { authCanonicalHeads } from '../../../src/db/schema.js';
+import { authCanonicalHeads, authPayloads } from '../../../src/db/schema.js';
+import { createDbFake } from '../../helpers/db-fake.js';
+import { testKeyring } from '../../helpers/test-keyring.js';
+import { encrypt } from '../../../src/security/secret-box.js';
+import { GROK_AUTH_SCOPE } from '../../../src/services/grok-auth.js';
+import { sha256 } from '../../../src/security/hash.js';
 import type { Database } from '../../../src/db/client.js';
 import type { Keyring } from '../../../src/security/keyring.js';
 
@@ -205,6 +210,15 @@ describe('pruneSupersededAuth', () => {
 });
 
 describe('ensureAuthGenerationBackfill', () => {
+  it('backfills a legacy Grok head with its own generation and credential fingerprints', async () => {
+    const keyring = testKeyring();
+    const native = { last_refresh: '2026-10-01T00:00:00Z', grok_auth: { [GROK_AUTH_SCOPE]: { auth_mode: 'oidc', key: 'fixture-grok-access-token', refresh_token: 'fixture-grok-refresh-token', create_time: '2026-10-01T00:00:00Z', expires_at: '2026-10-02T00:00:00Z' } } };
+    const encoded = JSON.stringify(native);
+    const db = createDbFake(new Map([[authPayloads, [{ id: 77, engine: 'grok', accountId: null, body: encrypt(encoded, keyring), sha256: sha256(encoded), lastRefresh: native.last_refresh, createdAt: native.last_refresh, generation: null, verificationState: 'verified' }]]]));
+    await ensureAuthGenerationBackfill(db as unknown as Database, keyring);
+    expect(db.tables.get(authPayloads)?.[0]).toMatchObject({ generation: 1, credentialKind: 'grok_oauth', pairFingerprint: expect.stringMatching(/^[a-f0-9]{64}$/), supersededAt: null, purgeAfter: null });
+    expect(db.tables.get(authCanonicalHeads)).toEqual([expect.objectContaining({ engine: 'grok', payloadId: 77, generation: 1 })]);
+  });
   it('short-circuits without writing once the ledger marker reads complete', async () => {
     const selects: Statement[] = [];
     const refuse = (verb: string) => () => {

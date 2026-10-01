@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { ENGINES, ENGINE_META } from "$lib/constants/engines";
   import { base } from "$app/paths";
   import { createMutation, useQueryClient } from "@tanstack/svelte-query";
   import { toast } from "svelte-sonner";
@@ -57,10 +58,9 @@
 </script>
 
 <div class="space-y-6">
-  <PageHeader title="Accounts" subtitle="ChatGPT and Claude accounts shared by the fleet. New sessions automatically use an account with more quota available." />
+  <PageHeader title="Accounts" subtitle="ChatGPT, Claude, and Grok subscription accounts shared by the fleet. New sessions use verified available accounts." />
   <div class="flex flex-wrap items-center gap-2">
-    <Button variant={engine === "codex" ? "default" : "outline"} onclick={() => engine = "codex"}>ChatGPT</Button>
-    <Button variant={engine === "claude" ? "default" : "outline"} onclick={() => engine = "claude"}>Claude</Button>
+    {#each ENGINES as option}<Button variant={engine === option ? "default" : "outline"} onclick={() => engine = option}>{ENGINE_META[option].account}</Button>{/each}
     {#if canManage}<Button class="ml-auto" onclick={() => open(null)}>Add account</Button>{/if}
   </div>
   <p class="text-sm text-muted-foreground">Accounts stay fixed during a session. Overlapping sessions using the same local credentials share one account. Fresh logins keep the sole or assigned account. Use Add account for additional subscriptions.</p>
@@ -70,8 +70,8 @@
     <div role="alert" class="rounded-lg border border-destructive p-4">{$query.error.message}<Button variant="outline" class="ml-3" onclick={() => $query.refetch()}>Retry</Button></div>
   {:else if !visible.length}
     <div class="rounded-xl border border-dashed p-10 text-center">
-      <h2 class="text-lg font-semibold">No {engine === "codex" ? "ChatGPT" : "Claude"} accounts</h2>
-      <p class="mt-2 text-sm text-muted-foreground">Add credentials here or log in through {engine === "codex" ? "cdx" : "clx"} on a registered host.</p>
+      <h2 class="text-lg font-semibold">No {ENGINE_META[engine].account} accounts</h2>
+      <p class="mt-2 text-sm text-muted-foreground">Add credentials here or log in through {ENGINE_META[engine].command} on a registered host.</p>
       {#if canManage}<Button class="mt-4" onclick={() => open(null)}>Add account</Button>{/if}
     </div>
   {:else}
@@ -92,15 +92,24 @@
             <span class:!text-destructive={account.verification_state === "failed"} class="text-xs text-muted-foreground">{account.sessions.length} active sessions</span>
           </div>
           {#if account.verification_reason}<p class="text-sm text-destructive">{account.verification_reason}</p>{/if}
+          {#if account.refresh_state === "login_required"}
+            <p role="alert" class="text-sm text-destructive">Subscription login needs renewal. Run {ENGINE_META[account.engine].command} login, then replace the full login credentials.</p>
+          {:else if account.refresh_state && account.refresh_state !== "idle"}
+            <p class="text-sm text-muted-foreground">Credential refresh: {account.refresh_state.replaceAll("_", " ")}</p>
+          {/if}
+          {#if account.usage.supported === false}
+            <p class="text-sm text-muted-foreground">Subscription quota is unavailable from this provider. Account selection uses verified availability.</p>
+          {:else}
           <div class="grid grid-cols-2 gap-4">
             {#each [{ label: "Short window", used: account.usage.short_used_percent, reset: account.usage.short_resets_at }, { label: "Weekly window", used: account.usage.weekly_used_percent, reset: account.usage.weekly_resets_at }] as window}
               <div>
                 <div class="mb-1 flex justify-between text-sm"><span>{window.label}</span><strong>{window.used === null ? "Unknown" : `${window.used}%`}</strong></div>
-                <progress class="h-2 w-full accent-primary" max="100" value={window.used ?? 0} aria-label={`${window.label} usage`} aria-valuetext={window.used === null ? "Unknown" : `${window.used}%`}></progress>
+                {#if window.used !== null}<progress class="h-2 w-full accent-primary" max="100" value={window.used} aria-label={`${window.label} usage`} aria-valuetext={`${window.used}%`}></progress>{/if}
                 <p class="mt-1 text-xs text-muted-foreground">Resets: {date(window.reset)}</p>
               </div>
             {/each}
           </div>
+          {/if}
           <p class="text-xs text-muted-foreground">Usage: {date(account.usage.fetched_at)}{account.usage.stale ? " · stale or unavailable" : ""} · Verified: {date(account.verification_checked_at)}</p>
           {#if account.sessions.length}
             <div class="flex flex-wrap gap-2 text-xs">
@@ -124,7 +133,7 @@
 
 <Dialog.Root bind:open={dialog}>
   <Dialog.Content class="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
-    <Dialog.Header><Dialog.Title>{target ? `Replace ${target.label} credentials` : `Add ${engine === "codex" ? "ChatGPT" : "Claude"} account`}</Dialog.Title><Dialog.Description>Credentials are verified before they can be assigned to clients.</Dialog.Description></Dialog.Header>
+    <Dialog.Header><Dialog.Title>{target ? `Replace ${target.label} credentials` : `Add ${ENGINE_META[engine].account} account`}</Dialog.Title><Dialog.Description>Credentials are verified before they can be assigned to clients.</Dialog.Description></Dialog.Header>
     {#if !target}<div class="space-y-2"><Label for="account-label">Account name</Label><Input id="account-label" bind:value={label} maxlength={191} placeholder="Account name (optional)" /></div>{/if}
     {#key dialog}
       {#if dialog}<SeedAuthPanel allowedEngines={[target?.engine ?? engine]} defaultEngine={target?.engine ?? engine} accountId={target?.id} accountLabel={target ? undefined : label.trim() || undefined} accountManagement onStored={() => { dialog = false; void qc.invalidateQueries({ queryKey: accountsKeys.all() }); }} />{/if}

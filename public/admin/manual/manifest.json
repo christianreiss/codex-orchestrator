@@ -1,5 +1,5 @@
 {
-  "version": "2026-09-30",
+  "version": "2026-10-01",
   "articles": [
     {
       "slug": "welcome",
@@ -304,6 +304,19 @@
         "quota"
       ],
       "verified": "2026-09-30"
+    },
+    {
+      "slug": "cgx",
+      "title": "Grok Build (cgx)",
+      "section": "Fleet operations",
+      "summary": "Grok subscription accounts, centralized renewal, isolated launches, native reception, and gateway limits.",
+      "tags": [
+        "grok",
+        "cgx",
+        "auth",
+        "gateway"
+      ],
+      "verified": "2026-10-01"
     }
   ]
 }

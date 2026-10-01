@@ -196,11 +196,14 @@ describe("STATIC_COMMANDS", () => {
   it("explains destinations and makes shared controls searchable for either engine", () => {
     const engines = STATIC_COMMANDS.find((command) => command.id === "nav:/engines");
     const instructions = STATIC_COMMANDS.find((command) => command.id === "nav:/instructions");
+    const accounts = STATIC_COMMANDS.find((command) => command.id === "nav:/accounts");
     assert.ok(engines);
     assert.ok(instructions);
-    for (const engine of ["codex", "claude"]) {
+    assert.ok(accounts);
+    for (const engine of ["codex", "claude", "grok"]) {
       assert.ok(engines.keywords?.includes(engine));
       assert.ok(instructions.keywords?.includes(engine));
+      assert.ok(accounts.keywords?.includes(engine === "codex" ? "chatgpt" : engine));
     }
     assert.match(instructions.description ?? "", /AGENTS\.md.*CLAUDE\.md/);
     for (const destination of NAV) {

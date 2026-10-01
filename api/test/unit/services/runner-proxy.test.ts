@@ -89,7 +89,7 @@ describe('RunnerProxyService.status', () => {
     expect(s.state).toBe('idle');
     expect(s.engines?.codex).toMatchObject({ state: 'idle', last_ok: null, last_run: null });
     expect(s.engines?.claude).toMatchObject({ state: 'idle', last_ok: null, last_run: null });
-    expect(s.detail).toBe('configured; no verified canonical auth for Codex or Claude');
+    expect(s.detail).toBe('configured; no verified canonical auth for Codex or Claude or Grok');
   });
 
   it('preserves verified Codex telemetry while projecting missing Claude auth as idle', async () => {
@@ -115,7 +115,7 @@ describe('RunnerProxyService.status', () => {
     expect(s.last_run).toBe('2026-05-20T10:09:50Z');
     expect(s.engines?.codex).toMatchObject({ state: 'ok', last_ok: '2026-05-20T10:09:50Z' });
     expect(s.engines?.claude).toMatchObject({ state: 'idle', last_ok: null, last_run: null });
-    expect(s.detail).toBe('configured; no verified canonical auth for Claude');
+    expect(s.detail).toBe('configured; no verified canonical auth for Claude or Grok');
   });
 
   it('folds a failing Codex engine into a fail state even when Claude is ok', async () => {

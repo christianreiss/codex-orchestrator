@@ -34,7 +34,7 @@ var (
 
 func renderSystemdUserUnit(executable, binaryDigest string, environment map[string]string) string {
 	var environmentLines strings.Builder
-	for _, key := range []string{"CDX_CONFIG_PATH", "CLX_CONFIG_PATH", "CODEX_HOME"} {
+	for _, key := range []string{"CDX_CONFIG_PATH", "CLX_CONFIG_PATH", "CGX_CONFIG_PATH", "CODEX_HOME", "GROK_HOME"} {
 		if value := strings.TrimSpace(environment[key]); value != "" {
 			environmentLines.WriteString("Environment=" + systemdQuote(key+"="+value) + "\n")
 		}
@@ -60,7 +60,7 @@ WantedBy=default.target
 
 func renderLaunchAgent(executable, binaryDigest string, environment map[string]string) string {
 	var environmentXML strings.Builder
-	for _, key := range []string{"CDX_CONFIG_PATH", "CLX_CONFIG_PATH", "CODEX_HOME"} {
+	for _, key := range []string{"CDX_CONFIG_PATH", "CLX_CONFIG_PATH", "CGX_CONFIG_PATH", "CODEX_HOME", "GROK_HOME"} {
 		if value := strings.TrimSpace(environment[key]); value != "" {
 			environmentXML.WriteString("    <key>" + key + "</key><string>" + html.EscapeString(value) + "</string>\n")
 		}
@@ -412,6 +412,7 @@ func serviceConfigEnvironment() (map[string]string, error) {
 	}{
 		{key: "CDX_CONFIG_PATH", engine: config.EngineCodex},
 		{key: "CLX_CONFIG_PATH", engine: config.EngineClaude},
+		{key: "CGX_CONFIG_PATH", engine: config.EngineGrok},
 	} {
 		path, err := config.DefaultPathForEngine(item.engine)
 		if err != nil {

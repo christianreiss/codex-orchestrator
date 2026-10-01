@@ -14,6 +14,7 @@ import {
   type QueryKey,
 } from "@tanstack/svelte-query";
 import { api, ApiError } from "./client";
+import { engineLabel } from "../constants/engines";
 import type {
   HostsListResponse,
   HostDetailResponse,
@@ -367,7 +368,7 @@ export function createModelOverrideMutation(qc: QueryClient) {
     ApiError,
     {
       id: number | string;
-      engine?: "codex" | "claude";
+      engine?: "codex" | "claude" | "grok";
       model?: string | null;
       reasoning_effort?: string | null;
     }
@@ -379,7 +380,9 @@ export function createModelOverrideMutation(qc: QueryClient) {
       // "leave alone" and an explicit `null` as "clear", so collapsing
       // `undefined` into a forced `null` here would corrupt that contract.
       const body =
-        engine === "claude"
+        engine === "grok"
+          ? { ...(model !== undefined ? { grok_model_override: model } : {}), ...(reasoning_effort !== undefined ? { grok_reasoning_effort_override: reasoning_effort } : {}) }
+          : engine === "claude"
           ? { ...(model !== undefined ? { claude_model_override: model } : {}) }
           : {
               ...(model !== undefined ? { model_override: model } : {}),
@@ -420,6 +423,16 @@ export function createClaudeVersionMutation(qc: QueryClient) {
         selection: version,
       }),
     onSuccess: (_d, vars) => {
+      void qc.invalidateQueries({ queryKey: hostsKeys.detail(vars.id) });
+      void qc.invalidateQueries({ queryKey: hostsKeys.list() });
+    },
+  });
+}
+
+export function createGrokVersionMutation(qc: QueryClient) {
+  return createMutation<unknown, ApiError, { id: number | string; version: string | null }>({
+    mutationFn: ({ id, version }) => api.post(`/admin/hosts/${id}/grok-version`, { selection: version }),
+    onSuccess: (_data, vars) => {
       void qc.invalidateQueries({ queryKey: hostsKeys.detail(vars.id) });
       void qc.invalidateQueries({ queryKey: hostsKeys.list() });
     },
@@ -477,31 +490,16 @@ export interface HostCxxWrapperState {
   drift: boolean;
 }
 
-/** One shared cxx binary is reported through two legacy engine telemetry fields. */
+/** A shared cxx binary is reported through the engine telemetry fields. */
 export function hostCxxWrapperState(
-  host: Pick<
-    HostListItem,
-    "engines_list" | "engines" | "wrapper_version" | "claude_wrapper_version"
-  >,
+  host: Pick<HostListItem, "engines_list" | "engines" | "wrapper_version" | "claude_wrapper_version" | "grok_wrapper_version">,
 ): HostCxxWrapperState {
-  const engines = new Set(hostEngines(host));
-  const codexEnabled = engines.has("codex");
-  const claudeEnabled = engines.has("claude");
-  const codexVersion = codexEnabled ? host.wrapper_version : null;
-  const claudeVersion = claudeEnabled ? host.claude_wrapper_version : null;
-  const drift =
-    codexEnabled &&
-    claudeEnabled &&
-    (codexVersion !== null || claudeVersion !== null) &&
-    codexVersion !== claudeVersion;
-
-  if (drift) {
-    return {
-      display: `Codex ${codexVersion ?? "—"} · Claude ${claudeVersion ?? "—"} (migration drift)`,
-      drift: true,
-    };
-  }
-  return { display: codexVersion ?? claudeVersion ?? "—", drift: false };
+  const versions = { codex: host.wrapper_version, claude: host.claude_wrapper_version, grok: host.grok_wrapper_version };
+  const enabled = hostEngines(host).filter((engine): engine is HostEngine => engine in versions);
+  const reported = enabled.map((engine) => versions[engine] ?? null);
+  const drift = reported.some(Boolean) && new Set(reported).size > 1;
+  if (drift) return { display: `${enabled.map((engine) => `${engineLabel(engine)} ${versions[engine] ?? "—"}`).join(" · ")} (migration drift)`, drift: true };
+  return { display: reported.find(Boolean) ?? "—", drift: false };
 }
 
 export const HOST_ONLINE_WINDOW_MS = 24 * 60 * 60 * 1000;
@@ -515,48 +513,35 @@ function parseHostTime(value: string | null | undefined): number | null {
 }
 
 export function hostLatestRefreshMs(
-  host: Pick<HostListItem, "last_refresh" | "claude_last_refresh">,
+  host: Pick<HostListItem, "last_refresh" | "claude_last_refresh" | "grok_last_refresh">,
 ): number | null {
-  const times = [parseHostTime(host.last_refresh), parseHostTime(host.claude_last_refresh)].filter(
-    (t): t is number => typeof t === "number",
-  );
-  return times.length ? Math.max(...times) : null;
+  const value = hostLatestRefresh(host);
+  return parseHostTime(value);
 }
 
 export function hostLatestRefresh(
-  host: Pick<HostListItem, "last_refresh" | "claude_last_refresh">,
+  host: Pick<HostListItem, "last_refresh" | "claude_last_refresh" | "grok_last_refresh">,
 ): string | null {
-  const codexTs = parseHostTime(host.last_refresh);
-  const claudeTs = parseHostTime(host.claude_last_refresh);
-  if (codexTs !== null && (claudeTs === null || codexTs >= claudeTs)) return host.last_refresh;
-  if (claudeTs !== null) return host.claude_last_refresh;
-  return null;
+  const values = [host.last_refresh, host.claude_last_refresh, host.grok_last_refresh];
+  return values.filter((value): value is string => parseHostTime(value) !== null)
+    .sort((a, b) => Date.parse(b) - Date.parse(a))[0] ?? null;
 }
 
-/**
- * Liveness timestamp: when the host last talked to the orchestrator.
- * `updated_at` is bumped on every auth sync and cron check-in — unlike
- * `last_refresh`, which carries the canonical payload's mint time and can be
- * days old even on a perfectly healthy host.
- */
+/** Liveness follows the newest orchestrator check-in or engine refresh. */
 export function hostLastSeenMs(
-  host: Pick<HostListItem, "updated_at" | "last_refresh" | "claude_last_refresh">,
+  host: Pick<HostListItem, "updated_at" | "last_refresh" | "claude_last_refresh" | "grok_last_refresh">,
 ): number | null {
-  const times = [
-    parseHostTime(host.updated_at),
-    parseHostTime(host.last_refresh),
-    parseHostTime(host.claude_last_refresh),
-  ].filter((t): t is number => typeof t === "number");
+  const times = [parseHostTime(host.updated_at), hostLatestRefreshMs(host)].filter((time): time is number => time !== null);
   return times.length ? Math.max(...times) : null;
 }
 
 export function hostHasRequiredAuth(
-  host: Pick<HostListItem, "engines_list" | "engines" | "canonical_digest" | "claude_canonical_digest" | "authed">,
+  host: Pick<HostListItem, "engines_list" | "engines" | "canonical_digest" | "claude_canonical_digest" | "grok_canonical_digest" | "authed">,
 ): boolean {
   if (host.authed === false) return false;
   const engines = hostEngines(host);
-  const required = engines.length ? engines : ["codex"];
-  return required.every((engine) => {
+  return (engines.length ? engines : ["codex"]).every((engine) => {
+    if (engine === "grok") return Boolean(host.grok_canonical_digest);
     if (engine === "claude") return Boolean(host.claude_canonical_digest);
     if (engine === "codex") return Boolean(host.canonical_digest);
     return true;

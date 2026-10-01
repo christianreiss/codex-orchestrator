@@ -418,8 +418,16 @@
   // therefore uses the same renderer as the wrapper, rather than composing a
   // best-effort client-side approximation.
   const previewHosts = $derived(
-    ($hosts.data?.hosts ?? []).filter((host) => hostEngines(host).includes("codex")),
+    ($hosts.data?.hosts ?? []).filter((host) => hostEngines(host).some(engine => ["codex", "claude", "grok"].includes(engine))),
   );
+  let previewEngine = $state<"codex" | "claude" | "grok">("codex");
+  const previewHostEngines = $derived.by(() => {
+    const host = previewHosts.find(host => String(host.id) === previewHostId);
+    return host ? hostEngines(host).filter(engine => ["codex", "claude", "grok"].includes(engine)) as Array<"codex" | "claude" | "grok"> : [];
+  });
+  $effect(() => {
+    if (previewHostEngines.length && !previewHostEngines.includes(previewEngine)) previewEngine = previewHostEngines[0];
+  });
   let renderedPreviewOpen = $state(false);
   let previewHostId = $state("");
 
@@ -474,9 +482,9 @@
         // fleet settings rather than from the request: with `staleTime:
         // Infinity`, a key that ignored it would leave the previous mode's
         // document sitting in the pane after the toggle moved.
-        queryKey: ["agents-render", previewHostId, generationMode, JSON.stringify(request)],
+        queryKey: ["agents-render", previewHostId, previewEngine, generationMode, JSON.stringify(request)],
         queryFn: () =>
-          agentsApi.renderDraft(hostId, request!.draft, "codex", request!.levels ?? undefined, request!.verbosity),
+          agentsApi.renderDraft(hostId, request!.draft, previewEngine, request!.levels ?? undefined, request!.verbosity),
         // Nothing is looking at this render while the pane shows the base and
         // the dialog is shut. Unlike the compose call — which feeds what Save
         // stores and must never be skipped — this one feeds pixels only.
@@ -897,7 +905,7 @@
 
           {#if !canRenderEffective}
             <p class="text-xs text-muted-foreground">
-              No Codex host is enrolled, so the host-specific feature block cannot be rendered. This
+              No host is enrolled, so the host-specific feature block cannot be rendered. This
               shows the canonical base only — the security posture does not appear in it.
             </p>
           {:else if activePreviewMode === "effective" && renderError}
@@ -1075,7 +1083,7 @@
     <Dialog.Header>
       <Dialog.Title>Effective AGENTS.md draft</Dialog.Title>
       <Dialog.Description>
-        This is the exact document the selected Codex host would receive if this draft were saved,
+        This is the exact document the selected host would receive if this draft were saved,
         including mandatory fleet policy and live managed feature guidance.
       </Dialog.Description>
     </Dialog.Header>
@@ -1083,11 +1091,11 @@
     <div class="space-y-3">
       <div class="flex flex-wrap items-end gap-2">
         <div class="min-w-[240px] flex-1 space-y-1.5">
-          <label for="agents-preview-host" class="text-xs font-medium">Codex host</label>
+          <label for="agents-preview-host" class="text-xs font-medium">Host</label>
           <!-- The host is part of the query key, so switching it re-renders in
                place rather than blanking the document until a manual refresh. -->
           <Select.Root type="single" value={previewHostId} onValueChange={(value) => (previewHostId = value ?? "")}>
-            <Select.Trigger id="agents-preview-host" aria-label="Codex host for rendered AGENTS preview">
+            <Select.Trigger id="agents-preview-host" aria-label="Host for rendered AGENTS preview">
               <Select.Value placeholder="Choose a host">
                 {previewHosts.find((host) => String(host.id) === previewHostId)?.fqdn ?? "Choose a host"}
               </Select.Value>
@@ -1096,6 +1104,15 @@
               {#each previewHosts as host (host.id)}
                 <Select.Item value={String(host.id)} label={host.fqdn}>{host.fqdn} · #{host.id}</Select.Item>
               {/each}
+            </Select.Content>
+          </Select.Root>
+        </div>
+        <div class="min-w-[120px] space-y-1.5">
+          <label for="agents-preview-engine" class="text-xs font-medium">Engine</label>
+          <Select.Root type="single" value={previewEngine} onValueChange={value => { if (value) previewEngine = value as typeof previewEngine; }}>
+            <Select.Trigger id="agents-preview-engine">{previewEngine === "codex" ? "Codex" : previewEngine === "claude" ? "Claude" : "Grok"}</Select.Trigger>
+            <Select.Content>
+              {#each previewHostEngines as engine}<Select.Item value={engine} label={engine === "codex" ? "Codex" : engine === "claude" ? "Claude" : "Grok"} />{/each}
             </Select.Content>
           </Select.Root>
         </div>

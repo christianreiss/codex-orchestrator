@@ -123,6 +123,13 @@ describe('install-token: shell builders', () => {
     expect(out).toContain('$HOME/.claude/.credentials.json');
   });
 
+  it('builds a Grok seed script targeting native subscription auth', () => {
+    const out = buildSeedAuthScript({ baseUrl: 'https://o.example.com', token: 'test-token', engine: 'grok' });
+    expect(out).toContain('$HOME/.grok/auth.json');
+    expect(out).toContain('Grok subscription credentials');
+    expect(out).toContain('seed-auth uploader (grok)');
+  });
+
   it('rejects an invalid seed base URL', () => {
     expect(() => buildSeedAuthScript({ baseUrl: 'https:', token: 'x', engine: 'codex' })).toThrow();
   });

@@ -40,7 +40,7 @@ export interface SetupWizardState {
   dismissed_at: string | null;
   last_step: SetupStep | null;
   /** `[]` is a real answer ("no engines yet"); `null` means "not asked". */
-  engines: ("codex" | "claude")[] | null;
+  engines: ("codex" | "claude" | "grok")[] | null;
 }
 
 export interface SetupStatus {
@@ -54,8 +54,8 @@ export interface SetupStatus {
    * server's `DEFAULT_HOST_ENGINES`. Optional only while an older API is served;
    * read it through `defaultEnginesOf`.
    */
-  default_engines?: ("codex" | "claude")[];
-  canonical_auth: { codex: boolean; claude: boolean };
+  default_engines?: ("codex" | "claude" | "grok")[];
+  canonical_auth: { codex: boolean; claude: boolean; grok?: boolean };
   hosts: { total: number; synced: number };
   public_base_url: string | null;
   warnings: string[];
@@ -64,7 +64,7 @@ export interface SetupStatus {
 }
 
 /** Engines to pre-select for a new host; codex when the server says nothing. */
-export function defaultEnginesOf(status: SetupStatus | null | undefined): ("codex" | "claude")[] {
+export function defaultEnginesOf(status: SetupStatus | null | undefined): ("codex" | "claude" | "grok")[] {
   const engines = status?.default_engines;
   return engines && engines.length > 0 ? [...engines] : ["codex"];
 }
@@ -82,7 +82,7 @@ export function stepForAction(id: string): SetupStep | null {
 
 export interface SetupWizardUpdate {
   last_step?: SetupStep;
-  engines?: ("codex" | "claude")[];
+  engines?: ("codex" | "claude" | "grok")[];
   completed?: boolean;
   dismissed?: boolean;
 }

@@ -140,6 +140,10 @@ interface QueryCase {
 }
 
 const QUERY_CASES: QueryCase[] = [
+  { name: "grokStateQuery", build: () => asQuery(settings.grokStateQuery()), queryKey: ["settings", "grok-state"], method: "GET", path: "/admin/grok/state" },
+  { name: "grokSettingsQuery", build: () => asQuery(settings.grokSettingsQuery()), queryKey: ["settings", "grok-settings"], method: "GET", path: "/admin/grok/settings" },
+  { name: "grokVersionsQuery", build: () => asQuery(settings.grokVersionsQuery()), queryKey: KEYS.versionsCheck, method: "POST", path: "/admin/versions/check" },
+  { name: "modelDefaultsQuery", label: "modelDefaultsQuery('grok')", build: () => asQuery(settings.modelDefaultsQuery("grok")), queryKey: ["settings", "model-defaults", "grok"], method: "GET", path: "/admin/model-defaults/grok" },
   {
     name: "authorizationQuery",
     build: () => asQuery(settings.authorizationQuery()),
@@ -284,6 +288,16 @@ interface MutationCase {
 }
 
 const MUTATION_CASES: MutationCase[] = [
+  { name: "grokStateMutation", build: opts => asMutation(settings.grokStateMutation(opts)), variables: true,
+    request: { method: "POST", path: "/admin/grok/state", body: { disabled: true } }, invalidates: [["settings", "grok-state"], ["keys", "grok", "state"]] },
+  { name: "grokSettingsMutation", build: opts => asMutation(settings.grokSettingsMutation(opts)), variables: { default_model: "grok-4.6" },
+    request: { method: "POST", path: "/admin/grok/settings", body: { default_model: "grok-4.6" } }, invalidates: [["settings", "grok-settings"]] },
+  { name: "grokVersionsCheckMutation", build: opts => asMutation(settings.grokVersionsCheckMutation(opts)), variables: undefined,
+    request: { method: "POST", path: "/admin/versions/check", body: undefined }, invalidates: [KEYS.versionsCheck] },
+  { name: "grokVersionMutation", build: opts => asMutation(settings.grokVersionMutation(opts)), variables: "1.0.46",
+    request: { method: "POST", path: "/admin/grok/version", body: { selection: "1.0.46" } }, invalidates: [KEYS.versionsCheck] },
+  { name: "modelDefaultsMutation", label: "modelDefaultsMutation('grok')", build: opts => asMutation(settings.modelDefaultsMutation("grok", opts)), variables: { model: "grok-4.6", reasoning_effort: "xhigh" },
+    request: { method: "POST", path: "/admin/model-defaults/grok", body: { model: "grok-4.6", reasoning_effort: "xhigh" } }, invalidates: [["settings", "model-defaults", "grok"]] },
   {
     // Switching the posture changes what this very session may do, so it has
     // to invalidate the auth status alongside its own key or the console keeps
@@ -562,6 +576,15 @@ describe("module surface", () => {
     "codexVersionsCheckMutation",
     "codexVersionsQuery",
     "codexVersionsQueryKey",
+    "grokSettingsMutation",
+    "grokSettingsQuery",
+    "grokSettingsQueryKey",
+    "grokStateMutation",
+    "grokStateQuery",
+    "grokStateQueryKey",
+    "grokVersionMutation",
+    "grokVersionsCheckMutation",
+    "grokVersionsQuery",
     "insecureApprovalMutation",
     "insecureApprovalQuery",
     "insecureApprovalQueryKey",

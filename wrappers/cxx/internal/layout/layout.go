@@ -23,6 +23,7 @@ import (
 const (
 	EngineCodex  = "codex"
 	EngineClaude = "claude"
+	EngineGrok   = "grok"
 	lockPrefix   = "cxx-layout-"
 )
 
@@ -231,7 +232,7 @@ func samePath(a, b string) bool {
 // construction somewhere a bare command name resolves.
 func pathVisibleFleetDir(canonical string) string {
 	home := filepath.Dir(canonical)
-	for _, name := range []string{"cdx", "clx"} {
+	for _, name := range []string{"cdx", "clx", "cgx"} {
 		found, err := exec.LookPath(name)
 		if err != nil || found == "" {
 			continue
@@ -288,7 +289,7 @@ func CanonicalExecutable(executable string) (string, error) {
 	// A legacy regular cdx/clx is already the combined executable. Its update
 	// destination is always the sibling cxx even on the first migration when
 	// that sibling does not exist yet.
-	if base := filepath.Base(resolved); base == "cdx" || base == "clx" {
+	if base := filepath.Base(resolved); base == "cdx" || base == "clx" || base == "cgx" {
 		return candidate, nil
 	}
 	if info, statErr := os.Stat(candidate); statErr == nil && !info.IsDir() {
@@ -349,7 +350,7 @@ func RemoveShared(ctx context.Context, executable string) error {
 		legacyRegular := ""
 		if abs, absErr := filepath.Abs(executable); absErr == nil {
 			if info, statErr := os.Lstat(abs); statErr == nil && info.Mode().IsRegular() &&
-				(filepath.Base(abs) == "cdx" || filepath.Base(abs) == "clx") {
+				(filepath.Base(abs) == "cdx" || filepath.Base(abs) == "clx" || filepath.Base(abs) == "cgx") {
 				// The current process proves this regular persona-named inode is the
 				// combined dispatcher. Remember it for last-engine cleanup when first
 				// run alias migration could not complete.
@@ -362,7 +363,7 @@ func RemoveShared(ctx context.Context, executable string) error {
 		}
 		dir := filepath.Dir(canonical)
 		var errs []error
-		for _, engine := range []string{EngineCodex, EngineClaude} {
+		for _, engine := range []string{EngineCodex, EngineClaude, EngineGrok} {
 			alias := filepath.Join(dir, aliasForEngine(engine))
 			target, readErr := os.Readlink(alias)
 			if readErr == nil && target == "cxx" {
@@ -440,7 +441,7 @@ func ensureCanonical(executable, expectedSHA string) (string, error) {
 		source = abs
 	}
 	canonical := filepath.Join(filepath.Dir(abs), "cxx")
-	legacyPersona := filepath.Base(resolved) == "cdx" || filepath.Base(resolved) == "clx"
+	legacyPersona := filepath.Base(resolved) == "cdx" || filepath.Base(resolved) == "clx" || filepath.Base(resolved) == "cgx"
 	if legacyPersona {
 		// Reaching this code proves the regular cdx/clx inode contains the
 		// combined dispatcher. Prefer those executing bytes over an unrelated or
@@ -628,7 +629,7 @@ func normalizeEngines(engines []string) []string {
 	out := make([]string, 0, 2)
 	for _, engine := range engines {
 		engine = strings.ToLower(strings.TrimSpace(engine))
-		if (engine == EngineCodex || engine == EngineClaude) && !seen[engine] {
+		if (engine == EngineCodex || engine == EngineClaude || engine == EngineGrok) && !seen[engine] {
 			seen[engine] = true
 			out = append(out, engine)
 		}
@@ -637,6 +638,9 @@ func normalizeEngines(engines []string) []string {
 }
 
 func aliasForEngine(engine string) string {
+	if engine == EngineGrok {
+		return "cgx"
+	}
 	if strings.EqualFold(strings.TrimSpace(engine), EngineClaude) {
 		return "clx"
 	}

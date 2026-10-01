@@ -1,12 +1,12 @@
 import { expect, test, type Page } from "@playwright/test";
 
 const reset = "2026-10-01T12:00:00Z";
-function account(id: number, engine: "claude" | "codex", label: string, percent: number) {
-  return { id, engine, label, state: "enabled", verification_state: "verified", verification_reason: null, verification_checked_at: reset, generation: 1,
-    usage: { fetched_at: reset, stale: false, short_used_percent: percent, short_resets_at: reset, weekly_used_percent: percent, weekly_resets_at: reset }, sessions: [] };
+function account(id: number, engine: "claude" | "codex" | "grok", label: string, percent: number | null) {
+  return { id, engine, label, state: "enabled", verification_state: "verified", verification_reason: null, verification_checked_at: reset, generation: 1, refresh_state: "idle",
+    usage: { supported: engine !== "grok", fetched_at: reset, stale: false, short_used_percent: percent, short_resets_at: engine === "grok" ? null : reset, weekly_used_percent: percent, weekly_resets_at: engine === "grok" ? null : reset }, sessions: [] };
 }
-async function fixtures(page: Page, canManage = true) {
-  const accounts = [account(1, "claude", "Claude Alpha", 20), account(2, "claude", "Claude Beta", 80), account(3, "claude", "Claude Gamma", 20)];
+async function fixtures(page: Page, canManage = true, extra: ReturnType<typeof account>[] = []) {
+  const accounts = [account(1, "claude", "Claude Alpha", 20), account(2, "claude", "Claude Beta", 80), account(3, "claude", "Claude Gamma", 20), ...extra];
   const writes: Array<{ method: string; path: string; body: unknown }> = [];
   await page.route("**/admin/**", async (route) => {
     const request = route.request();
@@ -73,4 +73,27 @@ test("read-only operators can inspect quotas without management actions", async 
   await expect(page.getByRole("button", { name: "Add account" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Replace credentials" })).toHaveCount(0);
   expect(writes).toEqual([]);
+});
+
+
+test("Grok subscription accounts show unavailable quota and upload full OIDC credentials", async ({ page }) => {
+  const grok = { ...account(5, "grok", "Grok Primary", null), refresh_state: "login_required" };
+  const writes = await fixtures(page, true, [grok]);
+  await page.goto("/admin/accounts");
+  await page.getByRole("button", { name: "Grok", exact: true }).click();
+  const card = page.locator("section").filter({ has: page.getByRole("heading", { name: "Grok Primary" }) });
+  await expect(card).toContainText("Subscription quota is unavailable");
+  await expect(card).toContainText("cgx login");
+  await expect(card.getByRole("progressbar")).toHaveCount(0);
+  await card.getByRole("button", { name: "Replace credentials" }).click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog).toContainText("Subscription login credentials include refresh material");
+  await expect(dialog.getByText("OpenAI API key", { exact: true })).toHaveCount(0);
+  const payload = JSON.stringify({ "https://auth.x.ai::b1a00492-073a-47ea-816f-4c329264a828": {
+    auth_mode: "oidc", key: "fake-access", refresh_token: "fake-refresh", oidc_issuer: "https://auth.x.ai",
+    oidc_client_id: "b1a00492-073a-47ea-816f-4c329264a828", expires_at: reset, user_id: "fake-user" } });
+  await dialog.locator("textarea").fill(payload);
+  await dialog.getByRole("button", { name: "Upload credentials" }).click();
+  await expect(dialog).toHaveCount(0);
+  expect(writes).toEqual([{ method: "POST", path: "/admin/accounts/5/credentials", body: { payload } }]);
 });

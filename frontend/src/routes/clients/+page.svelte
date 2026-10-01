@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { engineLabel } from "$lib/constants/engines";
   import { tick, untrack } from "svelte";
   import { useQueryClient } from "@tanstack/svelte-query";
   import BotIcon from "@lucide/svelte/icons/bot";
@@ -37,7 +38,7 @@
   const canOpenSettings = $derived($authStore.can("agent_portal.manage"));
   let selectedId = $state<string | null>(null);
   let search = $state("");
-  let engine = $state<"all" | "codex" | "claude">("all");
+  let engine = $state<"all" | "codex" | "claude" | "grok">("all");
   let filter = $state<ClientFilter>("active");
   let now = $state(Date.now());
   let detailHeading = $state<HTMLHeadingElement | null>(null);
@@ -195,7 +196,7 @@
   }
 </script>
 
-<PageHeader class={selected ? "hidden lg:flex" : ""} title="Active Clients" subtitle="Codex and Claude sessions, reported work, and the latest evidence that each client is reachable.">
+<PageHeader class={selected ? "hidden lg:flex" : ""} title="Active Clients" subtitle="Codex, Claude, and Grok sessions, reported work, and the latest evidence that each client is reachable.">
   {#snippet actions()}
     <Button variant="outline" onclick={refresh} disabled={$sessions.isFetching} aria-label="Refresh clients">
       <RefreshCwIcon class="h-4 w-4 {$sessions.isFetching ? 'motion-safe:animate-spin' : ''}" />
@@ -222,11 +223,11 @@
     </div>
   {/if}
   {#if !enabled}
-    <EmptyState icon={PowerOffIcon} title="The Agent Portal is off" description="Client registration is paused. Enable the Agent Portal to record new Codex and Claude sessions.">
+    <EmptyState icon={PowerOffIcon} title="The Agent Portal is off" description="Client registration is paused. Enable the Agent Portal to record new Codex, Claude, and Grok sessions.">
       {#snippet action()}{#if canOpenSettings}<Button href="{base}/agent-portal" variant="outline">Open Agent Portal settings</Button>{/if}{/snippet}
     </EmptyState>
   {:else if rows.length === 0}
-    <EmptyState icon={BotIcon} title="No recorded clients" description="A session appears when cdx or clx registers with the Agent Portal. Clients that cannot reach the server may appear after reconnecting." />
+    <EmptyState icon={BotIcon} title="No recorded clients" description="A session appears when cdx, clx, or cgx registers with the Agent Portal. Clients that cannot reach the server may appear after reconnecting." />
   {:else}
     <!-- One Messages-style card: conversation list on the left, thread on the right. -->
     <div class="grid h-[75dvh] min-h-[28rem] overflow-hidden rounded-xl border bg-card lg:h-[calc(100dvh-15.5rem)] lg:grid-cols-[22rem_minmax(0,1fr)]">
@@ -240,7 +241,7 @@
                 class="h-8 w-full rounded-lg border-0 bg-muted pl-8 pr-2 text-xs outline-none placeholder:text-muted-foreground focus:ring-2 focus:ring-ring/30" />
             </label>
             <label for="client-engine" class="sr-only">Engine</label>
-            <select id="client-engine" bind:value={engine} class="client-select shrink-0"><option value="all">Both</option><option value="codex">Codex</option><option value="claude">Claude</option></select>
+            <select id="client-engine" bind:value={engine} class="client-select shrink-0"><option value="all">All engines</option><option value="codex">Codex</option><option value="claude">Claude</option><option value="grok">Grok</option></select>
           </div>
           <div class="flex flex-wrap gap-1" role="group" aria-label="Show sessions">
             {#each chips as chip (chip.key)}
@@ -253,7 +254,7 @@
           </div>
           <p class="flex items-center gap-1.5 text-[10px] text-muted-foreground">
             <span class="h-1.5 w-1.5 rounded-full {stale || $sessions.isError ? 'bg-warning' : 'bg-success'}" aria-hidden="true"></span>
-            <span class="truncate">{visible.length} of {rows.length} · {counts.codex} Codex · {counts.claude} Claude · checked {age(new Date($sessions.dataUpdatedAt).toISOString(), now)} ago</span>
+            <span class="truncate">{visible.length} of {rows.length} · {counts.codex} Codex · {counts.claude} Claude · {counts.grok} Grok · checked {age(new Date($sessions.dataUpdatedAt).toISOString(), now)} ago</span>
             {#if search || engine !== "all" || filter !== "active"}<button type="button" class="ml-auto shrink-0 text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" onclick={resetFilters}>Clear filters</button>{/if}
           </p>
         </div>
@@ -277,7 +278,7 @@
                 <EngineAvatar engine={selected.engine} presence={selectedView.presence} size="xs" badge />
                 <h2 bind:this={detailHeading} tabindex="-1" class="mt-0.5 max-w-full truncate text-xs font-semibold focus:outline-none">{selected.username} <span class="font-normal text-muted-foreground">on</span> {selected.host ?? `host ${selected.host_id}`}</h2>
                 <p class="max-w-full truncate text-[11px] text-muted-foreground">
-                  {selected.engine === "codex" ? "Codex" : "Claude"} · {selectedView.label}{selected.read_only ? " · Read-only" : ""}{#if selectedView.presence !== "listening"}{" · "}<span title={selectedView.detail}>{selectedView.detail}</span>{/if}{#if canReadTranscript}{" · "}<span>{feedState === "live" ? "Live timeline updates" : feedState === "connecting" ? "Connecting to live updates…" : "Live updates reconnecting"}</span>{/if}
+                  {engineLabel(selected.engine)} · {selectedView.label}{selected.read_only ? " · Read-only" : ""}{#if selectedView.presence !== "listening"}{" · "}<span title={selectedView.detail}>{selectedView.detail}</span>{/if}{#if canReadTranscript}{" · "}<span>{feedState === "live" ? "Live timeline updates" : feedState === "connecting" ? "Connecting to live updates…" : "Live updates reconnecting"}</span>{/if}
                 </p>
               </div>
               <div class="flex justify-end">

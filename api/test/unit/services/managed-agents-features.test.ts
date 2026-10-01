@@ -92,13 +92,23 @@ describe('served document byte invariance', () => {
 
     expect(base.sha256).toBe('30abaea24c8809d8634670f0eceb3004aabb4eafb5416c78333c719e8b67e14b');
     expect(out.policy_sha256).toBe('ca5c99eb3eb59039b44eeb1fd8276f848ffe18945b41bc84cc491c0ea436f8e9');
-    expect(out.features_sha256).toBe('6fac93c80eeb18409ee4f170be5a4da68719f66ce44597adda4626bb91407b64');
-    expect(out.managed_sha256).toBe('75a64f59cdcc940eb39ea154a0cc0e66e9b4279cbbda08ceca00d7a8811adcf8');
-    expect(sha256(out.body)).toBe('37d9b3902d58984206072dc71162efb7c4920ee32378bb295f01c9fa28f7c87d');
+    expect(out.features_sha256).toBe('aa7353611e473b8edcb01b9ffac1bf125f378a910f44512df7962d3fe0bf726a');
+    expect(out.managed_sha256).toBe('8168ccb2dcd5988c5793c28c8d6626651763bfa92aa2b5ede343b121ac43c5cb');
+    expect(sha256(out.body)).toBe('9ea93fa236d54292c470095070b0e00bf4087e701248a684c29e3c237d3e30df');
   });
 });
 
 describe('renderManagedAgentFeatures', () => {
+  it('renders Grok MCP guidance and replaces its own legacy memory block without Codex local-memory copy', () => {
+    const base = `# Fleet rules\n\n${buildManagedMemoryBlock('grok')}`;
+    const rendered = renderManagedAgentFeatures(base, context('grok', { skills: enabled(2), memory: enabled(), projects: enabled(), secrets: enabled(1), agentMessaging: enabled() }));
+    expect(rendered.body).toContain('## Skills');
+    expect(rendered.body).toContain('## Memory');
+    expect(rendered.body).toContain('Local files under the Grok home');
+    expect(rendered.body).not.toContain("Codex's own local memories");
+    expect(rendered.body).not.toContain('## Memory (managed)');
+    expect(rendered.sections.skills.present).toBe(true);
+  });
   it('renders providers in deterministic order with exact block and section digests', () => {
     const out = renderManagedAgentFeatures(
       '# Fleet rules\n',

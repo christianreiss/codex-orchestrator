@@ -31,7 +31,7 @@ const FORMATTERS: Record<EnvelopeKind, EnvelopeFormatter> = {
 
 export function selectFormatter(url: string): EnvelopeFormatter {
   if (url.startsWith('/anthropic/v1/')) return FORMATTERS.anthropic;
-  if (url.startsWith('/v1/') || url === '/v1') return FORMATTERS.openai;
+  if (url.startsWith('/v1/') || url === '/v1' || url.startsWith('/grok/v1/') || url === '/grok/v1') return FORMATTERS.openai;
   return FORMATTERS.standard;
 }
 

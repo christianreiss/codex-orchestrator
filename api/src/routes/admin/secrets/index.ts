@@ -31,7 +31,7 @@ const createSchema = z.object({
   name: z.string().trim().min(1, 'name is required'),
   value: z.string().min(1, 'value is required'),
   description: z.string().trim().optional().nullable(),
-  engine: z.enum(['codex', 'claude']).optional().nullable(),
+  engine: z.enum(['codex', 'claude', 'grok']).optional().nullable(),
   tags: z.array(z.string().trim().min(1)).max(32).optional(),
 });
 

@@ -48,7 +48,10 @@ func (c *Comparison) Snapshot(engine string) Snapshot {
 	if engine == "codex" {
 		return c.Codex
 	}
-	return c.Claude
+	if engine == "claude" {
+		return c.Claude
+	}
+	return Snapshot{Status: "unavailable"}
 }
 func (s Settings) valid() bool {
 	return (s.Mode == "off" || s.Mode == "hint" || s.Mode == "ask") && s.HighUsage >= 1 && s.HighUsage <= 100 && s.ProjectedUsage >= 100 && s.ProjectedUsage <= 500 && s.MinGap >= 1 && s.MinGap <= 100 && s.MaxAgeMinutes >= 1 && s.MaxAgeMinutes <= 120

@@ -206,7 +206,7 @@ func (w *mcpWriter) send(value any) error {
 func toolCatalogJSON() []byte {
 	tools := []map[string]any{
 		tool("agent_list", "Discover enabled Codex and Claude agent addresses. No message content is returned.", map[string]any{
-			"engine": map[string]any{"type": "string", "enum": []string{"codex", "claude"}},
+			"engine": map[string]any{"type": "string", "enum": []string{"codex", "claude", "grok"}},
 			"online": map[string]any{"type": "boolean"},
 		}, nil),
 		tool("agent_send", "Send one ordinary text message to one agent address.", map[string]any{

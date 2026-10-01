@@ -7,7 +7,7 @@ import {
 } from "@tanstack/svelte-query";
 import { api } from "./client";
 
-export type AgentEngine = "codex" | "claude";
+export type AgentEngine = "codex" | "claude" | "grok";
 export type AgentConversationStatus = "open" | "canceled";
 export type AgentMessageStatus =
   | "queued"

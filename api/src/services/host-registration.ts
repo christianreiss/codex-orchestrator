@@ -14,6 +14,8 @@ import { wsPublisher } from '../ws/publisher.js';
 import type { InsecureWindowService } from './insecure-window.js';
 import { suspendAgentMessagingRuntimeLocked } from './agent-messaging.js';
 import { NotFoundError } from '../http/errors.js';
+import { ENGINE_GROK } from '../util/engine.js';
+import { ModelDefaultsService } from './model-defaults.js';
 
 /**
  * Host create + API-key rotate, used by the CLI auth approve path. Emits a
@@ -86,6 +88,9 @@ export function createHostRegistrationService(deps: HostRegistrationDeps): HostR
         });
         const updatedRows = await db.select().from(hostsTable).where(eq(hostsTable.id, prev.id)).limit(1);
         let host = updatedRows[0]!;
+        if (engines.split(',').some(engine => engine.trim().toLowerCase() === ENGINE_GROK)) {
+          await new ModelDefaultsService(db).ensureGrokDefaults();
+        }
         if (!secure) {
           await insecure.openInitial(host.id, insecureWindowMinutes);
           const refreshed = await db.select().from(hostsTable).where(eq(hostsTable.id, prev.id)).limit(1);
@@ -112,6 +117,9 @@ export function createHostRegistrationService(deps: HostRegistrationDeps): HostR
       const insertedId = insertedRow?.insertId !== undefined ? Number(insertedRow.insertId) : 0;
       const inserted = await db.select().from(hostsTable).where(eq(hostsTable.id, insertedId)).limit(1);
       let host = inserted[0]!;
+      if (engines.split(',').some(engine => engine.trim().toLowerCase() === ENGINE_GROK)) {
+        await new ModelDefaultsService(db).ensureGrokDefaults();
+      }
       if (!secure) {
         await insecure.openInitial(host.id, insecureWindowMinutes);
         const refreshed = await db.select().from(hostsTable).where(eq(hostsTable.id, host.id)).limit(1);

@@ -1,5 +1,12 @@
 # Usage Guide (Provisioning + Running Codex)
 
+Grok Build is available as `cgx` or `cxx grok …`. Its shared wrapper commands
+include sync, status, doctor, update, uninstall, and execute. Native resume uses
+`--resume ID-or-title` / `--continue`; `--session-id` creates a new conversation.
+Codex lanes and profiles remain Codex-only. See [Grok interface](interface-cgx.md)
+for centralized subscription renewal, the private leader, and the model endpoint `/grok/v1/models`.
+
+
 This doc is the “day 2” guide: how to provision hosts and how to actually run Codex via the baked `cdx` wrapper.
 
 - **Installing the service stack** (Docker, TLS, `.env`, runner sidecars): see `docs/INSTALL.md`.
@@ -109,7 +116,7 @@ What the installer does:
 - Downloads each enabled signed host config from `/wrapper/v2/config` first and
   stops if their common wrapper version/SHA metadata differs.
 - Downloads one platform `cxx`, verifies SHA-256, then installs relative
-  `cdx -> cxx` and/or `clx -> cxx` aliases. Existing regular wrapper files at
+  `cdx -> cxx`, `clx -> cxx`, and/or `cgx -> cxx` aliases. Existing regular wrapper files at
   those alias paths are replaced atomically during migration.
 - Installs system-wide into `/usr/local/bin` by default, using root or
   passwordless `sudo`. Set `BIN_DIR` explicitly for a per-user/custom prefix.
@@ -271,6 +278,8 @@ generation, not an unchanged file blocked by an active child.
 This protection cannot cover a separately invoked raw `codex` or `claude`
 process, so use `cdx`/`clx` consistently on fleet-managed auth homes.
 
+Grok differs here: `cgx login` seeds a modern subscription OIDC generation, then the server owns refresh. Each native session receives an access-only credential in an isolated runtime home with an external-auth broker; canonical refresh tokens stay on the server. See [the cgx contract](interface-cgx.md).
+
 ## Secure vs insecure hosts (and why it matters)
 
 - **Secure host**:
@@ -299,7 +308,7 @@ If you see failures about an insecure window being closed, that’s not somethin
 The shared maintenance coordinator (`cxx cron`, installed by the host
 installer) auto-updates the wrapper and the Codex CLI in the background: the
 schedule fires every 15 minutes, successful work cools down for 15 minutes,
-failures retry after five, and a `cdx`/`clx` launch queues a detached tick when
+failures retry after five, and a `cdx`/`clx`/`cgx` launch queues a detached tick when
 one is due. Codex upgrades are installed into private versioned prefixes under
 `~/.cxx/engines/codex` and activated atomically, so a running session keeps its
 files; a later tick sweeps the store back down to the one selected version. The registered versioned route is

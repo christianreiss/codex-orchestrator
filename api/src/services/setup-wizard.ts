@@ -21,7 +21,7 @@
 
 import type { Database } from '../db/client.js';
 import { SettingsService } from './settings.js';
-import { ENGINE_CLAUDE, ENGINE_CODEX, type Engine } from '../util/engine.js';
+import { ENGINE_CLAUDE, ENGINE_CODEX, ENGINE_GROK, type Engine } from '../util/engine.js';
 import { nowIso } from '../util/timestamp.js';
 
 export const SETUP_WIZARD_STATE_KEY = 'setup_wizard_state';
@@ -83,7 +83,7 @@ function parseEngines(raw: unknown): Engine[] | null {
   if (!Array.isArray(raw)) return null;
   const out: Engine[] = [];
   for (const entry of raw) {
-    if (entry !== ENGINE_CODEX && entry !== ENGINE_CLAUDE) continue;
+    if (entry !== ENGINE_CODEX && entry !== ENGINE_CLAUDE && entry !== ENGINE_GROK) continue;
     if (!out.includes(entry)) out.push(entry);
   }
   return out;

@@ -897,6 +897,21 @@ CREATE TABLE `git_worktrees` (
 	CONSTRAINT `uq_git_worktrees_clone_path` UNIQUE(`clone_id`,`worktree_hash`)
 );
 
+CREATE TABLE `grok_auth_refresh_state` (
+	`account_id` bigint unsigned NOT NULL,
+	`state` varchar(24) NOT NULL DEFAULT 'idle',
+	`attempt_id` varchar(64),
+	`base_payload_id` bigint unsigned,
+	`base_generation` bigint unsigned,
+	`pending_payload_id` bigint unsigned,
+	`response_enc` longtext,
+	`next_attempt_at` varchar(100),
+	`error_code` varchar(100),
+	`started_at` varchar(100),
+	`updated_at` varchar(100) NOT NULL,
+	CONSTRAINT `grok_auth_refresh_state_account_id` PRIMARY KEY(`account_id`)
+);
+
 CREATE TABLE `host_auth_digests` (
 	`id` bigint unsigned AUTO_INCREMENT NOT NULL,
 	`host_id` bigint unsigned NOT NULL,
@@ -969,6 +984,13 @@ CREATE TABLE `hosts` (
 	`claude_model_override` varchar(128),
 	`claude_reasoning_effort_override` varchar(32),
 	`claude_last_refresh` varchar(100),
+	`grok_client_version` varchar(64),
+	`grok_client_version_override` varchar(64),
+	`grok_wrapper_version` varchar(64),
+	`grok_auth_digest` varchar(128),
+	`grok_model_override` varchar(128),
+	`grok_reasoning_effort_override` varchar(32),
+	`grok_last_refresh` varchar(100),
 	`config_version` bigint unsigned NOT NULL DEFAULT 0,
 	`wrapper_track` varchar(16) NOT NULL DEFAULT 'v2',
 	`created_at` varchar(100) NOT NULL,

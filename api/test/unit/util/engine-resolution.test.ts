@@ -51,7 +51,7 @@ describe('readEngineHint', () => {
     ['a boolean', true],
   ])('rejects %s rather than defaulting to Codex', (_label, value) => {
     expect(() => readEngineHint({ source: 'engine', value })).toThrow(
-      /engine must be "codex" or "claude"/,
+      /engine must be "codex", "claude" or "grok"/,
     );
   });
 
@@ -201,7 +201,7 @@ describe('parseEngine', () => {
 
   it('rejects a present value that is not an engine', () => {
     for (const value of ['gemini', 'clude', 'codex,claude', 7, true, {}, ['codex']]) {
-      expect(() => parseEngine(value)).toThrow(/engine must be "codex" or "claude"/);
+      expect(() => parseEngine(value)).toThrow(/engine must be "codex", "claude" or "grok"/);
     }
   });
 });

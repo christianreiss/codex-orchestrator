@@ -237,6 +237,36 @@ func goldenFixtures() []goldenFixture {
 				ConfigVersion: 8,
 			},
 		},
+		{
+			name: "host-grok.json", engine: EngineGrok,
+			want: Config{
+				SchemaVersion: SchemaVersion, Engine: EngineGrok,
+				IssuedAt: goldenIssuedAt, ExpiresAt: goldenString(goldenExpiresAt),
+				Orchestrator: Orchestrator{
+					BaseURL: "https://orchestrator.example.com", APIKey: "sk-golden-grok-not-a-real-key",
+					InstallationID: "golden-installation-0001",
+				},
+				Host: Host{
+					ID: 45, FQDN: "host-grok.fleet.example.com", Secure: true, AgentMessagingEnabled: true,
+					Engines: "codex,claude,grok", EnginesList: []string{"codex", "claude", "grok"},
+				},
+				EngineOptions: EngineOptions{
+					Silent: true, ModelOverride: goldenString("grok-4.6"), ReasoningEffortOverride: goldenString("xhigh"),
+					GrokModelOverride: goldenString("grok-4.6"), GrokReasoningEffortOverride: goldenString("xhigh"),
+					AdminThemeHint: goldenString("auto"),
+				},
+				AgentMessaging: AgentMessaging{
+					ReceiverEnabled: true, Enabled: true, ListenEnabled: true, RelayPollSeconds: 25, QueuedTTLSeconds: 86400,
+				},
+				Remote: Remote{Enabled: true},
+				Wrapper: Wrapper{
+					Version: "2.4.0", Track: "stable", AutoUpdate: true,
+					BinaryURL:    "https://orchestrator.example.com/wrapper/v2/bin/cxx/linux-amd64/v2.4.0/cxx",
+					BinarySHA256: strings.Repeat("b1", 32),
+				},
+				ConfigVersion: 10,
+			},
+		},
 	}
 }
 

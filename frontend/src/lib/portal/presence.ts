@@ -189,7 +189,7 @@ export function groupAgents(agents: Agent[], now: number): Array<{ key: GroupKey
 export function matchesAgent(agent: Agent, query: string): boolean {
   const terms = query.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean);
   if (!terms.length) return true;
-  const haystack = [agent.host, agent.username, agent.cwd, agent.engine, agent.engine === "codex" ? "cdx" : "clx"]
+  const haystack = [agent.host, agent.username, agent.cwd, agent.engine, agent.engine === "codex" ? "cdx" : agent.engine === "claude" ? "clx" : "cgx"]
     .join(" ")
     .toLocaleLowerCase();
   return terms.every((term) => haystack.includes(term));

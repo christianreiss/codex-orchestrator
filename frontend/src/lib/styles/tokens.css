@@ -53,6 +53,7 @@
      caught it against the live /go page. Claude at 46% is already 7.0:1. */
   --persona-codex: 201 90% 38%;
   --persona-claude: 272 55% 46%;
+  --persona-grok: 160 55% 28%;
   --border: 214 20% 85%;
   --input: 215 20% 45%;
   --ring: 217 91% 42%;

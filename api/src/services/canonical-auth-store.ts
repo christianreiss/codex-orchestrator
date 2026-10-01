@@ -9,6 +9,7 @@ import {
   hostAuthStates,
   hosts as hostsTable,
   logs as logsTable,
+  grokAuthRefreshState,
 } from '../db/schema.js';
 import type { Database } from '../db/client.js';
 import type { Keyring } from '../security/keyring.js';
@@ -24,13 +25,17 @@ import {
   parseRfc3339Nanos,
 } from '../util/timestamp.js';
 import type { Engine } from '../util/engine.js';
-import type { RunnerClient } from './runner-client.js';
+import type { RunnerClient, RunnerVerifyResult } from './runner-client.js';
 import type {
   CanonicalPayloadRow,
   NormalizedAuthEntry,
   RunnerValidationService,
 } from './runner-validation.js';
-import { ENGINE_CLAUDE } from '../util/engine.js';
+import { ENGINE_CLAUDE, ENGINE_GROK, ENGINE_HOST_FIELDS } from '../util/engine.js';
+import { normalizeGrokAuth, projectGrokAuth, selectGrokCredential } from './grok-auth.js';
+import { withGrokAccountLock } from './grok-auth-lock.js';
+import { ProviderAccountsService } from './provider-accounts.js';
+import { createRunnerValidationService } from './runner-validation.js';
 import {
   accessCredentialExpired,
   compareCredentialFreshness,
@@ -90,7 +95,7 @@ export interface StoreAuthCandidateInput {
   runnerFailureReason?: string;
   /** Internal CAS guard for runner-refreshed replacements. */
   expectedCanonicalDigest?: string;
-  sourceKind?: 'host' | 'admin' | 'seed' | 'runner' | 'legacy';
+  sourceKind?: 'host' | 'admin' | 'seed' | 'runner' | 'legacy' | 'grok_refresh';
   baseCanonicalGeneration?: number | null;
 }
 
@@ -167,9 +172,12 @@ export interface CanonicalAuthStoreService {
   storeCandidate(input: StoreAuthCandidateInput): Promise<StoreAuthCandidateResult>;
   servedVerificationSnapshot(input: EnsureServedVerificationInput): EnsureServedVerificationResult;
   ensureServedVerification(input: EnsureServedVerificationInput): Promise<EnsureServedVerificationResult>;
+  /** Internal owner-only ledger operations; no provider calls before the candidate is durable. */
+  recordGrokRefreshCandidate(auth: Record<string, unknown>, base: CanonicalPayloadRow): Promise<CanonicalPayloadRow>;
+  promoteGrokRefreshCandidate(payloadId: number, base: CanonicalPayloadRow): Promise<boolean>;
 }
 
-export function createCanonicalAuthStoreService(deps: CanonicalAuthStoreDeps): CanonicalAuthStoreService {
+export function createCanonicalAuthStoreService(deps: CanonicalAuthStoreDeps, ownerAccountId?: number, ownerSourceHostId?: number): CanonicalAuthStoreService {
   const { db, keyring, runnerValidation, runner } = deps;
 
   // In-process single-flight for the launch-gate live probe, keyed by
@@ -201,11 +209,40 @@ export function createCanonicalAuthStoreService(deps: CanonicalAuthStoreDeps): C
   }
 
   async function storeCandidate(input: StoreAuthCandidateInput): Promise<StoreAuthCandidateResult> {
+    if (input.engine === ENGINE_GROK && ownerAccountId === undefined) {
+      const auth = normalizeGrokAuth(input.auth, true);
+      const account = await new ProviderAccountsService(db, keyring).resolveCandidate(auth, ENGINE_GROK, input.accountId, input.sourceHostId, input.accountHint, input.enrollAccount);
+      return withGrokAccountLock(db, account.id, async owner => {
+        const validation = createRunnerValidationService({ db: owner.db, keyring });
+        const store = createCanonicalAuthStoreService({ ...deps, db: owner.db, runnerValidation: validation }, account.id, input.sourceHostId ?? undefined);
+        return store.storeCandidate({ ...input, accountId: account.id, auth });
+      }, Date.now() + 30_000);
+    }
     return withEngineStoreLock(`${input.engine}:${input.accountId ?? 'legacy'}`, () => storeCandidateLocked(input));
   }
 
   async function storeCandidateLocked(input: StoreAuthCandidateInput): Promise<StoreAuthCandidateResult> {
     const { engine, accountId } = input;
+    if (engine === ENGINE_GROK) {
+      if (accountId !== ownerAccountId) throw new ConflictError('Grok canonical store requires its account owner', 'grok_owner_required');
+      input = { ...input, auth: normalizeGrokAuth(input.auth, true) };
+      const head = await runnerValidation.resolveCanonicalPayload(engine, accountId);
+      const current = runnerValidation.validateCanonicalPayload(head);
+      const identity = selectGrokCredential(input.auth);
+      const existing = current ? selectGrokCredential(current.auth) : null;
+      if (head && input.sourceHostId !== null && input.baseCanonicalGeneration !== head.generation && identity?.access !== existing?.access) {
+        throw new ConflictError('Grok canonical generation changed; retrieve before retrying the login upload', 'grok_generation_conflict', { account_id: accountId, canonical_generation: head.generation });
+      }
+      const state = (await db.select().from(grokAuthRefreshState).where(eq(grokAuthRefreshState.accountId, accountId!)))[0];
+      if (state && state.state !== 'idle' && identity?.refresh === existing?.refresh) {
+        throw new ConflictError('This Grok refresh credential is fenced; a distinct subscription login is required', 'grok_login_required');
+      }
+      // An explicit new login is a new lineage, even when its issue timestamp
+      // predates a just-completed server renewal. Historical-pair checks remain.
+      if (current && identity?.refresh !== existing?.refresh && compareRfc3339(String(input.auth.last_refresh), current.last_refresh)! <= 0) {
+        input = { ...input, auth: { ...input.auth, last_refresh: nextCanonicalStamp(current.last_refresh, true) } };
+      }
+    }
     const rawLastRefresh = typeof input.auth.last_refresh === 'string' ? input.auth.last_refresh.trim() : '';
     const suppliedLastRefresh = rawLastRefresh || (input.requireLastRefresh ? '' : nowIso());
     if (!suppliedLastRefresh) {
@@ -310,7 +347,7 @@ export function createCanonicalAuthStoreService(deps: CanonicalAuthStoreDeps): C
     const isExplicitDescendant =
       sourceKind === 'runner' || input.runnerVerified || input.runnerPending || input.runnerFailed;
     if (
-      sourceKind === 'host' &&
+      sourceKind === 'host' && engine !== ENGINE_GROK &&
       !isExplicitDescendant &&
       !quarantinedIdentityMatch &&
       currentIdentity &&
@@ -421,6 +458,7 @@ export function createCanonicalAuthStoreService(deps: CanonicalAuthStoreDeps): C
       const verdict =
         engine === ENGINE_CLAUDE
           ? await runner.verifyClaude({ authJson: canonical })
+          : engine === ENGINE_GROK ? await (runner.verifyGrok?.({ authJson: projectGrokAuth(canonical) }) ?? Promise.resolve<RunnerVerifyResult>({ ok: false, status: 'unconfigured', reachable: false }))
           : await runner.verify({ authJson: canonical });
       const readbackFailure = runnerReadbackFailure(verdict);
       const applied = prepareRunnerUpdatedAuth(
@@ -656,7 +694,7 @@ export function createCanonicalAuthStoreService(deps: CanonicalAuthStoreDeps): C
 
     const result: StoreAuthCandidateResult = {
       status: promotesCanonical ? 'updated' : 'outdated',
-      ...(promotesCanonical ? { auth: canonicalToStore } : {}),
+      ...(promotesCanonical ? { auth: engine === ENGINE_GROK ? projectGrokAuth(canonicalToStore) : canonicalToStore } : {}),
       canonical_last_refresh: finalLastRefresh,
       canonical_digest: digestToStore,
       verification_state: verificationState,
@@ -668,6 +706,10 @@ export function createCanonicalAuthStoreService(deps: CanonicalAuthStoreDeps): C
       engine,
       account_id: accountId,
     };
+    if (engine === ENGINE_GROK && promotesCanonical) {
+      await db.insert(grokAuthRefreshState).values({ accountId: accountId!, state: 'idle', updatedAt: now })
+        .onDuplicateKeyUpdate({ set: { state: 'idle', attemptId: null, basePayloadId: null, baseGeneration: null, pendingPayloadId: null, responseEnc: null, nextAttemptAt: null, errorCode: null, updatedAt: now } });
+    }
     if (postPersistError) throw postPersistError;
     return result;
   }
@@ -809,7 +851,7 @@ export function createCanonicalAuthStoreService(deps: CanonicalAuthStoreDeps): C
     const { row, auth, digest, lastRefresh } = input;
     const unchanged: EnsureServedVerificationResult = {
       state: 'unknown',
-      auth,
+      auth: input.engine === ENGINE_GROK ? projectGrokAuth(auth) : auth,
       digest,
       lastRefresh,
       refreshed: false,
@@ -829,6 +871,14 @@ export function createCanonicalAuthStoreService(deps: CanonicalAuthStoreDeps): C
   async function ensureServedVerification(
     input: EnsureServedVerificationInput,
   ): Promise<EnsureServedVerificationResult> {
+    if (input.engine === ENGINE_GROK && ownerAccountId === undefined) {
+      const payload = (await db.select().from(authPayloads).where(eq(authPayloads.id, input.row.id)))[0];
+      if (!payload?.accountId) return { state: 'unknown', auth: projectGrokAuth(input.auth), digest: input.digest, lastRefresh: input.lastRefresh, refreshed: false };
+      return withGrokAccountLock(db, payload.accountId, async owner => {
+        const validation = createRunnerValidationService({ db: owner.db, keyring });
+        return createCanonicalAuthStoreService({ ...deps, db: owner.db, runnerValidation: validation }, payload.accountId!).ensureServedVerification(input);
+      }, Date.now() + 30_000);
+    }
     const {
       engine,
       hostId,
@@ -842,7 +892,7 @@ export function createCanonicalAuthStoreService(deps: CanonicalAuthStoreDeps): C
     } = input;
     const unchanged: EnsureServedVerificationResult = {
       state: 'unknown',
-      auth,
+      auth: engine === ENGINE_GROK ? projectGrokAuth(auth) : auth,
       digest,
       lastRefresh,
       refreshed: false,
@@ -930,6 +980,7 @@ export function createCanonicalAuthStoreService(deps: CanonicalAuthStoreDeps): C
       const verdict =
         engine === ENGINE_CLAUDE
           ? await runner.verifyClaude({ authJson: auth })
+          : engine === ENGINE_GROK ? await (runner.verifyGrok?.({ authJson: projectGrokAuth(auth) }) ?? Promise.resolve<RunnerVerifyResult>({ ok: false, status: 'unconfigured', reachable: false }))
           : await runner.verify({ authJson: auth });
 
       probeInfo = {
@@ -1149,7 +1200,10 @@ export function createCanonicalAuthStoreService(deps: CanonicalAuthStoreDeps): C
       return { ...unchanged, state: 'verified' };
     });
 
-    const probe = attempt.then((result) => (probeInfo ? { ...result, probe: probeInfo } : result));
+    const probe = attempt.then((result) => {
+      const served = engine === ENGINE_GROK ? { ...result, auth: projectGrokAuth(result.auth) } : result;
+      return probeInfo ? { ...served, probe: probeInfo } : served;
+    });
 
     verificationInflight.set(inflightKey, probe);
     try {
@@ -1208,7 +1262,7 @@ export function createCanonicalAuthStoreService(deps: CanonicalAuthStoreDeps): C
     return promoted;
   }
 
-  async function lockAccount(tx: DbLike, engine: Engine, accountId?: number, sourceHostId?: number | null) {
+  async function lockAccount(tx: DbLike, engine: Engine, accountId?: number, sourceHostId: number | null | undefined = ownerSourceHostId) {
     if (accountId === undefined) return;
     const rows = await tx
       .select()
@@ -1276,7 +1330,34 @@ export function createCanonicalAuthStoreService(deps: CanonicalAuthStoreDeps): C
     }
   }
 
-  return { storeCandidate, servedVerificationSnapshot, ensureServedVerification };
+  async function recordGrokRefreshCandidate(auth: Record<string, unknown>, base: CanonicalPayloadRow): Promise<CanonicalPayloadRow> {
+    if (!base.accountId || ownerAccountId !== base.accountId) throw new ConflictError('Grok refresh requires its account owner', 'grok_owner_required');
+    const canonical = normalizeGrokAuth(auth, true);
+    const encoded = JSON.stringify(canonical);
+    const entries = runnerValidation.normalizeAuthEntries(canonical, ENGINE_GROK);
+    const identity = inspectCredential(canonical, ENGINE_GROK)!;
+    const now = nowIso();
+    let payloadId = 0;
+    await db.transaction(async tx => {
+      await lockAccount(tx, ENGINE_GROK, base.accountId!);
+      const heads = await readHeads(tx, ENGINE_GROK, base.accountId!);
+      if (heads[0]?.payloadId !== base.id || heads[0]?.generation !== base.generation) throw new ConflictError('Grok generation changed during refresh', 'grok_generation_conflict');
+      const history = await tx.select().from(authPayloads).where(eq(authPayloads.accountId, base.accountId!));
+      const generation = Math.max(base.generation ?? 0, ...history.map(row => row.generation ?? 0)) + 1;
+      const inserted = await tx.insert(authPayloads).values({ accountId: base.accountId, engine: ENGINE_GROK, lastRefresh: String(canonical.last_refresh), sha256: runnerValidation.calculateDigest(encoded), body: encrypt(encoded, keyring), sourceHostId: null, createdAt: now, generation, parentPayloadId: base.id, sourceKind: 'grok_refresh', verificationState: 'pending', ...credentialMetadata(identity, keyring.active()) });
+      payloadId = Number((inserted[0] as { insertId: number }).insertId);
+      await persistEntries(tx, payloadId, entries, now);
+      await tx.insert(logsTable).values({ action: 'grok.auth.refresh.candidate', engine: ENGINE_GROK, details: JSON.stringify({ account_id: base.accountId, payload_id: payloadId, base_generation: base.generation, generation }), createdAt: now });
+    });
+    return (await db.select().from(authPayloads).where(eq(authPayloads.id, payloadId)))[0]!;
+  }
+
+  async function promoteGrokRefreshCandidate(payloadId: number, base: CanonicalPayloadRow): Promise<boolean> {
+    if (!base.accountId || ownerAccountId !== base.accountId) throw new ConflictError('Grok refresh requires its account owner', 'grok_owner_required');
+    return promotePendingQuarantine(payloadId, ENGINE_GROK, base, nowIso(), base.accountId);
+  }
+
+  return { storeCandidate, servedVerificationSnapshot, ensureServedVerification, recordGrokRefreshCandidate, promoteGrokRefreshCandidate };
 }
 
 export async function touchHostAuthFields(
@@ -1290,9 +1371,7 @@ export async function touchHostAuthFields(
   await db
     .update(hostsTable)
     .set(
-      engine === ENGINE_CLAUDE
-        ? { claudeLastRefresh: lastRefresh, claudeAuthDigest: digest, updatedAt: now }
-        : { lastRefresh, authDigest: digest, updatedAt: now },
+      { [ENGINE_HOST_FIELDS[engine].lastRefresh]: lastRefresh, [ENGINE_HOST_FIELDS[engine].authDigest]: digest, updatedAt: now },
     )
     .where(eq(hostsTable.id, hostId));
 }
@@ -1390,7 +1469,7 @@ function projectNativeOauthBearer(
   engine: Engine,
 ): Record<string, unknown> {
   if (identity.kind === 'api_key') return auth;
-  const target = engine === ENGINE_CLAUDE ? 'api.anthropic.com' : 'api.openai.com';
+  const target = engine === ENGINE_CLAUDE ? 'api.anthropic.com' : engine === ENGINE_GROK ? 'cli-chat-proxy.grok.com' : 'api.openai.com';
   const rawAuths = isObjectRecord(auth.auths) ? auth.auths : {};
   const rawNativeEntry = isObjectRecord(rawAuths[target]) ? rawAuths[target] : {};
   return {

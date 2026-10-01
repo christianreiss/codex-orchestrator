@@ -23,7 +23,7 @@ func newUUID() string {
 
 func writerLockPath(engine, nativeSessionID string) (string, error) {
 	engine = strings.ToLower(strings.TrimSpace(engine))
-	if engine != "codex" && engine != "claude" {
+	if engine != "codex" && engine != "claude" && engine != "grok" {
 		return "", fmt.Errorf("unsupported engine %q", engine)
 	}
 	home, err := os.UserHomeDir()

@@ -11,7 +11,9 @@ export interface ProviderAccount {
   verification_reason: string | null;
   verification_checked_at: string | null;
   generation: number | null;
+  refresh_state?: "idle" | "refreshing" | "pending_verification" | "uncertain" | "login_required";
   usage: {
+    supported?: boolean;
     fetched_at: string | null;
     stale: boolean;
     short_used_percent: number | null;

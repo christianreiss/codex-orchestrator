@@ -1,16 +1,17 @@
 <script lang="ts">
+  import { engineLabel as labelForEngine, ENGINE_META } from "$lib/constants/engines";
   import { tick, untrack } from "svelte";
   import { useQueryClient } from "@tanstack/svelte-query";
   import Check from "@lucide/svelte/icons/check";
   import { Button } from "$lib/components/ui/button";
-  import { CODEX_MODELS, CLAUDE_MODEL_OPTIONS, REASONING_EFFORT_OPTIONS } from "$lib/constants/models";
+  import { CODEX_MODELS, CLAUDE_MODEL_OPTIONS, GROK_MODEL_OPTIONS, REASONING_EFFORT_OPTIONS } from "$lib/constants/models";
   import { modelDefaultsMutation, modelDefaultsQuery, modelDefaultsQueryKey } from "$lib/api/settings";
   import type { ModelDefaultsEngine, ModelDefaultsUpdate, ModelDefaultsValue } from "$lib/api/types";
 
   let { engine }: { engine: ModelDefaultsEngine } = $props();
   const stableEngine = untrack(() => engine);
-  const label = stableEngine === "codex" ? "Codex" : "Claude";
-  const labels = stableEngine === "codex" ? CODEX_MODELS : CLAUDE_MODEL_OPTIONS;
+  const label = labelForEngine(stableEngine);
+  const labels = stableEngine === "codex" ? CODEX_MODELS : stableEngine === "grok" ? GROK_MODEL_OPTIONS : CLAUDE_MODEL_OPTIONS;
   const query = modelDefaultsQuery(stableEngine);
   const mutation = modelDefaultsMutation(stableEngine);
   const client = useQueryClient();
@@ -101,7 +102,7 @@
 
 <section bind:this={card} aria-labelledby={`${stableEngine}-quick-title`} class="min-w-0 rounded-2xl border bg-card p-5 sm:p-6">
   <header class="mb-6 flex items-center gap-3">
-    <span class={`h-3 w-3 rounded-full ${stableEngine === "codex" ? "bg-persona-codex" : "bg-persona-claude"}`} aria-hidden="true"></span>
+    <span class={`h-3 w-3 rounded-full ${ENGINE_META[stableEngine].color}`} aria-hidden="true"></span>
     <h2 id={`${stableEngine}-quick-title`} class="text-lg font-semibold">{label}</h2>
     <span class="ml-auto text-xs text-muted-foreground">Fleet defaults</span>
   </header>

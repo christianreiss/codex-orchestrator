@@ -10,6 +10,7 @@
   import NewKeyDialog from "$lib/components/api-keys/NewKeyDialog.svelte";
   import ApiStateSection from "$lib/components/settings/ApiStateSection.svelte";
   import OpenAIEngineSection from "$lib/components/settings/OpenAIEngineSection.svelte";
+  import GrokEngineSection from "$lib/components/settings/GrokEngineSection.svelte";
   import ClaudeEngineSection from "$lib/components/settings/ClaudeEngineSection.svelte";
   import type { ApiKeyEngine } from "$lib/api/types";
 
@@ -30,6 +31,7 @@
       path: "/anthropic/v1",
       url: `${origin}/anthropic/v1`,
     },
+    { engine: "Grok", detail: "OpenAI-compatible text inference through Grok subscription", path: "/grok/v1", url: `${origin}/grok/v1` },
   ]);
 
   function openDialog(engine: ApiKeyEngine) {
@@ -48,7 +50,7 @@
   $effect(() => {
     if (page.url.searchParams.get("dialog") !== "new") return;
     const requestedEngine = page.url.searchParams.get("engine");
-    openDialog(requestedEngine === "claude" ? "claude" : "openai");
+    openDialog(requestedEngine === "grok" ? "grok" : requestedEngine === "claude" ? "claude" : "openai");
   });
 </script>
 
@@ -67,13 +69,14 @@
 <section id="service-availability" class="setting-boundary mb-5">
   <div class="setting-boundary__head">
     <h2>Service availability</h2>
-    <p>Master API state and OpenAI/Claude-compatible proxy controls live here, next to the credentials they govern.</p>
+    <p>Master API state and OpenAI, Claude, and Grok gateway controls live here, next to the credentials they govern.</p>
   </div>
   <div class="divide-y">
     <ApiStateSection bordered={false} />
     <OpenAIEngineSection bordered={false} />
   </div>
   <div id="claude-proxy" class="mt-3"><ClaudeEngineSection /></div>
+  <div id="grok-proxy" class="mt-3"><GrokEngineSection /></div>
 </section>
 
 <section id="proxy-endpoints" class="mb-5 flex flex-col gap-2">
@@ -105,6 +108,7 @@
     <Tabs.List>
       <Tabs.Trigger value="openai">OpenAI</Tabs.Trigger>
       <Tabs.Trigger value="claude">Anthropic</Tabs.Trigger>
+      <Tabs.Trigger value="grok">Grok</Tabs.Trigger>
     </Tabs.List>
   </div>
 
@@ -115,6 +119,7 @@
   <Tabs.Content value="claude" class="mt-4">
     <KeysTable engine="claude" />
   </Tabs.Content>
+  <Tabs.Content value="grok" class="mt-4"><KeysTable engine="grok" /></Tabs.Content>
 </Tabs.Root>
 
 <NewKeyDialog

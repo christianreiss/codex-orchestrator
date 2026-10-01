@@ -11,17 +11,19 @@ import (
 	"strings"
 	"time"
 
+	grokapp "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/app/grok"
 	clx "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/claude/ui"
 	cdx "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/codex/ui"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/terminalui"
 )
 
 func main() {
-	engine := flag.String("engine", "codex", "codex or claude")
+	engine := flag.String("engine", "codex", "codex, claude, or grok")
 	scene := flag.String("scene", "startup", "startup, attention, blocked, concurrent, stale, forecast, security, doctor, help, session, updates, notices, progress, or prompt")
 	minimal := flag.Bool("minimal", false, "portable ASCII output")
 	flag.Parse()
-	if (*engine != "codex" && *engine != "claude") || flag.NArg() != 0 {
-		fmt.Fprintln(os.Stderr, "terminal-preview: use -engine codex or -engine claude")
+	if (*engine != "codex" && *engine != "claude" && *engine != "grok") || flag.NArg() != 0 {
+		fmt.Fprintln(os.Stderr, "terminal-preview: use -engine codex, -engine claude, or -engine grok")
 		os.Exit(2)
 	}
 	valid := map[string]bool{"startup": true, "attention": true, "blocked": true, "concurrent": true, "stale": true, "forecast": true, "security": true, "doctor": true, "help": true, "session": true, "updates": true, "notices": true, "progress": true, "prompt": true}
@@ -39,11 +41,19 @@ func preview(engine, scene string, minimal bool) {
 		caps = clx.DetectCapsFor(os.Stdout, "auto")
 		prefix, model, version = "clx", "claude-opus-4-6", "2.1.71"
 	}
+	if engine == "grok" {
+		prefix, model, version = "cgx", "grok-4.6", "1.0.46"
+		caps.Theme = terminalui.ThemeGreen
+	}
 	if minimal {
 		caps = cdx.MinimalCaps(caps)
 	}
 	switch scene {
 	case "help":
+		if engine == "grok" {
+			grokapp.PrintWrapperHelp(os.Stdout, caps)
+			return
+		}
 		if engine == "claude" {
 			clx.PrintWrapperHelp(os.Stdout, caps)
 		} else {
@@ -92,6 +102,10 @@ func preview(engine, scene string, minimal bool) {
 		p.Fail(title + " CLI install failed: download unavailable")
 		return
 	case "prompt":
+		if engine == "grok" {
+			terminalui.PrintNotice(os.Stdout, caps, terminalui.Notice{Prefix: prefix, Topic: terminalui.TopicQuota, Tone: terminalui.ToneDim, Message: "Grok quota telemetry and quota-based recommendations are unavailable."})
+			return
+		}
 		other, otherName := "Claude (clx)", "claude"
 		if engine == "claude" {
 			other, otherName = "OpenAI (cdx)", "codex"
@@ -181,6 +195,19 @@ func preview(engine, scene string, minimal bool) {
 		in.QuotaRows[0].Projection = "~123% at reset; 100% in 18m"
 		in.QuotaRows[0].ProjectionTone = cdx.ToneWarn
 		in.ResultLabel, in.ResultTone = "Quota forecast crosses the limit before reset; advisory only.", cdx.ToneWarn
+	}
+	if engine == "grok" {
+		input := terminalui.ScreenInput{Prefix: prefix, EngineName: engine, WrapperVersion: in.WrapperVersion, EngineVersion: version, HostFQDN: in.HostFQDN, Model: model, Effort: in.Effort, Dots: in.Dots, SessionRows: in.SessionRows, Concurrent: in.Concurrent, ConcurrentNote: in.ConcurrentNote, ResultLabel: in.ResultLabel, ResultTone: in.ResultTone}
+		if scene == "stale" || scene == "forecast" {
+			input.ResultLabel = "Grok quota telemetry is unavailable; subscription authentication remains usable."
+			input.ResultTone = terminalui.ToneWarn
+		}
+		if minimal {
+			terminalui.PrintMinimalScreen(os.Stdout, input)
+		} else {
+			terminalui.PrintBootScreen(os.Stdout, input)
+		}
+		return
 	}
 	if engine == "claude" {
 		input := clx.ScreenInput{

@@ -130,13 +130,14 @@
       list = list.filter((h) => {
         const fqdn = (h.fqdn ?? "").toLowerCase();
         const ver = (h.client_version_override ?? h.client_version ?? "").toLowerCase();
+        const grokVer = (h.grok_client_version_override ?? h.grok_client_version ?? "").toLowerCase();
         const claudeVer = (h.claude_client_version_override ?? h.claude_client_version ?? "").toLowerCase();
         const status = (h.status ?? "").toLowerCase();
         const displayStatus = hostStatusLabel(h).toLowerCase();
         return (
           fqdn.includes(q) ||
           ver.includes(q) ||
-          claudeVer.includes(q) ||
+          claudeVer.includes(q) || grokVer.includes(q) ||
           status.includes(q) ||
           displayStatus.includes(q)
         );

@@ -298,9 +298,14 @@ func refreshAuthoritative(ctx context.Context, seed *config.Config, executable s
 			return nil, nil, "", err
 		}
 	}
-	fetched := make(map[string]*fleetconfig.Fetched, 2)
+	fetched := make(map[string]*fleetconfig.Fetched, 3)
 	var disabled []string
-	for _, engine := range []string{config.EngineCodex, config.EngineClaude} {
+	probes := []string{config.EngineCodex, config.EngineClaude}
+	if hasEngine(config.EnabledEngines(seed.Host, seed.Engine), config.EngineGrok) || grokConfigPresent() {
+		probes = append(probes, config.EngineGrok)
+	}
+	for index := 0; index < len(probes); index++ {
+		engine := probes[index]
 		item, err := fetchAuthoritative(ctx, seed, engine)
 		if errors.Is(err, fleetconfig.ErrEngineDisabled) {
 			disabled = append(disabled, engine)
@@ -313,10 +318,14 @@ func refreshAuthoritative(ctx context.Context, seed *config.Config, executable s
 			return nil, nil, "", fmt.Errorf("authoritative %s engine probe returned an empty config", engine)
 		}
 		fetched[engine] = item
+		// A fresh sibling config notices Grok enabled after an older install.
+		if hasEngine(config.EnabledEngines(item.Config.Host, item.Config.Engine), config.EngineGrok) && !hasEngine(probes, config.EngineGrok) {
+			probes = append(probes, config.EngineGrok)
+		}
 	}
 	configs := make([]*config.Config, 0, len(fetched))
 	engines := make([]string, 0, len(fetched))
-	for _, engine := range []string{config.EngineCodex, config.EngineClaude} {
+	for _, engine := range []string{config.EngineCodex, config.EngineClaude, config.EngineGrok} {
 		item := fetched[engine]
 		if item == nil || item.Config == nil {
 			continue
@@ -351,6 +360,24 @@ func refreshAuthoritative(ctx context.Context, seed *config.Config, executable s
 		}
 	}
 	return configs, engines, canonical, nil
+}
+
+func grokConfigPresent() bool {
+	path, err := config.DefaultPathForEngine(config.EngineGrok)
+	if err != nil {
+		return false
+	}
+	_, err = os.Stat(path)
+	return err == nil
+}
+
+func hasEngine(engines []string, engine string) bool {
+	for _, value := range engines {
+		if value == engine {
+			return true
+		}
+	}
+	return false
 }
 
 func warnWriter(w io.Writer) io.Writer {
@@ -404,7 +431,7 @@ func loadAnySeedConfig() (*config.Config, error) {
 func loadAnySeedConfigWithKey(pubkey ed25519.PublicKey) (*config.Config, error) {
 	var errs []error
 	var expiredSeed *config.Config
-	for _, engine := range []string{config.EngineCodex, config.EngineClaude} {
+	for _, engine := range []string{config.EngineCodex, config.EngineClaude, config.EngineGrok} {
 		path, pathErr := config.DefaultPathForEngine(engine)
 		if pathErr != nil {
 			errs = append(errs, pathErr)
@@ -460,6 +487,10 @@ func installUserCron(bin string, minute, hour int) error {
 	if err != nil {
 		return err
 	}
+	cgxPath, grokHome, err := resolveCronGrokPaths(home, cdxPath)
+	if err != nil {
+		return err
+	}
 	logFile := filepath.Join(home, ".cxx", "cron.log")
 	if err := os.MkdirAll(filepath.Dir(logFile), 0o700); err != nil {
 		return err
@@ -470,7 +501,9 @@ func installUserCron(bin string, minute, hour int) error {
 	body += buildCronLine(minute, hour, bin, logFile, map[string]string{
 		"CDX_CONFIG_PATH": cdxPath,
 		"CLX_CONFIG_PATH": clxPath,
+		"CGX_CONFIG_PATH": cgxPath,
 		"CODEX_HOME":      codexHome,
+		"GROK_HOME":       grokHome,
 	}) + "\n"
 	return writeCrontab(body)
 }
@@ -554,6 +587,9 @@ func resolveSystemCronIdentity() (systemCronIdentity, error) {
 		return systemCronIdentity{}, err
 	}
 	home = inferConfigHome(home, cdxPath, clxPath)
+	if _, _, err := resolveCronGrokPaths(home, cdxPath); err != nil {
+		return systemCronIdentity{}, err
+	}
 	codexHome, err := resolveCronCodexHome(home)
 	if err != nil {
 		return systemCronIdentity{}, err
@@ -580,7 +616,8 @@ func buildSystemCronBody(bin, cdxPath, clxPath, logFile, userName, home, codexHo
 	// Assign through the shell, whose quoting handles embedded quote characters;
 	// cron's environment-line parser is not a shell parser. Escape percent only
 	// after constructing the command, since cron processes it before /bin/sh.
-	command := fmt.Sprintf("CODEX_HOME=%s %s cron run --due >> %s 2>&1", shellEscape(codexHome), shellEscape(bin), shellEscape(logFile))
+	cgxPath, grokHome, _ := resolveCronGrokPaths(home, cdxPath)
+	command := fmt.Sprintf("CODEX_HOME=%s GROK_HOME=%s %s cron run --due >> %s 2>&1", shellEscape(codexHome), shellEscape(grokHome), shellEscape(bin), shellEscape(logFile))
 	command = strings.ReplaceAll(command, "%", `\%`)
 	return fmt.Sprintf(`# cxx-managed-cron - host-wide wrapper and engine maintenance. Do not edit by hand.
 SHELL=/bin/sh
@@ -588,8 +625,24 @@ PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 HOME=%s
 CDX_CONFIG_PATH=%s
 CLX_CONFIG_PATH=%s
+CGX_CONFIG_PATH=%s
 %s * * * * %s %s
-`, shellEscape(home), shellEscape(cdxPath), shellEscape(clxPath), cronMinutes(minute), userName, command)
+`, shellEscape(home), shellEscape(cdxPath), shellEscape(clxPath), shellEscape(cgxPath), cronMinutes(minute), userName, command)
+}
+
+func resolveCronGrokPaths(home, cdxPath string) (string, string, error) {
+	path := strings.TrimSpace(os.Getenv("CGX_CONFIG_PATH"))
+	if path == "" {
+		path = filepath.Join(filepath.Dir(cdxPath), "cgx.json")
+	}
+	nativeHome := strings.TrimSpace(os.Getenv("GROK_HOME"))
+	if nativeHome == "" {
+		nativeHome = filepath.Join(home, ".grok")
+	}
+	if !filepath.IsAbs(path) || !filepath.IsAbs(nativeHome) || strings.ContainsAny(path+nativeHome, "\x00\r\n") {
+		return "", "", errors.New("cron Grok paths must be absolute and contain no control characters")
+	}
+	return path, nativeHome, nil
 }
 
 func resolveCronCodexHome(home string) (string, error) {
@@ -610,6 +663,14 @@ func resolveCronCodexHome(home string) (string, error) {
 func resolveCronConfigPaths(home string) (string, string, error) {
 	cdxOverride := strings.TrimSpace(os.Getenv("CDX_CONFIG_PATH"))
 	clxOverride := strings.TrimSpace(os.Getenv("CLX_CONFIG_PATH"))
+	if grokOverride := strings.TrimSpace(os.Getenv("CGX_CONFIG_PATH")); grokOverride != "" {
+		if cdxOverride == "" {
+			cdxOverride = filepath.Join(filepath.Dir(grokOverride), "cdx.json")
+		}
+		if clxOverride == "" {
+			clxOverride = filepath.Join(filepath.Dir(grokOverride), "clx.json")
+		}
+	}
 	if cdxOverride != "" && clxOverride == "" {
 		clxOverride = filepath.Join(filepath.Dir(cdxOverride), "clx.json")
 	}

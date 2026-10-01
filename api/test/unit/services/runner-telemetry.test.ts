@@ -8,10 +8,7 @@
 import { describe, it, expect } from 'vitest';
 import type { SQL } from 'drizzle-orm';
 import { MySqlDialect } from 'drizzle-orm/mysql-core';
-import {
-  writeRunnerTelemetry,
-  type RunnerTelemetryState,
-} from '../../../src/services/runner-telemetry.js';
+import { writeRunnerTelemetry, type RunnerTelemetryState } from '../../../src/services/runner-telemetry.js';
 import { type RunnerEngineStatus } from '../../../src/services/runner-proxy.js';
 import type { Database } from '../../../src/db/client.js';
 import { ENGINE_CLAUDE, ENGINE_CODEX, type Engine } from '../../../src/util/engine.js';
@@ -84,11 +81,7 @@ describe('writeRunnerTelemetry', () => {
   it('writes the unsuffixed ok rows for codex', async () => {
     const written = await recordWrites(ENGINE_CODEX, 'ok', CHECKED_AT);
 
-    expect(written.map((row) => row.name)).toEqual([
-      'runner_state',
-      'runner_last_check',
-      'runner_last_ok',
-    ]);
+    expect(written.map((row) => row.name)).toEqual(['runner_state', 'runner_last_check', 'runner_last_ok']);
     expect(valueOf(written, 'runner_state')).toBe('ok');
     expect(valueOf(written, 'runner_last_check')).toBe(CHECKED_AT);
     expect(valueOf(written, 'runner_last_ok')).toBe(CHECKED_AT);
@@ -99,11 +92,7 @@ describe('writeRunnerTelemetry', () => {
   it('writes the unsuffixed fail rows for codex', async () => {
     const written = await recordWrites(ENGINE_CODEX, 'fail', CHECKED_AT);
 
-    expect(written.map((row) => row.name)).toEqual([
-      'runner_state',
-      'runner_last_check',
-      'runner_last_fail',
-    ]);
+    expect(written.map((row) => row.name)).toEqual(['runner_state', 'runner_last_check', 'runner_last_fail']);
     expect(valueOf(written, 'runner_state')).toBe('fail');
     expect(valueOf(written, 'runner_last_check')).toBe(CHECKED_AT);
     expect(valueOf(written, 'runner_last_fail')).toBe(CHECKED_AT);
@@ -151,9 +140,7 @@ describe('writeRunnerTelemetry', () => {
 
 describe('writeRunnerTelemetry round-trips through RunnerProxyService.status()', () => {
   it('hydrates only the codex engine from an ok write', async () => {
-    const { codex, claude } = await readBackStatus(
-      await recordWrites(ENGINE_CODEX, 'ok', CHECKED_AT),
-    );
+    const { codex, claude } = await readBackStatus(await recordWrites(ENGINE_CODEX, 'ok', CHECKED_AT));
 
     expect(codex.state).toBe('ok');
     expect(codex.last_check).toBe(CHECKED_AT);
@@ -163,9 +150,7 @@ describe('writeRunnerTelemetry round-trips through RunnerProxyService.status()',
   });
 
   it('hydrates only the codex engine from a fail write', async () => {
-    const { codex, claude } = await readBackStatus(
-      await recordWrites(ENGINE_CODEX, 'fail', CHECKED_AT),
-    );
+    const { codex, claude } = await readBackStatus(await recordWrites(ENGINE_CODEX, 'fail', CHECKED_AT));
 
     expect(codex.state).toBe('fail');
     expect(codex.last_check).toBe(CHECKED_AT);
@@ -175,9 +160,7 @@ describe('writeRunnerTelemetry round-trips through RunnerProxyService.status()',
   });
 
   it('hydrates only the claude engine from an ok write', async () => {
-    const { codex, claude } = await readBackStatus(
-      await recordWrites(ENGINE_CLAUDE, 'ok', CHECKED_AT),
-    );
+    const { codex, claude } = await readBackStatus(await recordWrites(ENGINE_CLAUDE, 'ok', CHECKED_AT));
 
     expect(claude.state).toBe('ok');
     expect(claude.last_check).toBe(CHECKED_AT);
@@ -187,14 +170,25 @@ describe('writeRunnerTelemetry round-trips through RunnerProxyService.status()',
   });
 
   it('hydrates only the claude engine from a fail write', async () => {
-    const { codex, claude } = await readBackStatus(
-      await recordWrites(ENGINE_CLAUDE, 'fail', CHECKED_AT),
-    );
+    const { codex, claude } = await readBackStatus(await recordWrites(ENGINE_CLAUDE, 'fail', CHECKED_AT));
 
     expect(claude.state).toBe('fail');
     expect(claude.last_check).toBe(CHECKED_AT);
     expect(claude.last_fail).toBe(CHECKED_AT);
     expect(claude.last_ok).toBeNull();
     expect(codex).toMatchObject({ state: null, last_check: null, last_ok: null, last_fail: null });
+  });
+});
+
+describe('Grok runner telemetry', () => {
+  it.each(['ok', 'fail'] as const)('keeps %s telemetry in the Grok namespace', async (state) => {
+    const written = await recordWrites('grok', state, CHECKED_AT);
+    expect(written.map((row) => row.name)).toEqual([
+      'runner_state_grok',
+      'runner_last_check_grok',
+      `runner_last_${state}_grok`,
+    ]);
+    expect(valueOf(written, 'runner_state_grok')).toBe(state);
+    for (const row of written) expect(row.updatedAt).toBe(CHECKED_AT);
   });
 });

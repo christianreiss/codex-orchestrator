@@ -56,7 +56,8 @@ export const secretsApi = {
 export function engineScopeLabel(engine: AdminSecret["engine"]): string {
   if (engine === "codex") return "Codex only";
   if (engine === "claude") return "Claude only";
-  return "Both engines";
+  if (engine === "grok") return "Grok only";
+  return "All engines";
 }
 
 /**

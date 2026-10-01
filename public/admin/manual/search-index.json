@@ -1,5 +1,5 @@
 {
-    "version": "2026-09-30T00:00:00Z",
+    "version": "2026-10-01T00:00:00Z",
     "docs": [
         {
             "slug": "welcome",
@@ -1652,6 +1652,29 @@
                 {
                     "id": "source-references",
                     "text": "Source references",
+                    "level": 2
+                }
+            ]
+        },
+        {
+            "slug": "cgx",
+            "title": "Grok Build (cgx)",
+            "section": "Fleet operations",
+            "summary": "Grok subscription accounts, centralized renewal, isolated launches, native reception, and gateway limits.",
+            "anchors": [
+                {
+                    "id": "subscription-login",
+                    "text": "Subscription login",
+                    "level": 2
+                },
+                {
+                    "id": "models-and-runtime",
+                    "text": "Models and runtime",
+                    "level": 2
+                },
+                {
+                    "id": "http-gateway",
+                    "text": "HTTP gateway",
                     "level": 2
                 }
             ]

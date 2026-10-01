@@ -58,8 +58,8 @@ describe("neutral theme contrast", () => {
    * against the live /go page. Small white-on-brand text is exactly the case
    * that needs a floor.
    */
-  it("keeps white legible on both persona colours", () => {
-    for (const persona of ["persona-codex", "persona-claude"]) {
+  it("keeps white legible on all persona colours", () => {
+    for (const persona of ["persona-codex", "persona-claude", "persona-grok"]) {
       const value = light[persona];
       assert.ok(value, `missing --${persona}`);
       assert.ok(

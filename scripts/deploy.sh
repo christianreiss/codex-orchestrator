@@ -419,9 +419,9 @@ if [[ "${wrappers_published}" -eq 1 ]]; then
   log "verifying the api serves cxx ${wrapper_version}"
   # shellcheck disable=SC2016 # Expand MYSQL_* inside the mysql container.
   served="$("${compose[@]}" exec -T mysql sh -lc \
-    'mysql -N -B -u"$MYSQL_USER" -p"$MYSQL_PASSWORD" "$MYSQL_DATABASE" -e "SELECT CONCAT(name, \"=\", version) FROM versions WHERE name IN (\"wrapper_version_codex\", \"wrapper_version_claude\")"' \
+    'mysql -N -B -u"$MYSQL_USER" -p"$MYSQL_PASSWORD" "$MYSQL_DATABASE" -e "SELECT CONCAT(name, \"=\", version) FROM versions WHERE name IN (\"wrapper_version_codex\", \"wrapper_version_claude\", \"wrapper_version_grok\")"' \
     2>/dev/null)"
-  for name in wrapper_version_codex wrapper_version_claude; do
+  for name in wrapper_version_codex wrapper_version_claude wrapper_version_grok; do
     grep -qx "${name}=${wrapper_version}" <<<"${served}" \
       || fail "api did not project cxx ${wrapper_version} (${name}); check PUBLIC_BASE_URL and that all four platforms are published"
   done

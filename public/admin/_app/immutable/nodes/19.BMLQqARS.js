@@ -1,1 +1,0 @@
-import{t as e}from"../chunks/BNi_hhNx.js";export{e as component};

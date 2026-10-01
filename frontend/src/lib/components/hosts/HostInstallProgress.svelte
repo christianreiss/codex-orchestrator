@@ -28,6 +28,7 @@
   import { autoCopyText } from "$lib/utils/clipboard";
   import { relativeTime } from "$lib/utils/format";
   import { cn } from "$lib/utils/cn";
+  import { engineLabel } from "$lib/constants/engines";
   import type { AuthEngine } from "$lib/api/auth";
   import type { HostDetail, InstallerInfo } from "$lib/api/types";
 
@@ -45,7 +46,7 @@
   const qc = useQueryClient();
 
   function syncedAt(host: HostDetail | undefined): string | null {
-    return host?.last_refresh || host?.claude_last_refresh || null;
+    return host?.last_refresh || host?.claude_last_refresh || host?.grok_last_refresh || null;
   }
 
   // The host is fixed for this instance; containers remount for a new one.
@@ -84,7 +85,7 @@
     if (!canonical) return [];
     return engines.filter(
       (engine): engine is AuthEngine =>
-        (engine === "codex" || engine === "claude") && !canonical[engine],
+        (engine === "codex" || engine === "claude" || engine === "grok") && !canonical[engine],
     );
   });
 
@@ -198,7 +199,7 @@
       {#if missingAuth.length > 0}
         <Button variant="outline" size="sm" onclick={() => (seedOpen = true)}>
           <KeyRound class="h-4 w-4" />
-          Seed {missingAuth[0] === "claude" ? "Claude" : "Codex"} credentials
+          Seed {engineLabel(missingAuth[0])} credentials
         </Button>
       {/if}
       {#if canRemint}
@@ -210,7 +211,7 @@
     </div>
     {#if missingAuth.length > 0}
       <p class="text-xs text-muted-foreground">
-        The fleet has no {missingAuth.map((e) => (e === "claude" ? "Claude" : "Codex")).join(" or ")}
+        The fleet has no {missingAuth.map(engineLabel).join(" or ")}
         credentials yet, so the host cannot sync until they are seeded.
       </p>
     {/if}

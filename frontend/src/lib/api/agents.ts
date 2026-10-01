@@ -21,7 +21,7 @@ export const agentsApi = {
   getVersion(id: number): Promise<AgentsVersion> {
     return api.get<AgentsVersion>(`/admin/agents/versions/${id}`);
   },
-  render(hostId: number, engine: "codex" | "claude" = "codex"): Promise<AgentsRenderedDocument> {
+  render(hostId: number, engine: "codex" | "claude" | "grok" = "codex"): Promise<AgentsRenderedDocument> {
     return api.get<AgentsRenderedDocument>(
       `/admin/agents/render?host_id=${encodeURIComponent(String(hostId))}&engine=${encodeURIComponent(engine)}`,
     );
@@ -37,7 +37,7 @@ export const agentsApi = {
   renderDraft(
     hostId: number,
     draft: { composition: AgentPolicyComposition } | { content: string },
-    engine: "codex" | "claude" = "codex",
+    engine: "codex" | "claude" | "grok" = "codex",
     securityLevels?: Record<string, number>,
     responseVerbosity?: number,
   ): Promise<AgentsRenderedDocument> {

@@ -149,3 +149,9 @@ export const HOOK_EVENTS = [
   "ConfigChange",
   "Setup",
 ] as const;
+
+/** Released Grok Build bundled catalog; live subscription metadata may narrow it. */
+export const GROK_MODEL_OPTIONS = [
+  { label: "Grok 4.6", value: "grok-4.6" },
+  { label: "Grok 4.5", value: "grok-4.5" },
+];

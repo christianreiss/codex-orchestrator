@@ -2,7 +2,7 @@
 
 ## Terminal presentation
 
-`wrappers/cxx/internal/terminalui` is the shared renderer for both personas.
+`wrappers/cxx/internal/terminalui` is the shared renderer for all three personas.
 Engine adapters retain the public persona input structures and command tables;
 the shared package owns layout, terminal capabilities, safe text, health, quota,
 doctor, help, update, approval, and exit rendering. Terminal width comes from the
@@ -21,10 +21,10 @@ pipeline with:
 
 1. **One static Go binary** (`cxx`) built per architecture by CI and served
    from `storage/wrapper/v2/bin/cxx/`. Hosts expose relative `cdx -> cxx` and
-   `clx -> cxx` aliases for enabled engines. `argv[0]` selects the compatible
+   `clx -> cxx`, and `cgx -> cxx` aliases for enabled engines. `argv[0]` selects the compatible
    alias persona; legacy versioned `cdx-<major>.<minor>.<patch>` and
    `clx-<major>.<minor>.<patch>` invocation names remain compatible during
-   self-update migration. Direct calls use `cxx codex ...` or `cxx claude ...`.
+   self-update migration. Direct calls use `cxx codex ...`, `cxx claude ...`, or `cxx grok ...`.
    `/wrapper/v2/download` resolves the calling host's platform and streams the
    common binary. Historical per-engine artifacts and URLs remain readable so
    pre-migration wrappers can update into the common artifact.
@@ -36,7 +36,7 @@ pipeline with:
    `/wrapper/download` — the URL date-versioned shell wrappers already update
    through. It writes the engine config, verifies SHA256, installs `cxx` plus
    its relative alias, and execs `cxx <engine>` with the original arguments.
-   A dual-engine installer fetches both configs first and refuses to install
+   A multi-engine installer fetches every enabled config first and refuses to install
    unless their wrapper version and SHA256 are identical.
 4. **One host-wide update coordinator** (`cxx cron`) validates signed config
    host/engine membership and ticks each enabled persona once. It does not gate
@@ -60,7 +60,7 @@ pipeline with:
    `~/.cxx/maintenance.json` (15 minutes after success, 5 after failure); a bare
    `cxx cron run` bypasses it. `internal/maintenance` holds one per-user lease
    over scheduled, launch-triggered, and manual runs, and since cxx 0.8.2 a
-   `cdx`/`clx` launch only queues that detached tick — no wrapper, engine, or
+   `cdx`/`clx`/`cgx` launch only queues that detached tick — no wrapper, engine, or
    peer upgrade runs inline.
 
 ## Request flow
@@ -104,7 +104,7 @@ binary  ─POST /auth, ...──> existing host API surface (untouched)
 
 ```
 wrappers/                     # Go workspace
-├── cxx/                      # Common binary and both personas
+├── cxx/                      # Common binary and all three personas
 ├── schemas/host-config-v1.json
 ├── testdata/                 # golden baked configs + .sig, consumed both sides
 └── Makefile
@@ -130,8 +130,8 @@ than one row may be active at a time — see [Signing-key rotation](#signing-key
 
 ### Golden config fixtures
 
-`wrappers/testdata/` holds three baked configs — `host-codex.json`,
-`host-codex-insecure.json`, `host-claude.json` — as the exact signed bytes, each
+`wrappers/testdata/` holds four baked configs — `host-codex.json`,
+`host-codex-insecure.json`, `host-claude.json`, `host-grok.json` — as the exact signed bytes, each
 with its detached `.json.sig`. They are consumed by both sides:
 `api/test/unit/contract/wrapper-config-golden.test.ts` bakes them with the clock,
 the DB, the binary registry, the installation id and a checked-in TEST-ONLY
@@ -434,12 +434,12 @@ matrix may briefly be mixed, which the API deliberately treats as fail-closed
 while leaving the last-known-good DB pointers alone. It never falls back to
 split bytes once `bin/cxx` exists. Restart the API only after all four manifests
 have the same `current`, every listed size/SHA256 verifies, and each new
-executable has been checked. Then verify both engine compatibility keys resolve
+executable has been checked. Then verify all three engine compatibility keys resolve
 to the same common artifact and migrate one canary before allowing the fleet
 cron to proceed.
 
 The host migration is forward-only at the filesystem boundary: after a host
-has relative `cdx -> cxx` / `clx -> cxx` aliases, those names cannot safely be
+has relative `cdx -> cxx` / `clx -> cxx` / `cgx -> cxx` aliases, those names cannot safely be
 pointed at historical engine-specific bytes. Emergency rollback order is:
 
 1. Disable wrapper auto-update and remove the shared `cxx` schedule on hosts

@@ -17,10 +17,12 @@ import (
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/agentportal"
 	claudeapp "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/app/claude"
 	codexapp "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/app/codex"
+	grokapp "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/app/grok"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/claude"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/claudequota"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/codex"
 	hostcron "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/cron"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/grok"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/quotaadvice"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/remote"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/signing"
@@ -44,13 +46,15 @@ func run(invokedAs string, args []string, stdout, stderr io.Writer) int {
 		return runPersona("codex", args, stdout, stderr)
 	case "claude":
 		return runPersona("claude", args, stdout, stderr)
+	case "grok":
+		return runPersona("grok", args, stdout, stderr)
 	case "common":
 		return runExplicit(args, stdout, stderr)
 	default:
 		// Update sanity checks execute a uniquely named temporary cxx artifact.
 		// Permit only explicit/global cxx grammar for such paths; never guess a
 		// persona from an arbitrary filename.
-		if len(args) > 0 && (args[0] == "codex" || args[0] == "claude" || strings.HasPrefix(args[0], "-") || args[0] == "help") {
+		if len(args) > 0 && (args[0] == "codex" || args[0] == "claude" || args[0] == "grok" || strings.HasPrefix(args[0], "-") || args[0] == "help") {
 			return runExplicit(args, stdout, stderr)
 		}
 		fmt.Fprintf(stderr, "cxx: cannot select an engine from invocation name %q\n", invokedAs)
@@ -69,6 +73,10 @@ func runExplicit(args []string, stdout, stderr io.Writer) int {
 		return runPersona("codex", args[1:], stdout, stderr)
 	case "claude":
 		return runPersona("claude", args[1:], stdout, stderr)
+	case "grok":
+		return runPersona("grok", args[1:], stdout, stderr)
+	case "grok-auth":
+		return grok.RunAuthAccessor(context.Background(), stdout, stderr)
 	case "cron":
 		return runHostCron(args[1:], stdout, stderr)
 	case "portal":
@@ -103,6 +111,7 @@ func runExplicit(args []string, stdout, stderr io.Writer) int {
 func setPersonaBuildInfo() {
 	codexapp.Version, codexapp.Commit, codexapp.BuildDate = Version, Commit, BuildDate
 	claudeapp.Version, claudeapp.Commit, claudeapp.BuildDate = Version, Commit, BuildDate
+	grokapp.Version, grokapp.Commit, grokapp.BuildDate = Version, Commit, BuildDate
 }
 
 func runHostCron(args []string, stdout, stderr io.Writer) int {
@@ -173,6 +182,10 @@ func runHostUpdate(stdout, stderr io.Writer) int {
 		claudeapp.HostSyncAfterUpdate = true
 		return claudeapp.Run([]string{"--config", path, "--update"}, stdout, stderr)
 	}
+	if path, err := configPathFor("grok"); err == nil {
+		grokapp.HostSyncAfterUpdate = true
+		return grokapp.Run([]string{"--config", path, "--update"}, stdout, stderr)
+	}
 	fmt.Fprintln(stderr, "cxx update: no installed engine config found")
 	return 1
 }
@@ -196,19 +209,25 @@ func runHostSync(args []string, stdout, stderr io.Writer) int {
 			return 2
 		}
 	}
-	return syncEngines(passthrough, stdout, stderr, codexapp.Run, claudeapp.Run)
+	return syncEngines(passthrough, stdout, stderr, codexapp.Run, claudeapp.Run, grokapp.Run)
 }
 
 // syncEngines walks the engines in the same fixed order the cron coordinator
 // uses and returns the worst exit code, so one broken engine cannot hide behind
 // a healthy one.
-func syncEngines(passthrough []string, stdout, stderr io.Writer, runCodex, runClaude engineRunner) int {
+func syncEngines(passthrough []string, stdout, stderr io.Writer, runCodex, runClaude engineRunner, extra ...engineRunner) int {
 	engines := []struct {
 		name string
 		run  engineRunner
 	}{
 		{"codex", runCodex},
 		{"claude", runClaude},
+	}
+	if len(extra) > 0 {
+		engines = append(engines, struct {
+			name string
+			run  engineRunner
+		}{"grok", extra[0]})
 	}
 	worst := 0
 	found := false
@@ -232,7 +251,9 @@ func syncEngines(passthrough []string, stdout, stderr io.Writer, runCodex, runCl
 
 func configPathFor(engine string) (string, error) {
 	var envName, filename string
-	if engine == "claude" {
+	if engine == "grok" {
+		envName, filename = "CGX_CONFIG_PATH", "cgx.json"
+	} else if engine == "claude" {
 		envName, filename = "CLX_CONFIG_PATH", "clx.json"
 	} else {
 		envName, filename = "CDX_CONFIG_PATH", "cdx.json"
@@ -269,6 +290,8 @@ func personaForProgramName(name string) string {
 		return "codex"
 	case name == "clx" || hasVersionedAlias(name, "clx"):
 		return "claude"
+	case name == "cgx" || hasVersionedAlias(name, "cgx"):
+		return "grok"
 	case name == "cxx":
 		return "common"
 	default:
@@ -311,6 +334,7 @@ func printSelectorHelp(w io.Writer) {
 	fmt.Fprintln(w, "Usage:")
 	fmt.Fprintln(w, "  cxx codex [cdx arguments]")
 	fmt.Fprintln(w, "  cxx claude [clx arguments]")
+	fmt.Fprintln(w, "  cxx grok [cgx arguments]")
 	fmt.Fprintln(w, "  cxx update")
 	fmt.Fprintln(w, "  cxx sync")
 	fmt.Fprintln(w, "  cxx cron [install|remove|run [--due]]")
@@ -324,6 +348,9 @@ func printSelectorHelp(w io.Writer) {
 
 // Dispatch only after the first app returns, including all deferred auth cleanup.
 func runPersona(engine string, args []string, stdout, stderr io.Writer) int {
+	if engine == "grok" {
+		return grokapp.Run(args, stdout, stderr)
+	}
 	return dispatchChoice(engine, args, stdout, stderr, func(e string, a []string, s *quotaadvice.Session) int {
 		if e == "codex" {
 			return codexapp.RunWithChoice(a, stdout, stderr, s)

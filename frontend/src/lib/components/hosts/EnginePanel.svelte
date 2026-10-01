@@ -5,6 +5,7 @@
    * wiring the panel itself doesn't need to know about) + a binary-digest
    * footer line.
    */
+  import { engineLabel } from "$lib/constants/engines";
   import EngineBadge from "./EngineBadge.svelte";
   import type { Snippet } from "svelte";
   import type { HostEngine } from "$lib/api/types";
@@ -17,7 +18,7 @@
   let { engine, digest, children }: Props = $props();
 </script>
 
-<section class="flex min-w-0 flex-col gap-2 rounded-lg border bg-muted/20 p-4">
+<section aria-label={`${engineLabel(engine)} engine overrides`} class="flex min-w-0 flex-col gap-2 rounded-lg border bg-muted/20 p-4">
   <EngineBadge {engine} />
   {@render children()}
   <dl class="text-sm">

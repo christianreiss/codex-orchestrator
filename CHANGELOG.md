@@ -1,5 +1,8 @@
 # 2026-10-01
 
+- **Grok Build is the third engine (`cgx`, wrapper 0.9.9).** Hosts can run any nonempty subset of Codex, Claude, and Grok, with separate accounts, signed configs, CLI versions, models/effort, telemetry, and admin controls. Grok subscription OAuth refresh is centrally owned and durably fenced; access-only projections, isolated managed homes, a private leader, and generation-aware external auth preserve account identity. The native ACP receiver supports cross-engine messaging. The independent `/grok/v1` gateway uses scoped client keys, reports native usage/stop reasons when present, and explicitly rejects unsupported CLI controls. Official native packages are pinned and integrity verified; unavailable Grok quota remains unknown. Shared fleet guidance now names all three engines, deliberately updating its synced document digests.
+- Grok host provisioning initializes missing fleet defaults so managed MCP features activate; concurrent provisioning and operator saves preserve authored policy.
+
 - **Call receiver readiness and silence notices (wrapper 0.9.8).** Call opening reports derived presence; joining an opener that is not listening returns `agent_messaging_call_peer_not_listening` and preserves the PIN. Automatic `agent_listen` reports receiver health and the current claim gate. Unanswered outbound `CALL/1` messages trigger a local status notice after 90 seconds, with one reminder at most; replies and cancellation stop the watch. Managed call/conference guidance now distinguishes automatic reception from timed listening. Reminders use separate native queue IDs, and a disconnected Codex queue cannot fall through to Claude channel transport.
 
 # 2026-09-30

@@ -1,12 +1,13 @@
 /**
  * Reads and writes engine client/wrapper version metadata from the `versions`
  * table. /admin/versions/check additionally queries the upstream release
- * endpoint (GitHub for Codex, npm for Claude Code), caching the result back
+ * endpoint (GitHub for Codex, npm for Claude Code and Grok Build), caching the result back
  * into `versions` under a key like `github_release_<name>` with a 1-hour TTL.
  */
 
 import { SettingsService } from './settings.js';
 import { nowIso, parseIso } from '../util/timestamp.js';
+import type { Engine } from '../util/engine.js';
 import { wsPublisher } from '../ws/publisher.js';
 
 // Widen the logger contract so any pino-compatible logger (Fastify's
@@ -58,15 +59,18 @@ export function isClientVersionStale(fetchedAt: string | null | undefined, now =
  */
 export const CODEX_MIN_CLIENT_VERSION = '0.125.0';
 
+/** First verified native Grok Build release supported by the fleet. */
+export const GROK_MIN_CLIENT_VERSION = '1.0.46';
+
 export class ClientVersionsService {
   constructor(
     private readonly settings: SettingsService,
     private readonly log?: Logger,
   ) {}
 
-  async versionSummary(engine: 'codex' | 'claude' = 'codex'): Promise<VersionSummary> {
+  async versionSummary(engine: Engine = 'codex'): Promise<VersionSummary> {
     const suffix = `_${engine}`;
-    // Codex uses the unsuffixed lock key for backwards-compat; Claude uses _claude suffix.
+    // Codex retains its unsuffixed legacy lock; newer engines use their own suffix.
     const lockKey = engine === 'codex' ? 'client_version_lock' : `client_version_lock_${engine}`;
     const [client, wrapper, checkedAt, lock, enforceExact] = await Promise.all([
       this.settings.getString(`client_version${suffix}`),
@@ -76,7 +80,7 @@ export class ClientVersionsService {
       this.settings.getFlag(`client_version_enforce_exact${suffix}`, false),
     ]);
     return {
-      client_version: client,
+      client_version: client ?? (engine === 'grok' ? GROK_MIN_CLIENT_VERSION : null),
       wrapper_version: wrapper,
       client_version_checked_at: checkedAt,
       client_version_lock: lock.value,
@@ -85,8 +89,8 @@ export class ClientVersionsService {
     };
   }
 
-  async availableClientVersion(force = false, engine = 'codex'): Promise<AvailableRelease | null> {
-    const releaseName = engine === 'claude' ? 'claude-cli' : 'codex-cli';
+  async availableClientVersion(force = false, engine: Engine = 'codex'): Promise<AvailableRelease | null> {
+    const releaseName = engine === 'grok' ? 'grok-cli' : engine === 'claude' ? 'claude-cli' : 'codex-cli';
     const cacheKey = `github_release_${releaseName}`;
     const cached = await this.settings.getWithMeta(cacheKey);
     const cachedAgeSeconds =
@@ -131,7 +135,8 @@ export class ClientVersionsService {
 
   private async fetchUpstream(name: string): Promise<AvailableRelease | null> {
     // Claude Code ships on npm, not GitHub.
-    if (name === 'claude-cli') return this.fetchNpm('@anthropic-ai/claude-code');
+    if (name === 'claude-cli') return this.fetchNpm('@anthropic-ai/claude-code', name);
+    if (name === 'grok-cli') return this.fetchNpm('@xai-official/grok', name);
 
     const repo = 'openai/codex';
     const url = `https://api.github.com/repos/${repo}/releases/latest`;
@@ -173,7 +178,7 @@ export class ClientVersionsService {
     }
   }
 
-  private async fetchNpm(pkg: string): Promise<AvailableRelease | null> {
+  private async fetchNpm(pkg: string, name: string): Promise<AvailableRelease | null> {
     const encoded = pkg.startsWith('@') ? pkg.replace('/', '%2F') : pkg;
     const url = `https://registry.npmjs.org/${encoded}/latest`;
     try {
@@ -194,9 +199,9 @@ export class ClientVersionsService {
       if (!resp || !resp.ok) return null;
       const json = (await resp.json()) as { version?: string };
       const version = normalizeVersion(json.version);
-      if (!version || !isSemanticVersion(version)) return null;
+      if (!version || !isSemanticVersion(version) || (name === 'grok-cli' && !isSupportedGrokVersion(version))) return null;
       return {
-        name: 'claude-cli',
+        name,
         version,
         url: `https://www.npmjs.com/package/${pkg}/v/${version}`,
         published_at: null,
@@ -234,6 +239,25 @@ export class ClientVersionsService {
     const meta = await this.settings.getWithMeta('client_version_lock_claude');
     return { locked_version: meta.value, locked_at: meta.updatedAt };
   }
+  async setGrokVersionLock(
+    value: string | null,
+  ): Promise<{ locked_version: string | null; locked_at: string | null }> {
+    if (value === null) {
+      await this.settings.delete('client_version_lock_grok');
+    } else {
+      await this.settings.set('client_version_lock_grok', value);
+    }
+    wsPublisher.publish('settings.changed', { key: 'client_version_lock_grok' });
+    const meta = await this.settings.getWithMeta('client_version_lock_grok');
+    return { locked_version: meta.value, locked_at: meta.updatedAt };
+  }
+}
+
+export function isSupportedGrokVersion(version: string): boolean {
+  if (!isSemanticVersion(version)) return false;
+  const compared = comparableVersion(version);
+  const minimum = comparableVersion(GROK_MIN_CLIENT_VERSION);
+  return compared > minimum || (compared === minimum && !version.includes('-'));
 }
 
 export function isSemanticVersion(s: string): boolean {

@@ -304,7 +304,7 @@ class RunnerDockerfileFailsClosedTest(unittest.TestCase):
         )
 
     def test_required_engines_are_baked_in(self):
-        self.assertEqual("codex,claude", ENVS.get("RUNNER_REQUIRED_ENGINES"))
+        self.assertEqual("codex,claude,grok", ENVS.get("RUNNER_REQUIRED_ENGINES"))
         self.assertIn("RUNNER_CODEX_VERSION", ENVS)
         self.assertIn("RUNNER_CLAUDE_VERSION", ENVS)
 

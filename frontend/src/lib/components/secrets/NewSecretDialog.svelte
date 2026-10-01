@@ -24,7 +24,7 @@
   let name = $state("");
   let description = $state("");
   let value = $state("");
-  let engine = $state<"any" | "codex" | "claude">("any");
+  let engine = $state<"any" | "codex" | "claude" | "grok">("any");
   let tags = $state("");
 
   const isEdit = $derived(editing !== null);
@@ -37,7 +37,7 @@
     name = editing?.name ?? "";
     description = editing?.description ?? "";
     value = "";
-    engine = (editing?.engine ?? "any") as "any" | "codex" | "claude";
+    engine = (editing?.engine ?? "any") as "any" | "codex" | "claude" | "grok";
     tags = (editing?.tags ?? []).join(", ");
   });
 
@@ -204,12 +204,13 @@
             onValueChange={(v) => (engine = (v as typeof engine) ?? engine)}
           >
             <Select.Trigger id="secret-engine">
-              {engine === "codex" ? "Codex only" : engine === "claude" ? "Claude only" : "Both engines"}
+              {engine === "codex" ? "Codex only" : engine === "claude" ? "Claude only" : engine === "grok" ? "Grok only" : "All engines"}
             </Select.Trigger>
             <Select.Content>
-              <Select.Item value="any" label="Both engines" />
+              <Select.Item value="any" label="All engines" />
               <Select.Item value="codex" label="Codex only" />
               <Select.Item value="claude" label="Claude only" />
+              <Select.Item value="grok" label="Grok only" />
             </Select.Content>
           </Select.Root>
         </div>

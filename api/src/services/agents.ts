@@ -30,7 +30,7 @@ export const AGENTS_MODE_LOCKED = 'locked';
 const MAX_BACKUP_LIMIT = 200;
 
 function stateRowId(engine: Engine): number {
-  return engine === 'claude' ? 2 : 1;
+  return { codex: 1, claude: 2, grok: 3 }[engine];
 }
 
 function sha256Hex(s: string): string {

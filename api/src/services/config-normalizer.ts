@@ -306,6 +306,7 @@ export interface NormalizedSettings {
   env?: Record<string, string>;
   advisorModel?: string;
   effortLevel?: string;
+  reasoning_effort?: string;
 }
 
 function asRecord(value: unknown): Record<string, unknown> {

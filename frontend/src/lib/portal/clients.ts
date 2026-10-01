@@ -18,7 +18,7 @@ export function snapshotIsStale(updatedAt: number, now: number, timings: Presenc
 }
 
 export function clientCounts(rows: AgentSessionRow[], now: number, timings: PresenceTimings = {}) {
-  const counts = { online: 0, attention: 0, offline: 0, ended: 0, codex: 0, claude: 0 };
+  const counts = { online: 0, attention: 0, offline: 0, ended: 0, codex: 0, claude: 0, grok: 0 };
   for (const row of rows) {
     const presence = livePresence(row, now, timings);
     counts[row.engine]++;
@@ -34,7 +34,7 @@ export function clientCounts(rows: AgentSessionRow[], now: number, timings: Pres
 
 export function visibleClients(
   rows: AgentSessionRow[],
-  options: { search: string; engine: "all" | "codex" | "claude"; filter: ClientFilter; sort: ClientSort },
+  options: { search: string; engine: "all" | "codex" | "claude" | "grok"; filter: ClientFilter; sort: ClientSort },
   now: number,
   timings: PresenceTimings = {},
 ): AgentSessionRow[] {
@@ -46,7 +46,7 @@ export function visibleClients(
     if (options.filter === "online" && (presence === "ended" || presence === "offline")) return false;
     if (options.filter === "attention" && (!(row.attention || row.pending_prompt) || presence === "ended")) return false;
     if (!["all", "active", "online", "attention"].includes(options.filter) && presence !== options.filter) return false;
-    const text = [row.id, row.engine, row.username, row.host, row.cwd, row.invocation_kind,
+    const text = [row.id, row.engine, row.engine === "codex" ? "cdx" : row.engine === "claude" ? "clx" : "cgx", row.username, row.host, row.cwd, row.invocation_kind,
       row.work.task, row.work.branch, row.work.target_branch, row.work.worktree_path,
       row.work.address, row.work.address_alias, ...row.work.declared_paths].filter(Boolean).join(" ").toLocaleLowerCase();
     return terms.every((term) => text.includes(term));

@@ -229,6 +229,16 @@ function fixture(pathname: string): Record<string, unknown> {
           advisorModel: "claude-opus-4-1",
         },
       };
+    case "/admin/grok/state": return { disabled: false };
+    case "/admin/grok/settings": return { default_model: "grok-4.6", disabled: false };
+    case "/admin/grok/keys": return [];
+    case "/admin/model-defaults/grok": return {
+      engine: "grok", model: "grok-4.6", reasoning_effort: "high",
+      catalog: [
+        { model: "grok-4.6", persistent_efforts: ["low", "medium", "high", "xhigh"], default_effort: "high" },
+        { model: "grok-4.5", persistent_efforts: ["low", "medium", "high"], default_effort: "high" },
+      ],
+    };
     case "/admin/model-defaults/codex":
       return {
         engine: "codex",
@@ -251,6 +261,8 @@ function fixture(pathname: string): Record<string, unknown> {
           client_version_enforce_exact: false,
           reported_client_version: "0.125.0",
         },
+        grok_available_client: { version: "1.0.46" },
+        grok_versions: { client_version: "1.0.46", client_version_enforce_exact: true, reported_client_version: "1.0.46" },
         claude_available_client: { version: "2.1.170" },
         claude_versions: {
           client_version: "2.1.170",
@@ -794,8 +806,15 @@ test.beforeEach(async ({ page }) => {
   await installFixtures(page);
 });
 
-function quickDefaults(): Record<"codex" | "claude", ModelDefaultsValue> {
+function quickDefaults(): Record<"codex" | "claude" | "grok", ModelDefaultsValue> {
   return {
+    grok: {
+      engine: "grok", model: "grok-4.6", reasoning_effort: "high",
+      catalog: [
+        { model: "grok-4.6", persistent_efforts: ["low", "medium", "high", "xhigh"], default_effort: "high" },
+        { model: "grok-4.5", persistent_efforts: ["low", "medium", "high"], default_effort: "high" },
+      ],
+    },
     codex: {
       engine: "codex", model: "gpt-6-astra", reasoning_effort: "ultra",
       catalog: [
@@ -821,7 +840,7 @@ test("quick settings save model and catalog effort together for both engines and
   const defaults = quickDefaults();
   const writes: unknown[] = [];
   await installFixtures(page, (path, body) => {
-    const engine = path.split("/").at(-1) as "codex" | "claude";
+    const engine = path.split("/").at(-1) as "codex" | "claude" | "grok";
     if (!path.startsWith("/admin/model-defaults/")) return;
     if (body) { writes.push({ engine, body }); Object.assign(defaults[engine], body); }
     return { ...defaults[engine] };
@@ -870,7 +889,7 @@ test("quick settings isolate saving, follow live updates, and ignore stale reads
   await page.routeWebSocket("**/quick-ws", (ws) => { emit = (data) => ws.send(data); });
   await installFixtures(page, (path) => {
     if (path === "/admin/ws/info") return { enabled: true, url: "ws://127.0.0.1:4173/quick-ws" };
-    if (path.startsWith("/admin/model-defaults/")) return { ...defaults[path.split("/").at(-1) as "codex" | "claude"] };
+    if (path.startsWith("/admin/model-defaults/")) return { ...defaults[path.split("/").at(-1) as "codex" | "claude" | "grok"] };
   });
   await page.route("**/admin/model-defaults/codex", async (route) => {
     if (route.request().method() !== "POST") return route.fallback();
@@ -906,7 +925,7 @@ test("quick settings recover failed saves and keep controls locked until authori
   let failed = false;
   let readsFail = true;
   await installFixtures(page, (path) => {
-    if (path.startsWith("/admin/model-defaults/")) return { ...defaults[path.split("/").at(-1) as "codex" | "claude"] };
+    if (path.startsWith("/admin/model-defaults/")) return { ...defaults[path.split("/").at(-1) as "codex" | "claude" | "grok"] };
   });
   await page.route("**/admin/model-defaults/codex", async (route) => {
     if (route.request().method() === "POST") {
@@ -934,7 +953,7 @@ test("quick settings support keyboard selection, mobile layout, themes, and pale
   const defaults = quickDefaults();
   await installFixtures(page, (path, body) => {
     if (!path.startsWith("/admin/model-defaults/")) return;
-    const engine = path.split("/").at(-1) as "codex" | "claude";
+    const engine = path.split("/").at(-1) as "codex" | "claude" | "grok";
     if (body) Object.assign(defaults[engine], body);
     return { ...defaults[engine] };
   });
@@ -1899,3 +1918,142 @@ for (const mode of ["triage", "manage"] as const) {
     }
   });
 }
+
+
+test("Grok quick defaults honor model-specific effort and persist across reload", async ({ page }) => {
+  const defaults = quickDefaults();
+  const writes: unknown[] = [];
+  await installFixtures(page, (path, body) => {
+    if (path !== "/admin/model-defaults/grok") return;
+    if (body) { writes.push(body); Object.assign(defaults.grok, body); }
+    return { ...defaults.grok };
+  });
+  await page.goto("/admin/quick-settings");
+  const grok = page.getByRole("region", { name: "Grok", exact: true });
+  await expect(grok.getByRole("radio", { name: "High Default", exact: true })).toBeChecked();
+  await grok.getByRole("radio", { name: "Extra high", exact: true }).locator("..").click();
+  await expect(grok.getByRole("status")).toHaveText("Saved");
+  await grok.getByRole("radio", { name: "Grok 4.5", exact: true }).locator("..").click();
+  await expect(grok.getByRole("radio", { name: "Extra high", exact: true })).toHaveCount(0);
+  await expect(grok.getByRole("radio", { name: "High Default", exact: true })).toBeChecked();
+  await expect(grok.getByRole("status")).toHaveText("Saved");
+  expect(writes).toEqual([{ model: "grok-4.6", reasoning_effort: "xhigh" }, { model: "grok-4.5", reasoning_effort: "high" }]);
+  await page.reload();
+  await expect(grok.getByRole("radio", { name: "Grok 4.5", exact: true })).toBeChecked();
+});
+
+test("API Access shows the Grok text gateway and issues a scoped client key", async ({ page }) => {
+  const writes: Array<{ path: string; body: unknown }> = [];
+  await installFixtures(page, (path, body) => {
+    if (body && path.startsWith("/admin/grok/")) {
+      writes.push({ path, body });
+      if (path === "/admin/grok/keys") return { key: "fake-gateway-token", record: { id: 3, name: "Grok test", is_active: true, created_at: "2026-10-01T00:00:00Z", expires_at: null } };
+      return { disabled: true };
+    }
+  });
+  await page.goto("/admin/api-keys");
+  await expect(page.getByText(/127\.0\.0\.1:4173\/grok\/v1/)).toBeVisible();
+  await expect(page.getByText("Streaming, tools, images, sampling controls, and token limits are unavailable.", { exact: false })).toBeVisible();
+  await page.getByRole("switch", { name: "Disable Grok API gateway" }).click();
+  await page.getByRole("tab", { name: "Grok", exact: true }).click();
+  await page.getByRole("button", { name: "New key", exact: true }).click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog.getByRole("button", { name: "Engine", exact: true })).toContainText("Grok");
+  await dialog.getByRole("textbox", { name: "Name", exact: true }).fill("Grok test");
+  await dialog.getByRole("button", { name: "Create key" }).click();
+  await expect.poll(() => writes.some(w => w.path === "/admin/grok/keys")).toBe(true);
+  expect(writes).toContainEqual({ path: "/admin/grok/state", body: { disabled: true } });
+  expect(writes).toContainEqual({ path: "/admin/grok/keys", body: { name: "Grok test", expires_at: null } });
+});
+
+
+test("host engine switches support all seven combinations and preserve one enabled engine", async ({ page }) => {
+  const detail = fixture("/admin/hosts/1/detail") as { host: Record<string, unknown>; overview: unknown };
+  const host = { ...detail.host, engines: "grok", engines_list: ["grok"], grok_canonical_digest: "grok-auth", grok_client_version: "1.0.46", grok_wrapper_version: "2.4.0" };
+  const writes: unknown[] = [];
+  await installFixtures(page, (path, body) => {
+    if (path === "/admin/hosts/1/engines" && body) {
+      writes.push(body);
+      const engines = (body as { engines: string[] }).engines;
+      host.engines_list = engines; host.engines = engines.join(",");
+      return { status: "ok" };
+    }
+    if (path === "/admin/hosts/1/detail") return { ...detail, host };
+  });
+  await page.goto("/admin/hosts/1");
+  await expect(page.getByRole("switch", { name: "Grok engine", exact: true })).toBeChecked();
+  await expect(page.getByRole("switch", { name: "Grok engine", exact: true })).toBeDisabled();
+  const all = ["Codex", "Claude", "Grok"];
+  for (const target of [["Codex", "Grok"], ["Codex"], ["Codex", "Claude"], ["Claude"], ["Claude", "Grok"], all, ["Grok"]]) {
+    for (const name of target) { const control = page.getByRole("switch", { name: `${name} engine`, exact: true }); if (!await control.isChecked()) await control.click(); await expect(control).toBeChecked(); }
+    for (const name of all.filter(name => !target.includes(name))) { const control = page.getByRole("switch", { name: `${name} engine`, exact: true }); if (await control.isChecked()) await control.click(); await expect(control).not.toBeChecked(); }
+    if (target.length === 1) await expect(page.getByRole("switch", { name: `${target[0]} engine`, exact: true })).toBeDisabled();
+  }
+  expect(writes.length).toBeGreaterThanOrEqual(7);
+  await expect(page.getByRole("region", { name: "Grok engine overrides", exact: true })).toBeVisible();
+});
+
+
+test("Grok host provisioning names its missing credentials and opens subscription upload", async ({ page }) => {
+  const detail = fixture("/admin/hosts/1/detail") as { host: Record<string, unknown>; overview: unknown };
+  const host = {
+    ...detail.host, fqdn: "grok-new.example.test", engines: "grok", engines_list: ["grok"],
+    last_refresh: null, claude_last_refresh: null, grok_last_refresh: null,
+    last_cron_check: null, grok_canonical_digest: null,
+  };
+  let registered: unknown;
+  await installFixtures(page, (path, body) => {
+    if (path === "/admin/setup/status") return {
+      ...fixture(path), default_engines: ["grok"],
+      canonical_auth: { codex: true, claude: true, grok: false },
+    };
+    if (path === "/admin/hosts/register") {
+      registered = body;
+      return { host, installer: { command: "printf 'fake Grok installer'", expires_at: new Date(Date.now() + 3_600_000).toISOString() } };
+    }
+    if (path === "/admin/hosts/1/detail") return { ...detail, host };
+  });
+  await page.goto("/admin/hosts?dialog=new-host");
+  await expect(page.getByRole("checkbox", { name: /Grok Build \(cgx\)/ })).toBeChecked();
+  await page.getByLabel("Hostname (FQDN)").fill("grok-new.example.test");
+  await page.getByRole("button", { name: "Register host", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Host registered", exact: true })).toBeVisible();
+  expect(registered).toMatchObject({ engines: ["grok"] });
+  await expect(page.getByText("The fleet has no Grok credentials yet, so the host cannot sync until they are seeded.", { exact: false })).toBeVisible();
+  await page.getByRole("button", { name: "Seed Grok credentials", exact: true }).click();
+  await expect(page.getByText("Grok subscription login JSON", { exact: true })).toBeVisible();
+  await expect(page.getByText("ChatGPT session auth JSON", { exact: true })).toHaveCount(0);
+});
+
+test("setup saves a Grok-only fleet choice and offers subscription credentials", async ({ page }) => {
+  const writes: unknown[] = [];
+  await installFixtures(page, (path, body) => {
+    if (path === "/admin/setup/status") return {
+      setup_complete: true, critical_complete: true, owner_created: true, checks: [], next_actions: [],
+      canonical_auth: { codex: false, claude: false, grok: false }, default_engines: ["codex"],
+      wizard: { engines: null, last_step: "engines", completed_at: null, dismissed_at: null },
+    };
+    if (path === "/admin/setup/wizard") { writes.push(body); return {}; }
+  });
+  await page.goto("/admin/setup?step=engines");
+  await page.getByRole("button", { name: "None yet", exact: true }).click();
+  await page.getByRole("checkbox", { name: "Grok Hosts get the cgx alias.", exact: true }).click();
+  await page.getByRole("button", { name: "Save and continue", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Provider credentials", exact: true })).toBeVisible();
+  await expect(page.getByText("Grok subscription login JSON", { exact: true })).toBeVisible();
+  await expect(page.getByText("xAI API key", { exact: true })).toHaveCount(0);
+  expect(writes).toContainEqual({ last_step: "auth", engines: ["grok"] });
+});
+
+test("messaging shows all nine engine directions", async ({ page }) => {
+  await installFixtures(page, path => {
+    if (path !== "/admin/agent-messaging/state") return;
+    return { ...fixture(path), directions: ["codex", "claude", "grok"].flatMap(source_engine =>
+      ["codex", "claude", "grok"].map(target_engine => ({ source_engine, target_engine, total: 1, pending: 0, completed: 1, dead: 0, ambiguous: 0 }))) };
+  });
+  await page.goto("/admin/agent-messaging");
+  const matrix = page.locator("section").filter({ has: page.getByRole("heading", { name: "Direction matrix", exact: true }) });
+  for (const source of ["codex", "claude", "grok"]) for (const target of ["codex", "claude", "grok"]) {
+    await expect(matrix.getByText(`${source} → ${target}`, { exact: true })).toBeVisible();
+  }
+});

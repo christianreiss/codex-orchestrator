@@ -2,6 +2,7 @@
   import PageHeader from "$lib/components/layout/PageHeader.svelte";
   import ModelDefaultsSection from "$lib/components/settings/ModelDefaultsSection.svelte";
   import CodexVersionSection from "$lib/components/settings/CodexVersionSection.svelte";
+  import GrokVersionSection from "$lib/components/settings/GrokVersionSection.svelte";
   import ClaudeVersionSection from "$lib/components/settings/ClaudeVersionSection.svelte";
   import CdxSilentSection from "$lib/components/settings/CdxSilentSection.svelte";
   import QuotasSection from "$lib/components/settings/QuotasSection.svelte";
@@ -12,7 +13,7 @@
   import { Button } from "$lib/components/ui/button";
 </script>
 
-<PageHeader title="Engines" subtitle="One fleet. Two engines. Set defaults, control updates, and tune each client.">
+<PageHeader title="Engines" subtitle="One fleet. Three engines. Set defaults, control updates, and tune each client.">
   {#snippet actions()}
     <Button variant="outline" href={`${base}/hosts`}>Host overrides <ArrowUpRight class="h-4 w-4" /></Button>
   {/snippet}
@@ -22,6 +23,7 @@
   {#each [
     { id: 'codex-defaults', label: 'Codex', dot: 'bg-persona-codex' },
     { id: 'claude-defaults', label: 'Claude', dot: 'bg-persona-claude' },
+    { id: 'grok-defaults', label: 'Grok', dot: 'bg-persona-grok' },
     { id: 'quota-enforcement', label: 'Quota and scaling', dot: '' },
     { id: 'claude-client', label: 'Claude client', dot: '' },
   ] as section (section.id)}
@@ -50,6 +52,15 @@
     </div>
     <ModelDefaultsSection engine="claude" headingLevel={3} />
     <ClaudeVersionSection headingLevel={3} />
+  </section>
+
+  <section id="grok-defaults" class="setting-boundary">
+    <div class="setting-boundary__head">
+      <h2 class="flex items-center gap-2"><span class="h-2 w-2 rounded-full bg-persona-grok" aria-hidden="true"></span>Grok</h2>
+      <p>Grok Build subscription models, effort, and fleet version controls. Managed TOML settings are merged with user configuration.</p>
+    </div>
+    <ModelDefaultsSection engine="grok" headingLevel={3} />
+    <GrokVersionSection headingLevel={3} />
   </section>
 
   <section id="quota-enforcement" class="setting-boundary">

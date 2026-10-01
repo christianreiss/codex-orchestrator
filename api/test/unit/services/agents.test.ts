@@ -307,7 +307,7 @@ describe('agents store', () => {
     // in the engine field wrote the document against the wrong engine's fleet
     // policy and reported success.
     await expect(svc.store('beta', null, null, 'gemini')).rejects.toThrow(
-      /engine must be "codex" or "claude"/,
+      /engine must be "codex", "claude" or "grok"/,
     );
     expect((db.tables.get(agentsDocuments) ?? []).length).toBe(1);
 

@@ -22,7 +22,7 @@ describe('resolveAuthRequestEngine', () => {
     [{}, { engine: 'other' }, { 'x-engine': 'claude' }],
   ])('rejects invalid explicit values', (payload, query, headers) => {
     expect(() => resolveAuthRequestEngine(request(query, headers), payload)).toThrow(
-      /engine must be "codex" or "claude"/,
+      /engine must be "codex", "claude" or "grok"/,
     );
   });
 });

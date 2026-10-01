@@ -1,6 +1,6 @@
 import type { FastifyRequest } from 'fastify';
 import { ValidationError } from '../http/errors.js';
-import { ENGINE_CLAUDE, ENGINE_CODEX, isEngine, type Engine } from './engine.js';
+import { ENGINE_CLAUDE, ENGINE_CODEX, ENGINE_GROK, isEngine, type Engine } from './engine.js';
 
 /**
  * One resolver for every engine-scoped route.
@@ -49,7 +49,7 @@ export interface ResolveEngineOptions {
 }
 
 export function invalidEngineError(source: string): ValidationError {
-  return new ValidationError(`${source} must be "codex" or "claude"`, { param: 'engine' });
+  return new ValidationError(`${source} must be "codex", "claude" or "grok"`, { param: 'engine' });
 }
 
 /**
@@ -96,6 +96,10 @@ export function isClaudeUserAgent(userAgent: string | undefined): boolean {
   return /(?:^|[\s(])clx(?:\/|[-_\s;)]|$)/i.test(userAgent ?? '');
 }
 
+export function isGrokUserAgent(userAgent: string | undefined): boolean {
+  return /(?:^|[\s(])cgx(?:\/|[-_\s;)]|$)/i.test(userAgent ?? '');
+}
+
 function firstHeader(value: string | string[] | undefined): string | undefined {
   return Array.isArray(value) ? value[0] : value;
 }
@@ -133,7 +137,8 @@ export function resolveRequestEngine(
   // Codex-only host into a reported misconfiguration instead of a request
   // quietly served as Codex.
   if (options.legacyUserAgentInference) {
-    const inferred = isClaudeUserAgent(firstHeader(req.headers['user-agent']))
+    const userAgent = firstHeader(req.headers['user-agent']);
+    const inferred = isGrokUserAgent(userAgent) ? ENGINE_GROK : isClaudeUserAgent(userAgent)
       ? ENGINE_CLAUDE
       : ENGINE_CODEX;
     assertEngineAllowed(inferred, hostEngines);

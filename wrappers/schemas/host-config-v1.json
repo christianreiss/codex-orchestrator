@@ -7,7 +7,7 @@
   "required": ["schema_version", "engine", "issued_at", "orchestrator", "host", "engine_options", "wrapper"],
   "properties": {
     "schema_version": { "type": "integer", "const": 1 },
-    "engine": { "type": "string", "enum": ["codex", "claude"] },
+    "engine": { "type": "string", "enum": ["codex", "claude", "grok"] },
     "issued_at": { "type": "string", "format": "date-time" },
     "expires_at": { "type": ["string", "null"], "format": "date-time" },
     "orchestrator": {
@@ -33,7 +33,7 @@
         "browseros_mcp_enabled": { "type": "boolean", "default": false },
         "agent_messaging_enabled": { "type": "boolean", "default": false },
         "engines": { "type": "string" },
-        "engines_list": { "type": "array", "items": { "type": "string", "enum": ["codex", "claude"] } }
+        "engines_list": { "type": "array", "items": { "type": "string", "enum": ["codex", "claude", "grok"] } }
       }
     },
     "engine_options": {
@@ -45,6 +45,8 @@
         "reasoning_effort_override": { "type": ["string", "null"], "enum": [null, "minimal", "low", "medium", "high", "xhigh", "max", "ultra"] },
         "admin_theme_hint": { "type": ["string", "null"], "enum": [null, "auto", "light", "dark"] },
         "claude_model_override": { "type": ["string", "null"] },
+        "grok_model_override": { "type": ["string", "null"] },
+        "grok_reasoning_effort_override": { "type": ["string", "null"], "enum": [null, "low", "medium", "high", "xhigh"] },
         "dangerously_bypass_approvals_and_sandbox": { "type": "boolean", "default": false }
       }
     },

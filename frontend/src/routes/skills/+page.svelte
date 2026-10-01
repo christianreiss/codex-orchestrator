@@ -3,5 +3,5 @@
   import SkillsPage from "../authoring/+page.svelte";
 </script>
 
-<PageHeader title="Skills" subtitle="Fleet skill manifests shared by Codex and Claude." />
+<PageHeader title="Skills" subtitle="Fleet skill manifests shared by Codex, Claude, and Grok." />
 <SkillsPage />

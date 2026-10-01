@@ -69,6 +69,7 @@
       "4": () => form?.toggleOption("vip"),
       "5": () => form?.toggleEngine("codex" satisfies HostFormEngine),
       "6": () => form?.toggleEngine("claude" satisfies HostFormEngine),
+      "7": () => form?.toggleEngine("grok" satisfies HostFormEngine),
     };
 
     const action = actions[event.key];

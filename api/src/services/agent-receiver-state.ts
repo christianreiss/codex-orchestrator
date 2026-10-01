@@ -10,7 +10,7 @@ export interface ReceiverSourceState {
 }
 export interface ReceiverState {
   generation: string;
-  protocol: 'codex-queue-v1' | 'claude-channel-v1';
+  protocol: 'codex-queue-v1' | 'claude-channel-v1' | 'grok-acp-v1';
   native_session_id: string;
   heartbeat_at: string;
   failure: string | null;

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { ENGINE_META } from "$lib/constants/engines";
   import type { ProviderAccount } from "$lib/api/accounts";
   import { base } from "$app/paths";
   let { accounts }: { accounts: ProviderAccount[] } = $props();
@@ -7,9 +8,13 @@
   <a href={`${base}/accounts`} class="rounded-xl border bg-card p-5 text-card-foreground hover:border-primary">
     <div class="flex items-center justify-between gap-3">
       <h2 class="font-semibold">{account.label}</h2>
-      <span class="text-sm text-muted-foreground">{account.engine === 'claude' ? 'Claude' : 'ChatGPT'} · {account.state}</span>
+      <span class="text-sm text-muted-foreground">{ENGINE_META[account.engine].account} · {account.state}</span>
     </div>
     <p class="mt-2 text-sm text-muted-foreground">{account.verification_state} · {account.sessions.length} active sessions{account.usage.stale ? ' · usage stale or unknown' : ''}</p>
+    {#if account.refresh_state === "login_required"}<p class="mt-2 text-sm text-destructive">Subscription login needs renewal</p>{/if}
+    {#if account.usage.supported === false}
+      <p class="mt-4 text-sm text-muted-foreground">Subscription quota unavailable</p>
+    {:else}
     <div class="mt-4 grid grid-cols-2 gap-4 text-sm">
       {#each [{ label: 'Short window', value: account.usage.short_used_percent }, { label: 'Weekly window', value: account.usage.weekly_used_percent }] as window}
         <div>
@@ -18,5 +23,6 @@
         </div>
       {/each}
     </div>
+    {/if}
   </a>
 {/each}

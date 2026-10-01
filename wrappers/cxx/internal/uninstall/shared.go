@@ -123,7 +123,7 @@ func validateRemaining(raw []string) ([]string, error) {
 	out := make([]string, 0, len(raw))
 	for _, engine := range raw {
 		engine = strings.ToLower(strings.TrimSpace(engine))
-		if engine != layout.EngineCodex && engine != layout.EngineClaude {
+		if engine != layout.EngineCodex && engine != layout.EngineClaude && engine != layout.EngineGrok {
 			return nil, fmt.Errorf("remaining_engines contains unknown engine %q", engine)
 		}
 		if seen[engine] {
@@ -156,7 +156,7 @@ func confirmsLastHost(raw json.RawMessage) bool {
 // the host-wide cron entry.
 func Apply(ctx context.Context, result ServerResult, selectedEngine, executable string) error {
 	selectedEngine = strings.ToLower(strings.TrimSpace(selectedEngine))
-	if selectedEngine != layout.EngineCodex && selectedEngine != layout.EngineClaude {
+	if selectedEngine != layout.EngineCodex && selectedEngine != layout.EngineClaude && selectedEngine != layout.EngineGrok {
 		return fmt.Errorf("unknown selected engine %q", selectedEngine)
 	}
 	if result.LastHost && len(result.RemainingEngines) > 0 {
@@ -170,7 +170,7 @@ func Apply(ctx context.Context, result ServerResult, selectedEngine, executable 
 			if engine == selectedEngine {
 				return fmt.Errorf("remaining_engines still contains selected engine %q", selectedEngine)
 			}
-			if engine != layout.EngineCodex && engine != layout.EngineClaude {
+			if engine != layout.EngineCodex && engine != layout.EngineClaude && engine != layout.EngineGrok {
 				return fmt.Errorf("remaining_engines contains unknown engine %q", engine)
 			}
 		}

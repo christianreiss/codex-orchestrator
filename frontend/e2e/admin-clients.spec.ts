@@ -297,3 +297,19 @@ test("receiver health offers silent reconnection without model verification", as
   await expect.poll(() => state.bodies.filter((b) => b.path.endsWith("/receiver/verify")).length).toBe(1);
   expect(state.bodies.some((b) => b.path.endsWith("/messages"))).toBe(false);
 });
+
+
+test("Grok clients are visible and searchable by cgx", async ({ page }) => {
+  const state = await fixtures(page);
+  const id = "33333333-3333-4333-8333-333333333333";
+  state.sessions.push(session(id, "grok", "idle"));
+  await open(page);
+  await expect(page.locator(`#client-${id}`)).toBeVisible();
+  await page.getByLabel("Engine", { exact: true }).selectOption("grok");
+  await page.getByLabel("Find a client").fill("cgx");
+  await expect(page.locator(`#client-${id}`)).toBeVisible();
+  await expect(page.locator(`#client-${CODEX}`)).toHaveCount(0);
+  await page.locator(`#client-${id}`).click();
+  await expect(page.getByRole("heading", { name: "operator on grok.example" })).toBeVisible();
+  await expect(page.getByText("Grok · Not listening", { exact: false })).toBeVisible();
+});

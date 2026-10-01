@@ -22,7 +22,7 @@ import {
 import { createWrapperSigningKeyService } from './wrapper-signing-key.js';
 import { parseEnginesInput } from './host-management.js';
 import { createSetupWizardService, type SetupWizardState } from './setup-wizard.js';
-import { ENGINE_CODEX, type Engine } from '../util/engine.js';
+import { ENGINE_CODEX, ENGINE_LABELS, type Engine } from '../util/engine.js';
 
 export interface SetupCheck {
   id: string;
@@ -43,7 +43,7 @@ export interface SetupStatus {
    * the operator gave a non-empty one, otherwise `configured_engines`.
    */
   default_engines: Engine[];
-  canonical_auth: { codex: boolean; claude: boolean };
+  canonical_auth: Record<Engine, boolean>;
   hosts: { total: number; synced: number };
   public_base_url: string | null;
   warnings: string[];
@@ -72,7 +72,7 @@ export class SetupStatusService {
       database.ok ? read() : Promise.resolve(fallback);
     const skipped = (id: string, label: string): SetupCheck =>
       ({ id, label, ok: false, critical: true, detail: 'skipped: database unreachable' });
-    const [migrations, runner, signer, wrappers, users, codexAuth, claudeAuth, hostRows, wizard, fleetDefaults] =
+    const [migrations, runner, signer, wrappers, users, codexAuth, claudeAuth, grokAuth, hostRows, wizard, fleetDefaults] =
       await Promise.all([
         whenDb(() => this.migrationCheck(), skipped('migrations', 'Migrations')),
         this.runnerCheck(),
@@ -81,9 +81,10 @@ export class SetupStatusService {
         whenDb(() => this.db.select({ id: adminUsers.id }).from(adminUsers), []),
         whenDb(() => this.hasCanonicalAuth('codex'), false),
         whenDb(() => this.hasCanonicalAuth('claude'), false),
+        whenDb(() => this.hasCanonicalAuth('grok'), false),
         whenDb(
           () => this.db
-            .select({ id: hosts.id, codex: hosts.lastRefresh, claude: hosts.claudeLastRefresh })
+            .select({ id: hosts.id, codex: hosts.lastRefresh, claude: hosts.claudeLastRefresh, grok: hosts.grokLastRefresh })
             .from(hosts),
           [],
         ),
@@ -112,7 +113,7 @@ export class SetupStatusService {
     ];
     const criticalComplete = checks.filter((check) => check.critical).every((check) => check.ok);
     const ownerCreated = users.length > 0;
-    const syncedHosts = hostRows.filter((row) => Boolean(row.codex || row.claude)).length;
+    const syncedHosts = hostRows.filter((row) => Boolean(row.codex || row.claude || row.grok)).length;
     const configuredEngines = parseEnginesInput(this.env.DEFAULT_HOST_ENGINES, [ENGINE_CODEX]);
     const defaultEngines = wizard.engines && wizard.engines.length > 0 ? wizard.engines : configuredEngines;
     const warnings: string[] = [];
@@ -124,8 +125,8 @@ export class SetupStatusService {
     const nextActions = [
       ...defaultEngines.map((engine) => ({
         id: `auth_${engine}`,
-        complete: engine === 'claude' ? claudeAuth : codexAuth,
-        label: `Seed canonical ${engine === 'claude' ? 'Claude' : 'Codex'} authentication`,
+        complete: ({ codex: codexAuth, claude: claudeAuth, grok: grokAuth })[engine],
+        label: `Seed canonical ${ENGINE_LABELS[engine]} authentication`,
         // The wizard's auth step, not /admin/api-keys — that page manages proxy
         // bearer keys and has never had any canonical-auth UI, so this link
         // used to send the operator somewhere the task could not be done.
@@ -148,7 +149,7 @@ export class SetupStatusService {
       checks,
       configured_engines: configuredEngines,
       default_engines: defaultEngines,
-      canonical_auth: { codex: codexAuth, claude: claudeAuth },
+      canonical_auth: { codex: codexAuth, claude: claudeAuth, grok: grokAuth },
       hosts: { total: hostRows.length, synced: syncedHosts },
       public_base_url: publicBaseUrl,
       warnings,
@@ -258,7 +259,7 @@ export class SetupStatusService {
     return { id: 'wrappers', label: 'Wrapper platform matrix', ok: true, critical: true, detail: `4 platforms at ${[...versions][0]}` };
   }
 
-  private async hasCanonicalAuth(engine: 'codex' | 'claude'): Promise<boolean> {
+  private async hasCanonicalAuth(engine: Engine): Promise<boolean> {
     const heads = await this.db
       .select({ payloadId: authCanonicalHeads.payloadId })
       .from(authCanonicalHeads)

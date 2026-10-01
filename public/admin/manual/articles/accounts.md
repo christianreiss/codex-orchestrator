@@ -5,6 +5,9 @@ verified: 2026-09-30
 sources: api/src/routes/admin/accounts/index.ts, api/src/routes/auth/index.ts, api/src/services/provider-accounts.ts, api/src/services/account-selection.ts, api/src/services/pooled-auth-store.ts, wrappers/cxx/internal/accountpool/context.go, frontend/src/routes/accounts/+page.svelte
 ---
 
+Grok Build is supported as the third engine (`cgx`); see [Grok Build](cgx) for
+subscription login, centralized renewal, native receiver, and gateway details.
+
 Open **Fleet → Accounts** to manage the ChatGPT and Claude credentials shared by your fleet. Each engine has its own pool: three Claude subscriptions work with clx even when there are no ChatGPT accounts. cdx requires its own ChatGPT or OpenAI credentials.
 
 ## Add and maintain accounts

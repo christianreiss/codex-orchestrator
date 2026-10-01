@@ -389,6 +389,7 @@ describe('runner request contract', () => {
       '/skills/generate',
       '/verify',
       '/verify-claude',
+      '/verify-grok',
     ]);
     expect(sites.find((site) => site.path === '/skills/assist')?.keys).toEqual([
       'auth_json',

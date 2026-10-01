@@ -157,7 +157,7 @@
         <Dialog.Header>
           <Dialog.Title>New API key</Dialog.Title>
           <Dialog.Description>
-            Issue a programmatic key for OpenAI or Claude. The full key is shown
+            Issue a programmatic key for OpenAI, Claude, or Grok. The full key is shown
             once after creation.
           </Dialog.Description>
         </Dialog.Header>
@@ -176,6 +176,7 @@
               <Select.Content>
                 <Select.Item value="openai" label="OpenAI (Codex)" />
                 <Select.Item value="claude" label="Claude (Anthropic)" />
+                <Select.Item value="grok" label="Grok subscription gateway" />
               </Select.Content>
             </Select.Root>
           </div>

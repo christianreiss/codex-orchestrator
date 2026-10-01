@@ -8,10 +8,11 @@ import { createRunnerValidationService } from '../../../services/runner-validati
 import { createRunnerClient } from '../../../services/runner-client.js';
 import { wsPublisher } from '../../../ws/publisher.js';
 import { adminSpaHtmlPreHandler } from '../pages/static.js';
+import type { Engine } from '../../../util/engine.js';
 
 const create = z
   .object({
-    engine: z.enum(['codex', 'claude']),
+    engine: z.enum(['codex', 'claude', 'grok']),
     label: z.string().trim().min(1).max(191).optional(),
     payload: z.string().min(1).max(262144),
   })
@@ -71,7 +72,7 @@ export async function registerAdminAccountsRoutes(app: FastifyInstance, ctx: Rou
   app.post('/admin/accounts/:id/credentials', { preHandler: app.requireAdmin }, async (req) => {
     const account = await accounts.get(idOf((req.params as { id: string }).id));
     const input = parse(z.object({ payload: z.string().min(1).max(262144) }).strict(), req.body);
-    const engine = account.engine as 'codex' | 'claude';
+    const engine = account.engine as Engine;
     const result = await store.storeCandidate({
       accountId: account.id,
       engine,
@@ -86,7 +87,7 @@ export async function registerAdminAccountsRoutes(app: FastifyInstance, ctx: Rou
   });
   app.post('/admin/accounts/:id/verify', { preHandler: app.requireAdmin }, async (req) => {
     const account = await accounts.get(idOf((req.params as { id: string }).id));
-    const engine = account.engine as 'codex' | 'claude';
+    const engine = account.engine as Engine;
     const row =
       (await validation.resolvePendingQuarantine?.(engine, account.id)) ??
       (await validation.resolveCanonicalPayload(engine, account.id));
@@ -113,7 +114,7 @@ export async function registerAdminAccountsRoutes(app: FastifyInstance, ctx: Rou
   });
 }
 
-function decode(payload: string, engine: 'codex' | 'claude'): Record<string, unknown> {
+function decode(payload: string, engine: Engine): Record<string, unknown> {
   try {
     const parsed: unknown = JSON.parse(payload);
     if (parsed && typeof parsed === 'object' && !Array.isArray(parsed))

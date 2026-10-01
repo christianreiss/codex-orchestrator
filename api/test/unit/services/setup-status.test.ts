@@ -68,6 +68,14 @@ describe('SetupStatusService', () => {
     ]);
   });
 
+  it('includes Grok auth readiness without requiring the other provider logins', async () => {
+    const db = createDbFake(new Map([[versions, [wizardRow(['grok'])]]]));
+    const status = await service(db).status();
+    expect(status.default_engines).toEqual(['grok']);
+    expect(status.next_actions.filter(action => action.id.startsWith('auth_')).map(action => action.id)).toEqual(['auth_grok']);
+    expect(status.canonical_auth.grok).toBe(false);
+  });
+
   it('falls back to configured engines when the wizard answer is empty', async () => {
     const db = createDbFake(new Map([[versions, [wizardRow([])]]]));
     const status = await service(db, { DEFAULT_HOST_ENGINES: 'codex,claude' }).status();

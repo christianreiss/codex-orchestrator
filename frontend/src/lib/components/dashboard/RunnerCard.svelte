@@ -2,7 +2,7 @@
   /**
    * Dashboard "Runner state" card — restores the legacy admin surface that
    * lets the operator inspect the verification runner and manually trigger
-   * Codex / Claude verification cycles.
+   * Codex / Claude / Grok verification cycles.
    *
    * The backend currently does not emit WebSocket events for runner state
    * changes (see `api/src/services/runner-proxy.ts` + grep over `api/src`
@@ -28,19 +28,22 @@
     createRunnerStateQuery,
     createRunCodexRunnerMutation,
     createRunClaudeRunnerMutation,
+    createRunGrokRunnerMutation,
     type RunnerEngineStatus,
     type RunnerStatus,
   } from "$lib/api/runner";
   import { toast } from "svelte-sonner";
+  import { ENGINE_META } from "$lib/constants/engines";
   import { relativeTime } from "$lib/utils/format";
 
   const state = createRunnerStateQuery();
   const runCodex = createRunCodexRunnerMutation();
   const runClaude = createRunClaudeRunnerMutation();
+  const runGrok = createRunGrokRunnerMutation();
 
   const runner = $derived<RunnerStatus | null>($state.data?.runner ?? null);
 
-  type EngineKey = "codex" | "claude";
+  type EngineKey = "codex" | "claude" | "grok";
   type BadgeVariant = "default" | "secondary" | "success" | "warning" | "destructive";
 
   interface EngineRow {
@@ -67,11 +70,12 @@
   const engineRows = $derived.by<EngineRow[]>(() => [
     buildEngineRow("codex", "Codex"),
     buildEngineRow("claude", "Claude"),
+    buildEngineRow("grok", "Grok"),
   ]);
 
-  // Both synchronous verification endpoints share a sidecar. The mutation
+  // All synchronous verification endpoints share a sidecar. The mutation
   // state supplies the in-flight label and prevents overlapping manual runs.
-  const anyEngineRunning = $derived(pending("codex") || pending("claude"));
+  const anyEngineRunning = $derived(pending("codex") || pending("claude") || pending("grok"));
 
   function buildEngineRow(engine: EngineKey, label: string): EngineRow {
     const status = engineStatus(engine);
@@ -115,11 +119,11 @@
   }
 
   function pending(engine: EngineKey): boolean {
-    return engine === "codex" ? $runCodex.isPending : $runClaude.isPending;
+    return engine === "codex" ? $runCodex.isPending : engine === "claude" ? $runClaude.isPending : $runGrok.isPending;
   }
 
   function actionFor(engine: EngineKey) {
-    return engine === "codex" ? handleRunCodex : handleRunClaude;
+    return engine === "codex" ? handleRunCodex : engine === "claude" ? handleRunClaude : handleRunGrok;
   }
 
   function actionDisabled(row: EngineRow): boolean {
@@ -163,6 +167,18 @@
         }
       },
       onError: (err) => toast.error(err.message || "Claude runner trigger failed"),
+    });
+  }
+  function handleRunGrok() {
+    $runGrok.mutate(undefined, {
+      onSuccess: (data) => {
+        if (resultIsOk(data)) {
+          toast.success("Grok runner verification ok");
+        } else {
+          toast.error(resultMessage(data, "Grok runner verification failed"));
+        }
+      },
+      onError: (err) => toast.error(err.message || "Grok runner trigger failed"),
     });
   }
 </script>
@@ -232,7 +248,7 @@
             <div class="flex items-start justify-between gap-3">
               <div class="min-w-0">
                 <h3 class="flex items-center gap-2 text-sm font-semibold">
-                  <span class="h-2 w-2 rounded-full {row.engine === 'codex' ? 'bg-persona-codex' : 'bg-persona-claude'}" aria-hidden="true"></span>
+                  <span class="h-2 w-2 rounded-full {ENGINE_META[row.engine].color}" aria-hidden="true"></span>
                   {row.label}
                 </h3>
               </div>
@@ -254,7 +270,7 @@
               <p class="mb-4 break-words rounded-md border border-destructive/20 bg-destructive/5 p-3 text-xs text-destructive">{row.status.last_error}</p>
             {/if}
 
-            {#if row.status?.login_expiry?.state === "expiring" || row.status?.login_expiry?.state === "expired"}
+            {#if row.engine === "claude" && (row.status?.login_expiry?.state === "expiring" || row.status?.login_expiry?.state === "expired")}
               {@const expiry = row.status.login_expiry}
               <Alert variant={expiry.state === "expired" ? "destructive" : "warning"} class="mb-4">
                 <AlertTriangle class="h-4 w-4" />

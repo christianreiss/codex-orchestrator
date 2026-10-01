@@ -2,8 +2,8 @@ import { eq } from 'drizzle-orm';
 import { versions as versionsTable } from '../db/schema.js';
 import type { Database } from '../db/client.js';
 import type { Engine } from '../util/engine.js';
-import { ENGINE_CLAUDE, ENGINE_CODEX } from '../util/engine.js';
-import { isSemanticVersion, normalizeVersion } from './client-versions.js';
+import { ENGINE_CLAUDE, ENGINE_CODEX, ENGINE_GROK } from '../util/engine.js';
+import { GROK_MIN_CLIENT_VERSION, isSemanticVersion, normalizeVersion } from './client-versions.js';
 
 /**
  * Port of AuthService::versionSummary + availableClientVersion. The PHP
@@ -39,6 +39,7 @@ export interface VersionSnapshot {
   auto_update_enabled: boolean;
   cdx_silent: boolean;
   clx_silent: boolean;
+  cgx_silent: boolean;
   agent_messaging_enabled: boolean;
   installation_id: string | null;
   engine: Engine;
@@ -63,7 +64,7 @@ function semanticOrNull(v: string | undefined | null): string | null {
 
 /** The `versions` row holding cached upstream release metadata for `engine`. */
 function releaseCacheKey(engine: Engine): string {
-  return engine === ENGINE_CLAUDE ? 'github_release_claude-cli' : 'github_release_codex-cli';
+  return `github_release_${engine}-cli`;
 }
 
 /** `fetched_at` of the cached release blob, or null when it is absent or unparseable. */
@@ -86,6 +87,7 @@ function releaseFetchedAt(raw: string | undefined): string | null {
 export interface HostClientVersionPin {
   clientVersionOverride?: string | null;
   claudeClientVersionOverride?: string | null;
+  grokClientVersionOverride?: string | null;
 }
 
 /**
@@ -106,7 +108,11 @@ export function applyHostClientVersionPin<T extends VersionSnapshot>(
   engine: Engine,
 ): T {
   const raw =
-    engine === ENGINE_CLAUDE ? host?.claudeClientVersionOverride : host?.clientVersionOverride;
+    engine === ENGINE_GROK
+      ? host?.grokClientVersionOverride
+      : engine === ENGINE_CLAUDE
+        ? host?.claudeClientVersionOverride
+        : host?.clientVersionOverride;
   const pin = semanticOrNull(raw);
   if (!pin) return snapshot;
   return { ...snapshot, client_version_override: pin, client_version_enforce_exact: true };
@@ -157,7 +163,7 @@ export function createVersionSnapshotService(deps: VersionSnapshotDeps): Version
   function latestClientVersion(map: Map<string, string>, engine: Engine): string | null {
     // Claude has no legacy fallback: the engine postdates the PHP server, so
     // `github_release_claude-cli` is the only row anything ever writes.
-    if (engine === ENGINE_CLAUDE) return releaseVersion(map.get(releaseCacheKey(engine)));
+    if (engine !== ENGINE_CODEX) return releaseVersion(map.get(releaseCacheKey(engine)));
     return (
       releaseVersion(map.get('github_release_codex-cli')) ??
       semanticOrNull(map.get('client_available_codex')) ??
@@ -179,11 +185,12 @@ export function createVersionSnapshotService(deps: VersionSnapshotDeps): Version
   return {
     async summary(engine = ENGINE_CODEX) {
       let map = await readMap();
-      const suffix = engine === ENGINE_CLAUDE ? '_claude' : '_codex';
+      const suffix = `_${engine}`;
       const get = (k: string) => map.get(k);
-      const clientTarget = () => get(`client_version${suffix}`)
-        ?? (engine === ENGINE_CODEX ? get('client_version') : undefined)
-        ?? null;
+      const clientTarget = () =>
+        get(`client_version${suffix}`) ??
+        (engine === ENGINE_CODEX ? get('client_version') : undefined) ??
+        (engine === ENGINE_GROK ? GROK_MIN_CLIENT_VERSION : null);
       let rawClient = clientTarget();
       const usesReleaseCache = isLatestAlias(rawClient);
       if (usesReleaseCache && deps.refreshLatestClientVersion) {
@@ -194,9 +201,7 @@ export function createVersionSnapshotService(deps: VersionSnapshotDeps): Version
       const exactLock =
         engine === ENGINE_CODEX
           ? semanticOrNull(get('client_version_lock'))
-          : engine === ENGINE_CLAUDE
-            ? semanticOrNull(get('client_version_lock_claude'))
-            : null;
+          : semanticOrNull(get(`client_version_lock_${engine}`));
       const explicitOverride = semanticOrNull(get(`client_version_override${suffix}`));
       const clientOverride = exactLock ?? explicitOverride;
       return {
@@ -204,17 +209,16 @@ export function createVersionSnapshotService(deps: VersionSnapshotDeps): Version
         client_version_override: clientOverride,
         client_version_enforce_exact:
           exactLock !== null || flagValue(get(`client_version_enforce_exact${suffix}`), false),
-        client_version_fetched_at: usesReleaseCache
-          ? releaseFetchedAt(get(releaseCacheKey(engine)))
-          : null,
+        client_version_fetched_at: usesReleaseCache ? releaseFetchedAt(get(releaseCacheKey(engine))) : null,
         wrapper_version: get(`wrapper_version${suffix}`) ?? get('wrapper_version') ?? null,
         wrapper_sha256: get(`wrapper_sha256${suffix}`) ?? get('wrapper_sha256') ?? null,
         wrapper_url: get(`wrapper_url${suffix}`) ?? get('wrapper_url') ?? null,
-        runner_state: get(engine === ENGINE_CLAUDE ? 'runner_state_claude' : 'runner_state') ?? null,
+        runner_state: get(engine === ENGINE_CODEX ? 'runner_state' : `runner_state_${engine}`) ?? null,
         api_disabled: flagValue(get('api_disabled'), false),
         auto_update_enabled: flagValue(get('auto_update_enabled'), false),
         cdx_silent: flagValue(get('cdx_silent'), false),
         clx_silent: flagValue(get('clx_silent'), false),
+        cgx_silent: flagValue(get('cgx_silent'), false),
         agent_messaging_enabled: flagValue(get('agent_messaging_enabled'), false),
         installation_id: installationId,
         engine,

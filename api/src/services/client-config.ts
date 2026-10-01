@@ -57,7 +57,8 @@ import {
   settingsHash,
   DEFAULT_CLAUDE_PERMISSION_MODE,
 } from './config-normalizer.js';
-import { ENGINE_CLAUDE, ENGINE_CODEX, type Engine } from '../util/engine.js';
+import { ENGINE_CLAUDE, ENGINE_CODEX, ENGINE_GROK, ENGINE_COMMANDS, type Engine } from '../util/engine.js';
+import { GROK_DEFAULT_MODEL, GROK_MODEL_DEFAULT_REASONING_EFFORTS, normalizeGrokEffort, normalizeGrokModel } from './grok-models.js';
 import { versionCompare } from './wrapper-bin-registry.js';
 import {
   AGENT_MESSAGING_TOOLS,
@@ -70,6 +71,7 @@ import {
   type ResponseVerbosityLevel,
 } from './agent-response-style.js';
 import type { Host } from '../db/schema.js';
+import { withGrokConfigWriteLock } from './grok-config-lock.js';
 
 const SCALAR_KEYS: Array<keyof NormalizedSettings> = [
   'model',
@@ -321,6 +323,33 @@ export function renderToml(normalized: NormalizedSettings, opts: { profileTables
   return lines.join('\n') + (lines.length > 0 ? '\n' : '');
 }
 
+export function normalizeGrokSettings(raw: unknown): NormalizedSettings {
+  const input = asRecord(raw);
+  const models = asRecord(input.models);
+  const model = normalizeGrokModel(input.model ?? models.default) ?? GROK_DEFAULT_MODEL;
+  const out = normalizeSettings({ ...input, model: null }, { applyCodexDefaults: false });
+  out.model = model;
+  out.reasoning_effort = normalizeGrokEffort(input.reasoning_effort ?? models.default_reasoning_effort, model) ?? GROK_MODEL_DEFAULT_REASONING_EFFORTS[model];
+  out.model_reasoning_effort = null;
+  out.profiles = [];
+  return out;
+}
+
+/** A native Grok allowlist; no Codex profile, policy, or sandbox keys enter this file. */
+export function renderGrokSettings(settings: NormalizedSettings): string {
+  const lines = ['[models]'];
+  addKeyValue(lines, 'default', settings.model ?? GROK_DEFAULT_MODEL);
+  addKeyValue(lines, 'default_reasoning_effort', settings.reasoning_effort);
+  for (const server of sortEntriesByName(settings.mcp_servers)) {
+    const name = normalizeName(server.name);
+    if (!name) continue;
+    lines.push('', `[mcp_servers.${tomlBareKey(name)}]`);
+    for (const field of ['command', 'args', 'env', 'cwd', 'url', 'bearer_token_env_var', 'enabled', 'startup_timeout_sec', 'tool_timeout_sec']) addKeyValue(lines, field, server[field]);
+    addKeyValue(lines, 'headers', server.headers ?? server.http_headers);
+  }
+  return lines.join('\n') + '\n';
+}
+
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
 }
@@ -363,7 +392,7 @@ export function renderTomlForHost(opts: HostRenderOptions): RenderResult {
     opts.securityLevels,
     engine,
   );
-  const normalized = normalizeSettings(settingsWithOverrides, { applyCodexDefaults: engine === ENGINE_CODEX });
+  const normalized = engine === ENGINE_GROK ? normalizeGrokSettings(settingsWithOverrides) : normalizeSettings(settingsWithOverrides, { applyCodexDefaults: engine === ENGINE_CODEX });
   const withManaged = injectManagedMcp(normalized, {
     host: opts.host,
     baseUrl: opts.baseUrl,
@@ -372,12 +401,12 @@ export function renderTomlForHost(opts: HostRenderOptions): RenderResult {
     managedMcpToken: opts.managedMcpToken,
     agentMessagingEnabled: opts.agentMessagingEnabled,
   });
-  const managedServerName = engine === ENGINE_CLAUDE ? 'clx' : 'cdx';
+  const managedServerName = ENGINE_COMMANDS[engine];
   const managedMcpInjected = withManaged.mcp_servers.some(
     (server) => normalizeName(server['name'])?.toLowerCase() === managedServerName,
   );
   const profileFiles = engine === ENGINE_CODEX && codexUsesProfileFiles(opts.host?.clientVersion);
-  let content = engine === ENGINE_CLAUDE
+  let content = engine === ENGINE_GROK ? renderGrokSettings(withManaged) : engine === ENGINE_CLAUDE
     ? renderClaudeSettings(withManaged)
     : renderToml(withManaged, { profileTables: !profileFiles });
   const profiles: RenderedProfile[] | undefined = profileFiles
@@ -388,7 +417,7 @@ export function renderTomlForHost(opts: HostRenderOptions): RenderResult {
         return [{ name, sha256: createHash('sha256').update(body).digest('hex'), content: body }];
       })
     : undefined;
-  if (engine !== ENGINE_CLAUDE) {
+  if (engine === ENGINE_CODEX) {
     if (managedMcpInjected) content = injectManagedCodexSkillPolicyToml(content);
     content = injectTrustedProjectToml(content, normalizeHomePath(opts.home, opts.username));
   }
@@ -398,6 +427,10 @@ export function renderTomlForHost(opts: HostRenderOptions): RenderResult {
     size_bytes: Buffer.byteLength(content, 'utf8'),
     settings: normalized,
     ...(profiles !== undefined && { profiles }),
+    ...(engine === ENGINE_GROK && { owned_paths: ['models.default', 'models.default_reasoning_effort', ...withManaged.mcp_servers.flatMap(server => {
+      const name = normalizeName(server['name']);
+      return name ? [`mcp_servers.${name}`] : [];
+    })] }),
   };
 }
 
@@ -499,6 +532,8 @@ export function applyPostureToSettings(
   const derived = securityLevelEnforcement(levels);
   const out = { ...settings };
 
+  if (engine === ENGINE_GROK) return out;
+
   if (engine === ENGINE_CLAUDE) {
     out['permissionMode'] = derived.claude.permission_mode.value;
     return out;
@@ -531,6 +566,13 @@ function applyHostModelOverrides(
   engine: Engine = ENGINE_CODEX,
 ): Record<string, unknown> {
   if (!host) return settings;
+  if (engine === ENGINE_GROK) {
+    const out = { ...settings };
+    const model = normalizeGrokModel(host.grokModelOverride) ?? normalizeGrokModel(out.model) ?? GROK_DEFAULT_MODEL;
+    out.model = model;
+    out.reasoning_effort = normalizeGrokEffort(host.grokReasoningEffortOverride, model) ?? normalizeGrokEffort(out.reasoning_effort, model) ?? GROK_MODEL_DEFAULT_REASONING_EFFORTS[model];
+    return out;
+  }
   // Claude reads model/effort overrides from the claude_* columns. Unlike
   // Codex, Claude has no profile layer, so the overrides apply at the root.
   if (engine === ENGINE_CLAUDE) {
@@ -615,15 +657,15 @@ function injectManagedMcp(
     const secure = opts.host ? Boolean(opts.host.secure) : true;
     const bearerToken = secure ? key : normalizeName(opts.managedMcpToken ?? null);
     if (bearerToken) {
-      const name = opts.engine === ENGINE_CLAUDE ? 'clx' : 'cdx';
+      const name = ENGINE_COMMANDS[opts.engine];
       managedEntries.push({
         name,
         url: `${base}/mcp`,
         http_headers: { Authorization: `Bearer ${bearerToken}`, 'X-Engine': opts.engine },
         startup_timeout_sec: 30,
       });
-      for (const reserved of opts.engine === ENGINE_CLAUDE
-        ? ['codex-memory', 'codex-orchestrator', 'cdx', 'clx']
+      for (const reserved of opts.engine !== ENGINE_CODEX
+        ? ['codex-memory', 'codex-orchestrator', 'cdx', 'clx', 'cgx']
         : ['codex-memory', 'codex-orchestrator', 'cdx']) {
         managedNames.add(reserved);
       }
@@ -1090,6 +1132,8 @@ export interface RenderedProfile {
 }
 
 export interface RenderResult {
+  /** Grok TOML merge ownership; MCP names are literal suffixes. */
+  owned_paths?: string[];
   /** Present (possibly empty) only for a host whose Codex takes profiles as files. */
   profiles?: RenderedProfile[];
   content: string;
@@ -1118,7 +1162,7 @@ export interface StoreResult extends AdminFetchResult {
 }
 
 export class ClientConfigService {
-  constructor(private readonly db: Database) {}
+  constructor(private readonly db: Database, private readonly grokConfigLocked = false) {}
 
   async adminFetch(engine: Engine = ENGINE_CODEX): Promise<AdminFetchResult> {
     const rows = await this.db
@@ -1132,7 +1176,7 @@ export class ClientConfigService {
     const body = row.body;
     const sha = row.sha256 ?? createHash('sha256').update(body).digest('hex');
     const settings = row.settings && typeof row.settings === 'object'
-      ? normalizeSettings(row.settings, { applyCodexDefaults: engine === ENGINE_CODEX })
+      ? engine === ENGINE_GROK ? normalizeGrokSettings(row.settings) : normalizeSettings(row.settings, { applyCodexDefaults: engine === ENGINE_CODEX })
       : null;
     return {
       status: 'ok',
@@ -1145,8 +1189,8 @@ export class ClientConfigService {
   }
 
   render(settingsInput: unknown, engine: Engine = ENGINE_CODEX): RenderResult {
-    const normalized = normalizeSettings(settingsInput, { applyCodexDefaults: engine === ENGINE_CODEX });
-    const content = engine === ENGINE_CLAUDE ? renderClaudeSettings(normalized) : renderToml(normalized);
+    const normalized = engine === ENGINE_GROK ? normalizeGrokSettings(settingsInput) : normalizeSettings(settingsInput, { applyCodexDefaults: engine === ENGINE_CODEX });
+    const content = engine === ENGINE_GROK ? renderGrokSettings(normalized) : engine === ENGINE_CLAUDE ? renderClaudeSettings(normalized) : renderToml(normalized);
     return {
       content,
       sha256: createHash('sha256').update(content).digest('hex'),
@@ -1160,6 +1204,10 @@ export class ClientConfigService {
     sourceHostId: number | null = null,
     engine: Engine = ENGINE_CODEX,
   ): Promise<StoreResult> {
+    if (engine === ENGINE_GROK && !this.grokConfigLocked) {
+      return withGrokConfigWriteLock(this.db, tx =>
+        new ClientConfigService(tx, true).store(payload, sourceHostId, engine));
+    }
     const rendered = this.render(payload.settings, engine);
 
     const existingRows = await this.db

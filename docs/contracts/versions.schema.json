@@ -25,6 +25,7 @@
         "auto_update_enabled",
         "cdx_silent",
         "clx_silent",
+        "cgx_silent",
         "agent_messaging_enabled",
         "installation_id",
         "engine"
@@ -99,8 +100,12 @@
         "engine": {
           "enum": [
             "codex",
-            "claude"
+            "claude",
+            "grok"
           ]
+        },
+        "cgx_silent": {
+          "type": "boolean"
         }
       },
       "additionalProperties": true

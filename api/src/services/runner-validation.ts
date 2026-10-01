@@ -7,7 +7,8 @@ import type { Keyring } from '../security/keyring.js';
 import { ValidationError } from '../http/errors.js';
 import { compareRfc3339, isRfc3339, parseRfc3339Millis, parseRfc3339Nanos } from '../util/timestamp.js';
 import type { Engine } from '../util/engine.js';
-import { ENGINE_CODEX, ENGINE_CLAUDE } from '../util/engine.js';
+import { ENGINE_CODEX, ENGINE_CLAUDE, ENGINE_GROK, isEngine } from '../util/engine.js';
+import { GROK_AUTH_TARGET, normalizeGrokAuth, projectGrokAuth } from './grok-auth.js';
 import { resolveProviderAccount } from './provider-account-reference.js';
 import {
   fingerprintMatches,
@@ -20,6 +21,7 @@ const MIN_REFRESH_EPOCH_MS = Date.UTC(2000, 0, 1);
 const MAX_FUTURE_SKEW_MS = 300 * 1000;
 const DEFAULT_TOKEN_MIN_LENGTH = 24;
 const TOKEN_MIN_LENGTH_FLOOR = 8;
+const AUTH_TARGETS: Record<Engine, string> = { codex: 'api.openai.com', claude: 'api.anthropic.com', grok: GROK_AUTH_TARGET };
 
 /**
  * Lightweight port of RunnerValidationService. The full PHP service handles
@@ -188,8 +190,7 @@ export function createRunnerValidationService(deps: RunnerValidationDeps): Runne
       if (!isRfc3339(row.lastRefresh) || compareRfc3339(lr, row.lastRefresh) !== 0) return null;
       if (!isReasonableLastRefresh(lr)) return null;
       if (sha256(body) !== row.sha256) return null;
-      const engine =
-        row.engine === ENGINE_CLAUDE ? ENGINE_CLAUDE : row.engine === ENGINE_CODEX ? ENGINE_CODEX : null;
+      const engine = isEngine(row.engine) ? row.engine : null;
       if (!engine) return null;
       const withFallback = service.ensureAuthsFallback(auth, engine);
       if (!service.hasUsableEngineCredential(withFallback, engine)) return null;
@@ -200,8 +201,7 @@ export function createRunnerValidationService(deps: RunnerValidationDeps): Runne
       if (row.verificationState !== 'verified') return null;
       const validated = service.validateCanonicalPayload(row);
       if (!validated) return null;
-      const engine =
-        row.engine === ENGINE_CODEX ? ENGINE_CODEX : row.engine === ENGINE_CLAUDE ? ENGINE_CLAUDE : null;
+      const engine = isEngine(row.engine) ? row.engine : null;
       if (!engine) return null;
 
       // Old rows may predate native credential-precedence normalization. They
@@ -233,12 +233,15 @@ export function createRunnerValidationService(deps: RunnerValidationDeps): Runne
         const candidate = pairFingerprints(identity, deps.keyring).get(row.fingerprintKid);
         if (!fingerprintMatches(row.pairFingerprint, candidate)) return null;
       }
-      return validated.auth;
+      return engine === ENGINE_GROK ? projectGrokAuth(validated.auth) : validated.auth;
     },
 
     ensureAuthsFallback(payload, engine) {
+      if (engine === ENGINE_GROK) {
+        try { return normalizeGrokAuth(payload); } catch { return { ...payload, auths: {} }; }
+      }
       const out = { ...payload };
-      const nativeTarget = engine === ENGINE_CLAUDE ? 'api.anthropic.com' : 'api.openai.com';
+      const nativeTarget = AUTH_TARGETS[engine];
       const rawAuths = out.auths;
       const hadAuths = isRecord(rawAuths);
       const auths = hadAuths ? { ...rawAuths } : {};
@@ -311,7 +314,7 @@ export function createRunnerValidationService(deps: RunnerValidationDeps): Runne
       const auths = payload.auths;
       const out: NormalizedAuthEntry[] = [];
       if (!auths || typeof auths !== 'object' || Array.isArray(auths)) return out;
-      const nativeTarget = engine === ENGINE_CLAUDE ? 'api.anthropic.com' : 'api.openai.com';
+      const nativeTarget = AUTH_TARGETS[engine];
       const entries = Object.entries(auths as Record<string, unknown>);
       entries.sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
       for (const [target, raw] of entries) {
@@ -340,7 +343,7 @@ export function createRunnerValidationService(deps: RunnerValidationDeps): Runne
 
     hasUsableEngineCredential(payload, engine) {
       const withFallback = service.ensureAuthsFallback(payload, engine);
-      const nativeTarget = engine === ENGINE_CLAUDE ? 'api.anthropic.com' : 'api.openai.com';
+      const nativeTarget = AUTH_TARGETS[engine];
       return service
         .normalizeAuthEntries(withFallback, engine)
         .some((entry) => entry.target === nativeTarget);
@@ -348,7 +351,8 @@ export function createRunnerValidationService(deps: RunnerValidationDeps): Runne
 
     canonicalizeAuthPayload(payload, entries, lastRefresh, engine) {
       assertCanonicalEngineConsistent(entries, engine);
-      const nativeTarget = engine === ENGINE_CLAUDE ? 'api.anthropic.com' : 'api.openai.com';
+      if (engine === ENGINE_GROK) return normalizeGrokAuth({ ...payload, last_refresh: lastRefresh });
+      const nativeTarget = AUTH_TARGETS[engine];
       const canonical: Record<string, unknown> = {
         last_refresh: lastRefresh,
         auths: Object.fromEntries(
@@ -442,10 +446,8 @@ function projectNativeEntry(
  * stamping the wrong engine's canonical head.
  */
 export function inferCanonicalEngine(entries: readonly NormalizedAuthEntry[]): Engine | null {
-  const hasAnthropic = entries.some((entry) => entry.target === 'api.anthropic.com');
-  const hasOpenAi = entries.some((entry) => entry.target === 'api.openai.com');
-  if (hasAnthropic === hasOpenAi) return null;
-  return hasAnthropic ? ENGINE_CLAUDE : ENGINE_CODEX;
+  const engines = (Object.entries(AUTH_TARGETS) as Array<[Engine, string]>).filter(([, target]) => entries.some(entry => entry.target === target));
+  return engines.length === 1 ? engines[0]![0] : null;
 }
 
 /**
@@ -459,8 +461,8 @@ export function assertCanonicalEngineConsistent(
   entries: readonly NormalizedAuthEntry[],
   engine: Engine,
 ): void {
-  const foreignTarget = engine === ENGINE_CLAUDE ? 'api.openai.com' : 'api.anthropic.com';
-  if (entries.some((entry) => entry.target === foreignTarget)) {
+  const foreignTarget = Object.values(AUTH_TARGETS).find(target => target !== AUTH_TARGETS[engine] && entries.some(entry => entry.target === target));
+  if (foreignTarget) {
     throw new ValidationError(
       `canonical payload declared engine ${engine} but carries ${foreignTarget} credentials`,
       { param: 'engine' },
@@ -477,7 +479,7 @@ export function assertCanonicalEngineConsistent(
 
 function nativeAuthsToken(payload: Record<string, unknown>, engine: Engine): string {
   const auths = isRecord(payload.auths) ? payload.auths : null;
-  const target = engine === ENGINE_CLAUDE ? 'api.anthropic.com' : 'api.openai.com';
+  const target = AUTH_TARGETS[engine];
   const entry = auths && isRecord(auths[target]) ? auths[target] : null;
   return typeof entry?.token === 'string' ? entry.token.trim() : '';
 }

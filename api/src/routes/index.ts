@@ -14,6 +14,7 @@ import { registerWrapperV2Routes } from './wrapper-v2/index.js';
 
 import { registerOpenAiCompatWorktree } from './openai-compat/index.js';
 import { registerAnthropicCompatBundle } from './anthropic-compat/index.js';
+import { registerGrokCompatRoutes } from './grok-v1/index.js';
 
 import { registerAdminAuthAndUsersRoutes } from './admin-auth-users/index.js';
 import { registerAdminHostsRoutes } from './admin/hosts/index.js';
@@ -22,6 +23,7 @@ import { registerAdminContentRoutes } from './admin-content/index.js';
 import { registerAdminManualRoutes } from './admin/manual/index.js';
 import { registerAdminMemoriesRoutes } from './admin/memories/index.js';
 import { registerAdminAccountsRoutes } from './admin/accounts/index.js';
+import { registerAdminGrokRoutes } from './admin/grok/index.js';
 import { registerAdminSecretsRoutes } from './admin/secrets/index.js';
 import { registerAdminGitDirectorRoutes } from './admin/git-director/index.js';
 import { registerAdminTransfersRoutes } from './admin/transfers/index.js';
@@ -54,6 +56,7 @@ export async function registerAllRoutes(app: FastifyInstance, ctx: RouteContext)
   // OpenAI / Anthropic-shaped public APIs (envelope dispatcher selects shape)
   await registerOpenAiCompatWorktree(app, ctx);
   await registerAnthropicCompatBundle(app, ctx);
+  await registerGrokCompatRoutes(app, ctx);
 
   // Admin surface
   await registerAdminAuthAndUsersRoutes(app, ctx);
@@ -63,6 +66,7 @@ export async function registerAllRoutes(app: FastifyInstance, ctx: RouteContext)
   await registerAdminMemoriesRoutes(app, ctx);
   await registerAdminSecretsRoutes(app, ctx);
   await registerAdminAccountsRoutes(app, ctx);
+  await registerAdminGrokRoutes(app, ctx);
   await registerAdminGitDirectorRoutes(app, ctx);
   await registerAdminTransfersRoutes(app, ctx);
   await registerAdminAgentSessionsRoutes(app, ctx);

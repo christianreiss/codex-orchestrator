@@ -10,6 +10,7 @@ const SchemaVersion = 1
 const (
 	EngineCodex  = "codex"
 	EngineClaude = "claude"
+	EngineGrok   = "grok"
 )
 
 type Config struct {
@@ -67,6 +68,8 @@ type EngineOptions struct {
 	ReasoningEffortOverride              *string `json:"reasoning_effort_override,omitempty"`
 	AdminThemeHint                       *string `json:"admin_theme_hint,omitempty"`
 	ClaudeModelOverride                  *string `json:"claude_model_override,omitempty"`
+	GrokModelOverride                    *string `json:"grok_model_override,omitempty"`
+	GrokReasoningEffortOverride          *string `json:"grok_reasoning_effort_override,omitempty"`
 	DangerouslyBypassApprovalsAndSandbox bool    `json:"dangerously_bypass_approvals_and_sandbox,omitempty"`
 }
 
@@ -107,7 +110,7 @@ func EngineDrift(local, remote []string) bool {
 		out := map[string]bool{}
 		for _, engine := range in {
 			engine = strings.ToLower(strings.TrimSpace(engine))
-			if engine == EngineCodex || engine == EngineClaude {
+			if engine == EngineCodex || engine == EngineClaude || engine == EngineGrok {
 				out[engine] = true
 			}
 		}
@@ -141,7 +144,7 @@ func EnabledEngines(host Host, selected string) []string {
 	out := make([]string, 0, 2)
 	for _, engine := range raw {
 		engine = strings.ToLower(strings.TrimSpace(engine))
-		if (engine == EngineCodex || engine == EngineClaude) && !seen[engine] {
+		if (engine == EngineCodex || engine == EngineClaude || engine == EngineGrok) && !seen[engine] {
 			seen[engine] = true
 			out = append(out, engine)
 		}

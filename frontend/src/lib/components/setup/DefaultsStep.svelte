@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { engineLabel } from "$lib/constants/engines";
   /**
    * Fleet model defaults — and, more importantly, the step that turns MCP on.
    *
@@ -13,9 +14,8 @@
    * console can look configured while every managed feature is dark.
    *
    * So codex is POSTed unconditionally — including when the operator answered
-   * "neither" on the engines step, because this is about MCP activation and not
-   * about credentials. Claude renders from an empty base already, so its POST
-   * only happens when Claude is in play.
+   * "none yet" on the engines step, because this is about MCP activation and not
+   * about credentials. Claude and Grok also persist defaults when selected.
    *
    * The wizard's Skip calls `persist()` too, with whatever is selected — the
    * catalog defaults when nothing was touched — so skipping never leaves the
@@ -37,25 +37,28 @@
   } from "$lib/api/types";
   import StepQueryState from "./StepQueryState.svelte";
 
-  type Props = { engines: ("codex" | "claude")[] };
+  type Props = { engines: ("codex" | "claude" | "grok")[] };
   let { engines }: Props = $props();
 
   const qc = useQueryClient();
 
   // Codex is always configured here; see the header comment.
   const targets = untrack((): ModelDefaultsEngine[] =>
-    engines.includes("claude") ? ["codex", "claude"] : ["codex"],
+    ["codex", ...engines.filter((engine) => engine !== "codex")],
   );
 
   const codexQuery = modelDefaultsQuery("codex");
   const claudeQuery = modelDefaultsQuery("claude");
+  const grokQuery = modelDefaultsQuery("grok");
   const codexMutation = modelDefaultsMutation("codex", {});
   const claudeMutation = modelDefaultsMutation("claude", {});
+  const grokMutation = modelDefaultsMutation("grok", {});
 
   type Draft = { model: string; effort: string; init: boolean };
   let drafts = $state<Record<ModelDefaultsEngine, Draft>>({
     codex: { model: "", effort: "", init: false },
     claude: { model: "", effort: "", init: false },
+    grok: { model: "", effort: "", init: false },
   });
 
   function defaultEffort(entry: ModelDefaultsCatalogEntry | null): string {
@@ -82,12 +85,13 @@
 
   $effect(() => seed("codex", $codexQuery.data));
   $effect(() => seed("claude", $claudeQuery.data));
+  $effect(() => seed("grok", $grokQuery.data));
 
   // ModelSelect only binds the model; keep the effort valid for whichever
   // model is now selected.
   $effect(() => {
     for (const engine of targets) {
-      const data = engine === "codex" ? $codexQuery.data : $claudeQuery.data;
+      const data = engine === "codex" ? $codexQuery.data : engine === "grok" ? $grokQuery.data : $claudeQuery.data;
       const draft = drafts[engine];
       if (!data || !draft.init) continue;
       const entry = data.catalog.find((item) => item.model === draft.model) ?? null;
@@ -100,30 +104,31 @@
   });
 
   const loading = $derived(
-    $codexQuery.isLoading || (targets.includes("claude") && $claudeQuery.isLoading),
+    $codexQuery.isLoading || (targets.includes("claude") && $claudeQuery.isLoading) || (targets.includes("grok") && $grokQuery.isLoading),
   );
   const loadError = $derived(
     $codexQuery.error?.message ??
-      (targets.includes("claude") ? ($claudeQuery.error?.message ?? null) : null),
+      (targets.includes("claude") ? ($claudeQuery.error?.message ?? null) : null) ??
+      (targets.includes("grok") ? ($grokQuery.error?.message ?? null) : null),
   );
 
   /** Function, not `$derived`: derived state cannot be exported from a
   * component. The caller's own `$derived` still tracks what this reads. */
   export function isBusy(): boolean {
-    return $codexMutation.isPending || $claudeMutation.isPending;
+    return $codexMutation.isPending || $claudeMutation.isPending || $grokMutation.isPending;
   }
 
   async function save(engine: ModelDefaultsEngine): Promise<void> {
-    const query = engine === "codex" ? $codexQuery : $claudeQuery;
+    const query = engine === "codex" ? $codexQuery : engine === "grok" ? $grokQuery : $claudeQuery;
     // Skip can land here before the catalog arrived; fetch it rather than
     // POSTing an empty model.
     const data = query.data ?? (await query.refetch()).data;
-    if (!data) throw new Error(`Could not load ${engine === "codex" ? "Codex" : "Claude"} models`);
+    if (!data) throw new Error(`Could not load ${engineLabel(engine)} models`);
     const draft = drafts[engine];
     const model = draft.init && draft.model ? draft.model : data.model;
     const entry = data.catalog.find((item) => item.model === model) ?? null;
     const effort = draft.init && draft.model === model ? draft.effort : effortFor(data, model, data.reasoning_effort);
-    const mutation = engine === "codex" ? $codexMutation : $claudeMutation;
+    const mutation = engine === "codex" ? $codexMutation : engine === "grok" ? $grokMutation : $claudeMutation;
     await mutation.mutateAsync({
       model,
       reasoning_effort: (entry?.persistent_efforts.length ?? 0) > 0 ? effort || null : null,
@@ -145,7 +150,7 @@
 </script>
 
 {#snippet engineBlock(engine: ModelDefaultsEngine, data: ModelDefaultsValue | undefined)}
-  {@const label = engine === "codex" ? "Codex" : "Claude"}
+  {@const label = engineLabel(engine)}
   {@const catalog = data?.catalog ?? []}
   {@const entry = catalog.find((item) => item.model === drafts[engine].model) ?? null}
   {@const efforts = entry?.persistent_efforts ?? []}
@@ -210,6 +215,7 @@
       onRetry={() => {
         void $codexQuery.refetch();
         if (targets.includes("claude")) void $claudeQuery.refetch();
+        if (targets.includes("grok")) void $grokQuery.refetch();
       }}
     />
   {:else}
@@ -218,6 +224,9 @@
       <div class="border-t pt-4">
         {@render engineBlock("claude", $claudeQuery.data)}
       </div>
+    {/if}
+    {#if targets.includes("grok")}
+      <div class="border-t pt-4">{@render engineBlock("grok", $grokQuery.data)}</div>
     {/if}
   {/if}
 

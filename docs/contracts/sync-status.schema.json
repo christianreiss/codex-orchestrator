@@ -40,7 +40,7 @@
         "engine": {
           "enum": [
             "codex",
-            "claude"
+            "claude", "grok"
           ]
         },
         "versions": {

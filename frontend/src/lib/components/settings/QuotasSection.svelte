@@ -153,7 +153,7 @@
       <Switch id="advice-remember" checked={advice.remember_day} onCheckedChange={(v) => (advice.remember_day = v)} />
       <Label for="advice-remember">Allow remembering the provider until local midnight</Label>
     </div>
-    <p class="text-sm text-muted-foreground sm:col-span-2">Remembered choices apply to this computer's user across cdx and clx. Use --quota-choice-reset to choose again.</p>
+    <p class="text-sm text-muted-foreground sm:col-span-2">Remembered choices apply to this computer's user across cdx, clx, and cgx. Use --quota-choice-reset to choose again.</p>
   </div>
 
   <div class="pt-2">

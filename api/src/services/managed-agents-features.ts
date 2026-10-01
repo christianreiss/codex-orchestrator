@@ -5,7 +5,7 @@
  * and diagnostics.
  */
 import { createHash } from 'node:crypto';
-import { ENGINE_CLAUDE, ENGINE_CODEX, type Engine } from '../util/engine.js';
+import { ENGINE_CLAUDE, ENGINE_CODEX, ENGINES, type Engine } from '../util/engine.js';
 import { buildManagedMemoryBlock, MANAGED_MEMORY_HEADING } from './managed-agents-memory.js';
 import { HISTORIC_MANAGED_MEMORY_BLOCKS } from './managed-agents-memory-legacy.js';
 import { API_KEYS_IN_CHAT_GUIDANCE } from './api-keys-in-chat.js';
@@ -164,7 +164,7 @@ const LEGACY_BLOCK =
 // prefix of a longer one.
 const LEGACY_MEMORY_BLOCKS = [...new Set(
   [
-    ...[ENGINE_CODEX, ENGINE_CLAUDE].flatMap((engine) => {
+    ...ENGINES.flatMap((engine) => {
       const block = buildManagedMemoryBlock(engine);
       return [block, block.replace(/\n$/, '')];
     }),
@@ -275,7 +275,7 @@ requires interactive browser automation or live page inspection.`,
 }
 
 /**
- * One text for both engines, with no engine branch. Unlike Skills — where
+ * One text for all three engines, with no engine branch. Unlike Skills — where
  * Claude Code has a native `~/.claude/skills/` loader to defer to — neither
  * engine ships a credential store of its own, so there is nothing to
  * differentiate and the rendered bytes are identical either way.
@@ -294,7 +294,7 @@ function secretsSection(context: ManagedAgentFeatureContext): RenderedSection | 
     `## Secrets
 
 This fleet keeps working credentials — API tokens, database passwords, service accounts — in the
-orchestrator secrets store, shared across every host and both engines. It is reachable only
+orchestrator secrets store, shared across every host and all three engines. It is reachable only
 through MCP; the orchestrator does not automatically write its values to this machine's disk.
 
 **Needing a credential.** If a task needs a token, key, password, or connection string, call
@@ -324,7 +324,7 @@ function apiKeysInChatSection(context: ManagedAgentFeatureContext): RenderedSect
 }
 
 /**
- * One text for both engines, with no engine branch: the `agent_*` tools are the
+ * One text for all three engines, with no engine branch: the `agent_*` tools are the
  * same `cxx-agent` stdio server on both, and the block names only the `#call`
  * trigger rather than how each engine loads that Skill, so there is nothing to
  * differentiate.
@@ -350,7 +350,7 @@ function agentMessagingSection(context: ManagedAgentFeatureContext): RenderedSec
     context.agentMessaging,
     `## Agent Messaging
 
-Other Codex and Claude agents in this fleet are reachable, and they can reach you. \`agent_list\`
+Other Codex, Claude, and Grok agents in this fleet are reachable, and they can reach you. \`agent_list\`
 finds peers, \`agent_send\` and \`agent_request\` deliver, \`agent_wait\` and \`agent_listen\` receive,
 \`agent_reply\` answers an inbound message by its \`message_id\`, \`agent_message_get\` reads one back,
 and \`agent_cancel\` withdraws work you queued. Delivery is ordered and at-least-once, and a queued
@@ -405,7 +405,7 @@ round.`,
 }
 
 /**
- * One text for both engines. Nothing here is engine-specific: the `git_*` tools
+ * One text for all three engines. Nothing here is engine-specific: the `git_*` tools
  * are the same orchestrator MCP surface on both, and the block names no Skill.
  *
  * This section is the entire enforcement mechanism. The Director is advisory —
@@ -467,7 +467,7 @@ so plainly in your report instead of working around it quietly.`,
 }
 
 /**
- * One text for both engines. Nothing here is engine-specific: the `transfer_*`
+ * One text for all three engines. Nothing here is engine-specific: the `transfer_*`
  * tools are the same orchestrator MCP surface on both, and the block names no
  * Skill.
  *

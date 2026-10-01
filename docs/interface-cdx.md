@@ -1,5 +1,9 @@
 # cdx Wrapper Interface (Source of Truth)
 
+Grok (`cgx`) is the third persona of the same `cxx` binary; its subscription
+refresh ownership and native isolation differ. See [Grok interface](interface-cgx.md).
+
+
 ## Session credential resilience
 
 cxx 0.8.1 checks native changes every two seconds, uploads new usable generations,

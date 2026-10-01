@@ -10,7 +10,9 @@ import {
 } from './config-normalizer.js';
 import { CLAUDE_DEFAULT_MODEL, CLAUDE_SUPPORTED_MODELS } from './claude-models.js';
 import { ClientConfigService } from './client-config.js';
-import { ENGINE_CLAUDE, type Engine } from '../util/engine.js';
+import { withGrokConfigWriteLock } from './grok-config-lock.js';
+import { ENGINE_CLAUDE, ENGINE_GROK, type Engine } from '../util/engine.js';
+import { GROK_DEFAULT_MODEL, GROK_MODEL_DEFAULT_REASONING_EFFORTS, GROK_MODEL_REASONING_EFFORTS, GROK_SUPPORTED_MODELS } from './grok-models.js';
 
 export interface ModelDefaultsCatalogEntry {
   model: string;
@@ -70,10 +72,12 @@ function copyCatalog(entries: readonly ModelDefaultsCatalogEntry[]): ModelDefaul
 }
 
 export function modelDefaultsCatalog(engine: Engine): ModelDefaultsCatalogEntry[] {
+  if (engine === ENGINE_GROK) return GROK_SUPPORTED_MODELS.map(model => ({ model, persistent_efforts: [...GROK_MODEL_REASONING_EFFORTS[model]], default_effort: GROK_MODEL_DEFAULT_REASONING_EFFORTS[model] }));
   return copyCatalog(engine === ENGINE_CLAUDE ? CLAUDE_CATALOG : CODEX_CATALOG);
 }
 
 function defaultModel(engine: Engine): string {
+  if (engine === ENGINE_GROK) return GROK_DEFAULT_MODEL;
   return engine === ENGINE_CLAUDE ? CLAUDE_DEFAULT_MODEL : DEFAULT_CODEX_MODEL;
 }
 
@@ -94,7 +98,7 @@ function selectedCatalogEntry(
 
 function responseFromSettings(engine: Engine, settings: Record<string, unknown>): ModelDefaultsResponse {
   const { entry, catalog } = selectedCatalogEntry(engine, settings.model);
-  const rawEffort = engine === ENGINE_CLAUDE ? settings.effortLevel : settings.model_reasoning_effort;
+  const rawEffort = engine === ENGINE_CLAUDE ? settings.effortLevel : engine === ENGINE_GROK ? settings.reasoning_effort : settings.model_reasoning_effort;
   const reasoningEffort =
     typeof rawEffort === 'string' && entry.persistent_efforts.includes(rawEffort)
       ? rawEffort
@@ -155,8 +159,20 @@ function parseUpdate(
 export class ModelDefaultsService {
   private readonly clientConfig: ClientConfigService;
 
-  constructor(db: Database) {
-    this.clientConfig = new ClientConfigService(db);
+  constructor(private readonly db: Database, grokConfigLocked = false) {
+    this.clientConfig = new ClientConfigService(db, grokConfigLocked);
+  }
+
+  /** Explicit Grok provisioning initializes the fleet config; reads stay read-only. */
+  async ensureGrokDefaults(): Promise<boolean> {
+    return withGrokConfigWriteLock(this.db, async (tx, existing) => {
+      if (existing) return false;
+      await new ModelDefaultsService(tx, true).set(ENGINE_GROK, {
+        model: GROK_DEFAULT_MODEL,
+        reasoning_effort: GROK_MODEL_DEFAULT_REASONING_EFFORTS[GROK_DEFAULT_MODEL],
+      });
+      return true;
+    });
   }
 
   async get(engine: Engine): Promise<ModelDefaultsResponse> {
@@ -172,7 +188,11 @@ export class ModelDefaultsService {
       model: update.model,
     };
 
-    if (engine === ENGINE_CLAUDE) {
+    if (engine === ENGINE_GROK) {
+      delete settings.model_reasoning_effort;
+      delete settings.effortLevel;
+      settings.reasoning_effort = update.reasoningEffort;
+    } else if (engine === ENGINE_CLAUDE) {
       delete settings.model_reasoning_effort;
       if (update.reasoningEffort === null) delete settings.effortLevel;
       else settings.effortLevel = update.reasoningEffort;

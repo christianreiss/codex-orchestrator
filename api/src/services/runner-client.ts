@@ -1,5 +1,6 @@
 import type { Env } from '../env.js';
 import type { Engine } from '../util/engine.js';
+import { projectGrokAuth } from './grok-auth.js';
 
 /**
  * Port of RunnerVerifier.php. POSTs canonical auth payloads to the runner's
@@ -75,6 +76,7 @@ export interface RunnerProjectAssistInput {
 export interface RunnerClient {
   verify(input: RunnerVerifyInput): Promise<RunnerVerifyResult>;
   verifyClaude(input: RunnerVerifyInput): Promise<RunnerVerifyResult>;
+  verifyGrok?(input: RunnerVerifyInput): Promise<RunnerVerifyResult>;
   generateSkillDraft?(input: RunnerSkillGenerateInput): Promise<RunnerVerifyResult>;
   assistSkillDraft?(input: RunnerSkillAssistInput): Promise<RunnerVerifyResult>;
   assistProjectDraft?(input: RunnerProjectAssistInput): Promise<RunnerVerifyResult>;
@@ -251,6 +253,10 @@ export function createRunnerClient(deps: RunnerClientDeps): RunnerClient {
         { auth_json: input.authJson, timeout_seconds: timeout / 1000 },
         (timeout || defaultTimeout) + VERIFY_RESPONSE_GRACE_MS,
       );
+    },
+    async verifyGrok(input) {
+      const timeout = (input.timeoutSeconds ?? env.AUTH_RUNNER_TIMEOUT ?? 8) * 1000;
+      return send(url.replace(/\/verify\/?$/, '/verify-grok'), { auth_json: projectGrokAuth(input.authJson), timeout_seconds: timeout / 1000 }, timeout);
     },
     async generateSkillDraft(input) {
       const target = deriveFeatureUrl(url, '/skills/generate');

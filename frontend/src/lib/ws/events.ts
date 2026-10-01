@@ -97,18 +97,22 @@ export const DEFAULT_INVALIDATIONS: WsInvalidationMap = {
   "api-key.changed": [
     ["keys", "openai"],
     ["keys", "claude"],
+    ["keys", "grok"],
   ],
   "apikey.created": [
     ["keys", "openai"],
     ["keys", "claude"],
+    ["keys", "grok"],
   ],
   "apikey.toggled": [
     ["keys", "openai"],
     ["keys", "claude"],
+    ["keys", "grok"],
   ],
   "apikey.deleted": [
     ["keys", "openai"],
     ["keys", "claude"],
+    ["keys", "grok"],
   ],
 
   // Fleet secrets. The module card shows a live count, so every mutation
@@ -139,7 +143,7 @@ export const DEFAULT_INVALIDATIONS: WsInvalidationMap = {
   // Source checks update their state even when the imported catalogue itself
   // is unchanged, so keep the source card live across tabs and worker ticks.
   "accounts.updated": [["accounts"], ["overview"], ["hosts"]],
-  "settings.changed": [["settings"], ["skills", "source"]],
+  "settings.changed": [["settings"], ["skills", "source"], ["keys", "openai", "state"], ["keys", "claude", "state"], ["keys", "grok", "state"]],
 
   // Agent portal controls live under Settings.
   "agent_portal.state": [["agent-portal"]],

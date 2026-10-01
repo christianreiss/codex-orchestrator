@@ -10,7 +10,7 @@ import {
 import type { Database } from '../db/client.js';
 import type { Keyring } from '../security/keyring.js';
 import { decryptOrNull } from '../security/secret-box.js';
-import { ENGINE_CLAUDE, ENGINE_CODEX, type Engine } from '../util/engine.js';
+import { ENGINES, type Engine } from '../util/engine.js';
 import { nowIso } from '../util/timestamp.js';
 import { credentialMetadata, inspectCredential } from './auth-generation.js';
 import { createRunnerValidationService } from './runner-validation.js';
@@ -26,13 +26,13 @@ export async function ensureAuthGenerationBackfill(db: Database, keyring: Keyrin
 
   const validation = createRunnerValidationService({ db, keyring });
   const selected = new Map<Engine, number>();
-  for (const engine of [ENGINE_CODEX, ENGINE_CLAUDE] as const) {
+  for (const engine of ENGINES) {
     const current = await validation.resolveCanonicalPayload(engine);
     if (current) selected.set(engine, current.id);
   }
 
   const rows = await db.select().from(authPayloads);
-  for (const engine of [ENGINE_CODEX, ENGINE_CLAUDE] as const) {
+  for (const engine of ENGINES) {
     const engineRows = rows.filter((row) => row.engine === engine).sort((a, b) => a.id - b.id);
     const currentId = selected.get(engine);
     for (let i = 0; i < engineRows.length; i += 1) {

@@ -70,7 +70,7 @@ function define(item: NavDefinition): NavItem {
 
 const REGISTRY: NavDefinition[] = [
   { id: "provider-accounts", group: "Fleet", route: "/accounts", label: "Accounts",
-    description: "ChatGPT and Claude accounts, quotas, and assignments", keywords: ["accounts", "chatgpt", "claude", "quota", "credentials", "balance"], icon: Users },
+    description: "ChatGPT, Claude, and Grok accounts, availability, and assignments", keywords: ["accounts", "chatgpt", "claude", "grok", "quota", "credentials", "balance"], icon: Users },
   {
     id: "overview", group: "Monitor", route: "/dashboard", label: "Overview",
     description: "Fleet health and exceptions", keywords: ["home", "health", "usage"], icon: LayoutDashboard,
@@ -79,7 +79,7 @@ const REGISTRY: NavDefinition[] = [
   {
     id: "clients", group: "Monitor", route: "/clients", label: "Active Clients",
     description: "Running agents and what they are working on",
-    keywords: ["agents", "sessions", "wrappers", "live", "presence", "working", "cdx", "clx"], icon: RadioTower,
+    keywords: ["agents", "sessions", "wrappers", "live", "presence", "working", "cdx", "clx", "cgx"], icon: RadioTower,
   },
   {
     id: "activity", group: "Monitor", route: "/logs/events", label: "Activity",
@@ -93,11 +93,11 @@ const REGISTRY: NavDefinition[] = [
   },
   {
     id: "quick-settings", group: "Fleet", route: "/quick-settings", label: "Quick Settings",
-    description: "Set default models and reasoning effort", keywords: ["models", "effort", "defaults", "codex", "claude", "quick"], icon: Settings,
+    description: "Set default models and reasoning effort", keywords: ["models", "effort", "defaults", "codex", "claude", "grok", "quick"], icon: Settings,
   },
   {
     id: "engines", group: "Fleet", route: "/engines", label: "Engines",
-    description: "Codex and Claude defaults", keywords: ["models", "versions", "quota", "codex", "claude", "sync"], icon: Settings,
+    description: "Codex, Claude, and Grok defaults", keywords: ["models", "versions", "quota", "codex", "claude", "grok", "sync"], icon: Settings,
   },
   {
     id: "policies", group: "Fleet", route: "/policies", label: "Policies",
@@ -110,7 +110,7 @@ const REGISTRY: NavDefinition[] = [
   },
   {
     id: "agent-messaging", group: "Coordinate", route: "/agent-messaging", label: "Agent Messaging",
-    description: "Addresses, conversations, and deliveries", keywords: ["agents", "codex", "claude", "relay"], icon: MessageSquareShare,
+    description: "Addresses, conversations, and deliveries", keywords: ["agents", "codex", "claude", "grok", "relay"], icon: MessageSquareShare,
   },
   {
     id: "git-director", group: "Coordinate", route: "/git-director", label: "Git Director",
@@ -130,7 +130,7 @@ const REGISTRY: NavDefinition[] = [
   },
   {
     id: "instructions", group: "Knowledge", route: "/instructions", label: "Fleet Instructions",
-    description: "Shared AGENTS.md and CLAUDE.md instructions", keywords: ["agents.md", "claude.md", "codex", "claude", "instructions", "guidance"], icon: FileText,
+    description: "Shared AGENTS.md, CLAUDE.md, and GROK.md instructions", keywords: ["agents.md", "claude.md", "grok.md", "codex", "claude", "grok", "instructions", "guidance"], icon: FileText,
   },
   {
     id: "memories", group: "Knowledge", route: "/memories", label: "Memories",

@@ -122,6 +122,7 @@ export const ROUTE_CAPABILITIES: Readonly<Record<string, RouteGuard>> = {
   'POST /admin/hosts/:id/auto-update': cap('hosts.manage'),
   'POST /admin/hosts/:id/browseros-mcp': cap('hosts.manage'),
   'POST /admin/hosts/:id/claude-version': cap('hosts.manage'),
+  'POST /admin/hosts/:id/grok-version': cap('hosts.manage'),
   'POST /admin/hosts/:id/clear': cap('hosts.manage'),
   'POST /admin/hosts/:id/codex-version': cap('hosts.manage'),
   'POST /admin/hosts/:id/curl-insecure': cap('hosts.manage'),
@@ -166,6 +167,7 @@ export const ROUTE_CAPABILITIES: Readonly<Record<string, RouteGuard>> = {
   'POST /admin/auth/seed-command': cap('auth.manage'),
   'POST /admin/runner/run': cap('auth.manage'),
   'POST /admin/runner/run-claude': cap('auth.manage'),
+  'POST /admin/runner/run-grok': cap('auth.manage'),
   'POST /cli/auth/deny': cap('hosts.manage'),
 
   // ── Provider API keys ────────────────────────────────────────────────────
@@ -177,6 +179,10 @@ export const ROUTE_CAPABILITIES: Readonly<Record<string, RouteGuard>> = {
   'POST /admin/claude/keys': cap('keys.manage'),
   'DELETE /admin/claude/keys/:id': cap('keys.manage'),
   'POST /admin/claude/keys/:id/toggle': cap('keys.manage'),
+  'GET /admin/grok/keys': cap('auth.read_metadata'),
+  'POST /admin/grok/keys': cap('keys.manage'),
+  'DELETE /admin/grok/keys/:id': cap('keys.manage'),
+  'POST /admin/grok/keys/:id/toggle': cap('keys.manage'),
 
   // ── Global settings ──────────────────────────────────────────────────────
   'GET /admin/api/state': cap('settings.read'),
@@ -187,6 +193,11 @@ export const ROUTE_CAPABILITIES: Readonly<Record<string, RouteGuard>> = {
   'POST /admin/claude/state': cap('settings.manage'),
   'GET /admin/claude/version': cap('settings.read'),
   'POST /admin/claude/version': cap('settings.manage'),
+  'GET /admin/grok/state': cap('settings.read'),
+  'POST /admin/grok/state': cap('settings.manage'),
+  'GET /admin/grok/version': cap('settings.read'),
+  'POST /admin/grok/version': cap('settings.manage'),
+  'GET /admin/grok/version/lock': cap('settings.read'),
   'POST /admin/codex-version': cap('settings.manage'),
   'GET /admin/model-defaults/:engine': cap('settings.read'),
   'POST /admin/model-defaults/:engine': cap('settings.manage'),
@@ -247,6 +258,14 @@ export const ROUTE_CAPABILITIES: Readonly<Record<string, RouteGuard>> = {
   'POST /admin/claude/config/store': cap('content.manage'),
   'GET /admin/claude/settings': cap('content.read'),
   'POST /admin/claude/settings': cap('content.manage'),
+  'GET /admin/grok/settings': cap('content.read'),
+  'POST /admin/grok/settings': cap('content.manage'),
+  'GET /admin/grok/config': cap('content.read'),
+  'GET /admin/grok/config/retrieve': cap('content.read'),
+  'POST /admin/grok/config/render': cap('content.read'),
+  'POST /admin/grok/config/store': cap('content.manage'),
+  'GET /admin/grok/models': cap('content.read'),
+  'POST /admin/grok/models/:model/toggle': cap('content.manage'),
   // Claude-native collections: subagents, slash commands, output styles.
   'GET /admin/claude/:kind': cap('content.read'),
   'GET /admin/claude/:kind/:slug': cap('content.read'),

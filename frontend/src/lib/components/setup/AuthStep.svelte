@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { engineLabel } from "$lib/constants/engines";
   /**
    * Provider auth for whichever engines the previous step selected.
    *
@@ -17,13 +18,13 @@
 
   type Props = {
     engines: AuthEngine[];
-    canonical: { codex: boolean; claude: boolean };
+    canonical: { codex: boolean; claude: boolean; grok?: boolean };
     runnerHealthy: boolean;
   };
 
   let { engines, canonical, runnerHealthy }: Props = $props();
 
-  let panels = $state<Record<AuthEngine, SeedAuthPanel | null>>({ codex: null, claude: null });
+  let panels = $state<Record<AuthEngine, SeedAuthPanel | null>>({ codex: null, claude: null, grok: null });
 
   export function isBusy(): boolean {
     return engines.some((engine) => panels[engine]?.isBusy() ?? false);
@@ -46,8 +47,8 @@
     return ok;
   }
 
-  const label = (engine: AuthEngine) => (engine === "codex" ? "Codex" : "Claude");
-  const verified = (engine: AuthEngine) => (engine === "codex" ? canonical.codex : canonical.claude);
+  const label = (engine: AuthEngine) => engineLabel(engine);
+  const verified = (engine: AuthEngine) => Boolean(canonical[engine]);
 </script>
 
 {#if engines.length === 0}

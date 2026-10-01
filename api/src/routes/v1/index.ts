@@ -23,7 +23,8 @@ import {
 } from '../../services/openai-models.js';
 import { createRunnerValidationService } from '../../services/runner-validation.js';
 import { createAuthTrafficVerifier } from '../../services/auth-traffic-verification.js';
-import { ENGINE_CODEX } from '../../util/engine.js';
+import { ENGINE_CODEX, ENGINE_GROK, type Engine } from '../../util/engine.js';
+import { assertControlsSupported, capabilitiesFor } from '../../services/transport-capabilities.js';
 
 /**
  * Optional test seam — supplying any of these overrides skips the default
@@ -31,6 +32,13 @@ import { ENGINE_CODEX } from '../../util/engine.js';
  * stubbed services without touching MySQL or a runner.
  */
 export interface OpenAiCompatOverrides {
+  engine?: Engine;
+  authSnapshot?: () => Promise<unknown | null>;
+  onExecSuccess?: (snapshot: unknown) => void;
+  models?: {
+    resolveRequestedModel(value: unknown): Promise<string>;
+    modelsResponse(): Promise<unknown>;
+  };
   keys?: OpenAiKeyService;
   killSwitch?: KillSwitch;
   adapter?: RunnerOpenAiAdapter | null;
@@ -47,13 +55,14 @@ export async function registerOpenAiCompatRoutes(
   ctx: RouteContext,
   overrides: OpenAiCompatOverrides = {},
 ): Promise<void> {
+  const engine = overrides.engine ?? ENGINE_CODEX;
   const keys = overrides.keys ?? new OpenAiKeyService({ db: ctx.db, keyring: ctx.keyring });
-  const killSwitch = overrides.killSwitch ?? makeOpenAiKillSwitch(ctx.db);
-  const keyResolver = makeOpenAiKeyResolver({ keys });
+  const killSwitch = overrides.killSwitch ?? makeOpenAiKillSwitch(ctx.db, engine === ENGINE_GROK ? 'grok_api_disabled' : 'openai_api_disabled', engine === ENGINE_GROK ? 'Grok' : 'OpenAI');
+  const keyResolver = makeOpenAiKeyResolver({ keys, engine });
   const killSwitchHook = makeKillSwitchPreHandler(killSwitch);
 
-  const runnerConfig = makeRunnerConfig(ctx.env);
-  if (runnerConfig) {
+  const runnerConfig = makeRunnerConfig(ctx.env, engine);
+  if (runnerConfig && !overrides.authSnapshot) {
     const runnerValidation = createRunnerValidationService({ db: ctx.db, keyring: ctx.keyring });
     // Successful gateway execs prove the canonical credential live; the
     // traffic verifier touches its verification stamp so background probes
@@ -61,12 +70,19 @@ export async function registerOpenAiCompatRoutes(
     const traffic = createAuthTrafficVerifier({
       db: ctx.db,
       runnerValidation,
-      engine: ENGINE_CODEX,
+      engine,
       log: app.log,
     });
     runnerConfig.authSnapshot = traffic.getAuthSnapshot;
     runnerConfig.onExecSuccess = traffic.recordExecSuccess;
   }
+  if (runnerConfig && overrides.authSnapshot) runnerConfig.authSnapshot = overrides.authSnapshot;
+  if (runnerConfig && overrides.onExecSuccess) runnerConfig.onExecSuccess = overrides.onExecSuccess;
+  const resolveRequested = (value: unknown) => overrides.models ? overrides.models.resolveRequestedModel(value) : Promise.resolve(resolveModel(value));
+  const validateGrokControls = (payload: Record<string, unknown>) => {
+    if (engine !== ENGINE_GROK) return;
+    assertControlsSupported({ stream: payload.stream === true ? true : undefined, tools: payload.tools ?? payload.functions, top_k: payload.top_k }, capabilitiesFor('runner-cli', engine));
+  };
   const adapter =
     overrides.adapter !== undefined
       ? overrides.adapter
@@ -85,6 +101,7 @@ export async function registerOpenAiCompatRoutes(
     handler: async (req, reply) => {
       ensureAdapter(adapter);
       const payload = parseBody(req.body);
+      validateGrokControls(payload);
       const messages = normalizeChatMessages(payload.messages);
       if (messages === null) {
         throw new ApiError('Missing required parameter: messages', {
@@ -110,7 +127,7 @@ export async function registerOpenAiCompatRoutes(
           },
         );
       }
-      const model = resolveModel(payload.model);
+      const model = await resolveRequested(payload.model);
       const params = extractParams(payload, { capKeys: ['max_completion_tokens', 'max_tokens'] });
       const result = await adapter.chatCompletions(messages, model, params);
 
@@ -130,6 +147,7 @@ export async function registerOpenAiCompatRoutes(
     handler: async (req, _reply) => {
       ensureAdapter(adapter);
       const payload = parseBody(req.body);
+      validateGrokControls(payload);
       const messages = normalizeResponsesInput(payload.input, payload.instructions);
       if (messages === null) {
         throw new ApiError('Missing required parameter: input', {
@@ -139,7 +157,7 @@ export async function registerOpenAiCompatRoutes(
           param: 'input',
         });
       }
-      const model = resolveModel(payload.model);
+      const model = await resolveRequested(payload.model);
       const params = extractParams(payload, { capKeys: ['max_output_tokens'] });
       if (payload.stream) {
         throw new ApiError(
@@ -160,6 +178,7 @@ export async function registerOpenAiCompatRoutes(
     handler: async (req, reply) => {
       ensureAdapter(adapter);
       const payload = parseBody(req.body);
+      validateGrokControls(payload);
       const prompt = typeof payload.prompt === 'string' ? payload.prompt : '';
       if (!prompt.trim()) {
         throw new ApiError('Missing required parameter: prompt', {
@@ -169,7 +188,7 @@ export async function registerOpenAiCompatRoutes(
           param: 'prompt',
         });
       }
-      const model = resolveModel(payload.model);
+      const model = await resolveRequested(payload.model);
       const params = extractParams(payload, { capKeys: ['max_tokens'] });
       const result = await adapter.completions(prompt, model, params);
 
@@ -198,7 +217,7 @@ export async function registerOpenAiCompatRoutes(
 
   app.get('/v1/models', {
     preHandler: [killSwitchHook, keyResolver],
-    handler: async () => buildModelList(),
+    handler: async () => overrides.models ? overrides.models.modelsResponse() : buildModelList(),
   });
 
   // GET /v1/models/{model} — single-model retrieve (OpenAI `models.retrieve()`).
@@ -219,7 +238,8 @@ export async function registerOpenAiCompatRoutes(
       }
       // resolveModel upgrades legacy aliases and throws the 404 model_not_found
       // shape for unknown ids. Return the canonical resolved id's object.
-      return buildModelObject(resolveModel(id));
+      const selected = await resolveRequested(id);
+      return engine === ENGINE_GROK ? { id: selected, object: 'model', created: 1790812800, owned_by: 'xai' } : buildModelObject(selected);
     },
   });
 }

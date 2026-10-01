@@ -1,7 +1,15 @@
 # Installation Guide
 
+Hosts may enable any nonempty subset of Codex, Claude, and Grok Build. Grok uses
+`cgx`, a signed engine-specific config, and the shared `cxx` binary. Seed Grok
+with the full modern subscription scope map produced by `grok login --device-auth`
+from `~/.grok/auth.json`; legacy web-login and xAI API-key accounts are unsupported.
+Managed launches receive access-only credentials; the server owns refresh. See
+[Grok installation and runtime contract](interface-cgx.md).
+
+
 Setting up the Codex Auth stack with Docker, admin login, and the common `cxx`
-wrapper exposed through the `cdx` / `clx` aliases.
+wrapper exposed through the `cdx` / `clx` / `cgx` aliases.
 
 ## Prerequisites
 
@@ -276,7 +284,7 @@ in the `wrappers/Dockerfile.build` toolchain container (no Go, make or python
 build tooling needed on the host beyond `python3`), embeds the database's single
 active signing key and proves every binary carries it, publishes into the
 `/app/storage` mount's `wrapper/v2/bin`, recreates the api and checks that
-`wrapper_version_codex`/`_claude` moved. An already-served version is a no-op;
+`wrapper_version_codex`/`_claude`/`_grok` moved. An already-served version is a no-op;
 if wrapper sources changed since the served binary's commit without a
 `VERSION` bump it warns and continues. `--skip-wrappers` opts out, and the step
 refuses to run while a signing-key rotation leaves more than one active key.
@@ -371,7 +379,7 @@ A fresh install has no fleet client-config row. Without one the managed feature
 context reports `config_missing`, and skills, memory, projects and secrets all
 resolve disabled *before their own switches are read* — so enabling Projects on
 a brand-new install does nothing at all. `POST /admin/model-defaults/codex`
-creates that row (so do `POST /admin/config/store` and the Claude config store),
+creates that row (so do the engine-specific config store routes),
 and the GET happily returns a default that was never persisted, which is how a
 console can look configured while every managed feature is dark.
 
@@ -380,6 +388,11 @@ The wizard therefore saves codex defaults on that step even when you press
 "neither" on the engines step: it is about MCP activation, not credentials. If
 the row is still missing, the `fleet_defaults` next action keeps the dashboard
 setup card open.
+
+The wizard also saves Claude and Grok defaults when those engines are selected.
+Explicit Grok host provisioning creates the Grok defaults if its config row is
+missing, preserving any existing operator policy, including during concurrent
+provisioning and saves. Reading model defaults alone does not persist them.
 
 ### Seeding credentials by hand
 

@@ -27,11 +27,14 @@ func (n Notice) Message() string {
 	if n.Engine == "claude" {
 		name, command = "Claude", "clx"
 	}
+	if n.Engine == "grok" {
+		name, command = "Grok", "cgx"
+	}
 	return fmt.Sprintf("Managed %s credentials were updated on disk. The native client can reload them during token refresh or authentication recovery. If authentication remains blocked, resume the session through %s to load the current credentials.", name, command)
 }
 
 func paths(engine string) (string, error) {
-	if engine != "codex" && engine != "claude" {
+	if engine != "codex" && engine != "claude" && engine != "grok" {
 		return "", errors.New("unknown auth notice engine")
 	}
 	home, err := os.UserHomeDir()
@@ -41,6 +44,9 @@ func paths(engine string) (string, error) {
 	scope := filepath.Join(home, "."+engine)
 	if engine == "codex" && strings.TrimSpace(os.Getenv("CODEX_HOME")) != "" {
 		scope = strings.TrimSpace(os.Getenv("CODEX_HOME"))
+	}
+	if engine == "grok" && strings.TrimSpace(os.Getenv("GROK_HOME")) != "" {
+		scope = strings.TrimSpace(os.Getenv("GROK_HOME"))
 	}
 	scope, err = filepath.Abs(scope)
 	if err != nil {

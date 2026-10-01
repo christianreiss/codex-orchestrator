@@ -69,6 +69,7 @@ interface EngineCase {
 const ENGINES: EngineCase[] = [
   { engine: "openai", prefix: "/admin/openai", label: "OpenAI" },
   { engine: "claude", prefix: "/admin/claude", label: "Claude" },
+  { engine: "grok", prefix: "/admin/grok", label: "Grok" },
 ];
 
 const CREATE_PAYLOAD: CreateApiKeyPayload = {

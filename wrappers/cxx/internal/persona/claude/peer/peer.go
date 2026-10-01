@@ -13,6 +13,7 @@ import (
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/fleetconfig"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/grok"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/layout"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/claude/orchestrator"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/claude/ui"
@@ -41,6 +42,9 @@ func Reconcile(ctx context.Context, cfg *config.Config, auth *orchestrator.AuthR
 	if !ok {
 		return
 	}
+	if err := grok.ReconcilePeer(ctx, cfg, engines, true); err != nil {
+		logger.Warn("Grok peer reconcile skipped", "err", err)
+	}
 	if hasEngine(engines, peerEngine) {
 		if err := installPeer(ctx, cfg, false, minimal, logger); err != nil {
 			logger.Warn("peer wrapper install skipped", "engine", peerEngine, "err", err)
@@ -60,6 +64,9 @@ func Reconcile(ctx context.Context, cfg *config.Config, auth *orchestrator.AuthR
 func EnsureForCron(ctx context.Context, cfg *config.Config, minimal bool, logger *slog.Logger) {
 	if os.Getenv(peerSpawnEnv) == "1" || os.Getenv(coordinatedCronEnv) == "1" {
 		return
+	}
+	if err := grok.ReconcilePeer(ctx, cfg, config.EnabledEngines(cfg.Host, cfg.Engine), false); err != nil {
+		logger.Warn("Grok peer cron ensure skipped", "err", err)
 	}
 	// Authoritative engine state lives on the server. The locally-cached config
 	// (cfg.Host.Engines) can be stale when an operator enables the peer engine

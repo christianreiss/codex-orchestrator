@@ -49,7 +49,7 @@ export class OpenAiKeyService {
     const engine: Engine = input.engine ?? ENGINE_CODEX;
 
     const raw = randomBytes(32).toString('hex');
-    const key = `${OPENAI_KEY_PREFIX}${raw}`;
+    const key = `${({ codex: OPENAI_KEY_PREFIX, claude: 'sk-ant-', grok: 'sk-cgx-' } satisfies Record<Engine, string>)[engine]}${raw}`;
     const keyHash = sha256(key);
     const keyEnc = encryptSecret(key, this.deps.keyring);
     const prefix = `${key.slice(0, 16)}...`;

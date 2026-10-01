@@ -130,6 +130,13 @@ function fakeHost(): Host {
     claudeModelOverride: 'claude-3-opus',
     claudeReasoningEffortOverride: null,
     claudeLastRefresh: null,
+    grokClientVersion: null,
+    grokClientVersionOverride: null,
+    grokWrapperVersion: null,
+    grokAuthDigest: null,
+    grokModelOverride: null,
+    grokReasoningEffortOverride: null,
+    grokLastRefresh: null,
     configVersion: 4,
     wrapperTrack: 'v2',
     createdAt: '2026-05-01T00:00:00Z',
@@ -151,6 +158,7 @@ function fakeDb(): Database {
     skills: [
       { slug: 'codex-skill', sha256: 'd'.repeat(64), deletedAt: null, engine: 'codex' },
       { slug: 'claude-skill', sha256: 'e'.repeat(64), deletedAt: null, engine: 'claude' },
+      { slug: 'grok-skill', sha256: 'f'.repeat(64), deletedAt: null, engine: 'grok' },
     ],
   };
 
@@ -266,7 +274,7 @@ const CLOSED = [
 ];
 
 describe('baked wrapper config against host-config-v1.json', () => {
-  for (const engine of ['codex', 'claude'] as const) {
+  for (const engine of ['codex', 'claude', 'grok'] as const) {
     it(`emits only declared keys for engine=${engine}`, async () => {
       const diff = diffAgainstSchema(await bake(engine));
       expect(diff.visited.sort()).toEqual([...CLOSED].sort());

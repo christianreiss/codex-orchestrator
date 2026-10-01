@@ -28,7 +28,7 @@ import {
 } from '../../db/schema.js';
 import { ConflictError, NotFoundError } from '../../http/errors.js';
 import type { Keyring } from '../../security/keyring.js';
-import { ENGINE_CLAUDE, ENGINE_CODEX, type Engine } from '../../util/engine.js';
+import { ENGINES, type Engine } from '../../util/engine.js';
 import { isoOffsetSeconds, nowIso } from '../../util/timestamp.js';
 import { isTruthyFlagValue } from '../settings.js';
 import { wsPublisher } from '../../ws/publisher.js';
@@ -137,8 +137,8 @@ export class AgentMessagingAdmin {
         row.tokenExpiresAt > now,
       )
       : [];
-    const directions = [ENGINE_CODEX, ENGINE_CLAUDE].flatMap((sourceEngine) =>
-      [ENGINE_CODEX, ENGINE_CLAUDE].map((targetEngine) => {
+    const directions = ENGINES.flatMap((sourceEngine) =>
+      ENGINES.map((targetEngine) => {
         const matching = directionRows.filter((row) => row.sourceEngine === sourceEngine && row.targetEngine === targetEngine);
         const value = (statuses: readonly string[]) => matching
           .filter((row) => statuses.includes(row.status))

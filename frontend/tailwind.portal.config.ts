@@ -25,6 +25,7 @@ const config = {
     // component utilities do not land in the portal bundle.
     "./src/lib/components/ui/{button,badge,textarea,separator,skeleton}/**/*.{svelte,ts}",
     "./src/lib/portal/**/*.ts",
+    "./src/lib/constants/engines.ts",
     // The timeline and presence components, shared with the console's /clients
     // page. They live under src/ so one implementation serves both surfaces;
     // without this glob the portal builds fine and renders them unstyled.

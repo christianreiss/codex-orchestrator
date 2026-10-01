@@ -5,9 +5,8 @@ import { fileURLToPath } from 'node:url';
 /**
  * Index of the Fastify routes `api/src/routes` registers, read out of the
  * source text: every route is an `app.get('/literal', …)`-style call or an
- * `app.route({ method: 'GET', url: '/literal', … })` object, and no module
- * registers under a `register` prefix — so the paths in the source are the
- * paths the app serves.
+ * `app.route({ method: 'GET', url: '/literal', … })` object. Most paths are literal. The Grok plugin mounts the shared OpenAI handlers
+ * under a literal prefix; that mount is expanded below from its source.
  *
  * Shared by the checks that hold a second source of truth against the app:
  * the admin UI call sites (`frontend-path-coverage.test.ts`), the route
@@ -178,6 +177,11 @@ export function collectRegisteredRoutes(): RegisteredRoute[] {
       const method = options === null ? null : METHOD_PROPERTY.exec(options);
       if (url && method) routes.push({ method: method[2]!.toUpperCase(), path: url[2]! });
     }
+  }
+  const grokMount = stripComments(readFileSync(join(API_ROUTES, 'grok-v1/index.ts'), 'utf8'));
+  const prefix = /app\.register\([\s\S]*?registerOpenAiCompatRoutes\([\s\S]*?prefix:\s*(['"])([^'"]+)\1/.exec(grokMount)?.[2];
+  if (prefix) {
+    routes.push(...routes.filter(route => route.path.startsWith('/v1/')).map(route => ({ ...route, path: `${prefix}${route.path}` })));
   }
   return routes;
 }

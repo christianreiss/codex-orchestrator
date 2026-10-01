@@ -531,3 +531,32 @@ export function logRetentionMutation(
     },
   });
 }
+
+/* Grok subscription gateway and fleet version controls. */
+export const grokStateQueryKey = ["settings", "grok-state"] as const;
+export const grokSettingsQueryKey = ["settings", "grok-settings"] as const;
+export function grokStateQuery() {
+  return createQuery<ApiStateValue>({ queryKey: grokStateQueryKey, queryFn: () => api.get<ApiStateValue>("/admin/grok/state") });
+}
+export function grokStateMutation(opts: MutationOpts<ApiStateValue, boolean> = {}) {
+  const qc = useQueryClient();
+  return createMutation<ApiStateValue, Error, boolean>({ mutationFn: makeToggle<ApiStateValue>("/admin/grok/state", "disabled"), ...opts, onSettled: (...args) => {
+    void qc.invalidateQueries({ queryKey: grokStateQueryKey });
+    void qc.invalidateQueries({ queryKey: ["keys", "grok", "state"] });
+    opts.onSettled?.(...args);
+  } });
+}
+export interface GrokGatewaySettings { default_model: string; disabled?: boolean }
+export function grokSettingsQuery() {
+  return createQuery<GrokGatewaySettings>({ queryKey: grokSettingsQueryKey, queryFn: () => api.get<GrokGatewaySettings>("/admin/grok/settings") });
+}
+export function grokSettingsMutation(opts: MutationOpts<GrokGatewaySettings, Pick<GrokGatewaySettings, "default_model">> = {}) {
+  const qc = useQueryClient();
+  return createMutation<GrokGatewaySettings, Error, Pick<GrokGatewaySettings, "default_model">>({ mutationFn: (value) => api.post<GrokGatewaySettings>("/admin/grok/settings", value), ...opts, onSettled: (...args) => { void qc.invalidateQueries({ queryKey: grokSettingsQueryKey }); opts.onSettled?.(...args); } });
+}
+export const grokVersionsQuery = claudeVersionsQuery;
+export const grokVersionsCheckMutation = claudeVersionsCheckMutation;
+export function grokVersionMutation(opts: MutationOpts<ClaudeVersionLockValue, string> = {}) {
+  const qc = useQueryClient();
+  return createMutation<ClaudeVersionLockValue, Error, string>({ mutationFn: (selection) => api.post<ClaudeVersionLockValue>("/admin/grok/version", { selection }), ...opts, onSettled: (...args) => { void qc.invalidateQueries({ queryKey: versionsCheckQueryKey }); opts.onSettled?.(...args); } });
+}

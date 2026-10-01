@@ -15,7 +15,7 @@ description: "${DESCRIPTION}"
 
 Use the orchestrator MCP Skill tools when the user asks how Skill management works or
 asks to create, modify, or delete a Skill. On a fleet host, an unqualified "Skill"
-means the shared canonical Skill seen by every host and both engines; it is not a
+means the shared canonical Skill seen by every host and all three engines; it is not a
 host-local scratch change. Do not invoke or consult Codex's built-in \`skill-creator\`
 for this workflow.
 

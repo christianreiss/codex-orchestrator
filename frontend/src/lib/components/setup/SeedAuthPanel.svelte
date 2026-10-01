@@ -4,6 +4,7 @@
 </script>
 
 <script lang="ts">
+  import { engineLabel } from "$lib/constants/engines";
   /**
    * Canonical provider-auth seeding, without any container chrome.
    *
@@ -64,7 +65,7 @@
 
   let {
     accountId, accountLabel, accountManagement = false,
-    allowedEngines = ["codex", "claude"],
+    allowedEngines = ["codex", "claude", "grok"],
     defaultEngine = "codex",
     runnerHealthy = true,
     footer,
@@ -161,7 +162,7 @@
       result = { engine, state };
       invalidateSetup(qc);
 
-      const name = engine === "codex" ? "Codex" : "Claude";
+      const name = engineLabel(engine);
       if (state === "verified") {
         toast.success(`${name} credentials verified`);
         onStored?.("verified");
@@ -209,12 +210,12 @@
   {#if allowedEngines.length > 1}
     <div class="space-y-2">
       <Label id="{idPrefix}-engine-label">Engine</Label>
-      <div role="radiogroup" aria-labelledby="{idPrefix}-engine-label" class="grid grid-cols-2 gap-2">
+      <div role="radiogroup" aria-labelledby="{idPrefix}-engine-label" class="grid grid-cols-1 gap-2 sm:grid-cols-3">
         {#each allowedEngines as option (option)}
           <ChoiceCard
             id="{idPrefix}-{option}"
             size="sm"
-            title={option === "codex" ? "Codex" : "Claude"}
+            title={engineLabel(option)}
             checked={engine === option}
             onSelect={() => (engine = option)}
           />
@@ -245,7 +246,7 @@
     class="mb-4"
   >
     <AlertTitle>
-      {result.engine === "codex" ? "Codex" : "Claude"} credentials
+      {engineLabel(result.engine)} credentials
       {result.state === "verified"
         ? "verified"
         : result.state === "failed"
@@ -315,20 +316,24 @@
     {:else}
       <div class="space-y-1.5">
         <Label for="seed-upload-payload">
-          {engine === "codex" ? "ChatGPT session auth JSON" : "Canonical Claude auth JSON or API key"}
+          {engine === "codex" ? "ChatGPT session auth JSON" : engine === "grok" ? "Grok subscription login JSON" : "Canonical Claude auth JSON or API key"}
         </Label>
         <Textarea
           id="seed-upload-payload"
           class="h-40 font-mono text-xs"
           placeholder={engine === "codex"
             ? '{ "tokens": { "access_token": "…", "refresh_token": "…" }, … }'
-            : '{ "claudeAiOauth": { "accessToken": "sk-ant-oat…" } }'}
+            : engine === "grok" ? '{ "https://auth.x.ai::b1a00492-073a-47ea-816f-4c329264a828": { "auth_mode": "oidc", "key": "<access-token>", "refresh_token": "<refresh-token>", "oidc_issuer": "https://auth.x.ai", "oidc_client_id": "b1a00492-073a-47ea-816f-4c329264a828", "expires_at": "2026-10-01T11:00:00Z", "create_time": "2026-10-01T10:00:00Z", "user_id": "<user-id>" } }' : '{ "claudeAiOauth": { "accessToken": "sk-ant-oat…" } }'}
           bind:value={payload}
         />
         {#if engine === "codex"}
           <p class="text-xs text-muted-foreground">
             Paste the contents of <code class="font-mono">~/.codex/auth.json</code> from a
             ChatGPT-authenticated session. These tokens are machine-generated, never hand-typed.
+          </p>
+        {:else if engine === "grok"}
+          <p class="text-xs text-muted-foreground">
+            Paste the full <code class="font-mono">~/.grok/auth.json</code> from <code class="font-mono">grok login</code>. Subscription login credentials include refresh material; an xAI API key or access token alone is not accepted.
           </p>
         {:else}
           <p class="text-xs text-muted-foreground">

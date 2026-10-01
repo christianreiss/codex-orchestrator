@@ -48,7 +48,7 @@ import type { Keyring } from '../security/keyring.js';
 import { isTruthyFlagValue, SettingsService } from './settings.js';
 import { isFreshPresenceTimestamp } from './agent-presence.js';
 import { isoOffsetSeconds, nowIso, parseIso, parseRfc3339Millis } from '../util/timestamp.js';
-import { ENGINE_CLAUDE, ENGINE_CODEX, type Engine } from '../util/engine.js';
+import { isEngine, type Engine } from '../util/engine.js';
 import { wsPublisher } from '../ws/publisher.js';
 import { hostEnginesList } from './host-engine-policy.js';
 import { releaseAgentMessagingBindingsLocked } from './agent-messaging.js';
@@ -584,8 +584,8 @@ export class AgentPortalService {
   async registerAgent(host: Host, input: RegisterAgentInput): Promise<{ enabled: true; session_id: string; bridge_token: string; expires_at: string } | { enabled: false }> {
     const username = normalizeRequiredText(input.username, 'username', 255);
     const cwd = normalizeRequiredText(input.cwd, 'cwd', 1024);
-    if (input.engine !== ENGINE_CODEX && input.engine !== ENGINE_CLAUDE) {
-      throw new ValidationError('engine must be codex or claude', { param: 'engine' });
+    if (!isEngine(input.engine)) {
+      throw new ValidationError('engine must be codex, claude or grok', { param: 'engine' });
     }
     const sessionId = input.sessionId ? normalizeUuid(input.sessionId, 'session_id') : randomUUID();
     const bridgeToken = input.bridgeToken ? normalizeBridgeToken(input.bridgeToken) : randomBytes(32).toString('base64url');

@@ -1,5 +1,6 @@
 <script lang="ts">
   import { base } from "$app/paths";
+  import { engineLabel } from "$lib/constants/engines";
   import type { VersionDistribution } from "$lib/api/overview";
   import ArrowUpRight from "@lucide/svelte/icons/arrow-up-right";
   import { Skeleton } from "$lib/components/ui/skeleton";
@@ -9,7 +10,12 @@
     loading?: boolean;
   } = $props();
 
-  const segments = $derived(distribution?.install ? [
+  const segments = $derived(distribution?.install_combinations ? distribution.install_combinations.map((item) => ({
+    label: item.engines.length ? item.engines.map(engineLabel).join(" + ") : "No version reported",
+    count: item.count,
+    color: item.engines.length > 1 ? "bg-primary" : item.engines[0] === "grok" ? "bg-persona-grok" : item.engines[0] === "claude" ? "bg-persona-claude" : item.engines[0] === "codex" ? "bg-persona-codex" : "bg-muted-foreground/40",
+    dot: item.engines.length > 1 ? "bg-primary" : item.engines[0] === "grok" ? "bg-persona-grok" : item.engines[0] === "claude" ? "bg-persona-claude" : item.engines[0] === "codex" ? "bg-persona-codex" : "bg-muted-foreground",
+  })) : distribution?.install ? [
     { label: "Both engines", count: distribution.install.both, color: "bg-primary", dot: "bg-primary" },
     { label: "Codex only", count: distribution.install.codex_only, color: "bg-persona-codex", dot: "bg-persona-codex" },
     { label: "Claude only", count: distribution.install.claude_only, color: "bg-persona-claude", dot: "bg-persona-claude" },

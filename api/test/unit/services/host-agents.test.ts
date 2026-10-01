@@ -114,6 +114,18 @@ function clxAuthHeader(partial: Record<string, unknown>): string {
 }
 
 describe('HostAgentsService.retrieve', () => {
+  it.each([false, true])('gates Grok MCP skills on its persisted config (MCP=%s)', async mcp => {
+    const db = makeDb([[agentsDocuments, [agentsRow(4, 'Grok policy\n', 'grok')]], [clientConfigDocuments, [configRow(1, 'grok', { orchestrator_mcp_enabled: mcp })]]]);
+    const service = makeService(db);
+    const out = await service.retrieve(null, makeHost({ engines: 'grok', status: 'active' }), 'grok');
+    expect(out['sections']).toMatchObject({ skills: { present: mcp, ...(mcp ? { transport: 'mcp' } : { reason: 'mcp_disabled' }) }, memories: { present: mcp } });
+    expect(out['content']).not.toContain('~/.claude/skills/');
+  });
+  it('keeps Grok managed capabilities disabled while only another engine has persisted defaults', async () => {
+    const db = makeDb([[agentsDocuments, [agentsRow(4, 'Grok policy\n', 'grok')]], [clientConfigDocuments, [configRow(1, 'codex', { orchestrator_mcp_enabled: true })]]]);
+    const out = await makeService(db).retrieve(null, makeHost({ engines: 'grok', status: 'active' }), 'grok');
+    expect(out['sections']).toMatchObject({ skills: { present: false, reason: 'config_missing' }, memories: { present: false, reason: 'config_missing' } });
+  });
   it('renders the current effective document for admin preview without creating sync telemetry', async () => {
     const body = 'Canonical AGENTS body\n';
     const db = makeDb([

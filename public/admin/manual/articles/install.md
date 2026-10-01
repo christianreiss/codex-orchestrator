@@ -5,6 +5,9 @@ verified: 2026-09-09
 sources: README.md, bin/install.sh, docker-compose.yml, caddy/Caddyfile, api/src/env.ts, api/src/server.ts, api/src/db/schema.ts, api/src/db/baseline/schema.sql, api/src/routes/health.ts, api/src/routes/admin/setup/index.ts, api/src/services/setup-status.ts, api/src/services/setup-wizard.ts, api/src/services/admin-users.ts, api/src/services/wrapper-signing-key.ts, api/src/services/wrapper-bin-registry.ts, api/src/security/keyring.ts, api/src/ops/setup-signing-key.ts, frontend/src/routes/setup/+page.svelte, frontend/src/lib/components/setup/SeedAuthPanel.svelte, frontend/src/routes/dashboard/OnboardingCard.svelte, wrappers/Makefile
 ---
 
+Grok Build is supported as the third engine (`cgx`); see [Grok Build](cgx) for
+subscription login, centralized renewal, native receiver, and gateway details.
+
 Orchestrator ships as a Docker Compose stack: the Node API, MySQL 8.4, the auth runner, and Caddy as the TLS/reverse proxy. `bin/install.sh` walks you through first-time configuration and brings up the stack.
 
 ## Stack overview

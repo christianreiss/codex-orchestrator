@@ -250,3 +250,25 @@ describe('createAuthTrafficVerifier', () => {
     expect(executes).toHaveLength(0);
   });
 });
+
+
+describe('Grok traffic verification', () => {
+  it('credits the exact renewed account using only its access-only projection', async () => {
+    const { db, updates } = recordingDb();
+    const head = { ...row(31), engine: 'grok', accountId: 42 } as CanonicalPayloadRow;
+    const resolve = vi.fn(async () => head);
+    const decode = vi.fn(() => { throw new Error('full refresh credentials must not be decoded'); });
+    const verifier = createAuthTrafficVerifier({
+      db, engine: 'grok',
+      runnerValidation: { resolveCanonicalPayload: resolve, canonicalAuthFromPayload: decode } as unknown as RunnerValidationService,
+      snapshotProvider: async () => ({ row: head, auth: { grok_auth: { selected: { auth_mode: 'external', key: 'access-only' } } } }),
+    });
+    const snapshot = await verifier.getAuthSnapshot();
+    expect(JSON.stringify(snapshot)).not.toContain('refresh_token');
+    verifier.recordExecSuccess(snapshot);
+    await settle();
+    expect(resolve).toHaveBeenCalledWith('grok', 42);
+    expect(decode).not.toHaveBeenCalled();
+    expect(updates).toHaveLength(1);
+  });
+});

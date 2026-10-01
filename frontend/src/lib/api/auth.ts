@@ -18,7 +18,7 @@ import {
 import { api, ApiError } from "./client";
 import { hostsKeys } from "./hosts";
 
-export type AuthEngine = "codex" | "claude";
+export type AuthEngine = "codex" | "claude" | "grok";
 
 export interface SeedCommandResponse {
   status?: string;

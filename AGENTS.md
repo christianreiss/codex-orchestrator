@@ -1,6 +1,6 @@
 # Agents & Responsibilities
 
-Source-of-truth references live in `docs/interface-api.md`, `docs/interface-db.md`, `docs/interface-cdx.md`, and `docs/interface-clx.md`. Keep them in lock-step with code. This service keeps multiple provider accounts per engine for the whole fleet, each with an independent canonical auth head and quota snapshots. Account leases balance new CLI launches while preserving active native sessions; every auth change needs a paper trail.
+Source-of-truth references live in `docs/interface-api.md`, `docs/interface-db.md`, `docs/interface-cdx.md`, `docs/interface-clx.md`, and `docs/interface-cgx.md`. Keep them in lock-step with code. This service keeps multiple provider accounts per engine for the whole fleet, each with an independent canonical auth head and quota snapshots. Account leases balance new CLI launches while preserving active native sessions; every auth change needs a paper trail.
 
 ## Backend stack
 
@@ -16,17 +16,17 @@ The HTTP layer is a **Node 22 + Fastify 5 + Drizzle + TypeScript** server rooted
 
 ## Multi-Engine Architecture
 
-The orchestrator supports two engines: **Codex** (OpenAI) and **Claude** (Anthropic). A host can have one or both.
-- `cdx` manages Codex and `clx` manages Claude Code; both are relative aliases to the same installed `cxx` binary.
-- Skills, `AGENTS.md` / `CLAUDE.md`, and MCP are shared across both engines by default (per-engine filename via the engine constants).
+The orchestrator supports three engines: **Codex** (OpenAI), **Claude** (Anthropic), and **Grok Build** (xAI subscription). A host can have any nonempty subset.
+- `cdx` manages Codex, `clx` manages Claude Code, and `cgx` manages Grok Build; all three are relative aliases to the same installed `cxx` binary.
+- Skills, `AGENTS.md` / `CLAUDE.md` / Grok `AGENTS.md`, and MCP are shared across all three engines by default (per-engine filename via the engine constants).
 - Auth, config, and CLI binaries are engine-specific.
 - The `engine` column/parameter appears throughout the API for routing.
-- `ENGINE_CODEX = 'codex'`, `ENGINE_CLAUDE = 'claude'` (see `api/src/util/engine.ts`).
+- `ENGINE_CODEX = 'codex'`, `ENGINE_CLAUDE = 'claude'`, `ENGINE_GROK = 'grok'` (see `api/src/util/engine.ts`).
 - Runner state, canonical auth payloads, runner refresh triggers, admin API-disable toggles, key-service listings, and installer scripts are all engine-scoped. When adding a feature that touches any of those, branch per engine instead of silently defaulting to Codex.
 
-## Dual-engine parity (kept current)
+## Engine parity (kept current)
 
-Treat Codex (`cdx`) as canonical and Claude (`clx`) as parity target. Before landing any engine-agnostic feature, add both paths. Intentional deltas (documented, not implemented for Claude) are:
+Before landing an engine-agnostic feature, add Codex (`cdx`), Claude (`clx`), and Grok (`cgx`) paths. Grok uses modern subscription OIDC only, with centrally owned refresh and access-only runtime projections; consult `docs/interface-cgx.md` for ownership, isolation, and receiver contracts. Intentional deltas (documented, not implemented for Claude) are:
 - ChatGPT quota lanes / `--lane` / `POST /host/lane` — Codex/ChatGPT-only concept. The Spark lane itself is retired (2026-09-29): `spark` heals to a cleared preference.
 - Effort naming and persistence differ by engine: Codex writes `model_reasoning_effort` to `config.toml`, while Claude Code writes `effortLevel` to `settings.json`. Do not send the Codex key to Claude or confuse either CLI setting with the Anthropic API's `effort` request parameter.
 - Device-code CLI login (`/cli/auth/*`) — Claude Code accepts `ANTHROPIC_API_KEY` directly; the wrapper syncs credentials.
@@ -67,7 +67,7 @@ Conversely, some features are **Claude-only** (`clx`) because Codex has no on-di
 - Schema change ⇒ add `api/src/db/migrations/NNNN_*.sql` (idempotent) **and** update `schema.ts` in the same commit. The migration runner applies it on boot and in `scripts/deploy.sh`; never hand-pipe SQL into the mysql container, and never edit an already-applied migration when a new number will do.
 - Never lose `AUTH_ENCRYPTION_KEY`; secretbox protects API keys + auth payloads. Bootstrapped into `.env` if missing.
 - API kill switch (`/admin/api/state`) blocks every route except `/admin/api/state`.
-- When AGENTS/cdx/clx behavior changes, also update `docs/interface-*.md`, dashboard copy, and wrapper code as needed.
+- When AGENTS/cdx/clx/cgx behavior changes, also update `docs/interface-*.md`, dashboard copy, and wrapper code as needed.
 - Quota tracking supports both ChatGPT (Codex) and Claude usage quotas. The admin dashboard shows per-engine usage breakdowns.
 
 ## Repo Snapshot
@@ -125,9 +125,9 @@ Conversely, some features are **Claude-only** (`clx`) because Codex has no on-di
 - Pruning runs on register/auth flows and admin stale-host passes: removes expired hosts, inactive hosts (`inactivity_window_days`, default 30, max 60, 0 disables inactivity pruning), and never-provisioned hosts older than 30 minutes; logs `host.pruned`.
 - ChatGPT snapshots use the `ChatGptUsageService` (`api/src/services/chatgpt-usage.ts`) with 5-minute minimum refresh cadence; errors/success log under `chatgpt.usage`.
 
-## Wrappers (cdx / clx)
+## Wrappers (cdx / clx / cgx)
 
-- Source: `wrappers/cxx/`. One static Go binary is compiled per platform; invocation as the `cdx` or `clx` relative symlink selects that persona, while direct invocation requires `cxx codex ...` or `cxx claude ...`.
+- Source: `wrappers/cxx/`. One static Go binary is compiled per platform; invocation as the `cdx`, `clx`, or `cgx` relative symlink selects that persona, while direct invocation requires `cxx codex ...` or `cxx claude ...` or `cxx grok ...`.
 - Boot flow:
   - Acquires a run lock (unless `--allow-concurrent-sync`), reads and verifies its signed per-host JSON config (Ed25519 detached signature), syncs auth via `/auth`, prunes legacy prompt state, then syncs skills / `AGENTS.md` / config before launch.
   - Treats `cdx`/MCP as the Skill interface: read Skills through MCP `resource_read` on `skill://{slug}`.

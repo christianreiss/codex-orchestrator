@@ -91,7 +91,7 @@ var runNativeAdapter = func(c *relayClient, ctx context.Context, cfg *config.Con
 func RunWorker(parent context.Context, version string, stdout, stderr io.Writer) error {
 	ctx, stop := signal.NotifyContext(parent, os.Interrupt, syscall.SIGTERM)
 	var authWatchDone sync.WaitGroup
-	for _, engine := range []string{config.EngineCodex, config.EngineClaude} {
+	for _, engine := range []string{config.EngineCodex, config.EngineClaude, config.EngineGrok} {
 		authWatchDone.Add(1)
 		go func() { defer authWatchDone.Done(); runPersistentAuthWatch(ctx, engine, slog.Default()) }()
 	}
@@ -154,7 +154,7 @@ func loadMessagingConfigs() (map[string]*config.Config, *config.Config, error) {
 	}
 	loaded := map[string]*config.Config{}
 	var loadErrors []error
-	for _, engine := range []string{config.EngineCodex, config.EngineClaude} {
+	for _, engine := range []string{config.EngineCodex, config.EngineClaude, config.EngineGrok} {
 		path, pathErr := config.DefaultPathForEngine(engine)
 		if pathErr != nil {
 			loadErrors = append(loadErrors, pathErr)
@@ -173,7 +173,7 @@ func loadMessagingConfigs() (map[string]*config.Config, *config.Config, error) {
 		loaded[engine] = cfg
 	}
 	var seed *config.Config
-	for _, engine := range []string{config.EngineCodex, config.EngineClaude} {
+	for _, engine := range []string{config.EngineCodex, config.EngineClaude, config.EngineGrok} {
 		if loaded[engine] != nil {
 			seed = loaded[engine]
 			break
@@ -233,7 +233,7 @@ func (c *relayClient) register(ctx context.Context, username, instanceID, versio
 	var out relayRegistration
 	err := doJSON(ctx, c.http, c.baseURL, http.MethodPost, "/host/agent-relays/register", map[string]any{
 		"username": username, "instance_id": instanceID, "wrapper_version": version,
-		"capabilities": map[string]any{"headless": true, "codex_exec_resume": true, "claude_print_resume": true},
+		"capabilities": map[string]any{"headless": true, "codex_exec_resume": true, "claude_print_resume": true, "grok_json_resume": true},
 	}, map[string]string{"X-API-Key": c.apiKey}, &out)
 	if err != nil {
 		return nil, err
@@ -373,11 +373,37 @@ func (c *relayClient) runNative(ctx context.Context, cfg *config.Config, deliver
 	engine := stringArg(delivery.Target, "engine")
 	args := nativeArgs(engine, upstream)
 	prompt := peerPrompt(delivery)
+	if engine == config.EngineGrok {
+		file, err := os.CreateTemp("", "cxx-grok-delivery-*.txt")
+		if err != nil {
+			result.Err = err
+			return result
+		}
+		defer os.Remove(file.Name())
+		if err := file.Chmod(0o600); err != nil {
+			file.Close()
+			result.Err = err
+			return result
+		}
+		if _, err := file.WriteString(prompt); err != nil {
+			file.Close()
+			result.Err = err
+			return result
+		}
+		if err := file.Close(); err != nil {
+			result.Err = err
+			return result
+		}
+		args = append(args, "--prompt-file", file.Name())
+	}
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	cmd := exec.CommandContext(runCtx, exe, args...)
 	cmd.Dir = stringArg(delivery.Target, "cwd")
 	cmd.Stdin = strings.NewReader(prompt)
+	if engine == config.EngineGrok {
+		cmd.Stdin = nil
+	}
 	var output tailBuffer
 	var diagnostic tailBuffer
 	output.limit, diagnostic.limit = workerOutputLimit, 256*1024
@@ -454,6 +480,13 @@ func nativeArgs(engine, upstream string) []string {
 		}
 		return append(args, "--json", "--skip-git-repo-check", "-")
 	}
+	if engine == config.EngineGrok {
+		args = append(args, "--no-leader", "--output-format", "json")
+		if upstream != "" {
+			args = append(args, "--resume", upstream)
+		}
+		return args
+	}
 	if upstream != "" {
 		// Use the wrapper's resume subcommand. Passing --resume after `run`
 		// would be consumed as a wrapper-owned flag and turn the preceding `run`
@@ -509,6 +542,18 @@ func peerPrompt(delivery *relayDelivery) string {
 }
 
 func parseNativeOutput(engine string, raw []byte) (reply, sessionID string) {
+	if engine == config.EngineGrok {
+		var result struct {
+			Text       string `json:"text"`
+			SessionID  string `json:"sessionId"`
+			Type       string `json:"type"`
+			StopReason string `json:"stopReason"`
+		}
+		if json.Unmarshal(bytes.TrimSpace(raw), &result) == nil && result.Type != "error" && result.StopReason != "" {
+			return result.Text, result.SessionID
+		}
+		return "", ""
+	}
 	if engine == config.EngineClaude {
 		var result struct {
 			Result    string `json:"result"`

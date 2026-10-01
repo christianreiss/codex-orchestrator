@@ -48,7 +48,7 @@ export class AgentReceiverService {
     input: { generation: string; protocol: ReceiverState['protocol']; native_session_id: string },
   ) {
     const auth = await this.authenticate(id, token);
-    if ((auth.engine === 'codex') !== (input.protocol === 'codex-queue-v1'))
+    if ({ codex: 'codex-queue-v1', claude: 'claude-channel-v1', grok: 'grok-acp-v1' }[auth.engine] !== input.protocol)
       throw new ForbiddenError('Receiver engine mismatch', 'receiver_engine_mismatch');
     const sources: ReceiverSource[] = [];
     if ((await this.messaging.isEnabled()) && auth.agentBusAddressId) sources.push('peer');

@@ -18,6 +18,7 @@ import type {
 const PREFIX: Record<ApiKeyEngine, string> = {
   openai: "/admin/openai",
   claude: "/admin/claude",
+  grok: "/admin/grok",
 };
 
 /** Stable query keys; mirrors the WS invalidation entries in `lib/ws/events.ts`. */
@@ -50,7 +51,7 @@ export const keysApi = {
 
 /** Pretty label for the engine — used by toast copy + section headers. */
 export function engineLabel(engine: ApiKeyEngine): string {
-  return engine === "openai" ? "OpenAI" : "Claude";
+  return engine === "openai" ? "OpenAI" : engine === "grok" ? "Grok" : "Claude";
 }
 
 /** Coerce DB-flavoured truthy values into a real boolean. */

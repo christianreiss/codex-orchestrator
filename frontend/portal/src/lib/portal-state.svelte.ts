@@ -1,3 +1,4 @@
+import { engineLabel } from "$lib/constants/engines";
 import type { Agent, EventRow, Phase, PortalUser } from "$lib/portal/types";
 import { livePresence, setPresenceTimings } from "$lib/portal/presence";
 import { notable, parseReadRecord, pruneReadRecord, PREFS_KEY, READ_KEY, shouldAdvanceRead, type ReadRecord } from "$lib/portal/unread";
@@ -236,7 +237,7 @@ export function createPortal() {
     }
 
     if (live && notable(event)) {
-      const label = agent ? `${agent.engine === "codex" ? "Codex" : "Claude"} · ${agent.host}` : "Fleet agents";
+      const label = agent ? `${engineLabel(agent.engine)} · ${agent.host}` : "Fleet agents";
       if (prefs.notify) notify(event, label, () => void select(event.session_id), Date.now());
       // Announced rather than only drawn: a timeline that grows in place tells
       // a screen reader nothing.

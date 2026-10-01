@@ -6,6 +6,9 @@ verified: 2026-09-09
 sources: README.md, api/src/server.ts, api/src/routes/admin/pages/static.ts, api/src/services/admin-auth.ts, api/src/http/plugins/auth-admin.ts, api/src/security/capabilities.ts, api/src/security/route-capabilities.ts, api/src/env.ts, frontend/src/lib/nav.ts, frontend/src/routes/+page.svelte, frontend/src/routes/setup/+page.svelte, frontend/src/routes/dashboard/+page.svelte, frontend/src/routes/logs/+layout.svelte, frontend/src/lib/components/layout/Sidebar.svelte, frontend/src/lib/components/layout/TopBar.svelte, frontend/src/lib/utils/shortcuts.ts, frontend/src/lib/components/shortcuts/ShortcutsModal.svelte, frontend/src/routes/+layout.svelte, wrappers/cxx
 ---
 
+Grok Build is supported as the third engine (`cgx`); see [Grok Build](cgx) for
+subscription login, centralized renewal, native receiver, and gateway details.
+
 Codex Orchestrator is a self-hosted service that keeps **OpenAI Codex** and **Anthropic Claude Code** in sync across every machine you own. You upload your credentials once, register each machine as a *host*, and the orchestrator then distributes encrypted auth payloads, pushes the shared agents document (`AGENTS.md` for Codex, `CLAUDE.md` for Claude), serves canonical skills through MCP, and surfaces ChatGPT quota state for operators. Each host gets its own API key delivered in signed per-engine config consumed by one `cxx` wrapper; relative `cdx` and `clx` aliases select the enabled persona without sharing a token across machines.
 
 This manual is the in-app operator reference. Every article is written from the live codebase — filenames in each *Source references* footer point at the exact code the article describes.

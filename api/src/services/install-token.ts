@@ -6,7 +6,7 @@ import { decryptOrNull } from '../security/secret-box.js';
 import { sha256 } from '../security/hash.js';
 import { nowIso } from '../util/timestamp.js';
 import type { Engine } from '../util/engine.js';
-import { ENGINE_CLAUDE, ENGINE_CODEX } from '../util/engine.js';
+import { ENGINE_CLAUDE, ENGINE_GROK, parseEngine } from '../util/engine.js';
 import { buildWrapperV2InstallerScript } from './wrapper-transition.js';
 
 /**
@@ -54,7 +54,7 @@ export interface InstallTokenDeps {
 }
 
 function asEngine(value: string | null | undefined): Engine {
-  return value === ENGINE_CLAUDE ? ENGINE_CLAUDE : ENGINE_CODEX;
+  return parseEngine(value);
 }
 
 function looksLikeSha256(value: string | null | undefined): boolean {
@@ -160,8 +160,8 @@ export function buildSeedAuthScript(opts: { baseUrl: string; token: string; engi
   }
   const postUrl = `${baseUrl}/seed/v2/auth/${token}`;
   const authPath =
-    opts.engine === ENGINE_CLAUDE ? '$HOME/.claude/.credentials.json' : '$HOME/.codex/auth.json';
-  const label = opts.engine === ENGINE_CLAUDE ? 'Claude credentials' : 'Codex auth.json';
+    opts.engine === ENGINE_CLAUDE ? '$HOME/.claude/.credentials.json' : opts.engine === ENGINE_GROK ? '$HOME/.grok/auth.json' : '$HOME/.codex/auth.json';
+  const label = opts.engine === ENGINE_CLAUDE ? 'Claude credentials' : opts.engine === ENGINE_GROK ? 'Grok subscription credentials' : 'Codex auth.json';
   const postUrlQ = shellQuote(postUrl);
   return `#!/bin/sh
 # Codex Orchestrator wrapper-v2 seed-auth uploader (${opts.engine}).

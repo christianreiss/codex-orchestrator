@@ -51,7 +51,9 @@ type BundleResponse struct {
 	// sidecar files), read by unwrapResources before Config is flattened to its
 	// body. Nil means the server sent none.
 	ConfigProfiles []ConfigProfile `json:"-"`
-	Sessions       *FleetSessions  `json:"sessions,omitempty"`
+	// Grok's TOML partial owns named paths while retaining user-authored settings.
+	ConfigOwnedPaths []string       `json:"-"`
+	Sessions         *FleetSessions `json:"sessions,omitempty"`
 }
 
 // FleetSessions is the historical response name for boot-screen sync activity
@@ -120,6 +122,12 @@ func (r *BundleResponse) unwrapResources() error {
 		return err
 	}
 	r.ConfigProfiles = profilesFromRaw(r.Config)
+	var metadata struct {
+		OwnedPaths []string `json:"owned_paths"`
+	}
+	if json.Unmarshal(r.Config, &metadata) == nil {
+		r.ConfigOwnedPaths = metadata.OwnedPaths
+	}
 	r.Config, err = resourceContent(r.Config)
 	if err != nil {
 		return err

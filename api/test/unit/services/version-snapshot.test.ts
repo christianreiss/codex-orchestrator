@@ -176,27 +176,34 @@ describe('version-snapshot', () => {
 });
 
 describe('applyHostVersionPolicy', () => {
-  it.each(['codex', 'claude'] as const)('applies host enable/disable/inherit for %s without losing its version pin', (engine) => {
-    for (const fleetEnabled of [true, false]) {
-      for (const override of [null, undefined, 0, 1]) {
-        const snapshot = {
-          auto_update_enabled: fleetEnabled,
-          client_version_override: null,
-          client_version_enforce_exact: false,
-        } as Parameters<typeof applyHostVersionPolicy>[0];
-        const result = applyHostVersionPolicy(snapshot, {
-          autoUpdateOverride: override,
-          clientVersionOverride: '0.132.0',
-          claudeClientVersionOverride: '2.1.200',
-        }, engine);
-        expect(result.auto_update_enabled).toBe(override == null ? fleetEnabled : override === 1);
-        expect(result.client_version_override).toBe(engine === 'claude' ? '2.1.200' : '0.132.0');
-        expect(result.client_version_enforce_exact).toBe(true);
-        expect(snapshot.auto_update_enabled).toBe(fleetEnabled);
-        expect(snapshot.client_version_override).toBeNull();
+  it.each(['codex', 'claude'] as const)(
+    'applies host enable/disable/inherit for %s without losing its version pin',
+    (engine) => {
+      for (const fleetEnabled of [true, false]) {
+        for (const override of [null, undefined, 0, 1]) {
+          const snapshot = {
+            auto_update_enabled: fleetEnabled,
+            client_version_override: null,
+            client_version_enforce_exact: false,
+          } as Parameters<typeof applyHostVersionPolicy>[0];
+          const result = applyHostVersionPolicy(
+            snapshot,
+            {
+              autoUpdateOverride: override,
+              clientVersionOverride: '0.132.0',
+              claudeClientVersionOverride: '2.1.200',
+            },
+            engine,
+          );
+          expect(result.auto_update_enabled).toBe(override == null ? fleetEnabled : override === 1);
+          expect(result.client_version_override).toBe(engine === 'claude' ? '2.1.200' : '0.132.0');
+          expect(result.client_version_enforce_exact).toBe(true);
+          expect(snapshot.auto_update_enabled).toBe(fleetEnabled);
+          expect(snapshot.client_version_override).toBeNull();
+        }
       }
-    }
-  });
+    },
+  );
 });
 
 /**
@@ -234,5 +241,66 @@ describe('applyHostClientVersionPin', () => {
     for (const host of [null, undefined, {}, { claudeClientVersionOverride: 'latest' }]) {
       expect(applyHostClientVersionPin(base, host, 'claude')).toBe(base);
     }
+  });
+});
+
+describe('Grok snapshot isolation', () => {
+  it('starts at the verified baseline and shares only wrapper metadata', async () => {
+    const service = createVersionSnapshotService({
+      db: makeDb([
+        { name: 'client_version', version: '0.137.0' },
+        { name: 'client_version_lock', version: '0.136.0' },
+        { name: 'runner_state', version: 'ok' },
+        { name: 'wrapper_version', version: '0.8.0' },
+      ]),
+      installationId: null,
+    });
+    expect(await service.summary('grok')).toMatchObject({
+      engine: 'grok',
+      client_version: '1.0.46',
+      client_version_override: null,
+      client_version_enforce_exact: false,
+      runner_state: null,
+      wrapper_version: '0.8.0',
+      cgx_silent: false,
+    });
+  });
+  it('reads only Grok latest metadata and runner state', async () => {
+    const fetched = '2026-10-01T09:00:00Z';
+    const refresh = async (engine: string) => {
+      expect(engine).toBe('grok');
+    };
+    const service = createVersionSnapshotService({
+      db: makeDb([
+        { name: 'client_version_grok', version: 'latest' },
+        {
+          name: 'github_release_grok-cli',
+          version: JSON.stringify({ name: 'grok-cli', version: '1.0.47', fetched_at: fetched }),
+        },
+        { name: 'github_release_codex-cli', version: JSON.stringify({ version: '0.137.0' }) },
+        { name: 'runner_state_grok', version: 'fail' },
+        { name: 'runner_state', version: 'ok' },
+        { name: 'cgx_silent', version: 'true' },
+      ]),
+      installationId: null,
+      refreshLatestClientVersion: refresh,
+    });
+    expect(await service.summary('grok')).toMatchObject({
+      client_version: '1.0.47',
+      client_version_fetched_at: fetched,
+      runner_state: 'fail',
+      cgx_silent: true,
+    });
+  });
+  it('layers a Grok host pin over its fleet snapshot without reading the Codex pin', async () => {
+    const snapshot = await createVersionSnapshotService({ db: makeDb([]), installationId: null }).summary(
+      'grok',
+    );
+    const host = { clientVersionOverride: '0.137.0', grokClientVersionOverride: '1.0.47' };
+    expect(applyHostClientVersionPin(snapshot, host, 'grok')).toMatchObject({
+      client_version_override: '1.0.47',
+      client_version_enforce_exact: true,
+    });
+    expect(applyHostClientVersionPin(snapshot, { clientVersionOverride: '0.137.0' }, 'grok')).toBe(snapshot);
   });
 });

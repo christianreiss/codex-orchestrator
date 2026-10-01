@@ -37,6 +37,8 @@
   // Live upstream latest versions (GitHub for Codex, npm for Claude), surfaced
   // by /admin/overview from the 1h-cached availableClientVersion lookup.
   const codexLatest = $derived($overview.data?.versions?.cdx_version_available ?? null);
+  const grokLatest = $derived($overview.data?.versions?.grok_version_available ?? null);
+  const grokChecked = $derived(checkedHint($overview.data?.versions?.grok_version_checked_at, $overview.data?.versions?.grok_version_stale));
   const claudeLatest = $derived($overview.data?.versions?.claude_version_available ?? null);
 
   // `stale` means the upstream fetch has been failing: the API keeps serving
@@ -112,7 +114,7 @@
     </Alert>
   {/if}
   <!-- Fleet + latest-version stat cards -->
-  <div class="grid grid-cols-1 gap-3 lg:grid-cols-3">
+  <div class="grid grid-cols-1 gap-3 lg:grid-cols-4">
     <StatCard
       label="Hosts"
       value={stats?.hosts ?? "—"}
@@ -124,7 +126,7 @@
       {/snippet}
       {#snippet breakdown()}
         <dl
-          class="grid grid-cols-2 divide-x divide-border/70 text-right leading-none"
+          class="grid grid-cols-3 divide-x divide-border/70 text-right leading-none"
           aria-label="Reported installations by engine"
           title="Hosts that reported an installed CLI version"
         >
@@ -142,6 +144,7 @@
             </dt>
             <dd class="mt-1 text-sm font-semibold tabular-nums">{installs?.claude ?? "—"}</dd>
           </div>
+          <div class="min-w-14 pl-2"><dt class="flex items-center justify-end gap-1 text-[10px] font-medium text-muted-foreground"><span class="h-1.5 w-1.5 rounded-full bg-persona-grok" aria-hidden="true"></span>Grok</dt><dd class="mt-1 text-sm font-semibold tabular-nums">{installs?.grok ?? "—"}</dd></div>
         </dl>
       {/snippet}
     </StatCard>
@@ -165,13 +168,14 @@
         <Bot class="h-4 w-4" />
       {/snippet}
     </StatCard>
+    <StatCard label="Grok latest" value={grokLatest ?? "—"} hint={grokChecked} loading={$overview.isPending}>{#snippet icon()}<Bot class="h-4 w-4" />{/snippet}</StatCard>
   </div>
 
   <FleetCoverage distribution={$overview.data?.version_distribution} loading={$overview.isPending} />
 
   <!-- Usage + runner cards -->
   <div class="grid grid-cols-1 gap-4 xl:grid-cols-2">
-    {#if $accounts.data?.accounts.length}
+    {#if $accounts.data?.accounts?.length}
       <AccountUsageCards accounts={$accounts.data.accounts} />
     {:else}
       <ChatGptUsageCard />

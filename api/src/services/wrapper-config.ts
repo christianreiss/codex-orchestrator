@@ -10,7 +10,7 @@ import {
   type Host,
 } from '../db/schema.js';
 import type { Database } from '../db/client.js';
-import type { Engine } from '../util/engine.js';
+import { ENGINE_HOST_FIELDS, ENGINES, type Engine } from '../util/engine.js';
 import { isoOffsetSeconds } from '../util/timestamp.js';
 import { decryptOrNull } from '../security/secret-box.js';
 import type { Keyring } from '../security/keyring.js';
@@ -211,9 +211,8 @@ const MESSAGING_INSECURE_MIN_WRAPPER = [0, 7, 8];
  * engine has not checked in yet.
  */
 function reportedWrapperVersion(host: Host, engine: Engine): string | null {
-  const own = engine === 'claude' ? host.claudeWrapperVersion : host.wrapperVersion;
-  const peer = engine === 'claude' ? host.wrapperVersion : host.claudeWrapperVersion;
-  return (own ?? '').trim() === '' ? peer : own;
+  const own = host[ENGINE_HOST_FIELDS[engine].wrapperVersion];
+  return (own ?? '').trim() === '' ? ENGINES.map(peer => host[ENGINE_HOST_FIELDS[peer].wrapperVersion]).find(version => (version ?? '').trim() !== '') ?? null : own;
 }
 
 export function wrapperAcceptsInsecureMessaging(reported: string | null | undefined): boolean {
@@ -335,6 +334,7 @@ export function createWrapperConfigService(deps: WrapperConfigDeps): WrapperConf
     engine: Engine,
     opts: { silent: boolean; adminTheme: string | null },
   ): Record<string, unknown> {
+    if (engine === 'grok') return { silent: opts.silent, model_override: host.grokModelOverride ?? null, reasoning_effort_override: host.grokReasoningEffortOverride ?? null, grok_model_override: host.grokModelOverride ?? null, grok_reasoning_effort_override: host.grokReasoningEffortOverride ?? null, admin_theme_hint: opts.adminTheme };
     if (engine === 'claude') {
       return {
         silent: opts.silent,

@@ -6,7 +6,7 @@ import { ServiceUnavailableError, ValidationError } from '../http/errors.js';
 import type { Env } from '../env.js';
 import type { RunnerValidationService } from './runner-validation.js';
 import type { CanonicalAuthStoreService } from './canonical-auth-store.js';
-import { ENGINE_CLAUDE, ENGINE_CODEX, parseEngine, type Engine } from '../util/engine.js';
+import { ENGINE_CLAUDE, ENGINE_CODEX, ENGINE_GROK, ENGINE_LABELS, parseEngine, type Engine } from '../util/engine.js';
 import type { Database } from '../db/client.js';
 import { authSeedTokens, versions } from '../db/schema.js';
 import { isoOffsetSeconds, nowIso } from '../util/timestamp.js';
@@ -29,6 +29,7 @@ export interface RunnerStatus {
   engines?: {
     codex: RunnerEngineStatus;
     claude: RunnerEngineStatus;
+    grok: RunnerEngineStatus;
   };
 }
 
@@ -231,7 +232,7 @@ export class RunnerProxyService {
     const validated = row ? validation.validateCanonicalPayload(row) : null;
     const auth = row ? validation.canonicalAuthFromPayload(row) : null;
     if (!row || !validated || !auth) {
-      const label = engine === ENGINE_CLAUDE ? 'Claude' : 'Codex';
+      const label = ENGINE_LABELS[engine];
       const detail = `${label} canonical auth payload unavailable or invalid`;
       return { status: 'fail', engine, reason: detail, detail, probed: false };
     }
@@ -241,7 +242,7 @@ export class RunnerProxyService {
       engine,
       hostId: null,
       row,
-      auth,
+      auth: engine === ENGINE_GROK ? validated.auth : auth,
       digest: validated.digest,
       lastRefresh: validated.last_refresh,
       // An operator pressing "run verification" is asking for a live answer,
@@ -311,9 +312,10 @@ export class RunnerProxyService {
 
   private async readPersistedStatus(): Promise<Partial<RunnerStatus>> {
     const map = await this.deps.readTelemetry();
-    const [codexAuth, claudeAuth] = await Promise.all([
+    const [codexAuth, claudeAuth, grokAuth] = await Promise.all([
       this.canonicalStatus(ENGINE_CODEX),
       this.canonicalStatus(ENGINE_CLAUDE),
+      this.canonicalStatus(ENGINE_GROK),
     ]);
     const codexCanonical = codexAuth.verified;
     const claudeCanonical = claudeAuth.verified;
@@ -325,20 +327,22 @@ export class RunnerProxyService {
     );
     codex.login_expiry = codexAuth.expiry;
     claude.login_expiry = claudeAuth.expiry;
-    const state = codex.state === 'fail' || claude.state === 'fail'
+    const grok = normalizeRunnerEngineStatus(runnerEngineStatus(map, '_grok'), 'Grok', grokAuth.verified);
+    grok.login_expiry = grokAuth.expiry;
+    const state = codex.state === 'fail' || claude.state === 'fail' || grok.state === 'fail'
       ? 'fail'
-      : codex.state === 'ok' || claude.state === 'ok'
+      : codex.state === 'ok' || claude.state === 'ok' || grok.state === 'ok'
         ? 'ok'
         : 'idle';
-    const lastRun = latestIso(codex.last_check, claude.last_check, codex.last_ok, claude.last_ok, codex.last_fail, claude.last_fail);
+    const lastRun = latestIso(codex.last_check, claude.last_check, grok.last_check, codex.last_ok, claude.last_ok, grok.last_ok, codex.last_fail, claude.last_fail, grok.last_fail);
 
     return {
       state,
       last_run: lastRun,
-      last_error: state === 'fail' ? latestFailureLabel(codex, claude) : null,
-      last_result: { codex, claude },
-      engines: { codex, claude },
-      ...canonicalStatusDetail(codexCanonical, claudeCanonical),
+      last_error: state === 'fail' ? latestFailureLabel(codex, claude, grok) : null,
+      last_result: { codex, claude, grok },
+      engines: { codex, claude, grok },
+      ...canonicalStatusDetail(codexCanonical, claudeCanonical, grokAuth.verified),
     };
   }
 
@@ -387,7 +391,7 @@ function resolveSeedBaseUrl(env: Env, payload: Record<string, unknown>): string 
   return '';
 }
 
-function runnerEngineStatus(map: Map<string, string>, suffix: '' | '_claude') {
+function runnerEngineStatus(map: Map<string, string>, suffix: '' | '_claude' | '_grok') {
   return {
     state: map.get(`runner_state${suffix}`) ?? null,
     last_check: map.get(`runner_last_check${suffix}`) ?? null,
@@ -398,7 +402,7 @@ function runnerEngineStatus(map: Map<string, string>, suffix: '' | '_claude') {
 
 function normalizeRunnerEngineStatus(
   status: ReturnType<typeof runnerEngineStatus>,
-  label: 'Codex' | 'Claude',
+  label: 'Codex' | 'Claude' | 'Grok',
   canonicalAuth: boolean,
 ): RunnerEngineStatus {
   if (!canonicalAuth) {
@@ -420,8 +424,8 @@ function normalizeRunnerEngineStatus(
   };
 }
 
-function canonicalStatusDetail(codexCanonical: boolean, claudeCanonical: boolean): Partial<RunnerStatus> {
-  const missing = [codexCanonical ? null : 'Codex', claudeCanonical ? null : 'Claude'].filter(
+function canonicalStatusDetail(codexCanonical: boolean, claudeCanonical: boolean, grokCanonical: boolean): Partial<RunnerStatus> {
+  const missing = [codexCanonical ? null : 'Codex', claudeCanonical ? null : 'Claude', grokCanonical ? null : 'Grok'].filter(
     (engine): engine is string => engine !== null,
   );
   if (missing.length === 0) return {};
@@ -442,7 +446,8 @@ function latestIso(...values: Array<string | null | undefined>): string | null {
 function latestFailureLabel(
   codex: RunnerEngineStatus,
   claude: RunnerEngineStatus,
+  grok: RunnerEngineStatus,
 ): string | null {
-  const failures = [codex.last_error, claude.last_error].filter((v): v is string => Boolean(v));
+  const failures = [codex.last_error, claude.last_error, grok.last_error].filter((v): v is string => Boolean(v));
   return failures.length > 0 ? failures.join('; ') : null;
 }

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { engineLabel } from "$lib/constants/engines";
   import type { Agent } from "$lib/portal/types";
   import { shortPath } from "$lib/portal/browser";
   import Modal from "./Modal.svelte";
@@ -34,7 +35,7 @@
       {mode === "force" ? "Force end this session?" : "Close this channel?"}
     </h2>
     <p class="mt-1 text-body-sm text-muted-foreground">
-      {agent.engine === "codex" ? "Codex" : "Claude"} · {agent.username}@{agent.host} · {shortPath(agent.cwd)}
+      {engineLabel(agent.engine)} · {agent.username}@{agent.host} · {shortPath(agent.cwd)}
     </p>
 
     {#if mode === "force"}

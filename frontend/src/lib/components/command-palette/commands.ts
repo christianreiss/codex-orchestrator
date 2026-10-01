@@ -195,10 +195,10 @@ function buildActionCommands(): PaletteCommand[] {
     {
       id: "action:new-api-key",
       label: "New API key",
-      description: "Issue a key for the OpenAI or Anthropic compatible API",
+      description: "Issue a key for the OpenAI, Anthropic, or Grok gateway",
       group: "Actions",
       icon: Plus,
-      keywords: ["api", "key", "openai", "claude", "create"],
+      keywords: ["api", "key", "openai", "claude", "grok", "create"],
       run() {
         void goto(`${base}/api-keys?dialog=new`);
         commandPalette.close();

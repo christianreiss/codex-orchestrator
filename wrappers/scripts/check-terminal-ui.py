@@ -165,7 +165,7 @@ def write_gallery(directory, cases):
             panels.append(f'<article data-engine="{case["engine"]}" data-scene="{case["scene"]}" data-width="{case["width"]}"><h2>{case["engine"]} / {case["scene"]} <small>{case["width"]} columns</small></h2><pre>{ansi_html(case["output"])}</pre></article>')
     (directory / "index.html").write_text('''<!doctype html><html lang="en"><meta charset="utf-8"><title>cxx terminal design review</title>
 <style>*{box-sizing:border-box}body{margin:0;background:#0e1016;color:#e2e5ed;font:15px system-ui;padding:40px}h1{font-size:30px;margin:0 0 12px}p{color:#a1a8bb}main{display:flex;gap:24px;flex-wrap:wrap;align-items:flex-start}article{background:#171a23;border:1px solid #2b3040;border-radius:14px;overflow:hidden}h2{font:600 13px system-ui;padding:14px 20px;margin:0;background:#1d212d;color:#c2c9da;text-transform:uppercase;letter-spacing:.08em}small{float:right;margin-left:32px;color:#929aae}pre{font:14px/1.55 "DejaVu Sans Mono",monospace;margin:0;padding:20px 12px;white-space:pre}select{background:#1d212d;border:1px solid #454d62;color:#e2e5ed;border-radius:6px;padding:8px;margin:12px 12px 24px 0}label{color:#a1a8bb}article[hidden]{display:none}</style>
-<h1>One terminal. Two engines.</h1><p>Production cdx / clx renderers captured from real PTYs. Deterministic sample data; no fleet credentials or live reports.</p>
+<h1>One terminal. Three engines.</h1><p>Production cdx / clx / cgx renderers captured from real PTYs. Deterministic sample data; no fleet credentials or live reports.</p>
 <label>Scene <select id="scene">''' + "".join(f'<option>{scene}</option>' for scene in SCENES + ("security",)) + '''</select></label><label>Width <select id="width"><option>80</option><option>48</option></select></label><main>''' + "".join(panels) + '''</main><script>const scene=document.querySelector('#scene'),width=document.querySelector('#width');function filter(){document.querySelectorAll('article').forEach(a=>a.hidden=a.dataset.scene!==scene.value||a.dataset.width!==width.value)}scene.onchange=width.onchange=filter;filter()</script></html>''')
     (directory / "manifest.json").write_text(json.dumps([{key: value for key, value in case.items() if key not in ("output", "plain")} for case in cases], indent=2) + "\n")
 
@@ -176,7 +176,7 @@ def main():
     parser.add_argument("--output", type=Path, help="export ANSI/text captures and a standalone HTML review gallery")
     args = parser.parse_args()
     cases = []
-    for engine in ("codex", "claude"):
+    for engine in ("codex", "claude", "grok"):
         scenes = SCENES + (("security",) if engine == "claude" else ())
         for scene in scenes:
             modes = [(width, "rich") for width in (20, 39, 40, 48, 64, 80, 120)]
@@ -190,7 +190,7 @@ def main():
                 cases.append(dict(engine=engine, scene=scene, width=width, mode=mode, output=output, plain=plain))
     if args.output:
         write_gallery(args.output, cases)
-    print(f"{len(cases)} terminal cases passed: both engines, seven widths, five degraded modes.")
+    print(f"{len(cases)} terminal cases passed: three engines, seven widths, five degraded modes.")
 
 
 if __name__ == "__main__":

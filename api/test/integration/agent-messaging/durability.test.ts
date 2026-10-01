@@ -19,10 +19,11 @@ import {
   AGENT_MESSAGING_ENABLED_KEY,
   AgentMessagingService,
 } from '../../../src/services/agent-messaging.js';
+import { AgentReceiverService } from '../../../src/services/agent-receiver.js';
 import { makeAdminEventsWriter } from '../../../src/services/admin-events-writer.js';
 import { HostManagementService } from '../../../src/services/host-management.js';
 import { createHostRegistrationService } from '../../../src/services/host-registration.js';
-import type { Engine } from '../../../src/util/engine.js';
+import { ENGINES, type Engine } from '../../../src/util/engine.js';
 import { getTestDb, type TestDb } from '../../helpers/test-db.js';
 import { loadTestEnv, testKeyring } from '../../helpers/test-keyring.js';
 
@@ -34,6 +35,12 @@ const MIGRATIONS = [
 const PREFIX = 'ztest-agent-messaging';
 const HOST_FQDN = `${PREFIX}.example`;
 const HOST_KEY = 'b'.repeat(64);
+const DIRECTIONS = ENGINES.flatMap(source => ENGINES.map(target => ({ source, target })));
+const RECEIVER_PROTOCOLS = {
+  codex: 'codex-queue-v1',
+  claude: 'claude-channel-v1',
+  grok: 'grok-acp-v1',
+} as const;
 const handle = await getTestDb();
 
 interface AgentIdentity {
@@ -93,7 +100,7 @@ describe.skipIf(!handle)('agent messaging durability against a real database', {
       `INSERT INTO hosts (
          fqdn, api_key, status, secure, engines, agent_messaging_enabled, created_at, updated_at
        ) VALUES (
-         '${HOST_FQDN}', '${HOST_KEY}', 'active', 1, 'codex,claude', 1, '${now}', '${now}'
+         '${HOST_FQDN}', '${HOST_KEY}', 'active', 1, 'codex,claude,grok', 1, '${now}', '${now}'
        )`,
     );
     const rows = await db.select().from(hosts).where(eq(hosts.fqdn, HOST_FQDN)).limit(1);
@@ -111,7 +118,7 @@ describe.skipIf(!handle)('agent messaging durability against a real database', {
     );
     await db
       .update(hosts)
-      .set({ secure: 1, status: 'active', insecureEnabledUntil: null })
+      .set({ secure: 1, status: 'active', insecureEnabledUntil: null, engines: ENGINES.join(',') })
       .where(eq(hosts.id, host.id));
     host = (await db.select().from(hosts).where(eq(hosts.id, host.id)).limit(1))[0]!;
   });
@@ -127,7 +134,14 @@ describe.skipIf(!handle)('agent messaging durability against a real database', {
   async function register(
     engine: Engine,
     label: string,
-    overrides: Partial<{ username: string; cwd: string; upstreamSessionId: string }> = {},
+    overrides: Partial<{
+      username: string;
+      cwd: string;
+      upstreamSessionId: string;
+      adapterProtocol: string | null;
+      requestedAddress: string;
+      expectedBindingGeneration: number;
+    }> = {},
   ): Promise<AgentIdentity> {
     const sessionId = randomUUID();
     const bridgeToken = randomBytes(32).toString('base64url');
@@ -141,7 +155,9 @@ describe.skipIf(!handle)('agent messaging durability against a real database', {
       invocationKind: 'interactive',
       sessionId,
       bridgeToken,
-      adapterProtocol: 'test-live-v1',
+      adapterProtocol: overrides.adapterProtocol === undefined ? 'test-live-v1' : overrides.adapterProtocol,
+      requestedAddress: overrides.requestedAddress,
+      expectedBindingGeneration: overrides.expectedBindingGeneration,
       adapterCapabilities: { test: true },
     });
     const address = result.address as Record<string, unknown>;
@@ -191,28 +207,144 @@ describe.skipIf(!handle)('agent messaging durability against a real database', {
     expect((repeated.message as Record<string, unknown>).status).toBe('completed');
   }
 
-  it('delivers and completes all four Codex/Claude direction pairs', async () => {
-    const codexA = await register('codex', 'codex-a');
-    const codexB = await register('codex', 'codex-b');
-    const claudeA = await register('claude', 'claude-a');
-    const claudeB = await register('claude', 'claude-b');
-
-    await deliver(codexA, codexB, 'codex to codex');
-    await deliver(codexA, claudeA, 'codex to claude');
-    await deliver(claudeA, codexA, 'claude to codex');
-    await deliver(claudeA, claudeB, 'claude to claude');
+  it('delivers and completes all nine Codex/Claude/Grok direction pairs', async () => {
+    const senders = new Map<Engine, AgentIdentity>();
+    const targets = new Map<Engine, AgentIdentity>();
+    for (const engine of ENGINES) {
+      senders.set(engine, await register(engine, `${engine}-sender`));
+      targets.set(engine, await register(engine, `${engine}-target`));
+    }
+    for (const { source, target } of DIRECTIONS) {
+      await deliver(senders.get(source)!, targets.get(target)!, `${source} to ${target}`);
+    }
 
     const state = await service.state();
     const directions = state.directions as Array<Record<string, unknown>>;
-    for (const [source, target] of [
-      ['codex', 'codex'],
-      ['codex', 'claude'],
-      ['claude', 'codex'],
-      ['claude', 'claude'],
-    ]) {
+    for (const { source, target } of DIRECTIONS) {
       expect(directions.find((row) => row.source_engine === source && row.target_engine === target))
         .toMatchObject({ total: 1, completed: 1, pending: 0 });
     }
+  });
+
+  it.each(DIRECTIONS)('$source to $target preserves durable admission, receiver ownership and exact session generations', async ({ source: sourceEngine, target: targetEngine }) => {
+    const source = await register(sourceEngine, 'matrix-source', { adapterProtocol: null });
+    const nativeSessionId = randomUUID();
+    const target = await register(targetEngine, 'matrix-target', {
+      adapterProtocol: null, upstreamSessionId: nativeSessionId,
+    });
+    const content = `${sourceEngine} to ${targetEngine} survives receiver reconnect`;
+    const input = { to: target.address, content, clientMessageId: randomUUID(), kind: 'request' as const };
+    const sent = await service.sendMessage(source.sessionId, source.bridgeToken, input);
+    const messageId = String((sent.message as Record<string, unknown>).id);
+    const readMessage = async (id = messageId) => (await db.select().from(agentBusMessages).where(eq(agentBusMessages.id, id)))[0]!;
+    expect(await readMessage()).toMatchObject({
+      sourceEngine, targetEngine, senderSessionId: source.sessionId,
+      targetAddressId: target.addressId, status: 'queued', attempts: 0,
+      claimId: null, leaseOwner: null, targetBindingGeneration: null,
+      deliverySessionId: null, deliveryUpstreamSessionId: null,
+    });
+    expect((await readMessage()).contentEnc).not.toContain(content);
+    await expect(service.claimForSession(target.sessionId, target.bridgeToken, randomUUID()))
+      .rejects.toMatchObject({ code: 'agent_messaging_adapter_unavailable' });
+
+    // A new service has no in-memory queue; admission and idempotency survive it.
+    service = new AgentMessagingService(db, env, testKeyring());
+    const repeated = await service.sendMessage(source.sessionId, source.bridgeToken, input);
+    expect(repeated.message).toMatchObject({ id: messageId, status: 'queued' });
+    const mailbox = await service.peekMailbox(target.sessionId, target.bridgeToken);
+    expect(mailbox.pending).toEqual([expect.objectContaining({
+      message_id: messageId, from: expect.objectContaining({ engine: sourceEngine }),
+    })]);
+    expect(JSON.stringify(mailbox)).not.toContain(content);
+    expect(await readMessage()).toMatchObject({ status: 'queued', attempts: 0, claimId: null });
+
+    const receiver = new AgentReceiverService(db, env, testKeyring());
+    const generation = randomUUID();
+    const protocol = RECEIVER_PROTOCOLS[targetEngine];
+    await expect(receiver.register(target.sessionId, target.bridgeToken, {
+      generation, protocol: RECEIVER_PROTOCOLS[ENGINES.find(engine => engine !== targetEngine)!],
+      native_session_id: nativeSessionId,
+    })).rejects.toMatchObject({ code: 'receiver_engine_mismatch' });
+    expect((await receiver.register(target.sessionId, target.bridgeToken, {
+      generation, protocol, native_session_id: nativeSessionId,
+    })).receiver).toMatchObject({ state: 'ready', protocol, generation, native_session_id: nativeSessionId });
+    await expect(receiver.register(target.sessionId, target.bridgeToken, {
+      generation: randomUUID(), protocol, native_session_id: randomUUID(),
+    })).rejects.toMatchObject({ code: 'receiver_owned' });
+    await expect(service.heartbeatSession(target.sessionId, target.bridgeToken, { receiveCapable: false }))
+      .rejects.toMatchObject({ code: 'receiver_owned' });
+    await expect(receiver.claim(target.sessionId, target.bridgeToken, randomUUID(), 'peer', randomUUID()))
+      .rejects.toMatchObject({ code: 'receiver_expired' });
+
+    const relay = await service.registerRelay(host, {
+      username: target.username, instanceId: randomUUID(), wrapperVersion: 'matrix-test',
+    });
+    expect(await service.claimForRelay(String(relay.relay_id), String(relay.relay_token), randomUUID())).toBeNull();
+    expect(await readMessage()).toMatchObject({ status: 'queued', attempts: 0 });
+    const second = await service.sendMessage(source.sessionId, source.bridgeToken, {
+      ...input, content: 'second queued message', clientMessageId: randomUUID(),
+    });
+    const secondId = String((second.message as Record<string, unknown>).id);
+    const claimId = randomUUID();
+    const claimed = await receiver.claim(target.sessionId, target.bridgeToken, generation, 'peer', claimId);
+    expect(claimed.delivery).toMatchObject({
+      message_id: messageId, content, attempts: 1, claim_id: claimId,
+      lease_owner: `session:${target.sessionId}`,
+      sender: { address: source.address, engine: sourceEngine },
+      target: { address: target.address, engine: targetEngine, binding_generation: target.bindingGeneration, upstream_session_id: nativeSessionId },
+    });
+    expect(await readMessage()).toMatchObject({
+      status: 'leased', targetBindingGeneration: target.bindingGeneration,
+      deliverySessionId: target.sessionId, deliveryUpstreamSessionId: nativeSessionId,
+    });
+    expect((await receiver.claim(target.sessionId, target.bridgeToken, generation, 'peer', claimId)).delivery)
+      .toMatchObject({ message_id: messageId, attempts: 1 });
+    await expect(service.acknowledgeSessionDelivery(source.sessionId, source.bridgeToken, messageId, {
+      claimId, outcome: 'accepted',
+    })).rejects.toMatchObject({ code: 'agent_messaging_lease_lost' });
+    await service.acknowledgeSessionDelivery(target.sessionId, target.bridgeToken, messageId, {
+      claimId, outcome: 'accepted', upstreamSessionId: nativeSessionId,
+    });
+    expect((await receiver.claim(target.sessionId, target.bridgeToken, generation, 'peer', randomUUID())).delivery).toBeNull();
+    expect(await readMessage(secondId)).toMatchObject({ status: 'queued', attempts: 0 });
+    await service.acknowledgeSessionDelivery(target.sessionId, target.bridgeToken, messageId, {
+      claimId, outcome: 'completed', upstreamSessionId: nativeSessionId,
+    });
+
+    await receiver.retry(target.sessionId);
+    await expect(receiver.update(target.sessionId, target.bridgeToken, generation, 'heartbeat', {}))
+      .rejects.toMatchObject({ code: 'receiver_generation_changed' });
+    await expect(receiver.claim(target.sessionId, target.bridgeToken, generation, 'peer', randomUUID()))
+      .rejects.toMatchObject({ code: 'receiver_expired' });
+    await service.finishSession(target.sessionId, target.bridgeToken, 'completed');
+    await expect(register(targetEngine, 'matrix-stale', {
+      username: target.username, cwd: target.cwd, requestedAddress: target.address,
+      expectedBindingGeneration: target.bindingGeneration - 1,
+    })).rejects.toMatchObject({ code: 'agent_messaging_binding_stale' });
+    const restarted = await register(targetEngine, 'matrix-restarted', {
+      username: target.username, cwd: target.cwd, adapterProtocol: null,
+      upstreamSessionId: nativeSessionId, requestedAddress: target.address,
+      expectedBindingGeneration: target.bindingGeneration,
+    });
+    expect(restarted).toMatchObject({ address: target.address, bindingGeneration: target.bindingGeneration + 1 });
+    const successorGeneration = randomUUID();
+    await receiver.register(restarted.sessionId, restarted.bridgeToken, {
+      generation: successorGeneration, protocol, native_session_id: nativeSessionId,
+    });
+    await expect(receiver.claim(target.sessionId, target.bridgeToken, generation, 'peer', randomUUID()))
+      .rejects.toMatchObject({ code: 'agent_session_finished' });
+    const successorClaim = randomUUID();
+    expect((await receiver.claim(restarted.sessionId, restarted.bridgeToken, successorGeneration, 'peer', successorClaim)).delivery)
+      .toMatchObject({ message_id: secondId, attempts: 1, target: { binding_generation: restarted.bindingGeneration, upstream_session_id: nativeSessionId } });
+    expect(await readMessage(secondId)).toMatchObject({
+      deliverySessionId: restarted.sessionId, deliveryUpstreamSessionId: nativeSessionId,
+      targetBindingGeneration: restarted.bindingGeneration,
+    });
+    await service.acknowledgeSessionDelivery(restarted.sessionId, restarted.bridgeToken, secondId, {
+      claimId: successorClaim, outcome: 'completed', upstreamSessionId: nativeSessionId,
+    });
+    expect(await readMessage()).toMatchObject({ status: 'completed', attempts: 1 });
+    expect(await readMessage(secondId)).toMatchObject({ status: 'completed', attempts: 1 });
   });
 
   it('keeps one in-flight delivery per address and preserves FIFO across retry', async () => {

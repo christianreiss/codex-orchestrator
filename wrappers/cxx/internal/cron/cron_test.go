@@ -574,7 +574,8 @@ func TestSystemCronBodyPinsQuotedOverridesAndInstallUser(t *testing.T) {
 		"HOME='/home/a b'",
 		"CDX_CONFIG_PATH='/home/a b/cdx.json'",
 		"CLX_CONFIG_PATH='/home/a b/clx.json'",
-		"7,22,37,52 * * * * alice CODEX_HOME='/srv/account b' '/opt/cxx bin/cxx' cron run --due",
+		"CGX_CONFIG_PATH='/home/a b/cgx.json'",
+		"7,22,37,52 * * * * alice CODEX_HOME='/srv/account b' GROK_HOME='/home/a b/.grok' '/opt/cxx bin/cxx' cron run --due",
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("body missing %q:\n%s", want, body)

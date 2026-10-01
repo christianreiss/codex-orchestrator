@@ -12,8 +12,9 @@
   {/snippet}
 </PageHeader>
 
-<div class="grid items-start gap-5 xl:grid-cols-2">
+<div class="grid items-start gap-5 xl:grid-cols-3">
   <QuickModelDefaults engine="codex" />
   <QuickModelDefaults engine="claude" />
+  <QuickModelDefaults engine="grok" />
 </div>
 <p class="mt-4 text-sm text-muted-foreground">Defaults apply when managed clients next sync. Host overrides take precedence.</p>

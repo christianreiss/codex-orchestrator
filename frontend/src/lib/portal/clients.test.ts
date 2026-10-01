@@ -11,6 +11,11 @@ function row(id: string, overrides: Partial<AgentSessionRow> = {}): AgentSession
 }
 const options = { search: "", engine: "all" as const, filter: "all" as const, sort: "status" as const };
 describe("client directory", () => {
+  it("counts and filters Grok clients and finds the cgx command", () => {
+    const rows = [row("grok", { engine: "grok" }), row("codex")];
+    assert.equal(clientCounts(rows, NOW).grok, 1);
+    assert.deepEqual(visibleClients(rows, { ...options, search: "cgx", engine: "grok" }, NOW).map(r => r.id), ["grok"]);
+  });
   it("keeps an unanswered prompt in needs-you counts after a notice resolves", () => {
     const pending = row("prompt", { pending_prompt: { id: "p", version: 1, question: "Continue?", options: [], created_at: new Date(NOW).toISOString() } });
     assert.equal(clientCounts([pending], NOW).attention, 1);
@@ -24,7 +29,7 @@ describe("client directory", () => {
   });
   it("keeps ended attention out of actionable counts and filters", () => {
     const rows = [row("ended", { ended_at: new Date(NOW).toISOString(), attention: { since: "x", summary: null } }), row("offline", { presence: "offline", attention: { since: "x", summary: null } }), row("idle", { presence: "idle", engine: "claude" })];
-    assert.deepEqual(clientCounts(rows, NOW), { online: 1, attention: 1, offline: 1, ended: 1, codex: 2, claude: 1 });
+    assert.deepEqual(clientCounts(rows, NOW), { online: 1, attention: 1, offline: 1, ended: 1, codex: 2, claude: 1, grok: 0 });
     assert.deepEqual(visibleClients(rows, { ...options, filter: "attention" }, NOW).map((r) => r.id), ["offline"]);
     assert.deepEqual(visibleClients(rows, { ...options, filter: "online" }, NOW).map((r) => r.id), ["idle"]);
   });

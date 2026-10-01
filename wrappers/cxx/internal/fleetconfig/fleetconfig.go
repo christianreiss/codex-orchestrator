@@ -46,7 +46,7 @@ func fetchWithKey(ctx context.Context, seed *config.Config, engine string, pubke
 	if seed == nil {
 		return nil, errors.New("nil seed config")
 	}
-	if engine != config.EngineCodex && engine != config.EngineClaude {
+	if engine != config.EngineCodex && engine != config.EngineClaude && engine != config.EngineGrok {
 		return nil, fmt.Errorf("unsupported engine %q", engine)
 	}
 	requestSeed := *seed

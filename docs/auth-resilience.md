@@ -1,6 +1,7 @@
 # Credential resilience across sessions
 
-This contract applies to cxx 0.8.1 and newer, for both `cdx` and `clx`.
+This contract applies to cxx 0.8.1 and newer, for `cdx` and `clx`. Grok (`cgx`, cxx 0.9.9+) adds a separate
+centrally owned subscription-refresh contract: see [Grok interface](interface-cgx.md).
 Canonical credentials remain engine-specific. A transport success alone does
 not authorize credential adoption: the server must verify the winning generation.
 Publishing the release does not retrofit an already-running older wrapper;
@@ -12,8 +13,9 @@ the new wrapper/worker. Existing native sessions are not force-restarted.
 Startup retains the existing auth decision gate, local freshness fallback, and
 explicit login/logout handling. A retryable runner or network failure does not
 become a definitive invalid-credential verdict. Expired access tokens with live
-refresh material are not probed by spending that material; native engines still
-perform their own refresh.
+refresh material are not probed by spending that material; Codex and Claude still
+perform their own refresh. Managed Grok receives no refresh token; its external
+helper requests generation-aware renewal from the server.
 
 During a managed session, the wrapper checks native credentials every two
 seconds and offers new usable generations promptly. A failed unchanged

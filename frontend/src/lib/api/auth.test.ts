@@ -42,6 +42,7 @@ export const api = {
 registerHooks({
   resolve(specifier, context, nextResolve) {
     if (specifier === "@tanstack/svelte-query") return { url: QUERY_STUB, shortCircuit: true };
+    if (specifier === "../constants/engines") return nextResolve("../constants/engines.ts", context);
     if (specifier === "./client") return { url: CLIENT_STUB, shortCircuit: true };
     // `auth.ts` imports `./hosts` the way the bundler resolves it, without the
     // extension node insists on.
@@ -98,7 +99,7 @@ const queryClient = {
 const asMutation = (built: unknown): BuiltMutation => built as unknown as BuiltMutation;
 
 /** Both engines the operator dialogs can repair, driven through every builder. */
-const ENGINES: AuthEngine[] = ["codex", "claude"];
+const ENGINES: AuthEngine[] = ["codex", "claude", "grok"];
 
 /** A canonical Codex auth blob, as the upload dialog hands it over: raw text. */
 const PAYLOAD = '{"tokens":{"access_token":"a.b.c"}}';

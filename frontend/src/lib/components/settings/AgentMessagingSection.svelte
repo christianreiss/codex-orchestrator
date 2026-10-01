@@ -72,7 +72,7 @@
 <SectionCard
   id="agent-messaging"
   title="Service state"
-  description="Fleet-wide Codex ↔ Claude communication with stable addresses, automatic resume/fresh delivery, encrypted content, and ordered at-least-once semantics. The initial default is off."
+  description="Fleet-wide Codex, Claude, and Grok communication with stable addresses, automatic resume/fresh delivery, encrypted content, and ordered at-least-once semantics. The initial default is off."
   {status}
   savedAt={lastSavedAt}
   error={$mutation.error?.message}

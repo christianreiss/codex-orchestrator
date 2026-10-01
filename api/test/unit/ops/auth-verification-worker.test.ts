@@ -52,6 +52,16 @@ function runnerValidation(rows: Partial<Record<Engine, CanonicalPayloadRow>>): R
 }
 
 describe('auth verification worker tick', () => {
+  it('schedules Grok static verification and reports its engine-scoped verdict', async () => {
+    const row = canonicalRow('grok', 'pending', null);
+    row.accountId = 7;
+    const ensureServedVerification = vi.fn(async () => ({ state: 'verified' as const, auth: AUTH, digest: DIGEST, lastRefresh: row.lastRefresh, refreshed: false }));
+    const write = vi.fn(async () => undefined);
+    await runAuthVerificationWorkerTick({ runnerValidation: runnerValidation({ grok: row }), authStore: { ensureServedVerification } as unknown as CanonicalAuthStoreService, telemetry: { write }, ttlSeconds: 900, reason: 'interval' });
+    expect(ensureServedVerification).toHaveBeenCalledTimes(1);
+    expect(ensureServedVerification).toHaveBeenCalledWith(expect.objectContaining({ engine: 'grok', row: expect.objectContaining({ accountId: 7 }) }));
+    expect(write).toHaveBeenCalledWith('grok', 'ok', expect.any(String));
+  });
   it('live-verifies normalized Codex bytes even when the legacy row verdict is fresh', async () => {
     const checkedAt = new Date().toISOString();
     const row = canonicalRow('codex', 'verified', checkedAt);

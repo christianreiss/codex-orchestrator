@@ -36,6 +36,7 @@ export const api = {
 registerHooks({
   resolve(specifier, context, nextResolve) {
     if (specifier === "@tanstack/svelte-query") return { url: QUERY_STUB, shortCircuit: true };
+    if (specifier === "../constants/engines") return nextResolve("../constants/engines.ts", context);
     if (specifier === "./client") return { url: CLIENT_STUB, shortCircuit: true };
     return nextResolve(specifier, context);
   },
@@ -68,6 +69,8 @@ const {
   isInsecureWindowActive,
   createHostEnginesMutation,
   createSecureToggleMutation,
+  createGrokVersionMutation,
+  createModelOverrideMutation,
 } = (await import(hostsModule)) as typeof import("./hosts");
 
 const clientModule: string = CLIENT_STUB;
@@ -557,5 +560,38 @@ describe("hostMatchesFilter", () => {
     assert.equal(hostMatchesFilter(makeHost({ vip: false }), "vip"), false);
     assert.equal(hostMatchesFilter(makeHost({ allow_roaming_ips: true }), "roaming"), true);
     assert.equal(hostMatchesFilter(makeHost({ allow_roaming_ips: false }), "roaming"), false);
+  });
+});
+
+
+describe("Grok host integration", () => {
+  const grok = () => makeHost({ engines: "grok", engines_list: ["grok"], canonical_digest: null,
+    grok_canonical_digest: "grok-auth", grok_wrapper_version: "0.8.0", grok_last_refresh: iso(NOW), updated_at: iso(NOW - 120_000) });
+  it("recognizes Grok-only authentication and refresh telemetry", () => {
+    assert.equal(hostHasRequiredAuth(grok()), true);
+    assert.equal(hostHasRequiredAuth({ ...grok(), grok_canonical_digest: null }), false);
+    assert.equal(hostLatestRefresh(grok()), iso(NOW));
+    assert.equal(hostLastSeenMs(grok()), NOW);
+    assert.deepEqual(hostCxxWrapperState(grok()), { display: "0.8.0", drift: false });
+  });
+  it("requires every enabled engine auth and names Grok wrapper drift", () => {
+    const host = { ...grok(), engines_list: ["codex", "grok"], canonical_digest: "codex-auth", wrapper_version: "0.7.0" };
+    assert.equal(hostHasRequiredAuth(host), true);
+    assert.equal(hostHasRequiredAuth({ ...host, grok_canonical_digest: null }), false);
+    assert.deepEqual(hostCxxWrapperState(host), { display: "Codex 0.7.0 · Grok 0.8.0 (migration drift)", drift: true });
+  });
+  it("sends only the intended Grok model override or effort clear", async () => {
+    calls.length = 0;
+    const qc = { invalidateQueries() {} } as unknown as QueryClient;
+    const mutation = createModelOverrideMutation(qc) as unknown as { mutationFn: (vars: unknown) => Promise<unknown> };
+    await mutation.mutationFn({ id: 42, engine: "grok", model: "grok-4.6" });
+    await mutation.mutationFn({ id: 42, engine: "grok", reasoning_effort: null });
+    const version = createGrokVersionMutation(qc) as unknown as { mutationFn: (vars: unknown) => Promise<unknown> };
+    await version.mutationFn({ id: 42, version: "1.0.46" });
+    assert.deepEqual(calls, [
+      { method: "POST", path: "/admin/hosts/42/model", body: { grok_model_override: "grok-4.6" } },
+      { method: "POST", path: "/admin/hosts/42/model", body: { grok_reasoning_effort_override: null } },
+      { method: "POST", path: "/admin/hosts/42/grok-version", body: { selection: "1.0.46" } },
+    ]);
   });
 });

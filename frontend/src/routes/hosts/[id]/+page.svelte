@@ -41,7 +41,7 @@
   import Terminal from "@lucide/svelte/icons/terminal";
   import { relativeTime } from "$lib/utils/format";
   import { autoCopyText } from "$lib/utils/clipboard";
-  import { CLAUDE_MODEL_OPTIONS, CODEX_MODELS, REASONING_EFFORT_OPTIONS } from "$lib/constants/models";
+  import { CLAUDE_MODEL_OPTIONS, CODEX_MODELS, GROK_MODEL_OPTIONS, REASONING_EFFORT_OPTIONS } from "$lib/constants/models";
   import {
     hostDetailQuery,
     hostsKeys,
@@ -63,10 +63,12 @@
     createModelOverrideMutation,
     createCodexVersionMutation,
     createClaudeVersionMutation,
+    createGrokVersionMutation,
     createReverseDnsMutation,
     createAgentsVersionMutation,
     createHostEnginesMutation,
   } from "$lib/api/hosts";
+  import { modelDefaultsQuery } from "$lib/api/settings";
   import type { HostEngine, InstallerInfo } from "$lib/api/types";
   import {
     createEnableInsecureMutation,
@@ -92,6 +94,8 @@
   const modelOverride = createModelOverrideMutation(qc);
   const codexVersion = createCodexVersionMutation(qc);
   const claudeVersion = createClaudeVersionMutation(qc);
+  const grokVersion = createGrokVersionMutation(qc);
+  const grokDefaults = modelDefaultsQuery("grok");
   const reverseDns = createReverseDnsMutation(qc);
   const agentsVersion = createAgentsVersionMutation(qc);
   const hostEnginesMutation = createHostEnginesMutation(qc);
@@ -154,7 +158,7 @@
   let agentsDialogOpen = $state(false);
   let installerDialogOpen = $state(false);
   let installerResult = $state<InstallerInfo | null>(null);
-  let installerEngines = $state<Array<"codex" | "claude"> | undefined>(undefined);
+  let installerEngines = $state<Array<"codex" | "claude" | "grok"> | undefined>(undefined);
 
   async function doDelete(): Promise<void> {
     try {
@@ -176,7 +180,7 @@
     );
   }
 
-  async function doMintInstaller(engines?: Array<"codex" | "claude">): Promise<void> {
+  async function doMintInstaller(engines?: Array<"codex" | "claude" | "grok">): Promise<void> {
     try {
       installerEngines = engines ? [...engines] : undefined;
       const result = await $mintInstaller.mutateAsync({
@@ -215,6 +219,11 @@
     if (hostEngines(host).includes("claude") && ccv && chv && ccv !== chv) {
       items.push({ tone: "warning", text: `Claude version drift: host on ${chv}, fleet on ${ccv}.` });
     }
+    const gv = overview.versions.grok_version;
+    const ghv = host.grok_client_version_override ?? host.grok_client_version;
+    if (hostEngines(host).includes("grok") && gv && ghv && gv !== ghv) {
+      items.push({ tone: "warning", text: `Grok version drift: host on ${ghv}, fleet on ${gv}.` });
+    }
     if (cxxWrapper.drift) {
       items.push({
         tone: "warning",
@@ -235,9 +244,17 @@
   // For controls panel
   const codexEngine = $derived(host ? hostEngines(host).includes("codex") : false);
   const claudeEngine = $derived(host ? hostEngines(host).includes("claude") : false);
+  const grokEngine = $derived(host ? hostEngines(host).includes("grok") : false);
   const engineList = $derived<HostEngine[]>(host ? (hostEngines(host) as HostEngine[]) : []);
-  const codexSwitchDisabled = $derived($hostEnginesMutation.isPending || (codexEngine && !claudeEngine));
-  const claudeSwitchDisabled = $derived($hostEnginesMutation.isPending || (claudeEngine && !codexEngine));
+  const codexSwitchDisabled = $derived($hostEnginesMutation.isPending || (codexEngine && engineList.length <= 1));
+  const claudeSwitchDisabled = $derived($hostEnginesMutation.isPending || (claudeEngine && engineList.length <= 1));
+  const grokSwitchDisabled = $derived($hostEnginesMutation.isPending || (grokEngine && engineList.length <= 1));
+  const grokModel = $derived(host?.grok_model_override ?? $grokDefaults.data?.model ?? "grok-4.6");
+  const grokEfforts = $derived(
+    ($grokDefaults.data?.catalog.find(model => model.model === grokModel)?.persistent_efforts
+      ?? (grokModel === "grok-4.5" ? ["low", "medium", "high"] : ["low", "medium", "high", "xhigh"]))
+      .map(value => ({ value, label: value })),
+  );
   // Reverse-DNS tri-state segmented control.
   type ReverseDnsMode = "global" | "enabled" | "disabled";
   const reverseDnsValue = $derived.by<ReverseDnsMode>(() => {
@@ -288,6 +305,15 @@
   }
   async function saveClaudeVersion(v: string | null): Promise<void> {
     await runQuiet($claudeVersion.mutateAsync({ id, version: v }));
+  }
+  async function saveGrokVersion(v: string | null): Promise<void> {
+    await runQuiet($grokVersion.mutateAsync({ id, version: v }));
+  }
+  async function saveGrokModel(v: string | null): Promise<void> {
+    await runQuiet($modelOverride.mutateAsync({ id, engine: "grok", model: v }));
+  }
+  async function saveGrokEffort(v: string | null): Promise<void> {
+    await runQuiet($modelOverride.mutateAsync({ id, engine: "grok", reasoning_effort: v }));
   }
   async function saveCodexModel(v: string | null): Promise<void> {
     await runQuiet($modelOverride.mutateAsync({ id, engine: "codex", model: v }));
@@ -419,7 +445,7 @@
         </Button>
       </CardHeader>
       <CardContent>
-        <div class="mb-4 grid grid-cols-1 gap-3 rounded-md border p-2.5 sm:grid-cols-2">
+        <div class="mb-4 grid grid-cols-1 gap-3 rounded-md border p-2.5 sm:grid-cols-3">
           <ToggleRow
             label="Codex engine"
             checked={codexEngine}
@@ -432,12 +458,18 @@
             disabled={claudeSwitchDisabled}
             onchange={(v) => setHostEngine("claude", v)}
           />
+          <ToggleRow
+            label="Grok engine"
+            checked={grokEngine}
+            disabled={grokSwitchDisabled}
+            onchange={(v) => setHostEngine("grok", v)}
+          />
         </div>
         <p class="mb-4 text-xs text-muted-foreground">
-          Engine changes apply on the host's next <code>cdx</code>/<code>clx</code> run, or its next
-          scheduled maintenance tick if neither runs interactively.
+          Engine changes apply on the host's next <code>cdx</code>/<code>clx</code>/<code>cgx</code> run, or its next
+          scheduled maintenance tick if none runs interactively.
         </p>
-        <div class="grid gap-3 md:grid-cols-2">
+        <div class="grid gap-3 xl:grid-cols-3">
           {#if codexEngine}
             <EnginePanel
               engine="codex"
@@ -490,6 +522,18 @@
                 pending={$modelOverride.isPending}
                 onSave={saveClaudeModel}
               />
+            </EnginePanel>
+          {/if}
+          {#if grokEngine}
+            <EnginePanel engine="grok" digest={host.grok_canonical_digest ? host.grok_canonical_digest.slice(0, 16) + "…" : "—"}>
+              <OverridePopover label="Version" override={host.grok_client_version_override ?? null}
+                inheritedValue={host.grok_client_version} inheritedLabel="detected"
+                placeholder={overview?.versions.grok_version ?? "1.0.46"}
+                pending={$grokVersion.isPending} onSave={saveGrokVersion} />
+              <OverridePopover label="Model" override={host.grok_model_override ?? null}
+                options={GROK_MODEL_OPTIONS} pending={$modelOverride.isPending} onSave={saveGrokModel} />
+              <OverridePopover label="Reasoning effort" override={host.grok_reasoning_effort_override ?? null}
+                options={grokEfforts} pending={$modelOverride.isPending} onSave={saveGrokEffort} />
             </EnginePanel>
           {/if}
         </div>

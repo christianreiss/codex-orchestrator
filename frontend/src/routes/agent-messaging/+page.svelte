@@ -315,7 +315,7 @@
 
 <PageHeader
   title="Agent Messaging"
-  subtitle="Inspect conferences and operate direct Codex ↔ Claude conversations, stable addresses, relays, retries, and audited content reveal."
+  subtitle="Inspect conferences and operate direct Codex, Claude, and Grok conversations, stable addresses, relays, retries, and audited content reveal."
 >
   {#snippet actions()}
     <Button variant="outline" onclick={refresh}>
@@ -353,11 +353,11 @@
   <div class="flex flex-wrap items-start justify-between gap-2">
     <div>
       <h2 id="direction-matrix-heading" class="flex items-center gap-2 text-sm font-semibold"><MessageSquareShare class="h-4 w-4" /> Direction matrix</h2>
-      <p class="mt-1 text-sm text-muted-foreground">All four engine paths use the same ordered at-least-once contract.</p>
+      <p class="mt-1 text-sm text-muted-foreground">All nine engine paths use the same ordered at-least-once contract.</p>
     </div>
     <p class="text-xs text-muted-foreground">{$stateQuery.data?.delivery ?? "ordered_at_least_once"}</p>
   </div>
-  <div class="mt-3 grid divide-y divide-border border-y border-border md:grid-cols-2 md:divide-x md:divide-y-0 xl:grid-cols-4">
+  <div class="mt-3 grid divide-y divide-border border-y border-border md:grid-cols-2 md:divide-x md:divide-y-0 xl:grid-cols-3">
       {#each $stateQuery.data?.directions ?? [] as direction (`${direction.source_engine}-${direction.target_engine}`)}
         <div class="px-3 py-2.5">
           <p class="text-sm font-medium capitalize">{direction.source_engine} → {direction.target_engine}</p>

@@ -70,6 +70,9 @@ var runPersistentAuthCommand = func(ctx context.Context, engine, command string)
 // Keep each engine independent: an upload failure or a blocked native writer
 // in one credential store cannot delay a rotation in the other.
 func runPersistentAuthWatch(ctx context.Context, engine string, logger *slog.Logger) {
+	if engine == config.EngineGrok {
+		return
+	} // Central owner, private per-lifecycle access-only caches.
 	active := codex.HasActiveAuthChild
 	if engine == config.EngineClaude {
 		active = claude.HasActiveAuthChild

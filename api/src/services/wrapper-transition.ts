@@ -1,5 +1,5 @@
 import type { Engine } from '../util/engine.js';
-import { ENGINE_CLAUDE } from '../util/engine.js';
+import { ENGINE_CLAUDE, ENGINE_CODEX, ENGINE_GROK, ENGINE_COMMANDS, ENGINE_LABELS } from '../util/engine.js';
 import type { VersionSnapshot } from './version-snapshot.js';
 
 export function isLegacyShellWrapperVersion(value: unknown): boolean {
@@ -52,9 +52,9 @@ export function buildWrapperV2InstallerScript(opts: {
   const peers = (opts.peerEngines ?? []).filter((e) => e !== opts.engine);
   const requestedEngines = [...new Set<Engine>([opts.engine, ...peers])];
   const needsClaude = requestedEngines.includes(ENGINE_CLAUDE);
-  const hasCodex = requestedEngines.some((engine) => engine !== ENGINE_CLAUDE);
+  const hasCodex = requestedEngines.includes(ENGINE_CODEX);
   const installLabel = requestedEngines
-    .map((engine) => (engine === ENGINE_CLAUDE ? 'Claude' : 'Codex'))
+    .map((engine) => ENGINE_LABELS[engine])
     .join(' + ');
   const defaultCurlInsecure = opts.allowInsecure ? '1' : '0';
 
@@ -72,6 +72,7 @@ INSTALL_LABEL=${shellQuote(installLabel)}
 NEEDS_CLAUDE=${needsClaude ? '1' : '0'}
 HAS_CODEX=${hasCodex ? '1' : '0'}
 HAS_CLAUDE=${needsClaude ? '1' : '0'}
+HAS_GROK=${requestedEngines.includes(ENGINE_GROK) ? '1' : '0'}
 INSTALL_CONTEXT=installer
 CODEX_INSTALL_CURL_INSECURE=\${CODEX_INSTALL_CURL_INSECURE:-${defaultCurlInsecure}}
 
@@ -91,12 +92,14 @@ if [ "$INSTALL_FAILED" = "0" ]; then
   if [ "$HAS_CLAUDE" = "1" ]; then
     ui_hint_cmd clx run "Start Claude Code"
   fi
+  if [ "$HAS_GROK" = "1" ]; then ui_hint_cmd cgx run "Start Grok Build"; fi
   if [ "$HAS_CODEX" = "1" ]; then
     ui_hint_cmd cdx doctor "Verify Codex setup"
   fi
   if [ "$HAS_CLAUDE" = "1" ]; then
     ui_hint_cmd clx doctor "Verify Claude setup"
   fi
+  if [ "$HAS_GROK" = "1" ]; then ui_hint_cmd cgx doctor "Verify Grok setup"; fi
   if [ "$BIN_ROOT_ON_PATH" = "0" ]; then
     ui_warn "setup" "PATH" "$BIN_ROOT" "not active in the parent shell"
     ui_path_hint
@@ -111,6 +114,7 @@ if [ "$BIN_ROOT_ON_PATH" = "0" ]; then
 fi
 RETRY_NAME=cdx
 if [ "$HAS_CODEX" = "0" ]; then RETRY_NAME=clx; fi
+if [ "$HAS_CODEX" = "0" ] && [ "$HAS_CLAUDE" = "0" ]; then RETRY_NAME=cgx; fi
 ui_hint "Retry host cron:    $RETRY_NAME cron install"
 ui_hint "Retry engine CLIs:  $RETRY_NAME cron run"
 ui_hint "If wrapper/config installation failed, mint a fresh single-use installer."
@@ -129,7 +133,7 @@ export function buildLegacyWrapperTransitionScript(opts: {
   const name = binaryName(opts.engine);
   const peers = (opts.peerEngines ?? []).filter((engine) => engine !== opts.engine);
   const requestedEngines = [...new Set<Engine>([opts.engine, ...peers])];
-  const hasCodex = requestedEngines.some((engine) => engine !== ENGINE_CLAUDE);
+  const hasCodex = requestedEngines.includes(ENGINE_CODEX);
   const hasClaude = requestedEngines.includes(ENGINE_CLAUDE);
   return `#!/bin/sh
 # Codex Orchestrator legacy transition launcher for ${name}.
@@ -141,10 +145,11 @@ HOST_API_KEY=${shellQuote(opts.apiKey)}
 ENGINE=${shellQuote(opts.engine)}
 NAME=${shellQuote(name)}
 HOST_LABEL=${shellQuote(opts.fqdn)}
-INSTALL_LABEL=${shellQuote(opts.engine === ENGINE_CLAUDE ? 'Claude' : 'Codex')}
+INSTALL_LABEL=${shellQuote(ENGINE_LABELS[opts.engine])}
 NEEDS_CLAUDE=${hasClaude ? '1' : '0'}
 HAS_CODEX=${hasCodex ? '1' : '0'}
 HAS_CLAUDE=${hasClaude ? '1' : '0'}
+HAS_GROK=${requestedEngines.includes(ENGINE_GROK) ? '1' : '0'}
 CODEX_INSTALL_CURL_INSECURE=\${CODEX_INSTALL_CURL_INSECURE:-${opts.allowInsecure ? '1' : '0'}}
 BIN_DIR=\${BIN_DIR:-/usr/local/bin}
 INSTALL_CONTEXT=transition
@@ -164,6 +169,7 @@ INSTALL_FAILED=0
 INSTALL_FINISHED=0
 CODEX_BUNDLE=
 CLAUDE_BUNDLE=
+GROK_BUNDLE=
 BIN_TMP=
 STEP_LOG=
 NODE_SHIM_TMP=
@@ -425,7 +431,7 @@ show_step_log() {
 }
 
 cleanup() {
-  for CLEAN_PATH in "$CODEX_BUNDLE" "$CLAUDE_BUNDLE" "$BIN_TMP" "$STEP_LOG" "$NODE_SHIM_TMP" "$NPM_SHIM_TMP"; do
+  for CLEAN_PATH in "$CODEX_BUNDLE" "$CLAUDE_BUNDLE" "$GROK_BUNDLE" "$BIN_TMP" "$STEP_LOG" "$NODE_SHIM_TMP" "$NPM_SHIM_TMP"; do
     if [ -n "$CLEAN_PATH" ]; then rm -f "$CLEAN_PATH"; fi
   done
   for CLEAN_PATH in "$INSTALL_BIN_TMP" "$ALIAS_TMP"; do
@@ -461,6 +467,7 @@ CONFIG_HOME=\${XDG_CONFIG_HOME:-$HOME/.config}
 DATA_HOME=\${XDG_DATA_HOME:-$HOME/.local/share}
 CODEX_CONFIG_PATH=\${CDX_CONFIG_PATH:-$CONFIG_HOME/codex-orchestrator/cdx.json}
 CLAUDE_CONFIG_PATH=\${CLX_CONFIG_PATH:-$CONFIG_HOME/codex-orchestrator/clx.json}
+GROK_CONFIG_PATH=\${CGX_CONFIG_PATH:-$CONFIG_HOME/codex-orchestrator/cgx.json}
 
 CURL_INSECURE_FLAG=
 if [ "\${CODEX_INSTALL_CURL_INSECURE:-0}" = "1" ]; then
@@ -697,6 +704,7 @@ cached_engine_cli() {
   case "$1" in
     cdx) CLI_CACHE="$HOME/.config/codex-orchestrator/cdx-codex-bin" ;;
     clx) CLI_CACHE="$HOME/.clx/state/claude-bin" ;;
+    cgx) CLI_CACHE="$HOME/.cgx/state/grok-bin" ;;
     *) return 1 ;;
   esac
   if [ ! -r "$CLI_CACHE" ]; then return 1; fi
@@ -812,6 +820,7 @@ fi
 
 if [ "$HAS_CODEX" = "1" ]; then mkdir -p "$(dirname "$CODEX_CONFIG_PATH")"; fi
 if [ "$HAS_CLAUDE" = "1" ]; then mkdir -p "$(dirname "$CLAUDE_CONFIG_PATH")"; fi
+if [ "$HAS_GROK" = "1" ]; then mkdir -p "$(dirname "$GROK_CONFIG_PATH")"; fi
 preflight
 BIN_ROOT_ON_PATH=0
 case ":$PARENT_PATH:" in
@@ -819,6 +828,7 @@ case ":$PARENT_PATH:" in
 esac
 ORIGINAL_CODEX_BIN=$(command -v cdx 2>/dev/null || true)
 ORIGINAL_CLAUDE_BIN=$(command -v clx 2>/dev/null || true)
+ORIGINAL_GROK_BIN=$(command -v cgx 2>/dev/null || true)
 PATH="$BIN_ROOT:\${PATH:-}"
 export PATH
 if [ "$INSTALL_CONTEXT" = "installer" ]; then
@@ -831,6 +841,9 @@ if [ "$HAS_CODEX" = "1" ]; then
 fi
 if [ "$HAS_CLAUDE" = "1" ]; then
   CLAUDE_BUNDLE=$(mktemp "\${TMPDIR:-/tmp}/clx.config.XXXXXX")
+fi
+if [ "$HAS_GROK" = "1" ]; then
+  GROK_BUNDLE=$(mktemp "\${TMPDIR:-/tmp}/cgx.config.XXXXXX")
 fi
 
 PLATFORM_OS=$(uname -s 2>/dev/null | tr '[:upper:]' '[:lower:]')
@@ -862,11 +875,18 @@ if [ "$HAS_CLAUDE" = "1" ]; then
     "$BASE_URL/wrapper/v2/config?engine=claude" \\
     -o "$CLAUDE_BUNDLE"
 fi
+if [ "$HAS_GROK" = "1" ]; then
+  curl $CURL_INSECURE_FLAG -fsSL \\
+    -H "X-API-Key: $HOST_API_KEY" \\
+    -H "X-Wrapper-Platform: $WRAPPER_PLATFORM" \\
+    "$BASE_URL/wrapper/v2/config?engine=grok" \\
+    -o "$GROK_BUNDLE"
+fi
 
-# Validate every requested config before writing any of them. A dual-engine
-# install is allowed only when both logical configs identify the same cxx
+# Validate every requested config before writing any of them. A multi-engine
+# install is allowed only when all logical configs identify the same cxx
 # version and SHA; otherwise no binary or alias is changed.
-PY_OUT=$(python3 - "$BIN_ROOT" "$CODEX_BUNDLE" "$CODEX_CONFIG_PATH" "$CLAUDE_BUNDLE" "$CLAUDE_CONFIG_PATH" <<'PY'
+PY_OUT=$(python3 - "$BIN_ROOT" "$CODEX_BUNDLE" "$CODEX_CONFIG_PATH" "$CLAUDE_BUNDLE" "$CLAUDE_CONFIG_PATH" "$GROK_BUNDLE" "$GROK_CONFIG_PATH" <<'PY'
 import json
 import os
 import re
@@ -874,7 +894,7 @@ import shlex
 import sys
 from urllib.parse import urlsplit
 
-bin_root, codex_bundle, codex_config, claude_bundle, claude_config = sys.argv[1:6]
+bin_root, codex_bundle, codex_config, claude_bundle, claude_config, grok_bundle, grok_config = sys.argv[1:8]
 
 def sort_value(value):
     if isinstance(value, list):
@@ -887,6 +907,7 @@ entries = []
 for engine, bundle_path, config_path in (
     ("codex", codex_bundle, codex_config),
     ("claude", claude_bundle, claude_config),
+    ("grok", grok_bundle, grok_config),
 ):
     if not bundle_path:
         continue
@@ -1080,9 +1101,11 @@ if [ "$SKIP_DOWNLOAD" = "0" ]; then
 fi
 if [ "$HAS_CODEX" = "1" ]; then install_alias cdx; fi
 if [ "$HAS_CLAUDE" = "1" ]; then install_alias clx; fi
+if [ "$HAS_GROK" = "1" ]; then install_alias cgx; fi
 if [ "$INSTALL_CONTEXT" = "installer" ]; then
   if [ "$HAS_CODEX" = "0" ]; then remove_disabled_alias cdx; fi
   if [ "$HAS_CLAUDE" = "0" ]; then remove_disabled_alias clx; fi
+  if [ "$HAS_GROK" = "0" ]; then remove_disabled_alias cgx; fi
 fi
 cleanup_known_relics
 ui_ok "cxx" "wrapper" "$WRAPPER_VERSION" "ready"
@@ -1118,6 +1141,10 @@ if [ "$HAS_CLAUDE" = "1" ] && [ -n "$ORIGINAL_CLAUDE_BIN" ] && [ "$ORIGINAL_CLAU
   ui_warn "clx" "PATH" "$ORIGINAL_CLAUDE_BIN" "expected $BIN_ROOT/clx"
   ui_hint "Refresh the parent shell: hash -r; or run directly: $BIN_ROOT/clx run"
 fi
+if [ "$HAS_GROK" = "1" ] && [ -n "$ORIGINAL_GROK_BIN" ] && [ "$ORIGINAL_GROK_BIN" != "$BIN_ROOT/cgx" ]; then
+  ui_warn "cgx" "PATH" "$ORIGINAL_GROK_BIN" "expected $BIN_ROOT/cgx"
+  ui_hint "Refresh the parent shell: hash -r; or run directly: $BIN_ROOT/cgx run"
+fi
 
 # One credentialed sync per engine so the host holds canonical auth before
 # the operator's first run. Non-fatal: the next cron tick retries it, so a
@@ -1140,18 +1167,20 @@ sync_engine() {
 if ! bootstrap_host; then INSTALL_FAILED=1; fi
 if [ "$HAS_CODEX" = "1" ] && ! verify_engine_cli "cdx" "codex"; then INSTALL_FAILED=1; fi
 if [ "$HAS_CLAUDE" = "1" ] && ! verify_engine_cli "clx" "claude"; then INSTALL_FAILED=1; fi
+if [ "$HAS_GROK" = "1" ] && ! verify_engine_cli "cgx" "grok"; then INSTALL_FAILED=1; fi
 # \`cxx cron run\` above already installed the background worker service.
 if [ "$INSTALL_FAILED" = "0" ]; then
   if [ "$HAS_CODEX" = "1" ]; then sync_engine cdx; fi
   if [ "$HAS_CLAUDE" = "1" ]; then sync_engine clx; fi
+  if [ "$HAS_GROK" = "1" ]; then sync_engine cgx; fi
 fi
 # These are consumed by the installer suffix. Keep the shared transition body
 # independently ShellCheck-clean even though its successful path execs above.
 : "$BIN_ROOT_ON_PATH" "$INSTALL_FAILED"`;
 }
 
-function binaryName(engine: Engine): 'cdx' | 'clx' {
-  return engine === ENGINE_CLAUDE ? 'clx' : 'cdx';
+function binaryName(engine: Engine): string {
+  return ENGINE_COMMANDS[engine];
 }
 
 function shellQuote(value: string): string {

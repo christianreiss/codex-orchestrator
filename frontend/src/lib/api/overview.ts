@@ -17,6 +17,10 @@ export interface OverviewVersions {
   /** Upstream release lookup has stopped refreshing; the served target is old. */
   cdx_version_stale?: boolean;
   client_version_checked_at?: string | null;
+  grok_version?: string | null;
+  grok_version_available?: string | null;
+  grok_version_checked_at?: string | null;
+  grok_version_stale?: boolean;
   claude_version?: string | null;
   claude_version_available?: string | null;
   claude_version_checked_at?: string | null;
@@ -34,12 +38,16 @@ export interface VersionCount {
 export interface VersionDistribution {
   codex: VersionCount[];
   claude: VersionCount[];
+  grok?: VersionCount[];
+  engine_counts?: EngineInstallCounts;
+  install_combinations?: Array<{ engines: string[]; count: number }>;
   install: { both: number; codex_only: number; claude_only: number; neither: number };
 }
 
 export interface EngineInstallCounts {
   codex: number;
   claude: number;
+  grok?: number;
 }
 
 /**
@@ -49,6 +57,7 @@ export interface EngineInstallCounts {
 export function engineInstallCounts(
   distribution: VersionDistribution | null | undefined,
 ): EngineInstallCounts | null {
+  if (distribution?.engine_counts) return distribution.engine_counts;
   const install = distribution?.install;
   if (!install) return null;
 

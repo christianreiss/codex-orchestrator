@@ -29,7 +29,7 @@
  * corrections.
  */
 import { createHash } from 'node:crypto';
-import { ENGINE_CLAUDE, type Engine } from '../util/engine.js';
+import { ENGINE_CLAUDE, ENGINE_GROK, type Engine } from '../util/engine.js';
 
 export const MANAGED_MEMORY_HEADING = '## Memory (managed)';
 
@@ -39,6 +39,13 @@ export const MANAGED_MEMORY_HEADING = '## Memory (managed)';
  * read as not applying to a first-class harness feature.
  */
 function localMemoryOverride(engine: Engine): string {
+  if (engine === ENGINE_GROK) {
+    return [
+      'Local files under the Grok home and ad-hoc notes on this host are host-local: another host',
+      'and a reinstalled workstation cannot see them. Do not use them for anything durable or shared,',
+      'and do not mirror orchestrator memory into them.',
+    ].join(' ');
+  }
   if (engine === ENGINE_CLAUDE) {
     return [
       "Claude Code's built-in file memory (`~/.claude/projects/**/memory/*.md` and its `MEMORY.md`",
@@ -57,7 +64,7 @@ export function buildManagedMemoryBlock(engine: Engine): string {
   return `${MANAGED_MEMORY_HEADING}
 
 This fleet keeps recorded decisions, conventions, runbooks, and handoffs in the orchestrator,
-shared across every host and both engines. Treat those records as authoritative over your own
+shared across every host and all three engines. Treat those records as authoritative over your own
 assumptions, not automatically as current code or runtime truth. Verify mutable facts against the
 present repository or system.
 

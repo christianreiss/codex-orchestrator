@@ -14,7 +14,7 @@
 
 <div class="settings-workspace">
   <section id="fleet-behavior" class="setting-boundary"><div class="setting-boundary__head"><h2>Fleet behavior</h2><p>Rules inherited by managed hosts unless a host has an explicit override.</p></div><div class="divide-y"><AutoUpdateSection bordered={false} /><ReverseDnsSection bordered={false} /></div></section>
-  <section id="agent-behavior" class="setting-boundary"><div class="setting-boundary__head"><h2>Agent behavior</h2><p>Fleet instructions injected into managed Codex and Claude documents.</p></div><div class="divide-y"><ApiKeysInChatSection bordered={false} /><RemoteExecSection bordered={false} /></div></section>
+  <section id="agent-behavior" class="setting-boundary"><div class="setting-boundary__head"><h2>Agent behavior</h2><p>Fleet instructions injected into managed Codex, Claude, and Grok documents.</p></div><div class="divide-y"><ApiKeysInChatSection bordered={false} /><RemoteExecSection bordered={false} /></div></section>
   <section id="authorization" class="setting-boundary"><div class="setting-boundary__head"><h2>Access control</h2><p>How strictly roles are enforced, and what tightening them would refuse.</p></div><AuthorizationSection /></section>
   <section id="insecure-approval" class="setting-boundary"><InsecureApprovalSection /></section>
   <section id="host-lifecycle" class="setting-boundary"><div class="setting-boundary__head"><h2>Host lifecycle</h2><p>Prune inactive or never-provisioned hosts predictably.</p></div><PrunePolicySection /></section>

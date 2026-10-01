@@ -2,7 +2,7 @@
 SHELL := /bin/bash
 .SHELLFLAGS := -eu -o pipefail -c
 
-VERSION ?= 0.9.8
+VERSION ?= 0.9.9
 COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
 DATE    ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 
@@ -29,7 +29,7 @@ endif
 # Platform matrix kept in sync with .github/workflows/wrappers.yml.
 PLATFORMS := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64
 
-.PHONY: all build cxx cxx-traced cdx clx terminal-preview test-terminal test test-traced vet lint clean release publish-release pubkey
+.PHONY: all build cxx cxx-traced cdx clx cgx terminal-preview test-terminal test test-traced vet lint clean release publish-release pubkey
 
 all: cxx
 
@@ -48,7 +48,7 @@ cxx-traced:
 	cd cxx && $(GO) build -tags cxx_otel -trimpath -ldflags="$(LDFLAGS)" -o ../bin/cxx-traced ./cmd/cxx
 
 # Compatibility build targets intentionally converge on the same artifact.
-cdx clx: cxx
+cdx clx cgx: cxx
 
 terminal-preview:
 	cd cxx && $(GO) build -o ../bin/terminal-preview ./cmd/terminal-preview

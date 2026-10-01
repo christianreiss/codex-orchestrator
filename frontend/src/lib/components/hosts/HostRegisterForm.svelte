@@ -1,6 +1,6 @@
 <script lang="ts" module>
   export type HostOption = "trusted" | "curl_insecure" | "temporary" | "vip";
-  export type HostFormEngine = "codex" | "claude";
+  export type HostFormEngine = "codex" | "claude" | "grok";
 
   /**
    * Each chip maps to exactly one register flag; none implies another.
@@ -18,6 +18,7 @@
   export const HOST_ENGINE_OPTIONS: { id: HostFormEngine; key: string; label: string; desc: string }[] = [
     { id: "codex", key: "5", label: "Codex", desc: "OpenAI Codex CLI (cdx)" },
     { id: "claude", key: "6", label: "Claude", desc: "Claude Code (clx)" },
+    { id: "grok", key: "7", label: "Grok", desc: "Grok Build (cgx)" },
   ];
 </script>
 
@@ -47,7 +48,7 @@
     defaultEngines: HostFormEngine[];
     /** Prefix for element ids; two forms can be mounted at once. */
     idPrefix?: string;
-    /** Show the 1–6 keyboard hints (the sheet binds those keys). */
+    /** Show the 1–7 keyboard hints (the sheet binds those keys). */
     showShortcuts?: boolean;
     /** Hide the submit row; the container calls `submit()` itself. */
     hideSubmit?: boolean;
@@ -70,7 +71,7 @@
 
   const schema = z.object({
     fqdn: z.string().trim().min(1, "Hostname is required"),
-    engines: z.array(z.enum(["codex", "claude"])).min(1, "Pick at least one engine"),
+    engines: z.array(z.enum(["codex", "claude", "grok"])).min(1, "Pick at least one engine"),
   });
 
   let fqdn = $state("");
@@ -184,7 +185,7 @@
 
   <div class="space-y-2">
     <Label id="{idPrefix}-options-label">Options</Label>
-    <div role="group" aria-labelledby="{idPrefix}-options-label" class="grid grid-cols-2 gap-2">
+    <div role="group" aria-labelledby="{idPrefix}-options-label" class="grid grid-cols-1 gap-2 sm:grid-cols-3">
       {#each HOST_OPTIONS as opt (opt.id)}
         <ChoiceCard
           mode="checkbox"
@@ -202,7 +203,7 @@
 
   <div class="space-y-2">
     <Label id="{idPrefix}-engines-label">Engines</Label>
-    <div role="group" aria-labelledby="{idPrefix}-engines-label" class="grid grid-cols-2 gap-2">
+    <div role="group" aria-labelledby="{idPrefix}-engines-label" class="grid grid-cols-1 gap-2 sm:grid-cols-3">
       {#each HOST_ENGINE_OPTIONS as opt (opt.id)}
         <ChoiceCard
           mode="checkbox"

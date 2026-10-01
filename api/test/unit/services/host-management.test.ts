@@ -39,7 +39,7 @@ describe('host-management pure helpers', () => {
       ]);
     });
     it('ignores invalid engine names', () => {
-      expect(parseEnginesInput('codex,llama,claude,grok', [ENGINE_CODEX])).toEqual([
+      expect(parseEnginesInput('codex,llama,claude,gemini', [ENGINE_CODEX])).toEqual([
         ENGINE_CODEX,
         ENGINE_CLAUDE,
       ]);

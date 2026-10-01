@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { engineLabel as labelForEngine } from "$lib/constants/engines";
   import { untrack } from "svelte";
   import { toast } from "svelte-sonner";
   import { Button } from "$lib/components/ui/button";
@@ -22,7 +23,7 @@
 
   // Each tab mounts a dedicated, engine-fixed instance of this component.
   const stableEngine = untrack(() => engine);
-  const engineLabel = stableEngine === "codex" ? "Codex" : "Claude";
+  const engineLabel = labelForEngine(stableEngine);
   const query = modelDefaultsQuery(stableEngine);
   let model = $state("");
   let reasoningEffort = $state("");
@@ -184,7 +185,7 @@
     </Button>
   </div>
   <div class="flex min-h-7 flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
-    <span>{stableEngine === "claude" ? "Synced to Claude Code settings. Host overrides take precedence." : "Synced to Codex configuration. Host overrides take precedence."}</span>
+    <span>{stableEngine === "claude" ? "Synced to Claude Code settings. Host overrides take precedence." : `Synced to ${labelForEngine(stableEngine)} configuration. Host overrides take precedence.`}</span>
     {#if dirty}
       <div class="flex items-center gap-2" role="status">
         <span class="font-medium text-foreground">Unsaved changes</span>

@@ -329,7 +329,7 @@ export interface PasswordChangeResponse {
 
 // api-keys feature ↓
 
-export type ApiKeyEngine = "openai" | "claude";
+export type ApiKeyEngine = "openai" | "claude" | "grok";
 
 /**
  * Shape of a row returned by `GET /admin/{openai|claude}/keys`.
@@ -539,7 +539,7 @@ export interface AgentsRenderedDocument {
   status: "ok" | "missing" | string;
   host_id: number;
   host_fqdn: string;
-  engine: "codex" | "claude" | string;
+  engine: "codex" | "claude" | "grok" | string;
   version_id?: number;
   sha256?: string;
   base_sha256?: string;
@@ -766,7 +766,7 @@ export interface CliAuthApprove {
 // register / quick-register endpoints. These supersede the minimal `Host`
 // stub above for everything under /hosts.
 
-export type HostEngine = "codex" | "claude";
+export type HostEngine = "codex" | "claude" | "grok";
 
 export type HostAutoUpdateState =
   | "disabled"
@@ -838,6 +838,14 @@ export interface HostListItem {
     username?: string;
     [key: string]: unknown;
   }>;
+  grok_last_refresh?: string | null;
+  grok_client_version?: string | null;
+  grok_client_version_override?: string | null;
+  grok_wrapper_version?: string | null;
+  grok_model_override?: string | null;
+  grok_reasoning_effort_override?: string | null;
+  grok_canonical_digest?: string | null;
+  grok_recent_digests?: string[];
 }
 
 export interface HostDetail extends HostListItem {}
@@ -854,6 +862,7 @@ export interface HostDetailResponse {
       wrapper_version: string | null;
       client_version_checked_at: string | null;
       claude_version: string | null;
+    grok_version?: string | null;
     };
     reverse_dns_enabled: boolean;
     auto_update_enabled: boolean;
@@ -1064,7 +1073,7 @@ export interface ClaudeSettingsValue {
   disabled: boolean;
 }
 
-export type ModelDefaultsEngine = "codex" | "claude";
+export type ModelDefaultsEngine = "codex" | "claude" | "grok";
 
 export interface ModelDefaultsCatalogEntry {
   model: string;
@@ -1123,6 +1132,8 @@ export interface CodexVersionLockValue {
 }
 
 export interface CodexVersionsSummary {
+  client_version_lock?: string | null;
+  client_version_lock_updated_at?: string | null;
   client_version: string | null;
   client_version_checked_at?: string | null;
   client_version_source?: string | null;
@@ -1147,6 +1158,8 @@ export interface CodexVersionsCheckResult {
     [key: string]: unknown;
   } | null;
   claude_versions?: CodexVersionsSummary | null;
+  grok_versions?: CodexVersionsCheckResult["claude_versions"];
+  grok_available_client?: CodexVersionsCheckResult["claude_available_client"];
 }
 
 export type ScalingReasoningEffort =
@@ -1231,10 +1244,10 @@ export interface AdminSecret {
   slug: string;
   name: string;
   description: string | null;
-  engine: "codex" | "claude" | null;
+  engine: "codex" | "claude" | "grok" | null;
   /** Host that created it over MCP; null means an operator did, via this UI. */
   source_host_id: number | null;
-  source_engine: "codex" | "claude" | null;
+  source_engine: "codex" | "claude" | "grok" | null;
   tags: string[];
   created_at: string;
   updated_at: string;
@@ -1270,7 +1283,7 @@ export interface CreateSecretPayload {
   name: string;
   value: string;
   description?: string | null;
-  engine?: "codex" | "claude" | null;
+  engine?: "codex" | "claude" | "grok" | null;
   tags?: string[];
 }
 
@@ -1279,6 +1292,6 @@ export interface UpdateSecretPayload {
   name?: string;
   value?: string;
   description?: string | null;
-  engine?: "codex" | "claude" | null;
+  engine?: "codex" | "claude" | "grok" | null;
   tags?: string[];
 }

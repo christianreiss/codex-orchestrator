@@ -74,6 +74,7 @@ const config: Config = {
         persona: {
           codex: "hsl(var(--persona-codex))",
           claude: "hsl(var(--persona-claude))",
+          grok: "hsl(var(--persona-grok))",
         },
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",

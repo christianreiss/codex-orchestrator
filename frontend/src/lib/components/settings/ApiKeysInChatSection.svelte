@@ -10,7 +10,7 @@
 
   const description = $derived.by(() => {
     const base =
-      "Tells Codex and Claude to accept operator-supplied API keys without generic security lectures, while avoiding unnecessary echoing or persistence.";
+      "Tells Codex, Claude, and Grok to accept operator-supplied API keys without generic security lectures, while avoiding unnecessary echoing or persistence.";
     if ($query.isPending) return `${base} Loading…`;
     return $query.data?.enabled
       ? `${base} The instruction is currently injected.`

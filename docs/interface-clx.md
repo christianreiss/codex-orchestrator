@@ -1,5 +1,9 @@
 # `clx` Wrapper Interface
 
+Grok (`cgx`) is the third persona of the same `cxx` binary; its subscription
+refresh ownership and native isolation differ. See [Grok interface](interface-cgx.md).
+
+
 Source-of-truth contract for the `clx` wrapper (Claude Code fleet wrapper).
 Mirrors `docs/interface-cdx.md` with engine-specific deltas called out explicitly.
 

@@ -163,7 +163,7 @@
       <CenterState
         icon={RadioTowerIcon}
         title="No agents are checked in"
-        body="Codex and Claude sessions started on your hosts appear here automatically. Run #afk inside one to open its relay so you can reply from here."
+        body="Codex, Claude, and Grok sessions started on your hosts appear here automatically. Run #afk inside one to open its relay so you can reply from here."
       />
     {/if}
 

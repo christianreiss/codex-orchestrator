@@ -528,7 +528,7 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
       definition: {
         name: 'shared_memory_write',
         description:
-          'Record something the whole fleet should know, in a document every host and both engines can find. Use this instead of writing a local notes file. Writing an EXISTING slug replaces its ENTIRE body. Never replace from a search excerpt, preview, chunk, or partial read. First reconstruct the complete body with shared_memory_read from offset 0 through every next_offset, require one stable memory.sha256, preserve unaffected content, and pass that digest as expected_sha256. On conflict or a changed page digest, restart the full read and reapply the correction. To add new material to an accurate document, prefer shared_memory_append. Search before creating a near-duplicate slug. Up to 1 MiB.',
+          'Record something the whole fleet should know, in a document every host and all three engines can find. Use this instead of writing a local notes file. Writing an EXISTING slug replaces its ENTIRE body. Never replace from a search excerpt, preview, chunk, or partial read. First reconstruct the complete body with shared_memory_read from offset 0 through every next_offset, require one stable memory.sha256, preserve unaffected content, and pass that digest as expected_sha256. On conflict or a changed page digest, restart the full read and reapply the correction. To add new material to an accurate document, prefer shared_memory_append. Search before creating a near-duplicate slug. Up to 1 MiB.',
         inputSchema: {
           type: 'object',
           properties: {

@@ -77,6 +77,13 @@ export const hosts = mysqlTable(
     claudeModelOverride: varchar('claude_model_override', { length: 128 }),
     claudeReasoningEffortOverride: varchar('claude_reasoning_effort_override', { length: 32 }),
     claudeLastRefresh: varchar('claude_last_refresh', { length: 100 }),
+    grokClientVersion: varchar('grok_client_version', { length: 64 }),
+    grokClientVersionOverride: varchar('grok_client_version_override', { length: 64 }),
+    grokWrapperVersion: varchar('grok_wrapper_version', { length: 64 }),
+    grokAuthDigest: varchar('grok_auth_digest', { length: 128 }),
+    grokModelOverride: varchar('grok_model_override', { length: 128 }),
+    grokReasoningEffortOverride: varchar('grok_reasoning_effort_override', { length: 32 }),
+    grokLastRefresh: varchar('grok_last_refresh', { length: 100 }),
     configVersion: bigint('config_version', { mode: 'number', unsigned: true }).notNull().default(0),
     wrapperTrack: varchar('wrapper_track', { length: 16 }).notNull().default('v2'),
     createdAt: varchar('created_at', { length: 100 }).notNull(),
@@ -211,6 +218,21 @@ export const providerAccountSessions = mysqlTable(
     scopeIdx: index('idx_account_session_scope').on(t.hostId, t.engine, t.scopeId),
   }),
 );
+
+/** Durable fencing survives owner-process or advisory-lock loss. Tokens remain encrypted. */
+export const grokAuthRefreshState = mysqlTable('grok_auth_refresh_state', {
+  accountId: bigint('account_id', { mode: 'number', unsigned: true }).primaryKey(),
+  state: varchar('state', { length: 24 }).notNull().default('idle'),
+  attemptId: varchar('attempt_id', { length: 64 }),
+  basePayloadId: bigint('base_payload_id', { mode: 'number', unsigned: true }),
+  baseGeneration: bigint('base_generation', { mode: 'number', unsigned: true }),
+  pendingPayloadId: bigint('pending_payload_id', { mode: 'number', unsigned: true }),
+  responseEnc: longtext('response_enc'),
+  nextAttemptAt: varchar('next_attempt_at', { length: 100 }),
+  errorCode: varchar('error_code', { length: 100 }),
+  startedAt: varchar('started_at', { length: 100 }),
+  updatedAt: varchar('updated_at', { length: 100 }).notNull(),
+});
 
 export const authCanonicalHeads = mysqlTable('auth_canonical_heads', {
   engine: varchar('engine', { length: 16 }).primaryKey(),

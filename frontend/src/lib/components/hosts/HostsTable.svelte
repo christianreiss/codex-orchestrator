@@ -227,7 +227,7 @@
                         ? !row.canonical_digest
                         : engine === "claude"
                           ? !row.claude_canonical_digest
-                          : false}
+                          : engine === "grok" ? !row.grok_canonical_digest : false}
                     />
                   {/each}
                   {#if row.vip}
@@ -243,7 +243,7 @@
                       ? !row.canonical_digest
                       : engine === "claude"
                         ? !row.claude_canonical_digest
-                        : false}
+                        : engine === "grok" ? !row.grok_canonical_digest : false}
                   />
                 {/each}
                 {#if row.vip}
