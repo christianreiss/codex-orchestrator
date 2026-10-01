@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/codex"
@@ -211,7 +212,10 @@ func contentOnlyHost(t *testing.T, authBlock string) (*config.Config, string, *[
 
 	bodies := &[]map[string]any{}
 	paths := &[]string{}
+	var requestsMu sync.Mutex
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestsMu.Lock()
+		defer requestsMu.Unlock()
 		*paths = append(*paths, r.URL.Path)
 		if r.URL.Path == "/skills" {
 			w.Header().Set("Content-Type", "application/json")
@@ -368,8 +372,11 @@ func TestContentOnlySyncDoesNotFallBackToLegacyRetrieve(t *testing.T) {
 	t.Setenv("CODEX_ALLOW_FQDN_MISMATCH", "1")
 
 	seen := []string{}
+	var seenMu sync.Mutex
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seenMu.Lock()
 		seen = append(seen, r.URL.Path)
+		seenMu.Unlock()
 		http.NotFound(w, r)
 	}))
 	t.Cleanup(server.Close)
@@ -379,6 +386,8 @@ func TestContentOnlySyncDoesNotFallBackToLegacyRetrieve(t *testing.T) {
 	if exit != 1 || err == nil {
 		t.Fatalf("unsupported bundle = (%d, %v), want (1, error)", exit, err)
 	}
+	seenMu.Lock()
+	defer seenMu.Unlock()
 	for _, path := range seen {
 		if path == "/auth" {
 			t.Fatal("content-only pass fell back to a credential retrieve")
