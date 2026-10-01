@@ -48,7 +48,7 @@ func heldDeliveryServer(t *testing.T, calls *[]string) *sessionClient {
 
 func holdDelivery(c *sessionClient) *channelTracker {
 	tracker := newChannelTracker(c)
-	tracker.receiver = &autoReceiver{client: c, tracker: tracker}
+	tracker.receiver = &autoReceiver{client: c, tracker: tracker, connected: true, lastBeatOK: time.Now()}
 	tracker.items["held"] = &channelPending{claimID: "claim", cancel: func() {}}
 	return tracker
 }

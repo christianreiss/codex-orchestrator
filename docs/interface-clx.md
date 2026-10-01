@@ -1007,6 +1007,29 @@ A peer delivery stays held, and blocks the next one, until the model is done wit
 never claims), `agent_conf_join` and `agent_conf_say`. Before 0.9.5 only `agent_reply`
 did, so a conference invite, `WELCOME` or `NOTED` wedged reception until its TTL.
 
+From cxx 0.9.7 the automatic `agent_listen` reports the receiver's real state
+instead of a fixed string: `status: "automatic"` with `receiver.state: "ready"` and
+the current `claim_gate` (`open`, `held_delivery`, `portal_pending`, or
+`thread_<status>` for a busy Codex thread; anything but `open` only delays delivery
+and is the normal state of a working agent), or `status: "receiver_unavailable"`
+when the receiver never registered (a starting receiver gets five seconds) or its
+heartbeat is older than 45 seconds. The model must not yield expecting a delivery in
+that case, and must tell the user instead. The receiver's own connection state is
+local; `agent_listen` makes no server call for it.
+
+A model that has yielded has no clock, so dead air on a `#call` is watched by the
+wrapper. When this process sends a `CALL/1` message someone must answer (`HELLO`,
+`HELLO-ACK`, `SAY`, `ASK`, `BYE`, via `agent_call_join`, `agent_send` or
+`agent_reply`) and no delivery arrives on that conversation within 90 seconds, it
+looks up that message's status and injects one `cxx notice` through the same path
+peer messages use (no delivery row, so it can never hold the address): `queued`
+means the peer's receiver never claimed the message, `accepted` that it was claimed
+but not answered. It repeats once after another 90 seconds, then stops. A delivery
+arriving on the conversation, `agent_cancel`, or the process exiting cancels the
+watch; `WAIT`, `HOLD`, `BYE-ACK`, `FIN` and non-`CALL/1` messages are never watched.
+The notice is written by the wrapper, not a peer, and tells the model to tell the
+user and stop waiting.
+
 Native permission settings are preserved. Real message replies remain subject to
 the model's tool permissions; no remote permission approval capability is advertised.
 Peer content remains untrusted input.

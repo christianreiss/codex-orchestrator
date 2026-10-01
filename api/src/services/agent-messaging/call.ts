@@ -17,6 +17,7 @@ import {
   agentBusConferences,
   agentBusConversations,
   agentBusMessages,
+  agentSessions,
   type AgentBusAddress,
   type AgentBusConversation,
   type AgentSession,
@@ -27,6 +28,7 @@ import type { Keyring } from '../../security/keyring.js';
 import { encrypt } from '../../security/secret-box.js';
 import { isoOffsetSeconds, nowIso } from '../../util/timestamp.js';
 import { wsPublisher } from '../../ws/publisher.js';
+import { deriveAddressPresence, type AgentAddressPresence } from '../agent-presence.js';
 import {
   AGENT_MESSAGING_CALL_PIN_SPACE,
 } from './constants.js';
@@ -44,6 +46,8 @@ import { messageForParticipant, newQueuedMessage, publicAddress } from './views.
 export interface CallCore {
   readonly db: Database;
   readonly keyring: Keyring;
+  /** The fleet's one liveness window (`AGENT_PORTAL_HEARTBEAT_FRESH_SECONDS`). */
+  readonly presenceFreshSeconds: number;
   requireEnabledLocked(db: AgentMessagingDb): Promise<void>;
   requireAddressLocked(db: AgentMessagingDb, id: string): Promise<AgentBusAddress>;
   authenticateBridge(
@@ -58,6 +62,26 @@ export interface CallCore {
 
 export class CallCoordinator {
   constructor(private readonly core: CallCore) {}
+
+  /**
+   * Whether an address can be *woken* by a message right now.
+   *
+   * Eligibility says the address exists and its host may use messaging; it says
+   * nothing about a receiver being on the line. A join onto an address that
+   * cannot receive queues a HELLO nobody claims, and both agents then yield
+   * waiting on each other -- a lost wake-up with no detector. `listening` is the
+   * same derived presence `listAddresses` reports, so the two never disagree.
+   */
+  private async presenceLocked(db: AgentMessagingDb, address: AgentBusAddress): Promise<AgentAddressPresence> {
+    const rows = address.currentSessionId
+      ? await db
+          .select({ heartbeatAt: agentSessions.heartbeatAt, endedAt: agentSessions.endedAt, receiver: agentSessions.receiver })
+          .from(agentSessions)
+          .where(eq(agentSessions.id, address.currentSessionId))
+          .limit(1)
+      : [];
+    return deriveAddressPresence(address, rows[0] ?? null, isoOffsetSeconds(-this.core.presenceFreshSeconds));
+  }
 
   /**
    * Clear every PIN whose window has closed.
@@ -207,19 +231,23 @@ export class CallCoordinator {
       await this.core.assertAddressEligibleLocked(tx, self);
       // Re-opening while a PIN is still live returns the same one. Minting a
       // second would silently kill a PIN the human may already have written down.
+      const presence = await this.presenceLocked(tx, self);
       if (self.callPin && self.callPinExpiresAt && self.callPinExpiresAt > now) {
-        return { pin: self.callPin, expiresAt: self.callPinExpiresAt, reused: true, self };
+        return { pin: self.callPin, expiresAt: self.callPinExpiresAt, reused: true, self, presence };
       }
       const expiresAt = isoOffsetSeconds(ttlSeconds);
       const pin = await this.mintCallPinLocked(tx, self.id, expiresAt, now);
-      return { pin, expiresAt, reused: false, self };
+      return { pin, expiresAt, reused: false, self, presence };
     });
     return {
       enabled: true,
       pin: result.pin,
       expires_at: result.expiresAt,
       reused: result.reused,
-      self: publicAddress(result.self),
+      // False means a joiner's HELLO would sit unclaimed: say so before the
+      // caller prints a banner nobody can honour.
+      listening: result.presence === 'listening',
+      self: publicAddress(result.self, undefined, result.presence),
     };
   }
 
@@ -255,6 +283,14 @@ export class CallCoordinator {
         throw new ValidationError('An agent cannot call itself', { param: 'pin' });
       }
       await this.core.assertAddressEligibleLocked(tx, opener);
+      // Thrown before the PIN is cleared below, so the transaction rolls back and
+      // the rendezvous stays live for a retry once the opener's receiver is back.
+      if ((await this.presenceLocked(tx, opener)) !== 'listening') {
+        throw new ConflictError(
+          'The agent that opened this call has no live receiver, so a hello would go unanswered',
+          'agent_messaging_call_peer_not_listening',
+        );
+      }
 
       const conversation: AgentBusConversation = {
         id: randomUUID(),

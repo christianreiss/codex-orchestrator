@@ -426,6 +426,12 @@ addresses and never opens a host listener. Session finish clears the live
 binding but retains the address as resumable/offline; SIGINT/SIGTERM stops the
 relay generation and erases its server token.
 
+Call rendezvous reports the opener's derived presence and refuses a join when
+the opener is not listening, preserving the PIN for a retry. From wrapper 0.9.7,
+automatic `agent_listen` reports receiver health instead of assuming reception
+works. Unanswered outbound `CALL/1` messages trigger a local notice after 90
+seconds and at most one reminder; a reply or cancellation stops the watch.
+
 The queue is ordered at least once: a monotonic dispatch order preserves
 per-target FIFO, retries cannot leapfrog, and one target has at most one leased
 or accepted message. Claims and sender client IDs are idempotent, leases last 60

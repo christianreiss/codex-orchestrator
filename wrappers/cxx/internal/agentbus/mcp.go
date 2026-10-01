@@ -326,7 +326,8 @@ func runMCPProtocol(client *sessionClient, channel bool, stdin io.Reader, stdout
 	channelState := newChannelTracker(client)
 	automatic := len(auto) > 0 && auto[0]
 	if automatic {
-		channelState.receiver = &autoReceiver{client: client, tracker: channelState, output: output}
+		channelState.receiver = &autoReceiver{client: client, tracker: channelState, output: output, stall: newStallWatcher()}
+		defer channelState.receiver.stall.stopAll()
 	}
 	receiverStarted := false
 	initialized := false
@@ -576,6 +577,9 @@ func callMCPTool(ctx context.Context, client *sessionClient, channelState *chann
 		body := map[string]any{"to": to, "content": content, "client_message_id": newUUID(), "kind": messageKindFor(name)}
 		copyOptional(args, body, "conversation_id", "ttl_seconds")
 		if err := client.post(ctx, "send", body, &out); err != nil || name == "agent_send" {
+			if err == nil {
+				armStall(ctx, channelState, out, content)
+			}
 			return out, err
 		}
 		message, _ := out["message"].(map[string]any)
@@ -612,6 +616,7 @@ func callMCPTool(ctx context.Context, client *sessionClient, channelState *chann
 			}
 			channelState.drop(messageID, pending)
 		}
+		armStall(ctx, channelState, out, content)
 		return out, nil
 	case "agent_message_get":
 		if stringArg(args, "message_id") == "" {
@@ -627,6 +632,9 @@ func callMCPTool(ctx context.Context, client *sessionClient, channelState *chann
 		}
 		if err := client.post(ctx, "cancel", map[string]any{"conversation_id": stringArg(args, "conversation_id"), "reason": emptyToNil(stringArg(args, "reason"))}, &out); err != nil {
 			return nil, err
+		}
+		if channelState != nil && channelState.receiver != nil {
+			channelState.receiver.stall.cancel(stringArg(args, "conversation_id"))
 		}
 		return out, nil
 	case "agent_call_open":
@@ -657,6 +665,7 @@ func callMCPTool(ctx context.Context, client *sessionClient, channelState *chann
 		}, &out); err != nil {
 			return nil, err
 		}
+		armStall(ctx, channelState, out, content)
 		return out, nil
 	case "agent_listen":
 		return agentListen(ctx, client, channelState, args)
@@ -780,7 +789,14 @@ func agentListen(ctx context.Context, client *sessionClient, state *channelTrack
 		// agent_reply (a joined invite, a WELCOME or NOTED) wedged reception until
 		// its TTL.
 		state.completeOutstanding(ctx)
-		return map[string]any{"status": "automatic", "message": "The native receiver delivers messages directly into this conversation. Any delivered message you had not replied to is now released, so the next queued one follows on its own. Reply to delivered messages using their IDs. Yield this model turn instead of polling; the native receiver stays on the line, including during calls and conferences."}, nil
+		// Report the receiver's real state. "automatic" used to be a local string
+		// that said nothing about whether anything was on the line, so a model with
+		// a dead receiver yielded and waited for a delivery that could not come.
+		health := state.receiver.awaitReady(ctx, receiverReadyWait)
+		if health["state"] != "ready" {
+			return map[string]any{"status": "receiver_unavailable", "receiver": health, "message": "This session's native receiver is not connected, so peer messages cannot be delivered to you. Do NOT yield expecting one. Tell the user the receiver is down (`cxx agent doctor` shows why), and do not open or join a call until it is back."}, nil
+		}
+		return map[string]any{"status": "automatic", "receiver": health, "message": "The native receiver delivers messages directly into this conversation. Any delivered message you had not replied to is now released, so the next queued one follows on its own. Reply to delivered messages using their IDs. Yield this model turn instead of polling; the native receiver stays on the line, including during calls and conferences. If a peer stays silent, a notice from your local wrapper will wake you; tell the user then instead of waiting."}, nil
 	}
 	if state == nil {
 		return nil, errors.New("agent messaging delivery state is unavailable")
@@ -917,4 +933,17 @@ func copyOptional(source, target map[string]any, keys ...string) {
 			target[key] = value
 		}
 	}
+}
+
+// armStall starts the dead-air watch for a message just sent, from the tool
+// result the server returned. Silently a no-op outside automatic mode, and for
+// any message that is not a CALL/1 verb the sender is waiting on.
+func armStall(ctx context.Context, state *channelTracker, result map[string]any, content string) {
+	if state == nil || state.receiver == nil {
+		return
+	}
+	message, _ := result["message"].(map[string]any)
+	messageID, _ := message["id"].(string)
+	conversationID, _ := message["conversation_id"].(string)
+	state.receiver.watchOutbound(ctx, conversationID, messageID, content)
 }

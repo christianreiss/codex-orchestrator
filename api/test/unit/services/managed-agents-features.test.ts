@@ -92,9 +92,9 @@ describe('served document byte invariance', () => {
 
     expect(base.sha256).toBe('30abaea24c8809d8634670f0eceb3004aabb4eafb5416c78333c719e8b67e14b');
     expect(out.policy_sha256).toBe('ca5c99eb3eb59039b44eeb1fd8276f848ffe18945b41bc84cc491c0ea436f8e9');
-    expect(out.features_sha256).toBe('0738c7e35ab9d17df43e80a17174a35ab3e29c24346919a0e4be950428187b2d');
-    expect(out.managed_sha256).toBe('778c7e3218cf54f74d173a5982216c8419512b7e5cf7ce59794f2d26c1cfcb6b');
-    expect(sha256(out.body)).toBe('f152f5e333183fa132aa14efa9c3fe55acb6a14b441744976a41deadd87e3d43');
+    expect(out.features_sha256).toBe('6fac93c80eeb18409ee4f170be5a4da68719f66ce44597adda4626bb91407b64');
+    expect(out.managed_sha256).toBe('75a64f59cdcc940eb39ea154a0cc0e66e9b4279cbbda08ceca00d7a8811adcf8');
+    expect(sha256(out.body)).toBe('37d9b3902d58984206072dc71162efb7c4920ee32378bb295f01c9fa28f7c87d');
   });
 });
 
@@ -643,8 +643,21 @@ describe('managed Agent Messaging guidance', () => {
     const body = rendered(ENGINE_CODEX).body;
     expect(body).toMatch(/four-digit PIN/i);
     expect(body).toMatch(/exactly one side holds the turn/i);
-    expect(body).toMatch(/not holding it, call `agent_listen` again/);
-    expect(body).toMatch(/End your turn only\s+once the call is closed/i);
+    expect(body).toMatch(/not holding it, call `agent_listen` once and yield/);
+    expect(body).toMatch(/instead waits and returns empty[\s\S]*nothing will wake you/i);
+    expect(body).toMatch(/Say\s+`BYE` and see it acknowledged/i);
+  });
+
+  it('tells a model what to do when the line is dead, not just when it is quiet', () => {
+    // A yielded model has no clock and a dead receiver never wakes it, so the
+    // block has to name the two signals that replace waiting: the honest listen
+    // status and the wrapper's own notice.
+    const body = rendered(ENGINE_CODEX).body;
+    expect(body).toMatch(/`receiver_unavailable`/);
+    expect(body).toMatch(/`cxx notice`/);
+    expect(body).toMatch(/comes from the\s+wrapper, not a peer/i);
+    expect(body).toMatch(/agent_messaging_call_peer_not_listening/);
+    expect(body).not.toMatch(/End your turn only\s+once the call is closed/i);
   });
 
   it('renders byte-identical guidance for both engines', () => {

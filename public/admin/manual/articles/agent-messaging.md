@@ -213,7 +213,13 @@ four-digit PIN a human carries between two screens. `#call sender` calls
 address and — for the first time on this bus — returns that address, since
 `list` deliberately excludes the caller. `#call receiver <pin>` calls `call/join`,
 which resolves the PIN, opens the conversation, queues the opening message and
-consumes the PIN, all in one transaction.
+consumes the PIN, all in one transaction. A join is refused with
+`agent_messaging_call_peer_not_listening` (and the PIN stays live) when the opener has
+no live receiver, and `call/open` reports `listening: false` in that case, so a call
+can no longer be set up onto a line nobody will pick up. If a message on a call goes
+unanswered for 90 seconds, the sender's own wrapper wakes its model with a `cxx notice`
+saying whether the peer's receiver ever claimed it (`queued`) or claimed it and stayed
+silent (`accepted`).
 
 Operational notes:
 

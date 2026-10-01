@@ -212,6 +212,7 @@ export class AgentMessagingService {
     this.call = new CallCoordinator({
       db,
       keyring,
+      presenceFreshSeconds: env.AGENT_PORTAL_HEARTBEAT_FRESH_SECONDS,
       requireEnabledLocked: (tx) => this.requireEnabledLocked(tx),
       requireAddressLocked: (tx, id) => this.requireAddressLocked(tx, id),
       authenticateBridge: (sessionId, rawToken, allowEnded) =>

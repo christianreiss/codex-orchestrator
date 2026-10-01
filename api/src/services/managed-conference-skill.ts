@@ -23,7 +23,7 @@ description: "${DESCRIPTION}"
 # Agent conference
 
 A conference is a meeting with a chair, not a group chat. One agent runs the room.
-Everyone else answers the chair and goes back to listening.
+Everyone else answers the chair and then waits for the next message.
 
 ## The invariant — read this before anything else
 
@@ -33,7 +33,7 @@ room.** The replacement:
 
 > **Every message creates exactly one obligation, and the chair's reply always ends the
 > exchange.** A participant that receives \`NOTED\`, \`TASK\` or \`ADJOURN\` answers if the
-> verb asks for it and then goes back to \`agent_listen\` — it does not reply again.
+> verb asks for it and then calls \`agent_listen\` once and yields — it does not reply again.
 > **Only the chair opens a round.**
 
 If you are a participant and you find yourself starting an exchange the chair did not
@@ -45,8 +45,9 @@ agents in the room it compounds five ways at once.
 The fleet reaches an agent in one of two ways, and \`agent_conf_roster\` reports which
 under \`mode\`:
 
-**\`attached\`** — a live wrapper with a human at it, sitting in \`agent_listen\`. It holds a
-conversation across many turns and can say "hold on, I'm working".
+**\`attached\`** — a live wrapper with a human at it, reachable through its native receiver
+(or, without one, sitting in \`agent_listen\`). It holds a conversation across many turns and
+can say "hold on, I'm working".
 
 **\`headless\`** — an idle host. Its relay boots it fresh for each delivery, with the
 message as its entire prompt, and its final response *is* its reply. It has no way to
@@ -76,8 +77,10 @@ returns one report. Do not ask it to check in.
    \`\`\`
 
    Unlike a call PIN, a room PIN is **multi-use** — every member dials the same digits.
-3. \`agent_listen\` for the \`HELLO\`s. Answer each with \`WELCOME\` stating the agenda and
-   that member's part in it. That reply ends their turn; they go back to listening.
+3. Call \`agent_listen\` once and yield; each \`HELLO\` arrives as a delivery. If it returns
+   \`receiver_unavailable\`, nothing can reach you: tell the human instead of running a room.
+   Answer each \`HELLO\` with \`WELCOME\` stating the agenda and that member's part in it. That
+   reply ends their turn; they call \`agent_listen\` once and yield.
 4. Run the meeting. \`agent_conf_say\` broadcasts to every seated member;
    \`agent_conf_dispatch\` hands one member a task and takes it off the floor until it
    reports.
@@ -93,9 +96,11 @@ failed, say so — do not report that the room heard you when two of five did no
 2. \`agent_conf_join\` with the \`pin\`, or with the \`conference_id\` carried in an
    invitation you were booted with. Declare a short \`purpose\`: what you bring. Your host,
    engine and role are recorded by the fleet, not by you, and cannot be asserted.
-3. If you are attached, go to \`agent_listen\` and stay there. If you are headless, your
-   run ends here and your final output is your hello.
-4. Answer what the chair asks. Then listen again. Do not start rounds.
+3. If you are attached, call \`agent_listen\` once and yield: with the automatic receiver the
+   chair's next message is delivered to you. If \`agent_listen\` instead waits and returns
+   empty, you are not on it, so keep listening. If you are headless, your run ends here and
+   your final output is your hello.
+4. Answer what the chair asks. Then call \`agent_listen\` once and yield. Do not start rounds.
 
 ## Message format
 
@@ -113,9 +118,9 @@ skill must not be able to deadlock the room.
 |---|---|---|
 | \`INVITE\` | chair | join with \`agent_conf_join\`, or reply declining |
 | \`HELLO\` | joiner | chair replies \`WELCOME\`, or \`BYE reason=refused\` |
-| \`WELCOME\` | chair | nothing — go back to listening |
-| \`SAY\` | either | a participant answers once, then listens; the chair answers \`NOTED\` |
-| \`NOTED\` | chair | nothing — turn-terminal, go back to listening |
+| \`WELCOME\` | chair | nothing — \`agent_listen\` once, then yield |
+| \`SAY\` | either | a participant answers once, then yields; the chair answers \`NOTED\` |
+| \`NOTED\` | chair | nothing — turn-terminal, \`agent_listen\` once, then yield |
 | \`TASK eta=<s>\` | chair | do the work, then reply once with \`REPORT\` |
 | \`REPORT\` | participant | chair replies \`NOTED\`, or a further \`TASK\` |
 | \`WAIT eta=<s>\` | attached only | chair replies \`HOLD\` at once, without doing work |
@@ -149,8 +154,8 @@ the room reports \`adjourning\`, and it closes when the last report lands.
 **kills a headless member's engine process mid-task**. Use it when the work no longer
 matters, and say how many tasks you interrupted — the result tells you.
 
-If a tool returns \`agent_messaging_lease_lost\`, the room was adjourned under you. It is
-over: report that and stop.
+If a tool returns \`agent_messaging_conversation_canceled\` or \`agent_messaging_lease_lost\`,
+the room was adjourned under you. It is over: report that and stop.
 
 ## What the human sees
 

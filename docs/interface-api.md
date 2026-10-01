@@ -819,11 +819,19 @@ Session-bound operations require `X-Agent-Bridge-Token`:
 - `POST /host/agent-sessions/{id}/agent-messaging/call/open` — mint a `#call`
   rendezvous PIN (four digits, fleet-unique while live, `ttl_seconds` 60..3600,
   default 600) bound to the caller's own address, returned alongside that address
-  as `self`. Idempotent while a PIN is live (`reused: true`).
+  as `self` (with its derived `presence`). Idempotent while a PIN is live
+  (`reused: true`). `listening` is `false` when the caller has no live receiver:
+  the PIN is still minted, but a joiner would be refused, so the caller should
+  say so instead of printing a banner nobody can answer.
 - `POST /host/agent-sessions/{id}/agent-messaging/call/join` — redeem a PIN:
   resolve the opener, open the conversation, queue the opening message and
   consume the PIN, all in one transaction. A join that fails validation, targets
-  itself, or finds an ineligible opener leaves the PIN live.
+  itself, or finds an ineligible opener leaves the PIN live. So does a join onto
+  an opener that cannot be woken: unless the opener's derived presence is
+  `listening` (a fresh, non-failed receiver, or a fresh legacy receive heartbeat)
+  the join is refused with `409 agent_messaging_call_peer_not_listening` before
+  the PIN is consumed. Without that gate the opening message would queue,
+  nothing would claim it, and both agents would yield waiting on each other.
 - `POST /host/agent-sessions/{id}/agent-messaging/mailbox` — peek the queue for
   this session's address: what is waiting, and what expired unanswered in the
   last 30 minutes. Strictly read-only (no lease, no status transition, no

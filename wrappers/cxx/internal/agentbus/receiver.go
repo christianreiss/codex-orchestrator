@@ -26,6 +26,85 @@ type autoReceiver struct {
 	lastPong      time.Time
 	queue         *nativeQueue
 	boundNativeID string
+	// connected, lastBeatOK, gate and gateSince are this process's own account of
+	// whether it can wake the session. They exist so agent_listen can tell "on the
+	// line" from "the line is dead" without a server round trip: a model that
+	// yields on a dead line waits forever, and nothing else will notice.
+	connected  bool
+	lastBeatOK time.Time
+	gate       string
+	gateSince  time.Time
+	// stall is the dead-air watch for messages this process sent (see stall.go).
+	stall *stallWatcher
+}
+
+// receiverStaleAfter matches the server's freshness window for a receiver
+// heartbeat (`RECEIVER_FRESH_MS`): past it the server no longer treats this
+// receiver as listening, so neither should agent_listen.
+const receiverStaleAfter = 45 * time.Second
+
+// receiverReadyWait is how long agent_listen waits for a starting receiver to
+// register before reporting it unavailable. A variable so tests need not wait.
+var receiverReadyWait = 5 * time.Second
+
+func (r *autoReceiver) setConnected(up bool) {
+	r.mu.Lock()
+	r.connected = up
+	if up {
+		r.lastBeatOK = time.Now()
+	} else {
+		r.gate, r.gateSince = "", time.Time{}
+	}
+	r.mu.Unlock()
+}
+
+func (r *autoReceiver) setGate(gate string) {
+	r.mu.Lock()
+	if gate != r.gate {
+		r.gate, r.gateSince = gate, time.Now()
+	}
+	r.mu.Unlock()
+}
+
+// health reports whether the receiver can currently deliver into this session.
+// `unavailable` means a message sent to this agent would not be claimed, so the
+// model must not yield expecting one. `claim_gate` is informational: anything
+// other than `open` (a held delivery, a busy Codex thread) delays delivery but is
+// the normal state of a working agent, not a fault.
+func (r *autoReceiver) health() map[string]any {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	state := "ready"
+	if !r.connected || time.Since(r.lastBeatOK) > receiverStaleAfter {
+		state = "unavailable"
+	}
+	out := map[string]any{"state": state}
+	if r.gate != "" {
+		out["claim_gate"] = r.gate
+		if r.gate != "open" && !r.gateSince.IsZero() {
+			out["claim_gate_seconds"] = int(time.Since(r.gateSince).Seconds())
+		}
+	}
+	return out
+}
+
+// awaitReady gives a receiver that is still starting up a moment to register
+// before agent_listen calls it dead. A session's first tool call can beat the
+// receiver's registration, and a false "unavailable" would send the model to the
+// human over a race.
+func (r *autoReceiver) awaitReady(ctx context.Context, limit time.Duration) map[string]any {
+	deadline := time.Now().Add(limit)
+	for {
+		health := r.health()
+		if health["state"] == "ready" || !time.Now().Before(deadline) {
+			return health
+		}
+		select {
+		case <-ctx.Done():
+			return health
+		case <-time.After(250 * time.Millisecond):
+		}
+	}
 }
 
 func (c *sessionClient) receiver(ctx context.Context, op string, body any, out any) error {
@@ -79,8 +158,15 @@ func (r *autoReceiver) connection(parent context.Context) error {
 			return err
 		}
 		q.thread = r.boundNativeID
+		r.mu.Lock()
 		r.queue = q
-		defer func() { q.close(); r.queue = nil }()
+		r.mu.Unlock()
+		defer func() {
+			r.mu.Lock()
+			r.queue = nil
+			r.mu.Unlock()
+			q.close()
+		}()
 		identityDeadline := time.Now().Add(30 * time.Second)
 		for {
 			nativeID, err = q.identity()
@@ -118,7 +204,9 @@ func (r *autoReceiver) connection(parent context.Context) error {
 	r.generation = generation
 	r.pendingPortal = nil
 	r.mu.Unlock()
+	r.setConnected(true)
 	defer func() {
+		r.setConnected(false)
 		stopCtx, stop := context.WithTimeout(context.Background(), 3*time.Second)
 		defer stop()
 		r.tracker.mu.Lock()
@@ -190,20 +278,32 @@ func (r *autoReceiver) connection(parent context.Context) error {
 				}
 			}
 			lastBeat = time.Now()
+			r.mu.Lock()
+			r.lastBeatOK = lastBeat
+			r.mu.Unlock()
 		}
+		gate := "open"
 		r.mu.Lock()
-		busy := r.pendingPortal != nil
+		if r.pendingPortal != nil {
+			gate = "portal_pending"
+		}
 		r.mu.Unlock()
 		r.tracker.mu.Lock()
-		busy = busy || len(r.tracker.items) > 0
+		if gate == "open" && len(r.tracker.items) > 0 {
+			gate = "held_delivery"
+		}
 		r.tracker.mu.Unlock()
-		if !busy && r.queue != nil {
-			idle, err := r.queue.idle()
+		if gate == "open" && r.queue != nil {
+			status, err := r.queue.status()
 			if err != nil {
 				return err
 			}
-			busy = !idle
+			if status != "idle" {
+				gate = "thread_" + status
+			}
 		}
+		r.setGate(gate)
+		busy := gate != "open"
 		if !busy && len(registered.Sources) > 0 {
 			source := registered.Sources[nextSource%len(registered.Sources)]
 			nextSource++
@@ -223,6 +323,8 @@ func (r *autoReceiver) connection(parent context.Context) error {
 			} else if claimed.Delivery != nil {
 				d := claimed.Delivery
 				id := stringArg(d, "message_id")
+				// Anything arriving on a conversation is the peer being alive there.
+				r.stall.cancel(stringArg(d, "conversation_id"))
 				pending := r.tracker.track(ctx, id, claimID)
 				// Fence execution in the durable queue before writing to the native
 				// adapter. Lost receipts must never requeue a model-started task.
@@ -263,8 +365,16 @@ func (r *autoReceiver) connection(parent context.Context) error {
 }
 
 func (r *autoReceiver) deliver(id, content string) error {
-	if r.queue != nil {
-		return r.queue.send(id, content)
+	// The stall timer calls this from its own goroutine while connection() sets
+	// and clears the queue on reconnect, so the read has to be locked.
+	r.mu.Lock()
+	queue := r.queue
+	r.mu.Unlock()
+	if queue != nil {
+		return queue.send(id, content)
+	}
+	if os.Getenv("CXX_AGENT_PORTAL_ENGINE") == "codex" {
+		return errors.New("Codex native queue is disconnected")
 	}
 	return r.output.send(map[string]any{"jsonrpc": "2.0", "method": "notifications/claude/channel", "params": map[string]any{"content": content, "meta": map[string]string{"message_id": id}}})
 }

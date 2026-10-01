@@ -75,6 +75,10 @@ const NON_TOOL_TOKENS: Record<string, string> = {
   depends_on: 'the card ordering argument of project_card_create/_update, not a tool',
   waiting_on: 'the unfinished dependencies a card render carries back, not a tool',
   board_template: 'the lane set project_create provisions the board with, not a tool',
+  receiver_unavailable:
+    'the status agent_listen returns when the native receiver is down, so a model does not yield on a dead line, not a tool',
+  agent_messaging_call_peer_not_listening:
+    'the error agent_call_join returns when the opener has no live receiver, not a tool',
 };
 
 interface Mention {

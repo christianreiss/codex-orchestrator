@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { eq, sql } from 'drizzle-orm';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
-import { agentBusAddresses, hosts } from '../../../src/db/schema.js';
+import { agentBusAddresses, agentSessions, hosts } from '../../../src/db/schema.js';
 import { splitSqlStatements } from '../../../src/db/migration-sql.js';
 import type { Env } from '../../../src/env.js';
 import {
@@ -120,6 +120,40 @@ describe.skipIf(!handle)('#call rendezvous against a real database', { timeout: 
     return { sessionId, bridgeToken, address: String(address.address), addressId: String(address.id) };
   }
 
+  /**
+   * Put a receiver on the line, the way the wrapper's heartbeat does. A join is
+   * refused unless the opener can actually be woken, so any test that dials a PIN
+   * has to make its opener `listening` first.
+   */
+  const listen = async (agent: AgentIdentity): Promise<void> => {
+    await db
+      .update(agentSessions)
+      .set({
+        receiver: {
+          generation: randomUUID(),
+          protocol: 'claude-channel-v1',
+          native_session_id: randomUUID(),
+          heartbeat_at: new Date().toISOString(),
+          failure: null,
+          probes: { peer: {}, portal: {} },
+        },
+      })
+      .where(eq(agentSessions.id, agent.sessionId));
+  };
+
+  /**
+   * Registration stamps a fresh receive heartbeat, so a brand-new session reads
+   * as `listening` on the legacy path for a window. Age it out to model an agent
+   * whose receiver never came up.
+   */
+  const deafen = async (agent: AgentIdentity): Promise<void> => {
+    await db
+      .update(agentBusAddresses)
+      .set({ receiveHeartbeatAt: '1970-01-01T00:00:00.000Z' })
+      .where(eq(agentBusAddresses.id, agent.addressId));
+    await db.update(agentSessions).set({ receiver: null }).where(eq(agentSessions.id, agent.sessionId));
+  };
+
   const pinOf = async (addressId: string): Promise<string | null> => {
     const rows = await db
       .select({ callPin: agentBusAddresses.callPin })
@@ -141,9 +175,65 @@ describe.skipIf(!handle)('#call rendezvous against a real database', { timeout: 
     expect(await pinOf(opener.addressId)).toBe(opened.pin);
   });
 
+  it('tells the opener whether a receiver is on the line', async () => {
+    const opener = await register('claude', 'opener');
+    await deafen(opener);
+    const before = await service.openCall(opener.sessionId, opener.bridgeToken);
+    // No receiver yet: a joiner's hello would go unclaimed, so say so up front.
+    expect(before.listening).toBe(false);
+    expect((before.self as Record<string, unknown>).presence).toBe('online');
+
+    await listen(opener);
+    const after = await service.openCall(opener.sessionId, opener.bridgeToken);
+    expect(after.listening).toBe(true);
+    expect((after.self as Record<string, unknown>).presence).toBe('listening');
+  });
+
+  it('refuses a join onto an opener that cannot receive, and keeps the PIN live', async () => {
+    const opener = await register('claude', 'opener');
+    const joiner = await register('codex', 'joiner');
+    await deafen(opener);
+    const opened = await service.openCall(opener.sessionId, opener.bridgeToken);
+    const hello = { pin: String(opened.pin), content: 'CALL/1 HELLO\nhi', clientMessageId: randomUUID() };
+
+    // Eligible but deaf: without this gate the hello queues, nobody claims it and
+    // both agents yield waiting on each other.
+    await expect(service.joinCall(joiner.sessionId, joiner.bridgeToken, hello)).rejects.toMatchObject({
+      code: 'agent_messaging_call_peer_not_listening',
+    });
+    expect(await pinOf(opener.addressId)).toBe(opened.pin);
+
+    // A receiver that reports a failure is not on the line either.
+    await listen(opener);
+    await db
+      .update(agentSessions)
+      .set({
+        receiver: {
+          generation: randomUUID(),
+          protocol: 'claude-channel-v1',
+          native_session_id: randomUUID(),
+          heartbeat_at: new Date().toISOString(),
+          failure: 'channel_dropped',
+          probes: { peer: {}, portal: {} },
+        },
+      })
+      .where(eq(agentSessions.id, opener.sessionId));
+    await expect(service.joinCall(joiner.sessionId, joiner.bridgeToken, hello)).rejects.toMatchObject({
+      code: 'agent_messaging_call_peer_not_listening',
+    });
+    expect(await pinOf(opener.addressId)).toBe(opened.pin);
+
+    // The same PIN then works once the receiver is back: nothing was burned.
+    await listen(opener);
+    const joined = await service.joinCall(joiner.sessionId, joiner.bridgeToken, hello);
+    expect(joined.conversation_id).toEqual(expect.any(String));
+    expect(await pinOf(opener.addressId)).toBeNull();
+  });
+
   it('round-trips a PIN with leading zeros', async () => {
     const opener = await register('claude', 'opener');
     const joiner = await register('codex', 'joiner');
+    await listen(opener);
     await service.openCall(opener.sessionId, opener.bridgeToken);
     // Force the one value an integer column or a stray parseInt would destroy.
     await db
@@ -175,6 +265,7 @@ describe.skipIf(!handle)('#call rendezvous against a real database', { timeout: 
   it('opens the conversation, queues the hello and consumes the PIN in one step', async () => {
     const opener = await register('claude', 'opener');
     const joiner = await register('codex', 'joiner');
+    await listen(opener);
     const opened = await service.openCall(opener.sessionId, opener.bridgeToken);
 
     const joined = await service.joinCall(joiner.sessionId, joiner.bridgeToken, {

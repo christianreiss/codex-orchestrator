@@ -204,8 +204,9 @@ func ringSummary(fresh []mailboxEntry) ringText {
 		}
 		agent.WriteString(
 			"\nThis is a ring, not the message: the body is only released when you collect it. " +
-				"To answer, use the #call skill as receiver -- `agent_listen` claims the delivery and binds " +
-				"this session receive-capable. To decline, say so and carry on; it will not ring again.\n")
+				"To answer, call `agent_listen`: with the automatic receiver it releases anything you were " +
+				"holding and the message is delivered into this conversation; otherwise it claims the message " +
+				"and binds this session receive-capable. To decline, say so and carry on; it will not ring again.\n")
 		fmt.Fprintf(&human, "☎ %s waiting from %s", plural(len(pending), "call", "calls"), pending[0].From.name())
 		if len(pending) > 1 {
 			fmt.Fprintf(&human, " and %d more", len(pending)-1)
