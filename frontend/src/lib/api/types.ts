@@ -1043,6 +1043,68 @@ export interface ApiStateValue {
   disabled: boolean;
 }
 
+/** Exposed API surface id (`/v1`, `/anthropic/v1`, `/grok/v1`). */
+export type ApiSurfaceId = "openai" | "anthropic" | "grok";
+/** Backend engine that answers a surface's requests. */
+export type ApiBackendEngine = "codex" | "claude" | "grok";
+
+/** GET /admin/api/surfaces row. Keys and the kill switch belong to the surface. */
+export interface ApiSurfaceRow {
+  surface: ApiSurfaceId;
+  label: string;
+  base_path: string;
+  wire: "openai" | "anthropic";
+  backend: ApiBackendEngine;
+  identity_backend: ApiBackendEngine;
+  disabled: boolean;
+  key_count: number;
+}
+
+export interface ApiSurfacesValue {
+  surfaces: ApiSurfaceRow[];
+  backends: Array<{ engine: ApiBackendEngine; label: string }>;
+}
+
+export interface ApiSurfaceUpdate {
+  surface: ApiSurfaceId;
+  backend?: ApiBackendEngine;
+  disabled?: boolean;
+}
+
+/** Engine id of a fleet-wide master switch. */
+export type FleetEngineId = "codex" | "claude" | "grok";
+
+/**
+ * GET /admin/engines/state row. `enabled: false` turns the engine off for the
+ * whole fleet: hosts are suspended, the server stops refreshing, verifying and
+ * polling its accounts, and exposed APIs whose backend it is answer 503.
+ */
+export interface EngineStateRow {
+  engine: FleetEngineId;
+  label: string;
+  enabled: boolean;
+  updated_at: string | null;
+  updated_by: string | null;
+  /** Hosts that carry this engine in their assignment. */
+  assigned_hosts: number;
+}
+
+export interface EngineStateValue {
+  /** Always three rows, canonical order codex, claude, grok. */
+  engines: EngineStateRow[];
+}
+
+export interface EngineStateUpdate {
+  engine: FleetEngineId;
+  enabled: boolean;
+}
+
+/** POST /admin/engines/:engine/state response. */
+export interface EngineStateChange extends EngineStateRow {
+  previous: boolean;
+  hosts_suspended: number;
+}
+
 export interface CdxSilentValue {
   silent: boolean;
 }

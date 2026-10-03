@@ -42,6 +42,7 @@ import { SettingsService } from '../../services/settings.js';
 import { ProjectBoardService } from '../../services/project-board.js';
 import { ENGINE_CLAUDE } from '../../util/engine.js';
 import { assertHostEngineEnabled } from '../../services/host-engine-policy.js';
+import { readFleetEngineState } from '../../services/engine-switch.js';
 import type { Host } from '../../db/schema.js';
 
 export async function registerMcpRoutes(app: FastifyInstance, ctx: RouteContext): Promise<void> {
@@ -222,7 +223,7 @@ export async function registerMcpRoutes(app: FastifyInstance, ctx: RouteContext)
     // 403 `engine_disabled` from the check below rather than being quietly
     // re-pointed at the engine it happens to have enabled.
     const engine = resolveRequestEngine(req, undefined, { fallback: ENGINE_CODEX });
-    assertHostEngineEnabled(host, engine);
+    assertHostEngineEnabled(host, engine, await readFleetEngineState(ctx.db));
     const result = await server.handlePayload(body, {
       host,
       clientIp: clientIp(req),

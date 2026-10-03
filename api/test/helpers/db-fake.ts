@@ -160,6 +160,15 @@ export function createDbFake(initial: Map<unknown, Row[]> = new Map()): DbFake {
             for (const r of filtered) Object.assign(r, vals);
             return Promise.resolve([{ affectedRows: filtered.length }]);
           },
+          // `await db.update(t).set(v)` with no `.where` touches every row, as
+          // in MySQL. It used to resolve to this builder and change nothing,
+          // which hid unconditional writes (e.g. fleet-wide configVersion bumps).
+          then: (resolve: (v: unknown) => unknown, reject?: (e: unknown) => unknown) => {
+            fake.updates.push({ table, set: vals, where: undefined });
+            const rows = tables.get(table) ?? [];
+            for (const r of rows) Object.assign(r, vals);
+            return Promise.resolve([{ affectedRows: rows.length }]).then(resolve, reject);
+          },
         }),
       };
     },

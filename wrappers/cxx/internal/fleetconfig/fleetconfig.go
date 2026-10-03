@@ -26,6 +26,13 @@ import (
 
 var ErrEngineDisabled = errors.New("engine not enabled for host")
 
+// ErrEngineSuspended is a 403 engine_disabled qualified with scope "fleet".
+// The config endpoint is specified to answer a fleet-suspended engine with a
+// normal signed config (host.fleet_disabled_engines), so this only guards a
+// server that deviates: suspension must never be mistaken for host removal,
+// which deletes the signed config and alias.
+var ErrEngineSuspended = errors.New("engine suspended fleet-wide")
+
 const fetchTimeout = 30 * time.Second
 
 type Fetched struct {
@@ -75,6 +82,9 @@ func fetchWithKey(ctx context.Context, seed *config.Config, engine string, pubke
 	if resp.StatusCode == http.StatusForbidden {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
 		if responseCode(body) == "engine_disabled" {
+			if responseScope(body) == config.EngineDisabledScopeFleet {
+				return nil, ErrEngineSuspended
+			}
 			return nil, ErrEngineDisabled
 		}
 		return nil, fmt.Errorf("fetch %s config: HTTP 403 without engine_disabled confirmation", engine)
@@ -202,6 +212,27 @@ func responseCode(body []byte) string {
 	for _, code := range []string{envelope.Code, envelope.Error.Code, envelope.Data.Code} {
 		if strings.TrimSpace(code) != "" {
 			return strings.TrimSpace(code)
+		}
+	}
+	return ""
+}
+
+func responseScope(body []byte) string {
+	var envelope struct {
+		Scope string `json:"scope"`
+		Error struct {
+			Scope string `json:"scope"`
+		} `json:"error"`
+		Data struct {
+			Scope string `json:"scope"`
+		} `json:"data"`
+	}
+	if json.Unmarshal(body, &envelope) != nil {
+		return ""
+	}
+	for _, scope := range []string{envelope.Scope, envelope.Error.Scope, envelope.Data.Scope} {
+		if scope = strings.ToLower(strings.TrimSpace(scope)); scope != "" {
+			return scope
 		}
 	}
 	return ""

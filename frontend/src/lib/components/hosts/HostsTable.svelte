@@ -26,6 +26,7 @@
   import Search from "@lucide/svelte/icons/search";
   import Plus from "@lucide/svelte/icons/plus";
   import { cn } from "$lib/utils/cn";
+  import { useFleetEngines } from "$lib/engines/fleet-engines";
 
   export type SortField =
     | "fqdn"
@@ -73,6 +74,8 @@
     onRegisterHost,
     onClearFilters,
   }: Props = $props();
+
+  const fleet = useFleetEngines();
 
   // --- sorting ------------------------------------------------------------
   function setSort(f: SortField): void {
@@ -228,6 +231,7 @@
                         : engine === "claude"
                           ? !row.claude_canonical_digest
                           : engine === "grok" ? !row.grok_canonical_digest : false}
+                      fleetDisabled={!$fleet.isEnabled(engine)}
                     />
                   {/each}
                   {#if row.vip}
@@ -244,6 +248,7 @@
                       : engine === "claude"
                         ? !row.claude_canonical_digest
                         : engine === "grok" ? !row.grok_canonical_digest : false}
+                    fleetDisabled={!$fleet.isEnabled(engine)}
                   />
                 {/each}
                 {#if row.vip}

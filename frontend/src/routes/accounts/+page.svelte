@@ -12,6 +12,9 @@
   import { accountsApi, accountsKeys, accountsQuery, type ProviderAccount } from "$lib/api/accounts";
   import { authStore } from "$lib/stores/auth";
   import type { AuthEngine } from "$lib/api/auth";
+  import { Badge } from "$lib/components/ui/badge";
+  import { Alert, AlertDescription, AlertTitle } from "$lib/components/ui/alert";
+  import { useFleetEngines, fleetDisabledTitle } from "$lib/engines/fleet-engines";
 
   const query = accountsQuery();
   const qc = useQueryClient();
@@ -23,6 +26,11 @@
   let renaming = $state<number | null>(null);
   let renameLabel = $state("");
   const visible = $derived(($query.data?.accounts ?? []).filter((a) => a.engine === engine));
+  // A fleet-disabled engine keeps its accounts, but anything that reaches the
+  // provider (add, replace, verify) is refused by the server until it is on.
+  const fleet = useFleetEngines();
+  const engineOff = $derived(!$fleet.isEnabled(engine));
+  const offTitle = $derived(engineOff ? fleetDisabledTitle(ENGINE_META[engine].label) : undefined);
 
   const change = createMutation({
     mutationFn: async (input: { account: ProviderAccount; action: "state" | "rename" | "remove" | "verify"; label?: string }) => {
@@ -60,9 +68,19 @@
 <div class="space-y-6">
   <PageHeader title="Accounts" subtitle="ChatGPT, Claude, and Grok subscription accounts shared by the fleet. New sessions use verified available accounts." />
   <div class="flex flex-wrap items-center gap-2">
-    {#each ENGINES as option}<Button variant={engine === option ? "default" : "outline"} onclick={() => engine = option}>{ENGINE_META[option].account}</Button>{/each}
-    {#if canManage}<Button class="ml-auto" onclick={() => open(null)}>Add account</Button>{/if}
+    {#each ENGINES as option}<Button variant={engine === option ? "default" : "outline"} onclick={() => engine = option} title={$fleet.isEnabled(option) ? undefined : fleetDisabledTitle(ENGINE_META[option].label)}>{ENGINE_META[option].account}{#if !$fleet.isEnabled(option)}<Badge variant="warning" class="ml-1.5">off</Badge>{/if}</Button>{/each}
+    {#if canManage}<Button class="ml-auto" disabled={engineOff} title={offTitle} onclick={() => open(null)}>Add account</Button>{/if}
   </div>
+  {#if engineOff}
+    <Alert variant="warning">
+      <AlertTitle>{ENGINE_META[engine].label} is disabled fleet-wide</AlertTitle>
+      <AlertDescription>
+        Its accounts are kept but not refreshed, verified, polled or leased while it is off. Adding,
+        replacing and verifying credentials is refused until it is turned back on under Engines. After a
+        long pause an account may need its credentials replaced.
+      </AlertDescription>
+    </Alert>
+  {/if}
   <p class="text-sm text-muted-foreground">Accounts stay fixed during a session. Overlapping sessions using the same local credentials share one account. Fresh logins keep the sole or assigned account. Use Add account for additional subscriptions.</p>
   {#if $query.isPending}
     <p class="text-muted-foreground">Loading accounts…</p>
@@ -72,7 +90,7 @@
     <div class="rounded-xl border border-dashed p-10 text-center">
       <h2 class="text-lg font-semibold">No {ENGINE_META[engine].account} accounts</h2>
       <p class="mt-2 text-sm text-muted-foreground">Add credentials here or log in through {ENGINE_META[engine].command} on a registered host.</p>
-      {#if canManage}<Button class="mt-4" onclick={() => open(null)}>Add account</Button>{/if}
+      {#if canManage}<Button class="mt-4" disabled={engineOff} title={offTitle} onclick={() => open(null)}>Add account</Button>{/if}
     </div>
   {:else}
     <div class="grid gap-4 xl:grid-cols-2">
@@ -119,8 +137,8 @@
           {#if canManage && account.state !== "removing"}
             <div class="flex flex-wrap gap-2 border-t pt-3">
               <Button size="sm" variant="outline" onclick={() => { renaming = account.id; renameLabel = account.label; }}>Rename</Button>
-              <Button size="sm" variant="outline" onclick={() => open(account)}>Replace credentials</Button>
-              <Button size="sm" variant="outline" disabled={$change.isPending} onclick={() => $change.mutate({ account, action: "verify" })}>Verify</Button>
+              <Button size="sm" variant="outline" disabled={!$fleet.isEnabled(account.engine)} title={$fleet.isEnabled(account.engine) ? undefined : fleetDisabledTitle(ENGINE_META[account.engine].label)} onclick={() => open(account)}>Replace credentials</Button>
+              <Button size="sm" variant="outline" disabled={$change.isPending || !$fleet.isEnabled(account.engine)} title={$fleet.isEnabled(account.engine) ? undefined : fleetDisabledTitle(ENGINE_META[account.engine].label)} onclick={() => $change.mutate({ account, action: "verify" })}>Verify</Button>
               <Button size="sm" variant="outline" disabled={$change.isPending} onclick={() => $change.mutate({ account, action: "state" })}>{account.state === "enabled" ? "Pause" : "Resume"}</Button>
               <Button size="sm" variant="destructive" disabled={$change.isPending} onclick={() => remove(account)}>Remove</Button>
             </div>

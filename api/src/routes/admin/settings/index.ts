@@ -23,11 +23,19 @@ import {
 } from '../../../services/client-versions.js';
 import { UsageScalingService } from '../../../services/usage-scaling.js';
 import { ModelDefaultsService } from '../../../services/model-defaults.js';
+import { assertFleetEngineEnabledForAdmin } from '../../../services/engine-switch.js';
 import { ValidationError } from '../../../http/errors.js';
 import { ok } from '../../../http/reply.js';
 import { logs } from '../../../db/schema.js';
 import { nowIso } from '../../../util/timestamp.js';
-import { isEngine, type Engine } from '../../../util/engine.js';
+import { ENGINE_LABELS, ENGINES, isEngine, parseEngine, type Engine } from '../../../util/engine.js';
+import {
+  API_SURFACES,
+  isApiSurfaceId,
+  listApiSurfaces,
+  storedBackend,
+  type ApiSurfaceId,
+} from '../../../services/api-surfaces.js';
 import {
   CLAUDE_DEFAULT_MODEL,
   CLAUDE_SUPPORTED_MODELS,
@@ -64,6 +72,13 @@ function normalizeTheme(input: unknown): AdminTheme | null {
   const lower = input.trim().toLowerCase();
   return (ADMIN_THEMES as readonly string[]).includes(lower) ? (lower as AdminTheme) : null;
 }
+
+/** Each surface's kill switch keeps the audit action its legacy route uses. */
+const SURFACE_STATE_AUDIT: Record<ApiSurfaceId, string> = {
+  openai: 'admin.openai_api.state',
+  anthropic: 'admin.claude_api.state',
+  grok: 'admin.grok_api.state',
+};
 
 function normalizeBool(value: unknown): boolean | null {
   if (value === true || value === false) return value;
@@ -573,6 +588,44 @@ export async function registerAdminSettingsRoutes(
     await settings.setFlag('claude_api_disabled', disabled);
     await recordLog(ctx, 'admin.claude_api.state', { disabled });
     return ok({ disabled });
+  });
+
+  // ── api/surfaces — exposed API → backend engine routing ──────────────────
+  // One row per exposed API. The backend column decides which engine answers;
+  // the key namespace and kill switch stay with the surface (api-surfaces.ts).
+  app.get('/admin/api/surfaces', { preHandler: app.requireAdmin }, async () => {
+    return ok({
+      surfaces: await listApiSurfaces(ctx.db),
+      backends: ENGINES.map((engine) => ({ engine, label: ENGINE_LABELS[engine] })),
+    });
+  });
+  app.post('/admin/api/surfaces/:surface', { preHandler: app.requireAdmin }, async (req) => {
+    const { surface } = req.params as { surface?: string };
+    if (!isApiSurfaceId(surface)) {
+      throw new ValidationError('surface must be "openai", "anthropic" or "grok"', { param: 'surface' });
+    }
+    const body = (req.body ?? {}) as { backend?: unknown; disabled?: unknown };
+    const backend = body.backend === undefined ? undefined : parseEngine(body.backend);
+    const disabled = body.disabled === undefined ? undefined : normalizeBool(body.disabled);
+    if (disabled === null) throw new ValidationError('disabled must be boolean', { param: 'disabled' });
+    if (backend === undefined && disabled === undefined) {
+      throw new ValidationError('backend or disabled is required', { param: 'backend' });
+    }
+    const def = API_SURFACES[surface];
+    if (backend !== undefined) {
+      const previous = storedBackend(await settings.getRaw(def.backendFlag), surface);
+      // Routing an API onto an engine that is switched off fleet-wide would
+      // just turn it into a 503. Leaving it where it already is stays allowed.
+      if (backend !== previous) await assertFleetEngineEnabledForAdmin(ctx.db, backend);
+      await settings.set(def.backendFlag, backend);
+      await recordLog(ctx, 'admin.api.surface_backend', { surface, backend, previous });
+    }
+    if (disabled !== undefined) {
+      await settings.setFlag(def.disabledFlag, disabled);
+      await recordLog(ctx, SURFACE_STATE_AUDIT[surface], { disabled });
+    }
+    const row = (await listApiSurfaces(ctx.db)).find((r) => r.surface === surface);
+    return ok(row);
   });
 
   // ── claude/settings ───────────────────────────────────────────────────────

@@ -15,6 +15,7 @@ import { registerWrapperV2Routes } from './wrapper-v2/index.js';
 import { registerOpenAiCompatWorktree } from './openai-compat/index.js';
 import { registerAnthropicCompatBundle } from './anthropic-compat/index.js';
 import { registerGrokCompatRoutes } from './grok-v1/index.js';
+import { createGatewayWiring } from '../services/gateway-backends.js';
 
 import { registerAdminAuthAndUsersRoutes } from './admin-auth-users/index.js';
 import { registerAdminHostsRoutes } from './admin/hosts/index.js';
@@ -24,6 +25,7 @@ import { registerAdminManualRoutes } from './admin/manual/index.js';
 import { registerAdminMemoriesRoutes } from './admin/memories/index.js';
 import { registerAdminAccountsRoutes } from './admin/accounts/index.js';
 import { registerAdminGrokRoutes } from './admin/grok/index.js';
+import { registerAdminEngineRoutes } from './admin/engines/index.js';
 import { registerAdminSecretsRoutes } from './admin/secrets/index.js';
 import { registerAdminGitDirectorRoutes } from './admin/git-director/index.js';
 import { registerAdminTransfersRoutes } from './admin/transfers/index.js';
@@ -53,10 +55,13 @@ export async function registerAllRoutes(app: FastifyInstance, ctx: RouteContext)
   await registerAgentMessagingRoutes(app, ctx);
   await registerAgentReceiverRoutes(app, ctx);
 
-  // OpenAI / Anthropic-shaped public APIs (envelope dispatcher selects shape)
-  await registerOpenAiCompatWorktree(app, ctx);
-  await registerAnthropicCompatBundle(app, ctx);
-  await registerGrokCompatRoutes(app, ctx);
+  // OpenAI / Anthropic-shaped public APIs (envelope dispatcher selects shape).
+  // One backend set for all three surfaces: each engine's bundle — Grok's
+  // single auth owner included — exists once, whichever surfaces route to it.
+  const gateway = createGatewayWiring(ctx, app.log);
+  await registerOpenAiCompatWorktree(app, ctx, gateway);
+  await registerAnthropicCompatBundle(app, ctx, { gateway });
+  await registerGrokCompatRoutes(app, ctx, { gateway });
 
   // Admin surface
   await registerAdminAuthAndUsersRoutes(app, ctx);
@@ -67,6 +72,7 @@ export async function registerAllRoutes(app: FastifyInstance, ctx: RouteContext)
   await registerAdminSecretsRoutes(app, ctx);
   await registerAdminAccountsRoutes(app, ctx);
   await registerAdminGrokRoutes(app, ctx);
+  await registerAdminEngineRoutes(app, ctx);
   await registerAdminGitDirectorRoutes(app, ctx);
   await registerAdminTransfersRoutes(app, ctx);
   await registerAdminAgentSessionsRoutes(app, ctx);

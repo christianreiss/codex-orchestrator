@@ -2,7 +2,8 @@ import { eq } from 'drizzle-orm';
 import { versions as versionsTable } from '../db/schema.js';
 import type { Database } from '../db/client.js';
 import type { Engine } from '../util/engine.js';
-import { ENGINE_CLAUDE, ENGINE_CODEX, ENGINE_GROK } from '../util/engine.js';
+import { ENGINE_CLAUDE, ENGINE_CODEX, ENGINE_GROK, ENGINES } from '../util/engine.js';
+import { ENGINE_DISABLED_FLAGS } from './engine-switch.js';
 import { GROK_MIN_CLIENT_VERSION, isSemanticVersion, normalizeVersion } from './client-versions.js';
 
 /**
@@ -41,6 +42,8 @@ export interface VersionSnapshot {
   clx_silent: boolean;
   cgx_silent: boolean;
   agent_messaging_enabled: boolean;
+  /** Engines switched off fleet-wide (engine-switch.ts); not any host's assignment. */
+  fleet_disabled_engines: Engine[];
   installation_id: string | null;
   engine: Engine;
 }
@@ -220,6 +223,9 @@ export function createVersionSnapshotService(deps: VersionSnapshotDeps): Version
         clx_silent: flagValue(get('clx_silent'), false),
         cgx_silent: flagValue(get('cgx_silent'), false),
         agent_messaging_enabled: flagValue(get('agent_messaging_enabled'), false),
+        // Engines switched off fleet-wide (engine-switch.ts). Separate from
+        // any host's engine assignment, which drift detection compares.
+        fleet_disabled_engines: ENGINES.filter((e) => flagValue(get(ENGINE_DISABLED_FLAGS[e]), false)),
         installation_id: installationId,
         engine,
       };

@@ -19,6 +19,23 @@ Its independent OpenAI-shaped gateway is `/grok/v1`, with engine-scoped client
 keys and truthful CLI capability errors. Grok quota is unknown until a provider
 snapshot exists. See [Grok interface](interface-cgx.md).
 
+The three inference gateways (`/v1`, `/anthropic/v1`, `/grok/v1`) are surfaces
+whose answering engine is configurable per surface (Exposed APIs on API Access,
+`versions.api_surface_backend_*`, identity by default). Keys, URL, wire format
+and kill switch stay with the surface; credentials, capabilities and the model
+catalog come from the backend. See [Exposed API routing](interface-api.md#exposed-api-routing-any-to-any).
+
+Each engine has a fleet-wide master switch (Engines page; `GET/POST
+/admin/engines/*`, `versions.<engine>_engine_disabled`). Off suspends the
+engine everywhere — host launches, leases, sync, maintenance ticks and the
+messaging receiver; token refresh, verification and quota polling; installers,
+seeding and new host assignments; and every exposed API whose backend it is —
+while keeping assignments, accounts, canonical auth, keys and installed CLIs, so
+switching it back on needs no reinstall. Wrappers keep a suspended engine's
+signed config and alias (it arrives as a 200 config carrying
+`host.fleet_disabled_engines`) and refuse to launch it. See
+[Engine master switches](interface-api.md#engine-master-switches).
+
 Engine control and sync keep provider-specific state separate: engine hints are
 resolved consistently across auth, version, cron, and resource endpoints; Claude
 config and runner state never borrow Codex values. Host auto-update overrides

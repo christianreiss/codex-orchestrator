@@ -1048,3 +1048,195 @@ func TestSeedLoaderRejectsAnExpiredConfigSignedByAnotherKey(t *testing.T) {
 		t.Fatalf("unverifiable config used as a seed: %+v", seed)
 	}
 }
+
+func suspendedConfig(engine string, host config.Host, suspended ...string) *config.Config {
+	host.EnginesList = []string{config.EngineCodex, config.EngineClaude}
+	host.FleetDisabledEngines = suspended
+	return &config.Config{Engine: engine, Host: host}
+}
+
+// A fleet-suspended engine still answers its config probe with 200. Its config
+// and alias must be kept exactly like an enabled engine's — suspension is a
+// pause, never the host-level removal that deletes both.
+func TestAuthoritativeSuspendedEngineKeepsConfigAndAlias(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		suspended []string
+	}{
+		{name: "one engine suspended", suspended: []string{config.EngineClaude}},
+		{name: "every engine suspended", suspended: []string{config.EngineCodex, config.EngineClaude}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("HOME", t.TempDir())
+			dir := t.TempDir()
+			cxx := filepath.Join(dir, "cxx")
+			if err := os.WriteFile(cxx, []byte("common"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			for _, alias := range []string{"cdx", "clx"} {
+				if err := os.Symlink("cxx", filepath.Join(dir, alias)); err != nil {
+					t.Fatal(err)
+				}
+			}
+			host := config.Host{ID: 7, FQDN: "host.example.com"}
+			seed := suspendedConfig(config.EngineCodex, host, tc.suspended...)
+			oldFetch, oldPersist, oldRemove := fetchAuthoritative, persistAuthoritative, removeEngineConfig
+			var persisted, removed []string
+			fetchAuthoritative = func(_ context.Context, _ *config.Config, engine string) (*fleetconfig.Fetched, error) {
+				return &fleetconfig.Fetched{Config: suspendedConfig(engine, host, tc.suspended...)}, nil
+			}
+			persistAuthoritative = func(_ context.Context, item *fleetconfig.Fetched) error {
+				persisted = append(persisted, item.Config.Engine)
+				return nil
+			}
+			removeEngineConfig = func(_ context.Context, engine string) error {
+				removed = append(removed, engine)
+				return nil
+			}
+			t.Cleanup(func() {
+				fetchAuthoritative, persistAuthoritative, removeEngineConfig = oldFetch, oldPersist, oldRemove
+			})
+
+			configs, engines, _, err := refreshAuthoritative(context.Background(), seed, cxx, io.Discard)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(engines, []string{config.EngineCodex, config.EngineClaude}) || len(configs) != 2 {
+				t.Fatalf("suspended engine dropped from the authoritative set: %q", engines)
+			}
+			if !reflect.DeepEqual(persisted, []string{config.EngineCodex, config.EngineClaude}) || len(removed) != 0 {
+				t.Fatalf("persisted=%q removed=%q", persisted, removed)
+			}
+			for _, alias := range []string{"cdx", "clx"} {
+				if target, err := os.Readlink(filepath.Join(dir, alias)); err != nil || target != "cxx" {
+					t.Fatalf("suspended %s alias changed: target=%q err=%v", alias, target, err)
+				}
+			}
+		})
+	}
+}
+
+// Defensive half: a server that refused a suspended engine's config with a
+// fleet-scoped 403 must not trigger the removal reserved for host scope.
+func TestAuthoritativeFleetScoped403PreservesEngineState(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	dir := t.TempDir()
+	cxx := filepath.Join(dir, "cxx")
+	if err := os.WriteFile(cxx, []byte("common"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("cxx", filepath.Join(dir, "clx")); err != nil {
+		t.Fatal(err)
+	}
+	host := config.Host{ID: 7, FQDN: "host.example.com"}
+	seed := &config.Config{Engine: config.EngineCodex, Host: host}
+	oldFetch, oldPersist, oldRemove := fetchAuthoritative, persistAuthoritative, removeEngineConfig
+	var removed []string
+	fetchAuthoritative = func(_ context.Context, _ *config.Config, engine string) (*fleetconfig.Fetched, error) {
+		if engine == config.EngineClaude {
+			return nil, fleetconfig.ErrEngineSuspended
+		}
+		return &fleetconfig.Fetched{Config: &config.Config{Engine: engine, Host: host}}, nil
+	}
+	persistAuthoritative = func(context.Context, *fleetconfig.Fetched) error { return nil }
+	removeEngineConfig = func(_ context.Context, engine string) error {
+		removed = append(removed, engine)
+		return nil
+	}
+	t.Cleanup(func() {
+		fetchAuthoritative, persistAuthoritative, removeEngineConfig = oldFetch, oldPersist, oldRemove
+	})
+	_, engines, _, err := refreshAuthoritative(context.Background(), seed, cxx, io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(engines, []string{config.EngineCodex}) || len(removed) != 0 {
+		t.Fatalf("engines=%q removed=%q", engines, removed)
+	}
+	if target, err := os.Readlink(filepath.Join(dir, "clx")); err != nil || target != "cxx" {
+		t.Fatalf("suspended clx alias removed: target=%q err=%v", target, err)
+	}
+}
+
+func TestCoordinatorSkipsSuspendedEngineTickAndResumesWhenReenabled(t *testing.T) {
+	stubCoordinator(t)
+	suspended := true
+	refreshRunConfigs = func(context.Context, *config.Config, string, io.Writer) ([]*config.Config, []string, string, error) {
+		var list []string
+		if suspended {
+			list = []string{config.EngineClaude}
+		}
+		host := config.Host{ID: 7, FQDN: "host.example.com"}
+		return []*config.Config{
+			suspendedConfig(config.EngineCodex, host, list...),
+			suspendedConfig(config.EngineClaude, host, list...),
+		}, []string{config.EngineCodex, config.EngineClaude}, "/fixture/cxx", nil
+	}
+	var ticks []string
+	runEngineTick = func(_ context.Context, _ string, args, _ []string, _, _ io.Writer) error {
+		ticks = append(ticks, args[0])
+		return nil
+	}
+	var out strings.Builder
+	if err := Run(context.Background(), nil, false, &out, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(ticks, []string{config.EngineCodex}) {
+		t.Fatalf("suspended engine ticked or enabled engine skipped: %q", ticks)
+	}
+	if !strings.Contains(out.String(), "claude suspended fleet-wide; skipping maintenance tick") {
+		t.Fatalf("skip not logged: %q", out.String())
+	}
+
+	suspended, ticks = false, nil
+	if err := Run(context.Background(), nil, false, io.Discard, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(ticks, []string{config.EngineCodex, config.EngineClaude}) {
+		t.Fatalf("re-enabled engine did not resume its tick: %q", ticks)
+	}
+}
+
+func TestCoordinatorWithEveryEngineSuspendedRunsNothing(t *testing.T) {
+	stubCoordinator(t)
+	host := config.Host{ID: 7, FQDN: "host.example.com"}
+	all := []string{config.EngineCodex, config.EngineClaude}
+	refreshRunConfigs = func(context.Context, *config.Config, string, io.Writer) ([]*config.Config, []string, string, error) {
+		return []*config.Config{
+			suspendedConfig(config.EngineCodex, host, all...),
+			suspendedConfig(config.EngineClaude, host, all...),
+		}, all, "/fixture/cxx", nil
+	}
+	var calls []string
+	reconcileRunSchedule = func(context.Context, string) error {
+		calls = append(calls, "schedule")
+		return nil
+	}
+	ensureAgentService = func(context.Context, string, io.Writer, io.Writer) error {
+		calls = append(calls, "service")
+		return nil
+	}
+	runEngineTick = func(_ context.Context, _ string, args, _ []string, _, _ io.Writer) error {
+		calls = append(calls, args[0])
+		return nil
+	}
+	if err := Run(context.Background(), nil, false, io.Discard, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	// The schedule stays (re-enable must not need a reinstall); nothing else runs.
+	if !reflect.DeepEqual(calls, []string{"schedule"}) {
+		t.Fatalf("suspended host did more than keep its schedule: %q", calls)
+	}
+}
+
+func TestBackgroundWorkerIgnoresSuspendedEngines(t *testing.T) {
+	host := config.Host{ID: 7, FQDN: "host.example.com"}
+	suspended := suspendedConfig(config.EngineClaude, host, config.EngineClaude)
+	suspended.AgentMessaging.Enabled = true
+	if backgroundWorkerRequired([]*config.Config{suspended}) {
+		t.Fatal("suspended engine still requires the background worker")
+	}
+	if !backgroundWorkerRequired([]*config.Config{suspended, suspendedConfig(config.EngineCodex, host, config.EngineClaude)}) {
+		t.Fatal("an enabled sibling lost its background worker")
+	}
+}

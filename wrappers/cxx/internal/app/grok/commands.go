@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -46,6 +47,12 @@ func cronCommand(ctx context.Context, cfg *config.Config, client *orchestrator.C
 				fmt.Fprintln(stderr, "cgx cron:", err)
 				return 1
 			}
+			return 0
+		}
+		// The coordinator already skips a suspended engine; this keeps any
+		// other caller of the engine-only tick from updating or syncing it.
+		if cfg.EngineSuspended(config.EngineGrok) {
+			fmt.Fprintln(stdout, "cron: grok suspended fleet-wide; skipping maintenance tick")
 			return 0
 		}
 		if err := maintenance(ctx, cfg, client, false, stdout, stderr); err != nil {
@@ -145,19 +152,55 @@ func isTerminal(w io.Writer) bool {
 
 var requestMaintenanceNow = hostmaintenance.RequestNow
 
+// apiDisabledReason is the refusal for the orchestrator-wide API kill switch,
+// worded exactly as cdx/clx word it.
+const apiDisabledReason = "Auth API disabled by administrator."
+
+// launchRefusal maps an orchestrator answer that must refuse a Grok launch to
+// the operator-facing text: engine_disabled by scope (fleet master switch or
+// host removal), the API kill switch, and — when the signed config says Grok
+// is switched off fleet-wide — any failure that is not a server answer, so an
+// outage can never route around the switch. Other errors return nil and keep
+// their existing handling.
+func launchRefusal(cfg *config.Config, err error) error {
+	if err == nil {
+		return nil
+	}
+	if scope, disabled := orchestrator.EngineDisabledScope(err); disabled {
+		return errors.New(config.EngineDisabledMessage(config.EngineGrok, scope))
+	}
+	var httpErr *orchestrator.HTTPError
+	answered := errors.As(err, &httpErr)
+	if answered && strings.EqualFold(strings.TrimSpace(httpErr.Code), "api_disabled") {
+		return errors.New(apiDisabledReason)
+	}
+	if cfg.EngineSuspended(config.EngineGrok) && unanswered(err, httpErr) {
+		return errors.New(config.FleetDisabledMessage(config.EngineGrok))
+	}
+	return nil
+}
+
+// unanswered reports a failure that carries no authoritative server answer: a
+// transport error, a timeout, or a 5xx. Policy answers (4xx, including the
+// insecure-approval outcomes) are answers and keep their own wording.
+func unanswered(err error, httpErr *orchestrator.HTTPError) bool {
+	if httpErr != nil {
+		return httpErr.StatusCode >= http.StatusInternalServerError
+	}
+	var urlErr *url.Error
+	return errors.As(err, &urlErr) || errors.Is(err, context.DeadlineExceeded)
+}
+
 // reconcileEngineDrift forces background maintenance past its cooldown when
 // the server's engine set differs from the baked one (cdx parity), so an engine
 // an operator enabled or disabled is provisioned on this launch rather than on
 // the next scheduled tick.
+//
+// It is called only after /auth answered for Grok, which the server refuses
+// while Grok is switched off fleet-wide: a signed config that still says
+// suspended is therefore stale (the switch is back on) and also refreshes now.
 func reconcileEngineDrift(cfg *config.Config, auth startupAuth, client *orchestrator.Client) bool {
-	if cfg == nil || auth.Host == nil {
-		return false
-	}
-	remote := auth.Host.EnginesList
-	if len(remote) == 0 && auth.Host.Engines != "" {
-		remote = strings.Split(auth.Host.Engines, ",")
-	}
-	if len(remote) == 0 || !config.EngineDrift(config.EnabledEngines(cfg.Host, config.EngineGrok), remote) {
+	if cfg == nil || !grokEngineDrift(cfg, auth) {
 		return false
 	}
 	if err := requestMaintenanceNow(config.EngineGrok, cfg.SourcePath()); err != nil {
@@ -165,4 +208,21 @@ func reconcileEngineDrift(cfg *config.Config, auth startupAuth, client *orchestr
 		return false
 	}
 	return true
+}
+
+func grokEngineDrift(cfg *config.Config, auth startupAuth) bool {
+	if cfg.EngineSuspended(config.EngineGrok) {
+		return true
+	}
+	if auth.Host == nil {
+		return false
+	}
+	remote := auth.Host.EnginesList
+	if len(remote) == 0 && auth.Host.Engines != "" {
+		remote = strings.Split(auth.Host.Engines, ",")
+	}
+	if len(remote) > 0 && config.EngineDrift(config.EnabledEngines(cfg.Host, config.EngineGrok), remote) {
+		return true
+	}
+	return auth.Host.FleetDisabledEngines != nil && config.SuspensionDrift(cfg.Host.FleetDisabledEngines, auth.Host.FleetDisabledEngines)
 }

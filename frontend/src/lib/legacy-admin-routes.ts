@@ -1,7 +1,8 @@
 /** Stable mappings for bookmarks from the retired Settings/Authoring hubs. */
 const SETTINGS_SECTION_DESTINATIONS: Record<string, string> = {
   "api-state": "/api-keys#service-availability",
-  "openai-engine": "/api-keys#openai-proxy",
+  "openai-engine": "/api-keys#exposed-apis",
+  "engine-state": "/engines#engine-state",
   "claude-engine": "/api-keys#claude-proxy",
   "agent-messaging": "/agent-messaging#service-state",
   "codex-model-defaults": "/engines#codex-defaults",

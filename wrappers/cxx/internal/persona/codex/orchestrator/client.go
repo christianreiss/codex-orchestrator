@@ -22,6 +22,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/ipv4"
 )
 
@@ -135,6 +136,7 @@ func (c *Client) Do(ctx context.Context, req *http.Request, retries int) (*http.
 			lastErr = &HTTPError{
 				StatusCode: resp.StatusCode,
 				Code:       parseErrorCode(raw),
+				Scope:      parseErrorScope(raw),
 				Method:     req.Method,
 				Path:       req.URL.Path,
 				Body:       strings.TrimSpace(string(raw)),
@@ -184,6 +186,7 @@ func (c *Client) JSON(ctx context.Context, method, path string, in any, out any,
 		return &HTTPError{
 			StatusCode: resp.StatusCode,
 			Code:       parseErrorCode(raw),
+			Scope:      parseErrorScope(raw),
 			Method:     method,
 			Path:       path,
 			Body:       strings.TrimSpace(string(raw)),
@@ -220,9 +223,13 @@ func (c *Client) Get(ctx context.Context, path string, out any, retries int) err
 type HTTPError struct {
 	StatusCode int
 	Code       string
-	Method     string
-	Path       string
-	Body       string
+	// Scope qualifies Code where the server distinguishes one, today only
+	// engine_disabled ("fleet" or "host"; empty on servers older than the
+	// fleet engine switch, which always meant host).
+	Scope  string
+	Method string
+	Path   string
+	Body   string
 }
 
 func (e *HTTPError) Error() string {
@@ -250,6 +257,61 @@ func parseErrorCode(raw []byte) string {
 		return env.Code
 	}
 	return env.Error.Code
+}
+
+// parseErrorScope pulls the optional `scope` qualifier out of the same error
+// envelopes parseErrorCode reads.
+func parseErrorScope(raw []byte) string {
+	var env struct {
+		Scope string `json:"scope"`
+		Error struct {
+			Scope string `json:"scope"`
+		} `json:"error"`
+	}
+	if json.Unmarshal(raw, &env) != nil {
+		return ""
+	}
+	if scope := strings.ToLower(strings.TrimSpace(env.Scope)); scope != "" {
+		return scope
+	}
+	return strings.ToLower(strings.TrimSpace(env.Error.Scope))
+}
+
+// Auth statuses synthesized from a 403 engine_disabled refusal. "suspended"
+// is the fleet-wide master switch (pause; nothing local is torn down) and
+// "disabled" is host-level removal (the engine left this host's assignment).
+const (
+	AuthStatusSuspended = "suspended"
+	AuthStatusDisabled  = "disabled"
+)
+
+// EngineDisabledScope reports whether err is the orchestrator's 403
+// engine_disabled refusal and, if so, its scope. A body without a scope comes
+// from a server that predates the fleet switch and always meant the host.
+func EngineDisabledScope(err error) (string, bool) {
+	var he *HTTPError
+	if !errors.As(err, &he) || he.StatusCode != http.StatusForbidden || !strings.EqualFold(strings.TrimSpace(he.Code), "engine_disabled") {
+		return "", false
+	}
+	if strings.EqualFold(he.Scope, config.EngineDisabledScopeFleet) {
+		return config.EngineDisabledScopeFleet, true
+	}
+	return config.EngineDisabledScopeHost, true
+}
+
+// EngineDisabledStatusFromError maps a 403 engine_disabled refusal to the auth
+// status the launch gate expects: AuthStatusSuspended for the fleet scope,
+// AuthStatusDisabled for the host scope, "" for any other error.
+func EngineDisabledStatusFromError(err error) string {
+	scope, ok := EngineDisabledScope(err)
+	switch {
+	case !ok:
+		return ""
+	case scope == config.EngineDisabledScopeFleet:
+		return AuthStatusSuspended
+	default:
+		return AuthStatusDisabled
+	}
 }
 
 // InsecureStatusFromError maps the orchestrator's insecure-approval HTTP

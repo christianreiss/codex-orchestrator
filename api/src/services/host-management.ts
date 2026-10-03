@@ -35,6 +35,8 @@ import { coerceCodexVersionToMinimum, isSemanticVersion, isSupportedGrokVersion 
 import { suspendAgentMessagingRuntimeLocked } from './agent-messaging.js';
 import { PROVISIONING_WINDOW_MINUTES } from './insecure-window.js';
 import { ModelDefaultsService } from './model-defaults.js';
+import { readFleetEngineState } from './engine-switch.js';
+import { fleetEngineConflictError, type FleetEngineState } from './host-engine-policy.js';
 
 // ────────────────────────────────────────────────────────────────────────────
 // Constants (mirrored from legacy PHP)
@@ -88,6 +90,17 @@ export function installerModeForEngines(engines: Engine[]): InstallerMode {
 export function installerModeLabel(mode: InstallerMode): string {
   if (mode === 'both') return 'Codex + Claude';
   return mode.split(',').map(engine => ENGINE_LABELS[engine as Engine]).join(' + ');
+}
+
+/**
+ * Refuse to newly assign an engine that is switched off fleet-wide. Engines
+ * already in `current` stay assignable: a suspension keeps assignments, and an
+ * edit that leaves them in place must not fail because of it.
+ */
+export function assertEnginesAddable(next: Engine[], current: Engine[], fleet: FleetEngineState): void {
+  for (const engine of next) {
+    if (!current.includes(engine) && !fleet[engine]) throw fleetEngineConflictError(engine);
+  }
 }
 
 export function installerCommand(url: string, curlInsecure: boolean): string {
@@ -254,6 +267,14 @@ export class HostManagementService {
           ? parseEnginesInput(existing.engines, [ENGINE_CODEX])
           : parseEnginesInput(this.env.DEFAULT_HOST_ENGINES, [ENGINE_CODEX]);
     let engines = initialEngines.length ? initialEngines : [ENGINE_CODEX];
+    // A fleet-disabled engine cannot be newly assigned. The configured default
+    // set just drops it; an explicit request for it is refused.
+    const fleet = await readFleetEngineState(this.db);
+    if (!(req.engines && req.engines.length) && !existing) {
+      const usable = engines.filter((engine) => fleet[engine]);
+      if (usable.length > 0) engines = usable;
+    }
+    assertEnginesAddable(engines, existing ? parseEnginesInput(existing.engines, [ENGINE_CODEX]) : [], fleet);
 
     const apiKeyPlain = `sk-codex-${randomBytes(32).toString('hex')}`;
     const apiKeyHash = sha256(apiKeyPlain);
@@ -402,10 +423,15 @@ export class HostManagementService {
   async quickRegister(
     req: QuickRegisterRequest,
   ): Promise<{ host: Host; apiKeyPlain: string; installer: InstallerInfo }> {
+    const fleet = await readFleetEngineState(this.db);
+    const defaults = parseEnginesInput(this.env.DEFAULT_HOST_ENGINES, [ENGINE_CODEX]);
+    const usableDefaults = defaults.filter((engine) => fleet[engine]);
     const engines =
       req.engines && req.engines.length
         ? req.engines
-        : parseEnginesInput(this.env.DEFAULT_HOST_ENGINES, [ENGINE_CODEX]);
+        : usableDefaults.length > 0
+          ? usableDefaults
+          : defaults;
     if (!engines.length) {
       throw new ValidationError('engines must contain at least one of: codex, claude, grok', { param: 'engines' });
     }
@@ -451,6 +477,7 @@ export class HostManagementService {
       }
     }
     const engines = union.length ? union : [ENGINE_CODEX];
+    assertEnginesAddable(engines, currentEngines, await readFleetEngineState(this.db));
     if (engines.includes(ENGINE_GROK)) {
       await new ModelDefaultsService(this.db).ensureGrokDefaults();
     }
@@ -547,12 +574,20 @@ export class HostManagementService {
     // emitted a codex installer — there was no supported way to install the
     // second engine on a dual-engine host. `mode` still reflects the host's full
     // engine set (the union), so the displayed label is unchanged.
+    // ...and never for an engine switched off fleet-wide: the installer route
+    // would refuse it anyway, after the operator had already copied it.
+    const fleet = await readFleetEngineState(this.db);
+    const installable = engines.filter((engine) => fleet[engine]);
+    if (requestedEngines && requestedEngines.length === 1 && !fleet[requestedEngines[0]!]) {
+      throw fleetEngineConflictError(requestedEngines[0]!);
+    }
+    if (installable.length === 0) throw fleetEngineConflictError(engines[0] ?? ENGINE_CODEX);
     const installerEngine: Engine =
       requestedEngines && requestedEngines.length === 1
         ? requestedEngines[0]!
-        : engines.includes(ENGINE_CODEX)
+        : installable.includes(ENGINE_CODEX)
           ? ENGINE_CODEX
-          : engines[0] ?? ENGINE_GROK;
+          : installable[0]!;
 
     await this.db.insert(installTokens).values({
       token: tokenHash,
@@ -782,6 +817,7 @@ export class HostManagementService {
       throw new ValidationError('engines must contain at least one of: codex, claude, grok', { param: 'engines' });
     }
     const previous = serializeEngines(parseEnginesInput(host.engines, [ENGINE_CODEX]));
+    assertEnginesAddable(engines, parseEnginesInput(host.engines, [ENGINE_CODEX]), await readFleetEngineState(this.db));
     const next = serializeEngines(engines);
     if (engines.includes(ENGINE_GROK)) {
       await new ModelDefaultsService(this.db).ensureGrokDefaults();

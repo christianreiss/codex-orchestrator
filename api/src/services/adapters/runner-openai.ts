@@ -5,7 +5,7 @@ import {
   capabilitiesFor,
   stopReasonFor,
 } from '../transport-capabilities.js';
-import { ENGINE_CODEX, ENGINE_GROK, type Engine } from '../../util/engine.js';
+import { ENGINE_CLAUDE, ENGINE_CODEX, ENGINE_GROK, type Engine } from '../../util/engine.js';
 import type { Env } from '../../env.js';
 
 /**
@@ -175,15 +175,18 @@ export class RunnerOpenAiAdapter {
     model: string,
     params: OpenAiGenerationParams = {},
   ): Promise<ChatCompletionResult> {
-    const grok = this.config.engine === ENGINE_GROK;
-    const systemMessages = grok ? messages.filter(message => ['system', 'developer'].includes(message.role)) : [];
+    // A backend that enforces `system` (Grok, Claude) gets system/developer
+    // turns as its system instruction; Codex has nowhere to put one, so they
+    // stay inline as `system:` transcript lines.
+    const hoist = this.capabilities.controls.system === 'enforced';
+    const systemMessages = hoist ? messages.filter(message => ['system', 'developer'].includes(message.role)) : [];
     const systemImages: OpenAiMessageImage[] = [];
     const system = systemMessages.map(message => renderMessageContent(message.content, systemImages, () => systemImages.length + 1)).filter(Boolean).join('\n');
-    const { prompt, images } = buildPromptPayload(grok ? messages.filter(message => !systemMessages.includes(message)) : messages);
+    const { prompt, images } = buildPromptPayload(hoist ? messages.filter(message => !systemMessages.includes(message)) : messages);
     images.push(...systemImages);
     if (system) params = { ...params, system: [params.system, system].filter(Boolean).join('\n') };
     const result = await this.runPrompt(prompt, model, images, params);
-    const usage = extractUsage(result, this.config.engine === ENGINE_GROK);
+    const usage = extractUsage(result, this.config.engine ?? ENGINE_CODEX);
     return {
       id: `chatcmpl-${randomBytes(12).toString('hex')}`,
       object: 'chat.completion',
@@ -215,7 +218,7 @@ export class RunnerOpenAiAdapter {
     params: OpenAiGenerationParams = {},
   ): Promise<CompletionResult> {
     const result = await this.runPrompt(prompt, model, [], params);
-    const usage = extractUsage(result, this.config.engine === ENGINE_GROK);
+    const usage = extractUsage(result, this.config.engine ?? ENGINE_CODEX);
     return {
       id: `cmpl-${randomBytes(12).toString('hex')}`,
       object: 'text_completion',
@@ -349,6 +352,7 @@ interface RunnerResponse {
   input_tokens?: unknown;
   output_tokens?: unknown;
   cache_read_input_tokens?: unknown;
+  cache_creation_input_tokens?: unknown;
   reasoning_tokens?: unknown;
   /**
    * The runner's `/exec` does not report one today, so this is always absent
@@ -358,14 +362,28 @@ interface RunnerResponse {
   finish_reason?: string | null;
 }
 
-function extractUsage(result: RunnerResponse, requireExact = false): {
+function extractUsage(result: RunnerResponse, engine: Engine): {
   prompt_tokens: number;
   completion_tokens: number;
   total_tokens: number;
   prompt_tokens_details?: { cached_tokens: number };
   completion_tokens_details?: { reasoning_tokens: number };
 } | null {
+  const requireExact = engine === ENGINE_GROK;
   if (requireExact && (result.usage_known !== true || ![result.input_tokens, result.output_tokens].every(value => typeof value === 'number' && Number.isSafeInteger(value) && value >= 0))) return null;
+  if (engine === ENGINE_CLAUDE) {
+    // Claude counts cache reads/writes outside `input_tokens`; OpenAI's
+    // `prompt_tokens` includes them and reports the cached share separately.
+    const cacheRead = numberOrZero(result.cache_read_input_tokens);
+    const prompt = numberOrZero(result.input_tokens) + cacheRead + numberOrZero(result.cache_creation_input_tokens);
+    const completion = numberOrZero(result.output_tokens);
+    return {
+      prompt_tokens: prompt,
+      completion_tokens: completion,
+      total_tokens: prompt + completion,
+      prompt_tokens_details: { cached_tokens: cacheRead },
+    };
+  }
   const prompt = numberOrZero(result.input_tokens);
   const completion = numberOrZero(result.output_tokens);
   return {
@@ -492,7 +510,7 @@ export function responseFromChatCompletion(
     parallel_tool_calls: false,
     usage: usage ? {
       input_tokens: usage.prompt_tokens,
-      input_tokens_details: nativeGrok ? usage.prompt_tokens_details ?? null : { cached_tokens: 0 },
+      input_tokens_details: usage.prompt_tokens_details ?? (nativeGrok ? null : { cached_tokens: 0 }),
       output_tokens: usage.completion_tokens,
       output_tokens_details: nativeGrok ? usage.completion_tokens_details ?? null : { reasoning_tokens: 0 },
       total_tokens: usage.total_tokens,

@@ -34,11 +34,12 @@ import {
 import { createRunnerClient } from '../../../services/runner-client.js';
 import { createRunnerValidationService } from '../../../services/runner-validation.js';
 import { createAdminEventsService } from '../../../services/admin-events.js';
-import { ENGINE_CODEX, ENGINE_CLAUDE, ENGINE_GROK, ENGINE_HOST_FIELDS, isEngine, type Engine } from '../../../util/engine.js';
+import { ENGINE_CODEX, ENGINE_CLAUDE, ENGINE_GROK, ENGINE_HOST_FIELDS, isEngine, parseEngine, type Engine } from '../../../util/engine.js';
 import { nowIso, parseIso } from '../../../util/timestamp.js';
 import { wsPublisher } from '../../../ws/publisher.js';
 import { adminSpaHtmlPreHandler } from '../pages/static.js';
 import { CLAUDE_DEFAULT_MODEL } from '../../../services/claude-models.js';
+import { assertFleetEngineEnabledForAdmin, disabledEngines, readFleetEngineState } from '../../../services/engine-switch.js';
 
 function intQuery(value: unknown, fallback: number): number {
   const n = Number(value);
@@ -376,6 +377,7 @@ export async function registerAdminOverviewRoutes(
       scaling: scalingStatus,
       claude_api_disabled: claudeApiDisabled,
       claude_default_model: claudeDefaultModel,
+      fleet_disabled_engines: disabledEngines(await readFleetEngineState(ctx.db)),
     });
   });
 
@@ -794,6 +796,7 @@ export async function registerAdminOverviewRoutes(
   });
 
   app.post('/admin/chatgpt/usage/refresh', { preHandler: app.requireAdmin }, async () => {
+    await assertFleetEngineEnabledForAdmin(ctx.db, 'codex');
     const result = await chatgpt.refresh();
     return ok(result);
   });
@@ -889,17 +892,23 @@ export async function registerAdminOverviewRoutes(
     return ok({ runner: await runnerProxy.status() });
   });
   app.post('/admin/runner/run', { preHandler: app.requireAdmin }, async (req) => {
+    await assertFleetEngineEnabledForAdmin(ctx.db, 'codex');
     return ok(await runnerProxy.run(runRequest(req.body), 'codex'));
   });
   app.post('/admin/runner/run-claude', { preHandler: app.requireAdmin }, async (req) => {
+    await assertFleetEngineEnabledForAdmin(ctx.db, 'claude');
     return ok(await runnerProxy.run(runRequest(req.body), 'claude'));
   });
 
-  app.post('/admin/runner/run-grok', { preHandler: app.requireAdmin }, async req => ok(await runnerProxy.run(runRequest(req.body), 'grok')));
+  app.post('/admin/runner/run-grok', { preHandler: app.requireAdmin }, async (req) => {
+    await assertFleetEngineEnabledForAdmin(ctx.db, 'grok');
+    return ok(await runnerProxy.run(runRequest(req.body), 'grok'));
+  });
 
   // ── /admin/auth/seed-command ──────────────────────────────────────────────
   app.post('/admin/auth/seed-command', { preHandler: app.requireAdmin }, async (req) => {
     const body = (req.body ?? {}) as Record<string, unknown>;
+    await assertFleetEngineEnabledForAdmin(ctx.db, parseEngine(body.engine));
     if (body.account_id !== undefined) {
       if (
         typeof body.account_id !== 'number' ||

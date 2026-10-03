@@ -167,7 +167,9 @@ func loadMessagingConfigs() (map[string]*config.Config, *config.Config, error) {
 			}
 			continue
 		}
-		if !cfg.AgentMessaging.Enabled {
+		// A fleet-suspended engine stops receiving. The server also stops
+		// baking its messaging block; this keeps a lagging config honest.
+		if !cfg.AgentMessaging.Enabled || cfg.EngineSuspended(engine) {
 			continue
 		}
 		loaded[engine] = cfg

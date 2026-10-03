@@ -232,7 +232,7 @@ func run(ctx context.Context, seed *config.Config, minimal, due bool, stdout, st
 	if workerRequired {
 		ensureWorker()
 	}
-	if err := runEnabledTicks(runCtx, canonical, engines, minimal, stdout, stderr); err != nil {
+	if err := runEnabledTicks(runCtx, canonical, activeTickEngines(configs, engines, stdout), minimal, stdout, stderr); err != nil {
 		errs = append(errs, err)
 	}
 	// A child may have atomically replaced cxx. Reconcile the service using the
@@ -252,13 +252,44 @@ func defaultEnsureAgentService(ctx context.Context, canonical string, stdout, st
 	return cmd.Run()
 }
 
+// backgroundWorkerRequired ignores engines switched off fleet-wide: nothing
+// may launch them, and the server stops baking their messaging block. The
+// worker is never uninstalled here, so re-enabling needs no reinstall.
 func backgroundWorkerRequired(configs []*config.Config) bool {
 	for _, cfg := range configs {
-		if cfg != nil && (cfg.Engine == config.EngineClaude || cfg.Engine == config.EngineCodex || cfg.AgentMessaging.Enabled) {
+		if cfg == nil || cfg.EngineSuspended(cfg.Engine) {
+			continue
+		}
+		if cfg.Engine == config.EngineClaude || cfg.Engine == config.EngineCodex || cfg.AgentMessaging.Enabled {
 			return true
 		}
 	}
 	return false
+}
+
+// activeTickEngines drops engines whose own freshly fetched signed config says
+// they are switched off fleet-wide. Suspension pauses maintenance (no CLI or
+// wrapper update, no managed sync) without retiring anything: the config and
+// alias were persisted by refreshAuthoritative and stay on disk, so turning
+// the switch back on resumes the tick on the next run.
+func activeTickEngines(configs []*config.Config, engines []string, w io.Writer) []string {
+	suspended := map[string]bool{}
+	for _, cfg := range configs {
+		if cfg != nil && cfg.EngineSuspended(cfg.Engine) {
+			suspended[cfg.Engine] = true
+		}
+	}
+	active := make([]string, 0, len(engines))
+	for _, engine := range engines {
+		if suspended[engine] {
+			if w != nil {
+				fmt.Fprintf(w, "%s suspended fleet-wide; skipping maintenance tick\n", engine)
+			}
+			continue
+		}
+		active = append(active, engine)
+	}
+	return active
 }
 
 func runEnabledTicks(ctx context.Context, canonical string, engines []string, minimal bool, stdout, stderr io.Writer) error {
@@ -290,6 +321,8 @@ func IsEngineOnly() bool { return os.Getenv(EngineOnlyEnv) == "1" }
 // refreshAuthoritative probes every engine before mutating anything. Only a
 // verified 200 enables an engine and only an explicit engine_disabled response
 // disables one; transport/auth/signature uncertainty preserves the old layout.
+// A fleet-suspended engine still answers 200: its config and alias are
+// persisted like any other, and run() skips only its tick.
 func refreshAuthoritative(ctx context.Context, seed *config.Config, executable string, warn io.Writer) ([]*config.Config, []string, string, error) {
 	if seed == nil {
 		var err error
@@ -309,6 +342,13 @@ func refreshAuthoritative(ctx context.Context, seed *config.Config, executable s
 		item, err := fetchAuthoritative(ctx, seed, engine)
 		if errors.Is(err, fleetconfig.ErrEngineDisabled) {
 			disabled = append(disabled, engine)
+			continue
+		}
+		if errors.Is(err, fleetconfig.ErrEngineSuspended) {
+			// Defensive: suspension is specified as a 200 config. If a server
+			// refuses it instead, leave this engine's config and alias exactly
+			// as they are and run no tick for it — never treat it as removal.
+			fmt.Fprintf(warnWriter(warn), "%s suspended fleet-wide; keeping its signed config and alias\n", engine)
 			continue
 		}
 		if err != nil {

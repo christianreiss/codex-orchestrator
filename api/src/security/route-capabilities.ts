@@ -187,6 +187,10 @@ export const ROUTE_CAPABILITIES: Readonly<Record<string, RouteGuard>> = {
   // ── Global settings ──────────────────────────────────────────────────────
   'GET /admin/api/state': cap('settings.read'),
   'POST /admin/api/state': cap('settings.manage'),
+  'GET /admin/api/surfaces': cap('settings.read'),
+  'GET /admin/engines/state': cap('settings.read'),
+  'POST /admin/engines/:engine/state': cap('settings.manage'),
+  'POST /admin/api/surfaces/:surface': cap('settings.manage'),
   'GET /admin/openai/state': cap('settings.read'),
   'POST /admin/openai/state': cap('settings.manage'),
   'GET /admin/claude/state': cap('settings.read'),

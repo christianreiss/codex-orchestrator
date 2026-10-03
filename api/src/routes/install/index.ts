@@ -14,6 +14,8 @@ import {
   tokenExpired,
 } from '../../services/install-token.js';
 import { hostEnginesList } from '../../services/host-engine-policy.js';
+import { assertFleetEngineEnabledForAdmin, isFleetEngineEnabled } from '../../services/engine-switch.js';
+import { ENGINE_LABELS } from '../../util/engine.js';
 import { createRunnerValidationService } from '../../services/runner-validation.js';
 import { createRunnerClient } from '../../services/runner-client.js';
 import { wsPublisher } from '../../ws/publisher.js';
@@ -67,6 +69,11 @@ export async function registerInstallRoutes(app: FastifyInstance, ctx: RouteCont
     const hostRows = await ctx.db.select().from(hostsTable).where(eq(hostsTable.id, row.hostId)).limit(1);
     const host = hostRows[0];
     if (!host) return shellishError(reply, 'Installer host missing', 'installer_host_missing');
+    // Checked before the token is consumed, so it still works once the engine
+    // is switched back on.
+    if (!(await isFleetEngineEnabled(ctx.db, row.engine))) {
+      return shellishError(reply, `${ENGINE_LABELS[row.engine]} is disabled fleet-wide by the administrator`, 'engine_disabled', row.expiresAt);
+    }
 
     let apiKey = row.apiKey;
     if (!apiKey) {
@@ -123,6 +130,9 @@ export async function registerInstallRoutes(app: FastifyInstance, ctx: RouteCont
     if (row.usedAt) return shellishSeedError(reply, 'Seed token already used', 'seed_used', row.expiresAt);
     if (tokenExpired(row.expiresAt))
       return shellishSeedError(reply, 'Seed token expired', 'seed_expired', row.expiresAt);
+    if (!(await isFleetEngineEnabled(ctx.db, row.engine))) {
+      return shellishSeedError(reply, `${ENGINE_LABELS[row.engine]} is disabled fleet-wide by the administrator`, 'engine_disabled', row.expiresAt);
+    }
     const baseUrl = resolveBaseUrl(row.baseUrl, ctx);
     if (!baseUrl)
       return shellishSeedError(reply, 'Seed base URL invalid', 'seed_base_url_invalid', row.expiresAt);
@@ -156,6 +166,7 @@ export async function registerInstallRoutes(app: FastifyInstance, ctx: RouteCont
     if (tokenExpired(row.expiresAt)) {
       throw new ApiError('Seed token expired', { status: 410, code: 'seed_expired' });
     }
+    await assertFleetEngineEnabledForAdmin(ctx.db, row.engine);
 
     if (!body || typeof body !== 'object' || Array.isArray(body)) {
       throw new ValidationError('auth payload must be valid JSON', { param: 'auth' });

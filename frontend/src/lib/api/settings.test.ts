@@ -111,6 +111,8 @@ const asMutation = (built: unknown): BuiltMutation => built as unknown as BuiltM
  */
 const KEYS = {
   apiState: ["settings", "api-state"],
+  apiSurfaces: ["settings", "api-surfaces"],
+  engineState: ["settings", "engine-state"],
   openaiState: ["settings", "openai-state"],
   claudeState: ["settings", "claude-state"],
   claudeSettings: ["settings", "claude-settings"],
@@ -158,6 +160,20 @@ const QUERY_CASES: QueryCase[] = [
     queryKey: KEYS.apiState,
     method: "GET",
     path: "/admin/api/state",
+  },
+  {
+    name: "apiSurfacesQuery",
+    build: () => asQuery(settings.apiSurfacesQuery()),
+    queryKey: KEYS.apiSurfaces,
+    method: "GET",
+    path: "/admin/api/surfaces",
+  },
+  {
+    name: "engineStateQuery",
+    build: () => asQuery(settings.engineStateQuery()),
+    queryKey: KEYS.engineState,
+    method: "GET",
+    path: "/admin/engines/state",
   },
   {
     name: "openaiStateQuery",
@@ -318,6 +334,24 @@ const MUTATION_CASES: MutationCase[] = [
     variables: true,
     request: { method: "POST", path: "/admin/api/state", body: { disabled: true } },
     invalidates: [KEYS.apiState],
+  },
+  {
+    // The surface id is the path; only the changed fields go in the body.
+    name: "apiSurfaceMutation",
+    build: (opts) => asMutation(settings.apiSurfaceMutation(opts)),
+    variables: { surface: "anthropic", backend: "codex" },
+    request: { method: "POST", path: "/admin/api/surfaces/anthropic", body: { backend: "codex" } },
+    invalidates: [KEYS.apiSurfaces],
+  },
+  {
+    // One builder serves all three engine rows: the engine is the path, and
+    // the whole settings tree re-reads because the switch reaches every
+    // engine-scoped setting.
+    name: "engineStateMutation",
+    build: (opts) => asMutation(settings.engineStateMutation(opts)),
+    variables: { engine: "grok", enabled: false },
+    request: { method: "POST", path: "/admin/engines/grok/state", body: { enabled: false } },
+    invalidates: [KEYS.engineState, ["settings"]],
   },
   {
     name: "openaiStateMutation",
@@ -557,6 +591,9 @@ describe("module surface", () => {
     "apiStateMutation",
     "apiStateQuery",
     "apiStateQueryKey",
+    "apiSurfaceMutation",
+    "apiSurfacesQuery",
+    "apiSurfacesQueryKey",
     "authorizationMutation",
     "authorizationQuery",
     "authorizationQueryKey",
@@ -580,6 +617,9 @@ describe("module surface", () => {
     "codexVersionsCheckMutation",
     "codexVersionsQuery",
     "codexVersionsQueryKey",
+    "engineStateMutation",
+    "engineStateQuery",
+    "engineStateQueryKey",
     "grokModelToggleMutation",
     "grokModelsQuery",
     "grokModelsQueryKey",

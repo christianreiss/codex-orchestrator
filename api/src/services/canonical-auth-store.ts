@@ -46,6 +46,7 @@ import {
   refreshCredentialExpired,
 } from './auth-generation.js';
 import { retentionDeadline } from './auth-generation-retention.js';
+import { assertFleetEngineEnabledForAdmin } from './engine-switch.js';
 
 const MIN_REFRESH_EPOCH_MS = Date.UTC(2000, 0, 1);
 const MAX_FUTURE_SKEW_MS = 300 * 1000;
@@ -209,6 +210,9 @@ export function createCanonicalAuthStoreService(deps: CanonicalAuthStoreDeps, ow
   }
 
   async function storeCandidate(input: StoreAuthCandidateInput): Promise<StoreAuthCandidateResult> {
+    // The one chokepoint every credential write passes (host, admin, seed,
+    // bootstrap). A switched-off engine accepts no new canonical auth.
+    await assertFleetEngineEnabledForAdmin(db, input.engine);
     if (input.engine === ENGINE_GROK && ownerAccountId === undefined) {
       const auth = normalizeGrokAuth(input.auth, true);
       const account = await new ProviderAccountsService(db, keyring).resolveCandidate(auth, ENGINE_GROK, input.accountId, input.sourceHostId, input.accountHint, input.enrollAccount);

@@ -26,6 +26,8 @@ import { ENGINE_CLAUDE, ENGINE_CODEX, parseEngine, type Engine } from '../../uti
 import { resolveRequestEngine } from '../../util/engine-resolution.js';
 import { UnauthorizedError, ValidationError } from '../../http/errors.js';
 import { assertHostEngineEnabled } from '../../services/host-engine-policy.js';
+import { readFleetEngineState } from '../../services/engine-switch.js';
+import type { Database } from '../../db/client.js';
 
 /**
  * Resolve body, query and header together, matching the startup sync surface.
@@ -41,12 +43,12 @@ function extractEngine(req: FastifyRequest, fallback: Engine = ENGINE_CODEX): En
   });
 }
 
-function requireClaudeHost(req: FastifyRequest) {
+async function requireClaudeHost(req: FastifyRequest, db: Database) {
   const engine = extractEngine(req, ENGINE_CLAUDE);
   if (engine !== ENGINE_CLAUDE) {
     throw new ValidationError('Claude artifacts require engine "claude"', { param: 'engine' });
   }
-  return requireEngineHost(req, engine);
+  return requireEngineHost(req, engine, db);
 }
 
 /**
@@ -81,9 +83,9 @@ function requireHost(req: FastifyRequest) {
   return req.authHost;
 }
 
-function requireEngineHost(req: FastifyRequest, engine: Engine) {
+async function requireEngineHost(req: FastifyRequest, engine: Engine, db: Database) {
   const host = requireHost(req);
-  assertHostEngineEnabled(host, engine);
+  assertHostEngineEnabled(host, engine, await readFleetEngineState(db));
   return host;
 }
 
@@ -281,19 +283,19 @@ export async function registerProjectsClientRoutes(app: FastifyInstance, ctx: Ro
   // ─── Skills ───────────────────────────────────────────────────────────
   app.get('/skills', { preHandler: auth }, async (req) => {
     const engine = extractEngine(req);
-    return ok(await skills.listSkills(requireEngineHost(req, engine), engine));
+    return ok(await skills.listSkills(await requireEngineHost(req, engine, ctx.db), engine));
   });
   app.post('/skills/retrieve', { preHandler: auth }, async (req) => {
     const payload = (req.body as Record<string, unknown>) ?? {};
     const slug = String(payload['slug'] ?? payload['filename'] ?? '');
     const sha = typeof payload['sha256'] === 'string' ? (payload['sha256'] as string) : null;
     const engine = extractEngine(req);
-    return ok(await skills.retrieve(slug, sha, requireEngineHost(req, engine), engine));
+    return ok(await skills.retrieve(slug, sha, await requireEngineHost(req, engine, ctx.db), engine));
   });
   app.post('/skills/store', { preHandler: auth }, async (req) => {
     const payload = (req.body as Record<string, unknown>) ?? {};
     const engine = extractEngine(req);
-    return ok(await skills.store(payload, requireEngineHost(req, engine)));
+    return ok(await skills.store(payload, await requireEngineHost(req, engine, ctx.db)));
   });
 
   // ─── Agents + client config ───────────────────────────────────────────
@@ -301,14 +303,14 @@ export async function registerProjectsClientRoutes(app: FastifyInstance, ctx: Ro
     const payload = (req.body as Record<string, unknown>) ?? {};
     const sha = typeof payload['sha256'] === 'string' ? (payload['sha256'] as string) : null;
     const engine = extractEngine(req);
-    const result = await agents.retrieve(sha, requireEngineHost(req, engine), engine);
+    const result = await agents.retrieve(sha, await requireEngineHost(req, engine, ctx.db), engine);
     return ok({ ...result, engine });
   });
   app.post('/config/retrieve', { preHandler: auth }, async (req) => {
     const payload = (req.body as Record<string, unknown>) ?? {};
     const sha = typeof payload['sha256'] === 'string' ? (payload['sha256'] as string) : null;
     const engine = extractEngine(req);
-    const result = await agents.retrieveConfig(sha, requireEngineHost(req, engine), engine, {
+    const result = await agents.retrieveConfig(sha, await requireEngineHost(req, engine, ctx.db), engine, {
       home: typeof payload['home'] === 'string' ? payload['home'] : null,
       username: typeof payload['username'] === 'string' ? payload['username'] : null,
     });
@@ -318,14 +320,14 @@ export async function registerProjectsClientRoutes(app: FastifyInstance, ctx: Ro
   // ─── Claude artifacts (subagents / commands / output-styles) ──────────
   app.get('/claude/:kind', { preHandler: auth }, async (req) => {
     const kind = normalizeKind((req.params as { kind: string }).kind);
-    return ok(await claudeArtifacts.list(kind, requireClaudeHost(req), ENGINE_CLAUDE));
+    return ok(await claudeArtifacts.list(kind, await requireClaudeHost(req, ctx.db), ENGINE_CLAUDE));
   });
   app.post('/claude/:kind/retrieve', { preHandler: auth }, async (req) => {
     const kind = normalizeKind((req.params as { kind: string }).kind);
     const payload = (req.body as Record<string, unknown>) ?? {};
     const slug = String(payload['slug'] ?? payload['filename'] ?? '');
     const sha = typeof payload['sha256'] === 'string' ? (payload['sha256'] as string) : null;
-    return ok(await claudeArtifacts.retrieve(kind, slug, sha, requireClaudeHost(req)));
+    return ok(await claudeArtifacts.retrieve(kind, slug, sha, await requireClaudeHost(req, ctx.db)));
   });
   // No host-originated store: Claude artifacts are admin-authored fleet-wide.
   // The host surface is read-only (list / retrieve / bundle).

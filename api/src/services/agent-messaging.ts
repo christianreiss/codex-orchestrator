@@ -47,7 +47,8 @@ import { isoOffsetSeconds, nowIso } from '../util/timestamp.js';
 import { wsPublisher } from '../ws/publisher.js';
 import {
 } from './agent-presence.js';
-import { hostEnginesList } from './host-engine-policy.js';
+import { activeHostEngines, assertHostEngineEnabled } from './host-engine-policy.js';
+import { readFleetEngineState } from './engine-switch.js';
 import { isTruthyFlagValue, SettingsService } from './settings.js';
 
 import {
@@ -898,7 +899,8 @@ export class AgentMessagingService {
         isNull(agentBusAddresses.currentSessionId),
       ));
     if (rows.length === 0) return null;
-    const eligible = rows.filter((row) => hostEnginesList(row.hostEngines).includes(row.engine as Engine));
+    const fleet = await readFleetEngineState(this.db);
+    const eligible = rows.filter((row) => activeHostEngines(row.hostEngines, fleet).includes(row.engine as Engine));
     if (eligible.length === 0) return null;
     return await this.claimDelivery(eligible.map((row) => row.id), `relay:${relay.id}:${relay.generation}`, claimId, relay.generation, true);
   }
@@ -1506,9 +1508,7 @@ export class AgentMessagingService {
     if (!safeHashEqual(hostAuthFingerprint(row.host), row.session.hostAuthFingerprint)) {
       throw new UnauthorizedError('Agent bridge host credential changed', 'agent_bridge_host_auth_changed');
     }
-    if (!hostEnginesList(row.host.engines).includes(row.session.engine as Engine)) {
-      throw new ForbiddenError(`Engine ${row.session.engine} is disabled for this host`, 'engine_disabled');
-    }
+    assertHostEngineEnabled(row.host, row.session.engine as Engine, await readFleetEngineState(this.db));
     if (row.session.endedAt && !allowEnded) throw new ConflictError('Agent session is finished', 'agent_session_finished');
     if (!row.session.endedAt && row.session.bridgeExpiresAt <= nowIso()) throw new UnauthorizedError('Agent bridge credential expired', 'agent_bridge_expired');
     return row;
@@ -1579,7 +1579,7 @@ export class AgentMessagingService {
     if (!rows[0] || !messagingHostEligible(rows[0])) {
       throw new NotFoundError('Agent address not found', 'agent_messaging_address_not_found');
     }
-    if (!hostEnginesList(rows[0].engines).includes(address.engine as Engine)) {
+    if (!activeHostEngines(rows[0].engines, await readFleetEngineState(this.db)).includes(address.engine as Engine)) {
       throw new NotFoundError('Agent address not found', 'agent_messaging_address_not_found');
     }
   }

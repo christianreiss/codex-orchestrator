@@ -23,6 +23,7 @@ function snapshot(): VersionSnapshot {
     clx_silent: false,
     cgx_silent: false,
     agent_messaging_enabled: false,
+    fleet_disabled_engines: [],
     installation_id: 'test',
     engine: 'codex',
   };

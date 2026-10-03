@@ -74,4 +74,29 @@ describe('chatgpt usage worker tick', () => {
       'chatgpt usage refresh failed',
     );
   });
+
+  it('polls nothing while Codex is switched off fleet-wide, and stays healthy', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'codex-quota-worker-'));
+    tempDirs.push(dir);
+    const healthPath = join(dir, 'health.json');
+    const fetchLatest = vi.fn();
+    const info = vi.fn();
+
+    const result = await runChatGptUsageWorkerTick({
+      usage: { fetchLatest },
+      healthPath,
+      log: { info, warn: vi.fn(), error: vi.fn() },
+      now: () => '2026-10-03T08:00:00Z',
+      codexEnabled: async () => false,
+    });
+
+    expect(fetchLatest).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ status: 'unavailable', error: 'engine_disabled' });
+    // Deliberately off is not a failing container.
+    expect(JSON.parse(await readFile(healthPath, 'utf8'))).toMatchObject({
+      checked_at: '2026-10-03T08:00:00Z',
+      suspended: 'codex_engine_disabled',
+    });
+    expect(info).toHaveBeenCalledWith({ reason: 'engine_disabled' }, expect.stringContaining('suspended'));
+  });
 });

@@ -36,7 +36,8 @@ import {
   deriveAddressPresence,
   isPresent,
 } from '../agent-presence.js';
-import { hostEnginesList } from '../host-engine-policy.js';
+import { activeHostEngines, assertHostEngineEnabled } from '../host-engine-policy.js';
+import { readFleetEngineState } from '../engine-switch.js';
 import {
   AGENT_MESSAGING_LIST_LIMIT,
 } from './constants.js';
@@ -135,9 +136,7 @@ export class SessionRegistry {
       if (!safeHashEqual(hostAuthFingerprint(lockedHost), fingerprint)) {
         throw new UnauthorizedError('Host credential changed during registration', 'agent_bridge_host_auth_changed');
       }
-      if (!hostEnginesList(lockedHost.engines).includes(input.engine)) {
-        throw new ForbiddenError(`Engine ${input.engine} is disabled for this host`, 'engine_disabled');
-      }
+      assertHostEngineEnabled(lockedHost, input.engine, await readFleetEngineState(this.core.db));
       // A crashed wrapper may leave its durable address bound until the portal
       // reaper runs. Reclaim expired bindings for this identity in-band so a
       // restart reuses the same address instead of minting a split identity.
@@ -488,8 +487,9 @@ export class SessionRegistry {
         .orderBy(asc(agentBusAddresses.address));
     });
     const freshAfter = isoOffsetSeconds(-this.core.env.AGENT_PORTAL_HEARTBEAT_FRESH_SECONDS);
+    const fleet = await readFleetEngineState(this.core.db);
     const ranked = rows
-      .filter((row) => hostEnginesList(row.hostEngines).includes(row.address.engine as Engine))
+      .filter((row) => activeHostEngines(row.hostEngines, fleet).includes(row.address.engine as Engine))
       .map((row) => ({ ...row, receiver: receiverView(row.session?.receiver), presence: deriveAddressPresence(row.address, row.session, freshAfter) }))
       // `online: true` reaches here as `includeOffline: false`. It filters on
       // derived presence, not on `readiness`: that column is a registration

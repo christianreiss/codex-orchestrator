@@ -17,7 +17,6 @@ import { ValidationError } from '../../../http/errors.js';
 import { makeAdminEventsWriter } from '../../../services/admin-events-writer.js';
 import {
   HostManagementService,
-  parseEnginesInput,
   MIN_INSECURE_WINDOW_MINUTES,
   MAX_INSECURE_WINDOW_MINUTES,
 } from '../../../services/host-management.js';
@@ -346,15 +345,9 @@ export async function registerAdminHostsRoutes(
     preHandler: [app.requireAdmin],
     handler: async (req) => {
       const body = parseZod(quickRegisterSchema, req.body);
-      const engines =
-        body.engines && body.engines.length
-          ? body.engines
-          : parseEnginesInput(ctx.env.DEFAULT_HOST_ENGINES, [ENGINE_CODEX]);
-      if (!engines.length) {
-        throw new ValidationError('engines must contain at least one of: codex, claude, grok', {
-          param: 'engines',
-        });
-      }
+      // Omitted engines are left to the service, which applies the configured
+      // default minus any engine switched off fleet-wide.
+      const engines = body.engines && body.engines.length ? body.engines : undefined;
       const { host, apiKeyPlain, installer } = await hostService.quickRegister({
         engines,
         duration_minutes: body.duration_minutes ?? null,

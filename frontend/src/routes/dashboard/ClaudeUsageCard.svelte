@@ -17,11 +17,16 @@
   import TrendChart from "$lib/components/dashboard/TrendChart.svelte";
   import { claudeUsageQuery, claudeHistoryQuery } from "$lib/api/usage";
   import { relativeTime } from "$lib/utils/format";
+  import { Badge } from "$lib/components/ui/badge";
+  import { useFleetEngines, FLEET_DISABLED_TAG, fleetDisabledTitle } from "$lib/engines/fleet-engines";
 
   const usage = claudeUsageQuery();
   const history = claudeHistoryQuery(60);
 
   let historyOpen = $state(false);
+  // Claude off fleet-wide: no host launches it, so no new usage is reported.
+  const fleet = useFleetEngines();
+  const engineOff = $derived(!$fleet.isEnabled("claude"));
 
   const snapshot = $derived($usage.data?.snapshot ?? null);
   const fetchedAt = $derived(snapshot?.fetched_at ?? null);
@@ -58,10 +63,13 @@
   }
 </script>
 
-<Card class="flex min-w-0 flex-col border-t-2 border-t-persona-claude">
+<Card class="flex min-w-0 flex-col border-t-2 border-t-persona-claude {engineOff ? 'opacity-70' : ''}">
   <CardHeader class="flex flex-row items-start justify-between gap-3 space-y-0">
     <div>
-      <CardTitle>Claude usage</CardTitle>
+      <CardTitle class="flex items-center gap-2">
+        Claude usage
+        {#if engineOff}<Badge variant="warning" title={fleetDisabledTitle("Claude")}>{FLEET_DISABLED_TAG}</Badge>{/if}
+      </CardTitle>
       <CardDescription>
         {#if source}
           via <span class="font-mono">{source}</span>

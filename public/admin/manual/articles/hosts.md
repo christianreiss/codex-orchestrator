@@ -106,7 +106,7 @@ Host ID, FQDN, IPv4/IPv6, Codex version (override or reported), Claude version, 
 
 ### Controls card
 
-Toggle switches: **Secure**, **Auto-update**, **VIP**, **Roaming**, **Scaling exempt**, **Curl insecure**, **BrowserOS MCP**, and per-engine **Codex**/**Claude**/**Grok** switches (each disabled when it's the host's only remaining engine, via `POST /admin/hosts/{id}/engines`).
+Toggle switches: **Secure**, **Auto-update**, **VIP**, **Roaming**, **Scaling exempt**, **Curl insecure**, **BrowserOS MCP**, and per-engine **Codex**/**Claude**/**Grok** switches (each disabled when it's the host's only remaining engine, via `POST /admin/hosts/{id}/engines`). An engine switched off fleet-wide (**Engines → Engine master switches**) cannot be added to a host — here, in the new-host form or Quick VM — and the server refuses it with `409 engine_disabled`; a host that already carries it keeps it, badged as disabled fleet-wide, and its wrapper refuses to launch that engine until it is switched back on.
 
 Buttons depend on host state:
 

@@ -855,6 +855,15 @@ func ensureCLIForLaunch(ctx context.Context, cfg *config.Config, f flags, logger
 	res, installErr := enginecron.EnsureEngineCurrent(installCtx, cfg, logger)
 	cancel()
 	_, findErr := codex.FindCLI()
+	if findErr != nil {
+		// The install probe is a host route: a switched-off engine answers it
+		// with the same engine_disabled refusal a launch would get.
+		if scope, disabled := orchestrator.EngineDisabledScope(installErr); disabled {
+			progress.Clear()
+			ui.Say(stderr, "cdx", ui.ToneFail, "launch", config.EngineDisabledMessage(config.EngineCodex, scope))
+			return 1
+		}
+	}
 	if findErr == nil {
 		progress.Done("Codex CLI " + res.CodexVersion + " installed")
 		return 0
@@ -881,6 +890,11 @@ func ensureCLIForLaunch(ctx context.Context, cfg *config.Config, f flags, logger
 func ensureEngineForSync(ctx context.Context, cfg *config.Config, minimal bool, logger *slog.Logger, stderr io.Writer) int {
 	res, err := enginecron.EnsureEngineCurrent(ctx, cfg, logger)
 	if err != nil {
+		// The sync above already printed the engine_disabled refusal; a raw
+		// 403 from the same decision would only repeat it less clearly.
+		if _, disabled := orchestrator.EngineDisabledScope(err); disabled {
+			return 1
+		}
 		printBoundedPlain(stderr, "cdx sync: Codex engine update failed: "+err.Error(), minimal)
 		return 1
 	}
@@ -1714,6 +1728,12 @@ func cmdCron(ctx context.Context, cfg *config.Config, args []string, stdout, std
 			return 0
 		}
 		// Non-interactive auto-update tick.
+		// The coordinator already skips a suspended engine; this keeps any
+		// other caller of the engine-only tick from updating or syncing it.
+		if cfg.EngineSuspended(config.EngineCodex) {
+			printBoundedPlain(stdout, "cron: codex suspended fleet-wide; skipping maintenance tick", minimal)
+			return 0
+		}
 		res, err := enginecron.TickWithOptions(ctx, cfg, minimal)
 		if err != nil {
 			printBoundedPlain(stderr, "cdx cron: "+err.Error(), minimal)

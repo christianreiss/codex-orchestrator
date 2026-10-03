@@ -11,6 +11,8 @@ package orchestrator
 import (
 	"strings"
 	"time"
+
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
 )
 
 // AuthDecision is the typed gate output. Allowed=true means lifecycle.Run
@@ -98,14 +100,18 @@ func Decide(resp *AuthRetrieveResponse, localAuthPath string, hostSecure bool, p
 		d.Reason = "IP binding mismatch (ip_mismatch; API is reachable): this host's current IP is not bound. In Admin → Host Detail, use Release IP binding for a controlled IP change, then retry."
 		return d
 	}
-	// Engine disabled for this host. The non-bundle /auth path maps this to
-	// status "disabled", but the /sync/bootstrap path folds the 403 body into
-	// the synthesized offline Message — without this branch an over-cache host
-	// would fall through to the offline path and launch a disabled engine from
-	// cached auth instead of refusing.
-	if strings.Contains(strings.ToLower(resp.Message), "engine_disabled") {
-		d.Status = "disabled"
-		d.Reason = "Engine disabled for this host by administrator."
+	// Engine disabled, by the fleet-wide master switch ("suspended") or by
+	// removal from this host's assignment ("disabled"). The non-bundle /auth
+	// path and the /sync/bootstrap path both synthesize those statuses from
+	// the 403; the Message sniff below remains for a body folded into an
+	// offline sentinel. Either way this is a reachable policy refusal and must
+	// never fall through to the offline launch-from-cache path.
+	if scope, disabled := engineDisabledScope(resp); disabled {
+		d.Status = AuthStatusDisabled
+		if scope == config.EngineDisabledScopeFleet {
+			d.Status = AuthStatusSuspended
+		}
+		d.Reason = config.EngineDisabledMessage(config.EngineCodex, scope)
 		return d
 	}
 	// The bootstrap store gate can reject the exact local candidate even when
@@ -170,10 +176,6 @@ func Decide(resp *AuthRetrieveResponse, localAuthPath string, hostSecure bool, p
 		// via /sync/bootstrap auth_candidate. Launch allowed informationally.
 		d.Allowed = true
 		d.Reason = "Local auth missing or upload required; will upload."
-		return d
-
-	case "disabled":
-		d.Reason = "Auth API disabled by administrator."
 		return d
 
 	case "invalid":
@@ -339,4 +341,31 @@ func ApplyConcurrent(dec AuthDecision, localAuthPath string, probe LocalAuthProb
 	dec.Allowed = false
 	dec.Reason = "Active cdx run detected and local auth.json is invalid or absent."
 	return dec
+}
+
+// engineDisabledScope reports whether resp carries an engine_disabled refusal
+// and its scope. The typed statuses win; a raw 403 body folded into Message
+// (an offline sentinel built from the transport error) is sniffed as a
+// fallback, and a body without a scope keeps its historical host meaning.
+func engineDisabledScope(resp *AuthRetrieveResponse) (string, bool) {
+	switch strings.ToLower(strings.TrimSpace(resp.Status)) {
+	case AuthStatusSuspended:
+		return config.EngineDisabledScopeFleet, true
+	case AuthStatusDisabled:
+		return config.EngineDisabledScopeHost, true
+	}
+	message := resp.Message
+	if !strings.Contains(strings.ToLower(message), "engine_disabled") {
+		return "", false
+	}
+	if start := strings.Index(message, "{"); start >= 0 {
+		if scope := parseErrorScope([]byte(message[start:])); scope == config.EngineDisabledScopeFleet {
+			return config.EngineDisabledScopeFleet, true
+		}
+	}
+	compact := strings.Join(strings.Fields(strings.ToLower(message)), "")
+	if strings.Contains(compact, `"scope":"fleet"`) {
+		return config.EngineDisabledScopeFleet, true
+	}
+	return config.EngineDisabledScopeHost, true
 }

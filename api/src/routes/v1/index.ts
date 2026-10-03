@@ -15,16 +15,17 @@ import {
   chatCompletionStreamEvents,
   pipeOpenAiStream,
 } from '../../services/stream/openai-sse.js';
+import { API_SURFACES, type ApiSurfaceId } from '../../services/api-surfaces.js';
 import {
-  resolveRequestedModel,
-  UnsupportedModelError,
-  buildModelList,
-  buildModelObject,
-} from '../../services/openai-models.js';
-import { createRunnerValidationService } from '../../services/runner-validation.js';
-import { createAuthTrafficVerifier } from '../../services/auth-traffic-verification.js';
-import { ENGINE_CODEX, ENGINE_GROK, type Engine } from '../../util/engine.js';
-import { assertControlsSupported, capabilitiesFor } from '../../services/transport-capabilities.js';
+  assertBackendRequestControls,
+  assertSurfaceBackendEnabled,
+  defaultGatewayWiring,
+  openAiModelObject,
+  resolveGenerationModel,
+  type GatewayBackend,
+  type GatewayWiring,
+} from '../../services/gateway-backends.js';
+import type { Engine } from '../../util/engine.js';
 
 /**
  * Optional test seam — supplying any of these overrides skips the default
@@ -32,7 +33,11 @@ import { assertControlsSupported, capabilitiesFor } from '../../services/transpo
  * stubbed services without touching MySQL or a runner.
  */
 export interface OpenAiCompatOverrides {
-  engine?: Engine;
+  /** Which OpenAI-wire surface this mounts: `/v1` (default) or `/grok/v1`. */
+  surface?: Extract<ApiSurfaceId, 'openai' | 'grok'>;
+  /** Shared backends + routing; built per registration when absent. */
+  gateway?: GatewayWiring;
+  // The overrides below replace pieces of the surface's identity backend only.
   authSnapshot?: () => Promise<unknown | null>;
   onExecSuccess?: (snapshot: unknown) => void;
   models?: {
@@ -45,50 +50,52 @@ export interface OpenAiCompatOverrides {
 }
 
 /**
- * Register the OpenAI-compatible `/v1/*` route group. The envelope plugin
- * already shapes errors via the `/v1/` URL prefix; this module only needs to
- * mount handlers, apply the auth + kill-switch preHandlers, and call into the
- * runner adapter.
+ * Register an OpenAI-wire route group (`/v1/*`, or `/grok/v1/*` when mounted
+ * under the `/grok` prefix). The envelope plugin already shapes errors via the
+ * URL prefix; this module mounts handlers, applies the surface's auth +
+ * kill-switch preHandlers, and hands each request to whichever backend engine
+ * the surface is routed to right now (see `api-surfaces.ts`).
  */
 export async function registerOpenAiCompatRoutes(
   app: FastifyInstance,
   ctx: RouteContext,
   overrides: OpenAiCompatOverrides = {},
 ): Promise<void> {
-  const engine = overrides.engine ?? ENGINE_CODEX;
+  const surface = API_SURFACES[overrides.surface ?? 'openai'];
+  const gateway = overrides.gateway ?? defaultGatewayWiring(ctx, app.log);
   const keys = overrides.keys ?? new OpenAiKeyService({ db: ctx.db, keyring: ctx.keyring });
-  const killSwitch = overrides.killSwitch ?? makeOpenAiKillSwitch(ctx.db, engine === ENGINE_GROK ? 'grok_api_disabled' : 'openai_api_disabled', engine === ENGINE_GROK ? 'Grok' : 'OpenAI');
-  const keyResolver = makeOpenAiKeyResolver({ keys, engine });
-  const killSwitchHook = makeKillSwitchPreHandler(killSwitch);
+  const killSwitch = overrides.killSwitch ?? makeOpenAiKillSwitch(ctx.db, surface.disabledFlag, surface.id === 'grok' ? 'Grok' : 'OpenAI');
+  const keyResolver = makeOpenAiKeyResolver({ keys, engine: surface.keyEngine });
+  const killSwitchHook = makeKillSwitchPreHandler(killSwitch, () =>
+    assertSurfaceBackendEnabled(ctx.db, gateway.routing, surface.id),
+  );
 
-  const runnerConfig = makeRunnerConfig(ctx.env, engine);
-  if (runnerConfig && !overrides.authSnapshot) {
-    const runnerValidation = createRunnerValidationService({ db: ctx.db, keyring: ctx.keyring });
-    // Successful gateway execs prove the canonical credential live; the
-    // traffic verifier touches its verification stamp so background probes
-    // stay idle while real traffic flows.
-    const traffic = createAuthTrafficVerifier({
-      db: ctx.db,
-      runnerValidation,
-      engine,
-      log: app.log,
-    });
-    runnerConfig.authSnapshot = traffic.getAuthSnapshot;
-    runnerConfig.onExecSuccess = traffic.recordExecSuccess;
-  }
-  if (runnerConfig && overrides.authSnapshot) runnerConfig.authSnapshot = overrides.authSnapshot;
-  if (runnerConfig && overrides.onExecSuccess) runnerConfig.onExecSuccess = overrides.onExecSuccess;
-  const resolveRequested = (value: unknown) => overrides.models ? overrides.models.resolveRequestedModel(value) : Promise.resolve(resolveModel(value));
-  const validateGrokControls = (payload: Record<string, unknown>) => {
-    if (engine !== ENGINE_GROK) return;
-    assertControlsSupported({ stream: payload.stream === true ? true : undefined, tools: payload.tools ?? payload.functions, top_k: payload.top_k }, capabilitiesFor('runner-cli', engine));
+  const identity = surface.identityBackend;
+  const adapters = new Map<Engine, RunnerOpenAiAdapter | null>();
+  const adapterFor = (backend: GatewayBackend): RunnerOpenAiAdapter | null => {
+    if (backend.engine === identity && overrides.adapter !== undefined) return overrides.adapter;
+    if (!adapters.has(backend.engine)) {
+      const runnerConfig = makeRunnerConfig(ctx.env, backend.engine);
+      if (runnerConfig) {
+        // Successful gateway execs prove the canonical credential live; the
+        // backend's traffic verifier touches its verification stamp so
+        // background probes stay idle while real traffic flows.
+        const own = backend.engine === identity;
+        runnerConfig.authSnapshot = (own ? overrides.authSnapshot : undefined) ?? backend.authSnapshot;
+        runnerConfig.onExecSuccess = (own ? overrides.onExecSuccess : undefined) ?? backend.onExecSuccess;
+      }
+      adapters.set(backend.engine, runnerConfig ? new RunnerOpenAiAdapter(runnerConfig) : null);
+    }
+    return adapters.get(backend.engine) ?? null;
   };
-  const adapter =
-    overrides.adapter !== undefined
-      ? overrides.adapter
-      : runnerConfig
-        ? new RunnerOpenAiAdapter(runnerConfig)
-        : null;
+  const backendNow = async (): Promise<GatewayBackend> =>
+    gateway.backends.get(await gateway.routing.backendFor(surface.id));
+  const resolveRequested = (backend: GatewayBackend, value: unknown): Promise<string> =>
+    backend.engine === identity && overrides.models
+      ? overrides.models.resolveRequestedModel(value)
+      : resolveGenerationModel(backend, identity, value);
+  const validateBackendControls = (backend: GatewayBackend, payload: Record<string, unknown>) =>
+    assertBackendRequestControls(backend.engine, { stream: payload.stream, tools: payload.tools ?? payload.functions, top_k: payload.top_k });
 
   // OPTIONS: short-circuit at preHandler; CORS plugin sets the headers.
   app.options('/v1/*', async (_req, reply) => {
@@ -99,9 +106,11 @@ export async function registerOpenAiCompatRoutes(
   app.post('/v1/chat/completions', {
     preHandler: [killSwitchHook, keyResolver],
     handler: async (req, reply) => {
+      const backend = await backendNow();
+      const adapter = adapterFor(backend);
       ensureAdapter(adapter);
       const payload = parseBody(req.body);
-      validateGrokControls(payload);
+      validateBackendControls(backend, payload);
       const messages = normalizeChatMessages(payload.messages);
       if (messages === null) {
         throw new ApiError('Missing required parameter: messages', {
@@ -127,7 +136,7 @@ export async function registerOpenAiCompatRoutes(
           },
         );
       }
-      const model = await resolveRequested(payload.model);
+      const model = await resolveRequested(backend, payload.model);
       const params = extractParams(payload, { capKeys: ['max_completion_tokens', 'max_tokens'] });
       const result = await adapter.chatCompletions(messages, model, params);
 
@@ -145,9 +154,11 @@ export async function registerOpenAiCompatRoutes(
   app.post('/v1/responses', {
     preHandler: [killSwitchHook, keyResolver],
     handler: async (req, _reply) => {
+      const backend = await backendNow();
+      const adapter = adapterFor(backend);
       ensureAdapter(adapter);
       const payload = parseBody(req.body);
-      validateGrokControls(payload);
+      validateBackendControls(backend, payload);
       const messages = normalizeResponsesInput(payload.input, payload.instructions);
       if (messages === null) {
         throw new ApiError('Missing required parameter: input', {
@@ -157,7 +168,7 @@ export async function registerOpenAiCompatRoutes(
           param: 'input',
         });
       }
-      const model = await resolveRequested(payload.model);
+      const model = await resolveRequested(backend, payload.model);
       const params = extractParams(payload, { capKeys: ['max_output_tokens'] });
       if (payload.stream) {
         throw new ApiError(
@@ -176,9 +187,11 @@ export async function registerOpenAiCompatRoutes(
   app.post('/v1/completions', {
     preHandler: [killSwitchHook, keyResolver],
     handler: async (req, reply) => {
+      const backend = await backendNow();
+      const adapter = adapterFor(backend);
       ensureAdapter(adapter);
       const payload = parseBody(req.body);
-      validateGrokControls(payload);
+      validateBackendControls(backend, payload);
       const prompt = typeof payload.prompt === 'string' ? payload.prompt : '';
       if (!prompt.trim()) {
         throw new ApiError('Missing required parameter: prompt', {
@@ -188,7 +201,7 @@ export async function registerOpenAiCompatRoutes(
           param: 'prompt',
         });
       }
-      const model = await resolveRequested(payload.model);
+      const model = await resolveRequested(backend, payload.model);
       const params = extractParams(payload, { capKeys: ['max_tokens'] });
       const result = await adapter.completions(prompt, model, params);
 
@@ -217,7 +230,11 @@ export async function registerOpenAiCompatRoutes(
 
   app.get('/v1/models', {
     preHandler: [killSwitchHook, keyResolver],
-    handler: async () => overrides.models ? overrides.models.modelsResponse() : buildModelList(),
+    handler: async () => {
+      const backend = await backendNow();
+      if (backend.engine === identity && overrides.models) return overrides.models.modelsResponse();
+      return { object: 'list', data: (await backend.models.catalog()).map(openAiModelObject) };
+    },
   });
 
   // GET /v1/models/{model} — single-model retrieve (OpenAI `models.retrieve()`).
@@ -236,18 +253,23 @@ export async function registerOpenAiCompatRoutes(
           type: 'invalid_request_error',
         });
       }
-      // resolveModel upgrades legacy aliases and throws the 404 model_not_found
-      // shape for unknown ids. Return the canonical resolved id's object.
-      const selected = await resolveRequested(id);
-      return engine === ENGINE_GROK ? { id: selected, object: 'model', created: 1790812800, owned_by: 'xai' } : buildModelObject(selected);
+      // Strict lookup in the backend's catalog: legacy aliases upgrade, unknown
+      // ids throw the 404 model_not_found shape, and — unlike a generation
+      // request — another wire's model id never falls back to the default.
+      const backend = await backendNow();
+      const selected = backend.engine === identity && overrides.models
+        ? await overrides.models.resolveRequestedModel(id)
+        : await backend.models.resolve(id);
+      return openAiModelObject(backend.models.info(selected));
     },
   });
 }
 
-function makeKillSwitchPreHandler(kill: KillSwitch): preHandlerHookHandler {
+function makeKillSwitchPreHandler(kill: KillSwitch, backendEnabled: () => Promise<void>): preHandlerHookHandler {
   return async function killSwitchPreHandler(req): Promise<void> {
     if (req.method === 'OPTIONS') return;
     await kill.throwIfDisabled();
+    await backendEnabled();
   };
 }
 
@@ -259,25 +281,6 @@ function ensureAdapter(
       'OpenAI API backend is not configured. Ensure the runner is available.',
       { status: 503, code: 'backend_unavailable', type: 'api_error' },
     );
-  }
-}
-
-function resolveModel(value: unknown): string {
-  try {
-    return resolveRequestedModel(value);
-  } catch (err) {
-    if (err instanceof UnsupportedModelError) {
-      // Upstream OpenAI returns HTTP 404 with error.code "model_not_found" for
-      // an unknown/unavailable model, while keeping error.type
-      // "invalid_request_error" and param null. (This is deliberately NOT the
-      // Anthropic `not_found_error` type — the two wire formats differ here.)
-      throw new ApiError(err.message, {
-        status: 404,
-        code: 'model_not_found',
-        type: 'invalid_request_error',
-      });
-    }
-    throw err;
   }
 }
 

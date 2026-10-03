@@ -46,7 +46,15 @@ import { createWrapperBinRegistry } from '../../services/wrapper-bin-registry.js
 import { projectWrapperVersionSnapshot } from '../../services/wrapper-version-projection.js';
 import { ChatGptUsageService, normalizeChatGptUsageSnapshot } from '../../services/chatgpt-usage.js';
 import { ClaudeUsageService, normalizeClaudeUsageSnapshot } from '../../services/claude-usage.js';
-import { assertHostEngineEnabled, hostEnginesList } from '../../services/host-engine-policy.js';
+import {
+  activeHostEngines,
+  assertHostEngineAssigned,
+  assertHostEngineEnabled,
+  disabledEngines,
+  hostEnginesList,
+  type FleetEngineState,
+} from '../../services/host-engine-policy.js';
+import { readFleetEngineState } from '../../services/engine-switch.js';
 import { inspectCredential } from '../../services/auth-generation.js';
 import { resolveAuthRequestEngine } from './engine-resolution.js';
 import { resolveWrapperPlatform } from '../../util/wrapper-platform.js';
@@ -122,7 +130,7 @@ export async function registerAuthRoutes(app: FastifyInstance, ctx: RouteContext
     const host = await hostAuth.authenticate(req);
     const payload = readPayload(req.body);
     const engine = resolveAuthRequestEngine(req, payload);
-    assertHostEngineEnabled(host, engine);
+    assertHostEngineEnabled(host, engine, await readFleetEngineState(ctx.db));
     await maybeEnforceInsecure(insecure, host, 'retrieve', req.clientIp);
     const scope = opaqueId(payload.scope_id, 'scope_id');
     const sessionId = opaqueId(payload.session_id, 'session_id');
@@ -165,11 +173,14 @@ export async function registerAuthRoutes(app: FastifyInstance, ctx: RouteContext
     const host = await hostAuth.authenticate(req);
     const payload = readPayload(req.body);
     const engine = resolveAuthRequestEngine(req, payload);
-    assertHostEngineEnabled(host, engine);
+    // A fleet suspension refuses new leases but lets a running session keep
+    // the one it holds; it does stop the server refreshing on its behalf.
+    assertHostEngineAssigned(host, engine);
     await maybeEnforceInsecure(insecure, host, 'retrieve', req.clientIp);
     const sessionId = opaqueId(payload.session_id, 'session_id');
     const heartbeat = await accounts.heartbeat(host.id, engine, sessionId);
     if (engine !== ENGINE_GROK) return heartbeat;
+    if (!(await readFleetEngineState(ctx.db))[engine]) return { ...heartbeat, refresh_state: 'suspended' };
     const snapshot = await createGrokAuthOwner({ db: ctx.db, keyring: ctx.keyring, runner }).ensureFresh({ accountId: heartbeat.account_id, sourceHostId: host.id, sessionId });
     return { ...heartbeat, canonical_generation: snapshot.canonical_generation, access_token_digest: snapshot.access_token_digest, access_expires_at: snapshot.expires_at, refresh_state: snapshot.refresh_state };
   });
@@ -188,7 +199,7 @@ export async function registerAuthRoutes(app: FastifyInstance, ctx: RouteContext
     const host = await hostAuth.authenticate(req);
     const payload = readPayload(req.body);
     const engine = resolveAuthRequestEngine(req, payload);
-    assertHostEngineEnabled(host, engine);
+    assertHostEngineEnabled(host, engine, await readFleetEngineState(ctx.db));
     await enforceAccountSession(accounts, host.id, engine, payload);
     const command = normalizeCommand(payload.command);
     const enforcedHost = await maybeEnforceInsecure(insecure, host, command, req.clientIp);
@@ -229,7 +240,8 @@ export async function registerAuthRoutes(app: FastifyInstance, ctx: RouteContext
       if (!isEngine(engine)) {
         throw new ValidationError('engine must be "codex", "claude" or "grok"', { param: 'engine' });
       }
-      assertHostEngineEnabled(host, engine);
+      // Uninstalling a suspended engine is cleanup, not use: host check only.
+      assertHostEngineAssigned(host, engine);
       const remaining = hostEnginesList(host.engines).filter((item) => item !== engine);
       if (remaining.length > 0) {
         const now = nowIso();
@@ -322,7 +334,7 @@ export async function registerAuthRoutes(app: FastifyInstance, ctx: RouteContext
     const host = await hostAuth.authenticate(req);
     const payload = readPayload(req.body);
     const engine = resolveAuthRequestEngine(req, payload);
-    assertHostEngineEnabled(host, engine);
+    assertHostEngineEnabled(host, engine, await readFleetEngineState(ctx.db));
     const includeAuth = normalizeBoolean(payload.include_auth) !== false;
     const enforced = await maybeEnforceInsecure(
       insecure,
@@ -367,7 +379,7 @@ export async function registerAuthRoutes(app: FastifyInstance, ctx: RouteContext
   app.post('/claude/usage/report', async (req) => {
     await assertApiNotDisabled(versions);
     const host = await hostAuth.authenticate(req);
-    assertHostEngineEnabled(host, ENGINE_CLAUDE);
+    assertHostEngineEnabled(host, ENGINE_CLAUDE, await readFleetEngineState(ctx.db));
     const payload = readPayload(req.body);
     const fiveHour = asPlainRecord(payload.five_hour);
     const sevenDay = asPlainRecord(payload.seven_day);
@@ -407,7 +419,7 @@ export async function registerAuthRoutes(app: FastifyInstance, ctx: RouteContext
     const host = await hostAuth.authenticate(req);
     const payload = readPayload(req.body);
     const engine = resolveAuthRequestEngine(req, payload);
-    assertHostEngineEnabled(host, engine);
+    assertHostEngineEnabled(host, engine, await readFleetEngineState(ctx.db));
     await enforceAccountSession(accounts, host.id, engine, payload);
     const includeAuth = normalizeBoolean(payload.include_auth) !== false;
     const enforced = await maybeEnforceInsecure(
@@ -595,7 +607,7 @@ async function handleRetrieve(
     canonical_last_refresh: canonicalLast,
     canonical_digest: canonicalDigest,
     canonical_generation: canonicalRow?.generation ?? undefined,
-    host: buildHostPayload(host),
+    host: buildHostPayload(host, await readFleetEngineState(ctx.db)),
     api_calls: Number(host.apiCalls ?? 0) + 1,
     versions,
     ...quota,
@@ -609,7 +621,7 @@ async function handleRetrieve(
   ]);
   if (engine === ENGINE_CODEX) baseResponse.chatgpt = chatgpt;
   else if (engine === ENGINE_CLAUDE) baseResponse.claude_usage = claude;
-  baseResponse.quota_advice = quotaAdviceSnapshot(advice, hostEnginesList(host.engines), chatgpt, claude);
+  baseResponse.quota_advice = quotaAdviceSnapshot(advice, activeHostEngines(host.engines, await readFleetEngineState(ctx.db)), chatgpt, claude);
 
   if (!canonicalRow || !canonicalDigest) {
     return {
@@ -707,7 +719,7 @@ async function buildRetrieveBaseResponse(
   const versions = await projectVersions(engine, payload.wrapper_version);
   const quota = await readQuotaControls(ctx, host.vip === 1);
   const baseResponse: Record<string, unknown> = {
-    host: buildHostPayload(host),
+    host: buildHostPayload(host, await readFleetEngineState(ctx.db)),
     api_calls: Number(host.apiCalls ?? 0) + 1,
     versions,
     ...quota,
@@ -721,7 +733,7 @@ async function buildRetrieveBaseResponse(
   ]);
   if (engine === ENGINE_CODEX) baseResponse.chatgpt = chatgpt;
   else if (engine === ENGINE_CLAUDE) baseResponse.claude_usage = claude;
-  baseResponse.quota_advice = quotaAdviceSnapshot(advice, hostEnginesList(host.engines), chatgpt, claude);
+  baseResponse.quota_advice = quotaAdviceSnapshot(advice, activeHostEngines(host.engines, await readFleetEngineState(ctx.db)), chatgpt, claude);
   return baseResponse;
 }
 
@@ -1058,7 +1070,7 @@ async function handleStore(
     versions: summary,
     ...quota,
     cdx_silent: summary.cdx_silent,
-    host: buildHostPayload(host),
+    host: buildHostPayload(host, await readFleetEngineState(ctx.db)),
   };
   const [chatgpt, claude, advice] = await Promise.all([
     readChatgptSnapshot(ctx, stored.account_id),
@@ -1067,7 +1079,7 @@ async function handleStore(
   ]);
   if (engine === ENGINE_CODEX) response.chatgpt = chatgpt;
   else if (engine === ENGINE_CLAUDE) response.claude_usage = claude;
-  response.quota_advice = quotaAdviceSnapshot(advice, hostEnginesList(host.engines), chatgpt, claude);
+  response.quota_advice = quotaAdviceSnapshot(advice, activeHostEngines(host.engines, await readFleetEngineState(ctx.db)), chatgpt, claude);
   return response;
 }
 
@@ -1199,7 +1211,13 @@ async function maybeEnforceInsecure(
   return insecure.enforce(host, command, requestIp);
 }
 
-function buildHostPayload(host: Host): Record<string, unknown> {
+/**
+ * `engines`/`engines_list` stay the host *assignment*: wrappers compare them
+ * against their signed config for drift. Fleet suspension travels separately
+ * in `fleet_disabled_engines`, so a switched-off engine is never mistaken for
+ * a removed one. (No comments inside the literal: a contract test parses it.)
+ */
+function buildHostPayload(host: Host, fleet: FleetEngineState): Record<string, unknown> {
   return {
     fqdn: host.fqdn,
     status: host.status,
@@ -1228,6 +1246,7 @@ function buildHostPayload(host: Host): Record<string, unknown> {
     last_cron_check: host.lastCronCheck ?? null,
     engines: host.engines,
     engines_list: hostEnginesList(host.engines),
+    fleet_disabled_engines: disabledEngines(fleet),
     claude_client_version: host.claudeClientVersion ?? null,
     claude_client_version_override: host.claudeClientVersionOverride ?? null,
     claude_wrapper_version: host.claudeWrapperVersion ?? null,

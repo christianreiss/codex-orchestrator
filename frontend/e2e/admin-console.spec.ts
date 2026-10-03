@@ -229,6 +229,34 @@ function fixture(pathname: string): Record<string, unknown> {
           advisorModel: "claude-opus-4-1",
         },
       };
+    // Fleet engine master switches. The path-keyed POST cannot see its body,
+    // so it answers as a disable; tests that need the other edge override it.
+    case "/admin/engines/state":
+      return {
+        engines: (["codex", "claude", "grok"] as const).map((engine) => ({
+          engine,
+          label: engine === "codex" ? "Codex" : engine === "claude" ? "Claude" : "Grok",
+          enabled: true,
+          updated_at: null,
+          updated_by: null,
+          assigned_hosts: engine === "codex" ? 2 : 1,
+        })),
+      };
+    case "/admin/engines/codex/state":
+    case "/admin/engines/claude/state":
+    case "/admin/engines/grok/state": {
+      const engine = pathname.split("/")[3]!;
+      return {
+        engine,
+        label: engine === "codex" ? "Codex" : engine === "claude" ? "Claude" : "Grok",
+        enabled: false,
+        updated_at: "2026-10-03T08:00:00Z",
+        updated_by: "chris",
+        assigned_hosts: 1,
+        previous: true,
+        hosts_suspended: 1,
+      };
+    }
     case "/admin/grok/state": return { disabled: false };
     case "/admin/grok/settings": return { default_model: "grok-4.6", disabled: false };
     case "/admin/grok/keys": return [];
@@ -1972,6 +2000,51 @@ test("API Access shows the Grok text gateway and issues a scoped client key", as
   expect(writes).toContainEqual({ path: "/admin/grok/models/grok-4.5/toggle", body: { enabled: false } });
 });
 
+
+test("engine master switch confirms both edges and reverts on cancel", async ({ page }) => {
+  const writes: Array<{ path: string; body: unknown }> = [];
+  const state = { grok: true };
+  await installFixtures(page, (path, body) => {
+    if (path === "/admin/auth/status") return { ...fixture(path), capabilities: ["settings.read", "settings.manage"] };
+    if (path === "/admin/engines/state") {
+      const base = fixture(path) as { engines: Array<Record<string, unknown>> };
+      return { engines: base.engines.map((row) => (row.engine === "grok" ? { ...row, enabled: state.grok } : row)) };
+    }
+    if (path === "/admin/engines/grok/state" && body) {
+      writes.push({ path, body });
+      state.grok = (body as { enabled: boolean }).enabled;
+      return { ...fixture(path), enabled: state.grok, previous: !state.grok };
+    }
+  });
+  await page.goto("/admin/engines#engine-state");
+  const grok = page.getByRole("switch", { name: "Grok (cgx)", exact: true });
+  await expect(grok).toBeChecked();
+
+  // Cancel must not leave the switch flipped.
+  await grok.click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog.getByRole("heading", { name: "Disable Grok for the fleet" })).toBeVisible();
+  await dialog.getByRole("button", { name: "Cancel" }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(grok).toBeChecked();
+  expect(writes).toEqual([]);
+
+  // Confirm disables, and the Grok section says so while staying editable.
+  await grok.click();
+  await page.getByRole("dialog").getByRole("button", { name: "Disable Grok", exact: true }).click();
+  await expect.poll(() => writes.length).toBe(1);
+  expect(writes[0]).toEqual({ path: "/admin/engines/grok/state", body: { enabled: false } });
+  await expect(grok).not.toBeChecked();
+  await expect(page.locator("#grok-defaults").getByText("Disabled fleet-wide", { exact: true })).toBeVisible();
+
+  // Enabling confirms too.
+  await grok.click();
+  await expect(page.getByRole("dialog").getByRole("heading", { name: "Enable Grok for the fleet" })).toBeVisible();
+  await page.getByRole("dialog").getByRole("button", { name: "Enable Grok", exact: true }).click();
+  await expect.poll(() => writes.length).toBe(2);
+  expect(writes[1]).toEqual({ path: "/admin/engines/grok/state", body: { enabled: true } });
+  await expect(grok).toBeChecked();
+});
 
 test("host engine switches support all seven combinations and preserve one enabled engine", async ({ page }) => {
   const detail = fixture("/admin/hosts/1/detail") as { host: Record<string, unknown>; overview: unknown };

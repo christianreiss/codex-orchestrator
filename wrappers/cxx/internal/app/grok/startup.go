@@ -31,6 +31,8 @@ type startupHost struct {
 	APICalls    int64    `json:"api_calls"`
 	Engines     string   `json:"engines"`
 	EnginesList []string `json:"engines_list"`
+	// FleetDisabledEngines is nil on servers that predate the fleet switch.
+	FleetDisabledEngines []string `json:"fleet_disabled_engines"`
 }
 
 type resourceSync struct {
@@ -133,6 +135,12 @@ func startupScreen(in startupInput) terminalui.ScreenInput {
 	}
 	if in.VersionErr != nil {
 		ui.ResultLabel = "Grok missing or unavailable; run `cgx update`."
+	}
+	// The fleet master switch, host removal and the API kill switch outrank
+	// every other verdict: none of them is fixed by `cgx login` or an update.
+	if label := refusalLabel(in.Config, in.AuthErr); label != "" {
+		authTone = terminalui.ToneFail
+		ui.ResultLabel, ui.ResultTone = label, terminalui.ToneFail
 	}
 	ui.Dots = []terminalui.HealthDot{{Name: "api", Tone: apiTone}, {Name: "auth", Tone: authTone}}
 	if !in.StatusOnly {
@@ -324,4 +332,17 @@ func interactiveArgs(args []string, headless, skipBoot bool) []string {
 	// The native default enters the alternate screen after printing the wrapper
 	// card. Inline mode keeps the managed summary visible in normal scrollback.
 	return append([]string{"--no-alt-screen"}, args...)
+}
+
+// refusalLabel renders launchRefusal for the status and boot screens, marking
+// the fleet master switch as "suspended (fleet)".
+func refusalLabel(cfg *config.Config, authErr error) string {
+	refusal := launchRefusal(cfg, authErr)
+	if refusal == nil {
+		return ""
+	}
+	if refusal.Error() == config.FleetDisabledMessage(config.EngineGrok) {
+		return "suspended (fleet): " + refusal.Error()
+	}
+	return refusal.Error()
 }

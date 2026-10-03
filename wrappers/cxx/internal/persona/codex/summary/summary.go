@@ -250,6 +250,12 @@ func Build(ctx context.Context, in Inputs) ui.ScreenInput {
 		}
 	}
 
+	// The fleet master switch outranks every other verdict: nothing else on
+	// this screen matters while the administrator has the engine switched off.
+	if label := SuspensionResult(cfg, auth); label != "" {
+		result, resultTone = label, ui.ToneFail
+	}
+
 	theme := ""
 	if cfg != nil && cfg.EngineOptions.AdminThemeHint != nil {
 		theme = *cfg.EngineOptions.AdminThemeHint
@@ -357,7 +363,7 @@ func buildDots(auth *orchestrator.AuthRetrieveResponse, in Inputs) []ui.HealthDo
 		}
 	case "missing", "upload_required":
 		authTone = ui.ToneWarn
-	case "disabled", "invalid", "insecure-denied", "insecure_denied":
+	case "disabled", "suspended", "invalid", "insecure-denied", "insecure_denied":
 		authTone = ui.ToneFail
 	case "insecure", "insecure_pending":
 		authTone = ui.ToneWarn
@@ -671,4 +677,22 @@ func quotaProjectionNoteAt(used int, limSec, resetSec, remainingSec int64) strin
 		return fmt.Sprintf("~%d%% at reset; 100%% in %s", projected, ui.DurationShort(eta-observationAge))
 	}
 	return fmt.Sprintf("~%d%% at reset", projected)
+}
+
+// SuspensionResult renders the fleet engine master switch for the status and
+// boot screens: the server's live fleet-scope refusal, or — when the server
+// gave no answer — the signed config's suspension. A positive server answer
+// means the engine was switched back on, so a stale signed config is ignored.
+func SuspensionResult(cfg *config.Config, auth *orchestrator.AuthRetrieveResponse) string {
+	status := ""
+	if auth != nil {
+		status = strings.ToLower(strings.TrimSpace(auth.Status))
+	}
+	switch {
+	case status == orchestrator.AuthStatusSuspended:
+	case cfg.EngineSuspended(config.EngineCodex) && (status == "" || status == "offline" || status == "error"):
+	default:
+		return ""
+	}
+	return "suspended (fleet): " + config.FleetDisabledMessage(config.EngineCodex)
 }

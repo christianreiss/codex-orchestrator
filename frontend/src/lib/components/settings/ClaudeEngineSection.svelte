@@ -3,28 +3,12 @@
   import { Button } from "$lib/components/ui/button";
   import { Input } from "$lib/components/ui/input";
   import { Label } from "$lib/components/ui/label";
-  import { Separator } from "$lib/components/ui/separator";
   import SectionCard from "./SectionCard.svelte";
-  import SwitchRow from "./SwitchRow.svelte";
   import { ModelSelect } from "$lib/components/ui/model-select";
   import { CLAUDE_MODEL_OPTIONS } from "$lib/constants/models";
-  import {
-    claudeSettingsMutation,
-    claudeSettingsQuery,
-    claudeStateMutation,
-    claudeStateQuery,
-  } from "$lib/api/settings";
+  import { claudeSettingsMutation, claudeSettingsQuery } from "$lib/api/settings";
 
-  /* ---------------- API proxy toggle ---------------- */
-  const stateQ = claudeStateQuery();
   let lastSavedAt = $state<Date | null>(null);
-  const stateM = claudeStateMutation({
-    onSuccess: () => {
-      lastSavedAt = new Date();
-      toast.success("Claude API proxy updated");
-    },
-    onError: (err) => toast.error(err.message),
-  });
 
   /* ---------------- API proxy inference settings ---------------- */
   const settingsQ = claudeSettingsQuery();
@@ -57,40 +41,23 @@
   }
 
   const status = $derived.by(() => {
-    if ($stateM.isPending || $settingsM.isPending) return "saving" as const;
-    if ($stateM.isError || $settingsM.isError) return "error" as const;
-    if ($stateM.isSuccess || $settingsM.isSuccess) return "saved" as const;
+    if ($settingsM.isPending) return "saving" as const;
+    if ($settingsM.isError) return "error" as const;
+    if ($settingsM.isSuccess) return "saved" as const;
     return "idle" as const;
   });
 
-  const errorMsg = $derived(
-    $stateM.error?.message ?? $settingsM.error?.message ?? null,
-  );
+  const errorMsg = $derived($settingsM.error?.message ?? null);
 </script>
 
 <SectionCard
   id="claude-engine"
   title="Claude API proxy"
-  description="Anthropic-compatible API proxy state and inference defaults. These do not control Claude Code fleet settings."
+  description="Inference defaults for the Claude backend. Switch an API on or off, or route it to Claude, in Exposed APIs above. These do not control Claude Code fleet settings."
   {status}
   savedAt={lastSavedAt}
   error={errorMsg}
 >
-  <SwitchRow
-    id="claude-state-toggle"
-    label="Disable Claude API proxy"
-    description={$stateQ.isPending
-      ? "Loading…"
-      : $stateQ.data?.disabled
-        ? "Claude API proxy routes are disabled."
-        : "Claude API proxy routes are enabled."}
-    checked={$stateQ.data?.disabled ?? false}
-    disabled={$stateQ.isPending || $stateM.isPending}
-    onCheckedChange={(v) => $stateM.mutate(v)}
-  />
-
-  <Separator />
-
   <div class="grid gap-3">
     <p class="text-sm font-medium">API proxy inference defaults</p>
     <div class="grid gap-3 sm:grid-cols-2">

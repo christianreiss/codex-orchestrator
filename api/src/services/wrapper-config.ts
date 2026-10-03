@@ -19,7 +19,8 @@ import {
   type WrapperBinRegistry,
 } from './wrapper-bin-registry.js';
 import type { WrapperSigningKeyService } from './wrapper-signing-key.js';
-import { hostEnginesList } from './host-engine-policy.js';
+import { activeHostEngines, disabledEngines, hostEnginesList } from './host-engine-policy.js';
+import { readFleetEngineState } from './engine-switch.js';
 import { effectiveSkillDigest } from './skill-provenance.js';
 import { REMOTE_EXEC_ENABLED_KEY } from './remote-exec.js';
 import { isTruthyFlagValue } from './settings.js';
@@ -96,6 +97,8 @@ export interface WrapperConfigPayload {
     agent_messaging_enabled?: boolean;
     engines: string;
     engines_list: Engine[];
+    /** Engines switched off fleet-wide; omitted when none are. */
+    fleet_disabled_engines?: Engine[];
   };
   engine_options: Record<string, unknown>;
   remote: {
@@ -412,7 +415,7 @@ export function createWrapperConfigService(deps: WrapperConfigDeps): WrapperConf
     // inside the array would serialize seven independent lookups. This is also
     // where `wrapperBlock` raises WrapperBinaryUnavailableError, so that exit
     // marks this span ERROR as well as the root.
-    const [agents, clientCfg, skills, silent, adminTheme, wrapper, messagingEnabled, remoteExecEnabled, portalEnabled] =
+    const [agents, clientCfg, skills, silent, adminTheme, wrapper, messagingEnabled, remoteExecEnabled, portalEnabled, fleet] =
       await withSpan('wrapper.config.collect', { 'wrapper.engine': engine }, () =>
         Promise.all([
           activeAgentsDocSha(engine, host.agentsDocumentIdOverride ?? null),
@@ -424,8 +427,14 @@ export function createWrapperConfigService(deps: WrapperConfigDeps): WrapperConf
           agentMessagingGloballyEnabled(),
           remoteExecGloballyEnabled(),
           portalGloballyEnabled(),
+          readFleetEngineState(deps.db),
         ]),
       );
+    // Assigned *and* not switched off fleet-wide. A suspended engine still
+    // gets a config (see routes/wrapper-v2), but nothing that would let it run:
+    // no bus, no remote exec, no receiver.
+    const engineActive = host.status === 'active' && activeHostEngines(host.engines, fleet).includes(engine);
+    const fleetDisabled = disabledEngines(fleet);
 
     // Provisioning gate only. The fleet switch is the only switch, so the bus
     // is baked in for every active host running this engine — including
@@ -440,8 +449,7 @@ export function createWrapperConfigService(deps: WrapperConfigDeps): WrapperConf
     // wrapperAcceptsInsecureMessaging — and it disappears as the fleet updates.
     const messagingBaked =
       messagingEnabled &&
-      host.status === 'active' &&
-      hostEnginesList(host.engines).includes(engine) &&
+      engineActive &&
       (Boolean(host.secure) || wrapperAcceptsInsecureMessaging(reportedWrapperVersion(host, engine)));
 
     // Bump config_version atomically; the new value becomes part of the
@@ -475,6 +483,7 @@ export function createWrapperConfigService(deps: WrapperConfigDeps): WrapperConf
         agent_messaging_enabled: messagingBaked,
         engines: host.engines,
         engines_list: hostEnginesList(host.engines),
+        ...(fleetDisabled.length > 0 ? { fleet_disabled_engines: fleetDisabled } : {}),
       },
       engine_options: engineOptions(host, engine, { silent, adminTheme }),
       // Gated on the host being active for this engine, the same provisioning
@@ -482,15 +491,14 @@ export function createWrapperConfigService(deps: WrapperConfigDeps): WrapperConf
       // decides whether the fleet works this way, and an insecure host's
       // operator already holds the ssh keys this would use.
       remote: {
-        enabled:
-          remoteExecEnabled && host.status === 'active' && hostEnginesList(host.engines).includes(engine),
+        enabled: remoteExecEnabled && engineActive,
       },
       agent_messaging: {
         enabled: messagingBaked,
         relay_poll_seconds: 25,
         queued_ttl_seconds: 86_400,
-        channel_preview_enabled: engine === 'claude' && (messagingBaked || portalEnabled),
-        receiver_enabled: host.status === 'active' && hostEnginesList(host.engines).includes(engine) && (messagingBaked || portalEnabled),
+        channel_preview_enabled: engine === 'claude' && fleet[engine] && (messagingBaked || portalEnabled),
+        receiver_enabled: engineActive && (messagingBaked || portalEnabled),
         // The model-initiated receive plane (`agent_listen`), which `#call`
         // needs to keep an agent on the line. It mirrors the fleet switch
         // because that switch is deliberately the only Agent Messaging switch;

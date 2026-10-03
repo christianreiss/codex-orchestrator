@@ -50,7 +50,8 @@ import { isFreshPresenceTimestamp } from './agent-presence.js';
 import { isoOffsetSeconds, nowIso, parseIso, parseRfc3339Millis } from '../util/timestamp.js';
 import { isEngine, type Engine } from '../util/engine.js';
 import { wsPublisher } from '../ws/publisher.js';
-import { hostEnginesList } from './host-engine-policy.js';
+import { activeHostEngines, assertHostEngineEnabled, type FleetEngineState } from './host-engine-policy.js';
+import { readFleetEngineState } from './engine-switch.js';
 import { releaseAgentMessagingBindingsLocked } from './agent-messaging.js';
 
 export const AGENT_PORTAL_ENABLED_KEY = 'agent_portal_enabled';
@@ -601,9 +602,7 @@ export class AgentPortalService {
       if (!currentHost || currentHost.status !== 'active') {
         throw new ForbiddenError('Agent bridge host is inactive', 'agent_bridge_host_inactive');
       }
-      if (!hostEnginesList(currentHost.engines).includes(input.engine)) {
-        throw new ForbiddenError(`Engine ${input.engine} is disabled for this host`, 'engine_disabled');
-      }
+      assertHostEngineEnabled(currentHost, input.engine, await readFleetEngineState(this.db));
       if (!safeHashEqual(hostAuthFingerprint(currentHost), fingerprint)) {
         throw new UnauthorizedError('Host credential changed during registration', 'agent_bridge_host_auth_changed');
       }
@@ -862,8 +861,9 @@ export class AgentPortalService {
     const offlineBefore = snapshotTime - this.env.AGENT_PORTAL_HEARTBEAT_FRESH_SECONDS * 1000;
     const relayBefore = snapshotTime - this.env.AGENT_PORTAL_RELAY_FRESH_SECONDS * 1000;
     const workingBefore = snapshotTime - this.workingMaxSeconds() * 1000;
+    const fleet = await readFleetEngineState(this.db);
     const sessions = rows.map(({ session, host }) => {
-      const heartbeatFresh = bridgeHostAvailable(session, host, snapshotTime) &&
+      const heartbeatFresh = bridgeHostAvailable(session, host, snapshotTime, fleet) &&
         isFreshPresenceTimestamp(session.heartbeatAt, offlineBefore, snapshotTime);
       const effectiveStatus = LIVE_SESSION_STATE_SET.has(session.status) && !heartbeatFresh ? 'offline' : session.status;
       const relayReady = !session.endedAt && heartbeatFresh && (session.receiver ? receiverReady(session.receiver, 'portal', snapshotTime) : session.relayEnabled === 1 &&
@@ -1775,9 +1775,7 @@ export class AgentPortalService {
     if (row.host.status !== 'active') {
       throw new ForbiddenError('Agent bridge host is inactive', 'agent_bridge_host_inactive');
     }
-    if (!hostEnginesList(row.host.engines).includes(session.engine as Engine)) {
-      throw new ForbiddenError(`Engine ${session.engine} is disabled for this host`, 'engine_disabled');
-    }
+    assertHostEngineEnabled(row.host, session.engine as Engine, await readFleetEngineState(this.db));
     if (!safeHashEqual(hostAuthFingerprint(row.host), session.hostAuthFingerprint)) {
       throw new UnauthorizedError('Agent bridge host credential changed', 'agent_bridge_host_auth_changed');
     }
@@ -1981,7 +1979,7 @@ export class AgentPortalService {
   private async assertRelayReady(session: AgentSession, db: AgentPortalDb = this.db): Promise<void> {
     const now = Date.now();
     const hostRows = await db.select().from(hosts).where(eq(hosts.id, session.hostId)).limit(1);
-    const heartbeatFresh = bridgeHostAvailable(session, hostRows[0], now) &&
+    const heartbeatFresh = bridgeHostAvailable(session, hostRows[0], now, await readFleetEngineState(this.db)) &&
       isFreshPresenceTimestamp(session.heartbeatAt, now - this.env.AGENT_PORTAL_HEARTBEAT_FRESH_SECONDS * 1000, now);
     const relayFresh = session.relayEnabled === 1 &&
       isFreshPresenceTimestamp(session.relayHeartbeatAt, now - this.env.AGENT_PORTAL_RELAY_FRESH_SECONDS * 1000, now);
@@ -2035,9 +2033,7 @@ export class AgentPortalService {
     if (!host || host.status !== 'active') {
       throw new ForbiddenError('Agent bridge host is inactive', 'agent_bridge_host_inactive');
     }
-    if (!hostEnginesList(host.engines).includes(session.engine as Engine)) {
-      throw new ForbiddenError(`Engine ${session.engine} is disabled for this host`, 'engine_disabled');
-    }
+    assertHostEngineEnabled(host, session.engine as Engine, await readFleetEngineState(this.db));
     if (!safeHashEqual(hostAuthFingerprint(host), session.hostAuthFingerprint)) {
       throw new UnauthorizedError('Agent bridge host credential changed', 'agent_bridge_host_auth_changed');
     }
@@ -2648,10 +2644,10 @@ function backoffSeconds(attempts: number): number {
 }
 
 /** The same host/bridge gates used by delivery, without exposing credential material. */
-function bridgeHostAvailable(session: AgentSession, host: Host | undefined, nowMs: number): boolean {
+function bridgeHostAvailable(session: AgentSession, host: Host | undefined, nowMs: number, fleet: FleetEngineState): boolean {
   const expiresAt = parseRfc3339Millis(session.bridgeExpiresAt);
   return Boolean(host && host.status === 'active' &&
-    hostEnginesList(host.engines).includes(session.engine as Engine) &&
+    activeHostEngines(host.engines, fleet).includes(session.engine as Engine) &&
     safeHashEqual(hostAuthFingerprint(host), session.hostAuthFingerprint) &&
     expiresAt != null && expiresAt > nowMs);
 }

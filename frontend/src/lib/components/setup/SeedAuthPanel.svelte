@@ -43,6 +43,7 @@
   } from "$lib/api/auth";
   import { invalidateSetup } from "$lib/api/setup";
   import { autoCopyText } from "$lib/utils/clipboard";
+  import { useFleetEngines, FLEET_DISABLED_TAG, fleetDisabledTitle } from "$lib/engines/fleet-engines";
 
   type Props = {
     accountId?: number;
@@ -100,6 +101,16 @@
   const isApiKeyMode = $derived(engine === "codex" && uploadMode === "apikey");
   const busy = $derived($uploadAuth.isPending);
 
+  // Seeding a fleet-disabled engine is refused by the server (409). Such an
+  // engine stays visible in the picker, disabled, and the selection moves off
+  // it — including when the fleet state lands after the panel mounted.
+  const fleet = useFleetEngines();
+  const usableEngines = $derived(allowedEngines.filter((option) => $fleet.isEnabled(option)));
+  const engineOff = $derived(!$fleet.isEnabled(engine));
+  $effect(() => {
+    if (engineOff && usableEngines.length > 0) engine = usableEngines[0]!;
+  });
+
   // No `reset()`: containers that need a clean panel remount it instead
   // (`{#key open}` in SeedAuthDialog). An imperative reset would have to be
   // called at exactly the right moment relative to `bind:this`, and getting
@@ -139,6 +150,10 @@
 
   /** Uploads whatever is pasted. Reports the outcome rather than throwing. */
   export async function submit(): Promise<SeedOutcome> {
+    if (engineOff) {
+      toast.error(fleetDisabledTitle(engineLabel(engine)));
+      return "error";
+    }
     let trimmed: string;
     if (isApiKeyMode) {
       const key = apiKey.trim();
@@ -188,6 +203,10 @@
   }
 
   async function generateCommand(): Promise<void> {
+    if (engineOff) {
+      toast.error(fleetDisabledTitle(engineLabel(engine)));
+      return;
+    }
     try {
       const res = await $seedCmd.mutateAsync({ engine, accountId });
       command = res.command ?? null;
@@ -216,7 +235,9 @@
             id="{idPrefix}-{option}"
             size="sm"
             title={engineLabel(option)}
+            description={$fleet.isEnabled(option) ? undefined : FLEET_DISABLED_TAG}
             checked={engine === option}
+            disabled={!$fleet.isEnabled(option)}
             onSelect={() => (engine = option)}
           />
         {/each}
@@ -224,6 +245,16 @@
     </div>
   {/if}
 {/snippet}
+
+{#if engineOff}
+  <Alert variant="warning" class="mb-4">
+    <AlertTitle>{engineLabel(engine)} is disabled fleet-wide</AlertTitle>
+    <AlertDescription>
+      Seeding, verification and one-time commands are refused while it is off. Turn it back on
+      under Engines first; stored credentials are kept in the meantime.
+    </AlertDescription>
+  </Alert>
+{/if}
 
 {#if !runnerHealthy}
   <Alert variant="destructive" class="mb-4">
@@ -368,7 +399,7 @@
     {:else if !hideActions}
       <Button
         onclick={submitUpload}
-        disabled={busy || (isApiKeyMode ? !apiKey.trim() : !payload.trim())}
+        disabled={busy || engineOff || (isApiKeyMode ? !apiKey.trim() : !payload.trim())}
       >
         {busy ? "Uploading…" : "Upload credentials"}
       </Button>
@@ -404,7 +435,7 @@
     {/if}
 
     <div class="flex items-center gap-2">
-      <Button variant={command ? "outline" : "default"} onclick={generateCommand} disabled={$seedCmd.isPending}>
+      <Button variant={command ? "outline" : "default"} onclick={generateCommand} disabled={$seedCmd.isPending || engineOff}>
         {$seedCmd.isPending ? "Generating…" : command ? "Regenerate" : "Generate"}
       </Button>
     </div>

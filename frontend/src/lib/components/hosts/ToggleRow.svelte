@@ -13,9 +13,11 @@
     label: string;
     checked: boolean;
     disabled?: boolean;
+    /** Short muted line under the label, e.g. why the switch is locked. */
+    note?: string;
     onchange: (value: boolean) => Promise<void>;
   };
-  let { label, checked, disabled = false, onchange }: Props = $props();
+  let { label, checked, disabled = false, note, onchange }: Props = $props();
 
   let saved = $state(false);
   let flashTimer: ReturnType<typeof setTimeout> | undefined;
@@ -35,7 +37,14 @@
 </script>
 
 <div class="flex items-center justify-between rounded-md border p-2.5">
-  <span class="text-sm">{label}</span>
+  {#if note}
+    <span class="min-w-0">
+      <span class="block text-sm">{label}</span>
+      <span class="block text-xs text-muted-foreground">{note}</span>
+    </span>
+  {:else}
+    <span class="text-sm">{label}</span>
+  {/if}
   <div class="flex items-center gap-1.5">
     {#if saved}
       <Check class="h-3.5 w-3.5 text-success" aria-hidden="true" />

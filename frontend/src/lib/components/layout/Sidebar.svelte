@@ -14,9 +14,15 @@
   import ChevronDown from "@lucide/svelte/icons/chevron-down";
   import Keyboard from "@lucide/svelte/icons/keyboard";
   import LogOut from "@lucide/svelte/icons/log-out";
+  import { useFleetEngines, fleetDisabledTitle } from "$lib/engines/fleet-engines";
+  import { engineLabel } from "$lib/constants/engines";
 
   const path = $derived(page.url.pathname.replace(base, "") || "/");
   const auth = $derived($authStore);
+  // Engine-specific destinations stay reachable while their engine is off
+  // fleet-wide (the content is still editable); the rail only annotates them.
+  const fleet = useFleetEngines();
+  const engineOff = (item: { engine?: string }) => Boolean(item.engine && !$fleet.isEnabled(item.engine));
 
   // Monitor/Fleet start open (daily-driver sections); the deeper sections
   // start collapsed to keep the rail short. A prior manual choice, persisted
@@ -97,10 +103,15 @@
                         active ? "bg-primary/15 text-primary before:absolute before:-left-3 before:h-5 before:w-0.5 before:rounded-r before:bg-primary" : "text-muted-foreground hover:bg-muted hover:text-foreground",
                       )}
                       aria-current={active ? "page" : undefined}
-                      title={item.description}
+                      title={engineOff(item) && item.engine ? `${item.description}. ${fleetDisabledTitle(engineLabel(item.engine))}` : item.description}
                     >
                       <Icon class="h-4 w-4 shrink-0" />
                       <span class="truncate">{item.label}</span>
+                      {#if engineOff(item) && item.engine}
+                        <span class="ml-auto shrink-0 rounded border border-dashed px-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                          off<span class="sr-only"> ({engineLabel(item.engine)} disabled fleet-wide)</span>
+                        </span>
+                      {/if}
                     </a>
                   </li>
                 {/each}

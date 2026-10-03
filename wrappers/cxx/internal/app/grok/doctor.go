@@ -79,7 +79,15 @@ func doctorReport(in doctorInput) terminalui.DoctorReport {
 	row(skillsCheck())
 
 	authTone, authValue := terminalui.ToneOK, "subscription account available"
+	refusal := launchRefusal(in.Config, in.AuthErr)
 	switch {
+	case refusal != nil:
+		// An administrator decision, not a login problem: `cgx login` cannot fix it.
+		authTone, authValue = terminalui.ToneFail, refusal.Error()
+		if refusal.Error() == config.FleetDisabledMessage(config.EngineGrok) {
+			row("Engine", terminalui.ToneFail, "suspended (fleet)")
+			hints = append(hints, refusal.Error()+" Launches and maintenance are paused until it is switched back on; nothing on this host needs repair.")
+		}
 	case in.AuthErr != nil:
 		authTone, authValue = terminalui.ToneFail, in.AuthErr.Error()
 		hints = append(hints, "Run `cgx login` if the subscription login must be renewed.")

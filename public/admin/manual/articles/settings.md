@@ -1,8 +1,8 @@
 ---
 title: Engines, Policies, and API Access
 section: Admin workspace
-verified: 2026-09-09
-sources: frontend/src/routes/engines/+page.svelte, frontend/src/routes/policies/+page.svelte, frontend/src/routes/api-keys/+page.svelte, frontend/src/routes/settings/+page.svelte, frontend/src/routes/authoring/+page.svelte, frontend/src/routes/authoring/settings/+page.ts, frontend/src/lib/legacy-admin-routes.ts, frontend/src/lib/components/settings/AuthorizationSection.svelte, frontend/src/lib/components/settings/ApiKeysInChatSection.svelte, frontend/src/lib/components/settings/InsecureApprovalSection.svelte, frontend/src/lib/components/authoring/HooksEditor.svelte, frontend/src/lib/constants/models.ts, frontend/src/lib/components/authoring/MattPocockSkillsSource.svelte, frontend/src/lib/api/skillSources.ts, frontend/src/lib/components/settings/ModelDefaultsSection.svelte, frontend/src/lib/components/settings/ClaudeFleetSettings.svelte, frontend/src/lib/components/command-palette/commands.ts, api/src/routes/admin/settings/index.ts, api/src/routes/admin/config/index.ts, api/src/routes/admin/skill-sources/index.ts, api/src/services/mattpocock-skills.ts, api/src/ops/mattpocock-skills-worker.ts, api/src/services/model-defaults.ts, api/src/services/agents.ts, api/src/services/skills.ts, api/src/services/skill-provenance.ts, api/src/services/mcp-resources.ts, api/src/services/memories.ts, api/src/services/client-config.ts, api/src/services/config-normalizer.ts, api/src/services/client-versions.ts, api/src/services/host-auth.ts, api/src/db/migrations/0007_add_skill_provenance.sql, wrappers/cxx/internal/persona/claude/lifecycle/collections.go
+verified: 2026-10-03
+sources: frontend/src/routes/engines/+page.svelte, frontend/src/lib/components/settings/EngineMasterSwitches.svelte, api/src/routes/admin/engines/index.ts, api/src/services/engine-switch.ts, frontend/src/routes/policies/+page.svelte, frontend/src/routes/api-keys/+page.svelte, frontend/src/routes/settings/+page.svelte, frontend/src/routes/authoring/+page.svelte, frontend/src/routes/authoring/settings/+page.ts, frontend/src/lib/legacy-admin-routes.ts, frontend/src/lib/components/settings/AuthorizationSection.svelte, frontend/src/lib/components/settings/ApiKeysInChatSection.svelte, frontend/src/lib/components/settings/InsecureApprovalSection.svelte, frontend/src/lib/components/authoring/HooksEditor.svelte, frontend/src/lib/constants/models.ts, frontend/src/lib/components/authoring/MattPocockSkillsSource.svelte, frontend/src/lib/api/skillSources.ts, frontend/src/lib/components/settings/ModelDefaultsSection.svelte, frontend/src/lib/components/settings/ClaudeFleetSettings.svelte, frontend/src/lib/components/command-palette/commands.ts, api/src/routes/admin/settings/index.ts, api/src/routes/admin/config/index.ts, api/src/routes/admin/skill-sources/index.ts, api/src/services/mattpocock-skills.ts, api/src/ops/mattpocock-skills-worker.ts, api/src/services/model-defaults.ts, api/src/services/agents.ts, api/src/services/skills.ts, api/src/services/skill-provenance.ts, api/src/services/mcp-resources.ts, api/src/services/memories.ts, api/src/services/client-config.ts, api/src/services/config-normalizer.ts, api/src/services/client-versions.ts, api/src/services/host-auth.ts, api/src/db/migrations/0007_add_skill_provenance.sql, wrappers/cxx/internal/persona/claude/lifecycle/collections.go
 ---
 
 Grok Build is supported as the third engine (`cgx`); see [Grok Build](cgx) for
@@ -21,9 +21,9 @@ Use these canonical destinations from the sidebar or command palette:
 | Destination | URL | Contents |
 |---|---|---|
 | **Quick Settings** | `/quick-settings` | Codex, Claude, and Grok default model buttons and model-specific effort segments, saved immediately. |
-| **Engines** | `/engines` | Codex, Claude, and Grok fleet models, effort, CLI versions, Codex silent mode, quota and scaling, and Claude client settings. |
+| **Engines** | `/engines` | Engine master switches (Codex, Claude, Grok on/off for the whole fleet), Codex, Claude, and Grok fleet models, effort, CLI versions, Codex silent mode, quota and scaling, and Claude client settings. |
 | **Policies** | `/policies` | Auto-update, reverse DNS, API keys in chat, access control (authorization mode), insecure approvals, host lifecycle, and log retention. |
-| **API Access** | `/api-keys` | Service availability (including the Grok API gateway), engine proxy settings, endpoints, and issued keys. |
+| **API Access** | `/api-keys` | Master API switch, the Exposed APIs table (base URL, backend engine and on/off per API), backend settings (Claude proxy defaults, Grok API gateway), and issued keys. |
 
 **Quick Settings** saves each selection immediately, with independent Codex, Claude, and Grok cards. Selecting a model also selects its catalog default effort; only supported effort levels appear, and models without effort support show **No effort setting**. A failed save restores the confirmed selection and refreshes the server state before another change. Clients receive defaults on their next sync; host overrides take precedence.
 
@@ -75,11 +75,22 @@ Old `/settings` bookmarks redirect to the corresponding destination. `/authoring
 | `days_events` | Retention window for event rows. |
 | `days_graph_stats` | Retention window for graph-stats rows. |
 
+### Engine master switches
+
+The first section of **Engines** has one switch per engine. Switching an engine off **suspends** it for the whole fleet; nothing is deleted:
+
+- Hosts refuse to launch it (`<Engine> is disabled fleet-wide by the administrator.`), stop its maintenance ticks (no CLI updates, no managed sync) and its messaging receiver. Its CLI, its local files and the host's engine assignment stay; sessions already running are not killed and run out on their own.
+- The server stops refreshing, verifying and polling its accounts, hands out no new leases, refuses seeding, installers and adding it to a host, and stops AI assist when it is Codex.
+- Every exposed API whose **backend** is that engine answers `503`. An API named after the engine but routed to another backend keeps serving; an API cannot be routed onto a switched-off engine.
+- Model defaults, instructions, skills and other configuration stay editable.
+
+Switching it back on resumes hosts on their next launch or maintenance tick (within 15 minutes) without a reinstall. After a long pause an account may need re-seeding, since its tokens were not refreshed meanwhile. All three engines may be off at once; the admin console never depends on one. Each change is confirmed in a dialog, audited as `admin.engine.state`, and shows who changed it last. API: `GET /admin/engines/state`, `POST /admin/engines/{engine}/state` with `{enabled}`.
+
 ### Codex
 
 #### Codex engine
 
-`GET /admin/openai/state`, `POST /admin/openai/state` — enable or disable the Codex/OpenAI engine fleet-wide. The API retains its historical `openai` path; the dashboard label is **Codex engine**.
+The Codex on/off switch is under **Engine master switches** above. `GET/POST /admin/openai/state` is the separate switch for the `/v1` exposed API only (the **Exposed APIs** table on API Access).
 
 #### Fleet model and effort
 
@@ -122,7 +133,7 @@ Old `/settings` bookmarks redirect to the corresponding destination. `/authoring
 
 #### Claude engine
 
-`GET /admin/claude/state`, `POST /admin/claude/state` — enable or disable the Claude engine fleet-wide.
+The Claude on/off switch is under **Engine master switches** above. `GET/POST /admin/claude/state` is the separate switch for the `/anthropic/v1` exposed API only.
 
 #### Fleet model and effort
 
@@ -181,6 +192,10 @@ A live read-only preview of the rendered `settings.json` is shown alongside the 
 
 ### Grok
 
+#### Grok engine
+
+The Grok on/off switch is under **Engine master switches** above. `GET/POST /admin/grok/state` is the separate switch for the `/grok/v1` exposed API only.
+
 #### Fleet model and effort
 
 `GET /admin/model-defaults/{engine}`, `POST /admin/model-defaults/{engine}` with `engine=grok` — read or set the fleet-wide Grok Build model and persistent reasoning effort. The canonical config is Grok's native `~/.grok/config.toml`, using `[models].default` and `[models].default_reasoning_effort`. The fleet default is `grok-4.7` at `high`; explicit Grok host provisioning creates these defaults when no Grok config row exists yet.
@@ -200,13 +215,13 @@ These are native supported IDs; subscription availability is provider-owned. Cod
 
 #### Grok API gateway
 
-The **Grok API gateway** card under *API Access → Service availability* controls the OpenAI-shaped `/grok/v1` gateway (see [Keyboard shortcuts and API reference](/admin/manual/shortcuts-api)):
+The **Grok API gateway** card under *API Access → Backend settings* configures the Grok backend — used by `/grok/v1` and by any other exposed API routed to Grok (see [Keyboard shortcuts and API reference](/admin/manual/shortcuts-api)):
 
-- `GET /admin/grok/state`, `POST /admin/grok/state` — `{ disabled }`, stored as `grok_api_disabled` and shown as **Disable Grok API gateway**. It gates only `/grok/v1`, independently of the Codex and Claude switches.
+- `GET /admin/grok/state`, `POST /admin/grok/state` — `{ disabled }`, stored as `grok_api_disabled` and shown as the `/grok/v1` row's **Enabled** switch in **Exposed APIs**. It gates only `/grok/v1`, independently of the other APIs and of which backend serves it.
 - `GET /admin/grok/settings`, `POST /admin/grok/settings` — **Gateway default model** (`default_model`, a supported Grok model; default `grok-4.7`), used when a request names no model. Any field other than `default_model` and `disabled` is refused with 400 `unsupported_parameter`; there is no max-tokens setting.
-- `GET /admin/grok/models`, `POST /admin/grok/models/{model}/toggle` with `{ enabled }` — per-model switches. A disabled model is left out of `/grok/v1/models` and rejected at inference with 403 `model_disabled`; managed Grok Build hosts are unaffected.
+- `GET /admin/grok/models`, `POST /admin/grok/models/{model}/toggle` with `{ enabled }` — per-model switches. A disabled model is left out of the model list of every API routed to Grok (`/grok/v1/models` by default) and rejected at inference with 403 `model_disabled`; managed Grok Build hosts are unaffected.
 
-Gateway keys (`sk-cgx-`) are issued on the API Access **Grok** tab. They are orchestrator gateway keys, not xAI API keys; see [Grok Build](cgx).
+Gateway keys (`sk-cgx-`) are issued on the API Access **/grok/v1** tab. They are orchestrator gateway keys, not xAI API keys; see [Grok Build](cgx).
 
 ---
 

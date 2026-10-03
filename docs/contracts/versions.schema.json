@@ -27,6 +27,7 @@
         "clx_silent",
         "cgx_silent",
         "agent_messaging_enabled",
+        "fleet_disabled_engines",
         "installation_id",
         "engine"
       ],
@@ -90,6 +91,13 @@
         },
         "agent_messaging_enabled": {
           "type": "boolean"
+        },
+        "fleet_disabled_engines": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": ["codex", "claude", "grok"]
+          }
         },
         "installation_id": {
           "type": [

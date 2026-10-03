@@ -5,6 +5,7 @@ import type { ProviderAccountsService } from './provider-accounts.js';
 import type { RunnerValidationService } from './runner-validation.js';
 import { SettingsService } from './settings.js';
 import type { Database } from '../db/client.js';
+import { assertFleetEngineEnabledForAdmin } from './engine-switch.js';
 
 /** Reserve and release internal runner work using the same selection policy. */
 export async function withAccountTask<T>(
@@ -15,6 +16,9 @@ export async function withAccountTask<T>(
   fallback: () => Promise<Record<string, unknown>>,
   run: (auth: Record<string, unknown>) => Promise<T>,
 ): Promise<T> {
+  // Internal runner work (AI assist drafts) spends the engine's subscription
+  // just like a host would; a fleet-disabled engine does none of it.
+  if (db) await assertFleetEngineEnabledForAdmin(db, engine);
   if (!accounts) return run(await fallback());
   const id = randomBytes(16).toString('hex');
   const settings = db ? new SettingsService(db) : null;

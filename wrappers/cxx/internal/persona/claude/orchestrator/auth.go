@@ -111,6 +111,10 @@ type HostInfo struct {
 	LastCronCheck        string   `json:"last_cron_check,omitempty"`
 	Engines              string   `json:"engines,omitempty"`
 	EnginesList          []string `json:"engines_list,omitempty"`
+	// FleetDisabledEngines is the fleet-wide engine master switch state.
+	// Nil means an older server that does not report it; an empty list means
+	// nothing is suspended. Engines/EnginesList stay the host assignment.
+	FleetDisabledEngines []string `json:"fleet_disabled_engines,omitempty"`
 }
 
 func (c *Client) AuthRetrieve(ctx context.Context, digest string) (*AuthRetrieveResponse, error) {
@@ -133,9 +137,14 @@ func (c *Client) AuthRetrieve(ctx context.Context, digest string) (*AuthRetrieve
 		if st := InsecureStatusFromError(err); st != "" {
 			return &AuthRetrieveResponse{Status: st}, nil
 		}
-		var he *HTTPError
-		if errors.As(err, &he) && he.Code == "engine_disabled" {
-			return &AuthRetrieveResponse{Status: "disabled", Message: "engine disabled for this host"}, nil
+		// engine_disabled is a reachable policy refusal, never an outage: the
+		// fleet scope is the administrator's master switch (pause, keep local
+		// state) and the host scope is removal from this host's assignment.
+		switch EngineDisabledStatusFromError(err) {
+		case AuthStatusSuspended:
+			return &AuthRetrieveResponse{Status: AuthStatusSuspended, Message: "engine disabled fleet-wide"}, nil
+		case AuthStatusDisabled:
+			return &AuthRetrieveResponse{Status: AuthStatusDisabled, Message: "engine disabled for this host"}, nil
 		}
 		return nil, err
 	}

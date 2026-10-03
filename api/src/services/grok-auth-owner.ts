@@ -12,6 +12,7 @@ import type { RunnerClient } from './runner-client.js';
 import { resolveProviderAccount } from './provider-account-reference.js';
 import { grokNativeAuth, grokProjectionMetadata, GROK_OIDC_ISSUER, normalizeGrokAuth, projectGrokAuth, selectGrokCredential } from './grok-auth.js';
 import { withGrokAccountLock } from './grok-auth-lock.js';
+import { assertFleetEngineEnabled } from './engine-switch.js';
 
 export type GrokRefreshState = 'idle' | 'refreshing' | 'pending_verification' | 'uncertain' | 'login_required';
 export interface GrokAuthFreshInput {
@@ -46,6 +47,8 @@ export function createGrokAuthOwner(deps: GrokAuthOwnerDeps) {
   const request = deps.fetchImpl ?? fetch;
 
   async function ensureFresh(input: GrokAuthFreshInput = {}): Promise<GrokAuthSnapshot> {
+    // Grok switched off fleet-wide: the owner spends no refresh credential.
+    await assertFleetEngineEnabled(deps.db, 'grok');
     const deadline = Date.now() + Math.min(6000, Math.max(1, input.deadlineMs ?? 6000));
     const minValidity = Math.max(0, input.minValiditySeconds ?? 600);
     const validation = createRunnerValidationService({ db: deps.db, keyring: deps.keyring });

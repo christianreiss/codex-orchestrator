@@ -35,11 +35,14 @@
   import { toast } from "svelte-sonner";
   import { ENGINE_META } from "$lib/constants/engines";
   import { relativeTime } from "$lib/utils/format";
+  import { useFleetEngines, fleetDisabledTitle } from "$lib/engines/fleet-engines";
 
   const state = createRunnerStateQuery();
   const runCodex = createRunCodexRunnerMutation();
   const runClaude = createRunClaudeRunnerMutation();
   const runGrok = createRunGrokRunnerMutation();
+  // The server refuses runner verification for a fleet-disabled engine (409).
+  const fleet = useFleetEngines();
 
   const runner = $derived<RunnerStatus | null>($state.data?.runner ?? null);
 
@@ -79,7 +82,7 @@
 
   function buildEngineRow(engine: EngineKey, label: string): EngineRow {
     const status = engineStatus(engine);
-    const token = pending(engine) ? "running" : engineToken(status);
+    const token = pending(engine) ? "running" : !$fleet.isEnabled(engine) ? "disabled" : engineToken(status);
     return {
       engine,
       label,
@@ -127,10 +130,11 @@
   }
 
   function actionDisabled(row: EngineRow): boolean {
-    return pending(row.engine) || anyEngineRunning || !runner?.ready || $state.isError || $state.isPending;
+    return pending(row.engine) || anyEngineRunning || !runner?.ready || $state.isError || $state.isPending || !$fleet.isEnabled(row.engine);
   }
 
   function tokenLabel(token: string): string {
+    if (token === "disabled") return "disabled fleet-wide";
     if (token === "unconfigured") return "not configured";
     if (token === "idle") return "not checked";
     return token === "ok" ? "OK" : token;
@@ -244,7 +248,7 @@
 
       <div class="grid gap-3 md:grid-cols-2">
         {#each engineRows as row (row.engine)}
-          <section class="flex min-w-0 flex-col rounded-lg border bg-muted/20 p-4" aria-label={`${row.label} verification`}>
+          <section class="flex min-w-0 flex-col rounded-lg border bg-muted/20 p-4" class:opacity-70={row.token === "disabled"} aria-label={`${row.label} verification`}>
             <div class="flex items-start justify-between gap-3">
               <div class="min-w-0">
                 <h3 class="flex items-center gap-2 text-sm font-semibold">
@@ -290,6 +294,7 @@
               variant="outline"
               onclick={actionFor(row.engine)}
               disabled={actionDisabled(row)}
+              title={row.token === "disabled" ? fleetDisabledTitle(row.label) : undefined}
               aria-label={`Run ${row.label} runner verification`}
             >
               {#if pending(row.engine)}

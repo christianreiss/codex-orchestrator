@@ -251,3 +251,151 @@ func TestEngineDriftRequestsImmediateMaintenance(t *testing.T) {
 		t.Fatalf("enabled engine not provisioned now: %v", requested)
 	}
 }
+
+const (
+	grokFleetDisabled = "Grok is disabled fleet-wide by the administrator."
+	grokHostDisabled  = "Grok is disabled for this host by the administrator."
+)
+
+// grokLaunchHost runs the cgx launch path against handler until the first
+// refusal; every case here refuses before a lease or native CLI is needed.
+func grokLaunchHost(t *testing.T, handler http.HandlerFunc, suspended ...string) (int, error) {
+	t.Helper()
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
+	t.Setenv("GROK_HOME", filepath.Join(t.TempDir(), "native"))
+	server := httptest.NewServer(handler)
+	if handler == nil {
+		server.Close()
+	} else {
+		t.Cleanup(server.Close)
+	}
+	client := &orchestrator.Client{BaseURL: server.URL, HTTP: server.Client()}
+	cfg := &config.Config{Engine: config.EngineGrok}
+	cfg.Orchestrator.BaseURL = server.URL
+	cfg.Host.EnginesList = []string{config.EngineGrok}
+	cfg.Host.FleetDisabledEngines = suspended
+	return run(context.Background(), cfg, client, options{skipBoot: true, minimal: true}, io.Discard, io.Discard)
+}
+
+func healthyGrokSync(w http.ResponseWriter, r *http.Request) bool {
+	w.Header().Set("Content-Type", "application/json")
+	switch r.URL.Path {
+	case "/sync/bootstrap":
+		_, _ = w.Write([]byte(`{"status":"ok","data":{"status":"ok","agents":{"status":"unchanged"},"config":{"status":"unchanged"}}}`))
+	case "/host/users":
+		_, _ = w.Write([]byte(`{"status":"ok"}`))
+	default:
+		return false
+	}
+	return true
+}
+
+// cgx parity with cdx/clx: the fleet master switch, host removal and the API
+// kill switch each refuse a launch with their own exact text, never with the
+// old "run cgx login" advice.
+func TestGrokLaunchRefusalsMatchCdxAndClx(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		handler http.HandlerFunc
+		want    string
+	}{
+		{
+			name: "fleet switch on the managed sync",
+			handler: func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(http.StatusForbidden)
+				_, _ = w.Write([]byte(`{"status":"error","message":"Grok is disabled fleet-wide by the administrator","code":"engine_disabled","scope":"fleet","engine":"grok"}`))
+			},
+			want: grokFleetDisabled,
+		},
+		{
+			name: "host removal on /auth",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				if healthyGrokSync(w, r) {
+					return
+				}
+				w.WriteHeader(http.StatusForbidden)
+				_, _ = w.Write([]byte(`{"status":"error","code":"engine_disabled","scope":"host","engine":"grok"}`))
+			},
+			want: grokHostDisabled,
+		},
+		{
+			name: "API kill switch as a 503",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				if healthyGrokSync(w, r) {
+					return
+				}
+				w.WriteHeader(http.StatusServiceUnavailable)
+				_, _ = w.Write([]byte(`{"status":"error","message":"API disabled by administrator","code":"api_disabled"}`))
+			},
+			want: "Auth API disabled by administrator.",
+		},
+		{
+			name: "API kill switch in the versions block",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				if healthyGrokSync(w, r) {
+					return
+				}
+				_, _ = w.Write([]byte(`{"status":"valid","verification_state":"verified","versions":{"api_disabled":true}}`))
+			},
+			want: "Auth API disabled by administrator.",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			code, err := grokLaunchHost(t, tc.handler)
+			if code == 0 || err == nil || err.Error() != tc.want {
+				t.Fatalf("launch = %d %v, want refusal %q", code, err, tc.want)
+			}
+		})
+	}
+}
+
+// Offline must not bypass a signed suspension; without one an outage keeps
+// its existing error.
+func TestGrokLocallySuspendedConfigRefusesWhileOffline(t *testing.T) {
+	if code, err := grokLaunchHost(t, nil, config.EngineGrok); code == 0 || err == nil || err.Error() != grokFleetDisabled {
+		t.Fatalf("offline launch bypassed the local suspension: %d %v", code, err)
+	}
+	if _, err := grokLaunchHost(t, nil); err == nil || strings.Contains(err.Error(), "disabled") {
+		t.Fatalf("unsuspended outage changed behavior: %v", err)
+	}
+}
+
+func TestGrokStatusShowsFleetSuspension(t *testing.T) {
+	in := startupFixture(t)
+	in.StatusOnly = true
+	in.Auth = &startupAuth{}
+	in.AuthErr = &orchestrator.HTTPError{StatusCode: http.StatusForbidden, Code: "engine_disabled", Scope: "fleet"}
+	screen := startupScreen(in)
+	if screen.ResultTone != terminalui.ToneFail || screen.ResultLabel != "suspended (fleet): "+grokFleetDisabled {
+		t.Fatalf("status did not show the fleet suspension: %q", screen.ResultLabel)
+	}
+	report := doctorReport(doctorInput{Config: in.Config, Home: in.Home, Auth: in.Auth, AuthErr: in.AuthErr})
+	engineRow := false
+	for _, row := range report.Rows {
+		engineRow = engineRow || (row.Label == "Engine" && row.Value == "suspended (fleet)")
+	}
+	for _, hint := range report.Hints {
+		if strings.Contains(hint, "cgx login") {
+			t.Fatalf("doctor advised a login for an administrator switch: %q", report.Hints)
+		}
+	}
+	if !engineRow {
+		t.Fatalf("doctor did not show the suspension: %+v", report.Rows)
+	}
+}
+
+func TestGrokReenabledEngineRequestsImmediateMaintenance(t *testing.T) {
+	previous := requestMaintenanceNow
+	defer func() { requestMaintenanceNow = previous }()
+	var requested []string
+	requestMaintenanceNow = func(engine, _ string) error { requested = append(requested, engine); return nil }
+	cfg := &config.Config{Engine: config.EngineGrok}
+	cfg.Host.EnginesList = []string{config.EngineGrok}
+	cfg.Host.FleetDisabledEngines = []string{config.EngineGrok}
+	// reconcileEngineDrift only runs after /auth answered for Grok, which the
+	// server refuses while Grok is switched off: the signed config is stale.
+	if !reconcileEngineDrift(cfg, startupAuth{Host: &startupHost{EnginesList: []string{"grok"}}}, nil) || len(requested) != 1 {
+		t.Fatalf("re-enabled Grok did not refresh its config now: %v", requested)
+	}
+}

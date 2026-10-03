@@ -11,6 +11,7 @@ describe("legacy admin destinations", () => {
     assert.equal(settingsLegacyTarget(new URLSearchParams("tab=fleet-policy")), "/policies");
     assert.equal(settingsLegacyTarget(new URLSearchParams("tab=claude-config")), "/engines#claude-client");
     assert.equal(settingsLegacyTarget(new URLSearchParams(), "#log-retention"), "/policies#log-retention");
+    assert.equal(settingsLegacyTarget(new URLSearchParams(), "#engine-state"), "/engines#engine-state");
     assert.equal(settingsLegacyTarget(new URLSearchParams("tab=availability"), "#agent-messaging"), "/agent-messaging#service-state");
   });
 

@@ -27,12 +27,18 @@
   } from "$lib/api/usage";
   import { toast } from "svelte-sonner";
   import { relativeTime } from "$lib/utils/format";
+  import { Badge } from "$lib/components/ui/badge";
+  import { useFleetEngines, FLEET_DISABLED_TAG, fleetDisabledTitle } from "$lib/engines/fleet-engines";
 
   const usage = chatgptUsageQuery();
   const history = chatgptHistoryQuery(60);
   const refresh = chatgptRefreshMutation();
 
   let historyOpen = $state(false);
+  // Codex off fleet-wide: the server stops quota polling, so the figures are
+  // frozen and a manual refresh would be refused.
+  const fleet = useFleetEngines();
+  const engineOff = $derived(!$fleet.isEnabled("codex"));
 
   const summary = $derived.by<ChatGptUsageSummary | null>(() => {
     const data = $usage.data;
@@ -80,10 +86,13 @@
   }
 </script>
 
-<Card class="flex min-w-0 flex-col border-t-2 border-t-persona-codex">
+<Card class="flex min-w-0 flex-col border-t-2 border-t-persona-codex {engineOff ? 'opacity-70' : ''}">
   <CardHeader class="flex flex-row items-start justify-between gap-3 space-y-0">
     <div>
-      <CardTitle>ChatGPT usage</CardTitle>
+      <CardTitle class="flex items-center gap-2">
+        ChatGPT usage
+        {#if engineOff}<Badge variant="warning" title={fleetDisabledTitle("Codex")}>{FLEET_DISABLED_TAG}</Badge>{/if}
+      </CardTitle>
       <CardDescription>
         Codex ·
         {#if planType && planType !== "—"}
@@ -110,7 +119,7 @@
         variant="outline"
         size="sm"
         onclick={handleRefresh}
-        disabled={$refresh.isPending}
+        disabled={$refresh.isPending || engineOff}
         aria-label="Refresh ChatGPT usage"
       >
         <RefreshCw class="h-4 w-4 {$refresh.isPending ? 'animate-spin' : ''}" />

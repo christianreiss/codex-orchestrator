@@ -96,6 +96,7 @@ export const WS_EVENT_TYPES = [
 
   // Settings
   'settings.changed',
+  'engine.state.changed',
 
   // Agent portal
   'agent_portal.state',

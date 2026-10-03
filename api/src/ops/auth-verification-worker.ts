@@ -12,6 +12,7 @@ import {
 } from '../services/canonical-auth-store.js';
 import { inspectCredential } from '../services/auth-generation.js';
 import { ENGINES, type Engine } from '../util/engine.js';
+import { enabledEngines, readFleetEngineState } from '../services/engine-switch.js';
 import { nowIso } from '../util/timestamp.js';
 import { writeRunnerTelemetry, type RunnerTelemetryState } from '../services/runner-telemetry.js';
 import type { RunnerValidationService } from '../services/runner-validation.js';
@@ -57,6 +58,8 @@ export interface AuthVerificationTickDeps {
   scheduleMemory?: AuthProbeScheduleMemory;
   /** Test seam for schedule math. */
   nowMs?: () => number;
+  /** Engines to verify; defaults to all. Fleet-disabled engines are left out. */
+  engines?: readonly Engine[];
 }
 
 export function startAuthVerificationWorker(
@@ -88,7 +91,12 @@ export function startAuthVerificationWorker(
     if (running || stopped) return;
     running = true;
     try {
-      const accounts = await db.select().from(providerAccounts).where(eq(providerAccounts.state, 'enabled'));
+      // An engine switched off fleet-wide is not verified, refreshed or
+      // probed at all; its accounts and canonical auth are left exactly as
+      // they are until it is switched back on.
+      const fleet = await readFleetEngineState(db, { fresh: true });
+      const accounts = (await db.select().from(providerAccounts).where(eq(providerAccounts.state, 'enabled')))
+        .filter((account) => fleet[account.engine as Engine] !== false);
       if (accounts.length) {
         const states = new Map<Engine, Array<'ok' | 'fail'>>();
         for (const account of accounts) {
@@ -134,6 +142,7 @@ export function startAuthVerificationWorker(
           scheduleMemory,
           reason,
           log: app.log,
+          engines: enabledEngines(fleet),
         });
     } catch (err) {
       app.log.warn({ err, reason }, 'auth verification worker tick failed');
@@ -160,7 +169,7 @@ export function startAuthVerificationWorker(
 }
 
 export async function runAuthVerificationWorkerTick(deps: AuthVerificationTickDeps): Promise<void> {
-  await Promise.all(ENGINES.map(engine => verifyEngine(engine, deps)));
+  await Promise.all((deps.engines ?? ENGINES).map(engine => verifyEngine(engine, deps)));
 }
 
 /**

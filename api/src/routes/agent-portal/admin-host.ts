@@ -15,6 +15,7 @@ import { createHostAuthService } from '../../services/host-auth.js';
 import { createInsecureWindowService } from '../../services/insecure-window.js';
 import { parseEngine } from '../../util/engine.js';
 import { assertHostEngineEnabled } from '../../services/host-engine-policy.js';
+import { readFleetEngineState } from '../../services/engine-switch.js';
 import { createAgentMessagingService, messagingHostEligible } from '../../services/agent-messaging.js';
 
 const BRIDGE_TOKEN_HEADER = 'x-agent-bridge-token';
@@ -178,7 +179,7 @@ export async function registerAgentPortalAdminHostRoutes(
       })
       .parse(req.body ?? {});
     const engine = parseEngine(body.engine);
-    assertHostEngineEnabled(host, engine);
+    assertHostEngineEnabled(host, engine, await readFleetEngineState(ctx.db));
     const sessionId = body.session_id ?? randomUUID();
     const bridgeToken = body.bridge_token ?? randomBytes(32).toString('base64url');
     const [portalEnabled, messagingEnabled] = await Promise.all([

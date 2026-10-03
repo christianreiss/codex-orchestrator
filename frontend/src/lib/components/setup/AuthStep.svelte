@@ -15,6 +15,7 @@
   import { Badge } from "$lib/components/ui/badge";
   import SeedAuthPanel from "./SeedAuthPanel.svelte";
   import type { AuthEngine } from "$lib/api/auth";
+  import { useFleetEngines } from "$lib/engines/fleet-engines";
 
   type Props = {
     engines: AuthEngine[];
@@ -22,7 +23,13 @@
     runnerHealthy: boolean;
   };
 
-  let { engines, canonical, runnerHealthy }: Props = $props();
+  let { engines: chosen, canonical, runnerHealthy }: Props = $props();
+
+  // Seeding a fleet-disabled engine is refused by the server, so only engines
+  // still on get a panel; the rest are named below instead.
+  const fleet = useFleetEngines();
+  const engines = $derived(chosen.filter((engine) => $fleet.isEnabled(engine)));
+  const skipped = $derived(chosen.filter((engine) => !$fleet.isEnabled(engine)));
 
   let panels = $state<Record<AuthEngine, SeedAuthPanel | null>>({ codex: null, claude: null, grok: null });
 
@@ -50,6 +57,16 @@
   const label = (engine: AuthEngine) => engineLabel(engine);
   const verified = (engine: AuthEngine) => Boolean(canonical[engine]);
 </script>
+
+{#if skipped.length > 0}
+  <Alert variant="warning" class="mb-4">
+    <AlertTitle>{skipped.map(label).join(" and ")} {skipped.length === 1 ? "is" : "are"} disabled fleet-wide</AlertTitle>
+    <AlertDescription>
+      Credentials cannot be seeded while an engine is off. Turn it back on under Engines, then seed it
+      from Accounts or Hosts.
+    </AlertDescription>
+  </Alert>
+{/if}
 
 {#if engines.length === 0}
   <Alert>

@@ -36,11 +36,15 @@
     ModelDefaultsValue,
   } from "$lib/api/types";
   import StepQueryState from "./StepQueryState.svelte";
+  import { useFleetEngines } from "$lib/engines/fleet-engines";
 
   type Props = { engines: ("codex" | "claude" | "grok")[] };
   let { engines }: Props = $props();
 
   const qc = useQueryClient();
+  // Configuration stays editable while an engine is off fleet-wide; the note
+  // only says the values wait for it to come back.
+  const fleet = useFleetEngines();
 
   // Codex is always configured here; see the header comment.
   const targets = untrack((): ModelDefaultsEngine[] =>
@@ -194,6 +198,11 @@
       {/if}
     </div>
   </div>
+  {#if !$fleet.isEnabled(engine)}
+    <p class="mt-1.5 text-xs text-muted-foreground">
+      {label} is disabled fleet-wide. These defaults are saved now and apply when it is turned back on.
+    </p>
+  {/if}
 {/snippet}
 
 <div class="space-y-5">

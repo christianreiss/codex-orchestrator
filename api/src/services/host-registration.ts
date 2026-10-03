@@ -16,6 +16,9 @@ import { suspendAgentMessagingRuntimeLocked } from './agent-messaging.js';
 import { NotFoundError } from '../http/errors.js';
 import { ENGINE_GROK } from '../util/engine.js';
 import { ModelDefaultsService } from './model-defaults.js';
+import { readFleetEngineState } from './engine-switch.js';
+import { hostEnginesList } from './host-engine-policy.js';
+import { assertEnginesAddable } from './host-management.js';
 
 /**
  * Host create + API-key rotate, used by the CLI auth approve path. Emits a
@@ -50,6 +53,16 @@ export function createHostRegistrationService(deps: HostRegistrationDeps): HostR
       const trimmed = fqdn.trim();
       const now = nowIso();
       const existing = await db.select().from(hostsTable).where(eq(hostsTable.fqdn, trimmed)).limit(1);
+
+      // Same rule as the admin host forms: an engine switched off fleet-wide
+      // cannot be newly assigned; one the host already carries may stay.
+      if (enginesIn) {
+        assertEnginesAddable(
+          hostEnginesList(enginesIn),
+          existing[0] ? hostEnginesList(existing[0].engines) : [],
+          await readFleetEngineState(db),
+        );
+      }
 
       const { key: apiKey, hash: apiKeyHash } = generateApiKey('sk-codex-');
       const apiKeyEnc = encrypt(apiKey, keyring);

@@ -7,12 +7,14 @@ import type { FastifyInstance } from 'fastify';
 import type { RouteContext } from '../index.js';
 import { registerOpenAiCompatRoutes } from '../v1/index.js';
 import { registerAdminOpenAiKeyRoutes } from '../admin/keys/openai.js';
+import type { GatewayWiring } from '../../services/gateway-backends.js';
 
 export async function registerOpenAiCompatWorktree(
   app: FastifyInstance,
   ctx: RouteContext,
+  gateway?: GatewayWiring,
 ): Promise<void> {
-  await registerOpenAiCompatRoutes(app, ctx);
+  await registerOpenAiCompatRoutes(app, ctx, { gateway });
   await registerAdminOpenAiKeyRoutes(app, ctx);
 }
 

@@ -218,6 +218,19 @@ is a 503 `wrapper_v2_unavailable` — and then on the requested engine being lis
 in `hosts.engines`, a 403 `engine_disabled` otherwise. `wrapper_track` gates
 nothing, so the bakery is live for every host whose engine is enabled.
 
+The fleet-wide engine master switch is deliberately **not** a 403 here. An
+engine the host carries but the fleet has switched off still gets a 200 signed
+config, with `host.fleet_disabled_engines` naming it and the `agent_messaging`
+and `remote` blocks off. The coordinator (`internal/cron`) treats a 403
+`engine_disabled` as removal and deletes that engine's alias and signed config;
+were suspension a 403, a host whose every engine was switched off would delete
+its last seed config and could only come back by reinstalling, and an unknown
+403 code would make older coordinators skip every tick, self-update included.
+So the coordinator keeps a suspended engine's config and alias, skips its
+maintenance tick, and the persona refuses to launch on `/auth`'s 403
+`engine_disabled` with `scope:"fleet"`. `host.engines_list` stays the
+assignment, so drift detection never fires on a suspension.
+
 `bin/install.sh` imports THE key of an installation and refuses to replace it,
 and deletes the plaintext copy once the encrypted one reads back. From then on
 the matrix cannot be rebuilt in place — `--force wrappers` detects this and

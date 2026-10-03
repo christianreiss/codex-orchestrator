@@ -4,7 +4,7 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 
 /**
  * CORS policy:
- *   - /v1/* and /anthropic/v1/* are open (browsers + SDKs).
+ *   - /v1/*, /anthropic/v1/* and /grok/v1/* are open (browsers + SDKs).
  *   - /go/* is always same-origin only and never inherits the configured
  *     cross-origin allowlist because it carries browser-session cookies.
  *   - Everything else (admin, host APIs, MCP) is same-origin only by default;
@@ -20,7 +20,7 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
  * which are always dispatched through @fastify/cors's single catch-all
  * OPTIONS route rather than the matched route.
  */
-const OPEN_PATH_PREFIXES = ['/v1/', '/anthropic/v1/'];
+const OPEN_PATH_PREFIXES = ['/v1/', '/anthropic/v1/', '/grok/v1/'];
 
 function isOpenRoute(url: string): boolean {
   return OPEN_PATH_PREFIXES.some((prefix) => url.startsWith(prefix));
@@ -41,7 +41,7 @@ export const corsPlugin = fp(
           origin: (origin, originCb) => {
             // Same-origin requests have no Origin header — allow.
             if (!origin) return originCb(null, true);
-            // /v1 and /anthropic/v1 are the documented open public API surface.
+            // /v1, /anthropic/v1 and /grok/v1 are the documented open public API surface.
             if (open) return originCb(null, true);
             if (portal) return originCb(null, false);
             originCb(null, allowedOrigins.includes(origin));

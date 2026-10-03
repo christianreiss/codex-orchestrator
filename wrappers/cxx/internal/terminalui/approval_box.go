@@ -210,7 +210,7 @@ func drawApprovalBox(w io.Writer, caps Caps, d approvalBoxData) {
 	if status == "valid" || status == "outdated" {
 		tone = ToneOK
 	}
-	if status == "disabled" || status == "invalid" || status == "insecure-denied" {
+	if status == "disabled" || status == "suspended" || status == "invalid" || status == "insecure-denied" {
 		tone = ToneFail
 	}
 	detail := status

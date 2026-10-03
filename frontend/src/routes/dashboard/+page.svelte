@@ -19,9 +19,18 @@
   import OnboardingCard from "./OnboardingCard.svelte";
   import FleetCoverage from "./FleetCoverage.svelte";
   import RefreshCw from "@lucide/svelte/icons/refresh-cw";
+  import { useFleetEngines } from "$lib/engines/fleet-engines";
+  import { ENGINE_META, type Engine } from "$lib/constants/engines";
 
   const overview = overviewQuery();
   const accounts = accountsQuery();
+  const fleet = useFleetEngines();
+
+  /** Per-engine stat card: dimmed and labelled while the engine is off fleet-wide. */
+  function engineCard(engine: Engine, hint: string | null): { class?: string; hint: string | null } {
+    if ($fleet.isEnabled(engine)) return { hint };
+    return { class: "opacity-70", hint: hint ? `disabled fleet-wide · ${hint}` : "disabled fleet-wide" };
+  }
 
   /** The endpoint exposes the fleet total and its latest refresh directly. */
   const stats = $derived.by(() => {
@@ -113,6 +122,21 @@
       </AlertDescription>
     </Alert>
   {/if}
+  {#if $fleet.disabled.length > 0}
+    <Alert variant={$fleet.enabled.length === 0 ? "destructive" : "warning"}>
+      <AlertTriangle class="h-4 w-4" />
+      <AlertTitle>
+        {$fleet.enabled.length === 0
+          ? "Every engine is disabled fleet-wide"
+          : `${$fleet.disabled.map((engine) => ENGINE_META[engine].label).join(" and ")} ${$fleet.disabled.length === 1 ? "is" : "are"} disabled fleet-wide`}
+      </AlertTitle>
+      <AlertDescription>
+        Hosts refuse to launch {$fleet.disabled.map((engine) => ENGINE_META[engine].command).join(", ")} and the server
+        stops refreshing, verifying and polling {$fleet.disabled.length === 1 ? "its" : "their"} accounts.
+        <a class="font-medium underline underline-offset-2" href={`${base}/engines`}>Engine switches</a>
+      </AlertDescription>
+    </Alert>
+  {/if}
   <!-- Fleet + latest-version stat cards -->
   <div class="grid grid-cols-1 gap-3 lg:grid-cols-4">
     <StatCard
@@ -151,7 +175,7 @@
     <StatCard
       label="Codex latest"
       value={codexLatest ?? "—"}
-      hint={codexChecked}
+      {...engineCard("codex", codexChecked)}
       loading={$overview.isPending}
     >
       {#snippet icon()}
@@ -161,14 +185,14 @@
     <StatCard
       label="Claude latest"
       value={claudeLatest ?? "—"}
-      hint={claudeChecked}
+      {...engineCard("claude", claudeChecked)}
       loading={$overview.isPending}
     >
       {#snippet icon()}
         <Bot class="h-4 w-4" />
       {/snippet}
     </StatCard>
-    <StatCard label="Grok latest" value={grokLatest ?? "—"} hint={grokChecked} loading={$overview.isPending}>{#snippet icon()}<Bot class="h-4 w-4" />{/snippet}</StatCard>
+    <StatCard label="Grok latest" value={grokLatest ?? "—"} {...engineCard("grok", grokChecked)} loading={$overview.isPending}>{#snippet icon()}<Bot class="h-4 w-4" />{/snippet}</StatCard>
   </div>
 
   <FleetCoverage distribution={$overview.data?.version_distribution} loading={$overview.isPending} />

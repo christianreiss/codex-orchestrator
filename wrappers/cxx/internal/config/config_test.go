@@ -137,3 +137,19 @@ func TestValidateStillBoundsAgentMessagingRanges(t *testing.T) {
 		t.Fatal("expected queued_ttl_seconds bound to be enforced")
 	}
 }
+
+// A suspended engine still receives a normal signed config: the loader and
+// validator must accept it unchanged so suspension never strands a host.
+func TestLoadAcceptsFleetSuspendedConfig(t *testing.T) {
+	fixture := validCfg()
+	fixture.Host.EnginesList = []string{EngineCodex}
+	fixture.Host.FleetDisabledEngines = []string{EngineCodex}
+	cfgPath, pub := writeSignedFixture(t, t.TempDir(), fixture)
+	cfg, err := Load(cfgPath, pub, false)
+	if err != nil {
+		t.Fatalf("suspended config rejected: %v", err)
+	}
+	if !cfg.EngineSuspended(EngineCodex) {
+		t.Fatalf("fleet_disabled_engines did not round-trip: %+v", cfg.Host)
+	}
+}

@@ -19,6 +19,7 @@ import type { Env } from '../env.js';
 import type { Keyring } from '../security/keyring.js';
 import { createRunnerValidationService, type RunnerValidationService } from './runner-validation.js';
 import { ENGINE_CODEX } from '../util/engine.js';
+import { isFleetEngineEnabled } from './engine-switch.js';
 
 type Logger = {
   info?: (...args: unknown[]) => void;
@@ -372,6 +373,17 @@ export class ChatGptUsageService {
 
   async fetchLatest(force = false): Promise<FetchResult> {
     const latest = await this.latest();
+    // Codex switched off fleet-wide: never call the provider. The last stored
+    // snapshot (if any) is still served, marked as cached.
+    if (!(await isFleetEngineEnabled(this.db, 'codex'))) {
+      return {
+        status: latest ? 'ok' : 'unavailable',
+        snapshot: latest ? this.normalizeSnapshot(latest) : null,
+        cached: true,
+        next_eligible_at: latest?.nextEligibleAt ?? null,
+        error: 'engine_disabled',
+      };
+    }
     const now = Date.now();
     const nextEligibleAt = latest?.nextEligibleAt ?? null;
     const nextTs = nextEligibleAt ? (parseIso(nextEligibleAt)?.getTime() ?? 0) : 0;

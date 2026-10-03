@@ -1,7 +1,7 @@
 ---
 title: The shared cxx wrapper
 section: Fleet operations
-verified: 2026-09-09
+verified: 2026-10-03
 sources: wrappers/cxx, wrappers/cxx/internal/agentportal/command.go, api/src/services/wrapper-config.ts, api/src/services/wrapper-signing-key.ts, api/src/services/wrapper-bin-registry.ts, api/src/services/wrapper-meta.ts, api/src/services/wrapper-download.ts, api/src/services/wrapper-transition.ts, api/src/services/install-token.ts, api/src/routes/wrapper-v2/index.ts, api/src/routes/install/index.ts, wrappers/schemas/host-config-v1.json
 ---
 
@@ -147,7 +147,8 @@ engine-specific deltas are called out in [clx](/admin/manual/clx):
 5. **Auth decision** — `orchestrator.Decide` evaluates the auth status. A few
    conditions are hard stops before the normal status switch: the server's
    `versions.api_disabled` kill switch, an `installation_id` mismatch, a
-   reverse-DNS mismatch, the peer/host's engine being disabled, and a
+   reverse-DNS mismatch, the engine being disabled for the host or suspended
+   fleet-wide (`scope` on the `engine_disabled` refusal tells them apart), and a
    `verification_state=failed` response (the background runner reached the
    provider and the canonical token did not authenticate). clx still gives a
    distinct runnable local login the chance to replace a failed canonical; a
@@ -297,6 +298,22 @@ outside interactive startup and session exit. The coordinator verifies both
 signed engine configs and their host membership before refreshing configs or
 retiring disabled aliases. It runs each enabled engine tick once, without
 recursive peer jobs; a failed tick does not suppress the other engine.
+
+### Engines switched off fleet-wide (cxx 0.9.16)
+
+An engine switched off under **Engines → Engine master switches** is
+*suspended* on every host, not removed. Its signed config still arrives, now
+listing it in `host.fleet_disabled_engines`; the coordinator keeps that config
+and the `cdx`/`clx`/`cgx` alias but skips the engine's maintenance tick (no CLI
+update, no managed sync) and runs no receiver for it. Launching it prints
+`<Engine> is disabled fleet-wide by the administrator.` and exits; `status` and
+`doctor` show `suspended (fleet)`. Nothing local is deleted — the CLI, its
+files and credentials stay, so sessions already running finish on their own.
+When the engine is switched back on, the next launch goes ahead and asks for
+immediate maintenance; otherwise the next 15-minute tick resumes it. A host
+whose every engine is off keeps its schedule and recovers the same way, with no
+reinstall. Older wrappers (before 0.9.16) also refuse to launch it, with a less
+specific message.
 
 ## Host-wide auto-update
 

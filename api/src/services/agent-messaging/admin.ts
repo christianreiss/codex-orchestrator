@@ -32,7 +32,8 @@ import { ENGINES, type Engine } from '../../util/engine.js';
 import { isoOffsetSeconds, nowIso } from '../../util/timestamp.js';
 import { isTruthyFlagValue } from '../settings.js';
 import { wsPublisher } from '../../ws/publisher.js';
-import { hostEnginesList } from '../host-engine-policy.js';
+import { activeHostEngines, hostEnginesList } from '../host-engine-policy.js';
+import { readFleetEngineState } from '../engine-switch.js';
 import type { SettingsService } from '../settings.js';
 import {
   AGENT_MESSAGING_DEFAULT_TTL_SECONDS,
@@ -116,6 +117,7 @@ export class AgentMessagingAdmin {
           .from(agentBusMessages)
           .groupBy(agentBusMessages.sourceEngine, agentBusMessages.targetEngine, agentBusMessages.status),
       ]);
+    const fleet = await readFleetEngineState(this.core.db);
     const eligibleAddresses = enabled
       ? addressRows.filter((row) =>
         messagingHostEligible({
@@ -123,7 +125,7 @@ export class AgentMessagingAdmin {
           secure: row.hostSecure,
           insecureEnabledUntil: row.hostWindowUntil,
         }) &&
-        hostEnginesList(row.hostEngines).includes(row.engine as Engine),
+        activeHostEngines(row.hostEngines, fleet).includes(row.engine as Engine),
       )
       : [];
     const eligibleRelays = enabled
@@ -309,6 +311,7 @@ export class AgentMessagingAdmin {
       .where(inArray(agentBusMessages.status, [...LIVE_MESSAGE_STATUSES]))
       .groupBy(agentBusMessages.targetAddressId);
     const queues = new Map(queueRows.map((row) => [row.targetAddressId, Number(row.value)]));
+    const fleet = await readFleetEngineState(this.core.db);
     return {
       addresses: rows.map((row) => ({
         ...publicAddress(row.address, row.fqdn, deriveAddressPresence(row.address,row.session,isoOffsetSeconds(-45))),
@@ -325,7 +328,7 @@ export class AgentMessagingAdmin {
             secure: row.hostSecure,
             insecureEnabledUntil: row.hostWindowUntil,
           }) &&
-          hostEnginesList(row.hostEngines).includes(row.address.engine as Engine),
+          activeHostEngines(row.hostEngines, fleet).includes(row.address.engine as Engine),
         ineligible_reason: addressIneligibleReason(
           masterEnabled,
           messagingHostEligible({
@@ -335,7 +338,7 @@ export class AgentMessagingAdmin {
           }),
           row.hostSecure === 1,
           row.hostStatus,
-          hostEnginesList(row.hostEngines),
+          activeHostEngines(row.hostEngines, fleet),
           row.address.engine as Engine,
         ),
         queue_depth: queues.get(row.address.id) ?? 0,
@@ -378,7 +381,7 @@ export class AgentMessagingAdmin {
         if (
           !host ||
           !messagingHostEligible(host) ||
-          !hostEnginesList(host.engines).includes(address.engine as Engine)
+          !activeHostEngines(host.engines, await readFleetEngineState(this.core.db)).includes(address.engine as Engine)
         ) {
           throw new ConflictError('Agent Messaging requires an eligible active host', 'agent_messaging_host_ineligible');
         }

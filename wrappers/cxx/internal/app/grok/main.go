@@ -334,6 +334,9 @@ func syncMeasuredManagedWith(ctx context.Context, cfg *config.Config, client *or
 	}
 	bundle, err := client.SyncBootstrap(ctx, orchestrator.BundleRequest{Engine: "grok", IncludeAuth: false, Home: home, Skills: store.Digests()})
 	if err != nil {
+		if scope, disabled := orchestrator.EngineDisabledScope(err); disabled {
+			return summary, errors.New(config.EngineDisabledMessage(config.EngineGrok, scope))
+		}
 		return summary, fmt.Errorf("Grok managed sync unavailable: %w", err)
 	}
 	summary.Sessions = bundle.Sessions
@@ -457,6 +460,9 @@ func run(ctx context.Context, cfg *config.Config, client *orchestrator.Client, o
 	sync, syncErr := syncMeasuredManagedWith(ctx, cfg, client, o.concurrent)
 	if syncErr != nil {
 		if !errors.Is(syncErr, ipc.ErrHeld) {
+			if refusal := launchRefusal(cfg, syncErr); refusal != nil {
+				return 1, refusal
+			}
 			return 1, syncErr
 		}
 		sync = managedSyncSummary{Concurrent: true}
@@ -469,11 +475,18 @@ func run(ctx context.Context, cfg *config.Config, client *orchestrator.Client, o
 	client.Pool = pool
 	initial, err := retrieveStartupAuth(ctx, client, headless, o.minimal, stderr)
 	if err != nil {
+		if refusal := launchRefusal(cfg, err); refusal != nil {
+			return 1, refusal
+		}
 		var httpErr *orchestrator.HTTPError
 		if errors.As(err, &httpErr) {
 			return 1, fmt.Errorf("Grok subscription auth unavailable (%s); run cgx login", httpErr.Code)
 		}
 		return 1, err
+	}
+	// Server-side kill switch, as cdx/clx enforce it from the same block.
+	if initial.Versions != nil && initial.Versions.APIDisabled {
+		return 1, errors.New(apiDisabledReason)
 	}
 	reconcileEngineDrift(cfg, initial, client)
 	if _, err := native.FindCLI(); err != nil {

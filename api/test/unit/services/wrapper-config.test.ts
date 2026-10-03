@@ -14,7 +14,7 @@ const sodium = require('libsodium-wrappers') as typeof import('libsodium-wrapper
 import { Keyring } from '../../../src/security/keyring.js';
 import { encrypt } from '../../../src/security/secret-box.js';
 import type { Env } from '../../../src/env.js';
-import type { Host } from '../../../src/db/schema.js';
+import { versions as versionsTable, type Host } from '../../../src/db/schema.js';
 import type { Database } from '../../../src/db/client.js';
 import {
   createWrapperConfigService,
@@ -704,6 +704,96 @@ describe('wrapper-config', () => {
       expect(result.signatures[0]!.fingerprint).not.toBe(result.signatures[1]!.fingerprint);
       // A second key must never leak into the signed payload.
       expect('signatures' in result.payload).toBe(false);
+    });
+  });
+
+  describe('fleet engine switch', () => {
+    /**
+     * The shared fake ignores `versions`; this wrapper answers every versions
+     * read with the given flag rows (by name), so the bake sees a fleet switch
+     * and the messaging/remote/portal switches it consults alongside it.
+     */
+    /** Every string reachable from a drizzle predicate: its bound parameters. */
+    function paramStrings(node: unknown, seen = new Set<unknown>(), out = new Set<string>()): Set<string> {
+      if (typeof node === 'string') out.add(node);
+      if (!node || typeof node !== 'object' || seen.has(node)) return out;
+      seen.add(node);
+      for (const value of Object.values(node as Record<string, unknown>)) paramStrings(value, seen, out);
+      return out;
+    }
+
+    function withVersions(base: Database, flags: Record<string, string>): Database {
+      const rows = Object.entries(flags).map(([name, version]) => ({ name, version }));
+      const versionsQuery = () => {
+        const all = Promise.resolve(rows as unknown[]) as Promise<unknown[]> & Record<string, unknown>;
+        all.where = (predicate: unknown) => {
+          const wanted = paramStrings(predicate);
+          const hits = rows.filter((row) => wanted.has(row.name));
+          const filtered = Object.assign(Promise.resolve(hits), { limit: async () => hits });
+          return filtered;
+        };
+        return all;
+      };
+      const select = (base as unknown as { select: (f?: unknown) => { from: (t: unknown) => unknown } }).select;
+      return {
+        ...(base as object),
+        select: (fields?: unknown) => {
+          const chain = select(fields);
+          return {
+            ...chain,
+            from: (table: unknown) => (table === versionsTable ? versionsQuery() : chain.from(table)),
+          };
+        },
+      } as unknown as Database;
+    }
+
+    async function bakeWith(engine: 'codex' | 'claude', flags: Record<string, string>) {
+      const { privateKey } = generateKeyPairSync('ed25519');
+      const signer: WrapperSigner = {
+        kid: '1',
+        fingerprint: FAKE_FINGERPRINT,
+        publicKey: 'pk',
+        sign: (payload) => cryptoSign(null, Buffer.from(typeof payload === 'string' ? payload : payload), privateKey),
+      };
+      const host = fakeHost({ engines: 'codex,claude' });
+      const db = withVersions(
+        makeFakeDb({ hosts: [host], agents: [], agentsState: [], clientConfigs: [], skills: [], updates: [] }),
+        flags,
+      );
+      const svc = createWrapperConfigService({
+        db,
+        keyring: makeKeyring(),
+        binaries: fakeBinaries(),
+        signing: makeSigningService(signer),
+        installationId: 'inst-fleet',
+      });
+      return (await svc.bakeForHost(host, engine, 'https://api.example.com')).payload;
+    }
+
+    const ON = { agent_messaging_enabled: '1', remote_exec_enabled: '1', agent_portal_enabled: '1' };
+
+    it('still bakes a suspended engine, carrying the switch and no way to run', async () => {
+      const payload = await bakeWith('claude', { ...ON, claude_engine_disabled: '1' });
+      // Assignment unchanged: the wrapper must not read suspension as removal.
+      expect(payload.host.engines_list).toEqual(['codex', 'claude']);
+      expect(payload.host.fleet_disabled_engines).toEqual(['claude']);
+      expect(payload.agent_messaging.enabled).toBe(false);
+      expect(payload.agent_messaging.receiver_enabled).toBe(false);
+      expect(payload.agent_messaging.channel_preview_enabled).toBe(false);
+      expect(payload.host.agent_messaging_enabled).toBe(false);
+    });
+
+    it('leaves an enabled sibling engine running while another is suspended', async () => {
+      const payload = await bakeWith('codex', { ...ON, claude_engine_disabled: '1' });
+      expect(payload.host.fleet_disabled_engines).toEqual(['claude']);
+      expect(payload.agent_messaging.enabled).toBe(true);
+      expect(payload.agent_messaging.receiver_enabled).toBe(true);
+    });
+
+    it('omits the field entirely while every engine is on', async () => {
+      const payload = await bakeWith('claude', ON);
+      expect('fleet_disabled_engines' in payload.host).toBe(false);
+      expect(payload.agent_messaging.enabled).toBe(true);
     });
   });
 });

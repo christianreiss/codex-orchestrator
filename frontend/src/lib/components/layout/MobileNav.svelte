@@ -11,10 +11,14 @@
   import Menu from "@lucide/svelte/icons/menu";
   import LogOut from "@lucide/svelte/icons/log-out";
   import Keyboard from "@lucide/svelte/icons/keyboard";
+  import { useFleetEngines, fleetDisabledTitle } from "$lib/engines/fleet-engines";
+  import { engineLabel } from "$lib/constants/engines";
 
   const path = $derived(page.url.pathname.replace(base, "") || "/");
   const auth = $derived($authStore);
   let menuOpen = $state(false);
+  // See Sidebar: engine-specific destinations are annotated, never hidden.
+  const fleet = useFleetEngines();
   const pendingApprovals = insecureApprovalsPendingQuery();
   const approvalsAlert = $derived(($pendingApprovals.data?.requests?.length ?? 0) > 0 || $pendingApprovals.isError);
   const menuActive = $derived(MOBILE_NAV_OVERFLOW.some((item) => isActive(item, path)));
@@ -61,7 +65,7 @@
             {#each section.items as item (item.id)}
               {@const Icon = item.icon}
               {@const active = isActive(item, path)}
-              <li><a href={`${base}${item.route}`} class={cn("flex min-h-14 items-center gap-3 rounded-md border px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring", active ? "border-primary/30 bg-primary/10 text-primary" : "bg-card hover:bg-muted")} onclick={() => (menuOpen = false)} aria-current={active ? "page" : undefined}><Icon class="h-4 w-4 shrink-0" /><span class="min-w-0"><span class="block font-medium">{item.label}</span><span class="mt-0.5 block text-xs leading-relaxed text-muted-foreground">{item.description}</span></span></a></li>
+              <li><a href={`${base}${item.route}`} class={cn("flex min-h-14 items-center gap-3 rounded-md border px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring", active ? "border-primary/30 bg-primary/10 text-primary" : "bg-card hover:bg-muted")} onclick={() => (menuOpen = false)} aria-current={active ? "page" : undefined}><Icon class="h-4 w-4 shrink-0" /><span class="min-w-0"><span class="block font-medium">{item.label}</span><span class="mt-0.5 block text-xs leading-relaxed text-muted-foreground">{item.description}{#if item.engine && !$fleet.isEnabled(item.engine)}<span class="block font-medium">{fleetDisabledTitle(engineLabel(item.engine))}</span>{/if}</span></span></a></li>
             {/each}
           </ul>
         </section>

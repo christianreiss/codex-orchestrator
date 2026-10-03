@@ -120,6 +120,30 @@ still selects the native fullscreen layout within the inline terminal.
 Headless and silent launches retain their existing terminal policy. The exit
 footer uses the final session/auth outcome after private-runtime cleanup.
 
+## Fleet engine suspension (cxx 0.9.16)
+
+An engine switched off fleet-wide (Admin → Engines → Engine master switches; server contract in
+[interface-api.md → Engine master switches](interface-api.md#engine-master-switches)) is
+*suspended*, never removed:
+
+- `/auth` answers `403 engine_disabled` with `scope:"fleet"`; the wrapper refuses to launch with
+  `Grok is disabled fleet-wide by the administrator.` (exit non-zero) and never falls back to
+  cached credentials for it. A host-level removal (`scope:"host"`, or no scope from an older
+  server) keeps its old handling and says `Grok is disabled for this host by the administrator.`
+- The signed config still arrives (200) with `host.fleet_disabled_engines`; the coordinator keeps
+  the config and the `cgx` alias, skips this engine's maintenance tick (no CLI update, no managed
+  sync, no peer install) and runs no receiver or relay for it. Local credentials and the installed
+  CLI are left alone, so sessions already running run out on their own.
+- With the server unreachable, a locally suspended config refuses with the fleet message. When
+  `/auth` answers 200 again (switched back on), the launch proceeds and requests immediate
+  maintenance so the coordinator re-bakes the config instead of waiting for the 15-minute tick.
+- `status` / `doctor` report `suspended (fleet)`.
+- `cgx` now also honours the API kill switch (`versions.api_disabled`), refusing with
+  `Auth API disabled by administrator.` like `cdx`/`clx`. The heartbeat of a lease it already holds
+  keeps working but returns `refresh_state:"suspended"`: the server no longer refreshes the Grok
+  grant, so a running session ends when its access token expires.
+
+
 ## Subscription auth and canonical ownership
 
 Only modern xAI subscription OAuth is supported. `grok login --device-auth`

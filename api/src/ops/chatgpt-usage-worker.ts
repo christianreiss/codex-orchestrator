@@ -7,6 +7,7 @@ import { loadEnv } from '../env.js';
 import { Keyring } from '../security/keyring.js';
 import { ChatGptUsageService, type FetchResult } from '../services/chatgpt-usage.js';
 import { nowIso } from '../util/timestamp.js';
+import { readFleetEngineState } from '../services/engine-switch.js';
 
 type WorkerLog = {
   info: (...args: unknown[]) => void;
@@ -28,6 +29,11 @@ export interface ChatGptUsageWorkerTickDeps {
   healthPath: string;
   log: WorkerLog;
   now?: () => string;
+  /**
+   * Codex fleet master switch. This worker is its own container, so it reads
+   * the database flag every tick rather than sharing the API's cache.
+   */
+  codexEnabled?: () => Promise<boolean>;
 }
 
 /**
@@ -37,6 +43,18 @@ export interface ChatGptUsageWorkerTickDeps {
  * a process that is still alive.
  */
 export async function runChatGptUsageWorkerTick(deps: ChatGptUsageWorkerTickDeps): Promise<FetchResult> {
+  if (deps.codexEnabled && !(await deps.codexEnabled())) {
+    // Deliberately off is not unhealthy: keep the heartbeat fresh so Compose
+    // does not flag the container, and record why nothing was polled.
+    await writeUsageHeartbeat(deps.healthPath, {
+      checked_at: (deps.now ?? nowIso)(),
+      fetched_at: null,
+      next_eligible_at: null,
+      suspended: 'codex_engine_disabled',
+    });
+    deps.log.info({ reason: 'engine_disabled' }, 'chatgpt usage polling suspended: Codex is disabled fleet-wide');
+    return { status: 'unavailable', snapshot: null, cached: false, next_eligible_at: null, error: 'engine_disabled' };
+  }
   const result = await deps.usage.fetchLatest(false);
   const snapshotStatus =
     typeof result.snapshot?.['status'] === 'string' ? result.snapshot['status'] : 'unavailable';
@@ -120,6 +138,7 @@ async function main(): Promise<void> {
         },
         healthPath: env.CHATGPT_USAGE_HEALTH_PATH,
         log,
+        codexEnabled: async () => (await readFleetEngineState(db, { fresh: true })).codex,
       });
     } catch (err) {
       log.error({ err: errorMessage(err) }, 'chatgpt usage worker tick failed');

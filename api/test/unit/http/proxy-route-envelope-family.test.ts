@@ -4,6 +4,7 @@ import { corsPlugin } from '../../../src/http/plugins/cors.js';
 import { selectFormatter, type EnvelopeKind } from '../../../src/http/envelope/select.js';
 import { registerOpenAiCompatRoutes } from '../../../src/routes/v1/index.js';
 import { registerAnthropicCompatRoutes } from '../../../src/routes/anthropic-v1/index.js';
+import { registerGrokCompatRoutes } from '../../../src/routes/grok-v1/index.js';
 import { loadTestEnv } from '../../helpers/test-keyring.js';
 
 /**
@@ -27,7 +28,7 @@ import { loadTestEnv } from '../../helpers/test-keyring.js';
  * and pinned to the plugin's real behaviour below — a prefix that stops being
  * open upstream fails the reflection check rather than passing on the mirror.
  */
-const OPEN_PATH_PREFIXES = ['/v1/', '/anthropic/v1/'];
+const OPEN_PATH_PREFIXES = ['/v1/', '/anthropic/v1/', '/grok/v1/'];
 
 /** In nobody's allow-list: only the open prefixes reflect it back. */
 const UNLISTED_ORIGIN = 'https://evil.example';
@@ -44,7 +45,7 @@ interface RegisteredRoute {
  */
 function family(url: string): EnvelopeKind | null {
   if (url.startsWith('/anthropic/v1')) return 'anthropic';
-  if (url.startsWith('/v1')) return 'openai';
+  if (url.startsWith('/v1') || url.startsWith('/grok/v1')) return 'openai';
   return null;
 }
 
@@ -72,6 +73,7 @@ async function captureRoutes(): Promise<RegisteredRoute[]> {
   const ctx = { db: {} as never, env: {} as never, keyring: {} as never };
   await registerOpenAiCompatRoutes(app, ctx);
   await registerAnthropicCompatRoutes(app, ctx);
+  await registerGrokCompatRoutes(app, ctx);
 
   await app.ready();
   await app.close();
@@ -114,6 +116,7 @@ describe('envelope + CORS family of every registered proxy route', () => {
     // rest of this suite trivially green.
     expect(routes.some((r) => family(r.url) === 'openai')).toBe(true);
     expect(routes.some((r) => family(r.url) === 'anthropic')).toBe(true);
+    expect(routes.some((r) => r.url.startsWith('/grok/v1/'))).toBe(true);
   });
 
   it('resolves every route to its own provider envelope', () => {

@@ -28,6 +28,7 @@ import {
   Users,
 } from "@lucide/svelte";
 import type { Component } from "svelte";
+import type { Engine } from "$lib/constants/engines";
 
 export type NavGroup = "Monitor" | "Fleet" | "Coordinate" | "Knowledge" | "Access" | "Utilities";
 
@@ -47,6 +48,12 @@ export interface NavItem {
   match?: RegExp;
   /** Lower values stay in the four-item mobile bar; all others live in Menu. */
   mobilePriority?: number;
+  /**
+   * The one engine this destination serves. The rail annotates it while that
+   * engine is switched off fleet-wide; it is never hidden, since the content
+   * stays editable.
+   */
+  engine?: Engine;
 }
 
 export interface NavSection {
@@ -138,15 +145,15 @@ const REGISTRY: NavDefinition[] = [
   },
   {
     id: "subagents", group: "Knowledge", route: "/subagents", label: "Subagents",
-    description: "Claude-native agent definitions", keywords: ["claude", "agents"], icon: Bot,
+    description: "Claude-native agent definitions", keywords: ["claude", "agents"], icon: Bot, engine: "claude",
   },
   {
     id: "commands", group: "Knowledge", route: "/commands", label: "Commands",
-    description: "Claude-native slash commands", keywords: ["claude", "slash"], icon: Terminal,
+    description: "Claude-native slash commands", keywords: ["claude", "slash"], icon: Terminal, engine: "claude",
   },
   {
     id: "output-styles", group: "Knowledge", route: "/output-styles", label: "Output Styles",
-    description: "Claude-native response styles", keywords: ["claude", "style"], icon: Palette,
+    description: "Claude-native response styles", keywords: ["claude", "style"], icon: Palette, engine: "claude",
   },
   {
     id: "api-access", group: "Access", route: "/api-keys", label: "API Access",

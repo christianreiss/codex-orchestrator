@@ -384,7 +384,7 @@ func Run(ctx context.Context, opts Options) (exitCode int, runErr error) {
 			}
 		}
 
-		if !opts.SyncOnly && !opts.SkipAuthSync && !opts.SkipCredentialExchange && authResp != nil && authResp.AccountPool && authErr == nil && !dec.NeedsApprovalPoll && dec.Status != "disabled" && dec.Status != "insecure" && dec.Status != "denied" {
+		if !opts.SyncOnly && !opts.SkipAuthSync && !opts.SkipCredentialExchange && authResp != nil && authResp.AccountPool && authErr == nil && !dec.NeedsApprovalPoll && dec.Status != orchestrator.AuthStatusDisabled && dec.Status != orchestrator.AuthStatusSuspended && dec.Status != "insecure" && dec.Status != "denied" {
 			expected, err := codex.CurrentAuthGeneration()
 			if err != nil {
 				return 1, err
@@ -411,6 +411,14 @@ func Run(ctx context.Context, opts Options) (exitCode int, runErr error) {
 					ui.Say(os.Stderr, "cdx", ui.ToneDim, "account", lease.AccountLabel)
 				}
 			}
+		}
+
+		// A signed config that says this engine is switched off fleet-wide stays
+		// in force until the server positively answers otherwise: an outage
+		// must not turn cached credentials into a way around the switch. It is
+		// applied before recovery so a suspended engine never prompts a login.
+		if !opts.SkipCredentialExchange {
+			dec = applyLocalSuspension(cfg, dec)
 		}
 
 		// Interactive recovery: a live-verification failure (server reached the
@@ -906,6 +914,12 @@ func bootstrapWithProgress(
 		// refusal is simply a failed content sync.
 		if st := orchestrator.InsecureStatusFromError(berr); includeAuth && st != "" {
 			return &orchestrator.AuthRetrieveResponse{Status: st}, nil, false, summary.ResourceSync{}, summary.ResourceSync{}, nil
+		}
+		// engine_disabled is likewise a reachable policy answer. Type it here so
+		// the gate tells the fleet master switch (suspended) from host removal
+		// (disabled) and neither can reach the offline cached-auth fallback.
+		if st := orchestrator.EngineDisabledStatusFromError(berr); includeAuth && st != "" {
+			return &orchestrator.AuthRetrieveResponse{Status: st, Message: berr.Error()}, nil, false, summary.ResourceSync{}, summary.ResourceSync{}, nil
 		}
 		if !includeAuth {
 			return nil, berr, false, summary.ResourceSync{}, summary.ResourceSync{}, nil

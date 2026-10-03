@@ -62,6 +62,23 @@ describe('auth verification worker tick', () => {
     expect(ensureServedVerification).toHaveBeenCalledWith(expect.objectContaining({ engine: 'grok', row: expect.objectContaining({ accountId: 7 }) }));
     expect(write).toHaveBeenCalledWith('grok', 'ok', expect.any(String));
   });
+  it('leaves an engine out entirely when it is not in the engines to verify (fleet switch)', async () => {
+    const row = canonicalRow('grok', 'pending', null);
+    const ensureServedVerification = vi.fn(async () => ({ state: 'verified' as const, auth: AUTH, digest: DIGEST, lastRefresh: row.lastRefresh, refreshed: false }));
+    const resolveCanonicalPayload = vi.fn(async (engine: Engine) => (engine === 'grok' ? row : null));
+    const write = vi.fn(async () => undefined);
+    await runAuthVerificationWorkerTick({
+      runnerValidation: { ...runnerValidation({ grok: row }), resolveCanonicalPayload },
+      authStore: { ensureServedVerification } as unknown as CanonicalAuthStoreService,
+      telemetry: { write },
+      ttlSeconds: 900,
+      reason: 'interval',
+      engines: ['codex', 'claude'],
+    });
+    expect(resolveCanonicalPayload.mock.calls.map((call) => (call as unknown[])[0])).not.toContain('grok');
+    expect(ensureServedVerification).not.toHaveBeenCalled();
+    expect(write).not.toHaveBeenCalledWith('grok', expect.anything(), expect.anything());
+  });
   it('live-verifies normalized Codex bytes even when the legacy row verdict is fresh', async () => {
     const checkedAt = new Date().toISOString();
     const row = canonicalRow('codex', 'verified', checkedAt);

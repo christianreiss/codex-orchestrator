@@ -153,6 +153,12 @@ func installPeer(ctx context.Context, cfg *config.Config, forceCronTick, minimal
 	// the peer was just installed or its engine CLI is missing. Cron forces the
 	// guarded peer tick so a single managed clx cron entry refreshes cdx and
 	// codex too.
+	// A fleet-suspended peer keeps its signed config and alias (persisted
+	// above) but gets no maintenance tick: no CLI install/update, no sync.
+	if peerCfg.EngineSuspended(peerEngine) {
+		logger.Info("peer engine suspended fleet-wide; skipping its maintenance tick", "engine", peerEngine)
+		return nil
+	}
 	if os.Getenv(coordinatedCronEnv) != "1" && shouldRunPeerCronTick(installed, peerEngineCLIPresent(), forceCronTick) {
 		if err := runPeerCronTick(ctx, minimal); err != nil {
 			logger.Warn("peer engine install tick failed", "engine", peerEngine, "err", err)

@@ -277,7 +277,7 @@ export function createClaudeModelsService(db: Database): ClaudeModelsService {
  */
 const CATALOG_CREATED_AT = Math.floor(Date.UTC(2026, 0, 1) / 1000);
 
-function modelObject(id: ClaudeModel): ClaudeModelObject {
+export function modelObject(id: ClaudeModel): ClaudeModelObject {
   const created = CATALOG_CREATED_AT;
   const meta = CLAUDE_MODEL_METADATA[id];
   return {

@@ -23,6 +23,7 @@ import { createWrapperSigningKeyService } from './wrapper-signing-key.js';
 import { parseEnginesInput } from './host-management.js';
 import { createSetupWizardService, type SetupWizardState } from './setup-wizard.js';
 import { ENGINE_CODEX, ENGINE_LABELS, type Engine } from '../util/engine.js';
+import { ALL_ENGINES_ENABLED, readFleetEngineState } from './engine-switch.js';
 
 export interface SetupCheck {
   id: string;
@@ -115,7 +116,12 @@ export class SetupStatusService {
     const ownerCreated = users.length > 0;
     const syncedHosts = hostRows.filter((row) => Boolean(row.codex || row.claude || row.grok)).length;
     const configuredEngines = parseEnginesInput(this.env.DEFAULT_HOST_ENGINES, [ENGINE_CODEX]);
-    const defaultEngines = wizard.engines && wizard.engines.length > 0 ? wizard.engines : configuredEngines;
+    const chosenEngines = wizard.engines && wizard.engines.length > 0 ? wizard.engines : configuredEngines;
+    // Engines switched off fleet-wide are neither offered as defaults nor
+    // reported as setup work still to do.
+    const fleet = await whenDb(() => readFleetEngineState(this.db), ALL_ENGINES_ENABLED);
+    const usableEngines = chosenEngines.filter((engine) => fleet[engine]);
+    const defaultEngines = usableEngines.length > 0 ? usableEngines : chosenEngines;
     const warnings: string[] = [];
     if (publicBaseUrl && requestOrigin && normalizeOrigin(requestOrigin) !== normalizeOrigin(publicBaseUrl)) {
       warnings.push(`Browser origin ${normalizeOrigin(requestOrigin)} differs from PUBLIC_BASE_URL ${normalizeOrigin(publicBaseUrl)}.`);
@@ -123,7 +129,7 @@ export class SetupStatusService {
     if (!ownerCreated) warnings.push('The first-owner claim is open. Do not expose this installation publicly until an owner is created.');
 
     const nextActions = [
-      ...defaultEngines.map((engine) => ({
+      ...defaultEngines.filter((engine) => fleet[engine]).map((engine) => ({
         id: `auth_${engine}`,
         complete: ({ codex: codexAuth, claude: claudeAuth, grok: grokAuth })[engine],
         label: `Seed canonical ${ENGINE_LABELS[engine]} authentication`,

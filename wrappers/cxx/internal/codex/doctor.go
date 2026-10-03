@@ -53,6 +53,12 @@ func Doctor(ctx context.Context, cfg *config.Config, w io.Writer, wrapperVersion
 	report.Rows = append(report.Rows, apiRow)
 	report.Rows = append(report.Rows, latRow)
 
+	// Engine: the fleet master switch. Only shown while it is off.
+	if row, hint, suspended := engineSuspensionRow(cfg, syncDetail); suspended {
+		report.Rows = append(report.Rows, row)
+		hints = append(hints, hint)
+	}
+
 	// Disk
 	report.Rows = append(report.Rows, checkDisk())
 
@@ -428,4 +434,19 @@ func themeFromConfig(cfg *config.Config) string {
 		return ""
 	}
 	return *cfg.EngineOptions.AdminThemeHint
+}
+
+// engineSuspensionRow reports the fleet engine master switch: the server's
+// live refusal when the auth probe was answered, otherwise the signed config.
+// A positive answer means the engine is back on, so a stale config is ignored.
+func engineSuspensionRow(cfg *config.Config, syncDetail string) (ui.DoctorRow, string, bool) {
+	status, answered := strings.CutPrefix(syncDetail, "auth=")
+	switch {
+	case answered && strings.EqualFold(strings.TrimSpace(status), orchestrator.AuthStatusSuspended):
+	case !answered && cfg.EngineSuspended(config.EngineCodex):
+	default:
+		return ui.DoctorRow{}, "", false
+	}
+	hint := config.FleetDisabledMessage(config.EngineCodex) + " Launches and maintenance are paused until it is switched back on; nothing on this host needs repair."
+	return ui.DoctorRow{Label: "Engine", Tone: ui.ToneFail, Value: "suspended (fleet)"}, hint, true
 }

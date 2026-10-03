@@ -60,6 +60,101 @@ type Host struct {
 	AgentMessagingEnabled bool     `json:"agent_messaging_enabled,omitempty"`
 	Engines               string   `json:"engines,omitempty"`
 	EnginesList           []string `json:"engines_list,omitempty"`
+	// FleetDisabledEngines names the engines an administrator has switched off
+	// fleet-wide. It is suspension, not removal: the engine stays in the host
+	// assignment (Engines/EnginesList, which EngineDrift compares), its alias
+	// and signed config stay on disk, and launches/maintenance pause until the
+	// switch is turned back on. Omitted when nothing is suspended.
+	FleetDisabledEngines []string `json:"fleet_disabled_engines,omitempty"`
+}
+
+// Engine-disabled refusal scopes carried by the orchestrator's 403
+// `engine_disabled` body. A body without a scope comes from a server older
+// than the fleet switch and always meant host-level removal.
+const (
+	EngineDisabledScopeFleet = "fleet"
+	EngineDisabledScopeHost  = "host"
+)
+
+// EngineSuspended reports whether the signed config says engine is switched
+// off fleet-wide. A nil config is never suspended.
+func (c *Config) EngineSuspended(engine string) bool {
+	if c == nil {
+		return false
+	}
+	return containsEngine(c.Host.FleetDisabledEngines, engine)
+}
+
+// SuspensionDrift reports whether two fleet-suspension lists name different
+// engine sets. Unknown names and blanks are ignored on both sides.
+func SuspensionDrift(local, remote []string) bool {
+	l, r := normalizeEngines(local), normalizeEngines(remote)
+	if len(l) != len(r) {
+		return true
+	}
+	for engine := range r {
+		if !l[engine] {
+			return true
+		}
+	}
+	return false
+}
+
+// EngineLabel is the human product name used in operator-facing refusals.
+func EngineLabel(engine string) string {
+	switch strings.ToLower(strings.TrimSpace(engine)) {
+	case EngineCodex:
+		return "Codex"
+	case EngineClaude:
+		return "Claude"
+	case EngineGrok:
+		return "Grok"
+	}
+	return "Engine"
+}
+
+// FleetDisabledMessage is the launch refusal for an engine switched off for
+// the whole fleet. Every persona prints exactly this text.
+func FleetDisabledMessage(engine string) string {
+	return EngineLabel(engine) + " is disabled fleet-wide by the administrator."
+}
+
+// HostDisabledMessage is the launch refusal for an engine removed from this
+// host's assignment.
+func HostDisabledMessage(engine string) string {
+	return EngineLabel(engine) + " is disabled for this host by the administrator."
+}
+
+// EngineDisabledMessage picks the refusal text for an engine_disabled scope.
+func EngineDisabledMessage(engine, scope string) string {
+	if strings.EqualFold(strings.TrimSpace(scope), EngineDisabledScopeFleet) {
+		return FleetDisabledMessage(engine)
+	}
+	return HostDisabledMessage(engine)
+}
+
+func containsEngine(list []string, engine string) bool {
+	engine = strings.ToLower(strings.TrimSpace(engine))
+	if engine == "" {
+		return false
+	}
+	for _, value := range list {
+		if strings.ToLower(strings.TrimSpace(value)) == engine {
+			return true
+		}
+	}
+	return false
+}
+
+func normalizeEngines(in []string) map[string]bool {
+	out := map[string]bool{}
+	for _, engine := range in {
+		engine = strings.ToLower(strings.TrimSpace(engine))
+		if engine == EngineCodex || engine == EngineClaude || engine == EngineGrok {
+			out[engine] = true
+		}
+	}
+	return out
 }
 
 type EngineOptions struct {
@@ -106,17 +201,7 @@ type Wrapper struct {
 // EngineDrift reports whether the server's engine set differs from the
 // locally baked one. An empty remote set (offline, old server) is never drift.
 func EngineDrift(local, remote []string) bool {
-	norm := func(in []string) map[string]bool {
-		out := map[string]bool{}
-		for _, engine := range in {
-			engine = strings.ToLower(strings.TrimSpace(engine))
-			if engine == EngineCodex || engine == EngineClaude || engine == EngineGrok {
-				out[engine] = true
-			}
-		}
-		return out
-	}
-	l, r := norm(local), norm(remote)
+	l, r := normalizeEngines(local), normalizeEngines(remote)
 	if len(r) == 0 {
 		return false
 	}

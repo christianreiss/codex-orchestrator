@@ -29,6 +29,7 @@
   import { relativeTime } from "$lib/utils/format";
   import { cn } from "$lib/utils/cn";
   import { engineLabel } from "$lib/constants/engines";
+  import { useFleetEngines } from "$lib/engines/fleet-engines";
   import type { AuthEngine } from "$lib/api/auth";
   import type { HostDetail, InstallerInfo } from "$lib/api/types";
 
@@ -56,6 +57,7 @@
   );
   const setup = setupStatusQuery();
   const mint = createMintInstallerMutation(qc);
+  const fleet = useFleetEngines();
 
   let reminted = $state<InstallerInfo | null>(null);
   let seedOpen = $state(false);
@@ -80,12 +82,16 @@
   const canRemint = $derived(!synced && (Boolean(usedAt) || expired));
 
   const engines = $derived(host ? hostEngines(host) : requestedEngines);
+  /** Assigned engines that are switched off fleet-wide: nothing to seed or wait for. */
+  const offEngines = $derived(engines.filter((engine) => !$fleet.isEnabled(engine)));
   const missingAuth = $derived.by((): AuthEngine[] => {
     const canonical = $setup.data?.canonical_auth;
     if (!canonical) return [];
     return engines.filter(
       (engine): engine is AuthEngine =>
-        (engine === "codex" || engine === "claude" || engine === "grok") && !canonical[engine],
+        (engine === "codex" || engine === "claude" || engine === "grok") &&
+        !canonical[engine] &&
+        $fleet.isEnabled(engine),
     );
   });
 
@@ -193,6 +199,14 @@
       Checking every few seconds while this is open.
     {/if}
   </p>
+
+  {#if offEngines.length > 0}
+    <p class="text-xs text-muted-foreground">
+      {offEngines.map(engineLabel).join(" and ")}
+      {offEngines.length === 1 ? "is" : "are"} disabled fleet-wide, so this host will not run
+      {offEngines.length === 1 ? "it" : "them"} until {offEngines.length === 1 ? "it is" : "they are"} turned back on under Engines.
+    </p>
+  {/if}
 
   {#if missingAuth.length > 0 || canRemint}
     <div class="flex flex-wrap gap-2">

@@ -25,15 +25,12 @@
  */
 import { ApiError } from '../../http/errors.js';
 import type { Env } from '../../env.js';
-import { ENGINE_CLAUDE } from '../../util/engine.js';
+import { ENGINE_CLAUDE, ENGINE_CODEX, ENGINE_GROK, ENGINE_LABELS, type Engine } from '../../util/engine.js';
 import {
   assertControlsSupported,
   capabilitiesFor,
   stopReasonFor,
 } from '../transport-capabilities.js';
-
-/** One transport, one engine: the runner's CLI shell-out for Claude. */
-const CAPABILITIES = capabilitiesFor('runner-cli', ENGINE_CLAUDE);
 import { runnerExecUrl } from './runner-openai.js';
 
 export interface ClaudeMessage {
@@ -94,6 +91,11 @@ export interface RunnerClaudeAdapter {
 export interface RunnerClaudeAdapterDeps {
   env: Env;
   /**
+   * Backend engine that executes the Anthropic-shaped request; Claude unless
+   * the `/anthropic/v1` surface is routed elsewhere (see `api-surfaces.ts`).
+   */
+  engine?: Engine;
+  /**
    * Provider of the current canonical Claude auth snapshot (auth.json
    * contents). Returns null when no credentials are available — the call
    * fails with a 503-class error in that case.
@@ -110,7 +112,10 @@ export interface RunnerClaudeAdapterDeps {
 }
 
 export function createRunnerClaudeAdapter(deps: RunnerClaudeAdapterDeps): RunnerClaudeAdapter | null {
-  const url = deps.env.AUTH_RUNNER_URL?.trim();
+  const engine = deps.engine ?? ENGINE_CLAUDE;
+  /** One transport, one engine: the runner's CLI shell-out for the backend. */
+  const capabilities = capabilitiesFor('runner-cli', engine);
+  const url = (deps.env.AUTH_RUNNER_URL ?? (engine === ENGINE_CODEX ? deps.env.AUTH_RUNNER_CODEX_BASE_URL : undefined))?.trim();
   const secret = deps.env.AUTH_RUNNER_SHARED_SECRET?.trim();
   if (!url) return null;
   // Any AUTH_RUNNER_URL form — the bare base, the `/verify` endpoint it usually
@@ -122,45 +127,61 @@ export function createRunnerClaudeAdapter(deps: RunnerClaudeAdapterDeps): Runner
 
   return {
     async messages(messages, model, params) {
-      const { prompt, images } = buildPromptPayload(messages);
+      // Codex has nowhere to put a system instruction: fold it into the
+      // transcript as a leading `system:` line, exactly how a system turn
+      // reaches Codex through `/v1`. Grok cannot accept `max_tokens`, which
+      // the Anthropic wire requires on every request — it stays the
+      // accepted-unenforceable control it is everywhere else and is not sent.
+      let system = params.system;
+      const transcript =
+        system !== undefined && system !== null && system !== '' && capabilities.controls.system === 'unsupported'
+          ? [{ role: 'system' as const, content: system }, ...messages]
+          : messages;
+      if (transcript !== messages) system = undefined;
+      const maxTokens = capabilities.controls.max_tokens === 'unsupported' ? undefined : params.max_tokens;
+      const { prompt, images } = buildPromptPayload(transcript);
 
-      const auth = await getAuth();
-      if (auth === null || auth === undefined) {
-        throw new ApiError(
-          'No auth credentials available. Upload Claude auth first.',
-          { status: 503, code: 'backend_unavailable', type: 'api_error' },
-        );
+      if (engine === ENGINE_GROK && images.length > 0) {
+        throw new ApiError('Image inputs are not supported by the Grok CLI transport', {
+          status: 400, code: 'unsupported_generation_control', type: 'invalid_request_error', param: 'images',
+        });
       }
 
-      // Refuse before dispatch: the Claude CLI has no flags for the sampling
+      // Refuse before dispatch: the CLIs have no flags for the sampling
       // controls, so forwarding them silently dropped the caller's
       // instructions. `max_tokens` and `system` are the two this transport can
       // legitimately carry — see `transport-capabilities.ts` for why
       // `max_tokens` is accepted but never claimed as enforced.
       assertControlsSupported(
         {
-          max_tokens: params.max_tokens,
+          max_tokens: maxTokens,
           temperature: params.temperature,
           top_p: params.top_p,
           top_k: params.top_k,
           stop_sequences: params.stop_sequences,
-          system: params.system,
+          system,
         },
-        CAPABILITIES,
+        capabilities,
       );
+
+      const auth = await getAuth();
+      if (auth === null || auth === undefined) {
+        throw new ApiError(
+          `No auth credentials available. Upload ${ENGINE_LABELS[engine]} auth first.`,
+          { status: 503, code: 'backend_unavailable', type: 'api_error' },
+        );
+      }
 
       const payload: Record<string, unknown> = {
         auth_json: auth,
         prompt,
         images,
         model,
-        engine: ENGINE_CLAUDE,
+        engine,
         timeout_seconds: timeoutSeconds,
       };
-      for (const k of ['max_tokens', 'system'] as const) {
-        const v = params[k];
-        if (v !== undefined && v !== null) payload[k] = v;
-      }
+      if (maxTokens !== undefined && maxTokens !== null) payload.max_tokens = maxTokens;
+      if (system !== undefined && system !== null) payload.system = system;
 
       const headers: Record<string, string> = { 'content-type': 'application/json' };
       if (secret) headers['x-runner-auth'] = secret;
@@ -223,7 +244,7 @@ export function createRunnerClaudeAdapter(deps: RunnerClaudeAdapterDeps): Runner
       deps.onExecSuccess?.(auth);
 
       const output = typeof obj.output === 'string' ? obj.output : '';
-      const usage = extractUsage(obj);
+      const usage = extractUsage(obj, engine);
 
       return {
         id: 'msg_' + randomHex16(),
@@ -231,7 +252,7 @@ export function createRunnerClaudeAdapter(deps: RunnerClaudeAdapterDeps): Runner
         role: 'assistant',
         content: [{ type: 'text', text: output }],
         model,
-        stop_reason: stopReasonFor(CAPABILITIES, stringOrUndefined(obj.stop_reason)),
+        stop_reason: stopReasonFor(capabilities, anthropicStopReason(obj)),
         stop_sequence: null,
         usage,
       };
@@ -243,19 +264,43 @@ function stringOrUndefined(v: unknown): string | undefined {
   return typeof v === 'string' && v.length > 0 ? v : undefined;
 }
 
-function extractUsage(obj: Record<string, unknown>): ClaudeUsage {
+function extractUsage(obj: Record<string, unknown>, engine: Engine): ClaudeUsage {
   const num = (k: string): number => {
     const v = obj[k];
     if (typeof v === 'number' && Number.isFinite(v)) return v;
     if (typeof v === 'string' && v.trim() !== '' && Number.isFinite(Number(v))) return Number(v);
     return 0;
   };
-  return {
+  const usage = {
     input_tokens: num('input_tokens'),
     output_tokens: num('output_tokens'),
     cache_creation_input_tokens: num('cache_creation_input_tokens'),
     cache_read_input_tokens: num('cache_read_input_tokens'),
   };
+  if (engine === ENGINE_GROK) {
+    // Unknown Grok usage is reported as zeros — this wire has no null usage.
+    if (obj.usage_known !== true) {
+      return { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 };
+    }
+    // The runner folds both cache buckets into `input_tokens` (OpenAI's
+    // convention); Anthropic counts them separately.
+    usage.input_tokens = Math.max(0, usage.input_tokens - usage.cache_read_input_tokens - usage.cache_creation_input_tokens);
+  }
+  return usage;
+}
+
+/** OpenAI finish reasons a runner may report, in Anthropic's vocabulary. */
+const ANTHROPIC_STOP_REASONS: Record<string, string> = {
+  stop: 'end_turn',
+  length: 'max_tokens',
+  content_filter: 'refusal',
+};
+
+function anthropicStopReason(obj: Record<string, unknown>): string | undefined {
+  const native = stringOrUndefined(obj.stop_reason) ?? stringOrUndefined(obj.native_stop_reason);
+  if (native) return native;
+  const finish = stringOrUndefined(obj.finish_reason);
+  return finish ? ANTHROPIC_STOP_REASONS[finish] ?? finish : undefined;
 }
 
 function randomHex16(): string {

@@ -57,7 +57,7 @@ import { AgentPolicyProfilesService } from '../../../services/agent-policy-profi
 import { normalizeSecurityLevels, securityLevelCatalog } from '../../../services/agent-security-levels.js';
 import { normalizeResponseVerbosityLevel } from '../../../services/agent-response-style.js';
 import { HostAgentsService } from '../../../services/host-agents.js';
-import { assertHostEngineEnabled } from '../../../services/host-engine-policy.js';
+import { assertHostEngineAssigned } from '../../../services/host-engine-policy.js';
 import { ClientConfigService } from '../../../services/client-config.js';
 import { MemoriesService } from '../../../services/memories.js';
 import { SharedMemoriesService } from '../../../services/shared-memories.js';
@@ -199,7 +199,9 @@ export async function registerAdminConfigRoutes(app: FastifyInstance, ctx: Route
       const rows = await db.select().from(hosts).where(eq(hosts.id, hostId)).limit(1);
       const host = rows[0];
       if (!host) throw new NotFoundError('Host not found');
-      assertHostEngineEnabled(host, engine);
+      // A preview of what the host would receive. Config editing stays
+      // available while an engine is switched off fleet-wide.
+      assertHostEngineAssigned(host, engine);
 
       return {
         ...(await hostAgents.renderCurrent(host, engine)),
@@ -244,7 +246,9 @@ export async function registerAdminConfigRoutes(app: FastifyInstance, ctx: Route
       const rows = await db.select().from(hosts).where(eq(hosts.id, hostId)).limit(1);
       const host = rows[0];
       if (!host) throw new NotFoundError('Host not found');
-      assertHostEngineEnabled(host, engine);
+      // A preview of what the host would receive. Config editing stays
+      // available while an engine is switched off fleet-wide.
+      assertHostEngineAssigned(host, engine);
       // A composed draft knows which module produced which section; raw content
       // does not, and is left to the renderer to describe as one legacy block.
       // The draft is composed at the fleet's generation mode, so the preview

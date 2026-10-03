@@ -83,13 +83,18 @@ func TestFetchRequiresExplicitEngineDisabledCode(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, tt := range []struct {
-		name string
-		body string
-		want bool
+		name      string
+		body      string
+		want      bool
+		suspended bool
 	}{
 		{name: "authoritative", body: `{"code":"engine_disabled"}`, want: true},
 		{name: "nested authoritative", body: `{"error":{"code":"engine_disabled"}}`, want: true},
 		{name: "generic forbidden", body: `{"code":"forbidden"}`, want: false},
+		{name: "host scope is removal", body: `{"status":"error","code":"engine_disabled","scope":"host","engine":"claude"}`, want: true},
+		// The config endpoint answers suspension with a 200 config; a fleet
+		// scoped 403 here must never be mistaken for removal.
+		{name: "fleet scope is not removal", body: `{"status":"error","code":"engine_disabled","scope":"fleet","engine":"claude"}`, want: false, suspended: true},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -102,6 +107,9 @@ func TestFetchRequiresExplicitEngineDisabledCode(t *testing.T) {
 			_, err := fetchWithKey(context.Background(), seed, config.EngineClaude, pub)
 			if errors.Is(err, ErrEngineDisabled) != tt.want {
 				t.Fatalf("error=%v want disabled=%v", err, tt.want)
+			}
+			if errors.Is(err, ErrEngineSuspended) != tt.suspended {
+				t.Fatalf("error=%v want suspended=%v", err, tt.suspended)
 			}
 		})
 	}

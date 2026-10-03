@@ -22,6 +22,8 @@
   import InputDialog from "$lib/components/hosts/InputDialog.svelte";
   import InsecureWindowPopover from "$lib/components/hosts/InsecureWindowPopover.svelte";
   import ToggleRow from "$lib/components/hosts/ToggleRow.svelte";
+  import { useFleetEngines, FLEET_DISABLED_TAG } from "$lib/engines/fleet-engines";
+  import { ENGINE_META } from "$lib/constants/engines";
   import OverridePopover from "$lib/components/hosts/OverridePopover.svelte";
   import { CopyButton } from "$lib/components/ui/copy-button";
   import ArrowLeft from "@lucide/svelte/icons/arrow-left";
@@ -101,6 +103,9 @@
   const hostEnginesMutation = createHostEnginesMutation(qc);
   const insecureEnable = createEnableInsecureMutation(qc);
   const insecureDisable = createDisableInsecureMutation(qc);
+  // Fleet engine master switches: an engine switched off fleet-wide cannot be
+  // added to a host, but an assigned one can still be removed.
+  const fleet = useFleetEngines();
 
   const host = $derived($detail.data?.host);
   const overview = $derived($detail.data?.overview);
@@ -238,6 +243,14 @@
     if (isInsecureWindowActive(host)) {
       items.push({ tone: "info", text: `Insecure window open until ${host.insecure_enabled_until}.` });
     }
+    for (const engine of $fleet.disabled) {
+      if (!hostEngines(host).includes(engine)) continue;
+      const meta = ENGINE_META[engine];
+      items.push({
+        tone: "info",
+        text: `${meta.label} is disabled fleet-wide: this host refuses to launch ${meta.command} and stops syncing it until it is turned back on under Engines. The assignment and credentials are kept.`,
+      });
+    }
     return items;
   });
 
@@ -246,9 +259,15 @@
   const claudeEngine = $derived(host ? hostEngines(host).includes("claude") : false);
   const grokEngine = $derived(host ? hostEngines(host).includes("grok") : false);
   const engineList = $derived<HostEngine[]>(host ? (hostEngines(host) as HostEngine[]) : []);
-  const codexSwitchDisabled = $derived($hostEnginesMutation.isPending || (codexEngine && engineList.length <= 1));
-  const claudeSwitchDisabled = $derived($hostEnginesMutation.isPending || (claudeEngine && engineList.length <= 1));
-  const grokSwitchDisabled = $derived($hostEnginesMutation.isPending || (grokEngine && engineList.length <= 1));
+  const codexSwitchDisabled = $derived(
+    $hostEnginesMutation.isPending || (codexEngine && engineList.length <= 1) || (!codexEngine && !$fleet.isEnabled("codex")),
+  );
+  const claudeSwitchDisabled = $derived(
+    $hostEnginesMutation.isPending || (claudeEngine && engineList.length <= 1) || (!claudeEngine && !$fleet.isEnabled("claude")),
+  );
+  const grokSwitchDisabled = $derived(
+    $hostEnginesMutation.isPending || (grokEngine && engineList.length <= 1) || (!grokEngine && !$fleet.isEnabled("grok")),
+  );
   const grokModel = $derived(host?.grok_model_override ?? $grokDefaults.data?.model ?? "grok-4.7");
   const grokEfforts = $derived(
     ($grokDefaults.data?.catalog.find(model => model.model === grokModel)?.persistent_efforts
@@ -383,7 +402,7 @@
         <StatusPill tone="muted" label="Insecure (closed)" />
       {/if}
       {#each hostEngines(host) as engine}
-        <EngineBadge {engine} />
+        <EngineBadge {engine} fleetDisabled={!$fleet.isEnabled(engine)} />
       {/each}
     </div>
 
@@ -450,18 +469,21 @@
             label="Codex engine"
             checked={codexEngine}
             disabled={codexSwitchDisabled}
+            note={$fleet.isEnabled("codex") ? undefined : FLEET_DISABLED_TAG}
             onchange={(v) => setHostEngine("codex", v)}
           />
           <ToggleRow
             label="Claude engine"
             checked={claudeEngine}
             disabled={claudeSwitchDisabled}
+            note={$fleet.isEnabled("claude") ? undefined : FLEET_DISABLED_TAG}
             onchange={(v) => setHostEngine("claude", v)}
           />
           <ToggleRow
             label="Grok engine"
             checked={grokEngine}
             disabled={grokSwitchDisabled}
+            note={$fleet.isEnabled("grok") ? undefined : FLEET_DISABLED_TAG}
             onchange={(v) => setHostEngine("grok", v)}
           />
         </div>

@@ -519,6 +519,26 @@ host/engine identity while allowing per-config wrapper metadata to differ during
 rolling refresh. Each enabled engine tick runs once, Codex then Claude, without
 recursive peer cron. A failed engine tick does not prevent the other tick.
 
+## Fleet engine suspension (cxx 0.9.16)
+
+An engine switched off fleet-wide (Admin → Engines → Engine master switches; server contract in
+[interface-api.md → Engine master switches](interface-api.md#engine-master-switches)) is
+*suspended*, never removed:
+
+- `/auth` answers `403 engine_disabled` with `scope:"fleet"`; the wrapper refuses to launch with
+  `Codex is disabled fleet-wide by the administrator.` (exit non-zero) and never falls back to
+  cached credentials for it. A host-level removal (`scope:"host"`, or no scope from an older
+  server) keeps its old handling and says `Codex is disabled for this host by the administrator.`
+- The signed config still arrives (200) with `host.fleet_disabled_engines`; the coordinator keeps
+  the config and the `cdx` alias, skips this engine's maintenance tick (no CLI update, no managed
+  sync, no peer install) and runs no receiver or relay for it. Local credentials and the installed
+  CLI are left alone, so sessions already running run out on their own.
+- With the server unreachable, a locally suspended config refuses with the fleet message. When
+  `/auth` answers 200 again (switched back on), the launch proceeds and requests immediate
+  maintenance so the coordinator re-bakes the config instead of waiting for the 15-minute tick.
+- `status` / `doctor` report `suspended (fleet)`.
+
+
 ## Background maintenance
 
 From cxx 0.8.2, normal `cdx`/`clx` launches use the installed engine and only queue
@@ -685,6 +705,7 @@ participate in these leases and is the explicit coordination boundary.
 - `CODEX_WRAPPER_RESTART_DEPTH` above 2 after self-update re-execs → `restart depth N exceeded cap 2 - refusing to continue`; exit 70.
 - Lock held by another PID with invalid local auth → "Active cdx run detected and local auth.json is invalid or absent."; exit 1.
 - `versions.api_disabled=true` → "Auth API disabled by administrator."; exit 1.
+- `/auth` `403 engine_disabled` → "Codex is disabled fleet-wide by the administrator." (`scope:"fleet"`) or "Codex is disabled for this host by the administrator." (host scope); exit 1. See [Fleet engine suspension](#fleet-engine-suspension-cxx-0916).
 - API kill-switch (`versions.api_disabled=true`) blocks startup before auth/config writes.
 - `installation_id` mismatch → "Installation ID mismatch; refusing to sync."; exit 1.
 - Reverse DNS mismatches are reported from `/auth` as a host/IP policy denial so operators can fix DNS instead of rotating credentials.

@@ -31,10 +31,7 @@ import {
   createClaudeKillSwitch,
   type ClaudeKillSwitch,
 } from '../../services/claude-kill-switch.js';
-import {
-  createClaudeModelsService,
-  type ClaudeModelsService,
-} from '../../services/claude-models.js';
+import type { ClaudeModelsService } from '../../services/claude-models.js';
 import {
   createRunnerClaudeAdapter,
   type RunnerClaudeAdapter,
@@ -51,15 +48,32 @@ import {
   validateMessageSequence,
 } from '../../services/anthropic-compat.js';
 import { messageStreamEvents, writeSseResponse } from '../../http/stream/anthropic-sse.js';
-import { createRunnerValidationService } from '../../services/runner-validation.js';
-import { createAuthTrafficVerifier } from '../../services/auth-traffic-verification.js';
-import { ENGINE_CLAUDE } from '../../util/engine.js';
+import { API_SURFACES } from '../../services/api-surfaces.js';
+import {
+  anthropicModelObject,
+  assertBackendRequestControls,
+  assertSurfaceBackendEnabled,
+  defaultGatewayWiring,
+  resolveGenerationModel,
+  type GatewayBackend,
+  type GatewayWiring,
+} from '../../services/gateway-backends.js';
+import type { Engine } from '../../util/engine.js';
+
+/** The surface's model operations, in the Anthropic Models API shape. */
+interface AnthropicModels {
+  resolveRequestedModel(value: unknown): Promise<string>;
+  modelsResponse(): Promise<unknown>;
+  modelResponse(value: unknown): Promise<unknown>;
+}
 
 interface AnthropicRouteDeps {
   keyResolver: ClaudeKeyResolver;
   killSwitch: ClaudeKillSwitch;
-  models: ClaudeModelsService;
-  adapter: RunnerClaudeAdapter | null;
+  /** The backend this request runs on right now, with its adapter and models. */
+  backend(): Promise<{ backend: GatewayBackend; adapter: RunnerClaudeAdapter | null; models: AnthropicModels }>;
+  /** Throws 503 when that backend engine is switched off fleet-wide. */
+  backendEnabled(): Promise<void>;
 }
 
 export interface RegisterAnthropicCompatOptions {
@@ -73,7 +87,11 @@ export interface RegisterAnthropicCompatOptions {
   killSwitch?: ClaudeKillSwitch;
   /** Test override for the models service. */
   models?: ClaudeModelsService;
+  /** Shared backends + routing; built per registration when absent. */
+  gateway?: GatewayWiring;
 }
+
+const SURFACE = API_SURFACES.anthropic;
 
 export async function registerAnthropicCompatRoutes(
   app: FastifyInstance,
@@ -82,28 +100,66 @@ export async function registerAnthropicCompatRoutes(
 ): Promise<void> {
   const keyResolver = options.keyResolver ?? createClaudeKeyResolver(ctx.db);
   const killSwitch = options.killSwitch ?? createClaudeKillSwitch(ctx.db);
-  const models = options.models ?? createClaudeModelsService(ctx.db);
-  const runnerValidation = createRunnerValidationService({ db: ctx.db, keyring: ctx.keyring });
-  // Successful gateway execs prove the canonical credential live; the traffic
-  // verifier touches its verification stamp so background probes stay idle
-  // while real traffic flows. Test overrides of getAuthSnapshot/adapter leave
-  // the touch a no-op (their snapshots have no recorded canonical row).
-  const traffic = createAuthTrafficVerifier({
-    db: ctx.db,
-    runnerValidation,
-    engine: ENGINE_CLAUDE,
-    log: app.log,
-  });
-  const adapter =
-    options.adapter !== undefined
-      ? options.adapter
-      : createRunnerClaudeAdapter({
-          env: ctx.env,
-          getAuthSnapshot: options.getAuthSnapshot ?? traffic.getAuthSnapshot,
-          onExecSuccess: traffic.recordExecSuccess,
-        });
+  const gateway = options.gateway ?? defaultGatewayWiring(ctx, app.log);
+  const identity = SURFACE.identityBackend;
+  const adapters = new Map<Engine, RunnerClaudeAdapter | null>();
 
-  const deps: AnthropicRouteDeps = { keyResolver, killSwitch, models, adapter };
+  const adapterFor = (backend: GatewayBackend): RunnerClaudeAdapter | null => {
+    if (backend.engine === identity && options.adapter !== undefined) return options.adapter;
+    if (!adapters.has(backend.engine)) {
+      // Successful gateway execs prove the canonical credential live; the
+      // backend's traffic verifier touches its verification stamp so
+      // background probes stay idle while real traffic flows. Test overrides
+      // of getAuthSnapshot leave the touch a no-op (their snapshots have no
+      // recorded canonical row).
+      adapters.set(backend.engine, createRunnerClaudeAdapter({
+        env: ctx.env,
+        engine: backend.engine,
+        getAuthSnapshot: (backend.engine === identity ? options.getAuthSnapshot : undefined) ?? backend.authSnapshot,
+        onExecSuccess: backend.onExecSuccess,
+      }));
+    }
+    return adapters.get(backend.engine) ?? null;
+  };
+
+  const modelsFor = (backend: GatewayBackend): AnthropicModels => {
+    if (backend.engine === identity && options.models) return options.models;
+    return {
+      resolveRequestedModel: (value) => resolveGenerationModel(backend, identity, value).catch(asAnthropicNotFound),
+      async modelsResponse() {
+        const data = (await backend.models.catalog()).map(anthropicModelObject);
+        return {
+          data,
+          has_more: false,
+          first_id: data[0]?.id ?? null,
+          last_id: data[data.length - 1]?.id ?? null,
+          object: 'list',
+        };
+      },
+      async modelResponse(value) {
+        // A lookup has no default and no cross-wire fallback: strict 404.
+        if (typeof value !== 'string' || value.trim() === '') {
+          throw new ApiError('Model not found', {
+            status: 404,
+            code: 'model_not_found',
+            type: 'not_found_error',
+            param: 'model_id',
+          });
+        }
+        return anthropicModelObject(backend.models.info(await backend.models.resolve(value).catch(asAnthropicNotFound)));
+      },
+    };
+  };
+
+  const deps: AnthropicRouteDeps = {
+    keyResolver,
+    killSwitch,
+    async backend() {
+      const backend = gateway.backends.get(await gateway.routing.backendFor(SURFACE.id));
+      return { backend, adapter: adapterFor(backend), models: modelsFor(backend) };
+    },
+    backendEnabled: () => assertSurfaceBackendEnabled(ctx.db, gateway.routing, SURFACE.id),
+  };
 
   // OPTIONS preflight — CORS plugin handles headers; we just need a 204.
   app.route({
@@ -126,6 +182,7 @@ export async function registerAnthropicCompatRoutes(
       versionHeaderHook(),
     ],
     handler: async (req, reply) => {
+      const { backend, adapter, models } = await deps.backend();
       const payload = (req.body ?? {}) as Record<string, unknown>;
       let messages = normalizeChatMessages(payload.messages);
       if (!messages) {
@@ -142,6 +199,7 @@ export async function registerAnthropicCompatRoutes(
           { status: 400, code: 'tools_not_supported', type: 'invalid_request_error', param: 'tools' },
         );
       }
+      assertBackendRequestControls(backend.engine, { stream: payload.stream });
       const model = await models.resolveRequestedModel(payload.model);
       const params = extractParams(payload, { requireMaxTokens: true });
 
@@ -158,8 +216,8 @@ export async function registerAnthropicCompatRoutes(
       // Upstream combines consecutive same-role turns into a single turn.
       messages = mergeConsecutiveSameRole(messages);
 
-      ensureAdapter(deps);
-      const result = await deps.adapter!.messages(messages, model, params);
+      ensureAdapter(adapter);
+      const result = await adapter.messages(messages, model, params);
 
       if (payload.stream === true) {
         await writeSseResponse(reply, messageStreamEvents(result));
@@ -182,6 +240,7 @@ export async function registerAnthropicCompatRoutes(
       versionHeaderHook(),
     ],
     handler: async (req) => {
+      const { models } = await deps.backend();
       const payload = (req.body ?? {}) as Record<string, unknown>;
       const messages = normalizeChatMessages(payload.messages);
       if (!messages) {
@@ -208,6 +267,7 @@ export async function registerAnthropicCompatRoutes(
     versionHeaderHook(),
   ];
   const completionsHandler = async (req: FastifyRequest, reply: FastifyReply) => {
+    const { backend, adapter, models } = await deps.backend();
     const payload = (req.body ?? {}) as Record<string, unknown>;
     const prompt = typeof payload.prompt === 'string' ? payload.prompt : '';
     if (!prompt.trim()) {
@@ -218,10 +278,11 @@ export async function registerAnthropicCompatRoutes(
         param: 'prompt',
       });
     }
+    assertBackendRequestControls(backend.engine, { stream: payload.stream });
     const model = await models.resolveRequestedModel(payload.model);
     const params = extractParams(payload);
-    ensureAdapter(deps);
-    const result = await deps.adapter!.messages(
+    ensureAdapter(adapter);
+    const result = await adapter.messages(
       [{ role: 'user', content: prompt }],
       model,
       params,
@@ -280,6 +341,7 @@ export async function registerAnthropicCompatRoutes(
       versionHeaderHook(),
     ],
     handler: async () => {
+      const { models } = await deps.backend();
       return models.modelsResponse();
     },
   });
@@ -295,6 +357,7 @@ export async function registerAnthropicCompatRoutes(
       versionHeaderHook(),
     ],
     handler: async (req) => {
+      const { models } = await deps.backend();
       const { model_id: modelId } = req.params as { model_id?: string };
       return models.modelResponse(modelId ?? '');
     },
@@ -312,6 +375,7 @@ export async function registerAnthropicCompatRoutes(
       versionHeaderHook(),
     ],
     handler: async (req) => {
+      const { adapter, models } = await deps.backend();
       const payload = (req.body ?? {}) as Record<string, unknown>;
       if (payload.stream === true) {
         throw new ApiError(
@@ -334,8 +398,8 @@ export async function registerAnthropicCompatRoutes(
       }
       const model = await models.resolveRequestedModel(payload.model);
       const params = extractParams(payload);
-      ensureAdapter(deps);
-      const result = await deps.adapter!.messages(messages, model, params);
+      ensureAdapter(adapter);
+      const result = await adapter.messages(messages, model, params);
       return responseFromMessage(result);
     },
   });
@@ -363,6 +427,7 @@ export async function registerAnthropicCompatRoutes(
 function killSwitchHook(deps: AnthropicRouteDeps) {
   return async function checkKillSwitch(_req: FastifyRequest) {
     await deps.killSwitch.ensureEnabled();
+    await deps.backendEnabled();
   };
 }
 
@@ -389,8 +454,16 @@ function versionHeaderHook() {
   };
 }
 
-function ensureAdapter(deps: AnthropicRouteDeps): void {
-  if (!deps.adapter) {
+/** Another backend's unknown-model 404 in Anthropic's spelling (`not_found_error`). */
+function asAnthropicNotFound(err: unknown): never {
+  if (err instanceof ApiError && err.status === 404) {
+    throw new ApiError(err.message, { status: 404, code: err.code, type: 'not_found_error', param: err.param ?? 'model' });
+  }
+  throw err;
+}
+
+function ensureAdapter(adapter: RunnerClaudeAdapter | null): asserts adapter is RunnerClaudeAdapter {
+  if (!adapter) {
     throw new ApiError(
       'Anthropic API backend is not configured. Ensure the runner is available.',
       { status: 503, code: 'backend_unavailable', type: 'api_error' },

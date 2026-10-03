@@ -22,7 +22,8 @@ import {
 import { isLegacyShellWrapperVersion } from '../../services/wrapper-transition.js';
 import { createWrapperBinRegistry } from '../../services/wrapper-bin-registry.js';
 import { projectWrapperVersionSnapshot } from '../../services/wrapper-version-projection.js';
-import { assertHostEngineEnabled } from '../../services/host-engine-policy.js';
+import { assertHostEngineEnabled, type FleetEngineState } from '../../services/host-engine-policy.js';
+import { readFleetEngineState } from '../../services/engine-switch.js';
 
 /**
  * Registers /host/users, /host/lane (GET+POST), /versions, /cron/check,
@@ -70,7 +71,7 @@ export async function registerHostRoutes(app: FastifyInstance, ctx: RouteContext
   // GET /host/lane — current lane preference + effective lane.
   app.get('/host/lane', async (req) => {
     const host0 = await hostAuth.authenticate(req);
-    assertCodexLaneRequest(req, host0);
+    assertCodexLaneRequest(req, host0, await readFleetEngineState(ctx.db));
     const host = host0.secure === 1 ? host0 : await insecure.enforce(host0, 'host_lane_get', req.clientIp);
     const lanePreference = normalizeLane(host.lanePreference);
     return {
@@ -84,7 +85,7 @@ export async function registerHostRoutes(app: FastifyInstance, ctx: RouteContext
   // POST /host/lane — set lane preference.
   app.post('/host/lane', async (req) => {
     const host0 = await hostAuth.authenticate(req);
-    assertCodexLaneRequest(req, host0);
+    assertCodexLaneRequest(req, host0, await readFleetEngineState(ctx.db));
     const host = host0.secure === 1 ? host0 : await insecure.enforce(host0, 'host_lane_set', req.clientIp);
     const body = (req.body && typeof req.body === 'object' ? req.body : null) as Record<string, unknown> | null;
     if (!body || !('lane' in body)) throw new ValidationError('lane is required (set null to clear)', { param: 'lane' });
@@ -125,7 +126,7 @@ export async function registerHostRoutes(app: FastifyInstance, ctx: RouteContext
     const host = await hostAuth.authenticate(req);
     const body = (req.body && typeof req.body === 'object' ? req.body : {}) as Record<string, unknown>;
     const engine = resolveRequestEngine(req, body, { legacyUserAgentInference: true, fallback: ENGINE_CODEX });
-    assertHostEngineEnabled(host, engine);
+    assertHostEngineEnabled(host, engine, await readFleetEngineState(ctx.db));
     const submittedClient = typeof body.client_version === 'string' ? body.client_version : null;
     const submittedWrapper = typeof body.wrapper_version === 'string' ? body.wrapper_version : null;
     // A wrapper re-resolving its engine target on the way out of an interactive
@@ -224,7 +225,7 @@ export async function registerHostRoutes(app: FastifyInstance, ctx: RouteContext
       throw new ValidationError('client_version or wrapper_version is required');
     }
     const engine = resolveRequestEngine(req, body, { legacyUserAgentInference: true, fallback: ENGINE_CODEX });
-    assertHostEngineEnabled(host, engine);
+    assertHostEngineEnabled(host, engine, await readFleetEngineState(ctx.db));
     const fields = ENGINE_HOST_FIELDS[engine];
     const patch = {
       ...(clientVersion ? { [fields.clientVersion]: clientVersion } : {}),
@@ -247,13 +248,13 @@ export async function registerHostRoutes(app: FastifyInstance, ctx: RouteContext
   // there to avoid Fastify duplicate-route errors at boot.
 }
 
-function assertCodexLaneRequest(req: FastifyRequest, host: Host): void {
+function assertCodexLaneRequest(req: FastifyRequest, host: Host, fleet: FleetEngineState): void {
   const body = req.body && typeof req.body === 'object' ? req.body as Record<string, unknown> : undefined;
   const engine = resolveRequestEngine(req, body, { legacyUserAgentInference: true, fallback: ENGINE_CODEX });
   if (engine !== ENGINE_CODEX) {
     throw new ValidationError('Quota lanes are supported only for engine "codex"', { param: 'engine' });
   }
-  assertHostEngineEnabled(host, engine);
+  assertHostEngineEnabled(host, engine, fleet);
 }
 
 function headerString(value: string | string[] | undefined): string | undefined {

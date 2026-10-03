@@ -32,7 +32,7 @@ import {
 import { publishHostEvent } from '../../services/ws-bridge.js';
 import { withSpan } from '../../observability/tracing.js';
 import {
-  assertHostEngineEnabled,
+  assertHostEngineAssigned,
   hostEnginesList,
 } from '../../services/host-engine-policy.js';
 
@@ -48,6 +48,14 @@ import {
  *   GET  /wrapper/v2/bin/:artifact/:plat/v:version/:binary → static binary
  *
  * Every endpoint is host-authenticated via `app.requireHost`.
+ *
+ * Engine gating is the host *assignment* only. An engine switched off
+ * fleet-wide (engine-switch.ts) still gets a 200 signed config — carrying
+ * `host.fleet_disabled_engines` and no messaging — because a 403
+ * `engine_disabled` here makes the wrapper coordinator delete that engine's
+ * alias and config, and a host whose every engine is suspended could then
+ * never recover without a reinstall. The binaries are the shared `cxx`
+ * wrapper, not engine use, so they stay downloadable too.
  *
  * When the active wrapper signing key is absent every endpoint returns a
  * 503 with the standard envelope: `{ status: 'error', code:
@@ -126,7 +134,7 @@ export async function registerWrapperV2Routes(
     const host = req.authHost;
     if (!host)
       throw new ServiceUnavailableError('host context missing', 'host_context_missing');
-    assertHostEngineEnabled(host, engine);
+    assertHostEngineAssigned(host, engine);
     const baseUrl = resolvePublicBaseUrl(req);
     const data = await meta.forEngine(engine, baseUrl);
     const signer = await signing.active();
@@ -162,7 +170,7 @@ export async function registerWrapperV2Routes(
         if (!host)
           throw new ServiceUnavailableError('host context missing', 'host_context_missing');
         const engine = engineFromQuery(req);
-        assertHostEngineEnabled(host, engine);
+        assertHostEngineAssigned(host, engine);
         span.setAttribute('wrapper.host_id', host.id);
         span.setAttribute('wrapper.engine', engine);
         const baseUrl = resolvePublicBaseUrl(req);
@@ -257,7 +265,7 @@ export async function registerWrapperV2Routes(
     const host = req.authHost;
     if (!host)
       throw new ServiceUnavailableError('host context missing', 'host_context_missing');
-    assertHostEngineEnabled(host, engine);
+    assertHostEngineAssigned(host, engine);
     const { os, arch } = resolveWrapperPlatform(req.headers);
     const build = await binaries.resolveCurrentBuild(engine, os, arch);
     if (!build)
@@ -274,7 +282,7 @@ export async function registerWrapperV2Routes(
     if (!host)
       throw new ServiceUnavailableError('host context missing', 'host_context_missing');
     const engine = engineFromQuery(req);
-    assertHostEngineEnabled(host, engine);
+    assertHostEngineAssigned(host, engine);
     const baseUrl = resolvePublicBaseUrl(req);
     const platform = resolveWrapperPlatform(req.headers);
 
@@ -333,7 +341,7 @@ export async function registerWrapperV2Routes(
       const host = req.authHost;
       if (!host)
         throw new ServiceUnavailableError('host context missing', 'host_context_missing');
-      assertHostEngineEnabled(host, engine);
+      assertHostEngineAssigned(host, engine);
       const baseUrl = resolvePublicBaseUrl(req);
       const data = await binaries.engineManifest(engine, baseUrl);
       reply.header('cache-control', 'no-store');
@@ -364,7 +372,7 @@ export async function registerWrapperV2Routes(
       }
 
       if (!isEngine(artifact)) throw new NotFoundError('unknown engine', 'unknown_engine');
-      assertHostEngineEnabled(host, artifact);
+      assertHostEngineAssigned(host, artifact);
       const expectedName = ENGINE_COMMANDS[artifact];
       if (binary !== expectedName) throw new NotFoundError('binary mismatch', 'binary_mismatch');
       return streamBinary(req, reply, artifact, m[1], m[2], version);

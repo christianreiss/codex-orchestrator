@@ -59,6 +59,10 @@ func ReconcilePeer(ctx context.Context, cfg *config.Config, engines []string, re
 	if _, err := layout.EnsureAliases(ctx, exe, engines); err != nil {
 		return err
 	}
+	// Suspended fleet-wide: keep the config and alias, install nothing.
+	if fetched.Config.EngineSuspended(config.EngineGrok) {
+		return nil
+	}
 	if _, err := FindCLI(); err != nil {
 		_, err = Install(ctx, PinnedVersion)
 		return err

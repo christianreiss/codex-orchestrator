@@ -42,6 +42,8 @@
   import { createRegisterHostMutation } from "$lib/api/hosts";
   import { invalidateSetup } from "$lib/api/setup";
   import { autoCopyText } from "$lib/utils/clipboard";
+  import { Badge } from "$lib/components/ui/badge";
+  import { useFleetEngines, FLEET_DISABLED_TAG, fleetDisabledTitle } from "$lib/engines/fleet-engines";
   import type { HostRegisterResponse } from "$lib/api/types";
 
   type Props = {
@@ -68,6 +70,9 @@
 
   const qc = useQueryClient();
   const register = createRegisterHostMutation();
+  // An engine switched off fleet-wide cannot be added to a host (the server
+  // answers 409). It stays visible, disabled, so the operator sees why.
+  const fleet = useFleetEngines();
 
   const schema = z.object({
     fqdn: z.string().trim().min(1, "Hostname is required"),
@@ -84,8 +89,14 @@
 
   $effect(() => {
     if (enginesTouched) return;
-    engines = defaultEngines.length > 0 ? [...defaultEngines] : ["codex"];
+    const seed = defaultEngines.length > 0 ? defaultEngines : (["codex"] as HostFormEngine[]);
+    const usable = seed.filter((engine) => $fleet.isEnabled(engine));
+    // Every default switched off: fall back to the first engine still on, if any.
+    engines = usable.length > 0 ? [...usable] : $fleet.enabled.slice(0, 1);
   });
+
+  /** The selection that would be registered: never a fleet-disabled engine. */
+  const selectedEngines = $derived(engines.filter((engine) => $fleet.isEnabled(engine)));
 
   export function isBusy(): boolean {
     return submitting;
@@ -105,6 +116,11 @@
   }
 
   export function toggleEngine(id: HostFormEngine): void {
+    // One guard for clicks and the sheet's 5/6/7 keys alike.
+    if (!$fleet.isEnabled(id)) {
+      toast.info(fleetDisabledTitle(HOST_ENGINE_OPTIONS.find((opt) => opt.id === id)?.label ?? id));
+      return;
+    }
     enginesTouched = true;
     engines = engines.includes(id) ? engines.filter((e) => e !== id) : [...engines, id];
   }
@@ -119,7 +135,11 @@
   /** Registers the host. Resolves null on validation or request failure. */
   export async function submit(): Promise<HostRegisterResponse | null> {
     errors = {};
-    const parsed = schema.safeParse({ fqdn, engines });
+    if ($fleet.enabled.length === 0) {
+      errors = { engines: "Every engine is disabled fleet-wide. Turn one back on under Engines first." };
+      return null;
+    }
+    const parsed = schema.safeParse({ fqdn, engines: selectedEngines });
     if (!parsed.success) {
       for (const issue of parsed.error.issues) errors[issue.path.join(".") || "_"] = issue.message;
       return null;
@@ -210,10 +230,17 @@
           size="sm"
           title={opt.label}
           description={opt.desc}
-          checked={engines.includes(opt.id)}
+          checked={selectedEngines.includes(opt.id)}
+          disabled={!$fleet.isEnabled(opt.id)}
           onSelect={() => toggleEngine(opt.id)}
         >
-          {#snippet badge()}{@render kbd(opt.key)}{/snippet}
+          {#snippet badge()}
+            {#if !$fleet.isEnabled(opt.id)}
+              <Badge variant="outline" title={fleetDisabledTitle(opt.label)}>{FLEET_DISABLED_TAG}</Badge>
+            {:else}
+              {@render kbd(opt.key)}
+            {/if}
+          {/snippet}
         </ChoiceCard>
       {/each}
     </div>

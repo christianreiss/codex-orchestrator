@@ -16,6 +16,9 @@ import {
 import { api } from "./client";
 import type {
   ApiStateValue,
+  ApiSurfaceRow,
+  ApiSurfacesValue,
+  ApiSurfaceUpdate,
   ApiKeysInChatValue,
   RemoteExecValue,
   AutoUpdateValue,
@@ -24,6 +27,9 @@ import type {
   ClaudeVersionLockValue,
   CodexVersionLockValue,
   CodexVersionsCheckResult,
+  EngineStateChange,
+  EngineStateUpdate,
+  EngineStateValue,
   InsecureApprovalValue,
   LogRetentionValue,
   ModelDefaultsEngine,
@@ -62,6 +68,60 @@ export function apiStateMutation(opts: MutationOpts<ApiStateValue, boolean> = {}
     ...opts,
     onSettled: (...args) => {
       void qc.invalidateQueries({ queryKey: apiStateQueryKey });
+      opts.onSettled?.(...args);
+    },
+  });
+}
+
+/* ─────────────── 1b. Exposed APIs (surface → backend) ─────────────── */
+
+export const apiSurfacesQueryKey = ["settings", "api-surfaces"] as const;
+
+export function apiSurfacesQuery() {
+  return createQuery<ApiSurfacesValue>({
+    queryKey: apiSurfacesQueryKey,
+    queryFn: () => api.get<ApiSurfacesValue>("/admin/api/surfaces"),
+  });
+}
+
+export function apiSurfaceMutation(opts: MutationOpts<ApiSurfaceRow, ApiSurfaceUpdate> = {}) {
+  const qc = useQueryClient();
+  return createMutation<ApiSurfaceRow, Error, ApiSurfaceUpdate>({
+    mutationFn: ({ surface, ...body }) => api.post<ApiSurfaceRow>(`/admin/api/surfaces/${surface}`, body),
+    ...opts,
+    onSettled: (...args) => {
+      void qc.invalidateQueries({ queryKey: apiSurfacesQueryKey });
+      opts.onSettled?.(...args);
+    },
+  });
+}
+
+/* ──────────────── 1c. Fleet engine master switches ──────────────── */
+// Not the per-API kill switches below (`/admin/{openai,claude,grok}/state`):
+// those stop one exposed gateway; this turns a whole engine off for the fleet.
+
+export const engineStateQueryKey = ["settings", "engine-state"] as const;
+
+export function engineStateQuery() {
+  return createQuery<EngineStateValue>({
+    queryKey: engineStateQueryKey,
+    queryFn: () => api.get<EngineStateValue>("/admin/engines/state"),
+  });
+}
+
+export function engineStateMutation(
+  opts: MutationOpts<EngineStateChange, EngineStateUpdate> = {},
+) {
+  const qc = useQueryClient();
+  return createMutation<EngineStateChange, Error, EngineStateUpdate>({
+    mutationFn: ({ engine, enabled }) =>
+      api.post<EngineStateChange>(`/admin/engines/${engine}/state`, { enabled }),
+    ...opts,
+    onSettled: (...args) => {
+      void qc.invalidateQueries({ queryKey: engineStateQueryKey });
+      // The switch reaches every engine-scoped setting (gateway backends, model
+      // defaults badges, version cards), so the whole settings tree re-reads.
+      void qc.invalidateQueries({ queryKey: ["settings"] });
       opts.onSettled?.(...args);
     },
   });

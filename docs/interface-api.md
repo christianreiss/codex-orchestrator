@@ -31,6 +31,118 @@ Grok's native receiver protocol is `grok-acp-v1`; receiver readiness and deliver
 are based on native session/queue evidence. Messaging supports all nine engine
 source/target pairs. Grok quota has no synthetic percentage or capacity claim.
 
+## Exposed API routing (any-to-any)
+
+The three inference gateways are **surfaces**; the engine that answers is the
+surface's **backend**, chosen per surface and resolved per request (1 s cache),
+so a change applies without a restart.
+
+| Surface | Base path | Wire | Keys (`openai_api_keys.engine`) | Kill switch | Backend row (default) |
+|---|---|---|---|---|---|
+| `openai` | `/v1` | OpenAI | `sk-cdx-` (`codex`) | `openai_api_disabled` | `api_surface_backend_openai` (`codex`) |
+| `anthropic` | `/anthropic/v1` | Anthropic | `sk-ant-` (`claude`) | `claude_api_disabled` | `api_surface_backend_anthropic` (`claude`) |
+| `grok` | `/grok/v1` | OpenAI | `sk-cgx-` (`grok`) | `grok_api_disabled` | `api_surface_backend_grok` (`grok`) |
+
+- URL, wire shape, error envelope, key namespace and kill switch belong to the
+  surface and never change with the backend; `openai_api_keys.engine` names the
+  surface's key namespace, not the engine that answers. A missing or invalid
+  backend row means the identity backend (migration `0038` seeds it explicitly).
+- The backend supplies the canonical credential snapshot, the runner `engine`,
+  the capability table and the model catalog. Each engine's backend exists once
+  per API process, so Grok's single central refresher is shared by every surface
+  routed to Grok.
+- Controls follow the backend: a control it cannot honour fails with
+  `400 unsupported_generation_control` before credentials are read. On the
+  Anthropic wire, Codex receives `system` as a leading `system:` transcript line
+  and Grok does not receive the protocol-mandatory `max_tokens` (accepted,
+  unenforced); Grok refuses `stream`, images and sampling controls on every
+  surface. Usage and stop reasons are translated into the surface's vocabulary
+  (Codex reports no tokens: zeros, or `null` where the OpenAI wire already used it).
+- Models: `/models` lists the backend's catalog in the surface's shape. A
+  generation request whose `model` is empty, or belongs to the surface's native
+  family (`gpt-*`/`o*`/`codex-*` on `/v1`, `claude-*` on `/anthropic/v1`,
+  `grok-*` on `/grok/v1`) but is not served by a foreign backend, runs on the
+  backend's default model and reports it in the response `model` field. Other
+  unknown ids, admin-disabled models and single-model lookups stay strict.
+- `GET /admin/api/surfaces` (`settings.read`) →
+  `{surfaces:[{surface,label,base_path,wire,backend,identity_backend,disabled,key_count}],
+  backends:[{engine,label}]}`; `key_count` counts active keys.
+- `POST /admin/api/surfaces/{surface}` (`settings.manage`) with
+  `{backend?: "codex"|"claude"|"grok", disabled?: boolean}` (at least one) returns
+  the updated row. Backend changes are audited as `admin.api.surface_backend`
+  `{surface, backend, previous}`; `disabled` writes the surface's kill-switch flag
+  under its legacy audit action. Unknown surfaces or engines return `422`.
+  Routing a surface onto a backend that is switched off fleet-wide returns
+  `409 engine_disabled` (`scope:"fleet"`); leaving it where it is stays allowed.
+
+## Engine master switches
+
+One fleet-wide on/off per engine (`api/src/services/engine-switch.ts`). Off
+means **suspended**, never removed: host engine assignments, accounts, canonical
+auth, keys and installed CLIs are all kept, and switching it back on restores
+everything without a reinstall.
+
+- Storage: `versions` rows `codex_engine_disabled`, `claude_engine_disabled`,
+  `grok_engine_disabled` (truthy = off). A missing row means on, so existing
+  installs are unchanged. Reads are cached for one second per process and
+  invalidated by every write; a failed read serves the last value seen, else "on".
+- `GET /admin/engines/state` (`settings.read`) →
+  `{engines:[{engine,label,enabled,updated_at,updated_by,assigned_hosts}]}`,
+  always three rows in canonical order; `assigned_hosts` counts active hosts
+  carrying the engine.
+- `POST /admin/engines/{engine}/state` (`settings.manage`) with `{enabled: boolean}`
+  returns the updated row plus `previous` and `hosts_suspended`. One transaction
+  writes the flag, bumps every host's `config_version` (so each signed wrapper
+  config is re-baked), suspends Agent Messaging for that engine on every host
+  carrying it (the host-level engine-removal path), and writes the audit row
+  `admin.engine.state` `{engine, enabled, previous, actor, hosts_suspended}`.
+  Then it publishes `engine.state.changed {engine, enabled}` and
+  `settings.changed`. Repeating the current state is a no-op. All three may be
+  off at once; the admin API never depends on an engine.
+- Host routes refuse a switched-off engine with `403 engine_disabled` and
+  `scope:"fleet", engine` (`POST /auth`, `/auth/sessions`, `/sync/status`,
+  `/sync/bootstrap`, `/claude/usage/report`, `/cron/check`, `/cron/report`,
+  `/host/lane`, `/mcp`, `/skills`, `/agents/retrieve`, `/config/retrieve`,
+  `/claude/{kind}`, agent-portal and Agent Messaging registration and bridges).
+  Host-level removal keeps the same code with `scope:"host"`, and wins when both
+  apply. `/auth/sessions/heartbeat` and `/auth/sessions/release` check only the
+  host assignment, so a running session keeps the lease it holds; the server
+  stops refreshing on its behalf (a Grok heartbeat returns
+  `refresh_state:"suspended"` without calling the refresher).
+- `GET /wrapper/v2/config` (and every `/wrapper/v2/*` download) checks only the
+  host assignment. A suspended engine still gets a **200** signed config whose
+  `host.fleet_disabled_engines` lists the switched-off engines and whose
+  `agent_messaging` / `remote` blocks are off. It is deliberately not a 403:
+  wrappers delete an engine's alias and config on 403 `engine_disabled`, and a
+  host whose every engine was suspended could then never recover.
+  `host.engines` / `host.engines_list` stay the assignment in both the signed
+  config and `/auth` (`host.fleet_disabled_engines` is separate), so drift
+  detection never mistakes a suspension for a removal. `/versions` and the
+  `/auth` `versions` block carry `fleet_disabled_engines` too.
+- Gateways: a surface whose **backend** is switched off returns `503 api_disabled`
+  (`reason:"backend_engine_disabled"`, `engine`) in the surface's own wire
+  envelope. A surface named after the engine but routed elsewhere keeps serving.
+- Admin actions that would reach a provider, the runner or a host for a
+  switched-off engine return `409 engine_disabled` (`scope:"fleet"`): canonical
+  auth stores (admin upload, seed, bootstrap — the `storeCandidate` chokepoint),
+  `/admin/auth/seed-command`, `/admin/runner/run{,-claude,-grok}`,
+  `/admin/chatgpt/usage/refresh`, AI-assist drafts (Codex), minting an installer
+  for it, and newly assigning it to a host (`/admin/hosts/register`,
+  `quick-register`, engines edit, installer "add engine", `/cli/auth/approve`).
+  An engine a host already carries may stay assigned. Omitted engines on
+  register fall back to `DEFAULT_HOST_ENGINES` minus switched-off ones.
+  `/install/{token}` and `GET /seed/auth/{token}` answer with an
+  `engine_disabled` installer error without consuming the token.
+- Background work skips the engine: the auth-verification worker neither
+  verifies nor refreshes it, the Grok refresher refuses, and the
+  `chatgpt-usage-worker` container reads the Codex flag every tick, polls nothing
+  while it is off and keeps its health heartbeat fresh (`suspended`).
+- Config editing (model defaults, AGENTS/config documents, authoring, host
+  previews) stays available while an engine is off.
+- `/admin/overview` carries `fleet_disabled_engines`; setup status drops
+  switched-off engines from `default_engines` and from its `auth_<engine>`
+  next actions.
+
 ## Host-facing
 
 - `X-Request-Id` accepts `[A-Za-z0-9._-]{1,128}`; absent or malformed values
@@ -165,7 +277,7 @@ source/target pairs. Grok quota has no synthetic percentage or capacity claim.
   - `GET /v1/models/{model}` — retrieves a single model object. Legacy aliases resolve to their current id; an empty or unknown id returns `404 model_not_found`.
   - `OPTIONS /v1/*` — CORS preflight for every OpenAI-compatible route; returns 204.
 - Anthropic-compatible API (see [Anthropic-compatible API](#anthropic-compatible-api) section below for full details):
-  - `POST /anthropic/v1/messages` — Anthropic-compatible Messages API. Accepts `messages` with `role`/`content`, optional `model`, `system` (string or text-block array), `stream`, `max_tokens`, `temperature`, `top_p`, `top_k`. System messages in the `messages` array are extracted and handled separately per Anthropic convention; a top-level `system` block array is flattened into one string. Content can be a string or an array of content blocks (text, image). Non-streaming returns an Anthropic message format response. Streaming returns Server-Sent Events with event types: `message_start`, `content_block_start`, `content_block_delta`, `content_block_stop`, `message_delta`, `message_stop`. Authentication requires a Claude API key via `Authorization: Bearer sk-claude-...` or `x-api-key: sk-claude-...`.
+  - `POST /anthropic/v1/messages` — Anthropic-compatible Messages API. Accepts `messages` with `role`/`content`, optional `model`, `system` (string or text-block array), `stream`, `max_tokens`, `temperature`, `top_p`, `top_k`. System messages in the `messages` array are extracted and handled separately per Anthropic convention; a top-level `system` block array is flattened into one string. Content can be a string or an array of content blocks (text, image). Non-streaming returns an Anthropic message format response. Streaming returns Server-Sent Events with event types: `message_start`, `content_block_start`, `content_block_delta`, `content_block_stop`, `message_delta`, `message_stop`. Authentication requires a Claude API key via `Authorization: Bearer sk-ant-...` or `x-api-key: sk-ant-...`.
   - `POST /anthropic/v1/messages/count_tokens` — token-count estimate for a prospective request. Takes the same `messages` / `system` / `tools` shape as `/anthropic/v1/messages` but does not require `max_tokens`, and returns `{input_tokens}`. The runner shells out to the `claude` CLI rather than a raw model endpoint, so the count is a character-based estimate and will not match the real API exactly.
   - `POST /anthropic/v1/completions` — Anthropic-compatible text completion endpoint. Accepts `prompt` and optional `model`. Returns completion in Anthropic format.
   - `POST /anthropic/v1/complete` — the upstream spelling of `POST /anthropic/v1/completions`; same handler, same body and response.
@@ -235,7 +347,7 @@ Host resource sync (`/skills`, `/agents/retrieve`, `/config/retrieve`) and cron 
 - `POST /mcp` — the JSON-RPC 2.0 transport itself (single call or batch). Methods include `initialize`, `tools/list`, `tools/call`, resource operations, and dot aliases. `initialize` returns server-wide instructions requiring clients to inspect deferred catalogs rather than infer tool absence and to probe secrets capability through read-only `secret_list`. Skill reads honor `X-Engine`; host `skill_store`/`skill_delete` mutate only shared manifest-only Skills and reject managed/source-owned rows.
 - Streamable HTTP MCP endpoint (`/mcp`, protocol `2025-03-26`) authenticates in `resolveHost()` (`api/src/routes/mcp/index.ts`): the presented credential is first checked as a short-lived MCP session token (`McpSessionService.verify`) and otherwise resolved as a host API key (`app.resolveHostFromKey`), after which non-`active` hosts are rejected. It advertises host-safe `memory_*`, `shared_memory_*`, `skill_list`, `skill_retrieve`, `skill_store`, `skill_delete`, `resource_*`, `project_*` (including the board's `project_board_list` / `project_card_*`), `secret_*`, `git_*`, and `transfer_*` tools; `docs/MCP.md` is the per-tool catalog. The module-gated families stay listed while their module is off and answer `status:"disabled"` from their list/probe tool, so an agent can tell "off" from "empty". Coordinator filesystem helpers (`fs_*`) remain operator-only and are neither exposed nor dispatchable to host callers. Tool names use underscores to satisfy `^[a-zA-Z0-9_-]+$`; `tools/call` still accepts dot aliases for backward compatibility.
   - MCP resources: `resources/templates/list` returns templates `memory_by_id` (`uriTemplate: memory://{id}`), `memory_store` (`uriTemplate: memory://{scope}:{name}`), `skill_manifest` (`uriTemplate: skill://{slug}`), `skill_file` (`uriTemplate: skill://{slug}/{path}`), and `shared_memory` (`uriTemplate: shared://{slug}`); when the Projects module is enabled it also returns `project_bootstrap` (`uriTemplate: project://{slug}`). `resources/list` enumerates recent memories for the calling host (up to 20), the 50 most recently updated shared memories as `shared://{slug}` markdown resources, canonical Skills as `skill://{slug}` markdown resources, up to 128 support files per source-owned skill as `skill://{slug}/{path}`, and, when enabled, active shared projects as `project://{slug}` resources. A manifest with `disable-model-invocation: true` is described as `[Explicit user invocation only]`; this policy is not silently widened by import. `resources/read` fetches a single memory as `text/plain` when given `uri=memory://{id}`, a shared memory body as `text/markdown` when given `uri=shared://{slug}`, a Skill manifest as `text/markdown` when given `uri=skill://{slug}`, an exact support file when given `uri=skill://{slug}/{path}`, or a project bootstrap JSON document when given `uri=project://{slug}`. Bundled manifests receive a read-time note pointing relative references at the MCP file URI and warning that bundled scripts are reference text, not execution authority. `resources/create`/`update`/`delete` accept `shared://{slug}` as well, though that path carries only text. Existing shared documents require a complete offset-zero read with one stable digest and `expected_sha256` before either whole-body resource replacement, while delete is reserved for a wholly invalid or superseded record. `shared_memory_write` remains the full-fidelity surface and the only one that records an engine. CoCo coordination state still lives only in project resources.
-- `GET /versions` — version snapshot (no auth; `503 api_disabled` while the `api_disabled` flag is set). Optional query `engine` or `X-Engine` selects Codex, Claude, or Grok (Codex by default); invalid or conflicting hints return `422`. The envelope `data` is the selected engine's `VersionSnapshot` of `api/src/services/version-snapshot.ts`, as codified in `versions.schema.json`. Keys: `client_version`, `client_version_override`, `client_version_enforce_exact`, `client_version_fetched_at`, `wrapper_version`, `wrapper_sha256`, `wrapper_url`, `runner_state`, `api_disabled`, `auto_update_enabled`, `cdx_silent`, `clx_silent`, `cgx_silent`, `agent_messaging_enabled`, `installation_id`, `engine`. Claude client targets never inherit legacy unsuffixed Codex version rows; absent Claude policy yields `client_version:null` until a Claude target is configured. Wrapper metadata comes from the v2 `BinaryRegistry` (canonical platform `linux-amd64` under `storage/wrapper/v2/bin/cxx/linux-amd64/v<version>/cxx`); clients cannot publish. The fleet target has an internal minimum floor of `0.125.0`; `client_version_enforce_exact=true` means an admin pinned an above-floor version that wrappers should match exactly, while `false` means the target is floor-only and wrappers must not downgrade to meet it. `auto_update_enabled` is the fleet default on this public endpoint; host-authenticated auth, sync, and cron responses apply the host override (`null` inherits, `0` disables, `1` enables). It controls background binary updates for all three engines; cxx 0.8.2 launches never install inline. `client_version_fetched_at` is when the upstream release metadata behind an aliased (`latest`/`auto`) target was last fetched, or `null` when the target is an explicit pin that never consults that cache; the cache has a one-hour TTL and, when an upstream fetch fails, the expired value keeps being served rather than breaking updates — so an old `client_version_fetched_at` is the signal that the fleet is being handed a stale target.
+- `GET /versions` — version snapshot (no auth; `503 api_disabled` while the `api_disabled` flag is set). Optional query `engine` or `X-Engine` selects Codex, Claude, or Grok (Codex by default); invalid or conflicting hints return `422`. The envelope `data` is the selected engine's `VersionSnapshot` of `api/src/services/version-snapshot.ts`, as codified in `versions.schema.json`. Keys: `client_version`, `client_version_override`, `client_version_enforce_exact`, `client_version_fetched_at`, `wrapper_version`, `wrapper_sha256`, `wrapper_url`, `runner_state`, `api_disabled`, `auto_update_enabled`, `cdx_silent`, `clx_silent`, `cgx_silent`, `agent_messaging_enabled`, `fleet_disabled_engines`, `installation_id`, `engine`. `fleet_disabled_engines` lists the engines switched off fleet-wide (see [Engine master switches](#engine-master-switches)). Claude client targets never inherit legacy unsuffixed Codex version rows; absent Claude policy yields `client_version:null` until a Claude target is configured. Wrapper metadata comes from the v2 `BinaryRegistry` (canonical platform `linux-amd64` under `storage/wrapper/v2/bin/cxx/linux-amd64/v<version>/cxx`); clients cannot publish. The fleet target has an internal minimum floor of `0.125.0`; `client_version_enforce_exact=true` means an admin pinned an above-floor version that wrappers should match exactly, while `false` means the target is floor-only and wrappers must not downgrade to meet it. `auto_update_enabled` is the fleet default on this public endpoint; host-authenticated auth, sync, and cron responses apply the host override (`null` inherits, `0` disables, `1` enables). It controls background binary updates for all three engines; cxx 0.8.2 launches never install inline. `client_version_fetched_at` is when the upstream release metadata behind an aliased (`latest`/`auto`) target was last fetched, or `null` when the target is an explicit pin that never consults that cache; the cache has a one-hour TTL and, when an upstream fetch fails, the expired value keeps being served rather than breaking updates — so an old `client_version_fetched_at` is the signal that the fleet is being handed a stale target.
 - `GET /healthz` — unauthenticated liveness probe: `{ok:true, ts}`.
 - `GET /readyz` — unauthenticated derived readiness probe; returns 503 until migrations, runner, encrypted signer, complete four-platform wrapper matrix, and Public Base URL checks pass. `/healthz` remains liveness-only.
 - `GET /admin/setup/status` — public only before the first admin exists, then session-gated; returns secret-free readiness (the `database` check is a live `SELECT 1`; when it fails every other database read is skipped and reported instead of 500ing), `configured_engines`, `default_engines` (the wizard's engine answer when non-empty, else `configured_engines`; drives the `auth_<engine>` next actions), verified canonical-auth presence, host/sync counts, warnings, and next actions (`auth_<engine>`…, `fleet_defaults` — complete once a Codex `client_config_documents` row exists, links `/admin/setup?step=defaults` — then `first_host`, `first_sync`).
@@ -345,16 +457,18 @@ The Quick Settings page (`/admin/quick-settings`) reuses `GET/POST /admin/model-
 - `POST /seed/auth/{uuid}` — accepts a raw credential payload (or `{ "auth": ... }`), validates it for the token’s engine, stores canonical auth, and consumes the seed token after a successful store. A configured, reachable runner and positive live verdict are mandatory.
 - `GET /seed/v2/auth/{uuid}` / `POST /seed/v2/auth/{uuid}` — aliases of the `/seed/auth/{uuid}` pair above; seed commands minted against the v2 URL keep working unchanged.
 - `GET /admin/api/state` / `POST /admin/api/state` — read/set persisted `api_disabled` flag (when true, all API routes return 503; `/admin/api/state` stays reachable so operators can re-enable).
+- `GET /admin/api/surfaces` / `POST /admin/api/surfaces/{surface}` — list exposed APIs with their backend engine, kill switch and active key count; switch a surface's backend and/or kill switch. See [Exposed API routing](#exposed-api-routing-any-to-any).
+- `GET /admin/engines/state` / `POST /admin/engines/{engine}/state` — fleet-wide engine master switches: list each engine's on/off state, or switch one with `{enabled}`. See [Engine master switches](#engine-master-switches).
 - `GET /admin/openai/state` / `POST /admin/openai/state` — read/set persisted `openai_api_disabled` flag (toggles OpenAI-compatible API independently). `settings.read` / `settings.manage`.
 - `GET /admin/openai/keys` — list all OpenAI API keys (engine-filtered). Returns `{status, data: [{id, name, key_prefix, is_active, use_count, last_used_at, expires_at, engine, created_at, updated_at}]}`.
-- `POST /admin/openai/keys` — create a new OpenAI API key. Body: `{name: string, expires_at?: string}`. Returns the full key (shown once) and the record. Keys use the `sk-codex-` prefix.
+- `POST /admin/openai/keys` — create a new OpenAI API key. Body: `{name: string, expires_at?: string}`. Returns the full key (shown once) and the record. Keys use the `sk-cdx-` prefix.
 - `POST /admin/openai/keys/{id}/toggle` — enable or disable an OpenAI API key. Body: `{active: bool}`.
 - `DELETE /admin/openai/keys/{id}` — delete an OpenAI API key.
 - `GET /admin/claude/state` / `POST /admin/claude/state` — read/set persisted `claude_api_disabled` flag (toggles Anthropic-compatible API independently). `settings.read` / `settings.manage`. See [Admin: Claude management](#admin-claude-management) for full details.
 - `GET /admin/model-defaults/{engine}` — read the fleet CLI model defaults for `codex`, `claude`, or `grok`. Returns `{status:"ok", engine, model, reasoning_effort, catalog:[{model, persistent_efforts, default_effort}]}`; the catalog is the authoritative model-dependent selector contract. GET is read-only: if no engine config row exists it reports the effective catalog default (Codex Terra/medium, Claude Sonnet 5/high, or Grok `grok-4.7`/high) without creating a row. Codex defaults are Astra/GPT-6 Sol/GPT-6 Luna/Terra/GPT-5.6 Luna/GPT-5.5 `medium` and GPT-5.6 Sol `low` (the retired Spark model is no longer in the catalog); its accepted effort sets match the per-host contract above. Grok's catalog is `grok-4.7`, `grok-4.7-build-fast`, and `grok-4.6` (`low`/`medium`/`high`/`xhigh`) plus `grok-4.5` (`low`/`medium`/`high`), all defaulting to `high`.
 - `POST /admin/model-defaults/{engine}` — set the fleet CLI defaults. Strict body: `{model: string, reasoning_effort?: string|null}`. Omitted/null effort selects the model's `default_effort`; unsupported engines, models, efforts, or extra fields return HTTP 422 `validation_failed`. Codex persists `model` / `model_reasoning_effort`; Claude persists `model` / `effortLevel`. Claude persistent capabilities are Fable 5, Opus 5, Opus 4.8, and Sonnet 5 `low|medium|high|xhigh` (default `high`); Opus 4.7 has the same set with default `xhigh`; Sonnet 4.6 supports `low|medium|high` (default `high`); Haiku 4.5 has no effort value (`null`, so `effortLevel` is removed). This follows the native CLI settings schemas: Codex effort is model-dependent, while Claude Code persists only `low|medium|high|xhigh`; its `max` effort is session-only and is intentionally not offered here.
 - `GET /admin/claude/keys` — list all Claude API keys (engine-filtered). Returns `{status, data: [{id, name, key_prefix, is_active, use_count, last_used_at, expires_at, engine, created_at, updated_at}]}`.
-- `POST /admin/claude/keys` — create a new Claude API key. Body: `{name: string, expires_at?: string}`. Returns the full key (shown once) and the record. Keys use the `sk-claude-` prefix.
+- `POST /admin/claude/keys` — create a new Claude API key. Body: `{name: string, expires_at?: string}`. Returns the full key (shown once) and the record. Keys use the `sk-ant-` prefix.
 - `POST /admin/claude/keys/{id}/toggle` — enable or disable a Claude API key. Body: `{active: bool}`.
 - `DELETE /admin/claude/keys/{id}` — delete a Claude API key.
 - `GET /admin/claude/version` — Claude Code fleet version summary (the same shape the Codex version card uses).
@@ -757,7 +871,7 @@ The orchestrator does not meter request frequency and does not generate local ra
 
 ## Anthropic-compatible API
 
-Authentication: `Authorization: Bearer sk-claude-...` or `x-api-key: sk-claude-...` header. Runtime validation is engine-scoped: Anthropic-compatible routes accept only Claude keys from `/admin/claude/keys`, while OpenAI-compatible routes accept only Codex keys from `/admin/openai/keys`.
+Authentication: `Authorization: Bearer sk-ant-...` or `x-api-key: sk-ant-...` header. Runtime validation is surface-scoped: Anthropic-compatible routes accept only `sk-ant-` keys from `/admin/claude/keys`, while OpenAI-compatible `/v1` routes accept only `sk-cdx-` keys from `/admin/openai/keys` — whichever backend engine the surface is routed to (see [Exposed API routing](#exposed-api-routing-any-to-any)).
 
 ### Endpoints
 
@@ -775,7 +889,7 @@ Authentication: `Authorization: Bearer sk-claude-...` or `x-api-key: sk-claude-.
 
 - `GET /admin/claude/keys` — List all Claude API keys (engine-filtered). Returns `{status, data: [{id, name, key_prefix, is_active, use_count, last_used_at, expires_at, engine, created_at, updated_at}]}`.
 
-- `POST /admin/claude/keys` — Create a new Claude API key. Body: `{name: string, expires_at?: string}`. Returns the full key (shown once) and the record. Keys use the `sk-claude-` prefix.
+- `POST /admin/claude/keys` — Create a new Claude API key. Body: `{name: string, expires_at?: string}`. Returns the full key (shown once) and the record. Keys use the `sk-ant-` prefix.
 
 - `POST /admin/claude/keys/{id}/toggle` — Enable or disable a Claude API key. Body: `{active: bool}`.
 
