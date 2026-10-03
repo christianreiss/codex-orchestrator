@@ -34,7 +34,7 @@
 
   const installs = $derived(engineInstallCounts($overview.data?.version_distribution));
 
-  // Live upstream latest versions (GitHub for Codex, npm for Claude), surfaced
+  // Live upstream latest versions (GitHub for Codex, npm for Claude and Grok), surfaced
   // by /admin/overview from the 1h-cached availableClientVersion lookup.
   const codexLatest = $derived($overview.data?.versions?.cdx_version_available ?? null);
   const grokLatest = $derived($overview.data?.versions?.grok_version_available ?? null);

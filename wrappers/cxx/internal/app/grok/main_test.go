@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -203,7 +204,7 @@ func TestUninstallRefusesActiveOriginalHomeBeforeRemoteMutation(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { called = true; w.WriteHeader(500) }))
 	defer server.Close()
 	client := &orchestrator.Client{BaseURL: server.URL, HTTP: server.Client()}
-	if err := uninstall(context.Background(), &config.Config{}, client); err == nil || !strings.Contains(err.Error(), "another cgx process") {
+	if err := uninstall(context.Background(), &config.Config{}, client, io.Discard, io.Discard); err == nil || !strings.Contains(err.Error(), "another cgx process") {
 		t.Fatalf("uninstall=%v", err)
 	}
 	if called {

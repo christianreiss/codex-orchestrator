@@ -11,7 +11,7 @@ Every host gets its credentials by asking the orchestrator; the orchestrator is 
 
 - `POST /auth` — the main host-facing auth endpoint. Accepts a `command` field: `retrieve` (default) or `store`. Both paths authenticate the caller via API key extracted from HTTP **headers**.
 - `POST /sync/status` / `POST /sync/bootstrap` — sync endpoints the wrappers hit on every run. Both inline an auth check (unless `include_auth=false`) and embed the result in the response — see *Sync routes* below for how the two differ.
-- `DELETE /auth` — self-uninstall. `?engine=codex|claude` transactionally removes only that engine's host auth state, overrides, and pending installer tokens when another engine remains; removing the final engine or using the legacy no-engine route deletes the host. Both paths audit and publish an event.
+- `DELETE /auth` — self-uninstall. `?engine=codex|claude|grok` transactionally removes only that engine's host auth state, overrides, and pending installer tokens when another engine remains; removing the final engine or using the legacy no-engine route deletes the host. Both paths audit and publish an event.
 
 API keys are read from HTTP **headers** in all cases via `extractApiKey(req.headers)` in `host-auth.ts`. There is no body-based API key flavor.
 
@@ -36,7 +36,7 @@ API keys are read from HTTP **headers** in all cases via `extractApiKey(req.head
    - `status: 'missing'` — no canonical payload exists yet.
 5. **No live runner call** — retrieve never blocks on a live runner probe. It consults the latest stored verdict from the background auth-verification worker (see below) via `servedVerificationSnapshot`; if that verdict is `failed`, retrieve returns `status: 'outdated'` *without* the `auth` blob rather than serving known-bad credentials.
 
-The retrieve response includes `versions`, `canonical_digest`, `canonical_last_refresh`, `host`, `api_calls`, `engine`, `quota_hard_fail`, `quota_limit_percent`, and `verification_state` (`verified`/`failed`/`unknown`, plus `verification_reason` when `failed`). A distributable `status: 'outdated'` carries `auth`; a failed canonical deliberately does not. Codex retrieves also carry a `chatgpt` usage snapshot. Skills manifests and AGENTS.md hashes are part of `/sync/bootstrap`, not `/auth`.
+The retrieve response includes `versions`, `canonical_digest`, `canonical_last_refresh`, `host`, `api_calls`, `engine`, `quota_hard_fail`, `quota_limit_percent`, and `verification_state` (`verified`/`failed`/`unknown`, plus `verification_reason` when `failed`). A distributable `status: 'outdated'` carries `auth`; a failed canonical deliberately does not. Codex retrieves also carry a `chatgpt` usage snapshot. Grok retrieves return an access-only envelope instead (see *Grok subscription auth* below). Skills manifests and AGENTS.md hashes are part of `/sync/bootstrap`, not `/auth`.
 
 ### Store (`command=store`)
 
@@ -52,7 +52,7 @@ The retrieve response includes `versions`, `canonical_digest`, `canonical_last_r
    current canonical auth.
 4. **Serialize and runner-verify** — one process-wide queue per engine prevents
    concurrent store/worker probes from racing one refresh-token lineage. The
-   runner calls `/verify` (Codex) or `/verify-claude` with the shared secret.
+   runner calls `/verify` (Codex), `/verify-claude`, or `/verify-grok` with the shared secret.
    Recognized provider authentication rejection with unchanged credentials
    returns a definitive 422. If the probe rotated credentials first, the
    replacement is retained as failed and the store returns the unsafe-refresh
@@ -120,7 +120,7 @@ kind/access/refresh and may return `candidate_matches_failed_canonical`.
 Only explicit `false` proves the local candidate is distinct; native and
 canonical JSON digests are intentionally not compared.
 
-`/sync/bootstrap` additionally fetches agents, config, `claude_artifacts`, `claude_settings`, `claude_skills` (Claude engine only), and session counts. `status: ok` vs `update` is determined by whether `out.reasons` is empty.
+`/sync/bootstrap` additionally fetches agents, config, `claude_artifacts`, `claude_settings`, `claude_skills` (Claude engine only), `grok_skills` (Grok engine only), and session counts. `status: ok` vs `update` is determined by whether `out.reasons` is empty.
 
 The `host_auth_digests` table is written on store/retrieve, but the sync routes do not short-circuit via a digest lookup — they always run the auth step described above.
 
@@ -142,6 +142,7 @@ Lose all keys and the encrypted rows are unreadable. Back up the keyring.
 
 - `POST /verify` — Codex engine verification. Takes the auth blob, returns `ok` + optionally `updated_auth`.
 - `POST /verify-claude` — Claude engine verification. Same contract.
+- `/verify-grok` (POST) — Grok engine verification. The runner receives an access-only projection with every refresh token removed.
 - `/skills/generate`, `/skills/assist`, `/projects/assist` — feature endpoints derived from the base URL.
 
 There is no `/exec` endpoint in this client. All runner calls use the
@@ -163,7 +164,7 @@ or compatible API gateways.
 
 ## Background auth verification
 
-Host startup never waits on a live runner probe. Instead `api/src/ops/auth-verification-worker.ts` starts an in-process worker (only when `AUTH_RUNNER_URL` is configured) that keeps the latest Codex and Claude canonical payloads verified in the background:
+Host startup never waits on a live runner probe. Instead `api/src/ops/auth-verification-worker.ts` starts an in-process worker (only when `AUTH_RUNNER_URL` is configured) that keeps the latest Codex, Claude, and Grok canonical payloads verified in the background:
 
 - The first tick fires ~1 second after boot; subsequent ticks run every `AUTH_RUNNER_VERIFY_WORKER_INTERVAL_SECONDS` (default 300s, floor 30s). A tick is only a wake-up — whether it probes is decided by the dynamic schedule.
 - The re-check interval equals the credential's proven-good age (`verification_checked_at − created_at`), clamped between `AUTH_RUNNER_VERIFY_TTL_SECONDS` (default 900s) and `AUTH_RUNNER_VERIFY_MAX_INTERVAL_SECONDS` (default 21600s) — a factor-2 ladder. Successful gateway execs with the canonical credential touch `verification_checked_at` too (traffic counts as proof), so probes only fire when the fleet is idle. Pending quarantine rows and runner-outage retries follow the same ladder, and a credential whose access token expired while its refresh token is live is never probed (a probe could only pass by spending the refresh token). When a probe is due, the worker calls `canonical-auth-store.ts`'s `ensureServedVerification`.
@@ -199,12 +200,40 @@ purges insecure credentials. Active children defer cleanup; logout intent
 survives. Raw `codex`/`claude` processes launched outside the wrappers cannot
 participate in these leases.
 
+## Grok subscription auth
+
+Grok accepts only modern xAI subscription OAuth; legacy `web_login` credentials
+and metered xAI API keys are not supported. Unlike Codex and Claude, whose hosts
+hold their own OAuth credentials, Grok hosts never receive a refresh token: the
+server owns renewal for managed Grok accounts. A per-account MySQL lock serializes
+refresh owners, a durable `grok_auth_refresh_state` fence records intent before
+the token request, and the replacement is staged in the auth ledger, verified,
+and promoted by compare-and-swap. An ambiguous spend stays `uncertain` and an
+invalid grant requires a fresh login; neither resends an already-spent refresh
+token.
+
+Hosts and runners receive only access-only projections with refresh tokens
+removed. For Grok, `/auth` returns that access-only envelope with
+`canonical_generation`, `access_token_digest`, `expires_at`, and refresh-state
+metadata; usage is reported as unsupported. A runtime projection is never
+accepted back as a canonical upload.
+
+Seed an account with `cgx login`, which runs native `grok login --device-auth`
+in an isolated home and uploads the result; on a secure host a failed seed can
+be retried with `cgx login retry` within 24 hours. The one-time seed command
+(`GET /seed/auth/{token}`) likewise runs its own `grok login --device-auth` in a
+throwaway `GROK_HOME`, uploads it, and erases it; `GROK_SEED_AUTH_PATH=/path/auth.json`
+opts into uploading an existing file instead. Do not copy or paste a
+`~/.grok/auth.json` that a native `grok` or any other tool still uses: xAI rotates
+the refresh token on every refresh, so whichever copy refreshes second fails with
+`invalid_grant`. See [Grok Build](cgx).
+
 ## Killing the pipeline in an emergency
 
 - **Fleet kill-switch**: `assertApiNotDisabled` checks a single `api_disabled` flag in the `versions` table. Flipping it refuses auth for all engines. The `/auth` endpoint itself is not disabled, but hosts see refusal responses.
 - **Delete a host**: `DELETE /admin/hosts/{id}`. The host's API key is invalidated; future `/auth` calls fail authentication.
-- **Host self-uninstall**: `DELETE /auth?engine=codex|claude` removes that engine
-  while preserving the other engine on a dual-engine host. The legacy route
+- **Host self-uninstall**: `DELETE /auth?engine=codex|claude|grok` removes that engine
+  while preserving the remaining engines on a multi-engine host. The legacy route
   without `engine` deletes the host. Both are logged and broadcast.
 - **Purge insecure creds immediately**: `POST /admin/hosts/{id}/insecure/disable` — closes the window, forcing the host back into the approval queue.
 
@@ -217,6 +246,9 @@ participate in these leases.
 - api/src/services/runner-validation.ts (canonical payload resolve/validate, digest, auths{} normalization)
 - api/src/services/runner-client.ts (verify, verifyClaude, feature endpoints)
 - api/src/ops/auth-verification-worker.ts (background verification loop)
+- api/src/services/grok-auth-owner.ts (server-owned Grok refresh: lock, fence, staged CAS promotion)
+- api/src/services/grok-auth.ts (Grok access-only projections and `/auth` projection metadata)
+- api/src/services/install-token.ts (Grok one-time seed script)
 - api/src/services/reverse-dns.ts
 - api/src/security/secret-box.ts, api/src/security/keyring.ts
 - api/src/db/schema.ts (auth_entries, auth_payloads, host_auth_digests, host_auth_states, insecure_auth_requests, insecure_domain_allows)

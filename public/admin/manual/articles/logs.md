@@ -33,7 +33,7 @@ All filtering is client-side after the initial fetch. The row count is fixed at 
 
 ## Events tab
 
-Calls `GET /admin/logs?limit=N`. `DashboardStatsService.recentLogs()` (`api/src/services/dashboard-stats.ts`) reads this from the **`logs`** table (columns: `id`, `host_id`, `action`, `details`, `created_at`) — **not** `admin_events`, despite the naming similarity. See "Two audit tables" below.
+Calls `GET /admin/logs?limit=N`. `DashboardStatsService.recentLogs()` (`api/src/services/dashboard-stats.ts`) reads this from the **`logs`** table (columns: `id`, `host_id`, `action`, `details`, `created_at`, `engine`) — **not** `admin_events`, despite the naming similarity. See "Two audit tables" below.
 
 **Columns:** Timestamp, Host (FQDN, or "System" for rows with no associated host), Action (monospace badge), Details (truncated JSON preview), Copy button (copies the full JSON payload to the clipboard).
 
@@ -50,7 +50,8 @@ All filtering is client-side after fetching the selected row limit. Rows are not
 Action strings actually written to `logs` (and therefore visible here) are mostly host- and settings-scoped, written by local `recordLog()`/`writeLog()` helpers scattered across the services that own each feature:
 
 - `admin.host.*` — one action per host-level toggle: `admin.host.delete`, `admin.host.secure`, `admin.host.vip`, `admin.host.roaming`, `admin.host.insecure_enable`/`insecure_disable`/`insecure_extend`, `admin.host.quick_register`, `admin.host.client_version_override`, `admin.host.claude_client_version_override`, `admin.host.engines`, and others.
-- Settings changes: `admin.quota_mode`, `admin.scaling`, `admin.theme`, `admin.log_retention`, `admin.reverse_dns`, `admin.auto_update`, `admin.cdx_silent`, `admin.prune_policy`, `admin.claude_settings`, `admin.codex_version`, `admin.claude_version`, `admin.claude_api.state`, `admin.openai_api.state`, `admin.api.state`.
+- Settings changes: `admin.quota_mode`, `admin.scaling`, `admin.theme`, `admin.log_retention`, `admin.reverse_dns`, `admin.auto_update`, `admin.cdx_silent`, `admin.prune_policy`, `admin.claude_settings`, `admin.codex_version`, `admin.claude_version`, `admin.claude_api.state`, `admin.openai_api.state`, `admin.api.state`, `admin.grok_api.state`, `admin.grok_settings`, `admin.grok_version`.
+- Grok gateway and auth: `grok.key.create`, `grok.key.toggle`, `grok.key.delete`, `grok.model.toggle`, and the server-owned refresh trail `grok.auth.refresh.started`, `grok.auth.refresh.candidate`, `grok.auth.refresh.accepted`, `grok.auth.refresh.transient`, `grok.auth.refresh.uncertain`, `grok.auth.refresh.failed` (see [Grok Build](cgx)). These rows, plus `admin.grok_api.state` and `admin.grok_settings`, carry `engine = grok`; `admin.grok_version` does not set the column.
 - Insecure-window approvals: `admin.insecure.approval`, `admin.insecure.denied`, `admin.insecure.domain_allow`, `admin.insecure.domain_revoke`.
 - `admin.install_token.create`, `admin.toast`, `host.created`, `host.rotated`.
 - MCP coordinator tool calls recorded per host: `project.*`, `skill.*`, `memory.*`, `agents.retrieve`, `config.retrieve`, `claude_settings.retrieve`, `claude_artifact.*`.
@@ -89,7 +90,9 @@ When `ADMIN_WS_ENABLED=true`, the admin UI opens a WebSocket to `/admin/ws` (URL
 - api/src/services/host-registration.ts (dual-writes `logs` + `admin_events` on host create/rotate)
 - api/src/routes/admin/overview/index.ts (`/admin/logs`, `/admin/ws/info`)
 - api/src/routes/admin/config/index.ts (`/admin/mcp/logs`, left-joined to `hosts` for `host_fqdn`)
-- api/src/routes/admin/settings/index.ts (log retention endpoints)
+- api/src/routes/admin/settings/index.ts (log retention endpoints, `admin.grok_version`)
+- api/src/routes/admin/grok/index.ts (`grok.key.*`, `grok.model.toggle`, `admin.grok_api.state`, `admin.grok_settings`)
+- api/src/services/grok-auth-owner.ts, api/src/services/canonical-auth-store.ts (`grok.auth.refresh.*`)
 - api/src/ops/boot-checks.ts (boot-time preflight — no log-retention enforcement present)
 - api/src/ws/server.ts, api/src/ws/publisher.ts (live event stream)
 - frontend/src/lib/api/logs.ts (query builders for both tabs)

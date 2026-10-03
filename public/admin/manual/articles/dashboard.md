@@ -8,11 +8,11 @@ sources: api/src/routes/admin/overview/index.ts, api/src/routes/admin/setup/inde
 
 # Dashboard
 
-The **Overview** page combines reported host installations, upstream CLI versions, Codex and Claude quota usage, and runner verification. Use **Refresh overview** to reload fleet counts and release information; each usage card has its own refresh control.
+The **Overview** page combines reported host installations, upstream CLI versions, Codex and Claude quota usage, and runner verification. Grok subscription quota is not tracked; Grok accounts show *Subscription quota unavailable* rather than a zero reading (see [Grok Build](cgx)). Use **Refresh overview** to reload fleet counts and release information; each usage card has its own refresh control.
 
 ## Active Clients
 
-**Active Clients** (`/clients`) is its own destination under *Monitor*; the full reference — presence states, the Agent Portal switch it depends on, roles, and the wrapper side — is in [Agent Portal and Active Clients](/admin/manual/agent-portal). In short: open it for the session directory across Codex and Claude. The
+**Active Clients** (`/clients`) is its own destination under *Monitor*; the full reference — presence states, the Agent Portal switch it depends on, roles, and the wrapper side — is in [Agent Portal and Active Clients](/admin/manual/agent-portal). In short: open it for the session directory across Codex, Claude, and Grok. The
 summary counts distinguish online clients, outstanding attention, offline
 clients, and recently ended history. Search by host, user, task, branch, or
 working directory, then filter by engine and state. Selecting a client opens
@@ -55,7 +55,7 @@ remains readable until the configured retention period expires.
 
 ## Overview endpoint
 
-`GET /admin/overview` returns: host count (`totals.hosts`), the reported-install buckets under `version_distribution.install`, `last_refresh`, `avg_refresh_age_days`, version summaries for both codex and claude engines, a `chatgpt_usage` snapshot and `chatgpt_usage_summary`, and a full set of settings flags (quota thresholds, scaling status, theme, retention policy, client version lock, and others).
+`GET /admin/overview` returns: host count (`totals.hosts`), the reported-install buckets under `version_distribution.install`, `last_refresh`, `avg_refresh_age_days`, version summaries for the codex, claude, and grok engines, a `chatgpt_usage` snapshot and `chatgpt_usage_summary`, and a full set of settings flags (quota thresholds, scaling status, theme, retention policy, client version lock, and others).
 
 ## Setup resume card
 
@@ -70,17 +70,18 @@ Note that `setup_complete` on the same response is only `criticalComplete && own
 
 ## Stat cards
 
-The dashboard renders three stat cards sourced from a single `overviewQuery()` call against `GET /admin/overview`:
+The dashboard renders four stat cards sourced from a single `overviewQuery()` call against `GET /admin/overview`:
 
 | Card | Field | Notes |
 |---|---|---|
-| Hosts | `totals.hosts`, `version_distribution.install` | Shows total hosts plus a compact Codex/Claude split. Engine counts mean hosts that reported the corresponding installed CLI version; a dual-engine host counts once in each engine total. |
+| Hosts | `totals.hosts`, `version_distribution.engine_counts` | Shows total hosts plus a compact Codex/Claude/Grok split. Engine counts mean hosts that reported the corresponding installed CLI version; a multi-engine host counts once in each engine total. |
 | Codex latest | `versions.cdx_version_available` | Latest upstream Codex CLI version (GitHub releases) — **not** the installed version. |
 | Claude latest | `versions.claude_version_available` | Latest upstream Claude Code CLI version (npm) — **not** the installed version. |
+| Grok latest | `versions.grok_version_available` | Latest upstream Grok Build CLI version (npm package `@xai-official/grok`) — **not** the installed version. |
 
-The Hosts card displays a relative-time hint derived from `last_refresh` (e.g. "no refreshes yet", "<1h since last refresh"). Its Codex count is `both + codex_only`; its Claude count is `both + claude_only`. If install telemetry is absent, the split shows `—` instead of inventing zero installs. The two "latest" cards show a "checked Xm/h/d ago" hint derived from `versions.cdx_version_checked_at` / `versions.claude_version_checked_at` (both are 1-hour-cached upstream lookups refreshed as a side effect of loading `/admin/overview`). Concrete installed client versions come from the host-reported `version_distribution`; policy aliases such as `latest` are never presented as installed versions.
+The Hosts card displays a relative-time hint derived from `last_refresh` (e.g. "no refreshes yet", "<1h since last refresh"). Its per-engine counts come from `version_distribution.engine_counts`; a response without it falls back to `both + codex_only` for Codex and `both + claude_only` for Claude. If install telemetry is absent, the split shows `—` instead of inventing zero installs. The three "latest" cards show a "checked Xm/h/d ago" hint derived from `versions.cdx_version_checked_at` / `versions.claude_version_checked_at` / `versions.grok_version_checked_at` (all are 1-hour-cached upstream lookups refreshed as a side effect of loading `/admin/overview`). Concrete installed client versions come from the host-reported `version_distribution`; policy aliases such as `latest` are never presented as installed versions.
 
-**Engine coverage** shows four exclusive groups: Both engines, Codex only, Claude only, and No version reported. Counts and percentages come from reported CLI versions. They describe installation coverage, not host health, successful authentication, or current connectivity. **Configure engines** opens the fleet defaults and version controls.
+**Engine coverage** shows one exclusive group per reported install combination across Codex, Claude, and Grok (`version_distribution.install_combinations`), labelled by its engines — for example *Codex + Claude + Grok*, *Codex + Claude*, or *Grok* — plus No version reported. A response without combinations falls back to Both engines, Codex only, Claude only, and No version reported. Counts and percentages come from reported CLI versions. They describe installation coverage, not host health, successful authentication, or current connectivity. **Configure engines** opens the fleet defaults and version controls.
 
 ## Alerts
 
@@ -109,9 +110,9 @@ The Claude card shows only reported 5-hour and weekly quota windows; an absent w
 
 ## Runner
 
-The **Runner state** card polls `GET /admin/runner` every 15 seconds and shows separate Codex and Claude panels. Each contains its verification status, last check, last successful verification, any reported failure detail, and a **Run verification** button. A missing success is shown as **No success recorded**; the latest attempt is not treated as proof of success. **Not checked** represents an idle engine. The overall badge describes the shared runner's configuration and readiness.
+The **Runner state** card polls `GET /admin/runner` every 15 seconds and shows separate Codex, Claude, and Grok panels; each engine's runner health is recorded independently. Each contains its verification status, last check, last successful verification, any reported failure detail, and a **Run verification** button. A missing success is shown as **No success recorded**; the latest attempt is not treated as proof of success. **Not checked** represents an idle engine. The overall badge describes the shared runner's configuration and readiness.
 
-The Codex button calls `POST /admin/runner/run`; the Claude button calls `POST /admin/runner/run-claude`. While either request runs, its panel shows **Verifying…** and both buttons are disabled to prevent overlapping manual checks from this page. Completion refreshes runner state. If status cannot refresh, the last result stays visible with a stale warning and **Retry runner state**; verification buttons remain disabled until state can be read successfully.
+The Codex button calls `POST /admin/runner/run`; the Claude button calls `POST /admin/runner/run-claude`; the Grok button calls `POST /admin/runner/run-grok`. While any of these requests runs, its panel shows **Verifying…** and all three buttons are disabled to prevent overlapping manual checks from this page. Completion refreshes runner state. If status cannot refresh, the last result stays visible with a stale warning and **Retry runner state**; verification buttons remain disabled until state can be read successfully.
 
 ## Refresh
 

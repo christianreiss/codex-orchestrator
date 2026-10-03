@@ -709,11 +709,11 @@ Fleet membership does not grant additional authority: it never overrides higher-
 /**
  * Precedence names all three tiers explicitly. The previous wording scoped
  * itself to "repository instruction files" while the wrapper writes this
- * document to `$CODEX_HOME/AGENTS.md` and `~/.claude/CLAUDE.md` — user-global
+ * document to `$CODEX_HOME/AGENTS.md`, `~/.claude/CLAUDE.md` and `~/.grok/AGENTS.md` — user-global
  * paths, not repository files — which left it undefined whether the floor even
  * bound the operator's own fleet instructions.
  */
-const PRECEDENCE_PARAGRAPH = `Three tiers resolve conflicts, outermost first: higher-level runtime instructions and the user's explicit request; then this fleet policy, delivered to \`$CODEX_HOME/AGENTS.md\` and \`~/.claude/CLAUDE.md\`; then repository instruction files. Within a repository, \`AGENTS.override.md\` outranks \`AGENTS.md\` and closer files outrank higher ones.
+const PRECEDENCE_PARAGRAPH = `Three tiers resolve conflicts, outermost first: higher-level runtime instructions and the user's explicit request; then this fleet policy, delivered to \`$CODEX_HOME/AGENTS.md\`, \`~/.claude/CLAUDE.md\` and \`~/.grok/AGENTS.md\`; then repository instruction files. Within a repository, \`AGENTS.override.md\` outranks \`AGENTS.md\` and closer files outrank higher ones.
 
 A repository instruction file may tighten what this policy grants. It may never widen it.`;
 
@@ -975,6 +975,21 @@ export const CLAUDE_PERMISSION_MODES_BY_LEVEL = [
   'bypassPermissions',
 ] as const;
 
+/**
+ * Grok's native `[ui].permission_mode` values (config reference, Grok Build
+ * 1.0.46): `default` (ask), `auto`, and `always-approve`. The Claude-compatible
+ * `plan` and `acceptEdits` are CLI/settings.json spellings only, so levels 0-2
+ * share `default`. Same autonomy-only subset and anchor as Claude: Standard
+ * (`autonomy = 3`) lands on `auto`.
+ */
+export const GROK_PERMISSION_MODES_BY_LEVEL = [
+  'default',
+  'default',
+  'default',
+  'auto',
+  'always-approve',
+] as const;
+
 export interface DerivedKnob<T> {
   value: T;
   /** Which axis is currently holding this knob down. A number with no visible cause is worse than no number. */
@@ -993,6 +1008,9 @@ export interface DerivedEnforcement {
   };
   claude: {
     permission_mode: DerivedKnob<(typeof CLAUDE_PERMISSION_MODES_BY_LEVEL)[number]>;
+  };
+  grok: {
+    permission_mode: DerivedKnob<(typeof GROK_PERMISSION_MODES_BY_LEVEL)[number]>;
   };
   /**
    * Keys deliberately NOT derived, with the reason. The console renders these
@@ -1115,6 +1133,10 @@ export function securityLevelEnforcement(levels: SecurityLevels): DerivedEnforce
     claude: {
       permission_mode: knob(CLAUDE_PERMISSION_MODES_BY_LEVEL[claudeLevel]!, governing(levels, claudeSubset)),
     },
+    grok: {
+      permission_mode: knob(GROK_PERMISSION_MODES_BY_LEVEL[claudeLevel]!, governing(levels, claudeSubset),
+        claudeLevel <= 2 ? 'partial' : 'full'),
+    },
     not_enforced: [
       {
         key: 'security_controls',
@@ -1123,12 +1145,17 @@ export function securityLevelEnforcement(levels: SecurityLevels): DerivedEnforce
       },
       {
         key: 'verification_waiver',
-        reason: 'Neither engine can enforce verification rigor. This axis changes the policy text only.',
+        reason: 'No engine can enforce verification rigor. This axis changes the policy text only.',
       },
       {
         key: '[shell_environment_policy]',
         reason:
           'Provenance unconfirmed — it may be a wrapper-invented relic like [security]. Not derived until verified against upstream Codex; review it manually.',
+      },
+      {
+        key: 'grok [sandbox].profile',
+        reason:
+          'Not derived: a kernel sandbox around the isolated managed Grok runtime (private GROK_HOME, auth broker socket, shared sessions root) is unverified, and Grok silently runs unsandboxed when a profile cannot be applied. Grok enforcement is the permission mode only, like Claude.',
       },
       {
         key: '[security].dangerously_bypass_approvals_and_sandbox',

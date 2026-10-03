@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 /**
- * `docs/interface-cdx.md` and `docs/interface-clx.md` carry the CLI surface
+ * `docs/interface-cdx.md`, `docs/interface-clx.md` and `docs/interface-cgx.md` carry the CLI surface
  * tables operators run the fleet from, but nothing tied them to the wrappers.
  * They drifted: both wrappers dispatch bare `update`, `uninstall` and `cron`
  * subcommands next to the documented `--update`/`--uninstall`/`--cron` flags,
@@ -19,9 +19,17 @@ import { resolve } from 'node:path';
 
 const ROOT = resolve(import.meta.dirname, '../../../..');
 
+const RUN = /\bfunc run\(args \[\]string, stdout, stderr io\.Writer(?:, choices \.\.\.\*quotaadvice\.Session)?\)[^\n]*\{/;
+/** The subcommand dispatch inside `run()`; the other `switch sub` blocks are helpers. */
+const DISPATCH = 'switch sub {';
+
+/** cgx resolves its subcommands while parsing argv, not in a run() switch. */
+const GROK_PARSE = /\bfunc parse\(args \[\]string\) \(options, error\) \{/;
+
 const WRAPPERS = [
-  { name: 'cdx', main: 'wrappers/cxx/internal/app/codex/main.go', doc: 'docs/interface-cdx.md' },
-  { name: 'clx', main: 'wrappers/cxx/internal/app/claude/main.go', doc: 'docs/interface-clx.md' },
+  { name: 'cdx', main: 'wrappers/cxx/internal/app/codex/main.go', doc: 'docs/interface-cdx.md', fn: RUN, dispatch: DISPATCH },
+  { name: 'clx', main: 'wrappers/cxx/internal/app/claude/main.go', doc: 'docs/interface-clx.md', fn: RUN, dispatch: DISPATCH },
+  { name: 'cgx', main: 'wrappers/cxx/internal/app/grok/main.go', doc: 'docs/interface-cgx.md', fn: GROK_PARSE, dispatch: 'switch arg {' },
 ] as const;
 
 /**
@@ -41,10 +49,6 @@ const block = (source: string, open: number): string => {
   }
   throw new Error(`unbalanced braces at offset ${open}`);
 };
-
-const RUN = /\bfunc run\(args \[\]string, stdout, stderr io\.Writer(?:, choices \.\.\.\*quotaadvice\.Session)?\)[^\n]*\{/;
-/** The subcommand dispatch inside `run()`; the other `switch sub` blocks are helpers. */
-const DISPATCH = 'switch sub {';
 
 const CASE = /^\s*case\s+([^{}]*?):\s*$/;
 
@@ -68,15 +72,15 @@ const caseNames = (body: string): string[] => {
   return names;
 };
 
-/** Subcommands the wrapper's top-level dispatch switch claims. */
-const dispatchedSubcommands = (main: string): string[] => {
-  const source = readFileSync(resolve(ROOT, main), 'utf8');
-  const run = RUN.exec(source);
-  if (!run) throw new Error(`${RUN.source} not found in ${main}`);
-  const body = block(source, run.index + run[0].length - 1);
-  const dispatch = body.indexOf(DISPATCH);
-  if (dispatch < 0) throw new Error(`"${DISPATCH}" not found in run() of ${main}`);
-  return caseNames(block(body, dispatch + DISPATCH.length - 1));
+/** Subcommands the wrapper's top-level dispatch switch claims; flags are documented separately. */
+const dispatchedSubcommands = (wrapper: (typeof WRAPPERS)[number]): string[] => {
+  const source = readFileSync(resolve(ROOT, wrapper.main), 'utf8');
+  const fn = wrapper.fn.exec(source);
+  if (!fn) throw new Error(`${wrapper.fn.source} not found in ${wrapper.main}`);
+  const body = block(source, fn.index + fn[0].length - 1);
+  const dispatch = body.indexOf(wrapper.dispatch);
+  if (dispatch < 0) throw new Error(`"${wrapper.dispatch}" not found in ${wrapper.main}`);
+  return caseNames(block(body, dispatch + wrapper.dispatch.length - 1)).filter((name) => !name.startsWith('-'));
 };
 
 const CLI_SURFACE = '## CLI surface';
@@ -108,7 +112,7 @@ const documentedCommands = (doc: string): Set<string> => {
 describe('wrapper CLI surface tables', () => {
   for (const wrapper of WRAPPERS) {
     it(`${wrapper.doc} lists every subcommand ${wrapper.name} dispatches`, () => {
-      const subcommands = dispatchedSubcommands(wrapper.main);
+      const subcommands = dispatchedSubcommands(wrapper);
       // Guards the extraction itself: a rewritten switch that parses to nothing
       // would otherwise document nothing and still pass.
       expect(subcommands).toContain('run');

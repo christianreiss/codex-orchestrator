@@ -1,11 +1,12 @@
 # Codex / Claude / Grok Auth Runner
 
-Lightweight HTTP microservice that validates an `auth.json`, generates short summaries, and drafts/revises skills by running the Codex or Claude CLI inside an isolated temp `$HOME`. Intended to run on the internal Docker network (no host ports).
+Lightweight HTTP microservice that validates an `auth.json`, generates short summaries, and drafts/revises skills by running the Codex, Claude, or Grok CLI inside an isolated temp `$HOME`. Intended to run on the internal Docker network (no host ports).
 
 All three engines are supported:
 
 - **Codex** path uses `/usr/local/bin/codex exec` with the installed Codex Rust CLI.
 - **Claude** path uses `/usr/local/bin/claude --print` with the installed `@anthropic-ai/claude-code` npm CLI.
+- **Grok** path uses the pinned official `grok` CLI with `--prompt-file` and JSON output in an isolated, access-only `GROK_HOME`; the server owns Grok refresh, so the runner never spends a refresh token.
 - Skill/memory/project endpoints accept an `engine: "codex" | "claude" | "grok"` field in the request body (defaults to `codex` for back-compat).
 - A dedicated `POST /verify-claude` endpoint validates Anthropic API keys against
   `api.anthropic.com/v1/messages`, and validates Claude Code OAuth credentials

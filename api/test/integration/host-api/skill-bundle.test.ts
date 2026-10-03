@@ -262,7 +262,7 @@ describe('fresh Codex Skill bootstrap', () => {
       );
       expect(manifest).toContain('name: skill-manager');
       expect(manifest).toMatch(/how Skill management works/i);
-      expect(manifest).toContain('built-in `skill-creator`');
+      expect(manifest).toContain('Codex `skill-creator`');
       expect(manifest.indexOf('skill_list')).toBeLessThan(manifest.indexOf('skill_retrieve'));
       expect(manifest.indexOf('skill_retrieve')).toBeLessThan(manifest.indexOf('skill_store'));
     } finally {
@@ -481,6 +481,32 @@ description: Shared lifecycle integration fixture
     });
   });
 
+  it('serves Grok hosts the same native bundle as grok_skills, scoped to shared and Grok rows', async () => {
+    const apiKey = 'sk-grok-skills';
+    const db = baseTables(apiKey, 'grok');
+    db.tables.set(skillsTable, [
+      skillRow({ id: 1, slug: 'git-commit', manifest: 'Run a tidy git commit.', engine: null }),
+      skillRow({ id: 2, slug: 'grok-only', manifest: '---\nname: grok-only\ndescription: Grok\n---\n\nG.\n', engine: 'grok' }),
+      skillRow({ id: 3, slug: 'claude-only', manifest: 'claude thing', engine: 'claude' }),
+      skillRow({ id: 4, slug: 'codex-only', manifest: 'codex thing', engine: 'codex' }),
+    ]);
+    const r = await bootstrap(db, apiKey, 'grok');
+    expect(r.statusCode).toBe(200);
+    const body = JSON.parse(r.payload);
+    expect(body.claude_skills).toBeUndefined();
+    expect(Array.isArray(body.grok_skills)).toBe(true);
+    const slugs = body.grok_skills.map((s: { slug: string }) => s.slug);
+    expect(slugs).toEqual(expect.arrayContaining(['git-commit', 'grok-only', 'skill-manager']));
+    expect(slugs).not.toContain('claude-only');
+    expect(slugs).not.toContain('codex-only');
+    const git = body.grok_skills.find((s: { slug: string }) => s.slug === 'git-commit');
+    expect(git.content).toContain('name: git-commit');
+    expect(git.sha256).toBe(createHash('sha256').update(git.content).digest('hex'));
+
+    const again = JSON.parse((await bootstrap(db, apiKey, 'grok', { skills: { 'git-commit': git.sha256 } })).payload);
+    expect(again.grok_skills.find((s: { slug: string }) => s.slug === 'git-commit')).toEqual({ slug: 'git-commit', sha256: git.sha256, status: 'unchanged' });
+  });
+
   it('does NOT include claude_skills for codex hosts', async () => {
     const apiKey = 'sk-codex-noskills';
     const db = baseTables(apiKey, 'codex');
@@ -489,5 +515,6 @@ description: Shared lifecycle integration fixture
     expect(r.statusCode).toBe(200);
     const body = JSON.parse(r.payload);
     expect(body.claude_skills).toBeUndefined();
+    expect(body.grok_skills).toBeUndefined();
   });
 });

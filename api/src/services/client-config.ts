@@ -332,14 +332,25 @@ export function normalizeGrokSettings(raw: unknown): NormalizedSettings {
   out.reasoning_effort = normalizeGrokEffort(input.reasoning_effort ?? models.default_reasoning_effort, model) ?? GROK_MODEL_DEFAULT_REASONING_EFFORTS[model];
   out.model_reasoning_effort = null;
   out.profiles = [];
+  // Grok's native `[ui].permission_mode`; posture writes it, an operator template may too.
+  delete out.permissionMode;
+  const mode = normalizeName(input.permission_mode ?? asRecord(input.ui).permission_mode);
+  if (mode !== null && (GROK_PERMISSION_MODES as readonly string[]).includes(mode)) out.permissionMode = mode;
   return out;
 }
+
+/** Values Grok Build 1.0.46 accepts for `[ui].permission_mode`. */
+export const GROK_PERMISSION_MODES = ['default', 'ask', 'auto', 'always-approve'] as const;
 
 /** A native Grok allowlist; no Codex profile, policy, or sandbox keys enter this file. */
 export function renderGrokSettings(settings: NormalizedSettings): string {
   const lines = ['[models]'];
   addKeyValue(lines, 'default', settings.model ?? GROK_DEFAULT_MODEL);
   addKeyValue(lines, 'default_reasoning_effort', settings.reasoning_effort);
+  if (settings.permissionMode) {
+    lines.push('', '[ui]');
+    addKeyValue(lines, 'permission_mode', settings.permissionMode);
+  }
   for (const server of sortEntriesByName(settings.mcp_servers)) {
     const name = normalizeName(server.name);
     if (!name) continue;
@@ -427,7 +438,7 @@ export function renderTomlForHost(opts: HostRenderOptions): RenderResult {
     size_bytes: Buffer.byteLength(content, 'utf8'),
     settings: normalized,
     ...(profiles !== undefined && { profiles }),
-    ...(engine === ENGINE_GROK && { owned_paths: ['models.default', 'models.default_reasoning_effort', ...withManaged.mcp_servers.flatMap(server => {
+    ...(engine === ENGINE_GROK && { owned_paths: ['models.default', 'models.default_reasoning_effort', ...(withManaged.permissionMode ? ['ui.permission_mode'] : []), ...withManaged.mcp_servers.flatMap(server => {
       const name = normalizeName(server['name']);
       return name ? [`mcp_servers.${name}`] : [];
     })] }),
@@ -532,7 +543,10 @@ export function applyPostureToSettings(
   const derived = securityLevelEnforcement(levels);
   const out = { ...settings };
 
-  if (engine === ENGINE_GROK) return out;
+  if (engine === ENGINE_GROK) {
+    out['permission_mode'] = derived.grok.permission_mode.value;
+    return out;
+  }
 
   if (engine === ENGINE_CLAUDE) {
     out['permissionMode'] = derived.claude.permission_mode.value;

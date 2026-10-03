@@ -2,14 +2,14 @@
 
 <p align="center">
   <strong>Your AI coding agents, all on one control plane.</strong><br>
-  Self-hosted fleet management for <b>OpenAI Codex</b> and <b>Anthropic Claude Code</b>, side by side.
+  Self-hosted fleet management for <b>OpenAI Codex</b>, <b>Anthropic Claude Code</b>, and <b>xAI Grok Build</b>, side by side.
 </p>
 
 <p align="center">
   <a href="#get-started-in-5-minutes">Quickstart</a> ·
   <a href="#the-tour">Tour</a> ·
-  <a href="#codex-vs-claude-at-a-glance">Engine matrix</a> ·
-  <a href="#day-to-day-cdx-and-clx">Commands</a> ·
+  <a href="#codex-claude-and-grok-at-a-glance">Engine matrix</a> ·
+  <a href="#day-to-day-cdx-clx-and-cgx">Commands</a> ·
   <a href="#documentation">Docs</a>
 </p>
 
@@ -28,17 +28,17 @@ have no idea the others exist.
 
 Codex Orchestrator fixes both halves of that. It is a self-hosted
 Node.js + MySQL control plane: upload your credentials once, register your
-hosts, and let `cdx` (Codex) and `clx` (Claude) keep every machine in sync —
+hosts, and let `cdx` (Codex), `clx` (Claude), and `cgx` (Grok) keep every machine in sync —
 auth, config, skills, and agent instructions. A built-in MCP server then gives
 every agent in the fleet shared memory, a project board, merge arbitration,
 peer messaging, secrets, and a file drop. You stop copying tokens by hand, and
 your agents start working as a team.
 
 > [!NOTE]
-> **Both engines are first-class.** `cdx` and `clx` are two personas of one
-> `cxx` wrapper binary, so auth, config, skills, agent documents, MCP, usage,
+> **All three engines are first-class.** `cdx`, `clx`, and `cgx` are personas of
+> one `cxx` wrapper binary, so auth, config, skills, agent documents, MCP,
 > messaging, and the safety controls are at parity — each delivered in its
-> engine's native form. [The matrix](#codex-vs-claude-at-a-glance) lists
+> engine's native form. [The matrix](#codex-claude-and-grok-at-a-glance) lists
 > exactly what differs. If something breaks, please report it.
 
 ---
@@ -47,7 +47,7 @@ your agents start working as a team.
 
 You'll feel right at home if you:
 
-- 🖥️ run Codex and/or Claude Code on **more than one machine** and want one source of truth for auth and config;
+- 🖥️ run Codex, Claude Code, and/or Grok Build on **more than one machine** and want one source of truth for auth and config;
 - 🤝 run **more than one agent at a time** and want them to share memory, split work on a board, and not trample each other's merges;
 - 🔑 want **per-host API keys** with IP binding instead of one token pasted everywhere;
 - 📊 need to see **who is burning which tokens**, what every agent is doing right now, and where the limits are;
@@ -69,11 +69,11 @@ if you set it up anyway.
   <img src="docs/img/clx-launch.png" width="49%" alt="clx boot screen: the same card for Claude Code, in its own accent colour">
 </p>
 
-Type `cdx` or `clx` and the wrapper converges the host before the engine
+Type `cdx`, `clx`, or `cgx` and the wrapper converges the host before the engine
 starts — one `POST /sync/bootstrap` round-trip, then straight in.
 
 - **Auth, config, skills, and agent instructions** land on every host each time you launch.
-- **Engine-native config**: `config.toml` for Codex (written wholesale), `settings.json` for Claude (deep-merged, so your own keys survive).
+- **Engine-native config**: `config.toml` for Codex (written wholesale), `settings.json` for Claude (deep-merged, so your own keys survive), and only the fleet-owned keys of `~/.grok/config.toml` for Grok.
 - **Signed per-host config**: each host gets its own Ed25519-signed config carrying its own API key. No shared secrets floating around.
 - **Quiet upgrades**: engine upgrades install in the background on a 15-minute schedule into private prefixes and switch over atomically. Launches never wait on npm.
 
@@ -83,12 +83,12 @@ starts — one `POST /sync/bootstrap` round-trip, then straight in.
 
 ![Hosts page: eight demo hosts with engine badges, online/insecure/offline status, last seen, and Codex version](docs/img/hosts.png)
 
-A host can run Codex, Claude, or both, and one console manages both engines.
+A host can run any combination of Codex, Claude, and Grok, and one console manages all three.
 Filter by online, secure, insecure, VIP, or roaming; spot version drift at a
 glance; and open any host to adjust its lane, model, version pin, IP policy, or
 lifecycle.
 
-- **Pin versions** of Codex or Claude fleet-wide, or let individual hosts override.
+- **Pin versions** of Codex, Claude, or Grok fleet-wide, or let individual hosts override.
 - **Graduated policy profiles** set a security posture per host (what an agent may do without asking).
 - **Insecure hosts** — machines you don't trust with credentials on disk — get their auth purged after the last wrapper exits, and need an approval to come back.
 
@@ -96,7 +96,7 @@ lifecycle.
 
 ![Active Clients: five running sessions across Codex and Claude, one flagged Needs you, with its timeline and a pending question open on the right](docs/img/active-clients.png)
 
-**Active Clients** lists every running `cdx`/`clx` session in the fleet:
+**Active Clients** lists every running `cdx`/`clx`/`cgx` session in the fleet:
 presence, current task, Git Director branch, messaging address, and a
 one-click force close. When an agent needs a decision, it floats to the top
 under **Needs you** — with the question and its answer buttons right there.
@@ -117,10 +117,10 @@ actually needs a human.
 
 ![Project board for checkout-v2: Backlog, Coding, Review and Done columns; cards in Coding and Review are claimed by agents on named hosts with lease expiry](docs/img/project-board.png)
 
-Every host reaches the orchestrator's MCP server, and both engines get the same tools:
+Every host reaches the orchestrator's MCP server, and every engine gets the same tools:
 
 - **Projects / CoCo** — shared notes, files, feedback, project memory, and a **Kanban board** whose cards agents *claim with a lease*, so two agents never pick up the same work.
-- **Agent Messaging** — an encrypted, ordered, at-least-once bus between Codex and Claude agents on any host, plus live two-party `#call` sessions and chaired `#conference` rooms.
+- **Agent Messaging** — an encrypted, ordered, at-least-once bus between Codex, Claude, and Grok agents on any host, plus live two-party `#call` sessions and chaired `#conference` rooms.
 - **File Transfer** — a TTL'd pool where agents hand each other build artifacts, heap dumps, or tarballs, chunked over MCP and audited on every fetch.
 - **Secrets** — working credentials (GitHub tokens, database passwords, service keys) delivered over MCP on demand, never written to disk by the orchestrator, every read audited.
 
@@ -159,6 +159,7 @@ twice. [How the document is assembled.](#dynamic-agentsmd-and-claudemd)
 ![API Access: kill switches for the OpenAI and Claude lanes, proxy defaults, both compatible base URLs, and a table of sk-coco keys](docs/img/api-access.png)
 
 - `/v1/` speaks the **OpenAI** protocol; `/anthropic/v1/` speaks the **Anthropic** protocol.
+- `/grok/v1/` serves your Grok Build subscription in OpenAI shape (text only), with its own `sk-cgx-` keys.
 - Revocable, expiring `sk-coco-` keys, with each lane switchable independently.
 - [Code samples below.](#compatible-apis)
 
@@ -172,36 +173,38 @@ twice. [How the document is assembled.](#dynamic-agentsmd-and-claudemd)
 
 ---
 
-## Codex vs Claude at a glance
+## Codex, Claude, and Grok at a glance
 
 Legend: ✅ supported · 🅱️ beta · — not supported
 
-| Capability | Codex (`cdx`) | Claude (`clx`) |
-|---|---|---|
-| Daily-driver wrapper | ✅ | ✅ |
-| Auth sync (account login) | ✅ `auth.json` | ✅ native `claudeAiOauth` |
-| Config sync | ✅ `config.toml` | ✅ `settings.json` (deep-merge, keeps your keys) |
-| Per-host API key + signed config | ✅ | ✅ |
-| Wrapper self-update & version pinning | ✅ | ✅ |
-| Background engine upgrades | ✅ | ✅ |
-| Shared skills | ✅ via MCP `skill://` | ✅ on-disk `~/.claude/skills/` |
-| Agent doc sync | ✅ `AGENTS.md` | ✅ `CLAUDE.md` (shared pipeline) |
-| MCP memory, projects, board, secrets | ✅ | ✅ |
-| Git Director & File Transfer | ✅ | ✅ |
-| Agent Messaging (`#call`, `#conference`) | ✅ | ✅ (with ringer hooks) |
-| Agent Portal & `#afk` | ✅ | ✅ |
-| Usage / token tracking | ✅ ChatGPT quota snapshots | ✅ host-reported Claude usage |
-| Insecure-host purge & kill switch | ✅ | ✅ |
-| Compatible passthrough API | ✅ `/v1/` (OpenAI) | ✅ `/anthropic/v1/` (Anthropic) |
-| Lanes & profiles (`lane`, `profile`) | ✅ | — |
-| Native collections (subagents / commands / output styles) | — | ✅ |
-| Quota status line | — | ✅ `cxx claude-quota-statusline` |
-| Advisor model (experimental reviewer) | — | 🅱️ `advisorModel` (opus/sonnet/fable) |
+| Capability | Codex (`cdx`) | Claude (`clx`) | Grok (`cgx`) |
+|---|---|---|---|
+| Daily-driver wrapper | ✅ | ✅ | ✅ |
+| Auth sync (account login) | ✅ `auth.json` | ✅ native `claudeAiOauth` | ✅ subscription OAuth; server owns refresh, hosts get access-only tokens |
+| Config sync | ✅ `config.toml` | ✅ `settings.json` (deep-merge, keeps your keys) | ✅ fleet-owned keys of `~/.grok/config.toml` |
+| Per-host API key + signed config | ✅ | ✅ | ✅ |
+| Wrapper self-update & version pinning | ✅ | ✅ | ✅ |
+| Background engine upgrades | ✅ | ✅ | ✅ |
+| Shared skills | ✅ via MCP `skill://` | ✅ on-disk `~/.claude/skills/` | ✅ on-disk `~/.grok/skills/` |
+| Agent doc sync | ✅ `AGENTS.md` | ✅ `CLAUDE.md` (shared pipeline) | ✅ `~/.grok/AGENTS.md` (shared pipeline) |
+| MCP memory, projects, board, secrets | ✅ | ✅ | ✅ |
+| Git Director & File Transfer | ✅ | ✅ | ✅ |
+| Agent Messaging (`#call`, `#conference`) | ✅ | ✅ (with ringer hooks) | ✅ (native ACP receiver) |
+| Agent Portal & `#afk` | ✅ | ✅ | ✅ |
+| Usage / token tracking | ✅ ChatGPT quota snapshots | ✅ host-reported Claude usage | — quota usage unavailable |
+| Insecure-host purge & kill switch | ✅ | ✅ | ✅ (managed runtimes hold access-only tokens) |
+| Compatible passthrough API | ✅ `/v1/` (OpenAI) | ✅ `/anthropic/v1/` (Anthropic) | ✅ `/grok/v1/` (OpenAI-shaped, text only) |
+| Lanes & profiles (`lane`, `profile`) | ✅ | — | — |
+| Native collections (subagents / commands / output styles) | — | ✅ | — |
+| Quota status line | — | ✅ `cxx claude-quota-statusline` | — |
+| Advisor model (experimental reviewer) | — | 🅱️ `advisorModel` (opus/sonnet/fable) | — |
 
-The core fleet machinery is at parity because `cdx` and `clx` are personas of
-one `cxx` binary. Lanes and profiles are Codex-only; Claude's native on-disk
-collections have no Codex analogue. The one 🅱️ row surfaces an experimental
-Claude Code feature and stays off unless you set it.
+The core fleet machinery is at parity because `cdx`, `clx`, and `cgx` are
+personas of one `cxx` binary. Lanes and profiles are Codex-only; Claude's native
+on-disk collections have no Codex or Grok analogue; Grok quota usage is
+unavailable to the orchestrator, so there are no quota windows or quota-based
+switching for it. The one 🅱️
+row surfaces an experimental Claude Code feature and stays off unless you set it.
 
 ---
 
@@ -254,7 +257,7 @@ mid-way is fine; the dashboard offers to resume.
    each one. Nothing here is fixable from a browser, so it reports rather than
    pretends.
 2. **Owner** — the one-time claim, which also signs you in.
-3. **Engines** — Codex, Claude, both, or neither.
+3. **Engines** — Codex, Claude, Grok: any combination, or none yet.
 4. **Credentials** — one canonical credential per engine, verified against the
    live provider before it is stored. A bad value fails here, not on a host at
    3 a.m.
@@ -276,8 +279,8 @@ Registering a host gives you a one-liner to run on it:
 curl https://your-server/install/<token> | bash
 ```
 
-Codex hosts get `cdx`, Claude hosts get `clx`, and dual-engine hosts get both
-aliases backed by one `cxx` install. Git Director, the project board, and File
+Codex hosts get `cdx`, Claude hosts get `clx`, Grok hosts get `cgx`, and
+multi-engine hosts get every enabled alias backed by one `cxx` install. Git Director, the project board, and File
 Transfer each have their own switch on their console page.
 
 **Secure vs insecure hosts.** Secure hosts keep auth on disk and work offline
@@ -289,15 +292,17 @@ permanent), or a fleet-wide window while you're at your desk.
 
 ---
 
-## Day-to-day: `cdx` and `clx`
+## Day-to-day: `cdx`, `clx`, and `cgx`
 
-Once a host is provisioned, `cdx` (or `clx`) is your daily driver:
+Once a host is provisioned, `cdx` (or `clx`, or `cgx`) is your daily driver:
 
 ```bash
 cdx                              # sync and launch with fleet defaults
 cdx myprofile                    # use a named profile from config.toml
 cdx --execute "show me open PRs" # one-shot, script-friendly output
 clx -c                           # continue the last Claude conversation
+cgx resume <uuid-or-title>       # resume a Grok session
+cgx login                        # dedicated Grok subscription login, handed to the server
 ```
 
 A few more handy ones:
@@ -307,8 +312,6 @@ cdx status          # quick health check
 cdx doctor          # diagnose SSH, PTY, and API issues
 cdx sync            # converge auth, config, and content without launching
 cdx auth-upload     # upload current ~/.codex/auth.json after codex login
-cdx lane spark      # switch to the Spark lane for this host
-cdx ls              # shortcut for lane spark
 cdx --update        # self-update the wrapper, then re-sync
 cdx --uninstall     # remove this engine; the last one decommissions the host
 ```
@@ -394,6 +397,12 @@ endpoint does not stream.
 **Anthropic lane:** `/anthropic/v1/messages`, plus `count_tokens`, `models`, and
 the legacy `complete` — same `sk-coco-` keys.
 
+**Grok lane:** `/grok/v1/chat/completions`, `/grok/v1/responses`,
+`/grok/v1/completions`, and `/grok/v1/models[/{model}]`, backed by the fleet's
+Grok Build subscription and authenticated with separate `sk-cgx-` keys from
+*Access → API Access*. It is text-only: streaming, tools, sampling parameters,
+and images are rejected with an explicit 400, and embeddings are unsupported.
+
 ---
 
 ## Deep dives
@@ -421,11 +430,11 @@ overwriting newer state. Only owner/admin accounts can mutate memories.
 Skills are stored centrally and delivered in each engine's native form — no
 manual copying between machines.
 
-- **Engine-native delivery** — Codex reads `skill://{slug}` through MCP; Claude receives managed `~/.claude/skills/<slug>/` directories during bootstrap. The wrapper cleans up obsolete mirrors without touching user-owned Claude Skills.
+- **Engine-native delivery** — Codex reads `skill://{slug}` through MCP; Claude receives managed `~/.claude/skills/<slug>/` directories and Grok managed `~/.grok/skills/<slug>/` directories during bootstrap. The wrapper cleans up obsolete mirrors without touching user-owned Claude or Grok Skills.
 - **Admin authoring** — create, edit, and delete skills from the Skills page. Descriptions and drafts can be AI-generated via the runner, and a curated upstream skill source can be imported with one switch.
 - **Managed skills** — `#coco` (project workflow), `#afk` (portal relay), `#conference` (multi-agent rooms), and `skill-manager` ship with the orchestrator and appear as their modules are enabled.
 - **Integrity tracking** — every skill carries a SHA-256 hash, so the sync pipeline knows when content has actually changed.
-- **MCP-first Codex routing** — when the managed MCP is usable, the baked Codex config disables the built-in local `skill-creator`; served AGENTS guidance uses `skill_list` first for fleet-Skill requests and routes management requests to `skill://skill-manager`. Claude keeps using its native synced Skill directories.
+- **MCP-first Codex routing** — when the managed MCP is usable, the baked Codex config disables the built-in local `skill-creator`; served AGENTS guidance uses `skill_list` first for fleet-Skill requests and routes management requests to `skill://skill-manager`. Claude and Grok keep using their native synced Skill directories.
 
 ### Dynamic AGENTS.md and CLAUDE.md
 
@@ -470,6 +479,7 @@ Codex Orchestrator takes security seriously so you can get on with building thin
 | [`interface-db.md`](docs/interface-db.md) | Database schema reference |
 | [`interface-cdx.md`](docs/interface-cdx.md) | Codex wrapper interface contract |
 | [`interface-clx.md`](docs/interface-clx.md) | Claude wrapper interface contract |
+| [`interface-cgx.md`](docs/interface-cgx.md) | Grok wrapper interface contract |
 | [`wrapper-v2-architecture.md`](docs/wrapper-v2-architecture.md) | How the signed `cxx` wrapper is built and updated |
 | [`auth-runner.md`](docs/auth-runner.md) / [`auth-resilience.md`](docs/auth-resilience.md) | Credential verification and recovery |
 | [`contracts/`](docs/contracts/README.md) | JSON schemas for the wrapper ↔ server contract |

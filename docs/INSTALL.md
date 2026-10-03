@@ -2,8 +2,12 @@
 
 Hosts may enable any nonempty subset of Codex, Claude, and Grok Build. Grok uses
 `cgx`, a signed engine-specific config, and the shared `cxx` binary. Seed Grok
-with the full modern subscription scope map produced by `grok login --device-auth`
-from `~/.grok/auth.json`; legacy web-login and xAI API-key accounts are unsupported.
+with a dedicated login: `cgx login` and the admin seed command both run
+`grok login --device-auth` in a throwaway `GROK_HOME` and erase it after upload.
+Do not copy a live `~/.grok/auth.json`: xAI rotates the refresh token on every
+refresh, so a login must have exactly one refresher (`GROK_SEED_AUTH_PATH`
+explicitly opts into uploading an existing file nothing else will use). Legacy
+web-login and xAI API-key accounts are unsupported.
 Managed launches receive access-only credentials; the server owns refresh. See
 [Grok installation and runtime contract](interface-cgx.md).
 
@@ -19,8 +23,9 @@ wrapper exposed through the `cdx` / `clx` / `cgx` aliases.
 - That is the whole list. A Go toolchain, `make` and `python3` are used when they
   happen to be installed, and built in a container when they are not.
 - Internet egress at build time. The auth-runner image pulls the Codex CLI from
-  GitHub releases, Node from nodejs.org, and `@anthropic-ai/claude-code` from
-  npm. An air-gapped install needs a mirror for all three.
+  GitHub releases, Node from nodejs.org, and `@anthropic-ai/claude-code` plus
+  the official `@xai-official/grok-linux-{x64,arm64}` Grok package from npm. An
+  air-gapped install needs a mirror for all of them.
 - TLS termination for public deployments, either:
   - your own reverse proxy or ingress that terminates TLS and forwards accurate
     `X-Forwarded-*` headers (`--tls none`), or
@@ -300,7 +305,8 @@ refuses to run while a signing-key rotation leaves more than one active key.
 - Admin dashboard: `/admin/` — login-first once admin users exist.
 - Runner verification is on by default (`AUTH_RUNNER_URL=http://auth-runner:8080/verify`).
   Leaving it blank keeps existing verified auth readable but blocks every
-  canonical-changing store. The API keeps canonical Codex/Claude auth fresh from
+  canonical-changing store. The API keeps canonical Codex/Claude auth fresh (and
+  statically verifies Grok's, whose refresh the server owns) from
   a background worker (`AUTH_RUNNER_VERIFY_WORKER_INTERVAL_SECONDS`, default
   300s; probes back off dynamically to `AUTH_RUNNER_VERIFY_MAX_INTERVAL_SECONDS`,
   default 6h, and successful gateway traffic counts as verification) instead of
@@ -361,7 +367,7 @@ After `bin/install.sh` prints `READY`, open `/admin/setup` (the closing message 
 |------|--------------|----------|
 | Infrastructure | The six readiness checks, each with the command that fixes it. | **yes** |
 | Owner | The one-time first-owner claim; issues the session inline. | **yes** |
-| Engines | Codex, Claude, both, or neither. Drives the next step. | no |
+| Engines | Codex, Claude, Grok: any combination, or none yet. Drives the next step. | no |
 | Credentials | One canonical credential per selected engine. | no |
 | Fleet defaults | Model and effort — **and the write that activates MCP**. | no |
 | Agent policy | The seeded fleet policy, plus optional house rules. | no |

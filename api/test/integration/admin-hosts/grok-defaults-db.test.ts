@@ -53,7 +53,7 @@ describe.skipIf(!handle)('Grok fleet defaults during explicit provisioning again
   afterAll(async () => { await handle?.pool.end(); });
 
   it('keeps read-only defaults and config retrieval unpersisted', async () => {
-    expect(await defaults.get(ENGINE_GROK)).toMatchObject({ model: 'grok-4.6', reasoning_effort: 'high' });
+    expect(await defaults.get(ENGINE_GROK)).toMatchObject({ model: 'grok-4.7', reasoning_effort: 'high' });
     expect(await configs.adminFetch(ENGINE_GROK)).toEqual({ status: 'missing' });
     const legacy = tracked((await management.register({ fqdn: `${randomUUID()}.grok-read.test`, secure: true, engines: ['codex'] })).host);
     const out = await new HostAgentsService(db, { publicBaseUrl: 'https://grok-defaults.test', keyring: testKeyring() })
@@ -86,7 +86,7 @@ describe.skipIf(!handle)('Grok fleet defaults during explicit provisioning again
         }
         host = tracked((await registration.registerOrRotate({ fqdn, engines: 'codex,grok' })).host);
       }
-      expect(await defaults.get(ENGINE_GROK)).toMatchObject({ model: 'grok-4.6', reasoning_effort: 'high' });
+      expect(await defaults.get(ENGINE_GROK)).toMatchObject({ model: 'grok-4.7', reasoning_effort: 'high' });
       const rendered = await new HostAgentsService(db, { publicBaseUrl: 'https://grok-defaults.test', keyring: testKeyring() })
         .retrieveConfig(null, host, ENGINE_GROK);
       expect(rendered.status).toBe('updated');
@@ -131,7 +131,7 @@ describe.skipIf(!handle)('Grok fleet defaults during explicit provisioning again
     let paused = false;
     const originalSet = ModelDefaultsService.prototype.set;
     vi.spyOn(ModelDefaultsService.prototype, 'set').mockImplementation(async function(this: ModelDefaultsService, engine, input) {
-      if (!paused && engine === ENGINE_GROK && (input as { model: string }).model === 'grok-4.6') {
+      if (!paused && engine === ENGINE_GROK && (input as { model: string }).model === 'grok-4.7') {
         paused = true;
         signalDefault();
         await defaultGate;

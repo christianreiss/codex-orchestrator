@@ -288,12 +288,14 @@ describe('securityLevelEnforcement', () => {
     expect(contained.codex.sandbox_mode.value).toBe('read-only');
     expect(contained.codex.network_access.value).toBe(false);
     expect(contained.claude.permission_mode.value).toBe('plan');
+    expect(contained.grok.permission_mode.value).toBe('default');
 
     const open = securityLevelEnforcement(UNRESTRICTED);
     expect(open.codex.approval_policy.value).toBe('never');
     expect(open.codex.sandbox_mode.value).toBe('danger-full-access');
     expect(open.codex.network_access.value).toBe(true);
     expect(open.claude.permission_mode.value).toBe('bypassPermissions');
+    expect(open.grok.permission_mode.value).toBe('always-approve');
   });
 
   it('lands Standard on the values the fleet already runs', () => {
@@ -301,6 +303,7 @@ describe('securityLevelEnforcement', () => {
     const std = securityLevelEnforcement(STANDARD);
     expect(CODEX_SANDBOX_MODES).toContain(std.codex.sandbox_mode.value);
     expect(std.claude.permission_mode.value).toBe('auto');
+    expect(std.grok.permission_mode.value).toBe('auto');
   });
 
   it('caps escalation while any axis is still restrictive', () => {
@@ -311,6 +314,7 @@ describe('securityLevelEnforcement', () => {
     expect(derived.codex.approval_policy.value).not.toBe('never');
     expect(derived.codex.sandbox_mode.value).not.toBe('danger-full-access');
     expect(derived.claude.permission_mode.value).not.toBe('bypassPermissions');
+    expect(derived.grok.permission_mode.value).not.toBe('always-approve');
   });
 
   it('never loosens a knob when a single axis is raised', () => {
@@ -318,6 +322,7 @@ describe('securityLevelEnforcement', () => {
       approval: ['on-request', 'on-failure', 'never'],
       sandbox: [...CODEX_SANDBOX_MODES],
       claude: [...CLAUDE_PERMISSION_MODES_BY_LEVEL],
+      grok: ['default', 'auto', 'always-approve'],
     };
     for (const base of [CONTAINED, STANDARD, UNRESTRICTED]) {
       for (const id of SECURITY_AXIS_IDS) {
@@ -336,6 +341,10 @@ describe('securityLevelEnforcement', () => {
             order.claude.indexOf(upper.claude.permission_mode.value),
             `raising ${id} to ${level} tightened permissions.defaultMode`,
           ).toBeGreaterThanOrEqual(order.claude.indexOf(lower.claude.permission_mode.value));
+          expect(
+            order.grok.indexOf(upper.grok.permission_mode.value),
+            `raising ${id} to ${level} tightened Grok ui.permission_mode`,
+          ).toBeGreaterThanOrEqual(order.grok.indexOf(lower.grok.permission_mode.value));
           expect(Number(upper.codex.network_access.value)).toBeGreaterThanOrEqual(
             Number(lower.codex.network_access.value),
           );
@@ -351,6 +360,7 @@ describe('securityLevelEnforcement', () => {
       derived.codex.sandbox_mode,
       derived.codex.network_access,
       derived.claude.permission_mode,
+      derived.grok.permission_mode,
     ]) {
       expect(SECURITY_AXIS_IDS).toContain(knob.governedBy);
     }

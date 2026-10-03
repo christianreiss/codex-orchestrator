@@ -3,6 +3,7 @@
   import { cn } from "$lib/utils/cn";
   import Sparkles from "@lucide/svelte/icons/sparkles";
   import Cpu from "@lucide/svelte/icons/cpu";
+  import Zap from "@lucide/svelte/icons/zap";
 
   type Props = {
     engine: string;
@@ -33,6 +34,8 @@
 >
   {#if engine === "claude"}
     <Sparkles class="h-3 w-3" />
+  {:else if engine === "grok"}
+    <Zap class="h-3 w-3" />
   {:else}
     <Cpu class="h-3 w-3" />
   {/if}

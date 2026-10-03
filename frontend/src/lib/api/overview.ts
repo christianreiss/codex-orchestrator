@@ -51,8 +51,9 @@ export interface EngineInstallCounts {
 }
 
 /**
- * Collapse the mutually-exclusive install buckets into one reported-install
- * count per engine. A dual-engine host intentionally contributes to both.
+ * Per-engine reported-install counts. Current servers send `engine_counts`;
+ * the legacy `install` buckets predate Grok and only cover Codex and Claude,
+ * where a dual-engine host intentionally contributes to both.
  */
 export function engineInstallCounts(
   distribution: VersionDistribution | null | undefined,

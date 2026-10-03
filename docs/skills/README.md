@@ -1,8 +1,9 @@
 # Authored skill manifests
 
 Fleet skills live in the `skills` table and are served over `/skills` and MCP
-(`skill_list` / `skill_retrieve`); `clx` syncs them to `~/.claude/skills/<slug>/SKILL.md`
-on Claude hosts. **The database is the runtime source of truth** — nothing reads this
+(`skill_list` / `skill_retrieve`); Codex reads them only through MCP, `clx` syncs them
+to `~/.claude/skills/<slug>/SKILL.md` on Claude hosts, and `cgx` syncs them to
+`~/.grok/skills/<slug>/SKILL.md` on Grok hosts. **The database is the runtime source of truth** — nothing reads this
 directory, and a file here does not ship anything.
 
 Manifests are kept here only when they need review in git before being stored, the
@@ -99,10 +100,13 @@ Delivery remains engine-native:
   content withholds the cached bundle digest and is restored by the next
   bootstrap. Non-canonical cross-slug ownership records are quarantined, and
   pruning never removes a user-authored Skill directory.
+- Grok receives the same complete set in `grok_skills`; `cgx` verifies and
+  installs it exactly like Claude, under `~/.grok/skills/<slug>/`, with its
+  ownership manifest in `~/.cgx/state/skills.json`.
 
 Turning inclusion off soft-deletes only rows owned by this source. Codex stops
-listing them immediately; Claude removes only those fleet-owned directories on
-its next complete bootstrap. The cached rows, files, and last-known-good source
+listing them immediately; Claude and Grok remove only those fleet-owned directories on
+their next complete bootstrap. The cached rows, files, and last-known-good source
 metadata remain server-side for a safe re-enable. Locally authored Skills and
 code-derived managed Skills are untouched.
 

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { GROK_AUTH_SCOPE, GROK_OIDC_ISSUER, grokProjectionMetadata, normalizeGrokAuth, projectGrokAuth, selectGrokCredential } from '../../../src/services/grok-auth.js';
 import { ClientConfigService, renderTomlForHost } from '../../../src/services/client-config.js';
 import { modelDefaultsCatalog } from '../../../src/services/model-defaults.js';
+import { presetLevels } from '../../../src/services/agent-security-levels.js';
 import type { Database } from '../../../src/db/client.js';
 import { createCanonicalAuthStoreService } from '../../../src/services/canonical-auth-store.js';
 import { createRunnerValidationService } from '../../../src/services/runner-validation.js';
@@ -72,8 +73,26 @@ describe('Grok canonical and runtime contracts', () => {
     const renamed = renderTomlForHost({ settings: { mcp_servers: [{ name: 'custom.server', command: 'tool-server' }] }, host: null, baseUrl: null, apiKey: null, engine: 'grok' });
     expect(renamed.owned_paths).toContain('mcp_servers.custom.server');
   });
+  it('projects the posture into the native permission mode the fleet then owns', () => {
+    const render = (preset: string) => renderTomlForHost({ settings: {}, host: null, baseUrl: null, apiKey: null, engine: 'grok', securityLevels: presetLevels(preset) });
+    const standard = render('standard');
+    expect(standard.content).toContain('[ui]\npermission_mode = "auto"\n');
+    expect(standard.owned_paths).toContain('ui.permission_mode');
+    expect(standard.content).not.toMatch(/approval_policy|sandbox_mode|permissionMode/);
+    // Without a resolved posture the operator template stays untouched and unowned.
+    const untouched = renderTomlForHost({ settings: {}, host: null, baseUrl: null, apiKey: null, engine: 'grok' });
+    expect(untouched.content).not.toContain('[ui]');
+    expect(untouched.owned_paths).not.toContain('ui.permission_mode');
+    // An operator template may set a valid native mode; Claude spellings are dropped.
+    const authored = renderTomlForHost({ settings: { ui: { permission_mode: 'always-approve' } }, host: null, baseUrl: null, apiKey: null, engine: 'grok' });
+    expect(authored.content).toContain('permission_mode = "always-approve"');
+    const claudeSpelling = renderTomlForHost({ settings: { permission_mode: 'bypassPermissions' }, host: null, baseUrl: null, apiKey: null, engine: 'grok' });
+    expect(claudeSpelling.content).not.toContain('permission_mode');
+  });
   it('uses only subscription catalog efforts', () => {
     expect(modelDefaultsCatalog('grok')).toEqual([
+      { model: 'grok-4.7', persistent_efforts: ['low', 'medium', 'high', 'xhigh'], default_effort: 'high' },
+      { model: 'grok-4.7-build-fast', persistent_efforts: ['low', 'medium', 'high', 'xhigh'], default_effort: 'high' },
       { model: 'grok-4.6', persistent_efforts: ['low', 'medium', 'high', 'xhigh'], default_effort: 'high' },
       { model: 'grok-4.5', persistent_efforts: ['low', 'medium', 'high'], default_effort: 'high' },
     ]);

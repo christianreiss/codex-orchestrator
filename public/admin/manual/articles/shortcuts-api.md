@@ -29,7 +29,7 @@ Use the arrow keys to select a result, `Enter` to open it, and `Esc` to close. F
 
 ### Overview
 
-API keys grant programmatic access to the OpenAI-compatible and Anthropic-compatible proxy endpoints. Both key types are stored in the single `openai_api_keys` database table; the `engine` column (`codex` for OpenAI-compat, `claude` for Anthropic-compat) distinguishes them. The admin list endpoints filter by engine: `GET /admin/openai/keys` returns only `engine=codex` rows; `GET /admin/claude/keys` returns only `engine=claude` rows.
+API keys grant programmatic access to the OpenAI-compatible, Anthropic-compatible, and Grok gateway endpoints. All three key types are stored in the single `openai_api_keys` database table; the `engine` column (`codex` for OpenAI-compat, `claude` for Anthropic-compat, `grok` for the Grok gateway) distinguishes them. The admin list endpoints filter by engine: `GET /admin/openai/keys` returns only `engine=codex` rows; `GET /admin/claude/keys` returns only `engine=claude` rows; `GET /admin/grok/keys` returns only `engine=grok` rows.
 
 Key prefixes differ by engine:
 
@@ -37,6 +37,9 @@ Key prefixes differ by engine:
 |--------|--------|-----------|
 | OpenAI-compat (Codex) | `sk-cdx-` | `/v1/*` |
 | Anthropic-compat (Claude) | `sk-ant-` | `/anthropic/v1/*` |
+| Grok gateway (Grok) | `sk-cgx-` | `/grok/v1/*` |
+
+`sk-cgx-` keys are orchestrator gateway keys, not xAI API keys; see [Grok Build](cgx).
 
 > **Critical:** The plaintext key is returned **once only**, in the `{ key, record }` response body at creation time. It is never retrievable again. If you lose it, revoke the key and issue a new one.
 
@@ -44,7 +47,7 @@ Key prefixes differ by engine:
 
 Navigate to **API Keys** in the admin sidebar (or jump there via the `Ctrl`/`Cmd`+`K` command palette). The page header reads "API Keys" with subtitle "Issue and revoke programmatic access" and a **New key** button in the top-right corner.
 
-The page is divided into two tabs: **OpenAI** and **Claude**. The active tab determines which engine the **New key** button targets.
+The page is divided into three tabs: **OpenAI**, **Anthropic**, and **Grok**. The active tab determines which engine the **New key** button targets.
 
 Above the tabs, the **Proxy endpoints** panel shows the absolute base URLs for clients:
 
@@ -52,6 +55,7 @@ Above the tabs, the **Proxy endpoints** panel shows the absolute base URLs for c
 |--------|----------|
 | OpenAI-compatible | `{origin}/v1` |
 | Anthropic-compatible | `{origin}/anthropic/v1` |
+| Grok (OpenAI-shaped) | `{origin}/grok/v1` |
 
 Each row has a **Copy** button. The URLs are derived from the current browser origin, so the same page works on production, staging, and local previews.
 
@@ -61,6 +65,8 @@ Each tab contains:
 
 Shows whether the engine is currently enabled or disabled. A toggle switch labeled "Enabled" controls the state. When disabled, the card turns amber, displays a ShieldAlert icon, and shows the message "All requests using {engine} keys will be rejected." This calls `GET/POST /admin/openai/state` or `GET/POST /admin/claude/state` respectively. Disabling an engine rejects all incoming requests authenticated with keys of that engine, regardless of individual key active status.
 
+The Grok tab holds only its keys table: the **Disable Grok API gateway** switch, gateway default model, and per-model switches live in the **Grok API gateway** card under **Service availability** (see [Engines, Policies, and API Access](/admin/manual/settings)).
+
 **Keys table**
 
 Lists all keys for the engine with columns: Name, Key prefix (first 16 chars followed by `...`), Active (toggle switch), Uses (request count), Last used (relative time), Expires (date, "Never", or an "Expired" badge), and Actions (enable/disable power icon and a trash/revoke icon). Clicking the revoke icon shows a confirmation dialog before permanently deleting the key.
@@ -69,7 +75,7 @@ Lists all keys for the engine with columns: Name, Key prefix (first 16 chars fol
 
 Click **New key** (or run "New API key" from the command palette). The dialog form has:
 
-- **Engine** — select "OpenAI (Codex)" or "Claude (Anthropic)"
+- **Engine** — select "OpenAI (Codex)", "Claude (Anthropic)", or "Grok subscription gateway"
 - **Name** — required text field
 - **Expires** — toggle off for no expiry; toggle on to reveal a datetime picker
 
@@ -77,7 +83,7 @@ On success the dialog switches to a reveal screen showing the full plaintext key
 
 ## Admin HTTP routes
 
-`registerAllRoutes()` in `api/src/routes/index.ts` mounts everything by delegating to per-domain barrel modules — `host-api` (auth/host/install/cli-auth), `projects-mcp` (host-facing projects/memories/skills plus `/mcp`), `wrapper-v2`, `agent-portal`, `agent-messaging`, `openai-compat` (`/v1/*` + OpenAI key admin), `anthropic-compat` (`/anthropic/v1/*` + Claude key admin), `admin-auth-users`, `admin/hosts`, `admin-overview-settings`, `admin-content` (config/agents/skills/projects/skill sources), `admin/memories`, `admin/secrets`, `admin/git-director`, `admin/transfers`, `admin/agent-sessions`, `admin/project-board`, and `admin/manual` — each of which registers the individual route files below. Tables list method + path + the file that actually defines the handler. All `/admin/*` JSON endpoints require an authenticated admin session (`app.requireAdmin`) unless explicitly noted, and every one of them additionally names a capability in `api/src/security/route-capabilities.ts` — see [Roles and capabilities](/admin/manual/roles).
+`registerAllRoutes()` in `api/src/routes/index.ts` mounts everything by delegating to per-domain barrel modules — `host-api` (auth/host/install/cli-auth), `projects-mcp` (host-facing projects/memories/skills plus `/mcp`), `wrapper-v2`, `agent-portal`, `agent-messaging`, `openai-compat` (`/v1/*` + OpenAI key admin), `anthropic-compat` (`/anthropic/v1/*` + Claude key admin), `grok-v1` (`/grok/v1/*`), `admin/grok` (Grok gateway admin + Grok keys), `admin-auth-users`, `admin/hosts`, `admin-overview-settings`, `admin-content` (config/agents/skills/projects/skill sources), `admin/memories`, `admin/secrets`, `admin/git-director`, `admin/transfers`, `admin/agent-sessions`, `admin/project-board`, and `admin/manual` — each of which registers the individual route files below. Tables list method + path + the file that actually defines the handler. All `/admin/*` JSON endpoints require an authenticated admin session (`app.requireAdmin`) unless explicitly noted, and every one of them additionally names a capability in `api/src/security/route-capabilities.ts` — see [Roles and capabilities](/admin/manual/roles).
 
 ### Admin auth + passkeys
 
@@ -142,6 +148,7 @@ The four `/admin/setup/*` routes are the noted exception to the session rule: th
 | POST | `/admin/hosts/:id/model` | api/src/routes/admin/hosts/index.ts |
 | POST | `/admin/hosts/:id/codex-version` | api/src/routes/admin/hosts/index.ts |
 | POST | `/admin/hosts/:id/claude-version` | api/src/routes/admin/hosts/index.ts |
+| POST | `/admin/hosts/:id/grok-version` | api/src/routes/admin/hosts/index.ts |
 | POST | `/admin/hosts/:id/agents-version` | api/src/routes/admin/hosts/index.ts |
 | POST | `/admin/hosts/insecure/extend` | api/src/routes/admin/overview/index.ts |
 | POST | `/admin/hosts/insecure/disable-all` | api/src/routes/admin/overview/index.ts |
@@ -171,6 +178,8 @@ The four `/admin/setup/*` routes are the noted exception to the session rule: th
 | GET/POST | `/admin/claude/state` | api/src/routes/admin/settings/index.ts |
 | GET/POST | `/admin/claude/settings` | api/src/routes/admin/settings/index.ts |
 | GET/POST | `/admin/claude/version` | api/src/routes/admin/settings/index.ts |
+| GET/POST | `/admin/grok/version` | api/src/routes/admin/settings/index.ts |
+| GET | `/admin/grok/version/lock` | api/src/routes/admin/settings/index.ts |
 | POST | `/admin/codex-version` | api/src/routes/admin/settings/index.ts |
 | POST | `/admin/versions/check` | api/src/routes/admin/settings/index.ts |
 | GET/POST | `/admin/model-defaults/:engine` | api/src/routes/admin/settings/index.ts |
@@ -179,7 +188,7 @@ The four `/admin/setup/*` routes are the noted exception to the session rule: th
 | GET/POST | `/admin/response-verbosity` | api/src/routes/admin/settings/index.ts |
 | GET/POST | `/admin/authorization` | api/src/routes/admin/settings/index.ts |
 
-`GET/POST /admin/openai/state` and `GET/POST /admin/claude/state` are the engine kill-switches. A POST with `{ disabled: true }` halts all requests authenticated by keys of that engine. See the kill-switch card description above for the UI equivalent.
+`GET/POST /admin/openai/state` and `GET/POST /admin/claude/state` are the engine kill-switches; `GET/POST /admin/grok/state` (in *Admin Grok gateway* below) is the Grok gateway's. A POST with `{ disabled: true }` halts all requests authenticated by keys of that engine. See the kill-switch card description above for the UI equivalent.
 
 ### Admin overview / dashboard
 
@@ -196,6 +205,7 @@ The four `/admin/setup/*` routes are the noted exception to the session rule: th
 | GET | `/admin/runner` | api/src/routes/admin/overview/index.ts |
 | POST | `/admin/runner/run` | api/src/routes/admin/overview/index.ts |
 | POST | `/admin/runner/run-claude` | api/src/routes/admin/overview/index.ts |
+| POST | `/admin/runner/run-grok` | api/src/routes/admin/overview/index.ts |
 | POST | `/admin/auth/seed-command` | api/src/routes/admin/overview/index.ts |
 | POST | `/admin/auth/upload` | api/src/routes/admin/overview/index.ts |
 | GET | `/admin/logs` | api/src/routes/admin/overview/index.ts |
@@ -295,8 +305,27 @@ Mirrors `/admin/config`, `/admin/agents`, and `/admin/skills` above, but scoped 
 | POST | `/admin/claude/keys` | api/src/routes/admin/keys/claude.ts |
 | POST | `/admin/claude/keys/:id/toggle` | api/src/routes/admin/keys/claude.ts |
 | DELETE | `/admin/claude/keys/:id` | api/src/routes/admin/keys/claude.ts |
+| GET | `/admin/grok/keys` | api/src/routes/admin/grok/index.ts |
+| POST | `/admin/grok/keys` | api/src/routes/admin/grok/index.ts |
+| POST | `/admin/grok/keys/:id/toggle` | api/src/routes/admin/grok/index.ts |
+| DELETE | `/admin/grok/keys/:id` | api/src/routes/admin/grok/index.ts |
 
-`POST /admin/openai/keys` and `POST /admin/claude/keys` accept `{ name, expires_at? }` and return `{ key, record }`. The `key` field contains the full plaintext key and is only present in this response — it is never returned again. All mutations publish WebSocket events (`apikey.created`, `apikey.toggled`, `apikey.deleted`) so connected admin clients invalidate their cache automatically.
+`POST /admin/openai/keys`, `POST /admin/claude/keys`, and `POST /admin/grok/keys` accept `{ name, expires_at? }` and return `{ key, record }`. The `key` field contains the full plaintext key and is only present in this response — it is never returned again. All mutations publish WebSocket events (`apikey.created`, `apikey.toggled`, `apikey.deleted`) so connected admin clients invalidate their cache automatically.
+
+### Admin Grok gateway
+
+| Method | Route | Source |
+|--------|-------|--------|
+| GET/POST | `/admin/grok/state` | api/src/routes/admin/grok/index.ts |
+| GET/POST | `/admin/grok/settings` | api/src/routes/admin/grok/index.ts |
+| GET | `/admin/grok/models` | api/src/routes/admin/grok/index.ts |
+| POST | `/admin/grok/models/:model/toggle` | api/src/routes/admin/grok/index.ts |
+| GET | `/admin/grok/config` | api/src/routes/admin/grok/index.ts |
+| GET | `/admin/grok/config/retrieve` | api/src/routes/admin/grok/index.ts |
+| POST | `/admin/grok/config/render` | api/src/routes/admin/grok/index.ts |
+| POST | `/admin/grok/config/store` | api/src/routes/admin/grok/index.ts |
+
+`/admin/grok/state` is the independent `grok_api_disabled` gateway switch, `/admin/grok/settings` holds the gateway default model, and `/admin/grok/models/:model/toggle` takes `{ enabled }`. The `/admin/grok/config*` routes read, render, and store the Grok client config document (`~/.grok/config.toml`). See [Engines, Policies, and API Access](/admin/manual/settings).
 
 ### Admin Agent Messaging
 
@@ -438,11 +467,13 @@ Every project endpoint lives in `api/src/routes/admin/projects/index.ts` and mir
 
 ### OpenAI- and Anthropic-compatible APIs
 
-`/v1/*` handlers live in `api/src/routes/v1/index.ts`; the `api/src/routes/openai-compat/index.ts` barrel wires them up alongside the admin OpenAI key routes. It supports `chat/completions`, `responses`, `completions`, `models` (list and `models/:model`), plus CORS `OPTIONS` (`embeddings` returns `501 feature_not_supported` — the runner backend has no embeddings support).
+`/v1/*` handlers live in `api/src/routes/v1/index.ts`; the `api/src/routes/openai-compat/index.ts` barrel wires them up alongside the admin OpenAI key routes. It supports `chat/completions`, `responses`, `completions`, `models` (list and `models/:model`), plus CORS `OPTIONS` (`embeddings` returns `400 unsupported_endpoint` — the runner backend has no embeddings support).
 
 `/anthropic/v1/*` handlers live in `api/src/routes/anthropic-v1/index.ts`; the `api/src/routes/anthropic-compat/index.ts` barrel wires them up alongside the admin Claude key routes. It supports `messages`, `messages/count_tokens`, `completions` and `complete` (deprecated but supported), `models` (list and `models/:model_id`), `responses` (non-streaming only), plus CORS `OPTIONS` (`embeddings` returns `501` — Anthropic has no embeddings API). Note the Anthropic-compat surface uses `messages`, not `chat/completions` — the two proxies are not path-symmetric.
 
-Authentication uses a bearer token: `sk-cdx-…` keys for the OpenAI-compat surface and `sk-ant-…` keys for the Anthropic-compat surface. Requests proxy through the shared runner with quota accounting.
+`/grok/v1/*` is mounted by `api/src/routes/grok-v1/index.ts`, which registers the same `api/src/routes/v1/index.ts` handlers under the `/grok` prefix with the Grok engine, model catalog, and server-owned Grok subscription auth. It supports `chat/completions`, `responses`, `completions`, and `models` (list and `models/:model`); embeddings are unsupported. Text, model selection, and system instructions are accepted; streaming, tools, sampling, stop sequences, output-token caps, and image inputs are rejected with explicit 400 errors. A model disabled under API Access is left out of `/grok/v1/models` and rejected with 403 `model_disabled`. Errors use the OpenAI envelope.
+
+Authentication uses a bearer token: `sk-cdx-…` keys for the OpenAI-compat surface, `sk-ant-…` keys for the Anthropic-compat surface, and `sk-cgx-…` keys (`Authorization: Bearer` only) for `/grok/v1`. Requests proxy through the shared runner with quota accounting; Grok subscription quota is not tracked.
 
 ## Source references
 
@@ -455,6 +486,9 @@ Authentication uses a bearer token: `sk-cdx-…` keys for the OpenAI-compat surf
 - api/src/routes/auth/index.ts, host/index.ts, cli-auth/index.ts, install/index.ts (host-facing surface)
 - api/src/routes/wrapper-v2/index.ts (wrapper bakery v2 endpoints)
 - api/src/routes/v1/index.ts, anthropic-v1/index.ts (actual OpenAI-compat and Anthropic-compat handlers)
+- api/src/routes/grok-v1/index.ts (mounts the `/v1` handlers under `/grok` for the Grok gateway)
+- api/src/routes/admin/grok/index.ts (Grok keys, gateway state, default model, model toggles, client config)
+- api/src/services/grok-models.ts (Grok catalog and per-model gateway switches)
 - api/src/routes/projects-client/index.ts (host-facing `/projects/*`, mirrored by the admin projects routes)
 - api/src/routes/mcp/index.ts (MCP JSON-RPC)
 - api/src/routes/health.ts (liveness/readiness probes)

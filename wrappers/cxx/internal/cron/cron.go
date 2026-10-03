@@ -287,7 +287,7 @@ func defaultRunEngineTick(ctx context.Context, canonical string, args, env []str
 
 func IsEngineOnly() bool { return os.Getenv(EngineOnlyEnv) == "1" }
 
-// refreshAuthoritative probes both engines before mutating anything. Only a
+// refreshAuthoritative probes every engine before mutating anything. Only a
 // verified 200 enables an engine and only an explicit engine_disabled response
 // disables one; transport/auth/signature uncertainty preserves the old layout.
 func refreshAuthoritative(ctx context.Context, seed *config.Config, executable string, warn io.Writer) ([]*config.Config, []string, string, error) {

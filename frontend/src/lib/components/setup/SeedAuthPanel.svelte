@@ -333,7 +333,7 @@
           </p>
         {:else if engine === "grok"}
           <p class="text-xs text-muted-foreground">
-            Paste the full <code class="font-mono">~/.grok/auth.json</code> from <code class="font-mono">grok login</code>. Subscription login credentials include refresh material; an xAI API key or access token alone is not accepted.
+            Prefer <code class="font-mono">cgx login</code> or the one-time command: both run a dedicated login whose refresh the orchestrator owns. xAI rotates the refresh token on every refresh, so pasting a <code class="font-mono">~/.grok/auth.json</code> that a native <code class="font-mono">grok</code> or any other tool still uses breaks whichever copy refreshes second. Paste only a login used nowhere else. Subscription login credentials include refresh material; an xAI API key or access token alone is not accepted.
           </p>
         {:else}
           <p class="text-xs text-muted-foreground">
@@ -392,6 +392,14 @@
         Click <em>Generate</em> to mint a short-lived bash one-liner. The operator
         runs it on the host once; the curl will POST credentials back through
         the runner.
+      </p>
+    {/if}
+    {#if engine === "grok"}
+      <p class="text-xs text-muted-foreground">
+        For Grok it runs a dedicated <code class="font-mono">grok login --device-auth</code> in a throwaway
+        home and uploads that login, never the existing <code class="font-mono">~/.grok/auth.json</code>.
+        Set <code class="font-mono">GROK_SEED_AUTH_PATH=/path/auth.json</code> to upload an existing login
+        instead, only if nothing else will use it afterwards.
       </p>
     {/if}
 

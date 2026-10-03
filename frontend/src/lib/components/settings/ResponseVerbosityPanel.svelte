@@ -26,7 +26,7 @@
       <h3 class="text-sm font-semibold">Response verbosity</h3>
       <p class="text-xs text-muted-foreground">
         How much text agents send back. 0 is today's behavior; 4 caps every response at 2 sentences.
-        Projected into the served AGENTS.md/CLAUDE.md/GROK.md policy text, and into Claude Code's own output
+        Projected into the served AGENTS.md/CLAUDE.md policy text, and into Claude Code's own output
         style for clx hosts.
       </p>
     </div>

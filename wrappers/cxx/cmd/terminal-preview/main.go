@@ -42,7 +42,7 @@ func preview(engine, scene string, minimal bool) {
 		prefix, model, version = "clx", "claude-opus-4-6", "2.1.71"
 	}
 	if engine == "grok" {
-		prefix, model, version = "cgx", "grok-4.6", "1.0.46"
+		prefix, model, version = "cgx", "grok-4.7", "1.0.46"
 		caps.Theme = terminalui.ThemeGreen
 	}
 	if minimal {

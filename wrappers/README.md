@@ -48,8 +48,9 @@ an existing executable; the normal fallback is `$GROK_HOME/bin/grok` or `PATH`.
 
 The signed Grok config is `~/.config/codex-orchestrator/cgx.json` (or
 `CGX_CONFIG_PATH`). `GROK_HOME` defaults to `~/.grok`. Fleet configuration is a
-TOML partial: `models.default`, `models.default_reasoning_effort`, and owned MCP
-servers are merged into native `config.toml`. The ownership sidecar stores hashes;
+TOML partial: `models.default`, `models.default_reasoning_effort`, `ui.permission_mode`
+(when the fleet security posture claims it), and owned MCP servers are merged into
+native `config.toml`. The ownership sidecar stores hashes;
 removed fleet paths are pruned only while their values still match the last sync.
 Other user settings and subsequent user edits survive.
 `cgx sync` consumes the bootstrap documents after the shared client unwraps their
@@ -57,6 +58,18 @@ resource envelopes, retaining the config's `owned_paths` for reconciliation.
 Normal Grok launches, sync, status, and doctor request the shared background
 coordinator so updates, schedule repairs, and version reports continue on Grok-only
 hosts. Maintenance commands do not enqueue another coordinator.
+
+Wrapper 0.9.15 brings `cgx` to parity with `cdx`/`clx`. Fleet Skills from the
+`grok_skills` bootstrap bundle install natively under `~/.grok/skills/<slug>/` with
+clx's verified, ownership-tracked semantics (manifest `~/.cgx/state/skills.json`;
+unowned directories are never adopted). `cgx cron install|remove` manages the shared
+schedule. A launch while another lifecycle holds the sync lock pauses content sync
+instead of refusing. Interactive launches show the insecure-host approval box, and
+launches refuse when the baked host FQDN does not match the hostname
+(`GROK_ALLOW_FQDN_MISMATCH=1` overrides). Maintenance appends `alias grok='cgx'` to
+existing `~/.bashrc`/`~/.zshrc`. Native help (`cgx --help`, `cgx help`,
+`cgx mcp --help`) goes straight to the native CLI without a lease or sync. The full
+subcommand table is in [`docs/interface-cgx.md`](../docs/interface-cgx.md).
 
 `cgx login` accepts subscription OAuth only. Login runs in a temporary home,
 uploads the modern credential map to the central account owner, then erases the
@@ -108,8 +121,10 @@ use a protected prompt file and native JSON output. Native `-r/--resume`,
 
 Grok has no verified comparable subscription quota windows, so quota comparison
 and automatic quota-based switching remain unavailable for Grok. `cgx uninstall`
-removes wrapper-owned state and unused private binaries, preserving unwrapped
-credentials and native history. It holds an exclusive original-home maintenance
+refuses on a multi-user host without root or passwordless sudo, then removes
+wrapper-owned state and unused private binaries, preserving unwrapped credentials
+and native history; the shared cxx aliases and cron are removed only on a
+confirmed server result. It holds an exclusive original-home maintenance
 lease and refuses while a managed session or its inherited native child is active.
 Shared cron discovers newly enabled engines from
 fresh signed host configs and keeps all three aliases/configs in sync.

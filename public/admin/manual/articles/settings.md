@@ -20,16 +20,16 @@ Use these canonical destinations from the sidebar or command palette:
 
 | Destination | URL | Contents |
 |---|---|---|
-| **Quick Settings** | `/quick-settings` | Codex and Claude default model buttons and model-specific effort segments, saved immediately. |
-| **Engines** | `/engines` | Codex and Claude fleet models, effort, CLI versions, Codex silent mode, quota and scaling, and Claude client settings. |
+| **Quick Settings** | `/quick-settings` | Codex, Claude, and Grok default model buttons and model-specific effort segments, saved immediately. |
+| **Engines** | `/engines` | Codex, Claude, and Grok fleet models, effort, CLI versions, Codex silent mode, quota and scaling, and Claude client settings. |
 | **Policies** | `/policies` | Auto-update, reverse DNS, API keys in chat, access control (authorization mode), insecure approvals, host lifecycle, and log retention. |
-| **API Access** | `/api-keys` | Service availability, engine proxy settings, endpoints, and issued keys. |
+| **API Access** | `/api-keys` | Service availability (including the Grok API gateway), engine proxy settings, endpoints, and issued keys. |
 
-**Quick Settings** saves each selection immediately, with independent Codex and Claude cards. Selecting a model also selects its catalog default effort; only supported effort levels appear, and models without effort support show **No effort setting**. A failed save restores the confirmed selection and refreshes the server state before another change. Clients receive defaults on their next sync; host overrides take precedence.
+**Quick Settings** saves each selection immediately, with independent Codex, Claude, and Grok cards. Selecting a model also selects its catalog default effort; only supported effort levels appear, and models without effort support show **No effort setting**. A failed save restores the confirmed selection and refreshes the server state before another change. Clients receive defaults on their next sync; host overrides take precedence.
 
-The **Engines** page has jump links for **Codex**, **Claude**, **Quota and scaling**, and **Claude client**. These scroll within the page, preserving open forms. **Host overrides** opens Hosts, where individual model and version choices take precedence over fleet defaults.
+The **Engines** page has jump links for **Codex**, **Claude**, **Grok**, **Quota and scaling**, and **Claude client**. These scroll within the page, preserving open forms. **Host overrides** opens Hosts, where individual model and version choices take precedence over fleet defaults.
 
-Both model-default forms display **Unsaved changes** while edited. Background updates adopt new fleet settings when the form is unchanged; an active draft is preserved. If fleet defaults changed elsewhere, the form shows a notice and **Load latest defaults**. **Discard changes** also loads the latest received settings. Saving a preserved draft replaces current fleet defaults. A failed read offers **Retry** and disables saving until settings can be read again.
+Each model-default form displays **Unsaved changes** while edited. Background updates adopt new fleet settings when the form is unchanged; an active draft is preserved. If fleet defaults changed elsewhere, the form shows a notice and **Load latest defaults**. **Discard changes** also loads the latest received settings. Saving a preserved draft replaces current fleet defaults. A failed read offers **Retry** and disables saving until settings can be read again.
 
 Old `/settings` bookmarks redirect to the corresponding destination. `/authoring/settings` redirects to `/engines#claude-client`.
 
@@ -49,7 +49,7 @@ Old `/settings` bookmarks redirect to the corresponding destination. `/authoring
 
 #### API keys in chat
 
-`GET /admin/api-keys-in-chat`, `POST /admin/api-keys-in-chat` — boolean flag under *Policies → Agent behavior*. A fleet instruction injected into the managed Codex and Claude documents; see [Fleet Instructions](/admin/manual/instructions).
+`GET /admin/api-keys-in-chat`, `POST /admin/api-keys-in-chat` — boolean flag under *Policies → Agent behavior*. A fleet instruction injected into the managed Codex, Claude, and Grok documents; see [Fleet Instructions](/admin/manual/instructions).
 
 #### Access control
 
@@ -178,6 +178,35 @@ The **Claude client** editor at `/engines#claude-client` builds and publishes th
 | `hooks` | Event → hook list, edited via `HooksEditor`. Events are `PreToolUse`, `PostToolUse`, `UserPromptSubmit`, `SessionStart`, `SessionEnd`, `Stop`, `Notification`, `SubagentStop`, `PreCompact`, `PostCompact` (`HOOK_EVENTS`). Each entry is serialized in the shape the CLI parses — `{ matcher?, hooks: [{ type: "command", command }] }`; the editor still reads the older `{ matcher, commands[] }` shape back, so a stored document migrates on its next save. |
 
 A live read-only preview of the rendered `settings.json` is shown alongside the editor. Saving this editor re-reads and preserves the canonical fleet `model` / `effortLevel`, so an older open form cannot overwrite a model-default change.
+
+### Grok
+
+#### Fleet model and effort
+
+`GET /admin/model-defaults/{engine}`, `POST /admin/model-defaults/{engine}` with `engine=grok` — read or set the fleet-wide Grok Build model and persistent reasoning effort. The canonical config is Grok's native `~/.grok/config.toml`, using `[models].default` and `[models].default_reasoning_effort`. The fleet default is `grok-4.7` at `high`; explicit Grok host provisioning creates these defaults when no Grok config row exists yet.
+
+| Model | Persistent effort choices | Default |
+|---|---|---|
+| Grok 4.7 (`grok-4.7`) | `low`, `medium`, `high`, `xhigh` | `high` |
+| Grok 4.7 Fast (`grok-4.7-build-fast`) | `low`, `medium`, `high`, `xhigh` | `high` |
+| Grok 4.6 (`grok-4.6`) | `low`, `medium`, `high`, `xhigh` | `high` |
+| Grok 4.5 (`grok-4.5`) | `low`, `medium`, `high` | `high` |
+
+These are native supported IDs; subscription availability is provider-owned. Codex lanes/profiles and Claude client settings do not apply, and Grok subscription quota is not tracked.
+
+#### Grok version
+
+`GET /admin/grok/version`, `GET /admin/grok/version/lock`, `POST /admin/grok/version` — the fleet-wide Grok Build CLI version, kept separate from Codex and Claude. The POST body is `{ selection }`: `'latest'`/`'auto'` clears the pin; otherwise a semver of at least `1.0.46`. The response reports `locked_version` and `locked_at`.
+
+#### Grok API gateway
+
+The **Grok API gateway** card under *API Access → Service availability* controls the OpenAI-shaped `/grok/v1` gateway (see [Keyboard shortcuts and API reference](/admin/manual/shortcuts-api)):
+
+- `GET /admin/grok/state`, `POST /admin/grok/state` — `{ disabled }`, stored as `grok_api_disabled` and shown as **Disable Grok API gateway**. It gates only `/grok/v1`, independently of the Codex and Claude switches.
+- `GET /admin/grok/settings`, `POST /admin/grok/settings` — **Gateway default model** (`default_model`, a supported Grok model; default `grok-4.7`), used when a request names no model. Any field other than `default_model` and `disabled` is refused with 400 `unsupported_parameter`; there is no max-tokens setting.
+- `GET /admin/grok/models`, `POST /admin/grok/models/{model}/toggle` with `{ enabled }` — per-model switches. A disabled model is left out of `/grok/v1/models` and rejected at inference with 403 `model_disabled`; managed Grok Build hosts are unaffected.
+
+Gateway keys (`sk-cgx-`) are issued on the API Access **Grok** tab. They are orchestrator gateway keys, not xAI API keys; see [Grok Build](cgx).
 
 ---
 
@@ -348,6 +377,9 @@ The following variables are read from the process environment at startup. They c
 - `frontend/src/lib/components/command-palette/commands.ts` — configuration destinations and actions
 - `api/src/routes/admin/settings/index.ts` — settings API endpoints
 - `api/src/services/model-defaults.ts` — engine catalogs and model/effort persistence
+- `api/src/services/grok-models.ts` — Grok catalog, efforts, gateway model toggles
+- `api/src/routes/admin/grok/index.ts` — Grok gateway state, default model, model toggles, keys
+- `frontend/src/lib/components/settings/GrokEngineSection.svelte`, `frontend/src/lib/components/settings/GrokVersionSection.svelte` — Grok API gateway card and Grok version control
 - `api/src/routes/admin/config/index.ts` — agents, skills, memories, profile builder, fleet Claude config
 - `api/src/routes/admin/users/index.ts`
 - `api/src/routes/admin/projects/index.ts`

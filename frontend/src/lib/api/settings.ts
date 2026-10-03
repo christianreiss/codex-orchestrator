@@ -171,9 +171,9 @@ export function modelDefaultsMutation(
 
 /* ─────────────────── 3c. Claude version (engine) ─────────────────── */
 
-// `/admin/versions/check` is a side-effecting POST that force-probes GitHub
-// for BOTH engines' releases in a single call (bypassing the 1h settings
-// cache), so the Claude and Codex "read" queries below share one query key
+// `/admin/versions/check` is a side-effecting POST that force-probes every
+// engine's upstream release in a single call (bypassing the 1h settings
+// cache), so the Claude, Codex, and Grok "read" queries share one query key
 // and a long staleTime -- otherwise they'd each independently re-trigger the
 // same forced upstream lookup on every stale remount. Explicit re-checks go
 // through claudeVersionsCheckMutation / codexVersionsCheckMutation.
@@ -553,6 +553,21 @@ export function grokSettingsQuery() {
 export function grokSettingsMutation(opts: MutationOpts<GrokGatewaySettings, Pick<GrokGatewaySettings, "default_model">> = {}) {
   const qc = useQueryClient();
   return createMutation<GrokGatewaySettings, Error, Pick<GrokGatewaySettings, "default_model">>({ mutationFn: (value) => api.post<GrokGatewaySettings>("/admin/grok/settings", value), ...opts, onSettled: (...args) => { void qc.invalidateQueries({ queryKey: grokSettingsQueryKey }); opts.onSettled?.(...args); } });
+}
+/* Per-model gateway gate: a disabled model leaves `/grok/v1/models` and 403s at inference. */
+export const grokModelsQueryKey = ["settings", "grok-models"] as const;
+export interface GrokGatewayModel { id: string; enabled: boolean; ownedBy?: string }
+export interface GrokModelToggle { model: string; enabled: boolean }
+export function grokModelsQuery() {
+  return createQuery<{ models: GrokGatewayModel[] }>({ queryKey: grokModelsQueryKey, queryFn: () => api.get<{ models: GrokGatewayModel[] }>("/admin/grok/models") });
+}
+export function grokModelToggleMutation(opts: MutationOpts<GrokModelToggle, GrokModelToggle> = {}) {
+  const qc = useQueryClient();
+  return createMutation<GrokModelToggle, Error, GrokModelToggle>({ mutationFn: ({ model, enabled }) => api.post<GrokModelToggle>(`/admin/grok/models/${encodeURIComponent(model)}/toggle`, { enabled }), ...opts, onSettled: (...args) => {
+    void qc.invalidateQueries({ queryKey: grokModelsQueryKey });
+    void qc.invalidateQueries({ queryKey: grokSettingsQueryKey });
+    opts.onSettled?.(...args);
+  } });
 }
 export const grokVersionsQuery = claudeVersionsQuery;
 export const grokVersionsCheckMutation = claudeVersionsCheckMutation;

@@ -159,9 +159,9 @@ export function buildSeedAuthScript(opts: { baseUrl: string; token: string; engi
     throw new Error('Seed base URL invalid');
   }
   const postUrl = `${baseUrl}/seed/v2/auth/${token}`;
-  const authPath =
-    opts.engine === ENGINE_CLAUDE ? '$HOME/.claude/.credentials.json' : opts.engine === ENGINE_GROK ? '$HOME/.grok/auth.json' : '$HOME/.codex/auth.json';
-  const label = opts.engine === ENGINE_CLAUDE ? 'Claude credentials' : opts.engine === ENGINE_GROK ? 'Grok subscription credentials' : 'Codex auth.json';
+  if (opts.engine === ENGINE_GROK) return buildGrokSeedAuthScript(postUrl);
+  const authPath = opts.engine === ENGINE_CLAUDE ? '$HOME/.claude/.credentials.json' : '$HOME/.codex/auth.json';
+  const label = opts.engine === ENGINE_CLAUDE ? 'Claude credentials' : 'Codex auth.json';
   const postUrlQ = shellQuote(postUrl);
   return `#!/bin/sh
 # Codex Orchestrator wrapper-v2 seed-auth uploader (${opts.engine}).
@@ -182,6 +182,72 @@ curl -fsSL -X POST \\
 
 echo "Done. Server response:"
 cat /tmp/seed-auth-response.json
+echo
+`;
+}
+
+/**
+ * xAI rotates the refresh token on every refresh, and the orchestrator is the
+ * only party allowed to spend the canonical one. Copying an operator's live
+ * `~/.grok/auth.json` would leave two refreshers on one token chain: whichever
+ * refreshes second is rejected with `invalid_grant`. So the default seed runs a
+ * dedicated device login in a throwaway GROK_HOME (the same isolation as
+ * `cgx login`) and erases it after upload. `GROK_SEED_AUTH_PATH` uploads an
+ * existing file instead, for a login that will not be used anywhere else.
+ */
+function buildGrokSeedAuthScript(postUrl: string): string {
+  const postUrlQ = shellQuote(postUrl);
+  return `#!/bin/sh
+# Codex Orchestrator wrapper-v2 seed-auth uploader (grok).
+set -eu
+
+SEED_HOME=
+cleanup() { if [ -n "$SEED_HOME" ]; then rm -rf "$SEED_HOME"; fi; }
+trap cleanup EXIT INT TERM
+
+if [ -n "\${GROK_SEED_AUTH_PATH:-}" ]; then
+  AUTH_PATH=$GROK_SEED_AUTH_PATH
+  if [ ! -f "$AUTH_PATH" ]; then
+    echo "Grok subscription credentials not found at $AUTH_PATH" >&2
+    exit 1
+  fi
+  echo "!! Uploading an existing Grok login. Do not use it anywhere else afterwards:" >&2
+  echo "!! the orchestrator now refreshes it, and xAI rejects the other copy's next refresh." >&2
+else
+  GROK_BIN=
+  if [ -r "$HOME/.cgx/state/grok-bin" ]; then GROK_BIN=$(cat "$HOME/.cgx/state/grok-bin"); fi
+  if [ -z "$GROK_BIN" ] || [ ! -x "$GROK_BIN" ]; then GROK_BIN=$(command -v grok 2>/dev/null || true); fi
+  if [ -z "$GROK_BIN" ]; then
+    echo "Grok CLI not found; install cgx (or the official grok CLI), or set GROK_SEED_AUTH_PATH" >&2
+    exit 1
+  fi
+  SEED_HOME=$(mktemp -d)
+  chmod 700 "$SEED_HOME"
+  echo ">> Starting a dedicated Grok subscription login; the orchestrator will own its refresh"
+  # Readable is not enough: without a controlling terminal opening it fails,
+  # and a failed redirect on a special builtin would exit this shell.
+  if ( : </dev/tty ) 2>/dev/null; then LOGIN_IN=/dev/tty; else LOGIN_IN=/dev/null; fi
+  env -u GROK_API_KEY -u XAI_API_KEY -u GROK_AUTH -u GROK_AUTH_PROVIDER_COMMAND \\
+    GROK_HOME="$SEED_HOME" GROK_AUTH_PATH="$SEED_HOME/auth.json" GROK_DISABLE_API_KEY_AUTH=1 \\
+    "$GROK_BIN" login --device-auth <"$LOGIN_IN"
+  AUTH_PATH=$SEED_HOME/auth.json
+  if [ ! -f "$AUTH_PATH" ]; then
+    echo "Grok login did not produce credentials" >&2
+    exit 1
+  fi
+fi
+
+echo ">> Uploading Grok subscription credentials to orchestrator"
+RESPONSE=$(mktemp)
+curl -fsSL -X POST \\
+  -H "Content-Type: application/json" \\
+  --data-binary @"$AUTH_PATH" \\
+  -o "$RESPONSE" \\
+  ${postUrlQ} || { echo "Upload failed; see $RESPONSE" >&2; exit 1; }
+
+echo "Done. Server response:"
+cat "$RESPONSE"
+rm -f "$RESPONSE"
 echo
 `;
 }

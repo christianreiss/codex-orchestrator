@@ -232,6 +232,7 @@ function fixture(pathname: string): Record<string, unknown> {
     case "/admin/grok/state": return { disabled: false };
     case "/admin/grok/settings": return { default_model: "grok-4.6", disabled: false };
     case "/admin/grok/keys": return [];
+    case "/admin/grok/models": return { models: ["grok-4.7", "grok-4.7-build-fast", "grok-4.6", "grok-4.5"].map(id => ({ id, enabled: true, ownedBy: "xai" })) };
     case "/admin/model-defaults/grok": return {
       engine: "grok", model: "grok-4.6", reasoning_effort: "high",
       catalog: [
@@ -1534,7 +1535,7 @@ test("control dashboard is accessible with both engines at desktop and mobile si
     await page.goto("/admin/dashboard");
     await expect(page.getByRole("heading", { name: "Overview", level: 1 })).toBeVisible({ timeout: 15_000 });
     const coverage = page.getByRole("region", { name: "Engine coverage" });
-    await expect(coverage.getByText("Both engines", { exact: true })).toBeVisible();
+    await expect(coverage.getByText("Codex + Claude", { exact: true })).toBeVisible();
     await expect(coverage.locator("dd").first()).toContainText("6");
     await expect(page.getByRole("region", { name: "Claude verification" })).toContainText("Canonical credentials need verification");
     await expect(page.getByRole("meter")).toHaveCount(4);
@@ -1561,7 +1562,7 @@ test("control overview distinguishes unavailable, stale, and recovered snapshots
   await expect(page.getByRole("region", { name: "Engine coverage" })).toContainText("unavailable");
   failed = false;
   await page.getByRole("button", { name: "Retry overview", exact: true }).click();
-  await expect(page.getByRole("region", { name: "Engine coverage" })).toContainText("Both engines");
+  await expect(page.getByRole("region", { name: "Engine coverage" })).toContainText("Codex + Claude");
   failed = true;
   await page.getByRole("button", { name: "Refresh overview", exact: true }).click();
   await expect(page.getByText("Overview could not refresh", { exact: true })).toBeVisible();
@@ -1948,6 +1949,7 @@ test("API Access shows the Grok text gateway and issues a scoped client key", as
     if (body && path.startsWith("/admin/grok/")) {
       writes.push({ path, body });
       if (path === "/admin/grok/keys") return { key: "fake-gateway-token", record: { id: 3, name: "Grok test", is_active: true, created_at: "2026-10-01T00:00:00Z", expires_at: null } };
+      if (path.startsWith("/admin/grok/models/")) return { model: "grok-4.5", enabled: false };
       return { disabled: true };
     }
   });
@@ -1955,6 +1957,9 @@ test("API Access shows the Grok text gateway and issues a scoped client key", as
   await expect(page.getByText(/127\.0\.0\.1:4173\/grok\/v1/)).toBeVisible();
   await expect(page.getByText("Streaming, tools, images, sampling controls, and token limits are unavailable.", { exact: false })).toBeVisible();
   await page.getByRole("switch", { name: "Disable Grok API gateway" }).click();
+  await expect(page.getByRole("switch", { name: "Grok 4.7", exact: true })).toBeChecked();
+  await page.getByRole("switch", { name: "Grok 4.5", exact: true }).click();
+  await expect.poll(() => writes.some(w => w.path === "/admin/grok/models/grok-4.5/toggle")).toBe(true);
   await page.getByRole("tab", { name: "Grok", exact: true }).click();
   await page.getByRole("button", { name: "New key", exact: true }).click();
   const dialog = page.getByRole("dialog");
@@ -1964,6 +1969,7 @@ test("API Access shows the Grok text gateway and issues a scoped client key", as
   await expect.poll(() => writes.some(w => w.path === "/admin/grok/keys")).toBe(true);
   expect(writes).toContainEqual({ path: "/admin/grok/state", body: { disabled: true } });
   expect(writes).toContainEqual({ path: "/admin/grok/keys", body: { name: "Grok test", expires_at: null } });
+  expect(writes).toContainEqual({ path: "/admin/grok/models/grok-4.5/toggle", body: { enabled: false } });
 });
 
 

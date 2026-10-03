@@ -249,11 +249,11 @@
   const codexSwitchDisabled = $derived($hostEnginesMutation.isPending || (codexEngine && engineList.length <= 1));
   const claudeSwitchDisabled = $derived($hostEnginesMutation.isPending || (claudeEngine && engineList.length <= 1));
   const grokSwitchDisabled = $derived($hostEnginesMutation.isPending || (grokEngine && engineList.length <= 1));
-  const grokModel = $derived(host?.grok_model_override ?? $grokDefaults.data?.model ?? "grok-4.6");
+  const grokModel = $derived(host?.grok_model_override ?? $grokDefaults.data?.model ?? "grok-4.7");
   const grokEfforts = $derived(
     ($grokDefaults.data?.catalog.find(model => model.model === grokModel)?.persistent_efforts
       ?? (grokModel === "grok-4.5" ? ["low", "medium", "high"] : ["low", "medium", "high", "xhigh"]))
-      .map(value => ({ value, label: value })),
+      .map(value => ({ value, label: REASONING_EFFORT_OPTIONS.find(option => option.value === value)?.label ?? value })),
   );
   // Reverse-DNS tri-state segmented control.
   type ReverseDnsMode = "global" | "enabled" | "disabled";

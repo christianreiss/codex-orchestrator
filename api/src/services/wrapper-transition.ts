@@ -232,6 +232,7 @@ if [ "$UI_TTY" = "1" ] && [ -z "\${NO_COLOR:-}" ]; then
 fi
 UI_ACCENT=$UI_ORANGE
 if [ "$HAS_CODEX" = "0" ]; then UI_ACCENT=$UI_VIOLET; fi
+if [ "$HAS_CODEX" = "0" ] && [ "$HAS_CLAUDE" = "0" ]; then UI_ACCENT=$UI_GREEN; fi
 
 # Card width follows the wrapper: min(columns - 2, 92). stdin is usually the
 # curl pipe, so the terminal size is read from /dev/tty.
@@ -261,6 +262,7 @@ ui_badge() {
   case "$1" in
     cdx) printf '%s%s%s' "$UI_ORANGE$UI_BOLD" "$1" "$UI_RESET" ;;
     clx) printf '%s%s%s' "$UI_VIOLET$UI_BOLD" "$1" "$UI_RESET" ;;
+    cgx) printf '%s%s%s' "$UI_GREEN$UI_BOLD" "$1" "$UI_RESET" ;;
     setup) printf '%s%s%s' "$UI_BOLD" "cxx" "$UI_RESET" ;;
     *) printf '%s%s%s' "$UI_BOLD" "$1" "$UI_RESET" ;;
   esac
@@ -358,6 +360,10 @@ ui_header() {
     if [ "$HAS_CLAUDE" = "1" ]; then
       if [ -n "$UI_ENGINES" ]; then UI_ENGINES="$UI_ENGINES $UI_DIM+$UI_RESET "; fi
       UI_ENGINES="$UI_ENGINES$UI_VIOLET\${UI_BOLD}Claude$UI_RESET"
+    fi
+    if [ "$HAS_GROK" = "1" ]; then
+      if [ -n "$UI_ENGINES" ]; then UI_ENGINES="$UI_ENGINES $UI_DIM+$UI_RESET "; fi
+      UI_ENGINES="$UI_ENGINES$UI_GREEN\${UI_BOLD}Grok$UI_RESET"
     fi
     printf '\\n'
     ui_card_edge '╭' '╮'

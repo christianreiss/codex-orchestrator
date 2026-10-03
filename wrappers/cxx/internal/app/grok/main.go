@@ -17,12 +17,14 @@ import (
 	"os/signal"
 	"os/user"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"syscall"
 	"time"
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/accountpool"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/agentportal"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/codex"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
 	hostcron "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/cron"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/fleetconfig"
@@ -150,7 +152,7 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	if o.command == "version" {
-		fmt.Fprintf(stdout, "cgx %s (%s, %s)\n", Version, Commit, BuildDate)
+		terminalui.PrintVersion(stdout, terminalui.BuildInfo{Name: "cgx", Version: Version, Commit: Commit, BuildDate: BuildDate, SigningKey: signing.HasKey()})
 		return 0
 	}
 	if o.command == "help" {
@@ -159,7 +161,7 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	}
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
-	if o.command == "run" && len(o.args) > 0 && (o.args[0] == "--help" || o.args[0] == "-h" || o.args[0] == "--version" || o.args[0] == "-v") {
+	if o.command == "run" && len(o.args) > 0 && (o.args[0] == "--version" || o.args[0] == "-v" || isHelpPassthrough(o.args)) {
 		path, err := native.FindCLI()
 		if err != nil {
 			fmt.Fprintln(stderr, "cgx:", err)
@@ -189,6 +191,14 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		logger = slog.New(slog.NewTextHandler(stderr, &slog.HandlerOptions{Level: slog.LevelDebug}))
 	}
 	client.Logger = logger
+	switch o.command {
+	case "run", "execute", "sync", "auth-sync", "login":
+		// A cloned or mis-deployed host refuses before it syncs or leases.
+		if err := native.GuardFQDN(cfg); err != nil {
+			fmt.Fprintln(stderr, "cgx:", err)
+			return 1
+		}
+	}
 	queueHostMaintenance(o.command, cfg, logger)
 	switch o.command {
 	case "auth-upload-auto":
@@ -200,13 +210,9 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	case "update":
 		err = maintenance(ctx, cfg, client, true, stdout, stderr)
 	case "cron":
-		if !hostcron.IsEngineOnly() {
-			err = hostcron.Run(ctx, cfg, o.skipBoot, stdout, stderr)
-		} else {
-			err = maintenance(ctx, cfg, client, false, stdout, stderr)
-		}
+		return cronCommand(ctx, cfg, client, o, stdout, stderr)
 	case "uninstall":
-		err = uninstall(ctx, cfg, client)
+		err = uninstall(ctx, cfg, client, stdout, stderr)
 	case "sync", "auth-sync":
 		err = syncManaged(ctx, cfg, client)
 	case "status", "doctor":
@@ -303,36 +309,50 @@ func syncManaged(ctx context.Context, cfg *config.Config, client *orchestrator.C
 	return err
 }
 
-func syncMeasuredManaged(ctx context.Context, cfg *config.Config, client *orchestrator.Client) (summary managedSyncSummary, syncErr error) {
-	lock, err := ipc.TryAcquireExclusive("cgx-sync")
-	if err != nil {
-		return summary, fmt.Errorf("managed Grok sync lock: %w", err)
+func syncMeasuredManaged(ctx context.Context, cfg *config.Config, client *orchestrator.Client) (managedSyncSummary, error) {
+	return syncMeasuredManagedWith(ctx, cfg, client, false)
+}
+
+// syncMeasuredManagedWith converges instructions, config, native skills and
+// peer engines. unlocked mirrors cdx --allow-concurrent-sync: the operator
+// explicitly accepts writing while another cgx lifecycle holds the lock.
+func syncMeasuredManagedWith(ctx context.Context, cfg *config.Config, client *orchestrator.Client, unlocked bool) (summary managedSyncSummary, syncErr error) {
+	if !unlocked {
+		lock, err := ipc.TryAcquireExclusive("cgx-sync")
+		if err != nil {
+			return summary, fmt.Errorf("managed Grok sync lock: %w", err)
+		}
+		defer lock.Release()
 	}
-	defer lock.Release()
 	home, err := native.Home()
 	if err != nil {
 		return summary, err
 	}
-	bundle, err := client.SyncBootstrap(ctx, orchestrator.BundleRequest{Engine: "grok", IncludeAuth: false, Home: home})
+	store, err := native.Skills()
+	if err != nil {
+		return summary, err
+	}
+	bundle, err := client.SyncBootstrap(ctx, orchestrator.BundleRequest{Engine: "grok", IncludeAuth: false, Home: home, Skills: store.Digests()})
 	if err != nil {
 		return summary, fmt.Errorf("Grok managed sync unavailable: %w", err)
 	}
 	summary.Sessions = bundle.Sessions
 	// SyncBootstrap already unwraps resource objects to document bytes.
 	if body := bundle.Agents; len(body) > 0 {
-		before := documentDigest(filepath.Join(home, "AGENTS.md"))
-		if err := native.AtomicWrite(filepath.Join(home, "AGENTS.md"), body, 0o600); err != nil {
-			return summary, err
+		digest := sha256.Sum256(body)
+		if documentDigest(filepath.Join(home, "AGENTS.md")) != hex.EncodeToString(digest[:]) {
+			if err := native.AtomicWrite(filepath.Join(home, "AGENTS.md"), body, 0o600); err != nil {
+				return summary, err
+			}
+			summary.Config.Updated = true
 		}
 		state, err := native.StateDir()
 		if err != nil {
 			return summary, err
 		}
-		digest := sha256.Sum256(body)
 		if err := native.AtomicWrite(filepath.Join(state, "managed-agents.sha256"), []byte(hex.EncodeToString(digest[:])), 0o600); err != nil {
 			return summary, err
 		}
-		summary.Config.Updated = before != hex.EncodeToString(digest[:])
 	}
 	if body := bundle.Config; len(body) > 0 || bundle.ConfigOwnedPaths != nil {
 		path := filepath.Join(home, "config.toml")
@@ -343,12 +363,24 @@ func syncMeasuredManaged(ctx context.Context, cfg *config.Config, client *orches
 		summary.Config.Checked = true
 		summary.Config.Updated = summary.Config.Updated || before != documentDigest(path)
 	}
-
-	var skills map[string]any
-	if err := client.JSON(ctx, http.MethodGet, "/skills?engine=grok", nil, &skills, 0); err != nil {
-		return summary, err
+	// Grok loads ~/.grok/skills natively. Skill failures warn like cdx/clx:
+	// they never block a launch or a content sync.
+	if bundle.GrokSkills != nil {
+		updated, err := store.Apply(bundle.GrokSkills)
+		summary.Skills = resourceSync{Checked: err == nil, Updated: updated, Failed: err != nil}
+		if err != nil {
+			warn(client, "native Grok skills sync incomplete", err)
+		}
+	} else {
+		// An older server sends no bundle; prove the MCP listing is reachable.
+		var skills map[string]any
+		if err := client.JSON(ctx, http.MethodGet, "/skills?engine=grok", nil, &skills, 0); err != nil {
+			summary.Skills.Failed = true
+			warn(client, "Grok skills listing unavailable", err)
+		} else {
+			summary.Skills.Checked = true
+		}
 	}
-	summary.Skills.Checked = true
 	username := os.Getenv("USER")
 	if current, err := user.Current(); err == nil {
 		username = current.Username
@@ -357,7 +389,16 @@ func syncMeasuredManaged(ctx context.Context, cfg *config.Config, client *orches
 	if username != "" {
 		_ = client.JSON(ctx, http.MethodPost, "/host/users", map[string]any{"username": username, "hostname": hostname}, nil, 0)
 	}
-	return summary, reconcilePeers(ctx, cfg)
+	if err := reconcilePeers(ctx, cfg); err != nil {
+		warn(client, "peer engine reconcile incomplete", err)
+	}
+	return summary, nil
+}
+
+func warn(client *orchestrator.Client, message string, err error) {
+	if client != nil && client.Logger != nil {
+		client.Logger.Warn(message, "err", err)
+	}
 }
 
 func documentDigest(path string) string {
@@ -389,29 +430,36 @@ func reconcilePeers(ctx context.Context, cfg *config.Config) error {
 		return err
 	}
 	engines := config.EnabledEngines(cfg.Host, cfg.Engine)
+	var errs error
 	for _, engine := range engines {
 		if engine == cfg.Engine {
 			continue
 		}
 		item, err := fleetconfig.Fetch(ctx, cfg, engine)
-		if err != nil {
-			return err
+		if errors.Is(err, fleetconfig.ErrEngineDisabled) {
+			continue
 		}
-		if err := fleetconfig.Persist(ctx, item); err != nil {
-			return err
+		if err == nil {
+			err = fleetconfig.Persist(ctx, item)
+		}
+		if err != nil {
+			errs = errors.Join(errs, fmt.Errorf("%s config: %w", engine, err))
 		}
 	}
 	_, err = layout.EnsureAliases(ctx, exe, engines)
-	return err
+	return errors.Join(errs, err)
 }
 
 func run(ctx context.Context, cfg *config.Config, client *orchestrator.Client, o options, stdout, stderr io.Writer) (exitCode int, runErr error) {
-	sync, syncErr := syncMeasuredManaged(ctx, cfg, client)
+	headless := o.command == "execute" || hasArg(o.args, "-p", "--single", "--print", "--prompt-file") || len(o.args) > 0 && o.args[0] == "agent"
+	// Like cdx: another lifecycle holding the sync lock pauses managed content
+	// writes for this launch; auth freshness and the lease remain active.
+	sync, syncErr := syncMeasuredManagedWith(ctx, cfg, client, o.concurrent)
 	if syncErr != nil {
-		if !(o.concurrent && errors.Is(syncErr, ipc.ErrHeld)) {
+		if !errors.Is(syncErr, ipc.ErrHeld) {
 			return 1, syncErr
 		}
-		sync.Concurrent = true
+		sync = managedSyncSummary{Concurrent: true}
 	}
 	baseHome, err := native.Home()
 	if err != nil {
@@ -419,9 +467,33 @@ func run(ctx context.Context, cfg *config.Config, client *orchestrator.Client, o
 	}
 	pool := accountpool.Load("grok", filepath.Join(baseHome, "auth.json"), cfg.Orchestrator.BaseURL)
 	client.Pool = pool
-	var initial startupAuth
-	if err := client.JSON(ctx, http.MethodPost, "/auth", map[string]any{"engine": "grok", "command": "retrieve"}, &initial, 0); err != nil {
-		return 1, errors.New("Grok subscription auth unavailable; run cgx login")
+	initial, err := retrieveStartupAuth(ctx, client, headless, o.minimal, stderr)
+	if err != nil {
+		var httpErr *orchestrator.HTTPError
+		if errors.As(err, &httpErr) {
+			return 1, fmt.Errorf("Grok subscription auth unavailable (%s); run cgx login", httpErr.Code)
+		}
+		return 1, err
+	}
+	reconcileEngineDrift(cfg, initial, client)
+	if _, err := native.FindCLI(); err != nil {
+		// First launch on a host whose installer or cron has not yet placed the
+		// native CLI: install the fleet's verified target in the foreground.
+		target := native.PinnedVersion
+		if v := initial.Versions; v != nil {
+			for _, candidate := range []string{stringValue(v.ClientVersionOverride), stringValue(v.ClientVersion)} {
+				if candidate != "" && candidate != "latest" {
+					target = candidate
+					break
+				}
+			}
+		}
+		if !o.skipBoot {
+			terminalui.Say(stderr, "cgx", terminalui.ToneDim, "install", "installing Grok "+target)
+		}
+		if _, err := native.Install(ctx, target); err != nil {
+			return 1, fmt.Errorf("Grok CLI install failed: %w", err)
+		}
 	}
 	if !pool.Capable {
 		return 1, errors.New("Grok requires centralized account leases")
@@ -479,7 +551,6 @@ func run(ctx context.Context, cfg *config.Config, client *orchestrator.Client, o
 	restore := agentportal.ScrubEnvironment()
 	defer restore()
 	args := append([]string(nil), o.args...)
-	headless := o.command == "execute" || hasArg(args, "-p", "--single", "--print", "--prompt-file") || len(args) > 0 && args[0] == "agent"
 	if o.command == "execute" {
 		f, err := os.CreateTemp(rt.Dir, "prompt-*.txt")
 		if err != nil {
@@ -651,43 +722,77 @@ func status(ctx context.Context, cfg *config.Config, client *orchestrator.Client
 		version, findErr = native.ProbeVersion(ctx, path)
 	}
 	var auth startupAuth
+	started := time.Now()
 	err := client.JSON(ctx, http.MethodPost, "/auth", map[string]any{"engine": "grok", "command": "retrieve"}, &auth, 0)
+	latency := time.Since(started)
 	home, _ := native.Home()
 	screen := startupScreen(startupInput{Config: cfg, Auth: &auth, AuthErr: err, EngineVersion: version, VersionErr: findErr, WrapperVersion: Version, Home: home, StatusOnly: true, Minimal: o.minimal})
 	terminalui.PrintBootScreen(stdout, screen)
-	if doctor && screen.ResultTone == terminalui.ToneFail {
-		return errors.New("Grok doctor checks failed")
+	if doctor {
+		report := doctorReport(doctorInput{Config: cfg, Home: home, CLIPath: path, EngineVersion: version, VersionErr: findErr, Auth: &auth, AuthErr: err, Latency: latency})
+		caps := terminalui.DetectCapsFor(stdout, stringValue(cfg.EngineOptions.AdminThemeHint))
+		if o.minimal {
+			caps = terminalui.MinimalCaps(caps)
+		}
+		terminalui.PrintDoctor(stdout, caps, report)
+		if screen.ResultTone == terminalui.ToneFail || report.Result.Tone == terminalui.ToneFail {
+			return errors.New("Grok doctor checks failed")
+		}
+		return nil
 	}
-	return err
+	if screen.ResultTone == terminalui.ToneFail {
+		return errors.New("Grok status checks failed")
+	}
+	return nil
 }
 
+// maintenance is the cron tick (force=false) and `cgx update` (force=true):
+// wrapper self-update, native CLI convergence, shell alias, content sync and
+// a version report that is sent even when the content sync fails.
 func maintenance(ctx context.Context, cfg *config.Config, client *orchestrator.Client, force bool, stdout, stderr io.Writer) error {
 	path, _ := native.FindCLI()
-	version := ""
+	before := ""
 	if path != "" {
-		version, _ = native.ProbeVersion(ctx, path)
+		before, _ = native.ProbeVersion(ctx, path)
 	}
-	check, err := client.CronCheck(ctx, orchestrator.CronCheckRequest{Engine: "grok", ClientVersion: version, WrapperVersion: Version})
+	check, err := client.CronCheck(ctx, orchestrator.CronCheckRequest{Engine: "grok", ClientVersion: before, WrapperVersion: Version})
 	if err != nil {
 		return err
 	}
-	if check.Wrapper != nil && check.Wrapper.Action == "update" {
-		installed, err := coreupdate.Install(ctx, cfg, check.Wrapper.URL, check.Wrapper.SHA256, check.Wrapper.TargetVersion, client.Logger)
-		if err != nil {
-			return err
+	if check.Action != "disable" && check.Wrapper != nil && check.Wrapper.Action == "update" {
+		if os.Getenv(wrapperRestartedEnv) == "1" {
+			return fmt.Errorf("wrapper update loop detected for target %s", check.Wrapper.TargetVersion)
 		}
-		engine := "grok"
-		args := []string{"sync"}
-		if HostSyncAfterUpdate {
-			engine = ""
+		if check.Wrapper.URL == "" || check.Wrapper.SHA256 == "" || check.Wrapper.TargetVersion == "" {
+			return errors.New("wrapper update requested but metadata incomplete")
 		}
-		return syscall.Exec(installed, layout.ReexecArgv(installed, engine, args), os.Environ())
+		if semverVersion.MatchString(Version) && !codex.SemverGT(check.Wrapper.TargetVersion, Version) {
+			warn(client, "skipping wrapper downgrade to "+check.Wrapper.TargetVersion+" from "+Version, nil)
+		} else {
+			installed, err := coreupdate.Install(ctx, cfg, check.Wrapper.URL, check.Wrapper.SHA256, check.Wrapper.TargetVersion, client.Logger)
+			if err != nil {
+				return err
+			}
+			// Re-run the same command on the new binary so it also converges the
+			// native CLI; the marker stops a server that keeps offering a binary
+			// which does not report the offered version.
+			engine, args := "grok", []string{"cron", "run"}
+			if force {
+				args = []string{"update"}
+			}
+			if HostSyncAfterUpdate {
+				engine, args = "", []string{"sync"}
+			}
+			return syscall.Exec(installed, layout.ReexecArgv(installed, engine, args), append(os.Environ(), wrapperRestartedEnv+"=1"))
+		}
 	}
 	target := check.TargetVersion
 	if target == "" {
 		target = native.PinnedVersion
 	}
-	if force || check.Action == "update" || path == "" {
+	version := before
+	cliUpdated := false
+	if path == "" || (check.Action != "disable" && (check.Action == "update" || (force && before != target))) {
 		path, err = native.Install(ctx, target)
 		if err != nil {
 			return err
@@ -696,18 +801,60 @@ func maintenance(ctx context.Context, cfg *config.Config, client *orchestrator.C
 		if err != nil {
 			return err
 		}
+		cliUpdated = version != before
 	}
-	if err := syncManaged(ctx, cfg, client); err != nil {
-		return err
+	if err := native.EnsureShellAliases(); err != nil {
+		warn(client, "shell alias", err)
+	}
+	syncErr := syncManaged(ctx, cfg, client)
+	if errors.Is(syncErr, ipc.ErrHeld) {
+		syncErr = errors.New("managed sync paused by an active session; retry when it finishes or use --allow-concurrent-sync")
 	}
 	if !hostcron.IsCoordinated() {
 		if err := hostcron.Install(ctx, cfg); err != nil {
-			return err
+			syncErr = errors.Join(syncErr, err)
 		}
 	}
 	_ = native.Prune()
-	return client.CronReport(ctx, orchestrator.CronReportRequest{Engine: "grok", ClientVersion: version, WrapperVersion: Version})
+	var reportErr error
+	reported := false
+	for attempt := 1; attempt <= 2; attempt++ {
+		if reportErr = client.CronReport(ctx, orchestrator.CronReportRequest{Engine: "grok", ClientVersion: version, WrapperVersion: Version}); reportErr == nil {
+			reported = true
+			break
+		}
+		if attempt < 2 {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(2 * time.Second):
+			}
+		}
+	}
+	label := "cron"
+	if force {
+		label = "update"
+	}
+	switch {
+	case cliUpdated && before != "":
+		fmt.Fprintf(stdout, "%s: grok updated %s -> %s (wrapper %s, reported=%t)\n", label, before, version, Version, reported)
+	case cliUpdated:
+		fmt.Fprintf(stdout, "%s: grok installed %s (wrapper %s, reported=%t)\n", label, version, Version, reported)
+	default:
+		fmt.Fprintf(stdout, "%s: ok (wrapper %s, grok %s, no updates, reported=%t)\n", label, Version, version, reported)
+	}
+	if syncErr != nil {
+		fmt.Fprintln(stderr, "cgx "+label+": managed content sync failed:", syncErr)
+	}
+	if reportErr != nil {
+		reportErr = fmt.Errorf("/cron/report failed after retry: %w", reportErr)
+	}
+	return errors.Join(syncErr, reportErr)
 }
+
+const wrapperRestartedEnv = "CGX_WRAPPER_RESTARTED"
+
+var semverVersion = regexp.MustCompile(`^v?[0-9]+\.[0-9]+\.[0-9]+`)
 
 func loginConflictMetadata(raw []byte) (int64, int64) {
 	var doc map[string]any
@@ -732,7 +879,7 @@ func loginConflictMetadata(raw []byte) (int64, int64) {
 	}
 	return find(doc)
 }
-func uninstall(ctx context.Context, cfg *config.Config, client *orchestrator.Client) error {
+func uninstall(ctx context.Context, cfg *config.Config, client *orchestrator.Client, stdout, stderr io.Writer) error {
 	home, err := native.Home()
 	if err != nil {
 		return err
@@ -745,48 +892,120 @@ func uninstall(ctx context.Context, cfg *config.Config, client *orchestrator.Cli
 		return err
 	}
 	defer guard.Release()
+	// Shared aliases, cxx and cron belong to every user of the host. Refuse a
+	// multi-user host unless this process can act for all of them, failing
+	// closed when the registry cannot be asked (cdx/clx semantics).
+	others, othersErr := otherHostUsers(ctx, client)
+	if othersErr != nil || len(others) > 0 {
+		reason := fmt.Sprintf("host has registered users besides this one (%v)", others)
+		if othersErr != nil {
+			reason = "the multi-user safety check could not run"
+		}
+		if os.Geteuid() != 0 && exec.CommandContext(ctx, "sudo", "-n", "true").Run() != nil {
+			fmt.Fprintf(stderr, "cgx uninstall refused: %s, but the process is not root and `sudo -n true` is unavailable.\n", reason)
+			return errors.New("uninstall refused: multi-user host without root/sudo")
+		}
+	}
+	// The server decides whether shared cxx artifacts may go. Local Grok state
+	// is removed even when that call fails; shared artifacts are then kept.
+	result := shareduninstall.ServerResult{}
 	var raw json.RawMessage
 	if err := client.JSON(ctx, http.MethodDelete, "/auth?engine=grok", nil, &raw, 0); err != nil {
-		return err
+		terminalui.Say(stderr, "cgx", terminalui.ToneWarn, "uninstall", "server-side delete failed (best-effort): "+err.Error())
+	} else if decoded, err := shareduninstall.DecodeServerResult(strings.NewReader(string(raw))); err != nil {
+		terminalui.Say(stderr, "cgx", terminalui.ToneWarn, "uninstall", "shared artifacts preserved; delete response was not authoritative: "+err.Error())
+	} else {
+		result = decoded
+		terminalui.Say(stdout, "cgx", terminalui.ToneOK, "uninstall", "server-side delete confirmed")
 	}
-	result, err := shareduninstall.DecodeServerResult(strings.NewReader(string(raw)))
-	if err != nil {
-		return err
+	var errs error
+	step := func(what string, err error) {
+		if err != nil {
+			errs = errors.Join(errs, fmt.Errorf("%s: %w", what, err))
+			terminalui.Say(stderr, "cgx", terminalui.ToneFail, "uninstall", what+": "+err.Error())
+			return
+		}
+		terminalui.Say(stdout, "cgx", terminalui.ToneOK, "uninstall", what)
 	}
-	if err := clearPendingLogin(); err != nil {
-		return err
+	step("removed pending login", clearPendingLogin())
+	if store, err := native.Skills(); err != nil {
+		step("removed fleet skills", err)
+	} else {
+		step("removed fleet skills", store.Strip())
 	}
-	if err := fleetconfig.Remove(ctx, "grok"); err != nil {
-		return err
-	}
-	exe, err := os.Executable()
-	if err != nil {
-		return err
-	}
-	if err := shareduninstall.Apply(ctx, result, "grok", exe); err != nil {
-		return err
-	}
+	step("removed managed config keys", native.SyncConfig(home, nil, []string{}))
 	state, err := native.StateDir()
 	if err != nil {
-		return err
-	}
-	if err := native.SyncConfig(home, nil, []string{}); err != nil {
-		return err
+		return errors.Join(errs, err)
 	}
 	if digest, err := os.ReadFile(filepath.Join(state, "managed-agents.sha256")); err == nil {
 		if body, err := os.ReadFile(filepath.Join(home, "AGENTS.md")); err == nil {
 			sum := sha256.Sum256(body)
 			if strings.TrimSpace(string(digest)) == hex.EncodeToString(sum[:]) {
-				if err := os.Remove(filepath.Join(home, "AGENTS.md")); err != nil {
-					return err
-				}
+				step("removed managed AGENTS.md", os.Remove(filepath.Join(home, "AGENTS.md")))
 			}
 		}
 	}
 	for _, name := range []string{"grok-bin", "managed-keys.json", "managed-agents.sha256"} {
 		if err := os.Remove(filepath.Join(state, name)); err != nil && !os.IsNotExist(err) {
-			return err
+			errs = errors.Join(errs, err)
 		}
 	}
-	return native.RemoveInstalledCopies()
+	step("removed signed cgx config", fleetconfig.Remove(ctx, "grok"))
+	if storeDir, err := native.StoreDir(); err == nil {
+		// The maintenance guard above proves no cgx process still runs a copy.
+		step("removed private Grok installs", errors.Join(native.RemoveInstalledCopies(), os.RemoveAll(storeDir)))
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		return errors.Join(errs, err)
+	}
+	switch {
+	case !result.Confirmed:
+		terminalui.Say(stderr, "cgx", terminalui.ToneWarn, "uninstall", "shared cxx aliases and cron preserved because remaining engines were not confirmed")
+	default:
+		if err := shareduninstall.Apply(ctx, result, "grok", exe); err != nil {
+			step("shared cxx cleanup", err)
+		} else if len(result.RemainingEngines) == 0 {
+			terminalui.Say(stdout, "cgx", terminalui.ToneOK, "uninstall", "removed last-engine cxx aliases, binary, and managed cron")
+		} else {
+			terminalui.Say(stdout, "cgx", terminalui.ToneOK, "uninstall", "removed cgx alias; shared cxx and cron retained")
+		}
+	}
+	return errs
+}
+
+// otherHostUsers asks the orchestrator which other accounts on this host run
+// fleet wrappers. The call also records the current user, as cdx/clx do.
+func otherHostUsers(ctx context.Context, client *orchestrator.Client) ([]string, error) {
+	username := os.Getenv("USER")
+	if current, err := user.Current(); err == nil && current.Username != "" {
+		username = current.Username
+	}
+	hostname, _ := os.Hostname()
+	type hostUser struct {
+		Username string `json:"username"`
+	}
+	var resp struct {
+		Users []hostUser `json:"users"`
+		Data  struct {
+			Users []hostUser `json:"users"`
+		} `json:"data"`
+	}
+	if err := client.JSON(ctx, http.MethodPost, "/host/users", map[string]any{"username": username, "hostname": hostname}, &resp, 0); err != nil {
+		return nil, err
+	}
+	users := resp.Users
+	if len(users) == 0 {
+		users = resp.Data.Users
+	}
+	seen := map[string]bool{username: true}
+	out := []string{}
+	for _, u := range users {
+		if u.Username != "" && !seen[u.Username] {
+			seen[u.Username] = true
+			out = append(out, u.Username)
+		}
+	}
+	return out, nil
 }

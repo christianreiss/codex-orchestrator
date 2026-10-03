@@ -174,7 +174,7 @@ func TestStartupPreferencesReadsPathOverlayAndKeepsUnknownEffort(t *testing.T) {
 	}
 	in.LaunchArgs = nil
 	model, effort, err = startupPreferences(in)
-	if err != nil || model != "grok-4.6" || effort != "high" {
+	if err != nil || model != "grok-4.7" || effort != "high" {
 		t.Fatalf("verified native defaults missing: %s/%s %v", model, effort, err)
 	}
 }

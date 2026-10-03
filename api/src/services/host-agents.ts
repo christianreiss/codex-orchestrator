@@ -440,7 +440,8 @@ export class HostAgentsService {
       ? state(false, 'service_unavailable')
       : skillCount === 0
         ? state(false, 'no_skills', 0)
-        : engine !== ENGINE_CLAUDE && !mcp.enabled
+        // Claude and Grok load Skills natively from disk; only Codex needs MCP.
+        : engine === ENGINE_CODEX && !mcp.enabled
           ? state(false, mcp.reason, skillCount)
           : state(true, 'ok', skillCount);
     const memory = state(mcp.enabled, mcp.reason);

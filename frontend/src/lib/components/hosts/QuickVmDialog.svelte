@@ -4,6 +4,7 @@
   import Cpu from "@lucide/svelte/icons/cpu";
   import Sparkles from "@lucide/svelte/icons/sparkles";
   import Layers from "@lucide/svelte/icons/layers";
+  import Zap from "@lucide/svelte/icons/zap";
   import { toast } from "svelte-sonner";
   import { createQuickRegisterMutation } from "$lib/api/hosts";
   import { ReadonlyCodeBlock } from "$lib/components/ui/code-block";
@@ -82,7 +83,7 @@
         <button type="button"
           class="flex flex-col items-center justify-center gap-2 rounded-lg border border-input bg-background p-4 transition-colors hover:bg-accent disabled:opacity-50"
           disabled={pending !== null} onclick={() => spin(["grok"], "grok")}>
-          <Cpu class="h-7 w-7 text-persona-grok" />
+          <Zap class="h-7 w-7 text-persona-grok" />
           <span class="text-sm font-semibold">Grok only</span>
           <span class="text-xs text-muted-foreground">Grok Build · cgx</span>
           {#if pending === "grok"}<span class="text-xs text-muted-foreground">Working…</span>{/if}

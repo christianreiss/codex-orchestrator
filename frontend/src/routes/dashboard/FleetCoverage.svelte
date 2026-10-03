@@ -16,7 +16,7 @@
     color: item.engines.length > 1 ? "bg-primary" : item.engines[0] === "grok" ? "bg-persona-grok" : item.engines[0] === "claude" ? "bg-persona-claude" : item.engines[0] === "codex" ? "bg-persona-codex" : "bg-muted-foreground/40",
     dot: item.engines.length > 1 ? "bg-primary" : item.engines[0] === "grok" ? "bg-persona-grok" : item.engines[0] === "claude" ? "bg-persona-claude" : item.engines[0] === "codex" ? "bg-persona-codex" : "bg-muted-foreground",
   })) : distribution?.install ? [
-    { label: "Both engines", count: distribution.install.both, color: "bg-primary", dot: "bg-primary" },
+    { label: "Codex + Claude", count: distribution.install.both, color: "bg-primary", dot: "bg-primary" },
     { label: "Codex only", count: distribution.install.codex_only, color: "bg-persona-codex", dot: "bg-persona-codex" },
     { label: "Claude only", count: distribution.install.claude_only, color: "bg-persona-claude", dot: "bg-persona-claude" },
     { label: "No version reported", count: distribution.install.neither, color: "bg-muted-foreground/40", dot: "bg-muted-foreground" },

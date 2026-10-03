@@ -275,10 +275,10 @@ active-child descriptors (including help), so wrapper SIGKILL does not open an
 uninstall/logout/write race while the child survives. Canonical writes wait or
 skip at the commit boundary; a skip is safe only for a genuinely changed usable
 generation, not an unchanged file blocked by an active child.
-This protection cannot cover a separately invoked raw `codex` or `claude`
-process, so use `cdx`/`clx` consistently on fleet-managed auth homes.
+This protection cannot cover a separately invoked raw `codex`, `claude`, or
+`grok` process, so use `cdx`/`clx`/`cgx` consistently on fleet-managed auth homes.
 
-Grok differs here: `cgx login` seeds a modern subscription OIDC generation, then the server owns refresh. Each native session receives an access-only credential in an isolated runtime home with an external-auth broker; canonical refresh tokens stay on the server. See [the cgx contract](interface-cgx.md).
+Grok differs here: `cgx login` runs a dedicated `grok login --device-auth` in a throwaway `GROK_HOME` and uploads that one login, then the server owns refresh. xAI rotates the refresh token on every refresh, so never upload a live `~/.grok/auth.json` that anything else still uses. Each native session receives an access-only credential in an isolated runtime home with an external-auth broker; canonical refresh tokens stay on the server. Owned Grok children inherit the original home's shared session guard, so an orphaned leader or TUI still blocks uninstall until it exits. See [the cgx contract](interface-cgx.md).
 
 ## Secure vs insecure hosts (and why it matters)
 
@@ -342,10 +342,10 @@ cdx --uninstall
 ```
 
 This removes Codex-local artifacts and calls
-`DELETE /auth?force=1&engine=codex`. On a dual-engine host, `clx` uses
-`engine=claude`; an authoritative partial response removes only the selected
-alias and engine state, leaving the other alias, `cxx`, and the shared cron in
-place. An authoritative last-engine response decommissions the host and removes
+`DELETE /auth?force=1&engine=codex`. On a multi-engine host, `clx` uses
+`engine=claude` and `cgx` uses `engine=grok`; an authoritative partial response
+removes only the selected alias and engine state, leaving the other aliases,
+`cxx`, and the shared cron in place. An authoritative last-engine response decommissions the host and removes
 the shared layout. Offline, non-2xx, or malformed delete responses preserve all
 shared artifacts. `force=1` bypasses IP binding for the uninstall call.
 Uninstall first takes an exclusive maintenance lease for that effective auth

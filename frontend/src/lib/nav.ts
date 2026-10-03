@@ -130,7 +130,7 @@ const REGISTRY: NavDefinition[] = [
   },
   {
     id: "instructions", group: "Knowledge", route: "/instructions", label: "Fleet Instructions",
-    description: "Shared AGENTS.md, CLAUDE.md, and GROK.md instructions", keywords: ["agents.md", "claude.md", "grok.md", "codex", "claude", "grok", "instructions", "guidance"], icon: FileText,
+    description: "Shared AGENTS.md and CLAUDE.md instructions", keywords: ["agents.md", "claude.md", "codex", "claude", "grok", "instructions", "guidance"], icon: FileText,
   },
   {
     id: "memories", group: "Knowledge", route: "/memories", label: "Memories",

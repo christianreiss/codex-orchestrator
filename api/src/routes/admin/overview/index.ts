@@ -953,7 +953,7 @@ export async function registerAdminOverviewRoutes(
         auths: { 'api.anthropic.com': { token: payloadText, token_type: 'bearer' } },
       };
     } else {
-      throw new ValidationError('payload must be valid JSON for codex auth', { param: 'payload' });
+      throw new ValidationError('payload must be valid JSON for codex or grok auth', { param: 'payload' });
     }
 
     const stored = await authStore.storeCandidate({

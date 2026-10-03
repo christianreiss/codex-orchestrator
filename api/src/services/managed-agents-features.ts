@@ -5,7 +5,7 @@
  * and diagnostics.
  */
 import { createHash } from 'node:crypto';
-import { ENGINE_CLAUDE, ENGINE_CODEX, ENGINES, type Engine } from '../util/engine.js';
+import { ENGINE_CLAUDE, ENGINE_CODEX, ENGINE_GROK, ENGINES, type Engine } from '../util/engine.js';
 import { buildManagedMemoryBlock, MANAGED_MEMORY_HEADING } from './managed-agents-memory.js';
 import { HISTORIC_MANAGED_MEMORY_BLOCKS } from './managed-agents-memory-legacy.js';
 import { API_KEYS_IN_CHAT_GUIDANCE } from './api-keys-in-chat.js';
@@ -221,6 +221,18 @@ function skillsSection(context: ManagedAgentFeatureContext): RenderedSection | n
 Fleet Skills are synced as native Claude Code skills under
 \`~/.claude/skills/<slug>/SKILL.md\`. Read the matching \`SKILL.md\` when a Skill's description or
 trigger applies, and follow its instructions.`,
+      'native',
+    );
+  }
+  if (context.engine === ENGINE_GROK) {
+    return present(
+      context.skills,
+      `## Skills
+
+Fleet Skills are synced as native Grok skills under \`~/.grok/skills/<slug>/SKILL.md\`. Read the
+matching \`SKILL.md\` when a Skill's description or trigger applies, and follow its instructions.
+To create, update, delete, or explain fleet Skills, follow the \`skill-manager\` Skill instead of
+\`/create-skill\`.`,
       'native',
     );
   }

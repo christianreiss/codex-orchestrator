@@ -353,7 +353,7 @@ export interface AdminApiKey {
 }
 
 /**
- * Shape returned by `POST /admin/{openai|claude}/keys`: the freshly minted
+ * Shape returned by `POST /admin/{openai|claude|grok}/keys`: the freshly minted
  * plaintext key (shown exactly once) plus the persisted record.
  */
 export interface AdminApiKeyCreated {

@@ -27,6 +27,7 @@ The orchestrator supports three engines: **Codex** (OpenAI), **Claude** (Anthrop
 ## Engine parity (kept current)
 
 Before landing an engine-agnostic feature, add Codex (`cdx`), Claude (`clx`), and Grok (`cgx`) paths. Grok uses modern subscription OIDC only, with centrally owned refresh and access-only runtime projections; consult `docs/interface-cgx.md` for ownership, isolation, and receiver contracts. Intentional deltas (documented, not implemented for Claude) are:
+- Grok specifics: Skills are native on disk like Claude (`grok_skills` → `~/.grok/skills`, never Codex's MCP-only path); quota usage is unavailable; posture projects only `[ui].permission_mode` (no sandbox); and a canonical Grok login must have exactly one refresher, so seeding always uses a dedicated device login.
 - ChatGPT quota lanes / `--lane` / `POST /host/lane` — Codex/ChatGPT-only concept. The Spark lane itself is retired (2026-09-29): `spark` heals to a cleared preference.
 - Effort naming and persistence differ by engine: Codex writes `model_reasoning_effort` to `config.toml`, while Claude Code writes `effortLevel` to `settings.json`. Do not send the Codex key to Claude or confuse either CLI setting with the Anthropic API's `effort` request parameter.
 - Device-code CLI login (`/cli/auth/*`) — Claude Code accepts `ANTHROPIC_API_KEY` directly; the wrapper syncs credentials.

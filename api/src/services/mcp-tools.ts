@@ -472,7 +472,7 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
       definition: {
         name: 'shared_memory_list',
         description:
-          'THE place to look up what this fleet knows: hosts, conventions, runbooks, past decisions. Lists every shared document — no query or arguments needed, so call it first when you are asked about something you do not already know, BEFORE searching the filesystem. Returns slug, title, summary, tags, size and a preview. Visible from every host and either engine, unlike memory_*.',
+          'THE place to look up what this fleet knows: hosts, conventions, runbooks, past decisions. Lists every shared document — no query or arguments needed, so call it first when you are asked about something you do not already know, BEFORE searching the filesystem. Returns slug, title, summary, tags, size and a preview. Visible from every host and every engine, unlike memory_*.',
         inputSchema: {
           type: 'object',
           properties: {

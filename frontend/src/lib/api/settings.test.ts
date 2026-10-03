@@ -142,6 +142,7 @@ interface QueryCase {
 const QUERY_CASES: QueryCase[] = [
   { name: "grokStateQuery", build: () => asQuery(settings.grokStateQuery()), queryKey: ["settings", "grok-state"], method: "GET", path: "/admin/grok/state" },
   { name: "grokSettingsQuery", build: () => asQuery(settings.grokSettingsQuery()), queryKey: ["settings", "grok-settings"], method: "GET", path: "/admin/grok/settings" },
+  { name: "grokModelsQuery", build: () => asQuery(settings.grokModelsQuery()), queryKey: ["settings", "grok-models"], method: "GET", path: "/admin/grok/models" },
   { name: "grokVersionsQuery", build: () => asQuery(settings.grokVersionsQuery()), queryKey: KEYS.versionsCheck, method: "POST", path: "/admin/versions/check" },
   { name: "modelDefaultsQuery", label: "modelDefaultsQuery('grok')", build: () => asQuery(settings.modelDefaultsQuery("grok")), queryKey: ["settings", "model-defaults", "grok"], method: "GET", path: "/admin/model-defaults/grok" },
   {
@@ -292,6 +293,9 @@ const MUTATION_CASES: MutationCase[] = [
     request: { method: "POST", path: "/admin/grok/state", body: { disabled: true } }, invalidates: [["settings", "grok-state"], ["keys", "grok", "state"]] },
   { name: "grokSettingsMutation", build: opts => asMutation(settings.grokSettingsMutation(opts)), variables: { default_model: "grok-4.6" },
     request: { method: "POST", path: "/admin/grok/settings", body: { default_model: "grok-4.6" } }, invalidates: [["settings", "grok-settings"]] },
+  // Disabling a model can strand the gateway default, so the settings card re-reads too.
+  { name: "grokModelToggleMutation", build: opts => asMutation(settings.grokModelToggleMutation(opts)), variables: { model: "grok-4.7-build-fast", enabled: false },
+    request: { method: "POST", path: "/admin/grok/models/grok-4.7-build-fast/toggle", body: { enabled: false } }, invalidates: [["settings", "grok-models"], ["settings", "grok-settings"]] },
   { name: "grokVersionsCheckMutation", build: opts => asMutation(settings.grokVersionsCheckMutation(opts)), variables: undefined,
     request: { method: "POST", path: "/admin/versions/check", body: undefined }, invalidates: [KEYS.versionsCheck] },
   { name: "grokVersionMutation", build: opts => asMutation(settings.grokVersionMutation(opts)), variables: "1.0.46",
@@ -576,6 +580,9 @@ describe("module surface", () => {
     "codexVersionsCheckMutation",
     "codexVersionsQuery",
     "codexVersionsQueryKey",
+    "grokModelToggleMutation",
+    "grokModelsQuery",
+    "grokModelsQueryKey",
     "grokSettingsMutation",
     "grokSettingsQuery",
     "grokSettingsQueryKey",

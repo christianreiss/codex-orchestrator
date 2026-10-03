@@ -2,7 +2,7 @@ import { stat, readdir, readFile } from 'node:fs/promises';
 import { createReadStream, type ReadStream } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { join } from 'node:path';
-import type { Engine } from '../util/engine.js';
+import { ENGINE_COMMANDS, type Engine } from '../util/engine.js';
 import { isRfc3339 } from '../util/timestamp.js';
 
 /**
@@ -226,9 +226,9 @@ export function wrapperBinaryUrl(
   return `${base}/wrapper/v2/bin/${artifact}/${os}-${arch}/v${stripVPrefix(version)}/${binaryName(artifact)}`;
 }
 
-function binaryName(artifact: WrapperArtifact): 'cxx' | 'cdx' | 'clx' {
+function binaryName(artifact: WrapperArtifact): string {
   if (artifact === CXX_ARTIFACT) return CXX_ARTIFACT;
-  return artifact === 'claude' ? 'clx' : 'cdx';
+  return ENGINE_COMMANDS[artifact];
 }
 
 export function createWrapperBinRegistry(opts: WrapperBinRegistryOptions): WrapperBinRegistry {

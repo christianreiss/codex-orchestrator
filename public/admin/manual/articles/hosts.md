@@ -7,7 +7,7 @@ sources: api/src/routes/admin/hosts/index.ts, api/src/routes/admin/overview/inde
 
 # Hosts — secure, insecure, unprovisioned
 
-A *host* is any machine running `cdx` or `clx` under your orchestrator. The Hosts page at `/hosts` shows the full fleet and provides filter chips to narrow the view. Detail pages live at `/hosts/[id]`. The list and detail JSON are served by `api/src/routes/admin/overview/index.ts` (`GET /admin/hosts`, `GET /admin/hosts/{id}/detail`); host mutations (register, toggles, overrides, insecure windows, approvals) are handled by `api/src/routes/admin/hosts/index.ts`.
+A *host* is any machine running `cdx`, `clx`, or `cgx` (see [Grok Build](cgx)) under your orchestrator. The Hosts page at `/hosts` shows the full fleet and provides filter chips to narrow the view. Detail pages live at `/hosts/[id]`. The list and detail JSON are served by `api/src/routes/admin/overview/index.ts` (`GET /admin/hosts`, `GET /admin/hosts/{id}/detail`); host mutations (register, toggles, overrides, insecure windows, approvals) are handled by `api/src/routes/admin/hosts/index.ts`.
 
 ## The filter chips
 
@@ -22,7 +22,7 @@ The host list page offers eight client-side filter chips — no separate backend
 - **VIP** — hosts with the VIP flag set (bypass quota).
 - **Roaming** — hosts with IP re-binding enabled.
 
-A debounced search box (searches `fqdn`, Codex/Claude version including overrides, and status) sits alongside the chips. Filtering is entirely client-side.
+A debounced search box (searches `fqdn`, Codex/Claude/Grok version including overrides, and status) sits alongside the chips. Filtering is entirely client-side.
 
 > Note: `GET /admin/hosts/insecure` is a separate endpoint used exclusively by the insecure approvals panel — it is not the backing query for the Insecure filter chip.
 
@@ -49,7 +49,7 @@ Full registration inputs (`POST /admin/hosts/register`):
 - `temporary` — flag the host as temporary.
 - `curl_insecure` — enable curl-insecure probe on creation.
 - `reverse_dns_mode` — initial reverse-DNS mode.
-- `engines` — array of `codex` / `claude` the host will run. Defaults come from `DEFAULT_HOST_ENGINES`.
+- `engines` — array of `codex` / `claude` / `grok` the host will run; any nonempty combination is accepted. Defaults come from `DEFAULT_HOST_ENGINES`.
 - `duration_minutes` — if insecure on registration, the length of the grace window in minutes (clamped to MIN=0 / MAX=480).
 
 Quick registration inputs (`POST /admin/hosts/quick-register`): `engines` and `duration_minutes` only.
@@ -63,7 +63,7 @@ Online status is computed entirely in the frontend by `hostStatusKind()` — the
 1. If `host.status` is `'offline'`, `'stale'`, or `'disabled'` → **Offline**.
 2. If required engine digests are absent or `authed === false` → **Auth missing**.
 3. If `auth_outdated === true` → **Outdated auth**.
-4. If `max(updated_at, last_refresh, claude_last_refresh)` is within the last 24 hours (`HOST_ONLINE_WINDOW_MS = 24 h`) → **Online**.
+4. If `max(updated_at, last_refresh, claude_last_refresh, grok_last_refresh)` is within the last 24 hours (`HOST_ONLINE_WINDOW_MS = 24 h`) → **Online**.
 5. Otherwise → **Offline**.
 
 ## Host detail page
@@ -82,7 +82,7 @@ At the top of the page, pills show at a glance:
 
 Shows runtime metrics for the host:
 
-- **Last contact** — derived from `max(last_refresh, claude_last_refresh)`.
+- **Last contact** — derived from `max(last_refresh, claude_last_refresh, grok_last_refresh)`.
 - **Last cron check** — timestamp of the most recent scheduled check.
 - **API calls (recent)** — recent call count.
 - **Insecure window countdown** — time remaining if an insecure window is active.
@@ -93,6 +93,7 @@ Displays warnings that require attention:
 
 - Codex version drift vs. fleet baseline.
 - Claude version drift vs. fleet baseline.
+- Grok version drift vs. fleet baseline.
 - Host not authenticated.
 - Auth payload stale.
 - Active insecure window information.
@@ -105,13 +106,14 @@ Host ID, FQDN, IPv4/IPv6, Codex version (override or reported), Claude version, 
 
 ### Controls card
 
-Toggle switches: **Secure**, **Auto-update**, **VIP**, **Roaming**, **Scaling exempt**, **Curl insecure**, **BrowserOS MCP**, and per-engine **Codex**/**Claude** switches (each disabled when it's the host's only remaining engine, via `POST /admin/hosts/{id}/engines`).
+Toggle switches: **Secure**, **Auto-update**, **VIP**, **Roaming**, **Scaling exempt**, **Curl insecure**, **BrowserOS MCP**, and per-engine **Codex**/**Claude**/**Grok** switches (each disabled when it's the host's only remaining engine, via `POST /admin/hosts/{id}/engines`).
 
 Buttons depend on host state:
 
 - **Extend insecure window** / **Close insecure window** (shown when a window is active) or **Open insecure window** (shown when host is insecure and no window is active).
 - **Codex version** and **Codex model override** (when the Codex engine is configured) or **Add Codex** (when it is not).
 - **Claude version** and **Claude model override** (when the Claude engine is configured) or **Add Claude** (when it is not).
+- **Version**, **Model**, and **Reasoning effort** overrides in the Grok panel (when the Grok engine is configured).
 - **Agents version** — pin the AGENTS.md version.
 - **Mint installer** — generates a new installer via `POST /admin/hosts/{id}/installer`; the current **Curl insecure** toggle value is included so the auto-copied command reflects the visible setting.
 - **Delete host** — removes the host via `DELETE /admin/hosts/{id}`.
@@ -132,12 +134,13 @@ Every mutation names a capability. Deleting a host, toggling its engines, and fl
 | Override auto-update | `POST /admin/hosts/{id}/auto-update` |
 | Enable insecure window | `POST /admin/hosts/{id}/insecure/enable` |
 | Disable insecure window | `POST /admin/hosts/{id}/insecure/disable` |
-| Set per-host model | `POST /admin/hosts/{id}/model` |
+| Set per-host model (including `grok_model_override` / `grok_reasoning_effort_override`) | `POST /admin/hosts/{id}/model` |
 | Pin Codex version | `POST /admin/hosts/{id}/codex-version` |
 | Pin Claude version | `POST /admin/hosts/{id}/claude-version` |
+| Pin Grok version | `POST /admin/hosts/{id}/grok-version` |
 | Pin AGENTS.md version | `POST /admin/hosts/{id}/agents-version` |
 | Set reverse-DNS mode | `POST /admin/hosts/{id}/reverse-dns` |
-| Toggle engine (codex/claude) | `POST /admin/hosts/{id}/engines` |
+| Toggle engine (codex/claude/grok) | `POST /admin/hosts/{id}/engines` |
 | Toggle BrowserOS MCP | `POST /admin/hosts/{id}/browseros-mcp` |
 | Toggle curl-insecure probe | `POST /admin/hosts/{id}/curl-insecure` |
 | Mint installer | `POST /admin/hosts/{id}/installer` |

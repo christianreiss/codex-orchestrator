@@ -2,9 +2,10 @@
  * API-keys feature endpoints.
  *
  * Engine-scoped: the backend exposes parallel routes under
- * `/admin/openai/...` (Codex / OpenAI) and `/admin/claude/...` (Anthropic).
- * We thin-wrap both behind a single typed surface so the route can render
- * an OpenAI + Claude section without duplicating fetch logic.
+ * `/admin/openai/...` (Codex / OpenAI), `/admin/claude/...` (Anthropic), and
+ * `/admin/grok/...` (Grok). We thin-wrap all three behind a single typed
+ * surface so the route can render each engine's section without duplicating
+ * fetch logic.
  */
 import { api } from "./client";
 import type {

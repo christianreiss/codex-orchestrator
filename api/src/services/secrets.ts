@@ -638,7 +638,7 @@ export class SecretsService {
       throw new ValidationError('value is required', { param: 'value' });
     }
     if (input.engine !== null && input.engine !== undefined && !isEngine(input.engine)) {
-      throw new ValidationError('engine must be codex or claude', { param: 'engine' });
+      throw new ValidationError('engine must be codex, claude, or grok', { param: 'engine' });
     }
 
     // A soft-deleted row still holds the slug (uniq_secrets_slug is on slug
@@ -723,7 +723,7 @@ export class SecretsService {
     }
     if (input.engine !== undefined) {
       if (input.engine !== null && !isEngine(input.engine)) {
-        throw new ValidationError('engine must be codex or claude', { param: 'engine' });
+        throw new ValidationError('engine must be codex, claude, or grok', { param: 'engine' });
       }
       patch['engine'] = input.engine ?? null;
     }

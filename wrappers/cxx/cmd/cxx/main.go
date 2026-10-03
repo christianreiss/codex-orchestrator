@@ -343,7 +343,7 @@ func printSelectorHelp(w io.Writer) {
 	fmt.Fprintln(w, "  cxx remote [info|exec|read|write|wait|signal|ps|rm|get|put|push|pull|down]")
 	fmt.Fprintln(w, "  cxx --version")
 	fmt.Fprintln(w, "")
-	fmt.Fprintln(w, "The cdx and clx aliases select their matching engine automatically.")
+	fmt.Fprintln(w, "The cdx, clx and cgx aliases select their matching engine automatically.")
 }
 
 // Dispatch only after the first app returns, including all deferred auth cleanup.

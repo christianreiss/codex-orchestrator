@@ -127,7 +127,7 @@
     </fieldset>
 
     <fieldset {disabled} class="mt-6 min-w-0">
-      <legend class="mb-2 text-sm font-medium">{stableEngine === "codex" ? "Reasoning effort" : "Effort level"}</legend>
+      <legend class="mb-2 text-sm font-medium">{stableEngine === "claude" ? "Effort level" : "Reasoning effort"}</legend>
       {#if selected && selected.persistent_efforts.length > 0}
         <div class="grid grid-cols-3 gap-1 rounded-xl bg-muted p-1.5">
           {#each selected.persistent_efforts as value (value)}

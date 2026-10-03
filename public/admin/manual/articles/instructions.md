@@ -7,7 +7,7 @@ verified: 2026-09-09
 sources: api/src/routes/admin/config/index.ts, api/src/routes/admin/settings/index.ts, api/src/services/agents.ts, api/src/services/agents-generation-mode.ts, api/src/services/agent-policy-profiles.ts, api/src/services/agent-security-levels.ts, api/src/services/agent-response-style.ts, api/src/services/host-agents.ts, api/src/services/managed-agents-features.ts, api/src/security/route-capabilities.ts, frontend/src/routes/instructions/+page.svelte, frontend/src/routes/authoring/agents/+page.svelte, frontend/src/lib/api/agents.ts, frontend/src/lib/components/settings/SecurityLevelsPanel.svelte, frontend/src/lib/components/settings/ResponseVerbosityPanel.svelte
 ---
 
-**Fleet Instructions** (`/instructions`, under *Knowledge*; the legacy `/authoring/agents` URL resolves to the same page) is where the shared agents document comes from — served to Codex hosts as `AGENTS.md` and to Claude hosts as `CLAUDE.md` through the wrappers' bootstrap sync and `POST /agents/retrieve`. The page holds the document builder, its version history, the fleet's security posture, and the response-verbosity dial.
+**Fleet Instructions** (`/instructions`, under *Knowledge*; the legacy `/authoring/agents` URL resolves to the same page) is where the shared agents document comes from — served to Codex hosts as `AGENTS.md`, to Claude hosts as `CLAUDE.md`, and to Grok hosts as `~/.grok/AGENTS.md` (see [Grok Build](cgx)) through the wrappers' bootstrap sync and `POST /agents/retrieve`. The page holds the document builder, its version history, the fleet's security posture, and the response-verbosity dial.
 
 ## Generation switch
 

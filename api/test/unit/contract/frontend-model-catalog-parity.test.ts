@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { CLAUDE_SUPPORTED_MODELS } from '../../../src/services/claude-models.js';
+import { GROK_SUPPORTED_MODELS } from '../../../src/services/grok-models.js';
 import {
   ADVISOR_MODEL_ALIASES,
   CLAUDE_PERMISSION_MODES,
@@ -10,7 +11,7 @@ import {
 } from '../../../src/services/config-normalizer.js';
 
 /**
- * `frontend/src/lib/constants/models.ts` claims lock-step with five API
+ * `frontend/src/lib/constants/models.ts` claims lock-step with six API
  * constants in comments only. The comment on CLAUDE_MODEL_OPTIONS spells out the
  * failure mode: an id outside CLAUDE_SUPPORTED_MODELS is one the picker happily
  * pins a host to and `resolveRequestedModel` then 400s at inference time. The
@@ -185,6 +186,12 @@ const CATALOGS: Catalog[] = [
     api: 'ADVISOR_MODEL_ALIASES (api/src/services/config-normalizer.ts)',
     frontend: catalogValues('ADVISOR_MODELS'),
     server: ADVISOR_MODEL_ALIASES,
+  },
+  {
+    constant: 'GROK_MODEL_OPTIONS',
+    api: 'GROK_SUPPORTED_MODELS (api/src/services/grok-models.ts)',
+    frontend: catalogValues('GROK_MODEL_OPTIONS'),
+    server: GROK_SUPPORTED_MODELS,
   },
   {
     constant: 'CLAUDE_PERMISSION_MODES',

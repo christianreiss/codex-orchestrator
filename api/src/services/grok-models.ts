@@ -1,19 +1,25 @@
-/** Official Grok Build 1.0.46's subscription catalog. API-key catalog IDs are separate. */
+/**
+ * Official Grok Build 1.0.46's subscription catalog, re-verified 2026-10-03 against the
+ * live `cli-chat-proxy.grok.com/v1/models` listing and its `default_model` setting.
+ * API-key catalog IDs are separate.
+ */
 import { eq } from 'drizzle-orm';
 import type { Database } from '../db/client.js';
 import { versions } from '../db/schema.js';
 import { ApiError } from '../http/errors.js';
 
-export const GROK_MIN_CLIENT_VERSION = '1.0.46';
-export const GROK_DEFAULT_MODEL = 'grok-4.6';
-export const GROK_SUPPORTED_MODELS = ['grok-4.6', 'grok-4.5'] as const;
+export { GROK_MIN_CLIENT_VERSION } from './client-versions.js';
+export const GROK_DEFAULT_MODEL = 'grok-4.7';
+export const GROK_SUPPORTED_MODELS = ['grok-4.7', 'grok-4.7-build-fast', 'grok-4.6', 'grok-4.5'] as const;
 export type GrokModel = (typeof GROK_SUPPORTED_MODELS)[number];
 export const GROK_MODEL_REASONING_EFFORTS: Record<GrokModel, readonly string[]> = {
+  'grok-4.7': ['low', 'medium', 'high', 'xhigh'],
+  'grok-4.7-build-fast': ['low', 'medium', 'high', 'xhigh'],
   'grok-4.6': ['low', 'medium', 'high', 'xhigh'],
   'grok-4.5': ['low', 'medium', 'high'],
 };
 export const GROK_MODEL_DEFAULT_REASONING_EFFORTS: Record<GrokModel, string> = {
-  'grok-4.6': 'high', 'grok-4.5': 'high',
+  'grok-4.7': 'high', 'grok-4.7-build-fast': 'high', 'grok-4.6': 'high', 'grok-4.5': 'high',
 };
 export const GROK_MODEL_CONTEXT_TOKENS = 500_000;
 

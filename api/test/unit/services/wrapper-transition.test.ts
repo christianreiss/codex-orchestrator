@@ -567,7 +567,7 @@ describe('wrapper transition helpers', () => {
         helpers,
         [
           'set -eu',
-          'HAS_CODEX=1 HAS_CLAUDE=1 HOST_LABEL=h.example BIN_DIR=/usr/local/bin BIN_ROOT=/usr/local/bin STEP_LOG=',
+          'HAS_CODEX=1 HAS_CLAUDE=1 HAS_GROK=0 HOST_LABEL=h.example BIN_DIR=/usr/local/bin BIN_ROOT=/usr/local/bin STEP_LOG=',
           "INSTALL_LABEL='Codex + Claude'",
           'UI_TTY=1 UI_UTF8=1',
           script.slice(start, end),
@@ -617,6 +617,54 @@ describe('wrapper transition helpers', () => {
     }
   });
 
+  it('draws Grok in its own colour and keeps the card aligned for every engine mix', () => {
+    const script = buildWrapperV2InstallerScript({
+      fqdn: 'h.example',
+      apiKey: 'sk-cgx-test',
+      baseUrl: 'https://o.example/',
+      engine: 'grok',
+    });
+    const start = script.indexOf('UI_RESET=\n');
+    const end = script.indexOf('\ncleanup() {');
+    const dir = mkdtempSync(join(tmpdir(), 'wrapper-installer-grok-'));
+    try {
+      const render = (flags: string, label: string) => {
+        const helpers = join(dir, `ui-${label.length}.sh`);
+        writeFileSync(
+          helpers,
+          [
+            'set -eu',
+            `${flags} HOST_LABEL=h.example BIN_DIR=/usr/local/bin BIN_ROOT=/usr/local/bin STEP_LOG=`,
+            `INSTALL_LABEL='${label}'`,
+            'UI_TTY=1 UI_UTF8=1',
+            // The accent is chosen at script top level, after the palette.
+            script.slice(start, end),
+            'ui_header',
+            'ui_ok cgx grok 1.0.46 ready',
+          ].join('\n'),
+          'utf8',
+        );
+        const { COLORTERM: _c, NO_COLOR: _n, ...base } = process.env;
+        return execFileSync('sh', [helpers], { encoding: 'utf8', env: { ...base, COLORTERM: 'truecolor', TERM: 'xterm-256color' } });
+      };
+      const only = render('HAS_CODEX=0 HAS_CLAUDE=0 HAS_GROK=1', 'Grok');
+      expect(only).toContain('\x1b[38;2;52;211;153m\x1b[1mcgx');
+      expect(only).toContain('\x1b[38;2;52;211;153m╭───');
+      for (const [flags, label] of [
+        ['HAS_CODEX=0 HAS_CLAUDE=0 HAS_GROK=1', 'Grok'],
+        ['HAS_CODEX=1 HAS_CLAUDE=1 HAS_GROK=1', 'Codex + Claude + Grok'],
+      ] as const) {
+        // eslint-disable-next-line no-control-regex -- stripping SGR escapes is the point
+        const plain = render(flags, label).replace(/\x1b\[[0-9;]*m/g, '');
+        expect(plain).toContain(`engines  ${label}`);
+        const widths = plain.split('\n').filter((line) => /^[╭│╰]/.test(line)).map((line) => [...line].length);
+        expect(new Set(widths).size).toBe(1);
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it('folds notice glyphs to ASCII on a terminal without UTF-8', () => {
     const script = buildWrapperV2InstallerScript({
       fqdn: 'h.example',
@@ -633,7 +681,7 @@ describe('wrapper transition helpers', () => {
         helpers,
         [
           'set -eu',
-          'HAS_CODEX=1 HAS_CLAUDE=0 HOST_LABEL=h.example BIN_DIR=/usr/local/bin BIN_ROOT=/usr/local/bin STEP_LOG=',
+          'HAS_CODEX=1 HAS_CLAUDE=0 HAS_GROK=0 HOST_LABEL=h.example BIN_DIR=/usr/local/bin BIN_ROOT=/usr/local/bin STEP_LOG=',
           "INSTALL_LABEL='Codex'",
           'UI_TTY=1 UI_UTF8=0',
           script.slice(start, end),

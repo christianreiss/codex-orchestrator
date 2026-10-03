@@ -26,14 +26,18 @@ type startupAuth struct {
 }
 
 type startupHost struct {
-	FQDN     string `json:"fqdn"`
-	Secure   bool   `json:"secure"`
-	APICalls int64  `json:"api_calls"`
+	FQDN        string   `json:"fqdn"`
+	Secure      bool     `json:"secure"`
+	APICalls    int64    `json:"api_calls"`
+	Engines     string   `json:"engines"`
+	EnginesList []string `json:"engines_list"`
 }
 
 type resourceSync struct {
 	Checked bool
 	Updated bool
+	// Failed marks a check that ran and could not complete; it warns.
+	Failed bool
 }
 
 type managedSyncSummary struct {
@@ -110,13 +114,22 @@ func startupScreen(in startupInput) terminalui.ScreenInput {
 	}
 
 	apiTone, authTone := terminalui.ToneOK, terminalui.ToneOK
-	if in.Auth == nil || in.AuthErr != nil || in.Auth.Status == "" {
+	// A typed HTTP error means the orchestrator answered: the API is healthy and
+	// the failure belongs to auth (login required, insecure approval, ...).
+	var httpErr *orchestrator.HTTPError
+	answered := in.AuthErr != nil && errors.As(in.AuthErr, &httpErr)
+	if !answered && (in.Auth == nil || in.AuthErr != nil || in.Auth.Status == "") {
 		apiTone = terminalui.ToneFail
 	}
 	if in.Auth == nil || in.AuthErr != nil || in.Auth.VerificationState != "verified" ||
 		!hasArg([]string{in.Auth.Status}, "valid", "outdated", "updated", "ok", "unchanged") {
 		authTone = terminalui.ToneFail
 		ui.ResultLabel, ui.ResultTone = "Subscription auth unavailable; run `cgx login`.", terminalui.ToneFail
+		if status := orchestrator.InsecureStatusFromError(in.AuthErr); status == "insecure" {
+			ui.ResultLabel = "Insecure host approval pending; open Admin → Host Detail."
+		} else if status == "insecure-denied" {
+			ui.ResultLabel = "Insecure host approval was denied."
+		}
 	}
 	if in.VersionErr != nil {
 		ui.ResultLabel = "Grok missing or unavailable; run `cgx update`."
@@ -185,6 +198,9 @@ func resourceDot(name string, state resourceSync) terminalui.HealthDot {
 	if state.Checked {
 		tone = terminalui.ToneOK
 	}
+	if state.Failed {
+		tone = terminalui.ToneWarn
+	}
 	return terminalui.HealthDot{Name: name, Tone: tone, Updated: state.Checked && state.Updated}
 }
 
@@ -248,11 +264,12 @@ func startupPreferences(in startupInput) (string, string, error) {
 		effort = value
 	}
 	model, effort = strings.TrimSpace(model), strings.TrimSpace(effort)
-	// These defaults were verified against the supported native 1.0.46 catalog.
+	// These defaults were verified against the native 1.0.46 subscription
+	// catalog (live /v1/models default_model, 2026-10-03).
 	if model == "" {
-		model = "grok-4.6"
+		model = "grok-4.7"
 	}
-	if effort == "" && (model == "grok-4.6" || model == "grok-4.5") {
+	if effort == "" && hasArg([]string{model}, "grok-4.7", "grok-4.7-build-fast", "grok-4.6", "grok-4.5") {
 		effort = "high"
 	}
 	return model, effort, nil

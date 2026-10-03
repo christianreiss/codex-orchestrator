@@ -194,7 +194,7 @@ export async function registerAdminConfigRoutes(app: FastifyInstance, ctx: Route
       }
       const engine = req.query.engine ?? ENGINE_CODEX;
       if (!isEngine(engine)) {
-        throw new ValidationError('engine must be codex or claude', { param: 'engine' });
+        throw new ValidationError('engine must be codex, claude, or grok', { param: 'engine' });
       }
       const rows = await db.select().from(hosts).where(eq(hosts.id, hostId)).limit(1);
       const host = rows[0];
@@ -239,7 +239,7 @@ export async function registerAdminConfigRoutes(app: FastifyInstance, ctx: Route
       }
       const engine = body.engine ?? ENGINE_CODEX;
       if (!isEngine(engine)) {
-        throw new ValidationError('engine must be codex or claude', { param: 'engine' });
+        throw new ValidationError('engine must be codex, claude, or grok', { param: 'engine' });
       }
       const rows = await db.select().from(hosts).where(eq(hosts.id, hostId)).limit(1);
       const host = rows[0];

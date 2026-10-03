@@ -1,6 +1,6 @@
 # Auth Runner (Sidecar) Behavior
 
-The auth runner is a FastAPI sidecar (`auth-runner` in `docker-compose.yml`) that sanity-checks auth payloads, generates short skill/memory summaries, drafts new skill manifests, revises skill and project drafts from a conversation, and executes one-shot prompts by running `/usr/local/bin/codex` (or the Claude CLI) in an isolated temp `$HOME`.
+The auth runner is a FastAPI sidecar (`auth-runner` in `docker-compose.yml`) that sanity-checks auth payloads, generates short skill/memory summaries, drafts new skill manifests, revises skill and project drafts from a conversation, and executes one-shot prompts by running `/usr/local/bin/codex` (or the Claude or Grok CLI) in an isolated temp `$HOME`.
 
 ## HTTP surface (runner container)
 
@@ -9,7 +9,7 @@ walks `app.routes` and fails when a registered `METHOD /path` is missing from
 the list below, and when the list names a route the runner does not serve, so a
 new route has to be documented here before it can ship.
 
-- `GET /health` returns `status` (`ok` / `degraded`), `required_engines`, a `problems` list, and per-engine `available`, `binary`, `version`, `expected_version`, and `version_matches`. `available` means the binary resolved *and* answered `--version`; it is not a `which` lookup. Used by Docker health checks and by the API boot check, which reads each engine's entry on its own rather than the top-level `status` — one drifted CLI must not mark the other engine dead.
+- `GET /health` returns `status` (`ok` / `degraded`), `required_engines`, a `problems` list, and per-engine `available`, `binary`, `version`, `expected_version`, and `version_matches`. `available` means the binary resolved *and* answered `--version`; it is not a `which` lookup. Used by Docker health checks and by the API boot check, which reads each engine's entry on its own rather than the top-level `status` — one drifted CLI must not mark another engine dead.
 - `POST /verify` validates Codex credentials. Body: `auth_json` (required object) and `timeout_seconds` (optional float).
 - `POST /verify-grok` validates modern Grok subscription OIDC through the fixed read-only user metadata endpoint, without native execution or OAuth refresh. Same request body as `/verify`; returns `grok_version` and allowlisted provider metadata. Legacy web-login and metered API-key auth are rejected.
 - `POST /verify-claude` validates Claude credentials. Same body as `/verify`. Native Claude Code OAuth/account-login payloads use the Claude CLI; genuine Anthropic API keys use the Messages API.
@@ -29,7 +29,7 @@ new route has to be documented here before it can ship.
   and `GET /health` answer without the secret.
 - `POST /verify` and `/verify-claude` probe responses include `status`,
   `latency_ms`, `reachable`, `definitive`, the engine version, and optional
-  `reason`. Native CLI probes for BOTH engines run from a refresh-stripped
+  `reason`. Native CLI probes for Codex and Claude run from a refresh-stripped
   credential file (Codex: `tokens.refresh_token` blanked; Claude:
   `refreshToken` removed — see the engine paragraphs below), can therefore
   never rotate the shared grant, and always report
@@ -175,7 +175,7 @@ aliases, nested `tokens` API-key aliases, then the derived `auths` entry.
     verification: `auth_mode:"chatgpt"` with `tokens`, or
     `auth_mode:"apikey"` with top-level `OPENAI_API_KEY`. The opposite/shadow
     credential is stripped. Claude candidates receive the same single-selected
-    credential treatment. For either engine, only its native derived `auths`
+    credential treatment. For Codex and Claude, only the native derived `auths`
     target is retained in the canonical body and `auth_entries`; unrelated
     targets are never sent fleet-wide. A verified row is distributable only
     when its stored body is already byte-for-byte equal to this projection and
@@ -184,7 +184,8 @@ aliases, nested `tokens` API-key aliases, then the derived `auths` entry.
     reissue, probes the projected bytes, and promotes only a fresh verified
     replacement.
 - `POST /seed/auth/{token}`, `POST /admin/auth/upload`, and `/sync/bootstrap` inline `auth_candidate` call the same runner-validated store path as host `/auth`, so runner `updated_auth` can become canonical there too.
-- **Background launch-gate verification (both engines).** The API starts an
+- **Background launch-gate verification (all three engines; Grok through the
+  metadata-only `/verify-grok` probe).** The API starts an
   auth-verification worker when `AUTH_RUNNER_URL` is configured. It wakes on
   boot and then every `AUTH_RUNNER_VERIFY_WORKER_INTERVAL_SECONDS` (default
   `300`) and re-probes each engine's canonical payload on a **dynamic

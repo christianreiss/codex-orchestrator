@@ -7,7 +7,7 @@ sources: api/src/services/mcp-server.ts, api/src/services/mcp-tools.ts, api/src/
 
 The Model Context Protocol (MCP) endpoint is how hosts and operator tools read canonical orchestrator data at runtime — skills, project state, memories — without going through the admin UI. It speaks JSON-RPC 2.0 over HTTP.
 
-This article covers two distinct topics: the **server-side MCP endpoint** (what JSON-RPC methods exist, how auth works, what tools are available) and the **client-side MCP server configuration** (how user-defined and managed MCP servers are stored, synced to Claude CLI, and cleaned up).
+This article covers two distinct topics: the **server-side MCP endpoint** (what JSON-RPC methods exist, how auth works, what tools are available) and the **client-side MCP server configuration** (how user-defined and managed MCP servers are stored, synced to Claude CLI and Grok Build, and cleaned up).
 
 ## Endpoint
 
@@ -209,17 +209,17 @@ There is no per-host MCP kill-switch. The switches that exist:
 
 ## MCP server configuration
 
-This section covers how MCP servers (third-party or custom) are defined for fleet hosts and synced to the Claude CLI on each machine.
+This section covers how MCP servers (third-party or custom) are defined for fleet hosts and synced to the Claude CLI and Grok Build on each machine.
 
 ### Storage format
 
-MCP servers are stored as `[[mcp_servers]]` TOML array entries in the **global** client config document (`client_config_documents` table, managed by `ClientConfigService`). Config is global *per engine*: the Codex engine and the Claude engine each have their own `client_config_documents` row (and therefore their own independent `mcp_servers` array) — there is no per-host or per-project MCP server scope.
+MCP servers are stored as `[[mcp_servers]]` TOML array entries in the **global** client config document (`client_config_documents` table, managed by `ClientConfigService`). Config is global *per engine*: the Codex, Claude, and Grok engines each have their own `client_config_documents` row (and therefore their own independent `mcp_servers` array) — there is no per-host or per-project MCP server scope.
 
 Each entry supports the following fields:
 
 | Field | Type | Description |
 |---|---|---|
-| `name` | string | Server identifier. Reserved names — `cdx`, `codex-memory`, `codex-orchestrator` on every host, `clx` additionally on Claude hosts, `browseros` on Codex hosts with the BrowserOS MCP toggle on, and `cxx-agent` while the Agent Messaging fleet switch is on — are filtered out at render time to avoid colliding with managed entries. |
+| `name` | string | Server identifier. Reserved names — `cdx`, `codex-memory`, `codex-orchestrator` on every host, `clx` and `cgx` additionally on Claude and Grok hosts, `browseros` on Codex hosts with the BrowserOS MCP toggle on, and `cxx-agent` while the Agent Messaging fleet switch is on — are filtered out at render time to avoid colliding with managed entries. |
 | `command` | string | Executable to launch (stdio transport). |
 | `args` | array | Arguments to pass to `command`. |
 | `url` | string | HTTP/SSE endpoint URL (HTTP transport). Use instead of `command`. |
@@ -230,15 +230,15 @@ Each entry supports the following fields:
 | `startup_timeout_sec` | int | Seconds to wait for the server process to become ready. |
 | `tool_timeout_sec` | int | Per-tool-call timeout in seconds. |
 
-There is no dedicated MCP server editor anywhere in the admin frontend today: `mcp_servers` appears nowhere in `frontend/src` (it is absent from the `ClaudeConfigSettings` TypeScript interface and from all three `/settings` tab forms). In practice, adding or editing an entry means `POST`ing the full `settings` object — including the existing `mcp_servers` array — to `/admin/config/store` (Codex engine) or `/admin/claude/config/store` (Claude engine) directly. The per-host detail page exposes only a single **BrowserOS MCP** toggle (`browseros_mcp_enabled`), not a server list.
+There is no dedicated MCP server editor anywhere in the admin frontend today: `mcp_servers` appears nowhere in `frontend/src` (it is absent from the `ClaudeConfigSettings` TypeScript interface and from all three `/settings` tab forms). In practice, adding or editing an entry means `POST`ing the full `settings` object — including the existing `mcp_servers` array — to `/admin/config/store` (Codex engine), `/admin/claude/config/store` (Claude engine), or `/admin/grok/config/store` (Grok engine) directly. The per-host detail page exposes only a single **BrowserOS MCP** toggle (`browseros_mcp_enabled`), not a server list.
 
 ### Managed server injection
 
 At config-render time (`client-config.ts`'s `injectManagedMcp`) the orchestrator automatically prepends up to three fleet-managed entries before the user-defined list:
 
-**Orchestrator entry (`clx` / `cdx`)**
+**Orchestrator entry (`clx` / `cdx` / `cgx`)**
 
-An entry named `clx` (for Claude hosts) or `cdx` (for Codex hosts) is injected pointing to `<baseUrl>/mcp` with `Authorization: Bearer <token>`. The token is:
+An entry named `clx` (for Claude hosts), `cdx` (for Codex hosts), or `cgx` (for Grok hosts) is injected pointing to `<baseUrl>/mcp` with `Authorization: Bearer <token>` and `X-Engine: <engine>` headers. The token is:
 
 - The host API key, for hosts with a secure (HTTPS/trusted) base URL.
 - A per-host `managedMcpToken` (from the `mcp_session_tokens` table), for insecure hosts where the API key must not travel in plaintext.
@@ -255,7 +255,7 @@ When a Codex host has `browserosMcpEnabled=1`, a second entry named `browseros` 
 
 **Agent Messaging entry (`cxx-agent`)**
 
-While the Agent Messaging fleet switch is on, a stdio entry named `cxx-agent` running `cxx agent mcp` is injected on **Codex** hosts. It is a different server from `clx`/`cdx`: the wrapper starts it locally and it serves the `agent_*` tools (messaging, `#call`, `#conference`), none of which appear in the orchestrator's own `tools/list`. It is provisioned on the fleet switch rather than per operation so the toolset does not appear and disappear with an insecure host's window.
+While the Agent Messaging fleet switch is on, a stdio entry named `cxx-agent` running `cxx agent mcp` is injected on **Codex** and **Grok** hosts. It is a different server from `clx`/`cdx`/`cgx`: the wrapper starts it locally and it serves the `agent_*` tools (messaging, `#call`, `#conference`), none of which appear in the orchestrator's own `tools/list`. It is provisioned on the fleet switch rather than per operation so the toolset does not appear and disappear with an insecure host's window.
 
 On **Claude** hosts the same server is delivered differently: `clx` writes it into the per-launch `cxx-receiver` plugin it already generates, and no user-scope `mcpServers.cxx-agent` entry is rendered at all. Claude Code only registers an MCP server as a *channel* — the push path the native receiver needs — when the server is plugin-provided and the plugin is approved in managed settings; a bare `server:` entry always demands the interactive `--dangerously-load-development-channels` confirmation instead. Two entries for one server would duplicate every tool across two processes, only one of which holds the delivery lease, so the name stays reserved but unrendered. The permission allowlist follows the plugin: one `mcp__plugin_cxx-receiver_cxx-agent__<tool>` entry per tool, plus `Bash(clx:*)` and `Bash(cxx:*)` for the wrapper's own CLI. See [Agent Messaging](/admin/manual/agent-messaging).
 
@@ -284,6 +284,10 @@ The `~/.claude.json` merge is atomic and preserves the original file mode. If th
 
 When a host loses fleet trust (e.g. host is deleted, wrapper is uninstalled, or the host is reconfigured without MCP), `stripUserMcpServers` re-runs the merge with an empty server map and the sidecar name list. All fleet-managed entries are removed from `~/.claude.json`. User-authored servers with names not in the sidecar survive untouched. The sidecar is then cleared.
 
+### How servers reach Grok Build
+
+For Grok hosts the rendered entries land in `~/.grok/config.toml` as `[mcp_servers.<name>]` tables; the orchestrator entry is `[mcp_servers.cgx]`, pointing to `<baseUrl>/mcp` with `Authorization: Bearer …` and `X-Engine: grok` headers. Fleet-owned paths are merged with the user's configuration rather than overwriting it. Managed Grok runtimes disable Grok's implicit Claude and Cursor MCP imports, so another engine's entries never reach Grok; BrowserOS or Playwright must be configured explicitly for Grok. Native `mcp doctor` without a name still inspects those vendor imports, so check the managed servers by name: `cgx mcp doctor cgx --json` (and `cgx mcp doctor cxx-agent --json`). See [Grok Build](cgx).
+
 ## Source references
 
 - api/src/services/mcp-server.ts (JSON-RPC dispatch, capability constants)
@@ -306,7 +310,7 @@ When a host loses fleet trust (e.g. host is deleted, wrapper is uninstalled, or 
 - api/src/services/skill-manifest.ts (slug/manifest validation for admin skill authoring — not the MCP read path)
 - api/src/services/mcp-access-log.ts (mcp_access_logs writes)
 - api/src/routes/mcp/index.ts (GET/POST /mcp transport, host/operator capability resolution)
-- api/src/services/client-config.ts (injectManagedMcp, buildClaudeMcpServers, renderClaudeSettingsPartial/renderClaudeSettingsPartialForHost)
+- api/src/services/client-config.ts (injectManagedMcp, buildClaudeMcpServers, renderClaudeSettingsPartial/renderClaudeSettingsPartialForHost, renderGrokSettings)
 - api/src/services/config-normalizer.ts (mcp_servers / orchestrator_mcp_enabled normalization)
 - wrappers/cxx/internal/persona/claude/lifecycle/userconfig_merge.go (splitMcpOwned, applyUserMcpServers, MergeUserMcpServers, stripUserMcpServers)
 - wrappers/cxx/internal/persona/claude/lifecycle/settings_merge.go (settings.json merge path)

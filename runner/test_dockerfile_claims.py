@@ -307,6 +307,18 @@ class RunnerDockerfileFailsClosedTest(unittest.TestCase):
         self.assertEqual("codex,claude,grok", ENVS.get("RUNNER_REQUIRED_ENGINES"))
         self.assertIn("RUNNER_CODEX_VERSION", ENVS)
         self.assertIn("RUNNER_CLAUDE_VERSION", ENVS)
+        self.assertIn("RUNNER_GROK_VERSION", ENVS)
+
+    def test_grok_install_pins_the_declared_version(self):
+        # install-grok.mjs carries the sha512 pins, so its version must be the
+        # one the Dockerfile asserts and reports via RUNNER_GROK_VERSION.
+        self.assertIn("GROK_VERSION", ARGS)
+        self.assertIn('GROK_VERSION="${GROK_VERSION}" node /tmp/install-grok.mjs', self.text)
+        self.assertIn('grep -F "grok ${GROK_VERSION} "', self.text)
+        with open(os.path.join(os.path.dirname(__file__), "install-grok.mjs"), encoding="utf-8") as fh:
+            pinned = re.search(r"^const version = '([^']+)';$", fh.read(), re.MULTILINE)
+        self.assertIsNotNone(pinned)
+        self.assertEqual(ARGS["GROK_VERSION"], pinned.group(1))
 
     def test_claimed_home_parent_is_the_env(self):
         # The README states the baked-in value in the Environment section and

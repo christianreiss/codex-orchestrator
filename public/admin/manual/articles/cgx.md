@@ -13,9 +13,14 @@ Grok through the same signed `cxx` wrapper binary as `cdx` and `clx`.
 
 ## Subscription login
 
-In Accounts, select Grok and upload the complete `~/.grok/auth.json` from a modern
-`grok login --device-auth` subscription login. Keep the complete scope map; don't
-add a timestamp at its root. Legacy web login and metered xAI API keys are not
+Seed Grok with `cgx login` or the Accounts one-time command. Both run a dedicated
+`grok login --device-auth` in a throwaway Grok home and upload that login; the
+command never copies the existing `~/.grok/auth.json`. xAI rotates the refresh token
+on every refresh and the orchestrator must be the only refresher, so a pasted
+`~/.grok/auth.json` that a native `grok` or any other tool still uses breaks
+whichever copy refreshes second. Paste or set `GROK_SEED_AUTH_PATH=/path/auth.json`
+only for a login used nowhere else. Keep the complete scope map; don't add a
+timestamp at its root. Legacy web login and metered xAI API keys are not
 supported. The server validates account identity, encrypts canonical credentials,
 and owns OAuth renewal. Hosts and runners receive only access tokens.
 
@@ -27,8 +32,9 @@ needs a fresh subscription login. Existing sessions stay pinned to their account
 ## Models and runtime
 
 Quick Settings and Engines expose Grok's model and effort independently. The
-baseline is Grok4.6/high (low, medium, high, xhigh); Grok4.5 supports low through
-high. These are native supported IDs; subscription availability is provider-owned.
+default is Grok 4.7/high; Grok 4.7, Grok 4.7 Fast, and Grok 4.6 support low,
+medium, high, and xhigh, while Grok 4.5 supports low through high. These are
+native supported IDs; subscription availability is provider-owned.
 Codex quota lanes/profiles and Claude native artifact editors remain engine-specific.
 Grok quota is explicitly unknown when no supported provider snapshot exists.
 
@@ -41,8 +47,9 @@ unavailability honestly.
 
 ## HTTP gateway
 
-API Access provides Grok's independent switch and gateway keys. The base path is
-`/grok/v1`; its `sk-cgx-` keys belong to the orchestrator and are not xAI API keys.
+API Access provides Grok's independent switch, gateway default model, per-model
+switches, and gateway keys. A disabled model leaves `/grok/v1/models` and is
+rejected with `model_disabled`. The base path is `/grok/v1`; its `sk-cgx-` keys belong to the orchestrator and are not xAI API keys.
 Chat completions, responses, completions, and model discovery are supported.
 Text, model, and system instructions are supported; streaming, tools, sampling,
 stop sequences, output caps, images, and embeddings return explicit errors.

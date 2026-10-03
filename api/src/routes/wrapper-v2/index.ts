@@ -365,7 +365,7 @@ export async function registerWrapperV2Routes(
 
       if (!isEngine(artifact)) throw new NotFoundError('unknown engine', 'unknown_engine');
       assertHostEngineEnabled(host, artifact);
-      const expectedName = artifact === 'claude' ? 'clx' : 'cdx';
+      const expectedName = ENGINE_COMMANDS[artifact];
       if (binary !== expectedName) throw new NotFoundError('binary mismatch', 'binary_mismatch');
       return streamBinary(req, reply, artifact, m[1], m[2], version);
     },

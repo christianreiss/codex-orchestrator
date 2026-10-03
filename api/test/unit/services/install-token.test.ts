@@ -1,3 +1,7 @@
+import { execFileSync } from 'node:child_process';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   buildInstallerScript,
@@ -123,11 +127,68 @@ describe('install-token: shell builders', () => {
     expect(out).toContain('$HOME/.claude/.credentials.json');
   });
 
-  it('builds a Grok seed script targeting native subscription auth', () => {
+  it('builds a Grok seed script that logs in to an isolated home instead of copying ~/.grok', () => {
     const out = buildSeedAuthScript({ baseUrl: 'https://o.example.com', token: 'test-token', engine: 'grok' });
-    expect(out).toContain('$HOME/.grok/auth.json');
-    expect(out).toContain('Grok subscription credentials');
     expect(out).toContain('seed-auth uploader (grok)');
+    expect(out).toContain('/seed/v2/auth/test-token');
+    // A copied live login would leave two refreshers on one rotating token chain.
+    expect(out).not.toContain('$HOME/.grok/auth.json');
+    expect(out).toContain('SEED_HOME=$(mktemp -d)');
+    expect(out).toContain('GROK_HOME="$SEED_HOME" GROK_AUTH_PATH="$SEED_HOME/auth.json"');
+    expect(out).toContain('login --device-auth');
+    expect(out).toContain('trap cleanup EXIT INT TERM');
+    expect(out).toContain('GROK_SEED_AUTH_PATH');
+  });
+
+  it('runs the Grok seed login in a throwaway home, uploads it, and erases it', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'grok-seed-'));
+    try {
+      const bin = join(dir, 'bin');
+      const home = join(dir, 'home');
+      mkdirSync(bin);
+      mkdirSync(home);
+      const log = join(dir, 'log');
+      // Stub native login: writes the scope map where GROK_AUTH_PATH points.
+      writeFileSync(join(bin, 'grok'), `#!/bin/sh
+echo "grok $* home=$GROK_HOME auth=$GROK_AUTH_PATH apikey=\${GROK_API_KEY:-unset}" >> ${log}
+printf '{"scope":{"auth_mode":"oidc"}}' > "$GROK_AUTH_PATH"
+`);
+      // Stub curl: records the uploaded file and its body, then answers.
+      writeFileSync(join(bin, 'curl'), `#!/bin/sh
+out=
+for a in "$@"; do case "$prev" in -o) out=$a;; --data-binary) echo "upload $a $(cat "\${a#@}")" >> ${log};; esac; prev=$a; done
+echo "url $a" >> ${log}
+printf '{"status":"ok"}' > "$out"
+`);
+      chmodSync(join(bin, 'grok'), 0o755);
+      chmodSync(join(bin, 'curl'), 0o755);
+      const script = join(dir, 'seed.sh');
+      writeFileSync(script, buildSeedAuthScript({ baseUrl: 'https://o.example.com', token: 'tok', engine: 'grok' }));
+      const env = { PATH: `${bin}:/usr/bin:/bin`, HOME: home, TMPDIR: dir, GROK_API_KEY: 'must-not-leak' };
+      const out = execFileSync('sh', [script], { encoding: 'utf8', env, stdio: ['ignore', 'pipe', 'pipe'] });
+      expect(out).toContain('Done. Server response:');
+      const lines = readFileSync(log, 'utf8');
+      const seedHome = /home=(\S+) /.exec(lines)?.[1] ?? '';
+      expect(lines).toContain('grok login --device-auth');
+      expect(lines).toContain('apikey=unset');
+      expect(lines).toContain(`auth=${seedHome}/auth.json`);
+      expect(lines).toContain(`upload @${seedHome}/auth.json {"scope":{"auth_mode":"oidc"}}`);
+      expect(lines).toContain('url https://o.example.com/seed/v2/auth/tok');
+      expect(seedHome.startsWith(dir)).toBe(true);
+      expect(existsSync(seedHome)).toBe(false); // erased after upload
+
+      // Explicit opt-in uploads an existing file and never runs a login.
+      rmSync(log);
+      const existing = join(dir, 'existing.json');
+      writeFileSync(existing, '{"existing":true}');
+      const optIn = execFileSync('sh', [script], { encoding: 'utf8', env: { ...env, GROK_SEED_AUTH_PATH: existing }, stdio: ['ignore', 'pipe', 'pipe'] });
+      expect(optIn).toContain('Done.');
+      const second = readFileSync(log, 'utf8');
+      expect(second).not.toContain('grok login');
+      expect(second).toContain(`upload @${existing} {"existing":true}`);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it('rejects an invalid seed base URL', () => {

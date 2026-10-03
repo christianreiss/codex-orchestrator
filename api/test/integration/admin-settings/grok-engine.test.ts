@@ -53,7 +53,7 @@ describe('Grok engine administration', () => {
     db.tables.set(versions, [{ name: 'openai_api_disabled', version: '0' }, { name: 'claude_api_disabled', version: '0' }]);
     expect((await app.inject({ method: 'GET', url: '/admin/grok/state' })).json().data).toEqual({ disabled: false });
     expect((await app.inject({ method: 'POST', url: '/admin/grok/state', payload: { disabled: true } })).json().data).toEqual({ disabled: true });
-    expect((await app.inject({ method: 'GET', url: '/admin/grok/settings' })).json().data).toEqual({ default_model: 'grok-4.6', disabled: true });
+    expect((await app.inject({ method: 'GET', url: '/admin/grok/settings' })).json().data).toEqual({ default_model: 'grok-4.7', disabled: true });
     expect((await app.inject({ method: 'POST', url: '/admin/grok/settings', payload: { default_model: 'grok-4.5', disabled: false } })).json().data).toEqual({ default_model: 'grok-4.5', disabled: false });
     expect(await createGrokModelsService(db as unknown as Database).resolveRequestedModel(undefined)).toBe('grok-4.5');
     expect(db.tables.get(versions)?.filter(row => row.name === 'openai_api_disabled' || row.name === 'claude_api_disabled')).toEqual([{ name: 'openai_api_disabled', version: '0' }, { name: 'claude_api_disabled', version: '0' }]);
@@ -66,11 +66,11 @@ describe('Grok engine administration', () => {
   it('lists native models and enforces catalog switches when resolving gateway requests', async () => {
     const { app, db } = await buildApp();
     const service = createGrokModelsService(db as unknown as Database);
-    expect(service.supportedModels()).toEqual(['grok-4.6', 'grok-4.5']);
-    expect((await app.inject({ method: 'GET', url: '/admin/grok/models' })).json().data).toEqual({ models: [{ id: 'grok-4.6', enabled: true, ownedBy: 'xai' }, { id: 'grok-4.5', enabled: true, ownedBy: 'xai' }] });
+    expect(service.supportedModels()).toEqual(['grok-4.7', 'grok-4.7-build-fast', 'grok-4.6', 'grok-4.5']);
+    expect((await app.inject({ method: 'GET', url: '/admin/grok/models' })).json().data).toEqual({ models: [{ id: 'grok-4.7', enabled: true, ownedBy: 'xai' }, { id: 'grok-4.7-build-fast', enabled: true, ownedBy: 'xai' }, { id: 'grok-4.6', enabled: true, ownedBy: 'xai' }, { id: 'grok-4.5', enabled: true, ownedBy: 'xai' }] });
     expect((await app.inject({ method: 'POST', url: '/admin/grok/models/grok-4.5/toggle', payload: { enabled: false } })).statusCode).toBe(200);
     await expect(service.resolveRequestedModel('grok-4.5')).rejects.toMatchObject({ code: 'model_disabled' });
-    expect((await service.modelsResponse()).data.map(model => model.id)).toEqual(['grok-4.6']);
+    expect((await service.modelsResponse()).data.map(model => model.id)).toEqual(['grok-4.7', 'grok-4.7-build-fast', 'grok-4.6']);
     await expect(service.resolveRequestedModel('grok-api-model')).rejects.toMatchObject({ code: 'model_not_found' });
     expect((await app.inject({ method: 'POST', url: '/admin/grok/models/grok-api-model/toggle', payload: { enabled: true } })).statusCode).toBe(422);
     expect((await app.inject({ method: 'POST', url: '/admin/grok/models/grok-4.6/toggle', payload: {} })).statusCode).toBe(422);

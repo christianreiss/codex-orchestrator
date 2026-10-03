@@ -21,15 +21,15 @@ describe('ModelDefaultsService', () => {
   it('initializes Grok once through its native store path while defaults reads stay unpersisted', async () => {
     const db = createDbFake();
     const service = new ModelDefaultsService(db as never);
-    expect(await service.get(ENGINE_GROK)).toMatchObject({ model: 'grok-4.6', reasoning_effort: 'high' });
+    expect(await service.get(ENGINE_GROK)).toMatchObject({ model: 'grok-4.7', reasoning_effort: 'high' });
     expect(db.inserts).toHaveLength(0);
     expect(await service.ensureGrokDefaults()).toBe(true);
     expect(await service.ensureGrokDefaults()).toBe(false);
     expect(db.tables.get(clientConfigDocuments)).toHaveLength(1);
     const saved = db.tables.get(clientConfigDocuments)![0]!;
-    expect(saved.body).toContain('[models]\ndefault = "grok-4.6"');
+    expect(saved.body).toContain('[models]\ndefault = "grok-4.7"');
     expect(saved.body).not.toContain('model_reasoning_effort');
-    expect(saved.settings).toMatchObject({ model: 'grok-4.6', reasoning_effort: 'high' });
+    expect(saved.settings).toMatchObject({ model: 'grok-4.7', reasoning_effort: 'high' });
     expect(db.transactions).toEqual([
       { isolationLevel: 'repeatable read' }, { isolationLevel: 'repeatable read' },
     ]);

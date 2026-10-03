@@ -476,6 +476,11 @@ export async function registerAuthRoutes(app: FastifyInstance, ctx: RouteContext
       // the wrapper reports the matching complete-bundle digest.
       out.claude_skills = await skillsService.bundle(enforced, engine, readSkillDigests(payload));
     }
+    // Grok Build loads the same SKILL.md layout natively from ~/.grok/skills, so
+    // it receives the identical complete live set instead of relying on MCP alone.
+    if (engine === ENGINE_GROK) {
+      out.grok_skills = await skillsService.bundle(enforced, engine, readSkillDigests(payload));
+    }
 
     // Fleet-wide managed-sync activity for the cdx/clx boot-screen activity
     // block. The response key remains `sessions` for compatibility; wrappers

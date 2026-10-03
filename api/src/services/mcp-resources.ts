@@ -218,7 +218,7 @@ export class McpResourcesService {
       templates.push({
         uriTemplate: 'shared://{slug}',
         name: 'shared_memory',
-        description: 'Fleet-wide shared memory document by slug (visible from every host and either engine)',
+        description: 'Fleet-wide shared memory document by slug (visible from every host and every engine)',
         mimeType: 'text/markdown',
       });
     }

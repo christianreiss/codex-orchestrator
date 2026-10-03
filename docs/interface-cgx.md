@@ -7,6 +7,33 @@ The wrapper maintains engine-specific auth, config, versions, locks, and leases.
 Grok uses the shared Skills, instruction, MCP, project, memory, secrets, and
 messaging surfaces with `engine=grok` / `X-Engine: grok`.
 
+## CLI surface
+
+| Subcommand | Purpose |
+|---|---|
+| `run` (default) | One Grok session: managed sync, `/auth` (with the insecure-host approval box when interactive), a leased subscription account, an isolated private runtime and leader. A held sync lock pauses content sync for this launch instead of refusing it. A missing native CLI is installed in the foreground first. |
+| `resume [UUID or title]` | `run --resume …`; native history lives in the shared sessions root. |
+| `sync` / `auth-sync` | Converge `~/.grok/AGENTS.md`, owned `config.toml` paths, native skills under `~/.grok/skills`, host users and peer engine configs without launching. Exit 1 on a failed managed write or an unreachable server. |
+| `status` / `--status` | Installation, version, API and subscription-auth health. Exit 1 when the result is red. An answered auth error (for example `grok_login_required`) keeps `api=ok`. |
+| `doctor` / `--doctor` | The status card plus a doctor report: paths, native CLI vs fleet target, `config.toml` parse and owned keys, managed `AGENTS.md`, native skill drift, auth, `/auth` latency, disk, cron and session environment. Never reads or changes credentials; exit 1 on any failed check. |
+| `login [retry]` | Native subscription device login in a throwaway home, uploaded to the central owner; `retry` re-sends a protected pending login within 24 hours. |
+| `logout` | Erase pending login material. |
+| `update` / `--update` / `-U` | Wrapper self-update (downgrade- and loop-guarded), then the server's target Grok CLI, shell alias, content sync and version report. The CLI is reinstalled only when its version differs from the target. |
+| `cron [install\|remove\|run]` / `--cron …` | Manage or run the host-wide `cxx cron` schedule. The coordinator's per-engine Grok tick runs the same maintenance as `update` without forcing a CLI reinstall, reports versions even when content sync fails, and prints one `cron: …` result line. |
+| `uninstall` / `--uninstall` | Refuse a multi-user host without root or passwordless sudo; best-effort server delete; then remove fleet skills, owned config keys, the managed `AGENTS.md` (only if unchanged), pending login, signed config and the private Grok installs. Shared cxx aliases and cron are removed only on a confirmed server result. Native history and unwrapped credentials stay. |
+| `auth-upload-auto` | Accepted no-op for shared callers: managed Grok runtimes hold no canonical refresh token to upload. |
+| `help` / `--wrapper-help` | Wrapper help. Native help (`cgx --help`, `cgx help`, `cgx mcp --help`) goes straight to the native CLI without a lease or sync. |
+
+Flags: `-W`/`--wrapper-version` (the shared version block with the signing-key line),
+`--config FILE`, `--skip-boot`/`--silent`/`--no-banner`, `--minimal-output`,
+`--allow-concurrent-sync` (write managed content even while another cgx lifecycle
+holds the lock, like cdx), `-4`, `--debug`/`--verbose`, `--execute PROMPT`.
+Launches refuse when the baked host FQDN does not match the hostname
+(`GROK_ALLOW_FQDN_MISMATCH=1` overrides). A launch whose `/auth` host engine set differs from the
+baked one requests background maintenance immediately, so an engine an operator
+enabled or disabled is provisioned on this launch (cdx parity). Maintenance appends `alias grok='cgx'` to
+existing `~/.bashrc`/`~/.zshrc`, as cdx and clx do for their engines.
+
 ## Native CLI and installation
 
 The supported baseline is official Grok Build **1.0.46**. Linux and macOS on
@@ -31,11 +58,39 @@ enabled engines, and native auth.
 
 `CGX_CONFIG_PATH` selects the signed wrapper JSON config. Native CLI configuration
 uses `~/.grok/config.toml`: `[models].default` and
-`[models].default_reasoning_effort`, plus `[mcp_servers.cgx]`. The bundled catalog
-defaults to `grok-4.6` / `high` with `low`, `medium`, `high`, `xhigh`; `grok-4.5`
-supports `low`, `medium`, `high`. Both have a 500,000-token context. This catalog
-describes native supported IDs; subscription entitlement still depends on the
-provider. Codex lane/profile settings and Claude artifact settings do not apply.
+`[models].default_reasoning_effort`, `[ui].permission_mode`, plus
+`[mcp_servers.cgx]`. The subscription catalog (live `/v1/models`, re-verified
+2026-10-03) defaults to `grok-4.7` / `high`; `grok-4.7`, `grok-4.7-build-fast` and
+`grok-4.6` support `low`, `medium`, `high`, `xhigh`, and `grok-4.5` supports `low`,
+`medium`, `high`. All have a 500,000-token context. This catalog describes native
+supported IDs; subscription entitlement still depends on the provider. Codex
+lane/profile settings and Claude artifact settings do not apply.
+
+The fleet security posture projects onto Grok the way it projects onto Claude:
+the autonomy axis selects `[ui].permission_mode` (`default` for levels 0–2,
+`auto` for Standard, `always-approve` at the top of the scale, capped while any
+axis is restrictive), rendered as an owned path so a user-authored mode returns
+when the posture stops claiming it. Grok's kernel sandbox (`[sandbox].profile`)
+is deliberately not derived: its interplay with the isolated managed runtime is
+unverified and Grok runs unsandboxed when a profile cannot be applied; the
+enforcement report lists it under `not_enforced`.
+
+## Skills
+
+Grok Build loads `~/.grok/skills/<name>/SKILL.md` natively, with the same
+frontmatter Claude Code uses. `/sync/bootstrap` for `engine=grok` returns
+`grok_skills`, the complete live set of shared and Grok-scoped Skills, and cgx
+installs it exactly like clx installs `claude_skills`: every bundle is verified
+against its advertised digest (including auxiliary files), staged and swapped in
+atomically; ownership is recorded in `~/.cgx/state/skills.json`; only
+manifest-owned directories are pruned, stripped or replaced; a directory the
+manifest does not own is the user's and is never adopted; drift withholds the
+digest so the next sync restores the bundle. Skill failures warn on the startup
+card and never block a launch. The served Grok instructions point at the native
+directory and at the `skill-manager` Skill for Skill management, so agents use
+the orchestrator MCP Skill tools rather than native `/create-skill`. On hosts
+that also run clx, Grok's Claude compatibility scan sees `~/.claude/skills` too;
+both carry the same names, so Grok deduplicates them.
 
 Explicit Grok host provisioning creates these fleet defaults when no Grok
 client-config row exists, activating the managed MCP feature context. Concurrent
@@ -82,6 +137,16 @@ from canonical refresh credentials and managed access-only sessions.
 
 Legacy `web_login` credentials and metered xAI API keys require replacement with
 a modern subscription login.
+
+xAI rotates the refresh token on every refresh, so a login can have exactly one
+refresher. The canonical login must therefore be a dedicated one the
+orchestrator alone refreshes: `cgx login` and the admin seed command both run
+`grok login --device-auth` in a throwaway `GROK_HOME` and erase it after upload.
+Uploading an operator's live `~/.grok/auth.json` (a pasted admin upload, or the
+seed command with `GROK_SEED_AUTH_PATH`) leaves two refreshers on one chain:
+whichever refreshes second receives `invalid_grant`, and if that is the server
+the account enters `login_required` fleet-wide. Only upload a login nothing else
+will use.
 
 The encrypted canonical envelope contains `last_refresh`, the complete
 `grok_auth` scope map, `grok_scope`, and a derived `auths` bearer entry for

@@ -16,8 +16,8 @@ description: "${DESCRIPTION}"
 Use the orchestrator MCP Skill tools when the user asks how Skill management works or
 asks to create, modify, or delete a Skill. On a fleet host, an unqualified "Skill"
 means the shared canonical Skill seen by every host and all three engines; it is not a
-host-local scratch change. Do not invoke or consult Codex's built-in \`skill-creator\`
-for this workflow.
+host-local scratch change. Do not invoke or consult an engine's built-in Skill creator
+(Codex \`skill-creator\`, Grok \`/create-skill\`) for this workflow.
 
 Before answering or acting, call \`skill_list\` to inspect the authoritative fleet
 inventory. Then follow the matching lifecycle below.

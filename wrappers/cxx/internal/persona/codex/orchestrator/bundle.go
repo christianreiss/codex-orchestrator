@@ -12,6 +12,8 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/skillstore"
 )
 
 // BundleRequest is the POST body for /sync/bootstrap.
@@ -32,6 +34,9 @@ type BundleRequest struct {
 	Config        string          `json:"config,omitempty"`
 	Home          string          `json:"home,omitempty"`
 	Username      string          `json:"username,omitempty"`
+	// Skills carries per-slug digests of the native on-disk skill store (Grok)
+	// so the server can omit unchanged bundles.
+	Skills map[string]string `json:"skills,omitempty"`
 }
 
 // BundleResponse matches the envelope returned by /sync/bootstrap. The auth
@@ -54,6 +59,9 @@ type BundleResponse struct {
 	// Grok's TOML partial owns named paths while retaining user-authored settings.
 	ConfigOwnedPaths []string       `json:"-"`
 	Sessions         *FleetSessions `json:"sessions,omitempty"`
+	// GrokSkills is the complete live skill set for Grok's native
+	// ~/.grok/skills store. Nil means the server sent none (older server).
+	GrokSkills []skillstore.Item `json:"grok_skills,omitempty"`
 }
 
 // FleetSessions is the historical response name for boot-screen sync activity

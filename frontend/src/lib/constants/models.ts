@@ -150,8 +150,10 @@ export const HOOK_EVENTS = [
   "Setup",
 ] as const;
 
-/** Released Grok Build bundled catalog; live subscription metadata may narrow it. */
+/** Grok Build subscription catalog (live `/v1/models`, 2026-10-03); keep in lock-step with api grok-models.ts. */
 export const GROK_MODEL_OPTIONS = [
+  { label: "Grok 4.7", value: "grok-4.7" },
+  { label: "Grok 4.7 Fast", value: "grok-4.7-build-fast" },
   { label: "Grok 4.6", value: "grok-4.6" },
   { label: "Grok 4.5", value: "grok-4.5" },
 ];

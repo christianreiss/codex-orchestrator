@@ -91,10 +91,10 @@ describe('served document byte invariance', () => {
     );
 
     expect(base.sha256).toBe('30abaea24c8809d8634670f0eceb3004aabb4eafb5416c78333c719e8b67e14b');
-    expect(out.policy_sha256).toBe('ca5c99eb3eb59039b44eeb1fd8276f848ffe18945b41bc84cc491c0ea436f8e9');
+    expect(out.policy_sha256).toBe('3d8a8c754d80369c46a16c3350db8461520d3ae14b1de7ac03ad9454925ad5e5');
     expect(out.features_sha256).toBe('aa7353611e473b8edcb01b9ffac1bf125f378a910f44512df7962d3fe0bf726a');
-    expect(out.managed_sha256).toBe('8168ccb2dcd5988c5793c28c8d6626651763bfa92aa2b5ede343b121ac43c5cb');
-    expect(sha256(out.body)).toBe('9ea93fa236d54292c470095070b0e00bf4087e701248a684c29e3c237d3e30df');
+    expect(out.managed_sha256).toBe('9813deb2bfa9a5852c9e2e59d3ba8453147d656678552f4f385363e2636e6aac');
+    expect(sha256(out.body)).toBe('0d16e8ce9e232a9320b8b7e36232de5ab92f0ebd98f3a09e88b7bebe3b690ad7');
   });
 });
 
@@ -108,6 +108,13 @@ describe('renderManagedAgentFeatures', () => {
     expect(rendered.body).not.toContain("Codex's own local memories");
     expect(rendered.body).not.toContain('## Memory (managed)');
     expect(rendered.sections.skills.present).toBe(true);
+  });
+  it('points Grok at its native skills directory while keeping the MCP manager authoritative', () => {
+    const rendered = renderManagedAgentFeatures('# Fleet rules\n', context('grok', { skills: enabled(2) }));
+    expect(rendered.body).toContain('~/.grok/skills/<slug>/SKILL.md');
+    expect(rendered.body).toContain('`skill-manager` Skill');
+    expect(rendered.body).not.toContain("Codex's built-in");
+    expect(rendered.sections.skills.transport).toBe('native');
   });
   it('renders providers in deterministic order with exact block and section digests', () => {
     const out = renderManagedAgentFeatures(

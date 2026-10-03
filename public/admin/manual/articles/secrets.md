@@ -15,7 +15,7 @@ sources: api/src/routes/admin/secrets/index.ts, api/src/services/secrets.ts, api
 
 ## The table
 
-`GET /admin/secrets` (`secrets.read_metadata`, held by every role; `?include_deleted=1` adds retired rows) lists each secret's slug, description, tags, engine scope (`codex`, `claude`, or both), and owner. Owner is **Operator** for a secret created here (`source_host_id` is null — agents cannot rotate or delete it) or **Host #N** for one an agent stored through `secret_store` from that host. Values are never in the listing.
+`GET /admin/secrets` (`secrets.read_metadata`, held by every role; `?include_deleted=1` adds retired rows) lists each secret's slug, description, tags, engine scope (all engines, or `codex`, `claude`, or `grok` only), and owner. Owner is **Operator** for a secret created here (`source_host_id` is null — agents cannot rotate or delete it) or **Host #N** for one an agent stored through `secret_store` from that host. Values are never in the listing.
 
 Controls, and the capability each needs:
 

@@ -88,7 +88,7 @@ WORKDIR /app
 # Extract only package/bin/grok.br; Node's built-in Brotli avoids installers.
 COPY install-grok.mjs /tmp/install-grok.mjs
 ARG GROK_VERSION=1.0.46
-RUN set -eu; node /tmp/install-grok.mjs "${TARGETARCH:-amd64}"; \
+RUN set -eu; GROK_VERSION="${GROK_VERSION}" node /tmp/install-grok.mjs "${TARGETARCH:-amd64}"; \
     grok --version | grep -F "grok ${GROK_VERSION} "; \
     rm /tmp/install-grok.mjs
 
@@ -101,12 +101,12 @@ COPY runner_engines.py grok.py images.py network_policy.py /app/
 RUN chmod +x /app/entrypoint.sh
 
 # The versions the image was built with, so /health can report what it actually
-# ships instead of re-shelling out to two CLIs on every probe.
+# ships instead of re-shelling out to three CLIs on every probe.
 ENV RUNNER_CODEX_VERSION=${CODEX_VERSION}
 ENV RUNNER_CLAUDE_VERSION=${CLAUDE_CODE_VERSION}
 ENV RUNNER_GROK_VERSION=${GROK_VERSION}
-# Both engines are present by construction, so the runner must refuse to start
-# if either binary went missing between build and boot.
+# All three engines are present by construction, so the runner must refuse to
+# start if any binary went missing between build and boot.
 ENV RUNNER_REQUIRED_ENGINES=codex,claude,grok
 ENV PYTHONUNBUFFERED=1
 ENV RUNNER_HOME_PARENT=/dev/shm

@@ -25,6 +25,7 @@ import (
 	"github.com/andybalholm/brotli"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/enginestore"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/ipc"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/skillstore"
 )
 
 const PinnedVersion = "1.0.46"
@@ -47,6 +48,21 @@ func StateDir() (string, error) {
 	}
 	return filepath.Join(home, ".cgx", "state"), nil
 }
+
+// Skills is the native on-disk store for fleet Skills (Grok loads
+// ~/.grok/skills/<name>/SKILL.md) with its ownership manifest in cgx state.
+func Skills() (skillstore.Store, error) {
+	home, err := Home()
+	if err != nil {
+		return skillstore.Store{}, err
+	}
+	state, err := StateDir()
+	if err != nil {
+		return skillstore.Store{}, err
+	}
+	return skillstore.Store{Root: filepath.Join(home, "skills"), ManifestPath: filepath.Join(state, "skills.json"), Label: "Grok"}, nil
+}
+
 func StoreDir() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
