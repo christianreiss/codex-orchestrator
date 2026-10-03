@@ -1,3 +1,7 @@
+# 2026-10-03
+
+- **Account leases survive sleep (wrapper 0.9.14).** A host that suspended longer than the five-minute lease TTL resumed with a reaped account session, and every later mid-session auth sync, statusline usage report, and Grok heartbeat failed with `Account session not found` until the CLI was restarted. cdx, clx, and cgx now re-reserve the same session ID on the bound account when a heartbeat returns 404, so the running child keeps its binding and fresh tokens reach the orchestrator again within about 30 seconds of resume. Processes started on 0.9.13 or earlier stay stuck until restarted.
+
 # 2026-10-01
 
 - **cgx wrapper updates (wrapper 0.9.13).** Grok's maintenance path passes its configured logger to the shared binary updater, fixing a panic when the server offers a newer wrapper. Existing 0.9.9–0.9.12 installations can recover through `cxx update` when Codex or Claude is installed, or through a new installer for the existing host; published binaries remain immutable.

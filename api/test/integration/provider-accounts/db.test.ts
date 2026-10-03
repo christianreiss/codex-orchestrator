@@ -311,6 +311,10 @@ describe.skipIf(!handle)('provider accounts on MySQL', () => {
       .set({ expiresAt: '2000-01-01T00:00:00Z' })
       .where(eq(providerAccountSessions.id, 'expired'));
     await expect(accounts.heartbeat(1, 'claude', 'expired')).rejects.toThrow('not found');
+    // A wrapper resuming from sleep re-reserves the reaped ID on its bound account.
+    const reattached = await accounts.acquire(1, 'claude', 'scope', 'expired', 95, other);
+    expect([reattached.session_id, reattached.account.id]).toEqual(['expired', other]);
+    expect((await accounts.heartbeat(1, 'claude', 'expired')).account_id).toBe(other);
     expect((await accounts.get(other)).state).toBe('enabled');
   });
 

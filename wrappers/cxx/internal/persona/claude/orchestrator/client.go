@@ -212,6 +212,9 @@ func (e *HTTPError) Error() string {
 	return fmt.Sprintf("%s %s -> %d: %s", e.Method, e.Path, e.StatusCode, e.Body)
 }
 
+// HTTPStatus lets packages that cannot import this one branch on the status.
+func (e *HTTPError) HTTPStatus() int { return e.StatusCode }
+
 // parseErrorCode pulls the machine code out of the orchestrator's error
 // envelopes. Host sync routes normally use the standard top-level `code`
 // field, but keep the OpenAI/Anthropic nested shape working too so callers can

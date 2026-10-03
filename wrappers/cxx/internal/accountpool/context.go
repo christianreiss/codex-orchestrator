@@ -209,14 +209,37 @@ func (c *Context) Start(ctx context.Context, client Client, localActive bool, ap
 			case <-hctx.Done():
 				return
 			case <-ticker.C:
-				callCtx, stop := context.WithTimeout(hctx, 5*time.Second)
-				_ = client.JSON(callCtx, http.MethodPost, "/auth/sessions/heartbeat", map[string]any{"engine": c.Engine, "session_id": id}, nil, 0)
-				stop()
+				c.heartbeat(hctx, client, id, lease.AccountID)
 			}
 		}
 	}()
 	var once sync.Once
 	return func() { once.Do(func() { cancel(); <-done; release() }) }, &lease, nil
+}
+
+// heartbeat extends the lease. A host that slept past the five-minute TTL
+// resumes with a lease the server has already reaped while the native
+// credentials still belong to this account, so a 404 re-reserves the same
+// session ID on the same account; the child's inherited session binding stays
+// valid. The returned auth is discarded: the child may have rotated past it.
+func (c *Context) heartbeat(ctx context.Context, client Client, id string, account int64) {
+	callCtx, stop := context.WithTimeout(ctx, 5*time.Second)
+	err := client.JSON(callCtx, http.MethodPost, "/auth/sessions/heartbeat", map[string]any{"engine": c.Engine, "session_id": id}, nil, 0)
+	stop()
+	var status interface{ HTTPStatus() int }
+	if !errors.As(err, &status) || status.HTTPStatus() != http.StatusNotFound {
+		return
+	}
+	callCtx, stop = context.WithTimeout(ctx, 15*time.Second)
+	defer stop()
+	var lease LeaseResponse
+	body := map[string]any{"engine": c.Engine, "scope_id": c.ScopeID, "session_id": id, "account_id": account}
+	if client.JSON(callCtx, http.MethodPost, "/auth/sessions", body, &lease, 0) != nil {
+		return
+	}
+	if lease.SessionID != id || lease.AccountID != account {
+		_ = client.JSON(callCtx, http.MethodPost, "/auth/sessions/release", map[string]any{"engine": c.Engine, "session_id": id}, nil, 0)
+	}
 }
 
 // ActivateEnvironment matches the existing portal environment lifecycle. Only

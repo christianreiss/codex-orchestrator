@@ -126,3 +126,63 @@ func TestInheritedUsageBinding(t *testing.T) {
 		t.Fatalf("usage binding: %v", b)
 	}
 }
+
+type statusError int
+
+func (e statusError) Error() string   { return "status" }
+func (e statusError) HTTPStatus() int { return int(e) }
+
+type heartbeatClient struct {
+	heartbeat error
+	account   int64
+	requests  []string
+	bodies    []map[string]any
+}
+
+func (f *heartbeatClient) JSON(_ context.Context, _ string, path string, in any, out any, _ int) error {
+	body := in.(map[string]any)
+	f.requests = append(f.requests, path)
+	f.bodies = append(f.bodies, body)
+	switch path {
+	case "/auth/sessions/heartbeat":
+		return f.heartbeat
+	case "/auth/sessions":
+		*out.(*LeaseResponse) = LeaseResponse{AccountID: f.account, SessionID: body["session_id"].(string), VerificationState: "verified"}
+	}
+	return nil
+}
+
+func TestHeartbeatReacquiresReapedLease(t *testing.T) {
+	for _, scenario := range []struct {
+		name      string
+		heartbeat error
+		account   int64
+		want      []string
+	}{
+		{"live lease", nil, 3, []string{"/auth/sessions/heartbeat"}},
+		{"transient failure", errors.New("offline"), 3, []string{"/auth/sessions/heartbeat"}},
+		{"removed account", statusError(409), 3, []string{"/auth/sessions/heartbeat"}},
+		{"reaped after sleep", statusError(404), 3, []string{"/auth/sessions/heartbeat", "/auth/sessions"}},
+		{"reattached elsewhere", statusError(404), 7, []string{"/auth/sessions/heartbeat", "/auth/sessions", "/auth/sessions/release"}},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			c := Load("claude", filepath.Join(t.TempDir(), ".credentials.json"), "https://fleet")
+			f := &heartbeatClient{heartbeat: scenario.heartbeat, account: scenario.account}
+			c.heartbeat(context.Background(), f, "session-0123456789", 3)
+			if len(f.requests) != len(scenario.want) {
+				t.Fatalf("requests: %v", f.requests)
+			}
+			for i := range scenario.want {
+				if f.requests[i] != scenario.want[i] {
+					t.Fatalf("requests: %v", f.requests)
+				}
+			}
+			if len(f.requests) > 1 {
+				b := f.bodies[1]
+				if b["session_id"] != "session-0123456789" || b["account_id"] != int64(3) || b["scope_id"] != c.ScopeID {
+					t.Fatalf("re-acquire body: %v", b)
+				}
+			}
+		})
+	}
+}
