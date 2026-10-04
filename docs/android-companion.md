@@ -5,6 +5,22 @@ It connects to one orchestrator at a time; each phone is independently revocable
 Google Play services are needed for FCM, but chat and approval review work without
 push. No Analytics SDK is included.
 
+## On-the-move interface
+
+**Now** shows live host requests and reachable agents needing a reply first, then
+other agents whose server-reported `relay_ready` is true. Offline, ended, idle
+without a receiver, and read-only sessions are omitted. A working agent appears
+only if its receiver can still accept a message. Project name, host, and engine
+identify each conversation; **Review next** opens the next decision directly.
+
+Host decisions use a bottom sheet with requesting host/IP, expiry, duration
+presets, and large **Deny** / **Allow** buttons. Requests are rechecked by the
+server; expired requests and connection snapshots older than 30 seconds cannot
+be acted on. Chat shows messages and the current question, with direct option
+buttons; status/lifecycle events stay off the mobile timeline. Sending follows
+replies automatically. Connection, alert controls, and confirmed sign-out live
+under **More**. Desktop retains the full session inventory and administration.
+
 ## Server and Firebase setup
 
 1. Create/select a Firebase project and register an Android app with package
@@ -48,7 +64,7 @@ push. No Analytics SDK is included.
 6. Open **Account → Android devices → Pair Android device** in the dashboard;
    scan the five-minute QR in the app (or use **Paste pairing code** with its JSON
    payload), check the displayed server, and connect.
-   Allow Android notifications. Under **Approvals**, review and approve a live
+   Allow Android notifications. On **Now**, review and approve a live
    host request. Sending an agent message automatically follows that conversation.
 
 Without Firebase configuration, pairing, chat, and in-app approvals still work;

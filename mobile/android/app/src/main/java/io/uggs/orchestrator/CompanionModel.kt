@@ -1,6 +1,7 @@
 package io.uggs.orchestrator
 
 import android.app.Application
+import android.os.SystemClock
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -30,7 +31,9 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
     var capabilities by mutableStateOf<Set<String>>(emptySet()); private set
     var notifications by mutableStateOf(true); private set
     var selected by mutableStateOf<String?>(null); private set
-    var tab by mutableStateOf("Agents")
+    var lastSync by mutableStateOf(0L); private set
+    var online by mutableStateOf(false); private set
+    var notice by mutableStateOf<String?>(null); private set
     var error by mutableStateOf<String?>(null); private set
     var status by mutableStateOf("Connecting…"); private set
     var busy by mutableStateOf(false); private set
@@ -42,15 +45,19 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
     private var stream: EventSource? = null
     private var reconnect: Job? = null
     private var pendingSend: Triple<String, String, String>? = null
+    private var pendingOpen: String? = null
     private fun api() = connection!!.let { Api(it.server, it.token) }
     fun can(cap: String) = capabilities.contains(cap)
+    fun fresh(now: Long = SystemClock.elapsedRealtime()) = online && lastSync > 0 && now - lastSync in 0..30_000
+    fun reachable() = if (fresh() && can("agent_portal.manage") && can("agent_portal.reveal_transcript")) readyAgents(agents) else emptyList()
     private fun failure(e: Exception) {
         if (e is CancellationException) throw e
-        error = e.message ?: "Connection failed"
-        status = "Connection interrupted"
+        error = if (e is ApiException) e.message ?: "Request failed" else "Connection lost. Try again."
+        if (e !is ApiException) { online = false; status = "Offline" }
         if (e is ApiException && e.status == 401) { clearConnection(); error = "Device access expired or was revoked. Pair again." }
     }
     fun clearError() { error = null }
+    fun clearNotice() { notice = null }
     fun pair(pairing: Pairing) {
         if (busy) return
         viewModelScope.launch {
@@ -64,7 +71,7 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
     }
     fun setForeground(value: Boolean) {
         foreground = value
-        if (value) { connection?.let { configurePush(getApplication(), it) }; beginPolling(); if (selected != null) startStream() }
+        if (value) { online = false; connection?.let { configurePush(getApplication(), it) }; beginPolling(); if (selected != null) startStream() }
         else { polling?.cancel(); reconnect?.cancel(); stream?.cancel(); stream = null; VisibleConversation.session = null }
     }
     private fun beginPolling() {
@@ -99,11 +106,14 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
         client.request("/device", "PATCH", JSONObject().put("visible_session_id", if (foreground) selected ?: JSONObject.NULL else JSONObject.NULL))
         VisibleConversation.session = if (foreground) selected else null
         if (selected != null && stream == null) startStream()
-        status = "Connected"
+        if (!online) error = null
+        status = "Live"; online = true; lastSync = SystemClock.elapsedRealtime()
+        pendingOpen?.let { pendingOpen = null; openSession(it) }
     }
     fun refreshNow() { viewModelScope.launch { try { refresh() } catch (e: Exception) { failure(e) } } }
     fun openSession(id: String) {
-        selected = id; events = emptyList(); draft = ""; pendingSend = null; tab = "Agents"
+        if (reachable().none { it.optString("id") == id }) { notice = "Agent is no longer reachable"; return }
+        selected = id; events = emptyList(); draft = ""; pendingSend = null
         viewModelScope.launch {
             try {
                 val page = api().request("/agents/$id/events?tail=1")
@@ -115,7 +125,7 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
             } catch (e: Exception) { failure(e) }
         }
     }
-    fun closeSession() { selected = null; events = emptyList(); stream?.cancel(); reconnect?.cancel(); VisibleConversation.session = null; refreshNow() }
+    fun closeSession() { selected = null; events = emptyList(); stream?.cancel(); stream = null; reconnect?.cancel(); VisibleConversation.session = null; refreshNow() }
     private fun startStream() {
         reconnect?.cancel(); stream?.cancel()
         val id = selected ?: return
@@ -147,6 +157,7 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
     fun follow(id: String, value: Boolean) { mutate { api().request("/agents/$id/follow", "PUT", JSONObject().put("followed", value)); follows = if (value) follows + id else follows - id } }
     fun send(prompt: JSONObject? = null) {
         val id = selected ?: return
+        if (reachable().none { it.optString("id") == id }) { error = "Agent is no longer reachable"; return }
         val text = draft.trim(); if (text.isEmpty()) return
         val target = if (prompt != null) "/agents/$id/prompts/${prompt.getString("id")}/answer" else "/agents/$id/messages"
         val prior = pendingSend
@@ -155,19 +166,26 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
         mutate {
             val body = JSONObject().put("client_message_id", uuid).put(if (prompt == null) "content" else "answer", text)
             if (prompt != null) body.put("version", prompt.optInt("version", 1))
-            api().request(target, "POST", body); draft = ""; pendingSend = null; follows = follows + id
+            api().request(target, "POST", body); draft = ""; pendingSend = null; follows = follows + id; notice = "Sent"
         }
     }
-    fun decide(id: Long, approve: Boolean, minutes: Int) {
+    fun decide(id: Long, approve: Boolean, minutes: Int, onSuccess: () -> Unit = {}) {
+        if (!fresh() || approvals.none { it.optLong("id") == id && liveApproval(it, System.currentTimeMillis()) }) {
+            error = "Request is no longer available"; refreshNow(); return
+        }
         mutate {
             // The server locks and rechecks pending state and expiry at decision time.
             api().request("/approvals/$id/${if (approve) "approve" else "deny"}", "POST", JSONObject().put("duration_minutes", minutes))
+            approvals = approvals.filterNot { it.optLong("id") == id }
+            notice = if (approve) "Access allowed for ${durationLabel(minutes)}" else "Access denied"
+            onSuccess()
         }
     }
     fun updateNotifications(value: Boolean) { mutate { api().request("/device", "PATCH", JSONObject().put("notifications", value)); notifications = value } }
     fun logout() { mutate { api().request("/device", "DELETE"); clearConnection() } }
     private fun clearConnection() {
         store.clear(); connection = null; selected = null; events = emptyList(); agents = emptyList(); approvals = emptyList(); capabilities = emptySet()
+        online = false; lastSync = 0; pendingOpen = null; highlightApproval = null
         polling?.cancel(); reconnect?.cancel(); stream?.cancel(); stream = null; VisibleConversation.session = null
         android.app.NotificationManager::class.java.let { getApplication<Application>().getSystemService(it).cancelAll() }
         runCatching { com.google.firebase.messaging.FirebaseMessaging.getInstance().isAutoInitEnabled = false }
@@ -183,8 +201,9 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
     fun clearApprovalHighlight() { highlightApproval = null }
     fun notification(kind: String?, target: String?) {
         if (connection == null || target == null) return
-        if (kind == "approval") { tab = "Approvals"; highlightApproval = target; refreshNow() }
-        else if (runCatching { UUID.fromString(target) }.isSuccess) openSession(target)
+        online = false
+        if (kind == "approval") { closeSession(); highlightApproval = target }
+        else if (runCatching { UUID.fromString(target) }.isSuccess) { closeSession(); pendingOpen = target; refreshNow() }
     }
     override fun onCleared() { stream?.cancel(); super.onCleared() }
 }

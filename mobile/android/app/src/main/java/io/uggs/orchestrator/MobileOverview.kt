@@ -1,0 +1,33 @@
+package io.uggs.orchestrator
+
+import org.json.JSONObject
+import java.time.Instant
+
+/** Use the server's receiver readiness, never a session's historical status. */
+fun isReachable(agent: JSONObject): Boolean = agent.optBoolean("relay_ready", false) &&
+    !agent.optBoolean("read_only", false) && agent.optString("presence") !in setOf("ended", "offline")
+
+fun needsReply(agent: JSONObject) = agent.optJSONObject("pending_prompt") != null || agent.optJSONObject("attention") != null
+
+fun readyAgents(agents: List<JSONObject>) = agents.filter(::isReachable)
+    .sortedWith(compareByDescending<JSONObject> { it.optJSONObject("pending_prompt") != null }
+        .thenByDescending { it.optJSONObject("attention") != null }
+        .thenByDescending { it.optString("last_event_at") })
+
+fun liveApproval(request: JSONObject, now: Long) = request.optBoolean("live", false) &&
+    runCatching { Instant.parse(request.getString("expires_at")).toEpochMilli() > now }.getOrDefault(false)
+
+fun agentTitle(agent: JSONObject): String = agent.optString("cwd").trimEnd('/').substringAfterLast('/')
+    .ifBlank { agent.optString("host", "Agent").substringBefore('.') }
+
+fun agentDetail(agent: JSONObject): String = listOf(
+    agent.optString("host", agent.optString("fqdn")).substringBefore('.'),
+    agent.optString("engine").replaceFirstChar { it.uppercase() },
+).filter { it.isNotBlank() }.joinToString(" · ")
+
+fun durationLabel(minutes: Int) = if (minutes >= 60 && minutes % 60 == 0) "${minutes / 60}h" else "${minutes}m"
+
+fun conversationEvents(events: List<JSONObject>) = events.filter {
+    it.optString("type") in setOf("user_message", "assistant_message") &&
+        !it.optJSONObject("payload")?.optString("text").isNullOrBlank()
+}

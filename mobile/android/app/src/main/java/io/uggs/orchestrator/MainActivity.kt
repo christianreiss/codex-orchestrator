@@ -12,7 +12,6 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -25,14 +24,17 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanOptions
 import org.json.JSONObject
 import java.time.Instant
-import java.time.ZoneId
-import java.time.format.DateTimeFormatter
 
 class MainActivity : ComponentActivity() {
     private val model: CompanionModel by viewModels()
@@ -55,48 +57,192 @@ class MainActivity : ComponentActivity() {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable fun CompanionScreen(model: CompanionModel) {
     val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
-    val context = LocalContext.current
-    val pushStatus by PushStatus.state.collectAsState()
+    var more by remember { mutableStateOf(false) }
+    var review by remember { mutableStateOf<JSONObject?>(null) }
+    var clock by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(Unit) { while (true) { clock = System.currentTimeMillis(); kotlinx.coroutines.delay(1000) } }
+    val fresh = model.fresh()
+    val agents = if (fresh && model.can("agent_portal.manage") && model.can("agent_portal.reveal_transcript")) readyAgents(model.agents) else emptyList()
+    val requests = if (fresh) model.approvals.filter { liveApproval(it, clock) } else emptyList()
+    val needsYou = agents.filter(::needsReply)
+    val total = requests.size + needsYou.size
+    val current = model.agents.firstOrNull { it.optString("id") == model.selected }
+    val snackbar = remember { SnackbarHostState() }
+    LaunchedEffect(model.notice) { model.notice?.let { snackbar.showSnackbar(it, duration = SnackbarDuration.Short); model.clearNotice() } }
     LaunchedEffect(model.connection?.deviceId) { if (model.connection != null && Build.VERSION.SDK_INT >= 33) permission.launch(Manifest.permission.POST_NOTIFICATIONS) }
-    BackHandler(model.selected != null) { model.closeSession() }
+    LaunchedEffect(model.highlightApproval, requests) {
+        model.highlightApproval?.let { id ->
+            requests.firstOrNull { it.optString("id") == id }?.let { review = it; model.clearApprovalHighlight() }
+            if (fresh && requests.none { it.optString("id") == id }) model.clearApprovalHighlight()
+        }
+    }
+    BackHandler(model.selected != null && review == null && !more) { model.closeSession() }
     Scaffold(topBar = {
-        TopAppBar(title = { Column { Text(if (model.selected != null) "Conversation" else "Orchestrator", fontWeight = FontWeight.SemiBold)
-            if (model.connection != null) Text(model.status, style = MaterialTheme.typography.labelSmall) } },
-            navigationIcon = { if (model.selected != null) TextButton(onClick = { model.closeSession() }) { Text("Back") } },
-            actions = { if (model.connection != null) TextButton(onClick = model::refreshNow) { Text("Refresh") } })
-    }, bottomBar = {
-        if (model.connection != null && model.selected == null) NavigationBar {
-            listOf("Agents", "Approvals", "Settings").forEachIndexed { index, tab ->
-                NavigationBarItem(selected = model.tab == tab, onClick = { model.tab = tab; model.refreshNow() },
-                    icon = { Text(listOf("◉", "✓", "⚙")[index]) }, label = { Text(if (tab == "Approvals" && model.approvals.isNotEmpty()) "$tab (${model.approvals.size})" else tab) })
-            }
+        TopAppBar(title = { Column {
+            Text(if (model.selected == null) "Now" else current?.let(::agentTitle) ?: "Agent", maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.SemiBold)
+            if (model.connection != null) Text(if (!fresh) "Reconnecting…" else if (model.selected != null) current?.let(::agentDetail) ?: "" else if (total == 1) "1 needs you" else if (total > 0) "$total need you" else "All clear", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        } },
+            navigationIcon = { if (model.selected != null) TextButton(onClick = model::closeSession, modifier = Modifier.heightIn(min = 48.dp)) { Text("Back") } },
+            actions = { if (model.connection != null) TextButton(onClick = { more = true }, modifier = Modifier.heightIn(min = 48.dp)) { Text("More") } })
+    }, snackbarHost = { SnackbarHost(snackbar) }, bottomBar = {
+        if (model.connection != null && model.selected == null && total > 0) {
+            Surface { Button(onClick = { if (requests.isNotEmpty()) review = requests.first() else model.openSession(needsYou.first().getString("id")) },
+                modifier = Modifier.navigationBarsPadding().padding(16.dp).fillMaxWidth().heightIn(min = 64.dp), enabled = !model.busy) { Text("Review next · $total", style = MaterialTheme.typography.titleMedium) } }
         }
     }) { padding ->
         Column(Modifier.padding(padding).fillMaxSize()) {
-            model.error?.let { error ->
-                Surface(color = MaterialTheme.colorScheme.errorContainer) { Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text(error, Modifier.weight(1f), color = MaterialTheme.colorScheme.onErrorContainer)
-                    TextButton(onClick = model::clearError) { Text("Dismiss") }
-                } }
-            }
             if (model.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
+            model.error?.let { ErrorStrip(it, model::refreshNow, model::clearError) }
             when {
                 model.connection == null -> PairScreen(model)
-                model.selected != null -> ChatScreen(model)
-                model.tab == "Agents" -> AgentsScreen(model)
-                model.tab == "Approvals" -> ApprovalsScreen(model)
-                else -> LazyColumn(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
-                    item { Text("Your connection", style = MaterialTheme.typography.headlineSmall); Text(model.connection!!.server, style = MaterialTheme.typography.bodyMedium) }
-                    item { Row(verticalAlignment = Alignment.CenterVertically) { Text("Push notifications", Modifier.weight(1f)); Switch(checked = model.notifications, onCheckedChange = model::updateNotifications, enabled = !model.busy) } }
-                    item { Text(if (model.connection!!.firebase == null) "Firebase is not configured on this server. Chat and approvals are available while the app is open." else "Host requests, agent questions, and replies in followed conversations can notify you.") }
-                    item { Text(pushStatus, style = MaterialTheme.typography.bodySmall) }
-                    item { OutlinedButton(onClick = { context.startActivity(Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, context.packageName)) }) { Text("Android notification settings") } }
-                    item { Text("Following ${model.follows.size} conversations. Open a conversation to change its notification setting.", style = MaterialTheme.typography.bodyMedium) }
-                    item { Button(onClick = model::logout, enabled = !model.busy) { Text("Sign out and revoke this device") } }
-                }
+                model.selected != null -> ChatScreen(model, current, fresh)
+                else -> NowScreen(model, agents, requests, fresh, onReview = { review = it })
             }
         }
     }
+    review?.let { request -> ApprovalSheet(model, request, fresh, clock, onDismiss = { review = null }) }
+    if (more) MoreSheet(model, onDismiss = { more = false })
+}
+
+@Composable private fun ErrorStrip(message: String, retry: () -> Unit, dismiss: () -> Unit) {
+    Surface(color = MaterialTheme.colorScheme.errorContainer) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+            Text(message, style = MaterialTheme.typography.bodyMedium)
+            Row { TextButton(onClick = retry) { Text("Retry") }; TextButton(onClick = dismiss) { Text("Dismiss") } }
+        }
+    }
+}
+
+@Composable private fun NowScreen(model: CompanionModel, agents: List<JSONObject>, requests: List<JSONObject>, fresh: Boolean, onReview: (JSONObject) -> Unit) {
+    val attention = agents.filter(::needsReply)
+    val ready = agents.filterNot(::needsReply)
+    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp, Alignment.Bottom)) {
+        if (!fresh) item {
+            Text("Checking what needs you…", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(vertical = 24.dp))
+            OutlinedButton(onClick = model::refreshNow, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)) { Text("Retry connection") }
+        }
+        if (requests.isNotEmpty() || attention.isNotEmpty()) item { SectionLabel("Needs you") }
+        items(requests, key = { "approval:${it.optLong("id")}" }) { request ->
+            Card(onClick = { onReview(request) }, modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)) {
+                Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(request.optString("fqdn"), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                    Text("Allow host access", color = MaterialTheme.colorScheme.onSecondaryContainer, style = MaterialTheme.typography.bodyMedium)
+                }
+            }
+        }
+        items(attention, key = { it.getString("id") }) { AgentRow(it, true) { model.openSession(it.getString("id")) } }
+        if (ready.isNotEmpty()) item { SectionLabel("Ready · ${ready.size}") }
+        items(ready, key = { it.getString("id") }) { AgentRow(it, false) { model.openSession(it.getString("id")) } }
+        if (fresh && agents.isEmpty() && requests.isEmpty()) item {
+            Text("Nothing needs you", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
+            Text("No agents ready to talk.", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 8.dp, bottom = 24.dp))
+        }
+    }
+}
+
+@Composable private fun SectionLabel(text: String) { Text(text, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 12.dp, bottom = 2.dp)) }
+
+@Composable private fun AgentRow(agent: JSONObject, attention: Boolean, onClick: () -> Unit) {
+    Card(onClick = onClick, modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = if (attention) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainer)) {
+        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(agentTitle(agent), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Text(agentDetail(agent), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (attention) Text(agent.optJSONObject("pending_prompt")?.optString("question") ?: agent.optJSONObject("attention")?.optString("summary")?.takeIf { it.isNotBlank() } ?: "Needs your reply", maxLines = 2, overflow = TextOverflow.Ellipsis)
+        }
+    }
+}
+
+@Composable private fun ChatScreen(model: CompanionModel, agent: JSONObject?, fresh: Boolean) {
+    val prompt = agent?.optJSONObject("pending_prompt")
+    val messages = conversationEvents(model.events)
+    val list = rememberLazyListState()
+    val writable = fresh && model.can("agent_portal.manage") && agent?.let(::isReachable) == true
+    LaunchedEffect(messages.size, prompt?.optString("id")) {
+        if (prompt != null) list.animateScrollToItem(messages.size)
+        else if (messages.isNotEmpty()) list.animateScrollToItem(messages.lastIndex)
+    }
+    Column(Modifier.fillMaxSize()) {
+        LazyColumn(Modifier.weight(1f).fillMaxWidth(), state = list, contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            items(messages, key = { it.optLong("cursor") }) { event ->
+                val own = event.optString("type") == "user_message"
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = if (own) Arrangement.End else Arrangement.Start) {
+                    Surface(shape = RoundedCornerShape(18.dp), color = if (own) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainer, modifier = Modifier.widthIn(max = 360.dp)) {
+                        SelectionContainer { Text(event.getJSONObject("payload").optString("text"), Modifier.padding(16.dp)) }
+                    }
+                }
+            }
+            if (prompt != null) item(key = "question") {
+                Surface(shape = RoundedCornerShape(18.dp), color = MaterialTheme.colorScheme.secondaryContainer) {
+                    Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text("Your decision", style = MaterialTheme.typography.labelLarge)
+                        Text(prompt.optString("question"), style = MaterialTheme.typography.titleMedium)
+                        prompt.optJSONArray("options")?.strings()?.forEach { option ->
+                            OutlinedButton(onClick = { model.draft = option; model.send(prompt) }, enabled = writable && !model.busy, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)) { Text(option) }
+                        }
+                    }
+                }
+            }
+            if (messages.isEmpty() && prompt == null) item { Text("What do you need?", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        }
+        if (!writable) Text(if (!fresh) "Reconnecting — draft kept" else "Agent is no longer reachable", Modifier.padding(16.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Surface(shadowElevation = 4.dp) {
+            Row(Modifier.fillMaxWidth().imePadding().padding(12.dp), verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(value = model.draft, onValueChange = { model.draft = it }, modifier = Modifier.weight(1f), maxLines = 4, enabled = !model.busy, placeholder = { Text(if (prompt != null) "Your answer" else "Message") })
+                Button(onClick = { model.send(prompt) }, enabled = writable && !model.busy && model.draft.isNotBlank(), modifier = Modifier.heightIn(min = 60.dp)) { Text("Send") }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable private fun ApprovalSheet(model: CompanionModel, request: JSONObject, fresh: Boolean, now: Long, onDismiss: () -> Unit) {
+    var minutes by remember(request.optLong("id")) { mutableIntStateOf(model.defaultMinutes.coerceIn(1, 480)) }
+    val current = model.approvals.firstOrNull { it.optLong("id") == request.optLong("id") }
+    val active = fresh && current?.let { liveApproval(it, now) } == true
+    val remaining = current?.let { runCatching { (Instant.parse(it.optString("expires_at")).toEpochMilli() - now) / 1000 }.getOrDefault(0).coerceAtLeast(0) } ?: 0
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
+        Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp).padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            Text("Allow host access?", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(request.optString("fqdn"), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
+            Text("Requesting IP: ${request.optString("request_ip")}", style = MaterialTheme.typography.bodyMedium)
+            Text(if (!fresh) "Reconnect to review" else if (active) "Expires in ${remaining / 60}m ${remaining % 60}s" else "Already handled or expired", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (active) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf(15, 60, model.defaultMinutes.coerceIn(1, 480)).distinct().forEach { value ->
+                        FilterChip(selected = minutes == value, onClick = { minutes = value }, enabled = !model.busy,
+                            modifier = Modifier.weight(1f).heightIn(min = 52.dp), label = { Text(durationLabel(value)) })
+                    }
+                }
+            }
+            model.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                OutlinedButton(onClick = { model.decide(request.optLong("id"), false, 0, onDismiss) }, enabled = active && !model.busy, modifier = Modifier.weight(1f).heightIn(min = 64.dp)) { Text("Deny") }
+                Button(onClick = { model.decide(request.optLong("id"), true, minutes, onDismiss) }, enabled = active && !model.busy, modifier = Modifier.weight(1.5f).heightIn(min = 64.dp)) { Text("Allow ${durationLabel(minutes)}") }
+            }
+            if (!active) TextButton(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) { Text("Close") }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable private fun MoreSheet(model: CompanionModel, onDismiss: () -> Unit) {
+    val context = LocalContext.current
+    val pushStatus by PushStatus.state.collectAsState()
+    var signOut by remember { mutableStateOf(false) }
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
+        Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text("Connection", style = MaterialTheme.typography.titleLarge)
+            Text(model.connection?.server?.removePrefix("https://") ?: "", style = MaterialTheme.typography.bodyMedium)
+            Text(pushStatus, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Row(verticalAlignment = Alignment.CenterVertically) { Text("Alerts", Modifier.weight(1f)); Switch(checked = model.notifications, onCheckedChange = model::updateNotifications, enabled = !model.busy, modifier = Modifier.semantics { contentDescription = "Alerts" }) }
+            model.selected?.let { id -> Row(verticalAlignment = Alignment.CenterVertically) { Text("Notify me of replies", Modifier.weight(1f)); Switch(checked = id in model.follows, onCheckedChange = { model.follow(id, it) }, enabled = !model.busy, modifier = Modifier.semantics { contentDescription = "Notify me of replies" }) } }
+            OutlinedButton(onClick = { model.refreshNow(); onDismiss() }, modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)) { Text("Refresh") }
+            TextButton(onClick = { context.startActivity(Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, context.packageName)) }, modifier = Modifier.fillMaxWidth()) { Text("Android notification settings") }
+            TextButton(onClick = { signOut = true }, modifier = Modifier.fillMaxWidth()) { Text("Sign out", color = MaterialTheme.colorScheme.error) }
+        }
+    }
+    if (signOut) AlertDialog(onDismissRequest = { signOut = false }, title = { Text("Disconnect this phone?") }, text = { Text("You’ll need a new pairing code to reconnect.") },
+        confirmButton = { TextButton(onClick = { model.logout(); onDismiss() }) { Text("Sign out") } }, dismissButton = { TextButton(onClick = { signOut = false }) { Text("Cancel") } })
 }
 
 @Composable private fun PairScreen(model: CompanionModel) {
@@ -107,14 +253,12 @@ class MainActivity : ComponentActivity() {
     val scanner = rememberLauncherForActivityResult(ScanContract()) { result ->
         result.contents?.let { raw -> try { pairing = Pairing.parse(raw); error = null } catch (_: Exception) { error = "This is not a valid Orchestrator pairing code." } }
     }
-    Column(Modifier.fillMaxSize().padding(28.dp), verticalArrangement = Arrangement.Center) {
-        Text("Your agents.\nWithin reach.", style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Bold)
-        Spacer(Modifier.height(20.dp))
-        Text("Chat with your fleet and review host access requests from your phone.", style = MaterialTheme.typography.bodyLarge)
-        Spacer(Modifier.height(28.dp))
+    Column(Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.Bottom) {
+        Text("Pair this phone", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
+        Spacer(Modifier.height(12.dp))
         Text("In the dashboard, open Account → Android devices → Pair Android device.")
         Spacer(Modifier.height(16.dp))
-        Button(onClick = { scanner.launch(ScanOptions().setDesiredBarcodeFormats(ScanOptions.QR_CODE).setPrompt("Scan the pairing code from your dashboard").setBeepEnabled(false).setOrientationLocked(false)) }, enabled = !model.busy, modifier = Modifier.fillMaxWidth()) { Text("Scan QR code") }
+        Button(onClick = { scanner.launch(ScanOptions().setDesiredBarcodeFormats(ScanOptions.QR_CODE).setPrompt("Scan the pairing code from your dashboard").setBeepEnabled(false).setOrientationLocked(false)) }, enabled = !model.busy, modifier = Modifier.fillMaxWidth().heightIn(min = 64.dp)) { Text("Scan QR code") }
         TextButton(onClick = { pastedCode = ""; pasteOpen = true }, enabled = !model.busy, modifier = Modifier.fillMaxWidth()) { Text("Paste pairing code") }
         error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
     }
@@ -129,98 +273,3 @@ class MainActivity : ComponentActivity() {
     pairing?.let { code -> AlertDialog(onDismissRequest = { pairing = null }, title = { Text("Connect to this server?") },
         text = { Text(code.server) }, confirmButton = { TextButton(onClick = { pairing = null; model.pair(code) }) { Text("Connect") } }, dismissButton = { TextButton(onClick = { pairing = null }) { Text("Cancel") } }) }
 }
-
-@Composable private fun AgentsScreen(model: CompanionModel) {
-    LazyColumn(Modifier.fillMaxSize().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(vertical = 12.dp)) {
-        item { Text("Fleet conversations", style = MaterialTheme.typography.headlineSmall); Text("Choose an agent to continue its conversation.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
-        if (model.agents.isEmpty()) item { EmptyCard("No agent sessions", "Sessions appear when the agent portal is enabled and a supported CLI session is running.") }
-        items(model.agents, key = { it.getString("id") }) { agent ->
-            Card(Modifier.fillMaxWidth().clickable(enabled = model.can("agent_portal.reveal_transcript")) { model.openSession(agent.getString("id")) }) {
-                Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text(agent.optString("fqdn", agent.optString("host", "Agent")), style = MaterialTheme.typography.titleMedium)
-                    Text("${agent.optString("engine").replaceFirstChar { it.uppercase() }} · ${agent.optString("presence", "offline")}", color = MaterialTheme.colorScheme.primary)
-                    Text(agent.optString("cwd"), style = MaterialTheme.typography.bodySmall, maxLines = 2)
-                    agent.optJSONObject("pending_prompt")?.let { Text(it.optString("question"), maxLines = 2, fontWeight = FontWeight.Medium) }
-                    if (!model.can("agent_portal.reveal_transcript")) Text("Your account cannot read transcripts.")
-                }
-            }
-        }
-    }
-}
-
-@Composable private fun ChatScreen(model: CompanionModel) {
-    val id = model.selected ?: return
-    val agent = model.agents.firstOrNull { it.optString("id") == id }
-    val prompt = agent?.optJSONObject("pending_prompt")
-    val list = rememberLazyListState()
-    LaunchedEffect(model.events.size) { if (model.events.isNotEmpty()) list.animateScrollToItem(model.events.lastIndex) }
-    Column(Modifier.fillMaxSize()) {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(agent?.optString("engine") ?: "Agent", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
-            FilterChip(selected = id in model.follows, onClick = { model.follow(id, id !in model.follows) }, label = { Text(if (id in model.follows) "Following" else "Follow replies") })
-        }
-        LazyColumn(Modifier.weight(1f).fillMaxWidth(), state = list, contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            items(model.events, key = { it.optLong("cursor") }) { event ->
-                val own = event.optString("type") == "user_message"
-                val payload = event.optJSONObject("payload") ?: JSONObject()
-                val text = payload.optString("text").ifEmpty { payload.optString("question").ifEmpty { payload.optString("summary").ifEmpty { event.optString("type").replace('_', ' ') } } }
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = if (own) Arrangement.End else Arrangement.Start) {
-                    Column(Modifier.widthIn(max = 330.dp).background(if (own) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainer, RoundedCornerShape(16.dp)).padding(14.dp)) {
-                        Text(if (own) "You" else if (event.optString("type") == "assistant_message") "Agent" else "Session", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
-                        SelectionContainer { Text(text) }
-                    }
-                }
-            }
-        }
-        if (prompt != null) Surface(color = MaterialTheme.colorScheme.secondaryContainer) {
-            Column(Modifier.padding(16.dp).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(prompt.optString("question"), fontWeight = FontWeight.Medium)
-                prompt.optJSONArray("options")?.strings()?.forEach { option -> OutlinedButton(onClick = { model.draft = option }, enabled = !model.busy) { Text(option) } }
-            }
-        }
-        val writable = model.can("agent_portal.manage") && agent?.optBoolean("relay_ready") == true
-        if (!writable) Text("This session is not accepting messages right now.", Modifier.padding(horizontal = 16.dp), style = MaterialTheme.typography.bodySmall)
-        Row(Modifier.fillMaxWidth().imePadding().padding(12.dp), verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedTextField(value = model.draft, onValueChange = { model.draft = it }, modifier = Modifier.weight(1f), maxLines = 5, enabled = writable && !model.busy,
-                placeholder = { Text(if (prompt != null) "Your answer" else "Message the agent") })
-            Button(onClick = { model.send(prompt) }, enabled = writable && !model.busy && model.draft.isNotBlank()) { Text(if (prompt != null) "Answer" else "Send") }
-        }
-    }
-}
-
-@Composable private fun ApprovalsScreen(model: CompanionModel) {
-    var review by remember { mutableStateOf<JSONObject?>(null) }
-    var minutes by remember { mutableStateOf(model.defaultMinutes.toString()) }
-    LaunchedEffect(model.highlightApproval, model.approvals) {
-        model.highlightApproval?.let { id -> if (review == null) { review = model.approvals.firstOrNull { it.optString("id") == id }; if (review != null) model.clearApprovalHighlight() } }
-    }
-    LazyColumn(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        item { Text("Host access", style = MaterialTheme.typography.headlineSmall); Text("Review who is waiting before granting access.") }
-        if (!model.can("hosts.activate_insecure")) item { EmptyCard("Approval permission required", "Your dashboard role does not allow host access approvals.") }
-        else if (model.approvals.isEmpty()) item { EmptyCard("Nothing waiting", "There are no live host requests. Requests that expired or were resolved elsewhere disappear automatically.") }
-        items(model.approvals, key = { it.optLong("id") }) { request -> Card(Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(request.optString("fqdn"), style = MaterialTheme.typography.titleMedium)
-                Text("From ${request.optString("request_ip")}")
-                Text("Expires ${formatTime(request.optString("expires_at"))}", style = MaterialTheme.typography.bodySmall)
-                Button(onClick = { minutes = model.defaultMinutes.toString(); review = request; model.refreshNow() }) { Text("Review request") }
-            }
-        } }
-    }
-    review?.let { request ->
-        val current = model.approvals.firstOrNull { it.optLong("id") == request.optLong("id") }
-        var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
-        LaunchedEffect(Unit) { while (true) { now = System.currentTimeMillis(); kotlinx.coroutines.delay(1000) } }
-        val active = current != null && runCatching { Instant.parse(current.optString("expires_at")).toEpochMilli() > now }.getOrDefault(false)
-        AlertDialog(onDismissRequest = { review = null }, title = { Text(request.optString("fqdn")) }, text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("Requesting IP: ${request.optString("request_ip")}")
-                Text(if (active) "Expires ${formatTime(request.optString("expires_at"))}" else "This request has expired or was already resolved.")
-                OutlinedTextField(value = minutes, onValueChange = { minutes = it.filter(Char::isDigit).take(3) }, label = { Text("Access duration (0–480 minutes)") }, enabled = active, singleLine = true)
-            }
-        }, confirmButton = { Button(enabled = active && !model.busy && minutes.toIntOrNull() in 0..480, onClick = { model.decide(request.optLong("id"), true, minutes.toInt()); review = null }) { Text("Approve") } },
-            dismissButton = { Row { TextButton(onClick = { review = null }) { Text("Close") }; TextButton(enabled = active && !model.busy, onClick = { model.decide(request.optLong("id"), false, 0); review = null }) { Text("Deny") } } })
-    }
-}
-@Composable private fun EmptyCard(title: String, body: String) { Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) { Text(title, style = MaterialTheme.typography.titleMedium); Text(body) } } }
-private fun formatTime(value: String): String = runCatching { DateTimeFormatter.ofPattern("HH:mm:ss").withZone(ZoneId.systemDefault()).format(Instant.parse(value)) }.getOrDefault(value)

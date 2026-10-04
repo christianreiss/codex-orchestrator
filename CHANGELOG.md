@@ -1,5 +1,6 @@
 # 2026-10-04
 
+- Android companion 0.2.0 replaces the desktop-like tabs with a compact Now screen: only reachable agents, live decisions first, bottom-sheet host approvals with duration presets, direct question choices, and conversations without lifecycle noise. Offline or stale views disable actions and preserve message drafts; connection controls move under More.
 - Android companion 0.1.2 trusts operator-installed Android user CAs for `codex-auth.uggs.io` only, fixing pairing to the fleet's private-CA endpoint while retaining certificate and hostname verification.
 - Android companion 0.1.1 adds a paste fallback for the same one-time QR pairing payload, with server confirmation before connecting.
 - Android companion: native text chat, question answers, host-access approval review, one-time QR pairing and device revocation from Account, plus optional durable FCM notifications. Desktop and phone approval decisions now serialize under a database transaction.

@@ -31,6 +31,10 @@ class CompanionUiTest {
     private var firebase: JSONObject? = null
     private val registeredToken = AtomicReference<String?>(null)
     private val approved = AtomicBoolean(false)
+    private val questionPending = AtomicBoolean(false)
+    private val reachable = AtomicBoolean(true)
+    private val answered = AtomicReference<String?>(null)
+    private var expiresAt = Instant.now().plusSeconds(120)
     private val sent = AtomicReference<String?>(null)
     private val session = "68e117f3-e14b-4b86-a4c0-79808bf142c4"
     @Before fun setup() {
@@ -62,11 +66,12 @@ class CompanionUiTest {
                         if (body.has("fcm_token")) registeredToken.set(body.getString("fcm_token"))
                         "{}"
                     }
-                    path == "/agents" -> """{"agents":[{"id":"$session","host":"lab.uggs.io","engine":"codex","cwd":"/work/project","presence":"listening","relay_ready":true}]}"""
-                    path == "/agents/$session/events" -> """{"events":[{"cursor":1,"type":"assistant_message","payload":{"text":"Ready for your message."}}],"next_cursor":1}"""
+                    path == "/agents" -> """{"agents":[{"id":"$session","host":"lab.uggs.io","engine":"codex","cwd":"/work/project","presence":"listening","relay_ready":${reachable.get()},"pending_prompt":${if (questionPending.get()) """{"id":"question-1","version":1,"question":"Which target?","options":["Staging","Production"]}""" else "null"}},{"id":"offline","host":"offline.uggs.io","cwd":"/old/offline-project","presence":"offline","relay_ready":false},{"id":"idle","host":"idle.uggs.io","cwd":"/old/idle-project","presence":"idle","relay_ready":false}]}"""
+                    path == "/agents/$session/events" -> """{"events":[{"cursor":0,"type":"session_started","payload":{"text":"INTERNAL_LIFECYCLE"}},{"cursor":1,"type":"assistant_message","payload":{"text":"Ready for your message."}}],"next_cursor":1}"""
                     path == "/events" -> return MockResponse().setHeader("Content-Type", "text/event-stream").setBody(": heartbeat\n\n")
-                    path == "/approvals" -> if (approved.get()) """{"requests":[],"default_duration_minutes":480}""" else """{"requests":[{"id":42,"fqdn":"waiting.uggs.io","request_ip":"192.0.2.42","live":true,"expires_at":"${Instant.now().plusSeconds(120)}"}],"default_duration_minutes":480}"""
+                    path == "/approvals" -> if (approved.get()) """{"requests":[],"default_duration_minutes":480}""" else """{"requests":[{"id":42,"fqdn":"waiting.uggs.io","request_ip":"192.0.2.42","live":true,"expires_at":"${expiresAt}"}],"default_duration_minutes":480}"""
                     path == "/approvals/42/approve" -> { approved.set(true); "{}" }
+                    path == "/agents/$session/prompts/question-1/answer" -> { answered.set(JSONObject(request.body.readUtf8()).getString("answer")); questionPending.set(false); "{}" }
                     path == "/agents/$session/messages" -> { sent.set(JSONObject(request.body.readUtf8()).getString("content")); "{}" }
                     else -> "{}"
                 }
@@ -117,26 +122,81 @@ class CompanionUiTest {
         compose.onNodeWithText("Requesting IP: 192.0.2.42").assertIsDisplayed()
         screenshot("live-push-review")
         Assert.assertFalse("Opening review must not approve a request", approved.get())
-        compose.onNodeWithText("Approve", useUnmergedTree = true).performClick()
+        compose.onNodeWithText("Allow 8h", useUnmergedTree = true).performClick()
         compose.waitUntil(10000) { approved.get() }
     }
     @Test fun chatAndReviewApproval() {
-        compose.waitUntil(15000) { compose.onAllNodesWithText("lab.uggs.io").fetchSemanticsNodes().isNotEmpty() }
-        compose.onNodeWithText("lab.uggs.io").performClick()
+        compose.waitUntil(15000) { compose.onAllNodesWithText("project").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("project").performClick()
         compose.waitUntil(10000) { compose.onAllNodesWithText("Ready for your message.").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("INTERNAL_LIFECYCLE").assertDoesNotExist()
         compose.onNode(hasSetTextAction()).performTextInput("Please check the build")
         compose.onNodeWithText("Send", useUnmergedTree = true).performClick()
         compose.waitUntil(10000) { sent.get() != null }
         Assert.assertEquals("Please check the build", sent.get())
         screenshot("chat")
         compose.onNodeWithText("Back").performClick()
-        compose.onNodeWithText("Approvals (1)").performClick()
-        compose.onNodeWithText("Review request").performClick()
+        compose.waitUntil(10000) { compose.onAllNodesWithText("Review next · 1").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("Review next · 1").performClick()
         compose.onNodeWithText("Requesting IP: 192.0.2.42").assertIsDisplayed()
         screenshot("approval")
-        compose.onNodeWithText("Approve", useUnmergedTree = true).performClick()
+        compose.onNodeWithText("Allow 8h", useUnmergedTree = true).performClick()
         compose.waitUntil(10000) { approved.get() }
-        compose.waitUntil(10000) { compose.onAllNodesWithText("Nothing waiting").fetchSemanticsNodes().isNotEmpty() }
+        compose.waitUntil(10000) { compose.onAllNodesWithText("waiting.uggs.io").fetchSemanticsNodes().isEmpty() }
+    }
+    @Test fun onlyReachableAgentsAndDirectQuestionChoices() {
+        compose.waitUntil(15000) { compose.onAllNodesWithText("project").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("offline-project").assertDoesNotExist()
+        compose.onNodeWithText("idle-project").assertDoesNotExist()
+        questionPending.set(true)
+        compose.onNodeWithText("More").performClick()
+        compose.onNodeWithText("Refresh").performClick()
+        compose.waitUntil(10000) { compose.onAllNodesWithText("Which target?").fetchSemanticsNodes().isNotEmpty() }
+        screenshot("now")
+        compose.onNodeWithText("project").performClick()
+        compose.onNodeWithText("Staging").performClick()
+        compose.waitUntil(10000) { answered.get() != null }
+        Assert.assertEquals("Staging", answered.get())
+        Assert.assertNull("A choice uses the prompt answer endpoint", sent.get())
+    }
+    @Test fun unreachableAgentDisablesSendingAndKeepsDraft() {
+        compose.waitUntil(15000) { compose.onAllNodesWithText("project").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("project").performClick()
+        compose.onNode(hasSetTextAction()).performTextInput("Keep this draft")
+        reachable.set(false)
+        compose.onNodeWithText("More").performClick()
+        compose.onNodeWithText("Refresh").performClick()
+        compose.waitUntil(10000) { compose.onAllNodesWithText("Agent is no longer reachable").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("Send").assertIsNotEnabled()
+        compose.onNode(hasSetTextAction()).assertTextContains("Keep this draft")
+        compose.onNodeWithText("Back").performClick()
+        compose.onNodeWithText("project").assertDoesNotExist()
+        Assert.assertNull(sent.get())
+    }
+    @Test fun expiredApprovalCannotBeTapped() {
+        compose.waitUntil(15000) { compose.onAllNodesWithText("Review next · 1").fetchSemanticsNodes().isNotEmpty() }
+        expiresAt = Instant.now().plusSeconds(8)
+        compose.onNodeWithText("More").performClick()
+        compose.onNodeWithText("Refresh").performClick()
+        compose.waitUntil(10000) { compose.onAllNodesWithText("Review next · 1").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("Review next · 1").performClick()
+        compose.waitUntil(12000) { compose.onAllNodesWithText("Already handled or expired").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("Allow 8h").assertIsNotEnabled()
+        compose.onNodeWithText("Deny").assertIsNotEnabled()
+        Assert.assertFalse(approved.get())
+    }
+    @Test fun staleNotificationCannotOpenUnreachableAgent() {
+        compose.waitUntil(15000) { compose.onAllNodesWithText("project").fetchSemanticsNodes().isNotEmpty() }
+        reachable.set(false)
+        scenario.onActivity { activity ->
+            activity.startActivity(android.content.Intent(activity, MainActivity::class.java)
+                .addFlags(android.content.Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                .putExtra("kind", "agent").putExtra("target_id", session))
+        }
+        compose.waitUntil(10000) { compose.onAllNodesWithText("Agent is no longer reachable").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("Ready for your message.").assertDoesNotExist()
+        compose.onNode(hasSetTextAction()).assertDoesNotExist()
+        compose.onNodeWithText("project").assertDoesNotExist()
     }
     private fun screenshot(name: String) {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
