@@ -102,6 +102,8 @@ class MainActivity : ComponentActivity() {
 @Composable private fun PairScreen(model: CompanionModel) {
     var pairing by remember { mutableStateOf<Pairing?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
+    var pasteOpen by remember { mutableStateOf(false) }
+    var pastedCode by remember { mutableStateOf("") }
     val scanner = rememberLauncherForActivityResult(ScanContract()) { result ->
         result.contents?.let { raw -> try { pairing = Pairing.parse(raw); error = null } catch (_: Exception) { error = "This is not a valid Orchestrator pairing code." } }
     }
@@ -113,8 +115,17 @@ class MainActivity : ComponentActivity() {
         Text("In the dashboard, open Account → Android devices → Pair Android device.")
         Spacer(Modifier.height(16.dp))
         Button(onClick = { scanner.launch(ScanOptions().setDesiredBarcodeFormats(ScanOptions.QR_CODE).setPrompt("Scan the pairing code from your dashboard").setBeepEnabled(false).setOrientationLocked(false)) }, enabled = !model.busy, modifier = Modifier.fillMaxWidth()) { Text("Scan QR code") }
+        TextButton(onClick = { pastedCode = ""; pasteOpen = true }, enabled = !model.busy, modifier = Modifier.fillMaxWidth()) { Text("Paste pairing code") }
         error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
     }
+    if (pasteOpen) AlertDialog(onDismissRequest = { pasteOpen = false; pastedCode = "" },
+        title = { Text("Pairing code") },
+        text = { OutlinedTextField(value = pastedCode, onValueChange = { pastedCode = it.take(4096) }, label = { Text("Pairing JSON") }, maxLines = 5) },
+        confirmButton = { TextButton(onClick = {
+            try { pairing = Pairing.parse(pastedCode); error = null } catch (_: Exception) { error = "This is not a valid Orchestrator pairing code." }
+            pasteOpen = false; pastedCode = ""
+        }, enabled = pastedCode.isNotBlank()) { Text("Continue") } },
+        dismissButton = { TextButton(onClick = { pasteOpen = false; pastedCode = "" }) { Text("Cancel") } })
     pairing?.let { code -> AlertDialog(onDismissRequest = { pairing = null }, title = { Text("Connect to this server?") },
         text = { Text(code.server) }, confirmButton = { TextButton(onClick = { pairing = null; model.pair(code) }) { Text("Connect") } }, dismissButton = { TextButton(onClick = { pairing = null }) { Text("Cancel") } }) }
 }

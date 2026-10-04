@@ -43,7 +43,8 @@ push. No Analytics SDK is included.
    Migration `0039` is applied by the normal migration runner, never manually
    piped into MySQL. Enable the existing agent portal for chat.
 6. Open **Account → Android devices → Pair Android device** in the dashboard;
-   scan the five-minute QR in the app, check the displayed server, and connect.
+   scan the five-minute QR in the app (or use **Paste pairing code** with its JSON
+   payload), check the displayed server, and connect.
    Allow Android notifications. Under **Approvals**, review and approve a live
    host request. Sending an agent message automatically follows that conversation.
 

@@ -13,11 +13,12 @@
   let open = $state(false);
   let busy = $state(false);
   let image = $state("");
+  let code = $state("");
   let expires = $state(0);
   let remaining = $state(0);
   $effect(() => {
-    if (!open) { image = ""; return; }
-    const tick = () => { remaining = Math.max(0, Math.ceil((expires - Date.now()) / 1000)); if (!remaining) image = ""; };
+    if (!open) { image = ""; code = ""; return; }
+    const tick = () => { remaining = Math.max(0, Math.ceil((expires - Date.now()) / 1000)); if (!remaining) { image = ""; code = ""; } };
     tick();
     const timer = setInterval(tick, 1000);
     return () => clearInterval(timer);
@@ -27,10 +28,15 @@
     try {
       const result = await api.post<{ qr: string; expires_at: string }>("/admin/companion/pairings");
       image = await QRCode.toDataURL(result.qr, { width: 320, margin: 2, errorCorrectionLevel: "M" });
+      code = result.qr;
       expires = Date.parse(result.expires_at);
       open = true;
     } catch (e) { toast.error(e instanceof Error ? e.message : "Could not create pairing code"); }
     finally { busy = false; }
+  }
+  async function copyCode() {
+    try { await navigator.clipboard.writeText(code); toast.success("Pairing code copied"); }
+    catch { toast.error("Could not copy pairing code"); }
   }
   async function revoke(device: Device) {
     busy = true;
@@ -67,6 +73,7 @@
     <Dialog.Header><Dialog.Title>Pair your phone</Dialog.Title><Dialog.Description>Open Orchestrator Companion and scan this code. It signs the phone in as your account and can be used once.</Dialog.Description></Dialog.Header>
     {#if image}<img src={image} alt="One-time Android pairing QR code" class="mx-auto w-full max-w-80 rounded-lg" />{/if}
     <p class="text-center text-sm">{remaining > 0 ? `Expires in ${remaining} seconds` : "Code expired"}</p>
+    <Button variant="outline" onclick={copyCode} disabled={busy || !code}>Copy pairing code</Button>
     <Button onclick={pair} disabled={busy}>Generate a new code</Button>
   </Dialog.Content>
 </Dialog.Root>

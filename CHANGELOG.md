@@ -1,5 +1,6 @@
 # 2026-10-04
 
+- Android companion 0.1.1 adds a paste fallback for the same one-time QR pairing payload, with server confirmation before connecting.
 - Android companion: native text chat, question answers, host-access approval review, one-time QR pairing and device revocation from Account, plus optional durable FCM notifications. Desktop and phone approval decisions now serialize under a database transaction.
 
 # 2026-10-03
