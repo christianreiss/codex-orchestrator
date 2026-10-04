@@ -4,7 +4,7 @@
   <uses-permission android:name="android.permission.CAMERA" />
   <uses-feature android:name="android.hardware.camera" android:required="false" />
   <application android:name=".CompanionApplication" android:allowBackup="false" android:fullBackupContent="false"
-    android:usesCleartextTraffic="false" android:label="Orchestrator" android:icon="@drawable/ic_companion" android:theme="@style/AppTheme">
+    android:usesCleartextTraffic="false" android:networkSecurityConfig="@xml/network_security_config" android:label="Orchestrator" android:icon="@drawable/ic_companion" android:theme="@style/AppTheme">
     <meta-data android:name="firebase_messaging_auto_init_enabled" android:value="false" />
     <meta-data android:name="firebase_analytics_collection_enabled" android:value="false" />
     <activity android:name=".MainActivity" android:exported="true" android:launchMode="singleTop" android:windowSoftInputMode="adjustResize">

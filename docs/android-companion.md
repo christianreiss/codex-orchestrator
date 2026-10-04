@@ -36,8 +36,11 @@ push. No Analytics SDK is included.
    configured files on that service. Firebase app configuration is returned to the authenticated phone;
    no project-specific config or service-account key is baked into the APK.
 4. `PUBLIC_BASE_URL` must be the reachable HTTPS origin, without a path, query,
-   userinfo, or fragment. Use a certificate trusted by Android. No TLS bypass is
-   provided. Proxy both `/admin/companion/*` and `/companion/v1/*`; preserve SSE
+   userinfo, or fragment. Use a certificate trusted by Android. For the fleet
+   endpoint `codex-auth.uggs.io` only, the app also accepts CAs explicitly installed
+   in Android's user certificate store. All other hosts use system CAs, and
+   certificate/hostname verification remains enabled everywhere. No TLS bypass
+   is provided. Proxy both `/admin/companion/*` and `/companion/v1/*`; preserve SSE
    streaming and the Authorization header.
 5. Deploy the API/frontend using the repository's regular deployment workflow.
    Migration `0039` is applied by the normal migration runner, never manually
