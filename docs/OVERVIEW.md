@@ -592,3 +592,7 @@ GPT-6.1 Sol (`gpt-6.1-sol`) is selectable for Codex fleet defaults, host overrid
 ## Account management
 
 Fleet → Accounts manages any number of ChatGPT and Claude subscriptions independently: add or replace credentials through the shared auth panel, rename, verify, pause/resume, or remove after sessions drain. Quota percentages and active host assignments are shown separately for every account in Accounts and the dashboard. New CLI sessions balance short and weekly utilization; overlapping sessions sharing native credentials stay on one account. Existing canonical credentials migrate to the first account for their engine. Client uploads with distinct provider identities can enroll additional verified accounts; fresh opaque login tokens reuse the sole or assigned account, while additional opaque accounts require explicit Add account/seed enrollment, and no ChatGPT account is required for a Claude-only fleet. See `interface-api.md` for lease and credential APIs.
+
+## Android companion
+
+A native Android 8+ companion provides QR pairing from Account → Android devices, agent text conversations, host-access approval review, and FCM notifications. It uses revocable device credentials bound to existing administrator permissions and the existing portal/host services. See [setup and release instructions](android-companion.md).

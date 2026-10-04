@@ -1,0 +1,18 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" xmlns:tools="http://schemas.android.com/tools">
+  <uses-permission android:name="android.permission.INTERNET" />
+  <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+  <uses-permission android:name="android.permission.CAMERA" />
+  <uses-feature android:name="android.hardware.camera" android:required="false" />
+  <application android:name=".CompanionApplication" android:allowBackup="false" android:fullBackupContent="false"
+    android:usesCleartextTraffic="false" android:label="Orchestrator" android:icon="@drawable/ic_companion" android:theme="@style/AppTheme">
+    <meta-data android:name="firebase_messaging_auto_init_enabled" android:value="false" />
+    <meta-data android:name="firebase_analytics_collection_enabled" android:value="false" />
+    <activity android:name=".MainActivity" android:exported="true" android:launchMode="singleTop" android:windowSoftInputMode="adjustResize">
+      <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>
+    </activity>
+    <service android:name=".PushService" android:exported="false">
+      <intent-filter><action android:name="com.google.firebase.MESSAGING_EVENT" /></intent-filter>
+    </service>
+    <provider android:name="com.google.firebase.provider.FirebaseInitProvider" tools:node="remove" />
+  </application>
+</manifest>

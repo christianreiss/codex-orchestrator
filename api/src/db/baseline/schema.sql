@@ -631,6 +631,52 @@ CREATE TABLE `client_config_documents` (
 	CONSTRAINT `client_config_documents_id` PRIMARY KEY(`id`)
 );
 
+CREATE TABLE `companion_devices` (
+	`id` char(36) NOT NULL,
+	`user_id` bigint unsigned NOT NULL,
+	`name` varchar(100) NOT NULL,
+	`token_hash` char(64) NOT NULL,
+	`fcm_token_enc` longtext,
+	`notifications` tinyint NOT NULL DEFAULT 1,
+	`event_cursor` bigint unsigned NOT NULL DEFAULT 0,
+	`visible_session_id` char(36),
+	`visible_until` varchar(100),
+	`created_at` varchar(100) NOT NULL,
+	`last_seen_at` varchar(100) NOT NULL,
+	`expires_at` varchar(100) NOT NULL,
+	`revoked_at` varchar(100),
+	CONSTRAINT `companion_devices_id` PRIMARY KEY(`id`),
+	CONSTRAINT `uq_companion_device_token` UNIQUE(`token_hash`)
+);
+
+CREATE TABLE `companion_follows` (
+	`device_id` char(36) NOT NULL,
+	`session_id` char(36) NOT NULL,
+	CONSTRAINT `companion_follows_device_id_session_id_pk` PRIMARY KEY(`device_id`,`session_id`)
+);
+
+CREATE TABLE `companion_notifications` (
+	`id` char(36) NOT NULL,
+	`device_id` char(36) NOT NULL,
+	`source_key` varchar(100) NOT NULL,
+	`kind` varchar(24) NOT NULL,
+	`target_id` varchar(64) NOT NULL,
+	`state` varchar(16) NOT NULL DEFAULT 'pending',
+	`attempts` int NOT NULL DEFAULT 0,
+	`next_attempt_at` varchar(100) NOT NULL,
+	`expires_at` varchar(100) NOT NULL,
+	`created_at` varchar(100) NOT NULL,
+	CONSTRAINT `companion_notifications_id` PRIMARY KEY(`id`),
+	CONSTRAINT `uq_companion_notification_source` UNIQUE(`device_id`,`source_key`)
+);
+
+CREATE TABLE `companion_pairings` (
+	`token_hash` char(64) NOT NULL,
+	`user_id` bigint unsigned NOT NULL,
+	`expires_at` varchar(100) NOT NULL,
+	CONSTRAINT `companion_pairings_token_hash` PRIMARY KEY(`token_hash`)
+);
+
 CREATE TABLE `coord_project_board_columns` (
 	`id` char(36) NOT NULL,
 	`board_id` char(36) NOT NULL,
@@ -1366,6 +1412,9 @@ CREATE INDEX `idx_cli_auth_expires` ON `cli_auth_requests` (`expires_at`);
 CREATE INDEX `idx_cli_auth_status` ON `cli_auth_requests` (`status`);
 CREATE INDEX `idx_client_config_documents_updated_at` ON `client_config_documents` (`updated_at`);
 CREATE INDEX `idx_client_config_engine` ON `client_config_documents` (`engine`);
+CREATE INDEX `idx_companion_device_user` ON `companion_devices` (`user_id`);
+CREATE INDEX `idx_companion_notification_work` ON `companion_notifications` (`state`,`next_attempt_at`);
+CREATE INDEX `idx_companion_pairing_expiry` ON `companion_pairings` (`expires_at`);
 CREATE INDEX `idx_coord_project_board_columns_order` ON `coord_project_board_columns` (`board_id`,`position`);
 CREATE INDEX `idx_coord_project_boards_project` ON `coord_project_boards` (`project_id`,`archived_at`);
 CREATE INDEX `idx_coord_project_card_deps_card` ON `coord_project_card_deps` (`card_id`);

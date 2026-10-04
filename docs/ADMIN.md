@@ -305,7 +305,7 @@ Admin routes:
   permanent link back with **Show link**, enable/disable the user, rotate the
   link, or delete the user. Read-only roles can inspect portal health but cannot
   mutate it and cannot read a link.
-- The portal is pull-only: nothing is pushed to a user. Each user opens their own
+- The browser portal is reached through a bookmarked link. Separately, Account → Android devices pairs a native companion for FCM alerts, text chat, and host-access approvals (subject to the current admin role). Each user opens their own
   permanent link — bookmarked on desktop, or added to the home screen on mobile —
   and finds whatever the agents recorded while they were away.
 - **Show link** (`GET /admin/agent-portal/users/{id}/link`) re-renders the stored

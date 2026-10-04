@@ -22,7 +22,7 @@ Below the switch, **Add user** (`POST /admin/agent-portal/users` with a display 
 
 Every mutation writes an `agent_portal.*` admin event with the acting user's id, and `agent_portal.user.link_revealed` records each reveal.
 
-The portal is **pull-only**: nothing is pushed to a user. Each person opens their own permanent link — bookmarked on desktop, or added to the home screen on a phone — and finds whatever the agents recorded while they were away. The `/go` surface (`GET /go`, `GET /go/u/{publicId}`, and the `/go/api/*` routes in `api/src/routes/agent-portal/public.ts`) accepts either the portal cookie from a magic-link exchange or a console session, so an operator with a console account reaches it without a link; a valid portal cookie still wins.
+The browser portal is reached through a bookmarked link. The Android companion also offers push notifications for paired devices. Each person opens their own permanent link — bookmarked on desktop, or added to the home screen on a phone — and finds whatever the agents recorded while they were away. The `/go` surface (`GET /go`, `GET /go/u/{publicId}`, and the `/go/api/*` routes in `api/src/routes/agent-portal/public.ts`) accepts either the portal cookie from a magic-link exchange or a console session, so an operator with a console account reaches it without a link; a valid portal cookie still wins.
 
 ## What the wrappers report
 
@@ -70,3 +70,28 @@ The composer sends an instruction (`POST /admin/agent-sessions/{id}/messages`) o
 - frontend/src/lib/portal/presence.ts, frontend/src/lib/portal/clients.ts, frontend/src/lib/portal/client-events.ts (derived presence, counts, SSE reconnection)
 - frontend/src/lib/components/portal/AttentionCard.svelte (the *Needs you* banner)
 - wrappers/cxx/internal/agentportal/command.go (`cxx portal status|notify|resolve|say|ask|wait|accept|leave`)
+
+
+## Android companion
+
+Install the Orchestrator APK (`io.uggs.orchestrator`, Android 8+). In the dashboard,
+open **Account → Android devices → Pair Android device**, then scan the QR in the
+app. Check the server address and connect; the code expires after five minutes
+and works once. The phone receives its own revocable credential for your account.
+
+The **Agents** tab supports text conversations and answers to agent questions.
+Sending a message follows the conversation; toggle **Following** to stop reply
+notifications. Questions and attention notices notify eligible devices, while
+routine progress stays quiet. Firebase configuration is required for background
+push, and Android must allow notifications.
+
+The **Approvals** tab reviews existing host-access requests. Open a request to
+check its hostname, IP, expiry, and access duration before approving or denying.
+This grants host access, not tool/command approval inside an agent. A request
+resolved on another device cannot be approved again. Your current dashboard role
+controls which operations are available.
+
+Revoke a lost phone under **Account → Android devices**. Signing out on the phone
+revokes that device too. If Firebase is not configured, the app still supports
+chat and approval review while open. See the repository's
+`docs/android-companion.md` for Firebase setup and signed APK builds.

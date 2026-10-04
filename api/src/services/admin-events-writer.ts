@@ -24,6 +24,7 @@ export interface AdminEventRecord {
 }
 
 export interface AdminEventsWriter {
+  withDb?(db: Database): AdminEventsWriter;
   append(
     type: string,
     payload: Record<string, unknown>,
@@ -91,5 +92,5 @@ export function makeAdminEventsWriter(db: Database): AdminEventsWriter {
     return record;
   }
 
-  return { append, appendAndPublish };
+  return { append, appendAndPublish, withDb: makeAdminEventsWriter };
 }

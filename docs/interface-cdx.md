@@ -821,7 +821,8 @@ enters the `wait` loop directly without publishing an attention notice: opening
 the relay means the agent is available, not that the user is needed. Status goes
 through `say`, `notify` is reserved for an action the user must take, and
 `resolve` withdraws a notice that no longer applies. Everything it publishes
-lands in the portal and is not pushed anywhere. It cannot wake a Codex process or
+lands in the portal; paired Android companions may receive generic FCM alerts
+for questions, attention, and followed replies (see `docs/android-companion.md`). It cannot wake a Codex process or
 model turn that has already stopped; `relay_ready` becomes false when fresh
 polling ceases.
 

@@ -951,7 +951,8 @@ the agent is available, not that the user is needed), uses `say` for status,
 reserves `notify` for an action the user must take, and withdraws a stale notice
 with `resolve`. Attention and lifecycle notices are
 recorded in the portal, which the user reaches through their own permanent
-bookmarked link, and are not pushed out. It cannot wake a
+bookmarked link. Paired Android companions may also receive generic FCM alerts
+for questions, attention, and followed replies (see `docs/android-companion.md`). It cannot wake a
 Claude process or model turn that has already stopped, and `relay_ready` ages
 false when active polling ceases. The relay, socket capability, and environment
 are torn down immediately when the Claude child exits, before post-run updater

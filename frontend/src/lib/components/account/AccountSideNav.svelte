@@ -6,7 +6,10 @@
   import Fingerprint from "@lucide/svelte/icons/fingerprint";
   import Palette from "@lucide/svelte/icons/palette";
 
+  import Smartphone from "@lucide/svelte/icons/smartphone";
+
   const items = [
+    { href: "/account/devices", label: "Android devices", icon: Smartphone },
     { href: "/account/password", label: "Password", icon: KeyRound },
     { href: "/account/passkeys", label: "Passkeys", icon: Fingerprint },
     { href: "/account/theme", label: "Theme", icon: Palette },

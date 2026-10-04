@@ -10,7 +10,7 @@
  * Each mutation writes the audit row + publishes the matching WS event in
  * that order.
  */
-import { asc, eq } from 'drizzle-orm';
+import { and, asc, eq } from 'drizzle-orm';
 import type { Database } from '../db/client.js';
 import type { Env } from '../env.js';
 import {
@@ -244,7 +244,7 @@ export class InsecureWindowAdminService {
     await this.db
       .update(insecureAuthRequests)
       .set({ status: reason === 'timeout' ? 'denied' : 'expired', resolvedAt, updatedAt: resolvedAt })
-      .where(eq(insecureAuthRequests.id, req.id));
+      .where(and(eq(insecureAuthRequests.id, req.id), eq(insecureAuthRequests.status, 'pending')));
 
     await this.writeLog(host?.id ?? req.hostId, 'admin.insecure.auto_denied', {
       fqdn: host?.fqdn ?? null,
@@ -587,9 +587,42 @@ export class InsecureWindowAdminService {
     return rows[0] ?? null;
   }
 
+  /** Serialize decisions from desktop and phone; audit commits with the host grant. */
+  private async resolveLocked<T>(requestId: number, action: (service: InsecureWindowAdminService) => Promise<T>, audit?: Record<string, unknown>): Promise<T> {
+    const publications: Array<{ type: string; payload: Record<string, unknown> }> = [];
+    const result = await this.db.transaction(async tx => {
+      const locked = await tx.select().from(insecureAuthRequests).where(eq(insecureAuthRequests.id, requestId)).for('update');
+      if (!locked[0]) throw new NotFoundError('Request not found');
+      await tx.select().from(hosts).where(eq(hosts.id, locked[0].hostId)).for('update');
+      const db = tx as unknown as Database;
+      const writer = this.events.withDb?.(db) ?? this.events;
+      const events: AdminEventsWriter = {
+        append: writer.append,
+        appendAndPublish: async (type, payload, options = {}) => {
+          const event = await writer.append(type, payload, options.hostId);
+          publications.push({ type: options.wsType ?? type, payload: options.wsPayload ?? payload });
+          return event;
+        },
+      };
+      const resolved = await action(new InsecureWindowAdminService({ db, env: this.env, events }));
+      if (audit) await writer.append('companion.approval.resolved', { ...audit, request_id: requestId });
+      return resolved;
+    });
+    for (const event of publications) wsPublisher.publish(event.type, event.payload);
+    return result;
+  }
+
+  async approve(requestId: number, durationMinutes: number | null, audit?: Record<string, unknown>) {
+    return this.resolveLocked(requestId, service => service.approveLocked(requestId, durationMinutes), audit);
+  }
+
+  async deny(requestId: number, audit?: Record<string, unknown>) {
+    return this.resolveLocked(requestId, service => service.denyLocked(requestId), audit);
+  }
+
   // ────────── approve ──────────
 
-  async approve(requestId: number, durationMinutes: number | null): Promise<{
+  private async approveLocked(requestId: number, durationMinutes: number | null): Promise<{
     requestId: number;
     host: Host;
     enabledUntil: string;
@@ -645,7 +678,7 @@ export class InsecureWindowAdminService {
 
   // ────────── deny ──────────
 
-  async deny(requestId: number): Promise<{ requestId: number; host: Host }> {
+  private async denyLocked(requestId: number): Promise<{ requestId: number; host: Host }> {
     const req = await this.findRequest(requestId);
     if (!req) throw new NotFoundError('Request not found');
     if (await this.expirePendingRequest(req)) throw new ConflictError('Request already resolved');

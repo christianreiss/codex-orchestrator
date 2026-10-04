@@ -788,9 +788,10 @@ All `/projects*` routes require normal host API-key auth + IP binding and return
 The portal is a separate mobile-first user surface at `/go`. Its persistent
 `agent_portal_enabled` switch is seeded off. Portal users default enabled and
 see every eligible active root session across the fleet; a finished session is
-read-only until the 24-hour retention purge. Nothing is pushed anywhere: each
-user reaches the portal through their own permanent bookmarked link, and
-lifecycle and attention notices are recorded there rather than delivered out.
+read-only until the 24-hour retention purge. Browser portal users reach it through their own permanent bookmarked link.
+The separately paired Android companion can receive FCM notifications with
+opaque event identifiers; permanent portal links and transcript bodies are
+never pushed.
 
 Every `/go/api/*` route is same-origin only and never inherits
 `CORS_ALLOWED_ORIGINS`. Browser mutations require an exact `Origin` match to
@@ -912,3 +913,42 @@ Selection runs once per native CLI launch. It prefers verified enabled accounts 
 - `POST /admin/grok/version` — Set/clear the independent exact CLI pin.
 - `POST /admin/hosts/:id/grok-version` — Set/clear a host-specific Grok CLI pin.
 - `POST /admin/runner/run-grok` — Run a read-only subscription verification with no credential bytes returned.
+
+## Android companion
+
+The native Kotlin app uses `/companion/v1` with a separate Bearer device credential;
+admin cookies and browser Origins are not accepted there. It is paired from the
+signed-in Account → Android devices screen. Each credential belongs to that admin
+and receives only their current capabilities, enforced strictly on every request.
+Device credentials expire after one year; pairing again creates a new device.
+
+- `GET /admin/companion/devices` — own devices, timestamps and push configuration readiness; requires `account.self_manage`.
+- `POST /admin/companion/pairings` — own single-use five-minute QR JSON (`version:1`, HTTPS `server`, random `token`); creates an audit entry and replaces outstanding codes for that user.
+- `DELETE /admin/companion/devices/{id}` — revoke an owned device and clear its FCM token; audited, publishes `companion.devices.changed`.
+- `POST /companion/v1/pair` — `{token,name}` exchanges a QR token once for `{device_id,token,firebase,capabilities}`; the token is never logged or stored in plaintext.
+- `GET /companion/v1/me` — identity, current capabilities, public Firebase configuration, notification preference, and followed session IDs.
+- `PATCH /companion/v1/device` — optional `fcm_token` (nullable), `notifications` boolean, `visible_session_id` (nullable UUID); updates last-seen time. Visible-session suppression expires after 45 seconds.
+- `DELETE /companion/v1/device` — self-revoke on logout.
+- `GET /companion/v1/agents` — portal snapshot (`agents`, `generated_at`, `timings`), using `agent_portal.read`.
+- `GET /companion/v1/agents/{id}/events` — bounded timeline, `after` cursor and optional `tail=1`; requires `agent_portal.reveal_transcript`.
+- `GET /companion/v1/events` — resumable foreground SSE using `after` and optional `session_id`; rechecks device/account authorization and portal state each page, closes slow readers.
+- `POST /companion/v1/agents/{id}/messages` — `{client_message_id,content}`, returns 202 and follows this conversation. Reuses the portal's UUID idempotency and live-receiver checks.
+- `POST /companion/v1/agents/{id}/prompts/{promptId}/answer` — `{client_message_id,answer,version?}`, returns 202, preserves first-answer-wins and follows the conversation. Both writes require `agent_portal.manage`.
+- `PUT /companion/v1/agents/{id}/follow` — `{followed}` changes reply notifications for this device; requires transcript access.
+- `GET /companion/v1/approvals` — current host-access requests plus default/max duration, currently 480 minutes; requires `hosts.activate_insecure`.
+- `POST /companion/v1/approvals/{requestId}/approve` — optional `{duration_minutes}` in 0–480, defaults to 480. Rechecks expiry under the same lock as dashboard decisions; stale/conflicting decisions return 409.
+- `POST /companion/v1/approvals/{requestId}/deny` — deny the current pending request; same capability and concurrency rules as approval.
+
+Host access approves the existing insecure-host window; it does not grant agent
+tool/command approvals. Finished conversations remain readable under portal
+retention. Agent/engine switches and receiver readiness retain their existing
+meaning; the app never wakes engines or bypasses their host assignment.
+
+A durable per-device outbox scans committed portal events and live host requests
+every five seconds. It notifies questions/attention and followed replies, skips
+routine activity, and sends only opaque IDs through FCM. Jobs have unique source
+keys, expiring claims, up to eight attempts, and expiry capped at the request's
+five-minute deadline or one hour for chat. Delivery is at least once; the app
+deduplicates notification IDs. Invalid FCM registrations are removed. Every send
+rechecks the device, administrator capabilities and source state. No browser
+needs to remain connected. See [Android setup](android-companion.md).

@@ -2126,3 +2126,44 @@ export type GitWorktree = typeof gitWorktrees.$inferSelect;
 export type GitMergeRequest = typeof gitMergeRequests.$inferSelect;
 export type AgentTransfer = typeof agentTransfers.$inferSelect;
 export type AgentTransferEvent = typeof agentTransferEvents.$inferSelect;
+
+// Android companion: independent revocable device authentication and durable push.
+export const companionPairings = mysqlTable('companion_pairings', {
+  tokenHash: char('token_hash', { length: 64 }).primaryKey(),
+  userId: bigint('user_id', { mode: 'number', unsigned: true }).notNull(),
+  expiresAt: varchar('expires_at', { length: 100 }).notNull(),
+}, (t) => ({ expiry: index('idx_companion_pairing_expiry').on(t.expiresAt) }));
+
+export const companionDevices = mysqlTable('companion_devices', {
+  id: char('id', { length: 36 }).primaryKey(),
+  userId: bigint('user_id', { mode: 'number', unsigned: true }).notNull(),
+  name: varchar('name', { length: 100 }).notNull(),
+  tokenHash: char('token_hash', { length: 64 }).notNull(),
+  fcmTokenEnc: longtext('fcm_token_enc'),
+  notifications: tinyint('notifications').notNull().default(1),
+  eventCursor: bigint('event_cursor', { mode: 'number', unsigned: true }).notNull().default(0),
+  visibleSessionId: char('visible_session_id', { length: 36 }),
+  visibleUntil: varchar('visible_until', { length: 100 }),
+  createdAt: varchar('created_at', { length: 100 }).notNull(),
+  lastSeenAt: varchar('last_seen_at', { length: 100 }).notNull(),
+  expiresAt: varchar('expires_at', { length: 100 }).notNull(),
+  revokedAt: varchar('revoked_at', { length: 100 }),
+}, (t) => ({ token: uniqueIndex('uq_companion_device_token').on(t.tokenHash), user: index('idx_companion_device_user').on(t.userId) }));
+
+export const companionFollows = mysqlTable('companion_follows', {
+  deviceId: char('device_id', { length: 36 }).notNull(),
+  sessionId: char('session_id', { length: 36 }).notNull(),
+}, (t) => ({ pk: primaryKey({ columns: [t.deviceId, t.sessionId] }) }));
+
+export const companionNotifications = mysqlTable('companion_notifications', {
+  id: char('id', { length: 36 }).primaryKey(),
+  deviceId: char('device_id', { length: 36 }).notNull(),
+  sourceKey: varchar('source_key', { length: 100 }).notNull(),
+  kind: varchar('kind', { length: 24 }).notNull(),
+  targetId: varchar('target_id', { length: 64 }).notNull(),
+  state: varchar('state', { length: 16 }).notNull().default('pending'),
+  attempts: int('attempts').notNull().default(0),
+  nextAttemptAt: varchar('next_attempt_at', { length: 100 }).notNull(),
+  expiresAt: varchar('expires_at', { length: 100 }).notNull(),
+  createdAt: varchar('created_at', { length: 100 }).notNull(),
+}, (t) => ({ source: uniqueIndex('uq_companion_notification_source').on(t.deviceId, t.sourceKey), work: index('idx_companion_notification_work').on(t.state, t.nextAttemptAt) }));

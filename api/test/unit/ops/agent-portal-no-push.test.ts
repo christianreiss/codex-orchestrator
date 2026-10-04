@@ -16,8 +16,8 @@ import { guardForRoute } from '../../../src/security/route-capabilities.js';
  * needs input" patch reintroduces exactly the deep-link spray that was removed,
  * and no other suite would notice.
  *
- * This scan fails when any Matrix transport, outbox table, or outbound push
- * reappears anywhere under `api/src`.
+ * Matrix link delivery stays retired. The explicitly paired Android companion
+ * has a separate FCM outbox carrying opaque identifiers, never permanent links.
  */
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -33,7 +33,7 @@ const FORBIDDEN = [
   'AGENT_PORTAL_MATRIX_TIMEOUT_SECONDS',
 ];
 
-describe('agent portal has no outbound push channel', () => {
+describe('agent portal has no Matrix link delivery', () => {
   it('names no Matrix transport anywhere under src', () => {
     const hits: string[] = [];
     for (const file of sourceFiles(API_SRC, ['.ts'])) {

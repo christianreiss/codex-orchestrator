@@ -198,6 +198,10 @@ describe('migrations against the test baseline', () => {
       'provider_accounts',
       'provider_account_sessions',
       'grok_auth_refresh_state',
+      'companion_pairings',
+      'companion_devices',
+      'companion_follows',
+      'companion_notifications',
     ]);
     expect(additions.filter((a) => a.column !== undefined).map((a) => `${a.table}.${a.column}`)).toEqual([
       'auth_payloads.generation',

@@ -142,6 +142,7 @@ export const DEFAULT_INVALIDATIONS: WsInvalidationMap = {
   // Settings (root key triggers hierarchical match on all per-setting keys)
   // Source checks update their state even when the imported catalogue itself
   // is unchanged, so keep the source card live across tabs and worker ticks.
+  "companion.devices.changed": [["companion-devices"]],
   "accounts.updated": [["accounts"], ["overview"], ["hosts"]],
   "settings.changed": [["settings"], ["skills", "source"], ["keys", "openai", "state"], ["keys", "claude", "state"], ["keys", "grok", "state"]],
   // Fleet engine master switch. Settings covers the switch rows and the

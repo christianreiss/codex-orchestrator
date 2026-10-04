@@ -4,6 +4,7 @@ import type { Env } from '../env.js';
 import { Keyring } from '../security/keyring.js';
 
 import { registerAgentReceiverRoutes } from './agent-receiver.js';
+import { registerCompanionRoutes } from './companion/index.js';
 import { registerHealthRoutes } from './health.js';
 import { registerStaticAdminRoutes } from './admin/pages/static.js';
 import { notFoundHandler } from '../http/not-found.js';
@@ -46,6 +47,7 @@ export interface RouteContext {
 
 export async function registerAllRoutes(app: FastifyInstance, ctx: RouteContext): Promise<void> {
   await registerHealthRoutes(app, ctx);
+  await registerCompanionRoutes(app, ctx);
 
   // Host-facing wrapper + auth surface
   await registerHostApiRoutes(app, ctx);

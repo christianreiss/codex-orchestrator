@@ -1,0 +1,1 @@
+import{t as e}from"../chunks/C3bU_Nv2.js";export{e as component};

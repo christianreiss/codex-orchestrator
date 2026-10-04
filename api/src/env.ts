@@ -249,6 +249,14 @@ const schema = z
     INSTALLATION_ID: z.string().optional(),
     DATA_ROOT: z.string().optional(),
 
+    // Android companion: public Firebase app identifiers and mounted server credential.
+    COMPANION_FIREBASE_CONFIG_FILE: z.string().optional(),
+    COMPANION_FIREBASE_PROJECT_ID: z.string().optional(),
+    COMPANION_FIREBASE_APP_ID: z.string().optional(),
+    COMPANION_FIREBASE_API_KEY: z.string().optional(),
+    COMPANION_FIREBASE_SENDER_ID: z.string().optional(),
+    COMPANION_FIREBASE_CREDENTIAL_FILE: z.string().optional(),
+
     // SMTP
     SMTP_HOST: z.string().optional(),
     SMTP_PORT: intish(),

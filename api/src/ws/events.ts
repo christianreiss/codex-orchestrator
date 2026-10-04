@@ -9,6 +9,7 @@
  */
 export const WS_EVENT_TYPES = [
   'accounts.updated',
+  'companion.devices.changed',
   // Logs
   'log.created',
   'log.updated',
