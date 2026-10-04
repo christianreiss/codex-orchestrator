@@ -12,6 +12,8 @@ other agents whose server-reported `relay_ready` is true. Offline, ended, idle
 without a receiver, and read-only sessions are omitted. A working agent appears
 only if its receiver can still accept a message. Project name, host, and engine
 identify each conversation; **Review next** opens the next decision directly.
+The compact layout uses square edges, tighter spacing, and at least 48 dp
+action targets while respecting Android text size settings.
 
 Host decisions use a bottom sheet with requesting host/IP, expiry, duration
 presets, and large **Deny** / **Allow** buttons. Requests are rechecked by the

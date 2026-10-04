@@ -23,6 +23,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.semantics.contentDescription
@@ -51,7 +52,10 @@ class MainActivity : ComponentActivity() {
 @Composable fun CompanionTheme(content: @Composable () -> Unit) {
     val scheme = if (androidx.compose.foundation.isSystemInDarkTheme()) darkColorScheme(primary = Color(0xFF7CDBC8), secondary = Color(0xFFB4CCC5))
         else lightColorScheme(primary = Color(0xFF176B60), secondary = Color(0xFF49665F), background = Color(0xFFF7FAF8), surface = Color(0xFFF7FAF8))
-    MaterialTheme(colorScheme = scheme, content = content)
+    val square = RoundedCornerShape(0.dp)
+    MaterialTheme(colorScheme = scheme, shapes = Shapes(
+        extraSmall = square, small = square, medium = square, large = square, extraLarge = square,
+    ), content = content)
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -79,15 +83,15 @@ class MainActivity : ComponentActivity() {
     BackHandler(model.selected != null && review == null && !more) { model.closeSession() }
     Scaffold(topBar = {
         TopAppBar(title = { Column {
-            Text(if (model.selected == null) "Now" else current?.let(::agentTitle) ?: "Agent", maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.SemiBold)
+            Text(if (model.selected == null) "Now" else current?.let(::agentTitle) ?: "Agent", maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.titleMedium)
             if (model.connection != null) Text(if (!fresh) "Reconnecting…" else if (model.selected != null) current?.let(::agentDetail) ?: "" else if (total == 1) "1 needs you" else if (total > 0) "$total need you" else "All clear", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         } },
-            navigationIcon = { if (model.selected != null) TextButton(onClick = model::closeSession, modifier = Modifier.heightIn(min = 48.dp)) { Text("Back") } },
-            actions = { if (model.connection != null) TextButton(onClick = { more = true }, modifier = Modifier.heightIn(min = 48.dp)) { Text("More") } })
+            navigationIcon = { if (model.selected != null) TextButton(shape = RectangleShape, onClick = model::closeSession, modifier = Modifier.heightIn(min = 48.dp)) { Text("Back") } },
+            actions = { if (model.connection != null) TextButton(shape = RectangleShape, onClick = { more = true }, modifier = Modifier.heightIn(min = 48.dp)) { Text("More") } })
     }, snackbarHost = { SnackbarHost(snackbar) }, bottomBar = {
         if (model.connection != null && model.selected == null && total > 0) {
-            Surface { Button(onClick = { if (requests.isNotEmpty()) review = requests.first() else model.openSession(needsYou.first().getString("id")) },
-                modifier = Modifier.navigationBarsPadding().padding(16.dp).fillMaxWidth().heightIn(min = 64.dp), enabled = !model.busy) { Text("Review next · $total", style = MaterialTheme.typography.titleMedium) } }
+            Surface { Button(shape = RectangleShape, onClick = { if (requests.isNotEmpty()) review = requests.first() else model.openSession(needsYou.first().getString("id")) },
+                modifier = Modifier.navigationBarsPadding().padding(horizontal = 12.dp, vertical = 8.dp).fillMaxWidth().heightIn(min = 52.dp), enabled = !model.busy) { Text("Review next · $total", style = MaterialTheme.typography.titleMedium) } }
         }
     }) { padding ->
         Column(Modifier.padding(padding).fillMaxSize()) {
@@ -108,7 +112,7 @@ class MainActivity : ComponentActivity() {
     Surface(color = MaterialTheme.colorScheme.errorContainer) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
             Text(message, style = MaterialTheme.typography.bodyMedium)
-            Row { TextButton(onClick = retry) { Text("Retry") }; TextButton(onClick = dismiss) { Text("Dismiss") } }
+            Row { TextButton(shape = RectangleShape, onClick = retry) { Text("Retry") }; TextButton(shape = RectangleShape, onClick = dismiss) { Text("Dismiss") } }
         }
     }
 }
@@ -116,15 +120,15 @@ class MainActivity : ComponentActivity() {
 @Composable private fun NowScreen(model: CompanionModel, agents: List<JSONObject>, requests: List<JSONObject>, fresh: Boolean, onReview: (JSONObject) -> Unit) {
     val attention = agents.filter(::needsReply)
     val ready = agents.filterNot(::needsReply)
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp, Alignment.Bottom)) {
+    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp, Alignment.Bottom)) {
         if (!fresh) item {
             Text("Checking what needs you…", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(vertical = 24.dp))
-            OutlinedButton(onClick = model::refreshNow, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)) { Text("Retry connection") }
+            OutlinedButton(shape = RectangleShape, onClick = model::refreshNow, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("Retry connection") }
         }
         if (requests.isNotEmpty() || attention.isNotEmpty()) item { SectionLabel("Needs you") }
         items(requests, key = { "approval:${it.optLong("id")}" }) { request ->
             Card(onClick = { onReview(request) }, modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)) {
-                Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Column(Modifier.padding(horizontal = 12.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Text(request.optString("fqdn"), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                     Text("Allow host access", color = MaterialTheme.colorScheme.onSecondaryContainer, style = MaterialTheme.typography.bodyMedium)
                 }
@@ -134,17 +138,17 @@ class MainActivity : ComponentActivity() {
         if (ready.isNotEmpty()) item { SectionLabel("Ready · ${ready.size}") }
         items(ready, key = { it.getString("id") }) { AgentRow(it, false) { model.openSession(it.getString("id")) } }
         if (fresh && agents.isEmpty() && requests.isEmpty()) item {
-            Text("Nothing needs you", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
+            Text("Nothing needs you", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
             Text("No agents ready to talk.", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 8.dp, bottom = 24.dp))
         }
     }
 }
 
-@Composable private fun SectionLabel(text: String) { Text(text, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 12.dp, bottom = 2.dp)) }
+@Composable private fun SectionLabel(text: String) { Text(text, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 6.dp, bottom = 2.dp)) }
 
 @Composable private fun AgentRow(agent: JSONObject, attention: Boolean, onClick: () -> Unit) {
     Card(onClick = onClick, modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = if (attention) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainer)) {
-        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Column(Modifier.padding(horizontal = 12.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(agentTitle(agent), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
             Text(agentDetail(agent), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             if (attention) Text(agent.optJSONObject("pending_prompt")?.optString("question") ?: agent.optJSONObject("attention")?.optString("summary")?.takeIf { it.isNotBlank() } ?: "Needs your reply", maxLines = 2, overflow = TextOverflow.Ellipsis)
@@ -162,22 +166,22 @@ class MainActivity : ComponentActivity() {
         else if (messages.isNotEmpty()) list.animateScrollToItem(messages.lastIndex)
     }
     Column(Modifier.fillMaxSize()) {
-        LazyColumn(Modifier.weight(1f).fillMaxWidth(), state = list, contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        LazyColumn(Modifier.weight(1f).fillMaxWidth(), state = list, contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             items(messages, key = { it.optLong("cursor") }) { event ->
                 val own = event.optString("type") == "user_message"
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = if (own) Arrangement.End else Arrangement.Start) {
-                    Surface(shape = RoundedCornerShape(18.dp), color = if (own) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainer, modifier = Modifier.widthIn(max = 360.dp)) {
-                        SelectionContainer { Text(event.getJSONObject("payload").optString("text"), Modifier.padding(16.dp)) }
+                    Surface(shape = RectangleShape, color = if (own) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainer, modifier = Modifier.widthIn(max = 360.dp)) {
+                        SelectionContainer { Text(event.getJSONObject("payload").optString("text"), Modifier.padding(12.dp), style = MaterialTheme.typography.bodyMedium) }
                     }
                 }
             }
             if (prompt != null) item(key = "question") {
-                Surface(shape = RoundedCornerShape(18.dp), color = MaterialTheme.colorScheme.secondaryContainer) {
-                    Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Surface(shape = RectangleShape, color = MaterialTheme.colorScheme.secondaryContainer) {
+                    Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         Text("Your decision", style = MaterialTheme.typography.labelLarge)
                         Text(prompt.optString("question"), style = MaterialTheme.typography.titleMedium)
                         prompt.optJSONArray("options")?.strings()?.forEach { option ->
-                            OutlinedButton(onClick = { model.draft = option; model.send(prompt) }, enabled = writable && !model.busy, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)) { Text(option) }
+                            OutlinedButton(shape = RectangleShape, onClick = { model.draft = option; model.send(prompt) }, enabled = writable && !model.busy, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text(option) }
                         }
                     }
                 }
@@ -185,12 +189,18 @@ class MainActivity : ComponentActivity() {
             if (messages.isEmpty() && prompt == null) item { Text("What do you need?", color = MaterialTheme.colorScheme.onSurfaceVariant) }
         }
         if (!writable) Text(if (!fresh) "Reconnecting — draft kept" else "Agent is no longer reachable", Modifier.padding(16.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Surface(shadowElevation = 4.dp) {
-            Row(Modifier.fillMaxWidth().imePadding().padding(12.dp), verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Surface(tonalElevation = 1.dp) {
+            Row(Modifier.fillMaxWidth().imePadding().padding(8.dp), verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedTextField(value = model.draft, onValueChange = { model.draft = it }, modifier = Modifier.weight(1f), maxLines = 4, enabled = !model.busy, placeholder = { Text(if (prompt != null) "Your answer" else "Message") })
-                Button(onClick = { model.send(prompt) }, enabled = writable && !model.busy && model.draft.isNotBlank(), modifier = Modifier.heightIn(min = 60.dp)) { Text("Send") }
+                Button(shape = RectangleShape, onClick = { model.send(prompt) }, enabled = writable && !model.busy && model.draft.isNotBlank(), modifier = Modifier.heightIn(min = 56.dp)) { Text("Send") }
             }
         }
+    }
+}
+
+@Composable private fun SheetHandle() {
+    Box(Modifier.fillMaxWidth().height(24.dp), contentAlignment = Alignment.Center) {
+        Box(Modifier.size(width = 28.dp, height = 2.dp).background(MaterialTheme.colorScheme.outline))
     }
 }
 
@@ -200,26 +210,26 @@ class MainActivity : ComponentActivity() {
     val current = model.approvals.firstOrNull { it.optLong("id") == request.optLong("id") }
     val active = fresh && current?.let { liveApproval(it, now) } == true
     val remaining = current?.let { runCatching { (Instant.parse(it.optString("expires_at")).toEpochMilli() - now) / 1000 }.getOrDefault(0).coerceAtLeast(0) } ?: 0
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
-        Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp).padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+    ModalBottomSheet(onDismissRequest = onDismiss, shape = RectangleShape, dragHandle = { SheetHandle() }, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
+        Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp).padding(bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("Allow host access?", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text(request.optString("fqdn"), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
+            Text(request.optString("fqdn"), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
             Text("Requesting IP: ${request.optString("request_ip")}", style = MaterialTheme.typography.bodyMedium)
             Text(if (!fresh) "Reconnect to review" else if (active) "Expires in ${remaining / 60}m ${remaining % 60}s" else "Already handled or expired", color = MaterialTheme.colorScheme.onSurfaceVariant)
             if (active) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     listOf(15, 60, model.defaultMinutes.coerceIn(1, 480)).distinct().forEach { value ->
                         FilterChip(selected = minutes == value, onClick = { minutes = value }, enabled = !model.busy,
-                            modifier = Modifier.weight(1f).heightIn(min = 52.dp), label = { Text(durationLabel(value)) })
+                            modifier = Modifier.weight(1f).heightIn(min = 48.dp), label = { Text(durationLabel(value)) })
                     }
                 }
             }
             model.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                OutlinedButton(onClick = { model.decide(request.optLong("id"), false, 0, onDismiss) }, enabled = active && !model.busy, modifier = Modifier.weight(1f).heightIn(min = 64.dp)) { Text("Deny") }
-                Button(onClick = { model.decide(request.optLong("id"), true, minutes, onDismiss) }, enabled = active && !model.busy, modifier = Modifier.weight(1.5f).heightIn(min = 64.dp)) { Text("Allow ${durationLabel(minutes)}") }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(shape = RectangleShape, onClick = { model.decide(request.optLong("id"), false, 0, onDismiss) }, enabled = active && !model.busy, modifier = Modifier.weight(1f).heightIn(min = 52.dp)) { Text("Deny") }
+                Button(shape = RectangleShape, onClick = { model.decide(request.optLong("id"), true, minutes, onDismiss) }, enabled = active && !model.busy, modifier = Modifier.weight(1.5f).heightIn(min = 52.dp)) { Text("Allow ${durationLabel(minutes)}") }
             }
-            if (!active) TextButton(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) { Text("Close") }
+            if (!active) TextButton(shape = RectangleShape, onClick = onDismiss, modifier = Modifier.fillMaxWidth()) { Text("Close") }
         }
     }
 }
@@ -229,20 +239,20 @@ class MainActivity : ComponentActivity() {
     val context = LocalContext.current
     val pushStatus by PushStatus.state.collectAsState()
     var signOut by remember { mutableStateOf(false) }
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
-        Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    ModalBottomSheet(onDismissRequest = onDismiss, shape = RectangleShape, dragHandle = { SheetHandle() }, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
+        Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp).padding(bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text("Connection", style = MaterialTheme.typography.titleLarge)
             Text(model.connection?.server?.removePrefix("https://") ?: "", style = MaterialTheme.typography.bodyMedium)
             Text(pushStatus, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Row(verticalAlignment = Alignment.CenterVertically) { Text("Alerts", Modifier.weight(1f)); Switch(checked = model.notifications, onCheckedChange = model::updateNotifications, enabled = !model.busy, modifier = Modifier.semantics { contentDescription = "Alerts" }) }
-            model.selected?.let { id -> Row(verticalAlignment = Alignment.CenterVertically) { Text("Notify me of replies", Modifier.weight(1f)); Switch(checked = id in model.follows, onCheckedChange = { model.follow(id, it) }, enabled = !model.busy, modifier = Modifier.semantics { contentDescription = "Notify me of replies" }) } }
-            OutlinedButton(onClick = { model.refreshNow(); onDismiss() }, modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)) { Text("Refresh") }
-            TextButton(onClick = { context.startActivity(Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, context.packageName)) }, modifier = Modifier.fillMaxWidth()) { Text("Android notification settings") }
-            TextButton(onClick = { signOut = true }, modifier = Modifier.fillMaxWidth()) { Text("Sign out", color = MaterialTheme.colorScheme.error) }
+            Row(verticalAlignment = Alignment.CenterVertically) { Text("Alerts", Modifier.weight(1f)); Checkbox(checked = model.notifications, onCheckedChange = model::updateNotifications, enabled = !model.busy, modifier = Modifier.semantics { contentDescription = "Alerts" }) }
+            model.selected?.let { id -> Row(verticalAlignment = Alignment.CenterVertically) { Text("Notify me of replies", Modifier.weight(1f)); Checkbox(checked = id in model.follows, onCheckedChange = { model.follow(id, it) }, enabled = !model.busy, modifier = Modifier.semantics { contentDescription = "Notify me of replies" }) } }
+            OutlinedButton(shape = RectangleShape, onClick = { model.refreshNow(); onDismiss() }, modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)) { Text("Refresh") }
+            TextButton(shape = RectangleShape, onClick = { context.startActivity(Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, context.packageName)) }, modifier = Modifier.fillMaxWidth()) { Text("Android notification settings") }
+            TextButton(shape = RectangleShape, onClick = { signOut = true }, modifier = Modifier.fillMaxWidth()) { Text("Sign out", color = MaterialTheme.colorScheme.error) }
         }
     }
     if (signOut) AlertDialog(onDismissRequest = { signOut = false }, title = { Text("Disconnect this phone?") }, text = { Text("You’ll need a new pairing code to reconnect.") },
-        confirmButton = { TextButton(onClick = { model.logout(); onDismiss() }) { Text("Sign out") } }, dismissButton = { TextButton(onClick = { signOut = false }) { Text("Cancel") } })
+        confirmButton = { TextButton(shape = RectangleShape, onClick = { model.logout(); onDismiss() }) { Text("Sign out") } }, dismissButton = { TextButton(shape = RectangleShape, onClick = { signOut = false }) { Text("Cancel") } })
 }
 
 @Composable private fun PairScreen(model: CompanionModel) {
@@ -253,23 +263,23 @@ class MainActivity : ComponentActivity() {
     val scanner = rememberLauncherForActivityResult(ScanContract()) { result ->
         result.contents?.let { raw -> try { pairing = Pairing.parse(raw); error = null } catch (_: Exception) { error = "This is not a valid Orchestrator pairing code." } }
     }
-    Column(Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.Bottom) {
-        Text("Pair this phone", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
+    Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.Bottom) {
+        Text("Pair this phone", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
         Spacer(Modifier.height(12.dp))
         Text("In the dashboard, open Account → Android devices → Pair Android device.")
-        Spacer(Modifier.height(16.dp))
-        Button(onClick = { scanner.launch(ScanOptions().setDesiredBarcodeFormats(ScanOptions.QR_CODE).setPrompt("Scan the pairing code from your dashboard").setBeepEnabled(false).setOrientationLocked(false)) }, enabled = !model.busy, modifier = Modifier.fillMaxWidth().heightIn(min = 64.dp)) { Text("Scan QR code") }
-        TextButton(onClick = { pastedCode = ""; pasteOpen = true }, enabled = !model.busy, modifier = Modifier.fillMaxWidth()) { Text("Paste pairing code") }
+        Spacer(Modifier.height(12.dp))
+        Button(shape = RectangleShape, onClick = { scanner.launch(ScanOptions().setDesiredBarcodeFormats(ScanOptions.QR_CODE).setPrompt("Scan the pairing code from your dashboard").setBeepEnabled(false).setOrientationLocked(false)) }, enabled = !model.busy, modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)) { Text("Scan QR code") }
+        TextButton(shape = RectangleShape, onClick = { pastedCode = ""; pasteOpen = true }, enabled = !model.busy, modifier = Modifier.fillMaxWidth()) { Text("Paste pairing code") }
         error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
     }
     if (pasteOpen) AlertDialog(onDismissRequest = { pasteOpen = false; pastedCode = "" },
         title = { Text("Pairing code") },
         text = { OutlinedTextField(value = pastedCode, onValueChange = { pastedCode = it.take(4096) }, label = { Text("Pairing JSON") }, maxLines = 5) },
-        confirmButton = { TextButton(onClick = {
+        confirmButton = { TextButton(shape = RectangleShape, onClick = {
             try { pairing = Pairing.parse(pastedCode); error = null } catch (_: Exception) { error = "This is not a valid Orchestrator pairing code." }
             pasteOpen = false; pastedCode = ""
         }, enabled = pastedCode.isNotBlank()) { Text("Continue") } },
-        dismissButton = { TextButton(onClick = { pasteOpen = false; pastedCode = "" }) { Text("Cancel") } })
+        dismissButton = { TextButton(shape = RectangleShape, onClick = { pasteOpen = false; pastedCode = "" }) { Text("Cancel") } })
     pairing?.let { code -> AlertDialog(onDismissRequest = { pairing = null }, title = { Text("Connect to this server?") },
-        text = { Text(code.server) }, confirmButton = { TextButton(onClick = { pairing = null; model.pair(code) }) { Text("Connect") } }, dismissButton = { TextButton(onClick = { pairing = null }) { Text("Cancel") } }) }
+        text = { Text(code.server) }, confirmButton = { TextButton(shape = RectangleShape, onClick = { pairing = null; model.pair(code) }) { Text("Connect") } }, dismissButton = { TextButton(shape = RectangleShape, onClick = { pairing = null }) { Text("Cancel") } }) }
 }

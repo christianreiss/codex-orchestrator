@@ -1,5 +1,6 @@
 # 2026-10-04
 
+- Android companion 0.2.1 tightens list, conversation, and approval spacing and uses square cards, buttons, sheets, and dialogs, retaining at least 48 dp action targets and system font scaling.
 - Android companion 0.2.0 replaces the desktop-like tabs with a compact Now screen: only reachable agents, live decisions first, bottom-sheet host approvals with duration presets, direct question choices, and conversations without lifecycle noise. Offline or stale views disable actions and preserve message drafts; connection controls move under More.
 - Android companion 0.1.2 trusts operator-installed Android user CAs for `codex-auth.uggs.io` only, fixing pairing to the fleet's private-CA endpoint while retaining certificate and hostname verification.
 - Android companion 0.1.1 adds a paste fallback for the same one-time QR pairing payload, with server confirmation before connecting.
