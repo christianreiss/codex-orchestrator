@@ -120,7 +120,7 @@ const BUILDER_CATALOG = {
 const CANONICAL_DESTINATIONS = [
   { path: "/dashboard", heading: "Overview", title: "Overview" },
   { path: "/clients", heading: "Active Clients", title: "Active Clients" },
-  { path: "/logs/events", heading: "Activity", title: "Activity / Audit trail" },
+  { path: "/logs/events", heading: "Logs", title: "Logs / Audit trail" },
   { path: "/hosts", heading: "Hosts", title: "Hosts" },
   { path: "/quick-settings", heading: "Quick Settings", title: "Quick Settings" },
   { path: "/engines", heading: "Engines", title: "Engines" },
@@ -1042,14 +1042,16 @@ test("desktop shell exposes direct task navigation and the command palette", asy
     await expect(page.getByRole("navigation", { name: "Breadcrumb" }).getByText("Overview", { exact: true })).toBeVisible();
   }
 
-  // Groups start expanded for discoverability and remain collapsible. Every
+  // Daily tasks start open; configuration and diagnostics stay collapsed. Every
   // destination stays reachable after an operator changes those disclosures.
   const primary = page.getByRole("navigation", { name: "Primary navigation" });
   const destinations: Array<[string, string[]]> = [
-    ["Fleet", ["Hosts", "Quick Settings", "Engines", "Policies"]],
-    ["Coordinate", ["Projects", "Agent Messaging", "Agent Portal"]],
+    ["Workspace", ["Overview", "Active Clients", "Hosts", "Projects"]],
+    ["Fleet", ["Accounts", "Quick Settings", "Engines", "Policies"]],
+    ["Coordinate", ["Agent Messaging", "Agent Portal"]],
     ["Knowledge", ["Skills", "Fleet Instructions"]],
     ["Access", ["Admin Users"]],
+    ["Diagnostics", ["Logs"]],
   ];
   for (const [group, links] of destinations) {
     const trigger = primary.getByRole("button", { name: group, exact: true });
@@ -1063,6 +1065,40 @@ test("desktop shell exposes direct task navigation and the command palette", asy
   await page.keyboard.press("Control+K");
   await expect(page.getByRole("combobox", { name: "Search fleet and commands" })).toBeVisible();
   await expect(page.getByText("Agent Portal", { exact: true })).toBeVisible();
+});
+
+test("daily navigation keeps logs in diagnostics and preserves access on desktop and mobile", async ({ page }, info) => {
+  await page.goto("/admin/dashboard");
+  const primary = page.getByRole("navigation", { name: "Primary navigation" });
+  await expect(primary.getByRole("button", { name: "Workspace", exact: true })).toHaveAttribute("data-state", "open");
+  for (const group of ["Fleet", "Coordinate", "Knowledge", "Access", "Diagnostics"]) {
+    await expect(primary.getByRole("button", { name: group, exact: true })).toHaveAttribute("data-state", "closed");
+  }
+  for (const name of ["Overview", "Active Clients", "Hosts", "Projects"]) {
+    await expect(primary.getByRole("link", { name, exact: true })).toBeVisible();
+  }
+  await expect(primary.getByRole("link", { name: "Logs", exact: true })).toBeHidden();
+  await page.screenshot({ path: info.outputPath("workspace-desktop.png") });
+  const diagnostics = primary.getByRole("button", { name: "Diagnostics", exact: true });
+  await diagnostics.click();
+  await primary.getByRole("link", { name: "Logs", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Logs", level: 1 })).toBeVisible();
+  await expect(primary.getByRole("link", { name: "Logs", exact: true })).toHaveAttribute("aria-current", "page");
+  await page.goto("/admin/dashboard");
+  await expect(diagnostics).toHaveAttribute("data-state", "open");
+  await diagnostics.click();
+  await page.goto("/admin/logs/mcp");
+  await expect(diagnostics).toHaveAttribute("data-state", "open");
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/admin/dashboard");
+  const mobile = page.getByRole("navigation", { name: "Mobile primary navigation" });
+  await expect(mobile.getByRole("link", { name: "Active Clients", exact: true })).toBeVisible();
+  await expect(mobile.getByRole("link", { name: "Logs", exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: "Open navigation menu" }).click();
+  await page.screenshot({ path: info.outputPath("workspace-mobile-menu.png") });
+  await page.getByRole("dialog").getByRole("link", { name: "Logs", exact: false }).click();
+  await expect(page.getByRole("heading", { name: "Logs", level: 1 })).toBeVisible();
 });
 
 test("desktop navigation switches from Skills to Fleet Instructions with a legacy host list", async ({ page }) => {
@@ -1679,10 +1715,10 @@ test("control defaults follow live updates while preserving an operator draft fo
 test("control navigation keeps collapsed groups stable and highlights mobile account destinations", async ({ page }) => {
   await page.goto("/admin/dashboard");
   const primary = page.getByRole("navigation", { name: "Primary navigation" });
-  const fleet = primary.getByRole("button", { name: "Fleet", exact: true });
-  await expect(fleet).toHaveAttribute("data-state", "open");
-  await fleet.click();
-  await expect(fleet).toHaveAttribute("data-state", "closed");
+  const workspace = primary.getByRole("button", { name: "Workspace", exact: true });
+  await expect(workspace).toHaveAttribute("data-state", "open");
+  await workspace.click();
+  await expect(workspace).toHaveAttribute("data-state", "closed");
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/admin/account/theme");
   const menu = page.getByRole("button", { name: "Open navigation menu" });

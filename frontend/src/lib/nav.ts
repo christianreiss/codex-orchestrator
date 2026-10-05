@@ -30,7 +30,7 @@ import {
 import type { Component } from "svelte";
 import type { Engine } from "$lib/constants/engines";
 
-export type NavGroup = "Monitor" | "Fleet" | "Coordinate" | "Knowledge" | "Access" | "Utilities";
+export type NavGroup = "Workspace" | "Fleet" | "Coordinate" | "Knowledge" | "Access" | "Diagnostics" | "Utilities";
 
 export interface NavItem {
   /** Stable identifier for tests, analytics-free command ids, and persisted UI state. */
@@ -79,22 +79,22 @@ const REGISTRY: NavDefinition[] = [
   { id: "provider-accounts", group: "Fleet", route: "/accounts", label: "Accounts",
     description: "ChatGPT, Claude, and Grok accounts, availability, and assignments", keywords: ["accounts", "chatgpt", "claude", "grok", "quota", "credentials", "balance"], icon: Users },
   {
-    id: "overview", group: "Monitor", route: "/dashboard", label: "Overview",
+    id: "overview", group: "Workspace", route: "/dashboard", label: "Overview",
     description: "Fleet health and exceptions", keywords: ["home", "health", "usage"], icon: LayoutDashboard,
     mobilePriority: 1,
   },
   {
-    id: "clients", group: "Monitor", route: "/clients", label: "Active Clients",
+    id: "clients", group: "Workspace", route: "/clients", label: "Active Clients",
     description: "Running agents and what they are working on",
-    keywords: ["agents", "sessions", "wrappers", "live", "presence", "working", "cdx", "clx", "cgx"], icon: RadioTower,
+    keywords: ["agents", "sessions", "wrappers", "live", "presence", "working", "cdx", "clx", "cgx"], icon: RadioTower, mobilePriority: 4,
   },
   {
-    id: "activity", group: "Monitor", route: "/logs/events", label: "Activity",
-    description: "Audit trail and MCP requests", keywords: ["audit", "logs", "mcp", "events"], icon: Activity,
-    match: /^\/logs(?:\/|$)/, mobilePriority: 4,
+    id: "activity", group: "Diagnostics", route: "/logs/events", label: "Logs",
+    description: "Audit trail and MCP requests", keywords: ["activity", "audit", "logs", "mcp", "events", "diagnostics", "troubleshooting"], icon: Activity,
+    match: /^\/logs(?:\/|$)/,
   },
   {
-    id: "hosts", group: "Fleet", route: "/hosts", label: "Hosts",
+    id: "hosts", group: "Workspace", route: "/hosts", label: "Hosts",
     description: "Machines, credentials, and host policy", keywords: ["machines", "installers", "auth"], icon: Server,
     mobilePriority: 2,
   },
@@ -111,7 +111,7 @@ const REGISTRY: NavDefinition[] = [
     description: "Fleet update, security, and retention rules", keywords: ["dns", "prune", "retention", "insecure"], icon: ShieldCheck,
   },
   {
-    id: "projects", group: "Coordinate", route: "/projects", label: "Projects",
+    id: "projects", group: "Workspace", route: "/projects", label: "Projects",
     description: "Shared coordination workspaces", keywords: ["coordination", "todos", "notes"], icon: FolderKanban,
     mobilePriority: 3,
   },
@@ -179,7 +179,7 @@ const REGISTRY: NavDefinition[] = [
 ];
 
 export const NAV: NavItem[] = REGISTRY.map(define);
-export const NAV_SECTIONS: NavSection[] = (["Monitor", "Fleet", "Coordinate", "Knowledge", "Access"] as const).map(
+export const NAV_SECTIONS: NavSection[] = (["Workspace", "Fleet", "Coordinate", "Knowledge", "Access", "Diagnostics"] as const).map(
   (group) => ({ id: group.toLowerCase(), label: group, items: NAV.filter((item) => item.group === group) }),
 );
 export const NAV_FOOTER: NavItem[] = NAV.filter((item) => item.group === "Utilities");
@@ -220,7 +220,7 @@ export function getBreadcrumbs(pathname: string): Breadcrumb[] {
   const segments = pathname.split("/").filter(Boolean);
   if (segments.length === 0 || pathname === "/dashboard") return [{ label: "Overview" }];
   if (pathname === "/logs" || pathname.startsWith("/logs/")) {
-    return detailTrail({ label: "Activity", route: "/logs/events" }, pathname.startsWith("/logs/mcp") ? "MCP requests" : "Audit trail");
+    return detailTrail({ label: "Logs", route: "/logs/events" }, pathname.startsWith("/logs/mcp") ? "MCP requests" : "Audit trail");
   }
   if (pathname === "/hosts/new") return detailTrail({ label: "Hosts", route: "/hosts" }, "Register host");
   if (pathname.startsWith("/hosts/")) return detailTrail({ label: "Hosts", route: "/hosts" }, `Host #${humanize(segments[1] ?? "")}`);

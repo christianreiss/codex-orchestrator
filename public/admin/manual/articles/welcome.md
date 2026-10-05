@@ -29,15 +29,16 @@ The desktop sidebar groups destinations by task:
 
 | Group | Destinations |
 |---|---|
-| **Monitor** | Overview, Active Clients, Activity |
-| **Fleet** | Hosts, Engines, Policies |
-| **Coordinate** | Projects, Agent Messaging, Git Director, File Transfer, Agent Portal |
+| **Workspace** | Overview, Active Clients, Hosts, Projects |
+| **Fleet** | Accounts, Quick Settings, Engines, Policies |
+| **Coordinate** | Agent Messaging, Git Director, File Transfer, Agent Portal |
 | **Knowledge** | Skills, Fleet Instructions, Memories, Subagents, Commands, Output Styles |
 | **Access** | API Access, Secrets, Admin Users |
+| **Diagnostics** | Logs (audit trail and MCP requests) |
 
-Groups start expanded. Collapse any group to shorten the list; navigating into it opens it again. The active destination and breadcrumb identify your current location. **Overview** contains engine coverage, Codex and Claude usage, and runner verification. **Engines** holds fleet model and update controls; **Policies** holds fleet operational rules. **Git Director** arbitrates merges between agents sharing a clone, and **File Transfer** is the expiring pool of files agents hand each other. Subagents, Commands, and Output Styles are Claude-native collections.
+Workspace starts expanded for daily tasks; the other groups start collapsed. Manual choices survive reloads; navigating into a group opens it again. The active destination and breadcrumb identify your current location. **Overview** contains engine coverage, Codex and Claude usage, and runner verification. **Engines** holds fleet model and update controls; **Policies** holds fleet operational rules. **Git Director** arbitrates merges between agents sharing a clone, and **File Transfer** is the expiring pool of files agents hand each other. Subagents, Commands, and Output Styles are Claude-native collections.
 
-The footer provides **Manual**, **Account**, **Shortcuts**, and an account menu for password, passkeys, appearance, and sign-out. On phones, Overview, Hosts, Projects, and Activity stay in the bottom bar; **Menu** opens the remaining destinations and account actions. Menu is highlighted when the current page belongs to that group.
+The footer provides **Manual**, **Account**, **Shortcuts**, and an account menu for password, passkeys, appearance, and sign-out. On phones, Overview, Hosts, Projects, and Active Clients stay in the bottom bar; **Menu** opens the remaining destinations and account actions. Menu is highlighted when the current page belongs to that group.
 
 Theme selection (Light / Dark / System) lives in the icon menu at the right of the top bar, alongside fleet search and the desktop live-update indicator. Press `Ctrl`/`Cmd`+`K` or `/` to open the command palette, `?` for keyboard help, `n` to register a host, and `Esc` to close an overlay. Single-key shortcuts pause while you type in a form or editor. The palette includes destination descriptions and can find shared engine controls by either **Codex** or **Claude**.
 

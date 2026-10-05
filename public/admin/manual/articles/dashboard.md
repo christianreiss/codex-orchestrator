@@ -122,7 +122,7 @@ Failed first loads show an error and a retry control rather than a successful ze
 
 ## Host management
 
-**Register host** opens the new-host dialog on the Hosts page (`/hosts`). **Activity** opens the audit trail. **Quick VM** is available on Hosts and through the command palette; it creates an insecure temporary `tmp-*` host via `POST /admin/hosts/quick-register`.
+**Register host** opens the new-host dialog on the Hosts page (`/hosts`). **Logs** opens the audit trail under Diagnostics. **Quick VM** is available on Hosts and through the command palette; it creates an insecure temporary `tmp-*` host via `POST /admin/hosts/quick-register`.
 
 ## Source references
 

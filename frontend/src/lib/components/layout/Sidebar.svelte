@@ -24,16 +24,17 @@
   const fleet = useFleetEngines();
   const engineOff = (item: { engine?: string }) => Boolean(item.engine && !$fleet.isEnabled(item.engine));
 
-  // Monitor/Fleet start open (daily-driver sections); the deeper sections
+  // Workspace starts open for daily tasks; configuration and diagnostics
   // start collapsed to keep the rail short. A prior manual choice, persisted
   // to localStorage, wins over these defaults. Navigating into a section
   // always reveals it without fighting a manual collapse.
   const DEFAULT_OPEN_GROUPS: Record<string, boolean> = {
-    monitor: true,
-    fleet: true,
+    workspace: true,
+    fleet: false,
     coordinate: false,
     knowledge: false,
     access: false,
+    diagnostics: false,
   };
 
   let openGroups = $state<Record<string, boolean>>(

@@ -25,10 +25,10 @@ function item(id: string): NavItem {
 
 describe("route registry", () => {
   it("has one stable direct destination for every planned operator task", () => {
-    assert.deepEqual(NAV_SECTIONS.map((section) => section.label), ["Monitor", "Fleet", "Coordinate", "Knowledge", "Access"]);
+    assert.deepEqual(NAV_SECTIONS.map((section) => section.label), ["Workspace", "Fleet", "Coordinate", "Knowledge", "Access", "Diagnostics"]);
     assert.deepEqual(NAV_SECTIONS.flatMap((section) => section.items).map((entry) => entry.id), [
-      "overview", "clients", "activity", "provider-accounts", "hosts", "quick-settings", "engines", "policies", "projects", "agent-messaging", "git-director", "transfers", "agent-portal",
-      "skills", "instructions", "memories", "subagents", "commands", "output-styles", "api-access", "secrets", "admin-users",
+      "overview", "clients", "hosts", "projects", "provider-accounts", "quick-settings", "engines", "policies", "agent-messaging", "git-director", "transfers", "agent-portal",
+      "skills", "instructions", "memories", "subagents", "commands", "output-styles", "api-access", "secrets", "admin-users", "activity",
     ]);
     assert.deepEqual(NAV_FOOTER.map((entry) => entry.id), ["manual", "account"]);
     for (const entry of NAV) {
@@ -51,7 +51,7 @@ describe("route registry", () => {
   });
 
   it("keeps exactly four frequent destinations in the mobile bar", () => {
-    assert.deepEqual(MOBILE_NAV_PRIMARY.map((entry) => entry.id), ["overview", "hosts", "projects", "activity"]);
+    assert.deepEqual(MOBILE_NAV_PRIMARY.map((entry) => entry.id), ["overview", "hosts", "projects", "clients"]);
     assert.deepEqual(
       [...MOBILE_NAV_PRIMARY, ...MOBILE_NAV_OVERFLOW].map((entry) => entry.id).sort(),
       NAV.map((entry) => entry.id).sort(),
@@ -65,7 +65,7 @@ describe("location text", () => {
     assert.equal(getPageContext("/api-keys"), "API Access");
     assert.equal(getPageContext("/skills/deploy-bot"), "Skills / Deploy bot");
     assert.equal(getPageContext("/projects/fleet/todos"), "Projects / Fleet / Todos");
-    assert.equal(getPageContext("/logs/mcp"), "Activity / MCP requests");
+    assert.equal(getPageContext("/logs/mcp"), "Logs / MCP requests");
     assert.equal(getDocumentTitle("/agent-portal"), "Agent Portal · Codex Orchestrator");
     assert.deepEqual(getBreadcrumbs("/projects/fleet/todos"), [
       { label: "Projects", route: "/projects" },
@@ -73,7 +73,7 @@ describe("location text", () => {
       { label: "Todos" },
     ]);
     assert.deepEqual(getBreadcrumbs("/logs/mcp"), [
-      { label: "Activity", route: "/logs/events" },
+      { label: "Logs", route: "/logs/events" },
       { label: "MCP requests" },
     ]);
   });

@@ -13,7 +13,7 @@
 </script>
 
 <PageHeader
-  title="Activity"
+  title="Logs"
   subtitle="Investigate administrative changes and MCP requests with persistent, shareable filters."
 />
 

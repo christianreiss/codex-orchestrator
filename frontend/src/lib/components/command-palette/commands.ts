@@ -102,13 +102,13 @@ function navigateCommand(
 const DEEP_NAV: Array<{ href: string; label: string; icon: Component; keywords?: string[] }> = [
   {
     href: "/logs/mcp",
-    label: "Activity / MCP requests",
+    label: "Logs / MCP requests",
     icon: ScrollText,
     keywords: ["logs", "mcp"],
   },
   {
     href: "/logs/events",
-    label: "Activity / Audit trail",
+    label: "Logs / Audit trail",
     icon: ScrollText,
     keywords: ["logs", "events", "audit", "trail"],
   },

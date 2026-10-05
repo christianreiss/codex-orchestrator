@@ -21,7 +21,7 @@ Single-key shortcuts pause while typing in an editable target (`input`, `textare
 | `?` | Show the keyboard-shortcuts help modal |
 | `Esc` | Close the command palette (dialog-based overlays also close on `Esc` via their own handling) |
 
-The command palette groups results as Recent, Hosts, Navigation, Actions, Projects, Skills, Users, and Theme & session. It searches every sidebar destination, including Engines, Policies, Fleet Instructions, and the collaboration tools, plus Activity and Account deep links. Destination descriptions explain where each result leads; searching either **Codex** or **Claude** finds shared engine controls. Quick actions include New host, Quick VM, New project, New API key, Open shortcuts, Sign out, and theme switching.
+The command palette groups results as Recent, Hosts, Navigation, Actions, Projects, Skills, Users, and Theme & session. It searches every sidebar destination, including Engines, Policies, Fleet Instructions, and the collaboration tools, plus Logs and Account deep links (searching Activity still finds Logs). Destination descriptions explain where each result leads; searching either **Codex** or **Claude** finds shared engine controls. Quick actions include New host, Quick VM, New project, New API key, Open shortcuts, Sign out, and theme switching.
 
 Use the arrow keys to select a result, `Enter` to open it, and `Esc` to close. Fleet results load while navigation remains available. The footer reports when search is in progress or a source is unavailable; a query with no results offers suggestions for a new search.
 

@@ -101,7 +101,7 @@
       <RefreshCw class="h-4 w-4 {$overview.isFetching ? 'animate-spin' : ''}" /> Refresh overview
     </Button>
     <Button variant="outline" href={`${base}/logs/events`}>
-      <Activity class="h-4 w-4" /> Activity
+      <Activity class="h-4 w-4" /> Logs
     </Button>
     <Button href={`${base}/hosts?dialog=new-host`}>
       <Plus class="h-4 w-4" /> Register host

@@ -1,3 +1,7 @@
+# 2026-10-05
+
+- Simplify admin navigation: daily tasks share the open Workspace section; configuration and specialist tools start collapsed. Activity becomes Logs under Diagnostics, and Active Clients replaces it in the mobile bar. Saved section choices and direct log links remain available.
+
 # 2026-10-04
 
 - Android companion 0.2.1 tightens list, conversation, and approval spacing and uses square cards, buttons, sheets, and dialogs, retaining at least 48 dp action targets and system font scaling.
