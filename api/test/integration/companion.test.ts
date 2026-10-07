@@ -24,6 +24,9 @@ import { createAgentPortalService } from '../../src/services/agent-portal.js';
 import { envelopePlugin } from '../../src/http/plugins/envelope.js';
 import { encrypt } from '../../src/security/secret-box.js';
 import { isoOffsetSeconds, nowIso } from '../../src/util/timestamp.js';
+import { companionPreviews } from '../../src/services/companion/summary.js';
+import { wsPublisher } from '../../src/ws/publisher.js';
+import { SettingsService } from '../../src/services/settings.js';
 
 const handle = await getTestDb();
 
@@ -49,29 +52,25 @@ describe.skipIf(!handle)('Android companion with real MySQL', { timeout: 120_000
 
   beforeAll(async () => {
     await runMigrations(handle!.pool, { appliedBy: 'companion-tests' });
-    const [u] = await db
-      .insert(adminUsers)
-      .values({
-        name: unique,
-        username: unique,
-        email: `${unique}@example.test`,
-        passwordHash: 'test-only',
-        accessLevel: 'owner',
-        active: 1,
-        createdAt: nowIso(),
-        updatedAt: nowIso(),
-      });
+    const [u] = await db.insert(adminUsers).values({
+      name: unique,
+      username: unique,
+      email: `${unique}@example.test`,
+      passwordHash: 'test-only',
+      accessLevel: 'owner',
+      active: 1,
+      createdAt: nowIso(),
+      updatedAt: nowIso(),
+    });
     userId = u.insertId;
-    const [h] = await db
-      .insert(hosts)
-      .values({
-        fqdn: `${unique}.example.test`,
-        apiKey: randomBytes(32).toString('hex'),
-        secure: 0,
-        status: 'active',
-        createdAt: nowIso(),
-        updatedAt: nowIso(),
-      });
+    const [h] = await db.insert(hosts).values({
+      fqdn: `${unique}.example.test`,
+      apiKey: randomBytes(32).toString('hex'),
+      secure: 0,
+      status: 'active',
+      createdAt: nowIso(),
+      updatedAt: nowIso(),
+    });
     hostId = h.insertId;
     app.decorate('requireAdmin', async () => {});
     await app.register(envelopePlugin);
@@ -197,16 +196,14 @@ describe.skipIf(!handle)('Android companion with real MySQL', { timeout: 120_000
       .update(companionDevices)
       .set({ fcmTokenEnc: encrypt('test-token', ctx.keyring) })
       .where(eq(companionDevices.id, connection.device_id));
-    await db
-      .insert(agentEvents)
-      .values({
-        sessionId,
-        clientEventId: randomUUID(),
-        eventType: 'assistant_message',
-        source: 'bridge',
-        payloadEnc: encrypt(JSON.stringify({ text: 'reply' }), ctx.keyring),
-        createdAt: nowIso(),
-      });
+    await db.insert(agentEvents).values({
+      sessionId,
+      clientEventId: randomUUID(),
+      eventType: 'assistant_message',
+      source: 'bridge',
+      payloadEnc: encrypt(JSON.stringify({ text: 'reply', summary: 'Original result.' }), ctx.keyring),
+      createdAt: nowIso(),
+    });
     const worker = new CompanionPush(ctx);
     const send = vi
       .spyOn(worker.transport, 'send')
@@ -220,23 +217,34 @@ describe.skipIf(!handle)('Android companion with real MySQL', { timeout: 120_000
     const reply = rows.find((r) => r.kind === 'reply')!;
     expect(reply.state).toBe('pending');
     await db
+      .insert(agentEvents)
+      .values({
+        sessionId,
+        clientEventId: randomUUID(),
+        eventType: 'assistant_message',
+        source: 'bridge',
+        payloadEnc: encrypt(JSON.stringify({ text: 'later reply', summary: 'Later result.' }), ctx.keyring),
+        createdAt: nowIso(),
+      });
+    await db
       .update(companionNotifications)
       .set({ nextAttemptAt: isoOffsetSeconds(-1) })
       .where(eq(companionNotifications.id, reply.id));
     await worker.tick();
     await worker.tick();
     expect(send.mock.calls.filter((c) => c[1].notification_id === reply.id)).toHaveLength(2);
+    expect(send.mock.calls.filter((c) => c[1].notification_id === reply.id).map((c) => c[1].summary)).toEqual(
+      ['Original result.', 'Original result.'],
+    );
     expect(send.mock.calls[0]![1]).not.toHaveProperty('text');
-    await db
-      .insert(agentEvents)
-      .values({
-        sessionId,
-        clientEventId: randomUUID(),
-        eventType: 'attention',
-        source: 'bridge',
-        payloadEnc: encrypt(JSON.stringify({ summary: 'needs you' }), ctx.keyring),
-        createdAt: nowIso(),
-      });
+    await db.insert(agentEvents).values({
+      sessionId,
+      clientEventId: randomUUID(),
+      eventType: 'attention',
+      source: 'bridge',
+      payloadEnc: encrypt(JSON.stringify({ summary: 'needs you' }), ctx.keyring),
+      createdAt: nowIso(),
+    });
     send.mockResolvedValue('invalid');
     await worker.tick();
     expect(
@@ -244,8 +252,71 @@ describe.skipIf(!handle)('Android companion with real MySQL', { timeout: 120_000
         .fcmTokenEnc,
     ).toBeNull();
   });
-  it('revocation immediately rejects the old bearer', async () => {
+  it('projects the latest reply, prioritizes an active question and never reuses an older summary', async () => {
+    const put = async (type: string, payload: Record<string, unknown>) =>
+      db.insert(agentEvents).values({
+        sessionId,
+        clientEventId: randomUUID(),
+        eventType: type,
+        source: 'bridge',
+        payloadEnc: encrypt(JSON.stringify(payload), ctx.keyring),
+        createdAt: nowIso(),
+      });
+    await put('assistant_message', { text: 'Full answer', summary: 'Build passed.' });
+    const base = { id: sessionId, pending_prompt: null, attention: null };
+    expect((await companionPreviews(ctx, [base]))[0]!.preview).toMatchObject({ summary: 'Build passed.' });
+    await put('assistant_message', { text: 'New answer without summary' });
+    expect((await companionPreviews(ctx, [base]))[0]!.preview).toMatchObject({
+      summary: 'New reply from the agent.',
+    });
+    await put('waiting_input', {
+      prompt_id: 'question',
+      question: 'Full question',
+      summary: 'Choose a target.',
+    });
+    expect(
+      (await companionPreviews(ctx, [{ ...base, pending_prompt: { id: 'question' } }]))[0]!.preview,
+    ).toMatchObject({ summary: 'Choose a target.' });
+    await db.update(adminUsers).set({ accessLevel: 'viewer' }).where(eq(adminUsers.id, userId));
+    const hidden = await app.inject({
+      url: '/companion/v1/agents',
+      headers: { authorization: authorization() },
+    });
+    if (hidden.statusCode === 200) expect(hidden.body).not.toContain('Build passed.');
+    else expect(hidden.statusCode).toBe(403);
+    await db.update(adminUsers).set({ accessLevel: 'owner' }).where(eq(adminUsers.id, userId));
+  });
+  it('upgrades with a native bearer, invalidates immediately and closes on the kill switch', async () => {
+    const frames: Array<{ type: string; scopes?: string[] }> = [];
+    const socket = await app.injectWS(
+      '/companion/v1/ws',
+      { headers: { authorization: authorization() } },
+      {
+        onInit: (ws) => ws.on('message', (raw: Buffer) => frames.push(JSON.parse(raw.toString()))),
+      },
+    );
+    await vi.waitFor(() => expect(frames.some((f) => f.type === 'hello')).toBe(true));
+    await vi.waitFor(() => expect(frames.some((f) => f.type === 'changed')).toBe(true));
+    frames.length = 0;
+    wsPublisher.publish('agent_portal.sessions.changed', { session_id: sessionId });
+    await vi.waitFor(() => expect(frames.some((f) => f.scopes?.includes('agents'))).toBe(true));
+    const settings = new SettingsService(db);
+    try {
+      await settings.setFlag('api_disabled', true);
+      await vi.waitFor(() => expect(socket.readyState).toBe(3));
+      expect(
+        (await app.inject({ url: '/companion/v1/me', headers: { authorization: authorization() } }))
+          .statusCode,
+      ).toBe(503);
+    } finally {
+      socket.terminate();
+      await settings.setFlag('api_disabled', false);
+    }
+  });
+  it('revocation immediately rejects the old bearer and an existing socket', async () => {
+    const socket = await app.injectWS('/companion/v1/ws', { headers: { authorization: authorization() } });
     await devices.revoke(userId, connection.device_id);
     await expect(devices.authenticate(authorization())).rejects.toMatchObject({ code: 'device_revoked' });
+    await vi.waitFor(() => expect(socket.readyState).toBe(3));
   });
 });

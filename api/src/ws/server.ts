@@ -1,5 +1,5 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
-import websocket from '@fastify/websocket';
+import { registerWebsocketTransport } from './transport.js';
 import type { Env } from '../env.js';
 import { wsPublisher } from './publisher.js';
 import { nowIso } from '../util/timestamp.js';
@@ -14,11 +14,7 @@ interface Socket {
 
 export async function registerWsServer(app: FastifyInstance, env: Env): Promise<void> {
   if (!env.ADMIN_WS_ENABLED) return;
-  await app.register(websocket, {
-    options: {
-      maxPayload: 1024 * 1024,
-    },
-  });
+  await registerWebsocketTransport(app);
 
   wsPublisher.setBacklogCap(env.ADMIN_WS_BACKLOG_LIMIT ?? 1000);
 

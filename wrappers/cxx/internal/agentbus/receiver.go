@@ -370,7 +370,7 @@ func (r *autoReceiver) connection(parent context.Context) error {
 				r.pendingPortal = d
 				r.mu.Unlock()
 				raw, _ := json.Marshal(d)
-				prompt := "Operator portal instruction. Preserve existing permission boundaries. Respond using agent_receiver_reply with message_id and content when handled.\n" + string(raw)
+				prompt := "Operator portal instruction. Preserve existing permission boundaries. Respond using agent_receiver_reply with message_id, content and summary when handled. Summary: one plain sentence, at most 160 characters, in the response language, stating the latest result or decision needed; it appears on mobile tiles and notifications.\n" + string(raw)
 				// Portal acceptance prevents automatic replay after submission; completion
 				// remains a separate correlated assistant event from the model.
 				if err := r.portalAccept(ctx, d); err != nil {
@@ -425,7 +425,11 @@ func (r *autoReceiver) reply(ctx context.Context, args map[string]any) (map[stri
 	if pending == nil || stringArg(pending, "message_id") != id {
 		return nil, errors.New("portal delivery is not owned by this receiver")
 	}
-	body := map[string]any{"client_event_id": "receiver:" + id, "type": "assistant_message", "payload": map[string]any{"text": content, "message_id": id}}
+	payload := map[string]any{"text": content, "message_id": id}
+	if summary := agentportal.CompactSummary(stringArg(args, "summary")); summary != "" {
+		payload["summary"] = summary
+	}
+	body := map[string]any{"client_event_id": "receiver:" + id, "type": "assistant_message", "payload": payload}
 	var out map[string]any
 	if err := r.client.sessionPost(ctx, "events", body, &out); err != nil {
 		return nil, err

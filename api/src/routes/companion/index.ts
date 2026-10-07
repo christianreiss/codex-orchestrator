@@ -6,6 +6,11 @@ import type { RouteContext } from '../index.js';
 import { companionDevices, companionFollows } from '../../db/schema.js';
 import { CompanionDevices } from '../../services/companion/devices.js';
 import { startCompanionPush } from '../../services/companion/push.js';
+import { companionPreviews } from '../../services/companion/summary.js';
+import { CompanionLive } from '../../services/companion/live.js';
+import { SettingsService } from '../../services/settings.js';
+import { registerWebsocketTransport } from '../../ws/transport.js';
+import { wsPublisher } from '../../ws/publisher.js';
 import { capabilitiesForRole, type Capability } from '../../security/capabilities.js';
 import { encrypt } from '../../security/secret-box.js';
 import { createAgentPortalService, type PortalActor } from '../../services/agent-portal.js';
@@ -19,7 +24,9 @@ const id = (req: FastifyRequest) => z.object({ id: z.string().uuid() }).parse(re
 const message = z.object({ client_message_id: z.string().uuid(), content: z.string().min(1).max(32768) });
 
 export async function registerCompanionRoutes(app: FastifyInstance, ctx: RouteContext) {
+  await registerWebsocketTransport(app);
   const devices = new CompanionDevices(ctx);
+  const settings = new SettingsService(ctx.db);
   const portal = createAgentPortalService(ctx.db, ctx.env, ctx.keyring);
   const insecure = new InsecureWindowAdminService({
     db: ctx.db,
@@ -27,8 +34,14 @@ export async function registerCompanionRoutes(app: FastifyInstance, ctx: RouteCo
     events: makeAdminEventsWriter(ctx.db),
   });
   const trackStream = createSseLifecycle(app);
-  const auth = (req: FastifyRequest, capability?: Capability) =>
-    devices.authenticate(req.headers.authorization, capability);
+  const checkEnabled = async () => {
+    if (await settings.getFlag('api_disabled', false))
+      throw new ServiceUnavailableError('API disabled by administrator', 'api_disabled');
+  };
+  const auth = async (req: FastifyRequest, capability?: Capability) => {
+    await checkEnabled();
+    return devices.authenticate(req.headers.authorization, capability);
+  };
   const actor = (user: { id: number; name: string }): PortalActor => ({
     kind: 'admin',
     user: { id: user.id, displayName: user.name },
@@ -43,6 +56,39 @@ export async function registerCompanionRoutes(app: FastifyInstance, ctx: RouteCo
     if (!(await portal.isEnabled()))
       throw new ServiceUnavailableError('Agent portal is disabled', 'agent_portal_disabled');
   };
+  const live = new CompanionLive({
+    authorize: async (token) => {
+      await checkEnabled();
+      const { user } = await devices.authenticate(token);
+      return capabilitiesForRole(user.accessLevel);
+    },
+    revisions: async () => {
+      const enabled = await portal.isEnabled();
+      const snapshot = enabled ? await portal.listAgentsSnapshot() : null;
+      const cursor = enabled ? await portal.latestEventCursor() : 0;
+      // Heartbeat timestamps change constantly; only rendered state and durable event cursors invalidate.
+      const sessions = snapshot?.sessions.map((s) => ({
+        id: s.id,
+        host: s.host,
+        cwd: s.cwd,
+        engine: s.engine,
+        presence: s.presence,
+        ready: s.relay_ready,
+        prompt: s.pending_prompt,
+        attention: s.attention,
+        close: s.close,
+      }));
+      const approvals = (await insecure.listPending()).map((r) => ({
+        id: r.id,
+        live: r.live,
+        expires_at: r.expires_at,
+        fqdn: r.fqdn,
+        request_ip: r.request_ip,
+      }));
+      return { agents: JSON.stringify({ enabled, cursor, sessions }), approvals: JSON.stringify(approvals) };
+    },
+  });
+  app.addHook('preClose', () => live.stop());
 
   app.get('/admin/companion/devices', { preHandler: app.requireAdmin }, async (req) => ({
     devices: await devices.list(req.admin!.user.id),
@@ -62,7 +108,18 @@ export async function registerCompanionRoutes(app: FastifyInstance, ctx: RouteCo
       // This is a native bearer surface, never a browser-cookie alternative.
       if (req.headers.origin || req.headers['sec-fetch-site'])
         throw new ForbiddenError('Native companion API only', 'native_only');
+      await checkEnabled();
     });
+    app.get(
+      '/companion/v1/ws',
+      {
+        websocket: true,
+        preHandler: async (req) => {
+          await auth(req);
+        },
+      },
+      (socket, req) => live.attach(socket, req.headers.authorization),
+    );
     app.post('/companion/v1/pair', async (req) => {
       const body = z
         .object({ token: z.string().regex(/^[a-f0-9]{64}$/), name: z.string().trim().min(1).max(100) })
@@ -107,6 +164,7 @@ export async function registerCompanionRoutes(app: FastifyInstance, ctx: RouteCo
             : {}),
         })
         .where(eq(companionDevices.id, device.id));
+      if (body.notifications !== undefined) wsPublisher.publish('companion.devices.changed', {});
       return { updated: true };
     });
     app.delete('/companion/v1/device', async (req) => {
@@ -119,14 +177,18 @@ export async function registerCompanionRoutes(app: FastifyInstance, ctx: RouteCo
       await requirePortal();
       const snapshot = await portal.listAgentsSnapshot();
       const reveal = capabilitiesForRole(user.accessLevel).includes('agent_portal.reveal_transcript');
-      const sessions = snapshot.sessions.map((session) =>
-        reveal
-          ? session
-          : {
-              ...session,
-              pending_prompt: null,
-              attention: session.attention ? { since: (session.attention as { since: string }).since } : null,
-            },
+      const sessions = (reveal ? await companionPreviews(ctx, snapshot.sessions) : snapshot.sessions).map(
+        (session) =>
+          reveal
+            ? session
+            : {
+                ...session,
+                preview: null,
+                pending_prompt: null,
+                attention: session.attention
+                  ? { since: (session.attention as { since: string }).since }
+                  : null,
+              },
       );
       return { agents: sessions, generated_at: snapshot.generated_at, timings: portal.timings() };
     });
@@ -150,6 +212,7 @@ export async function registerCompanionRoutes(app: FastifyInstance, ctx: RouteCo
         content: body.content,
       });
       await follow(device.id, id(req));
+      wsPublisher.publish('companion.devices.changed', {});
       reply.code(202);
       return result;
     });
@@ -171,6 +234,7 @@ export async function registerCompanionRoutes(app: FastifyInstance, ctx: RouteCo
         version: body.version,
       });
       await follow(device.id, params.id);
+      wsPublisher.publish('companion.devices.changed', {});
       reply.code(202);
       return result;
     });
@@ -184,6 +248,7 @@ export async function registerCompanionRoutes(app: FastifyInstance, ctx: RouteCo
         await ctx.db
           .delete(companionFollows)
           .where(and(eq(companionFollows.deviceId, device.id), eq(companionFollows.sessionId, id(req))));
+      wsPublisher.publish('companion.devices.changed', {});
       return { followed: body.followed };
     });
     app.get('/companion/v1/approvals', async (req) => {

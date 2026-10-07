@@ -9,6 +9,9 @@ import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import okhttp3.OkHttpClient
+import okhttp3.WebSocket
+import okhttp3.WebSocketListener
+import okhttp3.Response
 import okhttp3.mockwebserver.Dispatcher
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
@@ -21,6 +24,10 @@ import org.junit.runner.RunWith
 import java.time.Instant
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
+import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 
 @RunWith(AndroidJUnit4::class)
 class CompanionUiTest {
@@ -36,6 +43,12 @@ class CompanionUiTest {
     private val answered = AtomicReference<String?>(null)
     private var expiresAt = Instant.now().plusSeconds(120)
     private val sent = AtomicReference<String?>(null)
+    private val live = AtomicReference<WebSocket?>(null)
+    private val summary = AtomicReference("Ready for your message.")
+    private val reply = AtomicReference("Ready for your message.")
+    private val cursor = AtomicLong(1)
+    private val cursorsRequested = CopyOnWriteArrayList<Long>()
+    private val heartbeat = Executors.newSingleThreadScheduledExecutor()
     private val session = "68e117f3-e14b-4b86-a4c0-79808bf142c4"
     @Before fun setup() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
@@ -59,6 +72,11 @@ class CompanionUiTest {
             override fun dispatch(request: RecordedRequest): MockResponse {
                 if (request.getHeader("Authorization") != "Bearer ${"a".repeat(64)}") return MockResponse().setResponseCode(401)
                 val path = request.path!!.substringBefore('?').removePrefix("/companion/v1")
+                if (path == "/ws") return MockResponse().withWebSocketUpgrade(object : WebSocketListener() {
+                    override fun onOpen(webSocket: WebSocket, response: Response) { live.set(webSocket); webSocket.send("""{"type":"hello"}""") }
+                    override fun onClosing(webSocket: WebSocket, code: Int, reason: String) { webSocket.close(code, null) }
+                    override fun onClosed(webSocket: WebSocket, code: Int, reason: String) { live.compareAndSet(webSocket, null) }
+                })
                 val body = when {
                     path == "/me" -> """{"device_id":"test-device","name":"Operator","capabilities":["agent_portal.read","agent_portal.reveal_transcript","agent_portal.manage","hosts.activate_insecure"],"notifications":true,"follows":[],"firebase":${firebase ?: "null"}}"""
                     path == "/device" && request.method == "PATCH" -> {
@@ -66,9 +84,13 @@ class CompanionUiTest {
                         if (body.has("fcm_token")) registeredToken.set(body.getString("fcm_token"))
                         "{}"
                     }
-                    path == "/agents" -> """{"agents":[{"id":"$session","host":"lab.uggs.io","engine":"codex","cwd":"/work/project","presence":"listening","relay_ready":${reachable.get()},"pending_prompt":${if (questionPending.get()) """{"id":"question-1","version":1,"question":"Which target?","options":["Staging","Production"]}""" else "null"}},{"id":"offline","host":"offline.uggs.io","cwd":"/old/offline-project","presence":"offline","relay_ready":false},{"id":"idle","host":"idle.uggs.io","cwd":"/old/idle-project","presence":"idle","relay_ready":false}]}"""
-                    path == "/agents/$session/events" -> """{"events":[{"cursor":0,"type":"session_started","payload":{"text":"INTERNAL_LIFECYCLE"}},{"cursor":1,"type":"assistant_message","payload":{"text":"Ready for your message."}}],"next_cursor":1}"""
-                    path == "/events" -> return MockResponse().setHeader("Content-Type", "text/event-stream").setBody(": heartbeat\n\n")
+                    path == "/agents" -> """{"agents":[{"id":"$session","host":"lab.uggs.io","engine":"codex","cwd":"/work/project","presence":"listening","relay_ready":${reachable.get()},"preview":{"summary":${JSONObject.quote(if (questionPending.get()) "Choose a target." else summary.get())}},"pending_prompt":${if (questionPending.get()) """{"id":"question-1","version":1,"question":"Which target?","options":["Staging","Production"]}""" else "null"}},{"id":"offline","host":"offline.uggs.io","cwd":"/old/offline-project","presence":"offline","relay_ready":false},{"id":"idle","host":"idle.uggs.io","cwd":"/old/idle-project","presence":"idle","relay_ready":false}]}"""
+                    path == "/agents/$session/events" -> {
+                        val after = request.requestUrl?.queryParameter("after")?.toLongOrNull() ?: -1
+                        cursorsRequested.add(after)
+                        val rows = if (after >= cursor.get()) "" else """{"cursor":${cursor.get()},"type":"assistant_message","payload":{"text":${JSONObject.quote(reply.get())}}}"""
+                        """{"events":[$rows],"next_cursor":${cursor.get()}}"""
+                    }
                     path == "/approvals" -> if (approved.get()) """{"requests":[],"default_duration_minutes":480}""" else """{"requests":[{"id":42,"fqdn":"waiting.uggs.io","request_ip":"192.0.2.42","live":true,"expires_at":"${expiresAt}"}],"default_duration_minutes":480}"""
                     path == "/approvals/42/approve" -> { approved.set(true); "{}" }
                     path == "/agents/$session/prompts/question-1/answer" -> { answered.set(JSONObject(request.body.readUtf8()).getString("answer")); questionPending.set(false); "{}" }
@@ -79,6 +101,7 @@ class CompanionUiTest {
             }
         }
         server.start()
+        heartbeat.scheduleAtFixedRate({ live.get()?.send("""{"type":"ping"}""") }, 15, 15, TimeUnit.SECONDS)
         ConnectionStore(context).save(Connection(server.url("/").toString().trimEnd('/'), "a".repeat(64), "test-device", firebase))
         if (firebase != null) configurePush(context, ConnectionStore(context).load()!!)
         if (android.os.Build.VERSION.SDK_INT >= 33) InstrumentationRegistry.getInstrumentation().uiAutomation.grantRuntimePermission(context.packageName, Manifest.permission.POST_NOTIFICATIONS)
@@ -86,6 +109,8 @@ class CompanionUiTest {
     }
     @After fun cleanup() {
         scenario.close()
+        heartbeat.shutdownNow()
+        live.getAndSet(null)?.close(1001, "Test finished")
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         context.deleteFile("fcm-delivery-test.json")
         context.getSystemService(NotificationManager::class.java).cancelAll()
@@ -149,9 +174,8 @@ class CompanionUiTest {
         compose.onNodeWithText("offline-project").assertDoesNotExist()
         compose.onNodeWithText("idle-project").assertDoesNotExist()
         questionPending.set(true)
-        compose.onNodeWithText("More").performClick()
-        compose.onNodeWithText("Refresh").performClick()
-        compose.waitUntil(10000) { compose.onAllNodesWithText("Which target?").fetchSemanticsNodes().isNotEmpty() }
+        changed("agents")
+        compose.waitUntil(3000) { compose.onAllNodesWithText("Choose a target.").fetchSemanticsNodes().isNotEmpty() }
         screenshot("now")
         compose.onNodeWithText("project").performClick()
         compose.onNodeWithText("Staging").performClick()
@@ -164,8 +188,7 @@ class CompanionUiTest {
         compose.onNodeWithText("project").performClick()
         compose.onNode(hasSetTextAction()).performTextInput("Keep this draft")
         reachable.set(false)
-        compose.onNodeWithText("More").performClick()
-        compose.onNodeWithText("Refresh").performClick()
+        changed("agents")
         compose.waitUntil(10000) { compose.onAllNodesWithText("Agent is no longer reachable").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithText("Send").assertIsNotEnabled()
         compose.onNode(hasSetTextAction()).assertTextContains("Keep this draft")
@@ -176,8 +199,7 @@ class CompanionUiTest {
     @Test fun expiredApprovalCannotBeTapped() {
         compose.waitUntil(15000) { compose.onAllNodesWithText("Review next · 1").fetchSemanticsNodes().isNotEmpty() }
         expiresAt = Instant.now().plusSeconds(8)
-        compose.onNodeWithText("More").performClick()
-        compose.onNodeWithText("Refresh").performClick()
+        changed("approvals")
         compose.waitUntil(10000) { compose.onAllNodesWithText("Review next · 1").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithText("Review next · 1").performClick()
         compose.waitUntil(12000) { compose.onAllNodesWithText("Already handled or expired").fetchSemanticsNodes().isNotEmpty() }
@@ -198,6 +220,60 @@ class CompanionUiTest {
         compose.onNode(hasSetTextAction()).assertDoesNotExist()
         compose.onNodeWithText("project").assertDoesNotExist()
     }
+    @Test fun liveSummaryAndChatUpdateWithoutRefresh() {
+        compose.waitUntil(15000) { compose.onAllNodesWithText("project").fetchSemanticsNodes().isNotEmpty() }
+        summary.set("Build passed; deployment awaits your decision.")
+        changed("agents")
+        compose.waitUntil(3000) { compose.onAllNodesWithText(summary.get()).fetchSemanticsNodes().isNotEmpty() }
+        screenshot("live-summary")
+        compose.onNodeWithText("project").performClick()
+        compose.waitUntil(10000) { compose.onAllNodesWithText(reply.get()).fetchSemanticsNodes().isNotEmpty() }
+        reply.set("The new tests pass."); cursor.set(2)
+        changed("agents")
+        compose.waitUntil(3000) { compose.onAllNodesWithText(reply.get()).fetchSemanticsNodes().isNotEmpty() }
+        changed("agents")
+        compose.waitUntil(3000) { cursorsRequested.contains(2) }
+        compose.onAllNodesWithText(reply.get()).assertCountEquals(1)
+    }
+    @Test fun reconnectAndResumeCatchUpWhilePreservingDraft() {
+        compose.waitUntil(15000) { compose.onAllNodesWithText("project").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("project").performClick()
+        compose.waitUntil(10000) { compose.onAllNodesWithText(reply.get()).fetchSemanticsNodes().isNotEmpty() }
+        compose.onNode(hasSetTextAction()).performTextInput("Keep this draft")
+        reply.set("Reply during network loss."); cursor.set(2)
+        live.getAndSet(null)?.close(1012, "restart")
+        compose.waitUntil(10000) { compose.onAllNodesWithText(reply.get()).fetchSemanticsNodes().isNotEmpty() }
+        Assert.assertTrue(cursorsRequested.contains(1))
+        compose.onNode(hasSetTextAction()).assertTextContains("Keep this draft")
+        scenario.moveToState(Lifecycle.State.CREATED)
+        reply.set("Reply while backgrounded."); cursor.set(3)
+        scenario.moveToState(Lifecycle.State.RESUMED)
+        compose.waitUntil(10000) { compose.onAllNodesWithText(reply.get()).fetchSemanticsNodes().isNotEmpty() }
+        Assert.assertTrue(cursorsRequested.contains(2))
+        compose.onNode(hasSetTextAction()).assertTextContains("Keep this draft")
+    }
+    @Test fun summaryNotificationIsPrivateDeduplicatedAndOpensTheConversation() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val manager = context.getSystemService(NotificationManager::class.java)
+        compose.waitUntil(15000) { compose.onAllNodesWithText("project").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("project").performClick()
+        compose.waitUntil(10000) { VisibleConversation.session == session }
+        val id = java.util.UUID.randomUUID().toString()
+        val data = mapOf("device_id" to "test-device", "notification_id" to id, "kind" to "reply", "target_id" to session, "summary" to "DNS fixed; restart needs approval.")
+        showCompanionNotification(context, data)
+        Assert.assertTrue(manager.activeNotifications.isEmpty())
+        scenario.moveToState(Lifecycle.State.CREATED)
+        showCompanionNotification(context, data); showCompanionNotification(context, data)
+        compose.waitUntil(5000) { manager.activeNotifications.isNotEmpty() }
+        val shown = manager.activeNotifications.single().notification
+        Assert.assertEquals(data["summary"], shown.extras.getString("android.text"))
+        Assert.assertEquals(data["summary"], shown.extras.getCharSequence("android.bigText").toString())
+        Assert.assertEquals(android.app.Notification.VISIBILITY_PRIVATE, shown.visibility)
+        scenario.moveToState(Lifecycle.State.RESUMED)
+        shown.contentIntent.send()
+        compose.waitUntil(10000) { compose.onAllNodesWithText("Ready for your message.").fetchSemanticsNodes().isNotEmpty() }
+    }
+    private fun changed(scope: String) { Assert.assertTrue(live.get()?.send("""{"type":"changed","scopes":["$scope"]}""") == true) }
     private fun screenshot(name: String) {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         instrumentation.uiAutomation.executeShellCommand("screencap -p /data/local/tmp/companion-$name.png").use { descriptor ->

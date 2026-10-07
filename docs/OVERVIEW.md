@@ -596,4 +596,4 @@ Fleet → Accounts manages any number of ChatGPT and Claude subscriptions indepe
 
 ## Android companion
 
-A native Android 8+ companion provides QR pairing from Account → Android devices, agent text conversations, host-access approval review, and FCM notifications. It uses revocable device credentials bound to existing administrator permissions and the existing portal/host services. See [setup and release instructions](android-companion.md).
+A native Android 8+ companion provides QR pairing from Account → Android devices, agent text conversations, host-access approval review, and FCM notifications. Version 0.3.0 keeps the overview and open chat current through one foreground WebSocket, with cursor-based catch-up after reconnect. Agent-authored summaries (one sentence, at most 160 characters) appear on cards and in their corresponding push notifications; full answers remain in chat. It uses revocable device credentials bound to existing administrator permissions and the existing portal/host services. See [setup and release instructions](android-companion.md).

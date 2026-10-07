@@ -803,8 +803,8 @@ The internal `cxx portal` surface is intentionally narrow:
 - `cxx portal resolve --summary TEXT` retracts this session's earlier attention notices with an explicit `attention_resolved` timeline event (summary: 1–1000 bytes). It preserves the relay, active turn and pending prompt; it neither asks the user for action nor answers a question. It reports success only after a confirmed publish; automatic retries preserve the event ID when delivery is uncertain.
 - `cxx portal wait --seconds N` long-polls and leases the oldest ordered item without acknowledging it. Ambiguous responses retry with the same claim UUID, so a lost response returns the existing lease instead of waiting for expiry.
 - `cxx portal accept --message-id ID --lease-owner OWNER` acknowledges an item only after its tool result reached the root agent; an unacknowledged lease is redelivered. Ambiguous acceptance retries are automatic and preserve the same lease/body.
-- `cxx portal say --text TEXT` publishes safe user-facing assistant text.
-- `cxx portal ask --question TEXT [--options "a|b"]` creates a first-answer-wins prompt.
+- `cxx portal say --text TEXT [--summary TEXT]` publishes safe user-facing assistant text and a short mobile preview.
+- `cxx portal ask --question TEXT [--summary TEXT] [--options "a|b"]` creates a first-answer-wins prompt. Summaries are one plain sentence in the response language, at most 160 Unicode characters, naming the latest result or decision needed; the wrapper normalizes whitespace and truncates excess characters with an ellipsis. Older callers may omit them.
 - `cxx portal leave` closes the relay and cancels its undelivered work when the local user returns.
 
 Event and terminal publishes retry ambiguous transport/502 results with their
@@ -821,7 +821,7 @@ enters the `wait` loop directly without publishing an attention notice: opening
 the relay means the agent is available, not that the user is needed. Status goes
 through `say`, `notify` is reserved for an action the user must take, and
 `resolve` withdraws a notice that no longer applies. Everything it publishes
-lands in the portal; paired Android companions may receive generic FCM alerts
+lands in the portal; paired Android companions may receive FCM alerts with the event's short summary
 for questions, attention, and followed replies (see `docs/android-companion.md`). It cannot wake a Codex process or
 model turn that has already stopped; `relay_ready` becomes false when fresh
 polling ceases.
@@ -886,7 +886,9 @@ means transport availability, not proof that the model will respond or a task su
 
 Ordinary deliveries are serialized across both sources. Peer requests use
 `agent_reply(message_id, content)`; operator requests use
-`agent_receiver_reply(message_id, content)`. Durable acceptance precedes native
+`agent_receiver_reply(message_id, content, summary?)`. Supply a one-sentence summary
+of at most 160 characters for mobile cards and push; the full result remains in
+`content`. Omitting it remains compatible with older callers. Durable acceptance precedes native
 submission, so uncertain submission is not automatically replayed as fresh work.
 A peer disconnect records an ambiguous outcome. An accepted portal instruction
 without its correlated assistant event remains unconfirmed, never fabricated as

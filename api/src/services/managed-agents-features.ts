@@ -371,7 +371,11 @@ message expires if nothing takes it.
 **Automatic reception.** The wrapper checks native receiver health silently in the
 background; there are no verification messages to acknowledge. For operator portal
 instructions, use
-\`agent_receiver_reply\` with the delivered message ID and your result. Normal peer replies
+\`agent_receiver_reply\` with the delivered message ID, your result in \`content\`, and a
+\`summary\`: one plain sentence of at most 160 characters in the response language, stating
+the latest result or decision needed. This summary appears on mobile tiles and push
+notifications. Also supply \`--summary\` when using \`cxx portal say\` or \`ask\`.
+Normal peer replies
 still use \`agent_reply\`. These tools do not grant permission to perform the requested work.
 If \`agent_listen\` reports automatic reception, do not poll it: yield the current model turn
 and the native receiver will deliver the next message. This also applies while a call or

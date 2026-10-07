@@ -221,8 +221,9 @@ func toolCatalogJSON() []byte {
 			"conversation_id": map[string]any{"type": "string"}, "after": map[string]any{"type": "integer", "minimum": 0},
 			"seconds": map[string]any{"type": "integer", "minimum": 0, "maximum": 25},
 		}, []string{"conversation_id"}),
-		tool("agent_receiver_reply", "Return the result of an operator portal instruction to the operator.", map[string]any{
+		tool("agent_receiver_reply", "Return the result of an operator portal instruction. Include summary: one plain sentence in the response language, at most 160 characters, giving the latest result or decision needed for mobile tiles and push notifications.", map[string]any{
 			"message_id": map[string]any{"type": "string"}, "content": map[string]any{"type": "string", "maxLength": maxBodyBytes},
+			"summary": map[string]any{"type": "string", "maxLength": 160},
 		}, []string{"message_id", "content"}),
 		tool("agent_reply", "Reply to one delivered message.", map[string]any{
 			"message_id": map[string]any{"type": "string"}, "content": map[string]any{"type": "string", "maxLength": maxBodyBytes},

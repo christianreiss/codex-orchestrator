@@ -19,6 +19,7 @@ import { stalePendingReason } from '../insecure-window.js';
 import { readFleetEngineState } from '../engine-switch.js';
 import { isEngine } from '../../util/engine.js';
 import { FcmTransport } from './fcm.js';
+import { decodeSummaryPayload, eventSummary } from './summary.js';
 
 export function notificationKind(type: string, followed: boolean): 'attention' | 'reply' | null {
   if (type === 'waiting_input' || type === 'attention') return 'attention';
@@ -198,9 +199,30 @@ export class CompanionPush {
         continue;
       }
       try {
+        const data: Record<string, string> = {
+          notification_id: job.id,
+          device_id: job.deviceId,
+          kind: job.kind,
+          target_id: job.targetId,
+        };
+        if (job.kind !== 'approval') {
+          // Resolve the outbox's source event, never the session's latest preview:
+          // another reply may have arrived while this delivery was retrying.
+          const eventId = /^event:(\d+)$/.exec(job.sourceKey)?.[1];
+          const [event] = eventId
+            ? await db
+                .select()
+                .from(agentEvents)
+                .where(and(eq(agentEvents.id, Number(eventId)), eq(agentEvents.sessionId, job.targetId)))
+            : [];
+          data.summary = eventSummary(
+            event?.eventType ?? 'assistant_message',
+            event ? decodeSummaryPayload(event.payloadEnc, this.ctx) : {},
+          );
+        }
         const outcome = await this.transport.send(
           decrypt(row.device.fcmTokenEnc!, keyring),
-          { notification_id: job.id, device_id: job.deviceId, kind: job.kind, target_id: job.targetId },
+          data,
           Math.floor((Date.parse(job.expiresAt) - Date.now()) / 1000),
         );
         if (outcome === 'invalid')

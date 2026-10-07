@@ -92,9 +92,10 @@ describe('served document byte invariance', () => {
 
     expect(base.sha256).toBe('30abaea24c8809d8634670f0eceb3004aabb4eafb5416c78333c719e8b67e14b');
     expect(out.policy_sha256).toBe('3d8a8c754d80369c46a16c3350db8461520d3ae14b1de7ac03ad9454925ad5e5');
-    expect(out.features_sha256).toBe('aa7353611e473b8edcb01b9ffac1bf125f378a910f44512df7962d3fe0bf726a');
-    expect(out.managed_sha256).toBe('9813deb2bfa9a5852c9e2e59d3ba8453147d656678552f4f385363e2636e6aac');
-    expect(sha256(out.body)).toBe('0d16e8ce9e232a9320b8b7e36232de5ab92f0ebd98f3a09e88b7bebe3b690ad7');
+    // 2026-10-07: intentionally request short companion summaries in managed instructions.
+    expect(out.features_sha256).toBe('cbc42111d8d3625718b5d9e7e19174b50ffe28be0662f76a62c7777248cfc684');
+    expect(out.managed_sha256).toBe('d8095d1d4be16980b72e5a5ce05a0a85e88d15bbcdf1441cc4f87262013ab8a3');
+    expect(sha256(out.body)).toBe('55bc3c72d62a80d4b1ce468f7fedf3d5da94ca16f0c42751d9e9fa8b213b6fab');
   });
 });
 

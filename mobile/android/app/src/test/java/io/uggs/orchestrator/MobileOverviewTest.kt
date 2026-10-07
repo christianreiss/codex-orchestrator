@@ -6,6 +6,14 @@ import org.junit.Test
 
 class MobileOverviewTest {
     private fun agent(json: String) = JSONObject(json)
+    @Test fun shortSummariesKeepUnicodeAndNeverUseTheWholeAnswer() {
+        assertEquals("DNS fixed. Restart needed.", compactSummary(" DNS fixed.\nRestart needed. "))
+        assertEquals("😀".repeat(159) + "…", compactSummary("😀".repeat(161)))
+        assertNull(compactSummary("  "))
+        assertEquals("Build passed.", agentSummary(agent("""{"preview":{"summary":"Build passed."},"pending_prompt":{"question":"Full question"}}""")))
+        assertEquals("Your reply is needed.", agentSummary(agent("""{"pending_prompt":{"question":"Full question"}}""")))
+        assertNull(agentSummary(agent("""{"text":"Full answer"}""")))
+    }
     @Test fun requiresRealReceiverReadinessRatherThanActiveStatus() {
         val rows = listOf(
             agent("""{"id":"ready","relay_ready":true,"presence":"listening"}"""),

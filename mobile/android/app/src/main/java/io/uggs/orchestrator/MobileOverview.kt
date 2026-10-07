@@ -25,6 +25,16 @@ fun agentDetail(agent: JSONObject): String = listOf(
     agent.optString("engine").replaceFirstChar { it.uppercase() },
 ).filter { it.isNotBlank() }.joinToString(" · ")
 
+fun compactSummary(value: String?): String? {
+    val text = value?.replace(Regex("\\s+"), " ")?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+    return if (text.codePointCount(0, text.length) > 160) text.substring(0, text.offsetByCodePoints(0, 159)).trimEnd() + "…" else text
+}
+
+fun agentSummary(agent: JSONObject): String? = compactSummary(agent.optJSONObject("preview")?.optString("summary"))
+    ?: if (agent.optJSONObject("pending_prompt") != null) "Your reply is needed."
+    else if (agent.optJSONObject("attention") != null) compactSummary(agent.getJSONObject("attention").optString("summary")) ?: "The agent needs your attention."
+    else null
+
 fun durationLabel(minutes: Int) = if (minutes >= 60 && minutes % 60 == 0) "${minutes / 60}h" else "${minutes}m"
 
 fun conversationEvents(events: List<JSONObject>) = events.filter {

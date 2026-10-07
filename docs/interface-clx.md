@@ -951,7 +951,7 @@ the agent is available, not that the user is needed), uses `say` for status,
 reserves `notify` for an action the user must take, and withdraws a stale notice
 with `resolve`. Attention and lifecycle notices are
 recorded in the portal, which the user reaches through their own permanent
-bookmarked link. Paired Android companions may also receive generic FCM alerts
+bookmarked link. Paired Android companions may also receive FCM alerts with the event's short summary
 for questions, attention, and followed replies (see `docs/android-companion.md`). It cannot wake a
 Claude process or model turn that has already stopped, and `relay_ready` ages
 false when active polling ceases. The relay, socket capability, and environment
@@ -1022,7 +1022,10 @@ means transport availability, not proof that the model will respond or a task su
 
 Ordinary deliveries are serialized across both sources. Peer requests use
 `agent_reply(message_id, content)`; operator requests use
-`agent_receiver_reply(message_id, content)`. Durable acceptance precedes native
+`agent_receiver_reply(message_id, content, summary?)`. Supply one plain sentence in
+the response language, at most 160 characters, naming the latest result or needed
+decision for mobile cards and push. `cxx portal say` and `ask` also accept
+`--summary TEXT`; older callers may omit it. Durable acceptance precedes native
 submission, so uncertain submission is not automatically replayed as fresh work.
 A peer disconnect records an ambiguous outcome. An accepted portal instruction
 without its correlated assistant event remains unconfirmed, never fabricated as

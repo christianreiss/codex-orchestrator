@@ -192,6 +192,46 @@ func TestPortalReplyRequiresOwnedMessage(t *testing.T) {
 	}
 }
 
+func TestPortalReplySummaryKeepsCorrelationAndSupportsOlderCallers(t *testing.T) {
+	for _, engine := range []string{"codex", "claude", "grok"} {
+		for _, summary := range []string{"", "DNS fixed; approval needed."} {
+			t.Run(engine+"/"+summary, func(t *testing.T) {
+				t.Setenv("CXX_AGENT_PORTAL_ENGINE", engine)
+				var event map[string]any
+				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+					if strings.HasSuffix(req.URL.Path, "/events") {
+						_ = json.NewDecoder(req.Body).Decode(&event)
+					}
+					_ = json.NewEncoder(w).Encode(map[string]any{})
+				}))
+				defer server.Close()
+				r := &autoReceiver{client: &sessionClient{id: "session", http: &http.Client{Transport: rewriteTransport{server: server}}}, pendingPortal: map[string]any{"message_id": "owned"}}
+				args := map[string]any{"message_id": "owned", "content": "Full answer."}
+				if summary != "" {
+					args["summary"] = summary
+				}
+				if _, err := r.reply(context.Background(), args); err != nil {
+					t.Fatal(err)
+				}
+				payload := event["payload"].(map[string]any)
+				if payload["message_id"] != "owned" || payload["text"] != "Full answer." || event["client_event_id"] != "receiver:owned" {
+					t.Fatalf("event: %v", event)
+				}
+				if summary == "" {
+					if _, exists := payload["summary"]; exists {
+						t.Fatal("missing summary must stay missing")
+					}
+				} else if payload["summary"] != summary {
+					t.Fatalf("summary: %v", payload)
+				}
+				if r.pendingPortal != nil {
+					t.Fatal("reply did not release portal delivery")
+				}
+			})
+		}
+	}
+}
+
 func TestChannelDeliveryPreservesFullContentAndMessageID(t *testing.T) {
 	t.Setenv("CXX_AGENT_PORTAL_ENGINE", "claude")
 	var output strings.Builder

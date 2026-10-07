@@ -1,3 +1,8 @@
+# 2026-10-07
+
+- Android companion 0.3.0 uses one foreground WebSocket for live overview, approval and chat updates, with automatic reconnect and cursor-based catch-up. Agent-authored summaries appear on cards and in their corresponding push notifications; full replies stay in chat. Deploy the updated API before installing this APK; the older SSE endpoint remains available.
+- Wrapper 0.9.17 adds optional short summaries to `agent_receiver_reply` and `cxx portal say/ask` for Codex, Claude and Grok. Managed receiver instructions request one sentence of at most 160 characters describing the latest result or decision needed. Existing callers remain compatible.
+
 # 2026-10-05
 
 - Simplify admin navigation: daily tasks share the open Workspace section; configuration and specialist tools start collapsed. Activity becomes Logs under Diagnostics, and Active Clients replaces it in the mobile bar. Saved section choices and direct log links remain available.

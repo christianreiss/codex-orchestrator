@@ -12,6 +12,9 @@ other agents whose server-reported `relay_ready` is true. Offline, ended, idle
 without a receiver, and read-only sessions are omitted. A working agent appears
 only if its receiver can still accept a message. Project name, host, and engine
 identify each conversation; **Review next** opens the next decision directly.
+Each card also shows the agent's latest short summary (one sentence, at most
+160 Unicode characters, displayed on up to two lines). An open question or active
+attention notice takes priority over the last reply. The full answer stays in chat.
 The compact layout uses square edges, tighter spacing, and at least 48 dp
 action targets while respecting Android text size settings.
 
@@ -22,6 +25,28 @@ be acted on. Chat shows messages and the current question, with direct option
 buttons; status/lifecycle events stay off the mobile timeline. Sending follows
 replies automatically. Connection, alert controls, and confirmed sign-out live
 under **More**. Desktop retains the full session inventory and administration.
+
+## Live updates
+
+Version 0.3.0 keeps one foreground WebSocket at `/companion/v1/ws` for overview,
+approvals and the open chat. `hello` starts a full refresh; `changed` carries a
+`scopes` array (`me`, `agents`, `approvals`) and triggers the corresponding REST
+reads. Chat resumes from its last durable event cursor. The socket carries no
+transcript content or admin event payloads. The existing SSE endpoint remains
+available to older APKs.
+
+Server changes invalidate immediately; one shared five-second reconciliation
+also catches expired requests and lost agent readiness. Authorized heartbeats
+arrive every 15 seconds. The app stops showing Live after a lost connection or
+30 seconds without a frame, reconnects with a 1–30 second backoff, and reconciles
+before enabling actions again. Refreshes are serialized and stale responses are
+discarded. Backgrounding closes the socket; FCM continues to deliver notifications.
+The visible conversation is renewed every 20 seconds for push suppression.
+
+The socket uses the paired device's Bearer header, rejects browser-origin
+requests, rechecks current permissions, and closes on revocation or the global
+API kill switch. It is independent of `ADMIN_WS_ENABLED`. Deploy the API supporting
+this endpoint before installing 0.3.0; roll out wrapper 0.9.17 for authored summaries.
 
 ## Server and Firebase setup
 
@@ -58,8 +83,8 @@ under **More**. Desktop retains the full session inventory and administration.
    endpoint `codex-auth.uggs.io` only, the app also accepts CAs explicitly installed
    in Android's user certificate store. All other hosts use system CAs, and
    certificate/hostname verification remains enabled everywhere. No TLS bypass
-   is provided. Proxy both `/admin/companion/*` and `/companion/v1/*`; preserve SSE
-   streaming and the Authorization header.
+   is provided. Proxy both `/admin/companion/*` and `/companion/v1/*`; preserve WebSocket
+   upgrades, SSE streaming for older apps, and the Authorization header.
 5. Deploy the API/frontend using the repository's regular deployment workflow.
    Migration `0039` is applied by the normal migration runner, never manually
    piped into MySQL. Enable the existing agent portal for chat.
@@ -102,9 +127,15 @@ upload or production rollout is part of the development build.
 
 ## Delivery behavior and operation
 
-- Notifications contain identifiers and generic text only. The app authenticates
-  to retrieve content and current approval state. Approval always happens in the
-  app; no lock-screen approve button exists.
+- Agent notifications contain identifiers and the source event's short summary;
+  full replies are retrieved only inside the authenticated app. FCM therefore
+  carries that summary. `agent_receiver_reply(..., summary)` and `cxx portal
+  say/ask --summary` supply it in the reply's language. Missing summaries produce
+  a neutral notice, never an excerpt of the full answer or a previous reply.
+  Outbox retries retain the summary of their triggering event even if newer
+  replies arrive. Notifications remain private on the lock screen and expand to
+  show the complete summary. Host approvals retain their generic notification
+  text and always require review in the app.
 - `companion_notifications.state` records pending, sent, canceled, or failed.
   Pending jobs claim a one-minute retry lease; attempts are bounded at eight and
   backoff at five minutes. Expired jobs are canceled and purged a day later.
@@ -114,7 +145,7 @@ upload or production rollout is part of the development build.
 - Chat notifications expire after one hour. Questions/attention reach eligible
   devices; replies notify only followed conversations. Routine progress and
   session lifecycle events are silent. Foreground conversations suppress alerts.
-- SSE runs only while the app is visible. Cursor-based resumption and idempotent
+- WebSocket runs only while the app is visible. Cursor-based resumption and idempotent
   sends handle reconnects; an unsuccessful send preserves its draft and retry ID.
 - Devices expire after one year. Disabled admins, role changes, device revocation,
   and portal suspension are rechecked by the API; revocation terminates access

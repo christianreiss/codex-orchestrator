@@ -63,26 +63,28 @@ object VisibleConversation { @Volatile var session: String? = null }
 
 class PushService : FirebaseMessagingService() {
     override fun onNewToken(token: String) { registerPushToken(this, token) }
-    override fun onMessageReceived(message: RemoteMessage) {
-        val connection = ConnectionStore(this).load() ?: return
-        val data = message.data
+    override fun onMessageReceived(message: RemoteMessage) { showCompanionNotification(this, message.data) }
+}
+
+internal fun showCompanionNotification(context: Context, data: Map<String, String>) {
+        val connection = ConnectionStore(context).load() ?: return
         if (data["device_id"] != connection.deviceId) return
         val id = data["notification_id"] ?: return
         val target = data["target_id"] ?: return
         val approval = data["kind"] == "approval"
         if (!approval && VisibleConversation.session == target) return
-        if (!NotificationManagerCompat.from(this).areNotificationsEnabled()) return
-        if (android.os.Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
-        val seen = getSharedPreferences("push-seen", MODE_PRIVATE)
+        if (!NotificationManagerCompat.from(context).areNotificationsEnabled()) return
+        if (android.os.Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
+        val seen = context.getSharedPreferences("push-seen", Context.MODE_PRIVATE)
         if (seen.contains(id)) return
         if (seen.all.size > 200) seen.edit().clear().apply()
-        val intent = Intent(this, MainActivity::class.java).putExtra("kind", if (approval) "approval" else "agent").putExtra("target_id", target)
-        val pending = PendingIntent.getActivity(this, id.hashCode(), intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-        val notification = NotificationCompat.Builder(this, if (approval) "approvals" else "agents")
+        val intent = Intent(context, MainActivity::class.java).putExtra("kind", if (approval) "approval" else "agent").putExtra("target_id", target)
+        val pending = PendingIntent.getActivity(context, id.hashCode(), intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        val summary = if (approval) "Open to review and approve or deny." else compactSummary(data["summary"]) ?: "New reply from the agent."
+        val notification = NotificationCompat.Builder(context, if (approval) "approvals" else "agents")
             .setSmallIcon(R.drawable.ic_companion).setContentTitle(if (approval) "Host access requested" else "Agent update")
-            .setContentText(if (approval) "Open to review and approve or deny." else "Open your conversation to read the update.")
+            .setContentText(summary).setStyle(NotificationCompat.BigTextStyle().bigText(summary))
             .setContentIntent(pending).setAutoCancel(true).setVisibility(NotificationCompat.VISIBILITY_PRIVATE).build()
-        NotificationManagerCompat.from(this).notify(id.hashCode(), notification)
+        NotificationManagerCompat.from(context).notify(id.hashCode(), notification)
         seen.edit().putBoolean(id, true).apply()
-    }
 }

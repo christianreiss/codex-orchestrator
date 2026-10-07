@@ -252,6 +252,13 @@ deduplication, and reconnect behavior apply. Admission is not an agent reply.
 Explicit unmanaged `--no-leader` or custom socket launches report receiver
 unavailability honestly. The receiver never answers native permission requests.
 
+Operator replies use `agent_receiver_reply(message_id, content, summary?)`.
+Supply one plain sentence in the response language, at most 160 characters,
+stating the latest result or decision needed for companion cards and push.
+`cxx portal say` and `ask` also accept `--summary TEXT`; older callers remain
+compatible without it. Grok shares the same event payload and summary rules as
+Codex and Claude.
+
 ## HTTP inference gateway
 
 The OpenAI-shaped subscription gateway is **`/grok/v1`**, isolated from Codex

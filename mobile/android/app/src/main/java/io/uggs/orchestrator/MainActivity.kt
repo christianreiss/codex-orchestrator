@@ -151,7 +151,7 @@ class MainActivity : ComponentActivity() {
         Column(Modifier.padding(horizontal = 12.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(agentTitle(agent), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
             Text(agentDetail(agent), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            if (attention) Text(agent.optJSONObject("pending_prompt")?.optString("question") ?: agent.optJSONObject("attention")?.optString("summary")?.takeIf { it.isNotBlank() } ?: "Needs your reply", maxLines = 2, overflow = TextOverflow.Ellipsis)
+            agentSummary(agent)?.let { Text(it, maxLines = 2, overflow = TextOverflow.Ellipsis) }
         }
     }
 }

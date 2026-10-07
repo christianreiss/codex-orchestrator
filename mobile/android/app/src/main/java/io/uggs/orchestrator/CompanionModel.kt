@@ -11,9 +11,11 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import okhttp3.Response
-import okhttp3.sse.EventSource
-import okhttp3.sse.EventSourceListener
+import okhttp3.WebSocket
+import okhttp3.WebSocketListener
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.UUID
@@ -41,8 +43,17 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
     var defaultMinutes by mutableStateOf(480); private set
     var highlightApproval by mutableStateOf<String?>(null); private set
     private var foreground = false
-    private var polling: Job? = null
-    private var stream: EventSource? = null
+    private var socket: WebSocket? = null
+    private var socketReady = false
+    private var generation = 0
+    private var revision = 0L
+    private var lastFrame = 0L
+    private var reconnectAttempt = 0
+    private var maintenance: Job? = null
+    private var refreshJob: Job? = null
+    private val pendingScopes = mutableSetOf<String>()
+    private var eventsLoaded = false
+    private val presenceMutex = Mutex()
     private var reconnect: Job? = null
     private var pendingSend: Triple<String, String, String>? = null
     private var pendingOpen: String? = null
@@ -53,7 +64,7 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
     private fun failure(e: Exception) {
         if (e is CancellationException) throw e
         error = if (e is ApiException) e.message ?: "Request failed" else "Connection lost. Try again."
-        if (e !is ApiException) { online = false; status = "Offline" }
+        online = false; status = "Offline"
         if (e is ApiException && e.status == 401) { clearConnection(); error = "Device access expired or was revoked. Pair again." }
     }
     fun clearError() { error = null }
@@ -65,94 +76,168 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
             try {
                 val result = Api(pairing.server).request("/pair", "POST", JSONObject().put("token", pairing.token).put("name", android.os.Build.MODEL))
                 val c = Connection(pairing.server, result.getString("token"), result.getString("device_id"), result.optJSONObject("firebase"))
-                store.save(c); connection = c; configurePush(getApplication(), c); beginPolling()
+                store.save(c); connection = c; configurePush(getApplication(), c); startLive()
             } catch (e: Exception) { failure(e) } finally { busy = false }
         }
     }
     fun setForeground(value: Boolean) {
+        if (foreground == value) return
         foreground = value
-        if (value) { online = false; connection?.let { configurePush(getApplication(), it) }; beginPolling(); if (selected != null) startStream() }
-        else { polling?.cancel(); reconnect?.cancel(); stream?.cancel(); stream = null; VisibleConversation.session = null }
+        if (value) { connection?.let { configurePush(getApplication(), it) }; startLive() }
+        else {
+            stopLive()
+            viewModelScope.launch { runCatching { updatePresence() } }
+        }
     }
-    private fun beginPolling() {
-        polling?.cancel()
+    private fun stopLive() {
+        generation++; revision++; socketReady = false; online = false
+        socket?.cancel(); socket = null
+        maintenance?.cancel(); refreshJob?.cancel(); refreshJob = null; reconnect?.cancel()
+        pendingScopes.clear(); VisibleConversation.session = null
+    }
+    private fun startLive() {
+        stopLive()
         if (!foreground || connection == null) return
-        polling = viewModelScope.launch {
-            while (connection != null) {
-                try { refresh() } catch (e: Exception) { failure(e) }
-                delay(10_000)
-            }
-        }
-    }
-    private suspend fun refresh() {
-        val client = api()
-        val me = client.request("/me")
-        capabilities = me.optJSONArray("capabilities")?.strings() ?: emptySet()
-        follows = me.optJSONArray("follows")?.strings() ?: emptySet()
-        notifications = me.optBoolean("notifications", true)
-        val c = connection ?: return
-        if (me.optJSONObject("firebase")?.toString() != c.firebase?.toString()) {
-            connection = c.copy(firebase = me.optJSONObject("firebase")); store.save(connection!!); configurePush(getApplication(), connection!!)
-        }
-        if (can("hosts.activate_insecure")) {
-            val result = client.request("/approvals")
-            approvals = result.getJSONArray("requests").objects().filter { it.optBoolean("live") }
-            defaultMinutes = result.optInt("default_duration_minutes", 480)
-        } else approvals = emptyList()
-        if (can("agent_portal.read")) {
-            try { agents = client.request("/agents").getJSONArray("agents").objects() }
-            catch (e: ApiException) { if (e.status == 503) { agents = emptyList(); status = "Agent portal is disabled" } else throw e }
-        } else agents = emptyList()
-        client.request("/device", "PATCH", JSONObject().put("visible_session_id", if (foreground) selected ?: JSONObject.NULL else JSONObject.NULL))
-        VisibleConversation.session = if (foreground) selected else null
-        if (selected != null && stream == null) startStream()
-        if (!online) error = null
-        status = "Live"; online = true; lastSync = SystemClock.elapsedRealtime()
-        pendingOpen?.let { pendingOpen = null; openSession(it) }
-    }
-    fun refreshNow() { viewModelScope.launch { try { refresh() } catch (e: Exception) { failure(e) } } }
-    fun openSession(id: String) {
-        if (reachable().none { it.optString("id") == id }) { notice = "Agent is no longer reachable"; return }
-        selected = id; events = emptyList(); draft = ""; pendingSend = null
-        viewModelScope.launch {
-            try {
-                val page = api().request("/agents/$id/events?tail=1")
-                if (selected != id) return@launch
-                events = page.getJSONArray("events").objects()
-                VisibleConversation.session = id
-                api().request("/device", "PATCH", JSONObject().put("visible_session_id", id))
-                startStream()
-            } catch (e: Exception) { failure(e) }
-        }
-    }
-    fun closeSession() { selected = null; events = emptyList(); stream?.cancel(); stream = null; reconnect?.cancel(); VisibleConversation.session = null; refreshNow() }
-    private fun startStream() {
-        reconnect?.cancel(); stream?.cancel()
-        val id = selected ?: return
-        if (!foreground || connection == null || !can("agent_portal.reveal_transcript")) return
-        stream = api().stream(id, events.maxOfOrNull { it.optLong("cursor") } ?: 0, object : EventSourceListener() {
-            override fun onEvent(eventSource: EventSource, eventId: String?, type: String?, data: String) {
-                if (type != "agent") return
+        status = "Connecting…"
+        val current = generation
+        lastFrame = SystemClock.elapsedRealtime()
+        socket = api().live(object : WebSocketListener() {
+            override fun onMessage(webSocket: WebSocket, text: String) {
                 viewModelScope.launch {
-                    if (selected != id) return@launch
-                    runCatching { JSONObject(data) }.getOrNull()?.let { event ->
-                        events = (events + event).distinctBy { it.optLong("cursor") }.sortedBy { it.optLong("cursor") }
+                    if (generation != current || !foreground) return@launch
+                    val frame = runCatching { JSONObject(text) }.getOrNull() ?: return@launch
+                    when (frame.optString("type")) {
+                        "hello" -> { socketReady = true; invalidate() }
+                        "changed" -> invalidate(frame.optJSONArray("scopes")?.strings() ?: emptySet())
+                        "ping" -> if (online && pendingScopes.isEmpty() && refreshJob?.isActive != true) lastSync = SystemClock.elapsedRealtime()
+                        else -> return@launch
                     }
+                    lastFrame = SystemClock.elapsedRealtime()
                 }
             }
-            override fun onClosed(eventSource: EventSource) { scheduleReconnect(id) }
-            override fun onFailure(eventSource: EventSource, t: Throwable?, response: Response?) {
-                viewModelScope.launch {
-                    if (response?.code == 401) failure(ApiException(401, "Device revoked"))
-                    else scheduleReconnect(id)
-                }
+            override fun onClosing(webSocket: WebSocket, code: Int, reason: String) { webSocket.close(code, null) }
+            override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+                viewModelScope.launch { if (generation == current) { if (code == 4001) failure(ApiException(401, "Device revoked")) else scheduleReconnect() } }
+            }
+            override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+                viewModelScope.launch { if (generation == current) { if (response?.code == 401) failure(ApiException(401, "Device revoked")) else scheduleReconnect() } }
             }
         })
+        maintenance = viewModelScope.launch {
+            var presenceAt = 0L
+            while (foreground && generation == current) {
+                delay(5000)
+                val now = SystemClock.elapsedRealtime()
+                if (now - lastFrame >= 30_000) { scheduleReconnect(); break }
+                if (socketReady && selected != null && now - presenceAt >= 20_000) {
+                    presenceAt = now
+                    try { updatePresence() } catch (e: Exception) { failure(e); scheduleReconnect() }
+                }
+            }
+        }
     }
-    private fun scheduleReconnect(id: String) {
-        if (!foreground || selected != id || connection == null) return
-        reconnect?.cancel()
-        reconnect = viewModelScope.launch { delay(3000); if (selected == id) startStream() }
+    private fun scheduleReconnect() {
+        stopLive()
+        if (!foreground || connection == null) return
+        status = "Reconnecting…"
+        val wait = (1000L shl reconnectAttempt.coerceAtMost(5)).coerceAtMost(30_000L)
+        reconnectAttempt++
+        reconnect = viewModelScope.launch { delay(wait); startLive() }
+    }
+    private fun invalidate(scopes: Set<String> = setOf("me", "agents", "approvals")) {
+        if (!foreground || connection == null || !socketReady) return
+        val known = scopes.intersect(setOf("me", "agents", "approvals"))
+        if (known.isEmpty()) return
+        revision++; pendingScopes.addAll(known)
+        if (refreshJob?.isActive == true) return
+        refreshJob = viewModelScope.launch {
+            while (pendingScopes.isNotEmpty() && foreground && connection != null) {
+                delay(60)
+                val requested = pendingScopes.toSet(); pendingScopes.clear()
+                val epoch = revision
+                try { if (!refresh(requested, generation, epoch)) pendingScopes.addAll(requested) }
+                catch (e: Exception) { failure(e); if (connection != null) scheduleReconnect(); return@launch }
+            }
+        }
+    }
+    private suspend fun refresh(scopes: Set<String>, current: Int, epoch: Long): Boolean {
+        val client = api()
+        val me = if ("me" in scopes) client.request("/me") else null
+        val caps = me?.optJSONArray("capabilities")?.strings() ?: capabilities
+        val loadApprovals = "approvals" in scopes || me != null
+        val loadAgents = "agents" in scopes || me != null
+        val requests = if (loadApprovals && "hosts.activate_insecure" in caps) client.request("/approvals") else null
+        var portalDisabled = false
+        val snapshot = if (loadAgents && "agent_portal.read" in caps) {
+            try { client.request("/agents") }
+            catch (e: ApiException) { if (e.status == 503 && e.code == "agent_portal_disabled") { portalDisabled = true; null } else throw e }
+        } else null
+        val id = selected
+        var transcriptAllowed = "agent_portal.reveal_transcript" in caps && !portalDisabled
+        val nextEvents = if (loadAgents && id != null && transcriptAllowed) {
+            try { loadEvents(client, id) }
+            catch (e: ApiException) {
+                if (e.status in setOf(403, 404, 410)) { transcriptAllowed = false; null } else throw e
+            }
+        } else null
+        if (current != generation || epoch != revision || !foreground) return false
+        capabilities = caps
+        if (me != null) {
+            follows = me.optJSONArray("follows")?.strings() ?: emptySet()
+            notifications = me.optBoolean("notifications", true)
+            val c = connection ?: return false
+            if (me.optJSONObject("firebase")?.toString() != c.firebase?.toString()) {
+                connection = c.copy(firebase = me.optJSONObject("firebase")); store.save(connection!!); configurePush(getApplication(), connection!!)
+            }
+        }
+        if (loadApprovals) {
+            approvals = requests?.getJSONArray("requests")?.objects()?.filter { it.optBoolean("live") } ?: emptyList()
+            defaultMinutes = requests?.optInt("default_duration_minutes", 480) ?: 480
+        }
+        if (loadAgents) agents = snapshot?.getJSONArray("agents")?.objects() ?: emptyList()
+        if (!transcriptAllowed) { selected = null; events = emptyList(); eventsLoaded = false; VisibleConversation.session = null }
+        else if (nextEvents != null && selected == id) { events = nextEvents; eventsLoaded = true }
+        val reconnected = !online
+        if (reconnected) error = null
+        status = if (portalDisabled) "Agent portal is disabled" else "Live"
+        online = socketReady; lastSync = SystemClock.elapsedRealtime(); reconnectAttempt = 0
+        if (reconnected && selected != null) viewModelScope.launch { runCatching { updatePresence() } }
+        pendingOpen?.let { pendingOpen = null; openSession(it) }
+        return true
+    }
+    private suspend fun loadEvents(client: Api, id: String): List<JSONObject> {
+        var result = events
+        var cursor = result.maxOfOrNull { it.optLong("cursor") } ?: 0
+        var tail = !eventsLoaded
+        do {
+            val page = client.request("/agents/$id/events?${if (tail) "tail=1" else "after=$cursor"}")
+            val batch = page.getJSONArray("events").objects()
+            result = (result + batch).distinctBy { it.optLong("cursor") }.sortedBy { it.optLong("cursor") }
+            val next = page.optLong("next_cursor", cursor)
+            if (next <= cursor || batch.size < 250) break
+            cursor = next; tail = false
+        } while (true)
+        return result
+    }
+    private suspend fun updatePresence() = presenceMutex.withLock {
+        val c = connection ?: return@withLock
+        val id = if (foreground && can("agent_portal.reveal_transcript")) selected else null
+        VisibleConversation.session = id
+        Api(c.server, c.token).request("/device", "PATCH", JSONObject().put("visible_session_id", id ?: JSONObject.NULL))
+    }
+    fun refreshNow() { if (socketReady) invalidate() else startLive() }
+    fun openSession(id: String) {
+        if (reachable().none { it.optString("id") == id }) { notice = "Agent is no longer reachable"; return }
+        selected = id; events = emptyList(); eventsLoaded = false; draft = ""; pendingSend = null
+        invalidate(setOf("agents"))
+        viewModelScope.launch {
+            try { updatePresence() } catch (e: Exception) { failure(e) }
+        }
+    }
+    fun closeSession() {
+        selected = null; events = emptyList(); eventsLoaded = false; VisibleConversation.session = null
+        invalidate(setOf("agents"))
+        if (foreground && connection != null) viewModelScope.launch { runCatching { updatePresence() } }
     }
     fun follow(id: String, value: Boolean) { mutate { api().request("/agents/$id/follow", "PUT", JSONObject().put("followed", value)); follows = if (value) follows + id else follows - id } }
     fun send(prompt: JSONObject? = null) {
@@ -166,7 +251,9 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
         mutate {
             val body = JSONObject().put("client_message_id", uuid).put(if (prompt == null) "content" else "answer", text)
             if (prompt != null) body.put("version", prompt.optInt("version", 1))
-            api().request(target, "POST", body); draft = ""; pendingSend = null; follows = follows + id; notice = "Sent"
+            api().request(target, "POST", body)
+            if (selected == id) { draft = ""; pendingSend = null }
+            follows = follows + id; notice = "Sent"
         }
     }
     fun decide(id: Long, approve: Boolean, minutes: Int, onSuccess: () -> Unit = {}) {
@@ -186,7 +273,7 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
     private fun clearConnection() {
         store.clear(); connection = null; selected = null; events = emptyList(); agents = emptyList(); approvals = emptyList(); capabilities = emptySet()
         online = false; lastSync = 0; pendingOpen = null; highlightApproval = null
-        polling?.cancel(); reconnect?.cancel(); stream?.cancel(); stream = null; VisibleConversation.session = null
+        stopLive()
         android.app.NotificationManager::class.java.let { getApplication<Application>().getSystemService(it).cancelAll() }
         runCatching { com.google.firebase.messaging.FirebaseMessaging.getInstance().isAutoInitEnabled = false }
     }
@@ -194,7 +281,8 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
         if (busy) return
         viewModelScope.launch {
             busy = true; error = null
-            try { block(); if (connection != null) refresh() } catch (e: Exception) { failure(e); if (connection != null) runCatching { refresh() } }
+            revision++
+            try { block(); if (connection != null) refreshNow() } catch (e: Exception) { failure(e); if (connection != null) refreshNow() }
             finally { busy = false }
         }
     }
@@ -205,5 +293,5 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
         if (kind == "approval") { closeSession(); highlightApproval = target }
         else if (runCatching { UUID.fromString(target) }.isSuccess) { closeSession(); pendingOpen = target; refreshNow() }
     }
-    override fun onCleared() { stream?.cancel(); super.onCleared() }
+    override fun onCleared() { stopLive(); super.onCleared() }
 }

@@ -1123,7 +1123,7 @@ The portal is a separate mobile-first user surface at `/go`. Its persistent
 see every eligible active root session across the fleet; a finished session is
 read-only until the 24-hour retention purge. Browser portal users reach it through their own permanent bookmarked link.
 The separately paired Android companion can receive FCM notifications with
-opaque event identifiers; permanent portal links and transcript bodies are
+opaque event identifiers and the event's short summary; permanent portal links and full transcript bodies are
 never pushed.
 
 Every `/go/api/*` route is same-origin only and never inherits
@@ -1322,9 +1322,10 @@ Device credentials expire after one year; pairing again creates a new device.
 - `GET /companion/v1/me` — identity, current capabilities, public Firebase configuration, notification preference, and followed session IDs.
 - `PATCH /companion/v1/device` — optional `fcm_token` (nullable), `notifications` boolean, `visible_session_id` (nullable UUID); updates last-seen time. Visible-session suppression expires after 45 seconds.
 - `DELETE /companion/v1/device` — self-revoke on logout.
-- `GET /companion/v1/agents` — portal snapshot (`agents`, `generated_at`, `timings`), using `agent_portal.read`.
+- `GET /companion/v1/agents` — portal snapshot (`agents`, `generated_at`, `timings`), using `agent_portal.read`. With transcript permission, each agent also has `preview: {summary,cursor,created_at} | null`; open questions/attention take priority over the latest assistant reply. Summaries are whitespace-normalized and limited to 160 Unicode characters. A reply lacking a summary uses a neutral notice, never an older preview or full response excerpt. Without transcript permission, preview is null.
 - `GET /companion/v1/agents/{id}/events` — bounded timeline, `after` cursor and optional `tail=1`; requires `agent_portal.reveal_transcript`.
-- `GET /companion/v1/events` — resumable foreground SSE using `after` and optional `session_id`; rechecks device/account authorization and portal state each page, closes slow readers.
+- `GET /companion/v1/ws` — native Bearer WebSocket, independent of `ADMIN_WS_ENABLED`. Sends `{type:"hello",ts}`, `{type:"changed",scopes:["me"|"agents"|"approvals"],ts}`, and `{type:"ping",ts}`. Scopes are capability-filtered invalidations for the existing REST reads, never admin event bodies or transcript text. A shared five-second reconciliation covers time-based state changes; ordinary changes publish immediately. Rechecks credentials/permissions and the global API kill switch, emits heartbeats every 15 seconds, and closes slow/disconnected clients. Revocation closes with 4001; transient/disabled service uses 1013. Reconnect refreshes snapshots and resumes the selected transcript by cursor.
+- `GET /companion/v1/events` — legacy resumable foreground SSE using `after` and optional `session_id`; rechecks device/account authorization and portal state each page, closes slow readers. Retained for older APKs.
 - `POST /companion/v1/agents/{id}/messages` — `{client_message_id,content}`, returns 202 and follows this conversation. Reuses the portal's UUID idempotency and live-receiver checks.
 - `POST /companion/v1/agents/{id}/prompts/{promptId}/answer` — `{client_message_id,answer,version?}`, returns 202, preserves first-answer-wins and follows the conversation. Both writes require `agent_portal.manage`.
 - `PUT /companion/v1/agents/{id}/follow` — `{followed}` changes reply notifications for this device; requires transcript access.
@@ -1339,7 +1340,10 @@ meaning; the app never wakes engines or bypasses their host assignment.
 
 A durable per-device outbox scans committed portal events and live host requests
 every five seconds. It notifies questions/attention and followed replies, skips
-routine activity, and sends only opaque IDs through FCM. Jobs have unique source
+routine activity, and sends opaque IDs plus the source event's short `summary`
+through FCM for agent notifications. Full response text is never sent. The optional
+summary uses the existing encrypted event payload; no schema migration is needed.
+Jobs have unique source
 keys, expiring claims, up to eight attempts, and expiry capped at the request's
 five-minute deadline or one hour for chat. Delivery is at least once; the app
 deduplicates notification IDs. Invalid FCM registrations are removed. Every send

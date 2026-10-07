@@ -105,6 +105,7 @@ func runSay(args []string, stdout, stderr io.Writer) int {
 	flags := flag.NewFlagSet("cxx portal say", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	text := flags.String("text", "", "safe assistant response")
+	summary := flags.String("summary", "", "one sentence with the latest result or decision needed (max 160 characters)")
 	if err := flags.Parse(args); err != nil {
 		return 2
 	}
@@ -112,7 +113,7 @@ func runSay(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "cxx portal say: --text is required")
 		return 2
 	}
-	return sendEvent("assistant_message", map[string]any{"text": strings.TrimSpace(*text)}, stdout, stderr)
+	return sendEvent("assistant_message", map[string]any{"text": strings.TrimSpace(*text), "summary": CompactSummary(*summary)}, stdout, stderr)
 }
 
 // Resolving a notice retracts its request for human attention. It neither
@@ -147,6 +148,7 @@ func runAsk(args []string, stdout, stderr io.Writer) int {
 	flags := flag.NewFlagSet("cxx portal ask", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	question := flags.String("question", "", "question shown in the portal")
+	summary := flags.String("summary", "", "one sentence with the decision needed (max 160 characters)")
 	optionsRaw := flags.String("options", "", "optional | separated choices")
 	if err := flags.Parse(args); err != nil {
 		return 2
@@ -160,6 +162,7 @@ func runAsk(args []string, stdout, stderr io.Writer) int {
 		"question":     strings.TrimSpace(*question),
 		"allow_answer": true,
 		"prompt_id":    promptID,
+		"summary":      CompactSummary(*summary),
 	}
 	if choices := splitOptions(*optionsRaw); len(choices) > 0 {
 		payload["options"] = choices
@@ -352,8 +355,8 @@ func printCommandHelp(w io.Writer) {
 	fmt.Fprintln(w, "  cxx portal status")
 	fmt.Fprintln(w, "  cxx portal notify --summary <safe-summary>")
 	fmt.Fprintln(w, "  cxx portal resolve --summary <resolution-summary>")
-	fmt.Fprintln(w, "  cxx portal say --text <safe-assistant-response>")
-	fmt.Fprintln(w, "  cxx portal ask --question <question> [--options 'one|two']")
+	fmt.Fprintln(w, "  cxx portal say --text <safe-assistant-response> [--summary <short-result>]")
+	fmt.Fprintln(w, "  cxx portal ask --question <question> [--summary <short-decision>] [--options 'one|two']")
 	fmt.Fprintln(w, "  cxx portal wait [--seconds 20]")
 	fmt.Fprintln(w, "  cxx portal accept --message-id <id> --lease-owner <lease>")
 	fmt.Fprintln(w, "  cxx portal leave")

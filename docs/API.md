@@ -929,9 +929,10 @@ Device credentials expire after one year; pairing again creates a new device.
 - `GET /companion/v1/me` — identity, current capabilities, public Firebase configuration, notification preference, and followed session IDs.
 - `PATCH /companion/v1/device` — optional `fcm_token` (nullable), `notifications` boolean, `visible_session_id` (nullable UUID); updates last-seen time. Visible-session suppression expires after 45 seconds.
 - `DELETE /companion/v1/device` — self-revoke on logout.
-- `GET /companion/v1/agents` — portal snapshot (`agents`, `generated_at`, `timings`), using `agent_portal.read`.
+- `GET /companion/v1/agents` — portal snapshot (`agents`, `generated_at`, `timings`), using `agent_portal.read`. With transcript permission, includes per-agent `preview: {summary,cursor,created_at} | null`: one sentence of at most 160 Unicode characters, prioritizing the open question or attention notice, otherwise the latest reply.
 - `GET /companion/v1/agents/{id}/events` — bounded timeline, `after` cursor and optional `tail=1`; requires `agent_portal.reveal_transcript`.
-- `GET /companion/v1/events` — resumable foreground SSE using `after` and optional `session_id`; rechecks device/account authorization and portal state each page, closes slow readers.
+- `GET /companion/v1/ws` — native Bearer WebSocket for foreground live updates, independently of the admin WebSocket toggle. Sends `hello`, capability-filtered `changed` scopes (`me`, `agents`, `approvals`), and a `ping` every 15 seconds. The app refetches the corresponding REST views and resumes chat from its cursor. Revocation, current permissions and the API kill switch are rechecked; a shared five-second reconciliation catches expired approvals and lost agent readiness. No transcript bodies are broadcast.
+- `GET /companion/v1/events` — legacy resumable foreground SSE using `after` and optional `session_id`; retained for older APKs. Rechecks device/account authorization and portal state each page, closes slow readers.
 - `POST /companion/v1/agents/{id}/messages` — `{client_message_id,content}`, returns 202 and follows this conversation. Reuses the portal's UUID idempotency and live-receiver checks.
 - `POST /companion/v1/agents/{id}/prompts/{promptId}/answer` — `{client_message_id,answer,version?}`, returns 202, preserves first-answer-wins and follows the conversation. Both writes require `agent_portal.manage`.
 - `PUT /companion/v1/agents/{id}/follow` — `{followed}` changes reply notifications for this device; requires transcript access.
@@ -946,7 +947,9 @@ meaning; the app never wakes engines or bypasses their host assignment.
 
 A durable per-device outbox scans committed portal events and live host requests
 every five seconds. It notifies questions/attention and followed replies, skips
-routine activity, and sends only opaque IDs through FCM. Jobs have unique source
+routine activity, and sends opaque IDs plus the triggering event's short summary
+through FCM for agent notifications. Full replies stay in the authenticated app;
+missing summaries use a neutral notice. Jobs have unique source
 keys, expiring claims, up to eight attempts, and expiry capped at the request's
 five-minute deadline or one hour for chat. Delivery is at least once; the app
 deduplicates notification IDs. Invalid FCM registrations are removed. Every send
