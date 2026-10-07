@@ -1,0 +1,1 @@
+import{Bt as e,K as t,Vt as n,W as r,g as i,o as a}from"./DqOlhVIR.js";import"./xihTtKlq.js";import{t as o}from"./6tCk2imS2.js";var s=t(`<div></div>`);function c(t,c){n(c,!0);let l=a(c,[`$$slots`,`$$events`,`$$legacy`,`class`]);var u=s();i(u,e=>({class:e,...l}),[()=>o(`animate-pulse rounded-md bg-muted`,c.class)]),r(t,u),e()}export{c as t};

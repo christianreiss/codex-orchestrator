@@ -45,11 +45,13 @@ Key prefixes differ by engine:
 
 ### /api-keys admin page
 
-Navigate to **API Access** in the admin sidebar (or jump there via the `Ctrl`/`Cmd`+`K` command palette). The header has a **New key** button in the top-right corner. From top to bottom the page holds:
+Navigate to **API Access** in the admin sidebar (or jump there via the `Ctrl`/`Cmd`+`K` command palette). The header has a **New key** button in the top-right corner. The default view shows compact endpoint rows with copy buttons and availability status, followed immediately by the API key tabs and search. Click an endpoint name to select its keys; **New key** uses that selection. Disabled APIs and disabled backends remain visible here.
 
-**Service availability** — the master switch for all API traffic (`/admin/api/state`).
+Open **Configuration** for routing, backend defaults and global API control; **Back to keys** preserves the selected API. Existing setting links open Configuration and expand the relevant backend automatically.
 
-**Exposed APIs** — one row per exposed API, backed by `GET/POST /admin/api/surfaces`:
+**Global API control** — the master switch for all API traffic (`/admin/api/state`), at the bottom of Configuration.
+
+**Routing & availability** — one row per exposed API, backed by `GET/POST /admin/api/surfaces`:
 
 | Column | Meaning |
 |--------|---------|
@@ -61,9 +63,9 @@ Navigate to **API Access** in the admin sidebar (or jump there via the `Ctrl`/`C
 
 The backend decides whose subscription, model catalog and limits apply; the API keeps its URL, wire format, error shape and keys. Limits follow the backend: Grok refuses streaming, images and sampling controls on every API; on the Anthropic API, Codex receives `system` as a leading transcript line and Grok never receives `max_tokens`; Codex reports no token usage. `/models` lists the backend's models, and a request for a model id native to the API (e.g. `claude-*` on `/anthropic/v1`) that the backend does not serve runs on the backend's default model — the response's `model` field says which.
 
-**Backend settings** — the Claude proxy defaults and the **Grok API gateway** card (gateway default model and per-model switches), which apply on every API routed to that engine.
+**Backend defaults** — collapsed Claude and Grok sections containing the Claude proxy defaults and the **Grok API gateway** controls (gateway default model and per-model switches), which apply on every API routed to that engine.
 
-**Key tabs** — `/v1`, `/anthropic/v1` and `/grok/v1`. Keys belong to the API, not the backend: rerouting an API never invalidates its keys, and a `sk-cdx-` key still only works on `/v1`. The active tab determines which API the **New key** button targets.
+**Key tabs** — **OpenAI** (`/v1`), **Anthropic** (`/anthropic/v1`) and **Grok** (`/grok/v1`). Keys belong to the API, not the backend: rerouting an API never invalidates its keys, and a `sk-cdx-` key still only works on `/v1`. The active tab determines which API the **New key** button targets.
 
 **Keys table**
 
@@ -477,7 +479,7 @@ Every project endpoint lives in `api/src/routes/admin/projects/index.ts` and mir
 
 Authentication uses a bearer token: `sk-cdx-…` keys for the OpenAI-compat surface, `sk-ant-…` keys for the Anthropic-compat surface, and `sk-cgx-…` keys (`Authorization: Bearer` only) for `/grok/v1`. Requests proxy through the shared runner with quota accounting; Grok subscription quota is not tracked.
 
-Each of the three surfaces is served by a backend engine chosen in **Exposed APIs** (`versions` rows `api_surface_backend_openai|anthropic|grok`, read per request). `api/src/services/api-surfaces.ts` defines the surfaces and the routing; `api/src/services/gateway-backends.ts` builds each engine's backend (credential snapshot, verification bookkeeping, model catalog) once and shares it between surfaces. Keys and kill switches stay with the surface.
+Each of the three surfaces is served by a backend engine chosen in **API Access → Configuration → Routing & availability** (`versions` rows `api_surface_backend_openai|anthropic|grok`, read per request). `api/src/services/api-surfaces.ts` defines the surfaces and the routing; `api/src/services/gateway-backends.ts` builds each engine's backend (credential snapshot, verification bookkeeping, model catalog) once and shares it between surfaces. Keys and kill switches stay with the surface.
 
 ## Source references
 

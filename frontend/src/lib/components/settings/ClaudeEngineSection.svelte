@@ -53,13 +53,12 @@
 <SectionCard
   id="claude-engine"
   title="Claude API proxy"
-  description="Inference defaults for the Claude backend. Switch an API on or off, or route it to Claude, in Exposed APIs above. These do not control Claude Code fleet settings."
+  description="Applies to every API routed to Claude."
   {status}
   savedAt={lastSavedAt}
   error={errorMsg}
 >
   <div class="grid gap-3">
-    <p class="text-sm font-medium">API proxy inference defaults</p>
     <div class="grid gap-3 sm:grid-cols-2">
       <div class="grid gap-1.5">
         <Label for="claude-model">Proxy default model</Label>

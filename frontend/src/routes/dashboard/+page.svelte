@@ -195,7 +195,7 @@
     <StatCard label="Grok latest" value={grokLatest ?? "—"} {...engineCard("grok", grokChecked)} loading={$overview.isPending}>{#snippet icon()}<Bot class="h-4 w-4" />{/snippet}</StatCard>
   </div>
 
-  <FleetCoverage distribution={$overview.data?.version_distribution} loading={$overview.isPending} />
+  <FleetCoverage totalHosts={$overview.data?.totals.hosts} distribution={$overview.data?.version_distribution} loading={$overview.isPending} />
 
   <!-- Usage + runner cards -->
   <div class="grid grid-cols-1 gap-4 xl:grid-cols-2">

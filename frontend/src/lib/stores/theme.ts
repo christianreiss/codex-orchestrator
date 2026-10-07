@@ -33,12 +33,14 @@ function readStored(): ThemeChoice {
 }
 
 const store = writable<ThemeChoice>(readStored());
+let changeVersion = 0;
 
 if (browser) {
   try { setMode(readStored()); } catch { /* ModeWatcher mounts after module evaluation. */ }
 }
 
 export function setTheme(value: ThemeChoice): void {
+  changeVersion++;
   store.set(value);
   if (!browser) return;
   try {
@@ -58,9 +60,10 @@ export async function hydrateTheme(): Promise<void> {
   if (!browser) return;
   const local = readStored();
   setTheme(local);
+  const version = changeVersion;
   try {
     const remote = normalizeThemeChoice((await getTheme()).theme);
-    if (remote) setTheme(remote);
+    if (remote && version === changeVersion) setTheme(remote);
   } catch {
     // Offline startup keeps the local choice.
   }

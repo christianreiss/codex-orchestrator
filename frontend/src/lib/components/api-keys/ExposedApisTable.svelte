@@ -141,8 +141,11 @@
     </Table.Root>
   {/if}
 </div>
-<p class="mt-2 text-xs text-muted-foreground">
+<details class="mt-2 text-xs text-muted-foreground">
+  <summary class="w-fit cursor-pointer py-1">How routing works</summary>
+  <p class="mt-1 max-w-prose leading-relaxed">
   Each API keeps its URL, wire format, keys and on/off switch; the backend decides whose subscription answers.
   Limits follow the backend — Grok refuses streaming and images, Codex reports no token usage — and a model id
   native to the API that the backend does not serve runs on the backend's default model.
-</p>
+  </p>
+</details>

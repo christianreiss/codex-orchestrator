@@ -8,6 +8,18 @@
 
 # 2026-10-05
 
+- Fix the Appearance menu failing to open because its heading lacked a menu group. Header theme choices now save through the existing theme endpoint, survive reload, and stay synchronized with Appearance settings; failed saves restore the previous choice, and late startup reads cannot undo a user selection.
+
+- Make API Access key-first: compact copyable endpoints and status above the key tabs, with routing, collapsible backend defaults, and the global API control in Configuration. Existing setting anchors and new-key deep links remain supported.
+
+- Show all subscription accounts together without engine tabs when the fleet has six or fewer accounts; larger fleets keep engine filters. Account cards identify their provider, and Add account offers engine selection in the combined view.
+
+- Replace engine pills in the hosts table with small status dots in Codex, Claude, Grok order: green when assigned and fleet-enabled, red otherwise, with engine/state tooltips and accessible labels.
+
+- Show engine coverage as independent per-engine host counts and percentage bars, with missing version reports listed separately; multi-engine hosts count towards each engine instead of creating combination categories.
+
+- Keep messaging and portal engine checks on their existing transaction connection to prevent database pool starvation during registration, address eligibility checks, and address re-enabling. Failed admin-status requests now preserve the current page instead of redirecting to the first-run wizard; existing fleets with an admin and at least one host skip automatic setup even without wizard history, and a bare setup URL returns them to the dashboard. Explicit step links still open the wizard.
+
 - Simplify admin navigation: daily tasks share the open Workspace section; configuration and specialist tools start collapsed. Activity becomes Logs under Diagnostics, and Active Clients replaces it in the mobile bar. Saved section choices and direct log links remain available.
 
 # 2026-10-04

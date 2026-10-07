@@ -7,18 +7,18 @@
   import { RadioGroup, RadioGroupItem } from "$lib/components/ui/radio-group";
   import { ApiError } from "$lib/api/client";
   import { accountKeys, getTheme, setTheme as persistTheme } from "$lib/api/account";
-  import { normalizeThemeChoice, setTheme as setLocalTheme, type ThemeChoice } from "$lib/stores/theme";
+  import { normalizeThemeChoice, setTheme as setLocalTheme, themeStore, type ThemeChoice } from "$lib/stores/theme";
   import Sun from "@lucide/svelte/icons/sun";
   import Moon from "@lucide/svelte/icons/moon";
   import Monitor from "@lucide/svelte/icons/monitor";
 
   const qc = useQueryClient();
   const themeQuery = createQuery({ queryKey: accountKeys.theme, queryFn: () => getTheme() });
-  let selected = $state<ThemeChoice>("system");
+  const selected = $derived($themeStore);
   let seeded = $state(false);
   $effect(() => {
     const next = normalizeThemeChoice($themeQuery.data?.theme);
-    if (next && !seeded) { selected = next; setLocalTheme(next); seeded = true; }
+    if (next && !seeded) { setLocalTheme(next); seeded = true; }
   });
   const mutation = createMutation({
     mutationFn: (value: ThemeChoice) => persistTheme(value === "system" ? "auto" : value),
@@ -27,7 +27,6 @@
   });
   function choose(value: string) {
     if (value !== "light" && value !== "dark" && value !== "system") return;
-    selected = value;
     setLocalTheme(value);
     $mutation.mutate(value);
   }

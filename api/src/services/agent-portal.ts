@@ -602,7 +602,7 @@ export class AgentPortalService {
       if (!currentHost || currentHost.status !== 'active') {
         throw new ForbiddenError('Agent bridge host is inactive', 'agent_bridge_host_inactive');
       }
-      assertHostEngineEnabled(currentHost, input.engine, await readFleetEngineState(this.db));
+      assertHostEngineEnabled(currentHost, input.engine, await readFleetEngineState(tx));
       if (!safeHashEqual(hostAuthFingerprint(currentHost), fingerprint)) {
         throw new UnauthorizedError('Host credential changed during registration', 'agent_bridge_host_auth_changed');
       }
@@ -1979,7 +1979,7 @@ export class AgentPortalService {
   private async assertRelayReady(session: AgentSession, db: AgentPortalDb = this.db): Promise<void> {
     const now = Date.now();
     const hostRows = await db.select().from(hosts).where(eq(hosts.id, session.hostId)).limit(1);
-    const heartbeatFresh = bridgeHostAvailable(session, hostRows[0], now, await readFleetEngineState(this.db)) &&
+    const heartbeatFresh = bridgeHostAvailable(session, hostRows[0], now, await readFleetEngineState(db)) &&
       isFreshPresenceTimestamp(session.heartbeatAt, now - this.env.AGENT_PORTAL_HEARTBEAT_FRESH_SECONDS * 1000, now);
     const relayFresh = session.relayEnabled === 1 &&
       isFreshPresenceTimestamp(session.relayHeartbeatAt, now - this.env.AGENT_PORTAL_RELAY_FRESH_SECONDS * 1000, now);
@@ -2033,7 +2033,7 @@ export class AgentPortalService {
     if (!host || host.status !== 'active') {
       throw new ForbiddenError('Agent bridge host is inactive', 'agent_bridge_host_inactive');
     }
-    assertHostEngineEnabled(host, session.engine as Engine, await readFleetEngineState(this.db));
+    assertHostEngineEnabled(host, session.engine as Engine, await readFleetEngineState(db));
     if (!safeHashEqual(hostAuthFingerprint(host), session.hostAuthFingerprint)) {
       throw new UnauthorizedError('Agent bridge host credential changed', 'agent_bridge_host_auth_changed');
     }

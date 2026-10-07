@@ -70,7 +70,7 @@ function parseState(rows: Array<{ name: string; version: string | null }>): Flee
 
 /** Current fleet engine state (1 s cache per database handle). */
 export async function readFleetEngineState(
-  db: Database,
+  db: Pick<Database, 'select'>,
   options: { fresh?: boolean } = {},
 ): Promise<FleetEngineState> {
   const hit = caches.get(db);

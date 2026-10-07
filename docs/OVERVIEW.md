@@ -11,6 +11,10 @@ Small Node 22 + Fastify + Drizzle + MySQL service that keeps canonical Codex, Cl
 - Audit who synced/rotated auth, what versions they run, and how many tokens they burn.
 - Run Codex in environments that require IP binding and TLS.
 
+API Access opens with compact, copyable endpoints and per-API keys. Configuration holds routing, backend defaults, and the global API control; existing settings anchors open the matching section automatically.
+
+The header Appearance menu applies light, dark, or system mode immediately and saves it through `/admin/theme`, matching Appearance settings. Failed header saves restore the previous choice and report the error; startup hydration cannot overwrite a newer user choice.
+
 ## Contract guardrails
 
 Grok (`cgx`) is the third engine. Managed Grok subscription refresh is centrally
@@ -20,7 +24,7 @@ keys and truthful CLI capability errors. Grok quota is unknown until a provider
 snapshot exists. See [Grok interface](interface-cgx.md).
 
 The three inference gateways (`/v1`, `/anthropic/v1`, `/grok/v1`) are surfaces
-whose answering engine is configurable per surface (Exposed APIs on API Access,
+whose answering engine is configurable per surface (API Access → Configuration → Routing & availability,
 `versions.api_surface_backend_*`, identity by default). Keys, URL, wire format
 and kill switch stay with the surface; credentials, capabilities and the model
 catalog come from the backend. See [Exposed API routing](interface-api.md#exposed-api-routing-any-to-any).
@@ -126,9 +130,13 @@ visible with a choice to load the latest values or discard the draft.
   body history.
 - **`api/src/services/client-config.ts`** — renders/stores engine-scoped canonical client config from structured settings. Codex uses native `config.toml` `model` / `model_reasoning_effort`; Claude uses native `settings.json` `model` / `effortLevel` and deep-merges the fleet-owned paths. `/config/retrieve` bakes a per-host Codex copy using either the host API key (secure hosts) or a short-lived MCP bearer (insecure hosts) for the managed HTTP MCP entry, plus a Codex-only BrowserOS MCP entry when the host toggle is enabled. A successfully injected Codex MCP entry also adds a `[[skills.config]]` entry selecting `skill-creator` with `enabled = false`, removing the built-in local workflow that would otherwise outrank fleet discovery.
 - **`api/src/services/chatgpt-usage.ts` + `api/src/ops/chatgpt-usage-worker.ts`** — uses canonical auth to poll ChatGPT quotas and capture normal plus Spark quota lanes. The `quota-cron` Compose sidecar polls immediately at startup and then on `CHATGPT_USAGE_CRON_INTERVAL` (default 15 minutes); its healthcheck follows a successful-refresh heartbeat rather than only process liveness.
+- Accounts displays all providers together for up to six accounts in total, including paused and removing accounts; above six, engine tabs filter the view. Each card names its provider. The combined Add account dialog lets operators select an engine; fleet suspension still blocks provider actions.
+- Engine coverage shows one independent bar per engine, using reported CLI-version counts divided by all hosts. Multi-engine hosts count towards each engine; hosts without any reported CLI version are listed separately. Older snapshots show unavailable engine counts as “No data”.
 - Admin dashboard charts use local Chart.js assets (with zoom plugin) for inline quota and usage analytics on the main dashboard; history APIs now support richer range/interval filters for those graphs.
 - Admin dashboard supports login + role-based access once at least one active admin user exists; userless installs behave as before until the first admin is created. Login now uses a dedicated `/admin/login` page with server-side redirects (`/admin/` -> `/admin/login` when unauthenticated) and a username-first flow that requires passkeys for passkey-enabled admins; when exactly one active admin user exists and that user has a passkey, the page opens the passkey prompt directly without username/password or an extra authenticate click. Password recovery starts from login and completes on `/admin/password/reset`; successful recovery expires sessions, reset tokens, and passkeys. Personal session controls live in the desktop sidebar account menu and the mobile navigation sheet: theme selection is always available, while authenticated users also get self-service password change (`/admin/account/password`), personal passkey management (`/admin/account/passkeys`), and logout. Admin users and roles live in the direct `/admin/users` workspace; personal passkeys never live there.
+- Existing fleets with an admin and at least one host do not automatically enter the setup wizard, even without recorded wizard history. An unavailable auth-status endpoint keeps the current route and shows the API error. A bare `/admin/setup` URL also returns existing fleets to the dashboard; explicit `?step=…` setup links remain available.
 - Admin navigation opens **Workspace** (Overview, Active Clients, Hosts, Projects) by default. Fleet configuration, coordination tools, knowledge, access, and **Diagnostics** start collapsed; manual choices persist and the active section opens automatically. **Logs** under Diagnostics contains the audit trail and MCP requests. The mobile bar shows Overview, Hosts, Projects, and Active Clients; Logs remains in Menu and command-palette searches for Activity still find it.
+- Host-table engine indicators use fixed Codex, Claude, Grok order (CX, CL, GX): green means assigned and fleet-enabled; red means not assigned or disabled fleet-wide. Tooltips and accessible labels name the engine and state; these indicators do not represent authentication health.
 - Host management uses dedicated task-ordered pages at `/admin/hosts/{id}` for
   identity, engines, access/security, policy overrides, integrations, and
   destructive actions instead of the legacy host detail modal.

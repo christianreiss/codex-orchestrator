@@ -16,7 +16,7 @@
 
   onMount(() => {
     const unsubscribe = authStore.subscribe((state) => {
-      if (state.loading) return;
+      if (state.loading || state.unreachable) return;
       // Unclaimed: the layout gate owns this navigation. Stand down.
       if (!state.enforced) return;
       void goto(`${base}/dashboard`, { replaceState: true });

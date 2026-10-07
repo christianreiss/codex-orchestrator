@@ -1579,7 +1579,7 @@ export class AgentMessagingService {
     if (!rows[0] || !messagingHostEligible(rows[0])) {
       throw new NotFoundError('Agent address not found', 'agent_messaging_address_not_found');
     }
-    if (!activeHostEngines(rows[0].engines, await readFleetEngineState(this.db)).includes(address.engine as Engine)) {
+    if (!activeHostEngines(rows[0].engines, await readFleetEngineState(db)).includes(address.engine as Engine)) {
       throw new NotFoundError('Agent address not found', 'agent_messaging_address_not_found');
     }
   }

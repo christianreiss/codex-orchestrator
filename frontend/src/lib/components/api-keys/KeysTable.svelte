@@ -201,11 +201,29 @@
   </p>
 </div>
 
-<div class="overflow-hidden rounded-md border border-border/75 bg-card">
+<div class="mt-3 overflow-hidden rounded-md border border-border/75 bg-card">
   {#if error}
     <div class="p-6 text-sm text-destructive">
       Failed to load keys: {error.message}
     </div>
+  {:else if !isLoading && rows.length === 0}
+    <EmptyState
+      icon={KeyRound}
+      size="sm"
+      title={`No ${engineLabel(engine)} keys yet`}
+      description={`Use "New key" to issue your first one.`}
+    />
+  {:else if !isLoading && sorted.length === 0}
+    <EmptyState
+      icon={Search}
+      size="sm"
+      title={`No keys match "${search.trim()}"`}
+      description="Try a different search."
+    >
+      {#snippet action()}
+        <Button size="sm" variant="outline" onclick={() => (search = "")}>Clear search</Button>
+      {/snippet}
+    </EmptyState>
   {:else}
     <Table.Root>
       <Table.Header>
@@ -233,32 +251,6 @@
               {/each}
             </Table.Row>
           {/each}
-        {:else if rows.length === 0}
-          <Table.Row>
-            <Table.Cell colspan={7}>
-              <EmptyState
-                icon={KeyRound}
-                size="sm"
-                title={`No ${engineLabel(engine)} keys yet`}
-                description={`Use "New key" to issue your first one.`}
-              />
-            </Table.Cell>
-          </Table.Row>
-        {:else if sorted.length === 0}
-          <Table.Row>
-            <Table.Cell colspan={7}>
-              <EmptyState
-                icon={Search}
-                size="sm"
-                title={`No keys match "${search.trim()}"`}
-                description="Try a different search."
-              >
-                {#snippet action()}
-                  <Button size="sm" variant="outline" onclick={() => (search = "")}>Clear search</Button>
-                {/snippet}
-              </EmptyState>
-            </Table.Cell>
-          </Table.Row>
         {:else}
           {#each sorted as record (record.id)}
             {@const active = isActive(record)}

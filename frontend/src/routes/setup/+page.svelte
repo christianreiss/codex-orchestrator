@@ -120,11 +120,15 @@
   $effect(() => {
     if (hydrated || !data) return;
     hydrated = true;
+    const fromUrl = page.url.searchParams.get("step");
+    if (data.owner_created && data.hosts?.total > 0 && !isSetupStep(fromUrl)) {
+      void goto(`${base}/dashboard`, { replaceState: true });
+      return;
+    }
     const wizard = data.wizard;
     engines = answeredEngines(data);
     enginesAnswered = wizard.engines !== null;
 
-    const fromUrl = page.url.searchParams.get("step");
     const floor: SetupStep =
       data.owner_created && data.critical_complete ? "engines" : "infrastructure";
     const resumed = later(wizard.last_step ?? "infrastructure", floor);
@@ -352,6 +356,10 @@
       </Alert>
       <Button variant="outline" onclick={() => $status.refetch()}>Retry</Button>
     </div>
+  </main>
+{:else if data?.owner_created && data.hosts?.total > 0 && !isSetupStep(page.url.searchParams.get("step"))}
+  <main class="flex min-h-screen items-center justify-center p-6">
+    <p class="text-sm text-muted-foreground">Returning to dashboard…</p>
   </main>
 {:else if !data}
   <main class="flex min-h-screen items-center justify-center p-6">

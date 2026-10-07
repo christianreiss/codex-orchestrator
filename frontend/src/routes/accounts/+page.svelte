@@ -25,12 +25,15 @@
   let label = $state("");
   let renaming = $state<number | null>(null);
   let renameLabel = $state("");
-  const visible = $derived(($query.data?.accounts ?? []).filter((a) => a.engine === engine));
+  const accounts = $derived($query.data?.accounts ?? []);
+  const tabbed = $derived(accounts.length > 6);
+  const visible = $derived(tabbed ? accounts.filter((a) => a.engine === engine) : accounts);
   // A fleet-disabled engine keeps its accounts, but anything that reaches the
   // provider (add, replace, verify) is refused by the server until it is on.
   const fleet = useFleetEngines();
   const engineOff = $derived(!$fleet.isEnabled(engine));
-  const offTitle = $derived(engineOff ? fleetDisabledTitle(ENGINE_META[engine].label) : undefined);
+  const addDisabled = $derived(tabbed ? engineOff : !ENGINES.some((option) => $fleet.isEnabled(option)));
+  const offTitle = $derived(addDisabled ? "Enable an engine under Engines before adding an account." : undefined);
 
   const change = createMutation({
     mutationFn: async (input: { account: ProviderAccount; action: "state" | "rename" | "remove" | "verify"; label?: string }) => {
@@ -68,19 +71,19 @@
 <div class="space-y-6">
   <PageHeader title="Accounts" subtitle="ChatGPT, Claude, and Grok subscription accounts shared by the fleet. New sessions use verified available accounts." />
   <div class="flex flex-wrap items-center gap-2">
-    {#each ENGINES as option}<Button variant={engine === option ? "default" : "outline"} onclick={() => engine = option} title={$fleet.isEnabled(option) ? undefined : fleetDisabledTitle(ENGINE_META[option].label)}>{ENGINE_META[option].account}{#if !$fleet.isEnabled(option)}<Badge variant="warning" class="ml-1.5">off</Badge>{/if}</Button>{/each}
-    {#if canManage}<Button class="ml-auto" disabled={engineOff} title={offTitle} onclick={() => open(null)}>Add account</Button>{/if}
+    {#if tabbed}{#each ENGINES as option}<Button variant={engine === option ? "default" : "outline"} onclick={() => engine = option} title={$fleet.isEnabled(option) ? undefined : fleetDisabledTitle(ENGINE_META[option].label)}>{ENGINE_META[option].account}{#if !$fleet.isEnabled(option)}<Badge variant="warning" class="ml-1.5">off</Badge>{/if}</Button>{/each}{/if}
+    {#if canManage}<Button class="ml-auto" disabled={addDisabled} title={offTitle} onclick={() => open(null)}>Add account</Button>{/if}
   </div>
-  {#if engineOff}
+  {#each (tabbed ? [engine] : ENGINES).filter((option) => !$fleet.isEnabled(option)) as offEngine}
     <Alert variant="warning">
-      <AlertTitle>{ENGINE_META[engine].label} is disabled fleet-wide</AlertTitle>
+      <AlertTitle>{ENGINE_META[offEngine].label} is disabled fleet-wide</AlertTitle>
       <AlertDescription>
         Its accounts are kept but not refreshed, verified, polled or leased while it is off. Adding,
         replacing and verifying credentials is refused until it is turned back on under Engines. After a
         long pause an account may need its credentials replaced.
       </AlertDescription>
     </Alert>
-  {/if}
+  {/each}
   <p class="text-sm text-muted-foreground">Accounts stay fixed during a session. Overlapping sessions using the same local credentials share one account. Fresh logins keep the sole or assigned account. Use Add account for additional subscriptions.</p>
   {#if $query.isPending}
     <p class="text-muted-foreground">Loading accounts…</p>
@@ -88,9 +91,9 @@
     <div role="alert" class="rounded-lg border border-destructive p-4">{$query.error.message}<Button variant="outline" class="ml-3" onclick={() => $query.refetch()}>Retry</Button></div>
   {:else if !visible.length}
     <div class="rounded-xl border border-dashed p-10 text-center">
-      <h2 class="text-lg font-semibold">No {ENGINE_META[engine].account} accounts</h2>
-      <p class="mt-2 text-sm text-muted-foreground">Add credentials here or log in through {ENGINE_META[engine].command} on a registered host.</p>
-      {#if canManage}<Button class="mt-4" disabled={engineOff} title={offTitle} onclick={() => open(null)}>Add account</Button>{/if}
+      <h2 class="text-lg font-semibold">No {tabbed ? `${ENGINE_META[engine].account} ` : ""}accounts</h2>
+      <p class="mt-2 text-sm text-muted-foreground">Add credentials here or log in through {tabbed ? ENGINE_META[engine].command : "cdx, clx, or cgx"} on a registered host.</p>
+      {#if canManage}<Button class="mt-4" disabled={addDisabled} title={offTitle} onclick={() => open(null)}>Add account</Button>{/if}
     </div>
   {:else}
     <div class="grid gap-4 xl:grid-cols-2">
@@ -105,8 +108,9 @@
                   <Button variant="ghost" onclick={() => renaming = null}>Cancel</Button>
                 </form>
               {:else}<h2 class="text-lg font-semibold">{account.label}</h2>{/if}
-              <p class="text-xs text-muted-foreground">Account #{account.id} · {account.state} · auth {account.verification_state}</p>
+              <p class="text-xs text-muted-foreground">{ENGINE_META[account.engine].account} · Account #{account.id} · {account.state} · auth {account.verification_state}</p>
             </div>
+            {#if !$fleet.isEnabled(account.engine)}<Badge variant="warning" title={fleetDisabledTitle(ENGINE_META[account.engine].label)}>Engine off</Badge>{/if}
             <span class:!text-destructive={account.verification_state === "failed"} class="text-xs text-muted-foreground">{account.sessions.length} active sessions</span>
           </div>
           {#if account.verification_reason}<p class="text-sm text-destructive">{account.verification_reason}</p>{/if}
@@ -151,10 +155,10 @@
 
 <Dialog.Root bind:open={dialog}>
   <Dialog.Content class="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
-    <Dialog.Header><Dialog.Title>{target ? `Replace ${target.label} credentials` : `Add ${ENGINE_META[engine].account} account`}</Dialog.Title><Dialog.Description>Credentials are verified before they can be assigned to clients.</Dialog.Description></Dialog.Header>
+    <Dialog.Header><Dialog.Title>{target ? `Replace ${target.label} credentials` : tabbed ? `Add ${ENGINE_META[engine].account} account` : "Add account"}</Dialog.Title><Dialog.Description>Credentials are verified before they can be assigned to clients.</Dialog.Description></Dialog.Header>
     {#if !target}<div class="space-y-2"><Label for="account-label">Account name</Label><Input id="account-label" bind:value={label} maxlength={191} placeholder="Account name (optional)" /></div>{/if}
     {#key dialog}
-      {#if dialog}<SeedAuthPanel allowedEngines={[target?.engine ?? engine]} defaultEngine={target?.engine ?? engine} accountId={target?.id} accountLabel={target ? undefined : label.trim() || undefined} accountManagement onStored={() => { dialog = false; void qc.invalidateQueries({ queryKey: accountsKeys.all() }); }} />{/if}
+      {#if dialog}<SeedAuthPanel allowedEngines={target ? [target.engine] : tabbed ? [engine] : [...ENGINES]} defaultEngine={target?.engine ?? engine} accountId={target?.id} accountLabel={target ? undefined : label.trim() || undefined} accountManagement onStored={() => { dialog = false; void qc.invalidateQueries({ queryKey: accountsKeys.all() }); }} />{/if}
     {/key}
   </Dialog.Content>
 </Dialog.Root>

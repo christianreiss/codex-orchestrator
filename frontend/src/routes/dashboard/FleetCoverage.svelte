@@ -1,27 +1,25 @@
 <script lang="ts">
   import { base } from "$app/paths";
-  import { engineLabel } from "$lib/constants/engines";
-  import type { VersionDistribution } from "$lib/api/overview";
+  import { ENGINES, ENGINE_META } from "$lib/constants/engines";
+  import { engineInstallCounts, type VersionDistribution } from "$lib/api/overview";
   import ArrowUpRight from "@lucide/svelte/icons/arrow-up-right";
   import { Skeleton } from "$lib/components/ui/skeleton";
 
-  let { distribution, loading = false }: {
+  let { distribution, totalHosts, loading = false }: {
     distribution?: VersionDistribution | null;
+    totalHosts?: number;
     loading?: boolean;
   } = $props();
 
-  const segments = $derived(distribution?.install_combinations ? distribution.install_combinations.map((item) => ({
-    label: item.engines.length ? item.engines.map(engineLabel).join(" + ") : "No version reported",
-    count: item.count,
-    color: item.engines.length > 1 ? "bg-primary" : item.engines[0] === "grok" ? "bg-persona-grok" : item.engines[0] === "claude" ? "bg-persona-claude" : item.engines[0] === "codex" ? "bg-persona-codex" : "bg-muted-foreground/40",
-    dot: item.engines.length > 1 ? "bg-primary" : item.engines[0] === "grok" ? "bg-persona-grok" : item.engines[0] === "claude" ? "bg-persona-claude" : item.engines[0] === "codex" ? "bg-persona-codex" : "bg-muted-foreground",
-  })) : distribution?.install ? [
-    { label: "Codex + Claude", count: distribution.install.both, color: "bg-primary", dot: "bg-primary" },
-    { label: "Codex only", count: distribution.install.codex_only, color: "bg-persona-codex", dot: "bg-persona-codex" },
-    { label: "Claude only", count: distribution.install.claude_only, color: "bg-persona-claude", dot: "bg-persona-claude" },
-    { label: "No version reported", count: distribution.install.neither, color: "bg-muted-foreground/40", dot: "bg-muted-foreground" },
-  ] : []);
-  const total = $derived(segments.reduce((sum, item) => sum + item.count, 0));
+  const counts = $derived(engineInstallCounts(distribution));
+  const rows = $derived(ENGINES.map((engine) => ({
+    engine,
+    ...ENGINE_META[engine],
+    count: counts?.[engine],
+  })));
+  const noVersion = $derived(distribution?.install_combinations
+    ? distribution.install_combinations.filter((item) => item.engines.length === 0).reduce((sum, item) => sum + item.count, 0)
+    : counts?.grok == null ? distribution?.install?.neither : undefined);
 </script>
 
 <section class="overflow-hidden rounded-lg border bg-card" aria-labelledby="fleet-coverage-title">
@@ -38,29 +36,42 @@
     {#if loading}
       <Skeleton class="h-2 w-full" />
       <Skeleton class="mt-5 h-10 w-full" />
-    {:else if segments.length === 0}
+    {:else if !counts || totalHosts == null}
       <p class="text-sm text-muted-foreground">Engine coverage is unavailable until a fleet snapshot loads.</p>
-    {:else if total === 0}
+    {:else if totalHosts === 0}
       <p class="text-sm text-muted-foreground">Register a host to start building your fleet. Engine coverage appears after clients report their versions.</p>
     {:else}
-      <div class="mb-5 flex h-2 gap-0.5 overflow-hidden rounded-full bg-muted" aria-hidden="true">
-        {#each segments as segment (segment.label)}
-          {#if segment.count > 0}
-            <div class={segment.color} style:width={`${segment.count / total * 100}%`}></div>
-          {/if}
-        {/each}
-      </div>
-      <dl class="grid grid-cols-2 gap-x-4 gap-y-5 sm:grid-cols-4">
-        {#each segments as segment (segment.label)}
+      <div class="space-y-5">
+        {#each rows as row (row.engine)}
           <div>
-            <dt class="flex items-center gap-2 text-xs text-muted-foreground">
-              <span class="h-2 w-2 shrink-0 rounded-full {segment.dot}" aria-hidden="true"></span>
-              {segment.label}
-            </dt>
-            <dd class="mt-2 text-xl font-semibold tabular-nums">{segment.count}<span class="ml-2 text-xs font-normal text-muted-foreground">{Math.round(segment.count / total * 100)}%</span></dd>
+            <dl class="mb-2 flex items-baseline justify-between gap-3">
+              <dt id={`coverage-${row.engine}`} class="text-sm font-medium">{row.label}</dt>
+              <dd class="text-sm tabular-nums">
+                {#if row.count != null}
+                  <span class="font-semibold">{row.count} / {totalHosts}</span>
+                  <span class="ml-2 text-xs text-muted-foreground">{Math.round(row.count / totalHosts * 100)}%</span>
+                {:else}
+                  <span class="text-muted-foreground">No data</span>
+                {/if}
+              </dd>
+            </dl>
+            {#if row.count != null}
+              <div class="h-2 overflow-hidden rounded-full bg-muted" role="progressbar"
+                aria-labelledby={`coverage-${row.engine}`} aria-valuemin={0}
+                aria-valuemax={totalHosts} aria-valuenow={row.count}
+                aria-valuetext={`${row.count} of ${totalHosts} hosts (${Math.round(row.count / totalHosts * 100)}%)`}>
+                <div class={`h-full ${row.color}`} style:width={`${Math.min(100, row.count / totalHosts * 100)}%`}></div>
+              </div>
+            {/if}
           </div>
         {/each}
-      </dl>
+      </div>
+      <div class="mt-5 space-y-2 border-t pt-4 text-xs text-muted-foreground">
+        {#if noVersion != null}
+          <p>No CLI version reported: <span class="font-medium text-foreground tabular-nums">{noVersion}</span></p>
+        {/if}
+        <p>Hosts with multiple engines count towards each engine.</p>
+      </div>
     {/if}
   </div>
 </section>

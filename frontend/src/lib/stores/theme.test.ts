@@ -64,4 +64,13 @@ describe("theme migration", () => {
     assert.equal(storage.values.get("codex.theme"), "light");
     assert.equal(storage.values.has("codex.theme.palette"), false);
   });
+  it("does not let a late startup response overwrite a user choice", async () => {
+    account.response = { theme: "dark" };
+    const hydration = hydrateTheme();
+    setTheme("light");
+    await hydration;
+    assert.equal(storage.values.get("codex.theme"), "light");
+    assert.equal(mode.calls.at(-1), "light");
+  });
+
 });

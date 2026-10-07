@@ -1,0 +1,1 @@
+import{t as e}from"../chunks/DVGp5OT2.js";export{e as component};

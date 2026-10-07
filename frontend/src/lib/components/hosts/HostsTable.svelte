@@ -4,7 +4,7 @@
   import { goto } from "$app/navigation";
   import { createVirtualizer } from "@tanstack/svelte-virtual";
   import StatusPill from "./StatusPill.svelte";
-  import EngineBadge from "./EngineBadge.svelte";
+  import EngineStatusDots from "./EngineStatusDots.svelte";
   import InsecureCountdown from "./InsecureCountdown.svelte";
   import { EmptyState } from "$lib/components/ui/empty-state";
   import { Button } from "$lib/components/ui/button";
@@ -26,7 +26,6 @@
   import Search from "@lucide/svelte/icons/search";
   import Plus from "@lucide/svelte/icons/plus";
   import { cn } from "$lib/utils/cn";
-  import { useFleetEngines } from "$lib/engines/fleet-engines";
 
   export type SortField =
     | "fqdn"
@@ -75,7 +74,6 @@
     onClearFilters,
   }: Props = $props();
 
-  const fleet = useFleetEngines();
 
   // --- sorting ------------------------------------------------------------
   function setSort(f: SortField): void {
@@ -153,7 +151,7 @@
     class="grid grid-cols-[minmax(0,1fr)_100px] items-center gap-3 border-b bg-muted/45 px-4 py-2.5 text-xs font-medium text-muted-foreground lg:grid-cols-[minmax(0,2.2fr)_minmax(0,1.2fr)_120px_120px_140px_120px]"
   >
     {@render headerCell("Host", "fqdn")}
-    <div class="hidden lg:block">Engines</div>
+    <div class="hidden lg:block">Engines<span class="mt-1 block text-[10px] font-normal" title="Codex · Claude · Grok">CX · CL · GX</span></div>
     {@render headerCell("Status", "status")}
     <div class="hidden lg:block">{@render headerCell("Last seen", "last_refresh")}</div>
     <div class="hidden lg:block">{@render headerCell("Codex ver.", "client_version")}</div>
@@ -223,34 +221,14 @@
                   <span>· {relativeTime(hostLatestRefresh(row)) || "never"}</span>
                 </div>
                 <div class="mt-1 flex flex-wrap items-center gap-1 lg:hidden">
-                  {#each engines as engine}
-                    <EngineBadge
-                      {engine}
-                      dim={engine === "codex"
-                        ? !row.canonical_digest
-                        : engine === "claude"
-                          ? !row.claude_canonical_digest
-                          : engine === "grok" ? !row.grok_canonical_digest : false}
-                      fleetDisabled={!$fleet.isEnabled(engine)}
-                    />
-                  {/each}
+                  <EngineStatusDots {engines} />
                   {#if row.vip}
                     <span class="rounded bg-warning-muted px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-warning-muted-foreground">VIP</span>
                   {/if}
                 </div>
               </div>
               <div class="hidden flex-wrap items-center gap-1 lg:flex">
-                {#each engines as engine}
-                  <EngineBadge
-                    {engine}
-                    dim={engine === "codex"
-                      ? !row.canonical_digest
-                      : engine === "claude"
-                        ? !row.claude_canonical_digest
-                        : engine === "grok" ? !row.grok_canonical_digest : false}
-                    fleetDisabled={!$fleet.isEnabled(engine)}
-                  />
-                {/each}
+                <EngineStatusDots {engines} />
                 {#if row.vip}
                   <span class="rounded bg-warning-muted px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-warning-muted-foreground">VIP</span>
                 {/if}

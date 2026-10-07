@@ -75,7 +75,12 @@ so a change applies without a restart.
   Routing a surface onto a backend that is switched off fleet-wide returns
   `409 engine_disabled` (`scope:"fleet"`); leaving it where it is stays allowed.
 
+The API Access UI defaults to endpoints and key management. `#configuration` opens routing, collapsible backend defaults and the global API control. Existing anchors (`#service-availability`, `#exposed-apis`, `#claude-proxy`, `#grok-proxy`, including inner engine anchors) still open their matching controls. `?dialog=new&engine=openai|claude|grok` opens key creation and selects that API's key tab; key namespaces are independent of the selected backend. These are UI navigation changes; HTTP contracts are unchanged.
+
 ## Engine master switches
+
+Messaging and portal engine-state checks inside a transaction use that transaction connection; they never acquire a second pooled connection while holding messaging locks. The admin startup gate redirects to setup only after a successful auth-status response confirms the installation is unclaimed; an unreachable API preserves the current route. Authenticated installations with an owner and at least one existing host skip automatic wizard offers even when no wizard completion record exists; a bare `/admin/setup` URL also returns existing fleets to the dashboard; explicit `?step=…` setup links remain available.
+
 
 One fleet-wide on/off per engine (`api/src/services/engine-switch.ts`). Off
 means **suspended**, never removed: host engine assignments, accounts, canonical

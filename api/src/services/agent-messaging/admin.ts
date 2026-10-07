@@ -381,7 +381,7 @@ export class AgentMessagingAdmin {
         if (
           !host ||
           !messagingHostEligible(host) ||
-          !activeHostEngines(host.engines, await readFleetEngineState(this.core.db)).includes(address.engine as Engine)
+          !activeHostEngines(host.engines, await readFleetEngineState(tx)).includes(address.engine as Engine)
         ) {
           throw new ConflictError('Agent Messaging requires an eligible active host', 'agent_messaging_host_ineligible');
         }

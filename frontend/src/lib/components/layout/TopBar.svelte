@@ -1,5 +1,8 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import { get } from "svelte/store";
+  import { createMutation, useQueryClient } from "@tanstack/svelte-query";
+  import { toast } from "svelte-sonner";
   import * as DropdownMenu from "$lib/components/ui/dropdown-menu";
   import * as Tooltip from "$lib/components/ui/tooltip";
   import AlertTriangle from "@lucide/svelte/icons/triangle-alert";
@@ -15,9 +18,30 @@
   import { commandPalette } from "$lib/stores/command-palette";
   import { hostsSummary } from "$lib/stores/hosts-summary";
   import { wsStatus } from "$lib/stores/ws-status";
-  import { setTheme } from "$lib/stores/theme";
+  import { setTheme, themeStore, type ThemeChoice } from "$lib/stores/theme";
+  import { accountKeys, setTheme as persistTheme } from "$lib/api/account";
   import StatusPill from "$lib/components/hosts/StatusPill.svelte";
   import InsecureCountdown from "$lib/components/hosts/InsecureCountdown.svelte";
+
+  const qc = useQueryClient();
+  const themeMutation = createMutation({
+    mutationFn: (value: ThemeChoice) => persistTheme(value === "system" ? "auto" : value),
+    onMutate: async (value: ThemeChoice) => {
+      const previous = get(themeStore);
+      await qc.cancelQueries({ queryKey: accountKeys.theme });
+      setTheme(value);
+      qc.setQueryData(accountKeys.theme, { theme: value === "system" ? "auto" : value });
+      return { previous };
+    },
+    onSuccess: (data) => qc.setQueryData(accountKeys.theme, data),
+    onError: (error, _value, context) => {
+      if (context) {
+        setTheme(context.previous);
+        qc.setQueryData(accountKeys.theme, { theme: context.previous === "system" ? "auto" : context.previous });
+      }
+      toast.error("Could not save appearance", { description: error.message });
+    },
+  });
 
   let modifierKey = $state("Ctrl");
   onMount(() => {
@@ -78,7 +102,16 @@
     {/if}
     <DropdownMenu.Root>
       <DropdownMenu.Trigger class="shell-icon-button" aria-label="Appearance"><Sun class="h-4 w-4 dark:hidden" /><Moon class="hidden h-4 w-4 dark:block" /></DropdownMenu.Trigger>
-      <DropdownMenu.Content align="end" class="w-44"><DropdownMenu.Label>Appearance</DropdownMenu.Label><DropdownMenu.Item onclick={() => setTheme("light")}><Sun class="h-4 w-4" />Light</DropdownMenu.Item><DropdownMenu.Item onclick={() => setTheme("dark")}><Moon class="h-4 w-4" />Dark</DropdownMenu.Item><DropdownMenu.Item onclick={() => setTheme("system")}><Monitor class="h-4 w-4" />System</DropdownMenu.Item><DropdownMenu.Separator /><DropdownMenu.Item onclick={() => goto(`${base}/account/theme`)}><Palette class="h-4 w-4" />Appearance settings</DropdownMenu.Item></DropdownMenu.Content>
+      <DropdownMenu.Content align="end" class="w-44">
+        <DropdownMenu.Group>
+          <DropdownMenu.Label>Appearance</DropdownMenu.Label>
+          <DropdownMenu.Item disabled={$themeMutation.isPending} onSelect={() => $themeMutation.mutate("light")}><Sun class="h-4 w-4" />Light</DropdownMenu.Item>
+          <DropdownMenu.Item disabled={$themeMutation.isPending} onSelect={() => $themeMutation.mutate("dark")}><Moon class="h-4 w-4" />Dark</DropdownMenu.Item>
+          <DropdownMenu.Item disabled={$themeMutation.isPending} onSelect={() => $themeMutation.mutate("system")}><Monitor class="h-4 w-4" />System</DropdownMenu.Item>
+        </DropdownMenu.Group>
+        <DropdownMenu.Separator />
+        <DropdownMenu.Item onSelect={() => goto(`${base}/account/theme`)}><Palette class="h-4 w-4" />Appearance settings</DropdownMenu.Item>
+      </DropdownMenu.Content>
     </DropdownMenu.Root>
   </div>
 </header>

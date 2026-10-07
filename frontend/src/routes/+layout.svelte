@@ -81,7 +81,8 @@
     const unsubscribeAuth = authStore.subscribe((state) => {
       const currentPath = window.location.pathname.replace(base, "") || "/";
       const isStandalone = STANDALONE.some((p) => currentPath === p || currentPath.startsWith(p + "/"));
-      if (!state.loading && !state.enforced && currentPath !== "/setup") {
+      if (state.loading || state.unreachable) return;
+      if (!state.enforced && currentPath !== "/setup") {
         void goto(`${base}/setup`, { replaceState: true });
       } else if (!state.loading && state.enforced && !state.authenticated && !isStandalone) {
         void goto(`${base}/login`, { replaceState: true });
@@ -95,7 +96,8 @@
           .then((status) => {
             const wizard = status.wizard;
             const open = status.next_actions.some((action) => !action.complete);
-            if (!wizard.completed_at && !wizard.dismissed_at && open) {
+            const established = status.owner_created && status.hosts?.total > 0;
+            if (!wizard.completed_at && !wizard.dismissed_at && open && !established) {
               markSetupRedirected();
               void goto(`${base}/setup`, { replaceState: true });
             }

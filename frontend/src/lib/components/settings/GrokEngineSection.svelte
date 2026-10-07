@@ -20,7 +20,7 @@
   const enabledOptions = $derived(catalog.length ? catalog.filter((entry) => entry.enabled).map((entry) => ({ label: modelLabel(entry.id), value: entry.id })) : GROK_MODEL_OPTIONS);
   const modelDisabled = $derived(catalog.some((entry) => entry.id === model && !entry.enabled));
 </script>
-<SectionCard id="grok-engine" title="Grok API gateway" description="Text inference through verified Grok subscription accounts, for every exposed API routed to Grok. Gateway defaults are separate from managed Grok Build settings." error={$settings.error?.message ?? $models.error?.message ?? $save.error?.message ?? $modelToggle.error?.message}>
+<SectionCard id="grok-engine" title="Grok API gateway" description="Applies to every API routed to Grok." error={$settings.error?.message ?? $models.error?.message ?? $save.error?.message ?? $modelToggle.error?.message}>
   <div class="grid gap-2">
     <Label for="grok-proxy-model">Gateway default model</Label>
     <ModelSelect id="grok-proxy-model" bind:value={model} options={enabledOptions} label="Gateway default model" placeholder="grok-4.7" />

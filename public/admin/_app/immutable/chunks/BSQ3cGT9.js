@@ -1,0 +1,1 @@
+import{It as e,at as t,dt as n,ft as r,it as i,nt as a,tt as o}from"./DqOlhVIR.js";function s(s,c){var l=o,u=a,d=s();let f=e(d,e=>{var c=d!==s(),f,p=a,m=o;t(u),i(l);try{f=n(()=>{r(()=>{let t=s();c&&e(t)})})}finally{t(p),i(m)}return c=!0,f});return c?{set:c,update:e=>c(e(s())),subscribe:f.subscribe}:{subscribe:f.subscribe}}export{s as t};

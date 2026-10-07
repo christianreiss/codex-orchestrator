@@ -25,6 +25,6 @@
   label="Disable all API traffic"
   {description}
   checked={data?.disabled ?? false}
-  disabled={$query.isPending}
+  disabled={$query.isPending || $query.isError}
   onCheckedChange={(value) => $mutation.mutateAsync(value)}
 />

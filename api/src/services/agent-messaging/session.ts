@@ -136,7 +136,7 @@ export class SessionRegistry {
       if (!safeHashEqual(hostAuthFingerprint(lockedHost), fingerprint)) {
         throw new UnauthorizedError('Host credential changed during registration', 'agent_bridge_host_auth_changed');
       }
-      assertHostEngineEnabled(lockedHost, input.engine, await readFleetEngineState(this.core.db));
+      assertHostEngineEnabled(lockedHost, input.engine, await readFleetEngineState(tx));
       // A crashed wrapper may leave its durable address bound until the portal
       // reaper runs. Reclaim expired bindings for this identity in-band so a
       // restart reuses the same address instead of minting a split identity.

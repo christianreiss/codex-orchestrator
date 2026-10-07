@@ -143,6 +143,16 @@ const CANONICAL_DESTINATIONS = [
 
 function fixture(pathname: string): Record<string, unknown> {
   switch (pathname) {
+    case "/admin/api/state": return { disabled: false };
+    case "/admin/claude/settings": return { default_model: "claude-sonnet-5", max_tokens: 8192 };
+    case "/admin/api/surfaces": return {
+      surfaces: [
+        { surface: "openai", label: "OpenAI-compatible", base_path: "/v1", wire: "openai", backend: "codex", identity_backend: "codex", disabled: false, key_count: 0 },
+        { surface: "anthropic", label: "Anthropic-compatible", base_path: "/anthropic/v1", wire: "anthropic", backend: "claude", identity_backend: "claude", disabled: false, key_count: 0 },
+        { surface: "grok", label: "Grok (OpenAI-compatible)", base_path: "/grok/v1", wire: "openai", backend: "grok", identity_backend: "grok", disabled: false, key_count: 0 },
+      ],
+      backends: [{ engine: "codex", label: "Codex" }, { engine: "claude", label: "Claude" }, { engine: "grok", label: "Grok" }],
+    };
     case "/admin/auth/status":
       return { authenticated: true, enforced: true, user, roles: ["owner"] };
     case "/admin/setup/status":
@@ -1140,6 +1150,48 @@ test("desktop shell exposes direct task navigation and the command palette", asy
   await expect(page.getByText("Agent Portal", { exact: true })).toBeVisible();
 });
 
+test("an existing fleet skips automatic first-run setup without wizard history", async ({ page }) => {
+  await installFixtures(page, path => path === "/admin/setup/status" ? {
+    ...fixture(path), owner_created: true, hosts: { total: 3, synced: 3 },
+    next_actions: [{ id: "auth_claude", complete: false, label: "Seed Claude", href: "/admin/setup?step=auth" }],
+    wizard: { completed_at: null, dismissed_at: null, last_step: null, engines: null },
+  } : undefined);
+  await page.goto("/admin/dashboard");
+  await expect(page.getByRole("heading", { name: "Overview", level: 1 })).toBeVisible();
+  await expect(page).toHaveURL(/\/admin\/dashboard$/);
+  await page.goto("/admin/setup");
+  await expect(page).toHaveURL(/\/admin\/dashboard$/);
+  await expect(page.getByRole("heading", { name: "Overview", level: 1 })).toBeVisible();
+  // Explicit setup links still work for revisiting an optional step.
+  await page.goto("/admin/setup?step=engines");
+  await expect(page.getByRole("heading", { name: "Set up Codex Orchestrator" })).toBeVisible();
+});
+
+test("a completed fleet returns from a bare setup URL while a new fleet keeps its wizard", async ({ page }) => {
+  let total = 130;
+  await installFixtures(page, path => path === "/admin/setup/status" ? {
+    ...fixture(path), owner_created: true, hosts: { total, synced: total },
+    canonical_auth: { codex: true, claude: true, grok: true }, default_engines: ["codex"],
+    wizard: { completed_at: total ? "2026-08-03T20:03:33Z" : null, dismissed_at: null, last_step: "host", engines: [] },
+  } : undefined);
+  await page.goto("/admin/setup");
+  await expect(page).toHaveURL(/\/admin\/dashboard$/);
+  await expect(page.getByRole("heading", { name: "Overview", level: 1 })).toBeVisible();
+  total = 0;
+  await page.goto("/admin/setup");
+  await expect(page.getByRole("heading", { name: "Register your first host" })).toBeVisible();
+  await expect(page).toHaveURL(/\/admin\/setup$/);
+});
+
+test("failed initial auth status preserves the route instead of opening setup", async ({ page }) => {
+  await page.route("**/admin/auth/status", (route) => route.fulfill({ status: 503,
+    contentType: "application/json", body: JSON.stringify({ status: "error", message: "Database unavailable" }) }));
+  await page.goto("/admin/dashboard");
+  await expect(page.getByRole("heading", { name: "API unreachable", exact: true })).toBeVisible();
+  await expect(page).toHaveURL(/\/admin\/dashboard$/);
+  await expect(page.getByRole("heading", { name: "Set up Codex Orchestrator" })).toHaveCount(0);
+});
+
 test("daily navigation keeps logs in diagnostics and preserves access on desktop and mobile", async ({ page }, info) => {
   await page.goto("/admin/dashboard");
   const primary = page.getByRole("navigation", { name: "Primary navigation" });
@@ -1672,8 +1724,10 @@ test("control dashboard is accessible with both engines at desktop and mobile si
     await page.goto("/admin/dashboard");
     await expect(page.getByRole("heading", { name: "Overview", level: 1 })).toBeVisible({ timeout: 15_000 });
     const coverage = page.getByRole("region", { name: "Engine coverage" });
-    await expect(coverage.getByText("Codex + Claude", { exact: true })).toBeVisible();
-    await expect(coverage.locator("dd").first()).toContainText("6");
+    await expect(coverage.getByRole("progressbar", { name: "Codex", exact: true })).toHaveAttribute("aria-valuenow", "9");
+    await expect(coverage.getByRole("progressbar", { name: "Claude", exact: true })).toHaveAttribute("aria-valuenow", "8");
+    await expect(coverage.locator("dd").last()).toHaveText("No data");
+    await expect(coverage).toContainText("No CLI version reported: 1");
     await expect(page.getByRole("region", { name: "Claude verification" })).toContainText("Canonical credentials need verification");
     await expect(page.getByRole("meter")).toHaveCount(4);
     await expect.poll(() => page.evaluate(() => {
@@ -1684,6 +1738,117 @@ test("control dashboard is accessible with both engines at desktop and mobile si
     await page.screenshot({ path: info.outputPath(`dashboard-${width}-${scheme}.png`), fullPage: true });
   }
   expect(errors).toEqual([]);
+});
+
+test("accounts shows all providers up to six accounts and filters larger fleets", async ({ page }) => {
+  let total = 6;
+  await installFixtures(page, path => path === "/admin/auth/status" ? { ...fixture(path), capabilities: ["auth.manage"] } : path === "/admin/accounts" ? {
+    accounts: Array.from({ length: total }, (_, i) => ({
+      id: i + 1, engine: ["codex", "claude", "grok"][i % 3], label: `Subscription ${i + 1}`,
+      state: i === 5 ? "paused" : "enabled", verification_state: "verified",
+      verification_reason: null, verification_checked_at: null, generation: 1, sessions: [],
+      usage: { supported: false, fetched_at: null, stale: false, short_used_percent: null,
+        short_resets_at: null, weekly_used_percent: null, weekly_resets_at: null },
+    })),
+  } : undefined);
+  const cards = page.locator("main section").filter({ has: page.getByRole("heading", { level: 2, name: /^Subscription/ }) });
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 1000 });
+    await page.goto("/admin/accounts");
+    await expect(cards).toHaveCount(6);
+    await expect(page.getByRole("button", { name: "ChatGPT", exact: true })).toHaveCount(0);
+    await expect(cards.nth(1)).toContainText("Claude · Account #2");
+    await expect(cards.nth(2)).toContainText("Grok · Account #3");
+    await expectNoSeriousAxeFindings(page);
+  }
+  await page.getByRole("button", { name: "Add account", exact: true }).click();
+  await expect(page.getByRole("dialog")).toContainText("Engine");
+  await expect(page.getByRole("dialog").getByRole("radio", { name: "Grok", exact: true })).toBeVisible();
+  await page.keyboard.press("Escape");
+  total = 7;
+  await page.reload();
+  await expect(page.getByRole("button", { name: "ChatGPT", exact: true })).toBeVisible();
+  await expect(cards).toHaveCount(3);
+  await page.getByRole("button", { name: "Grok", exact: true }).click();
+  await expect(cards).toHaveCount(2);
+  await expect(cards.first()).toContainText("Grok · Account #3");
+  total = 1;
+  await page.reload();
+  await expect(cards).toHaveCount(1);
+  await expect(page.getByRole("button", { name: "ChatGPT", exact: true })).toHaveCount(0);
+  total = 0;
+  await page.reload();
+  await expect(page.getByRole("heading", { name: "No accounts", exact: true })).toBeVisible();
+});
+
+test("host table engine dots show assignments and fleet suspension on desktop and mobile", async ({ page }) => {
+  let suspended = false;
+  await installFixtures(page, path => path === "/admin/engines/state" ? {
+    engines: ["codex", "claude", "grok"].map(engine => ({
+      engine, enabled: !(suspended && engine === "claude"), updated_at: null, updated_by: null, assigned_hosts: 1,
+    })),
+  } : undefined);
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 1000 });
+    await page.goto("/admin/hosts");
+    const row = page.getByRole("button").filter({ hasText: "console.example.test" });
+    await expect(row).toBeVisible();
+    await expect(row.getByRole("img", { name: "Codex: enabled", exact: true }).filter({ visible: true })).toHaveCount(1);
+    await expect(row.getByRole("img", { name: "Claude: enabled", exact: true }).filter({ visible: true })).toHaveCount(1);
+    await expect(row.getByRole("img", { name: "Grok: not assigned", exact: true }).filter({ visible: true })).toHaveCount(1);
+    await expect(row.locator('[aria-label="Codex: enabled"] span').first()).toHaveClass(/bg-green-500/);
+    await expect(row.locator('[aria-label="Grok: not assigned"] span').first()).toHaveClass(/bg-red-500/);
+    await expectNoSeriousAxeFindings(page);
+  }
+  suspended = true;
+  await page.reload();
+  const row = page.getByRole("button").filter({ hasText: "console.example.test" });
+  await expect(row.getByRole("img", { name: "Claude: disabled fleet-wide", exact: true }).filter({ visible: true })).toHaveCount(1);
+  await expect(row.locator('[aria-label="Claude: disabled fleet-wide"] span').first()).toHaveClass(/bg-red-500/);
+});
+
+test("engine coverage reports independent counts, zeroes, and unavailable snapshots", async ({ page }) => {
+  let hosts = 130;
+  let available = true;
+  let counts = { codex: 121, claude: 30, grok: 2 };
+  let unreported = 9;
+  await installFixtures(page, path => path === "/admin/overview" ? {
+    ...controlFixture(path), totals: { hosts },
+    version_distribution: available ? {
+      codex: [], claude: [], grok: [], engine_counts: counts,
+      install_combinations: [{ engines: [], count: unreported }],
+      install: { both: 0, codex_only: 0, claude_only: 0, neither: 0 },
+    } : null,
+  } : controlFixture(path));
+  const coverage = page.getByRole("region", { name: "Engine coverage" });
+  await page.goto("/admin/dashboard");
+  await expect(coverage.locator("dd")).toHaveText(["121 / 130 93%", "30 / 130 23%", "2 / 130 2%"]);
+  await expect(coverage.getByRole("progressbar")).toHaveCount(3);
+  await expect(coverage.getByRole("progressbar", { name: "Grok", exact: true })).toHaveAttribute("aria-valuemax", "130");
+  await expect(coverage).toContainText("No CLI version reported: 9");
+  await expect(coverage).toContainText("Hosts with multiple engines count towards each engine.");
+  await expect(coverage.getByText("Codex + Claude", { exact: true })).toHaveCount(0);
+
+  counts = { codex: 130, claude: 0, grok: 0 };
+  unreported = 0;
+  await page.reload();
+  await expect(coverage.locator("dd")).toHaveText(["130 / 130 100%", "0 / 130 0%", "0 / 130 0%"]);
+  await expect(coverage).toContainText("No CLI version reported: 0");
+
+  counts = { codex: 0, claude: 0, grok: 0 };
+  unreported = 130;
+  await page.reload();
+  await expect(coverage.getByRole("progressbar", { name: "Codex", exact: true })).toHaveAttribute("aria-valuenow", "0");
+  await expect(coverage).toContainText("No CLI version reported: 130");
+
+  hosts = 0;
+  await page.reload();
+  await expect(coverage).toContainText("Register a host to start building your fleet.");
+  await expect(coverage.getByRole("progressbar")).toHaveCount(0);
+
+  available = false;
+  await page.reload();
+  await expect(coverage).toContainText("Engine coverage is unavailable until a fleet snapshot loads.");
 });
 
 test("control overview distinguishes unavailable, stale, and recovered snapshots", async ({ page }) => {
@@ -2083,7 +2248,7 @@ test("Grok quick defaults honor model-specific effort and persist across reload"
 test("API Access shows the Grok text gateway and issues a scoped client key", async ({ page }) => {
   const writes: Array<{ path: string; body: unknown }> = [];
   await installFixtures(page, (path, body) => {
-    if (body && path.startsWith("/admin/grok/")) {
+    if (body && (path.startsWith("/admin/grok/") || path === "/admin/api/surfaces/grok")) {
       writes.push({ path, body });
       if (path === "/admin/grok/keys") return { key: "fake-gateway-token", record: { id: 3, name: "Grok test", is_active: true, created_at: "2026-10-01T00:00:00Z", expires_at: null } };
       if (path.startsWith("/admin/grok/models/")) return { model: "grok-4.5", enabled: false };
@@ -2091,12 +2256,15 @@ test("API Access shows the Grok text gateway and issues a scoped client key", as
     }
   });
   await page.goto("/admin/api-keys");
-  await expect(page.getByText(/127\.0\.0\.1:4173\/grok\/v1/)).toBeVisible();
+  await expect(page.getByRole("region", { name: "API endpoints" }).getByText(/127\.0\.0\.1:4173\/grok\/v1/)).toBeVisible();
+  await page.getByRole("button", { name: "Configuration", exact: true }).click();
+  await page.getByRole("switch", { name: "Enable /grok/v1", exact: true }).click();
+  await page.locator("#grok-proxy > summary").click();
   await expect(page.getByText("Streaming, tools, images, sampling controls, and token limits are unavailable.", { exact: false })).toBeVisible();
-  await page.getByRole("switch", { name: "Disable Grok API gateway" }).click();
   await expect(page.getByRole("switch", { name: "Grok 4.7", exact: true })).toBeChecked();
   await page.getByRole("switch", { name: "Grok 4.5", exact: true }).click();
   await expect.poll(() => writes.some(w => w.path === "/admin/grok/models/grok-4.5/toggle")).toBe(true);
+  await page.getByRole("button", { name: "Back to keys" }).click();
   await page.getByRole("tab", { name: "Grok", exact: true }).click();
   await page.getByRole("button", { name: "New key", exact: true }).click();
   const dialog = page.getByRole("dialog");
@@ -2104,7 +2272,7 @@ test("API Access shows the Grok text gateway and issues a scoped client key", as
   await dialog.getByRole("textbox", { name: "Name", exact: true }).fill("Grok test");
   await dialog.getByRole("button", { name: "Create key" }).click();
   await expect.poll(() => writes.some(w => w.path === "/admin/grok/keys")).toBe(true);
-  expect(writes).toContainEqual({ path: "/admin/grok/state", body: { disabled: true } });
+  expect(writes).toContainEqual({ path: "/admin/api/surfaces/grok", body: { disabled: true } });
   expect(writes).toContainEqual({ path: "/admin/grok/keys", body: { name: "Grok test", expires_at: null } });
   expect(writes).toContainEqual({ path: "/admin/grok/models/grok-4.5/toggle", body: { enabled: false } });
 });
@@ -2244,4 +2412,196 @@ test("messaging shows all nine engine directions", async ({ page }) => {
   for (const source of ["codex", "claude", "grok"]) for (const target of ["codex", "claude", "grok"]) {
     await expect(matrix.getByText(`${source} → ${target}`, { exact: true })).toBeVisible();
   }
+});
+
+// API Access puts daily key work ahead of routing and backend configuration.
+test("API Access keeps keys visible, copies endpoints and preserves selection", async ({ page, context }) => {
+  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto("/admin/api-keys");
+  await expect(page.getByRole("heading", { name: "API keys", exact: true })).toBeInViewport();
+  await expect(page.getByRole("textbox", { name: "Search OpenAI keys" })).toBeInViewport();
+  await expect(page.getByRole("switch", { name: "Disable all API traffic" })).not.toBeVisible();
+  await expect(page.getByRole("button", { name: "Backend for /v1", exact: true })).not.toBeVisible();
+  await page.getByRole("button", { name: "Copy /anthropic/v1 URL", exact: true }).click();
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe("http://127.0.0.1:4173/anthropic/v1");
+  await page.getByRole("button", { name: "Show Anthropic keys" }).click();
+  await expect(page.getByRole("tab", { name: "Anthropic", exact: true })).toHaveAttribute("aria-selected", "true");
+  await page.getByRole("button", { name: "Configuration", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Routing & availability" })).toBeVisible();
+  await expect(page.getByLabel("Proxy default model", { exact: true })).not.toBeVisible();
+  await page.getByRole("button", { name: "Back to keys" }).click();
+  await expect(page.getByRole("tab", { name: "Anthropic", exact: true })).toHaveAttribute("aria-selected", "true");
+  await page.getByRole("button", { name: "New key", exact: true }).click();
+  await expect(page.getByRole("dialog").getByRole("button", { name: "Engine", exact: true })).toContainText("Claude");
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(page.locator("[data-sonner-toast]")).toHaveCount(0, { timeout: 10000 });
+  await expectNoSeriousAxeFindings(page);
+  await page.screenshot({ path: "test-results/api-access-desktop.png", fullPage: true });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/admin/api-keys");
+  await expect(page.getByRole("textbox", { name: "Search OpenAI keys" })).toBeInViewport();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await page.screenshot({ path: "test-results/api-access-mobile.png", fullPage: true });
+});
+
+test("API Access resolves legacy anchors and the new-key deep link", async ({ page }) => {
+  for (const [anchor, target] of [["service-availability", "#api-state-toggle"], ["exposed-apis", "#api-backend-openai"], ["claude-proxy", "#claude-model"], ["grok-proxy", "#grok-proxy-model"]]) {
+    await page.goto(`/admin/api-keys#${anchor}`);
+    await expect(page.locator(target)).toBeVisible();
+    await expect(page.getByRole("button", { name: "Back to keys" })).toBeVisible();
+  }
+  await page.goto("/admin/api-keys?dialog=new&engine=grok");
+  await expect(page.getByRole("dialog").getByRole("button", { name: "Engine", exact: true })).toContainText("Grok");
+  await page.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(page).not.toHaveURL(/dialog=new/);
+  await expect(page.getByRole("tab", { name: "Grok", exact: true })).toHaveAttribute("aria-selected", "true");
+});
+
+test("API Access reports disabled and rerouted backends without changing key namespaces", async ({ page }) => {
+  await installFixtures(page, (path) => {
+    if (path === "/admin/api/surfaces") {
+      const data = fixture(path) as { surfaces: Array<Record<string, unknown>> };
+      return { ...data, surfaces: data.surfaces.map(row => row.surface === "openai" ? { ...row, backend: "grok" } : row.surface === "anthropic" ? { ...row, disabled: true } : row) };
+    }
+    if (path === "/admin/engines/state") {
+      const data = fixture(path) as { engines: Array<Record<string, unknown>> };
+      return { engines: data.engines.map(row => ({ ...row, enabled: row.engine !== "grok" })) };
+    }
+  });
+  await page.goto("/admin/api-keys");
+  await expect(page.locator('[data-endpoint="openai"]')).toContainText("Backend off");
+  await expect(page.locator('[data-endpoint="anthropic"]')).toContainText("Disabled");
+  await expect(page.locator('[data-endpoint="grok"]')).toContainText("Backend off");
+  await page.getByRole("button", { name: "Show OpenAI keys" }).click();
+  await expect(page.getByRole("textbox", { name: "Search OpenAI keys" })).toBeVisible();
+  await installFixtures(page, path => path === "/admin/api/state" ? { disabled: true } : undefined);
+  await page.reload();
+  await expect(page.getByRole("status").filter({ hasText: "All API traffic is disabled" })).toBeVisible();
+  await expect(page.locator('[data-endpoint="openai"]')).toContainText("All traffic off");
+});
+
+test("API Access reports query errors instead of claiming access is enabled", async ({ page }) => {
+  await page.route("**/admin/engines/state", route => route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ message: "status unavailable" }) }));
+  await page.goto("/admin/api-keys");
+  await expect(page.getByRole("alert").filter({ hasText: "Failed to load API status" })).toBeVisible({ timeout: 15000 });
+  await expect(page.locator('[data-endpoint="openai"]')).toContainText("Status unavailable");
+  await page.route("**/admin/api/surfaces", route => route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ message: "endpoints unavailable" }) }));
+  await page.reload();
+  await expect(page.getByRole("alert").filter({ hasText: "Failed to load endpoints" })).toBeVisible({ timeout: 15000 });
+});
+
+test("API Access retains search, toggle and revoke for issued keys", async ({ page }) => {
+  let rows = [{ id: 7, name: "CI runner", key_prefix: "sk-cdx-test", is_active: true, use_count: 12, created_at: "2026-10-01T00:00:00Z", last_used_at: null, expires_at: null }];
+  const writes: string[] = [];
+  await page.route("**/admin/openai/keys**", async route => {
+    const path = new URL(route.request().url()).pathname;
+    if (route.request().method() === "POST") { rows[0].is_active = route.request().postDataJSON().active; writes.push(path); }
+    if (route.request().method() === "DELETE") { rows = []; writes.push(path); }
+    await route.fulfill({ contentType: "application/json", body: JSON.stringify(path.endsWith("/keys") ? rows : { status: "ok" }) });
+  });
+  await page.goto("/admin/api-keys");
+  await expect(page.getByRole("cell", { name: "CI runner", exact: true })).toBeInViewport();
+  await page.getByRole("textbox", { name: "Search OpenAI keys" }).fill("nothing");
+  await expect(page.getByText('No keys match "nothing"')).toBeVisible();
+  await page.getByRole("button", { name: "Clear search" }).click();
+  await page.getByRole("switch", { name: "Toggle active", exact: true }).click();
+  await expect.poll(() => writes).toContain("/admin/openai/keys/7/toggle");
+  await expect(page.getByRole("switch", { name: "Toggle active", exact: true })).not.toBeChecked();
+  await page.getByRole("button", { name: "Revoke key", exact: true }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "Revoke key", exact: true }).click();
+  await expect.poll(() => writes).toContain("/admin/openai/keys/7");
+  await expect(page.getByText("No OpenAI keys yet")).toBeVisible();
+});
+
+test("API Access configuration saves routing and backend defaults and supports keyboard navigation", async ({ page }) => {
+  const writes: Array<{ path: string; body: unknown }> = [];
+  await installFixtures(page, (path, body) => {
+    if (body && ["/admin/api/surfaces/openai", "/admin/claude/settings", "/admin/grok/settings", "/admin/api/state"].includes(path)) {
+      writes.push({ path, body });
+      return body as Record<string, unknown>;
+    }
+  });
+  await page.goto("/admin/api-keys#configuration");
+  await page.getByRole("button", { name: "Backend for /v1", exact: true }).click();
+  await page.getByRole("option", { name: "Claude", exact: true }).click();
+  await expect.poll(() => writes).toContainEqual({ path: "/admin/api/surfaces/openai", body: { backend: "claude" } });
+  await page.locator("#claude-proxy > summary").focus();
+  await page.keyboard.press("Enter");
+  await page.getByLabel("Max tokens", { exact: true }).fill("4096");
+  await page.getByRole("button", { name: "Save proxy defaults" }).click();
+  await expect.poll(() => writes).toContainEqual({ path: "/admin/claude/settings", body: { default_model: "claude-sonnet-5", max_tokens: 4096 } });
+  await page.locator("#grok-proxy > summary").click();
+  await page.getByRole("button", { name: "Save gateway default" }).click();
+  await expect.poll(() => writes).toContainEqual({ path: "/admin/grok/settings", body: { default_model: "grok-4.6" } });
+  await page.getByRole("switch", { name: "Disable all API traffic" }).click();
+  await expect.poll(() => writes).toContainEqual({ path: "/admin/api/state", body: { disabled: true } });
+  await page.getByRole("button", { name: "Back to keys" }).click();
+  await page.getByRole("tab", { name: "OpenAI", exact: true }).focus();
+  await page.keyboard.press("ArrowRight");
+  await expect(page.getByRole("tab", { name: "Anthropic", exact: true })).toHaveAttribute("aria-selected", "true");
+});
+
+test("appearance menu switches light and dark immediately and persists across reload", async ({ page }) => {
+  let savedTheme = "auto";
+  const writes: string[] = [];
+  const pageErrors: string[] = [];
+  page.on("pageerror", error => pageErrors.push(error.message));
+  await installFixtures(page, (path, body) => {
+    if (path !== "/admin/theme") return;
+    if (body) { savedTheme = (body as { theme: string }).theme; writes.push(savedTheme); }
+    return { theme: savedTheme };
+  });
+  await page.emulateMedia({ colorScheme: "dark" });
+  await page.goto("/admin/dashboard");
+  await expect(page.locator("html")).toHaveClass(/dark/);
+  for (const choice of ["Light", "Dark"]) {
+    await page.getByRole("button", { name: "Appearance", exact: true }).click();
+    await expect(page.getByRole("menuitem", { name: choice, exact: true })).toBeVisible();
+    await page.getByRole("menuitem", { name: choice, exact: true }).click();
+    await expect.poll(() => page.locator("html").evaluate(el => el.classList.contains("dark"))).toBe(choice === "Dark");
+    await expect.poll(() => writes.at(-1)).toBe(choice.toLowerCase());
+    await page.reload();
+    await expect.poll(() => page.locator("html").evaluate(el => el.classList.contains("dark"))).toBe(choice === "Dark");
+  }
+  await page.goto("/admin/account/theme");
+  await expect(page.getByRole("radio", { name: /Dark/ })).toBeChecked();
+  await page.getByRole("button", { name: "Appearance", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Light", exact: true }).click();
+  await expect(page.getByRole("radio", { name: /Light/ })).toBeChecked();
+  await expect.poll(() => writes.at(-1)).toBe("light");
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.getByRole("button", { name: "Appearance", exact: true }).focus();
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("menuitem", { name: "Light", exact: true })).toBeFocused();
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("ArrowDown");
+  await expect(page.getByRole("menuitem", { name: "System", exact: true })).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect.poll(() => writes.at(-1)).toBe("auto");
+  await expect(page.getByRole("radio", { name: /System/ })).toBeChecked();
+  await expect(page.locator("html")).toHaveClass(/dark/);
+  await page.emulateMedia({ colorScheme: "light" });
+  await expect(page.locator("html")).not.toHaveClass(/dark/);
+  await page.reload();
+  await expect(page.getByRole("radio", { name: /System/ })).toBeChecked();
+  await expect(page.locator("html")).not.toHaveClass(/dark/);
+  expect(pageErrors).toEqual([]);
+
+});
+
+test("appearance menu restores the previous theme when saving fails", async ({ page }) => {
+  await page.route("**/admin/theme", route => route.fulfill({
+    status: route.request().method() === "POST" ? 503 : 200,
+    contentType: "application/json",
+    body: JSON.stringify(route.request().method() === "POST" ? { message: "Theme save unavailable" } : { theme: "dark" }),
+  }));
+  await page.goto("/admin/dashboard");
+  await expect(page.locator("html")).toHaveClass(/dark/);
+  await page.getByRole("button", { name: "Appearance", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Light", exact: true }).click();
+  await expect(page.getByText("Could not save appearance", { exact: true })).toBeVisible();
+  await expect(page.locator("html")).toHaveClass(/dark/);
+  await expect.poll(() => page.evaluate(() => localStorage.getItem("codex.theme"))).toBe("dark");
 });
