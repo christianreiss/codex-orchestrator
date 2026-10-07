@@ -32,6 +32,25 @@ private val DarkColors = darkColorScheme(
     surfaceContainerLow = Color(0xFF191A20), surfaceContainerHighest = Color(0xFF343640),
     onSurfaceVariant = Color(0xFFB0B3C0), outline = Color(0xFF8E929F), outlineVariant = Color(0xFF343640),
 )
+private val HomeLightColors = LightColors.copy(
+    primary = Color(0xFF007A59), onPrimary = Color.White,
+    primaryContainer = Color(0xFFD9F5E7), onPrimaryContainer = Color(0xFF00513B),
+    background = Color.White, surface = Color.White,
+    surfaceContainer = Color(0xFFF1F4F3), surfaceContainerHigh = Color(0xFFE8EEEB),
+    onSurfaceVariant = Color(0xFF65736C), outlineVariant = Color(0xFFE8EEEB),
+)
+private val HomeDarkColors = DarkColors.copy(
+    primary = Color(0xFF25D366), onPrimary = Color(0xFF062B16),
+    primaryContainer = Color(0xFF123D2A), onPrimaryContainer = Color(0xFFAEF2C9),
+    background = Color(0xFF111D22), surface = Color(0xFF111D22),
+    surfaceContainer = Color(0xFF202E33), surfaceContainerHigh = Color(0xFF2A3B40),
+    onSurfaceVariant = Color(0xFFADBAB7), outlineVariant = Color(0xFF26383E),
+)
+
+@Composable internal fun CompanionHomeTheme(enabled: Boolean, content: @Composable () -> Unit) {
+    val colors = if (!enabled) MaterialTheme.colorScheme else if (isSystemInDarkTheme()) HomeDarkColors else HomeLightColors
+    MaterialTheme(colorScheme = colors, content = content)
+}
 private val CompanionTypography = Typography(
     headlineLarge = TextStyle(fontSize = 34.sp, lineHeight = 40.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.7).sp),
     headlineSmall = TextStyle(fontSize = 24.sp, lineHeight = 30.sp, fontWeight = FontWeight.SemiBold),

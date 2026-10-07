@@ -16,7 +16,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 
-internal enum class CompanionSymbol { Back, Forward, Up, Down, More, Chat, Shield, Close, Check, Scan, Computer, Terminal }
+internal enum class CompanionSymbol { Back, Forward, Up, Down, More, MoreVertical, Search, Chat, Shield, Close, Check, Scan, Computer, Terminal }
 
 /** Small local vector icons; no font, image downloads, or icon library required. */
 @Composable internal fun CompanionIcon(symbol: CompanionSymbol, description: String? = null, tint: Color = LocalContentColor.current, modifier: Modifier = Modifier) {
@@ -40,6 +40,8 @@ internal enum class CompanionSymbol { Back, Forward, Up, Down, More, Chat, Shiel
                 CompanionSymbol.Computer -> { line(3f, 4f, 21f, 4f, 21f, 16f, 3f, 16f, 3f, 4f); line(12f, 16f, 12f, 20f); line(8f, 20f, 16f, 20f) }
                 CompanionSymbol.Terminal -> { line(3f, 5f, 21f, 5f, 21f, 19f, 3f, 19f, 3f, 5f); line(7f, 9f, 10f, 12f, 7f, 15f); line(13f, 15f, 17f, 15f) }
                 CompanionSymbol.More -> listOf(5f, 12f, 19f).forEach { drawCircle(tint, 1.6f, Offset(it, 12f)) }
+                CompanionSymbol.MoreVertical -> listOf(5f, 12f, 19f).forEach { drawCircle(tint, 1.6f, Offset(12f, it)) }
+                CompanionSymbol.Search -> { drawCircle(tint, 6.5f, Offset(10.5f, 10.5f), style = stroke); line(15f, 15f, 21f, 21f) }
                 CompanionSymbol.Chat -> drawPath(Path().apply {
                     moveTo(7f, 3f); lineTo(17f, 3f); quadraticTo(21f, 3f, 21f, 7f)
                     lineTo(21f, 14f); quadraticTo(21f, 18f, 17f, 18f)

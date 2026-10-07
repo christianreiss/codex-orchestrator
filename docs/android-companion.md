@@ -14,10 +14,10 @@ old sessions back into the list; a retained notification can still open read-onl
 history. A working agent appears
 only if its receiver can still accept a message. Project name, host, and engine
 identify each conversation; **Review next** opens the next decision directly.
-Each card also shows the agent's latest short summary (one sentence, at most
+Each row also shows the agent's latest short summary (one sentence, at most
 160 Unicode characters, displayed on up to two lines). An open question or active
 attention notice takes priority over the last reply. The full answer stays in chat.
-The compact layout uses rounded surfaces, tighter spacing, and at least 48 dp
+The compact layout uses flat chat rows, circular avatars, and at least 48 dp
 action targets while respecting Android text size settings.
 
 Host decisions use a bottom sheet with requesting host/IP, expiry, duration
@@ -102,6 +102,19 @@ the app picks up newly configured Firebase identifiers and registers its token.
 
 ## Appearance and conversation layout
 
+Version 0.4.4 gives the home screen a WhatsApp-inspired layout: a compact green
+**Orchestrator** header, rounded **Search chats** field, **All**, **Unread**, and
+**Needs you** filters, and full-width chat rows. Each row shows its circular engine
+avatar, project name, timestamp, host identity, short summary and a small unread
+number. The palette follows Android light/dark mode and the rows grow with system
+font scaling. **Review next** floats at the bottom when a decision is available;
+the list leaves room so it does not cover the last chat.
+
+Search and filters operate only on the already-authorized overview; they never
+fetch a transcript, acknowledge a reply, or change notification follows. Live
+host approvals remain visible through chat filters. The redesign is Android-only
+and uses the existing 0.4.3 API. No server rollout is required.
+
 Version 0.4.0 follows the Android light/dark setting with blue accents, soft surfaces,
 rounded controls and a compact, top-aligned conversation list. Host reviews and
 agents needing a reply come first. Rows show project, host/engine and the existing
@@ -129,8 +142,9 @@ REST/WebSocket/push contracts and permissions remain unchanged. Agent-authored s
 
 ## Unread replies and launcher badges
 
-Version 0.4.3 keeps one **Sessions** list below live decisions, with a small unread
-reply number beside the session name (visually capped at `99+`, with the full count
+Version 0.4.3 introduced one **Sessions** list below live decisions; 0.4.4 uses flat
+chat rows, with a small unread reply number at the trailing edge
+(visually capped at `99+`, with the full count
 available to TalkBack). There is no separate unread section or repeated **New**
 label, and unread state does not promote ended/offline sessions into the list.
 Cached reachable sessions remain visible while reconnecting; sending still

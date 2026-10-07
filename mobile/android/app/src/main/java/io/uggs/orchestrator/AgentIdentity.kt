@@ -27,7 +27,7 @@ import java.util.Locale
 }
 
 @Composable internal fun AgentAvatar(agent: JSONObject?) {
-    Surface(Modifier.size(46.dp), shape = CircleShape, color = MaterialTheme.colorScheme.surfaceContainer) {
+    Surface(Modifier.size(52.dp), shape = CircleShape, color = MaterialTheme.colorScheme.surfaceContainer) {
         Box(contentAlignment = Alignment.Center) { EngineIcon(agent) }
     }
 }

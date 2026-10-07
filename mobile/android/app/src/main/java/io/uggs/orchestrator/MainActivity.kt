@@ -15,9 +15,11 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -41,8 +43,12 @@ class MainActivity : ComponentActivity() {
     override fun onStop() { model.setForeground(false); super.onStop() }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable fun CompanionScreen(model: CompanionModel) {
+    CompanionHomeTheme(enabled = model.connection != null && model.selected == null) { CompanionContent(model) }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable private fun CompanionContent(model: CompanionModel) {
     val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
     var more by remember { mutableStateOf(false) }
     var review by remember { mutableStateOf<JSONObject?>(null) }
@@ -55,6 +61,7 @@ class MainActivity : ComponentActivity() {
     val total = requests.size + needsYou.size
     val current = model.agents.firstOrNull { it.optString("id") == model.selected }
     val snackbar = remember { SnackbarHostState() }
+    val overviewState = rememberSaveableStateHolder()
     LaunchedEffect(model.notice) { model.notice?.let { snackbar.showSnackbar(it, duration = SnackbarDuration.Short); model.clearNotice() } }
     LaunchedEffect(model.connection?.deviceId) { if (model.connection != null && Build.VERSION.SDK_INT >= 33) permission.launch(Manifest.permission.POST_NOTIFICATIONS) }
     LaunchedEffect(model.highlightApproval, requests) {
@@ -66,27 +73,33 @@ class MainActivity : ComponentActivity() {
     BackHandler(model.selected != null && review == null && !more) { model.closeSession() }
     Scaffold(topBar = {
         Surface(color = MaterialTheme.colorScheme.background) {
-            Row(Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 16.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 if (model.selected != null) FilledTonalIconButton(onClick = model::closeSession, modifier = Modifier.size(48.dp)) { CompanionIcon(CompanionSymbol.Back, "Back") }
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         if (model.selected != null) EngineIcon(current, Modifier.size(24.dp))
-                        Text(if (model.selected != null) current?.let(::agentTitle) ?: "Agent" else if (model.connection != null) "Chats" else "Orchestrator",
+                        Text(if (model.selected != null) current?.let(::agentTitle) ?: "Agent" else "Orchestrator",
                             modifier = Modifier.weight(1f), maxLines = 2, overflow = TextOverflow.Ellipsis,
-                            style = if (model.selected == null && model.connection != null) MaterialTheme.typography.headlineLarge else MaterialTheme.typography.titleLarge)
+                            color = if (model.selected == null && model.connection != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onBackground,
+                            style = MaterialTheme.typography.titleLarge)
                     }
                     if (model.selected != null) HostBadge(current)
-                    if (model.connection != null && (!fresh || model.selected == null)) {
-                        Text(if (!fresh) "Reconnecting…" else if (total == 1) "1 needs you" else if (total > 0) "$total need you" else "All clear", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    if (model.connection != null && !fresh) {
+                        Text("Reconnecting…", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
-                if (model.connection != null) FilledTonalIconButton(onClick = { more = true }, modifier = Modifier.size(48.dp)) { CompanionIcon(CompanionSymbol.More, "More") }
+                if (model.connection != null) IconButton(onClick = { more = true }, modifier = Modifier.size(48.dp)) { CompanionIcon(CompanionSymbol.MoreVertical, "More") }
             }
         }
-    }, snackbarHost = { SnackbarHost(snackbar) }, bottomBar = {
+    }, snackbarHost = { SnackbarHost(snackbar) }, floatingActionButton = {
         if (model.connection != null && model.selected == null && total > 0) {
-            Surface(color = MaterialTheme.colorScheme.background) { Button(onClick = { if (requests.isNotEmpty()) review = requests.first() else model.openSession(needsYou.first().getString("id")) },
-                modifier = Modifier.navigationBarsPadding().padding(horizontal = 12.dp, vertical = 8.dp).fillMaxWidth().heightIn(min = 52.dp), enabled = !model.busy) { Text("Review next · $total", style = MaterialTheme.typography.titleMedium) } }
+            Button(onClick = { if (requests.isNotEmpty()) review = requests.first() else model.openSession(needsYou.first().getString("id")) },
+                modifier = Modifier.heightIn(min = 56.dp).testTag("review-next"), shape = RoundedCornerShape(18.dp), enabled = !model.busy,
+                elevation = ButtonDefaults.buttonElevation(defaultElevation = 3.dp)) {
+                CompanionIcon(CompanionSymbol.Shield)
+                Spacer(Modifier.width(8.dp))
+                Text("Review next · $total", style = MaterialTheme.typography.labelLarge)
+            }
         }
     }) { padding ->
         Column(Modifier.padding(padding).consumeWindowInsets(padding).fillMaxSize()) {
@@ -95,7 +108,9 @@ class MainActivity : ComponentActivity() {
             when {
                 model.connection == null -> PairScreen(model)
                 model.selected != null -> ChatScreen(model, current, fresh)
-                else -> NowScreen(model, agents, requests, fresh, onReview = { review = it })
+                else -> overviewState.SaveableStateProvider(model.connection!!.deviceId) {
+                    NowScreen(model, agents, requests, fresh, onReview = { review = it })
+                }
             }
         }
     }

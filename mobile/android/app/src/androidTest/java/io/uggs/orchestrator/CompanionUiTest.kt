@@ -4,6 +4,8 @@ import android.Manifest
 import android.app.NotificationManager
 import androidx.lifecycle.Lifecycle
 import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.test.core.app.ActivityScenario
@@ -57,6 +59,7 @@ class CompanionUiTest {
     private val reply = AtomicReference("Ready for your message.")
     private val cursor = AtomicLong(1)
     private val history = CopyOnWriteArrayList<JSONObject>()
+    private val extraAgents = CopyOnWriteArrayList<JSONObject>()
     private val cursorsRequested = CopyOnWriteArrayList<Long>()
     private val heartbeat = Executors.newSingleThreadScheduledExecutor()
     private val session = "68e117f3-e14b-4b86-a4c0-79808bf142c4"
@@ -109,12 +112,21 @@ class CompanionUiTest {
                         val readCursors = if (request.method == "POST") JSONObject(request.body.readUtf8()).optJSONObject("read_cursors") else null
                         val readCursor = readCursors?.optLong(session) ?: 0
                         val unreadReplies = if (history.isEmpty()) if (cursor.get() > readCursor) 1 else 0 else history.count { it.optString("type") == "assistant_message" && it.getLong("cursor") > readCursor }
-                        val preview = if (transcriptAllowed.get()) """{"summary":${JSONObject.quote(if (questionPending.get()) "Choose a target." else summary.get())}}""" else "null"
+                        val preview = if (transcriptAllowed.get()) """{"summary":${JSONObject.quote(if (questionPending.get()) "Choose a target." else summary.get())},"created_at":"2026-10-07T19:00:00Z"}""" else "null"
                         val replyCursor = if (transcriptAllowed.get()) assistantCursor.toString() else "null"
                         val unreadCount = if (transcriptAllowed.get()) unreadReplies.toString() else "null"
                         val emptyCursor = if (transcriptAllowed.get()) "0" else "null"
                         val primary = if (!sessionListed.get()) "" else """{"id":"$session","host":${JSONObject.quote(fixtureHost)},"engine":${JSONObject.quote(fixtureEngine)},"cwd":${JSONObject.quote("/work/$fixtureProject")},"presence":${JSONObject.quote(presence.get())},"read_only":${readOnly.get()},"relay_ready":${reachable.get()},"reply_cursor":$replyCursor,"unread_reply_count":$unreadCount,"preview":$preview,"pending_prompt":${if (transcriptAllowed.get() && questionPending.get()) """{"id":"question-1","version":1,"question":"Which target?","options":["Staging","Production"]}""" else "null"}},"""
-                        """{"agents":[$primary{"id":"offline","host":"offline.uggs.io","cwd":"/old/offline-project","presence":"offline","relay_ready":false,"reply_cursor":$emptyCursor,"unread_reply_count":$emptyCursor},{"id":"idle","host":"idle.uggs.io","cwd":"/old/idle-project","presence":"idle","relay_ready":false,"reply_cursor":$emptyCursor,"unread_reply_count":$emptyCursor}]}"""
+                        val additional = extraAgents.joinToString("") { fixture ->
+                            val agent = JSONObject(fixture.toString())
+                            if (!transcriptAllowed.get()) {
+                                agent.put("reply_cursor", JSONObject.NULL).put("unread_reply_count", JSONObject.NULL).put("preview", JSONObject.NULL)
+                            } else if ((readCursors?.optLong(agent.getString("id")) ?: 0) >= agent.optLong("reply_cursor")) {
+                                agent.put("unread_reply_count", 0)
+                            }
+                            "$agent,"
+                        }
+                        """{"agents":[$primary$additional{"id":"offline","host":"offline.uggs.io","cwd":"/old/offline-project","presence":"offline","relay_ready":false,"reply_cursor":$emptyCursor,"unread_reply_count":$emptyCursor},{"id":"idle","host":"idle.uggs.io","cwd":"/old/idle-project","presence":"idle","relay_ready":false,"reply_cursor":$emptyCursor,"unread_reply_count":$emptyCursor}]}"""
                     }
                     path == "/agents/$session/events" -> {
                         transcriptRequested.set(true)
@@ -230,6 +242,141 @@ class CompanionUiTest {
         Assert.assertEquals("Staging", answered.get())
         Assert.assertNull("A choice uses the prompt answer endpoint", sent.get())
     }
+    @Test fun localChatSearchMatchesProjectFullHostAndSummaryWhileKeepingApprovalsPinned() {
+        waitForAgentRows(session)
+        extraAgents.add(agentFixture("search-payment", "payment-mobile", "edge-search.uggs.io", "Payment release reconciled.", "claude"))
+        extraAgents.add(agentFixture("search-policy", "firewall-policy", "api-other.uggs.io", "Certificate chain verified.", "grok"))
+        changed("agents")
+        waitForAgentRows("search-payment", "search-policy")
+        val ledger = unreadLedger()
+        val requests = agentsRequested.get()
+
+        compose.onNodeWithTag("chat-search").performTextReplacement("  PAYMENT-MOBILE  ")
+        compose.onNodeWithTag("agent:search-payment").assertIsDisplayed()
+        compose.onNodeWithTag("agent:search-policy").assertDoesNotExist()
+        compose.onNodeWithTag("agent:$session").assertDoesNotExist()
+        compose.onNodeWithText("waiting.uggs.io").assertIsDisplayed()
+
+        compose.onNodeWithTag("chat-search").performTextReplacement("API-OTHER.UGGS.IO")
+        compose.onNodeWithTag("agent:search-policy").assertIsDisplayed()
+        compose.onNodeWithContentDescription("Host: api-other.uggs.io", useUnmergedTree = true).assertIsDisplayed()
+        compose.onNodeWithTag("agent:search-payment").assertDoesNotExist()
+
+        compose.onNodeWithTag("chat-search").performTextReplacement("release RECONCILED")
+        compose.onNodeWithText("Payment release reconciled.").assertIsDisplayed()
+        compose.onNodeWithTag("agent:search-payment").assertIsDisplayed()
+        compose.onNodeWithTag("agent:search-policy").assertDoesNotExist()
+
+        compose.onNodeWithTag("chat-search").performTextReplacement("no such conversation")
+        compose.onNodeWithTag("agent:search-payment").assertDoesNotExist()
+        compose.onNodeWithTag("agent:search-policy").assertDoesNotExist()
+        compose.onNodeWithTag("agent:$session").assertDoesNotExist()
+        compose.onNodeWithText("waiting.uggs.io").assertIsDisplayed()
+        compose.onNodeWithTag("chat-search").performTextReplacement("")
+        waitForAgentRows(session, "search-payment", "search-policy")
+        Assert.assertEquals("Local search does not request another agent snapshot", requests, agentsRequested.get())
+        Assert.assertFalse("Searching does not load a transcript", transcriptRequested.get())
+        Assert.assertEquals("Searching does not acknowledge an unread reply", ledger, unreadLedger())
+        Assert.assertFalse("Pinned access requests remain undecided", approved.get())
+        screenshot("chat-home-search")
+    }
+    @Test fun chatHomeRestoresSearchAndFilterAfterReadingAConversation() {
+        waitForAgentRows(session)
+        compose.onNodeWithTag("chat-search").performTextReplacement(" $fixtureProject ")
+        compose.onNodeWithTag("chat-filter:unread").performClick()
+        compose.onNodeWithTag("agent:$session").performClick()
+        waitForUnread(emptySet())
+        compose.onNodeWithContentDescription("Back").performClick()
+        compose.onNodeWithTag("chat-search").assertTextContains(" $fixtureProject ")
+        compose.onNodeWithTag("chat-filter:unread").assertIsSelected()
+        compose.onNodeWithText("No chats found").assertIsDisplayed()
+        compose.onNodeWithTag("agent:$session").assertDoesNotExist()
+        compose.onNodeWithText("Clear filters").performClick()
+        compose.onNodeWithTag("agent:$session").assertIsDisplayed()
+    }
+    @Test fun chatFiltersIntersectSearchWithoutAcknowledgingRepliesAndKeepDecisionChoices() {
+        waitForAgentRows(session)
+        extraAgents.add(agentFixture("filter-unread", "release-check", "release.uggs.io", "Three checks need reading.", "claude", 30, 3))
+        extraAgents.add(agentFixture("filter-read", "archive-check", "archive.uggs.io", "Already reviewed.", "grok"))
+        changed("agents")
+        waitForAgentRows("filter-unread", "filter-read")
+        waitForUnread(setOf(session, "filter-unread"))
+        val ledger = unreadLedger()
+        val requests = agentsRequested.get()
+
+        compose.onNodeWithTag("chat-filter:unread").performClick()
+        compose.onNodeWithTag("agent:$session").assertIsDisplayed()
+        compose.onNodeWithTag("agent:filter-unread").assertIsDisplayed()
+        compose.onNodeWithTag("agent:filter-unread").assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "3 unread replies"))
+        compose.onNodeWithTag("agent:filter-read").assertDoesNotExist()
+        compose.onNodeWithText("waiting.uggs.io").assertIsDisplayed()
+        compose.onNodeWithTag("chat-search").performTextReplacement("release.uggs.io")
+        compose.onNodeWithTag("agent:filter-unread").assertIsDisplayed()
+        compose.onNodeWithTag("agent:$session").assertDoesNotExist()
+        compose.onNodeWithTag("chat-search").performTextReplacement("")
+        compose.onNodeWithTag("chat-filter:needs-you").performClick()
+        compose.onNodeWithTag("agent:$session").assertDoesNotExist()
+        compose.onNodeWithTag("agent:filter-unread").assertDoesNotExist()
+        compose.onNodeWithText("waiting.uggs.io").assertIsDisplayed()
+        Assert.assertEquals("Changing filters is local", requests, agentsRequested.get())
+        Assert.assertFalse("Filtering does not load a transcript", transcriptRequested.get())
+        Assert.assertEquals("Unread filters do not acknowledge replies", ledger, unreadLedger())
+
+        questionPending.set(true)
+        changed("agents")
+        waitForAgentRows(session)
+        compose.onNodeWithText("Choose a target.").assertIsDisplayed()
+        compose.onNodeWithTag("agent:filter-unread").assertDoesNotExist()
+        compose.onNodeWithText("waiting.uggs.io").assertIsDisplayed()
+        Assert.assertEquals("An incoming decision does not acknowledge its reply", ledger, unreadLedger())
+        compose.onNodeWithTag("chat-filter:all").performClick()
+        waitForAgentRows(session, "filter-unread", "filter-read")
+        compose.onNodeWithTag("chat-filter:needs-you").performClick()
+        compose.onNodeWithText("Choose a target.").assertIsDisplayed()
+        screenshot("chat-home-needs-you")
+        compose.onNodeWithTag("agent:$session").performClick()
+        compose.onNodeWithText("Staging").performClick()
+        compose.waitUntil(10000) { answered.get() != null }
+        Assert.assertEquals("Staging", answered.get())
+        Assert.assertNull("Decision choices retain the prompt answer endpoint", sent.get())
+        Assert.assertFalse("A chat decision cannot approve host access", approved.get())
+    }
+    @Test fun denseChatHomeKeepsFiveCompleteIdentitiesVisibleAndScrollsAtLargeFont() {
+        waitForAgentRows(session)
+        val projects = listOf("customer-portal", "billing-service", "inventory-api", "release-tools", "network-policy", "mobile-companion")
+        projects.forEachIndexed { index, project ->
+            extraAgents.add(agentFixture("dense-$index", project, "worker-${index + 1}.production.uggs.io", "Latest result for $project.", listOf("codex", "claude", "grok")[index % 3]))
+        }
+        changed("agents")
+        waitForAgentRows(session, "dense-0")
+        compose.onNodeWithText("Orchestrator").assertIsDisplayed()
+        compose.onNodeWithTag("chat-search").assertIsDisplayed()
+        compose.onNodeWithTag("chat-filter:all").assertIsSelected()
+        compose.onNodeWithText("waiting.uggs.io").assertIsDisplayed()
+        compose.onNodeWithTag("agent:$session").assertIsDisplayed()
+        assertCompleteTitle(fixtureProject)
+        compose.onNodeWithContentDescription("Host: $fixtureHost", useUnmergedTree = true).assertIsDisplayed()
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        if (context.resources.configuration.fontScale <= 1.05f) {
+            projects.take(4).forEachIndexed { index, project ->
+                compose.onNodeWithTag("agent:dense-$index").assertIsDisplayed()
+                assertCompleteTitle(project)
+                compose.onNodeWithContentDescription("Host: worker-${index + 1}.production.uggs.io", useUnmergedTree = true).assertIsDisplayed()
+            }
+        }
+        screenshot("chat-home-dense")
+        compose.onNodeWithTag("chat-list").performScrollToIndex(projects.size + 1)
+        compose.onNodeWithTag("agent:dense-5").assertIsDisplayed().assertHasClickAction()
+        val lastRow = compose.onNodeWithTag("agent:dense-5").fetchSemanticsNode().boundsInRoot
+        val reviewButton = compose.onNodeWithTag("review-next").fetchSemanticsNode().boundsInRoot
+        Assert.assertTrue("The last chat can scroll completely above the floating review action", lastRow.bottom <= reviewButton.top)
+        assertCompleteTitle("mobile-companion")
+        compose.onNodeWithContentDescription("Host: worker-6.production.uggs.io", useUnmergedTree = true).assertIsDisplayed()
+        compose.onNode(hasContentDescription("Engine: Grok") and hasAnyAncestor(hasTestTag("agent:dense-5")), useUnmergedTree = true).assertIsDisplayed()
+        Assert.assertFalse("Inspecting a long list does not load a transcript", transcriptRequested.get())
+        Assert.assertEquals(setOf(session), unreadIds())
+        screenshot("chat-home-dense-scrolled")
+    }
     @Test fun unreachableAgentDisablesSendingAndKeepsDraft() {
         compose.waitUntil(15000) { compose.onAllNodesWithText("project").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithText("project").performClick()
@@ -265,7 +412,7 @@ class CompanionUiTest {
         }
         compose.waitUntil(10000) { compose.onAllNodesWithText("Conversation is no longer available").fetchSemanticsNodes(atLeastOneRootRequired = false).isNotEmpty() }
         compose.onNodeWithText("Ready for your message.").assertDoesNotExist()
-        compose.onNode(hasSetTextAction()).assertDoesNotExist()
+        compose.onNode(hasSetTextAction() and !hasTestTag("chat-search")).assertDoesNotExist()
         compose.onNodeWithText("project").assertDoesNotExist()
         waitForUnread(emptySet())
     }
@@ -273,7 +420,7 @@ class CompanionUiTest {
         compose.waitUntil(15000) { compose.onAllNodesWithTag("agent:$session").fetchSemanticsNodes().isNotEmpty() }
         waitForUnread(setOf(session))
         waitForUnreadBadge(1)
-        compose.onNodeWithText("Sessions").assertIsDisplayed()
+        compose.onNodeWithText("Orchestrator").assertIsDisplayed()
         compose.onNodeWithText("Unread chats").assertDoesNotExist()
         compose.onNodeWithText("1 unread chat", substring = true).assertDoesNotExist()
         summary.set("The build is still running.")
@@ -418,7 +565,7 @@ class CompanionUiTest {
         compose.onNodeWithTag("agent:$session").assertDoesNotExist()
         compose.onNodeWithText("1 unread chat", substring = true).assertDoesNotExist()
         compose.onNodeWithText("Earlier history reply 1.").assertDoesNotExist()
-        compose.onNode(hasSetTextAction()).assertDoesNotExist()
+        compose.onNode(hasSetTextAction() and !hasTestTag("chat-search")).assertDoesNotExist()
         Assert.assertEquals("Losing permission must preserve the last actual read marker and unseen reply", ledger, preferences.getString("state", null))
         Assert.assertEquals(setOf(session), unreadIds())
         screenshot("unread-permission-hidden")
@@ -545,6 +692,22 @@ class CompanionUiTest {
     }
 
     private fun changed(scope: String) { Assert.assertTrue(live.get()?.send("""{"type":"changed","scopes":["$scope"]}""") == true) }
+    private fun agentFixture(id: String, project: String, host: String, summary: String, engine: String, replyCursor: Long = 0, unreadCount: Int = 0) =
+        JSONObject().put("id", id).put("host", host).put("engine", engine).put("cwd", "/work/$project")
+            .put("presence", "listening").put("relay_ready", true).put("reply_cursor", replyCursor).put("unread_reply_count", unreadCount)
+            .put("preview", JSONObject().put("summary", summary).put("created_at", "2026-10-07T19:00:00Z"))
+    private fun waitForAgentRows(vararg ids: String) {
+        compose.waitUntil(15000) { ids.all { compose.onAllNodesWithTag("agent:$it").fetchSemanticsNodes().isNotEmpty() } }
+    }
+    private fun assertCompleteTitle(title: String) {
+        val layouts = mutableListOf<TextLayoutResult>()
+        compose.onNodeWithText(title, useUnmergedTree = true).assertIsDisplayed()
+            .performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
+        Assert.assertTrue("A complete project title has a rendered layout", layouts.isNotEmpty())
+        Assert.assertTrue("Project title '$title' remains complete", layouts.all { layout -> (0 until layout.lineCount).none(layout::isLineEllipsized) })
+    }
+    private fun unreadLedger() = InstrumentationRegistry.getInstrumentation().targetContext
+        .getSharedPreferences(UnreadStore.PREFERENCES, android.content.Context.MODE_PRIVATE).getString("state", null)
     private fun unreadIds() = UnreadStore(InstrumentationRegistry.getInstrumentation().targetContext).unreadIds()
     private fun waitForUnread(expected: Set<String>) { compose.waitUntil(10000) { unreadIds() == expected } }
     private fun waitForUnreadBadge(count: Int) {
