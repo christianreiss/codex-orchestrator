@@ -22,6 +22,14 @@ export const GROK_MODEL_DEFAULT_REASONING_EFFORTS: Record<GrokModel, string> = {
   'grok-4.7': 'high', 'grok-4.7-build-fast': 'high', 'grok-4.6': 'high', 'grok-4.5': 'high',
 };
 export const GROK_MODEL_CONTEXT_TOKENS = 500_000;
+/** Native subscription catalog windows (Grok Build 1.0.46, 2026-10-03). */
+export const GROK_CONTEXT_WINDOWS = [256_000, 500_000] as const;
+export const GROK_DEFAULT_CONTEXT_WINDOW = 256_000;
+
+export function normalizeGrokContextWindow(value: unknown): number | null {
+  return typeof value === 'number' && (GROK_CONTEXT_WINDOWS as readonly number[]).includes(value)
+    ? value : null;
+}
 
 export function normalizeGrokModel(value: unknown): GrokModel | null {
   return typeof value === 'string' && (GROK_SUPPORTED_MODELS as readonly string[]).includes(value.trim())

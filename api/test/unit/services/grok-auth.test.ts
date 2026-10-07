@@ -69,7 +69,8 @@ describe('Grok canonical and runtime contracts', () => {
     expect(host.content).toContain('[mcp_servers.cgx]');
     expect(host.content).toContain('X-Engine = "grok"');
     expect(host.content).not.toMatch(/skills\.config|trusted|guardian/);
-    expect(host.owned_paths).toEqual(['models.default', 'models.default_reasoning_effort', 'mcp_servers.cgx']);
+    expect(host.content).toContain('[model."grok-4.6"]\ncontext_window = 256000');
+    expect(host.owned_paths).toEqual(['models.default', 'models.default_reasoning_effort', 'model.grok-4.6.context_window', 'mcp_servers.cgx']);
     const renamed = renderTomlForHost({ settings: { mcp_servers: [{ name: 'custom.server', command: 'tool-server' }] }, host: null, baseUrl: null, apiKey: null, engine: 'grok' });
     expect(renamed.owned_paths).toContain('mcp_servers.custom.server');
   });
@@ -89,12 +90,22 @@ describe('Grok canonical and runtime contracts', () => {
     const claudeSpelling = renderTomlForHost({ settings: { permission_mode: 'bypassPermissions' }, host: null, baseUrl: null, apiKey: null, engine: 'grok' });
     expect(claudeSpelling.content).not.toContain('permission_mode');
   });
-  it('uses only subscription catalog efforts', () => {
+  it('applies the selected context window to the effective host model', () => {
+    const rendered = renderTomlForHost({
+      settings: { model: 'grok-4.7', context_window: 500_000 },
+      host: { grokModelOverride: 'grok-4.7-build-fast' } as never,
+      engine: 'grok', baseUrl: null, apiKey: null,
+    });
+    expect(rendered.content).toContain('[model."grok-4.7-build-fast"]\ncontext_window = 500000');
+    expect(rendered.content).not.toContain('[model."grok-4.7"]');
+    expect(rendered.owned_paths).toContain('model.grok-4.7-build-fast.context_window');
+  });
+  it('uses only subscription catalog efforts and context windows', () => {
     expect(modelDefaultsCatalog('grok')).toEqual([
       { model: 'grok-4.7', persistent_efforts: ['low', 'medium', 'high', 'xhigh'], default_effort: 'high' },
       { model: 'grok-4.7-build-fast', persistent_efforts: ['low', 'medium', 'high', 'xhigh'], default_effort: 'high' },
       { model: 'grok-4.6', persistent_efforts: ['low', 'medium', 'high', 'xhigh'], default_effort: 'high' },
       { model: 'grok-4.5', persistent_efforts: ['low', 'medium', 'high'], default_effort: 'high' },
-    ]);
+    ].map(entry => ({ ...entry, context_windows: [256_000, 500_000], default_context_window: 256_000 })));
   });
 });

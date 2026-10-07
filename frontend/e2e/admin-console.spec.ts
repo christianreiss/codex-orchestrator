@@ -262,10 +262,10 @@ function fixture(pathname: string): Record<string, unknown> {
     case "/admin/grok/keys": return [];
     case "/admin/grok/models": return { models: ["grok-4.7", "grok-4.7-build-fast", "grok-4.6", "grok-4.5"].map(id => ({ id, enabled: true, ownedBy: "xai" })) };
     case "/admin/model-defaults/grok": return {
-      engine: "grok", model: "grok-4.6", reasoning_effort: "high",
+      engine: "grok", model: "grok-4.6", reasoning_effort: "high", context_window: 256_000,
       catalog: [
-        { model: "grok-4.6", persistent_efforts: ["low", "medium", "high", "xhigh"], default_effort: "high" },
-        { model: "grok-4.5", persistent_efforts: ["low", "medium", "high"], default_effort: "high" },
+        { model: "grok-4.6", persistent_efforts: ["low", "medium", "high", "xhigh"], default_effort: "high", context_windows: [256_000, 500_000], default_context_window: 256_000 },
+        { model: "grok-4.5", persistent_efforts: ["low", "medium", "high"], default_effort: "high", context_windows: [256_000, 500_000], default_context_window: 256_000 },
       ],
     };
     case "/admin/model-defaults/codex":
@@ -838,10 +838,10 @@ test.beforeEach(async ({ page }) => {
 function quickDefaults(): Record<"codex" | "claude" | "grok", ModelDefaultsValue> {
   return {
     grok: {
-      engine: "grok", model: "grok-4.6", reasoning_effort: "high",
+      engine: "grok", model: "grok-4.6", reasoning_effort: "high", context_window: 256_000,
       catalog: [
-        { model: "grok-4.6", persistent_efforts: ["low", "medium", "high", "xhigh"], default_effort: "high" },
-        { model: "grok-4.5", persistent_efforts: ["low", "medium", "high"], default_effort: "high" },
+        { model: "grok-4.6", persistent_efforts: ["low", "medium", "high", "xhigh"], default_effort: "high", context_windows: [256_000, 500_000], default_context_window: 256_000 },
+        { model: "grok-4.5", persistent_efforts: ["low", "medium", "high"], default_effort: "high", context_windows: [256_000, 500_000], default_context_window: 256_000 },
       ],
     },
     codex: {
@@ -908,6 +908,79 @@ test("quick settings save model and catalog effort together for both engines and
   await expect(claude.getByRole("radio", { name: "Haiku 4.5", exact: true })).toBeChecked();
   await claude.getByRole("radio", { name: "Fable 5.1", exact: true }).locator("..").click();
   await expect(claude.getByRole("radio", { name: "High Default", exact: true })).toBeChecked();
+});
+
+test("quick settings save Grok context windows, retain them across model and effort changes, and survive reload", async ({ page }) => {
+  const defaults = quickDefaults();
+  const writes: unknown[] = [];
+  await installFixtures(page, (path, body) => {
+    if (path !== "/admin/model-defaults/grok") return;
+    if (body) { writes.push(body); Object.assign(defaults.grok, body); }
+    return { ...defaults.grok };
+  });
+  await page.goto("/admin/quick-settings");
+  const grok = page.getByRole("region", { name: "Grok", exact: true });
+  const window256 = grok.getByRole("radio", { name: "256k tokens Default", exact: true });
+  const window500 = grok.getByRole("radio", { name: "500k tokens", exact: true });
+  await expect(window256).toBeChecked();
+  for (const engine of ["Codex", "Claude"]) {
+    await expect(page.getByRole("region", { name: engine, exact: true }).getByRole("group", { name: "Context window" })).toHaveCount(0);
+  }
+  await window256.locator("..").click();
+  expect(writes).toEqual([]);
+  await window256.focus();
+  await page.keyboard.press("ArrowRight");
+  await expect(window500).toBeChecked();
+  await expect(grok.getByRole("status")).toHaveText("Saved");
+  await expect(window500).toBeFocused();
+  await grok.getByRole("radio", { name: "Low", exact: true }).locator("..").click();
+  await expect(grok.getByRole("status")).toHaveText("Saved");
+  await grok.getByRole("radio", { name: "Grok 4.5", exact: true }).locator("..").click();
+  await expect(grok.getByRole("status")).toHaveText("Saved");
+  await expect(window500).toBeChecked();
+  expect(writes).toEqual([
+    { model: "grok-4.6", reasoning_effort: "high", context_window: 500_000 },
+    { model: "grok-4.6", reasoning_effort: "low", context_window: 500_000 },
+    { model: "grok-4.5", reasoning_effort: "high", context_window: 500_000 },
+  ]);
+  await page.reload();
+  await expect(window500).toBeChecked();
+  await window256.locator("..").click();
+  await expect(grok.getByRole("status")).toHaveText("Saved");
+  await page.reload();
+  await expect(window256).toBeChecked();
+});
+
+test("quick settings reconcile failed Grok window saves and follow live context updates", async ({ page }) => {
+  const defaults = quickDefaults();
+  let emit: ((data: string) => void) | undefined;
+  let finishWrite: (() => void) | undefined;
+  await page.routeWebSocket("**/context-ws", ws => { emit = data => ws.send(data); });
+  await installFixtures(page, path => {
+    if (path === "/admin/ws/info") return { enabled: true, url: "ws://127.0.0.1:4173/context-ws" };
+    if (path === "/admin/model-defaults/grok") return { ...defaults.grok };
+  });
+  await page.route("**/admin/model-defaults/grok", async route => {
+    if (route.request().method() !== "POST") return route.fallback();
+    await new Promise<void>(resolve => { finishWrite = resolve; });
+    return route.fulfill({ status: 409, json: { message: "Configuration changed elsewhere" } });
+  });
+  await page.goto("/admin/quick-settings");
+  const grok = page.getByRole("region", { name: "Grok", exact: true });
+  const window500 = grok.getByRole("radio", { name: "500k tokens", exact: true });
+  await window500.locator("..").click();
+  await expect.poll(() => Boolean(finishWrite)).toBe(true);
+  await expect(window500).toBeDisabled();
+  await expect(grok.getByRole("radio", { name: "Low", exact: true })).toBeDisabled();
+  await expect(page.getByRole("region", { name: "Codex", exact: true }).getByRole("radio").first()).toBeEnabled();
+  finishWrite!();
+  await expect(grok.getByRole("alert")).toContainText("Configuration changed elsewhere");
+  await expect(grok.getByRole("radio", { name: "256k tokens Default", exact: true })).toBeChecked();
+  await expect(window500).toBeEnabled();
+  defaults.grok.context_window = 500_000;
+  await expect.poll(() => Boolean(emit)).toBe(true);
+  emit!(JSON.stringify({ type: "settings.changed", payload: {}, ts: new Date().toISOString() }));
+  await expect(window500).toBeChecked();
 });
 
 test("quick settings isolate saving, follow live updates, and ignore stale reads during a write", async ({ page }) => {

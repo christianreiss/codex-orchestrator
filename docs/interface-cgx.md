@@ -58,13 +58,29 @@ enabled engines, and native auth.
 
 `CGX_CONFIG_PATH` selects the signed wrapper JSON config. Native CLI configuration
 uses `~/.grok/config.toml`: `[models].default` and
-`[models].default_reasoning_effort`, `[ui].permission_mode`, plus
+`[models].default_reasoning_effort`, `[model."<id>"].context_window`,
+`[ui].permission_mode`, plus
 `[mcp_servers.cgx]`. The subscription catalog (live `/v1/models`, re-verified
 2026-10-03) defaults to `grok-4.7` / `high`; `grok-4.7`, `grok-4.7-build-fast` and
 `grok-4.6` support `low`, `medium`, `high`, `xhigh`, and `grok-4.5` supports `low`,
-`medium`, `high`. All have a 500,000-token context. This catalog describes native
+`medium`, `high`. All offer 256,000- and 500,000-token windows, with 256,000
+as the provider default (confirmed in the native subscription model cache dated
+2026-10-03). This catalog describes native
 supported IDs; subscription entitlement still depends on the provider. Codex
 lane/profile settings and Claude artifact settings do not apply.
+
+Quick Settings saves the context window immediately through
+`/admin/model-defaults/grok`. The canonical `context_window` setting renders
+only the effective model's native `context_window` field, after host model
+overrides. The existing model catalog and all other native model fields remain
+intact. Wrapper 0.9.18 treats the dotted model ID as one key in `owned_paths`,
+so switching the default model prunes only the unchanged, previously managed
+window; user-authored sibling fields and subsequent local edits are preserved.
+The default applies to new sessions after the next sync; `/context-window`
+continues to select a session-local size. The native field is documented in
+[xAI's settings reference](https://docs.x.ai/build/settings/reference#modelid);
+Grok Build 1.0.46's bundled model guide confirms that a `context_window` override
+selects the default from `context_windows`.
 
 The fleet security posture projects onto Grok the way it projects onto Claude:
 the autonomy axis selects `[ui].permission_mode` (`default` for levels 0–2,

@@ -20,6 +20,7 @@
   let confirmed = $state<ModelDefaultsValue | null>(null);
   let model = $state("");
   let effort = $state<string | null>(null);
+  let contextWindow = $state<number | null>(null);
   let saving = $state(false);
   let needsRefresh = $state(false);
   let saveError = $state("");
@@ -34,6 +35,7 @@
     confirmed = value;
     model = value.model;
     effort = value.reasoning_effort;
+    contextWindow = value.context_window ?? null;
   }
 
   $effect(() => {
@@ -43,7 +45,7 @@
         // Query observers batch notifications. Ignore a previous snapshot still
         // in the store after a write has already replaced the cached value.
         if (data !== client.getQueryData(queryKey)) return;
-        if (confirmed && (confirmed.model !== data.model || confirmed.reasoning_effort !== data.reasoning_effort)) saved = false;
+        if (confirmed && (confirmed.model !== data.model || confirmed.reasoning_effort !== data.reasoning_effort || confirmed.context_window !== data.context_window)) saved = false;
         apply(data);
       });
     }
@@ -59,13 +61,21 @@
   }
 
   async function save(update: ModelDefaultsUpdate, focused: HTMLInputElement) {
-    if (disabled || !confirmed || (update.model === model && update.reasoning_effort === effort)) return;
+    if (disabled || !confirmed) return;
+    if (stableEngine === "grok" && update.context_window === undefined) {
+      const entry = catalog.find((item) => item.model === update.model);
+      const nextWindow = contextWindow !== null && entry?.context_windows?.includes(contextWindow)
+        ? contextWindow : entry?.default_context_window;
+      if (nextWindow !== undefined) update = { ...update, context_window: nextWindow };
+    }
+    if (update.model === model && update.reasoning_effort === effort && (update.context_window ?? null) === contextWindow) return;
     const previous = confirmed;
     saving = true;
     saved = false;
     saveError = "";
     model = update.model;
     effort = update.reasoning_effort ?? null;
+    contextWindow = update.context_window ?? null;
     try {
       // A read begun before this write must never put the old selection back.
       await client.cancelQueries({ queryKey });
@@ -145,6 +155,25 @@
         <p class="rounded-xl bg-muted px-4 py-4 text-sm text-muted-foreground">No effort setting</p>
       {/if}
     </fieldset>
+
+    {#if stableEngine === "grok" && selected?.context_windows?.length}
+      <fieldset {disabled} class="mt-6 min-w-0">
+        <legend class="mb-2 text-sm font-medium">Context window</legend>
+        <div class="grid grid-cols-2 gap-1.5 rounded-xl bg-muted p-1.5">
+          {#each selected.context_windows as value (value)}
+            <label class="relative min-w-0 cursor-pointer">
+              <input type="radio" name={`${stableEngine}-quick-context`} {value} checked={contextWindow === value}
+                onchange={(event) => void save({ model, reasoning_effort: effort, context_window: value }, event.currentTarget)} class="peer sr-only" />
+              <span class="flex min-h-14 flex-col items-center justify-center rounded-lg px-3 py-2 text-sm font-medium text-muted-foreground transition-colors peer-checked:bg-background peer-checked:text-foreground peer-checked:shadow-sm peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-ring peer-disabled:cursor-wait peer-disabled:opacity-60">
+                {value / 1_000}k tokens
+                {#if value === selected.default_context_window}<span class="text-[11px] font-normal">Default</span>{/if}
+              </span>
+            </label>
+          {/each}
+        </div>
+        <p class="mt-2 text-xs text-muted-foreground">Default for new Grok sessions.</p>
+      </fieldset>
+    {/if}
   {/if}
 
   <div class="mt-5 min-h-5 text-xs text-muted-foreground" role="status" aria-live="polite">

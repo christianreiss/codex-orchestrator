@@ -58,7 +58,7 @@ import {
   DEFAULT_CLAUDE_PERMISSION_MODE,
 } from './config-normalizer.js';
 import { ENGINE_CLAUDE, ENGINE_CODEX, ENGINE_GROK, ENGINE_COMMANDS, type Engine } from '../util/engine.js';
-import { GROK_DEFAULT_MODEL, GROK_MODEL_DEFAULT_REASONING_EFFORTS, normalizeGrokEffort, normalizeGrokModel } from './grok-models.js';
+import { GROK_DEFAULT_MODEL, GROK_DEFAULT_CONTEXT_WINDOW, GROK_MODEL_DEFAULT_REASONING_EFFORTS, normalizeGrokContextWindow, normalizeGrokEffort, normalizeGrokModel } from './grok-models.js';
 import { versionCompare } from './wrapper-bin-registry.js';
 import {
   AGENT_MESSAGING_TOOLS,
@@ -330,6 +330,7 @@ export function normalizeGrokSettings(raw: unknown): NormalizedSettings {
   const out = normalizeSettings({ ...input, model: null }, { applyCodexDefaults: false });
   out.model = model;
   out.reasoning_effort = normalizeGrokEffort(input.reasoning_effort ?? models.default_reasoning_effort, model) ?? GROK_MODEL_DEFAULT_REASONING_EFFORTS[model];
+  out.context_window = normalizeGrokContextWindow(input.context_window) ?? GROK_DEFAULT_CONTEXT_WINDOW;
   out.model_reasoning_effort = null;
   out.profiles = [];
   // Grok's native `[ui].permission_mode`; posture writes it, an operator template may too.
@@ -347,6 +348,8 @@ export function renderGrokSettings(settings: NormalizedSettings): string {
   const lines = ['[models]'];
   addKeyValue(lines, 'default', settings.model ?? GROK_DEFAULT_MODEL);
   addKeyValue(lines, 'default_reasoning_effort', settings.reasoning_effort);
+  lines.push('', `[model.${tomlBareKey(settings.model ?? GROK_DEFAULT_MODEL)}]`);
+  addKeyValue(lines, 'context_window', settings.context_window ?? GROK_DEFAULT_CONTEXT_WINDOW);
   if (settings.permissionMode) {
     lines.push('', '[ui]');
     addKeyValue(lines, 'permission_mode', settings.permissionMode);
@@ -438,7 +441,7 @@ export function renderTomlForHost(opts: HostRenderOptions): RenderResult {
     size_bytes: Buffer.byteLength(content, 'utf8'),
     settings: normalized,
     ...(profiles !== undefined && { profiles }),
-    ...(engine === ENGINE_GROK && { owned_paths: ['models.default', 'models.default_reasoning_effort', ...(withManaged.permissionMode ? ['ui.permission_mode'] : []), ...withManaged.mcp_servers.flatMap(server => {
+    ...(engine === ENGINE_GROK && { owned_paths: ['models.default', 'models.default_reasoning_effort', `model.${withManaged.model}.context_window`, ...(withManaged.permissionMode ? ['ui.permission_mode'] : []), ...withManaged.mcp_servers.flatMap(server => {
       const name = normalizeName(server['name']);
       return name ? [`mcp_servers.${name}`] : [];
     })] }),

@@ -78,3 +78,52 @@ func TestOwnedMCPTransportChangesRemoveRetiredFields(t *testing.T) {
 		t.Fatal("retired managed transport survived or user server was removed")
 	}
 }
+
+func TestContextWindowOwnershipPreservesModelSiblingsAndPrunesOnModelSwitch(t *testing.T) {
+	r, _ := runtimeFixture(t)
+	path := filepath.Join(r.BaseHome, "config.toml")
+	if err := AtomicWrite(path, []byte("[model.\"grok-4.7\"]\ntemperature=0.5\n[model.custom]\ncontext_window=128000\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, model := range []string{"grok-4.7", "grok-4.7-build-fast"} {
+		body := []byte("[model.\"" + model + "\"]\ncontext_window=500000\n")
+		owned := []string{"model." + model + ".context_window"}
+		if err := SyncConfig(r.BaseHome, body, owned); err != nil {
+			t.Fatal(err)
+		}
+	}
+	raw, _ := os.ReadFile(path)
+	tree, err := toml.LoadBytes(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tree.GetPath([]string{"model", "grok-4.7", "context_window"}) != nil {
+		t.Fatal("previous model retained the retired fleet context window")
+	}
+	if tree.GetPath([]string{"model", "grok-4.7", "temperature"}) != 0.5 || tree.GetPath([]string{"model", "custom", "context_window"}) != int64(128000) {
+		t.Fatal("user model settings were changed")
+	}
+	if tree.GetPath([]string{"model", "grok-4.7-build-fast", "context_window"}) != int64(500000) {
+		t.Fatal("new model did not receive the fleet context window")
+	}
+	// A local edit after sync is no longer the fleet's value to prune.
+	tree.SetPath([]string{"model", "grok-4.7-build-fast", "context_window"}, int64(256000))
+	body, err := tree.ToTomlString()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := AtomicWrite(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := SyncConfig(r.BaseHome, nil, []string{}); err != nil {
+		t.Fatal(err)
+	}
+	raw, _ = os.ReadFile(path)
+	tree, err = toml.LoadBytes(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tree.GetPath([]string{"model", "grok-4.7-build-fast", "context_window"}) != int64(256000) {
+		t.Fatal("subsequent local edit was pruned")
+	}
+}

@@ -12,24 +12,28 @@ import { CLAUDE_DEFAULT_MODEL, CLAUDE_SUPPORTED_MODELS } from './claude-models.j
 import { ClientConfigService } from './client-config.js';
 import { withGrokConfigWriteLock } from './grok-config-lock.js';
 import { ENGINE_CLAUDE, ENGINE_GROK, type Engine } from '../util/engine.js';
-import { GROK_DEFAULT_MODEL, GROK_MODEL_DEFAULT_REASONING_EFFORTS, GROK_MODEL_REASONING_EFFORTS, GROK_SUPPORTED_MODELS } from './grok-models.js';
+import { GROK_CONTEXT_WINDOWS, GROK_DEFAULT_CONTEXT_WINDOW, GROK_DEFAULT_MODEL, GROK_MODEL_DEFAULT_REASONING_EFFORTS, GROK_MODEL_REASONING_EFFORTS, GROK_SUPPORTED_MODELS, normalizeGrokContextWindow } from './grok-models.js';
 
 export interface ModelDefaultsCatalogEntry {
   model: string;
   persistent_efforts: string[];
   default_effort: string | null;
+  context_windows?: number[];
+  default_context_window?: number;
 }
 
 export interface ModelDefaultsResponse {
   engine: Engine;
   model: string;
   reasoning_effort: string | null;
+  context_window?: number;
   catalog: ModelDefaultsCatalogEntry[];
 }
 
 export interface ModelDefaultsUpdate {
   model: string;
   reasoning_effort?: string | null;
+  context_window?: number | null;
 }
 
 const CODEX_CATALOG: readonly ModelDefaultsCatalogEntry[] = SUPPORTED_MODELS.map(
@@ -72,7 +76,13 @@ function copyCatalog(entries: readonly ModelDefaultsCatalogEntry[]): ModelDefaul
 }
 
 export function modelDefaultsCatalog(engine: Engine): ModelDefaultsCatalogEntry[] {
-  if (engine === ENGINE_GROK) return GROK_SUPPORTED_MODELS.map(model => ({ model, persistent_efforts: [...GROK_MODEL_REASONING_EFFORTS[model]], default_effort: GROK_MODEL_DEFAULT_REASONING_EFFORTS[model] }));
+  if (engine === ENGINE_GROK) return GROK_SUPPORTED_MODELS.map(model => ({
+    model,
+    persistent_efforts: [...GROK_MODEL_REASONING_EFFORTS[model]],
+    default_effort: GROK_MODEL_DEFAULT_REASONING_EFFORTS[model],
+    context_windows: [...GROK_CONTEXT_WINDOWS],
+    default_context_window: GROK_DEFAULT_CONTEXT_WINDOW,
+  }));
   return copyCatalog(engine === ENGINE_CLAUDE ? CLAUDE_CATALOG : CODEX_CATALOG);
 }
 
@@ -107,6 +117,7 @@ function responseFromSettings(engine: Engine, settings: Record<string, unknown>)
     engine,
     model: entry.model,
     reasoning_effort: reasoningEffort,
+    ...(engine === ENGINE_GROK && { context_window: normalizeGrokContextWindow(settings.context_window) ?? GROK_DEFAULT_CONTEXT_WINDOW }),
     catalog,
   };
 }
@@ -117,9 +128,11 @@ function parseUpdate(
 ): {
   model: string;
   reasoningEffort: string | null;
+  contextWindow?: number;
 } {
   const body = asRecord(input);
   const allowedKeys = new Set(['model', 'reasoning_effort']);
+  if (engine === ENGINE_GROK) allowedKeys.add('context_window');
   const extra = Object.keys(body).find((key) => !allowedKeys.has(key));
   if (extra) {
     throw new ValidationError(`Unexpected field: ${extra}`, { param: extra });
@@ -137,9 +150,14 @@ function parseUpdate(
     );
   }
 
+  const contextWindow = body.context_window === null ? entry.default_context_window
+    : body.context_window === undefined ? undefined : normalizeGrokContextWindow(body.context_window);
+  if (contextWindow === null) {
+    throw new ValidationError(`context_window must be one of: ${entry.context_windows?.join(', ')}`, { param: 'context_window' });
+  }
   const rawEffort = body.reasoning_effort;
   if (rawEffort === undefined || rawEffort === null) {
-    return { model, reasoningEffort: entry.default_effort };
+    return { model, reasoningEffort: entry.default_effort, contextWindow };
   }
   if (typeof rawEffort !== 'string' || rawEffort.trim() === '') {
     throw new ValidationError('reasoning_effort must be a supported effort or null', {
@@ -153,7 +171,7 @@ function parseUpdate(
       param: 'reasoning_effort',
     });
   }
-  return { model, reasoningEffort };
+  return { model, reasoningEffort, contextWindow };
 }
 
 export class ModelDefaultsService {
@@ -192,6 +210,8 @@ export class ModelDefaultsService {
       delete settings.model_reasoning_effort;
       delete settings.effortLevel;
       settings.reasoning_effort = update.reasoningEffort;
+      // Older model/effort-only callers must retain the saved window.
+      if (update.contextWindow !== undefined) settings.context_window = update.contextWindow;
     } else if (engine === ENGINE_CLAUDE) {
       delete settings.model_reasoning_effort;
       if (update.reasoningEffort === null) delete settings.effortLevel;

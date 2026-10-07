@@ -295,6 +295,7 @@ export async function registerAdminSettingsRoutes(
         engine: result.engine,
         model: result.model,
         reasoning_effort: result.reasoning_effort,
+        ...(result.context_window !== undefined && { context_window: result.context_window }),
       });
       return ok(result);
     },

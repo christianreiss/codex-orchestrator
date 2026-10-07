@@ -18,6 +18,38 @@ function configRow(engine: Engine, settings: Record<string, unknown>, sha = 'a'.
 }
 
 describe('ModelDefaultsService', () => {
+  it('saves Grok windows in native model config and preserves them across older model/effort-only writes', async () => {
+    const db = createDbFake();
+    const service = new ModelDefaultsService(db as never);
+    expect(await service.get(ENGINE_GROK)).toMatchObject({ context_window: 256_000 });
+    expect(db.inserts).toHaveLength(0);
+    expect(await service.set(ENGINE_GROK, { model: 'grok-4.7', context_window: 500_000 })).toMatchObject({ context_window: 500_000 });
+    expect(await service.get(ENGINE_GROK)).toMatchObject({ context_window: 500_000 });
+    expect(db.tables.get(clientConfigDocuments)!.at(-1)!.body).toContain('[model."grok-4.7"]\ncontext_window = 500000');
+    expect(await service.set(ENGINE_GROK, { model: 'grok-4.5', reasoning_effort: 'low' })).toMatchObject({ context_window: 500_000 });
+    const saved = db.tables.get(clientConfigDocuments)!.at(-1)!;
+    expect(saved.body).toContain('[model."grok-4.5"]\ncontext_window = 500000');
+    expect(saved.body).not.toContain('[model."grok-4.7"]');
+    expect(await service.set(ENGINE_GROK, { model: 'grok-4.5', context_window: null })).toMatchObject({ context_window: 256_000 });
+  });
+
+  it.each([0, -1, 256_001, 1_000_000, '500000', true, [], {}])('rejects an invalid Grok context window: %j', async context_window => {
+    const db = createDbFake();
+    const service = new ModelDefaultsService(db as never);
+    await expect(service.set(ENGINE_GROK, { model: 'grok-4.7', context_window }))
+      .rejects.toMatchObject({ status: 422, param: 'context_window' });
+    expect(db.inserts).toHaveLength(0);
+  });
+
+  it.each([ENGINE_CODEX, ENGINE_CLAUDE])('keeps context-window selection Grok-only for %s', async engine => {
+    const service = new ModelDefaultsService(createDbFake() as never);
+    const current = await service.get(engine);
+    expect(current).not.toHaveProperty('context_window');
+    expect(current.catalog.every(entry => !entry.context_windows)).toBe(true);
+    await expect(service.set(engine, { model: current.model, context_window: 500_000 }))
+      .rejects.toMatchObject({ status: 422, param: 'context_window' });
+  });
+
   it('initializes Grok once through its native store path while defaults reads stay unpersisted', async () => {
     const db = createDbFake();
     const service = new ModelDefaultsService(db as never);

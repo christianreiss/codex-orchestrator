@@ -6,7 +6,7 @@
   import QuickModelDefaults from "$lib/components/settings/QuickModelDefaults.svelte";
 </script>
 
-<PageHeader title="Quick Settings" subtitle="Choose the default model and effort for each engine. Changes save immediately.">
+<PageHeader title="Quick Settings" subtitle="Choose model, effort, and Grok context defaults. Changes save immediately.">
   {#snippet actions()}
     <Button variant="outline" href={`${base}/engines`}>All engine settings <ArrowUpRight class="h-4 w-4" /></Button>
   {/snippet}

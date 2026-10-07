@@ -1141,18 +1141,22 @@ export interface ModelDefaultsCatalogEntry {
   model: string;
   persistent_efforts: string[];
   default_effort: string | null;
+  context_windows?: number[];
+  default_context_window?: number;
 }
 
 export interface ModelDefaultsValue {
   engine: ModelDefaultsEngine;
   model: string;
   reasoning_effort: string | null;
+  context_window?: number;
   catalog: ModelDefaultsCatalogEntry[];
 }
 
 export interface ModelDefaultsUpdate {
   model: string;
   reasoning_effort?: string | null;
+  context_window?: number | null;
 }
 
 export interface ClaudeVersionLockValue {

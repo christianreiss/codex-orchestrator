@@ -21,6 +21,14 @@ func configPathParts(path string) []string {
 	if strings.HasPrefix(path, "mcp_servers.") {
 		return []string{"mcp_servers", strings.TrimPrefix(path, "mcp_servers.")}
 	}
+	// Native model IDs contain dots (grok-4.7). Only the final component is
+	// the owned field; never claim the complete user-authored model table.
+	if strings.HasPrefix(path, "model.") {
+		modelField := strings.TrimPrefix(path, "model.")
+		if split := strings.LastIndex(modelField, "."); split > 0 {
+			return []string{"model", modelField[:split], modelField[split+1:]}
+		}
+	}
 	return strings.Split(path, ".")
 }
 func configGet(root map[string]any, parts []string) (any, bool) {

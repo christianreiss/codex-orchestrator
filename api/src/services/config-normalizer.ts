@@ -307,6 +307,8 @@ export interface NormalizedSettings {
   advisorModel?: string;
   effortLevel?: string;
   reasoning_effort?: string;
+  // Grok's native per-model default context window, in tokens.
+  context_window?: number;
 }
 
 function asRecord(value: unknown): Record<string, unknown> {

@@ -367,7 +367,10 @@ visible with a choice to load the latest values or discard the draft.
 - `cdx` pre-launch helpers are intentionally no-op safe: if `config.toml` yields no OTel exports or the current directory is already trusted, the wrapper continues into Codex instead of treating that as a fatal shell step.
 - Use `/admin/quick-settings` for immediate model and effort changes through
   button selections. Each engine saves independently; selecting a model also
-  saves its catalog default effort. Models without effort support show “No
+  saves its catalog default effort. Grok also offers 256k/500k context-window
+  buttons (256k by default), persisted for new sessions and retained across
+  model/effort changes. Wrapper 0.9.18 merges the native per-model setting while
+  preserving user-authored sibling keys. Models without effort support show “No
   effort setting”. Failed saves restore the confirmed selection and refresh
   current defaults before further changes. Host overrides take precedence,
   and clients receive defaults on their next sync. The full `/admin/engines`

@@ -17,6 +17,23 @@ async function buildApp() {
 }
 
 describe('/admin/model-defaults/:engine', () => {
+  it('saves and reloads Grok context windows and rejects invalid windows without changing the saved value', async () => {
+    const { app } = await buildApp();
+    try {
+      const saved = await app.inject({ method: 'POST', url: '/admin/model-defaults/grok', payload: { model: 'grok-4.7', reasoning_effort: 'high', context_window: 500_000 } });
+      expect(saved.statusCode).toBe(200);
+      expect(saved.json()).toMatchObject({ context_window: 500_000, catalog: expect.arrayContaining([
+        { model: 'grok-4.7', persistent_efforts: ['low', 'medium', 'high', 'xhigh'], default_effort: 'high', context_windows: [256_000, 500_000], default_context_window: 256_000 },
+      ]) });
+      const invalid = await app.inject({ method: 'POST', url: '/admin/model-defaults/grok', payload: { model: 'grok-4.7', context_window: 1_000_000 } });
+      expect(invalid.statusCode).toBe(422);
+      const reloaded = await app.inject({ method: 'GET', url: '/admin/model-defaults/grok' });
+      expect(reloaded.json()).toMatchObject({ context_window: 500_000 });
+    } finally {
+      await app.close();
+    }
+  });
+
   it('returns the strict Codex response contract', async () => {
     const { app } = await buildApp();
     const response = await app.inject({
