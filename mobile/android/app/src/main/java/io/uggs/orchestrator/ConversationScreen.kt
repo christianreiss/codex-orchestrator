@@ -139,7 +139,7 @@ import org.json.JSONObject
             }
         }
         if (!writable) Text(
-            if (!fresh) "Reconnecting — draft kept" else "Agent is no longer reachable",
+            if (!fresh) (if (model.connecting) "Connecting — draft kept" else "Reconnecting — draft kept") else "Agent is no longer reachable",
             Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
         )

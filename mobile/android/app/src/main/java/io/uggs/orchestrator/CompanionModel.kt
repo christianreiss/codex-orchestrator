@@ -46,6 +46,7 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
     var notice by mutableStateOf<String?>(null); private set
     var error by mutableStateOf<String?>(null); private set
     var status by mutableStateOf("Connecting…"); private set
+    val connecting get() = connection != null && !online && status == "Connecting…" && error == null
     var busy by mutableStateOf(false); private set
     var draft by mutableStateOf("")
     var defaultMinutes by mutableStateOf(480); private set
@@ -138,7 +139,7 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
     private fun startLive() {
         stopLive()
         if (!foreground || connection == null) return
-        status = "Connecting…"
+        status = if (reconnectAttempt > 0 || error != null) "Reconnecting…" else "Connecting…"
         val current = generation
         lastFrame = SystemClock.elapsedRealtime()
         socket = api().live(object : WebSocketListener() {
@@ -332,7 +333,7 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
         store.clear(); connection = null; selected = null; events = emptyList(); agents = emptyList(); approvals = emptyList(); capabilities = emptySet()
         unreadStore.clear(); unreadSessions = emptySet(); unreadReplyCounts = emptyMap(); permissionsKnown = false
         syncUnreadNotifications(getApplication(), null, emptySet())
-        online = false; lastSync = 0; pendingOpen = null; highlightApproval = null
+        online = false; lastSync = 0; reconnectAttempt = 0; pendingOpen = null; highlightApproval = null
         stopLive()
         android.app.NotificationManager::class.java.let { getApplication<Application>().getSystemService(it).cancelAll() }
         runCatching { com.google.firebase.messaging.FirebaseMessaging.getInstance().isAutoInitEnabled = false }

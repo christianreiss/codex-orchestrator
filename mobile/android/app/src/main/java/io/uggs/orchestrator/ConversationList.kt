@@ -87,7 +87,7 @@ import java.time.Instant
             }
         }
         LazyColumn(Modifier.fillMaxSize().testTag("chat-list"), contentPadding = PaddingValues(bottom = 96.dp)) {
-            if (!fresh) item(key = "reconnect") {
+            if (!fresh && !model.connecting) item(key = "reconnect") {
                 Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
                     Text("Checking what needs you…", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     TextButton(onClick = model::refreshNow, modifier = Modifier.heightIn(min = 48.dp)) { Text("Retry connection") }
@@ -102,14 +102,16 @@ import java.time.Instant
             if (visible.isEmpty() && (requests.isEmpty() || search.isNotEmpty() || filter != "all")) item(key = "empty") {
                 Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 40.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     val empty = when {
+                        model.connecting -> "Loading your chats…"
                         search.isNotEmpty() -> "No chats found"
                         filter == "unread" -> "No unread chats"
                         filter == "needs-you" -> "No chats need you"
                         fresh -> "All caught up"
                         else -> "Waiting for chats"
                     }
+                    if (model.connecting) CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
                     Text(empty, style = MaterialTheme.typography.titleMedium)
-                    if (search.isNotEmpty() || filter != "all") TextButton(onClick = { query = ""; filter = "all" }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Clear filters") }
+                    if (!model.connecting && (search.isNotEmpty() || filter != "all")) TextButton(onClick = { query = ""; filter = "all" }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Clear filters") }
                     else if (fresh) Text("No agents ready to talk.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }

@@ -85,7 +85,7 @@ class MainActivity : ComponentActivity() {
                     }
                     if (model.selected != null) HostBadge(current)
                     if (model.connection != null && !fresh) {
-                        Text("Reconnecting…", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(if (model.connecting) "Connecting…" else "Reconnecting…", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
                 if (model.connection != null) IconButton(onClick = { more = true }, modifier = Modifier.size(48.dp)) { CompanionIcon(CompanionSymbol.MoreVertical, "More") }

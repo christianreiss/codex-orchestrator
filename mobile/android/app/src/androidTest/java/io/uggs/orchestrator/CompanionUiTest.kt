@@ -48,6 +48,8 @@ class CompanionUiTest {
     private val sessionListed = AtomicBoolean(true)
     private val networkAvailable = AtomicBoolean(true)
     private val transcriptAllowed = AtomicBoolean(true)
+    private val holdMe = AtomicBoolean(false)
+    private val meRequested = AtomicBoolean(false)
     private val holdTranscript = AtomicBoolean(false)
     private val transcriptRequested = AtomicBoolean(false)
     private val agentsRequested = AtomicLong(0)
@@ -97,6 +99,8 @@ class CompanionUiTest {
                 })
                 val body = when {
                     path == "/me" -> {
+                        meRequested.set(true)
+                        while (holdMe.get()) Thread.sleep(20)
                         val capabilities = mutableListOf("agent_portal.read", "agent_portal.manage", "hosts.activate_insecure")
                         if (transcriptAllowed.get()) capabilities.add("agent_portal.reveal_transcript")
                         """{"device_id":"test-device","name":"Operator","capabilities":${org.json.JSONArray(capabilities)},"notifications":true,"follows":[],"firebase":${firebase ?: "null"}}"""
@@ -161,6 +165,7 @@ class CompanionUiTest {
         scenario = ActivityScenario.launch(MainActivity::class.java)
     }
     @After fun cleanup() {
+        holdMe.set(false)
         holdTranscript.set(false)
         scenario.close()
         heartbeat.shutdownNow()
@@ -172,6 +177,61 @@ class CompanionUiTest {
         UnreadStore(context).clear()
         Api.client = originalClient
         server.shutdown()
+    }
+    @Test fun coldStartShowsConnectingUntilTheAuthorizedSnapshotArrives() {
+        compose.waitUntil(15000) { compose.onAllNodesWithText("Review next · 1").fetchSemanticsNodes().isNotEmpty() }
+        scenario.close()
+        holdMe.set(true); meRequested.set(false)
+        val requestsBefore = agentsRequested.get()
+        scenario = ActivityScenario.launch(MainActivity::class.java)
+        try {
+            compose.waitUntil(10000) { meRequested.get() && compose.onAllNodesWithText("Loading your chats…").fetchSemanticsNodes().isNotEmpty() }
+            compose.onNodeWithText("Connecting…").assertIsDisplayed()
+            compose.onNodeWithText("Loading your chats…").assertIsDisplayed()
+            compose.onNodeWithText("Retry connection").assertDoesNotExist()
+            compose.onNodeWithText("Reconnecting…").assertDoesNotExist()
+            compose.onNodeWithText("Waiting for chats").assertDoesNotExist()
+            compose.onNodeWithTag("agent:$session").assertDoesNotExist()
+            compose.onNodeWithTag("approval:42").assertDoesNotExist()
+            compose.onNodeWithText("Review next", substring = true).assertDoesNotExist()
+            Assert.assertEquals("Chats wait for the current permission snapshot", requestsBefore, agentsRequested.get())
+            compose.onNodeWithTag("chat-filter:unread").performClick()
+            compose.onNodeWithText("Loading your chats…").assertIsDisplayed()
+            compose.onNodeWithText("No unread chats").assertDoesNotExist()
+            screenshot("startup-connecting")
+        } finally { holdMe.set(false) }
+        compose.waitUntil(15000) { compose.onAllNodesWithTag("agent:$session").fetchSemanticsNodes().isNotEmpty() && compose.onAllNodesWithText("Review next · 1").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("agent:$session").assertIsDisplayed()
+        compose.onNodeWithText("Review next · 1").assertIsDisplayed()
+        compose.onNodeWithText("Connecting…").assertDoesNotExist()
+        compose.onNodeWithText("Loading your chats…").assertDoesNotExist()
+        compose.onNodeWithText("Retry connection").assertDoesNotExist()
+    }
+    @Test fun failedColdStartShowsRetryAndRecoversWithoutPairingAgain() {
+        compose.waitUntil(15000) { compose.onAllNodesWithText("Review next · 1").fetchSemanticsNodes().isNotEmpty() }
+        scenario.close()
+        networkAvailable.set(false)
+        scenario = ActivityScenario.launch(MainActivity::class.java)
+        try {
+            compose.waitUntil(10000) { compose.onAllNodesWithText("Reconnecting…").fetchSemanticsNodes().isNotEmpty() }
+            compose.onNodeWithText("Reconnecting…").assertIsDisplayed()
+            compose.onNodeWithText("Retry connection").assertIsDisplayed()
+            compose.onNodeWithText("Connecting…").assertDoesNotExist()
+            compose.onNodeWithText("Loading your chats…").assertDoesNotExist()
+            compose.onNodeWithTag("agent:$session").assertDoesNotExist()
+            compose.onNodeWithTag("approval:42").assertDoesNotExist()
+            compose.onNodeWithText("Review next", substring = true).assertDoesNotExist()
+            screenshot("startup-reconnecting")
+            // Keep a background retry from completing before the explicit tap.
+            holdMe.set(true)
+            networkAvailable.set(true)
+            compose.onNodeWithText("Retry connection").performClick()
+        } finally { networkAvailable.set(true); holdMe.set(false) }
+        compose.waitUntil(15000) { compose.onAllNodesWithTag("agent:$session").fetchSemanticsNodes().isNotEmpty() && compose.onAllNodesWithText("Review next · 1").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("agent:$session").assertIsDisplayed()
+        compose.onNodeWithText("Review next · 1").assertIsDisplayed()
+        compose.onNodeWithText("Reconnecting…").assertDoesNotExist()
+        compose.onNodeWithText("Retry connection").assertDoesNotExist()
     }
     @Test fun firebaseRegistersWithSelectedProject() {
         Assume.assumeTrue("Run with -Pandroid.testInstrumentationRunnerArguments.firebase=true and the supplied config on the emulator", firebase != null)
@@ -605,10 +665,21 @@ class CompanionUiTest {
         compose.onNode(hasSetTextAction()).assertTextContains("Keep this draft")
         scenario.moveToState(Lifecycle.State.CREATED)
         reply.set("Reply while backgrounded."); cursor.set(3)
+        holdMe.set(true); meRequested.set(false)
         scenario.moveToState(Lifecycle.State.RESUMED)
+        try {
+            compose.waitUntil(10000) { meRequested.get() && compose.onAllNodesWithText("Connecting — draft kept").fetchSemanticsNodes().isNotEmpty() }
+            compose.onNodeWithText("Connecting…").assertIsDisplayed()
+            compose.onNodeWithText("Connecting — draft kept").assertIsDisplayed()
+            compose.onNodeWithContentDescription("Send").assertIsNotEnabled()
+            compose.onNode(hasSetTextAction()).assertTextContains("Keep this draft")
+            compose.onNodeWithText(reply.get()).assertDoesNotExist()
+        } finally { holdMe.set(false) }
         compose.waitUntil(10000) { compose.onAllNodesWithText(reply.get()).fetchSemanticsNodes().isNotEmpty() }
         Assert.assertTrue(cursorsRequested.contains(2))
         compose.onNode(hasSetTextAction()).assertTextContains("Keep this draft")
+        compose.onNodeWithContentDescription("Send").assertIsEnabled()
+        compose.onNodeWithText("Connecting — draft kept").assertDoesNotExist()
     }
     @Test fun summaryNotificationIsPrivateDeduplicatedAndOpensTheConversation() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext

@@ -30,6 +30,14 @@ under **More**. Desktop retains the full session inventory and administration.
 
 ## Live updates
 
+Version 0.4.5 presents the first connection attempt as **Connecting…**, with a
+quiet **Loading your chats…** indicator on an empty home screen. Returning from
+the background uses the same calm state while refreshing. A real failure or lost
+socket immediately shows **Reconnecting…** and retry controls, including when
+the app has never connected successfully. Actions stay disabled until the usual
+authorized, fresh snapshot is complete; drafts and cached chats are preserved.
+This presentation-only APK update needs no server rollout.
+
 Version 0.3.0 keeps one foreground WebSocket at `/companion/v1/ws` for overview,
 approvals and the open chat. `hello` starts a full refresh; `changed` carries a
 `scopes` array (`me`, `agents`, `approvals`) and triggers the corresponding REST
