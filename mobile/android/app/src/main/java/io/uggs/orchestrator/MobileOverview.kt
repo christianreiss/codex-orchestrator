@@ -20,10 +20,9 @@ fun liveApproval(request: JSONObject, now: Long) = request.optBoolean("live", fa
 fun agentTitle(agent: JSONObject): String = agent.optString("cwd").trimEnd('/').substringAfterLast('/')
     .ifBlank { agent.optString("host", "Agent").substringBefore('.') }
 
-fun agentDetail(agent: JSONObject): String = listOf(
-    agent.optString("host", agent.optString("fqdn")).substringBefore('.'),
-    agent.optString("engine").replaceFirstChar { it.uppercase() },
-).filter { it.isNotBlank() }.joinToString(" · ")
+internal fun agentHost(agent: JSONObject?): String? = agent?.let {
+    it.optString("host").trim().ifBlank { it.optString("fqdn").trim() }.takeIf(String::isNotBlank)
+}
 
 fun compactSummary(value: String?): String? {
     val text = value?.replace(Regex("\\s+"), " ")?.trim()?.takeIf { it.isNotEmpty() } ?: return null

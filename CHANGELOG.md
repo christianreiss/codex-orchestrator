@@ -1,6 +1,8 @@
 # 2026-10-07
 
 - Quick Settings adds immediately saved 256k/500k Grok context-window buttons (256k default), retained across model/effort changes and rendered into native Grok configuration. Wrapper 0.9.18 tracks dotted model IDs correctly, preserving local model settings when the fleet default changes.
+- Android companion 0.4.1 replaces project initials with local Codex, Claude and Grok pictograms and the host/engine text line with a compact host badge, consistently in the conversation list and chat header. Full identities remain available to TalkBack.
+- Android companion 0.4.0 introduces a coordinated light/dark design, compact conversation list, and iMessage-inspired grouped bubbles with timestamps and a rounded composer. New replies preserve your reading position and offer a jump to the latest message; pairing and host reviews use the same accessible, rounded styling.
 - Android companion 0.3.0 uses one foreground WebSocket for live overview, approval and chat updates, with automatic reconnect and cursor-based catch-up. Agent-authored summaries appear on cards and in their corresponding push notifications; full replies stay in chat. Deploy the updated API before installing this APK; the older SSE endpoint remains available.
 - Wrapper 0.9.17 adds optional short summaries to `agent_receiver_reply` and `cxx portal say/ask` for Codex, Claude and Grok. Managed receiver instructions request one sentence of at most 160 characters describing the latest result or decision needed. Existing callers remain compatible.
 

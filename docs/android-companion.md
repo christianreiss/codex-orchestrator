@@ -15,7 +15,7 @@ identify each conversation; **Review next** opens the next decision directly.
 Each card also shows the agent's latest short summary (one sentence, at most
 160 Unicode characters, displayed on up to two lines). An open question or active
 attention notice takes priority over the last reply. The full answer stays in chat.
-The compact layout uses square edges, tighter spacing, and at least 48 dp
+The compact layout uses rounded surfaces, tighter spacing, and at least 48 dp
 action targets while respecting Android text size settings.
 
 Host decisions use a bottom sheet with requesting host/IP, expiry, duration
@@ -97,6 +97,33 @@ this endpoint before installing 0.3.0; roll out wrapper 0.9.17 for authored summ
 Without Firebase configuration, pairing, chat, and in-app approvals still work;
 the dashboard and app explicitly report that push is not configured. Reopening
 the app picks up newly configured Firebase identifiers and registers its token.
+
+## Appearance and conversation layout
+
+Version 0.4.0 follows the Android light/dark setting with blue accents, soft surfaces,
+rounded controls and a compact, top-aligned conversation list. Host reviews and
+agents needing a reply come first. Rows show project, host/engine and the existing
+short summary; they do not imply unread or delivery state.
+
+Version 0.4.1 replaces project initials and the written engine name with bundled
+Codex, Claude and Grok vector marks, in both the list and chat header. A small
+computer badge shows the short host name; TalkBack retains the full host and
+engine names. Missing hosts have no badge and unknown engines use a terminal
+symbol. Marks adapt to light/dark mode and load entirely from the APK; their
+pinned source and license are included with the Android resources/assets.
+
+Chats place your messages on the right in blue and agent replies on the left.
+Consecutive messages from one sender group within five minutes on the same local
+day. Day separators and group timestamps use server event times; legacy messages
+without valid timestamps do not invent a time. Text remains selectable, wraps to
+85% of the chat width, and respects system font scaling. The rounded composer
+grows to four lines above the keyboard. While reading older messages, incoming
+replies leave the reading position intact and offer **New messages** to jump back.
+Pairing, settings and host-access sheets share the same theme and 48 dp targets.
+
+This is an Android-only update: existing 0.3.0 REST/WebSocket/push contracts and
+permissions remain unchanged. Agent-authored summaries still require wrapper
+0.9.17 or later in the running agent session. No server rollout is required.
 
 ## Build and signing
 
