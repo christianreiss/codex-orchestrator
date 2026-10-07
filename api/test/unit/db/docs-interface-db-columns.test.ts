@@ -80,7 +80,7 @@ const TABLE_BULLET = /^-\s+\*\*([^*]+)\*\*/;
  * out.
  */
 const DOC_COLUMN =
-  /`([a-z0-9_]+)`\s+(?:BIGINT|INT|SMALLINT|TINYINT|VARCHAR|CHAR|TEXT|LONGTEXT|MEDIUMTEXT|JSON|DATETIME|TIMESTAMP|BLOB)\b/g;
+  /`([a-z0-9_]+)`\s+(?:BIGINT|INT|SMALLINT|TINYINT|DOUBLE|VARCHAR|CHAR|TEXT|LONGTEXT|MEDIUMTEXT|JSON|DATETIME|TIMESTAMP|BLOB)\b/g;
 
 /** The column names each table's bullet declares, in the order it writes them. */
 const documentedColumns = (tables: Iterable<string>): Map<string, string[]> => {

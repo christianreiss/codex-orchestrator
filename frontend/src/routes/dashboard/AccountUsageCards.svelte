@@ -5,6 +5,7 @@
   import { Badge } from "$lib/components/ui/badge";
   import { cn } from "$lib/utils/cn";
   import { useFleetEngines, FLEET_DISABLED_TAG, fleetDisabledTitle } from "$lib/engines/fleet-engines";
+  import GrokUsage from "$lib/components/dashboard/GrokUsage.svelte";
   let { accounts }: { accounts: ProviderAccount[] } = $props();
   // Accounts of a fleet-disabled engine are kept but not polled or leased.
   const fleet = useFleetEngines();
@@ -19,9 +20,11 @@
       </h2>
       <span class="text-sm text-muted-foreground">{ENGINE_META[account.engine].account} · {account.state}</span>
     </div>
-    <p class="mt-2 text-sm text-muted-foreground">{account.verification_state} · {account.sessions.length} active sessions{account.usage.stale ? ' · usage stale or unknown' : ''}</p>
+    <p class="mt-2 text-sm text-muted-foreground">{account.verification_state} · {account.sessions.length} active sessions{account.engine !== 'grok' && account.usage.stale ? ' · usage stale or unknown' : ''}</p>
     {#if account.refresh_state === "login_required"}<p class="mt-2 text-sm text-destructive">Subscription login needs renewal</p>{/if}
-    {#if account.usage.supported === false}
+    {#if account.engine === 'grok'}
+      <div class="mt-4"><GrokUsage usage={account.usage} label={account.label} /></div>
+    {:else if account.usage.supported === false}
       <p class="mt-4 text-sm text-muted-foreground">Subscription quota unavailable</p>
     {:else}
     <div class="mt-4 grid grid-cols-2 gap-4 text-sm">

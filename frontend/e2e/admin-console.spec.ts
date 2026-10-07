@@ -1740,6 +1740,80 @@ test("control dashboard is accessible with both engines at desktop and mobile si
   expect(errors).toEqual([]);
 });
 
+test("Grok account usage shows real periods and follows live updates without inventing zero", async ({ page }) => {
+  test.setTimeout(60_000);
+  let used = 5;
+  let period = "weekly";
+  let stale = false;
+  let available = true;
+  const resetsAt = new Date(Date.now() + 604_800_000).toISOString();
+  let emit: ((data: string) => void) | undefined;
+  await page.routeWebSocket("**/grok-usage-ws", ws => { emit = data => ws.send(data); });
+  await installFixtures(page, path => {
+    if (path === "/admin/ws/info") return { enabled: true, url: "ws://127.0.0.1:4173/grok-usage-ws" };
+    if (path === "/admin/accounts") return { accounts: [{
+      id: 7, engine: "grok", label: "Personal", state: "enabled", verification_state: "verified", sessions: [],
+      usage: { supported: true, fetched_at: new Date().toISOString(), checked_at: new Date().toISOString(),
+        stale, error_code: stale ? "provider_http_503" : null,
+        short_used_percent: null, short_resets_at: null, weekly_used_percent: null, weekly_resets_at: null,
+        current_window: available ? { used_percent: used, period, starts_at: null, resets_at: resetsAt, shared: true } : null,
+      },
+    }] };
+    return controlFixture(path);
+  });
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 1000 });
+    await page.goto("/admin/dashboard");
+    const group = page.getByRole("group", { name: "Personal Grok usage" });
+    await expect(group.getByRole("meter", { name: "Weekly usage" })).toHaveAttribute("aria-valuenow", "5");
+    await expect(group).toContainText("Shared across Grok products");
+    await expect(group.locator("time").first()).toHaveAttribute("datetime", resetsAt);
+    await expect(group).not.toContainText("Short window");
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    await expectNoSeriousAxeFindings(page);
+  }
+  const group = page.getByRole("group", { name: "Personal Grok usage" });
+  await expect.poll(() => Boolean(emit)).toBe(true);
+  const update = () => emit!(JSON.stringify({ type: "accounts.updated", payload: { account_id: 7 }, ts: new Date().toISOString() }));
+  used = 0;
+  update();
+  await expect(group.getByRole("meter")).toHaveAttribute("aria-valuenow", "0");
+  await expect(group).toContainText("0% used");
+  period = "monthly";
+  update();
+  await expect(group.getByRole("meter", { name: "Monthly usage" })).toBeVisible();
+  stale = true;
+  update();
+  await expect(group).toContainText("Last known reading");
+  await expect(group).toContainText("Update unavailable; showing the last reading.");
+  available = false;
+  update();
+  await expect(group).toContainText("Usage unavailable");
+  await expect(group.getByRole("meter")).toHaveCount(0);
+});
+
+test("Grok usage on Accounts retains unknown state and supports dark mode", async ({ page }) => {
+  let observed = false;
+  await page.emulateMedia({ colorScheme: "dark" });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await installFixtures(page, path => path === "/admin/accounts" ? { accounts: [{
+    id: 7, engine: "grok", label: "Personal", state: "enabled", verification_state: "verified", sessions: [],
+    usage: { supported: true, stale: !observed, fetched_at: observed ? new Date().toISOString() : null,
+      checked_at: null, short_used_percent: null, short_resets_at: null, weekly_used_percent: null, weekly_resets_at: null,
+      current_window: observed ? { used_percent: 75, period: null, starts_at: null, resets_at: null, shared: null } : null },
+  }] } : undefined);
+  await page.goto("/admin/accounts");
+  const group = page.getByRole("group", { name: "Personal Grok usage" });
+  await expect(group).toContainText("Waiting for usage data");
+  await expect(group.getByRole("meter")).toHaveCount(0);
+  observed = true;
+  await page.reload();
+  await expect(group.getByRole("meter", { name: "Current period" })).toHaveAttribute("aria-valuenow", "75");
+  await expect(group).toContainText("Reset time unavailable");
+  await expect(group).not.toContainText("Weekly");
+  await expectNoSeriousAxeFindings(page);
+});
+
 test("accounts shows all providers up to six accounts and filters larger fleets", async ({ page }) => {
   let total = 6;
   await installFixtures(page, path => path === "/admin/auth/status" ? { ...fixture(path), capabilities: ["auth.manage"] } : path === "/admin/accounts" ? {

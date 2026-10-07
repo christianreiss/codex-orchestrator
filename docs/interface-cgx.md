@@ -113,6 +113,21 @@ client-config row exists, activating the managed MCP feature context. Concurrent
 provisioning and config saves serialize before creating a row; an existing
 operator-authored policy is preserved. Reading defaults remains read-only.
 
+## Subscription usage in the dashboard
+
+Dashboard and Accounts show the official Grok Build billing reading per account:
+percentage used, provider-defined weekly/monthly period and reset, shared-pool
+scope, and the reading time. The API worker polls `/v1/billing?format=credits`
+on `cli-chat-proxy.grok.com` every five minutes via the existing fenced auth
+owner. Migration 0040 persists the latest reading and attempt status. Paused,
+removed, merged, and fleet-disabled accounts are not polled.
+
+A failed request keeps the last reading and marks it stale; missing data stays
+unknown, never 0%. Monthly or untyped periods are not labelled weekly. This
+does not introduce wrapper quota reporting, account balancing by Grok quota, or
+automatic purchasing. The provider-owned billing endpoint may change; source
+contract: [official CLI billing handler](https://github.com/xai-org/grok-build/blob/2bdd1d6a6369de0e8c68132ea4539e9abd9e14a8/crates/codegen/xai-grok-shell/src/extensions/billing.rs).
+
 ## Startup and checks
 
 `cgx` prints the shared startup card before the native UI, with the effective

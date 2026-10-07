@@ -24,6 +24,7 @@ import { decrypt } from '../security/secret-box.js';
 import { createRunnerValidationService } from './runner-validation.js';
 import { resolveProviderAccount } from './provider-account-reference.js';
 import { withGrokAccountLock } from './grok-auth-lock.js';
+import { readGrokUsage } from './grok-usage.js';
 
 type Account = typeof providerAccounts.$inferSelect;
 const PROVIDER_LABELS: Record<Engine, string> = { codex: 'ChatGPT', claude: 'Claude', grok: 'Grok' };
@@ -274,7 +275,7 @@ export class ProviderAccountsService {
 
   async usage(accountId: number, engine: Engine, reader: Pick<Database, 'select'> = this.db) {
     const now = Date.now();
-    if (engine === 'grok') return { supported: false, fetched_at: null, stale: false, short_used_percent: null, short_resets_at: null, weekly_used_percent: null, weekly_resets_at: null };
+    if (engine === 'grok') return readGrokUsage(reader, accountId);
     if (engine === 'claude') {
       const rows = await reader
         .select()

@@ -1,5 +1,6 @@
 # 2026-10-07
 
+- Dashboard and Accounts now show Grok subscription usage, its actual weekly/monthly reset, shared-pool scope and reading age. The API polls the official Grok Build billing endpoint every five minutes per enabled account through the existing auth owner; failed polls retain a clearly stale last reading, and unknown data never becomes 0%. Migration 0040 persists the latest observation and poll status; CLI quota enforcement and account assignment are unchanged.
 - Quick Settings adds immediately saved 256k/500k Grok context-window buttons (256k default), retained across model/effort changes and rendered into native Grok configuration. Wrapper 0.9.18 tracks dotted model IDs correctly, preserving local model settings when the fleet default changes.
 - Android companion 0.4.1 replaces project initials with local Codex, Claude and Grok pictograms and the host/engine text line with a compact host badge, consistently in the conversation list and chat header. Full identities remain available to TalkBack.
 - Android companion 0.4.0 introduces a coordinated light/dark design, compact conversation list, and iMessage-inspired grouped bubbles with timestamps and a rounded composer. New replies preserve your reading position and offer a jump to the latest message; pairing and host reviews use the same accessible, rounded styling.

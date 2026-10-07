@@ -20,6 +20,15 @@ export interface ProviderAccount {
     short_resets_at: string | null;
     weekly_used_percent: number | null;
     weekly_resets_at: string | null;
+    checked_at?: string | null;
+    error_code?: string | null;
+    current_window?: {
+      used_percent: number;
+      period: "weekly" | "monthly" | null;
+      starts_at: string | null;
+      resets_at: string | null;
+      shared: boolean | null;
+    } | null;
   };
   sessions: Array<{ id: string; host_id: number; expires_at: string }>;
 }

@@ -16,6 +16,7 @@ import { startAgentPortalWorker } from './ops/agent-portal-worker.js';
 import { startInsecureFleetWindowWorker } from './ops/insecure-fleet-window-worker.js';
 import { startAgentTransfersWorker } from './ops/agent-transfers-worker.js';
 import { startAgentMessagingWorker } from './ops/agent-messaging-worker.js';
+import { startGrokUsageWorker } from './ops/grok-usage-worker.js';
 import { attachShutdown } from './ops/shutdown.js';
 import { initTracing, shutdownTracing } from './observability/tracing.js';
 import { MattPocockSkillsService } from './services/mattpocock-skills.js';
@@ -103,6 +104,7 @@ export async function buildServer() {
   startAgentMessagingWorker(app, db, env, keyring);
   startInsecureFleetWindowWorker(app, db, env);
   startAgentTransfersWorker(app, db, env);
+  startGrokUsageWorker(app, db, env, keyring);
 
   // The default span processor batches, so without this flush a SIGTERM drops
   // whatever the last batch window collected.

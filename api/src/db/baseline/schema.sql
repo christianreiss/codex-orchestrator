@@ -958,6 +958,19 @@ CREATE TABLE `grok_auth_refresh_state` (
 	CONSTRAINT `grok_auth_refresh_state_account_id` PRIMARY KEY(`account_id`)
 );
 
+CREATE TABLE `grok_usage_snapshots` (
+	`account_id` bigint unsigned NOT NULL,
+	`used_percent` double,
+	`period_type` varchar(16),
+	`period_starts_at` varchar(100),
+	`period_resets_at` varchar(100),
+	`shared` tinyint,
+	`fetched_at` varchar(100),
+	`checked_at` varchar(100) NOT NULL,
+	`error_code` varchar(48),
+	CONSTRAINT `grok_usage_snapshots_account_id` PRIMARY KEY(`account_id`)
+);
+
 CREATE TABLE `host_auth_digests` (
 	`id` bigint unsigned AUTO_INCREMENT NOT NULL,
 	`host_id` bigint unsigned NOT NULL,

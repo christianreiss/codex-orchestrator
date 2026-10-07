@@ -20,8 +20,10 @@ The header Appearance menu applies light, dark, or system mode immediately and s
 Grok (`cgx`) is the third engine. Managed Grok subscription refresh is centrally
 owned and durably fenced; hosts and the runner receive access-only credentials.
 Its independent OpenAI-shaped gateway is `/grok/v1`, with engine-scoped client
-keys and truthful CLI capability errors. Grok quota is unknown until a provider
-snapshot exists. See [Grok interface](interface-cgx.md).
+keys and truthful CLI capability errors. Dashboard and Accounts show per-account
+Grok subscription usage from the official billing endpoint, refreshed every five
+minutes, with provider-defined periods and explicit stale/unknown states. CLI
+quota enforcement and account assignment are unchanged. See [Grok interface](interface-cgx.md).
 
 The three inference gateways (`/v1`, `/anthropic/v1`, `/grok/v1`) are surfaces
 whose answering engine is configurable per surface (API Access → Configuration → Routing & availability,

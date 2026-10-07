@@ -1284,6 +1284,12 @@ Before a launch reservation, a host's saved account ID is a discovery hint: a re
 
 Selection runs once per native CLI launch. It prefers verified enabled accounts with lower short/weekly utilization below the configured quota threshold; readings within five percentage points share assignments by active session count, then least recent selection. Unknown/reset accounts get bounded trials to obtain usage. Stale utilization stays conservative until its reset; reset windows become unknown rather than fabricated zero usage. Active sessions retain their account, including overlapping launches sharing native files. If all known quotas are exhausted, existing hard-fail/warn and VIP behavior still governs the selected account. There is no cross-engine fallback or manual host pinning.
 
+### Grok subscription usage
+
+`GET /admin/accounts` adds `usage.current_window` for Grok: `{used_percent, period: weekly|monthly|null, starts_at, resets_at, shared}` or `null` when no provider reading exists. `usage.supported` is true; `fetched_at` is the last successful reading, `checked_at` the last attempt, and `error_code` is a sanitized failure code. `stale` is true after ten minutes, after the provider period expires, or on a failed poll; failed polls retain the last successful window. Missing percentages never become zero. Legacy `short_*`/`weekly_*` fields stay null for Grok: this is a dashboard observation and does not change account selection or wrapper quota contracts.
+
+The API background worker polls `https://cli-chat-proxy.grok.com/v1/billing?format=credits` at most once per five minutes per account, with a ten-second request deadline and redirects refused. It wakes every thirty seconds for new accounts; disabled engines, paused/removed/merged accounts are skipped. Bearers come only from the existing fenced Grok auth owner. `accounts.updated` invalidates the existing admin queries after each observation. No billing write or top-up operation is performed. The endpoint is provider-owned and not a stable public xAI API contract; unavailable/changed responses remain visibly unknown or stale.
+
 ## Grok endpoint inventory
 
 - `OPTIONS /grok/v1/*` — CORS preflight, without gateway auth.

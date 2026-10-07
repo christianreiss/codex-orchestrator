@@ -19,6 +19,7 @@ import {
   tinyint,
   char,
   int,
+  double,
   datetime,
   json,
   varbinary,
@@ -1285,6 +1286,19 @@ export const claudeUsageSnapshots = mysqlTable(
     fetchedIdx: index('idx_claude_usage_fetched').on(t.fetchedAt),
   }),
 );
+
+// Latest provider reading and poll status, isolated by Grok subscription account.
+export const grokUsageSnapshots = mysqlTable('grok_usage_snapshots', {
+  accountId: bigint('account_id', { mode: 'number', unsigned: true }).primaryKey(),
+  usedPercent: double('used_percent'),
+  periodType: varchar('period_type', { length: 16 }),
+  periodStartsAt: varchar('period_starts_at', { length: 100 }),
+  periodResetsAt: varchar('period_resets_at', { length: 100 }),
+  shared: tinyint('shared'),
+  fetchedAt: varchar('fetched_at', { length: 100 }),
+  checkedAt: varchar('checked_at', { length: 100 }).notNull(),
+  errorCode: varchar('error_code', { length: 48 }),
+});
 
 export const dashboardGraphQuotaSnapshots = mysqlTable(
   'dashboard_graph_quota_snapshots',

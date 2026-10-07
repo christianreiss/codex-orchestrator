@@ -15,6 +15,7 @@
   import { Badge } from "$lib/components/ui/badge";
   import { Alert, AlertDescription, AlertTitle } from "$lib/components/ui/alert";
   import { useFleetEngines, fleetDisabledTitle } from "$lib/engines/fleet-engines";
+  import GrokUsage from "$lib/components/dashboard/GrokUsage.svelte";
 
   const query = accountsQuery();
   const qc = useQueryClient();
@@ -119,7 +120,9 @@
           {:else if account.refresh_state && account.refresh_state !== "idle"}
             <p class="text-sm text-muted-foreground">Credential refresh: {account.refresh_state.replaceAll("_", " ")}</p>
           {/if}
-          {#if account.usage.supported === false}
+          {#if account.engine === "grok"}
+            <GrokUsage usage={account.usage} label={account.label} />
+          {:else if account.usage.supported === false}
             <p class="text-sm text-muted-foreground">Subscription quota is unavailable from this provider. Account selection uses verified availability.</p>
           {:else}
           <div class="grid grid-cols-2 gap-4">
@@ -132,7 +135,7 @@
             {/each}
           </div>
           {/if}
-          <p class="text-xs text-muted-foreground">Usage: {date(account.usage.fetched_at)}{account.usage.stale ? " · stale or unavailable" : ""} · Verified: {date(account.verification_checked_at)}</p>
+          <p class="text-xs text-muted-foreground">{#if account.engine !== "grok"}Usage: {date(account.usage.fetched_at)}{account.usage.stale ? " · stale or unavailable" : ""} · {/if}Verified: {date(account.verification_checked_at)}</p>
           {#if account.sessions.length}
             <div class="flex flex-wrap gap-2 text-xs">
               {#each [...new Set(account.sessions.map((s) => s.host_id))] as hostId}{#if hostId === 0}<span>Runner task</span>{:else}<a class="text-primary underline" href={`${base}/hosts/${hostId}`}>Host #{hostId}</a>{/if}{/each}

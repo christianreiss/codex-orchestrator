@@ -71,7 +71,7 @@ const TABLE_BULLET = /^-\s+\*\*([^*]+)\*\*/;
  * string defaults, `versions` keys and `table.column` cross-references out.
  */
 const DOC_COLUMN =
-  /`([a-z0-9_]+)`\s+(?:BIGINT|VARCHAR|LONGTEXT|TINYINT|DATETIME|VARBINARY|CHAR|TEXT|JSON|BLOB|INT)\b/g;
+  /`([a-z0-9_]+)`\s+(?:BIGINT|VARCHAR|LONGTEXT|TINYINT|DATETIME|VARBINARY|CHAR|TEXT|JSON|BLOB|INT|DOUBLE)\b/g;
 
 const documentedColumns = (): Map<string, string[]> => {
   const bullets = new Map<string, string[]>();

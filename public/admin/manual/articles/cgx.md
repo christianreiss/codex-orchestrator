@@ -3,8 +3,8 @@ title: Grok Build (cgx)
 section: Fleet operations
 category: Fleet operations
 summary: Grok subscription accounts, centralized renewal, isolated launches, native reception, and gateway limits.
-verified: 2026-10-01
-sources: docs/interface-cgx.md, api/src/services/grok-auth-owner.ts, runner/grok.py, wrappers/cxx/internal/grok
+verified: 2026-10-07
+sources: docs/interface-cgx.md, api/src/services/grok-auth-owner.ts, api/src/services/grok-usage.ts, api/src/ops/grok-usage-worker.ts, frontend/src/lib/components/dashboard/GrokUsage.svelte, runner/grok.py, wrappers/cxx/internal/grok
 ---
 
 Grok Build is the fleet's third engine. Select **Grok** alongside Codex and Claude
@@ -36,7 +36,11 @@ default is Grok 4.7/high; Grok 4.7, Grok 4.7 Fast, and Grok 4.6 support low,
 medium, high, and xhigh, while Grok 4.5 supports low through high. These are
 native supported IDs; subscription availability is provider-owned.
 Codex quota lanes/profiles and Claude native artifact editors remain engine-specific.
-Grok quota is explicitly unknown when no supported provider snapshot exists.
+Dashboard and Accounts show your Grok usage percentage, reset time and reading age.
+Usage refreshes every five minutes per enabled account. A shared allowance covers
+all Grok products; weekly and monthly periods follow the provider. Failed updates
+keep a clearly marked last reading; missing data stays unknown. The wrapper still
+reports quota as unavailable, and this display does not change account selection.
 
 Managed launches use a private Grok home and leader to prevent native auth reloads
 from selecting an unmanaged account. The original session-history root is shared,
