@@ -31,7 +31,9 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
     private val unreadStore = UnreadStore(app)
     var connection by mutableStateOf(store.load()); private set
     var unreadSessions by mutableStateOf<Set<String>>(emptySet()); private set
+    private var unreadReplyCounts by mutableStateOf<Map<String, Int>>(emptyMap())
     val unreadCount get() = unreadSessions.size
+    fun unreadReplyCount(id: String) = unreadReplyCounts[id] ?: 0
     var agents by mutableStateOf<List<JSONObject>>(emptyList()); private set
     var approvals by mutableStateOf<List<JSONObject>>(emptyList()); private set
     var events by mutableStateOf<List<JSONObject>>(emptyList()); private set
@@ -82,12 +84,10 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
     fun canReadSession(id: String) = connection != null && portalAvailable &&
         can("agent_portal.read") && can("agent_portal.reveal_transcript") && agents.any { it.optString("id") == id }
     fun overviewAgents(): List<JSONObject> = if (!can("agent_portal.read") || !can("agent_portal.reveal_transcript") || !portalAvailable) emptyList() else
-        agents.filter { (fresh() && can("agent_portal.manage") && isReachable(it)) || it.optString("id") in unreadSessions }
-            .sortedWith(compareByDescending<JSONObject> { can("agent_portal.manage") && needsReply(it) && isReachable(it) }
-                .thenByDescending { it.optString("id") in unreadSessions }
-                .thenByDescending { it.optLong("reply_cursor") })
+        readyAgents(agents).filter { can("agent_portal.manage") || it.optString("id") in unreadSessions }
     private fun refreshUnreadState() {
         unreadSessions = if (!permissionsKnown || !can("agent_portal.read") || !can("agent_portal.reveal_transcript") || !portalAvailable) emptySet() else unreadStore.unreadIds()
+        unreadReplyCounts = unreadSessions.associateWith(unreadStore::unreadReplyCount)
         if (permissionsKnown) {
             val allowed = notifications && portalAvailable && can("agent_portal.read") && can("agent_portal.reveal_transcript")
             syncUnreadNotifications(getApplication(), if (allowed) connection else null, if (allowed) unreadSessions else emptySet())
@@ -115,7 +115,7 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
             try {
                 val result = Api(pairing.server).request("/pair", "POST", JSONObject().put("token", pairing.token).put("name", android.os.Build.MODEL))
                 val c = Connection(pairing.server, result.getString("token"), result.getString("device_id"), result.optJSONObject("firebase"))
-                store.save(c); connection = c; unreadStore.activate(c); unreadSessions = emptySet(); permissionsKnown = false
+                store.save(c); connection = c; unreadStore.activate(c); unreadSessions = emptySet(); unreadReplyCounts = emptyMap(); permissionsKnown = false
                 configurePush(getApplication(), c); startLive()
             } catch (e: Exception) { failure(e) } finally { busy = false }
         }
@@ -210,7 +210,7 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
         val requests = if (loadApprovals && "hosts.activate_insecure" in caps) client.request("/approvals") else null
         var portalDisabled = false
         val snapshot = if (loadAgents && "agent_portal.read" in caps) {
-            try { client.request("/agents") }
+            try { client.request("/agents", "POST", JSONObject().put("read_cursors", unreadStore.readCursors())) }
             catch (e: ApiException) { if (e.status == 503 && e.code == "agent_portal_disabled") { portalDisabled = true; null } else throw e }
         } else null
         val id = selected
@@ -330,7 +330,7 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
     fun logout() { mutate { api().request("/device", "DELETE"); clearConnection() } }
     private fun clearConnection() {
         store.clear(); connection = null; selected = null; events = emptyList(); agents = emptyList(); approvals = emptyList(); capabilities = emptySet()
-        unreadStore.clear(); unreadSessions = emptySet(); permissionsKnown = false
+        unreadStore.clear(); unreadSessions = emptySet(); unreadReplyCounts = emptyMap(); permissionsKnown = false
         syncUnreadNotifications(getApplication(), null, emptySet())
         online = false; lastSync = 0; pendingOpen = null; highlightApproval = null
         stopLive()

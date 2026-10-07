@@ -24,8 +24,6 @@ import java.time.Instant
 @Composable internal fun NowScreen(model: CompanionModel, agents: List<JSONObject>, requests: List<JSONObject>, fresh: Boolean, onReview: (JSONObject) -> Unit) {
     val attention = if (fresh && model.can("agent_portal.manage")) agents.filter { isReachable(it) && needsReply(it) } else emptyList()
     val remaining = agents.filterNot { agent -> attention.any { it.optString("id") == agent.optString("id") } }
-    val unread = remaining.filter { it.optString("id") in model.unreadSessions }
-    val ready = remaining.filterNot { it.optString("id") in model.unreadSessions }
     val urgent = requests.map { it to true } + attention.map { it to false }
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp)) {
         if (!fresh) item {
@@ -55,15 +53,11 @@ import java.time.Instant
                         if (index < urgent.lastIndex) RowDivider()
                     }
                 }
-            } else AgentRow(item, true, item.optString("id") in model.unreadSessions, shape, index < urgent.lastIndex) { model.openSession(item.getString("id")) }
+            } else AgentRow(item, true, model.unreadReplyCount(item.getString("id")), shape, index < urgent.lastIndex) { model.openSession(item.getString("id")) }
         }
-        if (unread.isNotEmpty()) item { SectionLabel("Unread chats", unread.size) }
-        itemsIndexed(unread, key = { _, agent -> agent.getString("id") }) { index, agent ->
-            AgentRow(agent, false, true, rowShape(index, unread.size), index < unread.lastIndex) { model.openSession(agent.getString("id")) }
-        }
-        if (ready.isNotEmpty()) item { SectionLabel("Ready", ready.size) }
-        itemsIndexed(ready, key = { _, agent -> agent.getString("id") }) { index, agent ->
-            AgentRow(agent, false, false, rowShape(index, ready.size), index < ready.lastIndex) { model.openSession(agent.getString("id")) }
+        if (remaining.isNotEmpty()) item { SectionLabel("Sessions", remaining.size) }
+        itemsIndexed(remaining, key = { _, agent -> agent.getString("id") }) { index, agent ->
+            AgentRow(agent, false, model.unreadReplyCount(agent.getString("id")), rowShape(index, remaining.size), index < remaining.lastIndex) { model.openSession(agent.getString("id")) }
         }
         if (fresh && agents.isEmpty() && requests.isEmpty()) item {
             Column(Modifier.fillMaxWidth().padding(vertical = 64.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -91,17 +85,21 @@ private fun rowShape(index: Int, count: Int) = RoundedCornerShape(
 
 @Composable private fun RowDivider() { HorizontalDivider(Modifier.padding(start = 72.dp, end = 14.dp), color = MaterialTheme.colorScheme.outlineVariant) }
 
-@Composable private fun AgentRow(agent: JSONObject, attention: Boolean, unread: Boolean, shape: RoundedCornerShape, divider: Boolean, onClick: () -> Unit) {
+@Composable private fun AgentRow(agent: JSONObject, attention: Boolean, unreadCount: Int, shape: RoundedCornerShape, divider: Boolean, onClick: () -> Unit) {
     val timestamp = runCatching { Instant.parse(agent.optJSONObject("preview")?.optString("created_at").orEmpty().ifBlank { agent.optString("last_event_at") }) }.getOrNull()
-    Surface(onClick = onClick, modifier = Modifier.testTag("agent:" + agent.optString("id")).semantics { stateDescription = if (unread) "Unread reply" else "Read" }, shape = shape, color = MaterialTheme.colorScheme.surface) {
+    Surface(onClick = onClick, modifier = Modifier.testTag("agent:" + agent.optString("id")).semantics {
+        stateDescription = when (unreadCount) { 0 -> "Read"; 1 -> "1 unread reply"; else -> "$unreadCount unread replies" }
+    }, shape = shape, color = MaterialTheme.colorScheme.surface) {
         Column {
             Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 AgentAvatar(agent)
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(agentTitle(agent), Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                        if (unread) Surface(Modifier.clearAndSetSemantics {}, shape = CircleShape, color = MaterialTheme.colorScheme.primaryContainer) {
-                            Text("New", Modifier.padding(horizontal = 7.dp, vertical = 3.dp), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                        if (unreadCount > 0) Surface(Modifier.clearAndSetSemantics {}.defaultMinSize(minWidth = 24.dp, minHeight = 24.dp), shape = CircleShape, color = MaterialTheme.colorScheme.primaryContainer) {
+                            Box(Modifier.padding(horizontal = 6.dp, vertical = 3.dp), contentAlignment = Alignment.Center) {
+                                Text(if (unreadCount > 99) "99+" else unreadCount.toString(), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                            }
                         }
                         timestamp?.let { Text(timeLabel(it, DateFormat.is24HourFormat(LocalContext.current)), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1) }
                     }

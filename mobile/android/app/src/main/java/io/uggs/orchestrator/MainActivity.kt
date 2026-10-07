@@ -77,9 +77,7 @@ class MainActivity : ComponentActivity() {
                     }
                     if (model.selected != null) HostBadge(current)
                     if (model.connection != null && (!fresh || model.selected == null)) {
-                        val attentionStatus = if (!fresh) "Reconnecting…" else if (total == 1) "1 needs you" else if (total > 0) "$total need you" else if (model.unreadCount == 0) "All clear" else null
-                        val unreadStatus = if (model.selected == null && model.unreadCount > 0) if (model.unreadCount == 1) "1 unread chat" else "${model.unreadCount} unread chats" else null
-                        Text(listOfNotNull(unreadStatus, attentionStatus).joinToString(" · "), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(if (!fresh) "Reconnecting…" else if (total == 1) "1 needs you" else if (total > 0) "$total need you" else "All clear", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
                 if (model.connection != null) FilledTonalIconButton(onClick = { more = true }, modifier = Modifier.size(48.dp)) { CompanionIcon(CompanionSymbol.More, "More") }

@@ -16,12 +16,37 @@ import { encrypt } from '../../security/secret-box.js';
 import { createAgentPortalService, type PortalActor } from '../../services/agent-portal.js';
 import { InsecureWindowAdminService } from '../../services/insecure-window-admin.js';
 import { makeAdminEventsWriter } from '../../services/admin-events-writer.js';
-import { ForbiddenError, ServiceUnavailableError } from '../../http/errors.js';
+import { ApiError, ForbiddenError, ServiceUnavailableError } from '../../http/errors.js';
 import { createSseLifecycle } from '../../http/sse-lifecycle.js';
 import { isoOffsetSeconds, nowIso } from '../../util/timestamp.js';
 
 const id = (req: FastifyRequest) => z.object({ id: z.string().uuid() }).parse(req.params).id;
 const message = z.object({ client_message_id: z.string().uuid(), content: z.string().min(1).max(32768) });
+const safeReadCursor = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
+const sessionUuid = z.string().uuid();
+const readSnapshot = z
+  .object({
+    read_cursors: z
+      .unknown()
+      .refine((value) => {
+        if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+        const keys = Object.keys(value);
+        return keys.length <= 500 && keys.every((key) => sessionUuid.safeParse(key).success);
+      })
+      .pipe(
+        z.object({}).catchall(
+          z.union([
+            safeReadCursor,
+            z
+              .string()
+              .regex(/^\d{1,16}$/u)
+              .transform(Number)
+              .pipe(safeReadCursor),
+          ]),
+        ),
+      ),
+  })
+  .strict();
 
 export async function registerCompanionRoutes(app: FastifyInstance, ctx: RouteContext) {
   await registerWebsocketTransport(app);
@@ -172,26 +197,45 @@ export async function registerCompanionRoutes(app: FastifyInstance, ctx: RouteCo
       await devices.revoke(user.id, device.id);
       return { revoked: true };
     });
+    const agentsSnapshot = async (accessLevel: string, readCursors?: Record<string, number>) => {
+      const snapshot = await portal.listAgentsSnapshot();
+      const reveal = capabilitiesForRole(accessLevel).includes('agent_portal.reveal_transcript');
+      const sessions = (
+        reveal ? await companionPreviews(ctx, snapshot.sessions, readCursors) : snapshot.sessions
+      ).map((session) =>
+        reveal
+          ? session
+          : {
+              ...session,
+              preview: null,
+              reply_cursor: null,
+              unread_reply_count: null,
+              pending_prompt: null,
+              attention: session.attention ? { since: (session.attention as { since: string }).since } : null,
+            },
+      );
+      return { agents: sessions, generated_at: snapshot.generated_at, timings: portal.timings() };
+    };
     app.get('/companion/v1/agents', async (req) => {
       const { user } = await auth(req, 'agent_portal.read');
       await requirePortal();
-      const snapshot = await portal.listAgentsSnapshot();
-      const reveal = capabilitiesForRole(user.accessLevel).includes('agent_portal.reveal_transcript');
-      const sessions = (reveal ? await companionPreviews(ctx, snapshot.sessions) : snapshot.sessions).map(
-        (session) =>
-          reveal
-            ? session
-            : {
-                ...session,
-                preview: null,
-                reply_cursor: null,
-                pending_prompt: null,
-                attention: session.attention
-                  ? { since: (session.attention as { since: string }).since }
-                  : null,
-              },
-      );
-      return { agents: sessions, generated_at: snapshot.generated_at, timings: portal.timings() };
+      return agentsSnapshot(user.accessLevel);
+    });
+    app.post('/companion/v1/agents', async (req) => {
+      const { user } = await auth(req, 'agent_portal.read');
+      await requirePortal();
+      const parsed = readSnapshot.safeParse(req.body);
+      if (!parsed.success)
+        throw new ApiError(
+          'read_cursors must map at most 500 session UUIDs to safe nonnegative integer cursors',
+          {
+            status: 400,
+            code: 'bad_request',
+            type: 'invalid_request_error',
+            param: 'read_cursors',
+          },
+        );
+      return agentsSnapshot(user.accessLevel, parsed.data.read_cursors);
     });
     app.get('/companion/v1/agents/:id/events', async (req) => {
       await auth(req, 'agent_portal.reveal_transcript');

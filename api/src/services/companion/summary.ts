@@ -33,10 +33,21 @@ export function decodeSummaryPayload(
 export async function companionPreviews(
   ctx: RouteContext,
   sessions: Array<Record<string, unknown>>,
+  readCursors: Readonly<Record<string, number>> = {},
 ): Promise<Array<Record<string, unknown>>> {
   if (!sessions.length) return sessions;
+  const sessionIds = new Set(sessions.map((s) => String(s.id)));
+  const markers = Object.entries(readCursors)
+    .filter(([sessionId, cursor]) => sessionIds.has(sessionId) && cursor > 0)
+    .map(([sessionId, cursor]) => sql`WHEN ${agentEvents.sessionId} = ${sessionId} THEN ${cursor}`);
+  const readCursor = markers.length ? sql`CASE ${sql.join(markers, sql` `)} ELSE 0 END` : sql`0`;
   const latest = await ctx.db
-    .select({ id: sql<number>`MAX(${agentEvents.id})` })
+    .select({
+      id: sql<number>`MAX(${agentEvents.id})`,
+      sessionId: agentEvents.sessionId,
+      type: agentEvents.eventType,
+      unread: sql<number>`SUM(CASE WHEN ${agentEvents.eventType} = 'assistant_message' AND ${agentEvents.id} > ${readCursor} THEN 1 ELSE 0 END)`,
+    })
     .from(agentEvents)
     .where(
       and(
@@ -48,6 +59,11 @@ export async function companionPreviews(
       ),
     )
     .groupBy(agentEvents.sessionId, agentEvents.eventType);
+  const unreadBySession = new Map(
+    latest
+      .filter((row) => row.type === 'assistant_message')
+      .map((row) => [row.sessionId, Number(row.unread)]),
+  );
   const promptIds = sessions.flatMap((s) =>
     s.pending_prompt ? [String((s.pending_prompt as { id: string }).id)] : [],
   );
@@ -77,11 +93,13 @@ export async function companionPreviews(
     // Preview priority can select an older prompt/attention event. Unread
     // replies need their own monotonic cursor, including retained ended chats.
     const replyCursor = Number(events?.get('assistant_message')?.id ?? 0);
+    const unreadReplyCount = unreadBySession.get(String(session.id)) ?? 0;
     const prompt = session.pending_prompt as { id: string } | null;
     const type = prompt ? 'waiting_input' : session.attention ? 'attention' : 'assistant_message';
     const row =
       prompt && promptEvents.get(prompt.id) ? byId.get(promptEvents.get(prompt.id)!) : events?.get(type);
-    if (!row) return { ...session, preview: null, reply_cursor: replyCursor };
+    if (!row)
+      return { ...session, preview: null, reply_cursor: replyCursor, unread_reply_count: unreadReplyCount };
     const payload = decodeSummaryPayload(row.payloadEnc, ctx);
     // An older, still-open question must never inherit a newer question's summary.
     const summary = eventSummary(type, prompt && payload.prompt_id !== prompt.id ? {} : payload);
@@ -89,6 +107,7 @@ export async function companionPreviews(
       ...session,
       preview: { summary, cursor: Number(row.id), created_at: row.createdAt },
       reply_cursor: replyCursor,
+      unread_reply_count: unreadReplyCount,
     };
   });
 }

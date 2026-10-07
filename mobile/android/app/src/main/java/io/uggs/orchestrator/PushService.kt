@@ -12,7 +12,6 @@ import android.content.pm.PackageManager
 import android.content.SharedPreferences
 import android.net.Uri
 import android.os.Bundle
-import android.os.SystemClock
 import android.service.notification.StatusBarNotification
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
@@ -84,7 +83,6 @@ private const val REPLY_CURSOR_PREFIX = "reply-cursor:"
 // Android enqueues notify() asynchronously. Track IDs until activeNotifications catches up,
 // so a read immediately following a push can also cancel an in-flight notification.
 private val knownReplyTargets = mutableMapOf<String, MutableSet<String>>()
-private val pendingReplyPosts = mutableMapOf<Pair<String, String>, Long>()
 
 private fun ensureNotificationChannels(context: Context) {
     val manager = context.getSystemService(NotificationManager::class.java)
@@ -203,11 +201,11 @@ private fun reconcileUnreadNotifications(context: Context, connection: Connectio
             val targets = knownReplyTargets.getOrPut(knownScope) { mutableSetOf() }
             if (extras.getString(NOTIFICATION_KIND) == "reply") extras.getString(NOTIFICATION_TARGET)?.let {
                 targets.add(it)
-                pendingReplyPosts.remove(knownScope to it)
             }
         }
         if (scope == null || extras.getString(NOTIFICATION_SCOPE) != scope ||
-            (extras.getString(NOTIFICATION_KIND) == "reply" && extras.getString(NOTIFICATION_TARGET) !in currentUnread) ||
+            (extras.getString(NOTIFICATION_KIND) == "reply" && (extras.getString(NOTIFICATION_TARGET) !in currentUnread ||
+                extras.getString(NOTIFICATION_PUSH_ID).isNullOrBlank())) ||
             (extras.getString(NOTIFICATION_KIND) == "unread" && currentUnread.isEmpty())) {
             manager.cancel(entry.tag, entry.id)
         }
@@ -215,7 +213,6 @@ private fun reconcileUnreadNotifications(context: Context, connection: Connectio
     for ((knownScope, targets) in knownReplyTargets.toMap()) {
         for (target in targets.toList()) if (knownScope != scope || target !in currentUnread) {
             manager.cancel(replyTag(knownScope, target), REPLY_NOTIFICATION_ID)
-            pendingReplyPosts.remove(knownScope to target)
             targets.remove(target)
         }
         if (knownScope != scope || currentUnread.isEmpty()) {
@@ -228,25 +225,22 @@ private fun reconcileUnreadNotifications(context: Context, connection: Connectio
         it.notification.extras.getString(NOTIFICATION_KIND) == "reply" && it.notification.extras.getString(NOTIFICATION_SCOPE) == scope
     }
     if (channelAllowed(manager, REPLY_ALERT_CHANNEL)) for (target in currentUnread) {
+        // Snapshot reconciliation only updates the badge. Session alerts require a real push.
+        val update = push?.takeIf { it.target == target } ?: continue
         val existing = replies.filter { it.notification.extras.getString(NOTIFICATION_TARGET) == target }
         // Migrate explicitly marked numeric notifications, preserving unrelated attention/approval messages.
         for (entry in existing.filter { it.tag != replyTag(scope, target) || it.id != REPLY_NOTIFICATION_ID }) manager.cancel(entry.tag, entry.id)
-        val current = existing.firstOrNull { it.tag == replyTag(scope, target) && it.id == REPLY_NOTIFICATION_ID }
-        val update = push?.takeIf { it.target == target }
-        if (current != null && update == null) continue
-        if (update == null && pendingReplyPosts[scope to target]?.let { SystemClock.elapsedRealtime() - it < 2_000 } == true) continue
-        val text = update?.summary ?: "Open this conversation to read the reply."
+        val text = update.summary
         val notification = NotificationCompat.Builder(context, REPLY_ALERT_CHANNEL)
             .setSmallIcon(R.drawable.ic_companion).setContentTitle("Agent reply").setContentText(text)
             .setStyle(NotificationCompat.BigTextStyle().bigText(text))
             .setContentIntent(notificationIntent(context, scope, "agent", target))
             .setGroup(unreadGroup(scope)).setNumber(0).setAutoCancel(false)
-            .setOnlyAlertOnce(update?.alert != true).setSilent(update?.alert != true)
+            .setOnlyAlertOnce(!update.alert).setSilent(!update.alert)
             .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
-            .addExtras(notificationMetadata(scope, "reply", target, store?.latestCursor(target), update?.id)).build()
+            .addExtras(notificationMetadata(scope, "reply", target, store?.latestCursor(target), update.id)).build()
         if (!postNotification(context, replyTag(scope, target), REPLY_NOTIFICATION_ID, notification)) return
         knownReplyTargets.getOrPut(scope) { mutableSetOf() }.add(target)
-        pendingReplyPosts[scope to target] = SystemClock.elapsedRealtime()
     }
     if (!channelAllowed(manager, UNREAD_BADGE_CHANNEL)) return
     val summary = active.firstOrNull { it.tag == unreadTag(scope) && it.id == UNREAD_NOTIFICATION_ID }

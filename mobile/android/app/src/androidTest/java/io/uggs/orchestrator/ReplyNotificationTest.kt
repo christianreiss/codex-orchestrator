@@ -63,6 +63,7 @@ class ReplyNotificationTest {
         push("Aa", 10, "first", "An immediate duplicate must not replace the reply.")
         push("Aa", 9, "immediate-late", "An immediate older reply must not replace the reply.")
         awaitBadge(1)
+        await { replies().size == 1 }
         val original = reply("Aa")
         assertEquals("First reply.", original.notification.extras.getString(Notification.EXTRA_TEXT))
         assertEquals("first", original.notification.extras.getString(NOTIFICATION_PUSH_ID))
@@ -81,6 +82,7 @@ class ReplyNotificationTest {
         SystemClock.sleep(1_100)
         push("BB", 30, "other", "Another conversation.")
         awaitBadge(2)
+        await { replies().size == 2 }
         if (InstrumentationRegistry.getArguments().getString("captureLauncher") == "true") captureLauncher()
         assertEquals(2, replies().size)
         assertNotEquals(reply("Aa").notification.contentIntent, reply("BB").notification.contentIntent)
@@ -103,17 +105,20 @@ class ReplyNotificationTest {
         snapshot("chat" to 20L)
         sync()
         awaitBadge(1)
-        val generic = reply("chat")
-        assertEquals(20L, generic.notification.extras.getLong(NOTIFICATION_CURSOR))
+        assertTrue("Snapshots create only the silent badge, never a synthetic reply", replies().isEmpty())
+        val counter = badge()
         push("chat", 10, "older", "Old reply.")
         SystemClock.sleep(150)
-        assertEquals(generic.postTime, reply("chat").postTime)
-        assertFalse(reply("chat").notification.extras.getString(Notification.EXTRA_TEXT)!!.contains("Old reply"))
+        assertTrue("A late push must not create an alert for an older reply", replies().isEmpty())
+        assertEquals(counter.postTime, badge().postTime)
         SystemClock.sleep(1_100)
         push("chat", 20, "first-fcm-for-snapshot", "The source summary for the known unread reply.")
         await { reply("chat").notification.extras.getString(NOTIFICATION_PUSH_ID) == "first-fcm-for-snapshot" }
         val firstPush = reply("chat")
         assertEquals("The source summary for the known unread reply.", firstPush.notification.extras.getString(Notification.EXTRA_TEXT))
+        snapshot("chat" to 20L)
+        sync()
+        assertEquals("A snapshot retains the genuine source alert", firstPush.postTime, reply("chat").postTime)
         push("chat", 20, "different-uuid-same-cursor", "The same event must not alert twice.")
         SystemClock.sleep(150)
         assertEquals(firstPush.postTime, reply("chat").postTime)
@@ -123,6 +128,7 @@ class ReplyNotificationTest {
         store.markRead("chat", 20)
         sync()
         awaitBadge(1)
+        assertEquals(21L, reply("chat").notification.extras.getLong(NOTIFICATION_CURSOR))
         store.markRead("chat", 21)
         sync()
         await { owned().isEmpty() }
@@ -148,9 +154,23 @@ class ReplyNotificationTest {
         store.observeReplies(agents)
         sync()
         awaitBadge(2)
-        assertEquals(setOf("closed", "offline"), replies().map { it.notification.extras.getString(NOTIFICATION_TARGET) }.toSet())
-        assertTrue(replies().all { it.notification.contentIntent != null })
-        assertTrue(replies().all { it.notification.flags and Notification.FLAG_ONLY_ALERT_ONCE != 0 })
+        assertEquals("Retained history produces one quiet counter", 1, owned().size)
+        assertTrue(replies().isEmpty())
+        assertNotNull(badge().notification.contentIntent)
+        assertTrue(badge().notification.flags and Notification.FLAG_ONLY_ALERT_ONCE != 0)
+        val synthetic = NotificationCompat.Builder(context, REPLY_ALERT_CHANNEL).setSmallIcon(R.drawable.ic_companion)
+            .setContentTitle("Agent reply").setContentText("Open this conversation to read the reply.")
+            .addExtras(Bundle().apply {
+                putString(NOTIFICATION_KIND, "reply")
+                putString(NOTIFICATION_SCOPE, unreadScope(connection.server, connection.deviceId))
+                putString(NOTIFICATION_TARGET, "offline")
+            }).build()
+        manager.notify("previous-synthetic", 711, synthetic)
+        await { manager.activeNotifications.any { it.id == 711 } }
+        sync()
+        await { manager.activeNotifications.none { it.id == 711 } }
+        assertTrue("An upgrade removes old synthetic alerts while preserving the unread counter", replies().isEmpty())
+        SystemClock.sleep(1_100)
         push("closed", 8, "private", "A body must remain outside persistent unread state.")
         await { reply("closed").notification.extras.getLong(NOTIFICATION_CURSOR) == 8L }
         val preferences = context.getSharedPreferences(UnreadStore.PREFERENCES, Context.MODE_PRIVATE).all.toString()
@@ -159,8 +179,7 @@ class ReplyNotificationTest {
         assertFalse(preferences.contains(connection.server))
         store.markRead("closed", 8)
         sync()
-        await { replies().size == 1 && badge().notification.number == 1 }
-        assertEquals("offline", replies().single().notification.extras.getString(NOTIFICATION_TARGET))
+        await { replies().isEmpty() && badge().notification.number == 1 }
     }
 
     @Test fun readAndOptOutPreserveApprovalAttentionAndAmbiguousLegacyNotifications() {
@@ -199,7 +218,8 @@ class ReplyNotificationTest {
         SystemClock.sleep(1_100)
         sync()
         awaitBadge(1)
-        assertTrue(reply("chat").notification.flags and Notification.FLAG_ONLY_ALERT_ONCE != 0)
+        assertTrue("Re-enabling notifications restores the badge without reconstructing old alerts", replies().isEmpty())
+        assertTrue(badge().notification.flags and Notification.FLAG_ONLY_ALERT_ONCE != 0)
     }
 
     @Test fun notificationOptOutStillRecordsUnreadAndForegroundRestoresSilentBadge() {
@@ -216,13 +236,15 @@ class ReplyNotificationTest {
         }
         sync()
         awaitBadge(1)
-        assertTrue(reply("no-permission").notification.flags and Notification.FLAG_ONLY_ALERT_ONCE != 0)
-        assertFalse(reply("no-permission").notification.extras.getString(Notification.EXTRA_TEXT)!!.contains("delivery is disabled"))
+        assertTrue(replies().isEmpty())
+        assertTrue(badge().notification.flags and Notification.FLAG_ONLY_ALERT_ONCE != 0)
+        assertFalse(badge().notification.extras.getString(Notification.EXTRA_TEXT)!!.contains("delivery is disabled"))
     }
 
     @Test fun serverDeviceScopeAndStaleForegroundSnapshotCannotCancelNewReplies() {
         push("old-scope", 1, "old", "Previous server.")
         awaitBadge(1)
+        await { replies().size == 1 }
         val oldKey = reply("old-scope").key
         val changed = connection.copy(server = "https://other.example", deviceId = "other-device")
         SystemClock.sleep(1_100)
@@ -230,15 +252,17 @@ class ReplyNotificationTest {
         store.activate(changed)
         snapshot("new-scope" to 22L)
         syncUnreadNotifications(context, changed, store.unreadIds())
-        await { owned().size == 2 && replies().single().notification.extras.getString(NOTIFICATION_TARGET) == "new-scope" }
+        await { owned().size == 1 && replies().isEmpty() && badge().notification.number == 1 }
         assertFalse(manager.activeNotifications.any { it.key == oldKey })
         val oldSnapshot = store.unreadIds()
         SystemClock.sleep(1_100)
         showCompanionNotification(context, data("reply", "second", "second-id", 23).plus("device_id" to changed.deviceId))
         awaitBadge(2)
+        await { replies().size == 1 }
         syncUnreadNotifications(context, changed, oldSnapshot)
         SystemClock.sleep(100)
-        assertEquals(setOf("new-scope", "second"), replies().map { it.notification.extras.getString(NOTIFICATION_TARGET) }.toSet())
+        assertEquals(setOf("second"), replies().map { it.notification.extras.getString(NOTIFICATION_TARGET) }.toSet())
+        assertEquals(setOf("new-scope", "second"), store.unreadIds())
         assertEquals(2, badge().notification.number)
     }
 
@@ -246,6 +270,7 @@ class ReplyNotificationTest {
         VisibleConversation.session = "visible"
         showCompanionNotification(context, data("reply", "visible", "legacy"))
         awaitBadge(1)
+        await { replies().size == 1 }
         val original = reply("visible")
         assertTrue(original.notification.flags and Notification.FLAG_ONLY_ALERT_ONCE != 0)
         VisibleConversation.session = null
@@ -279,7 +304,7 @@ class ReplyNotificationTest {
     private fun replies(): List<StatusBarNotification> = owned().filter { it.notification.extras.getString(NOTIFICATION_KIND) == "reply" }
     private fun reply(target: String): StatusBarNotification = replies().single { it.notification.extras.getString(NOTIFICATION_TARGET) == target }
     private fun badge(): StatusBarNotification = owned().single { it.notification.extras.getString(NOTIFICATION_KIND) == "unread" }
-    private fun awaitBadge(count: Int) = await { owned().count { it.notification.extras.getString(NOTIFICATION_KIND) == "unread" && it.notification.number == count } == 1 && replies().size == count }
+    private fun awaitBadge(count: Int) = await { owned().count { it.notification.extras.getString(NOTIFICATION_KIND) == "unread" && it.notification.number == count } == 1 }
     private fun await(condition: () -> Boolean) {
         val deadline = SystemClock.elapsedRealtime() + 5_000
         while (!runCatching(condition).getOrDefault(false) && SystemClock.elapsedRealtime() < deadline) SystemClock.sleep(25)

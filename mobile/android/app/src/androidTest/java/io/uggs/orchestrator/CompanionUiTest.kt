@@ -106,11 +106,15 @@ class CompanionUiTest {
                     path == "/agents" -> {
                         agentsRequested.incrementAndGet()
                         val assistantCursor = if (history.isEmpty()) cursor.get() else history.filter { it.optString("type") == "assistant_message" }.maxOfOrNull { it.getLong("cursor") } ?: 0
+                        val readCursors = if (request.method == "POST") JSONObject(request.body.readUtf8()).optJSONObject("read_cursors") else null
+                        val readCursor = readCursors?.optLong(session) ?: 0
+                        val unreadReplies = if (history.isEmpty()) if (cursor.get() > readCursor) 1 else 0 else history.count { it.optString("type") == "assistant_message" && it.getLong("cursor") > readCursor }
                         val preview = if (transcriptAllowed.get()) """{"summary":${JSONObject.quote(if (questionPending.get()) "Choose a target." else summary.get())}}""" else "null"
                         val replyCursor = if (transcriptAllowed.get()) assistantCursor.toString() else "null"
+                        val unreadCount = if (transcriptAllowed.get()) unreadReplies.toString() else "null"
                         val emptyCursor = if (transcriptAllowed.get()) "0" else "null"
-                        val primary = if (!sessionListed.get()) "" else """{"id":"$session","host":${JSONObject.quote(fixtureHost)},"engine":${JSONObject.quote(fixtureEngine)},"cwd":${JSONObject.quote("/work/$fixtureProject")},"presence":${JSONObject.quote(presence.get())},"read_only":${readOnly.get()},"relay_ready":${reachable.get()},"reply_cursor":$replyCursor,"preview":$preview,"pending_prompt":${if (transcriptAllowed.get() && questionPending.get()) """{"id":"question-1","version":1,"question":"Which target?","options":["Staging","Production"]}""" else "null"}},"""
-                        """{"agents":[$primary{"id":"offline","host":"offline.uggs.io","cwd":"/old/offline-project","presence":"offline","relay_ready":false,"reply_cursor":$emptyCursor},{"id":"idle","host":"idle.uggs.io","cwd":"/old/idle-project","presence":"idle","relay_ready":false,"reply_cursor":$emptyCursor}]}"""
+                        val primary = if (!sessionListed.get()) "" else """{"id":"$session","host":${JSONObject.quote(fixtureHost)},"engine":${JSONObject.quote(fixtureEngine)},"cwd":${JSONObject.quote("/work/$fixtureProject")},"presence":${JSONObject.quote(presence.get())},"read_only":${readOnly.get()},"relay_ready":${reachable.get()},"reply_cursor":$replyCursor,"unread_reply_count":$unreadCount,"preview":$preview,"pending_prompt":${if (transcriptAllowed.get() && questionPending.get()) """{"id":"question-1","version":1,"question":"Which target?","options":["Staging","Production"]}""" else "null"}},"""
+                        """{"agents":[$primary{"id":"offline","host":"offline.uggs.io","cwd":"/old/offline-project","presence":"offline","relay_ready":false,"reply_cursor":$emptyCursor,"unread_reply_count":$emptyCursor},{"id":"idle","host":"idle.uggs.io","cwd":"/old/idle-project","presence":"idle","relay_ready":false,"reply_cursor":$emptyCursor,"unread_reply_count":$emptyCursor}]}"""
                     }
                     path == "/agents/$session/events" -> {
                         transcriptRequested.set(true)
@@ -268,8 +272,10 @@ class CompanionUiTest {
     @Test fun unreadReplyCountDeduplicatesAndWaitsForTheRenderedReply() {
         compose.waitUntil(15000) { compose.onAllNodesWithTag("agent:$session").fetchSemanticsNodes().isNotEmpty() }
         waitForUnread(setOf(session))
-        compose.onNodeWithTag("agent:$session").assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "Unread reply"))
-        compose.onNodeWithText("1 unread chat", substring = true).assertIsDisplayed()
+        waitForUnreadBadge(1)
+        compose.onNodeWithText("Sessions").assertIsDisplayed()
+        compose.onNodeWithText("Unread chats").assertDoesNotExist()
+        compose.onNodeWithText("1 unread chat", substring = true).assertDoesNotExist()
         summary.set("The build is still running.")
         changed("agents")
         compose.waitUntil(3000) { compose.onAllNodesWithText(summary.get()).fetchSemanticsNodes().isNotEmpty() }
@@ -292,34 +298,63 @@ class CompanionUiTest {
         compose.onNodeWithTag("agent:$session").assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "Read"))
         compose.onNodeWithText("1 unread chat", substring = true).assertDoesNotExist()
 
-        reply.set("A fresh reply after your last read."); cursor.set(2)
+        history.add(JSONObject().put("cursor", 1).put("type", "assistant_message").put("payload", JSONObject().put("text", reply.get())))
+        history.add(JSONObject().put("cursor", 2).put("type", "assistant_message").put("payload", JSONObject().put("text", "A fresh reply after your last read.")))
+        history.add(JSONObject().put("cursor", 3).put("type", "progress").put("payload", JSONObject().put("text", "INTERNAL_LIFECYCLE")))
+        reply.set("Another reply without reading the first.")
+        history.add(JSONObject().put("cursor", 4).put("type", "assistant_message").put("payload", JSONObject().put("text", reply.get())))
+        cursor.set(4)
         changed("agents")
         waitForUnread(setOf(session))
+        waitForUnreadBadge(2)
         val beforeNewDuplicate = agentsRequested.get()
         changed("agents")
         compose.waitUntil(3000) { agentsRequested.get() > beforeNewDuplicate }
         Assert.assertEquals("Repeated delivery counts conversations once", setOf(session), unreadIds())
+        waitForUnreadBadge(2)
         compose.onNodeWithTag("agent:$session").performClick()
         compose.waitUntil(10000) { compose.onAllNodesWithText(reply.get()).fetchSemanticsNodes().isNotEmpty() }
         waitForUnread(emptySet())
     }
-    @Test fun unreadEndedConversationOpensAsReadOnlyHistory() {
+    @Test fun unreadDoesNotResurrectEndedOrOfflineSessions() {
         compose.waitUntil(15000) { compose.onAllNodesWithTag("agent:$session").fetchSemanticsNodes().isNotEmpty() }
         waitForUnread(setOf(session))
-        reachable.set(false); readOnly.set(true); presence.set("ended")
-        changed("agents")
-        compose.waitUntil(5000) { compose.onAllNodesWithText("Conversation history · read only").fetchSemanticsNodes().isNotEmpty() }
-        compose.onNodeWithTag("agent:$session").assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "Unread reply"))
-        screenshot("unread-ended-history")
-        compose.onNodeWithTag("agent:$session").performClick()
-        compose.waitUntil(10000) { compose.onAllNodesWithText(reply.get()).fetchSemanticsNodes().isNotEmpty() }
-        waitForUnread(emptySet())
-        compose.onNode(hasSetTextAction()).performTextInput("Keep this as a draft")
-        compose.onNodeWithContentDescription("Send").assertIsNotEnabled()
-        compose.onNodeWithText(reply.get()).assertIsDisplayed()
-        Assert.assertNull(sent.get())
-        compose.onNodeWithContentDescription("Back").performClick()
-        compose.onNodeWithTag("agent:$session").assertDoesNotExist()
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val preferences = context.getSharedPreferences(UnreadStore.PREFERENCES, android.content.Context.MODE_PRIVATE)
+        val ledger = preferences.getString("state", null)
+        for (state in listOf("offline", "ended")) {
+            reachable.set(false); readOnly.set(true); presence.set(state)
+            changed("agents")
+            compose.waitUntil(5000) { compose.onAllNodesWithTag("agent:$session").fetchSemanticsNodes().isEmpty() }
+            compose.onNodeWithText("Conversation history · read only").assertDoesNotExist()
+            Assert.assertEquals("Hidden history stays unread without adding a session row", setOf(session), unreadIds())
+            Assert.assertEquals(ledger, preferences.getString("state", null))
+            reachable.set(true); readOnly.set(false); presence.set("listening")
+            changed("agents")
+            waitForUnreadBadge(1)
+        }
+        screenshot("compact-unread-session")
+    }
+    @Test fun secondPushUpdatesTheNumberWithoutChangingTheUnreadSessionSet() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val manager = context.getSystemService(NotificationManager::class.java)
+        compose.waitUntil(15000) { compose.onAllNodesWithTag("agent:$session").fetchSemanticsNodes().isNotEmpty() }
+        waitForUnreadBadge(1)
+        compose.waitUntil(5000) { manager.activeNotifications.any { it.notification.extras.getString(NOTIFICATION_KIND) == "unread" } }
+        Assert.assertTrue("A snapshot must not create a synthetic reply alert", manager.activeNotifications.none { it.notification.extras.getString(NOTIFICATION_KIND) == "reply" })
+        val requests = agentsRequested.get()
+        history.add(JSONObject().put("cursor", 1).put("type", "assistant_message").put("payload", JSONObject().put("text", reply.get())))
+        reply.set("A second real reply in the same session.")
+        history.add(JSONObject().put("cursor", 2).put("type", "assistant_message").put("payload", JSONObject().put("text", reply.get())))
+        cursor.set(2)
+        val data = mapOf("device_id" to "test-device", "notification_id" to java.util.UUID.randomUUID().toString(), "kind" to "reply", "target_id" to session, "event_cursor" to "2", "summary" to reply.get())
+        showCompanionNotification(context, data)
+        waitForUnreadBadge(2)
+        Assert.assertEquals("Only the shared-preference update changes the badge", requests, agentsRequested.get())
+        Assert.assertEquals(setOf(session), unreadIds())
+        showCompanionNotification(context, data)
+        waitForUnreadBadge(2)
+        Assert.assertEquals(setOf(session), unreadIds())
     }
     @Test fun unreadOverviewSurvivesNetworkLossAndReconnect() {
         compose.waitUntil(15000) { compose.onAllNodesWithTag("agent:$session").fetchSemanticsNodes().isNotEmpty() }
@@ -333,7 +368,7 @@ class CompanionUiTest {
             screenshot("unread-reconnecting")
         } finally { networkAvailable.set(true) }
         compose.waitUntil(15000) { compose.onAllNodesWithText("Reconnecting…", substring = true).fetchSemanticsNodes().isEmpty() }
-        compose.onNodeWithTag("agent:$session").assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "Unread reply"))
+        waitForUnreadBadge(1)
         compose.onNodeWithTag("agent:$session").performClick()
         compose.waitUntil(10000) { compose.onAllNodesWithText(reply.get()).fetchSemanticsNodes().isNotEmpty() }
         waitForUnread(emptySet())
@@ -390,8 +425,8 @@ class CompanionUiTest {
 
         transcriptAllowed.set(true); changed("me")
         compose.waitUntil(10000) { compose.onAllNodesWithTag("agent:$session").fetchSemanticsNodes().isNotEmpty() }
-        compose.onNodeWithTag("agent:$session").assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "Unread reply"))
-        compose.onNodeWithText("1 unread chat", substring = true).assertIsDisplayed()
+        waitForUnreadBadge(1)
+        compose.onNodeWithText("1 unread chat", substring = true).assertDoesNotExist()
         Assert.assertEquals("A restored snapshot still is not a read receipt", ledger, preferences.getString("state", null))
         compose.waitUntil(5000) { ownedNotifications().any { it.notification.extras.getString(NOTIFICATION_KIND) == "unread" && it.notification.number == 1 } }
         screenshot("unread-permission-restored")
@@ -512,6 +547,11 @@ class CompanionUiTest {
     private fun changed(scope: String) { Assert.assertTrue(live.get()?.send("""{"type":"changed","scopes":["$scope"]}""") == true) }
     private fun unreadIds() = UnreadStore(InstrumentationRegistry.getInstrumentation().targetContext).unreadIds()
     private fun waitForUnread(expected: Set<String>) { compose.waitUntil(10000) { unreadIds() == expected } }
+    private fun waitForUnreadBadge(count: Int) {
+        val description = if (count == 1) "1 unread reply" else "$count unread replies"
+        compose.waitUntil(10000) { compose.onAllNodes(hasTestTag("agent:$session") and SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, description)).fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("agent:$session").assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, description))
+    }
     private fun waitForKeyboard() {
         compose.waitUntil(5000) {
             var visible = false

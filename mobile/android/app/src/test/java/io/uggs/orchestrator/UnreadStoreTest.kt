@@ -4,6 +4,51 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class UnreadStoreTest {
+    @Test fun authoritativeCountsAreRepliesNotGlobalCursorDistance() {
+        val state = ReplyUnreadLedger()
+        state.observe(mapOf("a" to 900L, "b" to 1200L), counts = mapOf("a" to 2, "b" to 1))
+        assertEquals(2, state.unreadReplyCount("a"))
+        assertEquals(1, state.unreadReplyCount("b"))
+        state.observe(mapOf("a" to 900L, "b" to 1200L), counts = mapOf("a" to 2, "b" to 1))
+        state.push("a", 900, "snapshot-replay")
+        state.push("a", 899, "older-reply")
+        assertEquals(2, state.unreadReplyCount("a"))
+        state.read("a", 900)
+        assertEquals(0, state.unreadReplyCount("a"))
+        assertEquals(mapOf("a" to 900L), state.readCursors())
+        state.observe(mapOf("a" to 1400L, "b" to 1200L), counts = mapOf("a" to 1, "b" to 1))
+        assertEquals(1, state.unreadReplyCount("a"))
+    }
+    @Test fun newPushIncrementsOnceAndStaleCountCannotEraseIt() {
+        val state = ReplyUnreadLedger()
+        state.observe(mapOf("a" to 10L), counts = mapOf("a" to 1))
+        state.read("a", 10)
+        state.push("a", 110, "first")
+        state.push("a", 110, "replay")
+        assertEquals(1, state.unreadReplyCount("a"))
+        state.observe(mapOf("a" to 10L), pruneMissing = false, counts = mapOf("a" to 0))
+        assertEquals(1, state.unreadReplyCount("a"))
+        state.push("a", 200, "second")
+        assertEquals(2, state.unreadReplyCount("a"))
+        state.read("a", 110)
+        assertEquals(setOf("a"), state.unreadIds())
+        state.observe(mapOf("a" to 200L), counts = mapOf("a" to 1))
+        assertEquals(1, state.unreadReplyCount("a"))
+    }
+    @Test fun legacyCountsMigrateAndAuthoritativeRetentionZeroClearsOnlyCount() {
+        val legacy = org.json.JSONObject().put("sessions", org.json.JSONObject().put("a",
+            org.json.JSONObject().put("read", 5).put("latest", 20)))
+        val state = ReplyUnreadLedger(legacy)
+        assertEquals(1, state.unreadReplyCount("a"))
+        state.observe(mapOf("a" to 20L), counts = mapOf("a" to 3))
+        val restored = ReplyUnreadLedger(state.json())
+        assertEquals(3, restored.unreadReplyCount("a"))
+        restored.observe(mapOf("a" to 0L), counts = mapOf("a" to 0))
+        assertTrue(restored.unreadIds().isEmpty())
+        restored.observe(mapOf("a" to 20L), pruneMissing = false, counts = mapOf("a" to 3))
+        assertTrue(restored.unreadIds().isEmpty())
+        assertEquals(mapOf("a" to 5L), restored.readCursors())
+    }
     @Test fun stableSnapshotResolvesLegacyPushButStaleSnapshotCannotClearIt() {
         val state = ReplyUnreadLedger()
         state.observe(mapOf("a" to 10L)); state.read("a", 10)

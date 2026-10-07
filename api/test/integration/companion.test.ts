@@ -317,9 +317,136 @@ describe.skipIf(!handle)('Android companion with real MySQL', { timeout: 120_000
     expect(hidden.body).not.toContain('Build passed.');
     expect(hidden.json().data.agents.find((a: { id: string }) => a.id === sessionId)).toMatchObject({
       reply_cursor: null,
+      unread_reply_count: null,
       preview: null,
     });
     await db.update(adminUsers).set({ accessLevel: 'owner' }).where(eq(adminUsers.id, userId));
+  });
+  it('counts only unread replies in each session without persisting client read markers', async () => {
+    const [host] = await db.select().from(hosts).where(eq(hosts.id, hostId));
+    const ids: string[] = [];
+    for (let i = 0; i < 3; i++) {
+      const registered = await portal.registerAgent(host!, {
+        engine: 'codex',
+        username: 'test',
+        cwd: `/tmp/companion-count-${i}`,
+        invocationKind: 'interactive',
+      });
+      if (!registered.enabled) throw new Error('Registration disabled');
+      ids.push(registered.session_id);
+    }
+    const [first, other, empty] = ids as [string, string, string];
+    const put = async (id: string, type: string) => {
+      const [row] = await db.insert(agentEvents).values({
+        sessionId: id,
+        clientEventId: randomUUID(),
+        eventType: type,
+        source: 'bridge',
+        payloadEnc: encrypt(JSON.stringify({ text: type, summary: 'Count fixture.' }), ctx.keyring),
+        createdAt: nowIso(),
+      });
+      return row.insertId;
+    };
+    const older = await put(first, 'assistant_message');
+    await put(first, 'progress');
+    await put(first, 'user_message');
+    const foreign = await put(other, 'assistant_message');
+    const latest = await put(first, 'assistant_message');
+    await put(first, 'waiting_input');
+    await put(first, 'attention');
+    const before = await db
+      .select()
+      .from(companionDevices)
+      .where(eq(companionDevices.id, connection.device_id));
+    const snapshot = async (readCursors?: Record<string, number | string>) => {
+      const result = await app.inject({
+        method: readCursors ? 'POST' : 'GET',
+        url: '/companion/v1/agents',
+        headers: { authorization: authorization() },
+        ...(readCursors ? { payload: { read_cursors: readCursors } } : {}),
+      });
+      expect(result.statusCode, result.body).toBe(200);
+      return result.json().data.agents as Array<{
+        id: string;
+        unread_reply_count: number;
+        reply_cursor: number;
+      }>;
+    };
+    const cards = await snapshot();
+    expect(cards.find((card) => card.id === first)).toMatchObject({
+      reply_cursor: latest,
+      unread_reply_count: 2,
+    });
+    expect(cards.find((card) => card.id === other)).toMatchObject({ unread_reply_count: 1 });
+    expect(cards.find((card) => card.id === empty)).toMatchObject({ reply_cursor: 0, unread_reply_count: 0 });
+    const marked = await snapshot({
+      [first]: older,
+      [other]: String(foreign),
+      [randomUUID()]: Number.MAX_SAFE_INTEGER,
+    });
+    expect(marked.find((card) => card.id === first)).toMatchObject({ unread_reply_count: 1 });
+    expect(marked.find((card) => card.id === other)).toMatchObject({ unread_reply_count: 0 });
+    expect((await snapshot({ [first]: latest })).find((card) => card.id === first)).toMatchObject({
+      unread_reply_count: 0,
+    });
+    expect((await snapshot()).find((card) => card.id === first)).toMatchObject({ unread_reply_count: 2 });
+    expect((await snapshot()).find((card) => card.id === first)).toMatchObject({ unread_reply_count: 2 });
+    expect(
+      await db.select().from(companionDevices).where(eq(companionDevices.id, connection.device_id)),
+    ).toEqual(before);
+  });
+  it('validates bounded UUID read maps and preserves snapshot permission and portal gates', async () => {
+    const request = {
+      method: 'POST' as const,
+      url: '/companion/v1/agents',
+      headers: { authorization: authorization() },
+    };
+    const tooMany = Object.fromEntries(Array.from({ length: 501 }, () => [randomUUID(), 0]));
+    for (const payload of [
+      {},
+      { read_cursors: null },
+      { read_cursors: [] },
+      { read_cursors: { 'invalid-session': 0 } },
+      { read_cursors: JSON.parse('{"__proto__":0}') },
+      { read_cursors: { [sessionId]: -1 } },
+      { read_cursors: { [sessionId]: 1.5 } },
+      { read_cursors: { [sessionId]: true } },
+      { read_cursors: { [sessionId]: Number.MAX_SAFE_INTEGER + 1 } },
+      { read_cursors: { [sessionId]: '9007199254740992' } },
+      { read_cursors: { [sessionId]: '0 OR 1=1' } },
+      { read_cursors: tooMany },
+    ]) {
+      expect((await app.inject({ ...request, payload })).statusCode).toBe(400);
+    }
+    expect(
+      (
+        await app.inject({
+          ...request,
+          payload: { read_cursors: Object.fromEntries(Object.entries(tooMany).slice(0, 500)) },
+        })
+      ).statusCode,
+    ).toBe(200);
+    expect((await app.inject({ ...request, headers: {}, payload: { read_cursors: {} } })).statusCode).toBe(
+      401,
+    );
+    await db.update(adminUsers).set({ accessLevel: 'viewer' }).where(eq(adminUsers.id, userId));
+    try {
+      const hidden = await app.inject({ ...request, payload: { read_cursors: { [sessionId]: 0 } } });
+      expect(hidden.statusCode).toBe(200);
+      expect(hidden.json().data.agents.find((card: { id: string }) => card.id === sessionId)).toMatchObject({
+        reply_cursor: null,
+        unread_reply_count: null,
+        preview: null,
+      });
+    } finally {
+      await db.update(adminUsers).set({ accessLevel: 'owner' }).where(eq(adminUsers.id, userId));
+    }
+    await portal.setEnabled(false);
+    try {
+      expect((await app.inject({ ...request, payload: { read_cursors: {} } })).statusCode).toBe(503);
+    } finally {
+      await portal.setEnabled(true);
+    }
   });
   it('retains reply cursors and readable history for offline and ended conversations', async () => {
     const [host] = await db.select().from(hosts).where(eq(hosts.id, hostId));
