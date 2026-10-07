@@ -72,7 +72,7 @@
 <SectionCard
   id="agent-messaging"
   title="Service state"
-  description="Fleet-wide Codex, Claude, and Grok communication with stable addresses, automatic resume/fresh delivery, encrypted content, and ordered at-least-once semantics. The initial default is off."
+  description="Codex, Claude, Grok, and Server communication with stable addresses, opt-in groups and follows, encrypted content, and ordered at-least-once delivery. The initial default is off."
   {status}
   savedAt={lastSavedAt}
   error={$mutation.error?.message}
@@ -95,7 +95,7 @@
     the whole file on their next wrapper launch. Both directions confirm before applying.
   </p>
 
-  <p class="text-xs text-muted-foreground">32 KiB text · 24h default TTL · 12 delivery attempts · no broadcast or attachments</p>
+  <p class="text-xs text-muted-foreground">32 KiB text · 24h default TTL · 12 delivery attempts · opt-in group publications</p>
 </SectionCard>
 
 <AgentMessagingConfirmDialog

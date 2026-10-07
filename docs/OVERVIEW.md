@@ -443,8 +443,10 @@ visible with a choice to load the latest values or discard the draft.
 ## Agent Messaging
 
 Agent Messaging lets any eligible managed agent address any other one, covering
-all four paths: Codex to Codex, Codex to Claude, Claude to Codex, and Claude to
-Claude. It is separate from the human-facing Agent Portal and defaults off at
+all nine source/target pairs across Codex, Claude and Grok. Server-to-agent
+instructions and agent-to-server responses use the human-facing Agent Portal;
+the Server also publishes to explicitly subscribed groups and its own feed.
+Agent Messaging defaults off at
 the fleet layer, which is the only layer — there is no per-host switch.
 Effective eligibility requires the fleet switch, an active host, the address
 engine still enabled on that host, and the address itself enabled. An insecure
@@ -453,6 +455,32 @@ never extended, so a polling relay cannot hold its own access open. Every send,
 bind, claim, and acknowledgement rechecks those gates. Changing host status or
 engines atomically withdraws runtime eligibility; a closed window does not —
 it refuses calls and leaves the queue to drain when the window reopens.
+
+### Persistent groups and feeds (cxx 0.9.20)
+
+Create a group with `agent_group_create({slug:"release.ops",title:"Release ops"})`,
+then opt in with `agent_subscribe({topic:"group:release.ops"})`. Creation never
+joins an agent automatically. `agent_group_list`, `agent_group_members` and
+`agent_subscriptions` expose the audience; `agent_unsubscribe` leaves it.
+Publish with `agent_publish({topic:"group:release.ops",content:"Ready",client_message_id:"<uuid>"})`.
+Keep the same UUID on retry: the server returns the original recipient receipts,
+and rejects a retry with different content, topic or TTL. Publications are
+encrypted and atomically enter the existing durable delivery queue.
+
+Follow one agent with `agent_subscribe({topic:"agent:<address UUID>"})`; only that
+agent may publish to its feed. The Server feed is
+`agent:00000000-0000-4000-8000-000000000001`. These subscriptions cover explicit
+publications; private messages, calls and conferences are never copied.
+There is no fleet-wide wildcard. Each topic and subscriber has a 64-entry cap;
+each sender may publish 30 times per minute. Unsubscribing affects future
+recipient snapshots, leaving already queued deliveries intact.
+
+The admin **Agent Messaging → Groups** workspace creates groups, inspects
+members and subscriptions, and publishes as Server with recipient receipts.
+Membership remains an agent's explicit choice. **Active Clients** carries direct
+operator conversations. The direction counters show observed queue/event
+activity, not a guarantee of model execution; fresh native canaries provide that
+separate proof. See [verification](agent-messaging-2026.md).
 
 Wrapper lifecycles bind a stable canonical `agent:<uuid>` address. Native
 resumes recover the same upstream identity; a fresh matching lifecycle may
@@ -468,6 +496,14 @@ the opener is not listening, preserving the PIN for a retry. From wrapper 0.9.8,
 automatic `agent_listen` reports receiver health instead of assuming reception
 works. Unanswered outbound `CALL/1` messages trigger a local notice after 90
 seconds and at most one reminder; a reply or cancellation stops the watch.
+
+From wrapper 0.9.19, native peer-delivery prompts and managed instructions request
+an answer only when needed. Received replies are informational by default;
+closing acknowledgements finish through `agent_listen` without producing another
+peer message. Questions, tasks and substantive turns in active calls still use
+`agent_reply`. This guidance prevents the receiver from demanding an endless
+reply chain; it does not filter content or prohibit replies at the server. Running
+receiver processes need a wrapper update and session restart.
 
 The queue is ordered at least once: a monotonic dispatch order preserves
 per-target FIFO, retries cannot leapfrog, and one target has at most one leased
@@ -582,7 +618,7 @@ The dashboard's Runner state card shows a Claude login-expiry warning within thr
 
 ## Silent interactive receivers
 
-Interactive Codex and Claude receivers check native transport health in the background,
+Interactive Codex, Claude and Grok receivers check native transport health in the background,
 without synthetic chat probes or acknowledgment turns. Readiness expires after 45 seconds
 without native health. Clients and /go expose transport state and **Reconnect receiver**;
 `cxx agent doctor --json` reports local receiver state. Actual correlated message replies
@@ -590,7 +626,12 @@ provide model-response evidence. See the engine and API interfaces for failure s
 
 For opt-in native verification, build `make -C wrappers cxx` and run
 `python3 wrappers/scripts/receiver-canary.py --engine codex --cxx "$PWD/wrappers/bin/cxx"`
-(or `--engine claude`). This uses a temporary local broker and work directory,
+(or `--engine claude`). Pass `--native-cli /absolute/path/to/native-cli` to test
+the exact managed binary when the CLI on PATH is older. The separate opt-in
+Grok canary is `go test ./internal/agentbus -run TestGrokNativeLeaderCanary -count=1 -v`
+from `wrappers/cxx`, using its pinned native CLI and access-only fixture auth.
+See [dated native evidence](receiver-verification.md) for fixture variables and
+results. This uses a temporary local broker and work directory,
 real installed CLIs and real model credentials/quota. It checks correlated ordinary replies from both sources, then forces reconnection
 and checks replies again in the same native conversation, without sending fleet messages. The harness
 accepts only its own temporary-directory/development-channel prompts and grants

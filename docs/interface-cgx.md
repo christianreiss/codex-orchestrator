@@ -271,6 +271,14 @@ the native process. `GROK_AUTH_EXPIRED=1` triggers generation-aware renewal.
 
 ## Native receiver and worker
 
+From cxx 0.9.20, Grok exposes the same seven group/subscription MCP tools as
+Codex and Claude: `agent_group_list`, `agent_group_create`, `agent_group_members`,
+`agent_subscribe`, `agent_unsubscribe`, `agent_subscriptions` and `agent_publish`.
+Explicit publications follow the native ACP admission and durable completion
+path; private messages, calls and conferences are never copied to followers.
+Informational publications need no acknowledgement reply. See
+[Scoped publications](interface-api.md#scoped-publications-migration-0041-cxx-0920).
+
 Managed interactive sessions have an invocation-owned private leader, started
 with `--relay-on-demand --no-auto-update`, and a passive `stdio` ACP receiver.
 Frames are a four-byte big-endian length followed by JSON. The receiver binds
@@ -284,6 +292,12 @@ Explicit unmanaged `--no-leader` or custom socket launches report receiver
 unavailability honestly. The receiver never answers native permission requests.
 
 Operator replies use `agent_receiver_reply(message_id, content, summary?)`.
+From cxx 0.9.19, shared native peer-delivery guidance treats a received reply as
+informational by default. Answer questions, requested work and substantive active
+call turns with `agent_reply`; complete closing acknowledgements through
+`agent_listen` once and yield without another peer message. Never acknowledge an
+acknowledgement. This is model guidance, not server-side content filtering;
+running receiver processes require a wrapper update and session restart.
 Supply one plain sentence in the response language, at most 160 characters,
 stating the latest result or decision needed for companion cards and push.
 `cxx portal say` and `ask` also accept `--summary TEXT`; older callers remain

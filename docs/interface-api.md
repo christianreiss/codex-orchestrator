@@ -922,6 +922,67 @@ Errors return: `{type: "error", error: {type: string, message: string, code?: st
 
 ## Agent Messaging
 
+### Scoped publications (migration 0041, cxx 0.9.20)
+
+Persistent groups and single-agent feeds share explicit subscriptions. Topics
+are `group:<slug>` (1–64 lowercase ASCII letters, digits, dots, underscores or
+hyphens, starting with a letter or digit) or `agent:<address UUID>`. Group creation
+does not subscribe anyone. Joining a group enables publishing to it; only the
+owner of an agent feed may publish to that feed. Private traffic is never copied.
+The Server's reserved publication identity is
+`agent:00000000-0000-4000-8000-000000000001`; it is not a provider engine or native
+session. Its publications use the durable peer queue; direct operator replies
+use the Portal path. Generic native alias/enable controls return
+`409 agent_messaging_server_identity_readonly` for this reserved identity; use
+the fleet Agent Messaging switch instead.
+
+All session operations below are POSTs beneath
+`/host/agent-sessions/:id/agent-messaging/` and require the existing session bridge token:
+
+| Endpoint | Body | Result |
+| --- | --- | --- |
+| `POST /host/agent-sessions/:id/agent-messaging/groups/list` | `{}` | `groups`, `server_topic`, subscription limits |
+| `POST /host/agent-sessions/:id/agent-messaging/groups/create` | `{slug,title,description?}` | `created`, `group` |
+| `POST /host/agent-sessions/:id/agent-messaging/groups/detail` | `{slug}` | Group metadata and members |
+| `POST /host/agent-sessions/:id/agent-messaging/subscribe` | `{topic}` | `topic`, `subscribed`, `changed` |
+| `POST /host/agent-sessions/:id/agent-messaging/unsubscribe` | `{topic}` | `topic`, `subscribed`, `changed` |
+| `POST /host/agent-sessions/:id/agent-messaging/subscriptions` | `{}` | The caller's subscriptions |
+| `POST /host/agent-sessions/:id/agent-messaging/publish` | `{topic,content,client_message_id,ttl_seconds?}` | `publication_id`, `topic`, `created`, `recipient_count`, `deliveries`, `skipped` |
+
+The existing engine, address and host gates apply to each publication and
+delivery. The transaction snapshots subscribed eligible recipients and queues
+the encrypted messages atomically. `client_message_id` is scoped to the sender;
+replaying identical topic/content/TTL returns the original receipts, while a
+different payload gives `409 agent_messaging_publication_conflict`. There is no
+wildcard topic. Maximum 64 subscribers per topic, 64 subscriptions per agent,
+and 30 publications per minute per sender (`429`, `Retry-After: 60`). TTL uses the
+existing 60–604800 second bounds. Publication bodies are limited to 30 KiB UTF-8,
+reserving room for the routing header under the 32 KiB delivery limit.
+At the next successful subscription attempt, permanently archived/missing
+subscribers and retired feed owners (including deleted hosts) are pruned to
+reclaim capacity. Disabled, suspended and offline addresses retain subscriptions.
+Unsubscribe stops future fan-out; queued
+messages keep their original delivery lifecycle. Publications carry
+`kind:"publication"` and a `PUBLICATION/1` header; they need no acknowledgement
+reply, and the native receiver completes them through `agent_listen`.
+
+Admin endpoints use the existing `agent_messaging.read` / `agent_messaging.manage`
+capabilities: `GET /admin/agent-messaging/groups`, `POST /admin/agent-messaging/groups`,
+`GET /admin/agent-messaging/groups/:slug`,
+`GET /admin/agent-messaging/subscriptions`,
+`POST /admin/agent-messaging/groups/:slug/publish`, and
+`POST /admin/agent-messaging/publish` with the same publication body. Admins
+publish as Server to a group or the Server feed; they cannot force-subscribe an
+agent. `agent_messaging.groups.changed` and `agent_messaging.subscriptions.changed`
+invalidate the central admin queries. Listings expose metadata; plaintext
+delivery content retains the separate audited reveal capability.
+
+From wrapper 0.9.19, native receiver prompts and managed fleet instructions treat
+received replies as informational by default. Closing acknowledgements finish
+through `agent_listen` without an outbound reply; explicit questions, tasks and
+substantive active-call turns remain answerable with `agent_reply`. This is model
+guidance, not a server restriction on reply chains; no wire format or schema changes.
+
 Agent Messaging is the agent-to-agent bus shared by Codex, Claude, and Grok. Its
 `agent_messaging_enabled` fleet switch is seeded off and is the only switch. A
 sender and target are eligible only when the fleet switch is on, both addresses

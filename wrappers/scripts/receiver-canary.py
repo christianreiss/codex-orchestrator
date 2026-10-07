@@ -51,7 +51,8 @@ def channel_approved():
         entry.get("plugin") == CLAUDE_PLUGIN for entry in policy.get("allowedChannelPlugins", []))
 
 
-def run(engine, cxx, timeout):
+def run(engine, cxx, timeout, native_cli=None):
+    cli = native_cli or engine
     with tempfile.TemporaryDirectory(prefix="cxx-receiver-canary-") as tmp:
         receiver_log = pathlib.Path(tmp) / "receiver.log"
         shim = pathlib.Path(tmp) / "cxx-shim"
@@ -170,14 +171,14 @@ def run(engine, cxx, timeout):
                 # commands and files remain read-only with approvals disabled.
                 for name in ("agent_receiver_reply", "agent_reply"):
                     overrides += ["-c", "mcp_servers.cxx-agent.tools." + name + '.approval_mode="approve"']
-                daemon = subprocess.Popen(["codex", "app-server", "--listen", "unix://" + sock, *overrides],
+                daemon = subprocess.Popen([cli, "app-server", "--listen", "unix://" + sock, *overrides],
                                           cwd=tmp, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                                           start_new_session=True)
                 children.append(daemon)
                 deadline = time.monotonic() + 15
                 while not os.path.exists(sock) and time.monotonic() < deadline and daemon.poll() is None:
                     time.sleep(.1)
-                command = ["codex", "--remote", "unix://" + sock, "--no-alt-screen", "-C", tmp,
+                command = [cli, "--remote", "unix://" + sock, "--no-alt-screen", "-C", tmp,
                            "-a", "never", "-s", "read-only"]
             else:
                 # The plugin directory basename is the plugin's identity to
@@ -196,7 +197,7 @@ def run(engine, cxx, timeout):
                 (plugin / ".mcp.json").write_text(json.dumps(mcp))
                 tools = ["mcp__" + CLAUDE_MCP_SERVER + "__agent_receiver_reply",
                          "mcp__" + CLAUDE_MCP_SERVER + "__agent_reply"]
-                command = ["claude", "--plugin-dir", str(plugin), "--session-id", native,
+                command = [cli, "--plugin-dir", str(plugin), "--session-id", native,
                            *(["--channels", CLAUDE_CHANNEL] if channel_approved() else
                              ["--dangerously-load-development-channels", CLAUDE_CHANNEL]),
                            "--permission-mode", "dontAsk",
@@ -288,5 +289,6 @@ if __name__ == "__main__":
     parser.add_argument("--engine", choices=["codex", "claude"], required=True)
     parser.add_argument("--cxx", required=True, help="absolute path to the built wrapper")
     parser.add_argument("--timeout", type=int, default=180)
+    parser.add_argument("--native-cli", help="exact native CLI binary to test; defaults to the engine on PATH")
     args = parser.parse_args()
-    run(args.engine, os.path.abspath(args.cxx), args.timeout)
+    run(args.engine, os.path.abspath(args.cxx), args.timeout, args.native_cli)

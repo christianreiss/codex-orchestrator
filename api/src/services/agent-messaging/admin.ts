@@ -19,6 +19,8 @@ import {
   agentBusConversations,
   agentBusMessages,
   agentBusRelays,
+  agentMessages,
+  agentEvents,
   agentSessions,
   hosts,
   versions,
@@ -43,6 +45,7 @@ import {
   AGENT_MESSAGING_RECEIVE_FRESH_SECONDS,
 } from './constants.js';
 import { addressIneligibleReason, messagingHostEligible } from './eligibility.js';
+import { SERVER_ADDRESS_ID } from './groups.js';
 import { normalizeAgentAlias, normalizeUuid } from './normalize.js';
 import { isDuplicateKeyError } from './internals.js';
 import type { AgentMessagingDb } from './types.js';
@@ -79,7 +82,7 @@ export class AgentMessagingAdmin {
     const enabled = await this.core.isEnabled();
     const now = nowIso();
     const freshAfter = isoOffsetSeconds(-AGENT_MESSAGING_RECEIVE_FRESH_SECONDS);
-    const [addressRows, relayRows, queued, leased, accepted, dead, ambiguous, conversations, directionRows] =
+    const [addressRows, relayRows, queued, leased, accepted, dead, ambiguous, conversations, directionRows, portalRows, responseRows] =
       await Promise.all([
         this.core.db
           .select({
@@ -116,6 +119,13 @@ export class AgentMessagingAdmin {
           .select({ sourceEngine: agentBusMessages.sourceEngine, targetEngine: agentBusMessages.targetEngine, status: agentBusMessages.status, value: count() })
           .from(agentBusMessages)
           .groupBy(agentBusMessages.sourceEngine, agentBusMessages.targetEngine, agentBusMessages.status),
+        this.core.db.select({engine: agentSessions.engine, status: agentMessages.status, value: count()})
+          .from(agentMessages).innerJoin(agentSessions, eq(agentSessions.id, agentMessages.sessionId))
+          .groupBy(agentSessions.engine, agentMessages.status),
+        this.core.db.select({engine: agentSessions.engine, value: count()})
+          .from(agentEvents).innerJoin(agentSessions, eq(agentSessions.id, agentEvents.sessionId))
+          .where(and(eq(agentEvents.eventType, 'assistant_message'), inArray(agentEvents.source, ['bridge', 'engine'])))
+          .groupBy(agentSessions.engine),
       ]);
     const fleet = await readFleetEngineState(this.core.db);
     const eligibleAddresses = enabled
@@ -171,6 +181,25 @@ export class AgentMessagingAdmin {
         ambiguous: Number(ambiguous[0]?.value ?? 0),
       },
       directions,
+      // Portal acceptance proves injection, while an assistant event proves
+      // the return path. These observed counts are not native-engine canaries.
+      server_directions: ENGINES.flatMap((engine) => {
+        const portal = portalRows.filter((row) => row.engine === engine);
+        const publications = directionRows.filter((row) => row.sourceEngine === 'server' && row.targetEngine === engine);
+        const total = portal.reduce((sum, row) => sum + Number(row.value), 0) + publications.reduce((sum, row) => sum + Number(row.value), 0);
+        const pending = portal.filter((row) => ['queued', 'leased'].includes(row.status)).reduce((sum, row) => sum + Number(row.value), 0)
+          + publications.filter((row) => LIVE_MESSAGE_STATUSES.includes(row.status as typeof LIVE_MESSAGE_STATUSES[number])).reduce((sum, row) => sum + Number(row.value), 0);
+        const completed = portal.filter((row) => row.status === 'accepted').reduce((sum, row) => sum + Number(row.value), 0)
+          + publications.filter((row) => row.status === 'completed').reduce((sum, row) => sum + Number(row.value), 0);
+        const failed = portal.filter((row) => row.status === 'dead').reduce((sum, row) => sum + Number(row.value), 0)
+          + publications.filter((row) => row.status === 'dead').reduce((sum, row) => sum + Number(row.value), 0);
+        const uncertain = publications.filter((row) => row.status === 'ambiguous').reduce((sum, row) => sum + Number(row.value), 0);
+        const responses = Number(responseRows.find((row) => row.engine === engine)?.value ?? 0);
+        return [
+          {source_engine: 'server', target_engine: engine, total, pending, completed, dead: failed, ambiguous: uncertain},
+          {source_engine: engine, target_engine: 'server', total: responses, pending: 0, completed: responses, dead: 0, ambiguous: 0},
+        ];
+      }),
       delivery: 'ordered_at_least_once',
     };
   }
@@ -348,6 +377,7 @@ export class AgentMessagingAdmin {
 
   async setAddressAlias(addressId: string, displayAlias: string | null): Promise<Record<string, unknown>> {
     const id = normalizeUuid(addressId, 'address_id');
+    if (id === SERVER_ADDRESS_ID) throw new ConflictError('Server is a reserved publisher; native agent alias controls do not apply', 'agent_messaging_server_identity_readonly');
     const alias = normalizeAgentAlias(displayAlias);
     const now = nowIso();
     const rows = await this.core.db.select().from(agentBusAddresses).where(eq(agentBusAddresses.id, id)).limit(1);
@@ -364,6 +394,7 @@ export class AgentMessagingAdmin {
 
   async setAddressEnabled(addressId: string, enabled: boolean): Promise<Record<string, unknown>> {
     const id = normalizeUuid(addressId, 'address_id');
+    if (id === SERVER_ADDRESS_ID) throw new ConflictError('Server is a reserved publisher; use the fleet Agent Messaging switch', 'agent_messaging_server_identity_readonly');
     const now = nowIso();
     const result = await this.core.db.transaction(async (tx) => {
       const rows = await tx.select().from(agentBusAddresses).where(eq(agentBusAddresses.id, id)).limit(1).for('update');

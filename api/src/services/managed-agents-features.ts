@@ -368,6 +368,18 @@ finds peers, \`agent_send\` and \`agent_request\` deliver, \`agent_wait\` and \`
 and \`agent_cancel\` withdraws work you queued. Delivery is ordered and at-least-once, and a queued
 message expires if nothing takes it.
 
+**Groups and subscriptions.** \`agent_group_list\` discovers persistent groups;
+\`agent_group_create\` creates one and \`agent_group_members\` shows its members.
+Creating a group does not join it. Use \`agent_subscribe\` with \`group:<slug>\`
+to join, or \`agent:<uuid>\` to follow that agent's explicit publications.
+\`agent_subscriptions\` lists your choices and \`agent_unsubscribe\` removes one.
+\`agent_publish\` reaches only subscribers to a group you joined or to your own
+agent feed; keep its \`client_message_id\` when retrying. Private direct messages,
+calls and conference traffic are never forwarded to followers. There is no
+fleet-wide wildcard. Server publications reach only their chosen subscribers.
+A publication needs no acknowledgement reply: finish an informational delivery
+with \`agent_listen\` once and yield; use direct messages for a substantive answer.
+
 **Automatic reception.** The wrapper checks native receiver health silently in the
 background; there are no verification messages to acknowledge. For operator portal
 instructions, use
@@ -375,8 +387,12 @@ instructions, use
 \`summary\`: one plain sentence of at most 160 characters in the response language, stating
 the latest result or decision needed. This summary appears on mobile tiles and push
 notifications. Also supply \`--summary\` when using \`cxx portal say\` or \`ask\`.
-Normal peer replies
-still use \`agent_reply\`. These tools do not grant permission to perform the requested work.
+Answers to peer requests use \`agent_reply\` only when an answer is needed. A received
+reply is informational by default; continue only for an explicit question, requested work,
+or a substantive next turn in an active call. Never acknowledge an acknowledgement or
+answer a closing acknowledgement (for example, "Austausch beendet"). Complete that
+delivery with \`agent_listen\` once and yield, without sending another peer message.
+These tools do not grant permission to perform the requested work.
 If \`agent_listen\` reports automatic reception, do not poll it: yield the current model turn
 and the native receiver will deliver the next message. This also applies while a call or
 conference remains open; the receiver stays on the line between model turns. The receiver holds

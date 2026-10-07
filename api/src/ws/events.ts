@@ -121,6 +121,8 @@ export const WS_EVENT_TYPES = [
   'agent_messaging.message.changed',
   'agent_messaging.relay.changed',
   'agent_messaging.queue.changed',
+  'agent_messaging.groups.changed',
+  'agent_messaging.subscriptions.changed',
 
   // Git Director. One type for every change — a clone appearing, a worktree
   // registering or expiring, a verdict, a release — because the console renders

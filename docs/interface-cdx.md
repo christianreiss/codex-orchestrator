@@ -311,7 +311,7 @@ server bakes effective `CODEX_HOME/config.toml`.
 | `profile <name>` | Forward `--profile <name>` to the upstream `codex` CLI |
 | `<profile-name>` | Shorthand for `cdx profile <name>` when the profile exists — as `$CODEX_HOME/<name>.config.toml` (codex-cli >= 0.156.1) or, for an older Codex, as a `[profiles.<name>]` section of `config.toml` — and the token is not a wrapper-owned or reserved-Codex subcommand |
 | `exec -- <cmd...>` | Bypass the startup sequence and run a single Codex command |
-| `cxx agent ...` | Shared Agent Messaging control surface: `list` (alias `peers`, `--engine codex\|claude`, `--online`), `send`, `request`, `wait`, `reply`, `message <id>`, `cancel`, `call-open`, `call-join --pin`, `listen`, `poll --hook Stop\|UserPromptSubmit` (the Claude ringer hook), `status`, `service install\|remove\|start\|stop\|restart\|status`, `worker --foreground`, and `mcp [--channel|--auto]` (the stdio MCP server the managed `cxx-agent` entry launches). Message and reply content is accepted only on stdin. |
+| `cxx agent ...` | Shared Agent Messaging control surface: `list` (alias `peers`, `--engine codex\|claude\|grok`, `--online`), `send`, `request`, `wait`, `reply`, `message <id>`, `cancel`, `call-open`, `call-join --pin`, `listen`, `poll --hook Stop\|UserPromptSubmit` (the Claude ringer hook), `status`, `service install\|remove\|start\|stop\|restart\|status`, `worker --foreground`, and `mcp [--channel|--auto]` (the stdio MCP server the managed `cxx-agent` entry launches). Message and reply content is accepted only on stdin. |
 | `cxx remote ...` | Shared remote-execution surface, default off behind the signed `remote.enabled` switch: `info`, `exec -- ARGV...`, `read`, `write`, `wait`, `signal`, `ps`, `rm`, `get`, `put`, `push`, `pull`, `down`. One ssh connection per destination is established and reused through a private `ControlMaster` path, so a command is a channel on it rather than a new handshake. Jobs live in a directory on the target and survive a dropped connection: a cursor is a byte offset into the job's log, and reconnecting reads on rather than re-running. Everything after `--` is argv, verbatim, with no shell unless one is asked for explicitly. One JSON object per invocation on stdout; diagnostics on stderr. A destination is whatever `ssh` accepts, so `~/.ssh/config` aliases work, and the target needs only SSH access — the binary installs itself there on first contact. |
 | `--help` / `-h` / `help` | Passed straight through to a supervised upstream `codex` child without running auth/sync/boot — handles `cdx --help`, `cdx help`, and `cdx <reserved-subcommand> --help`; it skips the managed run lock but the child inherits effective-home session + active-child descriptors until Codex exits; wrapper-only `--minimal`/`--minimal-output` is consumed rather than forwarded as an unsupported Codex flag |
 | `--wrapper-help` | Render the wrapper-owned commands and flags without loading config; never intercepts tokens after `--` |
@@ -727,9 +727,17 @@ participate in these leases and is the explicit coordination boundary.
 5. Bump `wrappers/cxx/cmd/cxx`'s `Version` via `-ldflags`.
 6. CI publishes the new binary; existing hosts pick it up via `--update`.
 
-## Agent Messaging lifecycle (cxx 0.7.8)
+## Agent Messaging lifecycle
 
-Agent Messaging is a separate, default-off bridge between Codex and Claude. It
+From cxx 0.9.20, the same MCP server adds `agent_group_list`,
+`agent_group_create`, `agent_group_members`, `agent_subscribe`,
+`agent_unsubscribe`, `agent_subscriptions` and `agent_publish`. Groups and
+single-agent feeds require explicit subscriptions; private traffic is never
+copied. Publications use the same native queue, lease and completion rules as
+direct messages, and need no acknowledgement reply. API and retry contracts:
+[Scoped publications](interface-api.md#scoped-publications-migration-0041-cxx-0920).
+
+Agent Messaging is a separate, default-off bridge between Codex, Claude and Grok. It
 requires the global switch — the only switch — an active host, and the target
 engine to remain enabled. An **insecure** host is eligible too, but only while
 its allowed window (`insecure_enabled_until`) is open; outside it the server
@@ -737,7 +745,7 @@ refuses with `agent_messaging_insecure_window_closed`. The signed
 `agent_messaging.enabled` value is the wrapper's local gate;
 `host.agent_messaging_enabled` is a retired compatibility field that mirrors it
 and gates nothing (cxx <= 0.7.7 rejected the whole config without it). When enabled, managed Codex config contains the
-stdio MCP server `cxx-agent` (`cxx agent mcp`) with these seventeen tools:
+stdio MCP server `cxx-agent` (`cxx agent mcp`) with the direct/call/conference tools:
 `agent_list`, `agent_send`, `agent_request`, `agent_wait`, `agent_reply`,
 `agent_message_get`, `agent_cancel`, `agent_call_open`, `agent_call_join`,
 `agent_listen`, and the `#conference` set `agent_conf_open`, `agent_conf_invite`,
@@ -885,7 +893,13 @@ never enqueue verification messages or require a model acknowledgment. “Listen
 means transport availability, not proof that the model will respond or a task succeeded.
 
 Ordinary deliveries are serialized across both sources. Peer requests use
-`agent_reply(message_id, content)`; operator requests use
+`agent_reply(message_id, content)` when an answer is needed. From cxx 0.9.19,
+the native receiver treats a received reply as informational by default. Questions,
+requested work and substantive active-call turns can still be answered; a closing
+acknowledgement completes through `agent_listen` once and yield, without another
+peer message. Never acknowledge an acknowledgement. This is model guidance,
+not server-side content filtering; running receiver processes require a wrapper
+update and session restart. Operator requests use
 `agent_receiver_reply(message_id, content, summary?)`. Supply a one-sentence summary
 of at most 160 characters for mobile cards and push; the full result remains in
 `content`. Omitting it remains compatible with older callers. Durable acceptance precedes native

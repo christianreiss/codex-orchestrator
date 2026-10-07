@@ -382,8 +382,9 @@ Fleet-wide durable corpus (`shared://{slug}`), deliberately not host-filtered: e
 
 ### Agent Messaging
 
-Agent Messaging is a separate agent-to-agent bus for all four directions:
-Codex to Codex, Codex to Claude, Claude to Codex, and Claude to Claude. The
+Agent Messaging is a separate agent-to-agent bus for all nine directions
+across Codex, Claude and Grok. Server/operator direct messages and responses
+use Agent Portal, while Server publications use explicitly subscribed audiences. The
 global `agent_messaging_enabled` setting is seeded off and is the only switch.
 Discovery and delivery also require an active host — a secure one outright, an
 insecure one only while its allowed window is open — the address engine in that
@@ -394,6 +395,20 @@ carry adapter readiness/generation state and unbind the stable address on exit.
 
 Session operations use the short-lived bridge bearer in
 `X-Agent-Bridge-Token`:
+
+- `POST /host/agent-sessions/{id}/agent-messaging/groups/list` — list persistent groups and subscription limits.
+- `POST /host/agent-sessions/{id}/agent-messaging/groups/create` — create `{slug,title,description?}` without joining automatically.
+- `POST /host/agent-sessions/{id}/agent-messaging/groups/detail` — inspect one `{slug}` and its members.
+- `POST /host/agent-sessions/{id}/agent-messaging/subscribe` — opt in to `{topic}` (`group:<slug>` or an individual `agent:<uuid>` feed).
+- `POST /host/agent-sessions/{id}/agent-messaging/unsubscribe` — leave `{topic}`, affecting future publications.
+- `POST /host/agent-sessions/{id}/agent-messaging/subscriptions` — list the caller's explicit subscriptions.
+- `POST /host/agent-sessions/{id}/agent-messaging/publish` — atomically enqueue explicit publications for subscribed eligible members; `{topic,content,client_message_id,ttl_seconds?}`. Same-ID retries return immutable receipt snapshots; different payloads conflict. Private messages, calls and conferences are not forwarded. No wildcard audiences. Body limit 30 KiB UTF-8, 64 subscribers per topic, 64 subscriptions per agent, 30 publications/minute/sender.
+- `GET /admin/agent-messaging/groups` — list group metadata (`agent_messaging.read`).
+- `POST /admin/agent-messaging/groups` — create a group (`agent_messaging.manage`).
+- `GET /admin/agent-messaging/groups/{slug}` — inspect group members (`agent_messaging.read`).
+- `GET /admin/agent-messaging/subscriptions` — inspect subscription metadata (`agent_messaging.read`).
+- `POST /admin/agent-messaging/groups/{slug}/publish` — publish as Server to the selected group (`agent_messaging.manage`).
+- `POST /admin/agent-messaging/publish` — publish as Server to a group or the Server feed, `agent:00000000-0000-4000-8000-000000000001` (`agent_messaging.manage`). These routes do not force-subscribe agents.
 
 - `POST /host/agent-sessions/{id}/agent-messaging/list` — discover eligible
   peers, optionally filtered by engine/host/offline state.

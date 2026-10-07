@@ -21,6 +21,35 @@ import (
 
 type rewriteTransport struct{ server *httptest.Server }
 
+func TestReceiverHealthRequiresCurrentSuccessfulPong(t *testing.T) {
+	r := &autoReceiver{}
+	old := r.beginPing()
+	current := r.beginPing()
+	for _, wire := range []string{
+		fmt.Sprintf(`{"jsonrpc":"2.0","id":%q,"result":{}}`, old),
+		fmt.Sprintf(`{"jsonrpc":"2.0","id":%q,"error":{"code":-32601}}`, current),
+		fmt.Sprintf(`{"jsonrpc":"2.0","id":%q}`, current),
+		fmt.Sprintf(`{"jsonrpc":"2.0","id":%q,"result":null}`, current),
+		fmt.Sprintf(`{"jsonrpc":"2.0","id":%q,"result":42}`, current),
+		fmt.Sprintf(`{"jsonrpc":"2.0","id":%q,"result":[]}`, current),
+		`{"jsonrpc":"2.0","id":"cxx-receiver-health","result":{}}`,
+	} {
+		r.acceptPong([]byte(wire))
+		if !r.lastPong.IsZero() {
+			t.Fatalf("invalid health receipt certified reception: %s", wire)
+		}
+	}
+	r.acceptPong([]byte(fmt.Sprintf(`{"jsonrpc":"2.0","id":%q,"result":{}}`, current)))
+	if r.lastPong.IsZero() || r.pendingPing != "" {
+		t.Fatal("current successful response did not complete health attempt")
+	}
+	seen := r.lastPong
+	r.acceptPong([]byte(fmt.Sprintf(`{"jsonrpc":"2.0","id":%q,"result":{}}`, current)))
+	if !r.lastPong.Equal(seen) {
+		t.Fatal("duplicate response extended health freshness")
+	}
+}
+
 func (r rewriteTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	req.URL.Scheme = "http"
 	req.URL.Host = strings.TrimPrefix(r.server.URL, "http://")
@@ -74,6 +103,64 @@ func TestAutomaticListenReleasesHeldDeliveryWithoutClaiming(t *testing.T) {
 	}
 	if strings.Join(calls, ",") != "deliveries/held/ack" {
 		t.Fatalf("listen posted %v; want only the completion", calls)
+	}
+}
+
+func TestNativePeerReplyCanFinishWithoutAnOutboundAcknowledgement(t *testing.T) {
+	for _, engine := range []string{"codex", "claude", "grok"} {
+		t.Run(engine, func(t *testing.T) {
+			t.Setenv("CXX_AGENT_PORTAL_ENGINE", engine)
+			delivery := map[string]any{"message_id": "held", "kind": "reply", "content": "Austausch beendet."}
+			prompt := nativePeerPrompt(delivery)
+			if !strings.Contains(prompt, "peer reply, informational by default") || !strings.Contains(prompt, "call agent_listen once, then yield") || !strings.Contains(prompt, "Do not acknowledge an acknowledgement") {
+				t.Fatalf("closing reply has no stopping rule: %s", prompt)
+			}
+			var payload map[string]any
+			if err := json.Unmarshal([]byte(strings.SplitN(prompt, "\n", 2)[1]), &payload); err != nil || payload["message_id"] != "held" || payload["content"] != delivery["content"] {
+				t.Fatalf("delivery correlation or content changed: %v, %v", payload, err)
+			}
+			var calls []string
+			client := heldDeliveryServer(t, &calls)
+			tracker := holdDelivery(client)
+			if _, err := callMCPTool(context.Background(), client, tracker, "agent_listen", map[string]any{}); err != nil {
+				t.Fatal(err)
+			}
+			if strings.Join(calls, ",") != "deliveries/held/ack" || len(tracker.items) != 0 {
+				t.Fatalf("closing reply must complete without a broker reply: calls=%v, held=%d", calls, len(tracker.items))
+			}
+		})
+	}
+}
+
+func TestNativePeerRequestStillSupportsACorrelatedAnswer(t *testing.T) {
+	prompt := nativePeerPrompt(map[string]any{"message_id": "held", "kind": "request", "content": "What failed?"})
+	if !strings.Contains(prompt, "Use agent_reply with message_id only when an answer is needed") || strings.Contains(prompt, "peer reply, informational by default") {
+		t.Fatalf("request lost its reply guidance: %s", prompt)
+	}
+	var calls []string
+	client := heldDeliveryServer(t, &calls)
+	tracker := holdDelivery(client)
+	if _, err := callMCPTool(context.Background(), client, tracker, "agent_reply", map[string]any{"message_id": "held", "content": "The receiver asked both peers to reply."}); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(calls, ",") != "reply,deliveries/held/ack" || len(tracker.items) != 0 {
+		t.Fatalf("answer must be stored and its delivery completed: calls=%v, held=%d", calls, len(tracker.items))
+	}
+}
+
+func TestNativePublicationFinishesWithoutReply(t *testing.T) {
+	prompt := nativePeerPrompt(map[string]any{"message_id": "held", "kind": "publication", "content": "PUBLICATION/1 topic=build.ready\nThe build passed."})
+	if !strings.Contains(prompt, "informational publication; no reply is required") || !strings.Contains(prompt, "call agent_listen once, then yield") {
+		t.Fatal("publication has no terminal delivery guidance")
+	}
+	var calls []string
+	client := heldDeliveryServer(t, &calls)
+	tracker := holdDelivery(client)
+	if _, err := callMCPTool(context.Background(), client, tracker, "agent_listen", map[string]any{}); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(calls, ",") != "deliveries/held/ack" || len(tracker.items) != 0 {
+		t.Fatalf("publication completion sent another message: calls=%v held=%d", calls, len(tracker.items))
 	}
 }
 
@@ -257,7 +344,7 @@ func TestChannelDeliveryPreservesFullContentAndMessageID(t *testing.T) {
 
 // Exercise real adapter loops: health and reconnects must never become model turns.
 func TestReceiverHealthAndReconnectsDoNotDeliverChatProbes(t *testing.T) {
-	for _, engine := range []string{"codex", "claude"} {
+	for _, engine := range []string{"codex", "claude", "grok"} {
 		for _, legacyProbe := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s/legacy=%v", engine, legacyProbe), func(t *testing.T) {
 				t.Setenv("CXX_AGENT_PORTAL_ENGINE", engine)
@@ -299,6 +386,51 @@ func TestReceiverHealthAndReconnectsDoNotDeliverChatProbes(t *testing.T) {
 					go server.Serve(listener)
 					defer server.Close()
 					t.Setenv("CXX_CODEX_SOCKET", socket)
+				}
+				if engine == "grok" {
+					socket := filepath.Join(t.TempDir(), "grok.sock")
+					listener, err := net.Listen("unix", socket)
+					if err != nil {
+						t.Fatal(err)
+					}
+					defer listener.Close()
+					go func() {
+						for {
+							conn, err := listener.Accept()
+							if err != nil {
+								return
+							}
+							go func() {
+								defer conn.Close()
+								q := &grokQueue{conn: conn}
+								if _, err := q.read(); err != nil {
+									return
+								}
+								if q.write(map[string]any{"type": "registered", "ready": true}) != nil {
+									return
+								}
+								for {
+									frame, err := q.read()
+									if err != nil {
+										return
+									}
+									var req map[string]any
+									if json.Unmarshal([]byte(stringArg(frame, "payload")), &req) != nil {
+										return
+									}
+									if stringArg(req, "method") != "_x.ai/sessions/list" {
+										nativeDeliveries.Add(1)
+									}
+									result := map[string]any{"sessions": []any{map[string]any{"sessionId": "native", "resident": true, "activity": "idle"}}}
+									raw, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": req["id"], "result": result})
+									if q.write(map[string]any{"type": "acp", "payload": string(raw)}) != nil {
+										return
+									}
+								}
+							}()
+						}
+					}()
+					t.Setenv("CXX_GROK_SOCKET", socket)
 				}
 				generations := map[string]bool{}
 				for attempt := 0; attempt < 2; attempt++ {
@@ -366,14 +498,14 @@ type receiverHealthWriter struct {
 func (w receiverHealthWriter) Write(data []byte) (int, error) {
 	var msg struct {
 		Method string `json:"method"`
+		ID     string `json:"id"`
 	}
 	if err := json.Unmarshal(data, &msg); err != nil {
 		return 0, err
 	}
 	if msg.Method == "ping" {
-		w.r.mu.Lock()
-		w.r.lastPong = time.Now()
-		w.r.mu.Unlock()
+		response, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": msg.ID, "result": map[string]any{}})
+		w.r.acceptPong(response)
 	} else {
 		w.deliveries.Add(1)
 	}

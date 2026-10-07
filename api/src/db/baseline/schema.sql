@@ -1500,3 +1500,41 @@ CREATE INDEX `idx_skills_updated_at` ON `skills` (`updated_at`);
 CREATE INDEX `idx_skills_engine` ON `skills` (`engine`);
 CREATE INDEX `idx_wrapper_signing_keys_active` ON `wrapper_signing_keys` (`active`);
 CREATE INDEX `idx_v2_bin_engine_version` ON `wrapper_v2_binaries` (`engine`,`version`);
+CREATE TABLE `agent_bus_groups` (
+	`id` char(36) NOT NULL,
+	`slug` varchar(64) NOT NULL,
+	`title` varchar(120) NOT NULL,
+	`description` varchar(1024),
+	`created_by_address_id` char(36) NOT NULL,
+	`created_at` varchar(100) NOT NULL,
+	`updated_at` varchar(100) NOT NULL,
+	CONSTRAINT `agent_bus_groups_id` PRIMARY KEY(`id`),
+	CONSTRAINT `uq_agent_bus_groups_slug` UNIQUE(`slug`)
+);
+
+CREATE TABLE `agent_bus_publications` (
+	`id` char(36) NOT NULL,
+	`topic` varchar(80) NOT NULL,
+	`sender_address_id` char(36) NOT NULL,
+	`client_message_id` char(36) NOT NULL,
+	`payload_sha256` char(64) NOT NULL,
+	`content_bytes` int unsigned NOT NULL,
+	`ttl_seconds` int unsigned NOT NULL,
+	`receipts` json NOT NULL,
+	`created_at` varchar(100) NOT NULL,
+	CONSTRAINT `agent_bus_publications_id` PRIMARY KEY(`id`),
+	CONSTRAINT `uq_agent_bus_publications_sender_client` UNIQUE(`sender_address_id`,`client_message_id`)
+);
+
+CREATE INDEX `idx_agent_bus_publications_rate` ON `agent_bus_publications` (`sender_address_id`,`created_at`);
+
+CREATE TABLE `agent_bus_subscriptions` (
+	`id` char(36) NOT NULL,
+	`topic` varchar(80) NOT NULL,
+	`subscriber_address_id` char(36) NOT NULL,
+	`created_at` varchar(100) NOT NULL,
+	CONSTRAINT `agent_bus_subscriptions_id` PRIMARY KEY(`id`),
+	CONSTRAINT `uq_agent_bus_subscriptions_topic_address` UNIQUE(`topic`,`subscriber_address_id`)
+);
+
+CREATE INDEX `idx_agent_bus_subscriptions_address` ON `agent_bus_subscriptions` (`subscriber_address_id`);

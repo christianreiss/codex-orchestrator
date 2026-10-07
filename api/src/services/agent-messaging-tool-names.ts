@@ -34,6 +34,13 @@ export const AGENT_MESSAGING_TOOLS = [
   'agent_conf_say',
   'agent_conf_dispatch',
   'agent_conf_adjourn',
+  'agent_group_list',
+  'agent_group_create',
+  'agent_group_members',
+  'agent_subscribe',
+  'agent_unsubscribe',
+  'agent_subscriptions',
+  'agent_publish',
 ] as const;
 
 /**

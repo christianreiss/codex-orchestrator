@@ -93,6 +93,7 @@ import {
 } from './agent-messaging/bindings.js';
 import { SessionRegistry } from './agent-messaging/session.js';
 import { ConferenceCoordinator } from './agent-messaging/conference.js';
+import { AgentMessagingGroups, SERVER_ADDRESS_ID } from './agent-messaging/groups.js';
 import {
   conversationIncludes,
   messagingHostEligible,
@@ -179,6 +180,7 @@ export class AgentMessagingService {
   private readonly conference: ConferenceCoordinator;
   private readonly admin: AgentMessagingAdmin;
   private readonly conferenceAdmin: AgentMessagingConferenceAdmin;
+  private readonly groups: AgentMessagingGroups;
 
   constructor(
     private readonly db: Database,
@@ -186,6 +188,14 @@ export class AgentMessagingService {
     private readonly keyring: Keyring,
   ) {
     this.settings = new SettingsService(db);
+    this.groups = new AgentMessagingGroups({
+      db, keyring,
+      requireEnabledLocked: (tx) => this.requireEnabledLocked(tx),
+      authenticateBridge: (sessionId, token) => this.authenticateBridge(sessionId, token),
+      requireAddressLocked: (tx, id) => this.requireAddressLocked(tx, id),
+      assertSessionAddressLocked: (tx, sessionId, address) => this.assertSessionAddressLocked(tx, sessionId, address),
+      assertAddressEligibleLocked: (tx, address) => this.assertAddressEligibleLocked(tx, address),
+    });
     // The coordinator gets an explicit adapter rather than `this`, so the
     // primitives it may use stay a short, reviewable list and the service's
     // own internals stay private.
@@ -389,6 +399,19 @@ export class AgentMessagingService {
     return this.conference.adjourn(sessionId, bridgeToken, input);
   }
 
+  listAdminGroups() { return this.groups.listAdmin(); }
+  getAdminGroup(slug: string) { return this.groups.detailAdmin(slug); }
+  createAdminGroup(input: {slug: string; title: string; description?: string | null}) { return this.groups.createAdmin(input); }
+  listAdminSubscriptions() { return this.groups.subscriptionsAdmin(); }
+  publishAdmin(input: {topic: string; content: string; clientMessageId: string; ttlSeconds?: number | null}) { return this.groups.publishAdmin(input); }
+  listGroups(sessionId: string, token: string) { return this.groups.listForAgent(sessionId, token); }
+  createGroup(sessionId: string, token: string, input: {slug: string; title: string; description?: string | null}) { return this.groups.createForAgent(sessionId, token, input); }
+  groupMembers(sessionId: string, token: string, slug: string) { return this.groups.detailForAgent(sessionId, token, slug); }
+  subscribe(sessionId: string, token: string, topic: string) { return this.groups.subscribe(sessionId, token, topic, true); }
+  unsubscribe(sessionId: string, token: string, topic: string) { return this.groups.subscribe(sessionId, token, topic, false); }
+  subscriptions(sessionId: string, token: string) { return this.groups.subscriptionsForAgent(sessionId, token); }
+  publish(sessionId: string, token: string, input: {topic: string; content: string; clientMessageId: string; ttlSeconds?: number | null}) { return this.groups.publishForAgent(sessionId, token, input); }
+
   async sendMessage(
     sessionId: string,
     bridgeToken: string,
@@ -547,6 +570,9 @@ export class AgentMessagingService {
         throw new NotFoundError('Message not found', 'agent_messaging_message_not_found');
       }
       const target = await this.requireAddressLocked(tx, parent.senderAddressId);
+      if (target.id === SERVER_ADDRESS_ID) {
+        throw new ConflictError('Server publications are informational; use the operator portal conversation to respond', 'agent_messaging_server_publication_reply');
+      }
       await this.assertAddressEligibleLocked(tx, target);
       const existingRows = await tx
         .select()
@@ -992,6 +1018,9 @@ export class AgentMessagingService {
         throw new ForbiddenError('Relay does not own this delivery address', 'agent_messaging_relay_target_mismatch');
       }
       const target = await this.requireAddressLocked(tx, parent.senderAddressId);
+      if (target.id === SERVER_ADDRESS_ID) {
+        throw new ConflictError('Server publications are informational; use the operator portal conversation to respond', 'agent_messaging_server_publication_reply');
+      }
       await this.assertAddressEligibleLocked(tx, target);
       const existingRows = await tx
         .select()
@@ -1730,4 +1759,3 @@ export class AgentMessagingService {
 export function createAgentMessagingService(db: Database, env: Env, keyring: Keyring): AgentMessagingService {
   return new AgentMessagingService(db, env, keyring);
 }
-

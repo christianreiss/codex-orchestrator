@@ -64,6 +64,7 @@ const NON_TOOL_TOKENS: Record<string, string> = {
   expected_sha256: 'the optimistic-concurrency argument of shared_memory_write, not a tool',
   display_name: 'optional skill_store display metadata, not a tool',
   message_id: 'the inbound delivery id agent_reply answers and agent_message_get reads, not a tool',
+  client_message_id: 'the stable publication retry identity, not a tool',
   changed_paths:
     'the git_merge_request argument carrying `git diff --name-only base...head`, not a tool',
   worktree_path:

@@ -245,6 +245,7 @@ func (b *Broker) allowedPath(path string) bool {
 	for _, operation := range []string{
 		"list", "send", "reply", "wait", "message", "cancel", "bind", "mailbox", "deliveries/claim",
 		"call/open", "call/join",
+		"groups/list", "groups/create", "groups/detail", "subscribe", "unsubscribe", "subscriptions", "publish",
 		"conf/open", "conf/invite", "conf/join", "conf/roster", "conf/say", "conf/dispatch", "conf/adjourn",
 	} {
 		if path == messagingBase+operation {

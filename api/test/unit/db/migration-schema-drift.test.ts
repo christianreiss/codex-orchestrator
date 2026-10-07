@@ -203,6 +203,9 @@ describe('migrations against the test baseline', () => {
       'companion_follows',
       'companion_notifications',
       'grok_usage_snapshots',
+      'agent_bus_groups',
+      'agent_bus_subscriptions',
+      'agent_bus_publications',
     ]);
     expect(additions.filter((a) => a.column !== undefined).map((a) => `${a.table}.${a.column}`)).toEqual([
       'auth_payloads.generation',

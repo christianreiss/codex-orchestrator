@@ -10,6 +10,7 @@ import {
 } from '../../../src/services/agent-portal.js';
 import { getTestDb, type TestDb } from '../../helpers/test-db.js';
 import { loadTestEnv, testKeyring } from '../../helpers/test-keyring.js';
+import { ENGINES, type Engine } from '../../../src/util/engine.js';
 
 /**
  * A console session as a message author, against real MySQL.
@@ -51,9 +52,9 @@ describe.skipIf(!handle)('a console session as message author', { timeout: 120_0
   };
   const adminActor = (): PortalActor => ({ kind: 'admin', user: { id: adminId, displayName: 'Console Operator' } });
 
-  async function liveSession(): Promise<{ sessionId: string; bridgeToken: string }> {
+  async function liveSession(engine: Engine = 'codex'): Promise<{ sessionId: string; bridgeToken: string }> {
     const registered = await service.registerAgent(host, {
-      engine: 'codex',
+      engine,
       username: 'admin-actor-test',
       cwd: '/tmp/admin-actor-test',
       invocationKind: 'interactive',
@@ -70,7 +71,7 @@ describe.skipIf(!handle)('a console session as message author', { timeout: 120_0
     await exec(`DELETE FROM hosts WHERE fqdn = '${HOST_FQDN}'`);
     await exec(
       `INSERT INTO hosts (fqdn, api_key, status, engines, created_at, updated_at)
-       VALUES ('${HOST_FQDN}', '${'b'.repeat(64)}', 'active', 'codex', '${now}', '${now}')`,
+       VALUES ('${HOST_FQDN}', '${'b'.repeat(64)}', 'active', 'codex,claude,grok', '${now}', '${now}')`,
     );
     host = (await db.select().from(hosts).where(eq(hosts.fqdn, HOST_FQDN)).limit(1))[0]!;
     env = {
@@ -109,6 +110,32 @@ describe.skipIf(!handle)('a console session as message author', { timeout: 120_0
        ON DUPLICATE KEY UPDATE version = '0', updated_at = VALUES(updated_at)`,
     );
     await handle?.pool.end();
+  });
+
+  it.each(ENGINES)('Server ↔ %s persists the instruction, delivery and correlated agent response', async (engine) => {
+    const { sessionId, bridgeToken } = await liveSession(engine);
+    const content = `Server instruction for ${engine}`;
+    const sent = await service.enqueueMessage(adminActor(), { sessionId, clientMessageId: randomUUID(), content });
+    const messageId = String(sent.message_id);
+    const claimId = randomUUID();
+    const claimed = await service.claimMessage(sessionId, bridgeToken, claimId, host.id);
+    expect(claimed).toMatchObject({ message_id: messageId, content, lease_owner: claimId });
+    await service.acknowledgeMessage(sessionId, bridgeToken, { messageId, leaseOwner: claimId, outcome: 'accepted' }, host.id);
+    const resultText = `${engine} receipt to Server`;
+    await service.addAgentEvent(sessionId, bridgeToken, {
+      clientEventId: randomUUID(), type: 'assistant_message', source: 'bridge',
+      payload: { message_id: messageId, text: resultText, summary: resultText },
+    }, host.id);
+    const events = await service.listEvents(sessionId, 0, 250);
+    expect(events.events).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: 'assistant_message', payload: expect.objectContaining({ message_id: messageId, text: resultText }) }),
+    ]));
+    const stored = (await db.select().from(agentMessages).where(eq(agentMessages.messageId, messageId)))[0]!;
+    expect(stored).toMatchObject({ adminUserId: adminId, portalUserId: null, status: 'accepted' });
+    expect(stored.contentEnc).not.toContain(content);
+    await expect(service.addAgentEvent(sessionId, 'invalid-bridge-token', {
+      clientEventId: randomUUID(), type: 'assistant_message', source: 'bridge', payload: { text: 'forged receipt' },
+    }, host.id)).rejects.toBeDefined();
   });
 
   it('writes the admin column and leaves the portal one null', async () => {

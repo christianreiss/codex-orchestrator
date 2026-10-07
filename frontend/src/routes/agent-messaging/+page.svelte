@@ -7,6 +7,7 @@
   import MessageSquareShare from "@lucide/svelte/icons/message-square-share";
   import { toast } from "svelte-sonner";
   import Conferences from "$lib/components/agent-messaging/Conferences.svelte";
+  import Groups from "$lib/components/agent-messaging/Groups.svelte";
   import PageHeader from "$lib/components/layout/PageHeader.svelte";
   import LogToolbar from "$lib/components/logs/LogToolbar.svelte";
   import AgentMessagingSection from "$lib/components/settings/AgentMessagingSection.svelte";
@@ -59,7 +60,7 @@
     "canceled",
   ] as const;
   const LIMITS = [50, 100, 250, 500] as const;
-  const WORKSPACE_VIEWS = ["addresses", "conferences", "conversations", "deliveries"] as const;
+  const WORKSPACE_VIEWS = ["addresses", "groups", "conferences", "conversations", "deliveries"] as const;
   type ConversationStatusFilter = (typeof CONVERSATION_STATUSES)[number]["value"];
   type MessageStatusFilter = (typeof MESSAGE_STATUSES)[number];
   type WorkspaceView = (typeof WORKSPACE_VIEWS)[number];
@@ -315,7 +316,7 @@
 
 <PageHeader
   title="Agent Messaging"
-  subtitle="Inspect conferences and operate direct Codex, Claude, and Grok conversations, stable addresses, relays, retries, and audited content reveal."
+  subtitle="Scoped groups, subscriptions, and direct conversations across Codex, Claude, Grok, and Server. Inspect deliveries and verified reception."
 >
   {#snippet actions()}
     <Button variant="outline" onclick={refresh}>
@@ -350,19 +351,18 @@
 </dl>
 
 <section class="border-b border-border py-4" aria-labelledby="direction-matrix-heading">
-  <div class="flex flex-wrap items-start justify-between gap-2">
-    <div>
-      <h2 id="direction-matrix-heading" class="flex items-center gap-2 text-sm font-semibold"><MessageSquareShare class="h-4 w-4" /> Direction matrix</h2>
-      <p class="mt-1 text-sm text-muted-foreground">All nine engine paths use the same ordered at-least-once contract.</p>
-    </div>
-    <p class="text-xs text-muted-foreground">{$stateQuery.data?.delivery ?? "ordered_at_least_once"}</p>
-  </div>
+  <details open={workspaceView === "addresses"}>
+    <summary class="cursor-pointer text-sm">
+      <h2 id="direction-matrix-heading" class="ml-1 inline-flex items-center gap-2 text-sm font-semibold"><MessageSquareShare class="h-4 w-4" /> Direction matrix</h2>
+      <span class="ml-2 text-xs text-muted-foreground">Recorded engine and Server traffic</span>
+    </summary>
+    <p class="mt-2 text-sm text-muted-foreground">Engine deliveries share the same ordered at-least-once contract. Server lanes count operator delivery and native session event receipts.</p>
   <div class="mt-3 grid divide-y divide-border border-y border-border md:grid-cols-2 md:divide-x md:divide-y-0 xl:grid-cols-3">
-      {#each $stateQuery.data?.directions ?? [] as direction (`${direction.source_engine}-${direction.target_engine}`)}
+      {#each [...($stateQuery.data?.directions ?? []), ...($stateQuery.data?.server_directions ?? [])] as direction (`${direction.source_engine}-${direction.target_engine}`)}
         <div class="px-3 py-2.5">
           <p class="text-sm font-medium capitalize">{direction.source_engine} → {direction.target_engine}</p>
           <p class="mt-1 text-xs text-muted-foreground">
-            {direction.total} total · {direction.pending} pending · {direction.completed} completed
+            {direction.total} total · {direction.pending} pending · {direction.completed} {direction.source_engine === "server" ? "accepted" : direction.target_engine === "server" ? "responses" : "completed"}
           </p>
           {#if direction.dead || direction.ambiguous}
             <p class="mt-1 text-xs text-destructive">{direction.dead} dead · {direction.ambiguous} ambiguous</p>
@@ -370,14 +370,16 @@
         </div>
       {/each}
   </div>
+  </details>
 </section>
 
 <Tabs.Root
   class="mt-4"
   value={workspaceView}
   onValueChange={(value) => (workspaceView = value as WorkspaceView)}>
-  <Tabs.List aria-label="Agent Messaging workspace">
+  <Tabs.List class="flex h-auto w-fit max-w-full flex-wrap justify-start" aria-label="Agent Messaging workspace">
     <Tabs.Trigger value="addresses">Addresses</Tabs.Trigger>
+    <Tabs.Trigger value="groups">Groups</Tabs.Trigger>
     <Tabs.Trigger value="conferences">Conferences</Tabs.Trigger>
     <Tabs.Trigger value="conversations">Conversations</Tabs.Trigger>
     <Tabs.Trigger value="deliveries">Deliveries</Tabs.Trigger>
@@ -386,6 +388,8 @@
   <LogToolbar class="mt-3">
     {#if workspaceView === "addresses"}
       <p class="min-w-0 flex-1 text-sm text-muted-foreground">Addresses are created from eligible secure managed sessions. Aliases are optional; stable addresses always work.</p>
+    {:else if workspaceView === "groups"}
+      <p class="text-sm text-muted-foreground">Opt-in audiences · group and individual subscriptions refresh every 15 seconds.</p>
     {:else if workspaceView === "conferences"}
       <p class="text-sm text-muted-foreground">Read-only conference inspector · metadata refreshes every 15 seconds.</p>
     {:else if workspaceView === "conversations"}
@@ -442,7 +446,7 @@
       </div>
     {/if}
 
-    <Select
+    {#if workspaceView !== "groups"}<Select
       type="single"
       value={String(limit)}
       onValueChange={(value: unknown) => {
@@ -457,8 +461,12 @@
           <SelectItem value={String(size)} label={String(size)}>{size}</SelectItem>
         {/each}
       </SelectContent>
-    </Select>
+    </Select>{/if}
   </LogToolbar>
+
+  <Tabs.Content value="groups" class="mt-3">
+    {#if workspaceView === "groups"}<Groups enabled={$stateQuery.data?.enabled ?? false} />{/if}
+  </Tabs.Content>
 
   <Tabs.Content value="conferences" class="mt-3">
     {#if workspaceView === "conferences"}<Conferences {limit} />{/if}

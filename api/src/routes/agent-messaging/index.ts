@@ -13,6 +13,7 @@ import { createInsecureWindowService } from '../../services/insecure-window.js';
 import { parseEngine } from '../../util/engine.js';
 import { adminSpaHtmlPreHandler } from '../admin/pages/static.js';
 import type { RouteContext } from '../index.js';
+import { registerAgentGroupRoutes } from './groups.js';
 
 const BRIDGE_TOKEN_HEADER = 'x-agent-bridge-token';
 const RELAY_TOKEN_HEADER = 'x-agent-relay-token';
@@ -30,6 +31,7 @@ export async function registerAgentMessagingRoutes(
   ctx: RouteContext,
 ): Promise<void> {
   const messaging = createAgentMessagingService(ctx.db, ctx.env, ctx.keyring);
+  registerAgentGroupRoutes(app, ctx, messaging);
   const events = createAdminEventsService(ctx.db);
   const adminSpa = adminSpaHtmlPreHandler(ctx);
   const actor = (req: FastifyRequest): number | null => req.admin?.user.id ?? null;

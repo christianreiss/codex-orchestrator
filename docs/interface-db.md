@@ -125,6 +125,18 @@ Migration `0035_provider_accounts.sql` adopts each existing canonical head as it
 
 Migration `0036_provider_account_merge_references.sql` adds an optional same-engine compatibility alias for explicit operator consolidation. It merges no data automatically. Merged rows are removed from selection/listing; old account IDs resolve to the surviving account for auth, reservations and usage reports.
 
+## Scoped Agent Messaging publications
+
+- **agent_bus_groups** — persistent opt-in group metadata (`id` CHAR(36) PRIMARY KEY, `slug` VARCHAR(64) NOT NULL, `title` VARCHAR(120) NOT NULL, `description` VARCHAR(1024) NULL, `created_by_address_id` CHAR(36) NOT NULL, `created_at` VARCHAR(100) NOT NULL, `updated_at` VARCHAR(100) NOT NULL); unique slug. Creation never adds members automatically.
+- **agent_bus_subscriptions** — explicit group or individual-agent feed membership (`id` CHAR(36) PRIMARY KEY, `topic` VARCHAR(80) NOT NULL, `subscriber_address_id` CHAR(36) NOT NULL, `created_at` VARCHAR(100) NOT NULL); unique (`topic`, `subscriber_address_id`), index on subscriber address. A topic is `group:<slug>` or `agent:<UUID>`; private messages are never copied. Membership follows the stable address across reconnects.
+- **agent_bus_publications** — immutable publication idempotency and recipient receipt snapshots (`id` CHAR(36) PRIMARY KEY, `topic` VARCHAR(80) NOT NULL, `sender_address_id` CHAR(36) NOT NULL, `client_message_id` CHAR(36) NOT NULL, `payload_sha256` CHAR(64) NOT NULL, `content_bytes` INT UNSIGNED NOT NULL, `ttl_seconds` INT UNSIGNED NOT NULL, `receipts` JSON NOT NULL, `created_at` VARCHAR(100) NOT NULL); unique (`sender_address_id`, `client_message_id`), rate-window index (`sender_address_id`, `created_at`). Bodies remain encrypted in `agent_bus_messages`, which accepts `kind=publication`. Immutable receipt snapshots preserve retry behavior after membership changes; queued messages are not removed by unsubscribe.
+
+Migration `0041_agent_publications.sql` creates these tables idempotently and
+aligns their collations with authoritative `agent_bus_addresses` on both fresh
+and legacy databases. The reserved Server publication address has host ID 0,
+engine `server`, no native session and UUID `00000000-0000-4000-8000-000000000001`;
+native discovery, direct sends and registration never treat it as a provider agent.
+
 ## Android companion
 
 - **companion_pairings** — Android companion single-use five-minute pairing grants (`token_hash` CHAR(64) PRIMARY KEY, `user_id` BIGINT UNSIGNED NOT NULL, `expires_at` VARCHAR(100) NOT NULL).

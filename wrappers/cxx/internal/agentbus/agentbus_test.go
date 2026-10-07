@@ -629,6 +629,9 @@ func TestClaudeChannelCapabilityNeverRelaysPermissions(t *testing.T) {
 	if strings.Contains(text, "claude/channel/permission") {
 		t.Fatalf("permission relay capability advertised: %s", text)
 	}
+	if !strings.Contains(text, peerReplyGuidance) {
+		t.Fatalf("MCP instructions lost the peer stopping rule: %s", text)
+	}
 }
 
 func TestClaudeChannelActivatesOnlyAfterInitializedNotification(t *testing.T) {

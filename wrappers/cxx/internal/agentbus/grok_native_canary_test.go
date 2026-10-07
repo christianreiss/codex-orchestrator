@@ -65,7 +65,7 @@ func TestGrokNativeLeaderCanary(t *testing.T) {
 	t.Setenv("GROK_HOME", filepath.Join(dir, "native"))
 	t.Setenv("GROK_CONFIG", "")
 	t.Setenv("GROK_CONFIG_PATH", "")
-	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	defer cancel()
 	if version, err := native.ProbeVersion(ctx, binary); err != nil || version != native.PinnedVersion {
 		t.Fatal("native canary requires the pinned Grok binary")
@@ -138,6 +138,11 @@ func TestGrokNativeLeaderCanary(t *testing.T) {
 	defer listener.Close()
 	nativeID, protocol := "", ""
 	heartbeats := 0
+	verifyDeliveries := os.Getenv("CXX_GROK_NATIVE_CANARY_DELIVERIES") == "1"
+	deliverSources := false
+	claimed, replied := map[string]bool{}, map[string]bool{}
+	peerID, portalID := newUUID(), newUUID()
+	peerReceipt, portalReceipt := "CXX_PEER_"+newUUID(), "CXX_PORTAL_"+newUUID()
 	portal := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var body map[string]any
 		_ = json.NewDecoder(r.Body).Decode(&body)
@@ -157,7 +162,34 @@ func TestGrokNativeLeaderCanary(t *testing.T) {
 			response["sources"] = []string{}
 		case strings.HasSuffix(r.URL.Path, "/receiver/heartbeat"):
 			heartbeats++
-			response["receiver"] = map[string]any{"sources": []any{}}
+			sources := []any{}
+			if deliverSources {
+				sources = []any{map[string]any{"source": "peer"}, map[string]any{"source": "portal"}}
+			}
+			response["receiver"] = map[string]any{"sources": sources}
+		case strings.HasSuffix(r.URL.Path, "/receiver/claim"):
+			source := stringArg(body, "source")
+			if deliverSources && !claimed[source] {
+				claimed[source] = true
+				if source == "peer" {
+					response["delivery"] = map[string]any{"message_id": peerID, "kind": "request", "content": "Call agent_reply with message_id " + peerID + " and content exactly " + peerReceipt + ". Do not use other tools."}
+				} else if source == "portal" {
+					response["message"] = map[string]any{"message_id": portalID, "lease_owner": "canary", "content": "Call agent_receiver_reply with message_id " + portalID + ", content exactly " + portalReceipt + " and summary Canary completed. Do not use other tools."}
+				}
+			}
+		case strings.HasSuffix(r.URL.Path, "/agent-messaging/reply"):
+			if stringArg(body, "message_id") != peerID || stringArg(body, "content") != peerReceipt {
+				t.Error("native peer reply lost exact correlation")
+			} else {
+				replied["peer"] = true
+			}
+		case strings.HasSuffix(r.URL.Path, "/events"):
+			payload, _ := body["payload"].(map[string]any)
+			if stringArg(payload, "message_id") != portalID || stringArg(payload, "text") != portalReceipt {
+				t.Error("native portal reply lost exact correlation")
+			} else {
+				replied["portal"] = true
+			}
 		case strings.HasSuffix(r.URL.Path, "/receiver/status"):
 			if protocol != "" {
 				response["receiver"] = map[string]any{"protocol": protocol, "native_session_id": nativeID}
@@ -177,7 +209,10 @@ func TestGrokNativeLeaderCanary(t *testing.T) {
 	firstHelper := exec.CommandContext(ctx, wrapper, "grok-auth")
 	firstHelper.Env = env
 	if _, err := firstHelper.Output(); err != nil {
-		t.Fatal("initial helper accessor failed")
+		if failure, ok := err.(*exec.ExitError); ok {
+			t.Fatalf("initial helper accessor failed: %s", strings.ReplaceAll(string(failure.Stderr), credential.Key, "<access-token>"))
+		}
+		t.Fatal("initial helper accessor failed:", err)
 	}
 	// Expire only the managed cache metadata. The real provider access token is
 	// unchanged; the local stub serves generation18 with its actual fresh expiry.
@@ -296,6 +331,47 @@ func TestGrokNativeLeaderCanary(t *testing.T) {
 			t.Fatal("native hook/MCP automatic receiver did not become healthy")
 		}
 		time.Sleep(100 * time.Millisecond)
+	}
+	if verifyDeliveries {
+		mu.Lock()
+		deliverSources = true
+		mu.Unlock()
+		_ = driver.conn.SetDeadline(time.Now().Add(60 * time.Second))
+		for {
+			mu.Lock()
+			finished := replied["peer"] && replied["portal"]
+			mu.Unlock()
+			if finished {
+				break
+			}
+			event, err := driver.readACP()
+			if err != nil {
+				t.Fatal("automatic peer/portal delivery did not complete:", err)
+			}
+			if stringArg(event, "method") == "session/request_permission" {
+				params, _ := event["params"].(map[string]any)
+				tool, _ := params["toolCall"].(map[string]any)
+				title := stringArg(tool, "title")
+				if title != "cxx-agent__agent_reply" && title != "cxx-agent__agent_receiver_reply" {
+					t.Fatalf("canary requested an unexpected tool: %s", title)
+				}
+				options, _ := params["options"].([]any)
+				optionID := ""
+				for _, candidate := range options {
+					if option, ok := candidate.(map[string]any); ok && stringArg(option, "kind") == "allow_once" {
+						optionID = stringArg(option, "optionId")
+					}
+				}
+				if optionID == "" {
+					t.Fatal("canary receipt tool has no single-use approval")
+				}
+				raw, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": event["id"], "result": map[string]any{"outcome": map[string]any{"outcome": "selected", "optionId": optionID}}})
+				if err := driver.write(map[string]any{"type": "acp", "payload": string(raw)}); err != nil {
+					t.Fatal(err)
+				}
+			}
+		}
+		t.Log("automatic native peer and portal deliveries produced exact correlated MCP replies")
 	}
 	mu.Lock()
 	count := requests

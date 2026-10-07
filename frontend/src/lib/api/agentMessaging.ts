@@ -8,6 +8,16 @@ import {
 import { api } from "./client";
 
 export type AgentEngine = "codex" | "claude" | "grok";
+export type AgentActor = AgentEngine | "server";
+export interface AgentDeliveryDirection {
+  source_engine: AgentActor;
+  target_engine: AgentActor;
+  total: number;
+  pending: number;
+  completed: number;
+  dead: number;
+  ambiguous: number;
+}
 export type AgentConversationStatus = "open" | "canceled";
 export type AgentMessageStatus =
   | "queued"
@@ -33,15 +43,9 @@ export interface AgentMessagingState {
     dead: number;
     ambiguous: number;
   };
-  directions: Array<{
-    source_engine: AgentEngine;
-    target_engine: AgentEngine;
-    total: number;
-    pending: number;
-    completed: number;
-    dead: number;
-    ambiguous: number;
-  }>;
+  directions: AgentDeliveryDirection[];
+  /** Stored operator delivery and engine event receipts, separate from bus directions. */
+  server_directions?: AgentDeliveryDirection[];
   delivery: "ordered_at_least_once" | string;
 }
 
@@ -49,7 +53,7 @@ export interface AgentAddress {
   id: string;
   address: string;
   alias: string | null;
-  engine: AgentEngine;
+  engine: AgentActor;
   host_id: number;
   fqdn?: string;
   username: string;
@@ -86,6 +90,7 @@ export type AgentAddressIneligibleReason =
 
 /** Host-enriched address returned by the admin operations listing. */
 export interface AgentAdminAddress extends AgentAddress {
+  engine: AgentEngine;
   queue_depth: number;
   host_secure: boolean;
   host_status: string;

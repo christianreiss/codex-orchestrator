@@ -41,7 +41,7 @@ Claude settings and MCP merges preserve unreadable or non-object user files and 
 | `auth-upload` | Stabilize and POST native `~/.claude/.credentials.json`; apply the authoritative response only if that native generation is still current |
 | `auth ...` | Passed through to upstream Claude under the active-child/session leases. `auth login` uploads the resulting generation and applies guarded canonical writeback; `auth logout` journals durable intent before destructive native mutation; `auth status` remains read-only passthrough. The top-level `login`/`logout` aliases follow the same rules. |
 | `exec -- <cmd...>` | Bypass startup sync; run a single Claude command |
-| `cxx agent ...` | Shared Agent Messaging control surface: `list` (alias `peers`, `--engine codex\|claude`, `--online`), `send`, `request`, `wait`, `reply`, `message <id>`, `cancel`, `call-open`, `call-join --pin`, `listen`, `poll --hook Stop\|UserPromptSubmit` (the Claude ringer hook), `status`, `service install\|remove\|start\|stop\|restart\|status`, `worker --foreground`, and `mcp [--channel|--auto]` (the stdio MCP server the managed `cxx-agent` entry launches). Message and reply content is accepted only on stdin. |
+| `cxx agent ...` | Shared Agent Messaging control surface: `list` (alias `peers`, `--engine codex\|claude\|grok`, `--online`), `send`, `request`, `wait`, `reply`, `message <id>`, `cancel`, `call-open`, `call-join --pin`, `listen`, `poll --hook Stop\|UserPromptSubmit` (the Claude ringer hook), `status`, `service install\|remove\|start\|stop\|restart\|status`, `worker --foreground`, and `mcp [--channel|--auto]` (the stdio MCP server the managed `cxx-agent` entry launches). Message and reply content is accepted only on stdin. |
 | `cxx remote ...` | Shared remote-execution surface, default off behind the signed `remote.enabled` switch: `info`, `exec -- ARGV...`, `read`, `write`, `wait`, `signal`, `ps`, `rm`, `get`, `put`, `push`, `pull`, `down`. One ssh connection per destination is established and reused through a private `ControlMaster` path, so a command is a channel on it rather than a new handshake. Jobs live in a directory on the target and survive a dropped connection: a cursor is a byte offset into the job's log, and reconnecting reads on rather than re-running. Everything after `--` is argv, verbatim, with no shell unless one is asked for explicitly. One JSON object per invocation on stdout; diagnostics on stderr. A destination is whatever `ssh` accepts, so `~/.ssh/config` aliases work, and the target needs only SSH access — the binary installs itself there on first contact. |
 | `--continue` / `-c` | Passed straight through to the upstream `claude` binary |
 | `resume [<session>] [<prompt>]` | Reopen a previous Claude session through the normal startup lifecycle. With no session id, the upstream picker is shown |
@@ -851,15 +851,23 @@ belong in common packages; Claude-only behavior stays under the Claude persona
 packages. There is one build artifact, while the signed config and runtime
 behavior remain engine-specific.
 
-## Agent Messaging lifecycle (cxx 0.7.8)
+## Agent Messaging lifecycle
 
-Agent Messaging is a separate, default-off bridge between Claude and Codex. It
+From cxx 0.9.20, the same plugin-scoped MCP server adds `agent_group_list`,
+`agent_group_create`, `agent_group_members`, `agent_subscribe`,
+`agent_unsubscribe`, `agent_subscriptions` and `agent_publish`; their native
+permission allowlist is derived from `AGENT_MESSAGING_TOOLS`. Explicit
+subscriptions route publications only; private traffic is never copied.
+Informational deliveries finish without an acknowledgement reply. API and
+retry contracts: [Scoped publications](interface-api.md#scoped-publications-migration-0041-cxx-0920).
+
+Agent Messaging is a separate, default-off bridge between Codex, Claude and Grok. It
 requires the global switch — the only switch — an active host, and the target
 engine to remain enabled. An **insecure** host is eligible too, but only while
 its allowed window (`insecure_enabled_until`) is open; outside it the server
 refuses with `agent_messaging_insecure_window_closed`. The signed
 `agent_messaging.enabled` value is the wrapper's local gate. Managed Claude settings then own the `cxx-agent`
-stdio MCP server (`cxx agent mcp`) and allow its seventeen tools without prompting:
+stdio MCP server (`cxx agent mcp`) and allow its direct/call/conference tools without prompting:
 `agent_list`, `agent_send`, `agent_request`, `agent_wait`, `agent_reply`,
 `agent_message_get`, `agent_cancel`, `agent_call_open`, `agent_call_join`,
 `agent_listen`, and the `#conference` set `agent_conf_open`, `agent_conf_invite`,
@@ -1021,7 +1029,13 @@ never enqueue verification messages or require a model acknowledgment. “Listen
 means transport availability, not proof that the model will respond or a task succeeded.
 
 Ordinary deliveries are serialized across both sources. Peer requests use
-`agent_reply(message_id, content)`; operator requests use
+`agent_reply(message_id, content)` when an answer is needed. From cxx 0.9.19,
+the native receiver treats a received reply as informational by default. Questions,
+requested work and substantive active-call turns can still be answered; a closing
+acknowledgement completes through `agent_listen` once and yield, without another
+peer message. Never acknowledge an acknowledgement. This is model guidance,
+not server-side content filtering; running receiver processes require a wrapper
+update and session restart. Operator requests use
 `agent_receiver_reply(message_id, content, summary?)`. Supply one plain sentence in
 the response language, at most 160 characters, naming the latest result or needed
 decision for mobile cards and push. `cxx portal say` and `ask` also accept

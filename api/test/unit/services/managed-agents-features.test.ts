@@ -12,7 +12,7 @@ import {
 import { AGENT_MESSAGING_TOOLS } from '../../../src/services/agent-messaging-tool-names.js';
 import { buildManagedMemoryBlock } from '../../../src/services/managed-agents-memory.js';
 import { HISTORIC_MANAGED_MEMORY_BLOCKS } from '../../../src/services/managed-agents-memory-legacy.js';
-import { ENGINE_CLAUDE, ENGINE_CODEX, type Engine } from '../../../src/util/engine.js';
+import { ENGINE_CLAUDE, ENGINE_CODEX, ENGINE_GROK, type Engine } from '../../../src/util/engine.js';
 import {
   DEFAULT_SECURITY_LEVELS,
   presetLevels,
@@ -92,10 +92,10 @@ describe('served document byte invariance', () => {
 
     expect(base.sha256).toBe('30abaea24c8809d8634670f0eceb3004aabb4eafb5416c78333c719e8b67e14b');
     expect(out.policy_sha256).toBe('3d8a8c754d80369c46a16c3350db8461520d3ae14b1de7ac03ad9454925ad5e5');
-    // 2026-10-07: intentionally request short companion summaries in managed instructions.
-    expect(out.features_sha256).toBe('cbc42111d8d3625718b5d9e7e19174b50ffe28be0662f76a62c7777248cfc684');
-    expect(out.managed_sha256).toBe('d8095d1d4be16980b72e5a5ce05a0a85e88d15bbcdf1441cc4f87262013ab8a3');
-    expect(sha256(out.body)).toBe('55bc3c72d62a80d4b1ce468f7fedf3d5da94ca16f0c42751d9e9fa8b213b6fab');
+    // 2026-10-07: end acknowledgement loops and add explicit opt-in publications.
+    expect(out.features_sha256).toBe('bb6c2b21b4b403b8965c2265799784f84b6e38339f21f2fc8da8e7c2861c1f83');
+    expect(out.managed_sha256).toBe('54f2fe986366bf69d389862a4c1c9cce6e7f7ae661784336eee27e9a81381acc');
+    expect(sha256(out.body)).toBe('416cf4322e2610ddee9b58c0e9581905f0145d70ec2a6e5d794e08c5f574ca0f');
   });
 });
 
@@ -664,6 +664,16 @@ describe('managed Agent Messaging guidance', () => {
     expect(body).toMatch(/not holding it, call `agent_listen` once and yield/);
     expect(body).toMatch(/instead waits and returns empty[\s\S]*nothing will wake you/i);
     expect(body).toMatch(/Say\s+`BYE` and see it acknowledged/i);
+  });
+
+  it('ends closing acknowledgements without asking the peer for another acknowledgement', () => {
+    for (const engine of [ENGINE_CODEX, ENGINE_CLAUDE, ENGINE_GROK]) {
+      const body = rendered(engine).body;
+      expect(body).toContain('reply is informational by default');
+      expect(body).toContain('Never acknowledge an acknowledgement');
+      expect(body).toContain('Austausch beendet');
+      expect(body).toMatch(/Complete that\s+delivery with `agent_listen` once and yield, without sending another peer message/);
+    }
   });
 
   it('tells a model what to do when the line is dead, not just when it is quiet', () => {

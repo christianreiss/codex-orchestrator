@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"strconv"
 	"sync"
 	"time"
 
@@ -61,7 +62,7 @@ func (q *nativeQueue) call(method string, params any, result any) error {
 	}
 	for {
 		var response struct {
-			ID     int             `json:"id"`
+			ID     json.RawMessage `json:"id"`
 			Method string          `json:"method"`
 			Result json.RawMessage `json:"result"`
 			Error  json.RawMessage `json:"error"`
@@ -71,7 +72,7 @@ func (q *nativeQueue) call(method string, params any, result any) error {
 		}
 		// Server requests and notifications belong to the terminal client. This
 		// adapter never grants native tool approvals or handles them on its behalf.
-		if response.Method != "" || response.ID != q.sequence {
+		if response.Method != "" || string(response.ID) != strconv.Itoa(q.sequence) {
 			continue
 		}
 		if len(response.Error) > 0 && string(response.Error) != "null" {
@@ -125,13 +126,20 @@ func (q *nativeQueue) identity() (string, error) {
 }
 
 func (q *nativeQueue) send(id, content string) error {
+	if q.thread == "" {
+		return errors.New("native thread identity missing")
+	}
 	var added struct {
 		Submission struct {
-			ID string `json:"id"`
+			ID       string `json:"id"`
+			ClientID string `json:"clientUserMessageId"`
 		} `json:"queuedSubmission"`
 	}
 	if err := q.call("thread/queue/add", map[string]any{"threadId": q.thread, "clientUserMessageId": id, "input": []any{map[string]any{"type": "text", "text": content}}}, &added); err != nil {
 		return err
+	}
+	if added.Submission.ID == "" || added.Submission.ClientID != id {
+		return errors.New("native queue admission receipt missing or uncorrelated")
 	}
 	// The attached native TUI consumes its queue and starts turns at its own
 	// safe boundary. Calling queue/start here races that consumer and would make

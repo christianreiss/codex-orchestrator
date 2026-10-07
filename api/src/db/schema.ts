@@ -1684,6 +1684,41 @@ export const agentBusAddresses = mysqlTable(
   }),
 );
 
+export const agentBusGroups = mysqlTable('agent_bus_groups', {
+  id: char('id', { length: 36 }).primaryKey(),
+  slug: varchar('slug', { length: 64 }).notNull(),
+  title: varchar('title', { length: 120 }).notNull(),
+  description: varchar('description', { length: 1024 }),
+  createdByAddressId: char('created_by_address_id', { length: 36 }).notNull(),
+  createdAt: varchar('created_at', { length: 100 }).notNull(),
+  updatedAt: varchar('updated_at', { length: 100 }).notNull(),
+}, (t) => ({ slugUnique: uniqueIndex('uq_agent_bus_groups_slug').on(t.slug) }));
+
+export const agentBusSubscriptions = mysqlTable('agent_bus_subscriptions', {
+  id: char('id', { length: 36 }).primaryKey(),
+  topic: varchar('topic', { length: 80 }).notNull(),
+  subscriberAddressId: char('subscriber_address_id', { length: 36 }).notNull(),
+  createdAt: varchar('created_at', { length: 100 }).notNull(),
+}, (t) => ({
+  topicAddressUnique: uniqueIndex('uq_agent_bus_subscriptions_topic_address').on(t.topic, t.subscriberAddressId),
+  addressIdx: index('idx_agent_bus_subscriptions_address').on(t.subscriberAddressId),
+}));
+
+export const agentBusPublications = mysqlTable('agent_bus_publications', {
+  id: char('id', { length: 36 }).primaryKey(),
+  topic: varchar('topic', { length: 80 }).notNull(),
+  senderAddressId: char('sender_address_id', { length: 36 }).notNull(),
+  clientMessageId: char('client_message_id', { length: 36 }).notNull(),
+  payloadSha256: char('payload_sha256', { length: 64 }).notNull(),
+  contentBytes: int('content_bytes', { unsigned: true }).notNull(),
+  ttlSeconds: int('ttl_seconds', { unsigned: true }).notNull(),
+  receipts: json('receipts').notNull(),
+  createdAt: varchar('created_at', { length: 100 }).notNull(),
+}, (t) => ({
+  senderClientUnique: uniqueIndex('uq_agent_bus_publications_sender_client').on(t.senderAddressId, t.clientMessageId),
+  rateIdx: index('idx_agent_bus_publications_rate').on(t.senderAddressId, t.createdAt),
+}));
+
 export const agentBusConversations = mysqlTable(
   'agent_bus_conversations',
   {
