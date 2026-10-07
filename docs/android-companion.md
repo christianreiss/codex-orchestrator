@@ -9,7 +9,8 @@ push. No Analytics SDK is included.
 
 **Now** shows live host requests and reachable agents needing a reply first, then
 other agents whose server-reported `relay_ready` is true. Offline, ended, idle
-without a receiver, and read-only sessions are omitted. A working agent appears
+without a receiver, and read-only sessions are omitted unless they have an unread
+reply; those retained conversations open as read-only history. A working agent appears
 only if its receiver can still accept a message. Project name, host, and engine
 identify each conversation; **Review next** opens the next decision directly.
 Each card also shows the agent's latest short summary (one sentence, at most
@@ -103,7 +104,7 @@ the app picks up newly configured Firebase identifiers and registers its token.
 Version 0.4.0 follows the Android light/dark setting with blue accents, soft surfaces,
 rounded controls and a compact, top-aligned conversation list. Host reviews and
 agents needing a reply come first. Rows show project, host/engine and the existing
-short summary; they do not imply unread or delivery state.
+short summary. Version 0.4.2 adds explicit unread reply indicators.
 
 Version 0.4.1 replaces project initials and the written engine name with bundled
 Codex, Claude and Grok vector marks, in both the list and chat header. A small
@@ -121,9 +122,51 @@ grows to four lines above the keyboard. While reading older messages, incoming
 replies leave the reading position intact and offer **New messages** to jump back.
 Pairing, settings and host-access sheets share the same theme and 48 dp targets.
 
-This is an Android-only update: existing 0.3.0 REST/WebSocket/push contracts and
-permissions remain unchanged. Agent-authored summaries still require wrapper
+The 0.4.0 and 0.4.1 appearance updates are Android-only: existing 0.3.0
+REST/WebSocket/push contracts and permissions remain unchanged. Agent-authored summaries still require wrapper
 0.9.17 or later in the running agent session. No server rollout is required.
+
+## Unread replies and launcher badges
+
+Version 0.4.2 shows the number of unread conversations in Now's header and an
+accessible indicator on each unread row. Live decisions still come first, then
+unread conversations, then other reachable agents. Unread retained sessions stay
+listed even when their agent has ended or the app is reconnecting; sending still
+requires a fresh connection and an available receiver.
+
+The authorized `/agents` snapshot exposes `reply_cursor`, the latest actual
+`assistant_message` event cursor, independently of the summary/attention preview.
+New replies create unread state even when no push was sent or the conversation
+was already open. Progress, question changes, user messages and preview edits do
+not. On first installation of this version, retained existing replies are unread
+until viewed. Reading is acknowledged only while the resumed chat is authorized,
+the list has settled at its bottom, and the latest actual reply is rendered and
+visible. Opening the chat, fetching its events, or reading older scrollback does
+not clear unread. If progress fills the event tail, the app fetches the last
+advertised reply explicitly before allowing a read receipt.
+
+Only hashed pairing identity, session identifiers and read/latest cursors are
+persisted locally, with bounded temporary identifiers for older cursorless pushes.
+No transcript or summary is stored. State survives process restarts, is isolated
+between pairings, and is pruned when authorized retention removes a conversation;
+sign-out or revocation clears it. In-flight snapshots cannot erase newer pushes.
+Transcript permission loss hides the unread overview and removes reply badges.
+
+Reply alerts use a separate private notification channel with badges disabled.
+A silent count notification supplies the launcher unread-conversation count and
+opens Now; reading the reply removes its alert and updates that summary. Android
+notification permission, channel settings and device notification opt-out are
+respected. Launcher dots/counts depend on the installed launcher and its settings,
+as described in [Android notification badges](https://developer.android.com/develop/ui/views/notifications/badges).
+The in-app unread indicators work without Firebase or notification permission.
+Attention and host-approval notifications retain their independent behavior.
+The count notification is an ordinary notification: Android's
+[Launcher3 excludes group headers](https://android.googlesource.com/platform/packages/apps/Launcher3/+/refs/heads/main/src/com/android/launcher3/notification/NotificationListener.java)
+from launcher badges, so a group-summary flag would hide the dot.
+
+Deploy the API exposing `reply_cursor` and the triggering FCM `event_cursor`
+before installing 0.4.2. These fields are additive, require no migration, and are
+redacted without transcript permission; existing APKs continue to work.
 
 ## Build and signing
 

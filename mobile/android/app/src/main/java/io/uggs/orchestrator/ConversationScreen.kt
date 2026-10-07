@@ -23,6 +23,9 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import kotlinx.coroutines.launch
 import org.json.JSONObject
 
@@ -31,9 +34,20 @@ import org.json.JSONObject
 }
 
 @Composable private fun Conversation(model: CompanionModel, agent: JSONObject?, fresh: Boolean) {
+    val sessionId = remember { model.selected }
     val prompt = agent?.optJSONObject("pending_prompt")
     val rows = remember(model.events) { chatRows(model.events) }
+    val latestAssistant = rows.filterIsInstance<ChatRow.Message>().lastOrNull { it.event.optString("type") == "assistant_message" }
+    val latestReplyCursor = latestAssistant?.event?.optLong("cursor") ?: 0
+    val expectedReplyCursor = agent?.optLong("reply_cursor") ?: 0
     val list = rememberLazyListState()
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    var foreground by remember(lifecycle) { mutableStateOf(lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) }
+    DisposableEffect(lifecycle) {
+        val observer = LifecycleEventObserver { _, _ -> foreground = lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED) }
+        lifecycle.addObserver(observer)
+        onDispose { lifecycle.removeObserver(observer) }
+    }
     val scope = rememberCoroutineScope()
     val writable = fresh && model.can("agent_portal.manage") && agent?.let(::isReachable) == true
     var followLatest by remember { mutableStateOf(true) }
@@ -70,6 +84,21 @@ import org.json.JSONObject
     }
     LaunchedEffect(rows.lastOrNull()?.key, prompt?.optString("id")) {
         if (followLatest) latest(false) else newMessages = true
+    }
+    // A snapshot/open is not a read receipt. Wait for the current assistant
+    // bubble to appear in a completed layout at the latest position while resumed.
+    LaunchedEffect(sessionId, latestReplyCursor, expectedReplyCursor, foreground, fresh) {
+        if (sessionId == null || !foreground || !fresh || latestReplyCursor <= 0 || latestReplyCursor < expectedReplyCursor) return@LaunchedEffect
+        snapshotFlow { list.layoutInfo to list.isScrollInProgress }.collect { (layout, scrolling) ->
+            val last = layout.visibleItemsInfo.lastOrNull()
+            val assistant = layout.visibleItemsInfo.firstOrNull { it.key == latestAssistant?.key }
+            val atEnd = last?.key == "end" && last.offset + last.size <= layout.viewportEndOffset
+            val rendered = assistant != null && assistant.offset < layout.viewportEndOffset && assistant.offset + assistant.size > layout.viewportStartOffset
+            if (atEnd && rendered && !scrolling && lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED) &&
+                model.selected == sessionId && agent?.optString("id") == sessionId && model.canReadSession(sessionId)) {
+                model.markConversationRead(sessionId, latestReplyCursor)
+            }
+        }
     }
     Column(Modifier.fillMaxSize()) {
         Box(Modifier.weight(1f).fillMaxWidth()) {

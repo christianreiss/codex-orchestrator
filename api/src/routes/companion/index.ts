@@ -184,6 +184,7 @@ export async function registerCompanionRoutes(app: FastifyInstance, ctx: RouteCo
             : {
                 ...session,
                 preview: null,
+                reply_cursor: null,
                 pending_prompt: null,
                 attention: session.attention
                   ? { since: (session.attention as { since: string }).since }

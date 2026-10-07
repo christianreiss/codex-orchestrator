@@ -74,14 +74,21 @@ export async function companionPreviews(
   }
   return sessions.map((session) => {
     const events = bySession.get(String(session.id));
+    // Preview priority can select an older prompt/attention event. Unread
+    // replies need their own monotonic cursor, including retained ended chats.
+    const replyCursor = Number(events?.get('assistant_message')?.id ?? 0);
     const prompt = session.pending_prompt as { id: string } | null;
     const type = prompt ? 'waiting_input' : session.attention ? 'attention' : 'assistant_message';
     const row =
       prompt && promptEvents.get(prompt.id) ? byId.get(promptEvents.get(prompt.id)!) : events?.get(type);
-    if (!row) return { ...session, preview: null };
+    if (!row) return { ...session, preview: null, reply_cursor: replyCursor };
     const payload = decodeSummaryPayload(row.payloadEnc, ctx);
     // An older, still-open question must never inherit a newer question's summary.
     const summary = eventSummary(type, prompt && payload.prompt_id !== prompt.id ? {} : payload);
-    return { ...session, preview: { summary, cursor: Number(row.id), created_at: row.createdAt } };
+    return {
+      ...session,
+      preview: { summary, cursor: Number(row.id), created_at: row.createdAt },
+      reply_cursor: replyCursor,
+    };
   });
 }

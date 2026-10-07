@@ -1395,7 +1395,7 @@ Device credentials expire after one year; pairing again creates a new device.
 - `GET /companion/v1/me` — identity, current capabilities, public Firebase configuration, notification preference, and followed session IDs.
 - `PATCH /companion/v1/device` — optional `fcm_token` (nullable), `notifications` boolean, `visible_session_id` (nullable UUID); updates last-seen time. Visible-session suppression expires after 45 seconds.
 - `DELETE /companion/v1/device` — self-revoke on logout.
-- `GET /companion/v1/agents` — portal snapshot (`agents`, `generated_at`, `timings`), using `agent_portal.read`. With transcript permission, each agent also has `preview: {summary,cursor,created_at} | null`; open questions/attention take priority over the latest assistant reply. Summaries are whitespace-normalized and limited to 160 Unicode characters. A reply lacking a summary uses a neutral notice, never an older preview or full response excerpt. Without transcript permission, preview is null.
+- `GET /companion/v1/agents` — portal snapshot (`agents`, `generated_at`, `timings`), using `agent_portal.read`. With transcript permission, each agent also has `preview: {summary,cursor,created_at} | null`; open questions/attention take priority over the latest assistant reply. Independent numeric `reply_cursor` is the latest `assistant_message` event ID, or 0 when none; prompt/attention priority never changes it. It remains available for retained offline/ended conversations. Summaries are whitespace-normalized and limited to 160 Unicode characters. A reply lacking a summary uses a neutral notice, never an older preview or full response excerpt. Without transcript permission, preview and reply cursor are null. Device-local reply-read watermarks use `reply_cursor`, never the preview cursor or lifecycle timestamps.
 - `GET /companion/v1/agents/{id}/events` — bounded timeline, `after` cursor and optional `tail=1`; requires `agent_portal.reveal_transcript`.
 - `GET /companion/v1/ws` — native Bearer WebSocket, independent of `ADMIN_WS_ENABLED`. Sends `{type:"hello",ts}`, `{type:"changed",scopes:["me"|"agents"|"approvals"],ts}`, and `{type:"ping",ts}`. Scopes are capability-filtered invalidations for the existing REST reads, never admin event bodies or transcript text. A shared five-second reconciliation covers time-based state changes; ordinary changes publish immediately. Rechecks credentials/permissions and the global API kill switch, emits heartbeats every 15 seconds, and closes slow/disconnected clients. Revocation closes with 4001; transient/disabled service uses 1013. Reconnect refreshes snapshots and resumes the selected transcript by cursor.
 - `GET /companion/v1/events` — legacy resumable foreground SSE using `after` and optional `session_id`; rechecks device/account authorization and portal state each page, closes slow readers. Retained for older APKs.
@@ -1414,7 +1414,12 @@ meaning; the app never wakes engines or bypasses their host assignment.
 A durable per-device outbox scans committed portal events and live host requests
 every five seconds. It notifies questions/attention and followed replies, skips
 routine activity, and sends opaque IDs plus the source event's short `summary`
-through FCM for agent notifications. Full response text is never sent. The optional
+through FCM for agent notifications. Agent payloads additionally carry optional
+`event_cursor`, a decimal string identifying the exact outbox source event;
+approvals omit it. Retries preserve the same event cursor even if newer replies
+arrive. Reply badges compare it with device-local read watermarks; push receipt
+does not acknowledge a reply. REST snapshots reconcile suppressed/missed pushes
+and older payloads without this field. Full response text is never sent. The optional
 summary uses the existing encrypted event payload; no schema migration is needed.
 Jobs have unique source
 keys, expiring claims, up to eight attempts, and expiry capped at the request's

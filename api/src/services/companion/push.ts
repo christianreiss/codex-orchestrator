@@ -219,6 +219,7 @@ export class CompanionPush {
             event?.eventType ?? 'assistant_message',
             event ? decodeSummaryPayload(event.payloadEnc, this.ctx) : {},
           );
+          if (event) data.event_cursor = String(event.id);
         }
         const outcome = await this.transport.send(
           decrypt(row.device.fcmTokenEnc!, keyring),

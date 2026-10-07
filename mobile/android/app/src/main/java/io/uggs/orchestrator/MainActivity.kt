@@ -49,9 +49,9 @@ class MainActivity : ComponentActivity() {
     var clock by remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(Unit) { while (true) { clock = System.currentTimeMillis(); kotlinx.coroutines.delay(1000) } }
     val fresh = model.fresh()
-    val agents = if (fresh && model.can("agent_portal.manage") && model.can("agent_portal.reveal_transcript")) readyAgents(model.agents) else emptyList()
+    val agents = model.overviewAgents()
     val requests = if (fresh) model.approvals.filter { liveApproval(it, clock) } else emptyList()
-    val needsYou = agents.filter(::needsReply)
+    val needsYou = if (fresh && model.can("agent_portal.manage")) agents.filter { isReachable(it) && needsReply(it) } else emptyList()
     val total = requests.size + needsYou.size
     val current = model.agents.firstOrNull { it.optString("id") == model.selected }
     val snackbar = remember { SnackbarHostState() }
@@ -76,8 +76,11 @@ class MainActivity : ComponentActivity() {
                             style = if (model.selected == null && model.connection != null) MaterialTheme.typography.headlineLarge else MaterialTheme.typography.titleLarge)
                     }
                     if (model.selected != null) HostBadge(current)
-                    if (model.connection != null && (!fresh || model.selected == null)) Text(if (!fresh) "Reconnecting…" else if (total == 1) "1 needs you" else if (total > 0) "$total need you" else "All clear",
-                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    if (model.connection != null && (!fresh || model.selected == null)) {
+                        val attentionStatus = if (!fresh) "Reconnecting…" else if (total == 1) "1 needs you" else if (total > 0) "$total need you" else if (model.unreadCount == 0) "All clear" else null
+                        val unreadStatus = if (model.selected == null && model.unreadCount > 0) if (model.unreadCount == 1) "1 unread chat" else "${model.unreadCount} unread chats" else null
+                        Text(listOfNotNull(unreadStatus, attentionStatus).joinToString(" · "), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
                 }
                 if (model.connection != null) FilledTonalIconButton(onClick = { more = true }, modifier = Modifier.size(48.dp)) { CompanionIcon(CompanionSymbol.More, "More") }
             }

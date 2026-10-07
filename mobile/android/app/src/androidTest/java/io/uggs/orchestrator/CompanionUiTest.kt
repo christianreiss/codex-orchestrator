@@ -3,6 +3,7 @@ package io.uggs.orchestrator
 import android.Manifest
 import android.app.NotificationManager
 import androidx.lifecycle.Lifecycle
+import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.test.core.app.ActivityScenario
@@ -40,6 +41,14 @@ class CompanionUiTest {
     private val approved = AtomicBoolean(false)
     private val questionPending = AtomicBoolean(false)
     private val reachable = AtomicBoolean(true)
+    private val readOnly = AtomicBoolean(false)
+    private val presence = AtomicReference("listening")
+    private val sessionListed = AtomicBoolean(true)
+    private val networkAvailable = AtomicBoolean(true)
+    private val transcriptAllowed = AtomicBoolean(true)
+    private val holdTranscript = AtomicBoolean(false)
+    private val transcriptRequested = AtomicBoolean(false)
+    private val agentsRequested = AtomicLong(0)
     private val answered = AtomicReference<String?>(null)
     private var expiresAt = Instant.now().plusSeconds(120)
     private val sent = AtomicReference<String?>(null)
@@ -76,6 +85,7 @@ class CompanionUiTest {
         server.dispatcher = object : Dispatcher() {
             override fun dispatch(request: RecordedRequest): MockResponse {
                 if (request.getHeader("Authorization") != "Bearer ${"a".repeat(64)}") return MockResponse().setResponseCode(401)
+                if (!networkAvailable.get()) return MockResponse().setResponseCode(503)
                 val path = request.path!!.substringBefore('?').removePrefix("/companion/v1")
                 if (path == "/ws") return MockResponse().withWebSocketUpgrade(object : WebSocketListener() {
                     override fun onOpen(webSocket: WebSocket, response: Response) { live.set(webSocket); webSocket.send("""{"type":"hello"}""") }
@@ -83,18 +93,35 @@ class CompanionUiTest {
                     override fun onClosed(webSocket: WebSocket, code: Int, reason: String) { live.compareAndSet(webSocket, null) }
                 })
                 val body = when {
-                    path == "/me" -> """{"device_id":"test-device","name":"Operator","capabilities":["agent_portal.read","agent_portal.reveal_transcript","agent_portal.manage","hosts.activate_insecure"],"notifications":true,"follows":[],"firebase":${firebase ?: "null"}}"""
+                    path == "/me" -> {
+                        val capabilities = mutableListOf("agent_portal.read", "agent_portal.manage", "hosts.activate_insecure")
+                        if (transcriptAllowed.get()) capabilities.add("agent_portal.reveal_transcript")
+                        """{"device_id":"test-device","name":"Operator","capabilities":${org.json.JSONArray(capabilities)},"notifications":true,"follows":[],"firebase":${firebase ?: "null"}}"""
+                    }
                     path == "/device" && request.method == "PATCH" -> {
                         val body = JSONObject(request.body.readUtf8())
                         if (body.has("fcm_token")) registeredToken.set(body.getString("fcm_token"))
                         "{}"
                     }
-                    path == "/agents" -> """{"agents":[{"id":"$session","host":${JSONObject.quote(fixtureHost)},"engine":${JSONObject.quote(fixtureEngine)},"cwd":${JSONObject.quote("/work/$fixtureProject")},"presence":"listening","relay_ready":${reachable.get()},"preview":{"summary":${JSONObject.quote(if (questionPending.get()) "Choose a target." else summary.get())}},"pending_prompt":${if (questionPending.get()) """{"id":"question-1","version":1,"question":"Which target?","options":["Staging","Production"]}""" else "null"}},{"id":"offline","host":"offline.uggs.io","cwd":"/old/offline-project","presence":"offline","relay_ready":false},{"id":"idle","host":"idle.uggs.io","cwd":"/old/idle-project","presence":"idle","relay_ready":false}]}"""
+                    path == "/agents" -> {
+                        agentsRequested.incrementAndGet()
+                        val assistantCursor = if (history.isEmpty()) cursor.get() else history.filter { it.optString("type") == "assistant_message" }.maxOfOrNull { it.getLong("cursor") } ?: 0
+                        val preview = if (transcriptAllowed.get()) """{"summary":${JSONObject.quote(if (questionPending.get()) "Choose a target." else summary.get())}}""" else "null"
+                        val replyCursor = if (transcriptAllowed.get()) assistantCursor.toString() else "null"
+                        val emptyCursor = if (transcriptAllowed.get()) "0" else "null"
+                        val primary = if (!sessionListed.get()) "" else """{"id":"$session","host":${JSONObject.quote(fixtureHost)},"engine":${JSONObject.quote(fixtureEngine)},"cwd":${JSONObject.quote("/work/$fixtureProject")},"presence":${JSONObject.quote(presence.get())},"read_only":${readOnly.get()},"relay_ready":${reachable.get()},"reply_cursor":$replyCursor,"preview":$preview,"pending_prompt":${if (transcriptAllowed.get() && questionPending.get()) """{"id":"question-1","version":1,"question":"Which target?","options":["Staging","Production"]}""" else "null"}},"""
+                        """{"agents":[$primary{"id":"offline","host":"offline.uggs.io","cwd":"/old/offline-project","presence":"offline","relay_ready":false,"reply_cursor":$emptyCursor},{"id":"idle","host":"idle.uggs.io","cwd":"/old/idle-project","presence":"idle","relay_ready":false,"reply_cursor":$emptyCursor}]}"""
+                    }
                     path == "/agents/$session/events" -> {
+                        transcriptRequested.set(true)
+                        while (holdTranscript.get()) Thread.sleep(20)
+                        if (!transcriptAllowed.get()) return MockResponse().setResponseCode(403).setHeader("Content-Type", "application/json").setBody("""{"code":"capability_required","message":"Capability required"}""")
                         val after = request.requestUrl?.queryParameter("after")?.toLongOrNull() ?: -1
                         cursorsRequested.add(after)
-                        val rows = if (history.isNotEmpty()) history.filter { it.getLong("cursor") > after }.joinToString(",") { it.toString() } else if (after >= cursor.get()) "" else """{"cursor":${cursor.get()},"type":"assistant_message","payload":{"text":${JSONObject.quote(reply.get())}}}"""
-                        """{"events":[$rows],"next_cursor":${cursor.get()}}"""
+                        val page = if (request.requestUrl?.queryParameter("tail") == "1") history.takeLast(250) else history.filter { it.getLong("cursor") > after }.take(250)
+                        val rows = if (history.isNotEmpty()) page.joinToString(",") { it.toString() } else if (after >= cursor.get()) "" else """{"cursor":${cursor.get()},"type":"assistant_message","payload":{"text":${JSONObject.quote(reply.get())}}}"""
+                        val next = if (history.isNotEmpty()) page.lastOrNull()?.getLong("cursor") ?: after.coerceAtLeast(0) else cursor.get()
+                        """{"events":[$rows],"next_cursor":$next}"""
                     }
                     path == "/approvals" -> if (approved.get()) """{"requests":[],"default_duration_minutes":480}""" else """{"requests":[{"id":42,"fqdn":"waiting.uggs.io","request_ip":"192.0.2.42","live":true,"expires_at":"${expiresAt}"}],"default_duration_minutes":480}"""
                     path == "/approvals/42/approve" -> { approved.set(true); "{}" }
@@ -111,12 +138,14 @@ class CompanionUiTest {
         }
         server.start()
         heartbeat.scheduleAtFixedRate({ live.get()?.send("""{"type":"ping"}""") }, 15, 15, TimeUnit.SECONDS)
+        UnreadStore(context).clear()
         ConnectionStore(context).save(Connection(server.url("/").toString().trimEnd('/'), "a".repeat(64), "test-device", firebase))
         if (firebase != null) configurePush(context, ConnectionStore(context).load()!!)
         if (android.os.Build.VERSION.SDK_INT >= 33) InstrumentationRegistry.getInstrumentation().uiAutomation.grantRuntimePermission(context.packageName, Manifest.permission.POST_NOTIFICATIONS)
         scenario = ActivityScenario.launch(MainActivity::class.java)
     }
     @After fun cleanup() {
+        holdTranscript.set(false)
         scenario.close()
         heartbeat.shutdownNow()
         live.getAndSet(null)?.close(1001, "Test finished")
@@ -124,6 +153,7 @@ class CompanionUiTest {
         context.deleteFile("fcm-delivery-test.json")
         context.getSystemService(NotificationManager::class.java).cancelAll()
         ConnectionStore(context).clear()
+        UnreadStore(context).clear()
         Api.client = originalClient
         server.shutdown()
     }
@@ -199,6 +229,7 @@ class CompanionUiTest {
     @Test fun unreachableAgentDisablesSendingAndKeepsDraft() {
         compose.waitUntil(15000) { compose.onAllNodesWithText("project").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithText("project").performClick()
+        waitForUnread(emptySet())
         compose.onNode(hasSetTextAction()).performTextInput("Keep this draft")
         reachable.set(false)
         changed("agents")
@@ -220,18 +251,150 @@ class CompanionUiTest {
         compose.onNodeWithText("Deny").assertIsNotEnabled()
         Assert.assertFalse(approved.get())
     }
-    @Test fun staleNotificationCannotOpenUnreachableAgent() {
+    @Test fun staleNotificationCannotOpenRemovedConversation() {
         compose.waitUntil(15000) { compose.onAllNodesWithText("project").fetchSemanticsNodes().isNotEmpty() }
-        reachable.set(false)
+        sessionListed.set(false)
         scenario.onActivity { activity ->
             activity.startActivity(android.content.Intent(activity, MainActivity::class.java)
                 .addFlags(android.content.Intent.FLAG_ACTIVITY_SINGLE_TOP)
                 .putExtra("kind", "agent").putExtra("target_id", session))
         }
-        compose.waitUntil(10000) { compose.onAllNodesWithText("Agent is no longer reachable").fetchSemanticsNodes(atLeastOneRootRequired = false).isNotEmpty() }
+        compose.waitUntil(10000) { compose.onAllNodesWithText("Conversation is no longer available").fetchSemanticsNodes(atLeastOneRootRequired = false).isNotEmpty() }
         compose.onNodeWithText("Ready for your message.").assertDoesNotExist()
         compose.onNode(hasSetTextAction()).assertDoesNotExist()
         compose.onNodeWithText("project").assertDoesNotExist()
+        waitForUnread(emptySet())
+    }
+    @Test fun unreadReplyCountDeduplicatesAndWaitsForTheRenderedReply() {
+        compose.waitUntil(15000) { compose.onAllNodesWithTag("agent:$session").fetchSemanticsNodes().isNotEmpty() }
+        waitForUnread(setOf(session))
+        compose.onNodeWithTag("agent:$session").assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "Unread reply"))
+        compose.onNodeWithText("1 unread chat", substring = true).assertIsDisplayed()
+        summary.set("The build is still running.")
+        changed("agents")
+        compose.waitUntil(3000) { compose.onAllNodesWithText(summary.get()).fetchSemanticsNodes().isNotEmpty() }
+        val beforeDuplicate = agentsRequested.get()
+        changed("agents")
+        compose.waitUntil(3000) { agentsRequested.get() > beforeDuplicate }
+        waitForUnread(setOf(session))
+        screenshot("unread-overview")
+
+        holdTranscript.set(true)
+        try {
+            compose.onNodeWithTag("agent:$session").performClick()
+            compose.waitUntil(5000) { transcriptRequested.get() }
+            Assert.assertEquals("Opening a chat and fetching its snapshot must not mark an unseen reply read", setOf(session), unreadIds())
+        } finally { holdTranscript.set(false) }
+        compose.waitUntil(10000) { compose.onAllNodesWithText(reply.get()).fetchSemanticsNodes().isNotEmpty() }
+        waitForUnread(emptySet())
+        compose.onNodeWithContentDescription("Back").performClick()
+        compose.waitUntil(10000) { compose.onAllNodesWithTag("agent:$session").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("agent:$session").assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "Read"))
+        compose.onNodeWithText("1 unread chat", substring = true).assertDoesNotExist()
+
+        reply.set("A fresh reply after your last read."); cursor.set(2)
+        changed("agents")
+        waitForUnread(setOf(session))
+        val beforeNewDuplicate = agentsRequested.get()
+        changed("agents")
+        compose.waitUntil(3000) { agentsRequested.get() > beforeNewDuplicate }
+        Assert.assertEquals("Repeated delivery counts conversations once", setOf(session), unreadIds())
+        compose.onNodeWithTag("agent:$session").performClick()
+        compose.waitUntil(10000) { compose.onAllNodesWithText(reply.get()).fetchSemanticsNodes().isNotEmpty() }
+        waitForUnread(emptySet())
+    }
+    @Test fun unreadEndedConversationOpensAsReadOnlyHistory() {
+        compose.waitUntil(15000) { compose.onAllNodesWithTag("agent:$session").fetchSemanticsNodes().isNotEmpty() }
+        waitForUnread(setOf(session))
+        reachable.set(false); readOnly.set(true); presence.set("ended")
+        changed("agents")
+        compose.waitUntil(5000) { compose.onAllNodesWithText("Conversation history · read only").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("agent:$session").assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "Unread reply"))
+        screenshot("unread-ended-history")
+        compose.onNodeWithTag("agent:$session").performClick()
+        compose.waitUntil(10000) { compose.onAllNodesWithText(reply.get()).fetchSemanticsNodes().isNotEmpty() }
+        waitForUnread(emptySet())
+        compose.onNode(hasSetTextAction()).performTextInput("Keep this as a draft")
+        compose.onNodeWithContentDescription("Send").assertIsNotEnabled()
+        compose.onNodeWithText(reply.get()).assertIsDisplayed()
+        Assert.assertNull(sent.get())
+        compose.onNodeWithContentDescription("Back").performClick()
+        compose.onNodeWithTag("agent:$session").assertDoesNotExist()
+    }
+    @Test fun unreadOverviewSurvivesNetworkLossAndReconnect() {
+        compose.waitUntil(15000) { compose.onAllNodesWithTag("agent:$session").fetchSemanticsNodes().isNotEmpty() }
+        waitForUnread(setOf(session))
+        networkAvailable.set(false)
+        live.getAndSet(null)?.close(1012, "Fixture network loss")
+        try {
+            compose.waitUntil(10000) { compose.onAllNodesWithText("Reconnecting…", substring = true).fetchSemanticsNodes().isNotEmpty() }
+            compose.onNodeWithTag("agent:$session").assertIsDisplayed()
+            Assert.assertEquals(setOf(session), unreadIds())
+            screenshot("unread-reconnecting")
+        } finally { networkAvailable.set(true) }
+        compose.waitUntil(15000) { compose.onAllNodesWithText("Reconnecting…", substring = true).fetchSemanticsNodes().isEmpty() }
+        compose.onNodeWithTag("agent:$session").assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "Unread reply"))
+        compose.onNodeWithTag("agent:$session").performClick()
+        compose.waitUntil(10000) { compose.onAllNodesWithText(reply.get()).fetchSemanticsNodes().isNotEmpty() }
+        waitForUnread(emptySet())
+    }
+    @Test fun latestReplyIsRecoveredWhenProgressFillsTheTranscriptTail() {
+        compose.waitUntil(15000) { compose.onAllNodesWithTag("agent:$session").fetchSemanticsNodes().isNotEmpty() }
+        val text = "The reply remains readable after a long build log."
+        history.add(JSONObject().put("cursor", 10).put("type", "assistant_message").put("payload", JSONObject().put("text", text)))
+        for (i in 11..270) history.add(JSONObject().put("cursor", i).put("type", "progress").put("payload", JSONObject().put("text", "INTERNAL_LIFECYCLE")))
+        cursor.set(270); changed("agents")
+        compose.waitUntil(5000) { UnreadStore(InstrumentationRegistry.getInstrumentation().targetContext).latestCursor(session) == 10L }
+        waitForUnread(setOf(session))
+        compose.onNodeWithTag("agent:$session").performClick()
+        compose.waitUntil(10000) { compose.onAllNodesWithText(text).fetchSemanticsNodes().isNotEmpty() }
+        Assert.assertTrue("The default tail really omitted the assistant reply", cursorsRequested.contains(-1))
+        Assert.assertTrue("The exact reply is fetched after its preceding cursor", cursorsRequested.contains(9))
+        compose.onNodeWithText(text).assertIsDisplayed()
+        compose.onNodeWithText("INTERNAL_LIFECYCLE").assertDoesNotExist()
+        waitForUnread(emptySet())
+        screenshot("unread-recovered-reply")
+    }
+    @Test fun transcriptPermissionLossHidesUnreadWithoutAcknowledgingIt() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val manager = context.getSystemService(NotificationManager::class.java)
+        val preferences = context.getSharedPreferences(UnreadStore.PREFERENCES, android.content.Context.MODE_PRIVATE)
+        fun ownedNotifications() = manager.activeNotifications.filter { it.notification.extras.getString(NOTIFICATION_KIND) in setOf("reply", "unread") }
+        compose.waitUntil(15000) { compose.onAllNodesWithTag("agent:$session").fetchSemanticsNodes().isNotEmpty() }
+        for (i in 1..40) history.add(JSONObject().put("cursor", i).put("type", "assistant_message")
+            .put("payload", JSONObject().put("text", "Earlier history reply $i.")))
+        cursor.set(40); changed("agents")
+        compose.waitUntil(5000) { UnreadStore(context).latestCursor(session) == 40L }
+        compose.onNodeWithTag("agent:$session").performClick()
+        compose.waitUntil(10000) { compose.onAllNodesWithText("Earlier history reply 40.").fetchSemanticsNodes().isNotEmpty() }
+        waitForUnread(emptySet())
+        compose.onNodeWithTag("conversation").performScrollToIndex(0)
+        compose.onNodeWithText("Earlier history reply 1.").assertIsDisplayed()
+        history.add(JSONObject().put("cursor", 41).put("type", "assistant_message").put("payload", JSONObject().put("text", "An unseen reply still requires transcript permission.")))
+        cursor.set(41); changed("agents")
+        compose.waitUntil(5000) { compose.onAllNodesWithText("New messages").fetchSemanticsNodes().isNotEmpty() }
+        waitForUnread(setOf(session))
+        compose.waitUntil(5000) { ownedNotifications().any { it.notification.extras.getString(NOTIFICATION_KIND) == "unread" && it.notification.number == 1 } }
+        val ledger = preferences.getString("state", null)
+        Assert.assertEquals(40L, JSONObject(ledger!!).getJSONObject("sessions").getJSONObject(session).getLong("read"))
+
+        transcriptAllowed.set(false); changed("me")
+        compose.waitUntil(10000) { compose.onAllNodesWithTag("conversation").fetchSemanticsNodes().isEmpty() && ownedNotifications().isEmpty() }
+        compose.onNodeWithTag("agent:$session").assertDoesNotExist()
+        compose.onNodeWithText("1 unread chat", substring = true).assertDoesNotExist()
+        compose.onNodeWithText("Earlier history reply 1.").assertDoesNotExist()
+        compose.onNode(hasSetTextAction()).assertDoesNotExist()
+        Assert.assertEquals("Losing permission must preserve the last actual read marker and unseen reply", ledger, preferences.getString("state", null))
+        Assert.assertEquals(setOf(session), unreadIds())
+        screenshot("unread-permission-hidden")
+
+        transcriptAllowed.set(true); changed("me")
+        compose.waitUntil(10000) { compose.onAllNodesWithTag("agent:$session").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("agent:$session").assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "Unread reply"))
+        compose.onNodeWithText("1 unread chat", substring = true).assertIsDisplayed()
+        Assert.assertEquals("A restored snapshot still is not a read receipt", ledger, preferences.getString("state", null))
+        compose.waitUntil(5000) { ownedNotifications().any { it.notification.extras.getString(NOTIFICATION_KIND) == "unread" && it.notification.number == 1 } }
+        screenshot("unread-permission-restored")
     }
     @Test fun liveSummaryAndChatUpdateWithoutRefresh() {
         compose.waitUntil(15000) { compose.onAllNodesWithText("project").fetchSemanticsNodes().isNotEmpty() }
@@ -270,21 +433,34 @@ class CompanionUiTest {
         val manager = context.getSystemService(NotificationManager::class.java)
         compose.waitUntil(15000) { compose.onAllNodesWithText("project").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithText("project").performClick()
-        compose.waitUntil(10000) { VisibleConversation.session == session }
+        compose.waitUntil(10000) { VisibleConversation.session == session && compose.onAllNodesWithText(reply.get()).fetchSemanticsNodes().isNotEmpty() }
+        waitForUnread(emptySet())
         val id = java.util.UUID.randomUUID().toString()
-        val data = mapOf("device_id" to "test-device", "notification_id" to id, "kind" to "reply", "target_id" to session, "summary" to "DNS fixed; restart needs approval.")
+        val data = mapOf("device_id" to "test-device", "notification_id" to id, "kind" to "reply", "target_id" to session, "event_cursor" to "2", "summary" to "DNS fixed; restart needs approval.")
         showCompanionNotification(context, data)
-        Assert.assertTrue(manager.activeNotifications.isEmpty())
+        fun replies() = manager.activeNotifications.filter { it.notification.extras.getString(NOTIFICATION_KIND) == "reply" && it.notification.extras.getString(NOTIFICATION_TARGET) == session }
+        compose.waitUntil(5000) { replies().singleOrNull()?.notification?.extras?.getLong(NOTIFICATION_CURSOR) == 2L }
+        val visible = replies().single()
+        Assert.assertTrue("Visible replies are recorded without another alert", visible.notification.flags and android.app.Notification.FLAG_ONLY_ALERT_ONCE != 0)
+        Assert.assertEquals(setOf(session), unreadIds())
         scenario.moveToState(Lifecycle.State.CREATED)
-        showCompanionNotification(context, data); showCompanionNotification(context, data)
-        compose.waitUntil(5000) { manager.activeNotifications.isNotEmpty() }
-        val shown = manager.activeNotifications.single().notification
-        Assert.assertEquals(data["summary"], shown.extras.getString("android.text"))
-        Assert.assertEquals(data["summary"], shown.extras.getCharSequence("android.bigText").toString())
+        val background = data + mapOf("notification_id" to java.util.UUID.randomUUID().toString(), "event_cursor" to "3")
+        showCompanionNotification(context, background)
+        compose.waitUntil(5000) { replies().singleOrNull()?.notification?.extras?.getLong(NOTIFICATION_CURSOR) == 3L }
+        val receipt = replies().single()
+        showCompanionNotification(context, background)
+        Assert.assertEquals("Replies in one conversation share one notification", visible.key, replies().single().key)
+        Assert.assertEquals("A duplicate push does not repost the alert", receipt.postTime, replies().single().postTime)
+        val shown = receipt.notification
+        Assert.assertEquals(background["summary"], shown.extras.getString("android.text"))
+        Assert.assertEquals(background["summary"], shown.extras.getCharSequence("android.bigText").toString())
         Assert.assertEquals(android.app.Notification.VISIBILITY_PRIVATE, shown.visibility)
+        reply.set(background.getValue("summary")); cursor.set(3)
         scenario.moveToState(Lifecycle.State.RESUMED)
         shown.contentIntent.send()
-        compose.waitUntil(10000) { compose.onAllNodesWithText("Ready for your message.").fetchSemanticsNodes().isNotEmpty() }
+        compose.waitUntil(10000) { compose.onAllNodesWithText(reply.get()).fetchSemanticsNodes().isNotEmpty() }
+        waitForUnread(emptySet())
+        compose.waitUntil(5000) { replies().isEmpty() && manager.activeNotifications.none { it.notification.extras.getString(NOTIFICATION_KIND) == "unread" } }
     }
     @Test fun newMessagesRespectHistoryAndComposerRemainsVisibleWithKeyboard() {
         compose.waitUntil(15000) { compose.onAllNodesWithText("project").fetchSemanticsNodes().isNotEmpty() }
@@ -299,17 +475,26 @@ class CompanionUiTest {
                 .put("created_at", start.plusSeconds(i * 30L).toString()).put("payload", JSONObject().put("text", text)))
         }
         cursor.set(40)
+        changed("agents")
+        compose.waitUntil(5000) { UnreadStore(InstrumentationRegistry.getInstrumentation().targetContext).latestCursor(session) == 40L }
         compose.onNodeWithText("project").performClick()
         compose.waitUntil(10000) { compose.onAllNodesWithText("The checks passed. Ready when you are.").fetchSemanticsNodes().isNotEmpty() }
+        waitForUnread(emptySet())
         compose.onNodeWithTag("conversation").performScrollToIndex(0)
         compose.onNodeWithText("Earlier message to keep reading.").assertIsDisplayed()
         history.add(JSONObject().put("cursor", 41).put("type", "assistant_message").put("created_at", Instant.now().toString()).put("payload", JSONObject().put("text", "A new result arrived while you were reading.")))
         cursor.set(41); changed("agents")
         try { compose.waitUntil(5000) { compose.onAllNodesWithText("New messages").fetchSemanticsNodes().isNotEmpty() } } catch (failure: Throwable) { screenshot("history-failure"); throw failure }
         compose.onNodeWithText("Earlier message to keep reading.").assertIsDisplayed()
+        waitForUnread(setOf(session))
+        val beforeDuplicate = agentsRequested.get()
+        changed("agents")
+        compose.waitUntil(5000) { agentsRequested.get() > beforeDuplicate && cursorsRequested.contains(41) }
+        Assert.assertEquals("Scrollback must retain an unseen later reply through duplicate snapshots", setOf(session), unreadIds())
         screenshot("history")
         compose.onNodeWithText("New messages").performClick()
         compose.onNodeWithText("A new result arrived while you were reading.").assertIsDisplayed()
+        waitForUnread(emptySet())
         val draft = "Looks good. Please keep the current configuration."
         compose.onNode(hasSetTextAction()).performClick().performTextInput(draft)
         waitForKeyboard()
@@ -320,10 +505,13 @@ class CompanionUiTest {
         catch (failure: Throwable) { screenshot("send-failure"); throw AssertionError("Sent content: ${sent.get()}; cursor: ${cursor.get()}; requested: $cursorsRequested", failure) }
         compose.onNodeWithText(draft).assertIsDisplayed()
         compose.onNodeWithContentDescription("Send").assertIsDisplayed()
+        Assert.assertTrue("The outgoing user message does not create an unread reply", unreadIds().isEmpty())
         screenshot("modern-chat-keyboard")
     }
 
     private fun changed(scope: String) { Assert.assertTrue(live.get()?.send("""{"type":"changed","scopes":["$scope"]}""") == true) }
+    private fun unreadIds() = UnreadStore(InstrumentationRegistry.getInstrumentation().targetContext).unreadIds()
+    private fun waitForUnread(expected: Set<String>) { compose.waitUntil(10000) { unreadIds() == expected } }
     private fun waitForKeyboard() {
         compose.waitUntil(5000) {
             var visible = false

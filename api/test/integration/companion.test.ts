@@ -8,6 +8,7 @@ import { runMigrations } from '../../src/db/migrator.js';
 import {
   adminUsers,
   agentEvents,
+  agentSessions,
   companionDevices,
   companionFollows,
   companionNotifications,
@@ -196,7 +197,7 @@ describe.skipIf(!handle)('Android companion with real MySQL', { timeout: 120_000
       .update(companionDevices)
       .set({ fcmTokenEnc: encrypt('test-token', ctx.keyring) })
       .where(eq(companionDevices.id, connection.device_id));
-    await db.insert(agentEvents).values({
+    const [originalEvent] = await db.insert(agentEvents).values({
       sessionId,
       clientEventId: randomUUID(),
       eventType: 'assistant_message',
@@ -216,16 +217,14 @@ describe.skipIf(!handle)('Android companion with real MySQL', { timeout: 120_000
       .where(eq(companionNotifications.deviceId, connection.device_id));
     const reply = rows.find((r) => r.kind === 'reply')!;
     expect(reply.state).toBe('pending');
-    await db
-      .insert(agentEvents)
-      .values({
-        sessionId,
-        clientEventId: randomUUID(),
-        eventType: 'assistant_message',
-        source: 'bridge',
-        payloadEnc: encrypt(JSON.stringify({ text: 'later reply', summary: 'Later result.' }), ctx.keyring),
-        createdAt: nowIso(),
-      });
+    await db.insert(agentEvents).values({
+      sessionId,
+      clientEventId: randomUUID(),
+      eventType: 'assistant_message',
+      source: 'bridge',
+      payloadEnc: encrypt(JSON.stringify({ text: 'later reply', summary: 'Later result.' }), ctx.keyring),
+      createdAt: nowIso(),
+    });
     await db
       .update(companionNotifications)
       .set({ nextAttemptAt: isoOffsetSeconds(-1) })
@@ -236,8 +235,11 @@ describe.skipIf(!handle)('Android companion with real MySQL', { timeout: 120_000
     expect(send.mock.calls.filter((c) => c[1].notification_id === reply.id).map((c) => c[1].summary)).toEqual(
       ['Original result.', 'Original result.'],
     );
+    expect(
+      send.mock.calls.filter((c) => c[1].notification_id === reply.id).map((c) => c[1].event_cursor),
+    ).toEqual([String(originalEvent.insertId), String(originalEvent.insertId)]);
     expect(send.mock.calls[0]![1]).not.toHaveProperty('text');
-    await db.insert(agentEvents).values({
+    const [attentionEvent] = await db.insert(agentEvents).values({
       sessionId,
       clientEventId: randomUUID(),
       eventType: 'attention',
@@ -247,14 +249,17 @@ describe.skipIf(!handle)('Android companion with real MySQL', { timeout: 120_000
     });
     send.mockResolvedValue('invalid');
     await worker.tick();
+    expect(send.mock.calls.find((c) => c[1].kind === 'attention')?.[1].event_cursor).toBe(
+      String(attentionEvent.insertId),
+    );
     expect(
       (await db.select().from(companionDevices).where(eq(companionDevices.id, connection.device_id)))[0]!
         .fcmTokenEnc,
     ).toBeNull();
   });
   it('projects the latest reply, prioritizes an active question and never reuses an older summary', async () => {
-    const put = async (type: string, payload: Record<string, unknown>) =>
-      db.insert(agentEvents).values({
+    const put = async (type: string, payload: Record<string, unknown>) => {
+      const [result] = await db.insert(agentEvents).values({
         sessionId,
         clientEventId: randomUUID(),
         eventType: type,
@@ -262,29 +267,113 @@ describe.skipIf(!handle)('Android companion with real MySQL', { timeout: 120_000
         payloadEnc: encrypt(JSON.stringify(payload), ctx.keyring),
         createdAt: nowIso(),
       });
-    await put('assistant_message', { text: 'Full answer', summary: 'Build passed.' });
+      return result.insertId;
+    };
+    const firstReply = await put('assistant_message', { text: 'Full answer', summary: 'Build passed.' });
     const base = { id: sessionId, pending_prompt: null, attention: null };
-    expect((await companionPreviews(ctx, [base]))[0]!.preview).toMatchObject({ summary: 'Build passed.' });
-    await put('assistant_message', { text: 'New answer without summary' });
-    expect((await companionPreviews(ctx, [base]))[0]!.preview).toMatchObject({
-      summary: 'New reply from the agent.',
+    expect((await companionPreviews(ctx, [base]))[0]).toMatchObject({
+      reply_cursor: firstReply,
+      preview: { summary: 'Build passed.' },
     });
-    await put('waiting_input', {
+    const secondReply = await put('assistant_message', { text: 'New answer without summary' });
+    expect((await companionPreviews(ctx, [base]))[0]).toMatchObject({
+      reply_cursor: secondReply,
+      preview: { summary: 'New reply from the agent.' },
+    });
+    const question = await put('waiting_input', {
       prompt_id: 'question',
       question: 'Full question',
       summary: 'Choose a target.',
     });
-    expect(
-      (await companionPreviews(ctx, [{ ...base, pending_prompt: { id: 'question' } }]))[0]!.preview,
-    ).toMatchObject({ summary: 'Choose a target.' });
+    const pending = { ...base, pending_prompt: { id: 'question' } };
+    expect((await companionPreviews(ctx, [pending]))[0]).toMatchObject({
+      reply_cursor: secondReply,
+      preview: { cursor: question, summary: 'Choose a target.' },
+    });
+    const thirdReply = await put('assistant_message', {
+      text: 'Reply after question',
+      summary: 'More done.',
+    });
+    expect((await companionPreviews(ctx, [pending]))[0]).toMatchObject({
+      reply_cursor: thirdReply,
+      preview: { cursor: question, summary: 'Choose a target.' },
+    });
+    const attention = await put('attention', { summary: 'Review the result.' });
+    const fourthReply = await put('assistant_message', { text: 'Reply after notice', summary: 'All done.' });
+    expect((await companionPreviews(ctx, [{ ...base, attention: { since: nowIso() } }]))[0]).toMatchObject({
+      reply_cursor: fourthReply,
+      preview: { cursor: attention, summary: 'Review the result.' },
+    });
+    expect((await companionPreviews(ctx, [{ ...base, id: randomUUID() }]))[0]).toMatchObject({
+      reply_cursor: 0,
+      preview: null,
+    });
     await db.update(adminUsers).set({ accessLevel: 'viewer' }).where(eq(adminUsers.id, userId));
     const hidden = await app.inject({
       url: '/companion/v1/agents',
       headers: { authorization: authorization() },
     });
-    if (hidden.statusCode === 200) expect(hidden.body).not.toContain('Build passed.');
-    else expect(hidden.statusCode).toBe(403);
+    expect(hidden.statusCode).toBe(200);
+    expect(hidden.body).not.toContain('Build passed.');
+    expect(hidden.json().data.agents.find((a: { id: string }) => a.id === sessionId)).toMatchObject({
+      reply_cursor: null,
+      preview: null,
+    });
     await db.update(adminUsers).set({ accessLevel: 'owner' }).where(eq(adminUsers.id, userId));
+  });
+  it('retains reply cursors and readable history for offline and ended conversations', async () => {
+    const [host] = await db.select().from(hosts).where(eq(hosts.id, hostId));
+    const registered = await portal.registerAgent(host!, {
+      engine: 'codex',
+      username: 'test',
+      cwd: '/tmp/companion-retained',
+      invocationKind: 'interactive',
+    });
+    if (!registered.enabled) throw new Error('Registration disabled');
+    const id = registered.session_id;
+    const [reply] = await db.insert(agentEvents).values({
+      sessionId: id,
+      clientEventId: randomUUID(),
+      eventType: 'assistant_message',
+      source: 'bridge',
+      payloadEnc: encrypt(
+        JSON.stringify({ text: 'Retained answer', summary: 'Work finished.' }),
+        ctx.keyring,
+      ),
+      createdAt: nowIso(),
+    });
+    await db
+      .update(agentSessions)
+      .set({ heartbeatAt: isoOffsetSeconds(-3600) })
+      .where(eq(agentSessions.id, id));
+    const snapshot = async () => {
+      const result = await app.inject({
+        url: '/companion/v1/agents',
+        headers: { authorization: authorization() },
+      });
+      expect(result.statusCode).toBe(200);
+      return result.json().data.agents.find((a: { id: string }) => a.id === id);
+    };
+    expect(await snapshot()).toMatchObject({ presence: 'offline', reply_cursor: reply.insertId });
+    await db
+      .update(agentSessions)
+      .set({ status: 'completed', endedAt: nowIso(), expiresAt: isoOffsetSeconds(3600) })
+      .where(eq(agentSessions.id, id));
+    expect(await snapshot()).toMatchObject({
+      presence: 'ended',
+      read_only: true,
+      reply_cursor: reply.insertId,
+    });
+    const history = await app.inject({
+      url: `/companion/v1/agents/${id}/events?tail=1`,
+      headers: { authorization: authorization() },
+    });
+    expect(history.statusCode).toBe(200);
+    expect(history.json().data.events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ cursor: reply.insertId, type: 'assistant_message' }),
+      ]),
+    );
   });
   it('upgrades with a native bearer, invalidates immediately and closes on the kill switch', async () => {
     const frames: Array<{ type: string; scopes?: string[] }> = [];
