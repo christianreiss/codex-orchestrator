@@ -21,7 +21,7 @@
   </picture>
 </p>
 
-You run Codex on your laptop, Claude Code on the build box, both on the
+You run Codex on your laptop, Claude Code on the build box, Grok Build on the
 workstation under your desk, and somewhere along the way you pasted the same
 token into six different `auth.json` files. Your agents are brilliant, and they
 have no idea the others exist.
@@ -149,18 +149,18 @@ engine. [More on memory below.](#memory-three-scopes-one-atlas)
 
 Author skills, fleet instructions, Claude subagents, commands, and output
 styles once; serve them everywhere. The policy builder composes the canonical
-`AGENTS.md` / `CLAUDE.md` from modules, and the preview shows the exact
-document any host will receive — including one concise guidance block per
+`AGENTS.md` / `CLAUDE.md` / Grok `AGENTS.md` from modules, and the preview
+shows the exact document any host will receive — including one concise guidance block per
 enabled feature, so agents learn the house rules without you writing them
-twice. [How the document is assembled.](#dynamic-agentsmd-and-claudemd)
+twice. [How the document is assembled.](#dynamic-agent-instructions)
 
 ### Point any SDK at it
 
 ![API Access: kill switches for the OpenAI and Claude lanes, proxy defaults, both compatible base URLs, and a table of sk-coco keys](docs/img/api-access.png)
 
-- `/v1/` speaks the **OpenAI** protocol; `/anthropic/v1/` speaks the **Anthropic** protocol.
-- `/grok/v1/` serves your Grok Build subscription in OpenAI shape (text only), with its own `sk-cgx-` keys.
-- Revocable, expiring `sk-coco-` keys, with each lane switchable independently.
+- `/v1/` and `/grok/v1/` speak the **OpenAI** protocol; `/anthropic/v1/` speaks the **Anthropic** protocol.
+- Choose **Codex, Claude, or Grok** as the backend for each API in the console. URLs, key namespaces, and wire formats stay with the API when you switch engines.
+- Revocable, expiring `sk-coco-` keys for the OpenAI and Anthropic APIs, and separate `sk-cgx-` keys for the Grok API; each API has its own switch.
 - [Code samples below.](#compatible-apis)
 
 ### Safe by default, not by discipline
@@ -180,8 +180,12 @@ Legend: ✅ supported · 🅱️ beta · — not supported
 | Capability | Codex (`cdx`) | Claude (`clx`) | Grok (`cgx`) |
 |---|---|---|---|
 | Daily-driver wrapper | ✅ | ✅ | ✅ |
+| Managed native command | ✅ `codex` | ✅ `claude` | ✅ `grok` |
 | Auth sync (account login) | ✅ `auth.json` | ✅ native `claudeAiOauth` | ✅ subscription OAuth; server owns refresh, hosts get access-only tokens |
+| Multiple provider accounts & launch leases | ✅ ChatGPT accounts | ✅ Claude accounts | ✅ Grok subscription accounts |
 | Config sync | ✅ `config.toml` | ✅ `settings.json` (deep-merge, keeps your keys) | ✅ fleet-owned keys of `~/.grok/config.toml` |
+| Fleet model / effort defaults & host overrides | ✅ | ✅ | ✅ |
+| Fleet security posture | ✅ approval policy + sandbox settings | ✅ native permission mode | ✅ native permission mode; sandbox not projected |
 | Per-host API key + signed config | ✅ | ✅ | ✅ |
 | Wrapper self-update & version pinning | ✅ | ✅ | ✅ |
 | Background engine upgrades | ✅ | ✅ | ✅ |
@@ -189,22 +193,36 @@ Legend: ✅ supported · 🅱️ beta · — not supported
 | Agent doc sync | ✅ `AGENTS.md` | ✅ `CLAUDE.md` (shared pipeline) | ✅ `~/.grok/AGENTS.md` (shared pipeline) |
 | MCP memory, projects, board, secrets | ✅ | ✅ | ✅ |
 | Git Director & File Transfer | ✅ | ✅ | ✅ |
-| Agent Messaging (`#call`, `#conference`) | ✅ | ✅ (with ringer hooks) | ✅ (native ACP receiver) |
+| Agent Messaging (`#call`, `#conference`) | ✅ | ✅ | ✅ |
+| Automatic reception in managed interactive sessions | ✅ App Server queues | ✅ MCP Channels | ✅ native ACP receiver |
 | Agent Portal & `#afk` | ✅ | ✅ | ✅ |
-| Usage / token tracking | ✅ ChatGPT quota snapshots | ✅ host-reported Claude usage | — quota usage unavailable |
+| Android companion (sessions, replies, questions) | ✅ | ✅ | ✅ |
+| Scheduled wakes (`#wake-cron`) | ✅ once / cron / interval | ✅ once / cron / interval | ✅ once / cron / interval |
+| Persistent native-session recovery | ✅ explicit opt-in | ✅ explicit opt-in | ✅ explicit opt-in |
+| Explicit work outcomes | ✅ | ✅ | ✅ |
+| Usage in Dashboard / Accounts | ✅ ChatGPT quota snapshots | ✅ host-reported Claude usage | ✅ server-polled subscription billing; stale readings stay marked |
+| CLI quota reporting / enforcement | ✅ | ✅ | — |
 | Insecure-host purge & kill switch | ✅ | ✅ | ✅ (managed runtimes hold access-only tokens) |
-| Compatible passthrough API | ✅ `/v1/` (OpenAI) | ✅ `/anthropic/v1/` (Anthropic) | ✅ `/grok/v1/` (OpenAI-shaped, text only) |
+| Fleet-wide engine suspension | ✅ retains assignments and accounts | ✅ retains assignments and accounts | ✅ retains assignments and accounts |
+| Default compatible API surface | ✅ `/v1/` (OpenAI) | ✅ `/anthropic/v1/` (Anthropic) | ✅ `/grok/v1/` (OpenAI-shaped, text only) |
+| Backend for any compatible API surface | ✅ | ✅ | ✅ (text only, no streaming) |
 | Lanes & profiles (`lane`, `profile`) | ✅ | — | — |
-| Native collections (subagents / commands / output styles) | — | ✅ | — |
+| Fleet-managed native collections (subagents / commands / output styles) | — | ✅ | — |
 | Quota status line | — | ✅ `cxx claude-quota-statusline` | — |
 | Advisor model (experimental reviewer) | — | 🅱️ `advisorModel` (opus/sonnet/fable) | — |
 
 The core fleet machinery is at parity because `cdx`, `clx`, and `cgx` are
 personas of one `cxx` binary. Lanes and profiles are Codex-only; Claude's native
-on-disk collections have no Codex or Grok analogue; Grok quota usage is
-unavailable to the orchestrator, so there are no quota windows or quota-based
-switching for it. The one 🅱️
+on-disk collections have no Codex or Grok analogue. Grok subscription usage is
+visible in Dashboard and Accounts, polled every five minutes with the provider's
+period and reset time. Failed updates retain a marked last reading;
+the wrapper still has no Grok quota reporting, enforcement, or quota-based
+account switching. The one 🅱️
 row surfaces an experimental Claude Code feature and stays off unless you set it.
+
+Automatic reception requires a ready managed native connection. Scheduled wakes
+do not enable recovery: recovery needs explicit opt-in and a progress timeout,
+resumes the same native transcript, and stops if that transcript is missing.
 
 ---
 
@@ -283,12 +301,33 @@ Codex hosts get `cdx`, Claude hosts get `clx`, Grok hosts get `cgx`, and
 multi-engine hosts get every enabled alias backed by one `cxx` install. Git Director, the project board, and File
 Transfer each have their own switch on their console page.
 
-**Secure vs insecure hosts.** Secure hosts keep auth on disk and work offline
-(24h fresh window, 7-day fallback). On insecure hosts, every auth-aware
-`cdx`/`clx` invocation shares a session lease; the last exiting process purges
-native credentials while preserving explicit logout intent. The next retrieve
+**Secure vs insecure hosts.** Secure Codex and Claude hosts keep auth on disk
+and work offline (24h fresh window, 7-day fallback). Managed Grok sessions use
+isolated homes with access-only tokens; the server keeps the refresh credential.
+On insecure hosts, session leases coordinate cleanup after the last managed
+process exits, while preserving explicit logout intent. The next retrieve
 needs an approval: a single host for eight hours, a whole domain (optionally
 permanent), or a fleet-wide window while you're at your desk.
+
+### Set up Grok Build
+
+Enable **Grok** in the fleet and assign it to the host. The installer and
+`cgx update` use pinned official native packages, verify their integrity, and
+install privately under `~/.cxx/engines/grok` on Linux or macOS (amd64/arm64).
+
+Seed credentials with the console's Grok seed command, or run `cgx login` on
+a provisioned Grok host and complete the subscription login in your browser.
+Both create a dedicated login in a temporary home and hand it to the server,
+which becomes its only refresher. Copying a live native `~/.grok/auth.json`
+would give two processes the same rotating refresh-token chain and can break
+the fleet login. Metered xAI API keys and legacy web logins are not supported.
+
+Choose the model, effort, and context window in **Quick Settings**, with
+per-host model overrides available. The bundled defaults are `grok-4.7`,
+`high`, and 256,000 tokens; 500,000 tokens is also supported. Existing saved
+defaults are preserved. Grok receives native Skills, fleet-owned config keys,
+and `~/.grok/AGENTS.md`, then joins the same MCP and messaging fleet as Codex
+and Claude. See the [Grok contract](docs/interface-cgx.md) for the full lifecycle.
 
 ---
 
@@ -303,6 +342,10 @@ cdx --execute "show me open PRs" # one-shot, script-friendly output
 clx -c                           # continue the last Claude conversation
 cgx resume <uuid-or-title>       # resume a Grok session
 cgx login                        # dedicated Grok subscription login, handed to the server
+cgx status                       # API, auth, and installed/target versions
+cgx doctor                       # config, skills, auth, cron, and leader-log diagnostics
+cgx sync                         # sync Grok auth and managed content without launching
+cgx update                       # update the shared wrapper and pinned Grok CLI
 ```
 
 A few more handy ones:
@@ -319,6 +362,11 @@ cdx --uninstall     # remove this engine; the last one decommissions the host
 The shared `cxx` binary adds host-wide commands: `cxx sync` converges every
 engine at once, `cxx cron run` pulls a pending engine upgrade now, and
 `cxx portal say|ask|resolve` lets an agent talk to you through the portal.
+
+Managed native `codex`, `claude`, and `grok` commands also use the fleet
+lifecycle while preserving each provider's argument grammar. Open a new shell
+after installation; `cxx native-entry status` checks which entries are active.
+Use `cdx`, `clx`, or `cgx` for wrapper operations such as `sync` and `doctor`.
 
 ## Agents that work together
 
@@ -337,20 +385,23 @@ agent_send           to=… "PR is up"      # message the Claude agent on host02
 
 Agents on the same host share one API key, and every tool family has its own
 switch in the console, so nothing is reachable until you turn it on. The served
-`AGENTS.md` / `CLAUDE.md` gains one concise guidance block per enabled feature,
-so agents learn the house rules without you writing them twice.
+`AGENTS.md` / `CLAUDE.md` / Grok `AGENTS.md` gains one concise guidance block
+per enabled feature, so agents learn the house rules without you writing them twice.
 
 ## Compatible APIs
 
-The orchestrator exposes an OpenAI-compatible REST API at `/v1/` and an
-Anthropic-compatible one at `/anthropic/v1/`. Anything that speaks either
-protocol — SDKs, CLI clients, IDE plugins — can use it.
+The orchestrator exposes OpenAI-compatible REST APIs at `/v1/` and `/grok/v1/`,
+plus an Anthropic-compatible API at `/anthropic/v1/`. Anything that speaks
+either protocol — SDKs, CLI clients, IDE plugins — can use it. Each API can
+run on Codex, Claude, or Grok; the defaults match the API names. Change the
+backend in *Access → API Access* without changing client URLs or keys. The
+selected backend supplies the subscription, model catalog, and capabilities.
 
 1. **Create a key** in *Access → API Access*.
 2. **Point your client** at the orchestrator:
 
 <table>
-<tr><th>OpenAI SDK</th><th>Anthropic SDK</th></tr>
+<tr><th>OpenAI SDK</th><th>Anthropic SDK</th><th>Grok via OpenAI SDK</th></tr>
 <tr>
 <td>
 
@@ -385,23 +436,45 @@ message = client.messages.create(
 ```
 
 </td>
+<td>
+
+```python
+import openai
+
+client = openai.OpenAI(
+    base_url="https://your-server/grok/v1",
+    api_key="sk-cgx-...",
+)
+response = client.chat.completions.create(
+    model="grok-4.7",
+    messages=[{"role": "user", "content": "Hello!"}],
+)
+```
+
+</td>
 </tr>
 </table>
 
 **OpenAI lane:** `/v1/chat/completions`, `/v1/responses`, `/v1/completions`,
 `/v1/models`, and `/v1/models/{model}`. Embeddings return an OpenAI-shaped
-`unsupported_endpoint` error. Streaming (`stream: true`) on chat and legacy
-completions replays the finished answer as standard SSE chunks; the Responses
-endpoint does not stream.
+`unsupported_endpoint` error. With a Codex or Claude backend, streaming
+(`stream: true`) on chat and legacy completions replays the finished answer
+as standard SSE chunks; the Responses endpoint does not stream.
 
 **Anthropic lane:** `/anthropic/v1/messages`, plus `count_tokens`, `models`, and
 the legacy `complete` — same `sk-coco-` keys.
 
 **Grok lane:** `/grok/v1/chat/completions`, `/grok/v1/responses`,
-`/grok/v1/completions`, and `/grok/v1/models[/{model}]`, backed by the fleet's
-Grok Build subscription and authenticated with separate `sk-cgx-` keys from
-*Access → API Access*. It is text-only: streaming, tools, sampling parameters,
-and images are rejected with an explicit 400, and embeddings are unsupported.
+`/grok/v1/completions`, and `/grok/v1/models[/{model}]`, using separate `sk-cgx-`
+keys from *Access → API Access*. Its default backend is the fleet's Grok Build
+subscription; it can be rerouted like the other APIs.
+
+**Grok backend limits apply on every surface:** text only; streaming, tools,
+sampling parameters, and images are rejected with an explicit 400. The CLI
+cannot enforce `max_tokens`: it is rejected on OpenAI-shaped requests and
+accepted only for Anthropic protocol compatibility, without being passed to
+Grok. Embeddings are unsupported. `/models` lists the selected backend's
+enabled catalog, and responses name the model that actually ran.
 
 ---
 
@@ -436,10 +509,14 @@ manual copying between machines.
 - **Integrity tracking** — every skill carries a SHA-256 hash, so the sync pipeline knows when content has actually changed.
 - **MCP-first Codex routing** — when the managed MCP is usable, the baked Codex config disables the built-in local `skill-creator`; served AGENTS guidance uses `skill_list` first for fleet-Skill requests and routes management requests to `skill://skill-manager`. Claude and Grok keep using their native synced Skill directories.
 
-### Dynamic AGENTS.md and CLAUDE.md
+<a id="dynamic-agentsmd-and-claudemd"></a>
+
+### Dynamic agent instructions
 
 The agent document is version-controlled on the server as canonical base
 Markdown and assembled for each engine and host at sync time.
+It lands as `AGENTS.md` for Codex, `CLAUDE.md` for Claude, and
+`~/.grok/AGENTS.md` for Grok.
 
 - **Versioned** — every save creates a new immutable version. Revert to any previous version, or lock serving to a specific one.
 - **Serve modes** — `latest` always serves the newest version; `locked` pins to a chosen version. Per-host overrides are supported.
