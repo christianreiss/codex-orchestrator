@@ -29,7 +29,7 @@ reproduction did not emit the screenshot's `task_ids` text.
 
 Previously the managed background leader inherited the TUI's stderr, letting
 raw Rust tracing write into its terminal independently of the renderer.
-Wrapper **0.9.30-grok.1** gives each managed interactive leader a private mode-0600
+Wrapper **0.9.31** gives each managed interactive leader a private mode-0600
 log, capped at 1 MiB per file by starting a new chunk on overflow. Logs survive
 runtime cleanup, `cgx doctor` locates their directory, and failure messages name
 the relevant file. Native tool results and foreground stderr remain intact.
@@ -37,8 +37,11 @@ No provider binary is patched and no tool error is suppressed in the model's
 transcript. Existing native sessions need an ordinary exit/resume to pick up
 the wrapper change; this release does not interrupt them.
 
-The prerelease suffix leaves the separately in-progress 0.9.30 release available
-for its existing owner. Only this investigation's paths/hunks are included.
+The initial 0.9.30-grok.1 publication exposed an existing updater limitation:
+client version comparison ignores prerelease suffixes. The final release is
+therefore stable 0.9.31, which older wrappers can reach from either 0.9.29 or
+0.9.30-grok.1. The concurrently prepared feature release is reserved as 0.9.32;
+only its pending version labels were adjusted, without committing its changes.
 
 ## Verification
 

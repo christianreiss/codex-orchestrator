@@ -46,7 +46,7 @@ server endpoint or database migration is required.
 
 ## Contract guardrails
 
-Managed Grok leader diagnostics are kept in private per-run logs rather than written over the interactive terminal; `cgx doctor` locates them. Actual tool errors remain visible in the native UI and transcript. See [Grok diagnostics](interface-cgx.md#private-leader-diagnostics-cxx-0930-grok1).
+Managed Grok leader diagnostics are kept in private per-run logs rather than written over the interactive terminal; `cgx doctor` locates them. Actual tool errors remain visible in the native UI and transcript. See [Grok diagnostics](interface-cgx.md#private-leader-diagnostics-cxx-0931).
 
 Grok (`cgx`) is the third engine. Managed Grok subscription refresh is centrally
 owned and durably fenced; hosts and the runner receive access-only credentials.
