@@ -60,7 +60,7 @@ only its pending version labels were adjusted, without committing its changes.
 - The initial test assertion expected expanded error text in the collapsed TUI
   row; it was corrected to check the visible failed-read status and exact native
   transcript result. No product code changed to accommodate that assertion.
-- Production receipt is recorded below after rollout.
+- Final production receipt follows.
 
 ## Limits
 
@@ -69,3 +69,30 @@ This fixes our background-output routing; it does not claim an upstream tool
 formatter fix. Custom externally managed leaders and tools-only headless runs
 retain their native output contract. Log files are private and bounded
 individually; operators can remove old files after diagnosis.
+
+## Production receipt — 2026-10-08 13:34 UTC
+
+- Fix commit `1f6c89be`; final stable release commit `51608192`, pushed to
+  `origin/main`. `scripts/deploy.sh` rebuilt and restarted API/quota-cron on
+  `docker01.uggs.io` and published all four wrapper platforms as **0.9.31**.
+- All manifest checksums matched their actual files; Linux amd64 embeds commit
+  `51608192`, built `2026-10-08T13:28:46Z`. SHA-256:
+  `ea1ba0884add80220317b61309165c380fa1f7cdf322522ccb038c52f96997f4`.
+- API and auth runner checks passed; MySQL reports 44 migrations applied, zero
+  pending and zero drifted. Public HTTPS and local API health checks passed.
+- `cgx update` on `biest.eulie.de` installed that exact binary and reported the
+  version successfully; `cgx doctor --minimal` passed all checks and displayed
+  the new leader-log location.
+- Full managed native PTY canary, session `01a11bb7-d7e2-7833-ba21-12cfc77348b7`: Grok 4.7
+  called the missing-file tool, received the correct error and completed its
+  answer. The terminal contained no raw tool trace; the private leader log did.
+  Normal native quit and wrapper cleanup returned exit **0**. The earlier
+  harness sent only the first of Grok's two quit confirmations, so its forced
+  teardown returned 255; the corrected harness confirmed normal termination.
+- Rollback: API image `codex-orchestrator-api:rollback-grok-diagnostics-20261008`;
+  prior commit and four manifests are in
+  `/var/docker_data/codex-auth.uggs.io/app/backups/grok-diagnostics-20261008/`;
+  database backup `backups/codex-orchestrator-20261008T132431Z.sql` (238199650
+  bytes). No schema change was needed. Restore the prior manifests and recreate
+  the API to change the offered release; hosts already updated require an
+  explicit atomic reinstall of retained 0.9.29 to roll back their binary.
