@@ -1197,7 +1197,7 @@ authenticated admin role, including viewer/legacy read-only roles, may read
 that metadata; every mutation and plaintext reveal requires `owner` or `admin`:
 
 - `GET /admin/agent-messaging/state` — fleet state, eligible/live counts,
-  queues, and all four engine-direction summaries.
+  queues, and all nine engine-direction summaries.
 - `POST /admin/agent-messaging/state` — toggle the default-off master switch.
 - `GET /admin/agent-messaging` — SPA/JSON address inventory compatibility path.
 - `GET /admin/agent-messaging/addresses` — address/host eligibility and queue
@@ -1291,7 +1291,7 @@ Host and scoped bridge API:
 - `POST /host/agent-sessions/{id}/events` — scoped-bearer idempotent safe event publish. The server forces `source=engine` and accepts only assistant/progress/waiting/terminal-block/attention/attention-resolved types; answerable waits require a stable prompt UUID. `attention_resolved` accepts only an optional `payload.summary` (trimmed and truncated to at most 1000 UTF-8 bytes; other payload fields are discarded) and withdraws the same session’s prior attention notice without answering a pending prompt or changing relay/session state. Like every safe event, it requires the session’s bridge bearer and a stable `client_event_id`; retry returns the original event cursor and cannot dismiss newer attention.
 - `POST /host/agent-sessions/{id}/finish` — idempotent, atomic completed/failed event + terminal transition + pending-work cancellation; makes the session read-only.
 - `POST /host/agent-sessions/{id}/commands/claim` — strict FIFO long poll with `{wait_seconds?: 0..25, claim_id: UUID}` and a retryable 30-second lease; repeating the same `claim_id` while its lease is live returns the same item without incrementing attempts. Older leases/backoff always block newer work.
-- `POST /host/agent-commands/{messageId}/ack` — explicit acceptance/retry acknowledgement. `cxx portal wait` does not acknowledge: the model issues `portal accept` only after it has received the structured instruction, so an unaccepted lease is redelivered. Accepted state and the visible `message_accepted` event commit in one transaction.
+- `POST /host/agent-commands/{messageId}/ack` — explicit acceptance/retry acknowledgement. `cxx portal wait` does not acknowledge: the model issues `portal accept` only after it has received the structured instruction, so an unaccepted lease is redelivered. Accepted state and the visible `message_accepted` event commit in one transaction. Acceptance requires an unexpired owned lease; an accepted receipt replays only for the same `lease_owner`, `accepted` outcome and normalized `upstream_id`. The stored owner remains receipt correlation after `lease_until` is cleared. A superseded claim or changed receipt returns `agent_message_lease_lost`; accepted rows from older releases without a retained owner cannot prove a replay and are rejected rather than restarted.
 
 Admin API:
 
@@ -1529,6 +1529,18 @@ An approved replacement receives a new default 24-hour queue TTL and a fresh
 delivery-attempt budget, even if the original message expired while awaiting the
 operator. Repeating the same approval preserves that deadline and budget; it
 does not extend them. Prior terminal timestamps are cleared for the new execution.
+
+From cxx 0.9.27, `agent_conf_join` and `agent_conf_say` release only the
+matching room's informational delivery. They preserve held work and messages
+from other rooms. Rejoining preserves a dispatched member's state and deadline;
+progress updates do not reopen its seat for another task. A session work reply
+requires `claim_id` from its durably accepted delivery, including when no
+explicit result is supplied (which records `unknown`). Missing claims or work
+not yet accepted are rejected; old receipt retries still verify the stored result.
+Portal acceptance rejects an expired 30-second claim before maintenance runs;
+receipt retries must match the accepted owner, outcome and upstream ID.
+Automatic `agent_listen` also requires a registered peer source: healthy Portal
+transport alone returns `receiver_unavailable`, with `peer_source_unavailable`.
 
 `agent_task_result(message_id, task_result)` completes accepted work; `agent_reply` may
 include the same result and completes work atomically with the reply. A result contains

@@ -92,10 +92,10 @@ describe('served document byte invariance', () => {
 
     expect(base.sha256).toBe('30abaea24c8809d8634670f0eceb3004aabb4eafb5416c78333c719e8b67e14b');
     expect(out.policy_sha256).toBe('3d8a8c754d80369c46a16c3350db8461520d3ae14b1de7ac03ad9454925ad5e5');
-    // 2026-10-08: add managed Wake/Cron guidance with explicit recovery opt-in.
-    expect(out.features_sha256).toBe('859dc36bfe5cec644df8e427621f941464085704428c21ba88709f1b19729b95');
-    expect(out.managed_sha256).toBe('c0759fd672559a89808406214915c19b19e13ac2606f8b5bb1fa0f6604ecdd71');
-    expect(sha256(out.body)).toBe('ee333cffc64806c46ee5fdcfd229b09de6d20b8716d0458663b530439c4090e2');
+    // 2026-10-08: preserve conference work and describe source-specific receiver readiness.
+    expect(out.features_sha256).toBe('c61b8f57d957451ee92bbe2a797adaf5a63da4fd5217b002d3cd6f636ba9ac95');
+    expect(out.managed_sha256).toBe('eab93bf41b3c465794add8528251baed5276405369b6de5f8892c5281c2e4753');
+    expect(sha256(out.body)).toBe('016e5aa5ed3677f438f0b1d79a897da10fe01c28d416918436b6da1a46c4eb27');
   });
 });
 

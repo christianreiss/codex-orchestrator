@@ -64,6 +64,7 @@ const NON_TOOL_TOKENS: Record<string, string> = {
   git_director_worktree_ambiguous: "error code requiring explicit registration to repair duplicate clone mappings, not a tool",
  max_recovery_attempts: 'optional recovery budget argument',
  task_result_status: 'domain outcome metadata field',
+  task_result: 'explicit domain outcome argument on agent_task_result and agent_reply, not a tool',
  adapter_upgrade_required: 'queued delivery reason when its adapter lacks contract v2',
 
   next_cursor: 'schedule_list pagination response field, not a tool',

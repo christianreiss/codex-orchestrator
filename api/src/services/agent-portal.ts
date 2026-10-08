@@ -1453,16 +1453,25 @@ export class AgentPortalService {
         .for('update');
       const row = rows[0];
       if (!row) throw new NotFoundError('Message not found', 'agent_message_not_found');
-      if (row.status === 'accepted') return row;
+      if (row.status === 'accepted') {
+        if (row.leaseOwner !== input.leaseOwner || input.outcome !== 'accepted' || row.upstreamId !== normalizeOptionalText(input.upstreamId, 255)) {
+          throw new ConflictError('Acceptance receipt belongs to a different claim or payload', 'agent_message_lease_lost');
+        }
+        return row;
+      }
       if (row.status !== 'leased' || row.leaseOwner !== input.leaseOwner) {
         throw new ConflictError('Message lease is no longer owned by this bridge', 'agent_message_lease_lost');
       }
       const now = nowIso();
       if (input.outcome === 'accepted') {
+        if (!row.leaseUntil || row.leaseUntil <= now) {
+          throw new ConflictError('Message lease expired before acceptance', 'agent_message_lease_lost');
+        }
         const upstreamId = normalizeOptionalText(input.upstreamId, 255);
         await tx
           .update(agentMessages)
-          .set({ status: 'accepted', acceptedAt: now, upstreamId, lastError: null, leaseOwner: null, leaseUntil: null, updatedAt: now })
+          // Retain the claim as receipt correlation, not as an active lease.
+          .set({ status: 'accepted', acceptedAt: now, upstreamId, lastError: null, leaseUntil: null, updatedAt: now })
           .where(eq(agentMessages.id, row.id));
         const acceptedPayload = normalizeEvent('message_accepted', {
           message_id: row.messageId,

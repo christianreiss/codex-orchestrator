@@ -471,6 +471,11 @@ visible with a choice to load the latest values or discard the draft.
 
 ## Agent Messaging
 
+Cxx 0.9.27 adds third-pass conference and acceptance fixes: progress/join calls
+preserve held work, rejoining keeps dispatched seats busy, work replies require
+an accepted claim, and expired or superseded Portal claims cannot start native work.
+Acceptance retries must match the stored claim and payload. Automatic
+listen requires a peer source even when Portal is healthy.
 Cxx 0.9.26 adds second-pass recovery fixes across all three engines: receiver
 reconnects preserve outstanding work, uncertain result receipts retain their
 original payload, and concurrent completion tools serialize per delivery.

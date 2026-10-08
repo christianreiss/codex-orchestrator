@@ -78,13 +78,15 @@ returns one report. Do not ask it to check in.
 
    Unlike a call PIN, a room PIN is **multi-use** — every member dials the same digits.
 3. Call \`agent_listen\` once and yield; each \`HELLO\` arrives as a delivery. If it returns
-   \`receiver_unavailable\`, nothing can reach you: tell the human instead of running a room.
+   \`receiver_unavailable\`, peer messages cannot reach you: tell the human instead of running a room.
    Answer each \`HELLO\` with \`WELCOME\` stating the agenda and that member's part in it. That
    reply ends their turn; they call \`agent_listen\` once and yield.
 4. Run the meeting. \`agent_conf_say\` broadcasts to every seated member;
    \`agent_conf_dispatch\` hands one member a task and takes it off the floor until it
    reports. TASK deliveries carry work outcomes: use \`agent_reply\` with task_result
    or \`agent_task_result\`; transport completion alone is unknown.
+   Joining or sending a progress update with \`agent_conf_say\` never completes held work;
+   it releases only that room's informational delivery. Rejoining preserves a dispatched task.
 5. \`agent_conf_adjourn\` when the work is done.
 
 **Read every fan-out result.** \`agent_conf_say\` and \`agent_conf_invite\` are loops, not

@@ -146,6 +146,16 @@ describe.skipIf(!handle)('conferences against a real database', { timeout: 120_0
   const conferenceRow = async (conferenceId: string) =>
     (await db.select().from(agentBusConferences).where(eq(agentBusConferences.id, conferenceId)).limit(1))[0];
 
+  async function replyToTask(target: AgentIdentity, messageId: string, reply: { content: string; clientMessageId: string }) {
+    const claimId = randomUUID();
+    const delivery = await service.claimForSession(target.sessionId, target.bridgeToken, claimId);
+    expect(delivery?.message_id).toBe(messageId);
+    await service.acknowledgeSessionDelivery(target.sessionId, target.bridgeToken, messageId, {
+      claimId, outcome: 'accepted',
+    });
+    return service.replyMessage(target.sessionId, target.bridgeToken, messageId, { ...reply, claimId });
+  }
+
   /** Open a room with a chair and two joined participants. */
   async function room() {
     const chair = await register('claude', 'chair');
@@ -162,6 +172,20 @@ describe.skipIf(!handle)('conferences against a real database', { timeout: 120_0
     return { chair, one, two, conferenceId, pin, opened };
   }
 
+  it('keeps a dispatched member busy when it joins again', async () => {
+    const { chair, one, conferenceId, pin } = await room();
+    const task = await service.conferenceDispatch(chair.sessionId, chair.bridgeToken, {
+      conferenceId, to: one.address, task: 'still running',
+    });
+    await service.joinConference(one.sessionId, one.bridgeToken, { pin, purpose: 'updated purpose' });
+    expect(await memberRow(conferenceId, one.addressId)).toMatchObject({
+      state: 'dispatched', dispatchMessageId: task.message_id, purpose: 'updated purpose',
+    });
+    await expect(service.conferenceDispatch(chair.sessionId, chair.bridgeToken, {
+      conferenceId, to: one.address, task: 'must not overlap',
+    })).rejects.toMatchObject({ code: 'agent_messaging_conference_member_busy' });
+  });
+
   it('inspects four members, ordinary replies and paginated transcript without changing delivery state', async () => {
     const { chair, one, conferenceId, pin } = await room();
     const third = await register('codex', 'three');
@@ -170,7 +194,7 @@ describe.skipIf(!handle)('conferences against a real database', { timeout: 120_0
     let detail = await service.getAdminConference(conferenceId);
     expect(detail.members).toHaveLength(4);
     expect(detail.members.find((m) => m.address_id === one.addressId)).toMatchObject({ state: 'dispatched', dispatch_status: 'queued' });
-    await service.replyMessage(one.sessionId, one.bridgeToken, String(task.message_id), { content: 'private ordinary report', clientMessageId: randomUUID() });
+    await replyToTask(one, String(task.message_id), { content: 'private ordinary report', clientMessageId: randomUUID() });
     detail = await service.getAdminConference(conferenceId);
     expect(detail.members.find((m) => m.address_id === one.addressId)).toMatchObject({ state: 'seated' });
     const listing = await service.listAdminConferences({ status: 'open' });
@@ -308,7 +332,7 @@ describe.skipIf(!handle)('conferences against a real database', { timeout: 120_0
 
     // Reporting is an ordinary reply to the task, which is what a headless
     // member's relay-correlated output also lands as.
-    await service.replyMessage(one.sessionId, one.bridgeToken, String(dispatched.message_id), {
+    await replyToTask(one, String(dispatched.message_id), {
       content: 'applied 09:12Z',
       clientMessageId: randomUUID(),
     });
@@ -452,7 +476,7 @@ describe.skipIf(!handle)('conferences against a real database', { timeout: 120_0
     });
     await service.adjournConference(chair.sessionId, chair.bridgeToken, { conferenceId });
 
-    await service.replyMessage(one.sessionId, one.bridgeToken, String(dispatched.message_id), {
+    await replyToTask(one, String(dispatched.message_id), {
       content: 'finished',
       clientMessageId: randomUUID(),
     });
@@ -516,7 +540,7 @@ describe.skipIf(!handle)('conferences against a real database', { timeout: 120_0
       to: one.address,
       task: 'first task',
     });
-    await service.replyMessage(one.sessionId, one.bridgeToken, String(dispatched.message_id), {
+    await replyToTask(one, String(dispatched.message_id), {
       content: 'done',
       clientMessageId: randomUUID(),
     });
@@ -541,7 +565,7 @@ describe.skipIf(!handle)('conferences against a real database', { timeout: 120_0
 
     // The final reply still lands — refusing it would strand the peer, and on the
     // relay path a throw here becomes an `ambiguous` delivery.
-    await service.replyMessage(one.sessionId, one.bridgeToken, String(dispatched.message_id), {
+    await replyToTask(one, String(dispatched.message_id), {
       content: 'done',
       clientMessageId: randomUUID(),
     });

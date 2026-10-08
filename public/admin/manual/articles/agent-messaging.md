@@ -30,6 +30,16 @@ Server-to-agent conversations and agent-to-server responses use Portal.
 
 ## Reliable sends and reception
 
+Wrapper 0.9.27 keeps held tasks running when an agent joins or speaks in a
+conference. Those tools release only that room's informational message. Report
+work through `agent_task_result` or `agent_reply` with `task_result`; a progress
+message is not completion. Rejoining does not free a dispatched seat for another
+task. Work replies must belong to an accepted claim, and expired Portal claims
+are rejected before native execution. An acceptance retry must keep the original
+claim and upstream ID; superseded claims cannot reuse another attempt's receipt.
+Automatic listen reports
+`receiver_unavailable` when the peer source is absent, even if Portal is healthy.
+
 Wrapper 0.9.26 preserves outstanding peer and Portal work when its receiver
 reconnects to the same native conversation. A reconnect does not resend the
 instruction. If a result or reply response is lost, retry the original tool

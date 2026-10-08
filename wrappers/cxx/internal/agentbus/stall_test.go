@@ -149,7 +149,7 @@ func TestListenReportsUnavailableReceiver(t *testing.T) {
 	var calls []string
 	c := heldDeliveryServer(t, &calls)
 	tracker := newChannelTracker(c)
-	tracker.receiver = &autoReceiver{client: c, tracker: tracker}
+	tracker.receiver = &autoReceiver{client: c, tracker: tracker, sources: []string{"peer"}}
 	out, err := agentListen(context.Background(), c, tracker, map[string]any{})
 	if err != nil {
 		t.Fatal(err)
@@ -175,7 +175,7 @@ func TestListenReportsHealthyReceiverAndClaimGate(t *testing.T) {
 	var calls []string
 	c := heldDeliveryServer(t, &calls)
 	tracker := newChannelTracker(c)
-	tracker.receiver = &autoReceiver{client: c, tracker: tracker}
+	tracker.receiver = &autoReceiver{client: c, tracker: tracker, sources: []string{"peer"}}
 	tracker.receiver.setConnected(true)
 	tracker.receiver.setGate("thread_active")
 	out, err := agentListen(context.Background(), c, tracker, map[string]any{})

@@ -12,6 +12,58 @@ import (
 	"time"
 )
 
+func TestConferenceToolsDoNotReleaseHeldWork(t *testing.T) {
+	for _, tool := range []string{"agent_conf_join", "agent_conf_say"} {
+		t.Run(tool, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			var acks atomic.Int32
+			client := &sessionClient{id: "session", http: &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+				if strings.HasSuffix(req.URL.Path, "/ack") {
+					acks.Add(1)
+				}
+				return &http.Response{StatusCode: 200, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"conference_id":"room"}`))}, nil
+			})}}
+			tracker := newChannelTracker(client)
+			pending := tracker.track(ctx, "task", "claim", map[string]any{"work_kind": "task", "content": "CONF/1 TASK conference=room\nstill running"})
+			_, err := callMCPTool(ctx, client, tracker, tool, map[string]any{"conference_id": "room", "content": "progress update"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tracker.get("task") != pending || acks.Load() != 0 {
+				t.Fatal("conference operation released unrelated held delivery")
+			}
+		})
+	}
+}
+
+func TestReceiverHealthRequiresPeerSource(t *testing.T) {
+	for _, sources := range [][]string{nil, {"portal"}, {"peer"}, {"peer", "portal"}} {
+		r := &autoReceiver{connected: true, sources: sources, lastBeatOK: time.Now()}
+		wantReady := false
+		for _, source := range sources {
+			wantReady = wantReady || source == "peer"
+		}
+		if (r.health()["state"] == "ready") != wantReady {
+			t.Fatalf("sources=%v gave incorrect peer readiness", sources)
+		}
+		if !wantReady && r.awaitReady(context.Background(), time.Second)["reason"] != "peer_source_unavailable" {
+			t.Fatal("missing peer source gave no recovery reason")
+		}
+	}
+}
+
+func TestConferenceControlsDoNotReleaseAnotherRoomsMessage(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	client := &sessionClient{}
+	tracker := newChannelTracker(client)
+	pending := tracker.track(ctx, "other-message", "claim", map[string]any{"content": "CONF/1 SAY conference=other\nhello"})
+	if err := tracker.completeConference(ctx, "room"); err != nil || tracker.get("other-message") != pending {
+		t.Fatal("another room's message was released")
+	}
+}
+
 func TestInteractiveLostResultSurvivesTerminalRenewal(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
 	defer cancel()

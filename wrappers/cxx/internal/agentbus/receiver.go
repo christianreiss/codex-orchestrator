@@ -36,6 +36,7 @@ type autoReceiver struct {
 	// line" from "the line is dead" without a server round trip: a model that
 	// yields on a dead line waits forever, and nothing else will notice.
 	connected  bool
+	sources    []string
 	lastBeatOK time.Time
 	gate       string
 	gateSince  time.Time
@@ -123,7 +124,11 @@ func (r *autoReceiver) health() map[string]any {
 	if !r.connected || time.Since(r.lastBeatOK) > receiverStaleAfter {
 		state = "unavailable"
 	}
-	out := map[string]any{"state": state}
+	out := map[string]any{"state": state, "sources": slices.Clone(r.sources)}
+	if state == "ready" && !slices.Contains(r.sources, "peer") {
+		out["state"] = "unavailable"
+		out["reason"] = "peer_source_unavailable"
+	}
 	if r.gate != "" {
 		out["claim_gate"] = r.gate
 		if r.gate != "open" && !r.gateSince.IsZero() {
@@ -141,7 +146,7 @@ func (r *autoReceiver) awaitReady(ctx context.Context, limit time.Duration) map[
 	deadline := time.Now().Add(limit)
 	for {
 		health := r.health()
-		if health["state"] == "ready" || !time.Now().Before(deadline) {
+		if health["state"] == "ready" || health["reason"] == "peer_source_unavailable" || !time.Now().Before(deadline) {
 			return health
 		}
 		select {
@@ -288,6 +293,7 @@ func (r *autoReceiver) connection(parent context.Context) error {
 	}
 	r.mu.Lock()
 	r.generation = generation
+	r.sources = slices.Clone(registered.Sources)
 	r.mu.Unlock()
 	r.setConnected(true)
 	defer func() {
@@ -348,6 +354,7 @@ func (r *autoReceiver) connection(parent context.Context) error {
 			}
 			lastBeat = time.Now()
 			r.mu.Lock()
+			r.sources = slices.Clone(registered.Sources)
 			r.lastBeatOK = lastBeat
 			r.mu.Unlock()
 		}
@@ -394,7 +401,7 @@ func (r *autoReceiver) connection(parent context.Context) error {
 				id := stringArg(d, "message_id")
 				// Anything arriving on a conversation is the peer being alive there.
 				r.stall.cancel(stringArg(d, "conversation_id"))
-				pending := r.tracker.track(parent, id, claimID)
+				pending := r.tracker.track(parent, id, claimID, d)
 				// Fence execution in the durable queue before writing to the native
 				// adapter. Lost receipts must never requeue a model-started task.
 				if err := r.tracker.acknowledge(ctx, id, pending, "accepted", ""); err != nil {

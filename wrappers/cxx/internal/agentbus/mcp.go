@@ -41,6 +41,8 @@ type channelPending struct {
 	completionBody map[string]any
 	replyBody      map[string]any
 	claimID        string
+	workKind       string
+	conferenceID   string
 	replyClientID  string
 	cancel         context.CancelFunc
 }
@@ -105,9 +107,31 @@ func newChannelTracker(client *sessionClient) *channelTracker {
 	return &channelTracker{client: client, items: make(map[string]*channelPending)}
 }
 
-func (t *channelTracker) track(parent context.Context, messageID, claimID string) *channelPending {
+func (t *channelTracker) track(parent context.Context, messageID, claimID string, delivery ...map[string]any) *channelPending {
 	ctx, cancel := context.WithCancel(parent)
 	pending := &channelPending{claimID: claimID, replyClientID: newUUID(), cancel: cancel}
+	if len(delivery) > 0 {
+		pending.workKind = stringArg(delivery[0], "work_kind")
+		if pending.workKind == "" {
+			// Accepted legacy work can lack v2 metadata; conference controls
+			// must not finish those tasks either.
+			switch kind := stringArg(delivery[0], "kind"); kind {
+			case "task", "request", "schedule":
+				pending.workKind = kind
+			}
+		}
+		// Conference controls release only the informational message they answer.
+		// TASK reports remain owned until an explicit result/reply or listen.
+		header := strings.Fields(strings.SplitN(stringArg(delivery[0], "content"), "\n", 2)[0])
+		if len(header) >= 3 && header[0] == "CONF/1" {
+			for _, field := range header[2:] {
+				if strings.HasPrefix(field, "conference=") {
+					pending.conferenceID = strings.TrimPrefix(field, "conference=")
+					break
+				}
+			}
+		}
+	}
 	t.mu.Lock()
 	if previous := t.items[messageID]; previous != nil {
 		previous.cancel()
@@ -177,13 +201,25 @@ func (t *channelTracker) drop(messageID string, expected *channelPending) {
 // Calling listen therefore means "I am done with the previous message" -- which
 // is also how a model declines to answer one.
 func (t *channelTracker) completeOutstanding(ctx context.Context) error {
+	return t.completeMatching(ctx, func(*channelPending) bool { return true })
+}
+
+func (t *channelTracker) completeConference(ctx context.Context, conferenceID string) error {
+	return t.completeMatching(ctx, func(p *channelPending) bool {
+		return conferenceID != "" && p.conferenceID == conferenceID && p.workKind == ""
+	})
+}
+
+func (t *channelTracker) completeMatching(ctx context.Context, matches func(*channelPending) bool) error {
 	if t == nil {
 		return nil
 	}
 	t.mu.Lock()
 	outstanding := make(map[string]*channelPending, len(t.items))
 	for messageID, pending := range t.items {
-		outstanding[messageID] = pending
+		if matches(pending) {
+			outstanding[messageID] = pending
+		}
 	}
 	t.mu.Unlock()
 	for messageID, pending := range outstanding {
@@ -389,7 +425,7 @@ func toolCatalogJSON() []byte {
 		tool("agent_conf_roster", "List conference members with their host, engine, role, declared purpose, delivery mode and whether each is seated or away on a task.", map[string]any{
 			"conference_id": map[string]any{"type": "string"},
 		}, []string{"conference_id"}),
-		tool("agent_conf_say", "Speak in the conference. The chair broadcasts to every seated member, or to one named member. A participant may only address the chair; there is no direct participant-to-participant path. Returns one result per recipient.", map[string]any{
+		tool("agent_conf_say", "Speak in the conference. The chair broadcasts to every seated member, or to one named member. A participant may only address the chair; there is no direct participant-to-participant path. Returns one result per recipient. A progress message does not finish held work; use agent_task_result or agent_reply with task_result when the task is done.", map[string]any{
 			"conference_id": map[string]any{"type": "string"},
 			"content":       map[string]any{"type": "string", "maxLength": maxBodyBytes},
 			"to":            map[string]any{"type": "string"},
@@ -934,7 +970,7 @@ func callMCPTool(ctx context.Context, client *sessionClient, channelState *chann
 			return nil, err
 		}
 		// Joining answers the invite, which never gets an agent_reply.
-		if err := channelState.completeOutstanding(ctx); err != nil {
+		if err := channelState.completeConference(ctx, stringArg(out, "conference_id")); err != nil {
 			return nil, err
 		}
 		return out, nil
@@ -956,9 +992,9 @@ func callMCPTool(ctx context.Context, client *sessionClient, channelState *chann
 		if err := client.post(ctx, "conf/say", body, &out); err != nil {
 			return nil, err
 		}
-		// Speaking in the room is how its messages are answered; a dispatched
-		// task still reports with agent_reply, which the server accepts after this.
-		if err := channelState.completeOutstanding(ctx); err != nil {
+		// A progress message must not finish a dispatched task or another room's
+		// held message. Release only this room's informational delivery.
+		if err := channelState.completeConference(ctx, conferenceID); err != nil {
 			return nil, err
 		}
 		return out, nil
@@ -1016,7 +1052,7 @@ func agentListen(ctx context.Context, client *sessionClient, state *channelTrack
 		// a dead receiver yielded and waited for a delivery that could not come.
 		health := state.receiver.awaitReady(ctx, receiverReadyWait)
 		if health["state"] != "ready" {
-			return map[string]any{"status": "receiver_unavailable", "receiver": health, "message": "This session's native receiver is not connected, so peer messages cannot be delivered to you. Do NOT yield expecting one. Tell the user the receiver is down (`cxx agent doctor` shows why), and do not open or join a call until it is back."}, nil
+			return map[string]any{"status": "receiver_unavailable", "receiver": health, "message": "This session cannot currently receive peer messages: its transport or peer source is unavailable. Do NOT yield expecting one. Tell the user (`cxx agent doctor` shows the transport and sources), and do not open or join a call until peer reception is back."}, nil
 		}
 		return map[string]any{"status": "automatic", "receiver": health, "message": "The native receiver delivers messages directly into this conversation. Any delivered message you had not replied to is now released, so the next queued one follows on its own. Reply to delivered messages using their IDs. Yield this model turn instead of polling; the native receiver stays on the line, including during calls and conferences. If a peer stays silent, a notice from your local wrapper will wake you; tell the user then instead of waiting."}, nil
 	}
@@ -1049,7 +1085,7 @@ func agentListen(ctx context.Context, client *sessionClient, state *channelTrack
 		return map[string]any{"message": nil, "timed_out": true, "waited_seconds": waitSeconds}, nil
 	}
 	messageID := stringArg(claimed.Delivery, "message_id")
-	pending := state.track(ctx, messageID, claimID)
+	pending := state.track(ctx, messageID, claimID, claimed.Delivery)
 	if stringArg(claimed.Delivery, "work_kind") != "" {
 		if err := state.acknowledge(ctx, messageID, pending, "accepted", ""); err != nil {
 			state.drop(messageID, pending)
@@ -1104,7 +1140,7 @@ func channelPumpOnce(ctx context.Context, client *sessionClient, output *mcpWrit
 	if value, ok := claimed.Delivery["sender"].(map[string]any); ok {
 		sender = stringArg(value, "address")
 	}
-	pending := state.track(ctx, messageID, claimID)
+	pending := state.track(ctx, messageID, claimID, claimed.Delivery)
 	if err := state.acknowledge(ctx, messageID, pending, "accepted", ""); err != nil {
 		state.drop(messageID, pending)
 		return err

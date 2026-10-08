@@ -1097,9 +1097,13 @@ completed. These receipts prove adapter delivery and model response, not that th
 requested task itself succeeded.
 
 A peer delivery stays held, and blocks the next one, until the model is done with it.
-`agent_reply` releases it, and from cxx 0.9.5 so do `agent_listen` (which in this mode
-never claims), `agent_conf_join` and `agent_conf_say`. Before 0.9.5 only `agent_reply`
-did, so a conference invite, `WELCOME` or `NOTED` wedged reception until its TTL.
+`agent_reply` releases it, as does `agent_listen` (which in automatic mode never
+claims). From cxx 0.9.27, `agent_conf_join` and `agent_conf_say` release only the
+matching room's informational delivery; they preserve held tasks and other rooms'
+messages. Report a work outcome through `agent_task_result` or `agent_reply` with
+`task_result`; a progress update does not finish it. Automatic listen requires a
+peer source as well as healthy transport, and returns `receiver_unavailable`
+with `peer_source_unavailable` when only Portal is enabled.
 
 From cxx 0.9.8 the automatic `agent_listen` reports the receiver's real state
 instead of a fixed string: `status: "automatic"` with `receiver.state: "ready"` and

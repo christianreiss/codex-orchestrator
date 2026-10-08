@@ -1,7 +1,9 @@
 # Agent Messaging lifecycle audit — 2026-10-08
 
-The first-pass record follows; the [second-pass findings and verification](#second-pass--2026-10-08-cxx-0926)
-at the end cover the follow-up on commit `63002ff7` and wrapper 0.9.26.
+The first-pass record follows; the [second pass](#second-pass--2026-10-08-cxx-0926)
+covers commit `63002ff7` and wrapper 0.9.26. The
+[third pass](#third-pass--2026-10-08-cxx-0927) covers commit `9788c394`, six further
+product defects, one native-canary race and wrapper 0.9.27.
 
 This audit covers the server, HTTP and local MCP interfaces, interactive native
 receivers, detached workers, agent usability, and delivery recovery for Codex,
@@ -309,3 +311,136 @@ executed natively. MCP-process loss still loses local reply correlation; accepte
 peer work then expires to ambiguous and requires explicit recovery. Same-process
 transport reconnect preservation does not promise survival of a killed native
 conversation or exactly-once external task effects.
+
+## Third pass — 2026-10-08 (cxx 0.9.27)
+
+Reviewed and fixed locally on `main` above `9788c394cc9021a1fd5fe0840951c123d66ef737`.
+The starting worktree was clean. The prior two audit records remain historical
+evidence; their passing tests were not treated as proof of this pass. No branch
+change, commit, push, deployment, production migration or existing native-session
+restart was performed.
+
+### Findings and repairs
+
+| Defect | Repair and reproduced boundary |
+| --- | --- |
+| A session could reply to queued work without a delivery claim. The reply advanced conference completion while the original task remained runnable. | `replyMessage` requires a claim for every v2 work reply. The existing accepted-claim/result fence then applies. All three engine regressions failed before the fix: no-claim and leased-but-unaccepted replies are rejected, and an accepted reply without an explicit report records `unknown`. Five conference tests now claim and accept their tasks before replying, rather than exercising the invalid bypass. |
+| Portal accepted a claim after its 30-second lease expired if maintenance had not yet reaped it. | Acceptance checks the live owned lease under the same row lock as its event and active-turn update. The real-DB regression failed before the fix and proves a rejected stale attempt creates neither an acceptance event nor an active turn. |
+| After a new Portal claimant accepted, a superseded claimant received the same successful acceptance response. That response could authorize stale native submission. | Retain `lease_owner` as immutable acceptance-receipt correlation and clear only `lease_until`. Replays require the accepted owner, outcome and normalized upstream ID. The regression failed on the previous code after reclaim and acceptance; it now rejects the old claim and changed upstream ID while permitting the identical retry. No schema change is needed. |
+| Rejoining a conference reset a dispatched member to `seated`, allowing another task while its previous task remained held. | Preserve `dispatched`, the dispatch pointer and deadline on rejoin. The real-DB baseline regression observed the seat become available; the repaired test keeps it busy and rejects overlapping dispatch. |
+| `agent_conf_join` and `agent_conf_say` completed every local held delivery. A progress update could finish a task as `unknown`, or complete another room's informational message. | Track immutable delivery kind and room correlation. Conference controls complete only that room's informational delivery; v2 and legacy work stay held. Both join/say failure-injection cases failed before the fix. Existing invitation-release tests and the new other-room test verify that legitimate informational completion still works. |
+| `agent_listen` reported `automatic` for a healthy receiver with only Portal enabled, or no peer source. The model could yield waiting for an impossible peer delivery. | Carry registered/heartbeat source membership into local health. Peer listen returns `receiver_unavailable` with `peer_source_unavailable`; source-disabled recovery returns immediately, while startup still has its bounded readiness wait. Tests cover no sources, Portal only, peer only and both. Portal reception remains independent. |
+| The real Grok canary intermittently cleared SessionStart identity on a native-identity read. Production uses POST for both reads and reports; the stub replaced identity with an empty read body. | The stub updates identity only for a nonempty reported native-session ID. The final real Grok run establishes SessionStart, ACP admission, correlated peer/Portal replies, reconnect, offline health and access-only credential renewal. This was a test-harness race, separate from the six product defects. |
+
+The completion fixes live in `agent-messaging.ts`, `agent-portal.ts`,
+`agent-messaging/conference.ts`, and the shared Go `agentbus` adapter. There is
+no provider-specific shortcut around the repaired fences. Managed fleet guidance,
+the built-in conference Skill source, API/DB and all three engine interfaces,
+the overview, changelog and directly served operator manual describe the new
+behavior. Managed-document digests were deliberately updated for the changed
+fleet instructions; the tool-name scanner now recognizes `task_result` as an
+argument rather than inventing a missing tool.
+
+### Full lifecycle review
+
+| Surface or phase | Reviewed contract and evidence |
+| --- | --- |
+| Engine/host eligibility and identity | Host and fleet switches, session bridge authentication, stable address and native binding generations, exact transcript roots and single native writer. Current service code and real-DB authorization/binding tests were inspected; peer input does not grant operator authority. |
+| Send, request and retry | Encrypted bodies, sender-scoped client UUIDs, immutable retry payloads, TTLs, conversation participation and saved request receipts when only reply waiting fails. Acceptance, reply and result are distinct transitions. |
+| HTTP and local MCP API | Strict route schemas, scoped host/bridge/relay authentication, all 26 local tools, room/chair authorization and explicit error recovery. HTTP callers supply accepted claims; native MCP retains and injects its owned claim for replies/results. |
+| Queue and admission | FIFO, one held item per address, live lease ownership, bounded attempts, binding and relay generation fences, protocol compatibility and dormant-address filtering before the relay candidate limit. Native content is exposed only after confirmed durable acceptance. |
+| Automatic and manual reception | Source membership, matched silent transport health, registration/heartbeat/stop lifecycle, manual accepted-work exposure and held-delivery gates. Healthy Portal cannot manufacture peer readiness. |
+| Interactive execution and receipts | Native admission versus model response; process-owned renewal; exact message/claim correlation; immutable uncertain payloads; serialized result/reply/listen completion. Same-native reconnect retains ownership without resubmitting work. |
+| Detached execution | Registered per-user worker, eligibility/capacity checks, native transcript resume, wrapper supervision, process ownership, bounded result parsing and renewed lease while result storage is pending. Missing ordinary transcripts require explicit one-use operator approval; schedules never use a fresh replacement. |
+| Calls | Listener readiness before opening/joining, single-use PINs, original client UUID replay after PIN consumption, atomic HELLO/conversation creation and bounded local silence notices. Ordinary informational replies do not create more work. |
+| Conferences | Multi-use room PINs, invites and native/headless membership, seated versus dispatched state, chair-only dispatch, progress versus report, per-spoke budgets, deadlines and graceful versus forced adjournment. The new regression fences cover both API state and local held-delivery release. |
+| Groups and publications | Opt-in subscriptions, audience snapshots, explicit group membership, sender/topic/body/TTL retry digest, fan-out limits and per-recipient receipts. Private direct, call and conference traffic is not republished; Server publications are informational. |
+| Wake/Cron and recovery | Read/version/update contract; missed interval ticks coalesce; accepted work survives schedule pause/delete; persistent recovery requires explicit configuration, bounded delay and optional maximum. Missing transcripts block schedule recovery. Recovery after an ambiguous crash can repeat effects. |
+| Cancellation, shutdown and maintenance | Claim revocation, finish/binding cleanup, accepted ambiguity instead of automatic replay, per-source closure, expired queued work and retained outcome receipts. Cancellation cannot undo native effects or promise interruption of an attached interactive tool. |
+| Agent and operator usability | Correct peer versus Portal tool, explicit result statuses and evidence, once-only informational release, no acknowledgment loops, room-specific progress handling, source-specific unavailable reason, metadata-only operator views and audited content reveal. |
+
+### Native methods and engine parity
+
+| Engine | Interactive method | Detached method and final native evidence |
+| --- | --- | --- |
+| Codex / `cdx` | Protected App Server WebSocket, bound loaded thread, `thread/queue/add` with submission and client-message correlation. The native scheduler owns execution and approvals. | Native `exec resume --json` for the stored transcript. Codex 0.161.0 passed exact peer and Portal replies, both again after a forced generation reconnect, and offline-broker detection. |
+| Claude / `clx` | Native MCP Channel notifications, SessionStart identity and matched silent pings proving both MCP pipes. `/clear` changes identity and revokes old local ownership. | Native resume/print mode with JSON result parsing. Claude Code 2.1.293 passed the same two-source, reconnect and offline checks. |
+| Grok / `cgx` | Invocation-owned protected leader, framed ACP, native SessionStart UUID/roster and correlated `session/prompt` admission. No secondary native scheduler is added. | Native `--no-leader --output-format json` with exact `--resume` when present. Grok 1.0.46 passed in 42.29 seconds, with 16 ms admission and access-only generations 17 → 18 → 19; no provider refresh grants or helper-cache writes. |
+
+All three personas and managed native command names use the same repaired
+receiver/tracker. Engine parity is tested at the API boundary separately from
+actual installed-native behavior. The native transport contracts cited in the
+first and second passes remain unchanged; passing these installed versions does
+not guarantee compatibility with a future experimental native protocol.
+
+### Verification and reproducibility
+
+Final checks use repository commands, with DB suites run serially against the
+disposable MySQL 8.4 instance on `127.0.0.1:33318`. The repository baseline and
+all 44 migrations were applied through its normal setup/runner; production DB
+and `.env` were not used or changed.
+
+| Check | Final result |
+| --- | --- |
+| API `npm run typecheck`, `lint`, `build` | Passed; lint reports 108 existing warnings and zero errors. |
+| API `npm test -- --coverage --reporter=dot` | 333 files / 4,030 tests passed; 406 DB-dependent cases skipped here and covered by the separate DB run. Coverage: statements/lines 66.03%, branches 81.92%, functions 74.20%; repository thresholds met. |
+| API full serial `npm run test:db` | 90 files / 1,091 tests passed in 203.90 seconds against real MySQL, including all engine directions, Portal acceptance and schedule/conference lifecycle. |
+| Targeted DB before broad verification | 15 files / 204 messaging, Portal, binding and receiver tests passed. New baseline failures are retained separately; the final full DB run includes the additional superseded-claim regression. |
+| Go canonical `make test` | Passed all packages plus manifest merge and publication fixtures. |
+| Go build, vet, race | Passed after the final wrapper source changes. Race covers agentbus, agentportal, Codex, Claude and Grok. |
+| Go traced configuration | `make test-traced` passed its tagged vet and full tagged suite. |
+| Frontend `npm run check` | Svelte zero errors/warnings; all 915 frontend tests passed. The manual is directly served; no SPA bundle change is needed. |
+| Wrapper packaging | 0.9.27 built locally for Linux/macOS, amd64/arm64; version manifests and checksums produced. Nothing published. |
+| Actual native model canaries | Codex, Claude and Grok all passed using the final wrapper source, isolated homes, local brokers and access-only credential projections. |
+
+The native canary development wrapper SHA-256 is
+`39472f0d7a5255edb15afdbaa5f5269cc2544b66ed86a2343f6598f6e48e2fad`.
+The packaged Linux amd64 0.9.27 SHA-256 is
+`d3d629011aa6f6fcc249336ebc21a8ab64b04f9ea14676ed9ae05a1073787aa3`.
+Release metadata and trimming account for the different hashes.
+
+Evidence logs are `/tmp/messaging-r3-*.log`. The final API/DB logs end in
+`api-all-delivery-final.log` and `db-all-delivery-final.log`; final wrapper
+logs include `go-all-artifact-final`, `go-race-artifact-final`, `go-traced-final`
+and `release`. Native logs are `native-codex-final`, `native-claude-final` and
+`native-grok-artifact-final`. Artifacts are under
+`/tmp/cxx-messaging-r3-20261008/release/`. These temporary diagnostics are not
+deployment evidence. The disposable MySQL container and its anonymous test-data
+volume were removed after verification; the task-owned Grok access-only
+credential projection was removed too. Native-canary temporary homes were
+cleaned by their harnesses. Test data can be recreated with the repository
+baseline and migration runner.
+
+Earlier unsuccessful diagnostic commands were corrected, not counted as green
+checks: an initial full DB command omitted the temporary DB environment and
+hit connection refused; a multi-file Portal run omitted serial execution and
+its shared feature flags raced; the first full API run exposed the missing
+`task_result` scanner whitelist. Grok fixture setup also needed the documented
+access-only auth shape before the identity-read race could be reproduced.
+
+### Agent usage, rollout and remaining limits
+
+For work, keep the accepted delivery until `agent_task_result` or `agent_reply`
+stores the outcome. Use `agent_conf_say` for progress while still working;
+joining/rejoining or progress does not release that task. `agent_listen` means
+the held delivery is finished and can store `unknown` if no report was supplied.
+For informational conference messages, join/say releases only the matching room;
+other informational replies can still be released with one listen. Yield for
+peers only when listen says `automatic`, and report source/transport unavailability
+instead of waiting indefinitely. Retry uncertain receipts with identical input.
+
+Deploy the API before publishing wrapper 0.9.27, then start fresh managed native
+sessions to load the repaired tracker. No migration is required. Already
+accepted legacy Portal rows have no retained receipt owner; their acceptance
+cannot be replay-authenticated after upgrade, so inspect their durable state
+rather than executing them again. Rollback restores prior API/wrapper artifacts;
+there is no task-owned production data to restore.
+
+The real-native canaries used local stub brokers and did not send messages to
+the production fleet. They prove installed-native admission and correlated model
+replies; real-DB/failure-injection tests prove the server and race boundaries.
+macOS/arm64 were cross-built, not executed natively. Lost MCP/native processes
+can still lose local reply correlation, and accepted work then becomes ambiguous;
+exactly-once external effects are not guaranteed. Conference fan-out is still
+per-recipient rather than transactional and must not be blindly retried after
+uncertain partial delivery. Retained history has no automatic bus-wide purge.

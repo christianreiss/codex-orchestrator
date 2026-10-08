@@ -592,6 +592,33 @@ describe.skipIf(!handle)('agent portal durability against a real database', { ti
       },
       world.host.id,
     )).rejects.toMatchObject({ code: 'agent_message_lease_lost' });
+    const acceptedInput = { messageId: String(queued['message_id']), leaseOwner: claimB, outcome: 'accepted' as const, upstreamId: 'current-turn' };
+    await world.service.acknowledgeMessage(world.sessionId, world.bridgeToken, acceptedInput, world.host.id);
+    await expect(world.service.acknowledgeMessage(world.sessionId, world.bridgeToken, {
+      ...acceptedInput, leaseOwner: claimA,
+    }, world.host.id)).rejects.toMatchObject({ code: 'agent_message_lease_lost' });
+    await expect(world.service.acknowledgeMessage(world.sessionId, world.bridgeToken, {
+      ...acceptedInput, upstreamId: 'different-turn',
+    }, world.host.id)).rejects.toMatchObject({ code: 'agent_message_lease_lost' });
+    await expect(world.service.acknowledgeMessage(world.sessionId, world.bridgeToken, acceptedInput, world.host.id))
+      .resolves.toMatchObject({ status: 'accepted', upstream_id: 'current-turn' });
+  });
+
+  it('rejects Portal acceptance after the claim lease expires before maintenance', async () => {
+    const world = await makeWorld();
+    const queued = await world.service.enqueueMessage({ kind: 'portal', identity: world.identity }, {
+      sessionId: world.sessionId, clientMessageId: randomUUID(), content: 'do not start stale work',
+    });
+    const claim = await world.service.claimMessage(world.sessionId, world.bridgeToken, randomUUID(), world.host.id);
+    await db.update(agentMessages).set({ leaseUntil: '1970-01-01T00:00:00.000Z' })
+      .where(eq(agentMessages.messageId, String(queued.message_id)));
+    await expect(world.service.acknowledgeMessage(world.sessionId, world.bridgeToken, {
+      messageId: String(queued.message_id), leaseOwner: claim!.lease_owner, outcome: 'accepted', upstreamId: 'stale',
+    }, world.host.id)).rejects.toMatchObject({ code: 'agent_message_lease_lost' });
+    const [session] = await db.select().from(agentSessions).where(eq(agentSessions.id, world.sessionId));
+    expect(session!.activeTurnId).toBeNull();
+    expect(await db.select().from(agentEvents).where(and(eq(agentEvents.sessionId, world.sessionId), eq(agentEvents.eventType, 'message_accepted'))))
+      .toHaveLength(0);
   });
 
   it('rolls back message acceptance when its visible event cannot commit', async () => {

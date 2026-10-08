@@ -69,7 +69,7 @@ func heldDeliveryServer(t *testing.T, calls *[]string) *sessionClient {
 		if op == "deliveries/held/ack" && (args["outcome"] != "completed" || args["claim_id"] != "claim") {
 			t.Errorf("held delivery acknowledged as %v", args)
 		}
-		_ = json.NewEncoder(w).Encode(map[string]any{})
+		_ = json.NewEncoder(w).Encode(map[string]any{"conference_id": "room"})
 	}))
 	t.Cleanup(server.Close)
 	return &sessionClient{id: "session", http: &http.Client{Transport: rewriteTransport{server: server}}}
@@ -77,7 +77,7 @@ func heldDeliveryServer(t *testing.T, calls *[]string) *sessionClient {
 
 func holdDelivery(c *sessionClient) *channelTracker {
 	tracker := newChannelTracker(c)
-	tracker.receiver = &autoReceiver{client: c, tracker: tracker, connected: true, lastBeatOK: time.Now()}
+	tracker.receiver = &autoReceiver{client: c, tracker: tracker, connected: true, sources: []string{"peer"}, lastBeatOK: time.Now()}
 	tracker.items["held"] = &channelPending{claimID: "claim", cancel: func() {}}
 	return tracker
 }
@@ -179,6 +179,7 @@ func TestConferenceAnswersReleaseHeldDelivery(t *testing.T) {
 			var calls []string
 			c := heldDeliveryServer(t, &calls)
 			tracker := holdDelivery(c)
+			tracker.items["held"].conferenceID = "room"
 			if _, err := callMCPTool(context.Background(), c, tracker, tc.tool, tc.args); err != nil {
 				t.Fatal(err)
 			}
@@ -213,8 +214,10 @@ func TestReceiverDeliversNextMessageOnceHeldDeliveryIsReleased(t *testing.T) {
 		case "claim":
 			// Only the first two claims carry a message; the rest find the queue empty.
 			if n := claims.Add(1); n <= 2 {
-				out["delivery"] = map[string]any{"message_id": fmt.Sprintf("m%d", n), "content": "invite"}
+				out["delivery"] = map[string]any{"message_id": fmt.Sprintf("m%d", n), "content": "CONF/1 INVITE conference=room\ninvite"}
 			}
+		case "join":
+			out["conference_id"] = "room"
 		}
 		_ = json.NewEncoder(w).Encode(out)
 	}))

@@ -700,7 +700,7 @@ export class ConferenceCoordinator {
       } else {
         await tx
           .update(agentBusConferenceMembers)
-          .set({ state: 'seated', purpose: purpose ?? prior.purpose, mode: this.conferenceMode(self), leftAt: null, updatedAt: now })
+          .set({ state: prior.state === 'dispatched' ? 'dispatched' : 'seated', purpose: purpose ?? prior.purpose, mode: this.conferenceMode(self), leftAt: null, updatedAt: now })
           .where(eq(agentBusConferenceMembers.id, prior.id));
       }
       const member = await this.requireMemberLocked(tx, conference.id, self.id);

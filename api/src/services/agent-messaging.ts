@@ -579,6 +579,9 @@ export class AgentMessagingService {
       }
       if (input.taskResult && !parent.workKind) throw new ValidationError('Only work deliveries accept a task result');
       if (input.taskResult && !input.claimId) throw new ValidationError('Task result requires the current claim');
+      if (parent.workKind && !input.claimId) {
+        throw new ConflictError('Work replies require the accepted delivery claim', 'agent_task_result_not_accepted');
+      }
       if (parent.workKind && input.claimId) await this.finishTaskLocked(tx, parent, input.claimId, `session:${sessionId}`, input.taskResult);
       const target = await this.requireAddressLocked(tx, parent.senderAddressId);
       if (target.id === SERVER_ADDRESS_ID) {

@@ -153,8 +153,10 @@ func TestGrokNativeLeaderCanary(t *testing.T) {
 		mu.Lock()
 		switch {
 		case strings.HasSuffix(r.URL.Path, "/receiver/native"):
-			if r.Method == http.MethodPost {
-				nativeID = stringArg(body, "native_session_id")
+			// Production uses POST both to report and to read native identity.
+			// An empty read must not erase a SessionStart report that won the race.
+			if id := stringArg(body, "native_session_id"); id != "" {
+				nativeID = id
 			}
 			response["native_session_id"] = nativeID
 		case strings.HasSuffix(r.URL.Path, "/receiver/register"):

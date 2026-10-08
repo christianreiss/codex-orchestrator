@@ -105,6 +105,14 @@ Operationally, schema changes live as reviewable hand-written SQL in `api/src/db
 
 Encryption: `AUTH_ENCRYPTION_KEY` (single-key mode) is generated into `.env` by the `secrets` step of `bin/install.sh`; nothing generates one at runtime, and `api/src/env.ts` refuses to boot without either it or its preferred spelling `ENCRYPTION_ACTIVE_KEY`. Optional keyring mode uses `ENCRYPTION_KEYS` / `AUTH_ENCRYPTION_KEYS` (`kid:base64,...`) plus `ENCRYPTION_ACTIVE_KID` / `AUTH_ENCRYPTION_ACTIVE_KID` (see `api/src/security/keyring.ts`); new writes then include `kid` in the ciphertext prefix while legacy `sbox:v1:{base64}` remains decryptable. Every `*_enc` column in `schema.ts` is a secretbox ciphertext written via `api/src/security/secret-box.ts`: `hosts.api_key_enc`, `install_tokens.token_enc`, `install_tokens.api_key_enc`, `auth_seed_tokens.token_enc`, `cli_auth_requests.request_id_enc`, `cli_auth_requests.api_key_enc`, `mcp_session_tokens.token_enc`, `openai_api_keys.key_enc`, `secrets.value_enc`, `wrapper_signing_keys.private_key_enc`, `agent_portal_users.token_enc`, `agent_events.payload_enc`, `agent_prompts.question_enc`, `agent_prompts.options_enc`, `agent_messages.content_enc`, `agent_bus_messages.content_enc`, and `agent_bus_messages.last_error_enc` — as are `auth_payloads.body` and `auth_entries.token`. The one artifact that is **not** encrypted at rest is the file transfer pool: `agent_transfers.storage_path` points at plain bytes under `DATA_ROOT/transfers/`, written as-is by `api/src/services/agent-transfers.ts`, so the disk that volume lives on is part of the trust boundary. The one backfill that still runs is gated by a `versions` key: `auth_generation_ledger_v1`, which numbers the auth generation ledger and seeds the canonical heads (`api/src/services/auth-generation-retention.ts`). The PHP-era secretbox and host-API-key backfills were not ported, so nothing re-encrypts rows written before this schema.
 
+## Portal acceptance receipts
+
+From cxx/API 0.9.27, an accepted `agent_messages` row retains `lease_owner` as its
+immutable receipt correlation while clearing `lease_until`. It is no longer an
+active lease. Acceptance replay requires that owner, an `accepted` outcome and
+the same normalized `upstream_id`; older accepted rows with no retained owner
+cannot authenticate a replay. No column or migration changes are required.
+
 ## Receiver connection evidence
 
 Migration `0030_agent_receiver.sql` idempotently adds nullable JSON

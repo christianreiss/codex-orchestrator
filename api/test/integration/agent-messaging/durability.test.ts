@@ -521,6 +521,27 @@ describe.skipIf(!handle)('agent messaging durability against a real database', {
     expect(repeated.message).toMatchObject({ status: 'dead' });
   });
 
+  it.each(ENGINES)('requires an accepted claim before a %s work reply', async engine => {
+    const source = await register('codex', 'unclaimed-source');
+    const target = await register(engine, 'unclaimed-target');
+    const sent = await service.sendMessage(source.sessionId, source.bridgeToken, {
+      to: target.address, content: 'work needs acceptance', clientMessageId: randomUUID(), kind: 'request',
+    });
+    const messageId = String((sent.message as Record<string, unknown>).id);
+    const reply = { content: 'done', clientMessageId: randomUUID() };
+    await expect(service.replyMessage(target.sessionId, target.bridgeToken, messageId, reply))
+      .rejects.toMatchObject({ code: 'agent_task_result_not_accepted' });
+    const claimId = randomUUID();
+    await service.claimForSession(target.sessionId, target.bridgeToken, claimId);
+    await expect(service.replyMessage(target.sessionId, target.bridgeToken, messageId, { ...reply, claimId }))
+      .rejects.toMatchObject({ code: 'agent_task_result_not_accepted' });
+    await service.acknowledgeSessionDelivery(target.sessionId, target.bridgeToken, messageId, { claimId, outcome: 'accepted' });
+    await expect(service.replyMessage(target.sessionId, target.bridgeToken, messageId, { ...reply, claimId }))
+      .resolves.toMatchObject({ created: true });
+    expect((await db.select().from(agentBusMessages).where(eq(agentBusMessages.id, messageId)))[0])
+      .toMatchObject({ status: 'completed', taskResultStatus: 'unknown' });
+  });
+
   it('master-off cancels work and conversations, revokes relays, but leaves interactive sessions running', async () => {
     const source = await register('codex', 'switch-source');
     const target = await register('claude', 'switch-target');

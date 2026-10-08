@@ -337,6 +337,10 @@ Peer renewal continues; uncertain peer/Portal result receipts keep the original
 payload, and concurrent completion tools serialize. Process loss and revoked
 leases keep their existing ambiguous-outcome handling. See the
 [shared reliability contract](interface-api.md#delivery-reliability-cxx-0926).
+From cxx 0.9.27, conference join/say release only that room's informational
+delivery, preserving held tasks and other rooms' messages. A progress update is
+not a task outcome. Automatic listen requires the peer source; healthy Portal
+transport alone returns `receiver_unavailable` with `peer_source_unavailable`.
 Explicit unmanaged `--no-leader` or custom socket launches report receiver
 unavailability honestly. The receiver never answers native permission requests.
 
