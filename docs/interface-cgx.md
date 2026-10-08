@@ -332,14 +332,14 @@ admission; the prompt RPC's eventual turn-completion response is not admission.
 Existing durable acceptance, ambiguous-delivery fencing, generation fencing,
 deduplication, and reconnect behavior apply. Admission is not an agent reply.
 
-From cxx 0.9.28, `cxx agent send|request|reply|call-join` accept an optional
+From cxx 0.9.29, `cxx agent send|request|reply|call-join` accept an optional
 `--client-message-id <uuid>`; uncertain sends report the generated retry ID.
 Retry with the same routing and content. A request whose send committed but
 whose wait failed returns `sent`, `wait_error` and recovery guidance; continue
 with `cxx agent wait` instead of sending the work again. One-shot
 `cxx agent listen` consumes only informational messages and leaves work queued
 for native MCP or a persistent worker, preserving FIFO. Its API requires the
-new `informational_only` claim field, so deploy the API before wrapper 0.9.28.
+new `informational_only` claim field, so deploy the API before wrapper 0.9.29.
 The native MCP receiver continues to accept, renew and finish work normally.
 
 From cxx 0.9.26, reconnecting the native transport within the same MCP process

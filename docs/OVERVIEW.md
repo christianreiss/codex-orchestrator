@@ -471,7 +471,7 @@ visible with a choice to load the latest values or discard the draft.
 
 ## Agent Messaging
 
-Cxx 0.9.28 makes one-shot CLI listen informational-only and preserves send
+Cxx 0.9.29 makes one-shot CLI listen informational-only and preserves send
 receipts when request waiting fails. CLI send/request/reply/call-join support
 `--client-message-id` for safe retries. The API atomically completes claimed
 informational replies, fences stale claims, validates immutable relay replies,

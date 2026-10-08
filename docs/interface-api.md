@@ -934,7 +934,7 @@ Errors return: `{type: "error", error: {type: string, message: string, code?: st
 
 ## Agent Messaging
 
-The fourth lifecycle pass (cxx 0.9.28) makes claimed informational replies
+The fourth lifecycle pass (cxx 0.9.29) makes claimed informational replies
 atomic with their parent completion. Supplied claims must match the owner and
 binding; new replies require a live lease and, before acceptance, a live TTL.
 An informational delivery still in flight or ended ambiguously cannot bypass

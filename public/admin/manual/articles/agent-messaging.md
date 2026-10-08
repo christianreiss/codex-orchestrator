@@ -30,7 +30,7 @@ Server-to-agent conversations and agent-to-server responses use Portal.
 
 ## Reliable sends and reception
 
-Wrapper 0.9.28 adds CLI retry IDs: keep `--client-message-id <uuid>` when
+Wrapper 0.9.29 adds CLI retry IDs: keep `--client-message-id <uuid>` when
 retrying send, request, reply or call-join after an uncertain response. A
 request whose send succeeded but whose wait failed still prints its send
 receipt and `wait_error`; use `cxx agent wait` on that conversation. One-shot

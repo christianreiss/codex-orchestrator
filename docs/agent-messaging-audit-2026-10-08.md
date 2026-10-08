@@ -5,7 +5,7 @@ covers commit `63002ff7` and wrapper 0.9.26. The
 [third pass](#third-pass--2026-10-08-cxx-0927) covers commit `9788c394`, six further
 product defects, one native-canary race and wrapper 0.9.27. The
 [fourth pass](#fourth-pass--2026-10-08-cxx-0928) audits baseline `f0a7aee1`
-and delivers wrapper 0.9.28 plus further server and CLI repairs.
+and delivers wrapper 0.9.29 plus further server and CLI repairs.
 
 This audit covers the server, HTTP and local MCP interfaces, interactive native
 receivers, detached workers, agent usability, and delivery recovery for Codex,
@@ -448,7 +448,7 @@ per-recipient rather than transactional and must not be blindly retried after
 uncertain partial delivery. Retained history has no automatic bus-wide purge.
 
 
-## Fourth pass — 2026-10-08, cxx 0.9.28
+## Fourth pass — 2026-10-08, cxx 0.9.29
 
 Baseline was clean `main` at `f0a7aee1e03f28c728f61b15b8940a47c588490a`,
 three commits ahead of the local `origin/main` reference. All three preceding
@@ -556,7 +556,7 @@ repaired harness and final packaged-binary run passed.
 
 ### Rollout, rollback and limits
 
-Deploy the API first, then wrapper 0.9.28: an older strict API rejects the new
+Deploy the API first, then wrapper 0.9.29: an older strict API rejects the new
 `informational_only` field. Start new wrapper processes to load the updated CLI;
 no database migration is needed. Rollback is the previous API and wrapper pair.
 Existing sessions that already inherited an unrelated mailbox are not silently
@@ -565,7 +565,7 @@ get the corrected identity lifecycle. There is no task-owned production state
 to restore. An unrelated Android `ConversationList.kt` edit appeared during
 verification and was preserved. The operator subsequently authorized commit,
 push and production deployment on 2026-10-08. Deploy the API before publishing
-wrapper 0.9.28; retain the previous image, wrapper manifests and a database backup.
+wrapper 0.9.29; retain the previous image, wrapper manifests and a database backup.
 Unrelated Android/Companion work stays outside this delivery. Local artifacts are under
 `/tmp/cxx-messaging-r4-release/`.
 
@@ -577,3 +577,22 @@ before retrying work. Conference fan-out remains per-recipient and must not be
 blindly retried after uncertain partial delivery. Bus history remains retained
 without an automatic purge. These are explicit operational boundaries, not
 claims that a passing transport test proves an arbitrary task succeeded.
+
+### Authorized production delivery
+
+The operator authorized commit, push and deployment after the audit. Commit
+`a1b272be` contains the fourth-pass repairs; `origin/main` also received the
+three earlier audit commits. The shared worktree release counter had advanced
+to **0.9.29** before staging, so 0.9.29 is the shipped version. The 0.9.28 native
+canary hashes above remain the actual pre-commit test artifacts; they are not
+claims about the production binary hash. Unrelated Android/Companion source
+changes were left unstaged.
+
+Production target: `root@docker01.uggs.io`,
+`/var/docker_data/codex-auth.uggs.io/app`. The API and quota worker were rebuilt
+and restarted before wrapper publication, with 44 applied migrations and none
+pending or drifted. Rollback material is under `backups/messaging-r4-20261008/`,
+API image tag `codex-orchestrator-api:rollback-messaging-r4-20261008`, and database
+dump `backups/codex-orchestrator-20261008T124858Z.sql`. Deployment logs on the
+operator host are `/tmp/messaging-r4-deploy-api.log` and
+`/tmp/messaging-r4-deploy-wrappers.log`.
