@@ -439,16 +439,83 @@ describe.skipIf(!handle)('agent messaging durability against a real database', {
     });
   });
 
-  it('reuses a dormant host/user/engine/cwd address with reset continuity', async () => {
-    const first = await register('codex', 'stable', { username: 'stable-user', cwd: '/tmp/stable-work' });
+  it.each(ENGINES)('isolates a fresh %s conversation from a dormant mailbox in the same directory', async engine => {
+    const source = await register('codex', 'fresh-source');
+    const identity = { username: 'stable-user', cwd: '/tmp/stable-work' };
+    const first = await register(engine, 'stable', identity);
+    const sent = await service.sendMessage(source.sessionId, source.bridgeToken, {
+      to: first.address, content: 'obsolete project instructions', clientMessageId: randomUUID(),
+    });
     await service.finishSession(first.sessionId, first.bridgeToken, 'completed');
-    const second = await register('codex', 'stable-next', { username: 'stable-user', cwd: '/tmp/stable-work' });
+    const second = await register(engine, 'stable-next', identity);
+    expect(second.addressId).not.toBe(first.addressId);
+    expect(second.bindingGeneration).toBe(1);
+    expect(await service.claimForSession(second.sessionId, second.bridgeToken, randomUUID())).toBeNull();
+    const [message] = await db.select().from(agentBusMessages).where(eq(agentBusMessages.id, String((sent.message as Record<string, unknown>).id)));
+    expect(message).toMatchObject({ targetAddressId: first.addressId, status: 'queued', attempts: 0 });
+  });
 
-    expect(second.addressId).toBe(first.addressId);
-    expect(second.address).toBe(first.address);
-    expect(second.bindingGeneration).toBe(first.bindingGeneration + 1);
-    const rows = await db.select().from(agentBusAddresses).where(eq(agentBusAddresses.id, first.addressId));
-    expect(rows[0]).toMatchObject({ continuity: 'reset', currentSessionId: second.sessionId });
+  it.each(ENGINES)('rebinds %s picker resumes only after learning the exact native identity', async engine => {
+    const source = await register('codex', 'picker-source');
+    const identity = { username: 'picker-user', cwd: '/tmp/picker-work' };
+    const upstreamSessionId = randomUUID();
+    const first = await register(engine, 'picker-first', { ...identity, upstreamSessionId });
+    const sent = await service.sendMessage(source.sessionId, source.bridgeToken, {
+      to: first.address, content: 'belongs to resumed transcript', clientMessageId: randomUUID(),
+    });
+    await service.finishSession(first.sessionId, first.bridgeToken, 'completed');
+    const resumed = await register(engine, 'picker-resume', identity);
+    expect(resumed.addressId).not.toBe(first.addressId);
+    const receiver = new AgentReceiverService(db, env, testKeyring());
+    const generation = randomUUID();
+    await receiver.register(resumed.sessionId, resumed.bridgeToken, {
+      generation, protocol: RECEIVER_PROTOCOLS[engine], native_session_id: upstreamSessionId,
+    });
+    const [session] = await db.select().from(agentSessions).where(eq(agentSessions.id, resumed.sessionId));
+    expect(session).toMatchObject({ agentBusAddressId: first.addressId, bindingGeneration: first.bindingGeneration + 1 });
+    expect((await receiver.claim(resumed.sessionId, resumed.bridgeToken, generation, 'peer', randomUUID())).delivery)
+      .toMatchObject({ message_id: String((sent.message as Record<string, unknown>).id) });
+  });
+
+  it.each(ENGINES)('isolates a new native %s conversation inside an existing wrapper', async engine => {
+    const source = await register('codex', 'clear-source');
+    const first = await register(engine, 'clear-first');
+    const receiver = new AgentReceiverService(db, env, testKeyring());
+    const generation = randomUUID();
+    await receiver.register(first.sessionId, first.bridgeToken, {
+      generation, protocol: RECEIVER_PROTOCOLS[engine], native_session_id: randomUUID(),
+    });
+    await service.sendMessage(source.sessionId, source.bridgeToken, {
+      to: first.address, content: 'old conversation only', clientMessageId: randomUUID(),
+    });
+    await receiver.update(first.sessionId, first.bridgeToken, generation, 'stop', {});
+    const nextGeneration = randomUUID();
+    await receiver.register(first.sessionId, first.bridgeToken, {
+      generation: nextGeneration, protocol: RECEIVER_PROTOCOLS[engine], native_session_id: randomUUID(),
+    });
+    const [session] = await db.select().from(agentSessions).where(eq(agentSessions.id, first.sessionId));
+    expect(session!.agentBusAddressId).not.toBe(first.addressId);
+    expect((await receiver.claim(first.sessionId, first.bridgeToken, nextGeneration, 'peer', randomUUID())).delivery).toBeNull();
+    const [old] = await db.select().from(agentBusAddresses).where(eq(agentBusAddresses.id, first.addressId));
+    expect(old).toMatchObject({ currentSessionId: null, receiveHeartbeatAt: null });
+  });
+
+  it.each(ENGINES)('also isolates native identity changes through the %s heartbeat API', async engine => {
+    const first = await register(engine, 'heartbeat-identity', { upstreamSessionId: randomUUID() });
+    const source = await register('codex', 'heartbeat-source');
+    await service.sendMessage(source.sessionId, source.bridgeToken, {
+      to: first.address, content: 'old heartbeat mailbox', clientMessageId: randomUUID(),
+    });
+    const nativeId = randomUUID();
+    const result = await service.heartbeatSession(first.sessionId, first.bridgeToken, { upstreamSessionId: nativeId });
+    expect((result!.address as Record<string, unknown>).id).not.toBe(first.addressId);
+    expect(await service.claimForSession(first.sessionId, first.bridgeToken, randomUUID())).toBeNull();
+  });
+
+  it('refuses two simultaneous wrapper bindings for the same native transcript', async () => {
+    const identity = { username: 'busy-user', cwd: '/tmp/busy-native', upstreamSessionId: randomUUID() };
+    await register('codex', 'busy-first', identity);
+    await expect(register('codex', 'busy-second', identity)).rejects.toMatchObject({ code: 'agent_messaging_address_busy' });
   });
 
   it('does not let a disabled address rebind until an administrator re-enables it', async () => {
@@ -481,17 +548,18 @@ describe.skipIf(!handle)('agent messaging durability against a real database', {
     expect(rebound.address).toMatchObject({ id: identity.addressId, address: identity.address });
   });
 
-  it('reclaims an expired wrapper binding and delivers queued work to the stable address', async () => {
+  it.each(ENGINES)('reclaims an expired %s wrapper binding only for its exact native transcript', async engine => {
+    const upstreamSessionId = randomUUID();
     const source = await register('codex', 'reap-source');
-    const target = await register('claude', 'reap-target', {
-      username: 'reap-user', cwd: '/tmp/reap-work',
+    const target = await register(engine, 'reap-target', {
+      username: 'reap-user', cwd: '/tmp/reap-work', upstreamSessionId,
     });
     const sent = await service.sendMessage(source.sessionId, source.bridgeToken, {
       to: target.address, content: 'survive wrapper crash', clientMessageId: randomUUID(),
     });
     await db.update(agentSessions).set({ bridgeExpiresAt: '1970-01-01T00:00:00.000Z' }).where(eq(agentSessions.id, target.sessionId));
-    const restarted = await register('claude', 'reap-restarted', {
-      username: 'reap-user', cwd: '/tmp/reap-work',
+    const restarted = await register(engine, 'reap-restarted', {
+      username: 'reap-user', cwd: '/tmp/reap-work', upstreamSessionId,
     });
     expect(restarted.addressId).toBe(target.addressId);
     const claimId = randomUUID();
@@ -540,6 +608,128 @@ describe.skipIf(!handle)('agent messaging durability against a real database', {
       .resolves.toMatchObject({ created: true });
     expect((await db.select().from(agentBusMessages).where(eq(agentBusMessages.id, messageId)))[0])
       .toMatchObject({ status: 'completed', taskResultStatus: 'unknown' });
+  });
+
+  it.each(ENGINES)('fences expired and superseded informational reply claims for %s', async engine => {
+    const source = await register('codex', 'info-source');
+    const target = await register(engine, 'info-target');
+    const sent = await service.sendMessage(source.sessionId, source.bridgeToken, {
+      to: target.address, content: 'information', clientMessageId: randomUUID(),
+    });
+    const id = String((sent.message as Record<string, unknown>).id);
+    const claimId = randomUUID();
+    await service.claimForSession(target.sessionId, target.bridgeToken, claimId);
+    await db.update(agentBusMessages).set({ leaseUntil: '2000-01-01T00:00:00Z' }).where(eq(agentBusMessages.id, id));
+    const reply = { claimId, content: 'reply', clientMessageId: randomUUID() };
+    await expect(service.replyMessage(target.sessionId, target.bridgeToken, id, { content: reply.content, clientMessageId: reply.clientMessageId }))
+      .rejects.toMatchObject({ code: 'agent_messaging_lease_lost' });
+    await expect(service.replyMessage(target.sessionId, target.bridgeToken, id, reply))
+      .rejects.toMatchObject({ code: 'agent_messaging_lease_lost' });
+    const successor = randomUUID();
+    await service.claimForSession(target.sessionId, target.bridgeToken, successor);
+    await expect(service.replyMessage(target.sessionId, target.bridgeToken, id, reply))
+      .rejects.toMatchObject({ code: 'agent_messaging_lease_lost' });
+    await expect(service.replyMessage(target.sessionId, target.bridgeToken, id, { ...reply, claimId: successor }))
+      .resolves.toMatchObject({ created: true });
+    expect((await db.select().from(agentBusMessages).where(eq(agentBusMessages.id, id)))[0])
+      .toMatchObject({ status: 'completed', claimId: successor });
+    await expect(service.replyMessage(target.sessionId, target.bridgeToken, id, { ...reply, claimId: successor }))
+      .resolves.toMatchObject({ created: false });
+    await service.setAddressEnabled(source.addressId, false);
+    await expect(service.replyMessage(target.sessionId, target.bridgeToken, id, { ...reply, claimId: successor }))
+      .resolves.toMatchObject({ created: false });
+  });
+
+  it('fences relay informational replies and rejects changed receipt replays', async () => {
+    const source = await register('codex', 'relay-info-source');
+    const target = await register('grok', 'relay-info-target', { upstreamSessionId: randomUUID() });
+    await service.finishSession(target.sessionId, target.bridgeToken, 'completed');
+    const relay = await service.registerRelay(host, {
+      username: target.username, instanceId: randomUUID(), wrapperVersion: 'test', capabilities: { execution_contract_version: 2 },
+    });
+    const relayId = String(relay.relay_id), token = String(relay.relay_token);
+    const sent = await service.sendMessage(source.sessionId, source.bridgeToken, {
+      to: target.address, content: 'information', clientMessageId: randomUUID(),
+    });
+    const id = String((sent.message as Record<string, unknown>).id), claimId = randomUUID();
+    expect(await service.claimForRelay(relayId, token, claimId)).toMatchObject({ message_id: id });
+    await service.acknowledgeRelayDelivery(relayId, token, id, { claimId, outcome: 'accepted' });
+    await db.update(agentBusMessages).set({ leaseUntil: '2000-01-01T00:00:00Z' }).where(eq(agentBusMessages.id, id));
+    const reply = { claimId, content: 'original', clientMessageId: randomUUID() };
+    await expect(service.replyFromRelayDelivery(relayId, token, id, reply))
+      .rejects.toMatchObject({ code: 'agent_messaging_lease_lost' });
+    await db.update(agentBusMessages).set({ leaseUntil: new Date(Date.now() + 60_000).toISOString() }).where(eq(agentBusMessages.id, id));
+    await expect(service.replyFromRelayDelivery(relayId, token, id, reply)).resolves.toMatchObject({ created: true });
+    expect((await db.select().from(agentBusMessages).where(eq(agentBusMessages.id, id)))[0])
+      .toMatchObject({ status: 'completed' });
+    await expect(service.replyFromRelayDelivery(relayId, token, id, reply)).resolves.toMatchObject({ created: false });
+    await expect(service.replyFromRelayDelivery(relayId, token, id, { ...reply, content: 'changed' }))
+      .rejects.toMatchObject({ code: 'agent_messaging_client_message_id_conflict' });
+    await service.setAddressEnabled(source.addressId, false);
+    await expect(service.replyFromRelayDelivery(relayId, token, id, reply)).resolves.toMatchObject({ created: false });
+  });
+
+  it.each(ENGINES)('does not start a replacement %s agent for old informational mail without a transcript', async engine => {
+    const source = await register('codex', 'orphan-source');
+    const target = await register(engine, 'orphan-target');
+    const sent = await service.sendMessage(source.sessionId, source.bridgeToken, {
+      to: target.address, content: 'obsolete instruction', clientMessageId: randomUUID(),
+    });
+    await service.finishSession(target.sessionId, target.bridgeToken, 'completed');
+    const relay = await service.registerRelay(host, {
+      username: target.username, instanceId: randomUUID(), wrapperVersion: 'test',
+      capabilities: { execution_contract_version: 2 },
+    });
+    expect(await service.claimForRelay(String(relay.relay_id), String(relay.relay_token), randomUUID())).toBeNull();
+    const [message] = await db.select().from(agentBusMessages).where(eq(agentBusMessages.id, String((sent.message as Record<string, unknown>).id)));
+    expect(message).toMatchObject({ status: 'dead', attempts: 0, lastErrorCode: 'native_transcript_missing' });
+  });
+
+  it('recovers a committed send receipt after its recipient is disabled without authorizing another send', async () => {
+    const source = await register('codex', 'receipt-source');
+    const target = await register('claude', 'receipt-target');
+    const input = { to: target.address, content: 'stored once', clientMessageId: randomUUID() };
+    const sent = await service.sendMessage(source.sessionId, source.bridgeToken, input);
+    await service.setAddressEnabled(target.addressId, false);
+    await expect(service.sendMessage(source.sessionId, source.bridgeToken, input))
+      .resolves.toMatchObject({ created: false, message: { id: (sent.message as Record<string, unknown>).id, status: 'canceled' } });
+    await expect(service.sendMessage(source.sessionId, source.bridgeToken, { ...input, clientMessageId: randomUUID() }))
+      .rejects.toMatchObject({ code: 'agent_messaging_address_not_found' });
+    await expect(service.sendMessage(source.sessionId, source.bridgeToken, { ...input, content: 'changed' }))
+      .rejects.toMatchObject({ code: 'agent_messaging_client_message_id_conflict' });
+  });
+
+  it('persists expiry discovered during renewal instead of rolling it back with the error', async () => {
+    const source = await register('codex', 'renew-source');
+    const target = await register('claude', 'renew-target');
+    const sent = await service.sendMessage(source.sessionId, source.bridgeToken, {
+      to: target.address, content: 'expires', clientMessageId: randomUUID(),
+    });
+    const id = String((sent.message as Record<string, unknown>).id), claimId = randomUUID();
+    await service.claimForSession(target.sessionId, target.bridgeToken, claimId);
+    await db.update(agentBusMessages).set({ expiresAt: '2000-01-01T00:00:00Z' }).where(eq(agentBusMessages.id, id));
+    await expect(service.renewSessionDelivery(target.sessionId, target.bridgeToken, id, claimId))
+      .rejects.toMatchObject({ code: 'agent_messaging_message_expired' });
+    expect((await db.select().from(agentBusMessages).where(eq(agentBusMessages.id, id)))[0])
+      .toMatchObject({ status: 'expired', leaseOwner: null, leaseUntil: null });
+  });
+
+  it.each([false, true])('leaves work queued when a one-shot reader asks for information only (legacy=%s)', async legacy => {
+    const source = await register('codex', 'one-shot-source');
+    const target = await register('grok', 'one-shot-target');
+    const sent = await service.sendMessage(source.sessionId, source.bridgeToken, {
+      to: target.address, content: 'do work', kind: 'request', clientMessageId: randomUUID(),
+    });
+    const id = String((sent.message as Record<string, unknown>).id);
+    if (legacy) await db.update(agentBusMessages).set({ workKind: null, executionContractVersion: 1 }).where(eq(agentBusMessages.id, id));
+    await service.sendMessage(source.sessionId, source.bridgeToken, {
+      to: target.address, content: 'later information', clientMessageId: randomUUID(),
+    });
+    expect(await service.claimForSession(target.sessionId, target.bridgeToken, randomUUID(), undefined, true)).toBeNull();
+    expect((await db.select().from(agentBusMessages).where(eq(agentBusMessages.id, id)))[0])
+      .toMatchObject({ status: 'queued', attempts: 0, lastErrorCode: null });
+    expect(await service.claimForSession(target.sessionId, target.bridgeToken, randomUUID()))
+      .toMatchObject({ message_id: id, work_kind: legacy ? null : 'request', attempts: 1 });
   });
 
   it('master-off cancels work and conversations, revokes relays, but leaves interactive sessions running', async () => {

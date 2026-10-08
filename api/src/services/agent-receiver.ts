@@ -7,6 +7,7 @@ import type { Keyring } from '../security/keyring.js';
 import { ConflictError, ForbiddenError } from '../http/errors.js';
 import { createAgentMessagingService } from './agent-messaging.js';
 import { createAgentPortalService } from './agent-portal.js';
+import { bindNativeMessagingIdentityLocked } from './agent-messaging/native-identity.js';
 import { wsPublisher } from '../ws/publisher.js';
 import {
   receiverReady,
@@ -60,7 +61,11 @@ export class AgentReceiverService {
       if (!session || session.endedAt || session.bridgeTokenHash !== auth.bridgeTokenHash)
         throw new ConflictError('Session changed', 'receiver_session_changed');
       const old = receiverState(session.receiver);
-      if (old?.generation === input.generation) return old;
+      if (old?.generation === input.generation) {
+        if (old.protocol !== input.protocol || old.native_session_id !== input.native_session_id)
+          throw new ConflictError('Receiver generation was already registered for another native identity', 'receiver_registration_conflict');
+        return old;
+      }
       if (old && !old.failure && Date.parse(old.heartbeat_at) > Date.now() - RECEIVER_FRESH_MS)
         throw new ConflictError('Another receiver owns this session', 'receiver_owned');
       const next: ReceiverState = {
@@ -82,18 +87,13 @@ export class AgentReceiverService {
         })
         .where(eq(agentSessions.id, id));
       if (session.agentBusAddressId && sources.includes('peer')) {
-        const [address] = await tx
-          .select()
-          .from(agentBusAddresses)
-          .where(eq(agentBusAddresses.id, session.agentBusAddressId))
-          .for('update');
-        if (address?.currentSessionId !== id)
-          throw new ConflictError('Address binding changed', 'receiver_binding_changed');
+        const address = await bindNativeMessagingIdentityLocked(tx, session, input.native_session_id, now);
         await tx
           .update(agentBusAddresses)
           .set({
             receiveHeartbeatAt: sources.includes('peer') ? now : null,
             lastUpstreamSessionId: input.native_session_id,
+            continuity: 'native',
             adapterProtocol: input.protocol,
           })
           .where(eq(agentBusAddresses.id, address.id));
@@ -101,7 +101,7 @@ export class AgentReceiverService {
       return next;
     });
     this.changed(id);
-    return { receiver: receiverView(state), sources };
+    return { receiver: receiverView(state), sources: Object.keys(state.probes) as ReceiverSource[] };
   }
 
   async update(

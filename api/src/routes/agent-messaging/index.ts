@@ -442,10 +442,10 @@ export async function registerAgentMessagingRoutes(
   app.post('/host/agent-sessions/:id/agent-messaging/deliveries/claim', async (req, reply) => {
     const id = stringParam(req.params, 'id');
     const token = requireToken(req, BRIDGE_TOKEN_HEADER, 'agent_bridge_token_required');
-    const body = z.object({ claim_id: z.string().uuid(), wait_seconds: z.number().int().min(0).max(25).optional() }).strict().parse(req.body ?? {});
+    const body = z.object({ claim_id: z.string().uuid(), wait_seconds: z.number().int().min(0).max(25).optional(), informational_only: z.boolean().optional() }).strict().parse(req.body ?? {});
     const deadline = Date.now() + (body.wait_seconds ?? 20) * 1000;
     while (true) {
-      const delivery = await messaging.claimForSession(id, token, body.claim_id);
+      const delivery = await messaging.claimForSession(id, token, body.claim_id, undefined, body.informational_only);
       if (delivery || Date.now() >= deadline || clientGone(reply)) return { delivery };
       await delay(400);
     }

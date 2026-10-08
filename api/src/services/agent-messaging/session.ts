@@ -3,9 +3,9 @@ import { receiverView, receiverState } from '../agent-receiver-state.js';
  * Session lifecycle: a managed CLI run registering its bridge, keeping it warm,
  * ending it, and asking who else is reachable.
  *
- * Split out of `../agent-messaging.ts`. This is the only place an address is
- * minted or rebound, which is why the binding-generation rules and the
- * host-eligibility checks that guard them live together here.
+ * Split out of `../agent-messaging.ts`. Initial address binding lives here;
+ * native-identity.ts reconciles later transcript reports from the receiver
+ * and heartbeat paths. Host eligibility guards both entry points.
  */
 
 import { randomUUID } from 'node:crypto';
@@ -55,6 +55,7 @@ import {
 } from './normalize.js';
 import type { AgentMessagingDb, RegisterMessagingSessionInput } from './types.js';
 import { publicAddress } from './views.js';
+import { bindNativeMessagingIdentityLocked } from './native-identity.js';
 import {
   reapExpiredAgentMessagingBindingsLocked,
   suspendAgentMessagingRuntimeLocked,
@@ -141,8 +142,8 @@ export class SessionRegistry {
       }
       assertHostEngineEnabled(lockedHost, input.engine, await readFleetEngineState(tx));
       // A crashed wrapper may leave its durable address bound until the portal
-      // reaper runs. Reclaim expired bindings for this identity in-band so a
-      // restart reuses the same address instead of minting a split identity.
+      // reaper runs. Reclaim expired bindings for this identity in-band so an
+      // exact native resume can reclaim its address without guessing by cwd.
       await reapExpiredAgentMessagingBindingsLocked(tx, now, {
         hostId: host.id,
         engine: input.engine,
@@ -214,34 +215,12 @@ export class SessionRegistry {
           .orderBy(desc(agentBusAddresses.lastSeenAt))
           .limit(1)
           .for('update');
-        if (rows[0] && (!rows[0].currentSessionId || rows[0].currentSessionId === sessionId)) {
-          address = rows[0];
-          inferredContinuity = 'native';
+        if (rows[0]?.currentSessionId && rows[0].currentSessionId !== sessionId) {
+          throw new ConflictError('Native transcript is already bound to another lifecycle', 'agent_messaging_address_busy');
         }
-      }
-      if (!address) {
-        // A fresh native session has no upstream transcript id yet. Reuse the
-        // latest dormant identity for the same host/user/engine/cwd and mark
-        // continuity reset; concurrent live sessions still get distinct
-        // addresses because only an unbound row is eligible here.
-        const rows = await tx
-          .select()
-          .from(agentBusAddresses)
-          .where(and(
-            eq(agentBusAddresses.hostId, host.id),
-            eq(agentBusAddresses.engine, input.engine),
-            eq(agentBusAddresses.username, username),
-            eq(agentBusAddresses.cwdHash, sha256(cwd)),
-            eq(agentBusAddresses.enabled, 1),
-            isNull(agentBusAddresses.currentSessionId),
-            isNull(agentBusAddresses.archivedAt),
-          ))
-          .orderBy(desc(agentBusAddresses.lastSeenAt))
-          .limit(1)
-          .for('update');
         if (rows[0]) {
           address = rows[0];
-          inferredContinuity = 'reset';
+          inferredContinuity = 'native';
         }
       }
       if (!address) {
@@ -282,7 +261,7 @@ export class SessionRegistry {
             ? address.continuity
             : inferredContinuity ?? (input.upstreamSessionId || input.resumed ? 'native' : 'reset')
         );
-        const nextUpstream = normalizeOptionalText(input.upstreamSessionId, 255) ?? (
+        const nextUpstream = (address.currentSessionId === sessionId ? current.upstreamSessionId : null) ?? normalizeOptionalText(input.upstreamSessionId, 255) ?? (
           nextContinuity === 'reset' ? null : address.lastUpstreamSessionId
         );
         await tx
@@ -328,7 +307,7 @@ export class SessionRegistry {
         .update(agentSessions)
         .set({
           agentBusAddressId: address.id,
-          upstreamSessionId: normalizeOptionalText(input.upstreamSessionId, 255) ?? current.upstreamSessionId,
+          upstreamSessionId: address.lastUpstreamSessionId,
           adapterProtocol: normalizeOptionalText(input.adapterProtocol, 32),
           adapterCapabilities: input.adapterCapabilities ?? null,
           receiveHeartbeatAt: input.adapterProtocol ? now : null,
@@ -387,7 +366,7 @@ export class SessionRegistry {
         throw new ConflictError('Agent session has no messaging address', 'agent_messaging_address_missing');
       }
       const addressRows = await tx.select().from(agentBusAddresses).where(eq(agentBusAddresses.id, session.agentBusAddressId)).limit(1).for('update');
-      const address = addressRows[0];
+      let address = addressRows[0];
       if (!address || address.archivedAt || address.enabled !== 1) throw new ForbiddenError('Agent address is disabled', 'agent_messaging_address_disabled');
       if (address.currentSessionId !== session.id) throw new ConflictError('Agent address binding changed', 'agent_messaging_binding_stale');
       await this.core.assertAddressEligibleLocked(tx, address);
@@ -404,6 +383,12 @@ export class SessionRegistry {
           : null;
       const protocol = normalizeOptionalText(input.adapterProtocol, 32) ?? session.adapterProtocol;
       const upstream = normalizeOptionalText(input.upstreamSessionId, 255) ?? session.upstreamSessionId;
+      if (input.upstreamSessionId && upstream) {
+        const receiver = receiverState(session.receiver);
+        if (receiver && !receiver.failure && receiver.native_session_id !== upstream)
+          throw new ConflictError('Automatic receiver owns the native identity', 'receiver_owned');
+        address = await bindNativeMessagingIdentityLocked(tx, session, upstream, now);
+      }
       const status = normalizeSessionStatus(input.status) ?? session.status;
       await tx
         .update(agentSessions)
@@ -423,7 +408,7 @@ export class SessionRegistry {
         .update(agentBusAddresses)
         .set({
           lastUpstreamSessionId: upstream ?? address.lastUpstreamSessionId,
-          continuity: input.continuity ?? address.continuity,
+          continuity: input.continuity ?? (upstream ? 'native' : address.continuity),
           adapterProtocol: protocol,
           adapterCapabilities: input.adapterCapabilities ?? address.adapterCapabilities,
           readiness: input.receiveCapable === undefined

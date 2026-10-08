@@ -441,11 +441,6 @@ export class AgentMessagingService {
       await this.requireEnabledLocked(tx);
       const sender = await this.requireAddressLocked(tx, authenticated.session.agentBusAddressId!);
       await this.assertSessionAddressLocked(tx, authenticated.session.id, sender);
-      const target = await this.resolveAddressLocked(tx, input.to, true);
-      await this.assertAddressEligibleLocked(tx, target);
-      if (sender.id === target.id) {
-        throw new ValidationError('An agent cannot message itself', { param: 'to' });
-      }
       const existingRows = await tx
         .select()
         .from(agentBusMessages)
@@ -453,9 +448,16 @@ export class AgentMessagingService {
         .limit(1)
         .for('update');
       const existing = existingRows[0];
+      // Receipt recovery does not create a delivery. A later recipient disable
+      // must not hide a send that already committed under this sender's UUID.
+      const target = await this.resolveAddressLocked(tx, input.to, true, !!existing);
       if (existing) {
         this.assertMessageIdempotency(existing, target.id, input.conversationId ?? null, null, content, input.kind ?? 'message');
         return { message: existing, sender, target, content, created: false };
+      }
+      await this.assertAddressEligibleLocked(tx, target);
+      if (sender.id === target.id) {
+        throw new ValidationError('An agent cannot message itself', { param: 'to' });
       }
 
       const now = nowIso();
@@ -582,12 +584,18 @@ export class AgentMessagingService {
       if (parent.workKind && !input.claimId) {
         throw new ConflictError('Work replies require the accepted delivery claim', 'agent_task_result_not_accepted');
       }
+      if (!parent.workKind && parent.attempts > 0 && parent.status !== 'completed' && !input.claimId) {
+        throw new ConflictError('A delivered message requires its current claim; use send for a new follow-up', 'agent_messaging_lease_lost');
+      }
       if (parent.workKind && input.claimId) await this.finishTaskLocked(tx, parent, input.claimId, `session:${sessionId}`, input.taskResult);
+      if (input.claimId && !parent.workKind && (
+        parent.claimId !== input.claimId || parent.leaseOwner !== `session:${sessionId}` ||
+        parent.targetBindingGeneration !== sender.bindingGeneration
+      )) throw new ConflictError('Message lease is no longer owned by this delivery', 'agent_messaging_lease_lost');
       const target = await this.requireAddressLocked(tx, parent.senderAddressId);
       if (target.id === SERVER_ADDRESS_ID) {
         throw new ConflictError('Server publications are informational; use the operator portal conversation to respond', 'agent_messaging_server_publication_reply');
       }
-      await this.assertAddressEligibleLocked(tx, target);
       const existingRows = await tx
         .select()
         .from(agentBusMessages)
@@ -599,6 +607,7 @@ export class AgentMessagingService {
         this.assertMessageIdempotency(existing, target.id, parent.conversationId, parent.id, content, 'reply');
         return { message: existing, sender, target, content, created: false };
       }
+      await this.assertAddressEligibleLocked(tx, target);
       const conversation = await this.requireConversationLocked(tx, parent.conversationId);
       this.assertConversationParticipants(conversation, sender.id, target.id);
       if (conversation.status !== 'open') throw new ConflictError('Conversation is canceled', 'agent_messaging_conversation_canceled');
@@ -647,6 +656,7 @@ export class AgentMessagingService {
       const persistedRows = await tx.select().from(agentBusMessages).where(eq(agentBusMessages.id, messageId)).limit(1);
       const persisted = persistedRows[0];
       if (!persisted) throw new Error('Inserted agent reply could not be read back');
+      if (input.claimId && !parent.workKind) await this.finishInformationalReplyLocked(tx, parent, now);
       // An attached conference member reports by replying to its task.
       await this.conference.settleConferenceDispatchLocked(tx, parent.id, now);
       await this.conference.chargeConferenceBudgetLocked(tx, parent.conversationId, now);
@@ -740,14 +750,14 @@ export class AgentMessagingService {
     return result;
   }
 
-  async claimForSession(sessionId: string, bridgeToken: string, claimId: string, receiverGeneration?: string): Promise<MessageDelivery | null> {
+  async claimForSession(sessionId: string, bridgeToken: string, claimId: string, receiverGeneration?: string, informationalOnly = false): Promise<MessageDelivery | null> {
     const authenticated = await this.authenticateBridge(sessionId, bridgeToken);
     const addressId = authenticated.session.agentBusAddressId;
     if (!addressId) throw new ConflictError('Agent session has no messaging address', 'agent_messaging_address_missing');
     if (!authenticated.session.receiveHeartbeatAt) {
       throw new ConflictError('Agent session is not receive-capable', 'agent_messaging_adapter_unavailable');
     }
-    return await this.claimDelivery([addressId], `session:${sessionId}`, claimId, null, false, receiverGeneration);
+    return await this.claimDelivery([addressId], `session:${sessionId}`, claimId, null, false, receiverGeneration, informationalOnly);
   }
 
   /**
@@ -959,6 +969,19 @@ export class AgentMessagingService {
     await tx.update(agentBusMessages).set({ status: 'completed', taskResultStatus: report.status, completedAt: nowIso(), leaseUntil: null, updatedAt: nowIso() }).where(eq(agentBusMessages.id, message.id));
   }
 
+  /** A claimed informational reply is a receipt too: store it and finish atomically. */
+  private async finishInformationalReplyLocked(tx: AgentMessagingDb, message: AgentBusMessage, now: string) {
+    if (!['leased', 'accepted'].includes(message.status) || !message.leaseUntil || message.leaseUntil <= now) {
+      throw new ConflictError('Delivery lease expired or ended', 'agent_messaging_lease_lost');
+    }
+    if (message.status === 'leased' && message.expiresAt <= now) {
+      throw new ConflictError('Message expired before acceptance', 'agent_messaging_message_expired');
+    }
+    await tx.update(agentBusMessages).set({
+      status: 'completed', acceptedAt: message.acceptedAt ?? now, completedAt: now, leaseUntil: null, updatedAt: now,
+    }).where(eq(agentBusMessages.id, message.id));
+  }
+
   async approveMessageFreshStart(messageId: string, version: number, reason: string, actor: string): Promise<Record<string, unknown>> {
     const id = normalizeUuid(messageId, 'message_id');
     const why = normalizeMessageBody(reason);
@@ -1068,7 +1091,6 @@ export class AgentMessagingService {
       if (target.id === SERVER_ADDRESS_ID) {
         throw new ConflictError('Server publications are informational; use the operator portal conversation to respond', 'agent_messaging_server_publication_reply');
       }
-      await this.assertAddressEligibleLocked(tx, target);
       const existingRows = await tx
         .select()
         .from(agentBusMessages)
@@ -1076,8 +1098,10 @@ export class AgentMessagingService {
         .limit(1)
         .for('update');
       if (existingRows[0]) {
+        this.assertMessageIdempotency(existingRows[0], target.id, parent.conversationId, parent.id, content, 'reply');
         return { message: existingRows[0], sender, target, created: false };
       }
+      await this.assertAddressEligibleLocked(tx, target);
       const conversation = await this.requireConversationLocked(tx, parent.conversationId);
       this.assertConversationParticipants(conversation, sender.id, target.id);
       if (conversation.status !== 'open') {
@@ -1127,6 +1151,7 @@ export class AgentMessagingService {
       const persistedRows = await tx.select().from(agentBusMessages).where(eq(agentBusMessages.id, messageId)).limit(1);
       const persisted = persistedRows[0];
       if (!persisted) throw new Error('Inserted relay reply could not be read back');
+      if (!parent.workKind) await this.finishInformationalReplyLocked(tx, parent, now);
       // A headless conference member never calls a tool: the relay correlates
       // its final output and posts it here, so this is where its dispatch ends.
       await this.conference.settleConferenceDispatchLocked(tx, parent.id, now);
@@ -1139,7 +1164,7 @@ export class AgentMessagingService {
         .update(agentBusMessages)
         .set({ deliverySessionId: deliverySessionId ?? parent.deliverySessionId, deliveryUpstreamSessionId: upstreamSessionId ?? parent.deliveryUpstreamSessionId, updatedAt: now })
         .where(eq(agentBusMessages.id, parent.id));
-      if (parent.workKind && upstreamSessionId) {
+      if (upstreamSessionId) {
         await tx.update(agentBusAddresses).set({ lastUpstreamSessionId: upstreamSessionId, continuity: 'native', readiness: sender.currentSessionId ? sender.readiness : 'resumable', lastSeenAt: now, updatedAt: now }).where(eq(agentBusAddresses.id, sender.id));
       }
       return { message: persisted, sender, target, created: true };
@@ -1251,6 +1276,7 @@ export class AgentMessagingService {
     relayGeneration: number | null,
     skipReceiveCapable: boolean,
     receiverGeneration?: string,
+    informationalOnly = false,
   ): Promise<MessageDelivery | null> {
     const claimId = normalizeUuid(rawClaimId, 'claim_id');
     const now = nowIso();
@@ -1300,6 +1326,7 @@ export class AgentMessagingService {
         .limit(1)
         .for('update');
       if (replayRows[0]) {
+        if (informationalOnly && (replayRows[0].workKind || ['request', 'task', 'schedule'].includes(replayRows[0].kind))) return null;
         const target = await this.requireAddressLocked(tx, replayRows[0].targetAddressId);
         const sender = await this.requireAddressLocked(tx, replayRows[0].senderAddressId);
         return { message: replayRows[0], sender, target };
@@ -1332,12 +1359,23 @@ export class AgentMessagingService {
         .limit(64)
         .for('update');
       for (const candidate of candidates) {
+        // A one-shot CLI reader cannot keep work alive or report its result.
+        // Leave the FIFO head untouched for a persistent execution adapter.
+        if (informationalOnly && (candidate.workKind || ['request', 'task', 'schedule'].includes(candidate.kind))) continue;
         const target = await this.requireAddressLocked(tx, candidate.targetAddressId);
         await this.assertAddressEligibleLocked(tx, target);
         // A relay must never write to a native upstream session while its
         // interactive wrapper is still attached. Receive-capable sessions
         // claim live; non-channel sessions leave work queued until they exit.
         if (skipReceiveCapable && target.currentSessionId) continue;
+        // Informational mail is not permission to create a replacement agent.
+        // Older workers otherwise start a fresh native session for reset targets.
+        if (skipReceiveCapable && !candidate.workKind && (!target.lastUpstreamSessionId || target.continuity !== 'native')) {
+          await tx.update(agentBusMessages).set({
+            status: 'dead', deadAt: now, lastErrorCode: 'native_transcript_missing', updatedAt: now,
+          }).where(eq(agentBusMessages.id, candidate.id));
+          continue;
+        }
         if (!skipReceiveCapable && await freshStartAllowed(tx, candidate, target)) {
           await tx.update(agentBusMessages).set({ lastErrorCode: 'fresh_start_waiting_idle', updatedAt: now }).where(eq(agentBusMessages.id, candidate.id));
           continue;
@@ -1439,11 +1477,13 @@ export class AgentMessagingService {
       }
       if (message.expiresAt <= now && message.status !== 'accepted') {
         await tx.update(agentBusMessages).set({ status: 'expired', expiredAt: now, leaseOwner: null, leaseUntil: null, updatedAt: now }).where(eq(agentBusMessages.id, id));
-        throw new ConflictError('Message expired', 'agent_messaging_message_expired');
+        return null;
       }
       await tx.update(agentBusMessages).set({ leaseUntil, updatedAt: now }).where(eq(agentBusMessages.id, id));
       return message;
     });
+    // Throw after commit: throwing inside the transaction undoes expiry cleanup.
+    if (!result) throw new ConflictError('Message expired', 'agent_messaging_message_expired');
     return { message_id: result.id, lease_until: leaseUntil };
   }
 
@@ -1683,7 +1723,7 @@ export class AgentMessagingService {
     return address;
   }
 
-  private async resolveAddressLocked(db: AgentMessagingDb, raw: string, forUpdate: boolean): Promise<AgentBusAddress> {
+  private async resolveAddressLocked(db: AgentMessagingDb, raw: string, forUpdate: boolean, allowInactive = false): Promise<AgentBusAddress> {
     const value = String(raw ?? '').trim().toLowerCase();
     if (!value) throw new ValidationError('to is required', { param: 'to' });
     const query = db
@@ -1693,7 +1733,7 @@ export class AgentMessagingService {
       .limit(1);
     const rows = forUpdate ? await query.for('update') : await query;
     const address = rows[0];
-    if (!address || address.archivedAt || address.enabled !== 1) {
+    if (!address || (!allowInactive && (address.archivedAt || address.enabled !== 1))) {
       throw new NotFoundError('Agent address not found', 'agent_messaging_address_not_found');
     }
     return address;

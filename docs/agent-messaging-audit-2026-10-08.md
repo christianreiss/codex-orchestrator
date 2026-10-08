@@ -3,7 +3,9 @@
 The first-pass record follows; the [second pass](#second-pass--2026-10-08-cxx-0926)
 covers commit `63002ff7` and wrapper 0.9.26. The
 [third pass](#third-pass--2026-10-08-cxx-0927) covers commit `9788c394`, six further
-product defects, one native-canary race and wrapper 0.9.27.
+product defects, one native-canary race and wrapper 0.9.27. The
+[fourth pass](#fourth-pass--2026-10-08-cxx-0928) audits baseline `f0a7aee1`
+and delivers wrapper 0.9.28 plus further server and CLI repairs.
 
 This audit covers the server, HTTP and local MCP interfaces, interactive native
 receivers, detached workers, agent usability, and delivery recovery for Codex,
@@ -444,3 +446,134 @@ can still lose local reply correlation, and accepted work then becomes ambiguous
 exactly-once external effects are not guaranteed. Conference fan-out is still
 per-recipient rather than transactional and must not be blindly retried after
 uncertain partial delivery. Retained history has no automatic bus-wide purge.
+
+
+## Fourth pass — 2026-10-08, cxx 0.9.28
+
+Baseline was clean `main` at `f0a7aee1e03f28c728f61b15b8940a47c588490a`,
+three commits ahead of the local `origin/main` reference. All three preceding
+repair commits and their audit records were present. Fleet discovery again
+found no matching active project; the Git Director showed no competing worker
+in this clone. This pass makes local source changes only: no branch changes,
+commit, push, deployment, production migration or existing-session restart.
+
+### Repaired failure boundaries
+
+| Finding | Repair and evidence |
+| --- | --- |
+| Informational replies ignored supplied claims; an expired or superseded claimant could queue a reply even though work replies were fenced. Omitting the claim also bypassed a held informational delivery. | Claimed replies check owner, binding, live lease and pre-acceptance TTL. In-flight or ambiguous informational deliveries require their claim. Real-MySQL regressions reproduce stale acceptance for Codex, Claude and Grok, then verify rejection and the valid successor. Completed informational messages retain the ordinary participant reply path used by one-shot CLI readers. |
+| Informational reply storage and parent completion were separate operations, so a crash after storing the reply could leave the parent accepted and later ambiguous. | Commit the reply and parent completion in one transaction, retaining terminal receipt ownership. Tests inspect the completed parent before any follow-up ACK and replay the identical reply. Relay native identity persistence now also occurs in that transaction for informational replies. |
+| Relay receipt retries silently returned an existing reply even when the retried content changed. | Validate the stored content, target, conversation, parent and kind before returning the receipt; changed content produces `agent_messaging_client_message_id_conflict`. |
+| Disabling a recipient hid a previously committed send or reply receipt behind current eligibility checks. A lost response could no longer be resolved. | Authenticate and validate the original receipt before enforcing eligibility for a new delivery. Identical receipts return their current stored status; new sends and changed content remain rejected. Real-DB tests cover both session and relay replies and an original send canceled by recipient disablement. |
+| Renewal discovered TTL expiry and wrote `expired`, then threw inside the transaction, rolling the cleanup back. | Commit expiry and lease clearing first, then return `agent_messaging_message_expired`. The baseline regression observed the old `leased` row after the error; the repaired test observes `expired` and no lease. |
+| Reusing a receiver generation with a different native session ID reported success for the old identity. Registration retries could also advertise a newly enabled source absent from the stored connection. | Reject changed native identity with `receiver_registration_conflict`; return the stored generation's sources. Tests cover all three native protocols, identical retries and a Portal switch change between retries. |
+| The one-shot CLI had missed the earlier MCP retry repair: request waiting failures discarded committed send receipts, and send/request/reply/call-join could not reuse their generated UUID. | Return `sent`, `wait_error` and recovery guidance after a committed request; add `--client-message-id` and include the generated UUID in uncertain-send errors. Private Unix-broker tests exercise the actual CLI functions and all four retry paths. |
+| One-shot `cxx agent listen` claimed v2 work, then tried to complete it without acceptance or an enduring lease owner. It failed and left the task leased. | Add optional `informational_only` to the session claim API. CLI readers use it; v2 and legacy work remain queued without attempts or capability errors, preserving FIFO. Persistent native MCP and background workers keep the execution lifecycle. Real-DB and CLI regressions cover both sides. |
+
+The operator then supplied an obsolete Feuerwehr delivery addressed to a
+`continuity:reset` identity at binding generation 91. Source inspection reproduced
+the cause: fresh wrapper lifecycles inherited the latest dormant mailbox solely
+by matching host/user/engine/cwd. Nine new real-DB baseline cases failed across
+all engines. Fresh launches now mint independent addresses; native receiver
+registration and explicit heartbeat binding recover an old address only by exact
+transcript identity. Picker/continue resumes recover their selected transcript's
+mailbox once known. Native conversation changes (including Claude `/clear`)
+switch addresses, preserving old queues, aliases and subscriptions on the old
+identity. Concurrent native bindings are rejected. Informational relay deliveries
+without native continuity become terminal `native_transcript_missing` before
+any native launch, including with older workers. No old production messages or
+sessions were modified, and the supplied peer instructions were not acted on.
+
+The native Grok canary also exposed a harness assumption: ACP sometimes names a
+receipt tool `agent_reply` instead of `cxx-agent__agent_reply`. Its isolated
+approval list now accepts exactly the two peer/Portal receipt tools in short
+and qualified form. A unit test rejects unrelated or lookalike names. Production
+native approval handling is unchanged; the receiver never answers tool approvals.
+CLI help now includes Grok and documents the one-shot/retry behavior.
+
+### Full lifecycle and surface review
+
+| Phase | Fourth-pass review and verification boundary |
+| --- | --- |
+| Launch and identity | Persona and managed native starts converge on the same wrapper lifecycle. Bridge tokens, host/engine policy, current native identity, address binding and relay generations remain distinct. Receiver registration now verifies identity even on UUID replay. |
+| Discovery and eligibility | Metadata-only discovery derives presence from native receiver and wrapper freshness. Fleet switches, host policy, insecure windows and disabled addresses gate new delivery; historical receipt recovery does not authorize a new send. |
+| API and local tools | Reviewed strict HTTP schemas, session/relay authorization, participant/chair checks, local MCP tool dispatch, private broker routing and CLI entry points. The added claim flag is optional and defaults to the existing persistent-adapter behavior. |
+| Queue and delivery | Durable encrypted rows, sender retry UUIDs, FIFO, one in-flight message, bounded attempts and expiration are covered by the serial MySQL suite. Informational-only reads do not jump past work at the FIFO head. |
+| Acceptance and native admission | Confirmed server acceptance precedes native exposure. Codex queue IDs, Claude ping/channel health and Grok ACP admission remain separate from actual model replies. Tests include all nine engine source/target directions. |
+| Execution and completion | Work remains accepted and renewed until an explicit report or terminal transport outcome. Informational replies now receive the same transactional receipt protection. Completed delivery and reported task success remain different facts. |
+| Retry, cancellation and reconnect | Lost receipts retain the original UUID/body. Receiver generation changes do not replay accepted native work. Stale claims and bindings cannot store new replies. Cancellation cannot reverse external effects or promise immediate interruption of interactive tools. |
+| Calls and conferences | PIN ownership/expiry, call turn handling, room invitations, chair-only dispatch, held work during progress, budgets, deadlines and forced/graceful adjournment remain covered. Conference fan-out intentionally returns per-recipient results. |
+| Publications | Opt-in group/feed membership, audience snapshots, immutable retries and Server informational delivery are covered. Private direct/call/conference content is not republished. |
+| Schedules and recovery | Explicit acceptance/results, coalesced wakes, versioned configuration, opt-in persistent resume and missing-transcript fences remain covered. One-shot CLI consumption now cannot interfere with scheduled work. |
+| Teardown and operator views | Session finish, source shutdown, stale-binding cleanup, maintenance, manual redrive and retained history were reviewed. Admin metadata/reveal authorization and central WebSocket invalidation tests pass separately from native delivery tests. |
+| Agent usability | Distinguish peer reply from Portal reply, progress from task completion, and automatic reception from polling. Use native MCP for work, CLI listen for informational reads, and identical UUID/content on uncertain CLI retries. The operator manual and all three engine interfaces document this. |
+
+### Native methods and final packaged binary
+
+| Engine | Interactive / detached methods | Fresh native canary |
+| --- | --- | --- |
+| Codex 0.161.0 | Private App Server WebSocket and `thread/queue/add` for the bound loaded thread; detached native `exec resume --json`. | Passed peer and Portal replies, repeated after forced generation reconnect, then unavailable health after broker shutdown. |
+| Claude Code 2.1.293 | Native MCP Channel notifications, SessionStart identity and matched silent pings; detached resume/print JSON. | Passed the same two-source reply, reconnect and offline checks. |
+| Grok 1.0.46 | Protected invocation-owned leader, framed ACP and correlated `session/prompt`; detached `--no-leader --output-format json` with exact resume identity. | Passed in 47.02 seconds; 21 ms admission; access-only generations 17 → 18 → 19 without refresh grants or helper-cache writes. |
+
+These final canaries all used the packaged Linux amd64 0.9.28 binary, SHA-256
+`ca11b4306862fd71dc4bf0387fcad8daf545466a1d8036814e3172dc4ef239ae`.
+They used isolated homes, temporary private brokers and access-only credentials;
+no production fleet messages were sent. They prove native admission and exact
+correlated model replies against local brokers. Server correctness and cross-engine
+routing are established separately by real-MySQL and fault-injection tests.
+
+### Verification
+
+Final API typecheck, lint and build passed (108 existing lint warnings, zero
+errors). The coverage run passed 333 files / 4,030 tests, with 431 DB-dependent
+cases skipped there and exercised separately; coverage was 65.96% statements
+and lines, 81.92% branches and 74.15% functions, meeting repository thresholds.
+The serial full real-MySQL run passed all 90 integration files / 1,112 tests in
+213.23 seconds. The subsequent full messaging run passed all 11 files / 167 tests in 64.10
+seconds, including the final native heartbeat and concurrent-binding regressions
+added during that broad run.
+
+Go `make test`, build, vet, race tests for agentbus/agentportal/Codex/Claude/Grok,
+and `make test-traced` passed on the final wrapper sources. Frontend checking
+reported zero Svelte errors/warnings and all 915 tests passed. Wrapper 0.9.28
+cross-built for Linux/macOS on amd64/arm64; manifest and publication fixtures
+passed. The operator manual is directly served, so no SPA bundle rebuild was
+needed for its text change.
+
+Baseline failures are retained in `/tmp/messaging-r4-*-baseline.log` (including
+the serial receipt baseline), and final checks in `/tmp/messaging-r4-*.log`.
+The first broad messaging run was contaminated by an accidentally overlapping
+DB regression invocation: shared feature flags caused three schedule failures.
+Both were discarded as verification evidence; the serial messaging run then
+passed 148 tests, followed by the full serial integration run. Two test invocations initially ran from the repository root and exited 254
+(`ENOENT: package.json`); both were rerun from `api/`. No test command
+ran against production or the repository `.env`. MySQL 8.4 was isolated on
+`127.0.0.1:33318`, initialized from the repository's 249-statement baseline and
+all 44 migrations. Existing esbuild target/deprecation and lint warnings remain.
+The initial Grok canary failed on the tool display-name assumption above; the
+repaired harness and final packaged-binary run passed.
+
+### Rollout, rollback and limits
+
+Deploy the API first, then wrapper 0.9.28: an older strict API rejects the new
+`informational_only` field. Start new wrapper processes to load the updated CLI;
+no database migration is needed. Rollback is the previous API and wrapper pair.
+Existing sessions that already inherited an unrelated mailbox are not silently
+rebound or purged; start a fresh native conversation after deploying the API to
+get the corrected identity lifecycle. There is no task-owned production state
+to restore. An unrelated Android `ConversationList.kt` edit appeared during
+verification and was preserved. The operator subsequently authorized commit,
+push and production deployment on 2026-10-08. Deploy the API before publishing
+wrapper 0.9.28; retain the previous image, wrapper manifests and a database backup.
+Unrelated Android/Companion work stays outside this delivery. Local artifacts are under
+`/tmp/cxx-messaging-r4-release/`.
+
+Linux native behavior was executed; macOS/arm64 were cross-built only. This is
+not a deployed fleet-wide end-to-end test. Exactly-once external effects are
+not guaranteed after an ambiguous native crash. Process-local correlation can
+still be lost when an MCP process dies; retained server state must be inspected
+before retrying work. Conference fan-out remains per-recipient and must not be
+blindly retried after uncertain partial delivery. Bus history remains retained
+without an automatic purge. These are explicit operational boundaries, not
+claims that a passing transport test proves an arbitrary task succeeded.

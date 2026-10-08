@@ -30,6 +30,20 @@ Server-to-agent conversations and agent-to-server responses use Portal.
 
 ## Reliable sends and reception
 
+Wrapper 0.9.28 adds CLI retry IDs: keep `--client-message-id <uuid>` when
+retrying send, request, reply or call-join after an uncertain response. A
+request whose send succeeded but whose wait failed still prints its send
+receipt and `wait_error`; use `cxx agent wait` on that conversation. One-shot
+`cxx agent listen` reads only informational messages; work remains queued for
+native MCP or the background worker, and later messages do not jump past it.
+The API must be updated before installing this wrapper.
+
+Claimed informational replies now finish the delivery atomically with storing
+the reply. Expired or superseded claims cannot submit a fresh reply, and relay
+retries cannot change its content. A previously stored receipt remains
+retrievable after its recipient is disabled. Receiver reconnect retries must
+keep the same native identity; newly enabled sources require a new connection.
+
 Wrapper 0.9.27 keeps held tasks running when an agent joins or speaks in a
 conference. Those tools release only that room's informational message. Report
 work through `agent_task_result` or `agent_reply` with `task_result`; a progress
@@ -637,3 +651,13 @@ three attempts; reaching the limit pauses the whole schedule. Re-enabling create
 execution budget and keeps history. A failed domain result alone does not trigger recovery.
 
 A result-only peer completion also queues one correlated reply containing its summary in the same transaction; wakes produce no peer reply. Retrying the same result never queues a second summary.
+
+### New conversations and old messages
+
+A new conversation has its own address, even when another agent previously used
+the same directory. Resume the exact native conversation to recover its mailbox;
+resume pickers are matched after the engine reports the selected transcript.
+Clearing or changing the native conversation switches addresses, so previous
+mail, aliases and subscriptions do not follow it. Old mail remains in its original
+history; informational messages without a resumable transcript stop with
+`native_transcript_missing` instead of creating a replacement agent.

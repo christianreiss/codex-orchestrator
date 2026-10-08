@@ -1,5 +1,23 @@
 # Receiver verification
 
+## 2026-10-08: fourth lifecycle pass, wrapper 0.9.28
+
+Fresh Codex 0.161.0, Claude Code 2.1.293 and Grok 1.0.46 canaries passed using
+the packaged Linux amd64 wrapper, SHA-256
+`ca11b4306862fd71dc4bf0387fcad8daf545466a1d8036814e3172dc4ef239ae`.
+Each verified exact peer and Portal replies, both again after a forced receiver
+generation change in the same native conversation, and unavailable reception
+after broker shutdown. Grok completed in 47.02 seconds with 21 ms admission,
+including access-only generations 17 → 18 → 19 and no refresh grants.
+
+The [fourth-pass audit](agent-messaging-audit-2026-10-08.md#fourth-pass--2026-10-08-cxx-0928)
+records server claim/receipt repairs, native registration retry fencing,
+one-shot CLI work protection and CLI retry usability. The Grok canary initially
+rejected a short receipt-tool display name; its approval list now recognizes
+only the two receipt tools in short and qualified form. Production approval
+handling was not changed. Isolated broker/model evidence is separate from
+real-MySQL server evidence; no production fleet messages or rollout occurred.
+
 ## 2026-10-08: second lifecycle pass, wrapper 0.9.26
 
 Fresh final canaries passed for Codex 0.161.0, Claude Code 2.1.293 and Grok

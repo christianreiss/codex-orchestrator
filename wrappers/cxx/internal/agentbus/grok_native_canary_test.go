@@ -389,7 +389,7 @@ func TestGrokNativeLeaderCanary(t *testing.T) {
 				params, _ := event["params"].(map[string]any)
 				tool, _ := params["toolCall"].(map[string]any)
 				title := stringArg(tool, "title")
-				if title != "cxx-agent__agent_reply" && title != "cxx-agent__agent_receiver_reply" {
+				if !canaryReceiptTool(title) {
 					t.Fatalf("canary requested an unexpected tool: %s", title)
 				}
 				options, _ := params["options"].([]any)
@@ -463,6 +463,30 @@ func TestGrokNativeLeaderCanary(t *testing.T) {
 		t.Fatal("native and reactive helpers did not each make one generation-conditioned request")
 	}
 	t.Logf("native1.0.46: Rust external renewal, SessionStart identity, MCP grok-acp-v1 heartbeat, ACP roster and exact-text prompt passed; admission=%s; native generation17->18 and reactive18->19 succeeded, no refresh grants or helper cache writes", admission.Round(time.Millisecond))
+}
+
+// Native ACP may display the short MCP tool name instead of its qualified name.
+// This isolated canary approves only the two receipt tools in either spelling.
+func canaryReceiptTool(title string) bool {
+	switch title {
+	case "cxx-agent__agent_reply", "cxx-agent__agent_receiver_reply", "agent_reply", "agent_receiver_reply":
+		return true
+	default:
+		return false
+	}
+}
+
+func TestCanaryReceiptToolNames(t *testing.T) {
+	for _, title := range []string{"cxx-agent__agent_reply", "cxx-agent__agent_receiver_reply", "agent_reply", "agent_receiver_reply"} {
+		if !canaryReceiptTool(title) {
+			t.Errorf("receipt tool rejected: %s", title)
+		}
+	}
+	for _, title := range []string{"", "shell", "agent_send", "other__agent_reply", "agent_reply shell"} {
+		if canaryReceiptTool(title) {
+			t.Errorf("unrelated tool approved: %s", title)
+		}
+	}
 }
 
 func canaryString(value string) *string { return &value }

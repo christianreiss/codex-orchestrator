@@ -106,6 +106,7 @@ func runSend(args []string, stdin io.Reader, stdout, stderr io.Writer, request b
 	}
 	flags := newFlagSet(name, stderr)
 	to := flags.String("to", "", "target agent address")
+	clientID := flags.String("client-message-id", "", "stable UUID for retrying this send")
 	stdinFlag := flags.Bool("stdin", false, "read message body from stdin")
 	conversation := flags.String("conversation", "", "existing conversation UUID")
 	ttl := flags.Int("ttl-seconds", 0, "queued TTL (60..604800)")
@@ -130,10 +131,14 @@ func runSend(args []string, stdin io.Reader, stdout, stderr io.Writer, request b
 	if err != nil {
 		return err
 	}
+	retryID, err := commandRetryID(*clientID)
+	if err != nil {
+		return err
+	}
 	body := map[string]any{
 		"to":                strings.TrimSpace(*to),
 		"content":           content,
-		"client_message_id": newUUID(),
+		"client_message_id": retryID,
 		"kind":              map[bool]string{false: "message", true: "request"}[request],
 	}
 	if *conversation != "" {
@@ -144,7 +149,7 @@ func runSend(args []string, stdin io.Reader, stdout, stderr io.Writer, request b
 	}
 	var sent map[string]any
 	if err := client.post(context.Background(), "send", body, &sent); err != nil {
-		return err
+		return fmt.Errorf("%w; retry the same command with --client-message-id %s", err, retryID)
 	}
 	if !request {
 		return writeJSON(stdout, sent)
@@ -155,14 +160,27 @@ func runSend(args []string, stdin io.Reader, stdout, stderr io.Writer, request b
 		return errorsUsage(name, "server response omitted conversation_id")
 	}
 	var waited map[string]any
-	if err := client.post(context.Background(), "wait", map[string]any{
+	err = client.post(context.Background(), "wait", map[string]any{
 		"conversation_id": conversationID,
 		"after":           messageSequence(message),
 		"seconds":         *waitSeconds,
-	}, &waited); err != nil {
-		return err
+	}, &waited)
+	result := map[string]any{"sent": sent, "result": waited}
+	if err != nil {
+		result["wait_error"] = err.Error()
+		result["next_action"] = "The request was sent. Use cxx agent wait --conversation " + conversationID + "; do not resend the work."
 	}
-	return writeJSON(stdout, map[string]any{"sent": sent, "result": waited})
+	return writeJSON(stdout, result)
+}
+
+func commandRetryID(value string) (string, error) {
+	if value == "" {
+		return newUUID(), nil
+	}
+	if !publicationUUIDPattern.MatchString(value) {
+		return "", fmt.Errorf("--client-message-id must be a UUID")
+	}
+	return value, nil
 }
 
 func runWait(args []string, stdout, stderr io.Writer) error {
@@ -190,6 +208,7 @@ func runWait(args []string, stdout, stderr io.Writer) error {
 func runReply(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 	flags := newFlagSet("cxx agent reply", stderr)
 	messageID := flags.String("message-id", "", "message being answered")
+	clientID := flags.String("client-message-id", "", "stable UUID for retrying this reply")
 	stdinFlag := flags.Bool("stdin", false, "read reply from stdin")
 	ttl := flags.Int("ttl-seconds", 0, "queued TTL")
 	if err := flags.Parse(args); err != nil {
@@ -205,7 +224,11 @@ func runReply(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 	if err != nil {
 		return err
 	}
-	body := map[string]any{"message_id": *messageID, "content": content, "client_message_id": newUUID()}
+	retryID, err := commandRetryID(*clientID)
+	if err != nil {
+		return err
+	}
+	body := map[string]any{"message_id": *messageID, "content": content, "client_message_id": retryID}
 	if *ttl != 0 {
 		body["ttl_seconds"] = *ttl
 	}
@@ -215,7 +238,7 @@ func runReply(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 	}
 	var out map[string]any
 	if err := client.post(context.Background(), "reply", body, &out); err != nil {
-		return err
+		return fmt.Errorf("%w; retry the same command with --client-message-id %s", err, retryID)
 	}
 	return writeJSON(stdout, out)
 }
@@ -286,6 +309,7 @@ func runCallOpen(args []string, stdout, stderr io.Writer) error {
 func runCallJoin(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 	flags := newFlagSet("cxx agent call-join", stderr)
 	pin := flags.String("pin", "", "the peer's four-digit PIN")
+	clientID := flags.String("client-message-id", "", "stable UUID for retrying this hello")
 	stdinFlag := flags.Bool("stdin", false, "read the opening message from stdin")
 	ttl := flags.Int("ttl-seconds", 0, "queued TTL")
 	if err := flags.Parse(args); err != nil {
@@ -301,7 +325,11 @@ func runCallJoin(args []string, stdin io.Reader, stdout, stderr io.Writer) error
 	if err != nil {
 		return err
 	}
-	body := map[string]any{"pin": strings.TrimSpace(*pin), "content": content, "client_message_id": newUUID()}
+	retryID, err := commandRetryID(*clientID)
+	if err != nil {
+		return err
+	}
+	body := map[string]any{"pin": strings.TrimSpace(*pin), "content": content, "client_message_id": retryID}
 	if *ttl != 0 {
 		body["ttl_seconds"] = *ttl
 	}
@@ -311,13 +339,14 @@ func runCallJoin(args []string, stdin io.Reader, stdout, stderr io.Writer) error
 	}
 	var out map[string]any
 	if err := client.post(context.Background(), "call/join", body, &out); err != nil {
-		return err
+		return fmt.Errorf("%w; retry the same command with --client-message-id %s", err, retryID)
 	}
 	return writeJSON(stdout, out)
 }
 
 // runListen deliberately diverges from the `agent_listen` MCP tool: it
-// acknowledges the delivery `completed` before returning.
+// acknowledges an informational delivery `completed` before returning. Work
+// stays queued for a persistent adapter that can renew and report its result.
 //
 // The MCP lane can leave a message `leased` because that process outlives the
 // tool call and keeps renewing the lease until agent_reply. A CLI invocation is
@@ -353,7 +382,7 @@ func runListen(args []string, stdout, stderr io.Writer) error {
 	var claimed struct {
 		Delivery map[string]any `json:"delivery"`
 	}
-	if err := client.post(ctx, "deliveries/claim", map[string]any{"claim_id": claimID, "wait_seconds": *seconds}, &claimed); err != nil {
+	if err := client.post(ctx, "deliveries/claim", map[string]any{"claim_id": claimID, "wait_seconds": *seconds, "informational_only": true}, &claimed); err != nil {
 		return err
 	}
 	if claimed.Delivery == nil {
@@ -424,16 +453,16 @@ func emptyToNil(value string) any {
 
 func printHelp(w io.Writer) {
 	fmt.Fprintln(w, "Usage:")
-	fmt.Fprintln(w, "  cxx agent list [--engine codex|claude] [--online]")
-	fmt.Fprintln(w, "  cxx agent send --to agent:<id> --stdin [--conversation <id>]")
-	fmt.Fprintln(w, "  cxx agent request --to agent:<id> --stdin [--wait-seconds 25]")
+	fmt.Fprintln(w, "  cxx agent list [--engine codex|claude|grok] [--online]")
+	fmt.Fprintln(w, "  cxx agent send --to agent:<id> --stdin [--conversation <id>] [--client-message-id <uuid>]")
+	fmt.Fprintln(w, "  cxx agent request --to agent:<id> --stdin [--wait-seconds 25] [--client-message-id <uuid>]")
 	fmt.Fprintln(w, "  cxx agent wait --conversation <id> [--after <sequence>] [--seconds 25]")
-	fmt.Fprintln(w, "  cxx agent reply --message-id <id> --stdin")
+	fmt.Fprintln(w, "  cxx agent reply --message-id <id> --stdin [--client-message-id <uuid>]")
 	fmt.Fprintln(w, "  cxx agent message <id>")
 	fmt.Fprintln(w, "  cxx agent cancel --conversation <id>")
 	fmt.Fprintln(w, "  cxx agent call-open [--ttl-seconds 600]")
-	fmt.Fprintln(w, "  cxx agent call-join --pin <4 digits> --stdin")
-	fmt.Fprintln(w, "  cxx agent listen [--seconds 25]")
+	fmt.Fprintln(w, "  cxx agent call-join --pin <4 digits> --stdin [--client-message-id <uuid>]")
+	fmt.Fprintln(w, "  cxx agent listen [--seconds 25] (informational messages only; work uses native MCP)")
 	fmt.Fprintln(w, "  cxx agent poll [--hook Stop|UserPromptSubmit]")
 	fmt.Fprintln(w, "  cxx agent status")
 	fmt.Fprintln(w, "  cxx agent service install|remove|start|stop|restart|status")

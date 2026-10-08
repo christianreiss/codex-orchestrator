@@ -101,6 +101,16 @@ describe.skipIf(!handle).each(engines)('$engine receiver connection health and f
     const input = { generation: connectionGeneration, protocol, native_session_id: nativeId };
     const registered = await receiver.register(id, token, input);
     expect(await receiver.register(id, token, input)).toEqual(registered);
+    await expect(receiver.register(id, token, { ...input, native_session_id: randomUUID() }))
+      .rejects.toMatchObject({ code: 'receiver_registration_conflict' });
+    // Retrying a registration must describe its stored sources, not newly
+    // enabled sources that this connection has never registered.
+    await handle!.db.execute(sql`UPDATE versions SET version='1' WHERE name='agent_portal_enabled'`);
+    try {
+      expect(await receiver.register(id, token, input)).toEqual(registered);
+    } finally {
+      await handle!.db.execute(sql`UPDATE versions SET version='0' WHERE name='agent_portal_enabled'`);
+    }
     const [session] = await handle!.db.select().from(agentSessions).where(eq(agentSessions.id, id));
     expect(session!.upstreamSessionId).toBe(nativeId);
     expect(session!.engine).toBe(engine);

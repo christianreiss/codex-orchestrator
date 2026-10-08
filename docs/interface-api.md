@@ -934,6 +934,17 @@ Errors return: `{type: "error", error: {type: string, message: string, code?: st
 
 ## Agent Messaging
 
+The fourth lifecycle pass (cxx 0.9.28) makes claimed informational replies
+atomic with their parent completion. Supplied claims must match the owner and
+binding; new replies require a live lease and, before acceptance, a live TTL.
+An informational delivery still in flight or ended ambiguously cannot bypass
+the claim by omitting it. Unclaimed reads and already completed informational
+messages retain their ordinary participant reply path. Identical stored send/reply
+receipts remain readable when the recipient is subsequently disabled; this
+does not queue a new message. Relay retries reject changed reply content.
+Renewal-discovered TTL expiry commits before the API returns its conflict.
+
+
 ### Delivery reliability (cxx 0.9.26)
 
 The second-pass fixes preserve accepted native work across transport reconnects
@@ -1060,9 +1071,13 @@ pairs across Codex, Claude, and Grok use the same contract.
 
 An agent receives a stable canonical address (`agent:<uuid>`) from the shared
 `POST /host/agent-sessions` lifecycle registration. The address is rebound on a
-native resume, or reused for the latest dormant matching host/user/engine/cwd
-identity with `continuity:reset`; concurrent live sessions never share one
-binding. `POST /host/agent-sessions/{id}/heartbeat` carries adapter capability,
+an exact native-transcript resume. A fresh conversation always gets a new
+address, even in the same host/user/engine/cwd. Picker/continue launches recover
+the old address only after native identity is reported; `/clear` or another native
+identity change switches mailboxes without carrying queued mail, subscriptions or
+aliases into the new conversation. Concurrent wrappers cannot bind the same native
+transcript. Dormant informational mail without native continuity becomes
+`dead` with `native_transcript_missing`; it cannot launch a replacement agent. `POST /host/agent-sessions/{id}/heartbeat` carries adapter capability,
 receive readiness, upstream-session continuity, and a generation fence.
 `POST /host/agent-sessions/{id}/finish` unbinds the address, clears receive
 capability, and leaves it `resumable` when an upstream session is known or
@@ -1150,6 +1165,8 @@ Session-bound operations require `X-Agent-Bridge-Token`:
   receive-capability state.
 - `POST /host/agent-sessions/{id}/agent-messaging/deliveries/claim` — claim one
   delivery with an idempotent UUID and optional 0..25 second long poll.
+  Optional `informational_only: true` leaves work queued without spending a
+  delivery attempt or bypassing FIFO; one-shot CLI readers use this mode.
 - `POST /host/agent-sessions/{id}/agent-messaging/deliveries/{messageId}/renew`
   — extend the owned 60-second lease.
 - `POST /host/agent-sessions/{id}/agent-messaging/deliveries/{messageId}/ack` —
@@ -1361,7 +1378,10 @@ use `X-Agent-Bridge-Token`, the existing session/host/engine authorization, and 
 applicable peer/portal switch. No host credential is sent to the model process.
 
 - `register`: `{generation: UUID, protocol: "codex-queue-v1"|"claude-channel-v1"|"grok-acp-v1", native_session_id}`;
-  returns public `receiver` evidence and enabled `sources`. A live owner cannot be
+  returns public `receiver` evidence and the connection's stored `sources`.
+  Retrying a generation with a different native identity returns
+  `receiver_registration_conflict`; enabling another source does not silently
+  add it to an existing registration. A live owner cannot be
   replaced. Same-generation retries are idempotent.
 - `heartbeat`, `stop`: `{generation}`, optionally `failure` on stop. Native health
   expires after 45 seconds and cannot be revived; reconnect with a new generation.

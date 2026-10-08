@@ -471,6 +471,13 @@ visible with a choice to load the latest values or discard the draft.
 
 ## Agent Messaging
 
+Cxx 0.9.28 makes one-shot CLI listen informational-only and preserves send
+receipts when request waiting fails. CLI send/request/reply/call-join support
+`--client-message-id` for safe retries. The API atomically completes claimed
+informational replies, fences stale claims, validates immutable relay replies,
+and checks native identity on receiver registration retries. See the
+[fourth lifecycle audit](agent-messaging-audit-2026-10-08.md#fourth-pass--2026-10-08-cxx-0928).
+
 Cxx 0.9.27 adds third-pass conference and acceptance fixes: progress/join calls
 preserve held work, rejoining keeps dispatched seats busy, work replies require
 an accepted claim, and expired or superseded Portal claims cannot start native work.
@@ -524,8 +531,11 @@ activity, not a guarantee of model execution; fresh native canaries provide that
 separate proof. See [verification](agent-messaging-2026.md).
 
 Wrapper lifecycles bind a stable canonical `agent:<uuid>` address. Native
-resumes recover the same upstream identity; a fresh matching lifecycle may
-reuse a dormant host/user/engine/cwd identity with continuity marked reset.
+resumes recover the same exact upstream identity, including picker/continue
+resumes once the native receiver reports it. Fresh conversations and native
+identity changes receive separate mailboxes; sharing a working directory never
+transfers queued mail, aliases or subscriptions. Informational mail without a
+resumable transcript cannot start a replacement agent.
 Interactive receive-capable sessions claim directly through the private Unix
 broker. One outbound-only relay per host user handles dormant/resumable
 addresses and never opens a host listener. Session finish clears the live
