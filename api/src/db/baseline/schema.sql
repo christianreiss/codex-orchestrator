@@ -109,6 +109,7 @@ CREATE TABLE `admin_webauthn_challenges` (
 );
 
 CREATE TABLE `agent_bus_addresses` (
+	`launch_name` varchar(96),
 	`id` char(36) NOT NULL,
 	`address` varchar(48) NOT NULL,
 	`display_alias` varchar(96),
@@ -140,6 +141,8 @@ CREATE TABLE `agent_bus_addresses` (
 );
 
 CREATE TABLE `agent_bus_conference_members` (
+	`launch_name` varchar(96),
+	`requested_target` varchar(96),
 	`id` char(36) NOT NULL,
 	`conference_id` char(36) NOT NULL,
 	`address_id` char(36) NOT NULL,
@@ -196,6 +199,9 @@ CREATE TABLE `agent_bus_conversations` (
 );
 
 CREATE TABLE `agent_bus_messages` (
+	`sender_name` varchar(96),
+	`target_name` varchar(96),
+	`requested_target` varchar(96),
   `execution_contract_version` INT UNSIGNED NOT NULL DEFAULT 1,
   `work_kind` VARCHAR(16) NULL,
   `task_result_status` VARCHAR(16) NULL,
@@ -372,6 +378,7 @@ CREATE TABLE `agent_prompts` (
 );
 
 CREATE TABLE `agent_sessions` (
+	`launch_name` varchar(96),
 	`id` char(36) NOT NULL,
 	`host_id` bigint unsigned NOT NULL,
 	`engine` varchar(16) NOT NULL,
@@ -1620,3 +1627,25 @@ SET @ddl := CONCAT('ALTER TABLE agent_task_results CONVERT TO CHARACTER SET utf8
 PREPARE align_contract FROM @ddl; EXECUTE align_contract; DEALLOCATE PREPARE align_contract;
 SET @ddl := CONCAT('ALTER TABLE agent_fresh_start_grants CONVERT TO CHARACTER SET utf8mb4 COLLATE ', @bus_collation);
 PREPARE align_contract FROM @ddl; EXECUTE align_contract; DEALLOCATE PREPARE align_contract;
+
+CREATE TABLE `agent_name_leases` (
+	`session_id` char(36) NOT NULL,
+	`name_key` varchar(96) NOT NULL,
+	`name` varchar(96) NOT NULL,
+	`address_id` char(36) NOT NULL,
+	`started_at` varchar(100) NOT NULL,
+	`ended_at` varchar(100),
+	`cooldown_until` varchar(100),
+	CONSTRAINT `agent_name_leases_session_id` PRIMARY KEY(`session_id`)
+);
+
+CREATE TABLE `agent_name_pool` (
+	`name_key` varchar(96) NOT NULL,
+	`name` varchar(96) NOT NULL,
+	`current_session_id` char(36),
+	CONSTRAINT `agent_name_pool_name_key` PRIMARY KEY(`name_key`)
+);
+
+CREATE INDEX `idx_agent_name_leases_name` ON `agent_name_leases` (`name_key`,`started_at`);
+
+CREATE INDEX `idx_agent_name_leases_address` ON `agent_name_leases` (`address_id`,`started_at`);

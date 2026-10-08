@@ -239,7 +239,7 @@ export async function registerAgentPortalAdminHostRoutes(
         portal: portalResult.enabled,
         agent_messaging: messagingResult.enabled === true,
       },
-      ...(messagingResult.address ? { agent_address: messagingResult.address } : {}),
+      ...(messagingResult.address ? { agent_address: messagingResult.address, name_status: messagingResult.name_status } : {}),
     };
   });
 

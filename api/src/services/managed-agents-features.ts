@@ -363,6 +363,14 @@ function agentMessagingSection(context: ManagedAgentFeatureContext): RenderedSec
     context.agentMessaging,
     `## Agent Messaging
 
+**Launch names.** The server assigns each managed launch a random free German female name,
+shared across Codex, Claude and Grok. It is shown as "(Claudia) Task title". Use
+\`agent_translate\` with \`value\` to translate a name to its UUID or a UUID to its current/latest
+name; \`cxx agent translate Claudia\` and \`cxx agent translate <uuid>\` work in either direction.
+Names may be used directly as recipients for messages, requests and conference invitations.
+A name is reserved through launch end plus 24 hours, then may identify a different agent.
+Keep canonical UUIDs for durable references; queued deliveries retain their original UUID.
+
 **Session name.** Near the start of work, call \`agent_session_name\` with a concise,
 descriptive name in the operator's language (at most 160 characters). The tool
 preserves a known native or previously assigned session name and sets your suggestion

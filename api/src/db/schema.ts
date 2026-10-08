@@ -1513,11 +1513,32 @@ export const agentPortalBrowserSessions = mysqlTable(
   }),
 );
 
+export const agentNamePool = mysqlTable('agent_name_pool', {
+  nameKey: varchar('name_key', { length: 96 }).primaryKey(),
+  name: varchar('name', { length: 96 }).notNull(),
+  currentSessionId: char('current_session_id', { length: 36 }),
+});
+
+// History survives session retention and name reuse. No cascade from live rows.
+export const agentNameLeases = mysqlTable('agent_name_leases', {
+  sessionId: char('session_id', { length: 36 }).primaryKey(),
+  nameKey: varchar('name_key', { length: 96 }).notNull(),
+  name: varchar('name', { length: 96 }).notNull(),
+  addressId: char('address_id', { length: 36 }).notNull(),
+  startedAt: varchar('started_at', { length: 100 }).notNull(),
+  endedAt: varchar('ended_at', { length: 100 }),
+  cooldownUntil: varchar('cooldown_until', { length: 100 }),
+}, (t) => ({
+  nameIdx: index('idx_agent_name_leases_name').on(t.nameKey, t.startedAt),
+  addressIdx: index('idx_agent_name_leases_address').on(t.addressId, t.startedAt),
+}));
+
 export const agentSessions = mysqlTable(
   'agent_sessions',
   {
     id: char('id', { length: 36 }).primaryKey(),
     hostId: bigint('host_id', { mode: 'number', unsigned: true }).notNull(),
+    launchName: varchar('launch_name', { length: 96 }),
     engine: varchar('engine', { length: 16 }).notNull(),
     username: varchar('username', { length: 255 }).notNull(),
     cwd: varchar('cwd', { length: 1024 }).notNull(),
@@ -1643,6 +1664,7 @@ export const agentBusAddresses = mysqlTable(
   {
     id: char('id', { length: 36 }).primaryKey(),
     address: varchar('address', { length: 48 }).notNull(),
+    launchName: varchar('launch_name', { length: 96 }),
     displayAlias: varchar('display_alias', { length: 96 }),
     hostId: bigint('host_id', { mode: 'number', unsigned: true }).notNull(),
     engine: varchar('engine', { length: 16 }).notNull(),
@@ -1777,6 +1799,8 @@ export const agentBusConferenceMembers = mysqlTable(
   {
     id: char('id', { length: 36 }).primaryKey(),
     conferenceId: char('conference_id', { length: 36 }).notNull(),
+    launchName: varchar('launch_name', { length: 96 }),
+    requestedTarget: varchar('requested_target', { length: 96 }),
     addressId: char('address_id', { length: 36 }).notNull(),
     conversationId: char('conversation_id', { length: 36 }),
     role: varchar('role', { length: 16 }).notNull().default('participant'),
@@ -1810,6 +1834,9 @@ export const agentBusMessages = mysqlTable(
     sequence: bigint('sequence', { mode: 'number', unsigned: true }).notNull(),
     replyToMessageId: char('reply_to_message_id', { length: 36 }),
     redriveOfMessageId: char('redrive_of_message_id', { length: 36 }),
+    senderName: varchar('sender_name', { length: 96 }),
+    targetName: varchar('target_name', { length: 96 }),
+    requestedTarget: varchar('requested_target', { length: 96 }),
     senderAddressId: char('sender_address_id', { length: 36 }).notNull(),
     senderSessionId: char('sender_session_id', { length: 36 }),
     targetAddressId: char('target_address_id', { length: 36 }).notNull(),

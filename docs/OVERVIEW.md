@@ -749,3 +749,34 @@ The canonical fleet AGENTS guidance and shared Wake / Cron Skill describe these 
 A result-only peer completion also queues one correlated reply containing its summary in the same transaction; wakes produce no peer reply. Retrying the same result never queues a second summary.
 
 Git Director registrations require absolute worktree, repository and common-directory paths (`git rev-parse --path-format=absolute --show-toplevel --git-common-dir`). A correct re-registration supersedes earlier mappings for that host/path and withdraws their queued requests while retaining history. A live lease on an earlier mapping blocks reassignment. Join/list/merge/release never select an arbitrary legacy duplicate: `git_director_worktree_ambiguous` requires explicit re-registration with the correct clone facts. Superseded rows cannot be revived by path lookups.
+
+## German launch names and translation
+
+With Agent Messaging enabled, each new managed Codex, Claude or Grok launch
+gets a random free German female given name from the server's pre-filled pool
+of 664 names (including Claudia, Tanja, Jessica and Paula). Allocation is
+transactional and idempotent for a launch ID. The session title is
+`(Claudia) Task title`; the task title is preserved separately.
+
+Names belong to launches, not permanent identities. Exit or bridge expiry
+starts a 24-hour quarantine. Presence going offline does not release a name.
+A new launch, including a native resume, gets a new name; recovery of the same
+non-terminal launch during quarantine keeps its name. Once quarantine has
+expired a name can refer to a different UUID. Keep UUIDs for durable references.
+If no name is free the launch continues with `name: null`; names are never
+duplicated. Legacy records remain unnamed until launch registration.
+
+`cxx agent translate Claudia` prints the canonical UUID;
+`cxx agent translate <uuid>` (also `agent:<uuid>`) prints the current/latest
+name. Add `--json` for name, UUID, address, launch ID, active/ended status and
+quarantine timestamps. Outside a managed launch it uses the installed signed
+host configuration without registering a launch. Inside one it uses the
+private session broker. MCP exposes `agent_translate` with `{value: string}`.
+Names are case-insensitive; German umlauts accept their `ae`/`oe`/`ue` spellings.
+
+Message/request recipients and conference invitation recipients accept names
+directly. Accepted messages and invitations persist the resolved UUID and
+historical names, including receipt retries after reuse. An expired unassigned
+name returns `agent_name_not_found`; UUID lookup still returns its latest
+historical assignment. Manual aliases cannot claim pool names; pre-existing
+alias collisions keep the affected name out of allocation.

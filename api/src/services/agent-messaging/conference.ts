@@ -460,6 +460,7 @@ export class ConferenceCoordinator {
         id: randomUUID(),
         conferenceId: conference.id,
         addressId: self.id,
+        launchName: self.launchName,
         conversationId: null,
         role: 'owner',
         purpose,
@@ -533,7 +534,12 @@ export class ConferenceCoordinator {
           await this.requireChairLocked(tx, conferenceId, selfId);
           const chair = await this.core.requireAddressLocked(tx, selfId);
           await this.core.assertSessionAddressLocked(tx, authenticated.session.id, chair);
-          const invitee = await this.core.resolveAddressLocked(tx, target, true);
+          const [previousInvite] = await tx.select().from(agentBusConferenceMembers)
+            .where(and(eq(agentBusConferenceMembers.conferenceId, conferenceId), eq(agentBusConferenceMembers.requestedTarget, target.trim().toLowerCase())))
+            .limit(1).for('update');
+          const invitee = previousInvite
+            ? await this.core.requireAddressLocked(tx, previousInvite.addressId)
+            : await this.core.resolveAddressLocked(tx, target, true);
           if (invitee.id === chair.id) {
             throw new ValidationError('The chair is already in the conference', { param: 'to' });
           }
@@ -558,6 +564,8 @@ export class ConferenceCoordinator {
             id: priorRows[0]?.id ?? randomUUID(),
             conferenceId,
             addressId: invitee.id,
+            launchName: invitee.launchName,
+            requestedTarget: target.trim().toLowerCase(),
             conversationId: priorRows[0]?.conversationId ?? null,
             role: 'participant',
             purpose: null,
@@ -603,6 +611,7 @@ export class ConferenceCoordinator {
         });
         results.push({
           address: queued.invitee.address,
+          name: queued.invitee.launchName ?? null,
           alias: queued.invitee.displayAlias,
           mode: this.conferenceMode(queued.invitee),
           delivered: true,
@@ -682,6 +691,7 @@ export class ConferenceCoordinator {
           id: randomUUID(),
           conferenceId: conference.id,
           addressId: self.id,
+        launchName: self.launchName,
           conversationId: null,
           role: 'participant',
           purpose,

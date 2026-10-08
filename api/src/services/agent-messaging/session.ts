@@ -1,3 +1,4 @@
+import { assignLaunchNameLocked, endLaunchNamesLocked } from './names.js';
 import { receiverView, receiverState } from '../agent-receiver-state.js';
 /**
  * Session lifecycle: a managed CLI run registering its bridge, keeping it warm,
@@ -229,6 +230,7 @@ export class SessionRegistry {
           id,
           address: `agent:${id}`,
           displayAlias: null,
+          launchName: null,
           hostId: host.id,
           engine: input.engine,
           username,
@@ -317,7 +319,10 @@ export class SessionRegistry {
           updatedAt: now,
         })
         .where(eq(agentSessions.id, sessionId));
-      return { address, bridgeExpiresAt };
+      const launchName = await assignLaunchNameLocked(tx, sessionId, address.id, now);
+      await tx.update(agentSessions).set({ launchName }).where(eq(agentSessions.id, sessionId));
+      await tx.update(agentBusAddresses).set({ launchName }).where(eq(agentBusAddresses.id, address.id));
+      return { address: { ...address, launchName }, bridgeExpiresAt };
     });
     wsPublisher.publish('agent_messaging.address.changed', { address_id: result.address.id, host_id: host.id, engine: input.engine });
     return {
@@ -326,6 +331,7 @@ export class SessionRegistry {
       bridge_token: bridgeToken,
       expires_at: result.bridgeExpiresAt,
       address: publicAddress(result.address),
+      name_status: result.address.launchName ? 'assigned' : 'unavailable',
     };
   }
 
@@ -454,6 +460,7 @@ export class SessionRegistry {
           .set({ currentSessionId: null, readiness: session.upstreamSessionId ? 'resumable' : 'offline', receiveHeartbeatAt: null, callPin: null, callPinExpiresAt: null, lastUpstreamSessionId: session.upstreamSessionId, lastSeenAt: now, updatedAt: now })
           .where(and(eq(agentBusAddresses.id, session.agentBusAddressId), eq(agentBusAddresses.currentSessionId, sessionId)));
       }
+      await endLaunchNamesLocked(tx, [sessionId], session.endedAt ?? now);
     });
     wsPublisher.publish('agent_messaging.address.changed', { address_id: authenticated.session.agentBusAddressId, status });
     return { enabled: true, status };

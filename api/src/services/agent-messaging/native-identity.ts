@@ -1,3 +1,4 @@
+import { moveLaunchNameLocked } from './names.js';
 import { randomUUID } from 'node:crypto';
 import { and, desc, eq, isNull } from 'drizzle-orm';
 import { agentBusAddresses, agentSessions, type AgentSession } from '../../db/schema.js';
@@ -54,5 +55,6 @@ export async function bindNativeMessagingIdentityLocked(
   await db.update(agentSessions).set({
     agentBusAddressId: next.id, bindingGeneration: next.bindingGeneration,
   }).where(eq(agentSessions.id, session.id));
-  return next;
+  const launchName = await moveLaunchNameLocked(db, session.id, next.id, now);
+  return { ...next, launchName };
 }

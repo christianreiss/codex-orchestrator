@@ -1,3 +1,4 @@
+import { namedSessionTitle } from './agent-messaging/names.js';
 import { receiverView, receiverReady, receiverState } from './agent-receiver-state.js';
 import { StringDecoder } from 'node:string_decoder';
 import { randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
@@ -793,6 +794,7 @@ export class AgentPortalService {
           .select({
             sessionId: agentEvents.sessionId,
             lastId: sql<number>`MAX(${agentEvents.id})`,
+            namedId: sql<number | null>`MAX(CASE WHEN ${agentEvents.eventType} = 'session_named' THEN ${agentEvents.id} END)`,
             attentionId: sql<
               number | null
             >`MAX(CASE WHEN ${agentEvents.eventType} = 'attention' THEN ${agentEvents.id} END)`,
@@ -823,6 +825,7 @@ export class AgentPortalService {
     for (const stat of eventStats) {
       statsBySession.set(stat.sessionId, stat);
       detailIds.add(Number(stat.lastId));
+      if (stat.namedId) detailIds.add(Number(stat.namedId));
       const attentionId = Number(stat.attentionId ?? 0);
       if (attentionId > Number(stat.clearedId ?? 0)) detailIds.add(attentionId);
       const turnStartedId = Number(stat.turnStartedId ?? 0);
@@ -915,6 +918,9 @@ export class AgentPortalService {
           ? detailById.get(attentionId)
           : undefined;
       const closeRow = closeBySession.get(session.id);
+      const named = detailById.get(Number(stats?.namedId ?? 0));
+      const naming = named ? this.decodeJson<Record<string, unknown>>(named.payloadEnc, {}) : null;
+      const taskTitle = naming?.native_session_id === (session.upstreamSessionId ?? null) && typeof naming?.name === 'string' ? naming.name : null;
 
       return {
         id: session.id,
@@ -923,6 +929,9 @@ export class AgentPortalService {
         host_id: session.hostId,
         username: session.username,
         cwd: session.cwd,
+        launch_name: session.launchName ?? null,
+        task_title: taskTitle,
+        session_name: namedSessionTitle(session.launchName, taskTitle),
         invocation_kind: session.invocationKind,
         upstream_session_id: session.upstreamSessionId,
         // Retained for compatibility only. See AGENT_PRESENCE_STATES: this field

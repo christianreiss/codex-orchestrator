@@ -50,6 +50,7 @@ export interface AgentMessagingState {
 }
 
 export interface AgentAddress {
+  name?: string | null;
   id: string;
   address: string;
   alias: string | null;

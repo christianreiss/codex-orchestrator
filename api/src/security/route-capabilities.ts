@@ -415,6 +415,7 @@ export const ROUTE_CAPABILITIES: Readonly<Record<string, RouteGuard>> = {
   // ── Agent messaging ──────────────────────────────────────────────────────
   'GET /admin/agent-messaging': cap('agent_messaging.read'),
   'GET /admin/agent-messaging/state': cap('agent_messaging.read'),
+  'GET /admin/agent-messaging/translate': cap('agent_messaging.read'),
   'GET /admin/agent-messaging/addresses': cap('agent_messaging.read'),
   'GET /admin/agent-messaging/groups': cap('agent_messaging.read'),
   'GET /admin/agent-messaging/groups/:slug': cap('agent_messaging.read'),

@@ -211,6 +211,8 @@ describe('migrations against the test baseline', () => {
       'agent_schedule_runs',
       'agent_task_results',
       'agent_fresh_start_grants',
+      'agent_name_pool',
+      'agent_name_leases',
     ]);
     expect(additions.filter((a) => a.column !== undefined).map((a) => `${a.table}.${a.column}`)).toEqual([
       'auth_payloads.generation',
@@ -271,6 +273,13 @@ describe('migrations against the test baseline', () => {
       'agent_schedules.pause_reason',
       'agent_schedule_runs.max_recovery_attempts',
       'agent_schedule_runs.warning_at',
+      'agent_sessions.launch_name',
+      'agent_bus_addresses.launch_name',
+      'agent_bus_messages.sender_name',
+      'agent_bus_messages.target_name',
+      'agent_bus_messages.requested_target',
+      'agent_bus_conference_members.launch_name',
+      'agent_bus_conference_members.requested_target',
     ]);
   });
 

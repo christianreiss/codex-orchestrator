@@ -92,10 +92,10 @@ describe('served document byte invariance', () => {
 
     expect(base.sha256).toBe('30abaea24c8809d8634670f0eceb3004aabb4eafb5416c78333c719e8b67e14b');
     expect(out.policy_sha256).toBe('3d8a8c754d80369c46a16c3350db8461520d3ae14b1de7ac03ad9454925ad5e5');
-    // 2026-10-08: align authenticated fleet collaboration within existing authorization.
-    expect(out.features_sha256).toBe('5c681e6d1dd6f4f548e6c7d42035141f7e33c0848ee016fccae05616c26d49e3');
-    expect(out.managed_sha256).toBe('2c3de88632c79088b040306780530e170f0c465d8b568d99b2ebe8b35191791e');
-    expect(sha256(out.body)).toBe('2fb588b7ab99c42466d3f6a52c6011646794398aa95cbf08b526ab2019bac0c2');
+    // 2026-10-08: add launch-name and translation guidance across all engines.
+    expect(out.features_sha256).toBe('d2d9d2388a6d72216028c6818e34bcbd841cdb31df9e3ee8dfee32ab110498a9');
+    expect(out.managed_sha256).toBe('d1aecc24d54d54526fd8a1e457e1c676a6c9dac16e95081b1f5ae27c6bcee9cf');
+    expect(sha256(out.body)).toBe('8f16308ec28688088b66f3a3ce3b32299b9ee55fc67b883d5578195ceed52932');
   });
 });
 

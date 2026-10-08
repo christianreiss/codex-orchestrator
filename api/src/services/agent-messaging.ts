@@ -1,3 +1,4 @@
+import { translateAgent } from './agent-messaging/names.js';
 import { jsonRecord } from './agent-messaging/normalize.js';
 import { agentFreshStartGrants, agentTaskResults } from '../db/schema.js';
 import { storeTaskResult, queueTaskResultReply, unknownTaskResult, approveFreshStart, freshStartAllowed, taskResultSchema, type TaskResult } from './agent-messaging/task-execution.js';
@@ -450,7 +451,9 @@ export class AgentMessagingService {
       const existing = existingRows[0];
       // Receipt recovery does not create a delivery. A later recipient disable
       // must not hide a send that already committed under this sender's UUID.
-      const target = await this.resolveAddressLocked(tx, input.to, true, !!existing);
+      const target = existing && existing.requestedTarget === input.to.trim().toLowerCase()
+        ? await this.requireAddressLocked(tx, existing.targetAddressId)
+        : await this.resolveAddressLocked(tx, input.to, true, !!existing);
       if (existing) {
         this.assertMessageIdempotency(existing, target.id, input.conversationId ?? null, null, content, input.kind ?? 'message');
         return { message: existing, sender, target, content, created: false };
@@ -493,6 +496,9 @@ export class AgentMessagingService {
         redriveOfMessageId: null,
         senderAddressId: sender.id,
         senderSessionId: authenticated.session.id,
+        senderName: sender.launchName,
+        targetName: target.launchName,
+        requestedTarget: input.to.trim().toLowerCase(),
         targetAddressId: target.id,
         sourceEngine: sender.engine,
         targetEngine: target.engine,
@@ -622,6 +628,8 @@ export class AgentMessagingService {
         redriveOfMessageId: null,
         senderAddressId: sender.id,
         senderSessionId: authenticated.session.id,
+        senderName: sender.launchName,
+        targetName: target.launchName,
         targetAddressId: target.id,
         sourceEngine: sender.engine,
         targetEngine: target.engine,
@@ -1117,6 +1125,8 @@ export class AgentMessagingService {
         redriveOfMessageId: null,
         senderAddressId: sender.id,
         senderSessionId: deliverySessionId,
+        senderName: sender.launchName,
+        targetName: target.launchName,
         targetAddressId: target.id,
         sourceEngine: sender.engine,
         targetEngine: target.engine,
@@ -1198,6 +1208,24 @@ export class AgentMessagingService {
 
   async listAdminAddresses(): Promise<Record<string, unknown>> {
     return this.admin.listAdminAddresses();
+  }
+
+  async translateForHost(host: Host, value: string): Promise<Record<string, unknown>> {
+    this.assertEligibleHost(host);
+    if (!activeHostEngines(host.engines, await readFleetEngineState(this.db)).length)
+      throw new ForbiddenError('Host engines are suspended', 'engine_disabled');
+    return await this.translate(value);
+  }
+
+  async translate(value: string, sessionId?: string, bridgeToken?: string): Promise<Record<string, unknown>> {
+    if (sessionId && bridgeToken) await this.authenticateBridge(sessionId, bridgeToken);
+    return await this.db.transaction(async tx => {
+      await this.requireEnabledLocked(tx);
+      const result = await translateAgent(tx, value);
+      const address = await this.requireAddressLocked(tx, String(result.uuid));
+      await this.assertAddressEligibleLocked(tx, address);
+      return result;
+    });
   }
 
   async setAddressAlias(addressId: string, displayAlias: string | null): Promise<Record<string, unknown>> {
@@ -1724,7 +1752,10 @@ export class AgentMessagingService {
   }
 
   private async resolveAddressLocked(db: AgentMessagingDb, raw: string, forUpdate: boolean, allowInactive = false): Promise<AgentBusAddress> {
-    const value = String(raw ?? '').trim().toLowerCase();
+    let value = String(raw ?? '').trim().toLowerCase();
+    if (/^[0-9a-f]{8}-[0-9a-f-]{27}$/.test(value)) value = `agent:${value}`;
+    const nameInput = value && !value.startsWith('agent:') ? value : null;
+    if (nameInput) value = String((await translateAgent(db, nameInput)).address);
     if (!value) throw new ValidationError('to is required', { param: 'to' });
     const query = db
       .select()
@@ -1735,6 +1766,10 @@ export class AgentMessagingService {
     const address = rows[0];
     if (!address || (!allowInactive && (address.archivedAt || address.enabled !== 1))) {
       throw new NotFoundError('Agent address not found', 'agent_messaging_address_not_found');
+    }
+    if (nameInput && forUpdate) {
+      const confirmed = await translateAgent(db, nameInput, true);
+      if (confirmed.uuid !== address.id) throw new ConflictError('Name assignment changed; resolve it again', 'agent_name_changed');
     }
     return address;
   }

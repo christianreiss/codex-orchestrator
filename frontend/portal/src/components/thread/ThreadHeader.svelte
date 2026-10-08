@@ -57,7 +57,7 @@
   <div class="flex min-w-0 flex-col items-center">
     <EngineAvatar engine={agent.engine} presence={view.presence} size="xs" badge />
     <h2 bind:this={heading} tabindex="-1" class="mt-0.5 max-w-full truncate text-caption font-semibold focus:outline-none">
-      {engineLabel(agent.engine)} · {agent.host}
+      {agent.session_name ?? `${engineLabel(agent.engine)} · ${agent.host}`}
     </h2>
     <p class="max-w-full truncate text-[11px] text-muted-foreground" title={agent.cwd}>
       <!-- The detail rides along whenever it says more than "listening". -->

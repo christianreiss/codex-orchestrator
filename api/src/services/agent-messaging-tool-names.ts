@@ -17,6 +17,7 @@
  */
 export const AGENT_MESSAGING_TOOLS = [
   'agent_session_name',
+  'agent_translate',
   'agent_list',
   'agent_send',
   'agent_request',

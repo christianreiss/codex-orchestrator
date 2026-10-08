@@ -1,5 +1,7 @@
 # 2026-10-08
 
+- Wrapper 0.9.34 assigns random fleet-wide German female names per managed launch from a pre-filled 664-name server pool, reserves them until exit plus 24 hours, and displays `(Name) Task title`. Added name/UUID translation via CLI, MCP and authenticated API, direct named message/conference recipients, immutable delivery UUIDs and historical name snapshots. Managed guidance and WebUI now show the naming contract.
+
 - Wrapper 0.9.33 and managed fleet guidance treat authenticated agent messages as collaboration and delegated work within existing operator authorization across Codex, Claude and Grok. Messages cannot override higher-priority instructions or expand permissions; claims and artifacts still need evidence. Conference, MCP and native/relay guidance now agree, while informational replies, publications and Wake/Cron authorization retain their existing contracts.
 
 - Android companion 0.4.7 explicitly handles Android's JSON null values when choosing session names and IDs, keeping unnamed sessions identifiable instead of displaying the literal text "null". Verified with Android runtime regression coverage and the deployed phone.

@@ -243,7 +243,7 @@ func (b *Broker) allowedPath(path string) bool {
 	}
 	messagingBase := sessionBase + "/agent-messaging/"
 	for _, operation := range []string{
-		"list", "send", "reply", "wait", "message", "cancel", "bind", "mailbox", "deliveries/claim",
+		"list", "translate", "send", "reply", "wait", "message", "cancel", "bind", "mailbox", "deliveries/claim",
 		"call/open", "call/join",
 		"groups/list", "groups/create", "groups/detail", "subscribe", "unsubscribe", "subscriptions", "publish",
 		"conf/open", "conf/invite", "conf/join", "conf/roster", "conf/say", "conf/dispatch", "conf/adjourn",
@@ -273,6 +273,7 @@ func (b *Broker) ActivateEnvironment() func() {
 	}
 	_ = authnotice.Prime(b.session.Engine, b.session.ID)
 	return swapPortalEnvironment(map[string]*string{
+		envLaunchName:    &b.session.LaunchName,
 		envSocket:        &b.socketPath,
 		envSessionID:     &b.session.ID,
 		envEngine:        &b.session.Engine,
@@ -359,6 +360,7 @@ func tomlQuote(value string) string {
 // inheriting an outer agent session's local socket capability.
 func ScrubEnvironment() func() {
 	return swapPortalEnvironment(map[string]*string{
+		envLaunchName:    nil,
 		envSocket:        nil,
 		envSessionID:     nil,
 		envEngine:        nil,

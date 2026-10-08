@@ -1,3 +1,4 @@
+import { namedSessionTitle } from '../agent-messaging/names.js';
 import { and, inArray, sql } from 'drizzle-orm';
 import type { RouteContext } from '../../routes/index.js';
 import { agentEvents, agentPrompts } from '../../db/schema.js';
@@ -96,7 +97,7 @@ export async function companionPreviews(
       naming && naming.native_session_id === (session.upstream_session_id ?? null)
         ? compactSummary(naming.name)
         : null;
-    const card = { ...session, session_name: sessionName };
+    const card = { ...session, task_title: sessionName, session_name: namedSessionTitle(session.launch_name as string | null, sessionName) };
     // Preview priority can select an older prompt/attention event. Unread
     // replies need their own monotonic cursor, including retained ended chats.
     const replyCursor = Number(events?.get('assistant_message')?.id ?? 0);

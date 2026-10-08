@@ -60,7 +60,7 @@ export class AgentMessagingConferenceAdmin {
       members: rows.map(({ member, address, session, fqdn, conversation, dispatch }) => ({
         ...(address ? publicConferenceMember(member, address, fqdn) : {}),
         id: member.id, address_id: member.addressId, role: member.role, state: member.state,
-        peer: address ? publicAddress(address, fqdn ?? undefined, deriveAddressPresence(address, session, isoOffsetSeconds(-45))) : null,
+        peer: address ? { ...publicAddress(address, fqdn ?? undefined, deriveAddressPresence(address, session, isoOffsetSeconds(-45))), name: member.launchName ?? null } : null,
         conversation_id: member.conversationId, conversation_status: conversation?.status ?? null,
         dispatch_message_id: member.dispatchMessageId, dispatch_status: dispatch?.status ?? null,
         dispatch_error: dispatch?.lastErrorCode ?? null, left_at: member.leftAt,

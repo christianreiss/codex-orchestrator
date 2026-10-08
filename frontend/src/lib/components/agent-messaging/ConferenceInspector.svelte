@@ -66,7 +66,7 @@
     void bodies;
     if (follow && scroller) void tick().then(() => { if (follow && scroller) scroller.scrollTop = scroller.scrollHeight; });
   });
-  function label(peer: AgentAddress | null | undefined) { return peer?.alias ?? peer?.address ?? 'Unavailable address'; }
+  function label(peer: AgentAddress | null | undefined) { return peer?.name ?? peer?.alias ?? peer?.address ?? 'Unavailable address'; }
   function failed(status: string | null) { return status !== null && ['dead', 'ambiguous', 'expired', 'canceled'].includes(status); }
 </script>
 

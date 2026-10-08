@@ -47,6 +47,8 @@ export function newQueuedMessage(input: {
     redriveOfMessageId: null,
     senderAddressId: input.sender.id,
     senderSessionId: input.senderSessionId,
+    senderName: input.sender.launchName,
+    targetName: input.target.launchName,
     targetAddressId: input.target.id,
     sourceEngine: input.sender.engine,
     targetEngine: input.target.engine,
@@ -96,6 +98,7 @@ export function publicConferenceMember(
 ): Record<string, unknown> {
   return {
     address: address.address,
+    name: member.launchName ?? null,
     alias: address.displayAlias,
     engine: address.engine,
     fqdn,
@@ -126,6 +129,7 @@ export function publicAddress(address: AgentBusAddress, fqdn?: string, presence?
   return {
     id: address.id,
     address: address.address,
+    name: address.launchName ?? null,
     alias: address.displayAlias,
     engine: address.engine,
     host_id: address.hostId,
@@ -152,8 +156,8 @@ export function messageMetadata(message: AgentBusMessage, sender?: AgentBusAddre
     sequence: message.sequence,
     reply_to_message_id: message.replyToMessageId,
     redrive_of_message_id: message.redriveOfMessageId,
-    sender: sender ? publicAddress(sender) : { id: message.senderAddressId, engine: message.sourceEngine },
-    target: target ? publicAddress(target) : { id: message.targetAddressId, engine: message.targetEngine },
+    sender: sender ? { ...publicAddress(sender), name: message.senderName ?? null } : { id: message.senderAddressId, engine: message.sourceEngine },
+    target: target ? { ...publicAddress(target), name: message.targetName ?? null } : { id: message.targetAddressId, engine: message.targetEngine },
     kind: message.kind,
     execution_contract_version: message.executionContractVersion,
     work_kind: message.workKind,
@@ -192,7 +196,7 @@ export function deliveryView(message: AgentBusMessage, content: string, sender: 
     execution_version: message.executionVersion,
     content,
     content_bytes: message.contentBytes,
-    sender: publicAddress(sender),
+    sender: { ...publicAddress(sender), name: message.senderName ?? null },
     target: {
       ...publicAddress(target),
       upstream_session_id: target.lastUpstreamSessionId,

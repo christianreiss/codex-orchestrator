@@ -1,3 +1,4 @@
+import { endLaunchNamesLocked } from './names.js';
 /**
  * Binding lifecycle outside a live session: suspending a host's runtime,
  * releasing its address bindings, and reaping the ones nobody released.
@@ -42,7 +43,7 @@ export async function suspendAgentMessagingRuntimeLocked(
     ? and(eq(agentBusAddresses.hostId, hostId), inArray(agentBusAddresses.engine, engines))
     : eq(agentBusAddresses.hostId, hostId);
   const addressRows = await db
-    .select({ id: agentBusAddresses.id })
+    .select({ id: agentBusAddresses.id, currentSessionId: agentBusAddresses.currentSessionId })
     .from(agentBusAddresses)
     .where(addressPredicate)
     .for('update');
@@ -137,6 +138,7 @@ export async function suspendAgentMessagingRuntimeLocked(
       .set({ status: 'revoked', tokenHash: null, tokenExpiresAt: null, stopRequestedAt: now, updatedAt: now })
       .where(and(eq(agentBusRelays.hostId, hostId), eq(agentBusRelays.status, 'active')));
   }
+  await endLaunchNamesLocked(db, addressRows.flatMap(row => row.currentSessionId ? [row.currentSessionId] : []), now);
   return {
     canceled,
     ambiguous,
@@ -192,6 +194,7 @@ export async function releaseAgentMessagingBindingsLocked(
       })
       .where(inArray(agentSessions.id, boundSessionIds));
   }
+  await endLaunchNamesLocked(db, sessionIds, now);
   return rows.length;
 }
 

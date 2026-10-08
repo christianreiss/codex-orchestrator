@@ -197,6 +197,16 @@ export async function registerAgentMessagingRoutes(
 
   // Session-bound model/adapter API. All routes require the short-lived bridge
   // capability inherited through the private cxx Unix broker.
+  app.post('/host/agent-sessions/:id/agent-messaging/translate', async req => {
+    const id = stringParam(req.params, 'id');
+    const token = requireToken(req, BRIDGE_TOKEN_HEADER, 'agent_bridge_token_required');
+    const body = z.object({ value: z.string().min(1).max(96) }).strict().parse(req.body ?? {});
+    return await messaging.translate(body.value, id, token);
+  });
+  app.get('/admin/agent-messaging/translate', { preHandler: app.requireAdmin }, async req => {
+    const query = z.object({ value: z.string().min(1).max(96) }).strict().parse(req.query);
+    return await messaging.translate(query.value);
+  });
   app.post('/host/agent-sessions/:id/agent-messaging/list', async (req) => {
     const id = stringParam(req.params, 'id');
     const token = requireToken(req, BRIDGE_TOKEN_HEADER, 'agent_bridge_token_required');
@@ -469,6 +479,11 @@ export async function registerAgentMessagingRoutes(
   // every poll after it uses the generation-fenced short-lived relay token.
   const insecure = createInsecureWindowService({ db: ctx.db, env: ctx.env });
   const hostAuth = createHostAuthService({ db: ctx.db, env: ctx.env, insecure });
+  app.post('/host/agent-messaging/translate', async req => {
+    const host = await hostAuth.authenticate(req);
+    const body = z.object({ value: z.string().min(1).max(96) }).strict().parse(req.body ?? {});
+    return await messaging.translateForHost(host, body.value);
+  });
   app.post('/host/agent-relays/register', async (req) => {
     const host = await hostAuth.authenticate(req);
     const body = z

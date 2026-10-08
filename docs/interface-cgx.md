@@ -457,3 +457,34 @@ working directory. Exact transcript resumes retain their mailbox, including
 picker/continue resumes after the native identity report. A native identity
 change switches mailboxes; old mail and subscriptions remain on the old address.
 Informational mail without native continuity cannot spawn a replacement agent.
+
+## German launch names and translation
+
+With Agent Messaging enabled, each new managed Codex, Claude or Grok launch
+gets a random free German female given name from the server's pre-filled pool
+of 664 names (including Claudia, Tanja, Jessica and Paula). Allocation is
+transactional and idempotent for a launch ID. The session title is
+`(Claudia) Task title`; the task title is preserved separately.
+
+Names belong to launches, not permanent identities. Exit or bridge expiry
+starts a 24-hour quarantine. Presence going offline does not release a name.
+A new launch, including a native resume, gets a new name; recovery of the same
+non-terminal launch during quarantine keeps its name. Once quarantine has
+expired a name can refer to a different UUID. Keep UUIDs for durable references.
+If no name is free the launch continues with `name: null`; names are never
+duplicated. Legacy records remain unnamed until launch registration.
+
+`cxx agent translate Claudia` prints the canonical UUID;
+`cxx agent translate <uuid>` (also `agent:<uuid>`) prints the current/latest
+name. Add `--json` for name, UUID, address, launch ID, active/ended status and
+quarantine timestamps. Outside a managed launch it uses the installed signed
+host configuration without registering a launch. Inside one it uses the
+private session broker. MCP exposes `agent_translate` with `{value: string}`.
+Names are case-insensitive; German umlauts accept their `ae`/`oe`/`ue` spellings.
+
+Message/request recipients and conference invitation recipients accept names
+directly. Accepted messages and invitations persist the resolved UUID and
+historical names, including receipt retries after reuse. An expired unassigned
+name returns `agent_name_not_found`; UUID lookup still returns its latest
+historical assignment. Manual aliases cannot claim pool names; pre-existing
+alias collisions keep the affected name out of allocation.

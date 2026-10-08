@@ -306,7 +306,7 @@
 
   function routeLabel(address: AgentAddress | undefined): string {
     if (!address) return "unknown";
-    return address.alias ?? address.address;
+    return address.name ?? address.alias ?? address.address;
   }
 
   function addressEnableBlocked(address: AgentAdminAddress): boolean {
@@ -327,7 +327,7 @@
 
 <PageHeader
   title="Agent Messaging"
-  subtitle="Scoped groups, subscriptions, and direct conversations across Codex, Claude, Grok, and Server. Inspect deliveries and verified reception."
+  subtitle="Scoped groups, subscriptions, and direct conversations across Codex, Claude, Grok, and Server. German launch names are reserved for 24 hours after exit. Inspect deliveries and verified reception."
 >
   {#snippet actions()}
     <Button variant="outline" onclick={refresh}>
@@ -502,6 +502,7 @@
                   <span class="rounded-full border border-warning/25 bg-warning-muted px-2 py-0.5 text-[10px] uppercase text-warning-muted-foreground">Ineligible</span>
                 {/if}
               </div>
+              <p class="mt-1 truncate font-mono text-xs text-muted-foreground">{address.address}</p>
               <p class="mt-1 truncate text-xs text-muted-foreground">{address.fqdn ?? `Host #${address.host_id}`} · {address.username} · {address.cwd}</p>
             </div>
             <div class="text-xs text-muted-foreground">

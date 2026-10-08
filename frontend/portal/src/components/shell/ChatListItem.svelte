@@ -47,7 +47,7 @@
 <ConversationRow
   engine={agent.engine}
   presence={view.presence}
-  title={agent.host}
+  title={agent.session_name ?? agent.host}
   time={listTime(agent.last_event_at ?? agent.started_at, new Date(now))}
   preview={subtitle}
   {selected}

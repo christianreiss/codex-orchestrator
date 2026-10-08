@@ -30,6 +30,7 @@ import (
 )
 
 const (
+	envLaunchName          = "CXX_AGENT_NAME"
 	envSocket              = "CXX_AGENT_PORTAL_SOCKET"
 	envBaseURL             = "CXX_AGENT_PORTAL_BASE_URL"
 	envSessionID           = "CXX_AGENT_PORTAL_SESSION_ID"
@@ -72,6 +73,7 @@ func ExplicitResumeSessionID(args []string) string {
 }
 
 type Session struct {
+	LaunchName             string
 	ID                     string
 	BridgeToken            string
 	BaseURL                string
@@ -131,6 +133,7 @@ type registerResponse struct {
 	BridgeToken  string `json:"bridge_token"`
 	ExpiresAt    string `json:"expires_at"`
 	AgentAddress *struct {
+		Name              string `json:"name"`
 		Address           string `json:"address"`
 		BindingGeneration int    `json:"binding_generation"`
 	} `json:"agent_address,omitempty"`
@@ -252,6 +255,7 @@ func Start(parent context.Context, cfg *config.Config, input StartInput) (*Sessi
 		return nil, errors.New("agent portal: registration returned a different bridge credential")
 	}
 	if response.AgentAddress != nil && response.AgentAddress.Address != "" {
+		session.LaunchName = response.AgentAddress.Name
 		body["agent_address"] = response.AgentAddress.Address
 		body["binding_generation"] = response.AgentAddress.BindingGeneration
 	}

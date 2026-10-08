@@ -20,6 +20,8 @@ func RunCommand(args []string, stdin io.Reader, stdout, stderr io.Writer, versio
 	}
 	var err error
 	switch args[0] {
+	case "translate":
+		err = runTranslate(args[1:], stdout, stderr)
 	case "list", "peers":
 		err = runList(args[1:], stdout, stderr)
 	case "send":
@@ -452,6 +454,7 @@ func emptyToNil(value string) any {
 }
 
 func printHelp(w io.Writer) {
+	fmt.Fprintln(w, "  cxx agent translate <name|uuid> [--json]  German launch name ↔ agent UUID")
 	fmt.Fprintln(w, "Usage:")
 	fmt.Fprintln(w, "  cxx agent list [--engine codex|claude|grok] [--online]")
 	fmt.Fprintln(w, "  cxx agent send --to agent:<id> --stdin [--conversation <id>] [--client-message-id <uuid>]")

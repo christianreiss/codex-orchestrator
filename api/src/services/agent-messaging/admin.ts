@@ -1,3 +1,4 @@
+import { assertAliasOutsideNamePool } from './names.js';
 import { deriveAddressPresence } from '../agent-presence.js';
 import { receiverView } from '../agent-receiver-state.js';
 /**
@@ -383,7 +384,11 @@ export class AgentMessagingAdmin {
     const rows = await this.core.db.select().from(agentBusAddresses).where(eq(agentBusAddresses.id, id)).limit(1);
     if (!rows[0] || rows[0].archivedAt) throw new NotFoundError('Agent address not found', 'agent_messaging_address_not_found');
     try {
-      await this.core.db.update(agentBusAddresses).set({ displayAlias: alias, updatedAt: now }).where(eq(agentBusAddresses.id, id));
+      await this.core.db.transaction(async tx => {
+        await tx.select().from(agentBusAddresses).where(eq(agentBusAddresses.id, id)).for('update');
+        await assertAliasOutsideNamePool(tx, alias);
+        await tx.update(agentBusAddresses).set({ displayAlias: alias, updatedAt: now }).where(eq(agentBusAddresses.id, id));
+      });
     } catch (error) {
       if (isDuplicateKeyError(error)) throw new ConflictError('Agent alias already exists', 'agent_messaging_alias_conflict');
       throw error;

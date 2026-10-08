@@ -49,6 +49,9 @@ export interface ReceiverEvidence {
 }
 
 export interface Agent {
+  launch_name?: string | null;
+  session_name?: string | null;
+  task_title?: string | null;
   receiver?: ReceiverEvidence | null;
   id: string;
   engine: Engine;
