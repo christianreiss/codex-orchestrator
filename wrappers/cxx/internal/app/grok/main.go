@@ -666,7 +666,16 @@ func run(ctx context.Context, cfg *config.Config, client *orchestrator.Client, o
 		leader := exec.CommandContext(sessionCtx, path, "agent", "leader", "--leader-socket", socket, "--relay-on-demand", "--no-auto-update")
 		leader.Env = env
 		leader.Stdout = io.Discard
-		leader.Stderr = stderr
+		stateDir, err := native.StateDir()
+		if err != nil {
+			return 1, err
+		}
+		leaderLog, err := native.OpenLeaderLog(stateDir)
+		if err != nil {
+			return 1, fmt.Errorf("Grok leader diagnostics unavailable: %w", err)
+		}
+		defer leaderLog.Close()
+		leader.Stderr = leaderLog
 		closeLease, err := rt.AttachChild(leader)
 		if err != nil {
 			return 1, err
@@ -674,16 +683,28 @@ func run(ctx context.Context, cfg *config.Config, client *orchestrator.Client, o
 		startErr := leader.Start()
 		closeLease()
 		if startErr != nil {
-			return 1, errors.New("Grok private leader failed to start")
+			return 1, fmt.Errorf("Grok private leader failed to start; diagnostics: %s", leaderLog.Path())
 		}
-		defer func() { stop(); _ = leader.Wait() }()
+		leaderDone := make(chan error, 1)
+		go func() { leaderDone <- leader.Wait() }()
+		defer func() {
+			select {
+			case err := <-leaderDone:
+				if err != nil {
+					fmt.Fprintf(stderr, "cgx: Grok private leader failed; diagnostics: %s\n", leaderLog.Path())
+				}
+			default:
+				stop()
+				<-leaderDone
+			}
+		}()
 		deadline := time.Now().Add(20 * time.Second)
 		for {
 			if _, err := os.Stat(socket); err == nil {
 				break
 			}
 			if time.Now().After(deadline) {
-				return 1, errors.New("Grok private leader startup timed out")
+				return 1, fmt.Errorf("Grok private leader startup timed out; diagnostics: %s", leaderLog.Path())
 			}
 			select {
 			case <-ctx.Done():

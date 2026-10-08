@@ -1,5 +1,7 @@
 # 2026-10-08
 
+- Wrapper 0.9.30-grok.1 sends private Grok leader stderr to per-run, owner-only diagnostic logs (at most 1 MiB per file), preventing background trace lines from corrupting the native terminal. Native tool errors remain visible in the TUI and transcript. Startup failures name the log file; `cgx doctor` shows its directory. Existing sessions retain their running wrapper until resumed through the updated wrapper.
+
 - Agent Messaging: fresh conversations no longer inherit dormant mailboxes by working directory; exact native resumes (including pickers) retain their address, native conversation changes isolate old mail, and orphaned informational messages cannot launch replacement agents.
 
 - Wrapper 0.9.29 makes one-shot CLI listen informational-only, preserves committed request receipts when waiting fails, and supports stable retry UUIDs for send/request/reply/call-join. The messaging API fences informational reply claims, stores replies and completion atomically, rejects changed relay reply retries, preserves receipts after recipient disablement, and commits expiry cleanup before returning renewal errors. Receiver registration retries enforce the original native identity and return the stored source membership. The fourth lifecycle audit adds MySQL and CLI regressions and accepts both native Grok receipt-tool display names in the isolated canary.

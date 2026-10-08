@@ -106,6 +106,9 @@ func doctorReport(in doctorInput) terminalui.DoctorReport {
 	row("Latency", latencyTone, in.Latency.Truncate(time.Millisecond).String())
 
 	row(diskCheck(in.Home))
+	if state, err := native.StateDir(); err == nil {
+		row("Leader logs", terminalui.ToneOK, filepath.Join(state, "leader-logs"))
+	}
 	row(cronCheck())
 	session := "local"
 	if os.Getenv("SSH_TTY") != "" || os.Getenv("SSH_CONNECTION") != "" {

@@ -1,5 +1,11 @@
 # cgx — Grok Build fleet wrapper
 
+## Private leader diagnostics (cxx 0.9.30-grok.1)
+
+Managed interactive starts write background leader stderr to a unique mode-0600 file under `~/.cgx/state/leader-logs/`, instead of sharing the native TUI terminal. Each file holds at most 1 MiB; overflow starts a new chunk, and files remain available after runtime cleanup. `cgx doctor` prints the directory; startup failures and observed unexpected leader failures name the specific file. Old log files may be removed when no longer needed. Native tool results, foreground stderr, custom leaders and headless output are unaffected. Existing processes need a normal exit/resume through the updated wrapper.
+
+For the 2026-10-08 `read_file` / `task_ids exceeds maximum of 20 entries` incident, the exact native tool call contained only `target_file` and `limit`; its ACP result was `ReadFile.FileNotFound`. Treat the structured tool result as the evidence for this call, rather than interpreting a raw trace fragment drawn over the terminal as a task batch failure. The wrapper corrects background output routing, not the closed-source provider tool implementation; see [investigation and live checks](grok-tool-diagnostics-2026-10-08.md).
+
 ## Managed native starts (cxx 0.9.24)
 
 Fleet installation, update/sync and successful managed launches prepare the native
