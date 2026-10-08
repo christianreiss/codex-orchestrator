@@ -351,7 +351,7 @@ describe.skipIf(!handle)('Android companion with real MySQL', { timeout: 120_000
     expect(await snapshot()).toMatchObject({ session_name: 'Schema migration' });
     await db.update(adminUsers).set({ accessLevel: 'viewer' }).where(eq(adminUsers.id, userId));
     try {
-      expect(await snapshot()).toMatchObject({ session_name: null, preview: null });
+      expect(await snapshot()).toMatchObject({ session_name: null, task_title: null, preview: null });
     } finally {
       await db.update(adminUsers).set({ accessLevel: 'owner' }).where(eq(adminUsers.id, userId));
     }

@@ -313,18 +313,23 @@ class CompanionUiTest {
     }
     @Test fun sessionNamesDistinguishChatsSharingTheSameHostAndDirectory() {
         waitForAgentRows(session)
-        extraAgents.add(agentFixture("name-review", "shared", "worker.example", "Checks passed.", "claude").put("session_name", "Release review"))
-        extraAgents.add(agentFixture("name-migration", "shared", "worker.example", "Schema prepared.", "grok").put("session_name", "Database migration"))
+        extraAgents.add(agentFixture("name-review", "shared", "worker.example", "Checks passed.", "claude")
+            .put("launch_name", "Claudia").put("task_title", "Release review").put("session_name", "(Claudia) Release review"))
+        extraAgents.add(agentFixture("name-migration", "shared", "worker.example", "Schema prepared.", "grok")
+            .put("launch_name", "Tanja").put("task_title", "Database migration").put("session_name", JSONObject.NULL))
         changed("agents")
         waitForAgentRows("name-review", "name-migration")
-        compose.onNodeWithText("Release review").assertIsDisplayed()
-        compose.onNodeWithText("Database migration").assertIsDisplayed()
+        compose.onNodeWithText("(Claudia) Release review").assertIsDisplayed()
+        compose.onNodeWithText("(Tanja) Database migration").assertIsDisplayed()
         compose.onNode(hasText("/work/shared") and hasAnyAncestor(hasTestTag("agent:name-review")), useUnmergedTree = true).assertIsDisplayed()
-        compose.onNodeWithTag("chat-search").performTextReplacement("Release review")
+        compose.onNodeWithTag("chat-search").performTextReplacement("Claudia")
         compose.onNodeWithTag("agent:name-review").assertIsDisplayed()
         compose.onNodeWithTag("agent:name-migration").assertDoesNotExist()
         Assert.assertFalse("Searching session names does not fetch a transcript", transcriptRequested.get())
         screenshot("session-names")
+        compose.onNodeWithText("(Claudia) Release review").performClick()
+        compose.onNodeWithText("(Claudia) Release review").assertIsDisplayed()
+        screenshot("launch-name-chat")
     }
     @Test fun localChatSearchMatchesProjectFullHostAndSummaryWhileKeepingApprovalsPinned() {
         waitForAgentRows(session)

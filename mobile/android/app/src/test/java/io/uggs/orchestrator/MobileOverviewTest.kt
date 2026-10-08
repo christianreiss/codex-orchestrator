@@ -6,6 +6,24 @@ import org.junit.Test
 
 class MobileOverviewTest {
     private fun agent(json: String) = JSONObject(json)
+    @Test fun launchNamesIdentifyChatsWithAndWithoutTaskTitles() {
+        val named = agent("""{"id":"11111111-aaaa","launch_name":"Claudia","session_name":"Release review","task_title":"Release review"}""")
+        assertEquals("(Claudia) Release review", agentTitle(named))
+        named.put("session_name", "(Claudia) Release review")
+        assertEquals("(Claudia) Release review", agentTitle(named))
+        named.put("task_title", JSONObject.NULL)
+        assertEquals("(Claudia) Release review", agentTitle(named))
+        named.put("session_name", JSONObject.NULL)
+        assertEquals("(Claudia)", agentTitle(named))
+        named.put("launch_name", " Bärbel ")
+        named.put("task_title", " Schema\nprepared ")
+        assertEquals("(Bärbel) Schema prepared", agentTitle(named))
+        named.put("launch_name", JSONObject.NULL)
+        assertEquals("Session 11111111", agentTitle(named))
+        named.put("launch_name", " ")
+        assertEquals("Session 11111111", agentTitle(named))
+        assertEquals("(Paula) Checks passed", agentTitle(agent("""{"session_name":"(Paula) Checks passed"}""")))
+    }
     @Test fun namesDistinguishSessionsInTheSameProjectAndUnnamedSessionsHaveAnIdentity() {
         val first = agent("""{"id":"11111111-aaaa","session_name":" Release\nreview ","cwd":"/work/shared","host":"lab.example"}""")
         val second = agent("""{"id":"22222222-bbbb","session_name":"Database migration","cwd":"/work/shared","host":"lab.example"}""")

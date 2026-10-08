@@ -110,6 +110,15 @@ the app picks up newly configured Firebase identifiers and registers its token.
 
 ## Appearance and conversation layout
 
+Version 0.4.8 reads the server-assigned `launch_name` and displays
+`(Claudia) Release review` in the chat list, chat header and search. A launch
+without a task title still shows `(Claudia)`; an already-prefixed server title
+is not prefixed twice. German umlauts and JSON null fields are handled as usual.
+Older unnamed sessions retain their native title or short session-ID fallback.
+Names belong to launches and become reusable after the server's 24-hour
+quarantine; conversation actions keep using their stable session IDs.
+The task title remains restricted to devices with transcript permission.
+
 Version 0.4.7 shows the **native session name** as the main row title and chat
 header. Host and full working-directory path appear in a smaller second line;
 the short summary remains on a separate line. Search includes the name, host,

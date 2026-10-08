@@ -208,6 +208,7 @@ export async function registerCompanionRoutes(app: FastifyInstance, ctx: RouteCo
           : {
               ...session,
               session_name: null,
+              task_title: null,
               preview: null,
               reply_cursor: null,
               unread_reply_count: null,

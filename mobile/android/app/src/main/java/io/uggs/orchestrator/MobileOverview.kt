@@ -17,10 +17,23 @@ fun readyAgents(agents: List<JSONObject>) = agents.filter(::isReachable)
 fun liveApproval(request: JSONObject, now: Long) = request.optBoolean("live", false) &&
     runCatching { Instant.parse(request.getString("expires_at")).toEpochMilli() > now }.getOrDefault(false)
 
-fun agentTitle(agent: JSONObject): String = compactSummary(agent.identityText("session_name"))
-    ?: agent.identityText("upstream_session_id")?.let { "Session ${it.take(8)}" }
-    ?: agent.identityText("id")?.let { "Session ${it.take(8)}" }
-    ?: "Unnamed session"
+fun agentTitle(agent: JSONObject): String {
+    val name = compactSummary(agent.identityText("launch_name"))
+    val title = compactSummary(agent.identityText("session_name"))
+    if (name != null) {
+        val prefix = "($name)"
+        val task = compactSummary(agent.identityText("task_title")) ?: title
+        return compactSummary(when {
+            task == null -> prefix
+            task == prefix || task.startsWith("$prefix ") -> task
+            else -> "$prefix $task"
+        })!!
+    }
+    return title
+        ?: agent.identityText("upstream_session_id")?.let { "Session ${it.take(8)}" }
+        ?: agent.identityText("id")?.let { "Session ${it.take(8)}" }
+        ?: "Unnamed session"
+}
 
 private fun JSONObject.identityText(key: String): String? =
     if (isNull(key)) null else optString(key).trim().takeIf(String::isNotBlank)
