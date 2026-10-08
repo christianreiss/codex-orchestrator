@@ -151,6 +151,7 @@ describe('migrations against the test baseline', () => {
       'hosts.config_baked_at',
       'ip_rate_limits',
       'openai_api_keys.rate_limit_rpm',
+      'secrets.engine',
       'token_usage_ingests',
       'token_usages',
     ]);

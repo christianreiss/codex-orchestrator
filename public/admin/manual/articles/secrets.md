@@ -15,11 +15,11 @@ sources: api/src/routes/admin/secrets/index.ts, api/src/services/secrets.ts, api
 
 ## The table
 
-`GET /admin/secrets` (`secrets.read_metadata`, held by every role; `?include_deleted=1` adds retired rows) lists each secret's slug, description, tags, engine scope (all engines, or `codex`, `claude`, or `grok` only), and owner. Owner is **Operator** for a secret created here (`source_host_id` is null — agents cannot rotate or delete it) or **Host #N** for one an agent stored through `secret_store` from that host. Values are never in the listing.
+`GET /admin/secrets` (`secrets.read_metadata`, held by every role; `?include_deleted=1` adds retired rows) lists each secret's slug, description, tags and owner. Every working credential is available to Codex, Claude and Grok. Owner is **Operator** for a secret created here (`source_host_id` is null — agents cannot rotate or delete it) or **Host #N** for one an agent stored through `secret_store` from that host. Values are never in the listing.
 
 Controls, and the capability each needs:
 
-- **New secret** (`POST /admin/secrets`, `secrets.manage`) — slug (at most 96 characters), value, description, tags (at most 32), and engine scope.
+- **New secret** (`POST /admin/secrets`, `secrets.manage`) — slug (at most 96 characters), value, description, and tags (at most 32). Credentials are shared across all engines.
 - **Edit** (`PATCH /admin/secrets/{id}`, `secrets.manage`) — metadata and value; the body is strict and the slug is immutable.
 - **Reveal** (`POST /admin/secrets/{id}/reveal`, `secrets.reveal`) — returns the plaintext once. It is a `POST` rather than a `GET` on purpose, so a browser cannot prefetch, cache, or replay it, and it writes a `secret.revealed` audit event that is deliberately **not** broadcast: a human reading a credential is an audit fact, not a reason to nudge any UI into refetching.
 - **Delete** (`DELETE /admin/secrets/{id}`, `secrets.manage`).

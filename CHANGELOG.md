@@ -1,5 +1,9 @@
 # 2026-10-08
 
+- Remove engine-scoped access from the working secrets store: Codex, Claude and Grok share all credentials. Remove the API/MCP scope parameter and dashboard selector; migration 0044 drops the obsolete scope column while preserving encrypted values, host ownership, provenance and read auditing. The Secret dialog also closes correctly after a successful save.
+
+- Add a Grok MCP compatibility audit covering all 78 host tools, six optional operator tools and 26 local messaging tools, plus a disposable native-client catalogue probe.
+
 - Wrapper 0.9.24 adds managed native `codex`, `claude` and `grok` starts with their native argument grammar, the existing fleet account/auth protections, and shared session-bound messaging through App Server, MCP Channels and ACP. Installation prepares per-user PATH shims without replacing provider binaries; native-entry diagnostics and removal support shell activation and rollback.
 
 - Git Director now resolves one canonical registration per host/path, rejects relative clone directories and ambiguous legacy mappings, and supersedes old mappings only when no live merge lease is held.

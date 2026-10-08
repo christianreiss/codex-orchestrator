@@ -2,7 +2,6 @@
   import { createMutation, useQueryClient } from "@tanstack/svelte-query";
   import { toast } from "svelte-sonner";
   import * as Dialog from "$lib/components/ui/dialog";
-  import * as Select from "$lib/components/ui/select";
   import { Button } from "$lib/components/ui/button";
   import { Input } from "$lib/components/ui/input";
   import { Label } from "$lib/components/ui/label";
@@ -24,7 +23,6 @@
   let name = $state("");
   let description = $state("");
   let value = $state("");
-  let engine = $state<"any" | "codex" | "claude" | "grok">("any");
   let tags = $state("");
 
   const isEdit = $derived(editing !== null);
@@ -37,7 +35,6 @@
     name = editing?.name ?? "";
     description = editing?.description ?? "";
     value = "";
-    engine = (editing?.engine ?? "any") as "any" | "codex" | "claude" | "grok";
     tags = (editing?.tags ?? []).join(", ");
   });
 
@@ -50,14 +47,12 @@
 
   const saveMut = createMutation<AdminSecretResponse, Error, void>({
     mutationFn: async () => {
-      const engineValue = engine === "any" ? null : engine;
       if (editing) {
         // Only send a value when one was typed: an empty box means "leave the
         // stored credential alone", not "clear it".
         return await secretsApi.update(editing.id, {
           name: name.trim(),
           description: description.trim() || null,
-          engine: engineValue,
           tags: parseTags(tags),
           ...(value ? { value } : {}),
         });
@@ -67,7 +62,6 @@
         name: name.trim(),
         value,
         description: description.trim() || null,
-        engine: engineValue,
         tags: parseTags(tags),
       };
       return await secretsApi.create(payload);
@@ -83,7 +77,10 @@
       });
       void qc.invalidateQueries({ queryKey: secretQueryKeys.list() });
       void qc.invalidateQueries({ queryKey: secretQueryKeys.state() });
-      close();
+      // onSuccess still runs while the mutation is pending; the user-dismiss
+      // guard in close() must not block completion of a successful save.
+      open = false;
+      onOpenChange?.(false);
     },
     onError: (err) => {
       toast.error(isEdit ? "Could not update the secret" : "Could not create the secret", {
@@ -194,25 +191,6 @@
             autocomplete="new-password"
             placeholder={isEdit ? "Leave blank to keep the current value" : ""}
           />
-        </div>
-
-        <div class="grid gap-2">
-          <Label for="secret-engine">Visible to</Label>
-          <Select.Root
-            type="single"
-            value={engine}
-            onValueChange={(v) => (engine = (v as typeof engine) ?? engine)}
-          >
-            <Select.Trigger id="secret-engine">
-              {engine === "codex" ? "Codex only" : engine === "claude" ? "Claude only" : engine === "grok" ? "Grok only" : "All engines"}
-            </Select.Trigger>
-            <Select.Content>
-              <Select.Item value="any" label="All engines" />
-              <Select.Item value="codex" label="Codex only" />
-              <Select.Item value="claude" label="Claude only" />
-              <Select.Item value="grok" label="Grok only" />
-            </Select.Content>
-          </Select.Root>
         </div>
 
         <div class="grid gap-2">

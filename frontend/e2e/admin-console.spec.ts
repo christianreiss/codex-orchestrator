@@ -845,6 +845,35 @@ test.beforeEach(async ({ page }) => {
   await installFixtures(page);
 });
 
+test("working secrets are shared across engines without a scope selector", async ({ page }) => {
+  let saved: Record<string, unknown> | undefined;
+  const secret = { id: 1, slug: "fixture-token", name: "Fixture token", description: "Test service",
+    source_host_id: null, source_engine: "codex", tags: [], created_at: "2026-10-08T00:00:00Z",
+    updated_at: "2026-10-08T00:00:00Z", last_rotated_at: null, deleted_at: null };
+  await installFixtures(page, (path, body) => {
+    if (path === "/admin/secrets/state") return { enabled: true, count: 1, updated_at: null };
+    if (path === "/admin/secrets") {
+      if (body) { saved = body as Record<string, unknown>; return { secret: { ...secret, ...saved } }; }
+      return { secrets: [secret] };
+    }
+    return undefined;
+  });
+  await page.goto("/admin/secrets");
+  await expect(page.getByText("fixture-token", { exact: true })).toBeVisible();
+  await expect(page.getByRole("columnheader", { name: "Scope", exact: true })).toHaveCount(0);
+  await expect(page.getByText("Operator", { exact: true }).last()).toBeVisible();
+  await page.getByRole("button", { name: "New secret", exact: true }).click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog.getByLabel("Visible to")).toHaveCount(0);
+  await dialog.getByLabel("Slug", { exact: true }).fill("new-fixture");
+  await dialog.getByLabel("Name", { exact: true }).fill("Shared fixture");
+  await dialog.getByLabel("Value", { exact: true }).fill("test-only-value");
+  await dialog.getByRole("button", { name: "Create secret", exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  expect(saved).toMatchObject({ slug: "new-fixture", name: "Shared fixture", value: "test-only-value" });
+  expect(saved).not.toHaveProperty("engine");
+});
+
 function quickDefaults(): Record<"codex" | "claude" | "grok", ModelDefaultsValue> {
   return {
     grok: {

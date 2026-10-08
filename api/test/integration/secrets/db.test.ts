@@ -7,7 +7,7 @@ import { SecretsService } from '../../../src/services/secrets.js';
 import { getTestDb, type TestDb } from '../../helpers/test-db.js';
 import { testKeyring } from '../../helpers/test-keyring.js';
 import { splitSqlStatements } from '../../../src/db/migration-sql.js';
-import { ENGINE_CLAUDE, ENGINE_CODEX } from '../../../src/util/engine.js';
+import { ENGINE_CLAUDE, ENGINE_CODEX, ENGINE_GROK } from '../../../src/util/engine.js';
 import type { Host } from '../../../src/db/schema.js';
 
 /**
@@ -19,9 +19,7 @@ import type { Host } from '../../../src/db/schema.js';
  *  1. `value_enc` never reaches a list response. The fake ignores `select(fields)`
  *     and hands back whole seeded rows, so the SQL column list is untested there
  *     — only `toMetadata` is. Here both halves run.
- *  2. Engine visibility (`engine IS NULL OR engine = ?`). The fake degrades any
- *     `or(...)` where-clause to a loose scan that drops the `IS NULL` side, so a
- *     unit assertion would either pass vacuously or fail for the fake's reasons.
+ *  2. Fleet-wide reads and search across all caller engines.
  *  3. Slug uniqueness, including the case-insensitivity that
  *     `utf8mb4_unicode_ci` gives the unique key. The fake enforces no index.
  *  4. Migration idempotency and the index inventory.
@@ -38,6 +36,7 @@ import type { Host } from '../../../src/db/schema.js';
 const MIGRATIONS = [
   '0010_add_secrets.sql',
   '0013_add_secret_provenance.sql',
+  '0044_secrets_all_engines.sql',
 ].map((f) => join(dirname(fileURLToPath(import.meta.url)), '../../../src/db/migrations/', f));
 
 const FQDN = 'ztest-secrets.example';
@@ -80,11 +79,11 @@ describe.skipIf(!handle)('fleet secrets against a real database', () => {
     )[0] as unknown as Host;
 
     const accessLog = {
-      log: async (entry: { method: string; name: string | null; success: boolean }) => {
+      log: async (entry: { method: string; name: string | null; success: boolean; engine: string | null }) => {
         logged.push(entry);
         await db.execute(
           sql`INSERT INTO mcp_access_logs (host_id, client_ip, method, name, success, error_code, error_message, created_at, engine)
-              VALUES (${host.id}, NULL, ${entry.method}, ${entry.name}, ${entry.success ? 1 : 0}, NULL, NULL, ${now}, ${ENGINE_CODEX})`,
+              VALUES (${host.id}, NULL, ${entry.method}, ${entry.name}, ${entry.success ? 1 : 0}, NULL, NULL, ${now}, ${entry.engine})`,
         );
       },
     };
@@ -113,7 +112,7 @@ describe.skipIf(!handle)('fleet secrets against a real database', () => {
       ).map((row) => String(row['n']));
 
       expect(names).toContain('uniq_secrets_slug');
-      expect(names).toContain('idx_secrets_engine');
+      expect(names).not.toContain('idx_secrets_engine');
       expect(names).toContain('idx_secrets_updated_at');
       expect(names).toContain('idx_secrets_deleted_at');
       expect(names).toContain('idx_secrets_source_host');
@@ -216,58 +215,37 @@ describe.skipIf(!handle)('fleet secrets against a real database', () => {
     });
   });
 
-  describe('engine visibility in SQL', () => {
+  describe('fleet-wide credentials in SQL', () => {
     beforeAll(async () => {
       await svc.create({ slug: 'ztest-shared', name: 'shared', value: 'v' });
-      await svc.create({ slug: 'ztest-codex', name: 'codex', value: 'v', engine: ENGINE_CODEX });
-      await svc.create({ slug: 'ztest-claude', name: 'claude', value: 'v', engine: ENGINE_CLAUDE });
+      for (const engine of [ENGINE_CODEX, ENGINE_CLAUDE, ENGINE_GROK]) {
+        await svc.storeForHost({ slug: `ztest-${engine}`, name: engine, value: 'v' }, host, engine);
+      }
     });
 
-    it('shows null-engine rows to both engines and scoped rows to only one', async () => {
-      // Scoped to the slugs this block seeds: other blocks leave their own
-      // ztest- rows behind, and a bare prefix filter would make this assertion
-      // depend on describe execution order.
-      const MINE = ['ztest-shared', 'ztest-codex', 'ztest-claude'];
-      const slugs = async (engine: typeof ENGINE_CODEX | typeof ENGINE_CLAUDE | null) =>
-        (await svc.list({ engine })).map((s) => s.slug).filter((s) => MINE.includes(s));
-
-      expect(await slugs(ENGINE_CODEX)).toEqual(['ztest-codex', 'ztest-shared']);
-      expect(await slugs(ENGINE_CLAUDE)).toEqual(['ztest-claude', 'ztest-shared']);
-      expect(await slugs(null)).toEqual(['ztest-claude', 'ztest-codex', 'ztest-shared']);
+    it.each([ENGINE_CODEX, ENGINE_CLAUDE, ENGINE_GROK])('serves %s credentials created by every engine and audits the reader', async (caller) => {
+      const mine = ['ztest-claude', 'ztest-codex', 'ztest-grok'];
+      expect((await svc.listForHost(host.id)).map(s => s.slug).filter(s => mine.includes(s))).toEqual(mine);
+      expect((await svc.searchForHost('ztest-', host.id)).map(s => s.slug).filter(s => mine.includes(s))).toEqual(mine);
+      for (const slug of mine) {
+        const before = logged.length;
+        expect((await svc.getForHost(slug, host, caller)).value).toBe('v');
+        expect(logged.slice(before)).toMatchObject([{ method: 'secret.read', name: `secret_get:${slug}`, success: true, engine: caller }]);
+      }
     });
 
-    it('refuses a cross-engine get and still writes the audit row', async () => {
-      const before = logged.length;
-      await expect(svc.getForHost('ztest-claude', host, ENGINE_CODEX)).rejects.toThrow();
-
-      expect(logged.slice(before)).toMatchObject([
-        { method: 'secret.read', name: 'secret_get:ztest-claude', success: false },
-      ]);
-      const audited = rowsOf(
-        await exec(
-          `SELECT name, success FROM mcp_access_logs
-            WHERE method = 'secret.read' AND name = 'secret_get:ztest-claude'`,
-        ),
-      );
-      expect(audited).toHaveLength(1);
-      expect(Number(audited[0]!['success'])).toBe(0);
-      // The audit column is VARCHAR(128); the slug cap of 96 is what keeps
-      // `secret_get:<slug>` from truncating.
-      expect(String(audited[0]!['name']).length).toBeLessThanOrEqual(128);
-    });
-
-    it('serves a matching-engine get and audits the success', async () => {
-      const payload = await svc.getForHost('ztest-codex', host, ENGINE_CODEX);
-      expect(payload.value).toBe('v');
-
-      const audited = rowsOf(
-        await exec(
-          `SELECT success FROM mcp_access_logs
-            WHERE method = 'secret.read' AND name = 'secret_get:ztest-codex'`,
-        ),
-      );
-      expect(audited).toHaveLength(1);
-      expect(Number(audited[0]!['success'])).toBe(1);
+    it('removes a populated legacy scope without changing ciphertext or provenance, twice safely', async () => {
+      await exec('ALTER TABLE secrets ADD COLUMN engine VARCHAR(16) NULL');
+      await exec('CREATE INDEX idx_secrets_engine ON secrets (engine)');
+      await exec("UPDATE secrets SET engine='codex' WHERE slug='ztest-codex'");
+      const before = rowsOf(await exec("SELECT value_enc, source_engine, source_host_id FROM secrets WHERE slug='ztest-codex'"));
+      const migration = readFileSync(MIGRATIONS.at(-1)!, 'utf8');
+      for (let run = 0; run < 2; run++) {
+        for (const stmt of splitSqlStatements(migration)) await exec(stmt);
+      }
+      expect(rowsOf(await exec("SELECT value_enc, source_engine, source_host_id FROM secrets WHERE slug='ztest-codex'"))).toEqual(before);
+      expect(rowsOf(await exec("SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='secrets' AND COLUMN_NAME='engine'"))).toEqual([]);
+      expect((await svc.getForHost('ztest-codex', host, ENGINE_GROK)).value).toBe('v');
     });
   });
 
@@ -335,13 +313,13 @@ describe.skipIf(!handle)('fleet secrets against a real database', () => {
     it('stops serving host reads while off, without touching admin reads', async () => {
       await svc.setEnabled(false);
       expect(await svc.getEnabled()).toBe(false);
-      expect(await svc.listForHost(ENGINE_CODEX)).toEqual([]);
+      expect(await svc.listForHost(host.id)).toEqual([]);
       await expect(svc.getForHost('ztest-shared', host, ENGINE_CODEX)).rejects.toThrow();
       // Admin CRUD stays live so secrets can be staged before switch-on.
       expect((await svc.list()).length).toBeGreaterThan(0);
 
       await svc.setEnabled(true);
-      expect((await svc.listForHost(ENGINE_CODEX)).length).toBeGreaterThan(0);
+      expect((await svc.listForHost(host.id)).length).toBeGreaterThan(0);
     });
   });
 });

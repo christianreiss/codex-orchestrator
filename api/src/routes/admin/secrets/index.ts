@@ -31,9 +31,8 @@ const createSchema = z.object({
   name: z.string().trim().min(1, 'name is required'),
   value: z.string().min(1, 'value is required'),
   description: z.string().trim().optional().nullable(),
-  engine: z.enum(['codex', 'claude', 'grok']).optional().nullable(),
   tags: z.array(z.string().trim().min(1)).max(32).optional(),
-});
+}).strict();
 
 // `slug` is omitted deliberately: it is the lookup key agents hold, and a rename
 // would silently break every agent that learned it. Delete and recreate instead.
@@ -148,7 +147,6 @@ export async function registerAdminSecretsRoutes(
         name: parsed.data.name,
         value: parsed.data.value,
         description: parsed.data.description ?? null,
-        engine: parsed.data.engine ?? null,
         tags: parsed.data.tags ?? [],
       });
       // Ids and slugs only — never a value, and never anything derived from one.
@@ -235,7 +233,6 @@ export function toAdminSecret(row: SecretMetadata) {
     slug: row.slug,
     name: row.name,
     description: row.description,
-    engine: row.engine,
     // Null means an operator created it, which is also what makes it read-only
     // to every host over MCP. The admin UI shows this so an operator can tell at
     // a glance which entries an agent can rotate on its own.

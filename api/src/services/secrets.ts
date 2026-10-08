@@ -48,7 +48,6 @@ const METADATA_COLUMNS = {
   slug: secrets.slug,
   name: secrets.name,
   description: secrets.description,
-  engine: secrets.engine,
   sourceHostId: secrets.sourceHostId,
   sourceEngine: secrets.sourceEngine,
   tags: secrets.tags,
@@ -64,7 +63,6 @@ export interface SecretMetadata {
   slug: string;
   name: string;
   description: string | null;
-  engine: Engine | null;
   /** The host that created it over MCP; null means operator-created. */
   sourceHostId: number | null;
   sourceEngine: Engine | null;
@@ -91,7 +89,6 @@ export interface SecretListing {
   slug: string;
   name: string;
   description: string | null;
-  engine: Engine | null;
   tags: string[];
   last_rotated_at: string | null;
   /** True when the calling host owns this and may rotate or delete it. */
@@ -103,7 +100,6 @@ export function toSecretListing(row: SecretMetadata, hostId: number | null): Sec
     slug: row.slug,
     name: row.name,
     description: row.description,
-    engine: row.engine,
     tags: row.tags,
     last_rotated_at: row.lastRotatedAt,
     // Spelled out rather than left for the agent to infer from a host id it does
@@ -119,7 +115,6 @@ export interface SecretPayload {
   name: string;
   description: string | null;
   value: string;
-  engine: Engine | null;
   tags: string[];
   last_rotated_at: string | null;
 }
@@ -129,7 +124,6 @@ export interface CreateSecretInput {
   name: string;
   value: string;
   description?: string | null;
-  engine?: Engine | null;
   tags?: string[];
   /** Set only by the MCP path; admin-created secrets stay operator-owned (null). */
   sourceHostId?: number | null;
@@ -141,12 +135,10 @@ export interface UpdateSecretInput {
   name?: string;
   value?: string;
   description?: string | null;
-  engine?: Engine | null;
   tags?: string[];
 }
 
 export interface ListOptions {
-  engine?: Engine | null;
   includeDeleted?: boolean;
   limit?: number;
 }
@@ -163,7 +155,7 @@ export interface SecretsServiceDeps {
    * Required for anything that encrypts or decrypts — which is `create`,
    * `update`, `revealById` and `getForHost`, and nothing else. Optional because
    * `HostAgentsService` constructs this service purely to answer "is the module
-   * on, and how many secrets can this engine see?" while rendering managed
+   * on, and how many live secrets exist?" while rendering managed
    * AGENTS.md guidance, on a code path that must never touch ciphertext and
    * carries only a nullable keyring of its own. Omitting it makes the mutating
    * paths throw rather than silently storing something unreadable.
@@ -171,20 +163,6 @@ export interface SecretsServiceDeps {
   keyring?: Keyring | null;
   /** Required for `getForHost`; admin CRUD may construct the service without it. */
   accessLog?: McpAccessLogService;
-}
-
-/**
- * null / undefined / '' means "every engine", matching `skills.engine` and
- * `services/host-skills.ts`. A null request engine sees everything.
- */
-export function visibleToEngine(
-  rowEngine: string | null | undefined,
-  engine: Engine | null,
-): boolean {
-  if (!engine) return true;
-  return (
-    rowEngine === null || rowEngine === undefined || rowEngine === '' || rowEngine === engine
-  );
 }
 
 /**
@@ -199,7 +177,6 @@ function toMetadata(row: {
   slug: string;
   name: string;
   description: string | null;
-  engine: string | null;
   sourceHostId?: number | null;
   sourceEngine?: string | null;
   tags: unknown;
@@ -213,7 +190,6 @@ function toMetadata(row: {
     slug: row.slug,
     name: row.name,
     description: row.description ?? null,
-    engine: isEngine(row.engine) ? row.engine : null,
     sourceHostId: row.sourceHostId ?? null,
     sourceEngine: isEngine(row.sourceEngine) ? row.sourceEngine : null,
     tags: sortedLowercase(parseTags(row.tags ?? null)),
@@ -267,7 +243,7 @@ export class SecretsService {
     return {
       enabled: row?.version === '1',
       updated_at: row?.updatedAt ?? null,
-      count: await this.availableCount(null),
+      count: await this.availableCount(),
     };
   }
 
@@ -293,27 +269,23 @@ export class SecretsService {
   }
 
   /**
-   * How many live secrets this engine can see. A diagnostics/capability read:
+   * How many live secrets exist across the fleet. A diagnostics/capability read:
    * it selects metadata only and never touches the keyring, because the managed
    * AGENTS.md renderer calls it on every host bootstrap.
    */
-  async availableCount(engine: Engine | null): Promise<number> {
+  async availableCount(): Promise<number> {
     const rows = await this.deps.db
-      .select({ engine: secrets.engine, deletedAt: secrets.deletedAt })
+      .select({ deletedAt: secrets.deletedAt })
       .from(secrets)
       .where(isNull(secrets.deletedAt));
-    return rows.filter((row) => !row.deletedAt && visibleToEngine(row.engine, engine)).length;
+    return rows.filter((row) => !row.deletedAt).length;
   }
 
   // ── metadata surface — never decrypts, never selects value_enc ─────────────
 
   async list(opts: ListOptions = {}): Promise<SecretMetadata[]> {
-    const engine = opts.engine ?? null;
     const conditions: SQL[] = [];
     if (!opts.includeDeleted) conditions.push(isNull(secrets.deletedAt));
-    if (engine) {
-      conditions.push(or(isNull(secrets.engine), eq(secrets.engine, engine)) as SQL);
-    }
 
     const rows = await this.deps.db
       .select(METADATA_COLUMNS)
@@ -321,14 +293,9 @@ export class SecretsService {
       .where(conditions.length > 0 ? and(...conditions) : undefined)
       .orderBy(asc(secrets.slug));
 
-    // Second, in-process pass over the same two predicates. The SQL above is
-    // the half that scales; this is the half that is provable on `db-fake`,
-    // whose filter drops to a loose "any column equals any param" fallback the
-    // moment a where clause contains `or(...)` — which engine visibility always
-    // does. Belt and braces, and the braces are the testable half.
+    // Re-check deletion for test doubles that do not evaluate SQL predicates.
     return rows
       .filter((row) => (opts.includeDeleted ? true : !row.deletedAt))
-      .filter((row) => visibleToEngine(row.engine, engine))
       .map(toMetadata)
       .sort(bySlug)
       .slice(0, opts.limit ?? DEFAULT_LIST_LIMIT);
@@ -349,9 +316,6 @@ export class SecretsService {
     // `%` and `_` are LIKE metacharacters; a query of "100%" must not match all.
     const pattern = `%${needle.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
     const conditions: SQL[] = [isNull(secrets.deletedAt)];
-    if (opts.engine) {
-      conditions.push(or(isNull(secrets.engine), eq(secrets.engine, opts.engine)) as SQL);
-    }
     conditions.push(
       or(
         like(secrets.slug, pattern),
@@ -369,7 +333,7 @@ export class SecretsService {
 
     // Same reasoning as list(): re-apply in process so the fake can prove it.
     return rows
-      .filter((row) => !row.deletedAt && visibleToEngine(row.engine, opts.engine ?? null))
+      .filter((row) => !row.deletedAt)
       .map(toMetadata)
       .filter((row) => matchesNeedle(row, needle))
       .sort(bySlug)
@@ -398,24 +362,22 @@ export class SecretsService {
     const row = rows.find((candidate) => candidate.slug === normalized);
     if (!row) return null;
     if (!opts.includeDeleted && row.deletedAt) return null;
-    if (!visibleToEngine(row.engine, opts.engine ?? null)) return null;
     return toMetadata(row);
   }
 
   // ── host-facing surface: the module switch gates these, not admin CRUD ─────
 
-  async listForHost(engine: Engine | null, hostId: number | null = null): Promise<SecretListing[]> {
+  async listForHost(hostId: number | null = null): Promise<SecretListing[]> {
     if (!(await this.getEnabled())) return [];
-    return (await this.list({ engine })).map((row) => toSecretListing(row, hostId));
+    return (await this.list()).map((row) => toSecretListing(row, hostId));
   }
 
   async searchForHost(
     query: string,
-    engine: Engine | null,
     hostId: number | null = null,
   ): Promise<SecretListing[]> {
     if (!(await this.getEnabled())) return [];
-    return (await this.search(query, { engine })).map((row) => toSecretListing(row, hostId));
+    return (await this.search(query)).map((row) => toSecretListing(row, hostId));
   }
 
   /**
@@ -518,7 +480,6 @@ export class SecretsService {
     const values: Record<string, unknown> = {
       name: input.name?.trim() || existing.name,
       description: input.description?.trim() || existing.description || null,
-      engine: input.engine ?? existing.engine ?? null,
       sourceEngine: engine,
       tags: input.tags === undefined ? existing.tags : tags,
       tagsText: input.tags === undefined ? existing.tagsText : tags.join(' ') || null,
@@ -596,7 +557,7 @@ export class SecretsService {
       eq(secrets.slug, normalized),
       (row) => row.slug === normalized,
     );
-    if (!loaded || loaded.deletedAt || !visibleToEngine(loaded.engine, engine)) {
+    if (!loaded || loaded.deletedAt) {
       await audit(false, 'not_found');
       throw new NotFoundError(`No secret with slug '${normalized}'`, 'secret_not_found');
     }
@@ -622,7 +583,6 @@ export class SecretsService {
       name: metadata.name,
       description: metadata.description,
       value,
-      engine: metadata.engine,
       tags: metadata.tags,
       last_rotated_at: metadata.lastRotatedAt,
     };
@@ -636,9 +596,6 @@ export class SecretsService {
     if (name === '') throw new ValidationError('name is required', { param: 'name' });
     if (typeof input.value !== 'string' || input.value === '') {
       throw new ValidationError('value is required', { param: 'value' });
-    }
-    if (input.engine !== null && input.engine !== undefined && !isEngine(input.engine)) {
-      throw new ValidationError('engine must be codex, claude, or grok', { param: 'engine' });
     }
 
     // A soft-deleted row still holds the slug (uniq_secrets_slug is on slug
@@ -661,7 +618,6 @@ export class SecretsService {
       name,
       description: input.description?.trim() || null,
       valueEnc: encryptSecret(input.value, this.requireKeyring()),
-      engine: input.engine ?? null,
       sourceHostId: input.sourceHostId ?? null,
       sourceEngine: input.sourceEngine ?? null,
       tags,
@@ -720,12 +676,6 @@ export class SecretsService {
     }
     if (input.description !== undefined) {
       patch['description'] = input.description?.trim() || null;
-    }
-    if (input.engine !== undefined) {
-      if (input.engine !== null && !isEngine(input.engine)) {
-        throw new ValidationError('engine must be codex, claude, or grok', { param: 'engine' });
-      }
-      patch['engine'] = input.engine ?? null;
     }
     if (input.tags !== undefined) {
       const tags = sortedLowercase(this.normalizeTags(input.tags));

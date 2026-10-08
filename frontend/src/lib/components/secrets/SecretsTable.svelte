@@ -19,7 +19,7 @@
   import { EmptyState } from "$lib/components/ui/empty-state";
   import SortableHead from "$lib/components/data-table/SortableHead.svelte";
   import RowActions from "$lib/components/data-table/RowActions.svelte";
-  import { secretsApi, secretQueryKeys, engineScopeLabel, agentUsage, ownerLabel } from "$lib/api/secrets";
+  import { secretsApi, secretQueryKeys, agentUsage, ownerLabel } from "$lib/api/secrets";
   import type { AdminSecret, AdminSecretRevealResponse } from "$lib/api/types";
   import { relativeTime } from "$lib/utils/format";
   import { authStore } from "$lib/stores/auth";
@@ -186,7 +186,6 @@
         <Table.Row>
           <SortableHead label="Slug" active={sortKey === "slug"} dir={sortDir} onclick={() => onSort("slug")} />
           <Table.Head>What it is for</Table.Head>
-          <Table.Head>Scope</Table.Head>
           <Table.Head>Managed by</Table.Head>
           <SortableHead
             label="Rotated"
@@ -213,9 +212,6 @@
             </Table.Cell>
             <Table.Cell class="max-w-md align-top text-sm text-muted-foreground">
               {secret.description ?? "—"}
-            </Table.Cell>
-            <Table.Cell class="align-top">
-              <Badge variant="secondary">{engineScopeLabel(secret.engine)}</Badge>
             </Table.Cell>
             <Table.Cell class="align-top">
               <Badge variant={secret.source_host_id === null ? "outline" : "secondary"}>

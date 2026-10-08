@@ -37,6 +37,11 @@ The wrapper maintains engine-specific auth, config, versions, locks, and leases.
 Grok uses the shared Skills, instruction, MCP, project, memory, secrets, and
 messaging surfaces with `engine=grok` / `X-Engine: grok`.
 
+Working secrets are shared across Codex, Claude and Grok. `X-Engine` remains
+part of the secret read audit and creation provenance, but never restricts
+visibility. Migration 0044 removes the obsolete scope column without changing
+credential values. See [MCP verification](grok-mcp-verification.md).
+
 ## CLI surface
 
 | Subcommand | Purpose |

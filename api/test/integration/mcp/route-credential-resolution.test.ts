@@ -23,7 +23,7 @@ const HOST_KEY = 'sk-codex-' + 'a'.repeat(32);
 
 type Headers = Record<string, string | string[] | undefined>;
 
-function makeHost(fqdn: string, status = 'active', engines = 'codex,claude'): Host {
+function makeHost(fqdn: string, status = 'active', engines = 'codex,claude,grok'): Host {
   return {
     id: 7,
     fqdn,
@@ -109,6 +109,7 @@ const fallthroughBearers: Array<[string, string]> = [
 const engineHeaders: Array<[string | undefined, string]> = [
   ['codex', 'codex'],
   ['claude', 'claude'],
+  ['grok', 'grok'],
   [undefined, 'codex'],
 ];
 
@@ -123,6 +124,7 @@ const invalidEngineHeaders = ['gemini', 'clude', '', 'codex,claude', 'codex;clau
 const normalizedEngineHeaders: Array<[string, string]> = [
   ['Codex ', 'codex'],
   [' CLAUDE', 'claude'],
+  [' GROK ', 'grok'],
 ];
 
 describe('POST /mcp credential resolution', () => {
@@ -234,6 +236,9 @@ describe('POST /mcp credential resolution', () => {
   it.each([
     ['codex-only', 'claude', 'codex'],
     ['claude-only', 'codex', 'claude'],
+    ['codex-only', 'grok', 'codex'],
+    ['grok-only', 'codex', 'grok'],
+    ['grok-only', 'claude', 'grok'],
   ])('denies %s hosts access through %s when only %s is enabled', async (_name, requested, enabled) => {
     const h = await buildHarness({ hostFromKey: makeHost('single-engine.example', 'active', enabled) });
     const r = await post(h.app, { 'x-api-key': HOST_KEY, 'x-engine': requested });
@@ -244,7 +249,7 @@ describe('POST /mcp credential resolution', () => {
     await h.app.close();
   });
 
-  it.each(['codex', 'claude'])('routes an enabled %s-only host with that request engine', async (engine) => {
+  it.each(['codex', 'claude', 'grok'])('routes an enabled %s-only host with that request engine', async (engine) => {
     const h = await buildHarness({ hostFromKey: makeHost('single-engine.example', 'active', engine) });
     const r = await post(h.app, { 'x-api-key': HOST_KEY, 'x-engine': engine });
 

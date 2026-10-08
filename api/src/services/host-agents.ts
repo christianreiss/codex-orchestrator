@@ -69,7 +69,7 @@ export class HostAgentsService {
     this.projects = new ProjectsService(db);
     this.settings = new SettingsService(db);
     // No keyring: this instance only ever answers "is the module on, and how
-    // many secrets can this engine see?". Rendering guidance must not be able
+    // many live secrets exist?". Rendering guidance must not be able
     // to touch ciphertext, and omitting the keyring makes that structural.
     this.secrets = new SecretsService({ db });
     // No judge, for the same reason the SecretsService above gets no keyring:
@@ -404,7 +404,7 @@ export class HostAgentsService {
       // box mid-deploy whose `secrets` table does not exist yet would
       // otherwise 500 every host's bootstrap, not just its guidance block.
       this.secrets.getEnabled().catch(() => null),
-      this.secrets.availableCount(engine).catch(() => null),
+      this.secrets.availableCount().catch(() => null),
       this.settings.getFlag(API_KEYS_IN_CHAT_ALLOWED_KEY, false).catch(() => null),
       this.settings.getFlag(AGENT_MESSAGING_ENABLED_KEY, false).catch(() => null),
       this.settings.getFlag(GIT_DIRECTOR_ENABLED_FLAG, false).catch(() => null),

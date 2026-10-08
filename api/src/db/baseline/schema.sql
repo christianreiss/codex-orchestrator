@@ -1221,7 +1221,6 @@ CREATE TABLE `secrets` (
 	`name` varchar(255) NOT NULL,
 	`description` text,
 	`value_enc` longtext NOT NULL,
-	`engine` varchar(16),
 	`source_host_id` bigint unsigned,
 	`source_engine` varchar(16),
 	`tags` json,
@@ -1491,7 +1490,6 @@ CREATE INDEX `idx_openai_keys_admin` ON `openai_api_keys` (`admin_user_id`);
 CREATE INDEX `idx_openai_keys_engine` ON `openai_api_keys` (`engine`);
 CREATE INDEX `idx_account_session_active` ON `provider_account_sessions` (`account_id`,`expires_at`);
 CREATE INDEX `idx_account_session_scope` ON `provider_account_sessions` (`host_id`,`engine`,`scope_id`);
-CREATE INDEX `idx_secrets_engine` ON `secrets` (`engine`);
 CREATE INDEX `idx_secrets_updated_at` ON `secrets` (`updated_at`);
 CREATE INDEX `idx_secrets_deleted_at` ON `secrets` (`deleted_at`);
 CREATE INDEX `idx_secrets_source_host` ON `secrets` (`source_host_id`);

@@ -52,14 +52,6 @@ export const secretsApi = {
     api.post<AdminSecretsModuleState>("/admin/secrets/state", { enabled }),
 };
 
-/** Null engine means every engine, matching how the backend scopes visibility. */
-export function engineScopeLabel(engine: AdminSecret["engine"]): string {
-  if (engine === "codex") return "Codex only";
-  if (engine === "claude") return "Claude only";
-  if (engine === "grok") return "Grok only";
-  return "All engines";
-}
-
 /**
  * Who may rotate or delete this over MCP. A secret created here belongs to no
  * host, which is what keeps agents from overwriting a shared credential; one an

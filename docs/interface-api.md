@@ -628,11 +628,12 @@ The Quick Settings page (`/admin/quick-settings`) reuses `GET/POST /admin/model-
     to include soft-deleted rows. Returns `{secrets:[…]}` and never a value.
   - `GET /admin/secrets/{id}` — one secret's metadata, soft-deleted rows
     included. Never a value.
-  - `POST /admin/secrets` — `{slug, name, value, description?, engine?, tags?}`,
-    responds `201`. `engine` is nullable and null means every engine. A create
+  - `POST /admin/secrets` — `{slug, name, value, description?, tags?}`,
+    responds `201`. All working secrets are shared across Codex, Claude and Grok.
+    The removed `engine` scope argument is rejected on create and update. A create
     against a soft-deleted slug revives and rotates that row rather than
     failing, since the unique key is on `slug` alone.
-  - `PATCH /admin/secrets/{id}` — `{name?, value?, description?, engine?, tags?}`.
+  - `PATCH /admin/secrets/{id}` — `{name?, value?, description?, tags?}`.
     `slug` is rejected: it is the lookup key agents hold, so a rename would
     silently break them. Responds `{secret, rotated}`, where `rotated` is true
     only when the value genuinely differs from the stored one.

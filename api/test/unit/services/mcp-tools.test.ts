@@ -650,12 +650,12 @@ describe('secret_* tools', () => {
   let secretsEnabled = true;
   const stubSecrets = {
     getEnabled: async () => secretsEnabled,
-    listForHost: async (engine: string | null) => {
-      secretCalls.push({ method: 'list', arg: '', engine });
+    listForHost: async () => {
+      secretCalls.push({ method: 'list', arg: '', engine: null });
       return [{ slug: 'gh-pat' }];
     },
-    searchForHost: async (query: string, engine: string | null) => {
-      secretCalls.push({ method: 'search', arg: query, engine });
+    searchForHost: async (query: string) => {
+      secretCalls.push({ method: 'search', arg: query, engine: null });
       return [];
     },
     getForHost: async (slug: string, _host: Host, engine: string | null) => {
@@ -759,9 +759,11 @@ describe('secret_* tools', () => {
     expect(secretCalls.at(-1)).toMatchObject({ method: 'search', arg: 'github' });
   });
 
-  it('threads the engine through so engine-scoped secrets stay scoped', async () => {
+  it('uses engine only for read audit and creation provenance', async () => {
     await reg.dispatch('secret_list', {}, host, 'host', 'claude');
-    expect(secretCalls.at(-1)).toMatchObject({ engine: 'claude' });
+    expect(secretCalls.at(-1)).toMatchObject({ engine: null });
+    await reg.dispatch('secret_get', { slug: 'a' }, host, 'host', 'grok');
+    expect(secretCalls.at(-1)).toMatchObject({ engine: 'grok' });
 
     // An absent X-Engine header keeps the legacy codex default, as everywhere else.
     await reg.dispatch('secret_get', { slug: 'a' }, host);
@@ -788,6 +790,13 @@ describe('secret_* tools', () => {
 
     await reg.dispatch('secret_delete', 'mine' as unknown as Record<string, unknown>, host);
     expect(secretCalls.at(-1)).toMatchObject({ method: 'delete', arg: 'mine' });
+  });
+
+  it('rejects the removed engine scope without invoking the secret store', async () => {
+    const result = await reg.dispatch('secret_store', { slug: 'mine', value: 'v', engine: 'codex' }, host);
+    expect(result).toMatchObject({ isError: true });
+    expect(secretCalls).toEqual([]);
+    expect(reg.list().find(tool => tool.name === 'secret_store')?.inputSchema.properties).not.toHaveProperty('engine');
   });
 
   it('requires a slug and a value on secret_store', async () => {

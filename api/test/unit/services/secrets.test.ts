@@ -21,11 +21,10 @@ import { secrets, versions, type Host } from '../../../src/db/schema.js';
 import {
   SecretsService,
   SECRETS_ENABLED_FLAG,
-  visibleToEngine,
   type SecretsService as SecretsServiceType,
 } from '../../../src/services/secrets.js';
 import { ConflictError, NotFoundError, ValidationError } from '../../../src/http/errors.js';
-import { ENGINE_CLAUDE, ENGINE_CODEX } from '../../../src/util/engine.js';
+import { ENGINE_CLAUDE, ENGINE_CODEX, ENGINE_GROK } from '../../../src/util/engine.js';
 import { encrypt } from '../../../src/security/secret-box.js';
 import { createDbFake, type DbFake } from '../../helpers/db-fake.js';
 import { testKeyring } from '../../helpers/test-keyring.js';
@@ -99,22 +98,18 @@ function makeHarness(
   };
 }
 
-describe('visibleToEngine', () => {
-  it('treats null, undefined and empty as every engine', () => {
-    for (const rowEngine of [null, undefined, '']) {
-      expect(visibleToEngine(rowEngine, ENGINE_CODEX)).toBe(true);
-      expect(visibleToEngine(rowEngine, ENGINE_CLAUDE)).toBe(true);
+describe('fleet-wide reads', () => {
+  it.each([ENGINE_CODEX, ENGINE_CLAUDE, ENGINE_GROK])('serves %s all legacy scopes and records the caller in the audit', async (caller) => {
+    for (const scope of [null, ENGINE_CODEX, ENGINE_CLAUDE, ENGINE_GROK]) {
+      // Legacy DB fixtures prove old scope values cannot affect reads, even
+      // before the migration removes the obsolete column.
+      const { service, logged } = makeHarness([{ slug: 'fixture', value: 'fixture-value', engine: scope }]);
+      await expect(service.getForHost('fixture', host, caller)).resolves.toMatchObject({ value: 'fixture-value' });
+      expect(logged[0]).toMatchObject({ success: true, engine: caller });
+      expect((await service.listForHost(host.id)).map(row => row.slug)).toEqual(['fixture']);
+      expect((await service.searchForHost('fixture', host.id)).map(row => row.slug)).toEqual(['fixture']);
+      expect(await service.availableCount()).toBe(1);
     }
-  });
-
-  it('hides an engine-scoped row from the other engine', () => {
-    expect(visibleToEngine(ENGINE_CODEX, ENGINE_CODEX)).toBe(true);
-    expect(visibleToEngine(ENGINE_CODEX, ENGINE_CLAUDE)).toBe(false);
-    expect(visibleToEngine(ENGINE_CLAUDE, ENGINE_CODEX)).toBe(false);
-  });
-
-  it('shows every row when the caller declares no engine', () => {
-    expect(visibleToEngine(ENGINE_CLAUDE, null)).toBe(true);
   });
 });
 
@@ -147,12 +142,6 @@ describe('create', () => {
     await expect(service.create(input as never)).rejects.toBeInstanceOf(ValidationError);
   });
 
-  it('rejects an unknown engine', async () => {
-    const { service } = makeHarness();
-    await expect(
-      service.create({ slug: 'ok', name: 'n', value: 'v', engine: 'gemini' as never }),
-    ).rejects.toBeInstanceOf(ValidationError);
-  });
 
   it('rejects a live duplicate slug', async () => {
     const { service } = makeHarness([{ slug: 'gh-pat', value: 'old' }]);
@@ -190,13 +179,7 @@ describe('metadata reads', () => {
     expect(serialized).not.toContain('plaintext-beta');
   });
 
-  it('returns every live row when the caller declares no engine', async () => {
-    // Engine *filtering* is asserted in test/integration/secrets/db.test.ts, not
-    // here: the predicate is `engine IS NULL OR engine = ?`, and db-fake's
-    // where-clause handling degrades on `or(...)` to a loose scan that drops the
-    // `IS NULL` half — so a passing assertion here would prove nothing about the
-    // SQL and a failing one would be the fake's fault. The pure predicate is
-    // covered by the `visibleToEngine` block above.
+  it('returns every live row regardless of legacy scope', async () => {
     const { service } = makeHarness([
       { slug: 'shared', value: 'v', engine: null },
       { slug: 'codex-only', value: 'v', engine: ENGINE_CODEX },
@@ -309,15 +292,6 @@ describe('getForHost', () => {
     ]);
   });
 
-  it('hides a secret scoped to the other engine, and audits the miss', async () => {
-    const { service, logged } = makeHarness([
-      { slug: 'claude-only', value: 'v', engine: ENGINE_CLAUDE },
-    ]);
-    await expect(service.getForHost('claude-only', host, ENGINE_CODEX)).rejects.toBeInstanceOf(
-      NotFoundError,
-    );
-    expect(logged[0]).toMatchObject({ success: false, errorMessage: 'not_found' });
-  });
 
   it('refuses to serve a soft-deleted secret without a restart', async () => {
     const { service } = makeHarness([
@@ -357,11 +331,10 @@ describe('host listing honours the module switch', () => {
     const { service } = makeHarness([
       { slug: 'gh-pat', name: 'GitHub PAT', value: 'ghp_supersecret', tags: ['git'] },
     ]);
-    const listed = await service.listForHost(null);
+    const listed = await service.listForHost();
 
     expect(Object.keys(listed[0]!).sort()).toEqual([
       'description',
-      'engine',
       'last_rotated_at',
       'name',
       'owned_by_you',
@@ -374,19 +347,17 @@ describe('host listing honours the module switch', () => {
     // And it agrees with secret_get's own spelling.
     const fetched = await service.getForHost('gh-pat', host, ENGINE_CODEX);
     expect(fetched).toHaveProperty('last_rotated_at');
-    expect(await service.searchForHost('gh', null)).toEqual(listed);
+    expect(await service.searchForHost('gh')).toEqual(listed);
   });
 
-  // Passing `null` for the engine keeps `or(...)` out of the where clause; see
-  // the note on engine filtering above.
   it('lists nothing while disabled and everything once enabled', async () => {
     const off = makeHarness([{ slug: 'gh-pat', value: 'v' }], { enabled: false });
-    expect(await off.service.listForHost(null)).toEqual([]);
-    expect(await off.service.searchForHost('gh', null)).toEqual([]);
+    expect(await off.service.listForHost()).toEqual([]);
+    expect(await off.service.searchForHost('gh')).toEqual([]);
 
     const on = makeHarness([{ slug: 'gh-pat', value: 'v' }]);
-    expect((await on.service.listForHost(null)).map((s) => s.slug)).toEqual(['gh-pat']);
-    expect((await on.service.searchForHost('gh', null)).map((s) => s.slug)).toEqual(['gh-pat']);
+    expect((await on.service.listForHost()).map((s) => s.slug)).toEqual(['gh-pat']);
+    expect((await on.service.searchForHost('gh')).map((s) => s.slug)).toEqual(['gh-pat']);
   });
 });
 
@@ -480,15 +451,13 @@ describe('module state', () => {
     expect(await harness.service.getEnabled()).toBe(true);
   });
 
-  it('counts only rows visible to the engine', async () => {
+  it('counts all live rows regardless of legacy engine scope', async () => {
     const scoped = makeHarness([
       { slug: 'shared', value: 'v' },
       { slug: 'claude-only', value: 'v', engine: ENGINE_CLAUDE },
       { slug: 'gone', value: 'v', deletedAt: '2026-07-02T09:00:00Z' },
     ]);
-    expect(await scoped.service.availableCount(ENGINE_CODEX)).toBe(1);
-    expect(await scoped.service.availableCount(ENGINE_CLAUDE)).toBe(2);
-    expect(await scoped.service.availableCount(null)).toBe(2);
+    expect(await scoped.service.availableCount()).toBe(2);
   });
 });
 
@@ -555,8 +524,8 @@ describe('secret_store / secret_delete ownership', () => {
     // credential an operator provisioned — that is the entire point of the store.
     const { service } = makeHarness([{ slug: 'powerdns-api-key', value: 'real', sourceHostId: null }]);
     expect((await service.getForHost('powerdns-api-key', host, ENGINE_CODEX)).value).toBe('real');
-    expect((await service.listForHost(null, host.id)).map((s) => s.slug)).toEqual(['powerdns-api-key']);
-    expect((await service.listForHost(null, host.id))[0]!.owned_by_you).toBe(false);
+    expect((await service.listForHost(host.id)).map((s) => s.slug)).toEqual(['powerdns-api-key']);
+    expect((await service.listForHost(host.id))[0]!.owned_by_you).toBe(false);
   });
 
   it('deletes its own secret and refuses the others', async () => {

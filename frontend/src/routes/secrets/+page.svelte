@@ -71,7 +71,7 @@
 
 <PageHeader
   title="Secrets"
-  subtitle="Working credentials your agents fetch over MCP — not the sign-in that starts them."
+  subtitle="Working credentials shared by Codex, Claude and Grok over MCP."
 />
 
 <div class="space-y-6">

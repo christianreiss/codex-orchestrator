@@ -434,7 +434,6 @@ export const secrets = mysqlTable(
     name: varchar('name', { length: 255 }).notNull(),
     description: text('description'),
     valueEnc: longtext('value_enc').notNull(),
-    engine: varchar('engine', { length: 16 }),
     /**
      * Which host created this over MCP, and therefore the only host allowed to
      * rotate or delete it through `secret_store` / `secret_delete`. NULL means
@@ -443,7 +442,7 @@ export const secrets = mysqlTable(
      * whichever agent guesses its slug. Admin CRUD ignores this entirely.
      */
     sourceHostId: bigint('source_host_id', { mode: 'number', unsigned: true }),
-    /** Provenance only, never a read filter. Visibility is the `engine` column. */
+    /** Provenance only; working secrets are shared across all engines. */
     sourceEngine: varchar('source_engine', { length: 16 }),
     tags: json('tags'),
     tagsText: text('tags_text'),
@@ -454,7 +453,6 @@ export const secrets = mysqlTable(
   },
   (t) => ({
     slugUnique: uniqueIndex('uniq_secrets_slug').on(t.slug),
-    engineIdx: index('idx_secrets_engine').on(t.engine),
     updatedAtIdx: index('idx_secrets_updated_at').on(t.updatedAt),
     deletedAtIdx: index('idx_secrets_deleted_at').on(t.deletedAt),
     sourceHostIdx: index('idx_secrets_source_host').on(t.sourceHostId),

@@ -77,7 +77,6 @@ describe('admin secrets wire shape', () => {
       slug: 'gh-pat',
       name: 'GitHub PAT',
       description: 'opens PRs',
-      engine: 'codex',
       sourceHostId: null,
       sourceEngine: null,
       tags: ['git'],
@@ -93,7 +92,6 @@ describe('admin secrets wire shape', () => {
       'created_at',
       'deleted_at',
       'description',
-      'engine',
       'id',
       'last_rotated_at',
       'name',
@@ -216,12 +214,19 @@ describe('admin secrets responses', () => {
   it.each([
     ['a missing name', { slug: 'x', value: 'v' }, 'name'],
     ['a missing value', { slug: 'x', name: 'n' }, 'value'],
-    ['an unknown engine', { slug: 'x', name: 'n', value: 'v', engine: 'gemini' }, 'engine'],
   ])('rejects %s with the offending param', async (_label, payload, param) => {
     const app = await buildApp('owner');
     const response = await app.inject({ method: 'POST', url: '/admin/secrets', payload });
     expect(response.statusCode).toBe(400);
     expect(response.json()).toMatchObject({ code: 'invalid_request', param });
+  });
+
+  it.each(['POST', 'PATCH'] as const)('rejects the removed engine scope in %s requests', async (method) => {
+    const app = await buildApp('owner');
+    const response = await app.inject({ method, url: method === 'POST' ? '/admin/secrets' : '/admin/secrets/1',
+      payload: method === 'POST' ? { slug: 'x', name: 'n', value: 'v', engine: 'codex' } : { engine: 'grok' } });
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toMatchObject({ code: 'invalid_request' });
   });
 
   it('404s an unknown id and a soft-deleted one', async () => {

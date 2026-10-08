@@ -1310,7 +1310,6 @@ export interface AdminSecret {
   slug: string;
   name: string;
   description: string | null;
-  engine: "codex" | "claude" | "grok" | null;
   /** Host that created it over MCP; null means an operator did, via this UI. */
   source_host_id: number | null;
   source_engine: "codex" | "claude" | "grok" | null;
@@ -1349,7 +1348,6 @@ export interface CreateSecretPayload {
   name: string;
   value: string;
   description?: string | null;
-  engine?: "codex" | "claude" | "grok" | null;
   tags?: string[];
 }
 
@@ -1358,6 +1356,5 @@ export interface UpdateSecretPayload {
   name?: string;
   value?: string;
   description?: string | null;
-  engine?: "codex" | "claude" | "grok" | null;
   tags?: string[];
 }

@@ -21,7 +21,7 @@ import type { GitDirectorService } from './git-director.js';
 import type { AgentTransfersService } from './agent-transfers.js';
 import type { ProjectBoardService } from './project-board.js';
 import { PROJECT_BOARD_ROLES } from './project-board-roles.js';
-import { ENGINE_CODEX, isEngine, type Engine } from '../util/engine.js';
+import { ENGINE_CODEX, type Engine } from '../util/engine.js';
 import { PROJECT_FEEDBACK_STATUSES, PROJECT_FEEDBACK_TYPES } from './project-feedback-types.js';
 
 const TOOL_NAME_RE = /^[a-zA-Z0-9_-]+$/;
@@ -604,12 +604,12 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
           },
         },
       },
-      handler: async (_args, host, engine) => {
+      handler: async (_args, host) => {
         const enabled = await store.getEnabled();
         return {
           status: enabled ? 'available' : 'disabled',
           capabilities: secretCapabilities(enabled),
-          secrets: enabled ? await store.listForHost(engine ?? ENGINE_CODEX, host.id) : [],
+          secrets: enabled ? await store.listForHost(host.id) : [],
         };
       },
     });
@@ -629,13 +629,13 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
           // callers to guess. Omitting it degrades to a listing.
         },
       },
-      handler: async (args, host, engine) => {
+      handler: async (args, host) => {
         const enabled = await store.getEnabled();
         return {
           status: enabled ? 'available' : 'disabled',
           capabilities: secretCapabilities(enabled),
           secrets: enabled
-            ? await store.searchForHost(String(args['query'] ?? ''), engine ?? ENGINE_CODEX, host.id)
+            ? await store.searchForHost(String(args['query'] ?? ''), host.id)
             : [],
         };
       },
@@ -662,12 +662,12 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
           'Save a credential of your own into the fleet store, or rotate one you already saved. Use this instead of writing a token into a config file, a .env, a memory, or a note — this is the only place a credential belongs. Creating: pass slug, name, value, and a description saying what the credential opens and when to reach for it, because that description is all any agent (including you, later) has to go on. Rotating: pass the same slug with the new value; everything else you omit is left alone, and the response says whether the value actually changed. You may only change secrets this host created. A slug an operator created, or one another host owns, is refused — read those with secret_get and ask an operator to change them. Slugs are permanent: pick a descriptive one, because renaming means deleting and recreating, which breaks every agent that learned the old name.',
         inputSchema: {
           type: 'object',
+          additionalProperties: false,
           properties: {
             slug: { type: 'string' },
             name: { type: 'string' },
             value: { type: 'string' },
             description: { type: 'string' },
-            engine: { type: 'string' },
             tags: { type: 'array', items: { type: 'string' } },
           },
           required: ['slug', 'value'],
@@ -680,7 +680,6 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
             name: String(args['name'] ?? args['slug'] ?? ''),
             value: String(args['value'] ?? ''),
             description: args['description'] === undefined ? undefined : String(args['description']),
-            engine: isEngine(args['engine']) ? args['engine'] : null,
             tags: Array.isArray(args['tags']) ? (args['tags'] as string[]) : undefined,
           },
           host,
