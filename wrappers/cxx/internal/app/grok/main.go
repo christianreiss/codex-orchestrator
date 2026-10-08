@@ -34,6 +34,7 @@ import (
 	hostmaintenance "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/maintenance"
 	orchestrator "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/codex/orchestrator"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/quotaadvice"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/schedulewatch"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/signing"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/terminalui"
 	shareduninstall "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/uninstall"
@@ -581,6 +582,7 @@ func run(ctx context.Context, cfg *config.Config, client *orchestrator.Client, o
 		fmt.Fprintln(stderr, "cgx: agent portal temporarily unavailable")
 	}
 	if portal != nil {
+		ctx = portal.WithScheduleWatch(ctx)
 		broker, err := portal.StartBroker(ctx)
 		if err == nil {
 			defer broker.Close()
@@ -701,8 +703,8 @@ func execute(ctx context.Context, path string, args, env []string, stdout, stder
 	cmd := exec.CommandContext(ctx, path, args...)
 	cmd.Env = env
 	cmd.Stdin = os.Stdin
-	cmd.Stdout = stdout
-	cmd.Stderr = stderr
+	cmd.Stdout = schedulewatch.Writer(ctx, stdout)
+	cmd.Stderr = schedulewatch.Writer(ctx, stderr)
 	closeLease := func() {}
 	if len(runtimes) > 0 {
 		var err error
@@ -715,7 +717,9 @@ func execute(ctx context.Context, path string, args, env []string, stdout, stder
 	err := cmd.Start()
 	closeLease()
 	if err == nil {
+		stopWatch := schedulewatch.Start(ctx, cmd)
 		err = cmd.Wait()
+		stopWatch()
 	}
 	if err == nil {
 		return 0

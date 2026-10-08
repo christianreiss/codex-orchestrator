@@ -120,6 +120,10 @@ const REGISTRY: NavDefinition[] = [
     description: "Addresses, conversations, and deliveries", keywords: ["agents", "codex", "claude", "grok", "relay"], icon: MessageSquareShare,
   },
   {
+    id: "schedules", group: "Coordinate", route: "/schedules", label: "Wake / Cron",
+    description: "Scheduled prompts and persistent session recovery", keywords: ["wake", "cron", "schedule", "interval", "resume"], icon: RadioTower,
+  },
+  {
     id: "git-director", group: "Coordinate", route: "/git-director", label: "Git Director",
     description: "Clone registry and merge arbitration", keywords: ["git", "worktree", "merge", "branch", "lease", "clone"], icon: GitMerge,
   },

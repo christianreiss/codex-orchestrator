@@ -92,10 +92,10 @@ describe('served document byte invariance', () => {
 
     expect(base.sha256).toBe('30abaea24c8809d8634670f0eceb3004aabb4eafb5416c78333c719e8b67e14b');
     expect(out.policy_sha256).toBe('3d8a8c754d80369c46a16c3350db8461520d3ae14b1de7ac03ad9454925ad5e5');
-    // 2026-10-07: end acknowledgement loops and add explicit opt-in publications.
-    expect(out.features_sha256).toBe('bb6c2b21b4b403b8965c2265799784f84b6e38339f21f2fc8da8e7c2861c1f83');
-    expect(out.managed_sha256).toBe('54f2fe986366bf69d389862a4c1c9cce6e7f7ae661784336eee27e9a81381acc');
-    expect(sha256(out.body)).toBe('416cf4322e2610ddee9b58c0e9581905f0145d70ec2a6e5d794e08c5f574ca0f');
+    // 2026-10-08: add managed Wake/Cron guidance with explicit recovery opt-in.
+    expect(out.features_sha256).toBe('9974157363969db7fad0c2874c2ee1379fdfa0e7cb3ee5ed3c71755f1c800e12');
+    expect(out.managed_sha256).toBe('f45ca2f3385a370d3781a1024cece160802f743f4abf6b76fb696a4cfa6e1e46');
+    expect(sha256(out.body)).toBe('42d7ce6054ed3177c710a86b3ada310a1fd15df41161d08d031b95bad0cffbb1');
   });
 });
 

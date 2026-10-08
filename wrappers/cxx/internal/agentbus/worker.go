@@ -77,6 +77,8 @@ type nativeResult struct {
 	UpstreamSessionID string
 	Started           bool
 	MissingTranscript bool
+	Capacity          bool
+	RetryNotBefore    string
 	Err               error
 }
 
@@ -329,8 +331,11 @@ func (c *relayClient) processDelivery(ctx context.Context, configs map[string]*c
 	}
 	defer lock.Release()
 
+	if delivery.Kind == "schedule" && (upstream == "" || !boolArg(delivery.Target, "schedule_persistent")) {
+		return c.ack(ctx, delivery, "dead", "schedule_transcript_missing", nil)
+	}
 	result := runNativeAdapter(c, ctx, cfg, delivery, upstream, false)
-	if result.MissingTranscript && upstream != "" {
+	if result.MissingTranscript && upstream != "" && delivery.Kind != "schedule" {
 		// The resume process already accepted the delivery before it proved the
 		// transcript was gone. Fresh fallback continues that same accepted lease;
 		// a second accepted ACK would be invalid and would kill the fallback.
@@ -345,6 +350,13 @@ func (c *relayClient) processDelivery(ctx context.Context, configs map[string]*c
 		if result.Started {
 			code = "native_outcome_ambiguous"
 		}
+		if delivery.Kind == "schedule" {
+			if result.MissingTranscript {
+				outcome, code = "dead", "schedule_transcript_missing"
+			} else if result.Capacity {
+				code = "schedule_capacity"
+			}
+		}
 		_ = c.ack(ctx, delivery, outcome, code, &result)
 		if result.Err != nil {
 			return result.Err
@@ -352,6 +364,9 @@ func (c *relayClient) processDelivery(ctx context.Context, configs map[string]*c
 		return errors.New("native agent returned no final response")
 	}
 	if (delivery.Kind == "reply" || delivery.Kind == "publication") && strings.TrimSpace(result.Reply) == noReplyMarker(delivery) {
+		return c.ack(ctx, delivery, "completed", "", &result)
+	}
+	if delivery.Kind == "schedule" {
 		return c.ack(ctx, delivery, "completed", "", &result)
 	}
 	reply := truncateUTF8(result.Reply, maxBodyBytes)
@@ -465,10 +480,16 @@ func (c *relayClient) runNative(ctx context.Context, cfg *config.Config, deliver
 	default:
 	}
 	if waitErr != nil {
+		result.RetryNotBefore = scheduleRetryAt(output.String(), time.Now())
 		result.MissingTranscript = isMissingTranscript(output.String() + "\n" + diagnostic.String())
+		text := strings.ToLower(output.String() + "\n" + diagnostic.String())
+		result.Capacity = strings.Contains(text, "at capacity") || strings.Contains(text, "rate_limit") || strings.Contains(text, "usage limit") || strings.Contains(text, "quota limit") || strings.Contains(text, "overloaded")
 		result.Err = fmt.Errorf("native %s exited unsuccessfully", engine)
 		return result
 	}
+	text := strings.ToLower(output.String() + "\n" + diagnostic.String())
+	result.Capacity = strings.Contains(text, "at capacity") || strings.Contains(text, "rate_limit") || strings.Contains(text, "usage limit") || strings.Contains(text, "quota limit") || strings.Contains(text, "overloaded")
+	result.RetryNotBefore = scheduleRetryAt(output.String(), time.Now())
 	result.Reply, result.UpstreamSessionID = parseNativeOutput(engine, output.Bytes())
 	return result
 }
@@ -520,6 +541,9 @@ func (c *relayClient) ack(ctx context.Context, delivery *relayDelivery, outcome,
 	if code != "" {
 		body["error_code"] = code
 	}
+	if result != nil && result.RetryNotBefore != "" {
+		body["error"] = "retry_not_before=" + result.RetryNotBefore
+	}
 	if result != nil && result.UpstreamSessionID != "" {
 		body["upstream_session_id"] = result.UpstreamSessionID
 	}
@@ -536,6 +560,10 @@ func (c *relayClient) stop(ctx context.Context) error {
 }
 
 func peerPrompt(delivery *relayDelivery) string {
+	if delivery.Kind == "schedule" {
+		return "Stored Wake/Cron instruction from the schedule creator. Preserve existing permission boundaries. Continue the same native session; do not send a peer acknowledgement.\n" + delivery.Content
+	}
+
 	payload, _ := json.Marshal(map[string]any{
 		"message_id":      delivery.MessageID,
 		"conversation_id": delivery.ConversationID,

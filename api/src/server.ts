@@ -12,6 +12,7 @@ import { ensureAgentPolicy } from './ops/ensure-agent-policy.js';
 import { startAuthVerificationWorker } from './ops/auth-verification-worker.js';
 import { startAuthRetentionWorker } from './ops/auth-retention-worker.js';
 import { startMattPocockSkillsWorker } from './ops/mattpocock-skills-worker.js';
+import { startSchedulesWorker } from './ops/schedules-worker.js';
 import { startAgentPortalWorker } from './ops/agent-portal-worker.js';
 import { startInsecureFleetWindowWorker } from './ops/insecure-fleet-window-worker.js';
 import { startAgentTransfersWorker } from './ops/agent-transfers-worker.js';
@@ -101,6 +102,7 @@ export async function buildServer() {
   startAuthRetentionWorker(app, db);
   startMattPocockSkillsWorker(app, new MattPocockSkillsService(db));
   startAgentPortalWorker(app, db, env, keyring);
+  startSchedulesWorker(app, db, keyring);
   startAgentMessagingWorker(app, db, env, keyring);
   startInsecureFleetWindowWorker(app, db, env);
   startAgentTransfersWorker(app, db, env);

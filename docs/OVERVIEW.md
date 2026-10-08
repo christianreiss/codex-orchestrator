@@ -651,3 +651,7 @@ Fleet → Accounts manages any number of ChatGPT and Claude subscriptions indepe
 ## Android companion
 
 A native Android 8+ companion provides QR pairing from Account → Android devices, agent text conversations, host-access approval review, and FCM notifications. Version 0.3.0 keeps the overview and open chat current through one foreground WebSocket, with cursor-based catch-up after reconnect. Version 0.4.2 adds persistent unread reply indicators, read-only access to unread retained conversations, and a silent unread-conversation badge on supported launchers; replies clear only after their actual text is visible at the latest position. Agent-authored summaries (one sentence, at most 160 characters) appear on cards and in their corresponding push notifications; full answers remain in chat. It uses revocable device credentials bound to existing administrator permissions and the existing portal/host services. See [setup and release instructions](android-companion.md).
+
+## Wake / Cron
+
+The Wake / Cron page and fleet `wake-cron` Skill manage the same durable scheduled agent prompts. Supports one-shot times, five-field Cron and intervals. Persistent native-session recovery is explicit opt-in, requires a progress timeout and uses the existing cxx-agent worker; no new daemon is installed. See [API scheduling contract](interface-api.md#agent-wake--cron-schedules).

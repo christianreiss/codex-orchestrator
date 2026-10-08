@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/ipc"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/schedulewatch"
 )
 
 // The native TUI and receive adapter share this one app-server process. Its
@@ -66,7 +67,8 @@ func startReceiverServer(ctx context.Context, binary string, args, env []string,
 	}
 	_ = closeFiles()
 	done := make(chan error, 1)
-	go func() { done <- cmd.Wait() }()
+	stopWatch := schedulewatch.Start(ctx, cmd)
+	go func() { err := cmd.Wait(); stopWatch(); done <- err }()
 	cleanup := func() { cancel(); <-done; _ = os.Remove(socket) }
 	deadline := time.NewTimer(10 * time.Second)
 	defer deadline.Stop()

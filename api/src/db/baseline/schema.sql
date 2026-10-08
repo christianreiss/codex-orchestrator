@@ -1538,3 +1538,52 @@ CREATE TABLE `agent_bus_subscriptions` (
 );
 
 CREATE INDEX `idx_agent_bus_subscriptions_address` ON `agent_bus_subscriptions` (`subscriber_address_id`);
+
+CREATE TABLE `agent_schedules` (
+	`id` char(36) NOT NULL,
+	`name` varchar(120) NOT NULL,
+	`target_address_id` char(36) NOT NULL,
+	`prompt_enc` longtext NOT NULL,
+	`kind` varchar(16) NOT NULL,
+	`at_time` varchar(100),
+	`cron_expression` varchar(120),
+	`interval_minutes` int unsigned,
+	`timezone` varchar(100) NOT NULL,
+	`enabled` tinyint unsigned NOT NULL DEFAULT 1,
+	`persistent` tinyint unsigned NOT NULL DEFAULT 0,
+	`progress_timeout_seconds` int unsigned,
+	`next_due_at` varchar(100),
+	`version` int unsigned NOT NULL DEFAULT 1,
+	`created_by` varchar(191) NOT NULL,
+	`updated_by` varchar(191) NOT NULL,
+	`deleted_at` varchar(100),
+	`created_at` varchar(100) NOT NULL,
+	`updated_at` varchar(100) NOT NULL,
+	CONSTRAINT `agent_schedules_id` PRIMARY KEY(`id`)
+);
+
+CREATE TABLE `agent_schedule_runs` (
+	`id` char(36) NOT NULL,
+	`schedule_id` char(36) NOT NULL,
+	`target_address_id` char(36) NOT NULL,
+	`prompt_enc` longtext NOT NULL,
+	`persistent` tinyint unsigned NOT NULL DEFAULT 0,
+	`progress_timeout_seconds` int unsigned,
+	`retry_seconds` int unsigned NOT NULL,
+	`due_at` varchar(100) NOT NULL,
+	`status` varchar(32) NOT NULL DEFAULT 'waiting',
+	`message_id` char(36),
+	`recovery_count` int unsigned NOT NULL DEFAULT 0,
+	`next_attempt_at` varchar(100) NOT NULL,
+	`last_error` varchar(100),
+	`created_at` varchar(100) NOT NULL,
+	`updated_at` varchar(100) NOT NULL,
+	CONSTRAINT `agent_schedule_runs_id` PRIMARY KEY(`id`),
+	CONSTRAINT `uq_agent_schedule_run_due` UNIQUE(`schedule_id`,`due_at`),
+	CONSTRAINT `uq_agent_schedule_run_message` UNIQUE(`message_id`)
+);
+
+CREATE INDEX `idx_agent_schedule_runs_status` ON `agent_schedule_runs` (`status`,`next_attempt_at`);
+CREATE INDEX `idx_agent_schedule_runs_schedule` ON `agent_schedule_runs` (`schedule_id`,`created_at`);
+CREATE INDEX `idx_agent_schedules_due` ON `agent_schedules` (`enabled`,`next_due_at`);
+CREATE INDEX `idx_agent_schedules_target` ON `agent_schedules` (`target_address_id`);

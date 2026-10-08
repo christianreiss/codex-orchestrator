@@ -330,3 +330,7 @@ does not become a zero-usage or healthy quota display.
   live checks are required for the release-specific runtime contract.
 - [Official Linux native package](https://www.npmjs.com/package/@xai-official/grok-linux-x64)
   supplies the versioned Brotli binary and sha512 package integrity.
+
+## Wake / Cron and explicit persistent recovery
+
+The shared `wake-cron` Skill and `schedule_*` MCP tools support scheduled prompts and explicitly requested persistent native-session recovery. cxx 0.9.21 uses the existing per-user background worker, original cwd and engine-specific native resume adapter. A missing native transcript blocks recovery, without a fresh-session fallback. Linux supervision may terminate only its own child after a configured progress timeout and fresh policy/binding checks; active child tools and open operator prompts are protected. See [scheduling contract](interface-api.md#agent-wake--cron-schedules).

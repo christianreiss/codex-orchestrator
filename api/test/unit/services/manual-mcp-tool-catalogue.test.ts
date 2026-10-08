@@ -39,6 +39,7 @@ const GROUPS = [
   'Skills',
   'Projects',
   'Project board',
+  'Wake / Cron',
 ];
 
 const SECTION = '## Tool catalogue';
@@ -95,6 +96,7 @@ const ALL_DEPS = {
   gitDirector: {},
   transfers: {},
   board: {},
+  schedules: {},
 } as unknown as ToolDeps;
 
 /** The same registry with the shared-memory service left out, as `ToolDeps` allows. */

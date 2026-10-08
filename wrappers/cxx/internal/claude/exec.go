@@ -18,6 +18,7 @@ import (
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/quotaadvice"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/schedulewatch"
 )
 
 // captureMaxBytes caps the in-memory stdout buffer for pipe-mode runs. The
@@ -252,14 +253,14 @@ func runCaptureWithHeldAuthLeaseUsing(
 	cmd := exec.CommandContext(ctx, cli, args...)
 	cmd.Env = env
 	cmd.Stdin = os.Stdin
-	cmd.Stderr = os.Stderr
+	cmd.Stderr = schedulewatch.Writer(ctx, os.Stderr)
 
 	var capture *ringBuffer
 	if stdoutIsTTY {
 		cmd.Stdout = os.Stdout
 	} else {
 		capture = newRingBuffer(captureMaxBytes)
-		cmd.Stdout = io.MultiWriter(os.Stdout, capture)
+		cmd.Stdout = schedulewatch.Writer(ctx, io.MultiWriter(os.Stdout, capture))
 	}
 
 	closeExtras, err := attachAuthLeaseFiles(cmd, session, childLease)
@@ -276,6 +277,7 @@ func runCaptureWithHeldAuthLeaseUsing(
 		}
 		return 127, nil, fmt.Errorf("start claude: %w", err)
 	}
+	stopScheduleWatch := schedulewatch.Start(ctx, cmd)
 	quotaadvice.MarkStarted(ctx)
 	closeExtras()
 
@@ -290,6 +292,7 @@ func runCaptureWithHeldAuthLeaseUsing(
 	}()
 
 	waitErr := cmd.Wait()
+	stopScheduleWatch()
 	var leaseErr error
 	if closeChildLease {
 		leaseErr = childLease.Close()

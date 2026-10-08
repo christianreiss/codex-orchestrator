@@ -2216,3 +2216,43 @@ export const companionNotifications = mysqlTable('companion_notifications', {
   expiresAt: varchar('expires_at', { length: 100 }).notNull(),
   createdAt: varchar('created_at', { length: 100 }).notNull(),
 }, (t) => ({ source: uniqueIndex('uq_companion_notification_source').on(t.deviceId, t.sourceKey), work: index('idx_companion_notification_work').on(t.state, t.nextAttemptAt) }));
+
+/** Durable agent Wake/Cron definitions and immutable execution snapshots. */
+export const agentSchedules = mysqlTable('agent_schedules', {
+  id: char('id', { length: 36 }).primaryKey(),
+  name: varchar('name', { length: 120 }).notNull(),
+  targetAddressId: char('target_address_id', { length: 36 }).notNull(),
+  promptEnc: longtext('prompt_enc').notNull(),
+  kind: varchar('kind', { length: 16 }).notNull(),
+  atTime: varchar('at_time', { length: 100 }),
+  cronExpression: varchar('cron_expression', { length: 120 }),
+  intervalMinutes: int('interval_minutes', { unsigned: true }),
+  timezone: varchar('timezone', { length: 100 }).notNull(),
+  enabled: tinyint('enabled', { unsigned: true }).notNull().default(1),
+  persistent: tinyint('persistent', { unsigned: true }).notNull().default(0),
+  progressTimeoutSeconds: int('progress_timeout_seconds', { unsigned: true }),
+  nextDueAt: varchar('next_due_at', { length: 100 }),
+  version: int('version', { unsigned: true }).notNull().default(1),
+  createdBy: varchar('created_by', { length: 191 }).notNull(),
+  updatedBy: varchar('updated_by', { length: 191 }).notNull(),
+  deletedAt: varchar('deleted_at', { length: 100 }),
+  createdAt: varchar('created_at', { length: 100 }).notNull(),
+  updatedAt: varchar('updated_at', { length: 100 }).notNull(),
+}, t => ({ due: index('idx_agent_schedules_due').on(t.enabled, t.nextDueAt), target: index('idx_agent_schedules_target').on(t.targetAddressId) }));
+export const agentScheduleRuns = mysqlTable('agent_schedule_runs', {
+  id: char('id', { length: 36 }).primaryKey(),
+  scheduleId: char('schedule_id', { length: 36 }).notNull(),
+  targetAddressId: char('target_address_id', { length: 36 }).notNull(),
+  promptEnc: longtext('prompt_enc').notNull(),
+  persistent: tinyint('persistent', { unsigned: true }).notNull().default(0),
+  progressTimeoutSeconds: int('progress_timeout_seconds', { unsigned: true }),
+  retrySeconds: int('retry_seconds', { unsigned: true }).notNull(),
+  dueAt: varchar('due_at', { length: 100 }).notNull(),
+  status: varchar('status', { length: 32 }).notNull().default('waiting'),
+  messageId: char('message_id', { length: 36 }),
+  recoveryCount: int('recovery_count', { unsigned: true }).notNull().default(0),
+  nextAttemptAt: varchar('next_attempt_at', { length: 100 }).notNull(),
+  lastError: varchar('last_error', { length: 100 }),
+  createdAt: varchar('created_at', { length: 100 }).notNull(),
+  updatedAt: varchar('updated_at', { length: 100 }).notNull(),
+}, t => ({ due: uniqueIndex('uq_agent_schedule_run_due').on(t.scheduleId, t.dueAt), message: uniqueIndex('uq_agent_schedule_run_message').on(t.messageId), status: index('idx_agent_schedule_runs_status').on(t.status, t.nextAttemptAt), schedule: index('idx_agent_schedule_runs_schedule').on(t.scheduleId, t.createdAt) }));

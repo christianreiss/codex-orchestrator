@@ -560,6 +560,7 @@ func Run(ctx context.Context, opts Options) (exitCode int, retErr error) {
 	}
 	closePortal := func(string, string) {}
 	if portalSession != nil {
+		ctx = portalSession.WithScheduleWatch(ctx)
 		portalBroker, brokerErr := portalSession.StartBroker(ctx)
 		if brokerErr != nil {
 			logger.Warn("agent portal local broker unavailable; continuing without #afk relay", "err", brokerErr)

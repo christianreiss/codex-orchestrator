@@ -15,6 +15,8 @@ import {
 
 import type { Database } from '../db/client.js';
 import {
+  agentScheduleRuns,
+  agentSchedules,
   agentBusAddresses,
   agentBusConversations,
   agentBusMessages,
@@ -1286,6 +1288,11 @@ export class AgentMessagingService {
         // interactive wrapper is still attached. Receive-capable sessions
         // claim live; non-channel sessions leave work queued until they exit.
         if (skipReceiveCapable && target.currentSessionId) continue;
+        if (candidate.kind === 'schedule') {
+          const [run] = await tx.select().from(agentScheduleRuns).where(eq(agentScheduleRuns.messageId, candidate.id)).limit(1);
+          const [schedule] = run ? await tx.select().from(agentSchedules).where(eq(agentSchedules.id, run.scheduleId)).limit(1) : [];
+          if (!run || !schedule?.enabled || schedule.deletedAt || (skipReceiveCapable && !run.persistent)) continue;
+        }
         const attempts = candidate.attempts + 1;
         await tx
           .update(agentBusMessages)
@@ -1324,7 +1331,12 @@ export class AgentMessagingService {
       return null;
     });
     if (!result) return null;
-    return deliveryView(result.message, this.decodeContent(result.message), result.sender, result.target);
+    const delivery = deliveryView(result.message, this.decodeContent(result.message), result.sender, result.target);
+    if (result.message.kind === 'schedule') {
+      const [run] = await this.db.select().from(agentScheduleRuns).where(eq(agentScheduleRuns.messageId, result.message.id)).limit(1);
+      if (run) delivery.target = { ...delivery.target, schedule_id: run.scheduleId, schedule_run_id: run.id, schedule_persistent: run.persistent === 1, progress_timeout_seconds: run.progressTimeoutSeconds };
+    }
+    return delivery;
   }
 
   private async renewDelivery(

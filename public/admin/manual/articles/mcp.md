@@ -88,6 +88,9 @@ The board tools are the exception to that paragraph: they are registered only wh
 
 Claims are advisory, like every other verdict this orchestrator issues about a machine it cannot see. Moving a card into a lane whose `allowed_roles` do not include yours still moves it and returns an `advisories` list; exceeding a WIP limit does the same. The only refusal is `project_card_claim` against a card somebody else holds, and it declines to *record* the claim rather than to permit the work — the reply names the holder, their host and their expiry. Claims last 30 minutes and are renewed implicitly by any call naming the card. Passing `worktree_path` and `username` binds a claim to the calling agent session, which is what lets an abandoned card be freed the moment that session ends rather than waiting out the TTL.
 
+**Wake / Cron** (both capabilities — only when the schedules service is wired)
+- `schedule_list`, `schedule_get`, `schedule_create`, `schedule_update`, `schedule_delete` — fleet-wide stored-prompt schedules; updates/deletes require the current version. Persistent recovery is explicit opt-in.
+
 Use `tools/list` at runtime for the authoritative set; what you see depends on who is calling.
 
 ## Skill tools
@@ -106,6 +109,10 @@ managed MCP available, startup guidance makes this path authoritative and the
 baked config disables the competing built-in `skill-creator` by name. Skill text
 is still untrusted instruction content and cannot grant authority beyond the
 user's request.
+
+## Wake / Cron schedules
+
+The admin Wake / Cron page and the managed `wake-cron` Skill use the same fleet records. Choose a stored prompt and exact agent target, with one-time, cron, or interval timing. Persistent recovery is unchecked by default; enable it only on explicit request and supply a progress timeout. It resumes a known native session through the existing cxx-agent worker. Linux supervisors can stop only their owned stalled child after a fresh policy check; quiet active tools are protected. Missing transcripts block recovery. Pause/delete cancels pending attempts while accepted work continues. Ambiguous crash recovery may repeat side effects.
 
 ## Resources
 

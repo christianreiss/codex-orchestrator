@@ -362,6 +362,12 @@ function agentMessagingSection(context: ManagedAgentFeatureContext): RenderedSec
     context.agentMessaging,
     `## Agent Messaging
 
+For scheduled agent prompts use the shared \`#wake-cron\` Skill and
+\`schedule_*\` MCP tools. Ordinary repeating wakes do not authorize automatic
+recovery: persistent resume after crash, hang or capacity must be explicitly
+requested and have an explicit progress timeout. The Wake / Cron admin page
+manages the same fleet records.
+
 Other Codex, Claude, and Grok agents in this fleet are reachable, and they can reach you. \`agent_list\`
 finds peers, \`agent_send\` and \`agent_request\` deliver, \`agent_wait\` and \`agent_listen\` receive,
 \`agent_reply\` answers an inbound message by its \`message_id\`, \`agent_message_get\` reads one back,

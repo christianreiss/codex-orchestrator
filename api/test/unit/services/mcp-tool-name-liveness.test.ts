@@ -5,6 +5,7 @@ import {
   managedCocoBootstrapGuidance,
 } from '../../../src/services/managed-coco-skill.js';
 import { renderManagedAgentFeatures } from '../../../src/services/managed-agents-features.js';
+import { buildManagedWakeCronSkill } from '../../../src/services/managed-wake-cron-skill.js';
 import { managedSkillManagerManifest } from '../../../src/services/managed-skill-manager.js';
 import { AGENT_MESSAGING_TOOLS } from '../../../src/services/agent-messaging-tool-names.js';
 import { MCP_TOOL_NAMES } from '../../../src/services/shared-memory-tool-names.js';
@@ -39,6 +40,7 @@ const ALL_DEPS = {
   gitDirector: {},
   transfers: {},
   board: {},
+  schedules: {},
 } as unknown as ToolDeps;
 
 // 'operator' sees the host tools too, so this is the whole registry.
@@ -58,6 +60,9 @@ const IDENTIFIER = /[a-z][a-z0-9]*(?:_(?:[a-z0-9]+|\*))+/g;
  * reason each one is there. Anything not listed here has to be a live tool.
  */
 const NON_TOOL_TOKENS: Record<string, string> = {
+  next_cursor: 'schedule_list pagination response field, not a tool',
+  interval_minutes: 'schedule timing argument, not a tool',
+  progress_timeout_seconds: 'explicit recovery timeout argument, not a tool',
   stored_name: 'the file key in project:// resource URIs and the project_file_* argument, not a tool',
   next_offset: 'a shared_memory_read response field #coco tells agents to follow',
   latest_seq: 'a project_bootstrap/project_changes response field, not a tool',
@@ -92,6 +97,7 @@ const guidance = managedCocoBootstrapGuidance();
 const enabled = { enabled: true, reason: 'ok' };
 
 const CONTENT: Array<{ source: string; text: string }> = [
+  { source: 'managed-wake-cron-skill.ts', text: buildManagedWakeCronSkill('2026-10-08T00:00:00Z').manifest },
   { source: 'api/src/services/managed-coco-skill.ts managedCocoManifest()', text: managedCocoManifest() },
   {
     source: 'api/src/services/managed-coco-skill.ts managedCocoBootstrapGuidance().instructions',

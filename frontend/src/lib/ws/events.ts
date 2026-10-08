@@ -173,6 +173,7 @@ export const DEFAULT_INVALIDATIONS: WsInvalidationMap = {
   "agent_portal.session.force_closed": [["agent-sessions"]],
 
   // Agent Messaging state, address discovery, relays and delivery lifecycle.
+  "schedules.changed": [["schedules"]],
   "agent_messaging.state.changed": [["agent-messaging"]],
   "agent_messaging.host.changed": [["agent-messaging"], ["hosts"]],
   "agent_messaging.address.changed": [["agent-messaging"]],
@@ -180,7 +181,7 @@ export const DEFAULT_INVALIDATIONS: WsInvalidationMap = {
   "agent_messaging.conference.changed": [["agent-messaging"]],
   "agent_messaging.groups.changed": [["agent-messaging"]],
   "agent_messaging.subscriptions.changed": [["agent-messaging"]],
-  "agent_messaging.message.changed": [["agent-messaging"]],
+  "agent_messaging.message.changed": [["agent-messaging"], ["schedules"]],
   "agent_messaging.relay.changed": [["agent-messaging"]],
   "agent_messaging.queue.changed": [["agent-messaging"]],
 

@@ -10,6 +10,7 @@
  * Authorization: Bearer, falling back to a host API key for compatibility
  * with cdx/clx clients that go straight from auth to MCP.
  */
+import { SchedulesService } from '../../services/schedules.js';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { timingSafeEqual } from 'node:crypto';
 import { existsSync, statSync } from 'node:fs';
@@ -116,6 +117,7 @@ export async function registerMcpRoutes(app: FastifyInstance, ctx: RouteContext)
 
   const resources = new McpResourcesService({ memories, sharedMemories, projects, skills });
   const tools = new McpToolsRegistry({
+    schedules: new SchedulesService(ctx.db, ctx.keyring),
     memories,
     sharedMemories,
     projects,

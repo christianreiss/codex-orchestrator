@@ -92,6 +92,12 @@ export const ROUTE_CAPABILITIES: Readonly<Record<string, RouteGuard>> = {
   'GET /admin/claude/usage': cap('admin.read'),
   'GET /admin/claude/usage/history': cap('admin.read'),
 
+  'GET /admin/schedules': cap('agent_messaging.read'),
+  'GET /admin/schedules/:id': cap('agent_messaging.read'),
+  'POST /admin/schedules': cap('agent_messaging.manage'),
+  'PATCH /admin/schedules/:id': cap('agent_messaging.manage'),
+  'DELETE /admin/schedules/:id': cap('agent_messaging.manage'),
+
   // ── Audit ────────────────────────────────────────────────────────────────
   'POST /admin/agent-sessions/:id/receiver/verify': cap('agent_portal.manage'),
   'GET /admin/logs': cap('audit.read'),

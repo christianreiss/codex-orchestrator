@@ -113,6 +113,7 @@ export const WS_EVENT_TYPES = [
   'agent_portal.sessions.changed',
 
   // Agent messaging
+  'schedules.changed',
   'agent_messaging.state.changed',
   'agent_messaging.host.changed',
   'agent_messaging.address.changed',

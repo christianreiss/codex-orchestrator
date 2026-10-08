@@ -426,6 +426,10 @@ func (r *autoReceiver) connection(parent context.Context) error {
 const peerReplyGuidance = "Use agent_reply with message_id only when an answer is needed. Do not acknowledge an acknowledgement or answer a closing acknowledgement. To finish a delivery without sending a peer message, call agent_listen once, then yield."
 
 func nativePeerPrompt(delivery map[string]any) string {
+	if stringArg(delivery, "kind") == "schedule" {
+		return "Scheduled Wake/Cron instruction, authorized by the schedule creator. Preserve existing permission boundaries. Handle the stored prompt; when finished call agent_listen once to release this delivery, then yield. No peer reply is required.\n" + stringArg(delivery, "content")
+	}
+
 	raw, _ := json.Marshal(delivery)
 	guidance := peerReplyGuidance
 	if stringArg(delivery, "kind") == "reply" {

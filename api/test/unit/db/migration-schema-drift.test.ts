@@ -206,6 +206,8 @@ describe('migrations against the test baseline', () => {
       'agent_bus_groups',
       'agent_bus_subscriptions',
       'agent_bus_publications',
+      'agent_schedules',
+      'agent_schedule_runs',
     ]);
     expect(additions.filter((a) => a.column !== undefined).map((a) => `${a.table}.${a.column}`)).toEqual([
       'auth_payloads.generation',

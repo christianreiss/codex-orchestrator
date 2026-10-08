@@ -1,3 +1,7 @@
+# 2026-10-08
+
+- Added fleet Wake / Cron management via MCP, shared Skill and admin UI, with durable one-shot, Cron and interval schedules. Persistent crash/hang/capacity recovery is explicit opt-in; wrapper 0.9.21 resumes native sessions without fresh fallback and checks live policy before Linux hang termination.
+
 # 2026-10-07
 
 - Android companion 0.4.5 shows a calm Connecting and Loading your chats state on startup instead of a premature reconnect warning or Retry button. Actual connection failures still show reconnect controls immediately; chat drafts, freshness checks and permission boundaries remain intact. This APK-only update needs no server rollout.

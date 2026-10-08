@@ -1,0 +1,1 @@
+import{Lt as e,mt as t}from"./CcbFKhJi.js";import"./B3mg_VgS.js";function n(n){let r=e(n());return t(()=>{r.set(n())}),{subscribe:r.subscribe}}export{n as t};

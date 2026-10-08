@@ -28,6 +28,7 @@ const GROUPS = [
   'Fleet secrets store',
   'Git Director',
   'File transfer',
+  'Wake / Cron',
   'Operator/internal filesystem helpers',
 ];
 
@@ -39,7 +40,7 @@ const GROUPS = [
 const CATALOG_LINE = /^- ([A-Za-z][A-Za-z /-]*): (`[a-zA-Z0-9_-]+`(?:, `[a-zA-Z0-9_-]+`)*)\.$/;
 const NAME_SPAN = /`([a-zA-Z0-9_-]+)`/g;
 /** `name: 'tool_name'` in a tool definition. `\b` keeps `stored_name:` out. */
-const REGISTRATION = /\bname: '([a-zA-Z0-9_-]+)'/g;
+const REGISTRATION = /(?:\bname: '([a-zA-Z0-9_-]+)'|\['(schedule_[a-z_]+)',)/g;
 
 /** Tool names per catalog bullet, keyed by group label. */
 function collectDocGroups(): Map<string, string[]> {
@@ -59,7 +60,7 @@ function collectDocGroups(): Map<string, string[]> {
 }
 
 function collectRegisteredTools(): string[] {
-  return [...readFileSync(REGISTRY, 'utf8').matchAll(REGISTRATION)].map((match) => match[1]!);
+  return [...readFileSync(REGISTRY, 'utf8').matchAll(REGISTRATION)].map((match) => (match[1] ?? match[2])!);
 }
 
 const docGroups = collectDocGroups();

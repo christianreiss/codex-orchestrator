@@ -270,10 +270,12 @@ describe('the exceptions are exceptions, not holes', () => {
     // ending, someone else's running agent.
     expect([...ALWAYS_ENFORCED_ROUTES].sort()).toEqual([
       'DELETE /admin/agent-portal/users/:id',
+      'DELETE /admin/schedules/:id',
       'GET /admin/agent-sessions/:id/events',
       'GET /admin/agent-sessions/events',
       'GET /admin/authorization',
       'PATCH /admin/agent-messaging/addresses/:id',
+      'PATCH /admin/schedules/:id',
       'POST /admin/agent-messaging/addresses/:id/enabled',
       'POST /admin/agent-messaging/conversations/:id/cancel',
       'POST /admin/agent-messaging/groups',
@@ -292,7 +294,8 @@ describe('the exceptions are exceptions, not holes', () => {
       'POST /admin/agent-sessions/:id/prompts/:promptId/answer',
       'POST /admin/agent-sessions/:id/receiver/verify',
       'POST /admin/authorization',
-    ]);
+      'POST /admin/schedules',
+]);
   });
 });
 

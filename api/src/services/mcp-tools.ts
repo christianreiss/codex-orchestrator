@@ -7,6 +7,7 @@
  * capability — operator-only tools are invisible to host callers (not just
  * blocked) so their existence does not leak.
  */
+import type { SchedulesService } from './schedules.js';
 import type { Host } from '../db/schema.js';
 import type { McpMemoriesService } from './mcp-memories.js';
 import type { SharedMemoriesService } from './shared-memories.js';
@@ -35,6 +36,7 @@ export interface ToolDefinition {
 }
 
 export interface ToolDeps {
+  schedules?: SchedulesService;
   memories: McpMemoriesService;
   /**
    * Fleet-wide shared memory. Optional so callers that build a registry for a
@@ -1999,6 +2001,26 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
       },
       handler: async (args) => fs.searchInFiles(args),
     });
+  }
+
+  if (deps.schedules) {
+    const schedules = deps.schedules;
+    const props = {
+      name: { type: 'string' }, target: { type: 'string' }, prompt: { type: 'string' },
+      kind: { type: 'string', enum: ['once', 'cron', 'interval'] }, at: { type: ['string', 'null'] },
+      cron: { type: ['string', 'null'] }, interval_minutes: { type: ['integer', 'null'] },
+      timezone: { type: 'string' }, enabled: { type: 'boolean' }, persistent: { type: 'boolean' },
+      progress_timeout_seconds: { type: ['integer', 'null'] },
+    };
+    const definitions: Array<[string, string, Record<string, unknown>, string[], ToolHandler]> = [
+      ['schedule_list', 'List all fleet Wake/Cron schedules; paginate with after=next_cursor.', { limit: { type: 'integer' }, after: { type: 'string' } }, [], args => schedules.list(args)],
+      ['schedule_get', 'Inspect a schedule, its prompt and latest 100 executions.', { id: { type: 'string' } }, ['id'], args => schedules.get(args.id)],
+      ['schedule_create', 'Create a Wake/Cron/interval schedule. persistent recovery defaults OFF; enable only on explicit request and with an explicit progress timeout.', props, ['name', 'target', 'prompt', 'kind'], (args, host) => schedules.create(args, `host:${host.id}`)],
+      ['schedule_update', 'Modify or pause any fleet schedule using the version from schedule_get. Repeating alone never implies persistent recovery.', { ...props, id: { type: 'string' }, version: { type: 'integer' } }, ['id', 'version'], (args, host) => schedules.update(args, `host:${host.id}`)],
+      ['schedule_delete', 'Soft-delete a fleet schedule and cancel pending attempts; accepted work continues.', { id: { type: 'string' }, version: { type: 'integer' } }, ['id', 'version'], (args, host) => schedules.remove(args, `host:${host.id}`)],
+    ];
+    for (const [name, description, properties, required, handler] of definitions)
+      inputs.push({ definition: { name, description, inputSchema: { type: 'object', properties, required, additionalProperties: false } }, handler });
   }
 
   const entries = new Map<string, ToolEntry>();

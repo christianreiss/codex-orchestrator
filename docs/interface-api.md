@@ -1428,3 +1428,22 @@ five-minute deadline or one hour for chat. Delivery is at least once; the app
 deduplicates notification IDs. Invalid FCM registrations are removed. Every send
 rechecks the device, administrator capabilities and source state. No browser
 needs to remain connected. See [Android setup](android-companion.md).
+
+## Agent Wake / Cron schedules
+
+- `GET /admin/schedules` — paginated definitions (`limit` 1..200, default 100; `after=next_cursor`), without prompts. Requires `agent_messaging.read`; an HTML request serves the SPA.
+- `GET /admin/schedules/:id` — definition including prompt and latest 100 executions. Requires `agent_messaging.read`.
+- `POST /admin/schedules` — create; requires `agent_messaging.manage`.
+- `PATCH /admin/schedules/:id` — partial update with required current `version`; stale versions return `409 schedule_version_conflict`. Requires `agent_messaging.manage`.
+- `DELETE /admin/schedules/:id` — soft-delete with JSON `{version}`; cancel queued work, retain accepted work and history. Requires `agent_messaging.manage`.
+- `POST /host/agent-sessions/:id/schedule-policy` — bridge-authenticated current-session watchdog policy. Returns nullable `progress_timeout_seconds` and binding generation; requires a current unexpired bridge, eligible host/engine, enabled persistent schedule, active work and no open operator prompt. This never grants remote PID control.
+
+MCP exposes `schedule_list`, `schedule_get`, `schedule_create`, `schedule_update`, `schedule_delete` to authenticated fleet hosts. Every eligible agent may manage all fleet schedules, with actor IDs in audit records. The managed `wake-cron` Skill is shared across Codex, Claude and Grok and ships with the API image.
+
+Create fields: `name`, stable `target=agent:<uuid>`, `prompt` (max 30000 UTF-8 bytes), `kind=once|cron|interval`, exactly one corresponding timing field (`at` future RFC3339, `cron` five fields, `interval_minutes` positive integer), `timezone` (default Europe/Berlin), `enabled` (default true), `persistent` (default false), `progress_timeout_seconds` (60..604800, required only for persistent recovery). PATCH accepts changed fields plus version; switching timing kinds must clear obsolete timing fields. Invalid combinations fail validation.
+
+Ordinary schedules await a live receiver; their messages can never be claimed by a headless relay. Explicit persistent schedules use the existing per-user cxx-agent worker and exact native-session resume adapters for all three engines. No transcript means blocked, never a fresh-session fallback. Missing host workers leave work queued. No host power-on is performed. Every interval wakes healthy idle sessions too; one unfinished execution per schedule coalesces downtime and busy intervals into one follow-up. Bus FIFO, process writer locks and binding/lease generations prevent concurrent native writers.
+
+A durable ten-second scheduler serializes through DB locks. Payload and recovery policy are snapshotted per execution. Recovery after ambiguous crash may repeat external effects and is visibly counted. Capacity failures wait at least the configured interval (five minutes for cron/once); recognized structured provider retry/reset hints extend that wait. No implicit engine switch. Spring nonexistent fixed-hour Cron times are skipped; repeated autumn local times run once. Pause/delete cancels queued work and future recovery but leaves accepted work running.
+
+Wrapper 0.9.21 observes native output and Linux process activity. Only the wrapper that created a process may stop it, after an explicit progress timeout and a fresh policy/binding check; TERM precedes KILL by ten seconds. Active child tools count as ongoing work, and a wrapper heartbeat does not count as progress. Idle sessions and open operator prompts are protected. Linux /proc is required for automatic hang termination; other platforms retain crash/capacity recovery without guessing process health. Fleet API/messaging/engine and host gates remain authoritative. The UI shows waiting, queued, leased, accepted, completed, recovering, capacity_wait, blocked and terminal error states; acceptance alone is not successful task completion.

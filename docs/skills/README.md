@@ -144,7 +144,7 @@ jq -n --arg m "$(cat docs/skills/<slug>.SKILL.md)" \
 
 ## Managed skills (code-derived, never stored)
 
-`afk`, `coco`, `conference`, `context`, and `skill-manager` are NOT rows in the `skills`
+`afk`, `coco`, `conference`, `context`, `wake-cron`, and `skill-manager` are NOT rows in the `skills`
 table and must never be stored with `POST /admin/skills/store` or MCP `skill_store`; the
 mutation paths reject every managed slug. Their manifests are constants in
 `api/src/services/managed-afk-skill.ts`, `api/src/services/managed-coco-skill.ts`,
@@ -220,3 +220,5 @@ slug and deleting the module is Release B, once the fleet has converged.
   wrote context to host-local files while cdx used MCP — the same guidance, opposite
   substrates. Do not trim it back to "use the MCP tools"; an override has to name
   what it is overriding.
+
+- `#wake-cron` — code-derived in `api/src/services/managed-wake-cron-skill.ts`, shared across all engines. Documents fleet scheduling CRUD and explicitly requested persistent recovery; available through normal Skill sync.

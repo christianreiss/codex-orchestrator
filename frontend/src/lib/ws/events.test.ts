@@ -182,7 +182,7 @@ describe("mapped events", () => {
     ]) {
       qc.keys = [];
       emit(type);
-      assert.deepEqual(qc.keys, [["agent-messaging"]], type);
+      assert.deepEqual(qc.keys, type === "agent_messaging.message.changed" ? [["agent-messaging"], ["schedules"]] : [["agent-messaging"]], type);
     }
   });
 
