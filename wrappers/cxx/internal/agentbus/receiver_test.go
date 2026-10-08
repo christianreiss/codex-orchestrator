@@ -204,6 +204,8 @@ func TestReceiverDeliversNextMessageOnceHeldDeliveryIsReleased(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		out := map[string]any{}
 		switch path.Base(req.URL.Path) {
+		case "ack":
+			out["message"] = map[string]any{"status": "accepted"}
 		case "native":
 			out["native_session_id"] = "native"
 		case "register":
@@ -442,6 +444,8 @@ func TestReceiverHealthAndReconnectsDoNotDeliverChatProbes(t *testing.T) {
 						_ = json.NewDecoder(req.Body).Decode(&args)
 						out := map[string]any{}
 						switch path.Base(req.URL.Path) {
+						case "ack":
+							out["message"] = map[string]any{"status": "accepted"}
 						case "native":
 							out["native_session_id"] = "native"
 						case "register":

@@ -123,7 +123,7 @@ describe.skipIf(!handle)('persistent opt-in publications against MySQL', { timeo
       sessionId,
       bridgeToken: token,
       adapterProtocol: 'test-live-v1',
-      adapterCapabilities: { test: true },
+      adapterCapabilities: { test: true, execution_contract_version: 2 },
     });
     const address = result.address as { id: string; address: string };
     return { sessionId, token, addressId: address.id, address: address.address };

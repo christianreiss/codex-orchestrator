@@ -577,3 +577,19 @@ There is no automatic Agent Messaging history purge.
 - frontend/src/lib/components/settings/AgentMessagingSection.svelte — fleet switch
 - wrappers/cxx/internal/agentbus/ — engine commands, relay worker, and service management
 - wrappers/cxx/internal/agentportal/broker.go — private Unix broker and shutdown behavior
+
+## Work outcomes and recovery
+
+`agent_task_result` completes accepted work with an explicit outcome: succeeded, failed,
+blocked or unknown, plus summary and optional evidence references. `agent_reply` accepts
+`task_result` for a substantive peer answer. Delivery status and task outcome are separate;
+listening or successful process exit alone means unknown. Reports are claims by the agent.
+
+`agent_fresh_start_approve` and the admin action authorize one fresh session only after an
+explicit operator request, for ordinary work whose transcript is missing. Wakes never fall
+back to fresh sessions. New work waits for wrapper 0.9.22 capabilities; existing sessions continue.
+
+Persistent schedules may set `max_recovery_attempts`; empty means unlimited. Exponential
+backoff with positive jitter respects provider reset times. Repeated failures warn after
+three attempts; reaching the limit pauses the whole schedule. Re-enabling creates a new
+execution budget and keeps history. A failed domain result alone does not trigger recovery.

@@ -21,21 +21,22 @@
  let editing=$state(false);
  let id=$state(''), version=$state(0), name=$state(''), target=$state(''), prompt=$state('');
  let kind=$state<Schedule['kind']>('interval'), at=$state(''), cron=$state('0 9 * * *'), interval=$state(5);
+ let recoveryLimit=$state<number|undefined>();
  let timezone=$state('Europe/Berlin'), persistent=$state(false), timeout=$state<number|undefined>(), enabled=$state(true);
  const mutation=scheduleMutation(()=>{ editing=false; toast.success('Schedule saved'); },e=>toast.error(e.message));
  const rows=$derived($list.data?.schedules ?? []);
- function newSchedule() { id=''; version=0; name=''; target=''; prompt=''; kind='interval'; at=''; cron='0 9 * * *'; interval=5; timezone='Europe/Berlin'; persistent=false; timeout=undefined; enabled=true; editing=true; }
+ function newSchedule() { id=''; version=0; name=''; target=''; prompt=''; kind='interval'; at=''; cron='0 9 * * *'; interval=5; timezone='Europe/Berlin'; persistent=false; timeout=undefined; recoveryLimit=undefined; enabled=true; editing=true; }
  function edit(row: Schedule) {
   id=row.id; version=row.version; name=row.name; target=row.target; prompt=row.prompt ?? ''; kind=row.kind;
   at=row.at ?? ''; cron=row.cron ?? '0 9 * * *'; interval=row.interval_minutes ?? 5;
-  timezone=row.timezone; persistent=row.persistent; timeout=row.progress_timeout_seconds ?? undefined; enabled=row.enabled; editing=true;
+  timezone=row.timezone; persistent=row.persistent; timeout=row.progress_timeout_seconds ?? undefined; recoveryLimit=row.max_recovery_attempts ?? undefined; enabled=row.enabled; editing=true;
  }
  function save(event: SubmitEvent) {
   event.preventDefault();
   $mutation.mutate({ method:id ? 'PATCH' : 'POST', id:id || undefined, body: {
    ...(id ? {version} : {}), name,target,prompt,kind, at:kind==='once' ? at : null,
    cron:kind==='cron' ? cron : null, interval_minutes:kind==='interval' ? interval : null,
-   timezone, enabled, persistent, progress_timeout_seconds:persistent ? timeout : null,
+   timezone, enabled, persistent, max_recovery_attempts:persistent ? recoveryLimit ?? null : null, progress_timeout_seconds:persistent ? timeout : null,
   }});
  }
  function pause(row: Schedule) { $mutation.mutate({method:'PATCH',id:row.id,body:{version:row.version,enabled:!row.enabled}}); }
@@ -60,7 +61,7 @@
     <td class="max-w-64 break-all p-3 text-xs">{row.target}</td>
     <td class="p-3">{row.kind==='interval' ? `Every ${row.interval_minutes} min` : row.kind==='cron' ? row.cron : 'Once'}<span class="block text-xs text-muted-foreground">{row.timezone}</span></td>
     <td class="p-3" title={row.next_due_at ?? ''}>{row.next_due_at ? relativeTime(row.next_due_at) : 'No further wake'}</td>
-    <td class="p-3">{row.persistent ? `On · ${row.progress_timeout_seconds}s timeout` : 'Off'}</td>
+    <td class="p-3">{row.persistent ? `On · ${row.progress_timeout_seconds}s timeout` : 'Off'}{#if row.pause_reason}<p class="text-destructive">Paused: {row.pause_reason}</p>{/if}</td>
     <td class="p-3"><div class="flex flex-wrap gap-2"><Button size="sm" variant="outline" onclick={()=>$selected=row.id}>View</Button>{#if canManage}<Button size="sm" variant="outline" disabled={$mutation.isPending} onclick={()=>pause(row)}>{row.enabled ? 'Pause' : 'Enable'}</Button><Button size="sm" variant="destructive" disabled={$mutation.isPending} onclick={()=>remove(row)}>Delete</Button>{/if}</div></td>
    </tr>{/each}</tbody>
   </table>
@@ -75,7 +76,7 @@
     <h3 class="font-medium">Latest executions</h3>
     <p class="text-xs text-muted-foreground">Accepted means received, not finished. Recovery after an interrupted run may repeat actions.</p>
     {#if !$detail.data.runs.length}<p class="text-sm">No executions yet.</p>{/if}
-    {#each $detail.data.runs as run (run.id)}<div class="flex flex-wrap justify-between gap-2 border-t py-2 text-sm"><span>{run.due_at}</span><span>{run.status} · {run.recovery_count} recoveries</span>{#if run.last_error}<span class="text-muted-foreground">{run.last_error}</span>{/if}{#if run.status==='capacity_wait' || run.status==='recovering'}<span>Retry: {run.next_attempt_at}</span>{/if}</div>{/each}
+    {#each $detail.data.runs as run (run.id)}<div class="flex flex-wrap justify-between gap-2 border-t py-2 text-sm"><span>{run.due_at}</span><span>{run.status} · task: {run.task_result_status ?? "unknown"} · {run.recovery_count} recoveries</span>{#if run.warning_at}<span class="text-warning-muted-foreground">Repeated recovery failures</span>{/if}{#if run.delivery_reason}<span>{run.delivery_reason}</span>{/if}{#if run.last_error}<span class="text-muted-foreground">{run.last_error}</span>{/if}{#if run.status==='capacity_wait' || run.status==='recovering'}<span>Retry: {run.next_attempt_at}</span>{/if}</div>{/each}
    {:else}<p>Loading execution history…</p>{/if}
   </section>
  {/if}
@@ -89,7 +90,7 @@
    {#if kind==='once'}<label class="space-y-1 text-sm">Time (RFC3339, including offset)<Input bind:value={at} placeholder="2026-10-09T09:00:00+02:00" required/></label>{:else if kind==='interval'}<label class="space-y-1 text-sm">Interval in minutes<Input type="number" min={1} max={525600} bind:value={interval} required/></label>{:else}<label class="space-y-1 text-sm">Cron expression<Input bind:value={cron} required placeholder="0 9 * * *"/></label>{/if}
    <label class="space-y-1 text-sm">Timezone<Input bind:value={timezone} required/></label>
    <label class="flex items-center gap-2 text-sm"><input type="checkbox" bind:checked={enabled}/> Enabled</label>
-   <div class="space-y-2 rounded-md bg-muted/50 p-3 md:col-span-2"><label class="flex items-center gap-2 text-sm"><input type="checkbox" bind:checked={persistent}/> Persistent recovery — explicitly resume after crash, hang or capacity failure</label><p class="text-xs text-muted-foreground">Off by default. Repeating alone does not enable recovery. Requires a known native session and an active host worker. Missing transcripts block recovery.</p>{#if persistent}<label class="block space-y-1 text-sm">Progress timeout in seconds<Input type="number" min={60} max={604800} bind:value={timeout} required/><span class="text-xs text-muted-foreground">After this interval without observed progress, the Linux supervisor may stop its own process and resume the session. Active child tools prevent a timeout.</span></label>{/if}</div>
+   <div class="space-y-2 rounded-md bg-muted/50 p-3 md:col-span-2"><label class="flex items-center gap-2 text-sm"><input type="checkbox" bind:checked={persistent}/> Persistent recovery — explicitly resume after crash, hang or capacity failure</label><p class="text-xs text-muted-foreground">Off by default. Repeating alone does not enable recovery. Requires a known native session and an active host worker. Missing transcripts block recovery.</p>{#if persistent}<label class="block space-y-1 text-sm">Maximum recovery attempts (empty means unlimited)<Input type="number" min={1} max={10000} bind:value={recoveryLimit}/></label><p class="text-xs text-muted-foreground">Retries use exponential backoff with jitter and respect provider reset times. The entire schedule pauses when its limit is reached.</p><label class="block space-y-1 text-sm">Progress timeout in seconds<Input type="number" min={60} max={604800} bind:value={timeout} required/><span class="text-xs text-muted-foreground">After this interval without observed progress, the Linux supervisor may stop its own process and resume the session. Active child tools prevent a timeout.</span></label>{/if}</div>
    <div class="flex gap-2 md:col-span-2"><Button type="submit" disabled={$mutation.isPending}>{$mutation.isPending ? 'Saving…' : 'Save'}</Button><Button type="button" variant="outline" onclick={()=>editing=false}>Cancel</Button></div>
   </form>
  {/if}

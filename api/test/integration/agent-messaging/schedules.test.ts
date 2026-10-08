@@ -2,6 +2,8 @@ import { randomUUID, randomBytes } from 'node:crypto';
 import { eq, inArray } from 'drizzle-orm';
 import { beforeAll, afterAll, afterEach, describe, expect, it } from 'vitest';
 import {
+  agentTaskResults,
+  agentFreshStartGrants,
   agentBusAddresses,
   agentBusRelays,
   agentBusConversations,
@@ -66,6 +68,8 @@ describe.skipIf(!handle)('durable Wake/Cron schedules on MySQL', { timeout: 1200
       await db.delete(agentSchedules).where(inArray(agentSchedules.id, scheduleIds));
     }
     if (addressIds.length) {
+      await db.delete(agentTaskResults).where(inArray(agentTaskResults.messageId, (await db.select({id:agentBusMessages.id}).from(agentBusMessages).where(inArray(agentBusMessages.targetAddressId,addressIds))).map(r=>r.id)));
+      await db.delete(agentFreshStartGrants).where(inArray(agentFreshStartGrants.targetAddressId,addressIds));
       await db.delete(agentBusMessages).where(inArray(agentBusMessages.targetAddressId, addressIds));
       await db.delete(agentBusConversations).where(inArray(agentBusConversations.addressBId, addressIds));
       await db.delete(agentBusAddresses).where(inArray(agentBusAddresses.id, addressIds));
@@ -100,6 +104,8 @@ describe.skipIf(!handle)('durable Wake/Cron schedules on MySQL', { timeout: 1200
       invocationKind: 'interactive',
       upstreamSessionId: randomUUID(),
       continuity: 'native',
+      adapterProtocol: 'cxx-agent-listen-v1',
+      adapterCapabilities: { execution_contract_version: 2 },
     });
     const address = result.address as { id: string; address: string };
     addressIds.push(address.id);
@@ -173,6 +179,7 @@ describe.skipIf(!handle)('durable Wake/Cron schedules on MySQL', { timeout: 1200
         username: 'ztest-schedules',
         instanceId: randomUUID(),
         wrapperVersion: 'test',
+        capabilities: { execution_contract_version: 2 },
       });
       const delivery = await bus.claimForRelay(
         String(relay.relay_id),
@@ -215,7 +222,7 @@ describe.skipIf(!handle)('durable Wake/Cron schedules on MySQL', { timeout: 1200
     expect((await runs(schedule.id))[0]!.status).toBe('recovering');
     await service.tick(new Date(now.getTime() + 59000));
     expect((await runs(schedule.id))[0]!.recoveryCount).toBe(0);
-    await service.tick(new Date(now.getTime() + 60000));
+    await service.tick(new Date(now.getTime() + 72000));
     expect((await runs(schedule.id))[0]!.recoveryCount).toBe(1);
     await db
       .update(agentBusMessages)
@@ -305,4 +312,90 @@ describe.skipIf(!handle)('durable Wake/Cron schedules on MySQL', { timeout: 1200
       code: 'schedule_bridge_invalid',
     });
   });
+  it.each(['codex','claude','grok'] as const)('stores encrypted %s outcomes idempotently, with an atomic peer reply', async engine => {
+    const sender=await agent(engine), target=await agent(engine);
+    const sent=await bus.sendMessage(sender.id,sender.token,{to:target.address.address,content:'check fixture',kind:'request',clientMessageId:randomUUID()});
+    const messageId=String((sent.message as Record<string,unknown>).id), claimId=randomUUID();
+    const delivery=await bus.claimForSession(target.id,target.token,claimId);
+    expect(delivery).toMatchObject({message_id:messageId,work_kind:'request',execution_contract_version:2});
+    const report={status:'succeeded' as const,summary:'Fixture check passed',evidence:[{description:'checked fixture',reference:'/tmp/fixture'}]};
+    await expect(bus.acknowledgeSessionDelivery(target.id,target.token,messageId,{claimId,outcome:'completed',taskResult:report})).rejects.toMatchObject({code:'agent_task_result_not_accepted'});
+    await bus.acknowledgeSessionDelivery(target.id,target.token,messageId,{claimId,outcome:'accepted'});
+    const input={claimId,taskResult:report,content:'Fixture checked',clientMessageId:randomUUID()};
+    await bus.replyMessage(target.id,target.token,messageId,input);
+    await bus.replyMessage(target.id,target.token,messageId,input);
+    const [message]=await db.select().from(agentBusMessages).where(eq(agentBusMessages.id,messageId));
+    expect(message).toMatchObject({status:'completed',taskResultStatus:'succeeded'});
+    const rows=await db.select().from(agentTaskResults).where(eq(agentTaskResults.messageId,messageId));
+    expect(rows).toHaveLength(1); expect(rows[0]!.bodyEnc).not.toContain(report.summary);
+    expect(JSON.parse(decrypt(rows[0]!.bodyEnc,keyring))).toEqual(report);
+    await expect(bus.acknowledgeSessionDelivery(target.id,target.token,messageId,{claimId,outcome:'completed',taskResult:{...report,status:'failed'}})).rejects.toMatchObject({code:'agent_task_result_conflict'});
+    await expect(bus.acknowledgeSessionDelivery(target.id,target.token,messageId,{claimId:randomUUID(),outcome:'completed',taskResult:report})).rejects.toMatchObject({code:'agent_messaging_lease_lost'});
+  });
+  it('keeps work queued for legacy adapters and accepts informational traffic',async()=>{
+    const sender=await agent('codex'),target=await agent('claude');
+    await bus.heartbeatSession(target.id,target.token,{adapterCapabilities:{listen:true},receiveCapable:true});
+    const sent=await bus.sendMessage(sender.id,sender.token,{to:target.address.address,content:'legacy upgrade required',kind:'request',clientMessageId:randomUUID()});
+    expect(await bus.claimForSession(target.id,target.token,randomUUID())).toBeNull();
+    const [row]=await db.select().from(agentBusMessages).where(eq(agentBusMessages.id,String((sent.message as Record<string,unknown>).id)));
+    expect(row!.lastErrorCode).toBe('adapter_upgrade_required');
+  });
+  it('consumes one operator grant for ordinary missing transcripts and rejects wakes',async()=>{
+    const sender=await agent('codex'),target=await agent('grok');
+    const sent=await bus.sendMessage(sender.id,sender.token,{to:target.address.address,content:'ordinary task',kind:'request',clientMessageId:randomUUID()});
+    const messageId=String((sent.message as Record<string,unknown>).id),claimId=randomUUID();
+    await bus.claimForSession(target.id,target.token,claimId);
+    await bus.acknowledgeSessionDelivery(target.id,target.token,messageId,{claimId,outcome:'dead',errorCode:'native_transcript_missing'});
+    await expect(bus.approveMessageFreshStart(messageId,2,'Operator requests replacement','host:fixture')).rejects.toMatchObject({code:'agent_execution_version_conflict'});
+    await bus.approveMessageFreshStart(messageId,1,'Operator requests replacement','host:fixture');
+    await bus.approveMessageFreshStart(messageId,1,'Operator requests replacement','host:fixture');
+    expect(await bus.claimForSession(target.id,target.token,randomUUID())).toBeNull();
+    await bus.finishSession(target.id,target.token,'completed');
+    const relay=await bus.registerRelay(host,{username:'ztest-schedules',instanceId:randomUUID(),wrapperVersion:'test',capabilities:{execution_contract_version:2}});
+    const nextClaim=randomUUID();
+    const replacement=await bus.claimForRelay(String(relay.relay_id),String(relay.relay_token),nextClaim);
+    expect(replacement?.target.fresh_start_approved).toBe(true);
+    await bus.acknowledgeRelayDelivery(String(relay.relay_id),String(relay.relay_token),messageId,{claimId:nextClaim,outcome:'accepted'});
+    const [grant]=await db.select().from(agentFreshStartGrants).where(eq(agentFreshStartGrants.messageId,messageId));
+    expect(grant?.consumedClaimId).toBe(nextClaim);
+    await bus.acknowledgeRelayDelivery(String(relay.relay_id),String(relay.relay_token),messageId,{claimId:nextClaim,outcome:'dead',errorCode:'native_transcript_missing'});
+    await expect(bus.approveMessageFreshStart(messageId,2,'Again','host:fixture')).rejects.toMatchObject({code:'agent_fresh_start_already_granted'});
+    const schedule=await create(target.address.address);
+    await service.tick(due()); const [run]=await runs(schedule.id);
+    await expect(bus.approveMessageFreshStart(run!.messageId!,1,'Fresh wake','host:fixture')).rejects.toThrow();
+  });
+  it('pauses the entire schedule when recovery attempts are exhausted and starts a new budget on re-enable',async()=>{
+    const target=await agent('codex'),schedule=await create(target.address.address);
+    await service.update({id:schedule.id,version:1,max_recovery_attempts:1},'host:fixture');
+    await service.tick(due()); const [run]=await runs(schedule.id);
+    await db.update(agentScheduleRuns).set({recoveryCount:1}).where(eq(agentScheduleRuns.id,run!.id));
+    await db.update(agentBusMessages).set({status:'ambiguous',lastErrorCode:'schedule_capacity'}).where(eq(agentBusMessages.id,run!.messageId!));
+    await service.tick(due());
+    const paused=await service.get(schedule.id); expect(paused.schedule).toMatchObject({enabled:false,pause_reason:'recovery_limit_reached'});
+    await service.tick(new Date(Date.now()+86400000)); expect(await runs(schedule.id)).toHaveLength(1);
+    await service.update({id:schedule.id,version:paused.schedule.version,enabled:true},'host:fixture');
+    await service.tick(due()); expect((await runs(schedule.id)).map(r=>r.recoveryCount).sort()).toEqual([0,1]);
+  });
+
+ it('fences a headless result while allowing its accepted child to bind the same target',async()=>{
+  const sender=await agent('codex'), target=await agent('claude');
+  const sent=await bus.sendMessage(sender.id,sender.token,{to:target.address.address,content:'headless check',kind:'request',clientMessageId:randomUUID()});
+  const messageId=String((sent.message as Record<string,unknown>).id);
+  await bus.finishSession(target.id,target.token,'completed');
+  const relay=await bus.registerRelay(host,{username:'ztest-schedules',instanceId:randomUUID(),wrapperVersion:'test',capabilities:{execution_contract_version:2}}),claimId=randomUUID();
+  const delivery=await bus.claimForRelay(String(relay.relay_id),String(relay.relay_token),claimId);
+  await bus.acknowledgeRelayDelivery(String(relay.relay_id),String(relay.relay_token),messageId,{claimId,outcome:'accepted'});
+  const childId=randomUUID(),token=randomBytes(32).toString('base64url');sessionIds.push(childId);
+  const registration={engine:'claude' as const,username:'ztest-schedules',cwd:'/tmp/ztest-schedules',sessionId:childId,bridgeToken:token,invocationKind:'peer_delivery' as const,requestedAddress:target.address.address,expectedBindingGeneration:Number(delivery!.target.binding_generation),upstreamSessionId:String(delivery!.target.upstream_session_id),deliveryMessageId:messageId,deliveryClaimId:claimId,adapterCapabilities:{execution_contract_version:2}};
+  await expect(bus.registerSession(host,{...registration,deliveryClaimId:randomUUID()})).rejects.toMatchObject({code:'agent_messaging_lease_lost'});
+  await expect(bus.registerSession(host,{...registration,upstreamSessionId:null})).rejects.toMatchObject({code:'agent_fresh_start_not_authorized'});
+  await bus.registerSession(host,registration);
+  await bus.renewRelayDelivery(String(relay.relay_id),String(relay.relay_token),messageId,claimId);
+  await bus.finishSession(childId,token,'completed');
+  await bus.replyFromRelayDelivery(String(relay.relay_id),String(relay.relay_token),messageId,{claimId,content:'checked',clientMessageId:randomUUID(),upstreamSessionId:'replacement-native',taskResult:{status:'succeeded',summary:'checked'}});
+  const [message]=await db.select().from(agentBusMessages).where(eq(agentBusMessages.id,messageId));
+  expect(message).toMatchObject({status:'completed',taskResultStatus:'succeeded',deliverySessionId:childId,targetBindingGeneration:Number(delivery!.target.binding_generation)+1});
+  const [address]=await db.select().from(agentBusAddresses).where(eq(agentBusAddresses.id,target.address.id));expect(address!.lastUpstreamSessionId).toBe('replacement-native');
+ });
+
 });

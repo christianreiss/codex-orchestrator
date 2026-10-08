@@ -1447,3 +1447,34 @@ Ordinary schedules await a live receiver; their messages can never be claimed by
 A durable ten-second scheduler serializes through DB locks. Payload and recovery policy are snapshotted per execution. Recovery after ambiguous crash may repeat external effects and is visibly counted. Capacity failures wait at least the configured interval (five minutes for cron/once); recognized structured provider retry/reset hints extend that wait. No implicit engine switch. Spring nonexistent fixed-hour Cron times are skipped; repeated autumn local times run once. Pause/delete cancels queued work and future recovery but leaves accepted work running.
 
 Wrapper 0.9.21 observes native output and Linux process activity. Only the wrapper that created a process may stop it, after an explicit progress timeout and a fresh policy/binding check; TERM precedes KILL by ten seconds. Active child tools count as ongoing work, and a wrapper heartbeat does not count as progress. Idle sessions and open operator prompts are protected. Linux /proc is required for automatic hang termination; other platforms retain crash/capacity recovery without guessing process health. Fleet API/messaging/engine and host gates remain authoritative. The UI shows waiting, queued, leased, accepted, completed, recovering, capacity_wait, blocked and terminal error states; acceptance alone is not successful task completion.
+
+### Work outcomes and recovery (execution contract v2)
+
+Wrapper 0.9.22 advertises `execution_contract_version: 2`. Newly queued requests,
+conference TASK dispatches and wakes wait for a compatible adapter; informational
+traffic and already accepted legacy executions remain compatible. The worker and
+live/listen adapters confirm durable acceptance before exposing work. Missing native
+transcripts stop ordinary jobs too: replacement requires an explicit operator request,
+then `agent_fresh_start_approve(message_id, version, reason)` or the admin fresh-start
+operation. Grants are bound to the message and target binding, consumed once on acceptance,
+and forbidden for schedules. Ordinary ambiguous executions are never automatically rerun.
+
+`agent_task_result(message_id, task_result)` completes accepted work; `agent_reply` may
+include the same result and completes work atomically with the reply. A result contains
+`status` (`succeeded|failed|blocked|unknown`), `summary` (4096 UTF-8 bytes maximum) and
+optional `evidence` (up to 20 `{description, reference}` objects). Bodies are encrypted;
+metadata lists only the status. Per-claim writes are idempotent; a different result conflicts.
+Native background final output is one JSON object with `content` and `task_result`.
+Missing/invalid reports, listening and successful process exit never imply task success.
+These are agent-reported outcomes, not independent verification.
+
+Persistent schedules optionally accept `max_recovery_attempts` (null: unlimited).
+Retries double from the base interval, cap at max(base, 1h), add 0–20% positive jitter
+and honor later provider reset times. Three failed recovery attempts raise a warning;
+exhausting the limit pauses the entire schedule with `pause_reason: recovery_limit_reached`.
+Explicit re-enabling starts a new run and counter; history remains. Domain failure alone
+never starts recovery. Pause/delete prevents pending attempts while accepted work continues.
+The canonical fleet AGENTS guidance and shared Wake / Cron Skill describe these rules.
+
+- `POST /admin/agent-messaging/messages/:id/fresh-start` — requires agent_messaging.manage; closed body `{version, reason}`, authorizes one ordinary replacement session after native_transcript_missing. Wakes are rejected; version conflicts return 409; repeated identical approval is idempotent.
+- Delivery ACK bodies additionally accept `task_result` only with `outcome: completed`. Session replies accept `claim_id` and `task_result`; relay replies accept `task_result`. Atomic result/reply/transport updates reject stale claims and binding generations. Reveal includes encrypted report history through the existing reveal-content capability.

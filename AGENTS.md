@@ -157,3 +157,20 @@ Conversely, some features are **Claude-only** (`clx`) because Codex has no on-di
 - `setup` is the first-run wizard and renders outside `AppShell` (it is in the layout's `STANDALONE` list). Its steps live in `frontend/src/lib/components/setup/`; `SeedAuthPanel.svelte` is shared with the hosts-page seed dialog and Accounts management and is the product's only provider-auth upload UI — do not fork a second copy.
 - Server state: `@tanstack/svelte-query` everywhere. WebSocket events invalidate query keys via `frontend/src/lib/ws/events.ts` — feature additions append to `DEFAULT_INVALIDATIONS`, views never wire their own listeners.
 - Cmd-K command palette + `?` shortcuts modal in `frontend/src/lib/components/{command-palette,shortcuts}/`. Multi-key chord shortcuts from the legacy UI have been removed in favor of the palette.
+
+## Work Delivery and Wake / Cron Contract
+
+The centrally rendered fleet guidance is in `api/src/services/managed-agents-features.ts`;
+keep its Wake / Cron and Work outcomes sections synchronized across Codex, Claude and Grok.
+Use `schedule_list/get/create/update/delete` through the shared `#wake-cron` Skill.
+Recurring wakes do not authorize recovery: persistent resume requires explicit operator
+intent and a progress timeout. Missing transcripts block wakes permanently; never use a
+fresh session for them. Optional recovery limits pause the entire schedule on exhaustion.
+
+Work execution starts only after a confirmed durable acceptance. Results are explicit
+`succeeded|failed|blocked|unknown` agent reports via `agent_task_result` or `agent_reply`
+with `task_result`; transport completion alone is unknown. Retry result storage with the
+same claim and body; never rerun work because its ACK was lost. Ordinary missing transcripts
+need explicit operator authorization for `agent_fresh_start_approve` or the admin action,
+bound to one message/version/target and consumed once. Peers cannot authorize fresh starts.
+Compatibility gates apply to queued work, while already running older processes continue.

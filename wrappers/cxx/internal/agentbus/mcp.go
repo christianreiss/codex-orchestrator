@@ -35,10 +35,30 @@ type mcpWriter struct {
 }
 
 type channelPending struct {
-	claimID       string
-	replyClientID string
-	cancel        context.CancelFunc
+	mu             sync.Mutex
+	completionBody map[string]any
+	replyBody      map[string]any
+	claimID        string
+	replyClientID  string
+	cancel         context.CancelFunc
 }
+
+func (p *channelPending) setCompletion(body map[string]any) {
+	p.mu.Lock()
+	p.completionBody = body
+	p.mu.Unlock()
+}
+func (p *channelPending) setReply(body map[string]any) {
+	p.mu.Lock()
+	p.replyBody = body
+	p.mu.Unlock()
+}
+func (p *channelPending) completion() map[string]any {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.completionBody
+}
+func (p *channelPending) reply() map[string]any { p.mu.Lock(); defer p.mu.Unlock(); return p.replyBody }
 
 // channelTracker ties an unacknowledged delivery to the lease that produced it.
 //
@@ -46,7 +66,7 @@ type channelPending struct {
 // only acceptance; the delivery completes after the model stores a correlated
 // agent_reply. For `agent_listen` the delivery is never accepted at all -- it
 // stays `leased` and is completed by the next agent_reply, or by the next
-// agent_listen. Either way the renewal goroutine keeps the lease alive while the
+// agent_listen. Work is durably accepted before exposure. Either way the renewal goroutine keeps the lease alive while the
 // model thinks, which is what allows a turn to take longer than the 60s lease.
 type channelTracker struct {
 	receiver *autoReceiver
@@ -127,9 +147,9 @@ func (t *channelTracker) drop(messageID string, expected *channelPending) {
 // so a second agent_listen would return empty until the previous lease expired.
 // Calling listen therefore means "I am done with the previous message" -- which
 // is also how a model declines to answer one.
-func (t *channelTracker) completeOutstanding(ctx context.Context) {
+func (t *channelTracker) completeOutstanding(ctx context.Context) error {
 	if t == nil {
-		return
+		return nil
 	}
 	t.mu.Lock()
 	outstanding := make(map[string]*channelPending, len(t.items))
@@ -138,11 +158,25 @@ func (t *channelTracker) completeOutstanding(ctx context.Context) {
 	}
 	t.mu.Unlock()
 	for messageID, pending := range outstanding {
-		// Best effort: a delivery we fail to complete here expires its lease and
-		// is requeued by the server, which is the same fallback a crash gets.
-		_ = t.acknowledge(ctx, messageID, pending, "completed", "")
+		if pending.reply() != nil {
+			var ignored map[string]any
+			if err := t.client.post(ctx, "reply", pending.reply(), &ignored); err != nil {
+				var apiErr *APIError
+				if errors.As(err, &apiErr) && (apiErr.Status == 400 || apiErr.Status == 403 || apiErr.Status == 404 || apiErr.Status == 409 || apiErr.Status == 422) {
+					t.drop(messageID, pending)
+				}
+				return fmt.Errorf("reply storage pending; retry agent_listen: %w", err)
+			}
+		}
+		if err := t.acknowledge(ctx, messageID, pending, "completed", ""); err != nil {
+			var apiErr *APIError
+			if !errors.As(err, &apiErr) || (apiErr.Status != 403 && apiErr.Status != 404 && apiErr.Status != 409) {
+				return fmt.Errorf("delivery completion pending; retry agent_listen: %w", err)
+			}
+		}
 		t.drop(messageID, pending)
 	}
+	return nil
 }
 
 // ensureListenBind refreshes the receive heartbeat before every claim.
@@ -161,7 +195,7 @@ func (t *channelTracker) ensureListenBind(ctx context.Context) error {
 		// The server preserves the stored adapter_protocol when the field is
 		// omitted, so the pump's identity survives a listen bind untouched.
 		body["adapter_protocol"] = "cxx-agent-listen-v1"
-		body["adapter_capabilities"] = map[string]any{"listen": true}
+		body["adapter_capabilities"] = map[string]any{"listen": true, "execution_contract_version": 2}
 	}
 	var ignored map[string]any
 	if err := t.client.post(ctx, "bind", body, &ignored); err != nil {
@@ -190,11 +224,27 @@ func (t *channelTracker) listenWasBound() bool {
 
 func (t *channelTracker) acknowledge(ctx context.Context, messageID string, pending *channelPending, outcome, code string) error {
 	body := map[string]any{"claim_id": pending.claimID, "outcome": outcome}
+	if outcome == "completed" && pending.completion() != nil {
+		body = pending.completion()
+	}
 	if code != "" {
 		body["error_code"] = code
 	}
 	var ignored map[string]any
-	return t.client.post(ctx, "deliveries/"+messageID+"/ack", body, &ignored)
+	err := t.client.post(ctx, "deliveries/"+messageID+"/ack", body, &ignored)
+	if err != nil && outcome == "accepted" {
+		err = t.client.post(ctx, "deliveries/"+messageID+"/ack", body, &ignored)
+	}
+	if err != nil {
+		return err
+	}
+	if outcome == "accepted" {
+		message, _ := ignored["message"].(map[string]any)
+		if stringArg(message, "status") != "accepted" {
+			return errors.New("delivery acceptance was not confirmed")
+		}
+	}
+	return nil
 }
 
 func (w *mcpWriter) send(value any) error {
@@ -203,8 +253,13 @@ func (w *mcpWriter) send(value any) error {
 	return writeJSON(w.w, value)
 }
 
+func taskResultProperties() map[string]any {
+	return map[string]any{"type": "object", "additionalProperties": false, "required": []string{"status", "summary"}, "properties": map[string]any{"status": map[string]any{"type": "string", "enum": []string{"succeeded", "failed", "blocked", "unknown"}}, "summary": map[string]any{"type": "string", "minLength": 1, "maxLength": 4096}, "evidence": map[string]any{"type": "array", "maxItems": 20, "items": map[string]any{"type": "object", "additionalProperties": false, "required": []string{"description", "reference"}, "properties": map[string]any{"description": map[string]any{"type": "string", "minLength": 1, "maxLength": 500}, "reference": map[string]any{"type": "string", "minLength": 1, "maxLength": 2048}}}}}}
+}
+
 func toolCatalogJSON() []byte {
 	tools := []map[string]any{
+		tool("agent_task_result", "Finish an accepted work delivery with an explicit domain outcome. Wake jobs need this result and no peer reply. Succeeded is an agent report, not independent verification.", map[string]any{"message_id": map[string]any{"type": "string"}, "task_result": taskResultProperties()}, []string{"message_id", "task_result"}),
 		tool("agent_list", "Discover enabled Codex, Claude and Grok agent addresses. No message content is returned.", map[string]any{
 			"engine": map[string]any{"type": "string", "enum": []string{"codex", "claude", "grok"}},
 			"online": map[string]any{"type": "boolean"},
@@ -248,7 +303,8 @@ func toolCatalogJSON() []byte {
 			"summary": map[string]any{"type": "string", "maxLength": 160},
 		}, []string{"message_id", "content"}),
 		tool("agent_reply", "Answer one delivered message when an answer is needed. For an informational reply or closing acknowledgement, call agent_listen once to complete delivery without sending another message.", map[string]any{
-			"message_id": map[string]any{"type": "string"}, "content": map[string]any{"type": "string", "maxLength": maxBodyBytes},
+			"task_result": taskResultProperties(),
+			"message_id":  map[string]any{"type": "string"}, "content": map[string]any{"type": "string", "maxLength": maxBodyBytes},
 		}, []string{"message_id", "content"}),
 		tool("agent_message_get", "Read one message visible to this agent.", map[string]any{"message_id": map[string]any{"type": "string"}}, []string{"message_id"}),
 		tool("agent_cancel", "Cancel an open conversation and its undelivered work.", map[string]any{
@@ -398,7 +454,7 @@ func runMCPProtocol(client *sessionClient, channel bool, stdin io.Reader, stdout
 			if !automatic && channel && initialized && !channelActive && req.Method == "notifications/initialized" {
 				var bound map[string]any
 				if err := client.post(ctx, "bind", map[string]any{
-					"adapter_protocol": "claude-channel-preview-v1", "adapter_capabilities": map[string]any{"channel": true}, "receive_capable": true,
+					"adapter_protocol": "claude-channel-preview-v1", "adapter_capabilities": map[string]any{"channel": true, "execution_contract_version": 2}, "receive_capable": true,
 				}, &bound); err != nil {
 					return fmt.Errorf("activate Claude channel adapter: %w", err)
 				}
@@ -618,6 +674,21 @@ func callMCPTool(ctx context.Context, client *sessionClient, channelState *chann
 			return nil, err
 		}
 		return out, nil
+	case "agent_task_result":
+		messageID := stringArg(args, "message_id")
+		pending := channelState.get(messageID)
+		if pending == nil {
+			return nil, errors.New("this process does not hold that delivery")
+		}
+		if _, ok := args["task_result"]; !ok {
+			return nil, errors.New("task_result is required")
+		}
+		pending.setCompletion(map[string]any{"claim_id": pending.claimID, "outcome": "completed", "task_result": args["task_result"]})
+		if err := client.post(ctx, "deliveries/"+messageID+"/ack", pending.completion(), &out); err != nil {
+			return nil, err
+		}
+		channelState.drop(messageID, pending)
+		return out, nil
 	case "agent_reply":
 		messageID, content := stringArg(args, "message_id"), stringArg(args, "content")
 		if messageID == "" || strings.TrimSpace(content) == "" {
@@ -628,7 +699,17 @@ func callMCPTool(ctx context.Context, client *sessionClient, channelState *chann
 		if pending != nil {
 			clientMessageID = pending.replyClientID
 		}
-		if err := client.post(ctx, "reply", map[string]any{"message_id": messageID, "content": content, "client_message_id": clientMessageID}, &out); err != nil {
+		body := map[string]any{"message_id": messageID, "content": content, "client_message_id": clientMessageID}
+		if pending != nil {
+			body["claim_id"] = pending.claimID
+		}
+		if report, ok := args["task_result"]; ok {
+			body["task_result"] = report
+		}
+		if pending != nil {
+			pending.setReply(body)
+		}
+		if err := client.post(ctx, "reply", body, &out); err != nil {
 			return nil, err
 		}
 		if pending != nil {
@@ -739,7 +820,9 @@ func callMCPTool(ctx context.Context, client *sessionClient, channelState *chann
 			return nil, err
 		}
 		// Joining answers the invite, which never gets an agent_reply.
-		channelState.completeOutstanding(ctx)
+		if err := channelState.completeOutstanding(ctx); err != nil {
+			return nil, err
+		}
 		return out, nil
 	case "agent_conf_roster":
 		if stringArg(args, "conference_id") == "" {
@@ -761,7 +844,9 @@ func callMCPTool(ctx context.Context, client *sessionClient, channelState *chann
 		}
 		// Speaking in the room is how its messages are answered; a dispatched
 		// task still reports with agent_reply, which the server accepts after this.
-		channelState.completeOutstanding(ctx)
+		if err := channelState.completeOutstanding(ctx); err != nil {
+			return nil, err
+		}
 		return out, nil
 	case "agent_conf_dispatch":
 		conferenceID, to, task := stringArg(args, "conference_id"), stringArg(args, "to"), stringArg(args, "task")
@@ -809,7 +894,9 @@ func agentListen(ctx context.Context, client *sessionClient, state *channelTrack
 		// time and the server one per address, so a message finished without
 		// agent_reply (a joined invite, a WELCOME or NOTED) wedged reception until
 		// its TTL.
-		state.completeOutstanding(ctx)
+		if err := state.completeOutstanding(ctx); err != nil {
+			return nil, err
+		}
 		// Report the receiver's real state. "automatic" used to be a local string
 		// that said nothing about whether anything was on the line, so a model with
 		// a dead receiver yielded and waited for a delivery that could not come.
@@ -831,7 +918,9 @@ func agentListen(ctx context.Context, client *sessionClient, state *channelTrack
 		// server's long poll is bounded the same way.
 		return nil, errors.New("wait_seconds must be between 0 and 25")
 	}
-	state.completeOutstanding(ctx)
+	if err := state.completeOutstanding(ctx); err != nil {
+		return nil, err
+	}
 	if err := state.ensureListenBind(ctx); err != nil {
 		return nil, err
 	}
@@ -846,21 +935,29 @@ func agentListen(ctx context.Context, client *sessionClient, state *channelTrack
 		return map[string]any{"message": nil, "timed_out": true, "waited_seconds": waitSeconds}, nil
 	}
 	messageID := stringArg(claimed.Delivery, "message_id")
-	state.track(ctx, messageID, claimID)
+	pending := state.track(ctx, messageID, claimID)
+	if stringArg(claimed.Delivery, "work_kind") != "" {
+		if err := state.acknowledge(ctx, messageID, pending, "accepted", ""); err != nil {
+			state.drop(messageID, pending)
+			return nil, err
+		}
+	}
 	sender := map[string]any{}
 	if value, ok := claimed.Delivery["sender"].(map[string]any); ok {
 		sender = value
 	}
 	content, _ := claimed.Delivery["content"].(string)
 	return map[string]any{
-		"timed_out":       false,
-		"message_id":      messageID,
-		"conversation_id": stringArg(claimed.Delivery, "conversation_id"),
-		"sequence":        claimed.Delivery["sequence"],
-		"kind":            stringArg(claimed.Delivery, "kind"),
-		"attempts":        claimed.Delivery["attempts"],
-		"sender":          sender,
-		"content":         content,
+		"timed_out":                  false,
+		"message_id":                 messageID,
+		"conversation_id":            stringArg(claimed.Delivery, "conversation_id"),
+		"sequence":                   claimed.Delivery["sequence"],
+		"kind":                       stringArg(claimed.Delivery, "kind"),
+		"work_kind":                  stringArg(claimed.Delivery, "work_kind"),
+		"execution_contract_version": claimed.Delivery["execution_contract_version"],
+		"attempts":                   claimed.Delivery["attempts"],
+		"sender":                     sender,
+		"content":                    content,
 	}, nil
 }
 
@@ -894,6 +991,10 @@ func channelPumpOnce(ctx context.Context, client *sessionClient, output *mcpWrit
 		sender = stringArg(value, "address")
 	}
 	pending := state.track(ctx, messageID, claimID)
+	if err := state.acknowledge(ctx, messageID, pending, "accepted", ""); err != nil {
+		state.drop(messageID, pending)
+		return err
+	}
 	if err := output.send(map[string]any{"jsonrpc": "2.0", "method": "notifications/claude/channel", "params": map[string]any{
 		"content": content,
 		"meta":    map[string]string{"message_id": messageID, "conversation_id": conversationID, "sender": sender},
@@ -902,13 +1003,7 @@ func channelPumpOnce(ctx context.Context, client *sessionClient, output *mcpWrit
 		state.drop(messageID, pending)
 		return err
 	}
-	if err := state.acknowledge(ctx, messageID, pending, "accepted", ""); err != nil {
-		// The acceptance response may have been lost after commit. Either a
-		// leased or accepted delivery can be moved to explicit ambiguity.
-		_ = state.acknowledge(ctx, messageID, pending, "ambiguous", "channel_accept_ambiguous")
-		state.drop(messageID, pending)
-		return err
-	}
+
 	return nil
 }
 

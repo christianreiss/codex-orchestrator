@@ -208,6 +208,8 @@ describe('migrations against the test baseline', () => {
       'agent_bus_publications',
       'agent_schedules',
       'agent_schedule_runs',
+      'agent_task_results',
+      'agent_fresh_start_grants',
     ]);
     expect(additions.filter((a) => a.column !== undefined).map((a) => `${a.table}.${a.column}`)).toEqual([
       'auth_payloads.generation',
@@ -260,6 +262,14 @@ describe('migrations against the test baseline', () => {
       'hosts.grok_model_override',
       'hosts.grok_reasoning_effort_override',
       'hosts.grok_last_refresh',
+      'agent_bus_messages.execution_contract_version',
+      'agent_bus_messages.work_kind',
+      'agent_bus_messages.task_result_status',
+      'agent_bus_messages.execution_version',
+      'agent_schedules.max_recovery_attempts',
+      'agent_schedules.pause_reason',
+      'agent_schedule_runs.max_recovery_attempts',
+      'agent_schedule_runs.warning_at',
     ]);
   });
 

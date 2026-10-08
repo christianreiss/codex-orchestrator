@@ -18,6 +18,8 @@ export interface Schedule {
   enabled: boolean;
   persistent: boolean;
   progress_timeout_seconds: number | null;
+  max_recovery_attempts?: number | null;
+  pause_reason?: string | null;
   version: number;
   next_due_at: string | null;
   created_by: string;
@@ -28,6 +30,9 @@ export interface ScheduleRun {
   due_at: string;
   status: string;
   recovery_count: number;
+  task_result_status?: string | null;
+  delivery_reason?: string | null;
+  warning_at?: string | null;
   last_error: string | null;
   next_attempt_at: string;
 }

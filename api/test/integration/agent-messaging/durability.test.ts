@@ -158,7 +158,7 @@ describe.skipIf(!handle)('agent messaging durability against a real database', {
       adapterProtocol: overrides.adapterProtocol === undefined ? 'test-live-v1' : overrides.adapterProtocol,
       requestedAddress: overrides.requestedAddress,
       expectedBindingGeneration: overrides.expectedBindingGeneration,
-      adapterCapabilities: { test: true },
+      adapterCapabilities: { test: true, execution_contract_version: 2 },
     });
     const address = result.address as Record<string, unknown>;
     return {
@@ -189,6 +189,7 @@ describe.skipIf(!handle)('agent messaging durability against a real database', {
       claim_id: claimId,
       attempts: 1,
     });
+    await service.acknowledgeSessionDelivery(target.sessionId,target.bridgeToken,String(message.id),{claimId,outcome:'accepted'});
     const completed = await service.acknowledgeSessionDelivery(
       target.sessionId,
       target.bridgeToken,
@@ -278,6 +279,7 @@ describe.skipIf(!handle)('agent messaging durability against a real database', {
 
     const relay = await service.registerRelay(host, {
       username: target.username, instanceId: randomUUID(), wrapperVersion: 'matrix-test',
+        capabilities: { execution_contract_version: 2 },
     });
     expect(await service.claimForRelay(String(relay.relay_id), String(relay.relay_token), randomUUID())).toBeNull();
     expect(await readMessage()).toMatchObject({ status: 'queued', attempts: 0 });
@@ -340,6 +342,7 @@ describe.skipIf(!handle)('agent messaging durability against a real database', {
       deliverySessionId: restarted.sessionId, deliveryUpstreamSessionId: nativeSessionId,
       targetBindingGeneration: restarted.bindingGeneration,
     });
+    await service.acknowledgeSessionDelivery(restarted.sessionId,restarted.bridgeToken,secondId,{claimId:successorClaim,outcome:'accepted'});
     await service.acknowledgeSessionDelivery(restarted.sessionId, restarted.bridgeToken, secondId, {
       claimId: successorClaim, outcome: 'completed', upstreamSessionId: nativeSessionId,
     });
@@ -503,6 +506,7 @@ describe.skipIf(!handle)('agent messaging durability against a real database', {
       username: target.username,
       instanceId: randomUUID(),
       wrapperVersion: 'test',
+        capabilities: { execution_contract_version: 2 },
     });
 
     const result = await service.setEnabled(false);
@@ -642,6 +646,7 @@ describe.skipIf(!handle)('agent messaging durability against a real database', {
       username: target.username,
       instanceId: randomUUID(),
       wrapperVersion: 'test',
+        capabilities: { execution_contract_version: 2 },
     });
 
     const closed = (await db
@@ -658,6 +663,7 @@ describe.skipIf(!handle)('agent messaging durability against a real database', {
         username: target.username,
         instanceId: randomUUID(),
         wrapperVersion: 'test',
+        capabilities: { execution_contract_version: 2 },
       }),
     ).rejects.toMatchObject({ code: 'agent_messaging_insecure_window_closed' });
 
@@ -671,6 +677,7 @@ describe.skipIf(!handle)('agent messaging durability against a real database', {
       username: target.username,
       instanceId: randomUUID(),
       wrapperVersion: 'test',
+        capabilities: { execution_contract_version: 2 },
     });
     expect(revived).toMatchObject({ enabled: true });
   });
@@ -685,6 +692,7 @@ describe.skipIf(!handle)('agent messaging durability against a real database', {
       username: target.username,
       instanceId: randomUUID(),
       wrapperVersion: 'test',
+        capabilities: { execution_contract_version: 2 },
     });
     const management = new HostManagementService({
       db,

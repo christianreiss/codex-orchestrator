@@ -49,18 +49,20 @@ type relayClaim struct {
 }
 
 type relayDelivery struct {
-	MessageID        string         `json:"message_id"`
-	ConversationID   string         `json:"conversation_id"`
-	Sequence         int64          `json:"sequence"`
-	ReplyToMessageID *string        `json:"reply_to_message_id"`
-	Kind             string         `json:"kind"`
-	Content          string         `json:"content"`
-	Sender           map[string]any `json:"sender"`
-	Target           map[string]any `json:"target"`
-	Attempts         int            `json:"attempts"`
-	ClaimID          string         `json:"claim_id"`
-	LeaseUntil       string         `json:"lease_until"`
-	ExpiresAt        string         `json:"expires_at"`
+	ExecutionContractVersion int            `json:"execution_contract_version"`
+	WorkKind                 string         `json:"work_kind"`
+	MessageID                string         `json:"message_id"`
+	ConversationID           string         `json:"conversation_id"`
+	Sequence                 int64          `json:"sequence"`
+	ReplyToMessageID         *string        `json:"reply_to_message_id"`
+	Kind                     string         `json:"kind"`
+	Content                  string         `json:"content"`
+	Sender                   map[string]any `json:"sender"`
+	Target                   map[string]any `json:"target"`
+	Attempts                 int            `json:"attempts"`
+	ClaimID                  string         `json:"claim_id"`
+	LeaseUntil               string         `json:"lease_until"`
+	ExpiresAt                string         `json:"expires_at"`
 }
 
 type relayClient struct {
@@ -81,6 +83,8 @@ type nativeResult struct {
 	RetryNotBefore    string
 	Err               error
 }
+
+var startNativeCommand = func(cmd *exec.Cmd) error { return cmd.Start() }
 
 var runNativeAdapter = func(c *relayClient, ctx context.Context, cfg *config.Config, delivery *relayDelivery, upstream string, alreadyAccepted bool) nativeResult {
 	return c.runNative(ctx, cfg, delivery, upstream, alreadyAccepted)
@@ -237,7 +241,7 @@ func (c *relayClient) register(ctx context.Context, username, instanceID, versio
 	var out relayRegistration
 	err := doJSON(ctx, c.http, c.baseURL, http.MethodPost, "/host/agent-relays/register", map[string]any{
 		"username": username, "instance_id": instanceID, "wrapper_version": version,
-		"capabilities": map[string]any{"headless": true, "codex_exec_resume": true, "claude_print_resume": true, "grok_json_resume": true},
+		"capabilities": map[string]any{"execution_contract_version": 2, "headless": true, "codex_exec_resume": true, "claude_print_resume": true, "grok_json_resume": true},
 	}, map[string]string{"X-API-Key": c.apiKey}, &out)
 	if err != nil {
 		return nil, err
@@ -334,14 +338,15 @@ func (c *relayClient) processDelivery(ctx context.Context, configs map[string]*c
 	if delivery.Kind == "schedule" && (upstream == "" || !boolArg(delivery.Target, "schedule_persistent")) {
 		return c.ack(ctx, delivery, "dead", "schedule_transcript_missing", nil)
 	}
-	result := runNativeAdapter(c, ctx, cfg, delivery, upstream, false)
-	if result.MissingTranscript && upstream != "" && delivery.Kind != "schedule" {
-		// The resume process already accepted the delivery before it proved the
-		// transcript was gone. Fresh fallback continues that same accepted lease;
-		// a second accepted ACK would be invalid and would kill the fallback.
-		result = runNativeAdapter(c, ctx, cfg, delivery, "", true)
+	if boolArg(delivery.Target, "fresh_start_approved") && delivery.Kind != "schedule" {
+		upstream = ""
 	}
-	if result.Err != nil || strings.TrimSpace(result.Reply) == "" {
+	if delivery.WorkKind != "" && upstream == "" && !boolArg(delivery.Target, "fresh_start_approved") && delivery.Kind != "schedule" {
+		return c.ack(ctx, delivery, "dead", "native_transcript_missing", nil)
+	}
+	result := runNativeAdapter(c, ctx, cfg, delivery, upstream, false)
+
+	if result.Err != nil || result.Capacity || result.MissingTranscript || (delivery.WorkKind == "" && strings.TrimSpace(result.Reply) == "") {
 		outcome := "retry"
 		if result.Started {
 			outcome = "ambiguous"
@@ -349,6 +354,9 @@ func (c *relayClient) processDelivery(ctx context.Context, configs map[string]*c
 		code := "native_start_failed"
 		if result.Started {
 			code = "native_outcome_ambiguous"
+		}
+		if result.MissingTranscript {
+			outcome, code = "dead", "native_transcript_missing"
 		}
 		if delivery.Kind == "schedule" {
 			if result.MissingTranscript {
@@ -366,17 +374,23 @@ func (c *relayClient) processDelivery(ctx context.Context, configs map[string]*c
 	if (delivery.Kind == "reply" || delivery.Kind == "publication") && strings.TrimSpace(result.Reply) == noReplyMarker(delivery) {
 		return c.ack(ctx, delivery, "completed", "", &result)
 	}
+	var report *taskResult
+	if delivery.WorkKind != "" {
+		result.Reply, report = parseTaskOutput(result.Reply)
+		if strings.TrimSpace(result.Reply) == "" {
+			result.Reply = "No explicit final response was returned."
+		}
+	}
 	if delivery.Kind == "schedule" {
-		return c.ack(ctx, delivery, "completed", "", &result)
+		return c.completeTask(ctx, delivery, report, &result)
 	}
 	reply := truncateUTF8(result.Reply, maxBodyBytes)
 	var replyOut map[string]any
-	if err := c.relayPost(ctx, "/deliveries/"+url.PathEscape(delivery.MessageID)+"/reply", map[string]any{
-		"claim_id":            delivery.ClaimID,
-		"content":             reply,
-		"client_message_id":   newUUID(),
-		"upstream_session_id": emptyToNil(result.UpstreamSessionID),
-	}, &replyOut); err != nil {
+	replyBody := map[string]any{"claim_id": delivery.ClaimID, "content": reply, "client_message_id": newUUID(), "upstream_session_id": emptyToNil(result.UpstreamSessionID)}
+	if report != nil {
+		replyBody["task_result"] = report
+	}
+	if err := c.storeCompletion(ctx, "/deliveries/"+url.PathEscape(delivery.MessageID)+"/reply", replyBody, &replyOut); err != nil {
 		_ = c.ack(ctx, delivery, "ambiguous", "reply_store_ambiguous", &result)
 		return err
 	}
@@ -393,6 +407,9 @@ func (c *relayClient) runNative(ctx context.Context, cfg *config.Config, deliver
 	engine := stringArg(delivery.Target, "engine")
 	args := nativeArgs(engine, upstream)
 	prompt := peerPrompt(delivery)
+	if delivery.WorkKind != "" {
+		prompt += "\n" + taskOutputInstruction
+	}
 	if engine == config.EngineGrok {
 		file, err := os.CreateTemp("", "cxx-grok-delivery-*.txt")
 		if err != nil {
@@ -434,20 +451,20 @@ func (c *relayClient) runNative(ctx context.Context, cfg *config.Config, deliver
 		"CXX_AGENT_MESSAGING_CONTINUITY="+map[bool]string{true: "native", false: "reset"}[upstream != ""],
 		"CXX_AGENT_MESSAGING_UPSTREAM_SESSION_ID="+upstream,
 		"CXX_AGENT_MESSAGING_MESSAGE_ID="+delivery.MessageID,
+		"CXX_AGENT_MESSAGING_CLAIM_ID="+delivery.ClaimID,
 	)
-	if err := cmd.Start(); err != nil {
-		result.Err = err
-		return result
-	}
-	result.Started = true
 	if !alreadyAccepted {
 		if err := c.ack(ctx, delivery, "accepted", "", nil); err != nil {
-			cancel()
-			_ = cmd.Wait()
 			result.Err = fmt.Errorf("accept delivery: %w", err)
 			return result
 		}
 	}
+	if err := startNativeCommand(cmd); err != nil {
+		result.Err = err
+		_ = c.ack(ctx, delivery, "dead", "native_start_failed_after_accept", nil)
+		return result
+	}
+	result.Started = true
 	renewErr := make(chan error, 1)
 	done := make(chan struct{})
 	go func() {
@@ -491,6 +508,9 @@ func (c *relayClient) runNative(ctx context.Context, cfg *config.Config, deliver
 	result.Capacity = strings.Contains(text, "at capacity") || strings.Contains(text, "rate_limit") || strings.Contains(text, "usage limit") || strings.Contains(text, "quota limit") || strings.Contains(text, "overloaded")
 	result.RetryNotBefore = scheduleRetryAt(output.String(), time.Now())
 	result.Reply, result.UpstreamSessionID = parseNativeOutput(engine, output.Bytes())
+	if strings.TrimSpace(result.Reply) != "" {
+		result.Capacity = false
+	}
 	return result
 }
 
@@ -548,7 +568,50 @@ func (c *relayClient) ack(ctx context.Context, delivery *relayDelivery, outcome,
 		body["upstream_session_id"] = result.UpstreamSessionID
 	}
 	var out map[string]any
-	return c.relayPost(ctx, "/deliveries/"+url.PathEscape(delivery.MessageID)+"/ack", body, &out)
+	err := c.relayPost(ctx, "/deliveries/"+url.PathEscape(delivery.MessageID)+"/ack", body, &out)
+	if err != nil && outcome == "accepted" {
+		err = c.relayPost(ctx, "/deliveries/"+url.PathEscape(delivery.MessageID)+"/ack", body, &out)
+	}
+	if err != nil {
+		return err
+	}
+	if outcome == "accepted" {
+		message, _ := out["message"].(map[string]any)
+		if stringArg(message, "status") != "accepted" {
+			return errors.New("delivery acceptance was not confirmed")
+		}
+	}
+	return nil
+}
+
+func (c *relayClient) storeCompletion(ctx context.Context, suffix string, body any, out any) error {
+	for {
+		err := c.relayPost(ctx, suffix, body, out)
+		if err == nil {
+			return nil
+		}
+		var apiErr *APIError
+		if errors.As(err, &apiErr) && (apiErr.Status == 400 || apiErr.Status == 403 || apiErr.Status == 404 || apiErr.Status == 409 || apiErr.Status == 422) {
+			return err
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(time.Second):
+		}
+	}
+}
+
+func (c *relayClient) completeTask(ctx context.Context, delivery *relayDelivery, report *taskResult, result *nativeResult) error {
+	if delivery.WorkKind == "" {
+		return c.ack(ctx, delivery, "completed", "", result)
+	}
+	if report == nil {
+		report = unknownResult()
+	}
+	body := map[string]any{"claim_id": delivery.ClaimID, "outcome": "completed", "task_result": report, "upstream_session_id": emptyToNil(result.UpstreamSessionID)}
+	var out map[string]any
+	return c.storeCompletion(ctx, "/deliveries/"+url.PathEscape(delivery.MessageID)+"/ack", body, &out)
 }
 
 func (c *relayClient) stop(ctx context.Context) error {

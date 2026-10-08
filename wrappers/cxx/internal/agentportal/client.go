@@ -167,15 +167,19 @@ func Start(parent context.Context, cfg *config.Config, input StartInput) (*Sessi
 		input.Resumed = upstreamSessionID != ""
 	}
 	body := map[string]any{
-		"engine":              input.Engine,
-		"username":            username,
-		"cwd":                 cwd,
-		"invocation_kind":     input.InvocationKind,
-		"resumed":             input.Resumed,
-		"upstream_session_id": emptyToNil(upstreamSessionID),
+		"engine":               input.Engine,
+		"adapter_capabilities": map[string]any{"execution_contract_version": 2},
+		"username":             username,
+		"cwd":                  cwd,
+		"invocation_kind":      input.InvocationKind,
+		"resumed":              input.Resumed,
+		"upstream_session_id":  emptyToNil(upstreamSessionID),
 	}
 	if peerAddress != "" {
 		body["agent_address"] = peerAddress
+		if messageID, claimID := os.Getenv("CXX_AGENT_MESSAGING_MESSAGE_ID"), os.Getenv("CXX_AGENT_MESSAGING_CLAIM_ID"); messageID != "" && claimID != "" {
+			body["delivery_message_id"], body["delivery_claim_id"] = messageID, claimID
+		}
 		if generation, parseErr := strconv.Atoi(strings.TrimSpace(os.Getenv(envMessagingGeneration))); parseErr == nil && generation >= 0 {
 			body["binding_generation"] = generation
 		}

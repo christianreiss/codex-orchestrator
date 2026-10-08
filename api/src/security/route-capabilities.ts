@@ -433,6 +433,7 @@ export const ROUTE_CAPABILITIES: Readonly<Record<string, RouteGuard>> = {
   'PATCH /admin/agent-messaging/addresses/:id': cap('agent_messaging.manage'),
   'POST /admin/agent-messaging/addresses/:id/enabled': cap('agent_messaging.manage'),
   'POST /admin/agent-messaging/conversations/:id/cancel': cap('agent_messaging.manage'),
+  'POST /admin/agent-messaging/messages/:id/fresh-start': cap('agent_messaging.manage'),
   'POST /admin/agent-messaging/messages/:id/redrive': cap('agent_messaging.manage'),
 };
 

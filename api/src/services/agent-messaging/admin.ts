@@ -523,6 +523,7 @@ export class AgentMessagingAdmin {
       const rows = await tx.select().from(agentBusMessages).where(eq(agentBusMessages.id, id)).limit(1).for('update');
       const original = rows[0];
       if (!original) throw new NotFoundError('Message not found', 'agent_messaging_message_not_found');
+      if (original.kind === 'schedule') throw new ConflictError('Manage schedule recovery through its schedule', 'schedule_redrive_not_allowed');
       if (original.status !== 'dead' && original.status !== 'ambiguous') {
         throw new ConflictError('Only dead or ambiguous messages can be redriven', 'agent_messaging_redrive_not_allowed');
       }
@@ -539,6 +540,10 @@ export class AgentMessagingAdmin {
         redriveOfMessageId: original.id,
         clientMessageId: randomUUID(),
         status: 'queued',
+        executionContractVersion: original.workKind || ['request','task'].includes(original.kind) ? 2 : original.executionContractVersion,
+        workKind: original.workKind ?? (['request','task'].includes(original.kind) ? original.kind : null),
+        taskResultStatus: null,
+        executionVersion: 1,
         attempts: 0,
         nextAttemptAt: now,
         leaseOwner: null,

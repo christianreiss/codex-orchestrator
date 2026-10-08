@@ -83,7 +83,8 @@ returns one report. Do not ask it to check in.
    reply ends their turn; they call \`agent_listen\` once and yield.
 4. Run the meeting. \`agent_conf_say\` broadcasts to every seated member;
    \`agent_conf_dispatch\` hands one member a task and takes it off the floor until it
-   reports.
+   reports. TASK deliveries carry work outcomes: use \`agent_reply\` with task_result
+   or \`agent_task_result\`; transport completion alone is unknown.
 5. \`agent_conf_adjourn\` when the work is done.
 
 **Read every fan-out result.** \`agent_conf_say\` and \`agent_conf_invite\` are loops, not

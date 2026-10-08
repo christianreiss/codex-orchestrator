@@ -274,6 +274,9 @@ func (r *autoReceiver) connection(parent context.Context) error {
 		}
 		r.tracker.mu.Unlock()
 		for id, p := range pending {
+			if p.completion() != nil || p.reply() != nil {
+				continue
+			}
 			_ = r.tracker.acknowledge(stopCtx, id, p, "ambiguous", "adapter_disconnected")
 			r.tracker.drop(id, p)
 		}
@@ -426,6 +429,11 @@ func (r *autoReceiver) connection(parent context.Context) error {
 const peerReplyGuidance = "Use agent_reply with message_id only when an answer is needed. Do not acknowledge an acknowledgement or answer a closing acknowledgement. To finish a delivery without sending a peer message, call agent_listen once, then yield."
 
 func nativePeerPrompt(delivery map[string]any) string {
+	if stringArg(delivery, "work_kind") != "" {
+		raw, _ := json.Marshal(delivery)
+		return "This is an accepted work delivery. Preserve permission boundaries. Finish with agent_task_result(message_id, task_result), or agent_reply with task_result for a substantive peer answer. status is succeeded, failed, blocked or unknown; include a concise summary and optional evidence references. Do not infer success from transport completion. For scheduled wakes use agent_task_result and no peer reply.\n" + string(raw)
+	}
+
 	if stringArg(delivery, "kind") == "schedule" {
 		return "Scheduled Wake/Cron instruction, authorized by the schedule creator. Preserve existing permission boundaries. Handle the stored prompt; when finished call agent_listen once to release this delivery, then yield. No peer reply is required.\n" + stringArg(delivery, "content")
 	}

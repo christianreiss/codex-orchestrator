@@ -1,5 +1,10 @@
 # 2026-10-08
 
+- Agent work execution now confirms durable acceptance before starting; explicit encrypted task outcomes are separate from delivery status, with one-use operator grants for missing ordinary transcripts.
+- Wake recovery adds exponential backoff, jitter, repeated-failure warnings and optional limits that pause the entire schedule; fleet AGENTS guidance covers management and result reporting for all three engines.
+- Wrapper 0.9.22 advertises execution contract v2; older running sessions continue, while new work waits for compatible receivers.
+
+
 - Added fleet Wake / Cron management via MCP, shared Skill and admin UI, with durable one-shot, Cron and interval schedules. Persistent crash/hang/capacity recovery is explicit opt-in; wrapper 0.9.21 resumes native sessions without fresh fallback and checks live policy before Linux hang termination.
 
 # 2026-10-07

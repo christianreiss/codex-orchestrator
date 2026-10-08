@@ -28,6 +28,7 @@ const GROUPS = [
   'Fleet secrets store',
   'Git Director',
   'File transfer',
+  'Work grants',
   'Wake / Cron',
   'Operator/internal filesystem helpers',
 ];

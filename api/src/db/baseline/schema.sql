@@ -196,6 +196,10 @@ CREATE TABLE `agent_bus_conversations` (
 );
 
 CREATE TABLE `agent_bus_messages` (
+  `execution_contract_version` INT UNSIGNED NOT NULL DEFAULT 1,
+  `work_kind` VARCHAR(16) NULL,
+  `task_result_status` VARCHAR(16) NULL,
+  `execution_version` INT UNSIGNED NOT NULL DEFAULT 1,
 	`id` char(36) NOT NULL,
 	`dispatch_order` bigint unsigned AUTO_INCREMENT NOT NULL,
 	`conversation_id` char(36) NOT NULL,
@@ -1540,6 +1544,8 @@ CREATE TABLE `agent_bus_subscriptions` (
 CREATE INDEX `idx_agent_bus_subscriptions_address` ON `agent_bus_subscriptions` (`subscriber_address_id`);
 
 CREATE TABLE `agent_schedules` (
+  `max_recovery_attempts` INT UNSIGNED NULL,
+  `pause_reason` VARCHAR(100) NULL,
 	`id` char(36) NOT NULL,
 	`name` varchar(120) NOT NULL,
 	`target_address_id` char(36) NOT NULL,
@@ -1563,6 +1569,8 @@ CREATE TABLE `agent_schedules` (
 );
 
 CREATE TABLE `agent_schedule_runs` (
+  `max_recovery_attempts` INT UNSIGNED NULL,
+  `warning_at` VARCHAR(100) NULL,
 	`id` char(36) NOT NULL,
 	`schedule_id` char(36) NOT NULL,
 	`target_address_id` char(36) NOT NULL,
@@ -1587,3 +1595,30 @@ CREATE INDEX `idx_agent_schedule_runs_status` ON `agent_schedule_runs` (`status`
 CREATE INDEX `idx_agent_schedule_runs_schedule` ON `agent_schedule_runs` (`schedule_id`,`created_at`);
 CREATE INDEX `idx_agent_schedules_due` ON `agent_schedules` (`enabled`,`next_due_at`);
 CREATE INDEX `idx_agent_schedules_target` ON `agent_schedules` (`target_address_id`);
+
+CREATE TABLE `agent_task_results` (
+ `id` CHAR(36) NOT NULL PRIMARY KEY,
+ `message_id` CHAR(36) NOT NULL,
+ `claim_id` CHAR(36) NOT NULL,
+ `status` VARCHAR(16) NOT NULL,
+ `body_enc` LONGTEXT NOT NULL,
+ `body_sha256` CHAR(64) NOT NULL,
+ `created_at` VARCHAR(100) NOT NULL,
+ UNIQUE KEY uq_agent_task_result_claim (message_id, claim_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+CREATE TABLE `agent_fresh_start_grants` (
+ `message_id` CHAR(36) NOT NULL PRIMARY KEY,
+ `target_address_id` CHAR(36) NOT NULL,
+ `binding_generation` INT UNSIGNED NOT NULL,
+ `execution_version` INT UNSIGNED NOT NULL,
+ `reason` VARCHAR(500) NOT NULL,
+ `approved_by` VARCHAR(191) NOT NULL,
+ `consumed_claim_id` CHAR(36) NULL,
+ `created_at` VARCHAR(100) NOT NULL,
+ `consumed_at` VARCHAR(100) NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+SET @bus_collation := (SELECT TABLE_COLLATION FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='agent_bus_addresses');
+SET @ddl := CONCAT('ALTER TABLE agent_task_results CONVERT TO CHARACTER SET utf8mb4 COLLATE ', @bus_collation);
+PREPARE align_contract FROM @ddl; EXECUTE align_contract; DEALLOCATE PREPARE align_contract;
+SET @ddl := CONCAT('ALTER TABLE agent_fresh_start_grants CONVERT TO CHARACTER SET utf8mb4 COLLATE ', @bus_collation);
+PREPARE align_contract FROM @ddl; EXECUTE align_contract; DEALLOCATE PREPARE align_contract;

@@ -121,6 +121,10 @@ export interface AgentConversation extends AgentConversationMetadata {
 }
 
 export interface AgentMessageMetadata {
+  execution_contract_version?: number;
+  work_kind?: string | null;
+  execution_version?: number;
+  task_result_status?: string | null;
   id: string;
   conversation_id: string;
   sequence: number;
@@ -330,6 +334,10 @@ export function agentMessageRedriveMutation(opts: MutationOpts<unknown, string> 
 }
 
 export async function revealAgentMessage(id: string): Promise<string> {
-  const result = await api.post<{ message_id: string; content: string }>(`/admin/agent-messaging/messages/${id}/reveal`);
-  return result.content;
+  const result = await api.post<{ message_id: string; content: string; task_results?: unknown[] }>(`/admin/agent-messaging/messages/${id}/reveal`);
+  return result.content + (result.task_results?.length ? "\n\nTask reports:\n" + JSON.stringify(result.task_results, null, 2) : "");
+}
+
+export async function approveAgentFreshStart(id: string, version: number, reason: string) {
+  return api.post(`/admin/agent-messaging/messages/${id}/fresh-start`, { version, reason });
 }

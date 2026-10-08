@@ -37,6 +37,7 @@
     agentMessagingMessagesQuery,
     agentMessagingStateQuery,
     revealAgentMessage,
+    approveAgentFreshStart,
     type AgentAdminAddress,
     type AgentAddress,
     type AgentConversation,
@@ -291,6 +292,16 @@
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Redrive failed");
     }
+  }
+
+  async function approveFresh(item: AgentMessageMetadata) {
+    const reason = prompt('Approve one replacement session for this work only. Why is a fresh start authorized?');
+    if (!reason?.trim()) return;
+    try {
+      await approveAgentFreshStart(item.id, item.execution_version ?? 1, reason);
+      await queryClient.invalidateQueries({ queryKey: agentMessagingKeys.all });
+      toast.success('One replacement session approved');
+    } catch (error) { toast.error(error instanceof Error ? error.message : 'Approval failed'); }
   }
 
   function routeLabel(address: AgentAddress | undefined): string {
@@ -569,6 +580,7 @@
                   <p class="text-xs text-muted-foreground">#{message.sequence} · {message.kind} · {formatBytes(message.content_bytes)} · attempt {message.attempts} · {relativeTime(message.created_at)}</p>
                 </div>
                 <span class="rounded-full border px-2 py-0.5 text-[10px] uppercase {statusTone(message.status)}">{message.status}</span>
+                {#if message.work_kind || message.kind === "request" || message.kind === "schedule"}<span class="text-xs">Task: {message.task_result_status ?? "unknown"} · agent report</span>{/if}
               </div>
               {#if message.last_error_code}<p class="mt-1 text-xs text-destructive">{message.last_error_code}</p>{/if}
               {#if revealed?.messageId === message.id}
@@ -582,7 +594,10 @@
                   {#if canRevealContent}
                     <Button size="sm" variant="outline" disabled={busyMessage !== null} onclick={() => reveal(message)}>{busyMessage === message.id ? "Revealing…" : "Reveal content"}</Button>
                   {/if}
-                  {#if canMutate && (message.status === "dead" || message.status === "ambiguous")}
+                  {#if canMutate && message.work_kind && message.kind !== 'schedule' && message.last_error_code === 'native_transcript_missing' && (message.status === 'dead' || message.status === 'ambiguous')}
+                    <Button size="sm" variant="outline" onclick={() => approveFresh(message)}>Approve one fresh start</Button>
+                  {/if}
+                  {#if canMutate && message.kind !== "schedule" && (message.status === "dead" || message.status === "ambiguous")}
                     <Button size="sm" variant="outline" disabled={$redrive.isPending || !$stateQuery.data?.enabled} onclick={() => redriveMessage(message)}>Redrive</Button>
                   {/if}
                 </div>

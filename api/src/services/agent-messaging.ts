@@ -1,9 +1,13 @@
+import { jsonRecord } from './agent-messaging/normalize.js';
+import { agentFreshStartGrants, agentTaskResults } from '../db/schema.js';
+import { storeTaskResult, unknownTaskResult, approveFreshStart, freshStartAllowed, taskResultSchema, type TaskResult } from './agent-messaging/task-execution.js';
 import { receiverReady, receiverState } from './agent-receiver-state.js';
 import { randomBytes, randomUUID } from 'node:crypto';
 import {
   and,
   asc,
   count,
+  desc,
   eq,
   gt,
   inArray,
@@ -491,6 +495,8 @@ export class AgentMessagingService {
         sourceEngine: sender.engine,
         targetEngine: target.engine,
         kind: input.kind ?? 'message',
+        executionContractVersion: input.kind === 'request' ? 2 : 1,
+        workKind: input.kind === 'request' ? 'request' : null,
         contentEnc: encrypt(content, this.keyring),
         contentBytes: Buffer.byteLength(content, 'utf8'),
         clientMessageId,
@@ -553,7 +559,7 @@ export class AgentMessagingService {
     sessionId: string,
     bridgeToken: string,
     parentMessageId: string,
-    input: { content: string; clientMessageId: string; ttlSeconds?: number | null },
+    input: { content: string; clientMessageId: string; ttlSeconds?: number | null; claimId?: string; taskResult?: TaskResult },
   ): Promise<Record<string, unknown>> {
     const authenticated = await this.authenticateBridge(sessionId, bridgeToken);
     const senderAddressId = authenticated.session.agentBusAddressId;
@@ -571,6 +577,9 @@ export class AgentMessagingService {
       if (!parent || parent.targetAddressId !== sender.id) {
         throw new NotFoundError('Message not found', 'agent_messaging_message_not_found');
       }
+      if (input.taskResult && !parent.workKind) throw new ValidationError('Only work deliveries accept a task result');
+      if (input.taskResult && !input.claimId) throw new ValidationError('Task result requires the current claim');
+      if (parent.workKind && input.claimId) await this.finishTaskLocked(tx, parent, input.claimId, `session:${sessionId}`, input.taskResult);
       const target = await this.requireAddressLocked(tx, parent.senderAddressId);
       if (target.id === SERVER_ADDRESS_ID) {
         throw new ConflictError('Server publications are informational; use the operator portal conversation to respond', 'agent_messaging_server_publication_reply');
@@ -708,7 +717,8 @@ export class AgentMessagingService {
       return message;
     });
     const addresses = await this.addressMap([message.senderAddressId, message.targetAddressId]);
-    return { message: messageForParticipant(message, this.decodeContent(message), addresses.get(message.senderAddressId)!, addresses.get(message.targetAddressId)!) };
+    const reports = await this.db.select().from(agentTaskResults).where(eq(agentTaskResults.messageId, message.id)).orderBy(desc(agentTaskResults.createdAt)).limit(100);
+    return { message: { ...messageForParticipant(message, this.decodeContent(message), addresses.get(message.senderAddressId)!, addresses.get(message.targetAddressId)!), task_results: reports.map(r => ({ claim_id: r.claimId, created_at: r.createdAt, task_result: taskResultSchema.parse(JSON.parse(decrypt(r.bodyEnc, this.keyring))) })) } };
   }
 
   async cancelConversation(sessionId: string, bridgeToken: string, conversationId: string, reason?: string | null): Promise<Record<string, unknown>> {
@@ -933,6 +943,31 @@ export class AgentMessagingService {
     return await this.claimDelivery(eligible.map((row) => row.id), `relay:${relay.id}:${relay.generation}`, claimId, relay.generation, true);
   }
 
+  private async finishTaskLocked(tx: Parameters<Parameters<Database['transaction']>[0]>[0], message: AgentBusMessage, claimId: string, leaseOwner: string, result?: TaskResult) {
+    if (message.claimId !== claimId || message.leaseOwner !== leaseOwner) throw new ConflictError('Message lease is no longer owned by this delivery', 'agent_messaging_lease_lost');
+    const target = await this.requireAddressLocked(tx, message.targetAddressId);
+    if (target.bindingGeneration !== message.targetBindingGeneration) throw new ConflictError('Agent address binding changed', 'agent_messaging_binding_stale');
+    if (message.status === 'accepted' && (!message.leaseUntil || message.leaseUntil <= nowIso())) throw new ConflictError('Delivery lease expired', 'agent_messaging_lease_lost');
+    const report = await storeTaskResult(tx, message, result ?? unknownTaskResult, this.keyring, nowIso());
+    await tx.update(agentBusMessages).set({ status: 'completed', taskResultStatus: report.status, completedAt: nowIso(), leaseUntil: null, updatedAt: nowIso() }).where(eq(agentBusMessages.id, message.id));
+  }
+
+  async approveMessageFreshStart(messageId: string, version: number, reason: string, actor: string): Promise<Record<string, unknown>> {
+    const id = normalizeUuid(messageId, 'message_id');
+    const why = normalizeMessageBody(reason);
+    if (Buffer.byteLength(why, 'utf8') > 500) throw new ValidationError('Reason exceeds 500 bytes');
+    const result = await this.db.transaction(async tx => {
+      await this.requireEnabledLocked(tx);
+      const [message] = await tx.select().from(agentBusMessages).where(eq(agentBusMessages.id, id)).limit(1).for('update');
+      if (!message) throw new NotFoundError('Message not found', 'agent_messaging_message_not_found');
+      const target = await this.requireAddressLocked(tx, message.targetAddressId);
+      return { grant: await approveFreshStart(tx, message, target, version, why, actor, nowIso()), hostId: target.hostId, engine: target.engine };
+    });
+    await this.recordRuntime('agent_message.fresh_start_approved', result.hostId, result.engine, { message_id: id, actor, reason: why });
+    wsPublisher.publish('agent_messaging.message.changed', { message_id: id });
+    return { grant: result.grant };
+  }
+
   async renewSessionDelivery(sessionId: string, bridgeToken: string, messageId: string, claimId: string): Promise<Record<string, unknown>> {
     await this.authenticateBridge(sessionId, bridgeToken);
     return await this.renewDelivery(messageId, claimId, `session:${sessionId}`, null);
@@ -952,7 +987,7 @@ export class AgentMessagingService {
     sessionId: string,
     bridgeToken: string,
     messageId: string,
-    input: { claimId: string; outcome: AgentMessagingOutcome; upstreamSessionId?: string | null; errorCode?: string | null; error?: string | null },
+    input: { claimId: string; outcome: AgentMessagingOutcome; taskResult?: TaskResult; upstreamSessionId?: string | null; errorCode?: string | null; error?: string | null },
   ): Promise<Record<string, unknown>> {
     const authenticated = await this.authenticateBridge(sessionId, bridgeToken);
     return await this.acknowledgeDelivery(messageId, input, `session:${sessionId}`, null, authenticated.session.id);
@@ -962,7 +997,7 @@ export class AgentMessagingService {
     relayId: string,
     rawToken: string,
     messageId: string,
-    input: { claimId: string; outcome: AgentMessagingOutcome; deliverySessionId?: string | null; upstreamSessionId?: string | null; errorCode?: string | null; error?: string | null },
+    input: { claimId: string; outcome: AgentMessagingOutcome; taskResult?: TaskResult; deliverySessionId?: string | null; upstreamSessionId?: string | null; errorCode?: string | null; error?: string | null },
   ): Promise<Record<string, unknown>> {
     const relay = await this.authenticateRelay(relayId, rawToken);
     return await this.acknowledgeDelivery(
@@ -981,6 +1016,7 @@ export class AgentMessagingService {
     input: {
       claimId: string;
       content: string;
+      taskResult?: TaskResult;
       clientMessageId: string;
       deliverySessionId?: string | null;
       upstreamSessionId?: string | null;
@@ -1011,11 +1047,13 @@ export class AgentMessagingService {
         parent.leaseOwner !== leaseOwner ||
         parent.claimId !== claimId ||
         parent.relayGeneration !== relay.generation ||
-        (parent.status !== 'leased' && parent.status !== 'accepted')
+        (parent.status !== 'leased' && parent.status !== 'accepted' && parent.status !== 'completed')
       ) {
         throw new ConflictError('Message lease is no longer owned by this delivery', 'agent_messaging_lease_lost');
       }
+      if (parent.workKind) await this.finishTaskLocked(tx, parent, claimId, `relay:${relay.id}:${relay.generation}`, input.taskResult);
       const sender = await this.requireAddressLocked(tx, parent.targetAddressId);
+      if (sender.bindingGeneration !== parent.targetBindingGeneration) throw new ConflictError('Agent address binding changed', 'agent_messaging_binding_stale');
       if (sender.hostId !== relay.hostId || sender.username !== relay.username) {
         throw new ForbiddenError('Relay does not own this delivery address', 'agent_messaging_relay_target_mismatch');
       }
@@ -1092,8 +1130,11 @@ export class AgentMessagingService {
         .where(eq(agentBusConversations.id, conversation.id));
       await tx
         .update(agentBusMessages)
-        .set({ deliverySessionId, deliveryUpstreamSessionId: upstreamSessionId, updatedAt: now })
+        .set({ deliverySessionId: deliverySessionId ?? parent.deliverySessionId, deliveryUpstreamSessionId: upstreamSessionId ?? parent.deliveryUpstreamSessionId, updatedAt: now })
         .where(eq(agentBusMessages.id, parent.id));
+      if (parent.workKind && upstreamSessionId) {
+        await tx.update(agentBusAddresses).set({ lastUpstreamSessionId: upstreamSessionId, continuity: 'native', readiness: sender.currentSessionId ? sender.readiness : 'resumable', lastSeenAt: now, updatedAt: now }).where(eq(agentBusAddresses.id, sender.id));
+      }
       return { message: persisted, sender, target, created: true };
     });
     if (result.created) {
@@ -1144,7 +1185,9 @@ export class AgentMessagingService {
   }
 
   async revealMessage(messageId: string): Promise<Record<string, unknown>> {
-    return this.admin.revealMessage(messageId);
+    const revealed = await this.admin.revealMessage(messageId);
+    const results = await this.db.select().from(agentTaskResults).where(eq(agentTaskResults.messageId, normalizeUuid(messageId, 'message_id'))).orderBy(asc(agentTaskResults.createdAt));
+    return { ...revealed, task_results: results.map(r => ({ claim_id: r.claimId, created_at: r.createdAt, task_result: taskResultSchema.parse(JSON.parse(decrypt(r.bodyEnc, this.keyring))) })) };
   }
 
   async adminCancelConversation(conversationId: string, reason?: string | null): Promise<Record<string, unknown>> {
@@ -1288,10 +1331,25 @@ export class AgentMessagingService {
         // interactive wrapper is still attached. Receive-capable sessions
         // claim live; non-channel sessions leave work queued until they exit.
         if (skipReceiveCapable && target.currentSessionId) continue;
+        if (!skipReceiveCapable && await freshStartAllowed(tx, candidate, target)) {
+          await tx.update(agentBusMessages).set({ lastErrorCode: 'fresh_start_waiting_idle', updatedAt: now }).where(eq(agentBusMessages.id, candidate.id));
+          continue;
+        }
         if (candidate.kind === 'schedule') {
           const [run] = await tx.select().from(agentScheduleRuns).where(eq(agentScheduleRuns.messageId, candidate.id)).limit(1);
           const [schedule] = run ? await tx.select().from(agentSchedules).where(eq(agentSchedules.id, run.scheduleId)).limit(1) : [];
           if (!run || !schedule?.enabled || schedule.deletedAt || (skipReceiveCapable && !run.persistent)) continue;
+        }
+        if (candidate.executionContractVersion >= 2) {
+          let capabilities: Record<string, unknown> = jsonRecord(target.adapterCapabilities) ?? {};
+          if (relayGeneration != null) {
+            const [relay] = await tx.select().from(agentBusRelays).where(eq(agentBusRelays.id, relayIdFromLeaseOwner(leaseOwner)!)).limit(1);
+            capabilities = jsonRecord(relay?.capabilities ?? null) ?? {};
+          }
+          if (capabilities.execution_contract_version !== 2) {
+            await tx.update(agentBusMessages).set({ lastErrorCode: 'adapter_upgrade_required', updatedAt: now }).where(eq(agentBusMessages.id, candidate.id));
+            continue;
+          }
         }
         const attempts = candidate.attempts + 1;
         await tx
@@ -1332,6 +1390,7 @@ export class AgentMessagingService {
     });
     if (!result) return null;
     const delivery = deliveryView(result.message, this.decodeContent(result.message), result.sender, result.target);
+    if (await freshStartAllowed(this.db, result.message, result.target)) delivery.target.fresh_start_approved = true;
     if (result.message.kind === 'schedule') {
       const [run] = await this.db.select().from(agentScheduleRuns).where(eq(agentScheduleRuns.messageId, result.message.id)).limit(1);
       if (run) delivery.target = { ...delivery.target, schedule_id: run.scheduleId, schedule_run_id: run.id, schedule_persistent: run.persistent === 1, progress_timeout_seconds: run.progressTimeoutSeconds };
@@ -1361,6 +1420,8 @@ export class AgentMessagingService {
       if (!message || (message.status !== 'leased' && message.status !== 'accepted') || message.leaseOwner !== leaseOwner || message.claimId !== claimId) {
         throw new ConflictError('Message lease is no longer owned by this delivery', 'agent_messaging_lease_lost');
       }
+      const boundTarget = await this.requireAddressLocked(tx, message.targetAddressId);
+      if (message.targetBindingGeneration !== boundTarget.bindingGeneration || !message.leaseUntil || message.leaseUntil <= now) throw new ConflictError('Delivery lease or target binding changed', 'agent_messaging_lease_lost');
       const sessionId = sessionIdFromLeaseOwner(leaseOwner);
       if (sessionId) {
         const target = await this.requireAddressLocked(tx, message.targetAddressId);
@@ -1381,7 +1442,7 @@ export class AgentMessagingService {
 
   private async acknowledgeDelivery(
     messageId: string,
-    input: { claimId: string; outcome: AgentMessagingOutcome; upstreamSessionId?: string | null; errorCode?: string | null; error?: string | null },
+    input: { claimId: string; outcome: AgentMessagingOutcome; taskResult?: TaskResult; upstreamSessionId?: string | null; errorCode?: string | null; error?: string | null },
     leaseOwner: string,
     relayGeneration: number | null,
     deliverySessionId: string | null,
@@ -1405,10 +1466,21 @@ export class AgentMessagingService {
       if (message.leaseOwner !== leaseOwner || message.claimId !== claimId || (relayGeneration != null && message.relayGeneration !== relayGeneration)) {
         throw new ConflictError('Message lease is no longer owned by this delivery', 'agent_messaging_lease_lost');
       }
+      const currentTarget = await this.requireAddressLocked(tx, message.targetAddressId);
+      if (currentTarget.bindingGeneration !== message.targetBindingGeneration) {
+        throw new ConflictError('Agent address binding changed', 'agent_messaging_binding_stale');
+      }
+      if (input.taskResult && !message.workKind) throw new ValidationError('Only work deliveries accept a task result');
+      if (input.taskResult && input.outcome !== 'completed') throw new ValidationError('Task result requires completed transport');
       if (TERMINAL_MESSAGE_STATUSES.includes(message.status as (typeof TERMINAL_MESSAGE_STATUSES)[number])) {
+        if (input.taskResult) await storeTaskResult(tx, message, input.taskResult, this.keyring, now);
         return message;
       }
+      if (['accepted','completed'].includes(input.outcome) && (!message.leaseUntil || message.leaseUntil <= now)) throw new ConflictError('Delivery lease expired', 'agent_messaging_lease_lost');
       if (input.outcome === 'accepted' && message.status === 'accepted') return message;
+      if (input.outcome === 'accepted' && await freshStartAllowed(tx, message, currentTarget)) {
+        await tx.update(agentFreshStartGrants).set({ consumedAt: now, consumedClaimId: claimId }).where(eq(agentFreshStartGrants.messageId, message.id));
+      }
       if (input.outcome === 'accepted' && message.status !== 'leased') {
         throw new ConflictError('Only a leased message can be accepted', 'agent_messaging_ack_invalid');
       }
@@ -1451,6 +1523,11 @@ export class AgentMessagingService {
             ? { ...shared, status: 'dead', deadAt: now, lastErrorCode: errorCode ?? 'delivery_attempts_exhausted', leaseUntil: null }
             : { ...shared, status: 'queued', nextAttemptAt: isoOffsetSeconds(deliveryBackoffSeconds(message.attempts)), leaseOwner: null, leaseUntil: null, claimId: null, relayGeneration: null };
           break;
+      }
+      if (input.outcome === 'completed' && message.workKind) {
+        const report = await storeTaskResult(tx, message, input.taskResult ?? unknownTaskResult, this.keyring, now);
+        patch.taskResultStatus = report.status;
+        await this.conference.settleConferenceDispatchLocked(tx, message.id, now);
       }
       await tx.update(agentBusMessages).set(patch).where(eq(agentBusMessages.id, id));
       if (upstreamSessionId && input.outcome !== 'retry' && input.outcome !== 'dead') {

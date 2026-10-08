@@ -355,6 +355,9 @@ func newListenClient(messageID, conversationID string, requests *[]recordedReque
 		_ = json.Unmarshal(raw, &body)
 		*requests = append(*requests, recordedRequest{path: req.URL.Path, body: body})
 		payload := map[string]any{}
+		if strings.HasSuffix(req.URL.Path, "/ack") {
+			payload["message"] = map[string]any{"status": body["outcome"]}
+		}
 		if strings.HasSuffix(req.URL.Path, "/deliveries/claim") {
 			payload["delivery"] = map[string]any{
 				"message_id": messageID, "conversation_id": conversationID,
@@ -542,6 +545,9 @@ func TestClaudeChannelAcceptsThenCompletesOnlyAfterCorrelatedReply(t *testing.T)
 		_ = json.Unmarshal(raw, &body)
 		requests = append(requests, recordedRequest{path: req.URL.Path, body: body})
 		payload := map[string]any{}
+		if strings.HasSuffix(req.URL.Path, "/ack") {
+			payload["message"] = map[string]any{"status": body["outcome"]}
+		}
 		if strings.HasSuffix(req.URL.Path, "/deliveries/claim") {
 			payload["delivery"] = map[string]any{
 				"message_id": messageID, "conversation_id": conversationID,
@@ -595,6 +601,9 @@ func TestClaudeChannelWriteFailureIsAmbiguous(t *testing.T) {
 		_ = json.Unmarshal(raw, &body)
 		requests = append(requests, recordedRequest{path: req.URL.Path, body: body})
 		payload := map[string]any{}
+		if strings.HasSuffix(req.URL.Path, "/ack") {
+			payload["message"] = map[string]any{"status": body["outcome"]}
+		}
 		if strings.HasSuffix(req.URL.Path, "/deliveries/claim") {
 			payload["delivery"] = map[string]any{
 				"message_id":      messageID,
@@ -612,7 +621,7 @@ func TestClaudeChannelWriteFailureIsAmbiguous(t *testing.T) {
 		t.Fatal("channel writer failure was ignored")
 	}
 	got := ackOutcomes(requests)
-	if len(got) != 1 || got[0] != "ambiguous" {
+	if !reflect.DeepEqual(got, []string{"accepted", "ambiguous"}) {
 		t.Fatalf("writer failure outcomes = %v", got)
 	}
 }
@@ -648,7 +657,7 @@ func TestClaudeChannelActivatesOnlyAfterInitializedNotification(t *testing.T) {
 				<-req.Context().Done()
 				return nil, req.Context().Err()
 			}
-			return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{}`))}, nil
+			return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"message":{"status":"accepted"}}`))}, nil
 		})}
 		return client
 	}
@@ -961,7 +970,7 @@ func TestRelayHeartbeatContinuesWhileClaimIsBlocked(t *testing.T) {
 		switch {
 		case strings.HasSuffix(req.URL.Path, "/heartbeat"):
 			heartbeats.Add(1)
-			return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{}`))}, nil
+			return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"message":{"status":"accepted"}}`))}, nil
 		case strings.HasSuffix(req.URL.Path, "/deliveries/claim"):
 			startOnce.Do(func() { close(claimStarted) })
 			<-req.Context().Done()
@@ -993,7 +1002,7 @@ func TestRelayHeartbeatContinuesWhileClaimIsBlocked(t *testing.T) {
 	}
 }
 
-func TestMissingTranscriptFallsBackFreshWithoutSecondAcceptance(t *testing.T) {
+func TestMissingTranscriptStopsWithoutFreshFallback(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	if err := os.MkdirAll(filepath.Join(os.Getenv("HOME"), ".cxx", "agent", "locks"), 0o700); err != nil {
 		t.Fatal(err)
@@ -1012,7 +1021,7 @@ func TestMissingTranscriptFallsBackFreshWithoutSecondAcceptance(t *testing.T) {
 		var body map[string]any
 		_ = json.Unmarshal(raw, &body)
 		requests = append(requests, recordedRequest{path: req.URL.Path, body: body})
-		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{}`))}, nil
+		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"message":{"status":"accepted"}}`))}, nil
 	})}
 	runNativeAdapter = func(c *relayClient, ctx context.Context, _ *config.Config, delivery *relayDelivery, upstream string, alreadyAccepted bool) nativeResult {
 		invocations = append(invocations, invocation{upstream: upstream, alreadyAccepted: alreadyAccepted})
@@ -1038,14 +1047,14 @@ func TestMissingTranscriptFallsBackFreshWithoutSecondAcceptance(t *testing.T) {
 	}
 	if err := client.processDelivery(context.Background(), map[string]*config.Config{
 		config.EngineCodex: {Engine: config.EngineCodex},
-	}, delivery); err != nil {
-		t.Fatalf("process delivery: %v", err)
+	}, delivery); err == nil {
+		t.Fatal("missing transcript must stop execution")
 	}
-	wantInvocations := []invocation{{upstream: "missing-session"}, {alreadyAccepted: true}}
+	wantInvocations := []invocation{{upstream: "missing-session"}}
 	if !reflect.DeepEqual(invocations, wantInvocations) {
 		t.Fatalf("invocations = %+v, want %+v", invocations, wantInvocations)
 	}
-	if got := ackOutcomes(requests); !reflect.DeepEqual(got, []string{"accepted", "completed"}) {
+	if got := ackOutcomes(requests); !reflect.DeepEqual(got, []string{"accepted", "dead"}) {
 		t.Fatalf("fallback outcomes = %v", got)
 	}
 	var replies int
@@ -1057,7 +1066,7 @@ func TestMissingTranscriptFallsBackFreshWithoutSecondAcceptance(t *testing.T) {
 			}
 		}
 	}
-	if replies != 1 {
+	if replies != 0 {
 		t.Fatalf("reply calls = %d", replies)
 	}
 }

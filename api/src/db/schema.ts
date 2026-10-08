@@ -1818,6 +1818,10 @@ export const agentBusMessages = mysqlTable(
     sourceEngine: varchar('source_engine', { length: 16 }).notNull(),
     targetEngine: varchar('target_engine', { length: 16 }).notNull(),
     kind: varchar('kind', { length: 16 }).notNull().default('message'),
+    executionContractVersion: int('execution_contract_version', { unsigned: true }).notNull().default(1),
+    workKind: varchar('work_kind', { length: 16 }),
+    taskResultStatus: varchar('task_result_status', { length: 16 }),
+    executionVersion: int('execution_version', { unsigned: true }).notNull().default(1),
     contentEnc: longtext('content_enc').notNull(),
     contentBytes: int('content_bytes', { unsigned: true }).notNull(),
     clientMessageId: char('client_message_id', { length: 36 }).notNull(),
@@ -2231,6 +2235,8 @@ export const agentSchedules = mysqlTable('agent_schedules', {
   enabled: tinyint('enabled', { unsigned: true }).notNull().default(1),
   persistent: tinyint('persistent', { unsigned: true }).notNull().default(0),
   progressTimeoutSeconds: int('progress_timeout_seconds', { unsigned: true }),
+  maxRecoveryAttempts: int('max_recovery_attempts', { unsigned: true }),
+  pauseReason: varchar('pause_reason', { length: 100 }),
   nextDueAt: varchar('next_due_at', { length: 100 }),
   version: int('version', { unsigned: true }).notNull().default(1),
   createdBy: varchar('created_by', { length: 191 }).notNull(),
@@ -2246,6 +2252,8 @@ export const agentScheduleRuns = mysqlTable('agent_schedule_runs', {
   promptEnc: longtext('prompt_enc').notNull(),
   persistent: tinyint('persistent', { unsigned: true }).notNull().default(0),
   progressTimeoutSeconds: int('progress_timeout_seconds', { unsigned: true }),
+  maxRecoveryAttempts: int('max_recovery_attempts', { unsigned: true }),
+  warningAt: varchar('warning_at', { length: 100 }),
   retrySeconds: int('retry_seconds', { unsigned: true }).notNull(),
   dueAt: varchar('due_at', { length: 100 }).notNull(),
   status: varchar('status', { length: 32 }).notNull().default('waiting'),
@@ -2256,3 +2264,24 @@ export const agentScheduleRuns = mysqlTable('agent_schedule_runs', {
   createdAt: varchar('created_at', { length: 100 }).notNull(),
   updatedAt: varchar('updated_at', { length: 100 }).notNull(),
 }, t => ({ due: uniqueIndex('uq_agent_schedule_run_due').on(t.scheduleId, t.dueAt), message: uniqueIndex('uq_agent_schedule_run_message').on(t.messageId), status: index('idx_agent_schedule_runs_status').on(t.status, t.nextAttemptAt), schedule: index('idx_agent_schedule_runs_schedule').on(t.scheduleId, t.createdAt) }));
+
+export const agentTaskResults = mysqlTable('agent_task_results', {
+  id: char('id', { length: 36 }).primaryKey(),
+  messageId: char('message_id', { length: 36 }).notNull(),
+  claimId: char('claim_id', { length: 36 }).notNull(),
+  status: varchar('status', { length: 16 }).notNull(),
+  bodyEnc: longtext('body_enc').notNull(),
+  bodySha256: char('body_sha256', { length: 64 }).notNull(),
+  createdAt: varchar('created_at', { length: 100 }).notNull(),
+}, t => ({ claim: uniqueIndex('uq_agent_task_result_claim').on(t.messageId, t.claimId) }));
+export const agentFreshStartGrants = mysqlTable('agent_fresh_start_grants', {
+  messageId: char('message_id', { length: 36 }).primaryKey(),
+  targetAddressId: char('target_address_id', { length: 36 }).notNull(),
+  bindingGeneration: int('binding_generation', { unsigned: true }).notNull(),
+  executionVersion: int('execution_version', { unsigned: true }).notNull(),
+  reason: varchar('reason', { length: 500 }).notNull(),
+  approvedBy: varchar('approved_by', { length: 191 }).notNull(),
+  consumedClaimId: char('consumed_claim_id', { length: 36 }),
+  createdAt: varchar('created_at', { length: 100 }).notNull(),
+  consumedAt: varchar('consumed_at', { length: 100 }),
+});

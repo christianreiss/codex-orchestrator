@@ -1142,3 +1142,31 @@ Claude statusline reports inherit `CXX_PROVIDER_ACCOUNT_ID` and `CXX_PROVIDER_SE
 ## Wake / Cron and explicit persistent recovery
 
 The shared `wake-cron` Skill and `schedule_*` MCP tools support scheduled prompts and explicitly requested persistent native-session recovery. cxx 0.9.21 uses the existing per-user background worker, original cwd and engine-specific native resume adapter. A missing native transcript blocks recovery, without a fresh-session fallback. Linux supervision may terminate only its own child after a configured progress timeout and fresh policy/binding checks; active child tools and open operator prompts are protected. See [scheduling contract](interface-api.md#agent-wake--cron-schedules).
+
+### Work outcomes and recovery (execution contract v2)
+
+Wrapper 0.9.22 advertises `execution_contract_version: 2`. Newly queued requests,
+conference TASK dispatches and wakes wait for a compatible adapter; informational
+traffic and already accepted legacy executions remain compatible. The worker and
+live/listen adapters confirm durable acceptance before exposing work. Missing native
+transcripts stop ordinary jobs too: replacement requires an explicit operator request,
+then `agent_fresh_start_approve(message_id, version, reason)` or the admin fresh-start
+operation. Grants are bound to the message and target binding, consumed once on acceptance,
+and forbidden for schedules. Ordinary ambiguous executions are never automatically rerun.
+
+`agent_task_result(message_id, task_result)` completes accepted work; `agent_reply` may
+include the same result and completes work atomically with the reply. A result contains
+`status` (`succeeded|failed|blocked|unknown`), `summary` (4096 UTF-8 bytes maximum) and
+optional `evidence` (up to 20 `{description, reference}` objects). Bodies are encrypted;
+metadata lists only the status. Per-claim writes are idempotent; a different result conflicts.
+Native background final output is one JSON object with `content` and `task_result`.
+Missing/invalid reports, listening and successful process exit never imply task success.
+These are agent-reported outcomes, not independent verification.
+
+Persistent schedules optionally accept `max_recovery_attempts` (null: unlimited).
+Retries double from the base interval, cap at max(base, 1h), add 0–20% positive jitter
+and honor later provider reset times. Three failed recovery attempts raise a warning;
+exhausting the limit pauses the entire schedule with `pause_reason: recovery_limit_reached`.
+Explicit re-enabling starts a new run and counter; history remains. Domain failure alone
+never starts recovery. Pause/delete prevents pending attempts while accepted work continues.
+The canonical fleet AGENTS guidance and shared Wake / Cron Skill describe these rules.

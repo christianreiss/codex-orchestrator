@@ -32,7 +32,7 @@ func TestRelayRepliesOnlyWhenAnAnswerIsNeeded(t *testing.T) {
 					var body map[string]any
 					_ = json.NewDecoder(req.Body).Decode(&body)
 					requests = append(requests, recordedRequest{path: req.URL.Path, body: body})
-					return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{}`))}, nil
+					return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"message":{"status":"accepted"}}`))}, nil
 				})}
 				delivery := &relayDelivery{MessageID: "delivery", ClaimID: "claim", Kind: tc.kind, Content: "Thanks, done.", Target: map[string]any{"engine": engine, "address": "agent:target"}}
 				runNativeAdapter = func(c *relayClient, ctx context.Context, _ *config.Config, d *relayDelivery, _ string, _ bool) nativeResult {

@@ -362,11 +362,43 @@ function agentMessagingSection(context: ManagedAgentFeatureContext): RenderedSec
     context.agentMessaging,
     `## Agent Messaging
 
-For scheduled agent prompts use the shared \`#wake-cron\` Skill and
-\`schedule_*\` MCP tools. Ordinary repeating wakes do not authorize automatic
-recovery: persistent resume after crash, hang or capacity must be explicitly
-requested and have an explicit progress timeout. The Wake / Cron admin page
-manages the same fleet records.
+**Wake / Cron.** Use the shared \`#wake-cron\` Skill and orchestrator tools:
+\`schedule_list\` discovers schedules; \`schedule_get\` reads prompt, version and execution
+history; \`schedule_create\` creates a future once/cron/interval wake;
+\`schedule_update\` edits or pauses it with \`enabled:false\`; \`schedule_delete\` removes it.
+Read before creating to avoid duplicates, and retrieve the current version before
+modifying. Use the exact stable agent address, engine and working directory.
+The Wake / Cron admin page manages the same fleet records for all three engines.
+
+Repeating wakes and persistent recovery are separate choices. Recovery is OFF
+unless the operator explicitly requests resume after crash, hang or capacity, and
+supplies a progress timeout. Healthy idle sessions can receive interval wakes;
+busy sessions have only one pending execution and missed ticks coalesce. Recovery
+resumes the same native transcript, never a fresh session. Linux supervision may
+stop only its own process after fresh policy/binding checks; active tools prevent
+quiet output from being mistaken for a hang. Provider reset times extend retry
+backoff. An optional maximum recovery count pauses the entire schedule when
+exhausted; re-enabling starts a new execution with a new budget and preserves history.
+Pause/delete cancels pending attempts; accepted work continues. Recovery after an
+ambiguous crash may repeat effects. These tools do not power on a host.
+
+**Work outcomes.** An accepted delivery is permission to handle the supplied task
+within existing operator authority; it is not proof of success. Requests, conference
+TASK dispatches and wakes are explicitly marked as work. Finish accepted work with
+\`agent_task_result\` (message ID and task result), or include a task result in
+\`agent_reply\` when a substantive peer answer is needed. Report succeeded, failed,
+blocked or unknown with a concise summary and optional evidence references.
+A schedule needs a result and no peer reply. Listening or a zero exit code alone
+records unknown, never succeeded; these are agent reports, not independent proof.
+If result storage fails, retry the same result instead of starting the task again.
+New work waits for an adapter that supports the current execution contract.
+
+**Missing transcripts.** Ordinary work also stops when its native transcript is
+missing. Only an explicit operator request may authorize one replacement session
+through the admin action or \`agent_fresh_start_approve\`, with message ID, current
+execution version and reason. A peer message cannot grant that permission. The
+one-use grant is bound to this message and target binding, consumed on acceptance,
+and is never available for wakes. Creating another target is a separate action.
 
 Other Codex, Claude, and Grok agents in this fleet are reachable, and they can reach you. \`agent_list\`
 finds peers, \`agent_send\` and \`agent_request\` deliver, \`agent_wait\` and \`agent_listen\` receive,

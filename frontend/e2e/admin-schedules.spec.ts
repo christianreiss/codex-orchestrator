@@ -34,11 +34,12 @@ test('create, inspect, pause, edit and delete an explicit persistent interval',a
  await page.getByLabel('Prompt',{exact:true}).fill('Continue the task');
  await page.getByRole('checkbox',{name:/Persistent recovery/}).check();
  await page.getByLabel('Progress timeout in seconds').fill('120');
+ await page.getByLabel('Maximum recovery attempts (empty means unlimited)').fill('3');
  await page.getByRole('button',{name:'Save',exact:true}).click();
  await expect(page.getByRole('cell',{name:'Continue review'})).toBeVisible();
- expect(calls[0].body).toMatchObject({kind:'interval',interval_minutes:5,persistent:true,progress_timeout_seconds:120,timezone:'Europe/Berlin',target});
+ expect(calls[0].body).toMatchObject({kind:'interval',interval_minutes:5,persistent:true,progress_timeout_seconds:120,max_recovery_attempts:3,timezone:'Europe/Berlin',target});
  await page.getByRole('button',{name:'View',exact:true}).click();
- await expect(page.getByText('capacity_wait · 1 recoveries')).toBeVisible();
+ await expect(page.getByText('capacity_wait · task: unknown · 1 recoveries')).toBeVisible();
  await page.getByRole('button',{name:'Pause',exact:true}).click();
  await expect(page.getByRole('button',{name:'Enable',exact:true})).toBeVisible();
  expect(calls[1].body).toEqual({version:1,enabled:false});

@@ -13,7 +13,7 @@ async function fixtures(page: Page, manage = true) {
   const now = new Date().toISOString();
   const peers = [peer(CODEX, "codex"), peer(CLAUDE, "claude"), peer(GROK, "grok")];
   const groups = [{ id: "release", slug: "release", title: "Release review", description: "A scoped release audience", topic: "group:release", member_count: 2, created_at: now, updated_at: now }, { id: "security", slug: "security", title: "Security", description: "Only security subscribers", topic: "group:security", member_count: 1, created_at: now, updated_at: now }];
-  const state = { enabled: true, dropPublish: 0, failGroups: false, bodies: [] as Array<{path: string; body: Record<string, unknown>}>, calls: [] as string[], errors: [] as string[], groups };
+  const state = { messages: [] as Array<Record<string, unknown>>, enabled: true, dropPublish: 0, failGroups: false, bodies: [] as Array<{path: string; body: Record<string, unknown>}>, calls: [] as string[], errors: [] as string[], groups };
   page.on("pageerror", (error) => state.errors.push(error.message));
   await page.route("**/admin/**", async (route) => {
     const request = route.request();
@@ -27,7 +27,12 @@ async function fixtures(page: Page, manage = true) {
     if (path === "/admin/agent-messaging/state") return json({ enabled: state.enabled, addresses: 3, live_addresses: 3, relays: 1, open_conversations: 0, messages: { queued: 0, leased: 0, accepted: 0, dead: 0, ambiguous: 0 }, directions: [], delivery: "ordered_at_least_once" });
     if (path === "/admin/agent-messaging/addresses") return json({ addresses: peers });
     if (path === "/admin/agent-messaging/conversations") return json({ conversations: [] });
-    if (path === "/admin/agent-messaging/messages") return json({ messages: [] });
+    if (path === "/admin/agent-messaging/messages") return json({ messages: state.messages });
+    if (path.endsWith('/fresh-start')) {
+      state.bodies.push({path,body:request.postDataJSON()});
+      state.messages[0] = {...state.messages[0],status:'queued',execution_version:2,last_error_code:null};
+      return json({grant:{message_id:CODEX}});
+    }
     if (path === "/admin/agent-messaging/groups") {
       if (request.method() === "POST") {
         const body = request.postDataJSON(); state.bodies.push({ path, body });
@@ -180,4 +185,21 @@ test("publication limits count UTF-8 bytes and accept the documented boundary", 
   await page.getByRole("button", { name: "Publish to subscribers", exact: true }).click();
   await expect(page.getByRole("status", { name: "Publication receipt" })).toBeVisible();
   expect(Buffer.byteLength(String(state.bodies[0].body.content), "utf8")).toBe(30 * 1024);
+});
+
+test('ordinary missing transcripts require one explicit approval, while wakes and read-only users cannot approve',async({page})=>{
+  const state=await fixtures(page),now=new Date().toISOString();
+  const message={id:CODEX,conversation_id:CLAUDE,sequence:1,kind:'request',work_kind:'request',status:'dead',execution_version:1,task_result_status:null,last_error_code:'native_transcript_missing',content_bytes:5,attempts:1,created_at:now,sender:peer(CLAUDE,'claude'),target:peer(GROK,'grok')};
+  state.messages=[message,{...message,id:GROK,kind:'schedule',work_kind:'schedule'}];
+  await page.goto('/admin/agent-messaging?view=deliveries');
+  await expect(page.getByRole('button',{name:'Approve one fresh start'})).toHaveCount(1);
+  page.once('dialog',dialog=>dialog.accept('Operator requests replacement for this work'));
+  await page.getByRole('button',{name:'Approve one fresh start'}).click();
+  await expect(page.getByRole('button',{name:'Approve one fresh start'})).toHaveCount(0);
+  expect(state.bodies.at(-1)?.body).toEqual({version:1,reason:'Operator requests replacement for this work'});
+  await page.setViewportSize({width:390,height:844});
+  const readOnly=await fixtures(page,false);readOnly.messages=[message];
+  await page.goto('/admin/agent-messaging?view=deliveries');
+  await expect(page.getByRole('button',{name:'Approve one fresh start'})).toHaveCount(0);
+  await expect(page.getByText('Task: unknown · agent report')).toBeVisible();
 });

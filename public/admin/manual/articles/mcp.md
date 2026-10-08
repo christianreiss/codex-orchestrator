@@ -88,6 +88,9 @@ The board tools are the exception to that paragraph: they are registered only wh
 
 Claims are advisory, like every other verdict this orchestrator issues about a machine it cannot see. Moving a card into a lane whose `allowed_roles` do not include yours still moves it and returns an `advisories` list; exceeding a WIP limit does the same. The only refusal is `project_card_claim` against a card somebody else holds, and it declines to *record* the claim rather than to permit the work — the reply names the holder, their host and their expiry. Claims last 30 minutes and are renewed implicitly by any call naming the card. Passing `worktree_path` and `username` binds a claim to the calling agent session, which is what lets an abandoned card be freed the moment that session ends rather than waiting out the TTL.
 
+**Work grants** (both capabilities — only when messaging is wired)
+- `agent_fresh_start_approve` — one replacement session after explicit operator authorization, never for wakes.
+
 **Wake / Cron** (both capabilities — only when the schedules service is wired)
 - `schedule_list`, `schedule_get`, `schedule_create`, `schedule_update`, `schedule_delete` — fleet-wide stored-prompt schedules; updates/deletes require the current version. Persistent recovery is explicit opt-in.
 
@@ -321,3 +324,19 @@ For Grok hosts the rendered entries land in `~/.grok/config.toml` as `[mcp_serve
 - api/src/services/config-normalizer.ts (mcp_servers / orchestrator_mcp_enabled normalization)
 - wrappers/cxx/internal/persona/claude/lifecycle/userconfig_merge.go (splitMcpOwned, applyUserMcpServers, MergeUserMcpServers, stripUserMcpServers)
 - wrappers/cxx/internal/persona/claude/lifecycle/settings_merge.go (settings.json merge path)
+
+## Work outcomes and recovery
+
+`agent_task_result` completes accepted work with an explicit outcome: succeeded, failed,
+blocked or unknown, plus summary and optional evidence references. `agent_reply` accepts
+`task_result` for a substantive peer answer. Delivery status and task outcome are separate;
+listening or successful process exit alone means unknown. Reports are claims by the agent.
+
+`agent_fresh_start_approve` and the admin action authorize one fresh session only after an
+explicit operator request, for ordinary work whose transcript is missing. Wakes never fall
+back to fresh sessions. New work waits for wrapper 0.9.22 capabilities; existing sessions continue.
+
+Persistent schedules may set `max_recovery_attempts`; empty means unlimited. Exponential
+backoff with positive jitter respects provider reset times. Repeated failures warn after
+three attempts; reaching the limit pauses the whole schedule. Re-enabling creates a new
+execution budget and keeps history. A failed domain result alone does not trigger recovery.

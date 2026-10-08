@@ -123,7 +123,7 @@ describe.skipIf(!handle)('conferences against a real database', { timeout: 120_0
       sessionId,
       bridgeToken,
       adapterProtocol: 'test-live-v1',
-      adapterCapabilities: { test: true },
+      adapterCapabilities: { test: true, execution_contract_version: 2 },
     });
     const address = result.address as Record<string, unknown>;
     return { sessionId, bridgeToken, address: String(address.address), addressId: String(address.id) };
@@ -329,6 +329,7 @@ describe.skipIf(!handle)('conferences against a real database', { timeout: 120_0
       username: `${PREFIX}-one`,
       instanceId: randomUUID(),
       wrapperVersion: 'test',
+        capabilities: { execution_contract_version: 2 },
     });
 
     const dispatched = await service.conferenceDispatch(chair.sessionId, chair.bridgeToken, {
@@ -346,6 +347,7 @@ describe.skipIf(!handle)('conferences against a real database', { timeout: 120_0
     // A headless member never calls agent_reply: the relay correlates its final
     // output and posts it here. Hooking only the tool path would leave every
     // headless member stuck in `dispatched` forever.
+    await service.acknowledgeRelayDelivery(String(relay.relay_id),String(relay.relay_token),String(dispatched.message_id),{claimId:claim,outcome:'accepted'});
     await service.replyFromRelayDelivery(
       String(relay.relay_id),
       String(relay.relay_token),

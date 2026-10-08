@@ -1,3 +1,4 @@
+import { createAgentMessagingService } from '../../services/agent-messaging.js';
 /**
  * MCP transport routes.
  *
@@ -118,6 +119,7 @@ export async function registerMcpRoutes(app: FastifyInstance, ctx: RouteContext)
   const resources = new McpResourcesService({ memories, sharedMemories, projects, skills });
   const tools = new McpToolsRegistry({
     schedules: new SchedulesService(ctx.db, ctx.keyring),
+    taskMessaging: createAgentMessagingService(ctx.db, ctx.env, ctx.keyring),
     memories,
     sharedMemories,
     projects,

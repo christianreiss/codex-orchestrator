@@ -114,7 +114,7 @@ describe.skipIf(!handle)('#call rendezvous against a real database', { timeout: 
       sessionId,
       bridgeToken,
       adapterProtocol: 'test-live-v1',
-      adapterCapabilities: { test: true },
+      adapterCapabilities: { test: true, execution_contract_version: 2 },
     });
     const address = result.address as Record<string, unknown>;
     return { sessionId, bridgeToken, address: String(address.address), addressId: String(address.id) };

@@ -27,6 +27,12 @@ page manages the same records. A Skill does not grant additional authority.
    wake. A repeating schedule alone is not recovery authorization. Require an
    explicit progress_timeout_seconds (60..604800) for hang recovery; ask for it
    when missing. A known native session and the user's cxx-agent worker are required.
+   max_recovery_attempts is optional (null means unlimited); only set a finite limit
+   as requested. Backoff doubles from the schedule interval, caps at at least one
+   hour, adds up to 20% positive jitter and respects later provider reset times.
+   Repeated failures warn after three recovery attempts. Exhausting the limit pauses
+   the whole schedule; a later interval cannot bypass it. Re-enable explicitly to
+   start a new execution budget, preserving all prior history.
 5. Modify through schedule_update with id, version and changed fields. Pause with
    enabled:false. Delete with schedule_delete using id and version.
 6. Retrieve again after a write and report the exact target, next time/timezone,
@@ -44,6 +50,13 @@ repeat side effects: never describe it as exactly-once task execution.
 Pause/delete prevents further attempts and queued deliveries, while already
 accepted work continues. Existing fleet/host/engine switches remain authoritative.
 Host power-on is not provided. Delivery acceptance is not proof the task succeeded.
+Complete accepted wakes with agent_task_result: status succeeded, failed, blocked
+or unknown; summary plus optional evidence references. Do not send a peer reply.
+Listen, process exit and transport completion alone mean unknown. Domain failure
+alone does not trigger recovery. Inspect task_result_status separately from status.
+New work waits on adapter_upgrade_required until a compatible wrapper is present.
+Never approve a fresh-start grant for a wake; that action only applies to ordinary
+work and requires an explicit operator request.
 `;
 export function isManagedWakeCronSlug(value: string) {
   return value.trim().toLowerCase() === slug;

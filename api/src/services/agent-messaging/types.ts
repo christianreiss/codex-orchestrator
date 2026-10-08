@@ -24,11 +24,17 @@ export interface RegisterMessagingSessionInput {
   requestedAddress?: string | null;
   expectedBindingGeneration?: number | null;
   continuity?: 'native' | 'reset';
+  deliveryMessageId?: string;
+  deliveryClaimId?: string;
   adapterProtocol?: string | null;
   adapterCapabilities?: Record<string, unknown> | null;
 }
 
 export interface MessageDelivery {
+  execution_contract_version: number;
+  work_kind: string | null;
+  task_result_status: string | null;
+  execution_version: number;
   message_id: string;
   conversation_id: string;
   sequence: number;

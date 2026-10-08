@@ -1,3 +1,4 @@
+import { recoveryDelaySeconds } from './schedules/recovery.js';
 import { randomUUID } from 'node:crypto';
 import { and, asc, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { z } from 'zod';
@@ -56,6 +57,7 @@ export class SchedulesService {
       enabled: !!row.enabled,
       persistent: !!row.persistent,
       progress_timeout_seconds: row.progressTimeoutSeconds,
+      max_recovery_attempts: row.maxRecoveryAttempts,
     };
   }
   private view(row: Schedule, reveal = false) {
@@ -65,6 +67,7 @@ export class SchedulesService {
       ...(reveal ? { prompt } : {}),
       id: row.id,
       next_due_at: row.nextDueAt,
+      pause_reason: row.pauseReason,
       version: row.version,
       created_by: row.createdBy,
       updated_by: row.updatedBy,
@@ -110,6 +113,22 @@ export class SchedulesService {
       .where(eq(agentScheduleRuns.scheduleId, id))
       .orderBy(desc(agentScheduleRuns.createdAt))
       .limit(100);
+    const messages = runs.some((r) => r.messageId)
+      ? await this.db
+          .select({
+            id: agentBusMessages.id,
+            result: agentBusMessages.taskResultStatus,
+            status: agentBusMessages.status,
+            reason: agentBusMessages.lastErrorCode,
+          })
+          .from(agentBusMessages)
+          .where(
+            inArray(
+              agentBusMessages.id,
+              runs.flatMap((r) => (r.messageId ? [r.messageId] : [])),
+            ),
+          )
+      : [];
     return {
       schedule: this.view(row, true),
       runs: runs.map((r) => ({
@@ -119,6 +138,11 @@ export class SchedulesService {
         message_id: r.messageId,
         persistent: !!r.persistent,
         recovery_count: r.recoveryCount,
+        max_recovery_attempts: r.maxRecoveryAttempts,
+        warning_at: r.warningAt,
+        task_result_status: messages.find((m) => m.id === r.messageId)?.result ?? null,
+        transport_status: messages.find((m) => m.id === r.messageId)?.status ?? null,
+        delivery_reason: messages.find((m) => m.id === r.messageId)?.reason ?? null,
         next_attempt_at: r.nextAttemptAt,
         last_error: r.lastError,
         updated_at: r.updatedAt,
@@ -138,6 +162,7 @@ export class SchedulesService {
       enabled: Number(v.enabled),
       persistent: Number(v.persistent),
       progressTimeoutSeconds: v.progress_timeout_seconds ?? null,
+      maxRecoveryAttempts: v.max_recovery_attempts ?? null,
     };
   }
   private first(v: ScheduleInput, now: Date) {
@@ -198,6 +223,7 @@ export class SchedulesService {
         .update(agentSchedules)
         .set({
           ...this.values(v),
+          pauseReason: v.enabled ? null : row.pauseReason,
           nextDueAt: next,
           version: version + 1,
           updatedBy: actor,
@@ -313,6 +339,7 @@ export class SchedulesService {
               persistent: schedule.persistent,
               progressTimeoutSeconds: schedule.progressTimeoutSeconds,
               retrySeconds: (schedule.intervalMinutes ?? 5) * 60,
+              maxRecoveryAttempts: schedule.maxRecoveryAttempts,
               dueAt: schedule.nextDueAt,
               nextAttemptAt: timestamp,
               createdAt: timestamp,
@@ -363,11 +390,36 @@ export class SchedulesService {
         });
         return;
       }
+      if (run.maxRecoveryAttempts != null && run.recoveryCount >= run.maxRecoveryAttempts) {
+        await tx
+          .update(agentSchedules)
+          .set({
+            enabled: 0,
+            pauseReason: 'recovery_limit_reached',
+            version: sql`${agentSchedules.version} + 1`,
+            updatedAt: timestamp,
+          })
+          .where(eq(agentSchedules.id, run.scheduleId));
+        await set({ status: 'blocked', lastError: 'recovery_limit_reached' });
+        return;
+      }
+      if (run.recoveryCount >= 3 && !run.warningAt) {
+        await set({ warningAt: timestamp });
+        wsPublisher.publish('schedules.recovery.warning', {
+          schedule_id: run.scheduleId,
+          run_id: run.id,
+          recovery_count: run.recoveryCount,
+        });
+      }
       if (!['recovering', 'capacity_wait'].includes(run.status)) {
         await set({
           status: message.lastErrorCode === 'schedule_capacity' ? 'capacity_wait' : 'recovering',
           lastError: message.lastErrorCode ?? message.status,
-          nextAttemptAt: this.retryAt(message.lastErrorEnc, run.retrySeconds, now),
+          nextAttemptAt: this.retryAt(
+            message.lastErrorEnc,
+            recoveryDelaySeconds(run.retrySeconds, run.recoveryCount),
+            now,
+          ),
         });
         return;
       }

@@ -280,6 +280,7 @@ describe('the exceptions are exceptions, not holes', () => {
       'POST /admin/agent-messaging/conversations/:id/cancel',
       'POST /admin/agent-messaging/groups',
       'POST /admin/agent-messaging/groups/:slug/publish',
+      'POST /admin/agent-messaging/messages/:id/fresh-start',
       'POST /admin/agent-messaging/messages/:id/redrive',
       'POST /admin/agent-messaging/publish',
       'POST /admin/agent-messaging/state',

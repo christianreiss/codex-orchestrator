@@ -41,6 +41,7 @@ const ALL_DEPS = {
   transfers: {},
   board: {},
   schedules: {},
+  taskMessaging: {},
 } as unknown as ToolDeps;
 
 // 'operator' sees the host tools too, so this is the whole registry.
@@ -60,6 +61,10 @@ const IDENTIFIER = /[a-z][a-z0-9]*(?:_(?:[a-z0-9]+|\*))+/g;
  * reason each one is there. Anything not listed here has to be a live tool.
  */
 const NON_TOOL_TOKENS: Record<string, string> = {
+ max_recovery_attempts: 'optional recovery budget argument',
+ task_result_status: 'domain outcome metadata field',
+ adapter_upgrade_required: 'queued delivery reason when its adapter lacks contract v2',
+
   next_cursor: 'schedule_list pagination response field, not a tool',
   interval_minutes: 'schedule timing argument, not a tool',
   progress_timeout_seconds: 'explicit recovery timeout argument, not a tool',

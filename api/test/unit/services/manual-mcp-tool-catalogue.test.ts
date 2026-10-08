@@ -39,6 +39,7 @@ const GROUPS = [
   'Skills',
   'Projects',
   'Project board',
+  'Work grants',
   'Wake / Cron',
 ];
 
@@ -97,6 +98,7 @@ const ALL_DEPS = {
   transfers: {},
   board: {},
   schedules: {},
+  taskMessaging: {},
 } as unknown as ToolDeps;
 
 /** The same registry with the shared-memory service left out, as `ToolDeps` allows. */

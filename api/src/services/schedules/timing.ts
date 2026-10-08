@@ -18,6 +18,7 @@ export const scheduleInput = z
     timezone: z.string().max(100).default('Europe/Berlin'),
     enabled: z.boolean().default(true),
     persistent: z.boolean().default(false),
+    max_recovery_attempts: z.number().int().min(1).max(10000).nullable().optional(),
     progress_timeout_seconds: z.number().int().min(60).max(604_800).nullable().optional(),
   })
   .strict()
@@ -46,6 +47,7 @@ export const scheduleInput = z
     }
     if (v.persistent && !v.progress_timeout_seconds)
       error('Persistent recovery requires an explicit progress timeout');
+    if (!v.persistent && v.max_recovery_attempts) error('Recovery limit requires persistent recovery');
     if (!v.persistent && v.progress_timeout_seconds) error('Progress timeout requires persistent recovery');
   });
 export type ScheduleInput = z.infer<typeof scheduleInput>;

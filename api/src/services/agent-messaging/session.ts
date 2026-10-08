@@ -15,6 +15,9 @@ import { and, asc, desc, eq, isNull, ne } from 'drizzle-orm';
 import type { Database } from '../../db/client.js';
 import {
   agentBusAddresses,
+  agentBusMessages,
+  agentBusRelays,
+  agentFreshStartGrants,
   agentSessions,
   hosts,
   type AgentBusAddress,
@@ -304,6 +307,22 @@ export class SessionRegistry {
           bindingGeneration: nextGeneration,
           continuity: nextContinuity,
         };
+      }
+      if (input.deliveryMessageId && input.deliveryClaimId) {
+        const [delivery] = await tx.select().from(agentBusMessages).where(eq(agentBusMessages.id, input.deliveryMessageId)).limit(1).for('update');
+        if (!delivery || !delivery.leaseUntil || delivery.leaseUntil <= now || delivery.targetAddressId !== address.id || delivery.claimId !== input.deliveryClaimId || delivery.status !== 'accepted' || !delivery.leaseOwner?.startsWith('relay:') || delivery.targetBindingGeneration !== input.expectedBindingGeneration) {
+          throw new ConflictError('Native delivery no longer owns its target', 'agent_messaging_lease_lost');
+        }
+        if (delivery.workKind && (!input.upstreamSessionId || input.upstreamSessionId !== delivery.deliveryUpstreamSessionId || input.continuity === 'reset')) {
+          const [grant] = await tx.select().from(agentFreshStartGrants).where(eq(agentFreshStartGrants.messageId, delivery.id)).limit(1);
+          if (delivery.kind === 'schedule' || !grant || grant.consumedClaimId !== delivery.claimId || grant.targetAddressId !== address.id || grant.executionVersion !== delivery.executionVersion) {
+            throw new ConflictError('Native replacement was not authorized for this delivery', 'agent_fresh_start_not_authorized');
+          }
+        }
+        const relayId = delivery.leaseOwner!.split(':')[1]!;
+        const [relay] = await tx.select().from(agentBusRelays).where(eq(agentBusRelays.id, relayId)).limit(1).for('update');
+        if (!relay || relay.status !== 'active' || relay.generation !== delivery.relayGeneration || relay.hostId !== host.id || relay.username !== username) throw new ConflictError('Relay generation changed', 'agent_messaging_lease_lost');
+        await tx.update(agentBusMessages).set({ targetBindingGeneration: address.bindingGeneration, deliverySessionId: sessionId }).where(eq(agentBusMessages.id, delivery.id));
       }
       await tx
         .update(agentSessions)

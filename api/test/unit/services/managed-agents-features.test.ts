@@ -93,9 +93,9 @@ describe('served document byte invariance', () => {
     expect(base.sha256).toBe('30abaea24c8809d8634670f0eceb3004aabb4eafb5416c78333c719e8b67e14b');
     expect(out.policy_sha256).toBe('3d8a8c754d80369c46a16c3350db8461520d3ae14b1de7ac03ad9454925ad5e5');
     // 2026-10-08: add managed Wake/Cron guidance with explicit recovery opt-in.
-    expect(out.features_sha256).toBe('9974157363969db7fad0c2874c2ee1379fdfa0e7cb3ee5ed3c71755f1c800e12');
-    expect(out.managed_sha256).toBe('f45ca2f3385a370d3781a1024cece160802f743f4abf6b76fb696a4cfa6e1e46');
-    expect(sha256(out.body)).toBe('42d7ce6054ed3177c710a86b3ada310a1fd15df41161d08d031b95bad0cffbb1');
+    expect(out.features_sha256).toBe('859dc36bfe5cec644df8e427621f941464085704428c21ba88709f1b19729b95');
+    expect(out.managed_sha256).toBe('c0759fd672559a89808406214915c19b19e13ac2606f8b5bb1fa0f6604ecdd71');
+    expect(sha256(out.body)).toBe('ee333cffc64806c46ee5fdcfd229b09de6d20b8716d0458663b530439c4090e2');
   });
 });
 

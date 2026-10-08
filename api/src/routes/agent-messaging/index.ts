@@ -1,3 +1,4 @@
+import { taskResultSchema, type TaskResult } from '../../services/agent-messaging/task-execution.js';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 
@@ -170,6 +171,10 @@ export async function registerAgentMessagingRoutes(
       return result;
     },
   );
+  app.post('/admin/agent-messaging/messages/:id/fresh-start', { preHandler: app.requireAdmin }, async req => {
+    const body = z.object({ version: z.number().int().positive(), reason: z.string().trim().min(1).max(500) }).strict().parse(req.body);
+    return messaging.approveMessageFreshStart(stringParam(req.params, 'id'), body.version, body.reason, `admin:${actor(req)}`);
+  });
   app.post(
     '/admin/agent-messaging/messages/:id/redrive',
     { preHandler: app.requireAdmin },
@@ -232,13 +237,15 @@ export async function registerAgentMessagingRoutes(
     const id = stringParam(req.params, 'id');
     const token = requireToken(req, BRIDGE_TOKEN_HEADER, 'agent_bridge_token_required');
     const body = z
-      .object({ message_id: z.string().uuid(), content: z.string(), client_message_id: z.string().uuid(), ttl_seconds: z.number().int().nullable().optional() })
+      .object({ message_id: z.string().uuid(), content: z.string(), client_message_id: z.string().uuid(), ttl_seconds: z.number().int().nullable().optional(), claim_id: z.string().uuid().optional(), task_result: taskResultSchema.optional() })
       .strict()
       .parse(req.body ?? {});
     return await messaging.replyMessage(id, token, body.message_id, {
       content: body.content,
       clientMessageId: body.client_message_id,
       ttlSeconds: body.ttl_seconds,
+      claimId: body.claim_id,
+      taskResult: body.task_result,
     });
   });
   app.post('/host/agent-sessions/:id/agent-messaging/wait', async (req, reply) => {
@@ -509,6 +516,7 @@ export async function registerAgentMessagingRoutes(
       .object({
         claim_id: z.string().uuid(),
         content: z.string(),
+        task_result: taskResultSchema.optional(),
         client_message_id: z.string().uuid(),
         delivery_session_id: z.string().uuid().nullable().optional(),
         upstream_session_id: z.string().nullable().optional(),
@@ -518,6 +526,7 @@ export async function registerAgentMessagingRoutes(
     return await messaging.replyFromRelayDelivery(id, token, messageId, {
       claimId: body.claim_id,
       content: body.content,
+      taskResult: body.task_result,
       clientMessageId: body.client_message_id,
       deliverySessionId: body.delivery_session_id,
       upstreamSessionId: body.upstream_session_id,
@@ -539,6 +548,7 @@ const deliveryAckSchema = z
   .object({
     claim_id: z.string().uuid(),
     outcome: z.enum(['accepted', 'completed', 'retry', 'dead', 'ambiguous']),
+    task_result: taskResultSchema.optional(),
     upstream_session_id: z.string().nullable().optional(),
     error_code: z.string().nullable().optional(),
     error: z.string().nullable().optional(),
@@ -548,6 +558,7 @@ const deliveryAckSchema = z
 function ackInput(body: z.infer<typeof deliveryAckSchema>): {
   claimId: string;
   outcome: AgentMessagingOutcome;
+  taskResult?: TaskResult;
   upstreamSessionId?: string | null;
   errorCode?: string | null;
   error?: string | null;
@@ -555,6 +566,7 @@ function ackInput(body: z.infer<typeof deliveryAckSchema>): {
   return {
     claimId: body.claim_id,
     outcome: body.outcome,
+    taskResult: body.task_result,
     upstreamSessionId: body.upstream_session_id,
     errorCode: body.error_code,
     error: body.error,

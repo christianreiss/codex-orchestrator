@@ -173,6 +173,7 @@ export const DEFAULT_INVALIDATIONS: WsInvalidationMap = {
   "agent_portal.session.force_closed": [["agent-sessions"]],
 
   // Agent Messaging state, address discovery, relays and delivery lifecycle.
+  "schedules.recovery.warning": [["schedules"]],
   "schedules.changed": [["schedules"]],
   "agent_messaging.state.changed": [["agent-messaging"]],
   "agent_messaging.host.changed": [["agent-messaging"], ["hosts"]],
