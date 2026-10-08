@@ -462,6 +462,7 @@ export async function registerAuthRoutes(app: FastifyInstance, ctx: RouteContext
     const agentsDigest = typeof payload.agents === 'string' ? (payload.agents as string) : null;
     const configDigest = typeof payload.config === 'string' ? (payload.config as string) : null;
     out.agents = await agentsService.retrieve(agentsDigest, enforced, engine);
+    out.memory_routing = (out.agents as Record<string, unknown>).memory_routing;
     out.config = await agentsService.retrieveConfig(configDigest, enforced, engine, {
       home: typeof payload.home === 'string' ? payload.home : null,
       username: typeof payload.username === 'string' ? payload.username : null,

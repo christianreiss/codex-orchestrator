@@ -29,6 +29,15 @@
             "update"
           ]
         },
+        "memory_routing": {
+          "type": "object",
+          "required": ["enabled", "content"],
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "content": { "type": "string" }
+          },
+          "additionalProperties": false
+        },
         "engine": {
           "enum": [
             "codex",

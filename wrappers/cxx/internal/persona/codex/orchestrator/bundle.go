@@ -13,6 +13,8 @@ import (
 	"encoding/json"
 	"net/http"
 
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/memoryrouting"
+
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/skillstore"
 )
 
@@ -47,11 +49,12 @@ type BundleRequest struct {
 // There is intentionally no Host field here; don't add one back without
 // confirming the server side actually populates it.
 type BundleResponse struct {
-	Status  string                `json:"status"`
-	Reasons []string              `json:"reasons,omitempty"`
-	Auth    *AuthRetrieveResponse `json:"auth,omitempty"`
-	Agents  json.RawMessage       `json:"agents,omitempty"`
-	Config  json.RawMessage       `json:"config,omitempty"`
+	MemoryRouting *memoryrouting.Bundle `json:"memory_routing,omitempty"`
+	Status        string                `json:"status"`
+	Reasons       []string              `json:"reasons,omitempty"`
+	Auth          *AuthRetrieveResponse `json:"auth,omitempty"`
+	Agents        json.RawMessage       `json:"agents,omitempty"`
+	Config        json.RawMessage       `json:"config,omitempty"`
 	// ConfigProfiles is the `profiles` list of the config block (Codex profile
 	// sidecar files), read by unwrapResources before Config is flattened to its
 	// body. Nil means the server sent none.

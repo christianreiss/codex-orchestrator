@@ -1641,3 +1641,37 @@ Messaging and target-host/engine eligibility gates apply to every surface.
 Launch registration adds `address.name` and `name_status`
 (`assigned|unavailable`); agent-address projections add nullable `name`.
 Session snapshots add nullable `launch_name`, `task_title`, `session_name`.
+
+## Native memory reminders (cxx 0.9.35)
+
+Managed startup, `sync`, and the content-only cron pass maintain a short MCP
+routing reminder at native memory entrypoints. It tells agents to look up fleet
+knowledge with `shared_memory_list/search/read`, save it with
+`shared_memory_write/append`, and use `project_bootstrap` / `project_memory_*`
+for project context. Host-scoped `memory_*` remains scratch.
+
+The API sends `memory_routing: { enabled: boolean, content: string }` in
+`POST /sync/bootstrap`, using the same effective per-host, per-engine MCP gate
+as managed agent guidance. Agents retrieval metadata also includes that object,
+even for a missing canonical document or an unchanged document digest. Missing
+configuration disables the reminder; native memory generation/use switches are
+never changed. Older servers omitting the field leave existing reminders alone.
+
+The wrapper owns only `<!-- cxx:memory-routing:start -->` through
+`<!-- cxx:memory-routing:end -->` and its separator. It prepends or replaces that
+block, retaining all other bytes and existing file permissions. Duplicate managed
+blocks converge to one; malformed markers, nonregular files and detected
+concurrent edits fail the managed sync instead of discarding notes. Writes use
+an engine-home lock, temporary file and final re-read before rename; native
+writers do not share the lock, so simultaneous writes cannot be fully serialized.
+No memory facts are copied to MCP or mirrored from it.
+
+An engine-home `.cxx-memory-routing.json` records touched paths, including custom
+Claude locations, so changing a location or disabling MCP can remove old owned
+blocks. Failed cleanup retains ownership for retry. Explicit host trust loss
+removes reminders; outages retain the last synced content. Removal leaves index
+files and local notes in place and removes an otherwise empty owned Grok topic.
+The reminder is instruction text, not enforcement: disabled native memory will
+not load it, and the existing managed AGENTS.md / CLAUDE.md remains the always-on
+routing guidance. Provider memory generation may rewrite an index between syncs;
+the next managed sync restores its block.

@@ -28,6 +28,7 @@ import (
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/ipc"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/maintenance"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/memoryrouting"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/observability/tracing"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/claude/orchestrator"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/claude/summary"
@@ -259,7 +260,7 @@ func Run(ctx context.Context, opts Options) (exitCode int, retErr error) {
 	syncBundle := func() {
 		progress := startProgress(ctx, opts, logger, ui.TopicSync, "syncing with orchestrator")
 		defer progress.Clear()
-		authResp, authErr, authSynced, agentsSync, configSync, nativeSkillsSync, fleetSessions = bootstrapWithProgress(ctx, client, logger, concurrent, authPath, !opts.SkipCredentialExchange, progress)
+		authResp, authErr, authSynced, agentsSync, configSync, nativeSkillsSync, fleetSessions = bootstrapWithProgress(ctx, client, logger, concurrent, authPath, !opts.SkipCredentialExchange, progress, opts.ExtraArgs)
 	}
 
 	if !opts.SkipAuthSync {
@@ -504,6 +505,7 @@ func Run(ctx context.Context, opts Options) (exitCode int, retErr error) {
 					stripManagedSettings(logger),
 					stripClaudeCollections(logger),
 					stripClaudeSkills(logger),
+					stripMemoryRouting(authPath),
 				)
 				if cleanupErr != nil {
 					logger.Warn("managed trust-loss cleanup incomplete; ownership retained for retry", "err", cleanupErr)
@@ -791,7 +793,7 @@ func bootstrap(
 // print its own notice.
 func bootstrapWithProgress(
 	ctx context.Context, client *orchestrator.Client, logger *slog.Logger,
-	concurrent bool, authPath string, includeAuth bool, progress *ui.Progress,
+	concurrent bool, authPath string, includeAuth bool, progress *ui.Progress, launchArgs ...[]string,
 ) (*orchestrator.AuthRetrieveResponse, error, bool, summary.ResourceSync, summary.ResourceSync, summary.ResourceSync, *orchestrator.FleetSessions) {
 	ctx, bootSpan := tracing.Start(ctx, "cxx.lifecycle.bootstrap",
 		tracing.String("wrapper.engine", "claude"),
@@ -912,6 +914,14 @@ func bootstrapWithProgress(
 		return a, e, s, ag, co, summary.ResourceSync{}, nil
 	}
 	if berr != nil {
+
+		var refusal *orchestrator.HTTPError
+		scope, removed := orchestrator.EngineDisabledScope(berr)
+		if !concurrent && ((errors.As(berr, &refusal) && memoryrouting.TrustLost(refusal.Code)) || (removed && scope == config.EngineDisabledScopeHost)) {
+			if err := stripMemoryRouting(authPath); err != nil {
+				return nil, errors.Join(berr, fmt.Errorf("managed memory cleanup incomplete: %w", err)), false, summary.ResourceSync{}, summary.ResourceSync{Checked: true, Err: err}, summary.ResourceSync{}, nil
+			}
+		}
 		// Insecure-approval gate (423 pending / 403 denied) is not an outage:
 		// map it to the auth status so the launch gate polls for approval
 		// instead of falling through to the offline branch. A content-only pass
@@ -1025,6 +1035,18 @@ func bootstrapWithProgress(
 		// skill layout; it can't read skills over MCP like codex does). Keep this
 		// outcome on the skills marker rather than masking it as config health.
 		nativeSkillsSync = applyBundleClaudeSkills(ctx, resp.ClaudeSkills, logger)
+
+		if resp.MemoryRouting != nil {
+			var args []string
+			if len(launchArgs) > 0 {
+				args = launchArgs[0]
+			}
+			updated, err := memoryrouting.Apply("claude", filepath.Dir(authPath), resp.MemoryRouting, args)
+			configSync.Checked = true
+			configSync.Updated = configSync.Updated || updated
+			configSync.Err = errors.Join(configSync.Err, err)
+		}
+
 	}
 	return authResp, nil, authSynced, agentsSync, configSync, nativeSkillsSync, resp.Sessions
 }
@@ -1872,4 +1894,10 @@ func caBundlePath(cfg *config.Config) string {
 		return ""
 	}
 	return *cfg.Orchestrator.CABundlePath
+}
+
+// Explicit trust loss removes only our reminders; outages preserve cached context.
+func stripMemoryRouting(authPath string) error {
+	_, err := memoryrouting.Apply("claude", filepath.Dir(authPath), &memoryrouting.Bundle{Enabled: false}, nil)
+	return err
 }

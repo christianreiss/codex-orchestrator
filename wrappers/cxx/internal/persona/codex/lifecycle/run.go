@@ -26,6 +26,7 @@ import (
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/codex"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/ipc"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/memoryrouting"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/observability/tracing"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/codex/orchestrator"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/codex/summary"
@@ -306,7 +307,7 @@ func Run(ctx context.Context, opts Options) (exitCode int, runErr error) {
 		bundleRounds++
 		progress := startProgress(ctx, opts, logger, ui.TopicSync, "syncing with orchestrator")
 		defer progress.Clear()
-		authResp, authErr, authSynced, agentsSync, configSync, fleetSessions = bootstrapWithProgress(ctx, client, logger, concurrent, authPath, !opts.SkipCredentialExchange, progress)
+		authResp, authErr, authSynced, agentsSync, configSync, fleetSessions = bootstrapWithProgress(ctx, client, logger, concurrent, authPath, !opts.SkipCredentialExchange, progress, opts.ExtraArgs)
 	}
 
 	// Overlap the read-only probes the boot card needs with the first bundle
@@ -542,6 +543,14 @@ func Run(ctx context.Context, opts Options) (exitCode int, runErr error) {
 	// Refuse launch on auth decision.
 	if !opts.SkipAuthSync && !opts.SkipCredentialExchange && !dec.Allowed {
 		printBoot()
+		if !concurrent {
+			switch dec.Status {
+			case "disabled", "invalid", "insecure-denied":
+				if err := stripMemoryRouting(authPath); err != nil {
+					return 1, fmt.Errorf("managed cleanup incomplete after launch refusal: %w", err)
+				}
+			}
+		}
 		return 1, markPresented(fmt.Errorf("launch refused: %s", dec.Reason), opts)
 	}
 
@@ -744,7 +753,7 @@ func bootstrap(
 // print its own notice.
 func bootstrapWithProgress(
 	ctx context.Context, client *orchestrator.Client, logger *slog.Logger,
-	concurrent bool, authPath string, includeAuth bool, progress *ui.Progress,
+	concurrent bool, authPath string, includeAuth bool, progress *ui.Progress, launchArgs ...[]string,
 ) (*orchestrator.AuthRetrieveResponse, error, bool, summary.ResourceSync, summary.ResourceSync, *orchestrator.FleetSessions) {
 	ctx, bootSpan := tracing.Start(ctx, "cxx.lifecycle.bootstrap",
 		tracing.String("wrapper.engine", "codex"),
@@ -875,6 +884,14 @@ func bootstrapWithProgress(
 		return a, e, s, ag, co, nil
 	}
 	if berr != nil {
+
+		var refusal *orchestrator.HTTPError
+		scope, removed := orchestrator.EngineDisabledScope(berr)
+		if !concurrent && ((errors.As(berr, &refusal) && memoryrouting.TrustLost(refusal.Code)) || (removed && scope == config.EngineDisabledScopeHost)) {
+			if err := stripMemoryRouting(authPath); err != nil {
+				return nil, errors.Join(berr, fmt.Errorf("managed memory cleanup incomplete: %w", err)), false, summary.ResourceSync{}, summary.ResourceSync{Checked: true, Err: err}, nil
+			}
+		}
 		// Insecure-approval gate (423 pending / 403 denied) is not an outage:
 		// map it to the auth status so the launch gate polls for approval
 		// instead of falling through to the offline branch. A content-only pass
@@ -971,6 +988,18 @@ func bootstrapWithProgress(
 				configSync.Updated = configSync.Updated || changed
 			}
 		}
+
+		if resp.MemoryRouting != nil {
+			var args []string
+			if len(launchArgs) > 0 {
+				args = launchArgs[0]
+			}
+			updated, err := memoryrouting.Apply("codex", filepath.Dir(authPath), resp.MemoryRouting, args)
+			configSync.Checked = true
+			configSync.Updated = configSync.Updated || updated
+			configSync.Err = errors.Join(configSync.Err, err)
+		}
+
 	}
 	if applyErr != nil {
 		applyErr = &authMaterializationError{err: applyErr}
@@ -1869,4 +1898,10 @@ func buildSessionCounts(fs *orchestrator.FleetSessions) *summary.SessionCounts {
 		Today:    fs.Today,
 		Month:    fs.Month,
 	}
+}
+
+// Explicit trust loss removes only our reminders; outages preserve cached context.
+func stripMemoryRouting(authPath string) error {
+	_, err := memoryrouting.Apply("codex", filepath.Dir(authPath), &memoryrouting.Bundle{Enabled: false}, nil)
+	return err
 }

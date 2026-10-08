@@ -488,3 +488,15 @@ historical names, including receipt retries after reuse. An expired unassigned
 name returns `agent_name_not_found`; UUID lookup still returns its latest
 historical assignment. Manual aliases cannot claim pool names; pre-existing
 alias collisions keep the affected name out of allocation.
+
+## Native memory reminders (cxx 0.9.35)
+
+The Grok reminder is maintained in `GROK_HOME/memory/MEMORY.md`,
+`GROK_HOME/memory-v2/global/MEMORY.md`, and existing legacy/v2 workspace indices.
+A dedicated `memory-v2/global/topics/cxx-memory-routing.md` keeps the reminder as
+source material for regenerated v2 indices. Existing runtime directory links expose
+both memory trees inside the access-only session home. No authentication material or
+memory facts are added to these files; neither native memory switch is enabled.
+
+The additive bootstrap contract, marker ownership, cleanup and failure behavior are
+documented in [interface-api.md](interface-api.md#native-memory-reminders-cxx-0935).

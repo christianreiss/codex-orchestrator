@@ -1111,3 +1111,13 @@ historical names, including receipt retries after reuse. An expired unassigned
 name returns `agent_name_not_found`; UUID lookup still returns its latest
 historical assignment. Manual aliases cannot claim pool names; pre-existing
 alias collisions keep the affected name out of allocation.
+
+## Native memory reminders (cxx 0.9.35)
+
+The Codex reminder is maintained in `$CODEX_HOME/memories/MEMORY.md` and
+`$CODEX_HOME/memories/memory_summary.md`, with `~/.codex` as the default home.
+Managed sync preserves existing notes and native memory settings. A generated
+summary can replace the reminder between runs; the next managed sync restores it.
+
+The additive bootstrap contract, marker ownership, cleanup and failure behavior are
+documented in [interface-api.md](interface-api.md#native-memory-reminders-cxx-0935).

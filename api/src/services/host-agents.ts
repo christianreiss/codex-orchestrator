@@ -7,6 +7,7 @@ import type { Database } from '../db/client.js';
 import { agentsDocuments, agentsDocumentState, clientConfigDocuments, logs } from '../db/schema.js';
 import type { Host } from '../db/schema.js';
 import { nowIso } from '../util/timestamp.js';
+import { buildManagedMemoryRouting } from './managed-memory-routing.js';
 import { ENGINE_CODEX, ENGINE_CLAUDE, type Engine } from '../util/engine.js';
 import { decryptOrNull } from '../security/secret-box.js';
 import type { Keyring } from '../security/keyring.js';
@@ -193,9 +194,11 @@ export class HostAgentsService {
     engine: Engine,
     recordMissingOverride: boolean,
   ): Promise<Record<string, unknown>> {
+    const featureContext = await this.resolveManagedFeatureContext(host, engine);
+    const memoryRouting = buildManagedMemoryRouting(featureContext.memory.enabled);
     const row = await this.resolveServedDocument(host, engine, recordMissingOverride);
     if (!row) {
-      return { status: 'missing' };
+      return { status: 'missing', memory_routing: memoryRouting };
     }
 
     // The generation mode decides what the stored row contributes; the policy
@@ -206,7 +209,6 @@ export class HostAgentsService {
     // which hashes the base it used.
     const body = baseBodyForMode(await this.generationMode(), row);
     const baseSha = createHash('sha256').update(body).digest('hex');
-    const featureContext = await this.resolveManagedFeatureContext(host, engine);
     const rendered = renderManagedAgentFeatures(
       body,
       featureContext,
@@ -225,6 +227,7 @@ export class HostAgentsService {
       policy_sha256: rendered.policy_sha256,
       features_sha256: rendered.features_sha256,
       sections: rendered.sections,
+      memory_routing: memoryRouting,
       updated_at: row.updatedAt,
       size_bytes: Buffer.byteLength(served, 'utf8'),
       content: served,

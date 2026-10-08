@@ -7,6 +7,8 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/memoryrouting"
 )
 
 // BundleRequest is the POST body for /sync/bootstrap.
@@ -68,6 +70,7 @@ type ClaudeSettings struct {
 // BundleResponse matches the envelope returned by /sync/bootstrap. Auth block,
 // when present, is the same shape as a standalone /auth retrieve.
 type BundleResponse struct {
+	MemoryRouting   *memoryrouting.Bundle `json:"memory_routing,omitempty"`
 	Status          string                `json:"status"`
 	Reasons         []string              `json:"reasons,omitempty"`
 	Auth            *AuthRetrieveResponse `json:"auth,omitempty"`

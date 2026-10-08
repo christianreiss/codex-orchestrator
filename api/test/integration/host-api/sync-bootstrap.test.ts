@@ -75,6 +75,32 @@ function makeKeyring(): Keyring {
   } as unknown as Parameters<typeof Keyring.fromEnv>[0]);
 }
 
+describe('native memory routing bootstrap', () => {
+  it.each(['codex', 'claude', 'grok'])('%s follows the effective MCP gate even without an agents document', async (engine) => {
+    for (const enabled of [true, false]) {
+      const db = createDbFake();
+      const apiKey = 'sk-memory-routing-test';
+      db.tables.set(hostsTable, [hostRow(apiKey, { engines: 'codex,claude,grok' })]);
+      db.tables.set(clientConfigDocuments, [{
+        id: 1, engine, body: '', sha256: 'memory-test',
+        settings: { orchestrator_mcp_enabled: enabled, mcp_servers: [] },
+        createdAt: '2026-10-08T00:00:00Z', updatedAt: '2026-10-08T00:00:00Z',
+      }]);
+      const app = await buildHostApiTestApp({ db: db as never, env, keyring: makeKeyring() });
+      try {
+        const response = await app.inject({ method: 'POST', url: '/sync/bootstrap',
+          headers: { authorization: `Bearer ${apiKey}` }, payload: { engine, include_auth: false } });
+        expect(response.statusCode).toBe(200);
+        const body = response.json();
+        expect(body.memory_routing.enabled).toBe(enabled);
+        expect(body.memory_routing.content).toEqual(enabled ? expect.stringContaining('shared_memory_read') : '');
+        expect(body.memory_routing).toEqual(body.agents.memory_routing);
+        expect(body.auth).toBeUndefined();
+      } finally { await app.close(); }
+    }
+  });
+});
+
 function hostRow(apiKey: string, overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     id: 1,

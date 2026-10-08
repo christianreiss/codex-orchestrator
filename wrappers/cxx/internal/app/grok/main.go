@@ -32,6 +32,7 @@ import (
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/ipc"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/layout"
 	hostmaintenance "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/maintenance"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/memoryrouting"
 	orchestrator "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/codex/orchestrator"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/quotaadvice"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/schedulewatch"
@@ -367,7 +368,15 @@ func syncMeasuredManagedWith(ctx context.Context, cfg *config.Config, client *or
 	}
 	bundle, err := client.SyncBootstrap(ctx, orchestrator.BundleRequest{Engine: "grok", IncludeAuth: false, Home: home, Skills: store.Digests()})
 	if err != nil {
-		if scope, disabled := orchestrator.EngineDisabledScope(err); disabled {
+		var refusal *orchestrator.HTTPError
+		scope, disabled := orchestrator.EngineDisabledScope(err)
+		if (errors.As(err, &refusal) && memoryrouting.TrustLost(refusal.Code)) || (disabled && scope == config.EngineDisabledScopeHost) {
+			_, cleanupErr := memoryrouting.Apply("grok", home, &memoryrouting.Bundle{Enabled: false}, nil)
+			if cleanupErr != nil {
+				return summary, errors.Join(err, cleanupErr)
+			}
+		}
+		if disabled {
 			return summary, errors.New(config.EngineDisabledMessage(config.EngineGrok, scope))
 		}
 		return summary, fmt.Errorf("Grok managed sync unavailable: %w", err)
@@ -398,6 +407,14 @@ func syncMeasuredManagedWith(ctx context.Context, cfg *config.Config, client *or
 		}
 		summary.Config.Checked = true
 		summary.Config.Updated = summary.Config.Updated || before != documentDigest(path)
+	}
+	if bundle.MemoryRouting != nil {
+		updated, err := memoryrouting.Apply("grok", home, bundle.MemoryRouting, nil)
+		summary.Config.Checked = true
+		summary.Config.Updated = summary.Config.Updated || updated
+		if err != nil {
+			return summary, err
+		}
 	}
 	// Grok loads ~/.grok/skills natively. Skill failures warn like cdx/clx:
 	// they never block a launch or a content sync.

@@ -1,5 +1,7 @@
 # 2026-10-08
 
+- Wrapper 0.9.35 places a centrally served MCP-memory reminder at native Codex, Claude and Grok memory entrypoints during startup, sync and content cron. Existing notes and file modes are preserved; repeated sync updates one owned block. Claude custom locations are tracked for cleanup, Grok v2 gets a durable topic visible in isolated runtimes, and disabling central MCP or explicit trust loss removes only managed reminders. Native memory switches stay unchanged.
+
 - Android companion 0.4.8 displays the assigned German launch name with the task title in chat rows, headers and search, including unnamed launches and already-prefixed server titles. Restricted companion snapshots also redact the separate task-title field.
 
 - Wrapper 0.9.34 assigns random fleet-wide German female names per managed launch from a pre-filled 664-name server pool, reserves them until exit plus 24 hours, and displays `(Name) Task title`. Added name/UUID translation via CLI, MCP and authenticated API, direct named message/conference recipients, immutable delivery UUIDs and historical name snapshots. Managed guidance and WebUI now show the naming contract.

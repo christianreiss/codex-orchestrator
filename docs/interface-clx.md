@@ -1285,3 +1285,21 @@ historical names, including receipt retries after reuse. An expired unassigned
 name returns `agent_name_not_found`; UUID lookup still returns its latest
 historical assignment. Manual aliases cannot claim pool names; pre-existing
 alias collisions keep the affected name out of allocation.
+
+## Native memory reminders (cxx 0.9.35)
+
+The Claude reminder is maintained in existing `~/.claude/projects/*/memory/MEMORY.md`
+indices and the active project's native index, deriving the canonical Git working-copy
+root across subdirectories and linked worktrees. Long project keys use Claude's native
+200-character prefix and signed-32-bit UTF-16 hash suffix. User `autoMemoryDirectory`,
+trusted repository/local selectors, explicit `--settings` JSON/file and managed policy
+selectors are respected (policy wins), including `--setting-sources` exclusions.
+Repository/local settings come from the active worktree while its default memory
+index stays shared with the main checkout. Repository selectors are consumed only with an
+existing native workspace-trust receipt; settings must select an absolute or `~/` path.
+The wrapper already strips `CLAUDE_CONFIG_DIR`, so its inherited project-directory-name
+selector does not redirect a managed launch. Previously owned custom locations remain
+tracked for cleanup even after a setting changes. Native auto-memory switches are unchanged.
+
+The additive bootstrap contract, marker ownership, cleanup and failure behavior are
+documented in [interface-api.md](interface-api.md#native-memory-reminders-cxx-0935).

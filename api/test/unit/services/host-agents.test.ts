@@ -154,7 +154,7 @@ describe('HostAgentsService.retrieve', () => {
 
     const out = await makeService(db).retrieve(null, makeHost());
 
-    expect(out).toEqual({ status: 'missing' });
+    expect(out).toEqual({ status: 'missing', memory_routing: { enabled: false, content: '' } });
     expect(logDetails(db, 'agents.retrieve')).toEqual([{ status: 'missing' }]);
   });
 
@@ -206,6 +206,7 @@ describe('HostAgentsService.retrieve', () => {
     const unchanged = await makeService(makeDb(rows)).retrieve(servedSha, makeHost());
     expect(unchanged['status']).toBe('unchanged');
     expect(unchanged).not.toHaveProperty('content');
+    expect(unchanged['memory_routing']).toEqual(first['memory_routing']);
 
     // A host whose on-disk copy predates the managed feature block holds the bare
     // canonical sha and must be told to update.
@@ -751,7 +752,7 @@ describe('HostAgentsService generation mode', () => {
   it('still reports missing at off when nothing has ever been stored', async () => {
     const db = makeDb(rowsWith([], [MODE('off')]));
 
-    expect(await makeService(db).retrieve(null, makeHost())).toEqual({ status: 'missing' });
+    expect(await makeService(db).retrieve(null, makeHost())).toMatchObject({ status: 'missing', memory_routing: { enabled: true } });
   });
 
   it('reports base_sha256 for the base it actually served, not the stored row', async () => {

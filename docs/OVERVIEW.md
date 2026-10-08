@@ -780,3 +780,13 @@ historical names, including receipt retries after reuse. An expired unassigned
 name returns `agent_name_not_found`; UUID lookup still returns its latest
 historical assignment. Manual aliases cannot claim pool names; pre-existing
 alias collisions keep the affected name out of allocation.
+
+## Native memory reminders (cxx 0.9.35)
+
+Managed startup, sync and content cron prepend a short central-MCP reminder to
+native Codex, Claude and Grok memory entrypoints, preserving local notes and
+native memory switches. Claude custom paths are tracked for later cleanup;
+Grok v2 also receives a durable topic exposed in its isolated runtime.
+The reminder follows effective MCP availability, survives outages, and is
+removed on explicit host trust loss. See [the bootstrap contract and ownership
+rules](interface-api.md#native-memory-reminders-cxx-0935).
