@@ -759,6 +759,13 @@ participate in these leases and is the explicit coordination boundary.
 
 ## Agent Messaging lifecycle
 
+Cxx 0.9.25 retains caller retry IDs for sends, requests and call joins; a request
+whose wait fails returns the saved send receipt and directs `agent_wait` without
+resending. Automatic `agent_listen` is a single release/health check followed by
+yield, while manual fallback may long-poll. Background result storage keeps the
+accepted lease alive. See [delivery reliability](interface-api.md#delivery-reliability-cxx-0925)
+and the [2026-10-08 lifecycle audit](agent-messaging-audit-2026-10-08.md).
+
 From cxx 0.9.20, the same MCP server adds `agent_group_list`,
 `agent_group_create`, `agent_group_members`, `agent_subscribe`,
 `agent_unsubscribe`, `agent_subscriptions` and `agent_publish`. Groups and
@@ -783,8 +790,10 @@ stdio MCP server `cxx-agent` (`cxx agent mcp`) with the direct/call/conference t
 and `agent_conf_adjourn`. `agent_call_open`, `agent_call_join`, and `agent_listen`
 are the `#call` rendezvous: `agent_call_open` mints a
 short-lived four-digit PIN and returns this agent's own address, `agent_call_join`
-dials a PIN and sends the opening message in one step, and `agent_listen` waits for
-the next message addressed to this agent in any conversation. `agent_listen` needs
+dials a PIN and sends the opening message atomically; retries with the same
+message ID recover that hello. In manual mode `agent_listen` waits for a message
+in any conversation; in automatic mode it releases finished delivery and returns
+receiver health before the agent yields. `agent_listen` needs
 the signed `agent_messaging.listen_enabled` grant, which the broker enforces. A
 call PIN is single-use because a conversation has two ends; a conference room PIN
 is multi-use. Whoever opens a conference is its chair: only the chair may invite
@@ -798,8 +807,9 @@ bind to an interactive native Codex session. The binding records Codex's native
 thread id and a generation fence. A delivery to an unbound/offline address is
 handled by the outbound-only per-user `cxx agent worker`: it invokes the signed
 wrapper lifecycle as `codex --skip-boot run exec resume --json
---skip-git-repo-check <thread> -`, or starts a fresh `codex exec` when continuity
-was reset or the saved rollout no longer exists. Only one native writer may use
+--skip-git-repo-check <thread> -`, or starts a fresh `codex exec` for a new/reset identity. A missing saved rollout
+blocks existing work until an operator grants a one-use ordinary-work fresh start;
+schedules never fall back to a fresh session. Only one native writer may use
 an address/thread at a time. The worker renews accepted deliveries while the
 native run is alive and captures only bounded output tails.
 
@@ -808,7 +818,7 @@ Queued messages default to a 24-hour TTL, accept 60 seconds through seven days,
 and stop after 12 attempts. Once native execution has started, lost completion,
 shutdown, or cancellation is terminal `ambiguous` and is not replayed
 automatically. Operators may inspect history and explicitly redrive an eligible
-terminal message. Disabling the global or host switch revokes relays/bindings,
+terminal message. Disabling the fleet switch or removing host eligibility revokes relays/bindings,
 cancels queued or leased work, marks accepted work ambiguous, and cancels open
 conversations; re-enable starts a clean boundary with no automatic replay.
 

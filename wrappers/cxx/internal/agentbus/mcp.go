@@ -286,23 +286,25 @@ func toolCatalogJSON() []byte {
 			"client_message_id": map[string]any{"type": "string", "format": "uuid"},
 			"ttl_seconds":       map[string]any{"type": "integer", "minimum": 60, "maximum": 604800},
 		}, []string{"topic", "content"}),
-		tool("agent_send", "Send one ordinary text message to one agent address.", map[string]any{
-			"to": map[string]any{"type": "string"}, "content": map[string]any{"type": "string", "maxLength": maxBodyBytes},
+		tool("agent_send", "Send one ordinary text message to one agent address. Retain client_message_id when retrying an uncertain send.", map[string]any{
+			"client_message_id": map[string]any{"type": "string", "format": "uuid"},
+			"to":                map[string]any{"type": "string"}, "content": map[string]any{"type": "string", "maxLength": maxBodyBytes},
 			"conversation_id": map[string]any{"type": "string"}, "ttl_seconds": map[string]any{"type": "integer", "minimum": 60, "maximum": 604800},
 		}, []string{"to", "content"}),
-		tool("agent_request", "Send a request and wait briefly for a correlated response.", map[string]any{
-			"to": map[string]any{"type": "string"}, "content": map[string]any{"type": "string", "maxLength": maxBodyBytes},
+		tool("agent_request", "Send work and wait briefly for a correlated response. Retain client_message_id when retrying an uncertain send. If only waiting fails, the result preserves sent and wait_error; use agent_wait on that conversation instead of resending.", map[string]any{
+			"client_message_id": map[string]any{"type": "string", "format": "uuid"},
+			"to":                map[string]any{"type": "string"}, "content": map[string]any{"type": "string", "maxLength": maxBodyBytes},
 			"wait_seconds": map[string]any{"type": "integer", "minimum": 0, "maximum": 25},
 		}, []string{"to", "content"}),
 		tool("agent_wait", "Wait for messages in an existing conversation.", map[string]any{
 			"conversation_id": map[string]any{"type": "string"}, "after": map[string]any{"type": "integer", "minimum": 0},
 			"seconds": map[string]any{"type": "integer", "minimum": 0, "maximum": 25},
 		}, []string{"conversation_id"}),
-		tool("agent_receiver_reply", "Return the result of an operator portal instruction. Include summary: one plain sentence in the response language, at most 160 characters, giving the latest result or decision needed for mobile tiles and push notifications.", map[string]any{
+		tool("agent_receiver_reply", "Reply only to an operator Portal delivery. For peer messages use agent_reply. Include summary: one plain sentence in the response language, at most 160 characters, giving the latest result or decision needed for mobile tiles and push notifications.", map[string]any{
 			"message_id": map[string]any{"type": "string"}, "content": map[string]any{"type": "string", "maxLength": maxBodyBytes},
 			"summary": map[string]any{"type": "string", "maxLength": 160},
 		}, []string{"message_id", "content"}),
-		tool("agent_reply", "Answer one delivered message when an answer is needed. For an informational reply or closing acknowledgement, call agent_listen once to complete delivery without sending another message.", map[string]any{
+		tool("agent_reply", "Answer a peer delivery when an answer is needed. For operator Portal messages use agent_receiver_reply. For an informational reply or closing acknowledgement, call agent_listen once to complete delivery without sending another message.", map[string]any{
 			"task_result": taskResultProperties(),
 			"message_id":  map[string]any{"type": "string"}, "content": map[string]any{"type": "string", "maxLength": maxBodyBytes},
 		}, []string{"message_id", "content"}),
@@ -313,11 +315,12 @@ func toolCatalogJSON() []byte {
 		tool("agent_call_open", "Open a call rendezvous: mint a short-lived 4-digit PIN a peer can dial to reach this agent, and learn this agent's own address.", map[string]any{
 			"ttl_seconds": map[string]any{"type": "integer", "minimum": 60, "maximum": 3600},
 		}, nil),
-		tool("agent_call_join", "Dial a peer's 4-digit PIN. Opens the conversation and delivers the first message in one step, and returns the peer address and conversation id.", map[string]any{
-			"pin":     map[string]any{"type": "string", "pattern": "^[0-9]{4}$"},
-			"content": map[string]any{"type": "string", "maxLength": maxBodyBytes},
+		tool("agent_call_join", "Dial a peer's 4-digit PIN. Opens the conversation and delivers the first message atomically. Retain client_message_id to recover the original conversation after an uncertain response, even though the PIN is single-use.", map[string]any{
+			"client_message_id": map[string]any{"type": "string", "format": "uuid"},
+			"pin":               map[string]any{"type": "string", "pattern": "^[0-9]{4}$"},
+			"content":           map[string]any{"type": "string", "maxLength": maxBodyBytes},
 		}, []string{"pin", "content"}),
-		tool("agent_listen", "Wait for the next message addressed to this agent, in any conversation. Returns after at most 25 seconds; call again to keep waiting. Answer with agent_reply using the returned message_id, or call agent_listen again to move on without answering.", map[string]any{
+		tool("agent_listen", "Release a finished delivery and check reception. With an automatic receiver, call once and yield on status automatic; never poll. On receiver_unavailable, report the failure instead of waiting. Only manual reception waits up to 25 seconds and returns a delivery. Finish accepted work with agent_task_result or agent_reply with task_result before listening again.", map[string]any{
 			"wait_seconds": map[string]any{"type": "integer", "minimum": 0, "maximum": 25},
 		}, nil),
 		tool("agent_conf_open", "Open a conference and become its chair. Mints a room PIN that many agents may dial, and returns this agent's own address. Only the chair may dispatch tasks and adjourn.", map[string]any{
@@ -326,7 +329,7 @@ func toolCatalogJSON() []byte {
 			"ttl_seconds": map[string]any{"type": "integer", "minimum": 300, "maximum": 21600},
 			"max_members": map[string]any{"type": "integer", "minimum": 2, "maximum": 8},
 		}, nil),
-		tool("agent_conf_invite", "Chair only. Invite agent addresses or aliases into the conference. An idle host is woken by its relay with the invite as its prompt, so no human is needed; a host with a session already attached receives it when that session next listens. Returns one result per address -- delivery is per member, not all-or-nothing.", map[string]any{
+		tool("agent_conf_invite", "Chair only. Invite agent addresses or aliases into the conference. A detached address can be woken by its relay; an attached session receives through its automatic receiver or manual agent_listen. Returns one result per address; delivery is per member, not all-or-nothing.", map[string]any{
 			"conference_id": map[string]any{"type": "string"},
 			"to":            map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "minItems": 1, "maxItems": 8},
 			"note":          map[string]any{"type": "string", "maxLength": maxBodyBytes},
@@ -351,7 +354,7 @@ func toolCatalogJSON() []byte {
 			"task":          map[string]any{"type": "string", "maxLength": maxBodyBytes},
 			"eta_seconds":   map[string]any{"type": "integer", "minimum": 0, "maximum": 14400},
 		}, []string{"conference_id", "to", "task"}),
-		tool("agent_conf_adjourn", "Chair only. Close the conference. By default members still working are left to finish and the room closes when they report. Pass force to cut them off immediately, which kills any running task.", map[string]any{
+		tool("agent_conf_adjourn", "Chair only. Close the conference. By default members still working are left to finish and the room closes when they report. Force cancels outstanding delivery leases; relays stop on renewal failure, but already running native work and its side effects may continue.", map[string]any{
 			"conference_id": map[string]any{"type": "string"},
 			"reason":        map[string]any{"type": "string", "maxLength": 255},
 			"force":         map[string]any{"type": "boolean"},
@@ -612,6 +615,24 @@ func handleMCPRequest(ctx context.Context, client *sessionClient, req mcpRequest
 
 func callMCPTool(ctx context.Context, client *sessionClient, channelState *channelTracker, name string, args map[string]any) (map[string]any, error) {
 	var out map[string]any
+	// Both sources use UUIDs, so choosing the wrong reply tool is easy. Explain
+	// how to recover for a delivery this process actually owns; never forward
+	// content across the peer/Portal authority boundary on the caller's behalf.
+	if channelState != nil {
+		id := stringArg(args, "message_id")
+		if name == "agent_receiver_reply" && channelState.get(id) != nil {
+			return nil, errors.New("this is a peer delivery: call agent_reply with the same message_id and content, not agent_receiver_reply")
+		}
+		if (name == "agent_reply" || name == "agent_task_result") && channelState.receiver != nil {
+			r := channelState.receiver
+			r.mu.Lock()
+			portal := r.pendingPortal != nil && stringArg(r.pendingPortal, "message_id") == id
+			r.mu.Unlock()
+			if portal {
+				return nil, errors.New("this is an operator Portal delivery: call agent_receiver_reply with the same message_id, content and a concise summary")
+			}
+		}
+	}
 	switch name {
 	case "agent_receiver_reply":
 		if channelState.receiver == nil {
@@ -651,9 +672,19 @@ func callMCPTool(ctx context.Context, client *sessionClient, channelState *chann
 		// always failed with a 500 (`invalid_enum_value` on `kind`) while
 		// agent_request worked — which is why the CLI, whose mapping is
 		// correct, was the only send path that ever functioned.
-		body := map[string]any{"to": to, "content": content, "client_message_id": newUUID(), "kind": messageKindFor(name)}
+		clientID := stringArg(args, "client_message_id")
+		if _, present := args["client_message_id"]; present && !publicationUUIDPattern.MatchString(clientID) {
+			return nil, errors.New("client_message_id must be a UUID")
+		}
+		if clientID == "" {
+			clientID = newUUID()
+		}
+		body := map[string]any{"to": to, "content": content, "client_message_id": clientID, "kind": messageKindFor(name)}
 		copyOptional(args, body, "conversation_id", "ttl_seconds")
 		if err := client.post(ctx, "send", body, &out); err != nil || name == "agent_send" {
+			if err != nil {
+				return nil, fmt.Errorf("%w; retry the same send with client_message_id=%s", err, clientID)
+			}
 			if err == nil {
 				armStall(ctx, channelState, out, content)
 			}
@@ -664,7 +695,14 @@ func callMCPTool(ctx context.Context, client *sessionClient, channelState *chann
 		var waited map[string]any
 		seconds := intArg(args, "wait_seconds", 25)
 		err := client.post(ctx, "wait", map[string]any{"conversation_id": conversationID, "after": messageSequence(message), "seconds": seconds}, &waited)
-		return map[string]any{"sent": out, "result": waited}, err
+		result := map[string]any{"sent": out, "result": waited}
+		if err != nil {
+			// The send has already committed. An MCP error here would discard its
+			// receipt and invite the model to submit the same work again.
+			result["wait_error"] = err.Error()
+			result["next_action"] = "The request was sent. Use agent_wait with the sent conversation_id; do not resend the work."
+		}
+		return result, nil
 	case "agent_wait":
 		conversationID := stringArg(args, "conversation_id")
 		if conversationID == "" {
@@ -762,10 +800,17 @@ func callMCPTool(ctx context.Context, client *sessionClient, channelState *chann
 		if strings.TrimSpace(content) == "" {
 			return nil, errors.New("content is required")
 		}
+		clientMessageID := stringArg(args, "client_message_id")
+		if clientMessageID == "" {
+			clientMessageID = newUUID()
+		}
+		if !publicationUUIDPattern.MatchString(clientMessageID) {
+			return nil, errors.New("client_message_id must be a UUID")
+		}
 		if err := client.post(ctx, "call/join", map[string]any{
-			"pin": pin, "content": content, "client_message_id": newUUID(),
+			"pin": pin, "content": content, "client_message_id": clientMessageID,
 		}, &out); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("%w; retry the same hello with client_message_id=%s", err, clientMessageID)
 		}
 		armStall(ctx, channelState, out, content)
 		return out, nil

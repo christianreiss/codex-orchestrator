@@ -471,6 +471,12 @@ visible with a choice to load the latest values or discard the draft.
 
 ## Agent Messaging
 
+Cxx 0.9.25 closes retry, acceptance-expiry, result-storage and receiver-source
+isolation gaps across all three engines. MCP tools now preserve the original
+send receipt when a reply wait fails and explain automatic reception correctly.
+See the [full lifecycle audit](agent-messaging-audit-2026-10-08.md) and
+[API reliability contract](interface-api.md#delivery-reliability-cxx-0925).
+
 Agent Messaging lets any eligible managed agent address any other one, covering
 all nine source/target pairs across Codex, Claude and Grok. Server-to-agent
 instructions and agent-to-server responses use the human-facing Agent Portal;

@@ -25,7 +25,7 @@ import {
 } from '../../db/schema.js';
 import { ConflictError, NotFoundError, ValidationError } from '../../http/errors.js';
 import type { Keyring } from '../../security/keyring.js';
-import { encrypt } from '../../security/secret-box.js';
+import { decrypt, encrypt } from '../../security/secret-box.js';
 import { isoOffsetSeconds, nowIso } from '../../util/timestamp.js';
 import { wsPublisher } from '../../ws/publisher.js';
 import { deriveAddressPresence, type AgentAddressPresence } from '../agent-presence.js';
@@ -276,9 +276,22 @@ export class CallCoordinator {
       await this.core.requireEnabledLocked(tx);
       const now = nowIso();
       await this.sweepCallPinsLocked(tx, now);
-      const opener = await this.consumeCallPinLocked(tx, pin, now);
       const self = await this.core.requireAddressLocked(tx, authenticated.session.agentBusAddressId!);
       await this.core.assertSessionAddressLocked(tx, authenticated.session.id, self);
+      // The PIN is single-use, but the committed hello is retryable. The sender's
+      // idempotency key identifies the original call even after PIN expiry/reuse.
+      const [existing] = await tx.select().from(agentBusMessages)
+        .where(and(eq(agentBusMessages.senderAddressId, self.id), eq(agentBusMessages.clientMessageId, clientMessageId)))
+        .limit(1).for('update');
+      if (existing) {
+        if (existing.kind !== 'message' || existing.sequence !== 1 || existing.replyToMessageId !== null
+          || decrypt(existing.contentEnc, this.core.keyring) !== content) {
+          throw new ConflictError('Client message ID already used for different content', 'agent_messaging_idempotency_conflict');
+        }
+        const opener = await this.core.requireAddressLocked(tx, existing.targetAddressId);
+        return { conversationId: existing.conversationId, message: existing, self, opener, created: false };
+      }
+      const opener = await this.consumeCallPinLocked(tx, pin, now);
       if (self.id === opener.id) {
         throw new ValidationError('An agent cannot call itself', { param: 'pin' });
       }
@@ -333,25 +346,28 @@ export class CallCoordinator {
         .where(eq(agentBusConversations.id, conversation.id));
       // Single-use, and consumed only here — after every check has passed.
       await this.clearCallPinLocked(tx, opener.id, now);
-      return { conversation, message: persisted, self, opener };
+      return { conversationId: conversation.id, message: persisted, self, opener, created: true };
     });
-    await this.core.recordRuntime('agent_message.queued', authenticated.host.id, result.self.engine, {
-      message_id: result.message.id,
-      conversation_id: result.message.conversationId,
-      source_address_id: result.self.id,
-      target_address_id: result.opener.id,
-      source_engine: result.self.engine,
-      target_engine: result.opener.engine,
-      content_bytes: result.message.contentBytes,
-    });
-    wsPublisher.publish('agent_messaging.message.changed', {
-      message_id: result.message.id,
-      conversation_id: result.message.conversationId,
-      status: result.message.status,
-    });
+    if (result.created) {
+      await this.core.recordRuntime('agent_message.queued', authenticated.host.id, result.self.engine, {
+        message_id: result.message.id,
+        conversation_id: result.message.conversationId,
+        source_address_id: result.self.id,
+        target_address_id: result.opener.id,
+        source_engine: result.self.engine,
+        target_engine: result.opener.engine,
+        content_bytes: result.message.contentBytes,
+      });
+      wsPublisher.publish('agent_messaging.message.changed', {
+        message_id: result.message.id,
+        conversation_id: result.message.conversationId,
+        status: result.message.status,
+      });
+    }
     return {
       enabled: true,
-      conversation_id: result.conversation.id,
+      created: result.created,
+      conversation_id: result.conversationId,
       peer: publicAddress(result.opener),
       self: publicAddress(result.self),
       message: messageForParticipant(result.message, content, result.self, result.opener),

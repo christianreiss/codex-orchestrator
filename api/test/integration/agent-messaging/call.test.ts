@@ -175,6 +175,22 @@ describe.skipIf(!handle)('#call rendezvous against a real database', { timeout: 
     expect(await pinOf(opener.addressId)).toBe(opened.pin);
   });
 
+  it('replays the original hello after its single-use PIN was consumed', async () => {
+    const opener = await register('claude', 'opener');
+    const caller = await register('codex', 'caller');
+    await listen(opener);
+    const opened = await service.openCall(opener.sessionId, opener.bridgeToken);
+    const input = { pin: String(opened.pin), content: 'HELLO', clientMessageId: randomUUID() };
+    const first = await service.joinCall(caller.sessionId, caller.bridgeToken, input);
+    expect(await pinOf(opener.addressId)).toBeNull();
+    const replay = await service.joinCall(caller.sessionId, caller.bridgeToken, input);
+    expect(replay.conversation_id).toBe(first.conversation_id);
+    expect((replay.message as Record<string, unknown>).id).toBe((first.message as Record<string, unknown>).id);
+    expect(replay.created).toBe(false);
+    await expect(service.joinCall(caller.sessionId, caller.bridgeToken, { ...input, content: 'different hello' }))
+      .rejects.toMatchObject({ code: 'agent_messaging_idempotency_conflict' });
+  });
+
   it('tells the opener whether a receiver is on the line', async () => {
     const opener = await register('claude', 'opener');
     await deafen(opener);

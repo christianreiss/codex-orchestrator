@@ -211,4 +211,21 @@ describe.skipIf(!handle)('mailbox peek against a real database', { timeout: 120_
     expect(box.pending).toHaveLength(0);
     expect(box.missed).toHaveLength(0);
   });
+
+  it('keeps new waiting messages visible behind a full page of missed calls', async () => {
+    const caller = await register('claude', 'caller');
+    const target = await register('claude', 'target');
+    for (let i = 0; i < 20; i++) {
+      const sent = await service.sendMessage(caller.sessionId, caller.bridgeToken, {
+        to: target.address, content: `missed ${i}`, clientMessageId: randomUUID(),
+      });
+      await db.update(agentBusMessages).set({ status: 'expired', expiredAt: new Date().toISOString() })
+        .where(eq(agentBusMessages.id, String((sent.message as Record<string, unknown>).id)));
+    }
+    const sent = await service.sendMessage(caller.sessionId, caller.bridgeToken, {
+      to: target.address, content: 'waiting now', clientMessageId: randomUUID(),
+    });
+    const box = await service.peekMailbox(target.sessionId, target.bridgeToken);
+    expect(box.pending).toEqual([expect.objectContaining({ message_id: (sent.message as Record<string, unknown>).id })]);
+  });
 });

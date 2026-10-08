@@ -780,7 +780,8 @@ export class AgentMessagingService {
       .select({ message: agentBusMessages, sender: agentBusAddresses, fqdn: hosts.fqdn })
       .from(agentBusMessages)
       .innerJoin(agentBusAddresses, eq(agentBusAddresses.id, agentBusMessages.senderAddressId))
-      .innerJoin(hosts, eq(hosts.id, agentBusAddresses.hostId))
+      // The reserved Server publisher deliberately has no host row.
+      .leftJoin(hosts, eq(hosts.id, agentBusAddresses.hostId))
       .where(
         and(
           eq(agentBusMessages.targetAddressId, addressId),
@@ -790,7 +791,8 @@ export class AgentMessagingService {
           ),
         ),
       )
-      .orderBy(asc(agentBusMessages.dispatchOrder))
+      // A page of historical missed calls must not hide a current waiting one.
+      .orderBy(desc(sql`${agentBusMessages.status} = 'queued'`), asc(agentBusMessages.dispatchOrder))
       .limit(AGENT_MESSAGING_MAILBOX_PAGE_SIZE);
     const pending: Record<string, unknown>[] = [];
     const missed: Record<string, unknown>[] = [];
@@ -1477,6 +1479,9 @@ export class AgentMessagingService {
         return message;
       }
       if (['accepted','completed'].includes(input.outcome) && (!message.leaseUntil || message.leaseUntil <= now)) throw new ConflictError('Delivery lease expired', 'agent_messaging_lease_lost');
+      if (['accepted', 'completed'].includes(input.outcome) && message.status === 'leased' && message.expiresAt <= now) {
+        throw new ConflictError('Message expired before acceptance', 'agent_messaging_message_expired');
+      }
       if (input.outcome === 'accepted' && message.status === 'accepted') return message;
       if (input.outcome === 'accepted' && await freshStartAllowed(tx, message, currentTarget)) {
         await tx.update(agentFreshStartGrants).set({ consumedAt: now, consumedClaimId: claimId }).where(eq(agentFreshStartGrants.messageId, message.id));

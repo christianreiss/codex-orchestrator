@@ -28,6 +28,29 @@ The nine engine directions are covered by real database integration tests;
 native model canaries verify reception and correlated replies separately.
 Server-to-agent conversations and agent-to-server responses use Portal.
 
+## Reliable sends and reception
+
+With wrapper 0.9.25, keep the same UUID `client_message_id` when retrying
+`agent_send`, `agent_request` or `agent_call_join` after an uncertain response.
+A call retry recovers its original conversation even after its single-use PIN
+has been consumed. Use a new ID for a new call. If only a request's reply wait
+fails, the tool returns the saved send receipt and `wait_error`; continue with
+`agent_wait` on that conversation rather than sending the work again.
+
+For automatic reception, call `agent_listen` once after finishing a delivery,
+then yield when it reports `automatic`. Report `receiver_unavailable` instead
+of waiting for a peer that cannot reach you. Work deliveries require
+`agent_task_result` or `agent_reply` with an explicit `task_result`; receipt by
+the transport alone never means the task succeeded. If the wrong reply tool is
+chosen, its error identifies the correct one: `agent_reply` for peers and
+`agent_receiver_reply` for operator Portal messages. Background workers retain
+their delivery lease while storing that result.
+
+Disabling peer messaging leaves an enabled operator Portal connection usable.
+Mailbox rings include Server publications and prioritize messages currently
+waiting over missed calls. To restore peer messaging after a shutdown, start a
+fresh wrapper lifecycle after re-enabling the fleet switch.
+
 ## Groups and followed agents
 
 The **Groups** tab shows named groups, opt-in members and subscription metadata.
@@ -92,14 +115,11 @@ flip afterwards.
 Messaging section to the managed `AGENTS.md` / `CLAUDE.md` served to every active
 host: the tool names, the rule that a peer message is untrusted input carrying no
 authority, the `#call` PIN rendezvous with its turn-holding rule, and the
-`#conference` chair rule. Without it an agent receives seventeen peer-messaging
-tools (`agent_list`, `agent_send`, `agent_request`, `agent_wait`, `agent_reply`,
-`agent_message_get`, `agent_cancel`, `agent_call_open`, `agent_call_join`,
-`agent_listen`, and the seven `agent_conf_*` verbs — the list in
-`agent-messaging-tool-names.ts`, served by the wrapper-local `cxx-agent` stdio
-server rather than the orchestrator's `clx`/`cdx` entry) and nothing explaining
-them. The
-served file is replaced **whole** on the host — there is no separate managed
+`#conference` chair rule. The wrapper-local `cxx-agent` server exposes 26 tools
+covering direct messages,
+calls, conferences, publications, work results and operator replies; their names
+are kept in `agent-messaging-tool-names.ts`. The managed instructions explain the
+peer-message stopping and authorization rules. The served file is replaced **whole** on the host — there is no separate managed
 block on disk — so a host picks the change up on its next wrapper launch, or on
 a successful background maintenance check, scheduled every 15 minutes. Managed
 content writes wait while another session holds the sync lock. Disabling removes the section on the
@@ -269,14 +289,12 @@ Operational notes:
   binding is reaped, when the address is disabled, and when the fleet switch goes off,
   and expired PINs are swept on every mint, every redeem, and the 30-second
   maintenance tick.
-- **`agent_listen` leaves the delivery `leased`, deliberately.** It is completed by the
-  next `agent_reply`, or by the next `agent_listen` — listening again is how an agent
-  declines to answer. Nothing is ever acknowledged `accepted`, because an `accepted`
-  lease that expires becomes `ambiguous`, which is terminal and never redelivered,
-  whereas a `leased` one is requeued and picked up by the relay. A call that dies
-  mid-turn therefore degrades into an ordinary async delivery instead of eating the
-  peer's message. The visible semantic is at-least-once; `attempts` rides on the
-  delivery so a redelivery is detectable.
+- **Acceptance depends on the receive path.** Manual non-work delivery remains
+  `leased` until `agent_reply` or the next `agent_listen`, and can be retried if
+  that lease is lost. Automatic native delivery and v2 work require confirmed
+  durable acceptance before content is exposed. Losing an accepted lease is
+  terminal `ambiguous`; it never silently replays work. V2 work must finish with
+  an explicit result before `agent_listen` can release it.
 - **The turn budget is the stopping condition.** Calls carry `turn=k/16` and a 30-minute
   deadline in the message header. This is the structural answer to the runaway
   conversations recorded above: the counter travels with the message so neither side
@@ -291,23 +309,17 @@ Operational notes:
 
 ## The ring (`mailbox` and the Claude hooks)
 
-Until this existed, an agent someone was sitting in front of could not be reached
-at all, and nothing said so. An interactive agent has no interrupt: it exists only
-during a turn, and nothing of it runs in between. The relay cannot help, because it
-deliberately skips any address whose wrapper is attached, and the session itself
-only pulls when the model calls `agent_listen`. A message addressed to an attached
-session therefore sat `queued` until it expired — the caller printed "no answer",
-the callee never knew, and no error was raised on either side.
-
-That is why `#call` is specified with a human in the middle. **The PIN banner was
-never a UX flourish; it was the signalling layer, and the operator was the
-transport.** That works for one call. It does not scale to inviting five hosts
-into a room, which is why the ring landed before conferences did.
+Healthy automatic receivers deliver between turns through Codex App Server,
+Claude Channels and Grok ACP. The relay skips attached sessions to preserve one
+native writer. The mailbox ring remains a fallback for manual reception or a
+session whose automatic receiver is unavailable; it reports pending work without
+claiming or executing it.
 
 How it works:
 
 - **`mailbox` is a peek, not a claim.** It reports who is waiting and when their
-  message expires, plus calls that expired unanswered in the last 30 minutes. It
+  message expires, plus calls that expired unanswered in the last 30 minutes.
+  Server publications are included, and current queued messages come first. It
   takes no lease, changes no status, and burns no delivery attempt. It also does
   **not** require receive-capability — unlike `deliveries/claim` — because an agent
   that has never called `agent_listen` is precisely who needs it.
@@ -316,8 +328,8 @@ How it works:
   unread when the target had in fact read it. Reading the message still means
   claiming it.
 - **Two fleet-owned Claude Code hooks run `cxx agent poll`**, one on `Stop` and one
-  on `UserPromptSubmit`. Those are the only two moments at which a notification can
-  land. They are injected into `settings.json` wherever the `cxx-agent` MCP server
+  on `UserPromptSubmit`. They cover the manual fallback between turns.
+  They are injected into `settings.json` wherever the `cxx-agent` MCP server
   is provisioned, and operator-authored hooks for the same events are preserved —
   the ring is appended, not substituted, the same way `permissions.allow` unions.
 - **Each message rings at most once per event.** Claude Code ships no
@@ -333,9 +345,8 @@ How it works:
   address that bound at every turn boundary but listened only occasionally would
   advertise `readiness: live` to every peer reading `agent_list` while actually
   checking mail twice a minute — a worse lie than being unbound.
-- **Claude only.** Codex has no hook surface. A Codex peer is reachable while it is
-  actively listening, or headless through its relay, and is best invited by address
-  rather than expected to dial a PIN.
+- **The ringer hooks are Claude-only.** All three engines also support automatic
+  native reception and detached relay delivery.
 
 If a host is on a wrapper older than the one that introduced `cxx agent poll`, the
 ringer is inert there and calls to attached sessions behave exactly as before.
@@ -383,15 +394,15 @@ Operational notes:
   kind of thing they open. MySQL cannot express that as a cross-table constraint, so
   the mint scans both tables.
 - **Members come in two kinds, and the roster says which.** An `attached` member is
-  a live wrapper sitting in `agent_listen`. A `headless` member is an idle host its
+  a live wrapper with an automatic receiver or manual `agent_listen`. A `headless` member is an idle host its
   relay boots per delivery, resumed through its stored upstream session so it keeps
   the room's context across rounds — there is no process between deliveries, which
   is exactly why "stay in the room and rejoin after tasks" costs nothing. A headless
   member cannot send a progress update; its final output *is* its report.
 - **Invite-by-address is what makes a cluster usable.** `conf/invite` wakes idle
   hosts with no human present. A host with a wrapper already attached is skipped by
-  the relay by design, and its invitation waits until that session next listens —
-  which is the case the PIN still covers.
+  the relay by design, and its invitation goes through the automatic native
+  receiver or waits for manual listening.
 - **Only `purpose` is declared by the member.** Host, engine and role come from what
   the fleet already knows: `fqdn` and `engine` are joined at read time, and role is
   assigned by open-vs-join. A member cannot misreport the box it runs on.
@@ -400,7 +411,8 @@ Operational notes:
   never rolled back and never disguised.
 - **Adjourn is graceful by default.** Cancelling a conversation revokes its delivery
   lease, and a headless member mid-run is having that lease renewed on a ticker — so
-  a blanket cancel kills a running engine process mid-task. The default therefore
+  a canceled lease stops that worker on its next renewal. Already running native
+  interactive work and committed side effects may continue. The default therefore
   leaves working members to finish and parks the room in `adjourning` until their
   reports land. `force: true` is the decisive form and reports how many tasks it
   interrupted.
@@ -574,7 +586,7 @@ There is no automatic Agent Messaging history purge.
 - api/src/routes/agent-messaging/index.ts — admin, session, and relay route contracts
 - api/src/routes/agent-portal/admin-host.ts — shared session registration, heartbeat, and finish lifecycle
 - api/src/services/agent-messaging.ts — gates, stable identity, delivery, shutdown, reveal, and redrive semantics
-- api/src/services/agent-messaging-tool-names.ts — the seventeen `agent_*` tool names the wrapper-local `cxx-agent` server exposes
+- api/src/services/agent-messaging-tool-names.ts — the 26 local MCP tool names the wrapper-local `cxx-agent` server exposes
 - api/src/services/agent-presence.ts — derived presence shared by `agent_list`, the Git Director and the project board
 - api/src/services/agent-session-work.ts — the Active Clients join of session, address, and Git Director work
 - api/src/ops/agent-messaging-worker.ts — queue maintenance loop

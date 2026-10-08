@@ -934,6 +934,41 @@ Errors return: `{type: "error", error: {type: string, message: string, code?: st
 
 ## Agent Messaging
 
+### Delivery reliability (cxx 0.9.25)
+
+The local MCP `agent_send`, `agent_request` and `agent_call_join` tools accept an
+optional UUID `client_message_id`. Keep it unchanged when retrying an uncertain
+send; a failed send also reports the generated ID. A successful request followed
+by a failed wait returns `sent`, `result`, `wait_error` and `next_action`, so the
+caller continues with `agent_wait` on the saved conversation instead of resending.
+Call joins replay their original hello by sender and message ID before trying to
+consume a PIN again, returning `created: false`; changed content conflicts. That
+ID names the original hello even if the PIN later expires or is reused. Use a new
+ID for a new call.
+
+Acceptance of a still-leased message checks its TTL inside the transaction;
+expiry cannot be bypassed by beating the maintenance tick. Work already accepted
+may finish after its queue TTL. Background workers continue lease renewal through
+result storage and retry the same claim/body after a lost completion response,
+including when renewal reports that the stored delivery is already terminal.
+They never rerun native work to recover a result acknowledgement.
+
+Peer and Portal receive sources keep independent availability: disabling peer
+messaging removes its source and binding without breaking Portal heartbeats or
+Portal-only reconnects. Re-enabling the peer bus requires a fresh lifecycle
+binding. Claude proves its MCP pipes with a matched ping before registration;
+Grok SessionStart accepts native `sessionId` as well as `session_id`.
+
+Mailbox metadata includes the reserved Server publisher (`fqdn: null`) and puts
+current queued messages before recently expired ones within its 20-row limit.
+Automatic `agent_listen` releases a finished delivery and returns health: call it
+once, then yield on `automatic`; report `receiver_unavailable` instead of polling.
+A v2 work delivery requires an explicit task result before it can be released.
+Wrong-source reply tools
+name the correct tool for a delivery held by this process: peer messages use
+`agent_reply`, operator Portal messages use `agent_receiver_reply`. They do not
+silently forward content between sources.
+
 ### Scoped publications (migration 0041, cxx 0.9.20)
 
 Persistent groups and single-agent feeds share explicit subscriptions. Topics
@@ -1070,7 +1105,7 @@ Session-bound operations require `X-Agent-Bridge-Token`:
 - `POST /host/agent-sessions/{id}/agent-messaging/conf/invite` — chair only.
   Creates a member row and queues an `INVITE` per address. Idle hosts are woken
   by their relay with the invite as the prompt; a host with a wrapper attached is
-  skipped by the relay and receives it when that session next listens. Per-member
+  skipped by the relay and receives through its native receiver or manual listen. Per-member
   results — the fan-out is a loop, not a transaction.
 - `POST /host/agent-sessions/{id}/agent-messaging/conf/join` — exactly one of
   `pin` or `conference_id`. The PIN is **multi-use** and is never consumed by a
@@ -1089,7 +1124,8 @@ Session-bound operations require `X-Agent-Bridge-Token`:
 - `POST /host/agent-sessions/{id}/agent-messaging/conf/adjourn` — chair only.
   Default leaves `dispatched` members to finish and parks the room in
   `adjourning`; `force: true` cancels their conversations, which revokes the
-  delivery lease and kills a headless member's engine mid-run.
+  delivery lease. Headless workers stop on renewal failure; already running
+  interactive native work and committed side effects may continue.
 - `POST /host/agent-sessions/{id}/agent-messaging/bind` — heartbeat/bind the
   native adapter with `binding_generation`, continuity, upstream session, and
   receive-capability state.

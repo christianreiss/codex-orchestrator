@@ -66,12 +66,13 @@ type relayDelivery struct {
 }
 
 type relayClient struct {
-	baseURL        string
-	apiKey         string
-	http           *http.Client
-	id             string
-	token          string
-	heartbeatEvery time.Duration
+	baseURL              string
+	apiKey               string
+	http                 *http.Client
+	id                   string
+	token                string
+	heartbeatEvery       time.Duration
+	completionRenewEvery time.Duration
 }
 
 type nativeResult struct {
@@ -390,7 +391,7 @@ func (c *relayClient) processDelivery(ctx context.Context, configs map[string]*c
 	if report != nil {
 		replyBody["task_result"] = report
 	}
-	if err := c.storeCompletion(ctx, "/deliveries/"+url.PathEscape(delivery.MessageID)+"/reply", replyBody, &replyOut); err != nil {
+	if err := c.storeCompletion(ctx, delivery, "/deliveries/"+url.PathEscape(delivery.MessageID)+"/reply", replyBody, &replyOut); err != nil {
 		_ = c.ack(ctx, delivery, "ambiguous", "reply_store_ambiguous", &result)
 		return err
 	}
@@ -584,14 +585,41 @@ func (c *relayClient) ack(ctx context.Context, delivery *relayDelivery, outcome,
 	return nil
 }
 
-func (c *relayClient) storeCompletion(ctx context.Context, suffix string, body any, out any) error {
+func (c *relayClient) storeCompletion(ctx context.Context, delivery *relayDelivery, suffix string, body any, out any) error {
+	// Native execution has finished, but its result still belongs to this claim.
+	// Keep that lease alive through slow storage and lost-response retries. The
+	// native runner's renewal loop ends when its child exits.
+	ctx, cancel := context.WithCancel(ctx)
+	done := make(chan struct{})
+	every := c.completionRenewEvery
+	if every <= 0 {
+		every = deliveryRenewEvery
+	}
+	go func() {
+		defer close(done)
+		ticker := time.NewTicker(every)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				if err := c.renew(ctx, delivery); definitiveChannelRenewalError(err) {
+					// Completion may already be stored with its response lost. Stop
+					// renewing, but let the idempotent storage call confirm that result.
+					return
+				}
+			}
+		}
+	}()
+	defer func() { cancel(); <-done }()
 	for {
 		err := c.relayPost(ctx, suffix, body, out)
 		if err == nil {
 			return nil
 		}
 		var apiErr *APIError
-		if errors.As(err, &apiErr) && (apiErr.Status == 400 || apiErr.Status == 403 || apiErr.Status == 404 || apiErr.Status == 409 || apiErr.Status == 422) {
+		if errors.As(err, &apiErr) && (apiErr.Status == 400 || apiErr.Status == 401 || apiErr.Status == 403 || apiErr.Status == 404 || apiErr.Status == 409 || apiErr.Status == 422) {
 			return err
 		}
 		select {
@@ -611,7 +639,7 @@ func (c *relayClient) completeTask(ctx context.Context, delivery *relayDelivery,
 	}
 	body := map[string]any{"claim_id": delivery.ClaimID, "outcome": "completed", "task_result": report, "upstream_session_id": emptyToNil(result.UpstreamSessionID)}
 	var out map[string]any
-	return c.storeCompletion(ctx, "/deliveries/"+url.PathEscape(delivery.MessageID)+"/ack", body, &out)
+	return c.storeCompletion(ctx, delivery, "/deliveries/"+url.PathEscape(delivery.MessageID)+"/ack", body, &out)
 }
 
 func (c *relayClient) stop(ctx context.Context) error {

@@ -81,7 +81,7 @@ export class AgentReceiverService {
           relayEnabled: sources.includes('portal') ? 1 : 0,
         })
         .where(eq(agentSessions.id, id));
-      if (session.agentBusAddressId) {
+      if (session.agentBusAddressId && sources.includes('peer')) {
         const [address] = await tx
           .select()
           .from(agentBusAddresses)
@@ -112,6 +112,8 @@ export class AgentReceiverService {
     input: { source?: ReceiverSource; nonce?: string; failure?: string },
   ) {
     const auth = await this.authenticate(id, token, input.source);
+    const peerEnabled = await this.messaging.isEnabled();
+    const portalEnabled = await this.portal.isEnabled();
     const result = await this.db.transaction(async (tx) => {
       const [session] = await tx.select().from(agentSessions).where(eq(agentSessions.id, id)).for('update');
       const state = receiverState(session?.receiver);
@@ -139,6 +141,11 @@ export class AgentReceiverService {
           throw new ConflictError('Probe does not match this delivery', 'receiver_probe_mismatch');
         return receiverView(state);
       }
+      // Each source has its own switch. Disabling peer messaging releases its
+      // address binding, but must not prevent this session's portal heartbeat
+      // or reconnect. Removed sources require a new registration to rejoin.
+      if (!peerEnabled) delete state.probes.peer;
+      if (!portalEnabled) delete state.probes.portal;
       const peer = receiverReady(state, 'peer', now);
       const portal = receiverReady(state, 'portal', now);
       await tx
@@ -151,7 +158,7 @@ export class AgentReceiverService {
           relayHeartbeatAt: portal ? state.heartbeat_at : null,
         })
         .where(eq(agentSessions.id, id));
-      if (session.agentBusAddressId) {
+      if (session.agentBusAddressId && state.probes.peer) {
         const [address] = await tx
           .select()
           .from(agentBusAddresses)

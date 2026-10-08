@@ -883,6 +883,13 @@ behavior remain engine-specific.
 
 ## Agent Messaging lifecycle
 
+Cxx 0.9.25 retains caller retry IDs for sends, requests and call joins; a request
+whose wait fails returns the saved send receipt and directs `agent_wait` without
+resending. Automatic `agent_listen` is a single release/health check followed by
+yield, while manual fallback may long-poll. Background result storage keeps the
+accepted lease alive. See [delivery reliability](interface-api.md#delivery-reliability-cxx-0925)
+and the [2026-10-08 lifecycle audit](agent-messaging-audit-2026-10-08.md).
+
 From cxx 0.9.20, the same plugin-scoped MCP server adds `agent_group_list`,
 `agent_group_create`, `agent_group_members`, `agent_subscribe`,
 `agent_unsubscribe`, `agent_subscriptions` and `agent_publish`; their native
@@ -905,8 +912,10 @@ stdio MCP server (`cxx agent mcp`) and allow its direct/call/conference tools wi
 and `agent_conf_adjourn`. `agent_call_open`, `agent_call_join`, and `agent_listen`
 are the `#call` rendezvous: `agent_call_open` mints a
 short-lived four-digit PIN and returns this agent's own address, `agent_call_join`
-dials a PIN and sends the opening message in one step, and `agent_listen` waits for
-the next message addressed to this agent in any conversation. `agent_listen` needs
+dials a PIN and sends the opening message atomically; retries with the same
+message ID recover that hello. In manual mode `agent_listen` waits for a message
+in any conversation; in automatic mode it releases finished delivery and returns
+receiver health before the agent yields. `agent_listen` needs
 the signed `agent_messaging.listen_enabled` grant, which the broker enforces. A
 call PIN is single-use because a conversation has two ends; a conference room PIN
 is multi-use. Whoever opens a conference is its chair: only the chair may invite
@@ -917,9 +926,9 @@ text is ordinary untrusted input; it is never an instruction or a grant of autho
 
 The same provisioning appends a ringer to the managed `hooks.Stop` and
 `hooks.UserPromptSubmit` entries: `cxx agent poll --hook <event> 2>/dev/null ||
-true`. An interactive session exists only during a turn, so those two turn
-boundaries are the only moments an attached session can learn it is being
-called; the command prints nothing when there is nothing to report or the
+true`. These hooks provide a fallback ring when automatic reception is unavailable;
+healthy native Channels can deliver between turns. The command prints nothing
+when there is nothing to report or the
 orchestrator is unreachable, and `|| true` keeps a wrapper too old to know
 `agent poll` from blocking every turn. Operator-configured hooks for the same
 events are preserved and the ring is appended. Codex has no hook surface and
@@ -929,8 +938,9 @@ An address is stable for `(host, Unix user, engine, working directory)` and can
 bind to a native Claude session with a generation-fenced upstream session id.
 The outbound-only per-user worker resumes an offline address with
 `claude --skip-boot resume <session> -p --output-format json`, or starts a fresh
-print-mode run when continuity was reset or the saved conversation no longer
-exists. Only one native writer may use an address/session at a time. Accepted
+print-mode run for a new/reset identity. A missing saved conversation blocks
+existing work until an operator grants a one-use ordinary-work fresh start;
+schedules never fall back to a fresh session. Only one native writer may use an address/session at a time. Accepted
 work is renewed while the child runs and only bounded output tails are retained.
 
 Delivery is FIFO per target and at-least-once until native execution starts.
@@ -938,16 +948,18 @@ Queued messages default to a 24-hour TTL, accept 60 seconds through seven days,
 and stop after 12 attempts. Once native execution has started, lost completion,
 shutdown, or cancellation is terminal `ambiguous` and is not replayed
 automatically. Operators may inspect history and explicitly redrive an eligible
-terminal message. Disabling the global or host switch revokes relays/bindings,
+terminal message. Disabling the fleet switch or removing host eligibility revokes relays/bindings,
 cancels queued or leased work, marks accepted work ambiguous, and cancels open
 conversations; re-enable starts a clean boundary with no automatic replay.
 
-The optional Claude Channel adapter is preview-only and requires both the signed
-`channel_preview_enabled` gate and Claude's explicit `cxx agent mcp --channel`
-launch. It advertises only `claude/channel`, activates reception after MCP
-`notifications/initialized`, correlates replies to the accepted delivery, and
-does not expose a permission-grant capability. The ordinary stdio MCP tool path
-is the supported default.
+Managed interactive launches use the native Channel adapter through
+`cxx agent mcp --auto` under the signed `receiver_enabled` gate. It advertises
+only `claude/channel`, starts after MCP `notifications/initialized`, and proves
+both MCP pipes with a matched silent ping before registering readiness. It
+correlates replies to accepted deliveries without exposing a permission-grant
+capability. The older explicit `--channel` path retains its separate preview
+gate; ordinary stdio tools provide manual fallback when automatic reception is
+unavailable.
 
 The shared service has no listener and persists only opaque
 instance/deployment ids in `~/.cxx/agent`. Routine cron reconciliation does not

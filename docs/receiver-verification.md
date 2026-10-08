@@ -1,5 +1,28 @@
 # Receiver verification
 
+## 2026-10-08: lifecycle audit and wrapper 0.9.25
+
+Fresh native canaries passed on the final combined changes for managed Codex
+0.161.0, Claude Code 2.1.293 and Grok 1.0.46. Each received peer and Portal
+messages, returned exact correlated MCP replies before and after a forced
+receiver-generation reconnect in the same native conversation, and reported
+unavailable reception after its temporary broker stopped. Startup/heartbeat
+checks remained silent; only the explicit canary challenges consumed model turns.
+
+The tested development wrapper SHA-256 is
+`30c49dbb9fac0265f7c8332845b384e6576a97b59bc5edce9bab5fa00750310e`.
+The Linux amd64 0.9.25 release artifact, with separate build metadata, is
+`b8e9b226c0c7135d804d99ae4d83f1e35f9e27b8319aac64130f2a47bd48e9bf`.
+Linux/macOS amd64/arm64 release cross-builds and packaging fixtures passed.
+
+The [complete lifecycle audit](agent-messaging-audit-2026-10-08.md) records the
+server/API fixes, agent usability findings, regression evidence, initial failed
+canaries and their diagnosis. It includes 4,030 regular API tests, all 1,086
+integration tests against disposable MySQL, Go tests/build/vet/race checks and
+915 frontend tests. Test counts overlap across suites and are not additive.
+This is local verification; the API and wrapper have not been deployed and
+existing native receiver processes have not been restarted.
+
 ## 2026-10-08: managed native command starts (0.9.24)
 
 Managed command entries now route `codex`, `claude` and `grok` through the

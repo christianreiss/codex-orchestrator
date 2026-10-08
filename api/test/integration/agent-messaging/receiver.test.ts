@@ -195,4 +195,24 @@ describe.skipIf(!handle).each(engines)('$engine receiver connection health and f
     await db.execute(sql`UPDATE versions SET version='1' WHERE name='agent_messaging_enabled'`);
   });
 
+  it('keeps portal reception and reconnect available after messaging is disabled', async () => {
+    const db = handle!.db;
+    await db.execute(sql`UPDATE versions SET version='1' WHERE name='agent_portal_enabled'`);
+    const [session] = await db.select().from(agentSessions).where(eq(agentSessions.id, id));
+    const state = receiverState(session!.receiver)!;
+    state.portal_closed = false;
+    state.probes.portal = {};
+    state.heartbeat_at = new Date().toISOString();
+    await db.update(agentSessions).set({ receiver: state }).where(eq(agentSessions.id, id));
+    await messaging.setEnabled(false);
+    const heartbeat = await receiver.update(id, token, state.generation, 'heartbeat', {});
+    expect(heartbeat.receiver?.sources.map(s => s.source)).toEqual(['portal']);
+    expect(await receiver.claim(id, token, state.generation, 'portal', randomUUID())).toEqual({ message: null });
+    await receiver.update(id, token, state.generation, 'stop', {});
+    const next = randomUUID();
+    const registered = await receiver.register(id, token, { generation: next, protocol, native_session_id: state.native_session_id });
+    expect(registered.sources).toEqual(['portal']);
+    expect(await receiver.claim(id, token, next, 'portal', randomUUID())).toEqual({ message: null });
+    await expect(receiver.claim(id, token, next, 'peer', randomUUID())).rejects.toMatchObject({ code: 'agent_messaging_disabled' });
+  });
 });

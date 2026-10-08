@@ -19,8 +19,8 @@ import { resolve } from 'node:path';
 
 const ROOT = resolve(import.meta.dirname, '../../../..');
 
-const RUN = /\bfunc run\(args \[\]string, stdout, stderr io\.Writer(?:, choices \.\.\.\*quotaadvice\.Session)?\)[^\n]*\{/;
-/** The subcommand dispatch inside `run()`; the other `switch sub` blocks are helpers. */
+const RUN = /\bfunc runMode\(args \[\]string, stdout, stderr io\.Writer, native bool, choices \.\.\.\*quotaadvice\.Session\)[^\n]*\{/;
+/** Native and wrapper entries share runMode(); other switch blocks are helpers. */
 const DISPATCH = 'switch sub {';
 
 /** cgx resolves its subcommands while parsing argv, not in a run() switch. */

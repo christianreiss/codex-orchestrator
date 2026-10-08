@@ -1,5 +1,7 @@
 # 2026-10-08
 
+- Wrapper 0.9.25 and the messaging API fix call/send retry recovery, request wait receipts, expired-before-acceptance work, post-execution result lease renewal, Grok SessionStart decoding, and Claude readiness before its first silent ping. Peer shutdown preserves Portal reception; mailbox rings include Server publications and prioritize current messages. Wrong-source reply errors name the correct peer or Portal tool; updated agent guidance and operator documentation distinguish automatic reception, explicit work results, and cancellation limits.
+
 - Remove engine-scoped access from the working secrets store: Codex, Claude and Grok share all credentials. Remove the API/MCP scope parameter and dashboard selector; migration 0044 drops the obsolete scope column while preserving encrypted values, host ownership, provenance and read auditing. The Secret dialog also closes correctly after a successful save.
 
 - Add a Grok MCP compatibility audit covering all 78 host tools, six optional operator tools and 26 local messaging tools, plus a disposable native-client catalogue probe.

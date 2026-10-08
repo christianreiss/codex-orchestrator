@@ -208,6 +208,20 @@ describe.skipIf(!handle)('agent messaging durability against a real database', {
     expect((repeated.message as Record<string, unknown>).status).toBe('completed');
   }
 
+  it('refuses to accept expired queued work even before the maintenance sweep', async () => {
+    const sender = await register('codex', 'expired-sender');
+    const target = await register('grok', 'expired-target');
+    const sent = await service.sendMessage(sender.sessionId, sender.bridgeToken, {
+      to: target.address, content: 'expired work', kind: 'request', clientMessageId: randomUUID(),
+    });
+    const messageId = String((sent.message as Record<string, unknown>).id), claimId = randomUUID();
+    await service.claimForSession(target.sessionId, target.bridgeToken, claimId);
+    await db.update(agentBusMessages).set({ expiresAt: new Date(Date.now() - 1000).toISOString() }).where(eq(agentBusMessages.id, messageId));
+    await expect(service.acknowledgeSessionDelivery(target.sessionId, target.bridgeToken, messageId, { claimId, outcome: 'accepted' })).rejects.toMatchObject({ code: 'agent_messaging_message_expired' });
+    const [message] = await db.select().from(agentBusMessages).where(eq(agentBusMessages.id, messageId));
+    expect(message!.acceptedAt).toBeNull();
+  });
+
   it('delivers and completes all nine Codex/Claude/Grok direction pairs', async () => {
     const senders = new Map<Engine, AgentIdentity>();
     const targets = new Map<Engine, AgentIdentity>();

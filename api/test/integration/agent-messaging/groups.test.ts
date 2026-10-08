@@ -136,6 +136,15 @@ describe.skipIf(!handle)('persistent opt-in publications against MySQL', { timeo
   const message = async (id: string) =>
     (await db.select().from(agentBusMessages).where(eq(agentBusMessages.id, id)))[0]!;
 
+  it('includes Server publications in the metadata-only mailbox ring', async () => {
+    const target = await register('grok', 'server-ring');
+    await service.subscribe(target.sessionId, target.token, SERVER_PUBLICATION_TOPIC);
+    const sent = await service.publishAdmin({ topic: SERVER_PUBLICATION_TOPIC, content: 'Server notice', clientMessageId: randomUUID() });
+    const mailbox = await service.peekMailbox(target.sessionId, target.token);
+    expect(mailbox.pending).toEqual([expect.objectContaining({ message_id: sent.deliveries[0]!.message_id, kind: 'publication', from: expect.objectContaining({ engine: 'server', fqdn: null }) })]);
+    expect(JSON.stringify(mailbox)).not.toContain('Server notice');
+  });
+
   it('routes each of Codex, Claude and Grok to the two other group members, then Server to all three', async () => {
     const agents = await Promise.all(ENGINES.map((engine) => register(engine, engine)));
     for (const agent of agents)
