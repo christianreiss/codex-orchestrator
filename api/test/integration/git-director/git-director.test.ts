@@ -125,6 +125,101 @@ describe.skipIf(!handle)('git director against a real database', () => {
     expect(peers.map((p) => p['worktree_path'])).toEqual([MAIN_WT]);
   });
 
+  it('rejects relative clone directories that would alias unrelated repositories', async () => {
+    await expect(register(MAIN_WT, { clone_dir: '.git' })).rejects.toThrow('clone_dir must be absolute');
+    expect(rowsOf(await exec(`SELECT id FROM git_clones WHERE host_id = ${host.id}`))).toHaveLength(0);
+  });
+
+  it('reassigns a path to its reported clone and withdraws only its old queued requests', async () => {
+    const old = await register(MAIN_WT);
+    await register(LINKED_WT);
+    const holder = await requestMerge(LINKED_WT, ['shared.ts']);
+    const queued = await requestMerge(MAIN_WT, ['shared.ts']);
+    expect(queued.verdict).toBe('wait');
+    const current = await register(MAIN_WT, { clone_dir: '/srv/ztest-gd/correct/.git' });
+    expect(current.worktree_id).not.toBe(old.worktree_id);
+    const joined = await svc.join({ worktree_path: MAIN_WT, task: 'correct clone' }, host);
+    expect(joined.clone).toEqual(current.clone);
+    const listed = await svc.list({ scope: 'clone', worktree_path: MAIN_WT }, host);
+    expect((listed.clones as Array<Record<string, unknown>>)[0]?.clone_id).toBe(
+      (current.clone as Record<string, unknown>).clone_id,
+    );
+    expect(
+      rowsOf(await exec(`SELECT status FROM git_worktrees WHERE id = '${old.worktree_id}'`))[0]?.status,
+    ).toBe('superseded');
+    expect(
+      rowsOf(await exec(`SELECT verdict FROM git_merge_requests WHERE id = '${queued.request_id}'`))[0]
+        ?.verdict,
+    ).toBe('withdrawn');
+    expect(
+      rowsOf(await exec(`SELECT verdict FROM git_merge_requests WHERE id = '${holder.request_id}'`))[0]
+        ?.verdict,
+    ).toBe('allow');
+    await svc.release({ worktree_path: MAIN_WT, deregister: true }, host);
+    const revived = await svc.join({ worktree_path: MAIN_WT }, host);
+    expect((revived.clone as Record<string, unknown>).clone_id).toBe(
+      (current.clone as Record<string, unknown>).clone_id,
+    );
+  });
+
+  it('requires explicit registration to repair legacy duplicates instead of reviving the first row', async () => {
+    const old = await register(MAIN_WT);
+    const correct = await register(MAIN_WT, { clone_dir: '/srv/ztest-gd/correct/.git' });
+    await exec(`UPDATE git_worktrees SET status = 'released' WHERE id = '${old.worktree_id}'`);
+    await expect(svc.join({ worktree_path: MAIN_WT }, host)).rejects.toMatchObject({
+      code: 'git_director_worktree_ambiguous',
+    });
+    await expect(svc.list({ scope: 'clone', worktree_path: MAIN_WT }, host)).rejects.toMatchObject({
+      code: 'git_director_worktree_ambiguous',
+    });
+    await expect(svc.list({ scope: 'host', worktree_path: MAIN_WT }, host)).rejects.toMatchObject({ code: 'git_director_worktree_ambiguous' });
+    const repaired = await register(MAIN_WT, { clone_dir: '/srv/ztest-gd/correct/.git' });
+    expect(repaired.worktree_id).toBe(correct.worktree_id);
+    const grant = await requestMerge(MAIN_WT, ['movie.blend']);
+    expect(grant.verdict).toBe('allow');
+    expect(
+      rowsOf(await exec(`SELECT clone_id FROM git_merge_requests WHERE id = '${grant.request_id}'`))[0]
+        ?.clone_id,
+    ).toBe((correct.clone as Record<string, unknown>).clone_id);
+  });
+
+  it('never transfers or retires a registration with a live merge lease', async () => {
+    const old = await register(MAIN_WT);
+    const granted = await requestMerge(MAIN_WT, ['movie.blend']);
+    await expect(register(MAIN_WT, { clone_dir: '/srv/ztest-gd/correct/.git' })).rejects.toMatchObject({
+      code: 'git_director_lease_held',
+    });
+    expect(
+      rowsOf(await exec(`SELECT status FROM git_worktrees WHERE id = '${old.worktree_id}'`))[0]?.status,
+    ).toBe('active');
+    expect(
+      rowsOf(
+        await exec(`SELECT verdict, completed_at FROM git_merge_requests WHERE id = '${granted.request_id}'`),
+      )[0],
+    ).toMatchObject({ verdict: 'allow', completed_at: null });
+  });
+
+  it('serializes concurrent registrations of one host/path under different clones', async () => {
+    await Promise.all([
+      register(MAIN_WT, { clone_dir: '/srv/ztest-gd/first/.git' }),
+      register(MAIN_WT, { clone_dir: '/srv/ztest-gd/second/.git' }),
+    ]);
+    const active = rowsOf(
+      await exec(`SELECT id, clone_id FROM git_worktrees WHERE host_id = ${host.id} AND status = 'active'`),
+    );
+    expect(active).toHaveLength(1);
+    const joined = await svc.join({ worktree_path: MAIN_WT }, host);
+    expect(joined.worktree_id).toBe(active[0]?.id);
+  });
+
+  it('resolves the canonical registration beyond four superseded historical rows', async () => {
+    let current: Record<string, unknown> = {};
+    for (let i = 0; i < 6; i++)
+      current = await register(MAIN_WT, { clone_dir: `/srv/ztest-gd/clone-${i}/.git` });
+    const joined = await svc.join({ worktree_path: MAIN_WT }, host);
+    expect(joined.worktree_id).toBe(current.worktree_id);
+  });
+
   it('grants one lease and makes the overlapping contender wait, naming the files', async () => {
     await register(MAIN_WT);
     await register(LINKED_WT);

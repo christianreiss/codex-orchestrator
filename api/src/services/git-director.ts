@@ -510,6 +510,17 @@ export class GitDirectorService {
     const worktreePath = normalizePath(requiredString(args, 'worktree_path'));
     const cloneDir = normalizePath(optionalString(args, 'clone_dir') ?? worktreePath);
     const repoRoot = normalizePath(optionalString(args, 'repo_root') ?? worktreePath);
+    for (const [param, path] of Object.entries({
+      worktree_path: worktreePath,
+      clone_dir: cloneDir,
+      repo_root: repoRoot,
+    })) {
+      if (!path.startsWith('/') && !/^[A-Za-z]:[\\/]/.test(path)) {
+        throw new ValidationError(`${param} must be absolute; use git rev-parse --path-format=absolute`, {
+          param,
+        });
+      }
+    }
     const remoteUrl = optionalString(args, 'remote_url');
     const branch = optionalString(args, 'branch', 255);
     const headSha = optionalString(args, 'head_sha', 64);
@@ -523,6 +534,8 @@ export class GitDirectorService {
 
     return await this.deps.db.transaction(async (tx) => {
       await this.sweepExpired(tx, now);
+      // Serialize path reassignment across different clones on the same host.
+      await tx.select({ id: hosts.id }).from(hosts).where(eq(hosts.id, host.id)).for('update');
 
       const clone = await this.upsertCloneLocked(tx, {
         host,
@@ -533,6 +546,41 @@ export class GitDirectorService {
         remoteKey: remoteKey ? sha256(remoteKey) : null,
         now,
       });
+
+      const registrations = (
+        await tx
+          .select()
+          .from(gitWorktrees)
+          .where(and(eq(gitWorktrees.hostId, host.id), eq(gitWorktrees.worktreeHash, worktreeHash)))
+          .for('update')
+      ).filter((row) => row.hostId === host.id && row.worktreeHash === worktreeHash);
+      const superseded = registrations.filter((row) => row.cloneId !== clone.id);
+      for (const row of superseded) {
+        if (await this.liveLeaseForWorktree(tx, row.id, now)) {
+          throw new ConflictError(
+            'This path is registered under another clone with a live merge lease; release that lease first.',
+            'git_director_lease_held',
+          );
+        }
+      }
+      for (const row of superseded) {
+        const pending = await this.liveRequestsForWorktree(tx, row.id, now);
+        if (pending.length)
+          await tx
+            .update(gitMergeRequests)
+            .set({ verdict: 'withdrawn', completedAt: now, updatedAt: now })
+            .where(
+              inArray(
+                gitMergeRequests.id,
+                pending.map((request) => request.id),
+              ),
+            );
+        await tx
+          .update(gitWorktrees)
+          .set({ status: 'superseded', releasedAt: now, updatedAt: now })
+          .where(eq(gitWorktrees.id, row.id));
+        wsPublisher.publish('git_director.changed', { kind: 'worktree', clone_id: row.cloneId });
+      }
 
       const address = await this.resolveAddress(tx, host, username, engine, worktreePath);
       const existing = (
@@ -692,7 +740,8 @@ export class GitDirectorService {
         await this.deps.db.transaction(async (tx) => {
           await this.requireWorktree(tx, host, normalized, now);
         });
-      } catch {
+      } catch (error) {
+        if (error instanceof ConflictError && error.code === 'git_director_worktree_ambiguous') throw error;
         // An unregistered path is not an error here — git_list is how an agent
         // looks around BEFORE it registers, and refusing that would invert the
         // order the guidance tells it to work in.
@@ -1318,18 +1367,34 @@ export class GitDirectorService {
     }
   }
 
+  private async worktreeForPath(
+    tx: GitDirectorDb,
+    host: Host,
+    worktreePath: string,
+  ): Promise<GitWorktree | null> {
+    const worktreeHash = sha256(worktreePath);
+    const rows = (
+      await tx
+        .select()
+        .from(gitWorktrees)
+        .where(and(eq(gitWorktrees.hostId, host.id), eq(gitWorktrees.worktreeHash, worktreeHash)))
+    ).filter(
+      (row) => row.hostId === host.id && row.worktreeHash === worktreeHash && row.status !== 'superseded',
+    );
+    if (rows.length > 1)
+      throw new ConflictError(
+        'Multiple clones are registered for this host/path. Call git_register with the correct absolute git-common-dir first.',
+        'git_director_worktree_ambiguous',
+      );
+    return rows[0] ?? null;
+  }
+
   private async cloneForWorktree(
     tx: GitDirectorDb,
     host: Host,
     worktreePath: string,
   ): Promise<GitClone | null> {
-    const worktreeHash = sha256(worktreePath);
-    const rows = await tx
-      .select()
-      .from(gitWorktrees)
-      .where(and(eq(gitWorktrees.hostId, host.id), eq(gitWorktrees.worktreeHash, worktreeHash)))
-      .limit(4);
-    const worktree = rows.find((row) => row.hostId === host.id && row.worktreeHash === worktreeHash);
+    const worktree = await this.worktreeForPath(tx, host, worktreePath);
     if (!worktree) return null;
     const clones = await tx.select().from(gitClones).where(eq(gitClones.id, worktree.cloneId)).limit(1);
     return clones.find((row) => row.id === worktree.cloneId) ?? null;
@@ -1357,13 +1422,8 @@ export class GitDirectorService {
     worktreePath: string,
     now: string,
   ): Promise<{ clone: GitClone; worktree: GitWorktree }> {
-    const worktreeHash = sha256(worktreePath);
-    const rows = await tx
-      .select()
-      .from(gitWorktrees)
-      .where(and(eq(gitWorktrees.hostId, host.id), eq(gitWorktrees.worktreeHash, worktreeHash)))
-      .limit(4);
-    const worktree = rows.find((row) => row.hostId === host.id && row.worktreeHash === worktreeHash);
+    await tx.select({ id: hosts.id }).from(hosts).where(eq(hosts.id, host.id)).for('update');
+    const worktree = await this.worktreeForPath(tx, host, worktreePath);
     if (!worktree) {
       throw new NotFoundError(
         `No registration for ${worktreePath}. Call git_register for this worktree first.`,
@@ -1535,7 +1595,7 @@ export class GitDirectorService {
   private async staleWire(tx: GitDirectorDb, cloneId: string, now: string): Promise<Array<Record<string, unknown>>> {
     void now;
     const rows = (await tx.select().from(gitWorktrees).where(eq(gitWorktrees.cloneId, cloneId)).limit(200)).filter(
-      (row) => row.cloneId === cloneId && (row.status === 'expired' || row.status === 'abandoned'),
+      (row) => row.cloneId === cloneId && (row.status === 'expired' || row.status === 'abandoned' || row.status === 'superseded'),
     );
     rows.sort((a, b) => ((a.releasedAt ?? '') < (b.releasedAt ?? '') ? 1 : -1));
     return rows.slice(0, 25).map((row) => ({

@@ -174,3 +174,8 @@ same claim and body; never rerun work because its ACK was lost. Ordinary missing
 need explicit operator authorization for `agent_fresh_start_approve` or the admin action,
 bound to one message/version/target and consumed once. Peers cannot authorize fresh starts.
 Compatibility gates apply to queued work, while already running older processes continue.
+
+Git Director clone, repository and worktree directories must be absolute. Gather them with
+`git rev-parse --path-format=absolute --show-toplevel --git-common-dir`; report branch and
+HEAD separately. Repair `git_director_worktree_ambiguous` through explicit re-registration
+with the correct clone facts. Never bypass a live lease on an older mapping.

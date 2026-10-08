@@ -1,5 +1,7 @@
 # 2026-10-08
 
+- Git Director now resolves one canonical registration per host/path, rejects relative clone directories and ambiguous legacy mappings, and supersedes old mappings only when no live merge lease is held.
+
 - Wrapper 0.9.23 retries account launch reservations after transient 502/503/504 responses up to four times over 15 seconds, retaining the same idempotent lease ID and active account pin.
 
 - Result-only peer completions notify the caller once with their summary in the same transaction; scheduled wakes retain results without peer replies.

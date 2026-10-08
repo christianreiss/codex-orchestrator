@@ -57,3 +57,5 @@ Agents are told to pass `changed_paths` from `git diff --name-only base...head`:
 - frontend/src/routes/git-director/+page.svelte (registry, Release, Force allow / Deny, Reclaimed and Recent verdicts)
 - frontend/src/lib/components/settings/GitDirectorSection.svelte (the module switch)
 - frontend/src/lib/api/gitDirector.ts (queries and mutations)
+
+Git Director registrations require absolute worktree, repository and common-directory paths (`git rev-parse --path-format=absolute --show-toplevel --git-common-dir`). A correct re-registration supersedes earlier mappings for that host/path and withdraws their queued requests while retaining history. A live lease on an earlier mapping blocks reassignment. Join/list/merge/release never select an arbitrary legacy duplicate: `git_director_worktree_ambiguous` requires explicit re-registration with the correct clone facts. Superseded rows cannot be revived by path lookups.

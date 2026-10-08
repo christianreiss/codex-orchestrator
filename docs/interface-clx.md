@@ -1174,3 +1174,5 @@ The canonical fleet AGENTS guidance and shared Wake / Cron Skill describe these 
 A result-only peer completion also queues one correlated reply containing its summary in the same transaction; wakes produce no peer reply. Retrying the same result never queues a second summary.
 
 Account launch reservations retry transient HTTP 502/503/504 responses up to four times (1, 2, 4, 8 seconds), using the same session ID and preserving the account used by active local processes. Other failures still abort launch.
+
+Git Director requires absolute directory facts. Re-register the correct clone when `git_director_worktree_ambiguous` is returned; a live lease on an old mapping must be released before reassignment. This contract is shared across all engines.

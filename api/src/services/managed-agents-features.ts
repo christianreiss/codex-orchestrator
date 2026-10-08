@@ -507,10 +507,13 @@ worktree — you run every git command yourself and report what you did.
 **Before you start work in a repository.** Call \`git_list\` **first — before creating a worktree, and
 before picking up work in a directory you have not registered**. It names the other agents already in
 your clone and what each said it is doing. Then \`git_register\` with the facts from
-\`git rev-parse --show-toplevel --git-common-dir --abbrev-ref HEAD HEAD\` and
+\`git rev-parse --path-format=absolute --show-toplevel --git-common-dir\`, \`git branch --show-current\`, \`git rev-parse HEAD\` and
 \`git remote get-url origin\`, and \`git_join\` to declare your task, the branch you mean to merge into,
 and the paths you expect to write. Every linked worktree of one clone registers against that one
 clone, so registering is what makes you visible to the peer three directories over.
+Directory facts must be absolute; a relative \`.git\` aliases unrelated repositories.
+If \`git_director_worktree_ambiguous\` is returned, re-register with the correct clone facts.
+Registration supersedes old mappings only when they hold no live merge lease; never bypass that lease.
 
 **Before you merge or push to a shared branch.** Call \`git_merge_request\` and honor the verdict —
 before \`git merge\`, before \`git push\`, before anything that moves a branch others share. Pass

@@ -254,7 +254,7 @@
                   {#each clone.stale as row (row.worktree_id)}
                     <div class="text-xs">
                       <Badge variant={row.status === "abandoned" ? "destructive" : "secondary"}>
-                        {row.status === "abandoned" ? "session ended" : "went quiet"}
+                        {row.status === "superseded" ? "reassigned" : row.status === "abandoned" ? "session ended" : "went quiet"}
                       </Badge>
                       <span class="ml-2 font-mono">{row.worktree_path}</span>
                       <span class="ml-2 text-muted-foreground">

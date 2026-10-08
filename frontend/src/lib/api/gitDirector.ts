@@ -58,7 +58,7 @@ export interface GitStaleWorktreeRow {
   branch: string | null;
   task: string | null;
   /** `abandoned` = the fleet saw its session end. `expired` = it just went quiet. */
-  status: "expired" | "abandoned";
+  status: "expired" | "abandoned" | "superseded";
   last_seen_at: string;
   released_at: string | null;
 }

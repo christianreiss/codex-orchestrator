@@ -61,6 +61,7 @@ const IDENTIFIER = /[a-z][a-z0-9]*(?:_(?:[a-z0-9]+|\*))+/g;
  * reason each one is there. Anything not listed here has to be a live tool.
  */
 const NON_TOOL_TOKENS: Record<string, string> = {
+  git_director_worktree_ambiguous: "error code requiring explicit registration to repair duplicate clone mappings, not a tool",
  max_recovery_attempts: 'optional recovery budget argument',
  task_result_status: 'domain outcome metadata field',
  adapter_upgrade_required: 'queued delivery reason when its adapter lacks contract v2',
