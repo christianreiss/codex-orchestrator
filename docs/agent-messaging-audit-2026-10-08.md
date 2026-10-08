@@ -4,7 +4,7 @@ The first-pass record follows; the [second pass](#second-pass--2026-10-08-cxx-09
 covers commit `63002ff7` and wrapper 0.9.26. The
 [third pass](#third-pass--2026-10-08-cxx-0927) covers commit `9788c394`, six further
 product defects, one native-canary race and wrapper 0.9.27. The
-[fourth pass](#fourth-pass--2026-10-08-cxx-0928) audits baseline `f0a7aee1`
+[fourth pass](#fourth-pass--2026-10-08-cxx-0929) audits baseline `f0a7aee1`
 and delivers wrapper 0.9.29 plus further server and CLI repairs.
 
 This audit covers the server, HTTP and local MCP interfaces, interactive native
@@ -596,3 +596,12 @@ API image tag `codex-orchestrator-api:rollback-messaging-r4-20261008`, and datab
 dump `backups/codex-orchestrator-20261008T124858Z.sql`. Deployment logs on the
 operator host are `/tmp/messaging-r4-deploy-api.log` and
 `/tmp/messaging-r4-deploy-wrappers.log`.
+
+Wrapper publication completed: all four platform manifests serve 0.9.29; the
+Linux amd64 binary reports commit `a1b272be`, embedded signing key and SHA-256
+`c343ad8eac0279eecc9d11bc903e8a2173f8f06831649a0ac23f14a6b324e93a`.
+The running API bundle contains the native-identity, informational-only and
+receiver-registration fences. Both deployment phases completed with healthy
+services and no critical log matches. An extra Python 3.13 public HTTPS probe
+failed on strict CA key-usage validation; the deployment uses curl with normal
+certificate verification, not a TLS bypass.
