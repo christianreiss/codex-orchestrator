@@ -110,11 +110,12 @@ the app picks up newly configured Firebase identifiers and registers its token.
 
 ## Appearance and conversation layout
 
-Version 0.4.6 shows the **native session name** as the main row title and chat
+Version 0.4.7 shows the **native session name** as the main row title and chat
 header. Host and full working-directory path appear in a smaller second line;
 the short summary remains on a separate line. Search includes the name, host,
 directory and summary. Missing names use **Session <short native ID>**, or the
 short orchestrator ID before native binding, so same-project chats remain distinct.
+Explicit JSON null values are treated as missing on the Android runtime.
 Long paths and names wrap/truncate within the row; TalkBack retains the text.
 
 Wrapper 0.9.32 reads only the bound session's naming metadata: Codex's
@@ -131,7 +132,7 @@ conversations hides the old name and allows the AI to name the new one. Until th
 visible. The companion's GET/POST overview exposes `session_name`
 only with transcript permission; names create neither reply counts nor push
 alerts. Deploy the API accepting this additive event and update wrappers before
-installing 0.4.6. Old wrappers/APKs remain compatible; there is no schema migration.
+installing 0.4.7. Old wrappers/APKs remain compatible; there is no schema migration.
 
 Version 0.4.4 gives the home screen a WhatsApp-inspired layout: a compact green
 **Orchestrator** header, rounded **Search chats** field, **All**, **Unread**, and

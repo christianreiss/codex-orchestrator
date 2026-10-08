@@ -17,10 +17,13 @@ fun readyAgents(agents: List<JSONObject>) = agents.filter(::isReachable)
 fun liveApproval(request: JSONObject, now: Long) = request.optBoolean("live", false) &&
     runCatching { Instant.parse(request.getString("expires_at")).toEpochMilli() > now }.getOrDefault(false)
 
-fun agentTitle(agent: JSONObject): String = compactSummary(agent.optString("session_name"))
-    ?: agent.optString("upstream_session_id").trim().takeIf(String::isNotBlank)?.let { "Session ${it.take(8)}" }
-    ?: agent.optString("id").trim().takeIf(String::isNotBlank)?.let { "Session ${it.take(8)}" }
+fun agentTitle(agent: JSONObject): String = compactSummary(agent.identityText("session_name"))
+    ?: agent.identityText("upstream_session_id")?.let { "Session ${it.take(8)}" }
+    ?: agent.identityText("id")?.let { "Session ${it.take(8)}" }
     ?: "Unnamed session"
+
+private fun JSONObject.identityText(key: String): String? =
+    if (isNull(key)) null else optString(key).trim().takeIf(String::isNotBlank)
 
 internal fun agentHost(agent: JSONObject?): String? = agent?.let {
     it.optString("host").trim().ifBlank { it.optString("fqdn").trim() }.takeIf(String::isNotBlank)

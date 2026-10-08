@@ -1,5 +1,7 @@
 # 2026-10-08
 
+- Android companion 0.4.7 explicitly handles Android's JSON null values when choosing session names and IDs, keeping unnamed sessions identifiable instead of displaying the literal text "null". Verified with Android runtime regression coverage and the deployed phone.
+
 - Wrapper 0.9.31 sends private Grok leader stderr to per-run, owner-only diagnostic logs (at most 1 MiB per file), preventing background trace lines from corrupting the native terminal. Native tool errors remain visible in the TUI and transcript. Startup failures name the log file; `cgx doctor` shows its directory. Existing sessions retain their running wrapper until resumed through the updated wrapper.
 
 - Android companion 0.4.6 makes the native session name the primary chat identity, with host and working directory underneath and the short summary on its own line. Wrapper 0.9.32 forwards bound Codex, Claude and Grok naming metadata through encrypted, idempotent session_named events; the companion exposes names only with transcript permission. Fleet startup guidance asks the AI to name unknown sessions through agent_session_name, whose atomic set-if-missing mode preserves existing names. Unnamed sessions show a short session ID, and search matches names, host and directory. Roll out the API and wrapper before installing the APK for native names.

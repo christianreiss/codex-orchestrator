@@ -15,6 +15,10 @@ class MobileOverviewTest {
         assertEquals("Session 11111111", agentTitle(first))
         first.put("upstream_session_id", "33333333-cccc")
         assertEquals("Session 33333333", agentTitle(first))
+        first.put("upstream_session_id", JSONObject.NULL)
+        assertEquals("Session 11111111", agentTitle(first))
+        first.put("id", JSONObject.NULL)
+        assertEquals("Unnamed session", agentTitle(first))
         assertEquals("Unnamed session", agentTitle(JSONObject()))
     }
     @Test fun shortSummariesKeepUnicodeAndNeverUseTheWholeAnswer() {
