@@ -934,7 +934,25 @@ Errors return: `{type: "error", error: {type: string, message: string, code?: st
 
 ## Agent Messaging
 
-### Delivery reliability (cxx 0.9.25)
+### Delivery reliability (cxx 0.9.26)
+
+The second-pass fixes preserve accepted native work across transport reconnects
+within the same MCP process and native identity. Reconnection keeps the held
+delivery and renews its lease without resubmitting it. Process loss, expired
+leases and revoked bindings retain the existing ambiguous-outcome semantics.
+Explicit Portal source closure releases its local gate so peers can continue.
+
+Interactive reply/result retries retain the original body and claim even when
+a committed completion makes lease renewal return 409. Concurrent reply, result
+and listen calls serialize completion for that delivery. Changing an uncertain
+payload is rejected locally with recovery guidance; definite validation errors
+allow correction. Portal replies likewise retain their original content and
+summary until event storage and heartbeat completion are confirmed.
+Replaying a stored work reply does not change its original `completed_at`.
+Portal acceptance atomically records its supplied upstream turn ID as
+`active_turn_id`. The native receiver retries a lost acceptance response with
+the same message and lease, requires a confirmed `accepted` status, and submits
+without a second heartbeat dependency. Deploy the API before wrapper 0.9.26.
 
 The local MCP `agent_send`, `agent_request` and `agent_call_join` tools accept an
 optional UUID `client_message_id`. Keep it unchanged when retrying an uncertain
@@ -963,7 +981,8 @@ Mailbox metadata includes the reserved Server publisher (`fqdn: null`) and puts
 current queued messages before recently expired ones within its 20-row limit.
 Automatic `agent_listen` releases a finished delivery and returns health: call it
 once, then yield on `automatic`; report `receiver_unavailable` instead of polling.
-A v2 work delivery requires an explicit task result before it can be released.
+Report a v2 work result explicitly before release; releasing without one records
+`unknown`, never success.
 Wrong-source reply tools
 name the correct tool for a delivery held by this process: peer messages use
 `agent_reply`, operator Portal messages use `agent_receiver_reply`. They do not
@@ -1506,6 +1525,10 @@ transcripts stop ordinary jobs too: replacement requires an explicit operator re
 then `agent_fresh_start_approve(message_id, version, reason)` or the admin fresh-start
 operation. Grants are bound to the message and target binding, consumed once on acceptance,
 and forbidden for schedules. Ordinary ambiguous executions are never automatically rerun.
+An approved replacement receives a new default 24-hour queue TTL and a fresh
+delivery-attempt budget, even if the original message expired while awaiting the
+operator. Repeating the same approval preserves that deadline and budget; it
+does not extend them. Prior terminal timestamps are cleared for the new execution.
 
 `agent_task_result(message_id, task_result)` completes accepted work; `agent_reply` may
 include the same result and completes work atomically with the reply. A result contains

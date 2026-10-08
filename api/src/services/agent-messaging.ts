@@ -951,6 +951,8 @@ export class AgentMessagingService {
     if (target.bindingGeneration !== message.targetBindingGeneration) throw new ConflictError('Agent address binding changed', 'agent_messaging_binding_stale');
     if (message.status === 'accepted' && (!message.leaseUntil || message.leaseUntil <= nowIso())) throw new ConflictError('Delivery lease expired', 'agent_messaging_lease_lost');
     const report = await storeTaskResult(tx, message, result ?? unknownTaskResult, this.keyring, nowIso());
+    // Receipt replay verifies the immutable result without changing when work ended.
+    if (message.status === 'completed') return;
     await tx.update(agentBusMessages).set({ status: 'completed', taskResultStatus: report.status, completedAt: nowIso(), leaseUntil: null, updatedAt: nowIso() }).where(eq(agentBusMessages.id, message.id));
   }
 

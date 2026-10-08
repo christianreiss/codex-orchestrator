@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"reflect"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -17,16 +19,18 @@ import (
 )
 
 type autoReceiver struct {
-	client        *sessionClient
-	tracker       *channelTracker
-	output        *mcpWriter
-	mu            sync.Mutex
-	generation    string
-	pendingPortal map[string]any
-	lastPong      time.Time
-	pendingPing   string
-	queue         nativeDelivery
-	boundNativeID string
+	client          *sessionClient
+	tracker         *channelTracker
+	output          *mcpWriter
+	mu              sync.Mutex
+	generation      string
+	pendingPortal   map[string]any
+	portalReplyMu   sync.Mutex
+	portalReplyBody map[string]any
+	lastPong        time.Time
+	pendingPing     string
+	queue           nativeDelivery
+	boundNativeID   string
 	// connected, lastBeatOK, gate and gateSince are this process's own account of
 	// whether it can wake the session. They exist so agent_listen can tell "on the
 	// line" from "the line is dead" without a server round trip: a model that
@@ -249,6 +253,26 @@ func (r *autoReceiver) connection(parent context.Context) error {
 	if nativeID == "" {
 		return errors.New("native session identity missing")
 	}
+	if r.boundNativeID != "" && r.boundNativeID != nativeID {
+		// Claude SessionStart also reports /clear. That is a new conversation,
+		// not a reconnect to the old one: revoke its local ownership explicitly.
+		r.tracker.mu.Lock()
+		pending := make(map[string]*channelPending, len(r.tracker.items))
+		for id, p := range r.tracker.items {
+			pending[id] = p
+		}
+		r.tracker.mu.Unlock()
+		for id, p := range pending {
+			p.opMu.Lock()
+			_ = r.tracker.acknowledge(ctx, id, p, "ambiguous", "native_session_changed")
+			r.tracker.drop(id, p)
+			p.opMu.Unlock()
+		}
+		r.mu.Lock()
+		r.pendingPortal, r.portalReplyBody = nil, nil
+		r.mu.Unlock()
+	}
+	r.boundNativeID = nativeID
 	// Registration advertises immediate readiness. Channels must first prove
 	// both MCP pipes; merely receiving a SessionStart hook is insufficient.
 	if r.queue == nil {
@@ -264,26 +288,15 @@ func (r *autoReceiver) connection(parent context.Context) error {
 	}
 	r.mu.Lock()
 	r.generation = generation
-	r.pendingPortal = nil
 	r.mu.Unlock()
 	r.setConnected(true)
 	defer func() {
 		r.setConnected(false)
 		stopCtx, stop := context.WithTimeout(context.Background(), 3*time.Second)
 		defer stop()
-		r.tracker.mu.Lock()
-		pending := make(map[string]*channelPending, len(r.tracker.items))
-		for id, p := range r.tracker.items {
-			pending[id] = p
-		}
-		r.tracker.mu.Unlock()
-		for id, p := range pending {
-			if p.completion() != nil || p.reply() != nil {
-				continue
-			}
-			_ = r.tracker.acknowledge(stopCtx, id, p, "ambiguous", "adapter_disconnected")
-			r.tracker.drop(id, p)
-		}
+		// Reconnecting this transport does not stop an admitted native turn.
+		// Keep its reply ownership and renewal until the process ends or the
+		// server revokes the claim. Never replay it into the new connection.
 		_ = r.client.receiver(stopCtx, "stop", map[string]any{"generation": generation, "failure": "adapter_disconnected"}, nil)
 	}()
 	lastBeat := time.Time{}
@@ -323,6 +336,14 @@ func (r *autoReceiver) connection(parent context.Context) error {
 				registered.Sources = nil
 				for _, source := range health.Receiver.Sources {
 					registered.Sources = append(registered.Sources, source.Source)
+				}
+				if !slices.Contains(registered.Sources, "portal") {
+					// Explicit source closure revokes the gate; it must not block
+					// the independently enabled peer source after a reconnect.
+					r.mu.Lock()
+					r.pendingPortal = nil
+					r.portalReplyBody = nil
+					r.mu.Unlock()
 				}
 			}
 			lastBeat = time.Now()
@@ -373,15 +394,17 @@ func (r *autoReceiver) connection(parent context.Context) error {
 				id := stringArg(d, "message_id")
 				// Anything arriving on a conversation is the peer being alive there.
 				r.stall.cancel(stringArg(d, "conversation_id"))
-				pending := r.tracker.track(ctx, id, claimID)
+				pending := r.tracker.track(parent, id, claimID)
 				// Fence execution in the durable queue before writing to the native
 				// adapter. Lost receipts must never requeue a model-started task.
 				if err := r.tracker.acknowledge(ctx, id, pending, "accepted", ""); err != nil {
+					r.tracker.drop(id, pending)
 					return err
 				}
 				prompt := nativePeerPrompt(d)
 				if err := r.deliver(id, prompt); err != nil {
 					_ = r.tracker.acknowledge(ctx, id, pending, "ambiguous", "native_submission_uncertain")
+					r.tracker.drop(id, pending)
 					return err
 				}
 			} else if claimed.Message != nil {
@@ -395,6 +418,9 @@ func (r *autoReceiver) connection(parent context.Context) error {
 				// Portal acceptance prevents automatic replay after submission; completion
 				// remains a separate correlated assistant event from the model.
 				if err := r.portalAccept(ctx, d); err != nil {
+					r.mu.Lock()
+					r.pendingPortal = nil
+					r.mu.Unlock()
 					return err
 				}
 				if err := r.deliver(id, prompt); err != nil {
@@ -476,13 +502,26 @@ func (r *autoReceiver) deliver(id, content string) error {
 func (r *autoReceiver) portalAccept(ctx context.Context, d map[string]any) error {
 	id := stringArg(d, "message_id")
 	body := map[string]any{"session_id": r.client.id, "lease_owner": stringArg(d, "lease_owner"), "outcome": "accepted", "upstream_id": id}
-	if err := doJSON(ctx, r.client.http, "http://agent-messaging.local", http.MethodPost, "/host/agent-commands/"+id+"/ack", body, nil, nil); err != nil {
-		return err
+	var out map[string]any
+	ack := func() error {
+		return doJSON(ctx, r.client.http, "http://agent-messaging.local", http.MethodPost, "/host/agent-commands/"+id+"/ack", body, nil, &out)
 	}
-	return r.client.sessionPost(ctx, "heartbeat", map[string]any{"active_turn_id": id}, nil)
+	if err := ack(); err != nil {
+		if err := ack(); err != nil {
+			return err
+		}
+	}
+	if stringArg(out, "status") != "accepted" {
+		return errors.New("Portal acceptance was not confirmed")
+	}
+	// Acceptance sets active_turn_id atomically. A second heartbeat must not
+	// strand an accepted instruction before it reaches the native conversation.
+	return nil
 }
 
 func (r *autoReceiver) reply(ctx context.Context, args map[string]any) (map[string]any, error) {
+	r.portalReplyMu.Lock()
+	defer r.portalReplyMu.Unlock()
 	id, content := stringArg(args, "message_id"), stringArg(args, "content")
 	if strings.TrimSpace(content) == "" {
 		return nil, errors.New("content is required")
@@ -498,8 +537,21 @@ func (r *autoReceiver) reply(ctx context.Context, args map[string]any) (map[stri
 		payload["summary"] = summary
 	}
 	body := map[string]any{"client_event_id": "receiver:" + id, "type": "assistant_message", "payload": payload}
+	r.mu.Lock()
+	if r.portalReplyBody != nil && !reflect.DeepEqual(r.portalReplyBody, body) {
+		r.mu.Unlock()
+		return nil, errors.New("a Portal reply receipt is still pending; retry agent_receiver_reply with the original content and summary")
+	}
+	r.portalReplyBody = body
+	r.mu.Unlock()
 	var out map[string]any
 	if err := r.client.sessionPost(ctx, "events", body, &out); err != nil {
+		var apiErr *APIError
+		if errors.As(err, &apiErr) && (apiErr.Status == 400 || apiErr.Status == 422) {
+			r.mu.Lock()
+			r.portalReplyBody = nil
+			r.mu.Unlock()
+		}
 		return nil, err
 	}
 	if err := r.client.sessionPost(ctx, "heartbeat", map[string]any{"active_turn_id": ""}, nil); err != nil {
@@ -507,6 +559,7 @@ func (r *autoReceiver) reply(ctx context.Context, args map[string]any) (map[stri
 	}
 	r.mu.Lock()
 	r.pendingPortal = nil
+	r.portalReplyBody = nil
 	r.mu.Unlock()
 	return out, nil
 }

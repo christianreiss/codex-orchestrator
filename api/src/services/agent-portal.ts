@@ -1479,7 +1479,7 @@ export class AgentPortalService {
         });
         await tx
           .update(agentSessions)
-          .set({ status: 'active', updatedAt: now })
+          .set({ status: 'active', ...(upstreamId ? { activeTurnId: upstreamId } : {}), updatedAt: now })
           .where(and(eq(agentSessions.id, sessionId), isNull(agentSessions.endedAt)));
       } else if (input.outcome === 'retry' && row.attempts < AGENT_PORTAL_MAX_DELIVERY_ATTEMPTS) {
         await tx

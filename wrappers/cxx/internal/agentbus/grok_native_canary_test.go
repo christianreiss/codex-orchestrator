@@ -212,7 +212,11 @@ func TestGrokNativeLeaderCanary(t *testing.T) {
 			}
 		case strings.HasSuffix(r.URL.Path, "/ack"):
 			if stringArg(body, "outcome") == "accepted" {
-				response["message"] = map[string]any{"status": "accepted"}
+				if strings.Contains(r.URL.Path, "/agent-commands/") {
+					response["status"] = "accepted"
+				} else {
+					response["message"] = map[string]any{"status": "accepted"}
+				}
 			}
 		case strings.HasSuffix(r.URL.Path, "/receiver/status"):
 			if protocol != "" {

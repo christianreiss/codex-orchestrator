@@ -763,7 +763,7 @@ Cxx 0.9.25 retains caller retry IDs for sends, requests and call joins; a reques
 whose wait fails returns the saved send receipt and directs `agent_wait` without
 resending. Automatic `agent_listen` is a single release/health check followed by
 yield, while manual fallback may long-poll. Background result storage keeps the
-accepted lease alive. See [delivery reliability](interface-api.md#delivery-reliability-cxx-0925)
+accepted lease alive. See [delivery reliability](interface-api.md#delivery-reliability-cxx-0926)
 and the [2026-10-08 lifecycle audit](agent-messaging-audit-2026-10-08.md).
 
 From cxx 0.9.20, the same MCP server adds `agent_group_list`,
@@ -944,7 +944,13 @@ update and session restart. Operator requests use
 of at most 160 characters for mobile cards and push; the full result remains in
 `content`. Omitting it remains compatible with older callers. Durable acceptance precedes native
 submission, so uncertain submission is not automatically replayed as fresh work.
-A peer disconnect records an ambiguous outcome. An accepted portal instruction
+From cxx 0.9.26, a transport reconnect in the same MCP process preserves the
+outstanding peer/Portal delivery and its reply correlation for the same native
+identity; peer leases keep renewing and content is never submitted twice.
+Process loss or accepted lease expiry still yields an ambiguous peer outcome.
+Uncertain replies/results must retry the original payload; `agent_listen`
+can recover a pending peer receipt. Concurrent completion calls serialize.
+An accepted portal instruction
 without its correlated assistant event remains unconfirmed, never fabricated as
 completed. These receipts prove adapter delivery and model response, not that the
 requested task itself succeeded.

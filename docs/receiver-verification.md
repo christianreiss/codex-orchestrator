@@ -1,5 +1,23 @@
 # Receiver verification
 
+## 2026-10-08: second lifecycle pass, wrapper 0.9.26
+
+Fresh final canaries passed for Codex 0.161.0, Claude Code 2.1.293 and Grok
+1.0.46: both peer/Portal sources, exact correlated replies before and after
+receiver-generation reconnect, and unavailable health after broker shutdown.
+All three used development wrapper SHA-256
+`b04fc173b7dd9d50921a6fb3afed16c6574af963f301b1161d937e4c73cba1b5`.
+The packaged Linux amd64 0.9.26 binary has SHA-256
+`e83fee2b838caaa80060cd0bade6479e62be3ef042f146f389a235acbec81003`.
+
+The [second-pass audit](agent-messaging-audit-2026-10-08.md#second-pass--2026-10-08-cxx-0926)
+records the fixes for lost result receipts, concurrent completion, same-native
+reconnect ownership, revoked leases, late fresh-start grants, stable completion
+timestamps and atomic Portal acceptance. Controlled wrapper tests reproduce
+in-flight failures; MySQL tests additionally cover accepted reconnect across all
+nine engine pairs. Native canaries independently verify the real client adapters
+with local stub brokers. No production fleet messages or deployment were performed.
+
 ## 2026-10-08: lifecycle audit and wrapper 0.9.25
 
 Fresh native canaries passed on the final combined changes for managed Codex

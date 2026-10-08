@@ -197,7 +197,7 @@ def run(engine, cxx, timeout, native_cli=None):
                         healthy = True
                         out = {"receiver": {"sources": [{"source": s} for s in sources]}}
                     elif op == "ack" and data.get("outcome") == "accepted":
-                        out = {"message": {"status": "accepted"}}
+                        out = {"status": "accepted"} if "/agent-commands/" in self.path else {"message": {"status": "accepted"}}
                     elif op in ("heartbeat", "stop", "status", "ack", "renew"):
                         pass
                     else:

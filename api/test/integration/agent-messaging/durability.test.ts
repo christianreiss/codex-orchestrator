@@ -323,6 +323,17 @@ describe.skipIf(!handle)('agent messaging durability against a real database', {
     });
     expect((await receiver.claim(target.sessionId, target.bridgeToken, generation, 'peer', randomUUID())).delivery).toBeNull();
     expect(await readMessage(secondId)).toMatchObject({ status: 'queued', attempts: 0 });
+    // A receiver connection generation can change while the native turn keeps
+    // running. Its accepted claim belongs to the session/binding, so it remains
+    // renewable and completable without exposing either message a second time.
+    await receiver.retry(target.sessionId);
+    const resumedGeneration = randomUUID();
+    await receiver.register(target.sessionId, target.bridgeToken, {
+      generation: resumedGeneration, protocol, native_session_id: nativeSessionId,
+    });
+    await service.renewSessionDelivery(target.sessionId, target.bridgeToken, messageId, claimId);
+    expect((await receiver.claim(target.sessionId, target.bridgeToken, resumedGeneration, 'peer', randomUUID())).delivery).toBeNull();
+    expect(await readMessage()).toMatchObject({ status: 'accepted', claimId, attempts: 1 });
     await service.acknowledgeSessionDelivery(target.sessionId, target.bridgeToken, messageId, {
       claimId, outcome: 'completed', upstreamSessionId: nativeSessionId,
     });

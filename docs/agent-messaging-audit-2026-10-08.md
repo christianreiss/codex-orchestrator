@@ -1,5 +1,8 @@
 # Agent Messaging lifecycle audit — 2026-10-08
 
+The first-pass record follows; the [second-pass findings and verification](#second-pass--2026-10-08-cxx-0926)
+at the end cover the follow-up on commit `63002ff7` and wrapper 0.9.26.
+
 This audit covers the server, HTTP and local MCP interfaces, interactive native
 receivers, detached workers, agent usability, and delivery recovery for Codex,
 Claude and Grok. Changes are local on top of `708e2a0a`; wrapper version is
@@ -192,3 +195,117 @@ processes need a new launch to load the fixes and tool guidance. No database
 change is required. A rollback can restore the previous API and wrapper
 artifacts without a data migration. Verification ran on the uncommitted worktree;
 source delivery is recorded in Git. Production was not published or restarted.
+
+## Second pass — 2026-10-08, cxx 0.9.26
+
+Baseline: clean `main` at `63002ff7b6bb083f5fbd6babc57b731827774ce9`, the
+first-pass fix commit, already one commit ahead of the local `origin/main` ref.
+This pass changes the API, shared native receiver, regression tests and matching
+documentation. No production rollout, branch change, push, provider login
+or credential refresh was performed. Fleet project discovery found no active
+`codex-orchestrator` project; the repository remains the audit handoff.
+
+### Findings repaired
+
+| Finding and consequence | Repair and evidence |
+| --- | --- |
+| An interactive result could commit while its response was lost. The next renewal returned `agent_messaging_lease_lost`, and the tracker discarded the original claim and report. | Retain pending result/reply bodies after terminal renewal; retry their original storage operation. `TestInteractiveLostResultSurvivesTerminalRenewal` failed on the baseline and passes now. Renewal stops without claiming that receipt storage failed or succeeded. |
+| A second tool invocation could overwrite an uncertain reply/result with changed content. The server's immutable-result rule then conflicted with every subsequent retry. Portal event retries had the same problem. | Keep the original peer result/reply and Portal content/summary until confirmation. Reject changed retry arguments locally; explicit validation rejection permits correction. Peer and Portal lost-response tests cover payload retention; the peer validation regression verifies corrected input. |
+| Concurrent `agent_reply`, `agent_task_result` and `agent_listen` calls could complete the same delivery out of order. A default `unknown` completion could win ahead of the intended report. | Serialize completion operations per delivery, with lease renewal independent of the network-bound completion lock. The concurrency test holds the first reply in flight and proves listen cannot complete ahead of it. |
+| A transport reconnect abandoned peer work as ambiguous and cleared an outstanding Portal instruction even though its native conversation was still running. The model then could not reply to work it already held. | Preserve ownership across reconnects to the same native identity and use the MCP process lifetime for renewal. Never resubmit the content. The baseline reconnect regression fails for both held sources; final MySQL tests prove accepted renewal and completion across all nine engine pairs. |
+| Binding, authentication and authorization failures outside a short error-code list left a revoked delivery held indefinitely. | Treat HTTP 401/403/404/409/410 as definitive renewal rejection; keep 429 and transient server/transport failures retryable. Retain uncertain storage receipts separately. Tests cover both classes. |
+| An operator could approve a missing-transcript replacement after the original queue TTL elapsed, but the replacement kept that expired deadline and old delivery budget. | Give the explicitly approved new execution a default 24-hour queue window, zero attempts and cleared terminal timestamps. Existing approval idempotency and one-use consumption remain unchanged. The baseline DB regression could not claim its replacement; the repaired test claims and consumes it once. |
+| Replaying an already stored work reply changed `completed_at`, making the recorded finish time depend on network retries. | Validate the immutable result but skip the terminal-row rewrite. The database regression checks the retained original timestamp for Codex, Claude and Grok. |
+| Portal acceptance required a second heartbeat before submitting to native. A failure between those two writes stranded an accepted instruction without delivering it. The adapter also did not inspect the acceptance status. | Record a supplied upstream turn ID atomically with acceptance. Retry a lost ACK using the same message/lease; require the Portal API's top-level `status: accepted`; remove the second heartbeat dependency. API transaction coverage and wrapper failure-injection tests prove the boundary. Native canary stubs now use the actual Portal response shape rather than the peer ACK envelope. |
+| The manual claimed that work could not be released without an explicit result, while implementation intentionally stores `unknown` in that case. | Align API/operator documentation with the executable contract. Agents should report explicit outcomes; transport completion alone is not success. |
+
+Two related invariants are pinned by new tests: explicitly closing Portal releases
+its local gate so peer reception continues; Claude `/clear` is a native identity
+change, not a transport reconnect. Old held work is retired without replay before
+the new Claude conversation is registered. Codex and Grok retain their exact
+bound-root checks. These guards preserve the existing native lifecycle behavior
+while changing reconnect recovery.
+
+The wrapper failure-injection suite is
+`wrappers/cxx/internal/agentbus/recovery_test.go` (ten tests). The initial baseline
+run failed on lost receipt correlation, changed retry payload and reconnect
+ownership. The initial MySQL run failed the three completion timestamp cases
+and the expired fresh-start case. Later concurrency, Portal and revocation tests
+pin the repaired boundaries; they are not represented as independently captured
+baseline failures.
+
+### Lifecycle coverage and native methods
+
+| Phase | Reviewed path and verification |
+| --- | --- |
+| Registration and identity | `session.ts`, `bindings.ts`, `agent-receiver.ts`; bridge/host/engine gates, stable address, binding generation, single current native writer, silent receiver health and receiver replacement. |
+| Discovery and admission | `sendMessage`, local MCP tool catalog, call/PIN and publication paths; scoped discovery, sender retry IDs, encrypted payloads, eligible opt-in recipients, TTL and retained send receipts. |
+| Queuing and claiming | `claimDelivery`, receiver and relay HTTP routes; FIFO, one in-flight item per target, claim replay, source and generation checks, compatibility gates and real-database starvation tests. |
+| Native delivery | Codex protected App Server WebSocket and `thread/queue/add`; Claude plugin MCP Channel notifications and matched pings; Grok protected leader with framed ACP and correlated `session/prompt` admission. Native methods and permission ownership remain in place. |
+| Running and replying | Process-owned lease renewal; native submission distinct from reply; serialized peer completion and Portal reply operations; confirmed durable acceptance before content exposure; explicit task results remain separate from transport state. |
+| Retry and reconnect | Exact payload/claim retention, transient versus definitive errors, process lifetime versus connection generation, same-session reconnect without replay, and actual native conversation replacement. |
+| Calls, conferences and groups | Existing MySQL suites cover PIN consumption, readiness, chair/participant authorization, dispatch completion, budgets/deadlines/draining, scoped subscriptions and private-message isolation. This pass requires no protocol or schema redesign. |
+| Cancellation and finish | Existing cancellation/binding/relay tests remain green; accepted lease loss stays ambiguous and ordinary work is not replayed automatically. Cancellation cannot undo completed effects or guarantee interruption of interactive native tools. |
+| Recovery and operators | One-use ordinary missing-transcript grants, schedule restrictions and persistent recovery limits; metadata-only admin reads and audited reveal; corrected operator manual and all three engine interface documents. |
+
+The public contracts were rechecked against
+[OpenAI's App Server documentation](https://learn.chatgpt.com/docs/app-server),
+[Claude's Channels reference](https://code.claude.com/docs/en/channels-reference)
+and [Grok's headless/ACP reference](https://docs.x.ai/build/cli/headless-scripting).
+The installed Codex 0.161.0 generated schema from the first pass remains the
+specific queue-contract evidence. This pass did not change the native transport
+methods. Public App Server transport documentation marks the interface experimental;
+the native canaries below verify the installed versions, not future compatibility.
+
+### Verification
+
+| Check | Result |
+| --- | --- |
+| API typecheck, lint, build | Passed; lint has 108 existing warnings and zero errors. |
+| API full suite with coverage | 333 files and 4,030 tests passed; 401 DB-dependent cases skipped here and exercised separately. Coverage: statements/lines 66.04%, branches 81.92%, functions 74.20%; all repository thresholds met. |
+| Disposable MySQL 8.4 | Repository baseline and all 44 migrations applied; messaging suite: 138 passed. Final full integration rerun after all source changes: 90 files / 1,086 tests passed in 178.06 seconds. |
+| Final targeted DB regressions | 28 messaging durability tests passed, including accepted reconnect for all nine engine pairs; 61 Portal integration tests passed after atomic acceptance. |
+| API contract checks | 32 files / 133 tests passed after interface and wrapper updates. |
+| Go canonical `make test` | All packages and manifest/publishing fixtures passed. |
+| Go build, vet, race | Passed; race covers agentbus, agentportal, Codex, Claude and Grok after the final source changes. |
+| Frontend `npm run check` | Svelte zero errors/warnings and all 915 frontend tests passed. The updated manual article is served directly; no generated SPA bundle change is required. |
+| Release packaging | 0.9.26 built for Linux/macOS, amd64/arm64, under a temporary output root; nothing published. |
+
+Fresh final native canaries used isolated homes, temporary local brokers and
+access-only credential copies. Each engine returned exact correlated peer and
+Portal tool replies, repeated after a forced receiver-generation change in the
+same conversation, and reported unavailable when its broker stopped.
+
+| Engine and native binary | Final result |
+| --- | --- |
+| Codex 0.161.0 | Passed, both sources, reconnect and offline-broker checks. |
+| Claude Code 2.1.293 | Passed, both sources, reconnect and offline-broker checks. |
+| Grok 1.0.46 | Passed in 44.11 seconds; 1 ms ACP admission; both sources, reconnect and offline-broker checks. Access-only generations 17 → 18 → 19 also passed without provider refresh grants. |
+
+All final native canaries used the same development wrapper:
+`b04fc173b7dd9d50921a6fb3afed16c6574af963f301b1161d937e4c73cba1b5`.
+The separately built Linux amd64 0.9.26 artifact is
+`e83fee2b838caaa80060cd0bade6479e62be3ef042f146f389a235acbec81003`.
+Build metadata accounts for the different hashes.
+
+Logs are `/tmp/messaging-r2-*.log`; artifacts are under
+`/tmp/cxx-messaging-r2-20261008/`, with the final packaged binaries in
+`release-final/`. These are local diagnostics, not production deployment records.
+The disposable MySQL container and its test-data volume were removed after the
+final passing run; they can be recreated from the repository baseline and migrations.
+
+### Delivery limits and rollout
+
+The source changes target wrapper 0.9.26 on the original branch. Deploy the API first,
+then wrapper 0.9.26 and launch fresh managed sessions to load it. Existing native
+processes were not restarted. There is no new migration; rollback restores the
+prior API and wrapper artifacts.
+
+Database failure injection, native adapter canaries and arbitrary task completion
+are separate claims. The live canaries use stub brokers, not production fleet
+messages; in-flight reconnect and receipt-loss races are reproduced by controlled
+wrapper tests and real-DB session tests. macOS/arm64 were cross-compiled, not
+executed natively. MCP-process loss still loses local reply correlation; accepted
+peer work then expires to ambiguous and requires explicit recovery. Same-process
+transport reconnect preservation does not promise survival of a killed native
+conversation or exactly-once external task effects.

@@ -30,6 +30,15 @@ Server-to-agent conversations and agent-to-server responses use Portal.
 
 ## Reliable sends and reception
 
+Wrapper 0.9.26 preserves outstanding peer and Portal work when its receiver
+reconnects to the same native conversation. A reconnect does not resend the
+instruction. If a result or reply response is lost, retry the original tool
+arguments; changing the content or summary while its receipt is uncertain is
+rejected. `agent_listen` can confirm a pending peer result or reply. Revoked
+claims release their local delivery slot, and closing Portal leaves peers usable.
+Portal acceptance and active-turn tracking now commit together; a separate
+heartbeat failure cannot strand an accepted instruction before native submission.
+
 With wrapper 0.9.25, keep the same UUID `client_message_id` when retrying
 `agent_send`, `agent_request` or `agent_call_join` after an uncertain response.
 A call retry recovers its original conversation even after its single-use PIN
@@ -293,8 +302,8 @@ Operational notes:
   `leased` until `agent_reply` or the next `agent_listen`, and can be retried if
   that lease is lost. Automatic native delivery and v2 work require confirmed
   durable acceptance before content is exposed. Losing an accepted lease is
-  terminal `ambiguous`; it never silently replays work. V2 work must finish with
-  an explicit result before `agent_listen` can release it.
+  terminal `ambiguous`; it never silently replays work. Report a v2 result before
+  calling `agent_listen`: release without an explicit result records `unknown`.
 - **The turn budget is the stopping condition.** Calls carry `turn=k/16` and a 30-minute
   deadline in the message header. This is the structural answer to the runaway
   conversations recorded above: the counter travels with the message so neither side
@@ -608,6 +617,9 @@ listening or successful process exit alone means unknown. Reports are claims by 
 `agent_fresh_start_approve` and the admin action authorize one fresh session only after an
 explicit operator request, for ordinary work whose transcript is missing. Wakes never fall
 back to fresh sessions. New work waits for wrapper 0.9.22 capabilities; existing sessions continue.
+Approval gives the replacement a fresh 24-hour queue window and attempt budget,
+so an expired original message can recover. Retrying the same approval does not
+extend that window. Completed work keeps its original completion time on receipt retries.
 
 Persistent schedules may set `max_recovery_attempts`; empty means unlimited. Exponential
 backoff with positive jitter respects provider reset times. Repeated failures warn after

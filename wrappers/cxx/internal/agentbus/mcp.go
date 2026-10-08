@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"reflect"
 	"regexp"
 	"strings"
 	"sync"
@@ -36,6 +37,7 @@ type mcpWriter struct {
 
 type channelPending struct {
 	mu             sync.Mutex
+	opMu           sync.Mutex // serialize reply/result/listen without blocking lease renewal
 	completionBody map[string]any
 	replyBody      map[string]any
 	claimID        string
@@ -43,15 +45,34 @@ type channelPending struct {
 	cancel         context.CancelFunc
 }
 
-func (p *channelPending) setCompletion(body map[string]any) {
+func (p *channelPending) setCompletion(body map[string]any) error {
 	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.replyBody != nil || (p.completionBody != nil && !reflect.DeepEqual(p.completionBody, body)) {
+		return errors.New("a result receipt is still pending; retry the original tool arguments or call agent_listen to confirm it")
+	}
 	p.completionBody = body
-	p.mu.Unlock()
+	return nil
 }
-func (p *channelPending) setReply(body map[string]any) {
+func (p *channelPending) setReply(body map[string]any) error {
 	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.completionBody != nil || (p.replyBody != nil && !reflect.DeepEqual(p.replyBody, body)) {
+		return errors.New("a reply receipt is still pending; retry the original tool arguments or call agent_listen to confirm it")
+	}
 	p.replyBody = body
-	p.mu.Unlock()
+	return nil
+}
+
+// Validation is a definite rejection, so the caller can correct its payload.
+// Transport failures retain the exact body until its receipt is recovered.
+func (p *channelPending) clearRejectedBody(err error) {
+	var apiErr *APIError
+	if errors.As(err, &apiErr) && (apiErr.Status == 400 || apiErr.Status == 422) {
+		p.mu.Lock()
+		p.completionBody, p.replyBody = nil, nil
+		p.mu.Unlock()
+	}
 }
 func (p *channelPending) completion() map[string]any {
 	p.mu.Lock()
@@ -64,10 +85,9 @@ func (p *channelPending) reply() map[string]any { p.mu.Lock(); defer p.mu.Unlock
 //
 // It serves both receive lanes. For the Claude Channel pump a notification is
 // only acceptance; the delivery completes after the model stores a correlated
-// agent_reply. For `agent_listen` the delivery is never accepted at all -- it
-// stays `leased` and is completed by the next agent_reply, or by the next
-// agent_listen. Work is durably accepted before exposure. Either way the renewal goroutine keeps the lease alive while the
-// model thinks, which is what allows a turn to take longer than the 60s lease.
+// agent_reply. Manual informational deliveries stay leased until agent_reply
+// or the next agent_listen; work is durably accepted before exposure. Renewal
+// keeps the lease alive while the model thinks beyond the 60s lease.
 type channelTracker struct {
 	receiver *autoReceiver
 	client   *sessionClient
@@ -105,7 +125,16 @@ func (t *channelTracker) track(parent context.Context, messageID, claimID string
 				var ignored map[string]any
 				if err := t.client.post(ctx, "deliveries/"+messageID+"/renew", map[string]any{"claim_id": claimID}, &ignored); err != nil {
 					if definitiveChannelRenewalError(err) {
-						t.drop(messageID, pending)
+						// A committed result stops being renewable. If its response
+						// was lost, retain correlation for the idempotent storage retry.
+						pending.opMu.Lock()
+						pending.mu.Lock()
+						storing := pending.completionBody != nil || pending.replyBody != nil
+						pending.mu.Unlock()
+						if !storing {
+							t.drop(messageID, pending)
+						}
+						pending.opMu.Unlock()
 						return
 					}
 					// A transient transport or control-plane failure must not erase
@@ -158,24 +187,41 @@ func (t *channelTracker) completeOutstanding(ctx context.Context) error {
 	}
 	t.mu.Unlock()
 	for messageID, pending := range outstanding {
-		if pending.reply() != nil {
-			var ignored map[string]any
-			if err := t.client.post(ctx, "reply", pending.reply(), &ignored); err != nil {
-				var apiErr *APIError
-				if errors.As(err, &apiErr) && (apiErr.Status == 400 || apiErr.Status == 403 || apiErr.Status == 404 || apiErr.Status == 409 || apiErr.Status == 422) {
-					t.drop(messageID, pending)
-				}
-				return fmt.Errorf("reply storage pending; retry agent_listen: %w", err)
-			}
+		if err := t.completePending(ctx, messageID, pending); err != nil {
+			return err
 		}
-		if err := t.acknowledge(ctx, messageID, pending, "completed", ""); err != nil {
-			var apiErr *APIError
-			if !errors.As(err, &apiErr) || (apiErr.Status != 403 && apiErr.Status != 404 && apiErr.Status != 409) {
-				return fmt.Errorf("delivery completion pending; retry agent_listen: %w", err)
-			}
-		}
-		t.drop(messageID, pending)
 	}
+	return nil
+}
+
+func (t *channelTracker) completePending(ctx context.Context, messageID string, pending *channelPending) error {
+	pending.opMu.Lock()
+	defer pending.opMu.Unlock()
+	if t.get(messageID) != pending {
+		return nil
+	}
+	if pending.reply() != nil {
+		var ignored map[string]any
+		if err := t.client.post(ctx, "reply", pending.reply(), &ignored); err != nil {
+			var apiErr *APIError
+			if errors.As(err, &apiErr) && (apiErr.Status == 400 || apiErr.Status == 403 || apiErr.Status == 404 || apiErr.Status == 409 || apiErr.Status == 422) {
+				t.drop(messageID, pending)
+			}
+			return fmt.Errorf("reply storage pending; retry agent_listen: %w", err)
+		}
+	}
+	if err := t.acknowledge(ctx, messageID, pending, "completed", ""); err != nil {
+		var apiErr *APIError
+		if !errors.As(err, &apiErr) || (apiErr.Status != 403 && apiErr.Status != 404 && apiErr.Status != 409) {
+			pending.clearRejectedBody(err)
+			return fmt.Errorf("delivery completion pending; retry agent_listen: %w", err)
+		}
+		if pending.completion() != nil {
+			t.drop(messageID, pending)
+			return fmt.Errorf("task result storage was rejected; inspect agent_message_get before reporting an outcome: %w", err)
+		}
+	}
+	t.drop(messageID, pending)
 	return nil
 }
 
@@ -562,6 +608,11 @@ func definitiveChannelRenewalError(err error) bool {
 	if !errors.As(err, &apiErr) {
 		return false
 	}
+	// Authorization loss, a missing delivery, and claim/binding conflicts cannot
+	// be repaired by renewing this claim. Keep transport/5xx/429 failures retryable.
+	if apiErr.Status == 401 || apiErr.Status == 403 || apiErr.Status == 404 || apiErr.Status == 409 || apiErr.Status == 410 {
+		return true
+	}
 	switch apiErr.Code {
 	// agent_messaging_insecure_window_closed belongs with the definitive codes:
 	// the host lost authorization mid-delivery, so renewing on a ticker cannot
@@ -721,8 +772,16 @@ func callMCPTool(ctx context.Context, client *sessionClient, channelState *chann
 		if _, ok := args["task_result"]; !ok {
 			return nil, errors.New("task_result is required")
 		}
-		pending.setCompletion(map[string]any{"claim_id": pending.claimID, "outcome": "completed", "task_result": args["task_result"]})
+		pending.opMu.Lock()
+		defer pending.opMu.Unlock()
+		if channelState.get(messageID) != pending {
+			return nil, errors.New("this process no longer holds that delivery")
+		}
+		if err := pending.setCompletion(map[string]any{"claim_id": pending.claimID, "outcome": "completed", "task_result": args["task_result"]}); err != nil {
+			return nil, err
+		}
 		if err := client.post(ctx, "deliveries/"+messageID+"/ack", pending.completion(), &out); err != nil {
+			pending.clearRejectedBody(err)
 			return nil, err
 		}
 		channelState.drop(messageID, pending)
@@ -735,6 +794,11 @@ func callMCPTool(ctx context.Context, client *sessionClient, channelState *chann
 		pending := channelState.get(messageID)
 		clientMessageID := newUUID()
 		if pending != nil {
+			pending.opMu.Lock()
+			defer pending.opMu.Unlock()
+			if channelState.get(messageID) != pending {
+				return nil, errors.New("this process no longer holds that delivery")
+			}
 			clientMessageID = pending.replyClientID
 		}
 		body := map[string]any{"message_id": messageID, "content": content, "client_message_id": clientMessageID}
@@ -745,9 +809,14 @@ func callMCPTool(ctx context.Context, client *sessionClient, channelState *chann
 			body["task_result"] = report
 		}
 		if pending != nil {
-			pending.setReply(body)
+			if err := pending.setReply(body); err != nil {
+				return nil, err
+			}
 		}
 		if err := client.post(ctx, "reply", body, &out); err != nil {
+			if pending != nil {
+				pending.clearRejectedBody(err)
+			}
 			return nil, err
 		}
 		if pending != nil {

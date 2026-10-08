@@ -311,7 +311,7 @@ and also accepts `session_id`. The shared MCP tools preserve send/request/call
 retry IDs and expose a saved send receipt when only its subsequent wait failed.
 Automatic `agent_listen` releases finished delivery, checks health and yields;
 background workers retain their accepted lease through result storage. See
-[delivery reliability](interface-api.md#delivery-reliability-cxx-0925) and the
+[delivery reliability](interface-api.md#delivery-reliability-cxx-0926) and the
 [2026-10-08 lifecycle audit](agent-messaging-audit-2026-10-08.md).
 
 From cxx 0.9.20, Grok exposes the same seven group/subscription MCP tools as
@@ -331,6 +331,12 @@ delivery IDs through `session/prompt` metadata. Queue-state events prove
 admission; the prompt RPC's eventual turn-completion response is not admission.
 Existing durable acceptance, ambiguous-delivery fencing, generation fencing,
 deduplication, and reconnect behavior apply. Admission is not an agent reply.
+From cxx 0.9.26, reconnecting the native transport within the same MCP process
+retains outstanding work for the same native identity without resubmission.
+Peer renewal continues; uncertain peer/Portal result receipts keep the original
+payload, and concurrent completion tools serialize. Process loss and revoked
+leases keep their existing ambiguous-outcome handling. See the
+[shared reliability contract](interface-api.md#delivery-reliability-cxx-0926).
 Explicit unmanaged `--no-leader` or custom socket launches report receiver
 unavailability honestly. The receiver never answers native permission requests.
 

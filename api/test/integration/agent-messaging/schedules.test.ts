@@ -323,9 +323,12 @@ describe.skipIf(!handle)('durable Wake/Cron schedules on MySQL', { timeout: 1200
     await bus.acknowledgeSessionDelivery(target.id,target.token,messageId,{claimId,outcome:'accepted'});
     const input={claimId,taskResult:report,content:'Fixture checked',clientMessageId:randomUUID()};
     await bus.replyMessage(target.id,target.token,messageId,input);
+    const completedAt = '2026-01-01T00:00:00.000Z';
+    await db.update(agentBusMessages).set({ completedAt }).where(eq(agentBusMessages.id, messageId));
     await bus.replyMessage(target.id,target.token,messageId,input);
     const [message]=await db.select().from(agentBusMessages).where(eq(agentBusMessages.id,messageId));
     expect(message).toMatchObject({status:'completed',taskResultStatus:'succeeded'});
+    expect(message!.completedAt).toBe(completedAt);
     const rows=await db.select().from(agentTaskResults).where(eq(agentTaskResults.messageId,messageId));
     expect(rows).toHaveLength(1); expect(rows[0]!.bodyEnc).not.toContain(report.summary);
     expect(JSON.parse(decrypt(rows[0]!.bodyEnc,keyring))).toEqual(report);
@@ -346,6 +349,8 @@ describe.skipIf(!handle)('durable Wake/Cron schedules on MySQL', { timeout: 1200
     const messageId=String((sent.message as Record<string,unknown>).id),claimId=randomUUID();
     await bus.claimForSession(target.id,target.token,claimId);
     await bus.acknowledgeSessionDelivery(target.id,target.token,messageId,{claimId,outcome:'dead',errorCode:'native_transcript_missing'});
+    // The operator can approve recovery after the original queue TTL elapsed.
+    await db.update(agentBusMessages).set({ expiresAt: '2026-01-01T00:00:00.000Z', attempts: 12 }).where(eq(agentBusMessages.id, messageId));
     await expect(bus.approveMessageFreshStart(messageId,2,'Operator requests replacement','host:fixture')).rejects.toMatchObject({code:'agent_execution_version_conflict'});
     await bus.approveMessageFreshStart(messageId,1,'Operator requests replacement','host:fixture');
     await bus.approveMessageFreshStart(messageId,1,'Operator requests replacement','host:fixture');

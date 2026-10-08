@@ -677,6 +677,8 @@ describe.skipIf(!handle)('agent portal durability against a real database', { ti
     expect(accepted).toMatchObject({ status: 'accepted' });
     expect(acceptedAgain).toMatchObject({ status: 'accepted' });
     expect(messages[0]).toMatchObject({ status: 'accepted', upstreamId: 'test-upstream' });
+    const [activeSession] = await db.select().from(agentSessions).where(eq(agentSessions.id, world.sessionId));
+    expect(activeSession!.activeTurnId).toBe('test-upstream');
     expect(acceptedEvents).toHaveLength(1);
   });
 
