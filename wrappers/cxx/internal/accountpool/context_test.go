@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
 )
 
@@ -182,6 +183,63 @@ func TestHeartbeatReacquiresReapedLease(t *testing.T) {
 				if b["session_id"] != "session-0123456789" || b["account_id"] != int64(3) || b["scope_id"] != c.ScopeID {
 					t.Fatalf("re-acquire body: %v", b)
 				}
+			}
+		})
+	}
+}
+
+type gatewayClient struct {
+	fakeClient
+	failure  error
+	attempts int
+	firstID  string
+}
+
+func (f *gatewayClient) JSON(ctx context.Context, method, path string, in any, out any, retries int) error {
+	if path == "/auth/sessions" {
+		f.attempts++
+		id := in.(map[string]any)["session_id"].(string)
+		if f.firstID == "" {
+			f.firstID = id
+		}
+		if id != f.firstID {
+			return errors.New("retry changed lease identity")
+		}
+		if f.attempts == 1 {
+			return f.failure
+		}
+	}
+	return f.fakeClient.JSON(ctx, method, path, in, out, retries)
+}
+func TestLaunchRetriesGatewayFailureWithSameLeaseAndActiveAccount(t *testing.T) {
+	for _, engine := range []string{"codex", "claude", "grok"} {
+		t.Run(engine, func(t *testing.T) {
+			c := Load(engine, filepath.Join(t.TempDir(), "auth.json"), "https://fleet")
+			c.Capable, c.AccountID = true, 3
+			f := &gatewayClient{fakeClient: fakeClient{account: 3}, failure: statusError(502)}
+			stop, _, err := c.Start(context.Background(), f, true, func(json.RawMessage, string, bool) (bool, error) { return true, nil })
+			if err != nil {
+				t.Fatal(err)
+			}
+			stop()
+			if f.attempts != 2 || f.bodies[0]["account_id"] != int64(3) {
+				t.Fatalf("attempts=%d bodies=%v", f.attempts, f.bodies)
+			}
+		})
+	}
+}
+func TestLeaseRetryDoesNotRetryPermanentFailureAndHonorsCancellation(t *testing.T) {
+	for _, code := range []int{401, 403, 409, 429, 502, 503, 504} {
+		t.Run(strconv.Itoa(code), func(t *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
+			cancel()
+			f := &gatewayClient{failure: statusError(code)}
+			err := acquireLease(ctx, f, map[string]any{"session_id": "same"}, &LeaseResponse{})
+			if f.attempts != 1 || err == nil {
+				t.Fatalf("attempts=%d err=%v", f.attempts, err)
+			}
+			if code >= 502 && !errors.Is(err, context.Canceled) {
+				t.Fatal(err)
 			}
 		})
 	}

@@ -1170,3 +1170,7 @@ exhausting the limit pauses the entire schedule with `pause_reason: recovery_lim
 Explicit re-enabling starts a new run and counter; history remains. Domain failure alone
 never starts recovery. Pause/delete prevents pending attempts while accepted work continues.
 The canonical fleet AGENTS guidance and shared Wake / Cron Skill describe these rules.
+
+A result-only peer completion also queues one correlated reply containing its summary in the same transaction; wakes produce no peer reply. Retrying the same result never queues a second summary.
+
+Account launch reservations retry transient HTTP 502/503/504 responses up to four times (1, 2, 4, 8 seconds), using the same session ID and preserving the account used by active local processes. Other failures still abort launch.

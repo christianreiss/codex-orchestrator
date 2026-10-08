@@ -1,5 +1,8 @@
 # 2026-10-08
 
+- Wrapper 0.9.23 retries account launch reservations after transient 502/503/504 responses up to four times over 15 seconds, retaining the same idempotent lease ID and active account pin.
+
+- Result-only peer completions notify the caller once with their summary in the same transaction; scheduled wakes retain results without peer replies.
 - Agent work execution now confirms durable acceptance before starting; explicit encrypted task outcomes are separate from delivery status, with one-use operator grants for missing ordinary transcripts.
 - Wake recovery adds exponential backoff, jitter, repeated-failure warnings and optional limits that pause the entire schedule; fleet AGENTS guidance covers management and result reporting for all three engines.
 - Wrapper 0.9.22 advertises execution contract v2; older running sessions continue, while new work waits for compatible receivers.

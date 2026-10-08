@@ -141,6 +141,26 @@ type LeaseResponse struct {
 	VerificationState string          `json:"verification_state"`
 }
 
+// acquireLease retries only transient gateway failures. Reusing the original
+// session ID makes a retry safe even if the server committed before disconnecting.
+func acquireLease(ctx context.Context, client Client, body map[string]any, lease *LeaseResponse) error {
+	for attempt := 0; ; attempt++ {
+		err := client.JSON(ctx, http.MethodPost, "/auth/sessions", body, lease, 1)
+		var status interface{ HTTPStatus() int }
+		if err == nil || attempt >= 4 || !errors.As(err, &status) ||
+			(status.HTTPStatus() != 502 && status.HTTPStatus() != 503 && status.HTTPStatus() != 504) {
+			return err
+		}
+		timer := time.NewTimer(time.Second * time.Duration(1<<attempt))
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return ctx.Err()
+		case <-timer.C:
+		}
+	}
+}
+
 // Start reserves a choice before writing the native auth file. A local CAS
 // failure aborts the launch instead of overwriting a login made during the call.
 func (c *Context) Start(ctx context.Context, client Client, localActive bool, apply func(json.RawMessage, string, bool) (bool, error)) (func(), *LeaseResponse, error) {
@@ -166,7 +186,7 @@ func (c *Context) Start(ctx context.Context, client Client, localActive bool, ap
 		body["account_id"] = current
 	}
 	var lease LeaseResponse
-	if err := client.JSON(ctx, http.MethodPost, "/auth/sessions", body, &lease, 1); err != nil {
+	if err := acquireLease(ctx, client, body, &lease); err != nil {
 		return nil, nil, err
 	}
 	release := func() {

@@ -593,3 +593,5 @@ Persistent schedules may set `max_recovery_attempts`; empty means unlimited. Exp
 backoff with positive jitter respects provider reset times. Repeated failures warn after
 three attempts; reaching the limit pauses the whole schedule. Re-enabling creates a new
 execution budget and keeps history. A failed domain result alone does not trigger recovery.
+
+A result-only peer completion also queues one correlated reply containing its summary in the same transaction; wakes produce no peer reply. Retrying the same result never queues a second summary.

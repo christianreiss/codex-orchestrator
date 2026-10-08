@@ -398,4 +398,25 @@ describe.skipIf(!handle)('durable Wake/Cron schedules on MySQL', { timeout: 1200
   const [address]=await db.select().from(agentBusAddresses).where(eq(agentBusAddresses.id,target.address.id));expect(address!.lastUpstreamSessionId).toBe('replacement-native');
  });
 
+ it('queues one correlated summary for a result-only peer completion, and none for a wake',async()=>{
+  const sender=await agent('codex'),target=await agent('claude');
+  const sent=await bus.sendMessage(sender.id,sender.token,{to:target.address.address,content:'check fixture',kind:'request',clientMessageId:randomUUID()}),messageId=String((sent.message as Record<string,unknown>).id),claimId=randomUUID();
+  await bus.claimForSession(target.id,target.token,claimId);
+  await bus.acknowledgeSessionDelivery(target.id,target.token,messageId,{claimId,outcome:'accepted'});
+  const report={status:'blocked' as const,summary:'Operator input required'};
+  const input={claimId,outcome:'completed' as const,taskResult:report};
+  await bus.acknowledgeSessionDelivery(target.id,target.token,messageId,input);
+  await bus.acknowledgeSessionDelivery(target.id,target.token,messageId,input);
+  const replies=await db.select().from(agentBusMessages).where(eq(agentBusMessages.replyToMessageId,messageId));
+  expect(replies).toHaveLength(1);expect(replies[0]).toMatchObject({kind:'reply',status:'queued',targetAddressId:sender.address.id});
+  expect(decrypt(replies[0]!.contentEnc,keyring)).toBe(report.summary);
+  const schedule=await create(target.address.address);await service.tick(due());const [run]=await runs(schedule.id);
+  await db.update(agentBusMessages).set({nextAttemptAt:new Date().toISOString()}).where(eq(agentBusMessages.id,run!.messageId!));
+  const wakeClaim=randomUUID();await bus.claimForSession(target.id,target.token,wakeClaim);
+  await bus.acknowledgeSessionDelivery(target.id,target.token,run!.messageId!,{claimId:wakeClaim,outcome:'accepted'});
+  await bus.acknowledgeSessionDelivery(target.id,target.token,run!.messageId!,{claimId:wakeClaim,outcome:'completed',taskResult:{status:'failed',summary:'Fixture domain failure'}});
+  expect(await db.select().from(agentBusMessages).where(eq(agentBusMessages.replyToMessageId,run!.messageId!))).toHaveLength(0);
+  await service.tick(due());expect((await runs(schedule.id))[0]).toMatchObject({status:'completed',recoveryCount:0});
+ });
+
 });

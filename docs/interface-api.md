@@ -1478,3 +1478,5 @@ The canonical fleet AGENTS guidance and shared Wake / Cron Skill describe these 
 
 - `POST /admin/agent-messaging/messages/:id/fresh-start` — requires agent_messaging.manage; closed body `{version, reason}`, authorizes one ordinary replacement session after native_transcript_missing. Wakes are rejected; version conflicts return 409; repeated identical approval is idempotent.
 - Delivery ACK bodies additionally accept `task_result` only with `outcome: completed`. Session replies accept `claim_id` and `task_result`; relay replies accept `task_result`. Atomic result/reply/transport updates reject stale claims and binding generations. Reveal includes encrypted report history through the existing reveal-content capability.
+
+A result-only peer completion also queues one correlated reply containing its summary in the same transaction; wakes produce no peer reply. Retrying the same result never queues a second summary.

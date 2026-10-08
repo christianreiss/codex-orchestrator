@@ -1,10 +1,13 @@
 /** Durable domain results and one-use native replacement authorization. */
+import { newQueuedMessage } from './views.js';
+import { AGENT_MESSAGING_DEFAULT_TTL_SECONDS } from './constants.js';
 import { randomUUID } from 'node:crypto';
 import { and, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import type { Database } from '../../db/client.js';
 import {
   agentBusMessages,
+  agentBusConversations,
   agentFreshStartGrants,
   agentTaskResults,
   type AgentBusMessage,
@@ -68,17 +71,15 @@ export async function storeTaskResult(
       'Task must be accepted before its result is stored',
       'agent_task_result_not_accepted',
     );
-  await tx
-    .insert(agentTaskResults)
-    .values({
-      id: randomUUID(),
-      messageId: message.id,
-      claimId: message.claimId,
-      status: result.status,
-      bodyEnc: encrypt(body, keyring),
-      bodySha256: digest,
-      createdAt: now,
-    });
+  await tx.insert(agentTaskResults).values({
+    id: randomUUID(),
+    messageId: message.id,
+    claimId: message.claimId,
+    status: result.status,
+    bodyEnc: encrypt(body, keyring),
+    bodySha256: digest,
+    createdAt: now,
+  });
   await tx
     .update(agentBusMessages)
     .set({ taskResultStatus: result.status })
@@ -175,4 +176,62 @@ export async function freshStartAllowed(
     grant.executionVersion === message.executionVersion &&
     !grant.consumedAt
   );
+}
+
+/** A result-only peer completion still needs a correlated response for its caller. */
+export interface TaskResultReplyCore {
+  requireAddressLocked(tx: Tx, id: string): Promise<AgentBusAddress>;
+  requireConversationLocked(tx: Tx, id: string): Promise<import('../../db/schema.js').AgentBusConversation>;
+  chargeConferenceBudgetLocked(tx: Tx, conversationId: string, now: string): Promise<void>;
+}
+export async function queueTaskResultReply(
+  tx: Tx,
+  message: AgentBusMessage,
+  report: TaskResult,
+  keyring: Keyring,
+  now: string,
+  core: TaskResultReplyCore,
+) {
+  if (message.kind === 'schedule' || message.sourceEngine === 'server') return;
+  const [existing] = await tx
+    .select()
+    .from(agentBusMessages)
+    .where(
+      and(
+        eq(agentBusMessages.replyToMessageId, message.id),
+        eq(agentBusMessages.senderAddressId, message.targetAddressId),
+      ),
+    )
+    .limit(1)
+    .for('update');
+  if (existing) return;
+  const conversation = await core.requireConversationLocked(tx, message.conversationId);
+  const sender = await core.requireAddressLocked(tx, message.targetAddressId);
+  const target = await core.requireAddressLocked(tx, message.senderAddressId);
+  if (conversation.status !== 'open' || target.archivedAt || !target.enabled) return;
+  const id = randomUUID();
+  await tx
+    .insert(agentBusMessages)
+    .values({
+      ...newQueuedMessage({
+        id,
+        conversationId: message.conversationId,
+        sequence: Number(conversation.nextSequence),
+        sender,
+        senderSessionId: message.deliverySessionId,
+        target,
+        kind: 'reply',
+        content: report.summary,
+        contentEnc: encrypt(report.summary, keyring),
+        clientMessageId: randomUUID(),
+        expiresAt: new Date(Date.parse(now) + AGENT_MESSAGING_DEFAULT_TTL_SECONDS * 1000).toISOString(),
+        now,
+      }),
+      replyToMessageId: message.id,
+    });
+  await tx
+    .update(agentBusConversations)
+    .set({ nextSequence: Number(conversation.nextSequence) + 1, lastActivityAt: now, updatedAt: now })
+    .where(eq(agentBusConversations.id, conversation.id));
+  await core.chargeConferenceBudgetLocked(tx, conversation.id, now);
 }

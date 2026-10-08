@@ -1,6 +1,6 @@
 import { jsonRecord } from './agent-messaging/normalize.js';
 import { agentFreshStartGrants, agentTaskResults } from '../db/schema.js';
-import { storeTaskResult, unknownTaskResult, approveFreshStart, freshStartAllowed, taskResultSchema, type TaskResult } from './agent-messaging/task-execution.js';
+import { storeTaskResult, queueTaskResultReply, unknownTaskResult, approveFreshStart, freshStartAllowed, taskResultSchema, type TaskResult } from './agent-messaging/task-execution.js';
 import { receiverReady, receiverState } from './agent-receiver-state.js';
 import { randomBytes, randomUUID } from 'node:crypto';
 import {
@@ -1527,6 +1527,11 @@ export class AgentMessagingService {
       if (input.outcome === 'completed' && message.workKind) {
         const report = await storeTaskResult(tx, message, input.taskResult ?? unknownTaskResult, this.keyring, now);
         patch.taskResultStatus = report.status;
+        if (input.taskResult) await queueTaskResultReply(tx, message, report, this.keyring, now, {
+          requireAddressLocked: (db, addressId) => this.requireAddressLocked(db, addressId),
+          requireConversationLocked: (db, conversationId) => this.requireConversationLocked(db, conversationId),
+          chargeConferenceBudgetLocked: (db, conversationId, timestamp) => this.conference.chargeConferenceBudgetLocked(db, conversationId, timestamp),
+        });
         await this.conference.settleConferenceDispatchLocked(tx, message.id, now);
       }
       await tx.update(agentBusMessages).set(patch).where(eq(agentBusMessages.id, id));
