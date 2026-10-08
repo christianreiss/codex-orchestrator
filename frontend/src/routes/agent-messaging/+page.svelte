@@ -487,7 +487,7 @@
     <section class="border-y border-border" aria-labelledby="addresses-heading">
       <header class="border-b border-border px-3 py-3">
         <h2 id="addresses-heading" class="text-sm font-semibold">Addresses</h2>
-        <p class="mt-1 text-sm text-muted-foreground">Stable recipient identity, verified reception, and host eligibility.</p>
+        <p class="mt-1 text-sm text-muted-foreground">Stable recipient identity, verified native reception, and host eligibility. Managed codex, claude and grok starts share messaging with cdx, clx and cgx; listening requires a connected receiver.</p>
       </header>
       <div class="divide-y divide-border">
         {#each $addresses.data?.addresses ?? [] as address (address.id)}

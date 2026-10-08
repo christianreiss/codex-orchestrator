@@ -101,6 +101,49 @@ func RunWithChoice(args []string, stdout, stderr io.Writer, choice *quotaadvice.
 	return run(args, stdout, stderr, choice)
 }
 
+// RunNative supervises a native Codex invocation without interpreting wrapper
+// flags, commands or profile shorthand. Managed auth and messaging still apply.
+func RunNative(args []string, stdout, stderr io.Writer) int {
+	return runMode(args, stdout, stderr, true)
+}
+
+func RunNativeWithChoice(args []string, stdout, stderr io.Writer, choice *quotaadvice.Session) int {
+	return runMode(args, stdout, stderr, true, choice)
+}
+
+func nativeSubcommand(args []string) string {
+	valueFlags := map[string]bool{"-c": true, "--config": true, "-m": true, "--model": true, "-p": true, "--profile": true, "-C": true, "--cd": true, "-a": true, "--ask-for-approval": true, "-s": true, "--sandbox": true, "--enable": true, "--disable": true, "-i": true, "--image": true, "--local-provider": true, "--remote": true}
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		if arg == "--" {
+			return ""
+		}
+		if valueFlags[arg] {
+			i++
+			continue
+		}
+		if strings.HasPrefix(arg, "-") {
+			continue
+		}
+		return arg
+	}
+	return ""
+}
+
+func invocationFlags(args []string, native bool) (flags, []string, []string) {
+	if native {
+		f := flags{helpPassthrough: isHelpPassthrough(args) || len(args) == 1 && (args[0] == "--version" || args[0] == "-V")}
+		command := nativeSubcommand(args)
+		if command == "login" || command == "logout" {
+			// Route auth through its existing journal/upload boundary; retain the
+			// entire argv separately so native global options stay in place.
+			return f, []string{command}, append([]string(nil), args...)
+		}
+		return f, nil, append([]string(nil), args...)
+	}
+	return parseFlags(args)
+}
+
 // Parsed flags shared across subcommands.
 type flags struct {
 	quotaChoiceReset bool
@@ -303,7 +346,11 @@ func helpExecArgv(args []string) []string {
 	return out
 }
 
-func run(args []string, stdout, stderr io.Writer, choices ...*quotaadvice.Session) (exitCode int) {
+func run(args []string, stdout, stderr io.Writer, choices ...*quotaadvice.Session) int {
+	return runMode(args, stdout, stderr, false, choices...)
+}
+
+func runMode(args []string, stdout, stderr io.Writer, native bool, choices ...*quotaadvice.Session) (exitCode int) {
 	// A self-update exec hands its durable purge IDs and one inherited shared
 	// lease to the new wrapper. Adopt that handoff before even the restart-depth
 	// or config checks so every exit path services an insecure purge request.
@@ -339,6 +386,9 @@ func run(args []string, stdout, stderr io.Writer, choices ...*quotaadvice.Sessio
 	// originally typed.
 	snap := make([]string, len(args))
 	copy(snap, args)
+	if native {
+		snap = append([]string{"native", config.EngineCodex, "--"}, snap...)
+	}
 	update.SnapshottedArgv = snap
 
 	// Propagate the build-time wrapper version into the cron package so its
@@ -351,7 +401,7 @@ func run(args []string, stdout, stderr io.Writer, choices ...*quotaadvice.Sessio
 		ctx = quotaadvice.WithSession(ctx, choices[0])
 	}
 
-	f, positional, passthrough := parseFlags(args)
+	f, positional, passthrough := invocationFlags(args, native)
 	terminalui.SetForceMinimal(f.minimal)
 	if actions := conflictingActions(f, positional); len(actions) > 1 {
 		ui.Say(stderr, "cdx", ui.ToneFail, "usage", "conflicting wrapper actions: "+strings.Join(actions, ", "))
@@ -373,7 +423,11 @@ func run(args []string, stdout, stderr io.Writer, choices ...*quotaadvice.Sessio
 			ui.Say(stderr, "cdx", ui.ToneFail, "help", fmt.Sprint(err))
 			return 127
 		}
-		exit, removed, runErr := runHelpChild(ctx, cli, helpExecArgv(args), stdout, stderr)
+		execArgs := helpExecArgv(args)
+		if native {
+			execArgs = append([]string(nil), args...)
+		}
+		exit, removed, runErr := runHelpChild(ctx, cli, execArgs, stdout, stderr)
 		if removed {
 			ui.Say(stderr, "cdx", ui.ToneDim, "auth", "insecure-host credentials purged")
 		}
@@ -500,7 +554,7 @@ func run(args []string, stdout, stderr io.Writer, choices ...*quotaadvice.Sessio
 	// `<name>.config.toml`, or a legacy `[profiles.<name>]` section of
 	// config.toml) and the token is not one of our internal
 	// subcommands. Mirrors fe70ac3:bin/cdx.d/05-main-46-entry.sh.
-	if isProfileShorthand(sub) && codex.HasProfile(sub) {
+	if !native && isProfileShorthand(sub) && codex.HasProfile(sub) {
 		if err := maintenance.Request(config.EngineCodex, f.configPath); err != nil {
 			logger.Debug("background maintenance request deferred", "err", err)
 		}
@@ -514,6 +568,8 @@ func run(args []string, stdout, stderr io.Writer, choices ...*quotaadvice.Sessio
 			QuotaChoiceReset:    f.quotaChoiceReset,
 			Config:              cfg,
 			ExtraArgs:           append(subArgs, passthrough...),
+			Headless:            native && (nativeSubcommand(args) == "exec" || nativeSubcommand(args) == "e"),
+			Resumed:             native && nativeSubcommand(args) == "resume",
 			SkipBoot:            f.skipBoot || f.silent,
 			Minimal:             f.minimal,
 			AllowConcurrentSync: f.allowConc,
@@ -643,6 +699,9 @@ func run(args []string, stdout, stderr io.Writer, choices ...*quotaadvice.Sessio
 					return 1
 				}
 				execArgs := append([]string{sub}, append(subArgs, passthrough...)...)
+				if native {
+					execArgs = append([]string(nil), args...)
+				}
 				exit, marked, deferred, logoutErr := codex.RunExplicitLogout(ctx, cfg, execArgs, before)
 				if logoutErr != nil {
 					ui.Say(stderr, "cdx", ui.ToneFail, "logout", logoutErr.Error())
@@ -698,6 +757,9 @@ func run(args []string, stdout, stderr io.Writer, choices ...*quotaadvice.Sessio
 				}
 			}
 			execArgs := append([]string{sub}, append(subArgs, passthrough...)...)
+			if native {
+				execArgs = append([]string(nil), args...)
+			}
 			exit, err := codex.Run(ctx, cfg, execArgs)
 			if err != nil {
 				ui.Say(stderr, "cdx", ui.ToneFail, sub, err.Error())

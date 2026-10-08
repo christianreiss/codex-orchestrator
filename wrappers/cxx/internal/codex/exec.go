@@ -19,6 +19,7 @@ import (
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/ipc"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/nativeentry"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/quotaadvice"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/schedulewatch"
 )
@@ -83,7 +84,8 @@ func cacheDiscoveredCodex(path string) string {
 		return path
 	}
 	defer lock.Release()
-	if current := cachedCodexBin(); current != "" && !isWrapperSelf(current) {
+	self, _ := os.Executable()
+	if current := cachedCodexBin(); current != "" && !nativeentry.IsWrapperOrShim(current, self) {
 		return current
 	}
 	_ = atomicWriteFile(p, []byte(path), 0o644)
@@ -121,16 +123,20 @@ func cachedCodexBin() string {
 // instead of the real Codex CLI — so `cdx login` / interactive recovery could
 // never reach the upstream login flow. Better to fail loudly with a fix-it hint.
 func FindCLI() (string, error) {
+	self, _ := os.Executable()
 	if v := strings.TrimSpace(os.Getenv("CDX_CODEX_BIN")); v != "" {
 		if _, err := os.Stat(v); err == nil {
+			if nativeentry.IsWrapperOrShim(v, self) {
+				return "", errors.New("CDX_CODEX_BIN points at a managed entrypoint; set it to the real Codex CLI")
+			}
 			return v, nil
 		}
 		return "", fmt.Errorf("CDX_CODEX_BIN points at %q which is not accessible", v)
 	}
-	if cached := cachedCodexBin(); cached != "" && !isWrapperSelf(cached) {
+	if cached := cachedCodexBin(); cached != "" && !nativeentry.IsWrapperOrShim(cached, self) {
 		return cached, nil
 	}
-	path, err := exec.LookPath("codex")
+	path, err := nativeentry.ResolveVendor("codex", self)
 	if err != nil {
 		return "", errors.New("codex CLI not found on PATH; run `cdx cron run` to install the managed version, or install Codex and set CDX_CODEX_BIN")
 	}

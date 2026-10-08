@@ -1,5 +1,16 @@
 # API Interface (Source of Truth)
 
+## Native launch connection reuse (cxx 0.9.24)
+
+Managed native command entrypoints and `cdx`/`clx`/`cgx` share the existing
+host-authenticated `/host/agent-sessions` registration and scoped bridge receiver
+lifecycle. No new launch endpoint, credential exposure or schema change is
+introduced. Receiver registration still requires matching engine/protocol,
+actual native identity, fresh generation and live policy; session heartbeats do
+not replace native receiver evidence. Existing execution-contract-v2 acceptance,
+result idempotency and fresh-start gates apply to both entrypoints.
+
+
 
 ## Grok engine contract
 

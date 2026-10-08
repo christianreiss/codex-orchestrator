@@ -315,7 +315,7 @@ func nativeFlag(args []string, name string) bool {
 		if args[i] == "--" {
 			break
 		}
-		if args[i] == name {
+		if args[i] == name || strings.HasPrefix(args[i], name+"=") {
 			return true
 		}
 		if nativeTakesValue(args[i]) {

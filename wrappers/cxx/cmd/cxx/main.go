@@ -38,8 +38,16 @@ func main() {
 	os.Exit(run(filepath.Base(os.Args[0]), os.Args[1:], os.Stdout, os.Stderr))
 }
 
-func run(invokedAs string, args []string, stdout, stderr io.Writer) int {
+func run(invokedAs string, args []string, stdout, stderr io.Writer) (code int) {
 	setPersonaBuildInfo()
+	defer func() {
+		if code == 0 && shouldReconcileNativeEntries(args) {
+			if err := reconcileNativeEntries(); err != nil {
+				fmt.Fprintln(stderr, "cxx native entry integration:", err)
+				code = 1
+			}
+		}
+	}()
 
 	switch personaForProgramName(invokedAs) {
 	case "codex":
@@ -69,6 +77,10 @@ func runExplicit(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	switch args[0] {
+	case "native":
+		return runNative(args[1:], stdout, stderr)
+	case "native-entry":
+		return runNativeEntry(args[1:], stdout, stderr)
 	case "codex":
 		return runPersona("codex", args[1:], stdout, stderr)
 	case "claude":
@@ -335,6 +347,8 @@ func printSelectorHelp(w io.Writer) {
 	fmt.Fprintln(w, "  cxx codex [cdx arguments]")
 	fmt.Fprintln(w, "  cxx claude [clx arguments]")
 	fmt.Fprintln(w, "  cxx grok [cgx arguments]")
+	fmt.Fprintln(w, "  cxx native codex|claude|grok -- [native arguments]")
+	fmt.Fprintln(w, "  cxx native-entry status|install|remove")
 	fmt.Fprintln(w, "  cxx update")
 	fmt.Fprintln(w, "  cxx sync")
 	fmt.Fprintln(w, "  cxx cron [install|remove|run [--due]]")

@@ -39,6 +39,8 @@ function runDualInstallerFixture(
     failBinarySwap?: boolean;
     splitArtifact?: boolean;
     failSync?: boolean;
+    wrapperVersion?: string;
+    failNativeEntry?: boolean;
     unwritableBin?: boolean;
   } = {},
 ): {
@@ -58,6 +60,7 @@ function runDualInstallerFixture(
   const dir = mkdtempSync(join(tmpdir(), 'wrapper-installer-run-'));
   try {
     const enabled = options.engines ?? ['codex', 'claude'];
+    const wrapperVersion = options.wrapperVersion ?? '0.6.50';
     const fakeBin = join(dir, 'fake-bin');
     const installBin = join(dir, 'install-bin');
     const home = join(dir, 'home');
@@ -81,6 +84,10 @@ function runDualInstallerFixture(
       `#!/bin/sh
 printf '%s\n' "$*" >> "$WRAPPER_LOG"
 case "$*" in
+  "native-entry install")
+    if [ "\${FAIL_NATIVE_ENTRY:-0}" = "1" ]; then echo "forced native entry failure" >&2; exit 50; fi
+    exit 0
+    ;;
   "cron install --minimal") exit 0 ;;
   "cron run --minimal")
     if [ -n "\${CLX_CONFIG_PATH:-}" ] && [ ! -s "$CLX_CONFIG_PATH" ]; then
@@ -121,8 +128,8 @@ esac
     const wrapperLog = join(dir, 'wrapper.log');
     const wrapperSha = createHash('sha256').update(readFileSync(fakeWrapper)).digest('hex');
     const binaryUrl = options.splitArtifact
-      ? 'https://o.example/wrapper/v2/bin/codex/linux-amd64/v0.6.50/cdx'
-      : 'https://o.example/wrapper/v2/bin/cxx/linux-amd64/v0.6.50/cxx';
+      ? `https://o.example/wrapper/v2/bin/codex/linux-amd64/v${wrapperVersion}/cdx`
+      : `https://o.example/wrapper/v2/bin/cxx/linux-amd64/v${wrapperVersion}/cxx`;
 
     const bundle = join(dir, 'bundle.json');
     const claudeBundle = join(dir, 'claude-bundle.json');
@@ -131,7 +138,7 @@ esac
       JSON.stringify({
         payload: {
           wrapper: {
-            version: '0.6.50',
+            version: wrapperVersion,
             binary_url: binaryUrl,
             binary_sha256: wrapperSha,
           },
@@ -145,7 +152,7 @@ esac
       JSON.stringify({
         payload: {
           wrapper: {
-            version: options.mismatchedClaudeMetadata ? '0.6.49' : '0.6.50',
+            version: options.mismatchedClaudeMetadata ? '0.6.49' : wrapperVersion,
             binary_url: binaryUrl,
             binary_sha256: wrapperSha,
           },
@@ -228,6 +235,7 @@ printf '%s\n' "$url" >> "$CURL_LOG"
         BROKEN_NPM: options.brokenNpm ? '1' : '0',
         FAIL_CXX_SWAP: options.failBinarySwap ? '1' : '0',
         FAIL_SYNC: options.failSync ? '1' : '0',
+        FAIL_NATIVE_ENTRY: options.failNativeEntry ? '1' : '0',
         REAL_MV: execFileSync('sh', ['-c', 'command -v mv'], { encoding: 'utf8' }).trim(),
       },
     });
@@ -381,6 +389,31 @@ function snapshot(): VersionSnapshot {
 }
 
 describe('wrapper transition helpers', () => {
+  it.each(['0.6.50', '0.9.23'])('keeps native entry installation compatible with wrapper %s', (wrapperVersion) => {
+    const result = runDualInstallerFixture({ wrapperVersion });
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.wrapperInvocations).not.toContain('native-entry install');
+    expect(result.stdout).not.toContain('managed starts prepared');
+  });
+
+  it('prepares native commands once with a supported wrapper for all three engines', () => {
+    const result = runDualInstallerFixture({ wrapperVersion: '0.9.24', engines: ['codex', 'claude', 'grok'] });
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.wrapperInvocations.filter(command => command === 'native-entry install')).toHaveLength(1);
+    expect(result.stdout).toContain('managed starts prepared');
+    expect(result.stdout).toContain('Open a new shell');
+    expect(result.stdout).toContain('READY');
+  });
+
+  it('reports an incomplete installation when supported native command integration fails', () => {
+    const result = runDualInstallerFixture({ wrapperVersion: '0.9.24', failNativeEntry: true });
+    expect(result.status).toBe(1);
+    expect(result.wrapperInvocations.filter(command => command === 'native-entry install')).toHaveLength(1);
+    expect(result.stdout + result.stderr).toContain('integration not prepared');
+    expect(result.stdout + result.stderr).toContain('INCOMPLETE');
+    expect(result.stdout).not.toContain('installed successfully');
+  });
+
   it.each<Engine[]>([['codex'], ['claude'], ['grok'], ['codex', 'claude'], ['codex', 'grok'], ['claude', 'grok'], ['codex', 'claude', 'grok']])('installs and syncs exactly the selected engine combination %j', (...engines) => {
     const result = runDualInstallerFixture({ engines });
     expect(result.status, result.stderr).toBe(0);

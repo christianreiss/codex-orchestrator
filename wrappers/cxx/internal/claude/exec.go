@@ -17,6 +17,7 @@ import (
 	"golang.org/x/term"
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/nativeentry"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/quotaadvice"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/schedulewatch"
 )
@@ -107,7 +108,7 @@ func cachedClaudeBin() string {
 // Falls back to `claude-code` if `claude` is missing.
 func FindCLI() (string, error) {
 	if v := strings.TrimSpace(os.Getenv("CLX_CLAUDE_BIN")); v != "" {
-		if _, err := os.Stat(v); err == nil {
+		if _, err := os.Stat(v); err == nil && !isWrapperSelf(v) {
 			return v, nil
 		}
 		return "", fmt.Errorf("CLX_CLAUDE_BIN points at %q which is not accessible", v)
@@ -120,33 +121,22 @@ func FindCLI() (string, error) {
 	// symlink/copy `claude` to clx on PATH; exec'ing that would re-enter clx
 	// instead of the real Claude CLI, so interactive `claude auth login`
 	// recovery could never reach the upstream login flow.
-	for _, name := range []string{"claude", "claude-code"} {
-		if path, err := exec.LookPath(name); err == nil {
-			if isWrapperSelf(path) {
-				continue
-			}
-			return cacheDiscoveredClaude(path), nil
-		}
+	self, _ := os.Executable()
+	if path, err := nativeentry.ResolveVendor("claude", self); err == nil {
+		return cacheDiscoveredClaude(path), nil
 	}
+	if path, err := exec.LookPath("claude-code"); err == nil && !isWrapperSelf(path) {
+		return cacheDiscoveredClaude(path), nil
+	}
+
 	return "", errors.New("claude CLI not found on PATH (install it or set CLX_CLAUDE_BIN)")
 }
 
 // isWrapperSelf reports whether path resolves (through symlinks) to this running
 // wrapper executable. Used by FindCLI to break a would-be exec recursion.
 func isWrapperSelf(path string) bool {
-	self, err := os.Executable()
-	if err != nil {
-		return false
-	}
-	selfReal, err := filepath.EvalSymlinks(self)
-	if err != nil {
-		selfReal = self
-	}
-	pathReal, err := filepath.EvalSymlinks(path)
-	if err != nil {
-		pathReal = path
-	}
-	return selfReal == pathReal
+	self, _ := os.Executable()
+	return nativeentry.IsWrapperOrShim(path, self)
 }
 
 // Run keeps the historical 2-return entry point for cmd/clx/main.go. New code

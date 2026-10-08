@@ -19,6 +19,9 @@ func Version(ctx context.Context) string {
 }
 
 func versionFromCLI(ctx context.Context, cli string) string {
+	if isWrapperSelf(cli) {
+		return "unknown"
+	}
 	for _, flag := range []string{"--version", "-V"} {
 		cmd := exec.CommandContext(ctx, cli, flag)
 		cmd.Env = managedClaudeEnv(cli, nil)

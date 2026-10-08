@@ -543,55 +543,26 @@ func Run(ctx context.Context, opts Options) (exitCode int, retErr error) {
 
 	before := snapshotAuthGeneration()
 
-	restoreInheritedPortalEnv := agentportal.ScrubEnvironment()
-	defer restoreInheritedPortalEnv()
 	upstreamSessionID := ""
 	if opts.Resumed {
 		upstreamSessionID = agentportal.ExplicitResumeSessionID(opts.ExtraArgs)
 	}
-	portalSession, portalErr := agentportal.Start(ctx, cfg, agentportal.StartInput{
+	connection, connectionErr := agentportal.StartConnection(ctx, cfg, agentportal.StartInput{
 		Engine:            config.EngineClaude,
 		InvocationKind:    portalInvocationKind(opts.Headless),
 		Resumed:           opts.Resumed,
 		UpstreamSessionID: upstreamSessionID,
 	})
-	if portalErr != nil {
-		logger.Warn("agent portal registration unavailable; continuing local session", "err", portalErr)
+	if connectionErr != nil {
+		logger.Warn("agent connection unavailable; continuing local session", "err", connectionErr)
 	}
-	closePortal := func(string, string) {}
-	if portalSession != nil {
-		ctx = portalSession.WithScheduleWatch(ctx)
-		portalBroker, brokerErr := portalSession.StartBroker(ctx)
-		if brokerErr != nil {
-			logger.Warn("agent portal local broker unavailable; continuing without #afk relay", "err", brokerErr)
+	closePortal := func(status, summaryText string) {
+		if err := connection.Close(status, summaryText); err != nil {
+			logger.Warn("agent connection finalization failed", "err", err)
 		}
-		restorePortalEnv := func() {}
-		if portalBroker != nil {
-			restorePortalEnv = portalBroker.ActivateEnvironment()
-		}
-		stopPortalHeartbeat := portalSession.StartHeartbeat(ctx)
-		portalClosed := false
-		closePortal = func(status, summaryText string) {
-			if portalClosed {
-				return
-			}
-			portalClosed = true
-			stopPortalHeartbeat()
-			closeCtx, closeCancel := context.WithTimeout(context.Background(), 4*time.Second)
-			if err := portalSession.Heartbeat(closeCtx, "", "close"); err != nil {
-				logger.Warn("agent portal relay close failed", "err", err)
-			}
-			closeCancel()
-			if portalBroker != nil {
-				if err := portalBroker.Close(); err != nil {
-					logger.Warn("agent portal local broker cleanup failed", "err", err)
-				}
-			}
-			restorePortalEnv()
-			if err := portalSession.Finish(status, summaryText); err != nil {
-				logger.Warn("agent portal finalization failed", "err", err)
-			}
-		}
+	}
+	if connection != nil {
+		ctx = connection.Context()
 		defer func() {
 			status, summaryText := portalExit(exitCode, retErr)
 			closePortal(status, summaryText)

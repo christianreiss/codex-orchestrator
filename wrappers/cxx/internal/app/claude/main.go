@@ -303,7 +303,11 @@ func helpExecArgv(args []string) []string {
 	return out
 }
 
-func run(args []string, stdout, stderr io.Writer, choices ...*quotaadvice.Session) (code int) {
+func run(args []string, stdout, stderr io.Writer, choices ...*quotaadvice.Session) int {
+	return runMode(args, stdout, stderr, false, choices...)
+}
+
+func runMode(args []string, stdout, stderr io.Writer, native bool, choices ...*quotaadvice.Session) (code int) {
 	depth, _ := strconv.Atoi(os.Getenv("CLAUDE_WRAPPER_RESTART_DEPTH"))
 	if depth > maxRestartDepth {
 		ui.Sayf(stderr, "clx", ui.ToneFail, "", "restart depth %d exceeded cap %d - refusing to continue", depth, maxRestartDepth)
@@ -322,7 +326,11 @@ func run(args []string, stdout, stderr io.Writer, choices ...*quotaadvice.Sessio
 		ctx = quotaadvice.WithSession(ctx, choices[0])
 	}
 
-	f, positional, passthrough := parseFlags(args)
+	if native && nativeInstallerCommand(args) {
+		ui.Say(stderr, "claude", ui.ToneFail, "update", "Claude installation is fleet-managed; use clx update to install the pinned version")
+		return 2
+	}
+	f, positional, passthrough := invocationFlags(args, native)
 	terminalui.SetForceMinimal(f.minimal)
 	if actions := conflictingActions(f, positional); len(actions) > 1 {
 		ui.Say(stderr, "clx", ui.ToneFail, "usage", "conflicting wrapper actions: "+strings.Join(actions, ", "))
@@ -358,7 +366,11 @@ func run(args []string, stdout, stderr io.Writer, choices ...*quotaadvice.Sessio
 			ui.Say(stderr, "clx", ui.ToneFail, "help", fmt.Sprint(err))
 			return 127
 		}
-		execArgv := append([]string{cli}, helpExecArgv(args)...)
+		helpArgs := args
+		if !native {
+			helpArgs = helpExecArgv(args)
+		}
+		execArgv := append([]string{cli}, helpArgs...)
 		exit, err := claude.RunHelpPassthrough(ctx, cli, execArgv, os.Environ(), os.Stdin, stdout, stderr, helpSession)
 		if err != nil {
 			ui.Say(stderr, "clx", ui.ToneFail, "help", fmt.Sprint(err))
@@ -465,6 +477,8 @@ func run(args []string, stdout, stderr io.Writer, choices ...*quotaadvice.Sessio
 			QuotaChoiceReset:           f.quotaChoiceReset,
 			Config:                     cfg,
 			ExtraArgs:                  append(subArgs, passthrough...),
+			Headless:                   native && nativeHeadless(args),
+			Resumed:                    native && nativeResumed(args),
 			SkipBoot:                   f.skipBoot || f.silent,
 			Minimal:                    f.minimal,
 			AllowConcurrentSync:        f.allowConc,
@@ -539,7 +553,7 @@ func run(args []string, stdout, stderr io.Writer, choices ...*quotaadvice.Sessio
 		if reservedClaudeSubcommands[sub] {
 			execArgs := append([]string{sub}, append(subArgs, passthrough...)...)
 			if authMutationKind(execArgs) != "" {
-				return runClaudeAuthMutation(ctx, cfg, execArgs, stdout, stderr)
+				return runClaudeAuthMutation(ctx, cfg, execArgs, stdout, stderr, native)
 			}
 			exit, err := claude.RunWithAuthSession(ctx, cfg, execArgs, commandSession)
 			if err != nil {
@@ -598,9 +612,11 @@ func normalizeClaudeAuthMutationArgs(args []string) []string {
 
 var errClaudeCanonicalWon = errors.New("server verified canonical Claude credentials won upload arbitration")
 
-func runClaudeAuthMutation(ctx context.Context, cfg *config.Config, args []string, stdout, stderr io.Writer) (code int) {
+func runClaudeAuthMutation(ctx context.Context, cfg *config.Config, args []string, stdout, stderr io.Writer, native ...bool) (code int) {
 	kind := authMutationKind(args)
-	args = normalizeClaudeAuthMutationArgs(args)
+	if len(native) == 0 || !native[0] {
+		args = normalizeClaudeAuthMutationArgs(args)
+	}
 	var (
 		session     *claude.AuthSession
 		logoutPeers bool

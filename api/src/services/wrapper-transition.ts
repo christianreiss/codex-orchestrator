@@ -990,6 +990,9 @@ binary_url = selected["binary_url"]
 binary_sha256 = selected["sha256"]
 target = os.path.join(bin_root, "cxx")
 print(f"WRAPPER_VERSION={shlex.quote(version)}")
+version_parts = version.split(".")
+native_entry_supported = len(version_parts) == 3 and all(part.isdigit() for part in version_parts) and tuple(int(part) for part in version_parts) >= (0, 9, 24)
+print(f"NATIVE_ENTRY_SUPPORTED={int(native_entry_supported)}")
 print(f"BINARY_URL={shlex.quote(binary_url)}")
 print(f"BINARY_SHA256={shlex.quote(binary_sha256)}")
 print(f"TARGET_BIN={shlex.quote(target)}")
@@ -1115,6 +1118,18 @@ if [ "$INSTALL_CONTEXT" = "installer" ]; then
 fi
 cleanup_known_relics
 ui_ok "cxx" "wrapper" "$WRAPPER_VERSION" "ready"
+
+# New wrappers install native names without replacing provider binaries. Older
+# served wrappers may remain during the API-first part of a rolling upgrade.
+if [ "$NATIVE_ENTRY_SUPPORTED" = "1" ]; then
+  if "$TARGET_BIN" native-entry install >"$STEP_LOG" 2>&1; then
+    ui_ok "cxx" "native commands" "" "managed starts prepared"
+    ui_hint "Open a new shell to activate native commands; cdx, clx and cgx remain available."
+  else
+    ui_warn "cxx" "native commands" "retry: cxx native-entry install" "integration not prepared"
+    INSTALL_FAILED=1
+  fi
+fi
 
 install_background_worker() {
   # Keep the worker installed while agent messaging is off. It starts no model

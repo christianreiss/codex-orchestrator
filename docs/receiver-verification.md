@@ -1,5 +1,59 @@
 # Receiver verification
 
+## 2026-10-08: managed native command starts (0.9.24)
+
+Managed command entries now route `codex`, `claude` and `grok` through the
+shared connection runtime while retaining provider argument grammar, central
+account leases and authentication ownership. Installation uses verified signed
+engine assignments and prepares per-user PATH entries; it does not replace
+provider binaries. The existing API and database contract remains sufficient.
+
+Software verification passed: the complete Go test suite, build and vet; race
+checks for the shared connection and native-entry packages; API type checking;
+131 messaging integration tests against a disposable MySQL 8.4 instance; 56
+installer/token tests; frontend checking and production build; and release
+manifest/publishing fixture tests. Version 0.9.24 cross-builds passed for Linux
+and macOS on amd64 and arm64. Tests cover exact argument forwarding, native
+diagnostics, authentication command routing, recursive shim avoidance,
+concurrent three-engine installation, partial uninstall and collision handling.
+Installer fixtures also verify compatibility with older wrapper versions and
+an explicit incomplete result when native-entry setup fails.
+
+Native receiver canaries use isolated homes, temporary brokers and access-only
+credential copies. They exercise both peer and operator-portal messages,
+exactly correlated MCP replies before and after a forced receiver generation
+change in the same conversation, and unavailable health after broker shutdown.
+The Grok fixture now acknowledges durable v2 acceptance explicitly; transport
+completion without acceptance is not sufficient evidence.
+
+| Engine | Exact native CLI | Final result |
+| --- | --- | --- |
+| Codex | managed codex-cli 0.161.0 | Both sources, correlated replies before/after reconnect, offline unavailable |
+| Claude | managed Claude Code 2.1.293 | Both sources, correlated replies before/after reconnect, offline unavailable |
+| Grok | pinned Grok 1.0.46 | Both sources, correlated replies before/after reconnect, offline unavailable; 45 ms ACP admission |
+
+Grok's extended real-model fixture passed in 41.65 seconds, including access-only
+projection generations 17, 18 and 19 without a provider refresh grant. Initial
+Codex attempts received the queued message but did not return a tool reply:
+the fixture's setup instruction prohibited tools without limiting that rule to
+the setup turn. The final fixture explicitly authorizes only the two receipt
+tools for later challenges, and the final Codex run passed without a production
+code change. These receipt-tool permissions apply only to the isolated canary.
+
+All native canaries target this final development wrapper artifact:
+
+`59183ac1e5706f6dbc1407dd90e0ed7d9e93d68767a96026069ce2f95266599b`
+
+The separately built Linux amd64 release binary reports 0.9.24 and has SHA-256
+`0f6219085d4a72e6c4ecf588048732e1bd35884d32d97fb69b4986ece6cd8b79`;
+release metadata differs from the development canary artifact. This is local
+software and native model/runtime verification, not a fleet rollout or proof
+of arbitrary work completion. Real production sessions and user authentication
+files were not changed. Bash was checked locally; Zsh/Fish runtime checks were
+skipped because their executables are unavailable, and macOS binaries were
+cross-compiled without macOS runtime execution. Historical reports below remain
+dated evidence.
+
 ## 2026-10-07: current native receivers
 
 Verified on Linux in the current worktree with isolated brokers and temporary

@@ -16,7 +16,11 @@ import (
 )
 
 func ReExecAfterUpdate(exe string, argv []string) error {
-	return ReExecAfterUpdateAs(exe, layout.EngineCodex, argv)
+	engine := layout.EngineCodex
+	if len(argv) > 0 && argv[0] == "native" {
+		engine = ""
+	}
+	return ReExecAfterUpdateAs(exe, engine, argv)
 }
 
 // ReExecAfterUpdateAs re-execs the freshly installed binary under an explicit

@@ -1,5 +1,35 @@
 # cdx Wrapper Interface (Source of Truth)
 
+## Managed native starts (cxx 0.9.24)
+
+Fleet installation, update/sync and successful managed launches prepare the native
+`codex`, `claude` and `grok` command names for assigned engines. Per-user scripts
+under `~/.cxx/native-bin` invoke `cxx native <engine> -- <native arguments>`;
+managed Bash, Zsh and Fish PATH blocks activate them in new shells. Existing
+shell aliases/functions and cached commands can take precedence: open a new
+shell and inspect `cxx native-entry status`. Provider binaries are not replaced.
+
+Native arguments use the provider grammar: `status`, `--config`, `-p` and other
+options are not interpreted as wrapper commands or profile shorthand. Use
+`cdx`, `clx`, `cgx` or explicit `cxx <engine>` for wrapper operations. Provider
+login/logout retains the existing central auth protections; native Claude/Grok
+install/update/upgrade is refused so the fleet pin cannot be bypassed, and
+`clx update` / `cgx update` remains the managed update path.
+
+Native and wrapper starts share account leases, auth lifecycle, session-bound
+MCP tools and one local connection runtime. Interactive delivery uses Codex App
+Server queues, Claude MCP Channels or Grok ACP. Tools-only headless runs and
+unsupported/custom native endpoints never advertise an inbound receiver merely
+because MCP is configured. Existing Engine/Fleet switches and native permissions
+remain authoritative; queue admission and successful work results are separate.
+
+`cxx native-entry install` repairs entries from locally verified signed configs;
+`cxx native-entry remove` removes managed entries and shell blocks for rollback.
+Normal later sync/update prepares them again. Uninstall removes only the selected
+engine's entry after confirmed server removal, preserving other engines. No new
+server endpoint or database migration is required.
+
+
 Grok (`cgx`) is the third persona of the same `cxx` binary; its subscription
 refresh ownership and native isolation differ. See [Grok interface](interface-cgx.md).
 

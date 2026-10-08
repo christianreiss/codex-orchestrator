@@ -5,12 +5,21 @@ import { agentSessions, hosts } from '../../../src/db/schema.js';
 import { AgentReceiverService } from '../../../src/services/agent-receiver.js';
 import { AgentPortalService } from '../../../src/services/agent-portal.js';
 import { AgentMessagingService } from '../../../src/services/agent-messaging.js';
+import { invalidateFleetEngineState } from '../../../src/services/engine-switch.js';
 import { receiverState } from '../../../src/services/agent-receiver-state.js';
 import { getTestDb } from '../../helpers/test-db.js';
 import { loadTestEnv, testKeyring } from '../../helpers/test-keyring.js';
 
 const handle = await getTestDb();
-describe.skipIf(!handle)('receiver connection health and fencing', () => {
+afterAll(async () => { await handle?.pool.end(); });
+
+const engines = [
+  { engine: 'codex', protocol: 'codex-queue-v1' },
+  { engine: 'claude', protocol: 'claude-channel-v1' },
+  { engine: 'grok', protocol: 'grok-acp-v1' },
+] as const;
+
+describe.skipIf(!handle).each(engines)('$engine receiver connection health and fencing', ({ engine, protocol }) => {
   let host: typeof hosts.$inferSelect;
   let receiver: AgentReceiverService;
   let messaging: AgentMessagingService;
@@ -23,7 +32,7 @@ describe.skipIf(!handle)('receiver connection health and fencing', () => {
     await db.insert(hosts).values({
       fqdn: `receiver-${id}.test`,
       apiKey: 'd'.repeat(64),
-      engines: 'codex,claude',
+      engines: 'codex,claude,grok',
       status: 'active',
       secure: 1,
       createdAt: now,
@@ -44,7 +53,7 @@ describe.skipIf(!handle)('receiver connection health and fencing', () => {
     await messaging.registerSession(host, {
       sessionId: id,
       bridgeToken: token,
-      engine: 'codex',
+      engine,
       username: 'receiver-test',
       cwd: '/tmp/receiver-test',
       invocationKind: 'interactive',
@@ -60,10 +69,9 @@ describe.skipIf(!handle)('receiver connection health and fencing', () => {
     await db.execute(
       sql`UPDATE versions SET version='0' WHERE name IN ('agent_messaging_enabled','agent_portal_enabled')`,
     );
-    await handle?.pool.end();
   });
   it('needs no probe, preserves health on normal heartbeat, and fences replacement', async () => {
-    const input = { generation, protocol: 'codex-queue-v1' as const, native_session_id: randomUUID() };
+    const input = { generation, protocol, native_session_id: randomUUID() };
     expect((await receiver.register(id, token, input)).receiver?.state).toBe('ready');
     await expect(receiver.register(id, token, { ...input, generation: randomUUID() })).rejects.toMatchObject({
       code: 'receiver_owned',
@@ -85,6 +93,21 @@ describe.skipIf(!handle)('receiver connection health and fencing', () => {
       'ready',
     );
   });
+  it('registers without a wrapper launcher and binds actual native identity', async () => {
+    const nativeId = randomUUID();
+    const connectionGeneration = randomUUID();
+    const [previous] = await handle!.db.select().from(agentSessions).where(eq(agentSessions.id, id));
+    await receiver.update(id, token, receiverState(previous!.receiver)!.generation, 'stop', {});
+    const input = { generation: connectionGeneration, protocol, native_session_id: nativeId };
+    const registered = await receiver.register(id, token, input);
+    expect(await receiver.register(id, token, input)).toEqual(registered);
+    const [session] = await handle!.db.select().from(agentSessions).where(eq(agentSessions.id, id));
+    expect(session!.upstreamSessionId).toBe(nativeId);
+    expect(session!.engine).toBe(engine);
+    const mismatch = engine === 'codex' ? 'claude-channel-v1' : 'codex-queue-v1';
+    await expect(receiver.register(id, token, { ...input, protocol: mismatch })).rejects.toMatchObject({ code: 'receiver_engine_mismatch' });
+  });
+
   it('accepts a matching legacy receipt without changing any health or probe state', async () => {
     const [session] = await handle!.db.select().from(agentSessions).where(eq(agentSessions.id, id));
     const s = receiverState(session!.receiver)!;
@@ -122,7 +145,7 @@ describe.skipIf(!handle)('receiver connection health and fencing', () => {
     const next = randomUUID();
     const result = await receiver.register(id, token, {
       generation: next,
-      protocol: 'codex-queue-v1',
+      protocol,
       native_session_id: randomUUID(),
     });
     expect(result.sources).toEqual(['peer', 'portal']);
@@ -148,4 +171,28 @@ describe.skipIf(!handle)('receiver connection health and fencing', () => {
     await expect(receiver.claim(id, token, next, 'portal', randomUUID())).rejects.toThrow();
     expect(await receiver.claim(id, token, next, 'peer', randomUUID())).toEqual({ delivery: null });
   });
+  it('rechecks host, engine and scoped bridge policy independently of launch method', async () => {
+    const db = handle!.db;
+    const [session] = await db.select().from(agentSessions).where(eq(agentSessions.id, id));
+    await expect(receiver.status(id, randomBytes(32).toString('base64url'))).rejects.toMatchObject({ code: 'agent_bridge_unauthorized' });
+    await db.update(agentSessions).set({ bridgeExpiresAt: new Date(Date.now() - 60_000).toISOString() }).where(eq(agentSessions.id, id));
+    await expect(receiver.status(id, token)).rejects.toMatchObject({ code: 'agent_bridge_expired' });
+    await db.update(agentSessions).set({ bridgeExpiresAt: session!.bridgeExpiresAt }).where(eq(agentSessions.id, id));
+    await db.update(hosts).set({ engines: engines.filter((item) => item.engine !== engine).map((item) => item.engine).join(',') }).where(eq(hosts.id, host.id));
+    await expect(receiver.status(id, token)).rejects.toMatchObject({ code: 'engine_disabled' });
+    await db.update(hosts).set({ engines: host.engines }).where(eq(hosts.id, host.id));
+    const flag = `${engine}_engine_disabled`;
+    await db.execute(sql`INSERT INTO versions (name, version, updated_at) VALUES (${flag}, '1', ${new Date().toISOString()}) ON DUPLICATE KEY UPDATE version='1'`);
+    invalidateFleetEngineState(db);
+    await expect(receiver.status(id, token)).rejects.toMatchObject({ code: 'engine_disabled' });
+    await db.execute(sql`UPDATE versions SET version='0' WHERE name=${flag}`);
+    invalidateFleetEngineState(db);
+    await db.update(hosts).set({ secure: 0, insecureEnabledUntil: null }).where(eq(hosts.id, host.id));
+    await expect(receiver.status(id, token)).rejects.toMatchObject({ code: 'agent_messaging_insecure_window_closed' });
+    await db.update(hosts).set({ secure: 1 }).where(eq(hosts.id, host.id));
+    await db.execute(sql`UPDATE versions SET version='0' WHERE name='agent_messaging_enabled'`);
+    await expect(receiver.claim(id, token, randomUUID(), 'peer', randomUUID())).rejects.toMatchObject({ code: 'agent_messaging_disabled' });
+    await db.execute(sql`UPDATE versions SET version='1' WHERE name='agent_messaging_enabled'`);
+  });
+
 });

@@ -25,6 +25,7 @@ import (
 	"github.com/andybalholm/brotli"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/enginestore"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/ipc"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/nativeentry"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/skillstore"
 )
 
@@ -84,14 +85,15 @@ func FindCLI() (string, error) {
 	if home, err := Home(); err == nil {
 		candidates = append(candidates, filepath.Join(home, "bin", "grok"))
 	}
-	if path, err := exec.LookPath("grok"); err == nil {
+	currentExe, _ := os.Executable()
+	if path, err := nativeentry.ResolveVendor("grok", currentExe); err == nil {
 		candidates = append(candidates, path)
 	}
 	self, _ := os.Executable()
 	self, _ = filepath.EvalSymlinks(self)
 	for _, path := range candidates {
 		resolved, err := filepath.EvalSymlinks(path)
-		if err != nil || resolved == self {
+		if err != nil || resolved == self || nativeentry.IsWrapperOrShim(path, currentExe) {
 			continue
 		}
 		st, err := os.Stat(resolved)

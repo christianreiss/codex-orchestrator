@@ -22,6 +22,8 @@ import (
 	"runtime"
 	"strings"
 	"time"
+
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/nativeentry"
 )
 
 // githubBaseURL is the GitHub REST host. Overridable for tests.
@@ -150,12 +152,14 @@ func cacheInstalledCodexNpm(ctx context.Context) {
 	out, err := exec.CommandContext(ctx, "npm", "bin", "-g").Output()
 	if err == nil {
 		p := filepath.Join(strings.TrimSpace(string(out)), "codex")
-		if _, serr := os.Stat(p); serr == nil {
+		self, _ := os.Executable()
+		if _, serr := os.Stat(p); serr == nil && !nativeentry.IsWrapperOrShim(p, self) {
 			_ = cacheCodex(p)
 			return
 		}
 	}
-	if p, lerr := exec.LookPath("codex"); lerr == nil {
+	self, _ := os.Executable()
+	if p, lerr := nativeentry.ResolveVendor("codex", self); lerr == nil {
 		_ = cacheCodex(p)
 	}
 }

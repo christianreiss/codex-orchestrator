@@ -1,5 +1,7 @@
 # 2026-10-08
 
+- Wrapper 0.9.24 adds managed native `codex`, `claude` and `grok` starts with their native argument grammar, the existing fleet account/auth protections, and shared session-bound messaging through App Server, MCP Channels and ACP. Installation prepares per-user PATH shims without replacing provider binaries; native-entry diagnostics and removal support shell activation and rollback.
+
 - Git Director now resolves one canonical registration per host/path, rejects relative clone directories and ambiguous legacy mappings, and supersedes old mappings only when no live merge lease is held.
 
 - Wrapper 0.9.23 retries account launch reservations after transient 502/503/504 responses up to four times over 15 seconds, retaining the same idempotent lease ID and active account pin.

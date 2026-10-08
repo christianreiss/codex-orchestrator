@@ -141,12 +141,15 @@ func TestGrokNativeLeaderCanary(t *testing.T) {
 	verifyDeliveries := os.Getenv("CXX_GROK_NATIVE_CANARY_DELIVERIES") == "1"
 	deliverSources := false
 	claimed, replied := map[string]bool{}, map[string]bool{}
+	receiverGeneration := ""
+	reconnectRequested, receiverReconnected := false, false
 	peerID, portalID := newUUID(), newUUID()
 	peerReceipt, portalReceipt := "CXX_PEER_"+newUUID(), "CXX_PORTAL_"+newUUID()
 	portal := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var body map[string]any
 		_ = json.NewDecoder(r.Body).Decode(&body)
 		response := map[string]any{}
+		responseStatus := http.StatusOK
 		mu.Lock()
 		switch {
 		case strings.HasSuffix(r.URL.Path, "/receiver/native"):
@@ -156,12 +159,29 @@ func TestGrokNativeLeaderCanary(t *testing.T) {
 			response["native_session_id"] = nativeID
 		case strings.HasSuffix(r.URL.Path, "/receiver/register"):
 			protocol = stringArg(body, "protocol")
+			generation := stringArg(body, "generation")
+			if receiverGeneration != "" {
+				if !reconnectRequested || generation == receiverGeneration {
+					t.Error("receiver reconnect lost its generation fence")
+				}
+				receiverReconnected = true
+				claimed, replied = map[string]bool{}, map[string]bool{}
+				peerID, portalID = newUUID(), newUUID()
+				peerReceipt, portalReceipt = "CXX_PEER_"+newUUID(), "CXX_PORTAL_"+newUUID()
+			}
+			receiverGeneration = generation
 			if nativeID != "" && stringArg(body, "native_session_id") != nativeID {
 				t.Error("hook and ACP identity differ")
 			}
 			response["sources"] = []string{}
 		case strings.HasSuffix(r.URL.Path, "/receiver/heartbeat"):
 			heartbeats++
+			if verifyDeliveries && replied["peer"] && replied["portal"] && !reconnectRequested {
+				reconnectRequested = true
+				responseStatus = http.StatusConflict
+				response["code"] = "receiver_generation_changed"
+				response["message"] = "canary reconnect requested"
+			}
 			sources := []any{}
 			if deliverSources {
 				sources = []any{map[string]any{"source": "peer"}, map[string]any{"source": "portal"}}
@@ -190,6 +210,10 @@ func TestGrokNativeLeaderCanary(t *testing.T) {
 			} else {
 				replied["portal"] = true
 			}
+		case strings.HasSuffix(r.URL.Path, "/ack"):
+			if stringArg(body, "outcome") == "accepted" {
+				response["message"] = map[string]any{"status": "accepted"}
+			}
 		case strings.HasSuffix(r.URL.Path, "/receiver/status"):
 			if protocol != "" {
 				response["receiver"] = map[string]any{"protocol": protocol, "native_session_id": nativeID}
@@ -197,6 +221,7 @@ func TestGrokNativeLeaderCanary(t *testing.T) {
 		}
 		mu.Unlock()
 		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(responseStatus)
 		_ = json.NewEncoder(w).Encode(response)
 	})}
 	go portal.Serve(listener)
@@ -339,13 +364,19 @@ func TestGrokNativeLeaderCanary(t *testing.T) {
 		_ = driver.conn.SetDeadline(time.Now().Add(60 * time.Second))
 		for {
 			mu.Lock()
-			finished := replied["peer"] && replied["portal"]
+			finished := receiverReconnected && replied["peer"] && replied["portal"]
 			mu.Unlock()
 			if finished {
 				break
 			}
 			event, err := driver.readACP()
 			if err != nil {
+				mu.Lock()
+				t.Logf("delivery state: claimed=%v replied=%v heartbeats=%d", claimed, replied, heartbeats)
+				mu.Unlock()
+				if state, stateErr := queue.status(); stateErr == nil {
+					t.Logf("native activity=%s", state)
+				}
 				t.Fatal("automatic peer/portal delivery did not complete:", err)
 			}
 			if stringArg(event, "method") == "session/request_permission" {
@@ -371,7 +402,27 @@ func TestGrokNativeLeaderCanary(t *testing.T) {
 				}
 			}
 		}
-		t.Log("automatic native peer and portal deliveries produced exact correlated MCP replies")
+		t.Log("automatic native peer and portal deliveries produced exact correlated MCP replies before and after generation reconnect")
+		if err := portal.Close(); err != nil {
+			t.Fatal(err)
+		}
+		doctor := exec.CommandContext(ctx, wrapper, "agent", "doctor", "--json")
+		doctor.Env = env
+		doctorOutput, err := doctor.Output()
+		if err != nil {
+			if exit, ok := err.(*exec.ExitError); !ok || exit.ExitCode() != 1 {
+				t.Fatal("offline doctor failed", err)
+			}
+		}
+		var offline struct {
+			Receiver struct {
+				State string `json:"state"`
+			} `json:"receiver"`
+		}
+		if json.Unmarshal(doctorOutput, &offline) != nil || offline.Receiver.State != "unavailable" {
+			t.Fatal("offline broker was not reported unavailable")
+		}
+		t.Log("offline native broker reports unavailable")
 	}
 	mu.Lock()
 	count := requests

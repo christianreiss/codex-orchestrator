@@ -17,7 +17,7 @@ func TestBothLifecyclesArmOnlyTheFinalAgentLaunch(t *testing.T) {
 			}
 			source := string(data)
 			choice := strings.Index(source, "quotaadvice.BeforeStart(")
-			portal := strings.Index(source, "agentportal.Start(")
+			portal := strings.Index(source, "agentportal.StartConnection(")
 			arm := strings.Index(source, "quotaadvice.ArmLaunch(ctx)")
 			capture := strings.Index(source, engine+".RunCapture")
 			if choice < 0 || portal < choice || arm < portal || capture < arm || strings.Count(source, "quotaadvice.ArmLaunch(ctx)") != 1 {

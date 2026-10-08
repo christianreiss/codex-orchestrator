@@ -18,6 +18,7 @@ The HTTP layer is a **Node 22 + Fastify 5 + Drizzle + TypeScript** server rooted
 
 The orchestrator supports three engines: **Codex** (OpenAI), **Claude** (Anthropic), and **Grok Build** (xAI subscription). A host can have any nonempty subset.
 - `cdx` manages Codex, `clx` manages Claude Code, and `cgx` manages Grok Build; all three are relative aliases to the same installed `cxx` binary.
+- From cxx 0.9.24, managed native `codex`, `claude`, and `grok` command names use per-user PATH shims into `cxx native <engine> -- …`. They preserve native command grammar while sharing the existing fleet auth/account and receiver lifecycle; wrapper commands remain under `cdx`/`clx`/`cgx`. Diagnose activation with `cxx native-entry status`; provider binaries are never replaced.
 - Skills, `AGENTS.md` / `CLAUDE.md` / Grok `AGENTS.md`, and MCP are shared across all three engines by default (per-engine filename via the engine constants).
 - Auth, config, and CLI binaries are engine-specific.
 - The `engine` column/parameter appears throughout the API for routing.

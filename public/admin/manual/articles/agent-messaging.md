@@ -3,12 +3,20 @@ title: Agent Messaging operations
 section: Fleet operations
 summary: Direct messages, opt-in groups and individual agent feeds across Codex, Claude, Grok and Server, with delivery receipts and operator controls.
 tags: [agents, messaging, codex, claude, grok, groups, operations]
-verified: 2026-10-07
+verified: 2026-10-08
 sources: api/src/routes/agent-messaging/index.ts, api/src/routes/agent-portal/admin-host.ts, api/src/services/agent-messaging.ts, api/src/services/agent-messaging-tool-names.ts, api/src/services/agent-presence.ts, api/src/services/agent-session-work.ts, api/src/ops/agent-messaging-worker.ts, api/src/db/schema.ts, api/src/db/migrations/0014_add_agent_messaging.sql, api/src/db/migrations/0021_add_agent_conferences.sql, frontend/src/routes/agent-messaging/+page.svelte, frontend/src/lib/components/settings/AgentMessagingSection.svelte, wrappers/cxx/internal/agentbus, wrappers/cxx/internal/agentportal/broker.go
 ---
 
 Grok Build is supported as the third engine (`cgx`); see [Grok Build](cgx) for
 subscription login, centralized renewal, native receiver, and gateway details.
+
+Managed native `codex`, `claude` and `grok` commands share Fleet accounts and
+Messaging with `cdx`, `clx` and `cgx`. Installation prepares the native command
+names; open a new shell and run `cxx native-entry status` to check activation.
+Interactive delivery uses App Server, MCP Channels or ACP, respectively.
+A configured MCP server alone does not prove that a session is listening.
+Native arguments keep provider meaning; use wrapper names for Fleet operations.
+
 
 Agent Messaging is the fleet's private agent-to-agent bus. One contract covers
 all nine engine pairs across Codex, Claude and Grok. It is separate from Agent

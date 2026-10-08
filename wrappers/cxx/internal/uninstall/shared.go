@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -15,6 +16,7 @@ import (
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/agentbus"
 	hostcron "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/cron"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/layout"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/nativeentry"
 )
 
 type ServerResult struct {
@@ -183,12 +185,26 @@ func Apply(ctx context.Context, result ServerResult, selectedEngine, executable 
 		if err != nil {
 			return err
 		}
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return err
+		}
+		if err := nativeentry.Remove(nativeentry.Options{Home: home, Engines: []string{selectedEngine}}); err != nil {
+			return fmt.Errorf("remove native entry: %w", err)
+		}
 		return layout.RemoveAlias(ctx, filepath.Dir(canonical), selectedEngine)
 	case RemoveAllShared:
 		if err := removeAgentService(); err != nil {
 			// Do not erase the binary, aliases, cron recovery path, or relay
 			// state while a service manager may still have a live worker.
 			return fmt.Errorf("remove agent relay service: %w", err)
+		}
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return err
+		}
+		if err := nativeentry.Remove(nativeentry.Options{Home: home}); err != nil {
+			return fmt.Errorf("remove native entries: %w", err)
 		}
 		cronErr := removeCron(ctx)
 		layoutErr := layout.RemoveShared(ctx, executable)

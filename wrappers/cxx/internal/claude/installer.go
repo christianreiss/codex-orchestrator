@@ -13,6 +13,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/nativeentry"
 )
 
 // EnsureClaude makes sure the locally-installed Claude CLI is at the target
@@ -141,14 +143,15 @@ func cacheInstalledClaude(ctx context.Context, target string) bool {
 			return true
 		}
 	}
-	// Fallback: standard PATH lookup.
-	for _, name := range []string{"claude", "claude-code"} {
-		if p, lerr := exec.LookPath(name); lerr == nil {
-			if cacheClaudeIfMatches(ctx, p, target) {
-				return true
-			}
-		}
+	// Ignore managed native entry scripts while looking beyond the first PATH hit.
+	self, _ := os.Executable()
+	if p, err := nativeentry.ResolveVendor("claude", self); err == nil && cacheClaudeIfMatches(ctx, p, target) {
+		return true
 	}
+	if p, err := exec.LookPath("claude-code"); err == nil && cacheClaudeIfMatches(ctx, p, target) {
+		return true
+	}
+
 	return false
 }
 
@@ -186,6 +189,9 @@ func npmClaudeCandidates(ctx context.Context) []string {
 }
 
 func cacheClaudeIfMatches(ctx context.Context, path, target string) bool {
+	if isWrapperSelf(path) {
+		return false
+	}
 	if _, err := os.Stat(path); err != nil {
 		return false
 	}

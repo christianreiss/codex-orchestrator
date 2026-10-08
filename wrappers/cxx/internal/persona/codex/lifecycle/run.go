@@ -598,63 +598,30 @@ func Run(ctx context.Context, opts Options) (exitCode int, runErr error) {
 
 	printBoot()
 
-	restoreInheritedPortalEnv := agentportal.ScrubEnvironment()
-	defer restoreInheritedPortalEnv()
 	upstreamSessionID := ""
 	if opts.Resumed {
 		upstreamSessionID = agentportal.ExplicitResumeSessionID(opts.ExtraArgs)
 	}
-	portalSession, portalErr := agentportal.Start(ctx, cfg, agentportal.StartInput{
+	connection, connectionErr := agentportal.StartConnection(ctx, cfg, agentportal.StartInput{
 		Engine:            config.EngineCodex,
 		InvocationKind:    portalInvocationKind(opts.Headless),
 		Resumed:           opts.Resumed,
 		UpstreamSessionID: upstreamSessionID,
 	})
-	if portalErr != nil {
-		logger.Warn("agent portal registration unavailable; continuing local session", "err", portalErr)
+	if connectionErr != nil {
+		logger.Warn("agent connection unavailable; continuing local session", "err", connectionErr)
 	}
-	closePortal := func(string, string) {}
-	// Codex does not forward its environment to stdio MCP servers, so the
-	// cxx-agent server has to be told this broker's address on the command
-	// line or it exits before serving a single tool.
+	closePortal := func(status, summaryText string) {
+		if err := connection.Close(status, summaryText); err != nil {
+			logger.Warn("agent connection finalization failed", "err", err)
+		}
+	}
+	// Native stdio MCP servers need this launch's private broker explicitly.
 	var mcpOverrides []string
-	if portalSession != nil {
-		ctx = portalSession.WithScheduleWatch(ctx)
-		portalBroker, brokerErr := portalSession.StartBroker(ctx)
-		if brokerErr != nil {
-			logger.Warn("agent portal local broker unavailable; continuing without #afk relay", "err", brokerErr)
-		}
-		restorePortalEnv := func() {}
-		if portalBroker != nil {
-			restorePortalEnv = portalBroker.ActivateEnvironment()
-			// Not opts.Headless: only `--execute` sets that, while the relay
-			// delivers peer work through `run exec`, which is every bit as
-			// unattended. The question is whether anyone *can* answer Codex's
-			// MCP elicitation, and that is exactly "is there a terminal".
-			mcpOverrides = portalBroker.CodexMCPOverrides(!attendedTerminal())
-		}
-		stopPortalHeartbeat := portalSession.StartHeartbeat(ctx)
-		portalClosed := false
-		closePortal = func(status, summaryText string) {
-			if portalClosed {
-				return
-			}
-			portalClosed = true
-			stopPortalHeartbeat()
-			closeCtx, closeCancel := context.WithTimeout(context.Background(), 4*time.Second)
-			if err := portalSession.Heartbeat(closeCtx, "", "close"); err != nil {
-				logger.Warn("agent portal relay close failed", "err", err)
-			}
-			closeCancel()
-			if portalBroker != nil {
-				if err := portalBroker.Close(); err != nil {
-					logger.Warn("agent portal local broker cleanup failed", "err", err)
-				}
-			}
-			restorePortalEnv()
-			if err := portalSession.Finish(status, summaryText); err != nil {
-				logger.Warn("agent portal finalization failed", "err", err)
-			}
+	if connection != nil {
+		ctx = connection.Context()
+		if connection.Session() != nil {
+			mcpOverrides = connection.CodexMCPOverrides(!attendedTerminal())
 		}
 		defer func() {
 			status, summaryText := portalExit(exitCode, runErr)

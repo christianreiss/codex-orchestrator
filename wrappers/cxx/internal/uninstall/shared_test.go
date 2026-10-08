@@ -3,6 +3,7 @@ package uninstall
 import (
 	"context"
 	"errors"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/nativeentry"
 	"os"
 	"path/filepath"
 	"strings"
@@ -20,6 +21,7 @@ func TestPartialDeleteRemovesOnlySelectedAlias(t *testing.T) {
 }
 
 func TestApplyPartialKeepsCXXRemainingAliasAndCron(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
 	dir := t.TempDir()
 	cxx := filepath.Join(dir, "cxx")
 	if err := os.WriteFile(cxx, []byte("common"), 0o755); err != nil {
@@ -44,6 +46,7 @@ func TestApplyPartialKeepsCXXRemainingAliasAndCron(t *testing.T) {
 }
 
 func TestApplyLastRemovesCXXAliasesAndCron(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
 	dir := t.TempDir()
 	cxx := filepath.Join(dir, "cxx")
 	if err := os.WriteFile(cxx, []byte("common"), 0o755); err != nil {
@@ -81,6 +84,7 @@ func TestApplyLastRemovesCXXAliasesAndCron(t *testing.T) {
 }
 
 func TestApplyLastPreservesSharedArtifactsWhenRelayStopFails(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
 	dir := t.TempDir()
 	cxx := filepath.Join(dir, "cxx")
 	if err := os.WriteFile(cxx, []byte("common"), 0o755); err != nil {
@@ -114,6 +118,7 @@ func TestApplyLastPreservesSharedArtifactsWhenRelayStopFails(t *testing.T) {
 }
 
 func TestApplyUnconfirmedPreservesAllSharedArtifacts(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
 	dir := t.TempDir()
 	cxx := filepath.Join(dir, "cxx")
 	if err := os.WriteFile(cxx, []byte("common"), 0o755); err != nil {
@@ -212,6 +217,7 @@ func TestDuplicatedEnvelopeStateIsAcceptedWhenIdentical(t *testing.T) {
 }
 
 func TestApplyRejectsLastHostWithRemainingEngines(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
 	dir := t.TempDir()
 	cxx := filepath.Join(dir, "cxx")
 	if err := os.WriteFile(cxx, []byte("common"), 0o755); err != nil {
@@ -223,5 +229,68 @@ func TestApplyRejectsLastHostWithRemainingEngines(t *testing.T) {
 	}
 	if _, err := os.Stat(cxx); err != nil {
 		t.Fatalf("cxx removed after inconsistent result: %v", err)
+	}
+}
+
+func TestNativeEntriesFollowConfirmedUninstall(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	executable := filepath.Join(home, "cxx")
+	os.WriteFile(executable, []byte("common"), 0755)
+	os.Symlink("cxx", filepath.Join(home, "clx"))
+	os.Symlink("cxx", filepath.Join(home, "cdx"))
+	if err := nativeentry.Install(nativeentry.Options{Home: home, WrapperPath: executable, Engines: []string{"claude", "codex"}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := Apply(context.Background(), ServerResult{}, "claude", executable); err != nil {
+		t.Fatal(err)
+	}
+	if !nativeentry.IsManagedShim(filepath.Join(nativeentry.BinDir(home), "claude")) {
+		t.Fatal("unconfirmed removed shim")
+	}
+	if err := Apply(context.Background(), ServerResult{Confirmed: true, RemainingEngines: []string{"codex"}}, "claude", executable); err != nil {
+		t.Fatal(err)
+	}
+	if nativeentry.IsManagedShim(filepath.Join(nativeentry.BinDir(home), "claude")) || !nativeentry.IsManagedShim(filepath.Join(nativeentry.BinDir(home), "codex")) {
+		t.Fatal("partial entry removal wrong")
+	}
+	body, _ := os.ReadFile(filepath.Join(home, ".bashrc"))
+	if !strings.Contains(string(body), "cxx:managed-native-path:start") {
+		t.Fatal("partial removed PATH block")
+	}
+	oldCron, oldService := removeCron, removeAgentService
+	t.Cleanup(func() { removeCron, removeAgentService = oldCron, oldService })
+	removeCron = func(context.Context) error { return nil }
+	removeAgentService = func() error { return nil }
+	if err := Apply(context.Background(), ServerResult{Confirmed: true, LastHost: true}, "codex", executable); err != nil {
+		t.Fatal(err)
+	}
+	if nativeentry.IsManagedShim(filepath.Join(nativeentry.BinDir(home), "codex")) {
+		t.Fatal("last entry retained")
+	}
+	body, _ = os.ReadFile(filepath.Join(home, ".bashrc"))
+	if strings.Contains(string(body), "cxx:managed-native-path:start") {
+		t.Fatal("last retained PATH block")
+	}
+}
+
+func TestUninstallPreservesArtifactsOnMalformedNativeBlock(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	executable := filepath.Join(home, "cxx")
+	os.WriteFile(executable, []byte("common"), 0755)
+	os.Symlink("cxx", filepath.Join(home, "clx"))
+	if err := nativeentry.Install(nativeentry.Options{Home: home, WrapperPath: executable, Engines: []string{"claude"}}); err != nil {
+		t.Fatal(err)
+	}
+	os.WriteFile(filepath.Join(home, ".bashrc"), []byte("# cxx:managed-native-path:start\n"), 0600)
+	if err := Apply(context.Background(), ServerResult{Confirmed: true, RemainingEngines: []string{"codex"}}, "claude", executable); err == nil {
+		t.Fatal("malformed block ignored")
+	}
+	if !nativeentry.IsManagedShim(filepath.Join(nativeentry.BinDir(home), "claude")) {
+		t.Fatal("shim removed on preflight failure")
+	}
+	if _, err := os.Lstat(filepath.Join(home, "clx")); err != nil {
+		t.Fatal("alias removed on preflight failure")
 	}
 }

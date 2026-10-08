@@ -152,6 +152,38 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "cgx:", err)
 		return 2
 	}
+	return runOptions(o, stdout, stderr)
+}
+
+// RunNative preserves the native CLI grammar while retaining fleet account
+// ownership and the same session/receiver lifecycle as cgx.
+func RunNative(args []string, stdout, stderr io.Writer) int {
+	o, err := nativeOptions(args)
+	if err != nil {
+		fmt.Fprintln(stderr, "grok:", err)
+		return 1
+	}
+	return runOptions(o, stdout, stderr)
+}
+
+func nativeOptions(args []string) (options, error) {
+	path, err := config.DefaultPathForEngine(config.EngineGrok)
+	if err != nil {
+		return options{}, err
+	}
+	o := options{configPath: path, command: "run", args: append([]string(nil), args...), skipBoot: true}
+	if len(args) > 0 && (args[0] == "update" || args[0] == "upgrade" || args[0] == "install") && !isHelpPassthrough(args) {
+		return options{}, errors.New("Grok installation is fleet-managed; use cgx update")
+	}
+	// Subscription login is centrally owned even through the native name.
+	if len(args) > 0 && (args[0] == "login" || args[0] == "logout") && !isHelpPassthrough(args) {
+		o.command, o.args = args[0], append([]string(nil), args[1:]...)
+	}
+	return o, nil
+}
+
+func runOptions(o options, stdout, stderr io.Writer) int {
+	var err error
 	if o.command == "version" {
 		terminalui.PrintVersion(stdout, terminalui.BuildInfo{Name: "cgx", Version: Version, Commit: Commit, BuildDate: BuildDate, SigningKey: signing.HasKey()})
 		return 0
@@ -455,7 +487,7 @@ func reconcilePeers(ctx context.Context, cfg *config.Config) error {
 }
 
 func run(ctx context.Context, cfg *config.Config, client *orchestrator.Client, o options, stdout, stderr io.Writer) (exitCode int, runErr error) {
-	headless := o.command == "execute" || hasArg(o.args, "-p", "--single", "--print", "--prompt-file") || len(o.args) > 0 && o.args[0] == "agent"
+	headless := o.command == "execute" || nativeAnyFlag(o.args, "-p", "--single", "--print", "--prompt-file", "--prompt-json") || len(o.args) > 0 && o.args[0] == "agent"
 	// Like cdx: another lifecycle holding the sync lock pauses managed content
 	// writes for this launch; auth freshness and the lease remain active.
 	sync, syncErr := syncMeasuredManagedWith(ctx, cfg, client, o.concurrent)
@@ -562,8 +594,6 @@ func run(ctx context.Context, cfg *config.Config, client *orchestrator.Client, o
 	}
 	restorePool := pool.ActivateEnvironment()
 	defer restorePool()
-	restore := agentportal.ScrubEnvironment()
-	defer restore()
 	args := append([]string(nil), o.args...)
 	if o.command == "execute" {
 		f, err := os.CreateTemp(rt.Dir, "prompt-*.txt")
@@ -577,33 +607,25 @@ func run(ctx context.Context, cfg *config.Config, client *orchestrator.Client, o
 		f.Close()
 		args = []string{"--prompt-file", f.Name(), "--output-format", "json"}
 	}
-	portal, portalErr := agentportal.Start(ctx, cfg, agentportal.StartInput{Engine: "grok", InvocationKind: map[bool]string{true: "execute", false: "interactive"}[headless], Resumed: hasArg(args, "--resume", "--continue", "-r", "-c"), UpstreamSessionID: agentportal.ExplicitResumeSessionID(args)})
+	connection, portalErr := agentportal.StartConnection(ctx, cfg, agentportal.StartInput{Engine: "grok", InvocationKind: map[bool]string{true: "execute", false: "interactive"}[headless], Resumed: nativeAnyFlag(args, "--resume", "--continue", "-r", "-c"), UpstreamSessionID: agentportal.ExplicitResumeSessionID(args)})
 	if portalErr != nil {
 		fmt.Fprintln(stderr, "cgx: agent portal temporarily unavailable")
 	}
-	if portal != nil {
-		ctx = portal.WithScheduleWatch(ctx)
-		broker, err := portal.StartBroker(ctx)
-		if err == nil {
-			defer broker.Close()
-			restoreBroker := broker.ActivateEnvironment()
-			defer restoreBroker()
+	ctx = connection.Context()
+	defer func() {
+		state, summary := "completed", "Grok session ended"
+		if runErr != nil || exitCode != 0 {
+			state, summary = "failed", "Grok session failed"
 		}
-		stop := portal.StartHeartbeat(ctx)
-		defer stop()
-		defer func() {
-			state, summary := "completed", "Grok session ended"
-			if runErr != nil || exitCode != 0 {
-				state, summary = "failed", "Grok session failed"
-			}
-			portal.Finish(state, summary)
-		}()
-	}
+		if err := connection.Close(state, summary); err != nil {
+			fmt.Fprintln(stderr, "cgx: agent portal cleanup failed")
+		}
+	}()
 	exe, err := os.Executable()
 	if err != nil {
 		return 1, err
 	}
-	if err := rt.Configure(exe, cfg, portal != nil); err != nil {
+	if err := rt.Configure(exe, cfg, connection.Session() != nil); err != nil {
 		return 1, err
 	}
 	path, err := native.FindCLI()
@@ -638,7 +660,7 @@ func run(ctx context.Context, cfg *config.Config, client *orchestrator.Client, o
 			}
 		}
 	}()
-	if !headless && !hasArg(args, "--no-leader", "--leader-socket") {
+	if !headless && !nativeAnyFlag(args, "--no-leader", "--leader-socket") {
 		socket := filepath.Join(rt.Dir, "grok.sock")
 		env = native.SetEnv(env, "CXX_GROK_SOCKET", socket)
 		leader := exec.CommandContext(sessionCtx, path, "agent", "leader", "--leader-socket", socket, "--relay-on-demand", "--no-auto-update")
@@ -670,7 +692,7 @@ func run(ctx context.Context, cfg *config.Config, client *orchestrator.Client, o
 			}
 		}
 		args = append([]string{"--leader", "--leader-socket", socket}, args...)
-	} else if headless && !hasArg(args, "--no-leader", "--leader-socket", "--leader") {
+	} else if headless && !nativeAnyFlag(args, "--no-leader", "--leader-socket", "--leader") {
 		args = append([]string{"--no-leader"}, args...)
 	}
 	args = interactiveArgs(args, headless, o.skipBoot)
@@ -689,6 +711,15 @@ func run(ctx context.Context, cfg *config.Config, client *orchestrator.Client, o
 	}
 	return code, nil
 }
+func nativeAnyFlag(args []string, names ...string) bool {
+	for _, name := range names {
+		if nativeFlag(args, name) {
+			return true
+		}
+	}
+	return false
+}
+
 func hasArg(args []string, names ...string) bool {
 	for _, arg := range args {
 		for _, name := range names {
