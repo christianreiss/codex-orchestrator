@@ -1,3 +1,4 @@
+import { WatchdogsService } from '../../services/watchdogs.js';
 import { AgentReceiverService } from '../../services/agent-receiver.js';
 import { createSseLifecycle } from '../../http/sse-lifecycle.js';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -18,6 +19,7 @@ export async function registerAgentPortalPublicRoutes(
 ): Promise<void> {
   const portal = createAgentPortalService(ctx.db, ctx.env, ctx.keyring);
   const trackStream = createSseLifecycle(app);
+  const watchdogs = new WatchdogsService(ctx.db,ctx.keyring);
   /**
    * Either identity may drive the portal.
    *
@@ -127,7 +129,7 @@ export async function registerAgentPortalPublicRoutes(
     portalHeaders(reply);
     await actorFor(req);
     const snapshot = await portal.listAgentsSnapshot();
-    return ok({ generated_at: snapshot.generated_at, agents: snapshot.sessions });
+    return ok({ generated_at: snapshot.generated_at, agents: await Promise.all(snapshot.sessions.map(async s => ({...s, watchdog:await watchdogs.forSession(String(s.id))}))) });
   });
 
   app.get('/go/api/agents/:id/events', async (req, reply) => {

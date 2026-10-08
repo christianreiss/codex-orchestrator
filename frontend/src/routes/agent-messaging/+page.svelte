@@ -6,6 +6,7 @@
   import RefreshCw from "@lucide/svelte/icons/refresh-cw";
   import MessageSquareShare from "@lucide/svelte/icons/message-square-share";
   import { toast } from "svelte-sonner";
+  import WatchdogPanel from "$lib/components/agent-messaging/WatchdogPanel.svelte";
   import Conferences from "$lib/components/agent-messaging/Conferences.svelte";
   import Groups from "$lib/components/agent-messaging/Groups.svelte";
   import PageHeader from "$lib/components/layout/PageHeader.svelte";
@@ -526,6 +527,7 @@
               />
             </div>
           </div>
+          <WatchdogPanel target={address.address} canManage={canMutate} eligible={address.eligible && address.continuity === "native"} />
         {:else}
           <p class="px-3 py-6 text-sm text-muted-foreground">No agent addresses observed yet.</p>
         {/each}

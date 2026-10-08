@@ -2,12 +2,8 @@ package agentbus
 
 import (
 	"crypto/rand"
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
-	"os"
-	"path/filepath"
-	"strings"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/nativewriter"
 )
 
 func newUUID() string {
@@ -22,14 +18,5 @@ func newUUID() string {
 }
 
 func writerLockPath(engine, nativeSessionID string) (string, error) {
-	engine = strings.ToLower(strings.TrimSpace(engine))
-	if engine != "codex" && engine != "claude" && engine != "grok" {
-		return "", fmt.Errorf("unsupported engine %q", engine)
-	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("determine home directory: %w", err)
-	}
-	digest := sha256.Sum256([]byte(nativeSessionID))
-	return filepath.Join(home, ".cxx", "agent", "locks", engine+"-"+hex.EncodeToString(digest[:])[:24]+".lock"), nil
+	return nativewriter.Path(engine, nativeSessionID)
 }

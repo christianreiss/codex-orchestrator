@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -16,10 +17,11 @@ import (
 // The app-server Unix listener uses WebSocket frames, not JSONL. Connect
 // directly to the protected socket; no additional native model process exists.
 type nativeQueue struct {
-	mu       sync.Mutex
-	conn     *websocket.Conn
-	sequence int
-	thread   string
+	mu               sync.Mutex
+	conn             *websocket.Conn
+	sequence         int
+	lastWatchdogTurn string
+	thread           string
 }
 
 func openNativeQueue(ctx context.Context, socket string) (*nativeQueue, error) {
@@ -159,4 +161,40 @@ func (q *nativeQueue) status() (string, error) {
 	}
 	err := q.call("thread/read", map[string]any{"threadId": q.thread, "includeTurns": false}, &read)
 	return read.Thread.Status.Type, err
+}
+
+func (q *nativeQueue) watchdogFailure() (string, string, error) {
+	var read struct {
+		Thread struct {
+			Turns []struct {
+				ID     string          `json:"id"`
+				Status string          `json:"status"`
+				Error  json.RawMessage `json:"error"`
+			} `json:"turns"`
+		} `json:"thread"`
+	}
+	if err := q.call("thread/read", map[string]any{"threadId": q.thread, "includeTurns": true}, &read); err != nil {
+		return "", "", err
+	}
+	if len(read.Thread.Turns) == 0 {
+		return "", "", nil
+	}
+	turn := read.Thread.Turns[len(read.Thread.Turns)-1]
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	if turn.ID == q.lastWatchdogTurn || (turn.Status != "failed" && turn.Status != "interrupted") {
+		return "", "", nil
+	}
+	q.lastWatchdogTurn = turn.ID
+	if turn.Status == "interrupted" {
+		return "user_stop", "", nil
+	}
+	text := strings.ToLower(string(turn.Error))
+	if strings.Contains(text, "at capacity") || strings.Contains(text, "rate_limit") || strings.Contains(text, "overloaded") || strings.Contains(text, "usage limit") || strings.Contains(text, "quota limit") {
+		return "capacity", scheduleRetryAt(string(turn.Error), time.Now()), nil
+	}
+	if strings.Contains(text, "authentication") || strings.Contains(text, "billing") || strings.Contains(text, "invalid_api_key") {
+		return "blocked", "", nil
+	}
+	return "crash", "", nil
 }

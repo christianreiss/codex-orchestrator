@@ -114,6 +114,7 @@ export const WS_EVENT_TYPES = [
 
   // Agent messaging
   'schedules.changed',
+  'watchdogs.changed',
   'schedules.recovery.warning',
   'agent_messaging.state.changed',
   'agent_messaging.host.changed',

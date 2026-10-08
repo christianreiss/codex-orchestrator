@@ -44,6 +44,8 @@ func RunCommand(args []string, stdin io.Reader, stdout, stderr io.Writer, versio
 		err = runListen(args[1:], stdout, stderr)
 	case "poll":
 		err = runPoll(args[1:], stdout, stderr)
+	case "watchdog-event":
+		err = reportWatchdogEvent(stdin)
 	case "native-session":
 		err = reportNativeSession(stdin)
 	case "doctor":
@@ -370,7 +372,7 @@ func runListen(args []string, stdout, stderr io.Writer) error {
 	ctx := context.Background()
 	var ignored map[string]any
 	if err := client.post(ctx, "bind", map[string]any{
-		"receive_capable": true, "adapter_protocol": "cxx-agent-listen-v1", "adapter_capabilities": map[string]any{"listen": true, "execution_contract_version": 2},
+		"receive_capable": true, "adapter_protocol": "cxx-agent-listen-v1", "adapter_capabilities": map[string]any{"listen": true, "execution_contract_version": 2, "watchdog_protocol_version": 1},
 	}, &ignored); err != nil {
 		return err
 	}

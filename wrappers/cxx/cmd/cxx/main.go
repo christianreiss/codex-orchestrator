@@ -49,6 +49,9 @@ func run(invokedAs string, args []string, stdout, stderr io.Writer) (code int) {
 		}
 	}()
 
+	if len(args) > 0 && args[0] == "watchdog" {
+		return agentbus.RunWatchdogCommand(args[1:], os.Stdin, stdout, stderr)
+	}
 	switch personaForProgramName(invokedAs) {
 	case "codex":
 		return runPersona("codex", args, stdout, stderr)
@@ -93,6 +96,8 @@ func runExplicit(args []string, stdout, stderr io.Writer) int {
 		return runHostCron(args[1:], stdout, stderr)
 	case "portal":
 		return agentportal.RunCommand(args[1:], stdout, stderr)
+	case "watchdog":
+		return agentbus.RunWatchdogCommand(args[1:], os.Stdin, stdout, stderr)
 	case "agent":
 		return agentbus.RunCommand(args[1:], os.Stdin, stdout, stderr, Version)
 	case "remote":

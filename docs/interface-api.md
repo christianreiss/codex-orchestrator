@@ -1675,3 +1675,60 @@ The reminder is instruction text, not enforcement: disabled native memory will
 not load it, and the existing managed AGENTS.md / CLAUDE.md remains the always-on
 routing guidance. Provider memory generation may rewrite an index between syncs;
 the next managed sync restores its block.
+
+## Watchdog (wrapper 0.9.36+)
+
+`#watchdog` is a code-managed Skill. Session-scoped `watchdog_get`, `watchdog_enable`,
+`watchdog_disable`, `watchdog_finish` live in the wrapper's `cxx-agent` MCP, not the
+host MCP. AI can protect only its current task; CLI and Admin can explicitly select
+a target. This authority does not enlarge the task. No watchdog is enabled by default.
+
+Enable input: `task_key` (stable per native task, at most 255 UTF-8 bytes), `continuation` (1–30000 UTF-8 bytes),
+`duration_seconds` (default 7200), `progress_timeout_seconds` (default 600), optional
+current `version`. Durations are integer seconds, 60–604800. Admin/host additionally
+require `target: agent:UUID`; scoped tools infer their bound target. Only one live
+watchdog per agent. Repeating the same activation returns its original deadline;
+changed configuration requires the current version. A terminal task key cannot revive.
+Disable: `id`, `version`; finish additionally requires explicit
+`status: succeeded|failed|blocked|unknown`. Finish does not replace `agent_task_result`.
+Retries of an identical finish/update receipt are idempotent. Continuations are encrypted.
+
+| Surface | Routes |
+| --- | --- |
+| Admin (messaging read/manage capabilities) | `GET /admin/watchdogs`, `GET /admin/watchdogs/:id`, `POST /admin/watchdogs`, `POST /admin/watchdogs/:id/disable` |
+| Signed host operator CLI | `POST /host/watchdogs/get`, `POST /host/watchdogs/enable`, `POST /host/watchdogs/disable` |
+| Current bridge only | `POST /host/agent-sessions/:id/agent-messaging/watchdog/get`, `POST /host/agent-sessions/:id/agent-messaging/watchdog/enable`, `POST /host/agent-sessions/:id/agent-messaging/watchdog/disable`, `POST /host/agent-sessions/:id/agent-messaging/watchdog/finish` |
+| Wrapper transport | `GET /host/agent-sessions/:id/watchdog/stream`, `POST /host/agent-sessions/:id/watchdog/activity` |
+
+The stream uses SSE `event: watchdog` with an immediate snapshot and a frame every
+15 seconds, including when no watchdog is active. Bridge token, session lifetime,
+binding generation, native identity, host auth, engine master switches and messaging
+policy are checked before opening and before every frame. Each frame carries
+`server_time`, `watchdog` (or null), `progress_timeout_seconds`, `terminate_requested`,
+`binding_generation`. Watchdog metadata: `id`, `target`, `native_session_id`, `task_key`,
+`status`, `version`, `deadline_at`, `last_progress_at`, `last_error`, `last_wake_at`,
+`next_wake_at`, `recovery_count`, `recovery_status`, `created_by`. Last wake is the
+latest accepted recovery delivery; a queued attempt is not an accepted wake.
+No keep-alive generates a model turn or updates progress. Transport backpressure
+closes the stream rather than buffering unbounded frames; Fastify shutdown drains it.
+
+Activity reports real output/CPU/tools and classified failure only; heartbeat is not
+progress. Failure is `capacity|crash|hang|user_stop|blocked`, with optional native ID
+and provider `retry_not_before`. Stale native hooks are ignored. Capacity/crash/hang
+create one pending encrypted internal once schedule; recovery starts after 5 minutes
+with positive jitter, backs off exponentially through the existing schedule worker,
+and observes later provider reset hints. Healthy sessions have no periodic model wakes.
+Missing transcripts and permanent provider errors block recovery. Internal schedules
+are excluded from ordinary schedule controls. Wrapper capability
+`watchdog_protocol_version: 1` is required at activation and recovery claim; durable
+acceptance rechecks deadline, status and pinned native identity.
+
+Only the same engine, working directory and native transcript are resumed. A local
+kernel writer lock excludes interactive/relay concurrent writers. Supervision signals
+only its own child, requires fresh policy immediately before TERM, and protects active
+tools and open user questions. After three missing keep-alives (45 seconds), local
+termination is suspended, the wrapper reports disconnection and reconnects with bounded
+backoff; deadline comparisons use server time. User STOP/off, explicit outcome, lost
+eligibility, native identity change or the fixed deadline stops future recovery. Accepted
+running work is not killed by expiry/disable. Ambiguous crash recovery can repeat effects.
+Admin updates invalidate `watchdogs.changed`; the Portal displays a read-only projection.

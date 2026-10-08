@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/ipc"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/nativewriter"
 	"io"
 	"net"
 	"net/http"
@@ -29,22 +31,24 @@ const mcpServerName = "cxx-agent"
 // The model process receives only a private Unix-socket path whose handler is
 // bound to this one agent session and a narrow set of portal operations.
 type Broker struct {
-	session      *Session
-	ctx          context.Context
-	cancel       context.CancelFunc
-	dir          string
-	socketPath   string
-	listener     net.Listener
-	server       *http.Server
-	closeOnce    sync.Once
-	closeMu      sync.Mutex
-	closeErr     error
-	requestMu    sync.Mutex
-	requestSeq   uint64
-	requests     map[uint64]context.CancelFunc
-	registryPath string
-	nativeMu     sync.Mutex
-	nativeID     string
+	session        *Session
+	ctx            context.Context
+	cancel         context.CancelFunc
+	dir            string
+	socketPath     string
+	listener       net.Listener
+	server         *http.Server
+	closeOnce      sync.Once
+	closeMu        sync.Mutex
+	closeErr       error
+	requestMu      sync.Mutex
+	requestSeq     uint64
+	requests       map[uint64]context.CancelFunc
+	registryPath   string
+	nativeMu       sync.Mutex
+	nativeLock     *ipc.Lock
+	lockedNativeID string
+	nativeID       string
 }
 
 func (s *Session) StartBroker(parent context.Context) (*Broker, error) {
@@ -141,6 +145,45 @@ func (b *Broker) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeBrokerError(w, http.StatusForbidden, "broker_receiver_forbidden", "Automatic receiver is disabled by signed policy")
 		return
 	}
+	if strings.HasSuffix(r.URL.Path, "/receiver/native") || strings.HasSuffix(r.URL.Path, "/receiver/register") {
+		var identity struct {
+			NativeID string `json:"native_session_id"`
+		}
+		_ = json.Unmarshal(raw, &identity)
+		if identity.NativeID != "" && isCanonicalUUID(identity.NativeID) && os.Getenv("CXX_AGENT_MESSAGING_MESSAGE_ID") == "" {
+			b.nativeMu.Lock()
+			if b.lockedNativeID != identity.NativeID {
+				// A /clear changes native identity but retains this wrapper owner.
+				lock, lockErr := nativewriter.Acquire(b.session.Engine, identity.NativeID)
+				if lockErr != nil {
+					b.nativeMu.Unlock()
+					writeBrokerError(w, 409, "native_session_busy", "Another wrapper owns this native session")
+					return
+				}
+				if b.nativeLock != nil {
+					b.nativeLock.Release()
+				}
+				b.nativeLock = lock
+				b.lockedNativeID = identity.NativeID
+			}
+			b.nativeMu.Unlock()
+		}
+	}
+	if strings.HasSuffix(r.URL.Path, "/watchdog/activity") {
+		var note struct {
+			Failure  string `json:"failure"`
+			NativeID string `json:"native_session_id"`
+		}
+		_ = json.Unmarshal(raw, &note)
+		b.nativeMu.Lock()
+		nativeID := b.nativeID
+		b.nativeMu.Unlock()
+		if b.session.watchdog != nil && note.Failure != "" && (note.NativeID == "" || note.NativeID == nativeID) {
+			b.session.watchdog.mu.Lock()
+			b.session.watchdog.failure = note.Failure
+			b.session.watchdog.mu.Unlock()
+		}
+	}
 	if strings.HasSuffix(r.URL.Path, "/receiver/native") {
 		var input struct {
 			NativeID string `json:"native_session_id"`
@@ -233,7 +276,7 @@ func (b *Broker) requiresReceivePlanePolicy(path string, body json.RawMessage) b
 
 func (b *Broker) allowedPath(path string) bool {
 	sessionBase := "/host/agent-sessions/" + url.PathEscape(b.session.ID)
-	if path == sessionBase+"/heartbeat" || path == sessionBase+"/events" || path == sessionBase+"/commands/claim" {
+	if path == sessionBase+"/watchdog/activity" || path == sessionBase+"/heartbeat" || path == sessionBase+"/events" || path == sessionBase+"/commands/claim" {
 		return true
 	}
 	for _, op := range []string{"register", "heartbeat", "stop", "ack", "status", "claim", "native"} {
@@ -243,6 +286,7 @@ func (b *Broker) allowedPath(path string) bool {
 	}
 	messagingBase := sessionBase + "/agent-messaging/"
 	for _, operation := range []string{
+		"watchdog/get", "watchdog/enable", "watchdog/disable", "watchdog/finish",
 		"list", "translate", "send", "reply", "wait", "message", "cancel", "bind", "mailbox", "deliveries/claim",
 		"call/open", "call/join",
 		"groups/list", "groups/create", "groups/detail", "subscribe", "unsubscribe", "subscriptions", "publish",
@@ -417,6 +461,12 @@ func (b *Broker) Close() error {
 			// socket directory is removed.
 			closeErr = b.server.Close()
 		}
+		b.nativeMu.Lock()
+		if b.nativeLock != nil {
+			b.nativeLock.Release()
+			b.nativeLock = nil
+		}
+		b.nativeMu.Unlock()
 		_ = b.listener.Close()
 		if b.registryPath != "" {
 			_ = os.Remove(b.registryPath)

@@ -16,6 +16,7 @@ type ConnectionRuntime struct {
 	broker        *Broker
 	ctx           context.Context
 	restore       func()
+	stopWatchdog  func()
 	stopHeartbeat func()
 	once          sync.Once
 	closeErr      error
@@ -31,7 +32,9 @@ func StartConnection(ctx context.Context, cfg *config.Config, input StartInput) 
 	if session == nil {
 		return &ConnectionRuntime{ctx: ctx, restore: restore, stopHeartbeat: func() {}}, startErr
 	}
+	session.watchdog = &watchdogFeed{}
 	runtime := &ConnectionRuntime{session: session, ctx: session.WithScheduleWatch(ctx), restore: restore}
+	runtime.stopWatchdog = session.startWatchdogFeed(runtime.ctx)
 	broker, brokerErr := session.StartBroker(runtime.ctx)
 	runtime.broker = broker
 	if broker != nil {
@@ -69,6 +72,12 @@ func (r *ConnectionRuntime) Close(status, summary string) error {
 		return nil
 	}
 	r.once.Do(func() {
+		if r.stopWatchdog != nil {
+			r.stopWatchdog()
+		}
+		if r.session != nil {
+			r.session.watchdogExit(status, summary)
+		}
 		r.stopHeartbeat()
 		ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
 		var heartbeatErr error

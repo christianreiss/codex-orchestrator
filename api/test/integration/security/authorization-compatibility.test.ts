@@ -296,6 +296,8 @@ describe('the exceptions are exceptions, not holes', () => {
       'POST /admin/agent-sessions/:id/receiver/verify',
       'POST /admin/authorization',
       'POST /admin/schedules',
+      'POST /admin/watchdogs',
+      'POST /admin/watchdogs/:id/disable',
 ]);
   });
 });

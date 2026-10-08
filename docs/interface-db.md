@@ -160,6 +160,9 @@ Migration `0039_android_companion.sql` creates these tables idempotently. Notifi
 
 - **agent_schedule_runs** — Recovery snapshot: `max_recovery_attempts` INT UNSIGNED NULL, `warning_at` VARCHAR(100) NULL.  Immutable execution snapshots; prompt_enc uses secretbox. Unique schedule/deadline and message IDs prevent duplicate dispatch. recovery_count records explicit replay after an ambiguous outcome. Columns: `id` CHAR(36) NOT NULL PRIMARY KEY, `schedule_id` CHAR(36) NOT NULL, `target_address_id` CHAR(36) NOT NULL, `prompt_enc` LONGTEXT NOT NULL, `persistent` TINYINT UNSIGNED NOT NULL DEFAULT 0, `progress_timeout_seconds` INT UNSIGNED NULL, `retry_seconds` INT UNSIGNED NOT NULL, `due_at` VARCHAR(100) NOT NULL, `status` VARCHAR(32) NOT NULL DEFAULT 'waiting', `message_id` CHAR(36) NULL, `recovery_count` INT UNSIGNED NOT NULL DEFAULT 0, `next_attempt_at` VARCHAR(100) NOT NULL, `last_error` VARCHAR(100) NULL, `created_at` VARCHAR(100) NOT NULL, `updated_at` VARCHAR(100) NOT NULL.
 
+- **agent_watchdogs** — Bounded native task policy, unique target/native/task key and internal schedule ID. Columns: `id` CHAR(36) NOT NULL PRIMARY KEY, `target_address_id` CHAR(36) NOT NULL, `native_session_id` VARCHAR(255) NOT NULL, `session_id` CHAR(36) NOT NULL, `task_key` VARCHAR(255) NOT NULL, `message_id` CHAR(36) NULL, `schedule_id` CHAR(36) NOT NULL, `continuation_sha` CHAR(64) NOT NULL, `status` VARCHAR(32) NOT NULL DEFAULT 'watching', `deadline_at` VARCHAR(100) NOT NULL, `progress_timeout_seconds` INT UNSIGNED NOT NULL, `last_progress_at` VARCHAR(100) NOT NULL, `last_error` VARCHAR(100) NULL, `version` INT UNSIGNED NOT NULL DEFAULT 1, `created_by` VARCHAR(191) NOT NULL, `created_at` VARCHAR(100) NOT NULL, `updated_at` VARCHAR(100) NOT NULL.
+
+
 - **agent_task_results** — Encrypted agent reports, unique per message/claim; conflicting bodies rejected. Columns: `id` CHAR(36) NOT NULL PRIMARY KEY, `message_id` CHAR(36) NOT NULL, `claim_id` CHAR(36) NOT NULL, `status` VARCHAR(16) NOT NULL, `body_enc` LONGTEXT NOT NULL, `body_sha256` CHAR(64) NOT NULL, `created_at` VARCHAR(100) NOT NULL.
 - **agent_fresh_start_grants** — Audited one-use authorization bound to target generation. Columns: `message_id` CHAR(36) NOT NULL PRIMARY KEY, `target_address_id` CHAR(36) NOT NULL, `binding_generation` INT UNSIGNED NOT NULL, `execution_version` INT UNSIGNED NOT NULL, `reason` VARCHAR(500) NOT NULL, `approved_by` VARCHAR(191) NOT NULL, `consumed_claim_id` CHAR(36) NULL, `created_at` VARCHAR(100) NOT NULL, `consumed_at` VARCHAR(100) NULL.
 
@@ -190,3 +193,16 @@ The idempotent seed never resets existing pool ownership.
 
 - **agent_name_pool** — pre-filled German female names (`name_key` VARCHAR(96) PRIMARY KEY, `name` VARCHAR(96) NOT NULL, `current_session_id` CHAR(36) NULL). The current launch pointer persists through quarantine and is replaced only by allocation under the pool lock.
 - **agent_name_leases** — launch naming history (`session_id` CHAR(36) PRIMARY KEY, `name_key` VARCHAR(96) NOT NULL, `name` VARCHAR(96) NOT NULL, `address_id` CHAR(36) NOT NULL, `started_at` VARCHAR(100) NOT NULL, `ended_at` VARCHAR(100) NULL, `cooldown_until` VARCHAR(100) NULL). Indexed by name/start and address/start. No cascade from retained sessions.
+
+## `agent_watchdogs` (migration 0046)
+
+Each row pins `target_address_id`, `native_session_id`, original `session_id`, `task_key`,
+optional accepted `message_id`, and a unique internal `schedule_id` to one bounded task.
+`continuation_sha` identifies configuration retries; the continuation itself is encrypted
+in `agent_schedules.prompt_enc`. `status` is watching/recovering/capacity_wait or terminal
+completed/disabled/expired/blocked. `deadline_at`, `progress_timeout_seconds`,
+`last_progress_at`, `last_error`, optimistic `version`, `created_by`, `created_at`,
+`updated_at` provide policy and audit metadata. Unique target/native/task key and schedule
+ID prevent duplicate activation; status/deadline index supports expiry scans. Internal
+schedule/run/message history remains after stop. All normal table timestamps are UTC
+RFC3339 strings. Migration is idempotent and the baseline/Drizzle mirror match it.

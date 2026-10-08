@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
+	"time"
 )
 
 func TestNativeQueueUsesWebSocketAndExistingThread(t *testing.T) {
@@ -120,5 +121,66 @@ func TestNativeQueueRejectsMissingAdmissionReceipt(t *testing.T) {
 	q.thread = "native"
 	if err := q.send("delivery", "input"); err == nil {
 		t.Fatal("RPC success without a queue receipt accepted as admission")
+	}
+}
+
+func TestNativeWatchdogClassifiesFreshTurnsAndPreservesResetHints(t *testing.T) {
+	socket := filepath.Join(t.TempDir(), "native.sock")
+	listener, err := net.Listen("unix", socket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reset := time.Now().Add(time.Hour).UTC().Format(time.RFC3339)
+	server := &http.Server{Handler: websocket.Handler(func(ws *websocket.Conn) {
+		defer ws.Close()
+		reads := 0
+		for {
+			var req struct {
+				ID     int            `json:"id"`
+				Method string         `json:"method"`
+				Params map[string]any `json:"params"`
+			}
+			if websocket.JSON.Receive(ws, &req) != nil {
+				return
+			}
+			if req.Method == "initialized" {
+				continue
+			}
+			result := map[string]any{}
+			if req.Method == "thread/read" {
+				reads++
+				if req.Params["includeTurns"] != true || req.Params["threadId"] != "native" {
+					t.Error("wrong native observation")
+				}
+				turn := map[string]any{"id": "capacity", "status": "failed", "error": map[string]any{"message": "Model at capacity", "reset_at": reset}}
+				if reads == 3 {
+					turn = map[string]any{"id": "auth", "status": "failed", "error": map[string]any{"message": "authentication failed"}}
+				}
+				if reads == 4 {
+					turn = map[string]any{"id": "stop", "status": "interrupted"}
+				}
+				result["thread"] = map[string]any{"turns": []any{turn}}
+			}
+			if websocket.JSON.Send(ws, map[string]any{"id": req.ID, "result": result}) != nil {
+				return
+			}
+		}
+	})}
+	go server.Serve(listener)
+	defer server.Close()
+	q, err := openNativeQueue(context.Background(), socket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer q.close()
+	q.thread = "native"
+	for i, want := range []string{"capacity", "", "blocked", "user_stop"} {
+		f, hint, err := q.watchdogFailure()
+		if err != nil || f != want {
+			t.Fatal(i, f, err)
+		}
+		if i == 0 && hint != reset {
+			t.Fatal("provider reset lost", hint)
+		}
 	}
 }

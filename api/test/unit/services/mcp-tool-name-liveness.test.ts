@@ -5,6 +5,7 @@ import {
   managedCocoBootstrapGuidance,
 } from '../../../src/services/managed-coco-skill.js';
 import { renderManagedAgentFeatures } from '../../../src/services/managed-agents-features.js';
+import { buildManagedWatchdogSkill } from '../../../src/services/managed-watchdog-skill.js';
 import { buildManagedWakeCronSkill } from '../../../src/services/managed-wake-cron-skill.js';
 import { managedSkillManagerManifest } from '../../../src/services/managed-skill-manager.js';
 import { AGENT_MESSAGING_TOOLS } from '../../../src/services/agent-messaging-tool-names.js';
@@ -61,6 +62,8 @@ const IDENTIFIER = /[a-z][a-z0-9]*(?:_(?:[a-z0-9]+|\*))+/g;
  * reason each one is there. Anything not listed here has to be a live tool.
  */
 const NON_TOOL_TOKENS: Record<string, string> = {
+ task_key: 'stable watchdog task identity',
+ duration_seconds: 'bounded watchdog lifetime',
   git_director_worktree_ambiguous: "error code requiring explicit registration to repair duplicate clone mappings, not a tool",
  max_recovery_attempts: 'optional recovery budget argument',
  task_result_status: 'domain outcome metadata field',
@@ -104,6 +107,7 @@ const guidance = managedCocoBootstrapGuidance();
 const enabled = { enabled: true, reason: 'ok' };
 
 const CONTENT: Array<{ source: string; text: string }> = [
+ { source: 'managed-watchdog-skill.ts', text: buildManagedWatchdogSkill('2026-10-08T00:00:00Z').manifest },
   { source: 'managed-wake-cron-skill.ts', text: buildManagedWakeCronSkill('2026-10-08T00:00:00Z').manifest },
   { source: 'api/src/services/managed-coco-skill.ts managedCocoManifest()', text: managedCocoManifest() },
   {

@@ -144,11 +144,12 @@ jq -n --arg m "$(cat docs/skills/<slug>.SKILL.md)" \
 
 ## Managed skills (code-derived, never stored)
 
-`afk`, `coco`, `conference`, `context`, `wake-cron`, and `skill-manager` are NOT rows in the `skills`
+`afk`, `coco`, `conference`, `context`, `wake-cron`, `watchdog`, and `skill-manager` are NOT rows in the `skills`
 table and must never be stored with `POST /admin/skills/store` or MCP `skill_store`; the
 mutation paths reject every managed slug. Their manifests are constants in
 `api/src/services/managed-afk-skill.ts`, `api/src/services/managed-coco-skill.ts`,
 `api/src/services/managed-conference-skill.ts`,
+`api/src/services/managed-watchdog-skill.ts`, `api/src/services/managed-wake-cron-skill.ts`,
 and `api/src/services/managed-skill-manager.ts`, assembled by
 `api/src/services/managed-skills.ts`, and served through the normal `/skills` and
 MCP paths. A managed slug shadows any same-named row left over from before, so an
@@ -222,3 +223,9 @@ slug and deleting the module is Release B, once the fleet has converged.
   what it is overriding.
 
 - `#wake-cron` — code-derived in `api/src/services/managed-wake-cron-skill.ts`, shared across all engines. Documents fleet scheduling CRUD and explicitly requested persistent recovery; available through normal Skill sync.
+
+- `#watchdog` — code-derived in `api/src/services/managed-watchdog-skill.ts`.
+  Session-scoped AI controls protect the current task with bounded capacity/crash/hang
+  recovery; operators select targets with `cxx watchdog` or Agent Messaging in Admin.
+  The Portal displays status only. Defaults: 2 hours, 10 minutes progress timeout,
+  authenticated server keep-alives every 15 seconds.

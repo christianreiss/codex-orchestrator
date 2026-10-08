@@ -790,3 +790,13 @@ Grok v2 also receives a durable topic exposed in its isolated runtime.
 The reminder follows effective MCP availability, survives outages, and is
 removed on explicit host trust loss. See [the bootstrap contract and ownership
 rules](interface-api.md#native-memory-reminders-cxx-0935).
+
+## Bounded task Watchdog
+
+AI can protect its current task through `#watchdog`; operators enable/disable it with
+`cxx watchdog` or Agent Messaging in Admin. Server SSE keep-alives expose wake/progress
+and deadline metadata independently of model capacity. Defaults: two hours lifetime,
+ten minutes without progress, fifteen seconds keep-alive. Capacity/crash/hang resumes
+the same native session with backoff. STOP, disable, explicit outcome or expiry ends
+future recovery. Active tools and user questions are protected; ambiguous retries may
+repeat effects. Portal shows status only. See `docs/interface-api.md` and engine interfaces.

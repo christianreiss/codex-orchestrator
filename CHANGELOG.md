@@ -1,5 +1,7 @@
 # 2026-10-08
 
+- Wrapper 0.9.36 adds a bounded Watchdog for Codex, Claude and Grok: session-scoped AI tools and a managed `#watchdog` Skill, operator CLI/Admin controls and read-only Portal status. Authenticated server keep-alives carry progress, wake, deadline and recovery metadata independently of model availability. Capacity/crash/hang recovery resumes the same native transcript with backoff; active tools and user questions are protected. STOP, disable, task outcome and deadline stop future recovery; accepted work continues.
+
 - Wrapper 0.9.35 places a centrally served MCP-memory reminder at native Codex, Claude and Grok memory entrypoints during startup, sync and content cron. Existing notes and file modes are preserved; repeated sync updates one owned block. Claude custom locations are tracked for cleanup, Grok v2 gets a durable topic visible in isolated runtimes, and disabling central MCP or explicit trust loss removes only managed reminders. Native memory switches stay unchanged.
 
 - Android companion 0.4.8 displays the assigned German launch name with the task title in chat rows, headers and search, including unnamed launches and already-prefixed server titles. Restricted companion snapshots also redact the separate task-title field.

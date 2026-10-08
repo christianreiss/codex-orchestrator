@@ -59,6 +59,9 @@
     <h2 bind:this={heading} tabindex="-1" class="mt-0.5 max-w-full truncate text-caption font-semibold focus:outline-none">
       {agent.session_name ?? `${engineLabel(agent.engine)} · ${agent.host}`}
     </h2>
+    {#if agent.watchdog}
+      <p class="text-[11px] text-muted-foreground" title={agent.watchdog.last_error ?? undefined}>Watchdog: {agent.watchdog.status} · until {clockTime(agent.watchdog.deadline_at)}{#if agent.watchdog.next_wake_at} · next {clockTime(agent.watchdog.next_wake_at)}{/if}</p>
+    {/if}
     <p class="max-w-full truncate text-[11px] text-muted-foreground" title={agent.cwd}>
       <!-- The detail rides along whenever it says more than "listening". -->
       <span class="font-medium {tone}">{view.label}</span>{" · "}{#if view.presence === "listening"}{shortPath(agent.cwd)}{:else}<span title={detail}>{detail}</span>{/if}

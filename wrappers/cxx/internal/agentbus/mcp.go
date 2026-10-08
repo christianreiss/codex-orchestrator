@@ -277,7 +277,7 @@ func (t *channelTracker) ensureListenBind(ctx context.Context) error {
 		// The server preserves the stored adapter_protocol when the field is
 		// omitted, so the pump's identity survives a listen bind untouched.
 		body["adapter_protocol"] = "cxx-agent-listen-v1"
-		body["adapter_capabilities"] = map[string]any{"listen": true, "execution_contract_version": 2}
+		body["adapter_capabilities"] = map[string]any{"listen": true, "execution_contract_version": 2, "watchdog_protocol_version": 1}
 	}
 	var ignored map[string]any
 	if err := t.client.post(ctx, "bind", body, &ignored); err != nil {
@@ -341,6 +341,10 @@ func taskResultProperties() map[string]any {
 
 func toolCatalogJSON() []byte {
 	tools := []map[string]any{
+		tool("watchdog_get", "Inspect the watchdog for your current task; server keep-alives do not wake the model.", map[string]any{"id": map[string]any{"type": "string"}}, nil),
+		tool("watchdog_enable", "Enable recovery for your own current authorized task. Announce target/deadline; defaults 2h total and 10min without progress.", map[string]any{"task_key": map[string]any{"type": "string", "minLength": 1, "maxLength": 255}, "continuation": map[string]any{"type": "string", "minLength": 1, "maxLength": 30000}, "duration_seconds": map[string]any{"type": "integer", "minimum": 60, "maximum": 604800}, "progress_timeout_seconds": map[string]any{"type": "integer", "minimum": 60, "maximum": 604800}, "version": map[string]any{"type": "integer", "minimum": 1}}, []string{"task_key", "continuation"}),
+		tool("watchdog_disable", "Stop recovery for the current task. Accepted work continues.", map[string]any{"id": map[string]any{"type": "string"}, "version": map[string]any{"type": "integer", "minimum": 1}}, []string{"id", "version"}),
+		tool("watchdog_finish", "End watchdog protection with an explicit task result; also report normal work receipts when applicable.", map[string]any{"id": map[string]any{"type": "string"}, "version": map[string]any{"type": "integer", "minimum": 1}, "status": map[string]any{"type": "string", "enum": []string{"succeeded", "failed", "blocked", "unknown"}}}, []string{"id", "version", "status"}),
 		tool("agent_translate", "Translate a German launch name to its canonical agent UUID, or a UUID to its current/latest name. Names are reused after launch end plus 24 hours; preserve UUIDs for durable references.", map[string]any{"value": map[string]any{"type": "string", "minLength": 1, "maxLength": 96}}, []string{"value"}),
 		tool("agent_session_name", "Give your current session a concise, descriptive name for the Android dashboard. Call once near the start of work. Existing native or previously assigned names are preserved; this sets a name only when none is known.", map[string]any{"name": map[string]any{"type": "string", "minLength": 1, "maxLength": 160}}, []string{"name"}),
 		tool("agent_task_result", "Finish an accepted work delivery with an explicit domain outcome. Wake jobs need this result and no peer reply. Succeeded is an agent report, not independent verification.", map[string]any{"message_id": map[string]any{"type": "string"}, "task_result": taskResultProperties()}, []string{"message_id", "task_result"}),
@@ -541,7 +545,7 @@ func runMCPProtocol(client *sessionClient, channel bool, stdin io.Reader, stdout
 			if !automatic && channel && initialized && !channelActive && req.Method == "notifications/initialized" {
 				var bound map[string]any
 				if err := client.post(ctx, "bind", map[string]any{
-					"adapter_protocol": "claude-channel-preview-v1", "adapter_capabilities": map[string]any{"channel": true, "execution_contract_version": 2}, "receive_capable": true,
+					"adapter_protocol": "claude-channel-preview-v1", "adapter_capabilities": map[string]any{"channel": true, "execution_contract_version": 2, "watchdog_protocol_version": 1}, "receive_capable": true,
 				}, &bound); err != nil {
 					return fmt.Errorf("activate Claude channel adapter: %w", err)
 				}
@@ -723,6 +727,10 @@ func callMCPTool(ctx context.Context, client *sessionClient, channelState *chann
 		}
 	}
 	switch name {
+	case "watchdog_get", "watchdog_enable", "watchdog_disable", "watchdog_finish":
+		var out map[string]any
+		err := client.post(ctx, "watchdog/"+strings.TrimPrefix(name, "watchdog_"), args, &out)
+		return out, err
 	case "agent_translate":
 		if err := client.post(ctx, "translate", map[string]any{"value": stringArg(args, "value")}, &out); err != nil {
 			return nil, err

@@ -500,3 +500,25 @@ memory facts are added to these files; neither native memory switch is enabled.
 
 The additive bootstrap contract, marker ownership, cleanup and failure behavior are
 documented in [interface-api.md](interface-api.md#native-memory-reminders-cxx-0935).
+
+## Watchdog — cxx 0.9.36
+
+`cxx watchdog` also works through this engine's wrapper alias. In a managed session,
+`watchdog status`, `watchdog on --task-key KEY --stdin` and
+`watchdog off --id UUID --version N` use the private session bridge. Outside a session,
+activation requires `--target agent:UUID` and a signed fleet host configuration;
+status supports `--id`/`--target`. Continuation text is read from stdin, never argv.
+Options: `--duration 2h`, `--progress-timeout 10m`, `--version N` for an update.
+AI uses the managed `#watchdog` Skill and four local MCP tools (get/enable/disable/finish).
+Defaults are 2 hours lifetime, 10 minutes progress timeout, server keep-alives every
+15 seconds. Recovery pins native identity/cwd/engine and uses the schedule execution
+contract with 5-minute exponential backoff and provider reset hints. STOP/off/result
+or deadline ends future recovery; expiry leaves accepted work running. Active tools,
+open user questions and fresh authorization fence local termination. Three missed
+keep-alives suspend termination and reconnect. Agent Messaging in Admin controls the
+same records; Portal status is read-only. See `docs/interface-api.md` for the wire contract.
+
+Grok observation hooks accept camelCase payloads for `StopFailure`, `StopCancelled`,
+and `SessionEnd`: rate limits/capacity recover, no-progress cancellation is a hang,
+user interruption stops recovery, permanent errors block. Subagents are ignored.
+Hook payload contract: [Grok hooks guide](https://raw.githubusercontent.com/xai-org/grok-build/main/crates/codegen/xai-grok-pager/docs/user-guide/10-hooks.md).

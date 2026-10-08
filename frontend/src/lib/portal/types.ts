@@ -49,6 +49,7 @@ export interface ReceiverEvidence {
 }
 
 export interface Agent {
+  watchdog?: { status:string; deadline_at:string; next_wake_at:string|null; last_wake_at:string|null; last_error:string|null } | null;
   launch_name?: string | null;
   session_name?: string | null;
   task_title?: string | null;

@@ -12,6 +12,7 @@
  * deleted, so an existing deployment needs no migration) and are rejected by the
  * admin store/delete paths.
  */
+import { buildManagedWatchdogSkill, isManagedWatchdogSlug } from './managed-watchdog-skill.js';
 import { buildManagedWakeCronSkill, isManagedWakeCronSlug } from './managed-wake-cron-skill.js';
 import type { Database } from '../db/client.js';
 import { getManagedCocoSkillIfEnabled, isManagedCocoSlug } from './managed-coco-skill.js';
@@ -34,7 +35,7 @@ const MANAGED_UPDATED_AT = '2026-07-31T00:00:00Z';
 /** True for any slug owned by code, whether or not it is currently served. */
 export function isManagedSkillSlug(slug: string): boolean {
   return (
-    isManagedWakeCronSlug(slug)
+    isManagedWatchdogSlug(slug) || isManagedWakeCronSlug(slug)
     || isManagedCocoSlug(slug)
     || isManagedContextSlug(slug)
     || isManagedAfkSlug(slug)
@@ -59,7 +60,7 @@ export function isManagedSkillSlug(slug: string): boolean {
  * retireManagedContextRow().
  */
 export async function listManagedSkills(db: Database): Promise<ManagedSkillManifest[]> {
-  const out: ManagedSkillManifest[] = [buildManagedWakeCronSkill(MANAGED_UPDATED_AT)];
+  const out: ManagedSkillManifest[] = [buildManagedWakeCronSkill(MANAGED_UPDATED_AT),buildManagedWatchdogSkill(MANAGED_UPDATED_AT)];
   const coco = await getManagedCocoSkillIfEnabled(db);
   if (coco) out.push(coco as unknown as ManagedSkillManifest);
   out.push(buildManagedAfkSkill(MANAGED_UPDATED_AT));

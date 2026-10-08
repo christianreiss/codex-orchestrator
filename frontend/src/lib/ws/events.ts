@@ -174,7 +174,8 @@ export const DEFAULT_INVALIDATIONS: WsInvalidationMap = {
 
   // Agent Messaging state, address discovery, relays and delivery lifecycle.
   "schedules.recovery.warning": [["schedules"]],
-  "schedules.changed": [["schedules"]],
+  "schedules.changed": [["schedules"], ["watchdogs"]],
+  "watchdogs.changed": [["watchdogs"], ["agent-messaging"], ["agent-portal"]],
   "agent_messaging.state.changed": [["agent-messaging"]],
   "agent_messaging.host.changed": [["agent-messaging"], ["hosts"]],
   "agent_messaging.address.changed": [["agent-messaging"]],

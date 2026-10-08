@@ -16,6 +16,10 @@
  * silent drift into a build break.
  */
 export const AGENT_MESSAGING_TOOLS = [
+  'watchdog_get',
+  'watchdog_enable',
+  'watchdog_disable',
+  'watchdog_finish',
   'agent_session_name',
   'agent_translate',
   'agent_list',

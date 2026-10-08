@@ -173,6 +173,7 @@ describe('admin-content routes registration', () => {
         { slug: 'conference', managed: true },
         { slug: 'skill-manager', managed: true },
         { slug: 'wake-cron', managed: true },
+        { slug: 'watchdog', managed: true },
       ],
     });
     await app.close();

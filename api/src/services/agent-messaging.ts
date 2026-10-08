@@ -20,6 +20,7 @@ import {
 
 import type { Database } from '../db/client.js';
 import {
+  agentWatchdogs,
   agentScheduleRuns,
   agentSchedules,
   agentBusAddresses,
@@ -1412,6 +1413,16 @@ export class AgentMessagingService {
           const [run] = await tx.select().from(agentScheduleRuns).where(eq(agentScheduleRuns.messageId, candidate.id)).limit(1);
           const [schedule] = run ? await tx.select().from(agentSchedules).where(eq(agentSchedules.id, run.scheduleId)).limit(1) : [];
           if (!run || !schedule?.enabled || schedule.deletedAt || (skipReceiveCapable && !run.persistent)) continue;
+          const [watchdog] = await tx.select().from(agentWatchdogs).where(eq(agentWatchdogs.scheduleId,run.scheduleId));
+          if (watchdog && (!['watching','recovering','capacity_wait'].includes(watchdog.status) || watchdog.deadlineAt <= now || target.lastUpstreamSessionId !== watchdog.nativeSessionId || target.continuity !== 'native')) continue;
+          if (watchdog) {
+            const [relay] = relayGeneration != null ? await tx.select().from(agentBusRelays).where(eq(agentBusRelays.id, relayIdFromLeaseOwner(leaseOwner)!)).limit(1) : [];
+            const capabilities = jsonRecord(relayGeneration != null ? relay?.capabilities ?? null : target.adapterCapabilities) ?? {};
+            if (capabilities.watchdog_protocol_version !== 1) {
+              await tx.update(agentBusMessages).set({ lastErrorCode: 'adapter_upgrade_required', updatedAt: now }).where(eq(agentBusMessages.id, candidate.id));
+              continue;
+            }
+          }
         }
         if (candidate.executionContractVersion >= 2) {
           let capabilities: Record<string, unknown> = jsonRecord(target.adapterCapabilities) ?? {};
@@ -1466,7 +1477,11 @@ export class AgentMessagingService {
     if (await freshStartAllowed(this.db, result.message, result.target)) delivery.target.fresh_start_approved = true;
     if (result.message.kind === 'schedule') {
       const [run] = await this.db.select().from(agentScheduleRuns).where(eq(agentScheduleRuns.messageId, result.message.id)).limit(1);
-      if (run) delivery.target = { ...delivery.target, schedule_id: run.scheduleId, schedule_run_id: run.id, schedule_persistent: run.persistent === 1, progress_timeout_seconds: run.progressTimeoutSeconds };
+      if (run) {
+        delivery.target = { ...delivery.target, schedule_id: run.scheduleId, schedule_run_id: run.id, schedule_persistent: run.persistent === 1, progress_timeout_seconds: run.progressTimeoutSeconds };
+        const [watchdog] = await this.db.select().from(agentWatchdogs).where(eq(agentWatchdogs.scheduleId, run.scheduleId));
+        if (watchdog) delivery.target = { ...delivery.target, watchdog_id: watchdog.id, watchdog_deadline_at: watchdog.deadlineAt, watchdog_native_session_id: watchdog.nativeSessionId };
+      }
     }
     return delivery;
   }
@@ -1556,6 +1571,12 @@ export class AgentMessagingService {
         throw new ConflictError('Message expired before acceptance', 'agent_messaging_message_expired');
       }
       if (input.outcome === 'accepted' && message.status === 'accepted') return message;
+      if (input.outcome === 'accepted' && message.kind === 'schedule') {
+        const [run] = await tx.select().from(agentScheduleRuns).where(eq(agentScheduleRuns.messageId, message.id)).limit(1);
+        const [watchdog] = run ? await tx.select().from(agentWatchdogs).where(eq(agentWatchdogs.scheduleId, run.scheduleId)) : [];
+        if (watchdog && (!['watching','recovering','capacity_wait'].includes(watchdog.status) || watchdog.deadlineAt <= now || currentTarget.lastUpstreamSessionId !== watchdog.nativeSessionId || (upstreamSessionId && upstreamSessionId !== watchdog.nativeSessionId)))
+          throw new ConflictError('Watchdog recovery expired or native binding changed', 'watchdog_recovery_unavailable');
+      }
       if (input.outcome === 'accepted' && await freshStartAllowed(tx, message, currentTarget)) {
         await tx.update(agentFreshStartGrants).set({ consumedAt: now, consumedClaimId: claimId }).where(eq(agentFreshStartGrants.messageId, message.id));
       }
@@ -1582,7 +1603,7 @@ export class AgentMessagingService {
       let patch: Partial<typeof agentBusMessages.$inferInsert>;
       switch (input.outcome) {
         case 'accepted':
-          patch = { ...shared, status: 'accepted', acceptedAt: message.acceptedAt ?? now, leaseUntil: isoOffsetSeconds(AGENT_MESSAGING_LEASE_SECONDS) };
+          patch = { ...shared, status: 'accepted', acceptedAt: message.kind === 'schedule' ? now : message.acceptedAt ?? now, leaseUntil: isoOffsetSeconds(AGENT_MESSAGING_LEASE_SECONDS) };
           break;
         case 'completed':
           // Retain the terminal claim identity so an acknowledgement whose

@@ -242,7 +242,7 @@ func (c *relayClient) register(ctx context.Context, username, instanceID, versio
 	var out relayRegistration
 	err := doJSON(ctx, c.http, c.baseURL, http.MethodPost, "/host/agent-relays/register", map[string]any{
 		"username": username, "instance_id": instanceID, "wrapper_version": version,
-		"capabilities": map[string]any{"execution_contract_version": 2, "headless": true, "codex_exec_resume": true, "claude_print_resume": true, "grok_json_resume": true},
+		"capabilities": map[string]any{"execution_contract_version": 2, "watchdog_protocol_version": 1, "headless": true, "codex_exec_resume": true, "claude_print_resume": true, "grok_json_resume": true},
 	}, map[string]string{"X-API-Key": c.apiKey}, &out)
 	if err != nil {
 		return nil, err
@@ -318,6 +318,12 @@ func (c *relayClient) processDelivery(ctx context.Context, configs map[string]*c
 	upstream := stringArg(delivery.Target, "upstream_session_id")
 	if stringArg(delivery.Target, "continuity") != "native" {
 		upstream = ""
+	}
+	if stringArg(delivery.Target, "watchdog_id") != "" {
+		deadline, err := time.Parse(time.RFC3339Nano, stringArg(delivery.Target, "watchdog_deadline_at"))
+		if err != nil || !deadline.After(time.Now()) || upstream == "" || upstream != stringArg(delivery.Target, "watchdog_native_session_id") {
+			return c.ack(ctx, delivery, "dead", "watchdog_recovery_unavailable", nil)
+		}
 	}
 	lockKey := upstream
 	if lockKey == "" {

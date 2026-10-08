@@ -398,6 +398,18 @@ exhausted; re-enabling starts a new execution with a new budget and preserves hi
 Pause/delete cancels pending attempts; accepted work continues. Recovery after an
 ambiguous crash may repeat effects. These tools do not power on a host.
 
+**Watchdog.** Use the shared \`#watchdog\` Skill and the session-scoped
+watchdog_get, watchdog_enable, watchdog_disable and watchdog_finish tools.
+AI may enable bounded recovery for its own current authorized task; announce the
+returned deadline. Defaults are two hours lifetime and ten minutes without progress.
+Server keep-alives every 15 seconds are transport, never progress or model turns.
+Capacity, crash and hang resume the same native transcript with backoff; missing
+transcripts block. Active tools and open user questions prevent local termination.
+STOP, disable, an explicit task result or the deadline ends future recovery.
+Deadline does not cancel accepted running work. Recovery can repeat ambiguous effects;
+preserve idempotency. Another target requires explicit operator selection via CLI/admin.
+Finish with watchdog_finish and the normal work receipt where applicable.
+
 **Work outcomes.** An accepted delivery is permission to handle the supplied task
 within existing operator authority; it is not proof of success. Requests, conference
 TASK dispatches and wakes are explicitly marked as work. Finish accepted work with

@@ -13,7 +13,7 @@ async function fixtures(page: Page, manage = true) {
   const now = new Date().toISOString();
   const peers = [peer(CODEX, "codex"), peer(CLAUDE, "claude"), peer(GROK, "grok")];
   const groups = [{ id: "release", slug: "release", title: "Release review", description: "A scoped release audience", topic: "group:release", member_count: 2, created_at: now, updated_at: now }, { id: "security", slug: "security", title: "Security", description: "Only security subscribers", topic: "group:security", member_count: 1, created_at: now, updated_at: now }];
-  const state = { messages: [] as Array<Record<string, unknown>>, enabled: true, dropPublish: 0, failGroups: false, bodies: [] as Array<{path: string; body: Record<string, unknown>}>, calls: [] as string[], errors: [] as string[], groups };
+  const state = { messages: [] as Array<Record<string, unknown>>, enabled: true, dropPublish: 0, failGroups: false, bodies: [] as Array<{path: string; body: Record<string, unknown>}>, calls: [] as string[], errors: [] as string[], groups, watchdogs: [] as Array<Record<string,unknown>> };
   page.on("pageerror", (error) => state.errors.push(error.message));
   await page.route("**/admin/**", async (route) => {
     const request = route.request();
@@ -24,6 +24,19 @@ async function fixtures(page: Page, manage = true) {
     if (path === "/admin/auth/status") return json({ authenticated: true, enforced: true, user: { id: 1, username: "operator", roles: ["owner"] }, capabilities: ["admin.read", "agent_messaging.read", ...(manage ? ["agent_messaging.manage", "agent_portal.read", "agent_portal.manage"] : [])] });
     if (path === "/admin/setup/status") return json({ setup_complete: true, critical_complete: true, checks: [], next_actions: [], wizard: { completed_at: now, dismissed_at: null } });
     if (path === "/admin/ws/info") return json({ enabled: false });
+    if (path === "/admin/watchdogs" && request.method() === "GET") {
+      const target = new URL(request.url()).searchParams.get("target");
+      return json({watchdogs:state.watchdogs.filter(w=>!target || w.target===target)});
+    }
+    if (path === "/admin/watchdogs" && request.method() === "POST") {
+      const body=request.postDataJSON();state.bodies.push({path,body});
+      const w={id:`watchdog-${state.watchdogs.length}`, ...body, status:"watching",version:1,deadline_at:new Date(Date.now()+Number(body.duration_seconds)*1000).toISOString(),last_progress_at:now,last_wake_at:null,next_wake_at:null,recovery_count:0,recovery_status:null,last_error:null,server_time:now};
+      state.watchdogs.unshift(w);return json(w);
+    }
+    if (path.startsWith("/admin/watchdogs/") && path.endsWith("/disable")) {
+      const body=request.postDataJSON();state.bodies.push({path,body});
+      const w=state.watchdogs.find(w=>w.id===path.split("/")[3])!;w.status="disabled";w.version=Number(w.version)+1;return json(w);
+    }
     if (path === "/admin/agent-messaging/state") return json({ enabled: state.enabled, addresses: 3, live_addresses: 3, relays: 1, open_conversations: 0, messages: { queued: 0, leased: 0, accepted: 0, dead: 0, ambiguous: 0 }, directions: [], delivery: "ordered_at_least_once" });
     if (path === "/admin/agent-messaging/addresses") return json({ addresses: peers });
     if (path === "/admin/agent-messaging/conversations") return json({ conversations: [] });
@@ -202,4 +215,30 @@ test('ordinary missing transcripts require one explicit approval, while wakes an
   await page.goto('/admin/agent-messaging?view=deliveries');
   await expect(page.getByRole('button',{name:'Approve one fresh start'})).toHaveCount(0);
   await expect(page.getByText('Task: unknown · agent report')).toBeVisible();
+});
+
+
+test("watchdog operator controls protect all three engines and show authoritative metadata", async ({page})=>{
+  const state=await fixtures(page);await page.goto("/admin/agent-messaging?view=addresses");
+  const panels=page.getByTestId("watchdog-panel");await expect(panels).toHaveCount(3);
+  for(let i=0;i<3;i++){
+    const panel=panels.nth(i);await panel.getByRole("button",{name:"Enable watchdog"}).click();
+    await panel.getByLabel("Task key",{exact:true}).fill(`task-${i}`);
+    await panel.getByLabel("Continue this authorized task").fill("Finish the current task and verify it");
+    await expect(panel.getByLabel("Protection (hours)")).toHaveValue("2");
+    await expect(panel.getByLabel("No progress (minutes)")).toHaveValue("10");
+    await panel.getByRole("button",{name:"Enable protection"}).click();
+    await expect(panel).toContainText("watching");await expect(panel).toContainText("Keep-alive: 15 seconds");
+    const body=state.bodies.at(-1)!.body;expect(body.duration_seconds).toBe(7200);expect(body.progress_timeout_seconds).toBe(600);expect(body.target).toMatch(/^agent:/);
+    await panel.getByRole("button",{name:"Disable watchdog"}).click();await expect(panel).toContainText("disabled");expect(state.bodies.at(-1)!.body).toEqual({version:1});
+  }
+  await page.setViewportSize({width:390,height:844});
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBe(true);
+  await page.screenshot({path:"/tmp/watchdog-admin-mobile.png",fullPage:true});expect(state.errors).toEqual([]);
+});
+
+test("watchdog read capability exposes status without recovery controls",async({page})=>{
+  const state=await fixtures(page,false);state.watchdogs.push({id:"read-only",target:`agent:${CODEX}`,status:"capacity_wait",version:1,deadline_at:new Date(Date.now()+3600000).toISOString(),last_progress_at:new Date().toISOString(),last_wake_at:null,next_wake_at:new Date(Date.now()+300000).toISOString(),recovery_count:2,last_error:"schedule_capacity"});
+  await page.goto("/admin/agent-messaging?view=addresses");const panels=page.getByTestId("watchdog-panel");await expect(panels.first()).toContainText("capacity_wait");
+  await expect(panels.getByRole("button",{name:/watchdog/})).toHaveCount(0);expect(state.bodies).toEqual([]);expect(state.errors).toEqual([]);
 });

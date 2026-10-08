@@ -78,7 +78,9 @@ func claudePluginArgs(args []string, receiver bool) ([]string, error) {
 		quote := func(s string) string { return "'" + strings.ReplaceAll(s, "'", "'\"'\"'") + "'" }
 		command := quote(binary) + " agent native-session"
 		hook := map[string]any{"type": "command", "command": command, "timeout": 5}
-		hooks := map[string]any{"hooks": map[string]any{"SessionStart": []any{map[string]any{"hooks": []any{hook}}}}}
+		hooks := map[string]any{"hooks": map[string]any{"SessionStart": []any{map[string]any{"hooks": []any{hook}}},
+			"StopFailure": []any{map[string]any{"hooks": []any{map[string]any{"type": "command", "command": quote(binary) + " agent watchdog-event", "timeout": 5}}}},
+			"SessionEnd":  []any{map[string]any{"hooks": []any{map[string]any{"type": "command", "command": quote(binary) + " agent watchdog-event", "timeout": 5}}}}}}
 		hooksBody, _ = json.Marshal(hooks)
 	}
 	if err := os.WriteFile(filepath.Join(plugin, "hooks", "hooks.json"), hooksBody, 0600); err != nil {

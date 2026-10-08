@@ -153,3 +153,10 @@ curl -s "$BASE/mcp/memories/search" \
 - When the Projects module is enabled, MCP also publishes a managed `coco` skill that assumes these `project_*` MCP tools/resources are available and embeds the native CoCo toolkit/help; no extra wrapper-side project sync path is needed. That skill tells operators that CoCo coordination handoffs are project-only, points fleet-wide reference documents at `shared_memory_*`, and blocks reserved `coco*` memory ids.
 - Tool names accept dot aliases in calls (`memory.store`, `resource.read`) while advertised tool names stay underscore-based.
 - Text content in tool results is wrapped in `CallToolResult.content` blocks for MCP clients that expect it.
+
+### Local Watchdog tools (cxx 0.9.36)
+
+The private `cxx-agent` wrapper MCP adds `watchdog_get`, `watchdog_enable`,
+`watchdog_disable`, `watchdog_finish`. They are scoped to the current native session
+and are separate from host MCP schedule tools. Read the code-managed `skill://watchdog`
+manifest before using them; the API contract is in `docs/interface-api.md`.

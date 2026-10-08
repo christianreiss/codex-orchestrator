@@ -92,10 +92,10 @@ describe('served document byte invariance', () => {
 
     expect(base.sha256).toBe('30abaea24c8809d8634670f0eceb3004aabb4eafb5416c78333c719e8b67e14b');
     expect(out.policy_sha256).toBe('3d8a8c754d80369c46a16c3350db8461520d3ae14b1de7ac03ad9454925ad5e5');
-    // 2026-10-08: add launch-name and translation guidance across all engines.
-    expect(out.features_sha256).toBe('d2d9d2388a6d72216028c6818e34bcbd841cdb31df9e3ee8dfee32ab110498a9');
-    expect(out.managed_sha256).toBe('d1aecc24d54d54526fd8a1e457e1c676a6c9dac16e95081b1f5ae27c6bcee9cf');
-    expect(sha256(out.body)).toBe('8f16308ec28688088b66f3a3ce3b32299b9ee55fc67b883d5578195ceed52932');
+    // 2026-10-08: add bounded Watchdog guidance across all engines.
+    expect(out.features_sha256).toBe('2888a01ddf0b74c131de5fe179935ef0ec3067e6a8a6baf6bc6b6d3f76760ce5');
+    expect(out.managed_sha256).toBe('28fe708b608ec27fc362a4921d05ad6003bc5d02993a35799d1f6583e6f1aa8a');
+    expect(sha256(out.body)).toBe('b28a617884cb8d1a1c0e4308bc7180dc2982ce53edaa6e37b754273237df268d');
   });
 });
 

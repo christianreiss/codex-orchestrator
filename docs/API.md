@@ -1005,3 +1005,21 @@ Wrapper 0.9.21 observes native output and Linux process activity. Only the wrapp
 - `GET /admin/agent-messaging/translate` — the same lookup with `?value=Claudia`, admin session and `agent_messaging.read`.
 
 Returns `{name, uuid, address, session_id, status, started_at, ended_at, cooldown_until, direction}`. Names are pre-filled German female names and are reserved per launch until end/expiry plus 24 hours. UUIDs remain canonical; names may be reused. Native resume is a new launch. Direct message/request and conference invitation recipients accept names; committed deliveries and their retries retain the original target UUID. See `docs/interface-api.md` for the full naming contract.
+
+## Watchdog
+
+Current bridge routes use the session token; operator host routes use host auth and Admin routes require messaging capabilities. See `docs/interface-api.md` for payloads, deadlines and recovery contracts.
+
+- `GET /admin/watchdogs`
+- `GET /admin/watchdogs/:id`
+- `POST /admin/watchdogs`
+- `POST /admin/watchdogs/:id/disable`
+- `POST /host/watchdogs/get`
+- `POST /host/watchdogs/enable`
+- `POST /host/watchdogs/disable`
+- `GET /host/agent-sessions/:id/watchdog/stream`
+- `POST /host/agent-sessions/:id/watchdog/activity`
+- `POST /host/agent-sessions/:id/agent-messaging/watchdog/get`
+- `POST /host/agent-sessions/:id/agent-messaging/watchdog/enable`
+- `POST /host/agent-sessions/:id/agent-messaging/watchdog/disable`
+- `POST /host/agent-sessions/:id/agent-messaging/watchdog/finish`

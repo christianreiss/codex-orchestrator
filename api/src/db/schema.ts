@@ -2310,3 +2310,23 @@ export const agentFreshStartGrants = mysqlTable('agent_fresh_start_grants', {
   createdAt: varchar('created_at', { length: 100 }).notNull(),
   consumedAt: varchar('consumed_at', { length: 100 }),
 });
+
+export const agentWatchdogs = mysqlTable('agent_watchdogs', {
+  id: char('id', { length: 36 }).primaryKey(),
+  targetAddressId: char('target_address_id', { length: 36 }).notNull(),
+  nativeSessionId: varchar('native_session_id', { length: 255 }).notNull(),
+  sessionId: char('session_id', { length: 36 }).notNull(),
+  taskKey: varchar('task_key', { length: 255 }).notNull(),
+  messageId: char('message_id', { length: 36 }),
+  scheduleId: char('schedule_id', { length: 36 }).notNull(),
+  continuationSha: char('continuation_sha', { length: 64 }).notNull(),
+  status: varchar('status', { length: 32 }).notNull().default('watching'),
+  deadlineAt: varchar('deadline_at', { length: 100 }).notNull(),
+  progressTimeoutSeconds: int('progress_timeout_seconds', { unsigned: true }).notNull(),
+  lastProgressAt: varchar('last_progress_at', { length: 100 }).notNull(),
+  lastError: varchar('last_error', { length: 100 }),
+  version: int('version', { unsigned: true }).notNull().default(1),
+  createdBy: varchar('created_by', { length: 191 }).notNull(),
+  createdAt: varchar('created_at', { length: 100 }).notNull(),
+  updatedAt: varchar('updated_at', { length: 100 }).notNull(),
+}, t => ({ task: uniqueIndex('uq_agent_watchdog_task').on(t.targetAddressId, t.nativeSessionId, t.taskKey), schedule: uniqueIndex('uq_agent_watchdog_schedule').on(t.scheduleId), status: index('idx_agent_watchdog_status').on(t.status, t.deadlineAt) }));

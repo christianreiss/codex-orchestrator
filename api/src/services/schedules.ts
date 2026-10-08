@@ -4,6 +4,7 @@ import { and, asc, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import type { Database } from '../db/client.js';
 import {
+  agentWatchdogs,
   agentPrompts,
   agentSchedules,
   agentScheduleRuns,
@@ -86,7 +87,7 @@ export class SchedulesService {
     const rows = await this.db
       .select()
       .from(agentSchedules)
-      .where(and(isNull(agentSchedules.deletedAt), after ? sql`${agentSchedules.id} > ${after}` : undefined))
+      .where(and(isNull(agentSchedules.deletedAt), sql`NOT EXISTS (SELECT 1 FROM agent_watchdogs w WHERE w.schedule_id = ${agentSchedules.id})`, after ? sql`${agentSchedules.id} > ${after}` : undefined))
       .orderBy(asc(agentSchedules.id))
       .limit(limit + 1);
     return {
@@ -212,6 +213,8 @@ export class SchedulesService {
     delete patch.version;
     await this.db.transaction(async (tx) => {
       await this.enabled(tx, true);
+      const [watchdog] = await tx.select().from(agentWatchdogs).where(eq(agentWatchdogs.scheduleId,id));
+      if (watchdog) throw new ForbiddenError('Manage recovery through watchdog tools', 'watchdog_schedule_managed');
       const row = await this.load(tx, id, true);
       if (row.version !== version)
         throw new ConflictError('Schedule changed; retrieve again', 'schedule_version_conflict');
@@ -243,6 +246,8 @@ export class SchedulesService {
       now = new Date().toISOString();
     await this.db.transaction(async (tx) => {
       await this.enabled(tx, true);
+      const [watchdog] = await tx.select().from(agentWatchdogs).where(eq(agentWatchdogs.scheduleId,id));
+      if (watchdog) throw new ForbiddenError('Manage recovery through watchdog tools','watchdog_schedule_managed');
       const row = await this.load(tx, id, true);
       if (row.version !== version)
         throw new ConflictError('Schedule changed; retrieve again', 'schedule_version_conflict');
@@ -359,6 +364,16 @@ export class SchedulesService {
   }
   private async advance(tx: Tx, run: Run, now: Date, enabled: boolean) {
     const timestamp = now.toISOString();
+    const [watchdog] = await tx.select().from(agentWatchdogs).where(eq(agentWatchdogs.scheduleId,run.scheduleId));
+    if (watchdog) {
+      const [target] = await tx.select().from(agentBusAddresses).where(eq(agentBusAddresses.id,run.targetAddressId));
+      if (!['watching','recovering','capacity_wait'].includes(watchdog.status) || watchdog.deadlineAt <= timestamp || !target || target.lastUpstreamSessionId !== watchdog.nativeSessionId || target.continuity !== 'native') {
+        // Stopping future recovery does not discard the final receipt of accepted work.
+        const [message] = run.messageId ? await tx.select().from(agentBusMessages).where(eq(agentBusMessages.id,run.messageId)) : [];
+        if (message?.status !== 'accepted') await tx.update(agentScheduleRuns).set({status:message?.status === 'completed' ? 'completed' : 'canceled',updatedAt:timestamp}).where(eq(agentScheduleRuns.id,run.id));
+        return;
+      }
+    }
     const set = (v: Partial<Run>) =>
       tx
         .update(agentScheduleRuns)
@@ -435,7 +450,8 @@ export class SchedulesService {
           leaseUntil: null,
           claimId: null,
           relayGeneration: null,
-          acceptedAt: null,
+          // Retain the last accepted Watchdog wake while its next retry is queued.
+          acceptedAt: watchdog ? message.acceptedAt : null,
           updatedAt: timestamp,
         })
         .where(eq(agentBusMessages.id, message.id));
@@ -585,6 +601,7 @@ export class SchedulesService {
         and(
           eq(agentSchedules.targetAddressId, address.id),
           eq(agentSchedules.enabled, 1),
+          sql`NOT EXISTS (SELECT 1 FROM agent_watchdogs w WHERE w.schedule_id = ${agentSchedules.id})`,
           eq(agentSchedules.persistent, 1),
           isNull(agentSchedules.deletedAt),
         ),
@@ -608,6 +625,7 @@ export class SchedulesService {
           inArray(agentScheduleRuns.status, activeStatuses),
           session.activeTurnId ? undefined : eq(agentBusMessages.status, 'accepted'),
           eq(agentSchedules.enabled, 1),
+          sql`NOT EXISTS (SELECT 1 FROM agent_watchdogs w WHERE w.schedule_id = ${agentSchedules.id})`,
           isNull(agentSchedules.deletedAt),
         ),
       )

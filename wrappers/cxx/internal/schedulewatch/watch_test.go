@@ -97,3 +97,66 @@ func TestRevokedPolicyAndQuietChildToolsPreventTermination(t *testing.T) {
 		})
 	}
 }
+
+func TestCapacityErrorsRequireStructuredFailureAndHandleChunking(t *testing.T) {
+	for _, raw := range []string{`{"type":"assistant","text":"model at capacity"}`, `{"type":"error","message":"invalid key"}`, `{"type":"result","is_error":false,"result":"rate_limit"}`} {
+		if CapacityFailure([]byte(raw)) {
+			t.Fatal("false recovery trigger", raw)
+		}
+	}
+	ctx := WithPolicy(context.Background(), nil)
+	calls := 0
+	WithReporter(ctx, func(_ context.Context, _ time.Time, failure string) error {
+		if failure == "capacity" {
+			calls++
+		}
+		return nil
+	})
+	var out bytes.Buffer
+	writer := Writer(ctx, &out)
+	writer.Write([]byte(`{"type":"error","message":"Model at `))
+	if calls != 0 {
+		t.Fatal("partial event")
+	}
+	writer.Write([]byte("capacity\"}\n"))
+	if calls != 1 {
+		t.Fatal("split error lost", calls)
+	}
+	w := watch(ctx)
+	before := w.progress
+	w.last = time.Now().Add(-time.Hour)
+	reset(ctx)
+	if !w.progress.Equal(before) {
+		t.Fatal("policy grace counted as progress")
+	}
+}
+func TestFreshRevocationPreventsForcedTermination(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("proc required")
+	}
+	prior := pollInterval
+	pollInterval = 20 * time.Millisecond
+	defer func() { pollInterval = prior }()
+	reads := 0
+	ctx := WithPolicy(context.Background(), func(context.Context) (Policy, error) {
+		reads++
+		if reads < 3 {
+			return Policy{TimeoutSeconds: 60, BindingGeneration: 1, TerminateRequested: true}, nil
+		}
+		return Policy{}, nil
+	})
+	cmd := exec.Command("sleep", "30")
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	stop := Start(ctx, cmd)
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait(); stop() }()
+	select {
+	case <-done:
+		t.Fatal("fresh revoke ignored")
+	case <-time.After(150 * time.Millisecond):
+	}
+	cmd.Process.Kill()
+	<-done
+}

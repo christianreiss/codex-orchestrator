@@ -570,7 +570,10 @@ func (r *Runtime) Configure(executable string, cfg *config.Config, portal bool) 
 		return err
 	}
 	if portal {
-		hook := map[string]any{"hooks": map[string]any{"SessionStart": []any{map[string]any{"hooks": []any{map[string]any{"type": "command", "command": shellQuote(executable) + " agent native-session"}}}}}}
+		hook := map[string]any{"hooks": map[string]any{"SessionStart": []any{map[string]any{"hooks": []any{map[string]any{"type": "command", "command": shellQuote(executable) + " agent native-session"}}}},
+			"StopFailure":   []any{map[string]any{"hooks": []any{map[string]any{"type": "command", "command": shellQuote(executable) + " agent watchdog-event", "timeout": 5}}}},
+			"StopCancelled": []any{map[string]any{"hooks": []any{map[string]any{"type": "command", "command": shellQuote(executable) + " agent watchdog-event", "timeout": 5}}}},
+			"SessionEnd":    []any{map[string]any{"hooks": []any{map[string]any{"type": "command", "command": shellQuote(executable) + " agent watchdog-event", "timeout": 5}}}}}}
 		body, _ := json.Marshal(hook)
 		return AtomicWrite(filepath.Join(r.Home, "hooks", "cxx-receiver.json"), body, 0o600)
 	}

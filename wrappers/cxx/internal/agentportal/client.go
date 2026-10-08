@@ -73,6 +73,7 @@ func ExplicitResumeSessionID(args []string) string {
 }
 
 type Session struct {
+	watchdog               *watchdogFeed
 	LaunchName             string
 	ID                     string
 	BridgeToken            string
@@ -171,7 +172,7 @@ func Start(parent context.Context, cfg *config.Config, input StartInput) (*Sessi
 	}
 	body := map[string]any{
 		"engine":               input.Engine,
-		"adapter_capabilities": map[string]any{"execution_contract_version": 2},
+		"adapter_capabilities": map[string]any{"execution_contract_version": 2, "watchdog_protocol_version": 1},
 		"username":             username,
 		"cwd":                  cwd,
 		"invocation_kind":      input.InvocationKind,

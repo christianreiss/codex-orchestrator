@@ -314,6 +314,24 @@ func (r *autoReceiver) connection(parent context.Context) error {
 				if _, err := r.queue.identity(); err != nil {
 					return err
 				}
+				// Read native turn contents only while this task has protection.
+				var policy struct {
+					Watchdog json.RawMessage `json:"watchdog"`
+				}
+				if r.client.post(ctx, "watchdog/get", map[string]any{}, &policy) == nil && len(policy.Watchdog) > 0 && string(policy.Watchdog) != "null" {
+					if observed, ok := r.queue.(interface {
+						watchdogFailure() (string, string, error)
+					}); ok {
+						if failure, retry, err := observed.watchdogFailure(); err == nil && failure != "" {
+							body := map[string]any{"last_progress_at": time.Now().UTC().Format(time.RFC3339Nano), "failure": failure, "native_session_id": nativeID}
+							if retry != "" {
+								body["retry_not_before"] = retry
+							}
+							var out map[string]any
+							_ = r.client.sessionPost(ctx, "watchdog/activity", body, &out)
+						}
+					}
+				}
 			}
 			// For Channels, the MCP input stream's EOF cancels this context. Successful
 			// matched ping replies prove both pipes independently of model turns.

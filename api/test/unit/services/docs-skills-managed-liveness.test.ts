@@ -64,6 +64,7 @@ const managedSlugs = [
   MANAGED_CONTEXT_SKILL_SLUG,
   MANAGED_SKILL_MANAGER_SLUG,
   'wake-cron',
+  'watchdog',
 ];
 
 /** The slugs the section's opening claim names as managed. */
