@@ -27,8 +27,9 @@ Migration 0044 drops the old column and index, preserving ciphertext and
 ownership. `source_engine` and the read audit retain engine attribution only.
 Provider login material and host ownership of mutations are unchanged.
 
-No real credential values were retrieved during the audit. Production rollout
-has not been performed by this work. Reverting to the pre-migration schema/code
+No real credential values were retrieved during the pre-deployment audit.
+The authorized production verification below retrieved the incident credential
+in memory and emitted only pass/fail, never its value. Reverting to the pre-migration schema/code
 requires restoring the old scope column/index from the pre-rollout backup;
 the removed scope cannot be inferred from provenance.
 
@@ -60,8 +61,30 @@ remains blocked during a pending write.
 The native check exercises discovery and schema decoding, not model-driven
 execution of every tool. Service doubles exercise transport/dispatch without
 performing production mutations; they do not prove every business workflow or
-real-database side effect. Provider inference, production rollout and real peer
-delivery were not performed for this audit.
+real-database side effect. Provider inference and real peer delivery were not
+performed for this audit.
+
+## Production rollout
+
+On 2026-10-08, revision `39d93caf` was pushed to `origin/main` and deployed on
+`docker01.uggs.io` with `scripts/deploy.sh --backup --no-cleanup`.
+Migration 0044 applied successfully; the runner reports 44 applied, zero pending
+and zero drifted. All four compose services are healthy. The SHA-256 over all
+24 rows' IDs, slugs, ciphertext and provenance was identical before and after.
+
+Authenticated HTTPS JSON-RPC `secret_list` and `secret_get` requests succeeded
+for Codex, Claude and Grok, using their respective wrapper configurations and
+`X-Engine` headers. Each engine retrieved `wsdf10.operator-api-biest`; no values
+were printed or persisted by the probe. Python's initial HTTP probe failed its
+strict CA key-usage check; curl passed with TLS verification enabled.
+
+Rollback material on docker01:
+- Database: `/var/docker_data/codex-auth.uggs.io/app/backups/codex-orchestrator-20261008T093428Z.sql`
+- API image: `codex-orchestrator-api:rollback-20261008-pre39d93caf`
+
+The served wrapper remains cxx 0.9.24: this change adds a Go test only, so no
+wrapper runtime rebuild/version bump is required. The deploy script's generic
+source-change warning refers to that test addition.
 
 Native `mcp doctor` without a server name also inspects Claude-imported servers,
 even with `compat.claude.mcps=false`; the initial broad probe exited 1 because
