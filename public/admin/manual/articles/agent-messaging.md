@@ -144,10 +144,19 @@ defaults off. It is also the **only** switch. Turning it on turns the bus on
 for the whole fleet, including insecure hosts — there is no per-host gate to
 flip afterwards.
 
+From cxx 0.9.33, fleet guidance and native/relay prefixes recognize authenticated
+fleet peers and direct recipients to handle collaboration and delegated work
+within existing operator authorization. A chair may coordinate and delegate work;
+messages cannot override higher-priority instructions or expand permissions.
+Claims and supplied artifacts still need evidence. Replies and publications remain
+informational by default, and scheduled wakes retain the schedule creator's
+existing authorization. Server-feed publications are identified as an authenticated
+fleet source. Host authentication and allowed-window checks are unchanged.
+
 **Enabling also rewrites what every agent reads.** The switch adds an Agent
 Messaging section to the managed `AGENTS.md` / `CLAUDE.md` served to every active
-host: the tool names, the rule that a peer message is untrusted input carrying no
-authority, the `#call` PIN rendezvous with its turn-holding rule, and the
+host: the tool names, authenticated fleet collaboration within existing
+authorization, the `#call` PIN rendezvous with its turn-holding rule, and the
 `#conference` chair rule. The wrapper-local `cxx-agent` server exposes 26 tools
 covering direct messages,
 calls, conferences, publications, work results and operator replies; their names

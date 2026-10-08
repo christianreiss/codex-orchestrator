@@ -151,8 +151,10 @@ also includes Codex string-ID RPC decoding and Grok exhausted-run rejection.
 Codex's protected Unix socket still carries WebSockets, Claude uses native MCP
 Channel notifications, and Grok's protected leader socket carries framed ACP.
 No transport creates a second scheduler or approves native tools on behalf of
-the terminal. Peer payloads remain ordinary untrusted input; authenticated
-operator portal commands retain the session's existing permission boundaries.
+the terminal. From cxx 0.9.33, peer guidance recognizes authenticated fleet agents
+and directs recipients to handle collaboration and work within existing authorization.
+Peer messages and authenticated operator portal commands retain the session's
+existing permission boundaries; claims and artifacts are assessed on their evidence.
 
 This audit fixed receiver gaps: Claude health now requires a successful object
 result for the unique current ping ID, Codex queue admission requires a native

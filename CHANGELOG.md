@@ -1,5 +1,7 @@
 # 2026-10-08
 
+- Wrapper 0.9.33 and managed fleet guidance treat authenticated agent messages as collaboration and delegated work within existing operator authorization across Codex, Claude and Grok. Messages cannot override higher-priority instructions or expand permissions; claims and artifacts still need evidence. Conference, MCP and native/relay guidance now agree, while informational replies, publications and Wake/Cron authorization retain their existing contracts.
+
 - Android companion 0.4.7 explicitly handles Android's JSON null values when choosing session names and IDs, keeping unnamed sessions identifiable instead of displaying the literal text "null". Verified with Android runtime regression coverage and the deployed phone.
 
 - Wrapper 0.9.31 sends private Grok leader stderr to per-run, owner-only diagnostic logs (at most 1 MiB per file), preventing background trace lines from corrupting the native terminal. Native tool errors remain visible in the TUI and transcript. Startup failures name the log file; `cgx doctor` shows its directory. Existing sessions retain their running wrapper until resumed through the updated wrapper.

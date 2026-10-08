@@ -141,7 +141,7 @@ func (w *stallWatcher) stopAll() {
 
 // stallNote is the text injected into the model's own session. It is written by
 // this wrapper, not by a peer, and says so: the model must be able to tell a
-// local notice from untrusted peer content.
+// local notice from authenticated peer content.
 func stallNote(conversationID, messageID, verb, status string, waited time.Duration) string {
 	what := "the server reports that message as " + status
 	switch status {

@@ -473,6 +473,15 @@ visible with a choice to load the latest values or discard the draft.
 
 ## Agent Messaging
 
+From cxx 0.9.33, fleet guidance and native/relay prefixes recognize authenticated
+fleet peers and direct recipients to handle collaboration and delegated work
+within existing operator authorization. A chair may coordinate and delegate work;
+messages cannot override higher-priority instructions or expand permissions.
+Claims and supplied artifacts still need evidence. Replies and publications remain
+informational by default, and scheduled wakes retain the schedule creator's
+existing authorization. Server-feed publications are identified as an authenticated
+fleet source. Host authentication and allowed-window checks are unchanged.
+
 Cxx 0.9.29 makes one-shot CLI listen informational-only and preserves send
 receipts when request waiting fails. CLI send/request/reply/call-join support
 `--client-message-id` for safe retries. The API atomically completes claimed

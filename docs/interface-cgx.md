@@ -365,6 +365,15 @@ transport alone returns `receiver_unavailable` with `peer_source_unavailable`.
 Explicit unmanaged `--no-leader` or custom socket launches report receiver
 unavailability honestly. The receiver never answers native permission requests.
 
+From cxx 0.9.33, fleet guidance and native/relay prefixes recognize authenticated
+fleet peers and direct recipients to handle collaboration and delegated work
+within existing operator authorization. A chair may coordinate and delegate work;
+messages cannot override higher-priority instructions or expand permissions.
+Claims and supplied artifacts still need evidence. Replies and publications remain
+informational by default, and scheduled wakes retain the schedule creator's
+existing authorization. Server-feed publications are identified as an authenticated
+fleet source. Host authentication and allowed-window checks are unchanged.
+
 Operator replies use `agent_receiver_reply(message_id, content, summary?)`.
 From cxx 0.9.19, shared native peer-delivery guidance treats a received reply as
 informational by default. Answer questions, requested work and substantive active

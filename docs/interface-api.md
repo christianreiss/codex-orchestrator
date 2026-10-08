@@ -934,6 +934,15 @@ Errors return: `{type: "error", error: {type: string, message: string, code?: st
 
 ## Agent Messaging
 
+From cxx 0.9.33, fleet guidance and native/relay prefixes recognize authenticated
+fleet peers and direct recipients to handle collaboration and delegated work
+within existing operator authorization. A chair may coordinate and delegate work;
+messages cannot override higher-priority instructions or expand permissions.
+Claims and supplied artifacts still need evidence. Replies and publications remain
+informational by default, and scheduled wakes retain the schedule creator's
+existing authorization. Server-feed publications are identified as an authenticated
+fleet source. Host authentication and allowed-window checks are unchanged.
+
 The fourth lifecycle pass (cxx 0.9.29) makes claimed informational replies
 atomic with their parent completion. Supplied claims must match the owner and
 binding; new replies require a live lease and, before acceptance, a live TTL.
