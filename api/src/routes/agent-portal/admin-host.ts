@@ -189,18 +189,6 @@ export async function registerAgentPortalAdminHostRoutes(
       messaging.isEnabled(),
     ]);
     let portalResult: Awaited<ReturnType<typeof portal.registerAgent>> = { enabled: false };
-    if (portalEnabled && body.invocation_kind !== 'peer_delivery') {
-      portalResult = await portal.registerAgent(host, {
-        engine,
-        username: body.username,
-        cwd: body.cwd,
-        upstreamSessionId: body.upstream_session_id,
-        invocationKind: body.invocation_kind,
-        resumed: body.resumed,
-        sessionId,
-        bridgeToken,
-      });
-    }
     let messagingResult: Record<string, unknown> = { enabled: false };
     if (messagingEnabled && messagingHostEligible(host)) {
       messagingResult = await messaging.registerSession(host, {
@@ -219,6 +207,18 @@ export async function registerAgentPortalAdminHostRoutes(
         continuity: body.continuity,
         adapterProtocol: body.adapter_protocol,
         adapterCapabilities: body.adapter_capabilities,
+      });
+    }
+    if (portalEnabled && body.invocation_kind !== 'peer_delivery') {
+      portalResult = await portal.registerAgent(host, {
+        engine,
+        username: body.username,
+        cwd: body.cwd,
+        upstreamSessionId: body.upstream_session_id,
+        invocationKind: body.invocation_kind,
+        resumed: body.resumed,
+        sessionId,
+        bridgeToken,
       });
     }
     const enabled = portalResult.enabled || messagingResult.enabled === true;

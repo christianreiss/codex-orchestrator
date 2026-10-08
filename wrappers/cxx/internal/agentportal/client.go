@@ -172,7 +172,7 @@ func Start(parent context.Context, cfg *config.Config, input StartInput) (*Sessi
 	}
 	body := map[string]any{
 		"engine":               input.Engine,
-		"adapter_capabilities": map[string]any{"execution_contract_version": 2, "watchdog_protocol_version": 1},
+		"adapter_capabilities": map[string]any{"execution_contract_version": 2, "watchdog_protocol_version": 1, "launch_identity_version": 1},
 		"username":             username,
 		"cwd":                  cwd,
 		"invocation_kind":      input.InvocationKind,
@@ -724,6 +724,11 @@ func (s *Session) recoverRegistration(ctx context.Context, observedGeneration ui
 	if response.AgentAddress != nil && response.AgentAddress.Address != "" {
 		registrationBody["agent_address"] = response.AgentAddress.Address
 		registrationBody["binding_generation"] = response.AgentAddress.BindingGeneration
+		if s.LaunchName != "" && s.LaunchName != response.AgentAddress.Name {
+			s.mu.Unlock()
+			return &PortalError{Status: http.StatusConflict, Code: "agent_identity_conflict", Message: "Recovery changed the launch name"}
+		}
+		s.LaunchName = response.AgentAddress.Name
 	}
 	s.registrationBody = registrationBody
 	s.registrationGeneration++

@@ -109,7 +109,86 @@ type sessionNameReporter struct {
 	pendingName string
 }
 
-func (r *sessionNameReporter) report(ctx context.Context, client *sessionClient, engine, nativeID string) {
+type nativeSessionTitleWriter interface{ setSessionName(string, string) error }
+
+// Claude persists /rename and --name as append-only custom-title metadata.
+// Only the exact, already-existing bound transcript is eligible; no conversation
+// records are rewritten and a partially written tail is retried later.
+type claudeSessionTitleWriter struct{}
+
+func (claudeSessionTitleWriter) setSessionName(id, name string) error {
+	if !nativeNameID.MatchString(id) {
+		return errors.New("invalid native session ID")
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return err
+	}
+	root := os.Getenv("CLAUDE_CONFIG_DIR")
+	if root == "" {
+		root = filepath.Join(home, ".claude")
+	}
+	paths, _ := filepath.Glob(filepath.Join(root, "projects", "*", id+".jsonl"))
+	if len(paths) != 1 {
+		return errors.New("bound Claude transcript unavailable")
+	}
+	f, err := os.OpenFile(paths[0], os.O_APPEND|os.O_RDWR, 0600)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	info, err := f.Stat()
+	if err != nil {
+		return err
+	}
+	if !info.Mode().IsRegular() {
+		return errors.New("bound Claude transcript is not a regular file")
+	}
+	if info.Size() > 0 {
+		var tail [1]byte
+		if _, err := f.ReadAt(tail[:], info.Size()-1); err != nil {
+			return err
+		}
+		if tail[0] != '\n' {
+			return errors.New("bound Claude transcript has an incomplete record")
+		}
+	}
+	raw, err := json.Marshal(map[string]string{"type": "custom-title", "sessionId": id, "customTitle": name})
+	if err != nil {
+		return err
+	}
+	if _, err = f.Write(append(raw, '\n')); err != nil {
+		return err
+	}
+	return f.Sync()
+}
+
+type ownIdentity struct {
+	Name          string   `json:"name"`
+	SessionID     string   `json:"session_id"`
+	NativeID      string   `json:"native_session_id"`
+	Engine        string   `json:"engine"`
+	PreviousNames []string `json:"previous_names"`
+	TaskTitle     string   `json:"task_title"`
+}
+
+func bareSessionTitle(title string, identity ownIdentity) string {
+	for {
+		previous := title
+		for _, name := range append([]string{identity.Name}, identity.PreviousNames...) {
+			prefix := "(" + name + ")"
+			if title == prefix || strings.HasPrefix(title, prefix+" ") {
+				title = strings.TrimSpace(strings.TrimPrefix(title, prefix))
+				break
+			}
+		}
+		if previous == title {
+			return title
+		}
+	}
+}
+
+func (r *sessionNameReporter) report(ctx context.Context, client *sessionClient, engine, nativeID string, writers ...nativeSessionTitleWriter) {
 	if r.nativeID != nativeID {
 		*r = sessionNameReporter{nativeID: nativeID}
 	}
@@ -119,6 +198,24 @@ func (r *sessionNameReporter) report(ctx context.Context, client *sessionClient,
 			return
 		}
 		name := nativeSessionName(home, engine, nativeID)
+		if len(writers) > 0 && writers[0] != nil {
+			var identity ownIdentity
+			if client.post(ctx, "self", map[string]any{}, &identity) != nil || identity.SessionID != client.id || identity.NativeID != nativeID || identity.Engine != engine || identity.Name == "" {
+				return
+			}
+			task := bareSessionTitle(name, identity)
+			if task == "" {
+				task = bareSessionTitle(identity.TaskTitle, identity)
+			}
+			named := "(" + identity.Name + ")"
+			if task != "" {
+				named += " " + task
+			}
+			if name != named && writers[0].setSessionName(nativeID, named) != nil {
+				return
+			}
+			name = task
+		}
 		if name == "" || name == r.lastName {
 			return
 		}

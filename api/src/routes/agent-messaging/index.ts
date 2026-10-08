@@ -197,6 +197,12 @@ export async function registerAgentMessagingRoutes(
 
   // Session-bound model/adapter API. All routes require the short-lived bridge
   // capability inherited through the private cxx Unix broker.
+  app.post('/host/agent-sessions/:id/agent-messaging/self', async req => {
+    const id = stringParam(req.params, 'id');
+    const token = requireToken(req, BRIDGE_TOKEN_HEADER, 'agent_bridge_token_required');
+    z.object({}).strict().parse(req.body ?? {});
+    return await messaging.self(id, token);
+  });
   app.post('/host/agent-sessions/:id/agent-messaging/translate', async req => {
     const id = stringParam(req.params, 'id');
     const token = requireToken(req, BRIDGE_TOKEN_HEADER, 'agent_bridge_token_required');

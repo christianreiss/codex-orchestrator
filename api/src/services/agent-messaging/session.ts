@@ -320,6 +320,8 @@ export class SessionRegistry {
         })
         .where(eq(agentSessions.id, sessionId));
       const launchName = await assignLaunchNameLocked(tx, sessionId, address.id, now);
+      if (!launchName && input.adapterCapabilities?.launch_identity_version === 1)
+        throw new ConflictError('No free launch name; retry after a name becomes available', 'agent_name_pool_exhausted');
       await tx.update(agentSessions).set({ launchName }).where(eq(agentSessions.id, sessionId));
       await tx.update(agentBusAddresses).set({ launchName }).where(eq(agentBusAddresses.id, address.id));
       return { address: { ...address, launchName }, bridgeExpiresAt };

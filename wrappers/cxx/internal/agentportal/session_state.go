@@ -23,7 +23,7 @@ func isTerminalBridgeError(err error) bool {
 		return false // Explicitly recoverable; signed-policy gates still apply.
 	case "agent_bridge_unauthorized", "agent_bridge_host_auth_changed", "agent_bridge_host_inactive",
 		"agent_bridge_host_mismatch", "agent_bridge_token_required", "engine_disabled",
-		"agent_session_finished", "agent_session_not_found", "agent_portal_disabled", "agent_session_conflict":
+		"agent_session_finished", "agent_session_not_found", "agent_portal_disabled", "agent_session_conflict", "agent_identity_conflict":
 		return true
 	}
 	// An operation-specific 403 (for example, a conference the agent does

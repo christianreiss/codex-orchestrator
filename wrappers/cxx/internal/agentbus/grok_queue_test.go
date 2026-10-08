@@ -71,7 +71,7 @@ func testGrokQueueStdioIdentityAndAdmission(t *testing.T, wrapped bool) {
 		}
 		_ = q.write(map[string]any{"type": "registered", "ready": false})
 		_ = q.write(map[string]any{"type": "leader_ready"})
-		for i := 0; i < 2; i++ {
+		for i := 0; i < 3; i++ {
 			frame, err = q.read()
 			if err != nil {
 				done <- err
@@ -90,6 +90,13 @@ func testGrokQueueStdioIdentityAndAdmission(t *testing.T, wrapped bool) {
 					result = map[string]any{"result": result}
 				}
 				raw, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": request["id"], "result": result})
+				_ = q.write(map[string]any{"type": "acp", "payload": string(raw)})
+			} else if i == 2 {
+				if stringArg(request, "method") != "_x.ai/session/rename" || stringArg(params, "sessionId") != "s" || stringArg(params, "title") != "(Claudia) Review" {
+					done <- io.ErrUnexpectedEOF
+					return
+				}
+				raw, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": request["id"], "result": map[string]any{}})
 				_ = q.write(map[string]any{"type": "acp", "payload": string(raw)})
 			} else {
 				meta, _ := params["_meta"].(map[string]any)
@@ -116,6 +123,12 @@ func testGrokQueueStdioIdentityAndAdmission(t *testing.T, wrapped bool) {
 	}
 	if err := q.send("p", "untrusted message"); err != nil {
 		t.Fatal(err)
+	}
+	if err := q.setSessionName("s", "(Claudia) Review"); err != nil {
+		t.Fatal(err)
+	}
+	if err := q.setSessionName("other", "Wrong"); err == nil {
+		t.Fatal("renamed a foreign session")
 	}
 	if err := <-done; err != nil {
 		t.Fatal(err)

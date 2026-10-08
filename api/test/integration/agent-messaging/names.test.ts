@@ -156,6 +156,38 @@ describe.skipIf(!handle)('German launch name leases on MySQL', { timeout: 120_00
       expect((await service.translate(agent.address.address)).name).toBe(agent.address.name);
     }
   });
+  it('confirms only the authenticated active launch identity for all engines', async () => {
+    for (const engine of ['codex', 'claude', 'grok'] as const) {
+      const agent = await launch(engine);
+      expect(await service.self(agent.sessionId, agent.token)).toMatchObject({
+        identity_version: 1, name: agent.address.name, uuid: agent.address.id,
+        address: agent.address.address, session_id: agent.sessionId, engine,
+        native_session_id: agent.input.upstreamSessionId,
+      });
+      await expect(service.self(agent.sessionId, 'wrong-token')).rejects.toMatchObject({ code: 'agent_bridge_unauthorized' });
+      await service.finishSession(agent.sessionId, agent.token, 'completed');
+      await expect(service.self(agent.sessionId, agent.token)).rejects.toMatchObject({ code: 'agent_session_finished' });
+    }
+  });
+  it('rolls back strict launches when every name is reserved', async () => {
+    await db!.update(agentNamePool).set({ currentSessionId: sentinel });
+    const sessionId = randomUUID();
+    await expect(service.registerSession(host, {
+      sessionId, bridgeToken: randomBytes(32).toString('base64url'), engine: 'grok',
+      username: randomUUID(), cwd: '/tmp/cxx-names', invocationKind: 'interactive',
+      adapterCapabilities: { launch_identity_version: 1 },
+    })).rejects.toMatchObject({ code: 'agent_name_pool_exhausted' });
+    expect(await db!.select().from(agentSessions).where(eq(agentSessions.id, sessionId))).toHaveLength(0);
+    expect(await db!.select().from(agentBusAddresses).where(eq(agentBusAddresses.currentSessionId, sessionId))).toHaveLength(0);
+  });
+  it('rejects a stale or unnamed self binding', async () => {
+    const agent = await launch();
+    await db!.update(agentBusAddresses).set({ bindingGeneration: 99 }).where(eq(agentBusAddresses.id, agent.address.id));
+    await expect(service.self(agent.sessionId, agent.token)).rejects.toMatchObject({ code: 'agent_identity_unavailable' });
+    await db!.update(agentBusAddresses).set({ bindingGeneration: 0 }).where(eq(agentBusAddresses.id, agent.address.id));
+    await db!.update(agentSessions).set({ launchName: null }).where(eq(agentSessions.id, agent.sessionId));
+    await expect(service.self(agent.sessionId, agent.token)).rejects.toMatchObject({ code: 'agent_identity_unavailable' });
+  });
   it('holds a name for 24h after exit, reports pool exhaustion and reuses exactly at the boundary', async () => {
     await onlyClaudia();
     const first = await launch();
@@ -258,6 +290,7 @@ describe.skipIf(!handle)('German launch name leases on MySQL', { timeout: 120_00
     expect(resumed.address.id).toBe(first.address.id);
     expect(resumed.address.name).not.toBe(first.address.name);
     expect((await service.translate(first.address.id)).name).toBe(resumed.address.name);
+    expect(await service.self(resumed.sessionId, resumed.token)).toMatchObject({ name: resumed.address.name, uuid: first.address.id, previous_names: expect.arrayContaining([first.address.name, resumed.address.name]) });
     expect(
       (await db!.select().from(agentSessions).where(eq(agentSessions.id, first.sessionId)))[0]?.launchName,
     ).toBe(first.address.name);
@@ -275,6 +308,7 @@ describe.skipIf(!handle)('German launch name leases on MySQL', { timeout: 120_00
     expect(moved.id).not.toBe(agent.address.id);
     expect(moved.launchName).toBe(agent.address.name);
     expect((await service.translate(agent.address.name!)).uuid).toBe(moved.id);
+    expect(await service.self(agent.sessionId, agent.token)).toMatchObject({ name: agent.address.name, uuid: moved.id });
   });
   it('reserves pool names from manual aliases and blocks existing conflicting aliases', async () => {
     const agent = await launch();
@@ -302,6 +336,12 @@ describe.skipIf(!handle)('German launch name leases on MySQL', { timeout: 120_00
     } as RouteContext);
     try {
       const before = identities.length;
+      const selfUrl = `/host/agent-sessions/${agent.sessionId}/agent-messaging/self`;
+      expect((await app.inject({ method: 'POST', url: selfUrl, payload: {} })).statusCode).toBe(403);
+      expect((await app.inject({ method: 'POST', url: selfUrl, headers: { 'x-agent-bridge-token': 'wrong-token' }, payload: {} })).statusCode).toBe(401);
+      const self = await app.inject({ method: 'POST', url: selfUrl, headers: { 'x-agent-bridge-token': agent.token }, payload: {} });
+      expect(self.statusCode).toBe(200);
+      expect(self.json()).toMatchObject({ name: agent.address.name, uuid: agent.address.id, session_id: agent.sessionId, identity_version: 1 });
       const sessionUrl = `/host/agent-sessions/${agent.sessionId}/agent-messaging/translate`;
       const denied = await app.inject({
         method: 'POST',

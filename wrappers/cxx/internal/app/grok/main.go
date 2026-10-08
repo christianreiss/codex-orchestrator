@@ -625,6 +625,11 @@ func run(ctx context.Context, cfg *config.Config, client *orchestrator.Client, o
 		args = []string{"--prompt-file", f.Name(), "--output-format", "json"}
 	}
 	connection, portalErr := agentportal.StartConnection(ctx, cfg, agentportal.StartInput{Engine: "grok", InvocationKind: map[bool]string{true: "execute", false: "interactive"}[headless], Resumed: nativeAnyFlag(args, "--resume", "--continue", "-r", "-c"), UpstreamSessionID: agentportal.ExplicitResumeSessionID(args)})
+	identity, identityErr := connection.RequireIdentity(ctx, cfg)
+	if identityErr != nil {
+		_ = connection.Close("failed", "Launch identity could not be confirmed")
+		return 1, identityErr
+	}
 	if portalErr != nil {
 		fmt.Fprintln(stderr, "cgx: agent portal temporarily unavailable")
 	}
@@ -638,6 +643,10 @@ func run(ctx context.Context, cfg *config.Config, client *orchestrator.Client, o
 			fmt.Fprintln(stderr, "cgx: agent portal cleanup failed")
 		}
 	}()
+	args, identityErr = agentportal.AppendIdentityArgs(config.EngineGrok, args, identity)
+	if identityErr != nil {
+		return 1, identityErr
+	}
 	exe, err := os.Executable()
 	if err != nil {
 		return 1, err

@@ -684,8 +684,11 @@ starts a 24-hour quarantine. Presence going offline does not release a name.
 A new launch, including a native resume, gets a new name; recovery of the same
 non-terminal launch during quarantine keeps its name. Once quarantine has
 expired a name can refer to a different UUID. Keep UUIDs for durable references.
-If no name is free the launch continues with `name: null`; names are never
-duplicated. Legacy records remain unnamed until launch registration.
+From cxx 0.9.37, messaging-enabled launches require a confirmed name before
+starting the native provider. Registration advertises `launch_identity_version: 1`;
+an exhausted pool returns `agent_name_pool_exhausted` and rolls back allocation.
+Older wrappers can still receive `name: null`; names are never duplicated.
+Legacy records remain unnamed until launch registration.
 
 `cxx agent translate Claudia` prints the canonical UUID;
 `cxx agent translate <uuid>` (also `agent:<uuid>`) prints the current/latest
@@ -701,3 +704,36 @@ historical names, including receipt retries after reuse. An expired unassigned
 name returns `agent_name_not_found`; UUID lookup still returns its latest
 historical assignment. Manual aliases cannot claim pool names; pre-existing
 alias collisions keep the affected name out of allocation.
+
+
+### Confirmed launch identity (cxx 0.9.37)
+
+Before any messaging-enabled provider starts, the wrapper confirms its name,
+engine, launch ID and canonical address with the authenticated session-bound
+`POST /host/agent-sessions/:id/agent-messaging/self` (`{}` body, bridge token).
+The response contains `identity_version: 1`, `name`, `uuid`, `address`,
+`session_id`, nullable `native_session_id`, `engine`, `binding_generation`,
+`previous_names` for this address and nullable `task_title` for the current binding.
+MCP exposes the same read-only lookup as `agent_self` without arguments.
+Ended, expired, disabled or stale bindings cannot read another launch's identity.
+Update the API before installing wrapper 0.9.37; a missing endpoint, API outage,
+empty name or mismatched confirmation refuses the native launch. Signed
+messaging-disabled local launches retain their previous behavior.
+
+The confirmed name/address/launch ID is passed per launch through Codex
+`developer_instructions`, Claude `--append-system-prompt`, or Grok `--rules`.
+Existing developer/append instructions are preserved; shared AGENTS/config files
+never contain a launch identity. Claude resumes use `--system-prompt-snapshot off`
+so the prior launch's stored identity is not replayed as the current system prompt.
+The agent is instructed to read `agent_self` at startup and after resume/recovery:
+a later native binding can change the initially assigned address while keeping
+the launch name. Delivery of context does not prove that a model obeys instructions.
+
+Server and Android session labels remain `(Name) Task title`. With automatic
+reception, naming synchronization also updates the exactly bound native title
+through Codex `thread/name/set`, Grok `_x.ai/session/rename`, or Claude's
+append-only `custom-title` metadata. Claude new launches also use `--name`.
+Historical names for the same address are removed from existing prefixes on resume;
+the bare task title remains separate. Naming errors retry without disabling message
+reception. Headless or receiver-disabled launches retain server/Android labels
+and model context, without a guarantee of native title synchronization.

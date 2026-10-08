@@ -555,6 +555,11 @@ func Run(ctx context.Context, opts Options) (exitCode int, retErr error) {
 		Resumed:           opts.Resumed,
 		UpstreamSessionID: upstreamSessionID,
 	})
+	identity, identityErr := connection.RequireIdentity(ctx, cfg)
+	if identityErr != nil {
+		_ = connection.Close("failed", "Launch identity could not be confirmed")
+		return 1, identityErr
+	}
 	if connectionErr != nil {
 		logger.Warn("agent connection unavailable; continuing local session", "err", connectionErr)
 	}
@@ -573,6 +578,10 @@ func Run(ctx context.Context, opts Options) (exitCode int, retErr error) {
 
 	started := time.Now()
 	launchArgs := guardRootPermissionMode(opts.ExtraArgs, logger)
+	launchArgs, identityErr = agentportal.AppendIdentityArgs(config.EngineClaude, launchArgs, identity)
+	if identityErr != nil {
+		return 1, identityErr
+	}
 	// Claude gets the `cxx-agent` MCP server from the wrapper's own plugin on
 	// every launch, not from the managed user-scope config: only a
 	// plugin-provided server may be approved as a channel without the

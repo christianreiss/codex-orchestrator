@@ -341,6 +341,7 @@ func taskResultProperties() map[string]any {
 
 func toolCatalogJSON() []byte {
 	tools := []map[string]any{
+		tool("agent_self", "Read your authenticated current launch name, agent UUID, native session and binding. Call near startup and after resume or recovery; environment hints and old transcript names may be stale.", map[string]any{}, nil),
 		tool("watchdog_get", "Inspect the watchdog for your current task; server keep-alives do not wake the model.", map[string]any{"id": map[string]any{"type": "string"}}, nil),
 		tool("watchdog_enable", "Enable recovery for your own current authorized task. Announce target/deadline; defaults 2h total and 10min without progress.", map[string]any{"task_key": map[string]any{"type": "string", "minLength": 1, "maxLength": 255}, "continuation": map[string]any{"type": "string", "minLength": 1, "maxLength": 30000}, "duration_seconds": map[string]any{"type": "integer", "minimum": 60, "maximum": 604800}, "progress_timeout_seconds": map[string]any{"type": "integer", "minimum": 60, "maximum": 604800}, "version": map[string]any{"type": "integer", "minimum": 1}}, []string{"task_key", "continuation"}),
 		tool("watchdog_disable", "Stop recovery for the current task. Accepted work continues.", map[string]any{"id": map[string]any{"type": "string"}, "version": map[string]any{"type": "integer", "minimum": 1}}, []string{"id", "version"}),
@@ -730,6 +731,9 @@ func callMCPTool(ctx context.Context, client *sessionClient, channelState *chann
 	case "watchdog_get", "watchdog_enable", "watchdog_disable", "watchdog_finish":
 		var out map[string]any
 		err := client.post(ctx, "watchdog/"+strings.TrimPrefix(name, "watchdog_"), args, &out)
+		return out, err
+	case "agent_self":
+		err := client.post(ctx, "self", map[string]any{}, &out)
 		return out, err
 	case "agent_translate":
 		if err := client.post(ctx, "translate", map[string]any{"value": stringArg(args, "value")}, &out); err != nil {

@@ -467,7 +467,7 @@ func TestReceiverHealthAndReconnectsDoNotDeliverChatProbes(t *testing.T) {
 							if claims.Add(1) == 2 {
 								cancel()
 							}
-						case "status", "stop", "get":
+						case "status", "stop", "get", "self":
 							// Watchdog status is transport metadata, never a chat probe.
 							if path.Base(req.URL.Path) == "get" {
 								out["watchdog"] = nil

@@ -92,10 +92,10 @@ describe('served document byte invariance', () => {
 
     expect(base.sha256).toBe('30abaea24c8809d8634670f0eceb3004aabb4eafb5416c78333c719e8b67e14b');
     expect(out.policy_sha256).toBe('3d8a8c754d80369c46a16c3350db8461520d3ae14b1de7ac03ad9454925ad5e5');
-    // 2026-10-08: add bounded Watchdog guidance across all engines.
-    expect(out.features_sha256).toBe('2888a01ddf0b74c131de5fe179935ef0ec3067e6a8a6baf6bc6b6d3f76760ce5');
-    expect(out.managed_sha256).toBe('28fe708b608ec27fc362a4921d05ad6003bc5d02993a35799d1f6583e6f1aa8a');
-    expect(sha256(out.body)).toBe('b28a617884cb8d1a1c0e4308bc7180dc2982ce53edaa6e37b754273237df268d');
+    // 2026-10-08: add confirmed launch identity and agent_self across all engines.
+    expect(out.features_sha256).toBe('f3d0e3d5100316061a700b30269c8d28ed631cf6d98495112642ac6945b8f6cb');
+    expect(out.managed_sha256).toBe('2af6f73008d96d6351c0f95275c47c83956d2d833fefa1343fadb117844278af');
+    expect(sha256(out.body)).toBe('d941bc691a8a4113b34a859ef9a53423c297ec324c728b7e11331ceac1d42417');
   });
 });
 

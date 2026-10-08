@@ -63,6 +63,16 @@ func openGrokQueue(ctx context.Context, socket, thread string) (*grokQueue, erro
 }
 
 func (q *grokQueue) close() { _ = q.conn.Close() }
+
+func (q *grokQueue) setSessionName(id, name string) error {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	if q.thread == "" || q.thread != id {
+		return errors.New("native naming requires the bound session")
+	}
+	var out map[string]any
+	return q.call("_x.ai/session/rename", map[string]any{"sessionId": id, "title": name}, &out)
+}
 func (q *grokQueue) write(value any) error {
 	data, err := json.Marshal(value)
 	if err != nil {

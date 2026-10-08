@@ -54,6 +54,14 @@ func openNativeQueue(ctx context.Context, socket string) (*nativeQueue, error) {
 	return q, nil
 }
 func (q *nativeQueue) close() { _ = q.conn.Close() }
+
+func (q *nativeQueue) setSessionName(id, name string) error {
+	if q.thread == "" || q.thread != id {
+		return errors.New("native naming requires the bound thread")
+	}
+	var out map[string]any
+	return q.call("thread/name/set", map[string]any{"threadId": id, "name": name}, &out)
+}
 func (q *nativeQueue) call(method string, params any, result any) error {
 	q.mu.Lock()
 	defer q.mu.Unlock()

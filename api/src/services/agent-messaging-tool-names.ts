@@ -21,6 +21,7 @@ export const AGENT_MESSAGING_TOOLS = [
   'watchdog_disable',
   'watchdog_finish',
   'agent_session_name',
+  'agent_self',
   'agent_translate',
   'agent_list',
   'agent_send',

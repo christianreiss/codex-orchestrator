@@ -328,7 +328,7 @@
 
 <PageHeader
   title="Agent Messaging"
-  subtitle="Scoped groups, subscriptions, and direct conversations across Codex, Claude, Grok, and Server. German launch names are reserved for 24 hours after exit. Inspect deliveries and verified reception."
+  subtitle="Scoped groups, subscriptions, and direct conversations across Codex, Claude, Grok, and Server. German launch names are reserved for 24 hours after exit. Updated wrappers confirm their name before launch. Inspect deliveries and verified reception."
 >
   {#snippet actions()}
     <Button variant="outline" onclick={refresh}>

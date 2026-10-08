@@ -371,6 +371,13 @@ Names may be used directly as recipients for messages, requests and conference i
 A name is reserved through launch end plus 24 hours, then may identify a different agent.
 Keep canonical UUIDs for durable references; queued deliveries retain their original UUID.
 
+**Own identity.** Updated wrappers confirm a name with the server before starting a messaging-enabled
+native launch and pass this launch's identity in its model instructions. An outage, exhausted name pool
+or mismatched binding blocks the launch. Call \`agent_self\` near startup and after resume or recovery
+to obtain your authenticated current name, agent UUID, launch session ID and native binding.
+Earlier transcript names and environment hints may be stale; a native bind can change the agent UUID.
+Messaging-disabled local launches do not require this handshake.
+
 **Session name.** Near the start of work, call \`agent_session_name\` with a concise,
 descriptive name in the operator's language (at most 160 characters). The tool
 preserves a known native or previously assigned session name and sets your suggestion

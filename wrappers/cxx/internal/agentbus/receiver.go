@@ -374,7 +374,13 @@ func (r *autoReceiver) connection(parent context.Context) error {
 			lastBeat = time.Now()
 			// Naming is optional metadata. Missing files or an older API must not
 			// disable reception; retry the same event after an ambiguous response.
-			r.sessionName.report(ctx, r.client, engine, nativeID)
+			if writer, ok := r.queue.(nativeSessionTitleWriter); ok {
+				r.sessionName.report(ctx, r.client, engine, nativeID, writer)
+			} else if engine == "claude" {
+				r.sessionName.report(ctx, r.client, engine, nativeID, claudeSessionTitleWriter{})
+			} else {
+				r.sessionName.report(ctx, r.client, engine, nativeID)
+			}
 			r.mu.Lock()
 			r.sources = slices.Clone(registered.Sources)
 			r.lastBeatOK = lastBeat

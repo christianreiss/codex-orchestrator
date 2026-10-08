@@ -28,6 +28,8 @@ import {
   agentBusMessages,
   agentBusRelays,
   agentSessions,
+  agentNameLeases,
+  agentEvents,
   hosts,
   logs,
   versions,
@@ -1226,6 +1228,30 @@ export class AgentMessagingService {
       const address = await this.requireAddressLocked(tx, String(result.uuid));
       await this.assertAddressEligibleLocked(tx, address);
       return result;
+    });
+  }
+
+  async self(sessionId: string, bridgeToken: string): Promise<Record<string, unknown>> {
+    await this.authenticateBridge(sessionId, bridgeToken);
+    return await this.db.transaction(async tx => {
+      await this.requireEnabledLocked(tx);
+      const [session] = await tx.select().from(agentSessions).where(eq(agentSessions.id, sessionId)).for('update');
+      if (!session || session.endedAt || session.bridgeExpiresAt <= nowIso() || !session.agentBusAddressId)
+        throw new ConflictError('Launch identity is unavailable', 'agent_identity_unavailable');
+      const address = await this.requireAddressLocked(tx, session.agentBusAddressId);
+      await this.assertAddressEligibleLocked(tx, address);
+      if (address.currentSessionId !== session.id || address.bindingGeneration !== session.bindingGeneration || !session.launchName || address.launchName !== session.launchName)
+        throw new ConflictError('Launch identity binding changed', 'agent_identity_unavailable');
+      const identity = await translateAgent(tx, session.launchName, true);
+      if (identity.uuid !== address.id || identity.session_id !== session.id || identity.status !== 'active')
+        throw new ConflictError('Launch name lease changed', 'agent_identity_unavailable');
+      const leases = await tx.selectDistinct({ name: agentNameLeases.name }).from(agentNameLeases).where(eq(agentNameLeases.addressId, address.id));
+      const [named] = await tx.select().from(agentEvents).where(and(eq(agentEvents.sessionId, session.id), eq(agentEvents.eventType, 'session_named'))).orderBy(desc(agentEvents.id)).limit(1);
+      const naming = named ? JSON.parse(decrypt(named.payloadEnc, this.keyring)) as Record<string, unknown> : null;
+      const taskTitle = naming?.native_session_id === session.upstreamSessionId && typeof naming?.name === 'string' ? naming.name : null;
+      return { identity_version: 1, name: session.launchName, uuid: address.id, address: `agent:${address.id}`,
+        session_id: session.id, native_session_id: session.upstreamSessionId, engine: session.engine,
+        binding_generation: session.bindingGeneration, previous_names: [...new Set(leases.map(row => row.name))], task_title: taskTitle };
     });
   }
 

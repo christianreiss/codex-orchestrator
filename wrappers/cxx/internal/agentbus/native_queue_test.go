@@ -48,6 +48,10 @@ func TestNativeQueueUsesWebSocketAndExistingThread(t *testing.T) {
 					t.Error("delivery lost identity")
 				}
 				result["queuedSubmission"] = map[string]any{"id": "queued", "clientUserMessageId": "delivery"}
+			case "thread/name/set":
+				if request.Params["threadId"] != "native-thread" || request.Params["name"] != "(Claudia) Review" {
+					t.Error("native name lost its bound identity")
+				}
 			default:
 				t.Errorf("unexpected native method %s", request.Method)
 			}
@@ -74,6 +78,12 @@ func TestNativeQueueUsesWebSocketAndExistingThread(t *testing.T) {
 	}
 	if err := q.send("delivery", "test input"); err != nil {
 		t.Fatal(err)
+	}
+	if err := q.setSessionName("native-thread", "(Claudia) Review"); err != nil {
+		t.Fatal(err)
+	}
+	if err := q.setSessionName("other-thread", "Wrong"); err == nil {
+		t.Fatal("renamed a foreign thread")
 	}
 	mu.Lock()
 	defer mu.Unlock()

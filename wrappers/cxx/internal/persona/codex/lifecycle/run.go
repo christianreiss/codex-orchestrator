@@ -617,6 +617,11 @@ func Run(ctx context.Context, opts Options) (exitCode int, runErr error) {
 		Resumed:           opts.Resumed,
 		UpstreamSessionID: upstreamSessionID,
 	})
+	identity, identityErr := connection.RequireIdentity(ctx, cfg)
+	if identityErr != nil {
+		_ = connection.Close("failed", "Launch identity could not be confirmed")
+		return 1, identityErr
+	}
 	if connectionErr != nil {
 		logger.Warn("agent connection unavailable; continuing local session", "err", connectionErr)
 	}
@@ -643,6 +648,10 @@ func Run(ctx context.Context, opts Options) (exitCode int, runErr error) {
 
 	started := time.Now()
 	launchArgs := insertCodexOverrides(launchArgsForAuth(opts.ExtraArgs, authResp), mcpOverrides)
+	launchArgs, identityErr = agentportal.AppendIdentityArgs(config.EngineCodex, launchArgs, identity)
+	if identityErr != nil {
+		return 1, identityErr
+	}
 	// Upload mid-session native token rotations as they happen instead of
 	// only at exit; see auth_watch.go for why the gap is dangerous.
 	stopAuthWatch := func() {}
