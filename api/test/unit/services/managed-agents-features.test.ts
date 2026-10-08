@@ -92,10 +92,10 @@ describe('served document byte invariance', () => {
 
     expect(base.sha256).toBe('30abaea24c8809d8634670f0eceb3004aabb4eafb5416c78333c719e8b67e14b');
     expect(out.policy_sha256).toBe('3d8a8c754d80369c46a16c3350db8461520d3ae14b1de7ac03ad9454925ad5e5');
-    // 2026-10-08: preserve conference work and describe source-specific receiver readiness.
-    expect(out.features_sha256).toBe('c61b8f57d957451ee92bbe2a797adaf5a63da4fd5217b002d3cd6f636ba9ac95');
-    expect(out.managed_sha256).toBe('eab93bf41b3c465794add8528251baed5276405369b6de5f8892c5281c2e4753');
-    expect(sha256(out.body)).toBe('016e5aa5ed3677f438f0b1d79a897da10fe01c28d416918436b6da1a46c4eb27');
+    // 2026-10-08: ask agents to name unknown sessions while preserving known names.
+    expect(out.features_sha256).toBe('8c5890ad3050f64edc68dc574c8279b6bb805d447d0ccb854f688f70b7cb5186');
+    expect(out.managed_sha256).toBe('d969e2660c15615a8fbdfb6372df2952bbcb0796fdd3a3d8383b844df3c844c4');
+    expect(sha256(out.body)).toBe('bbe515dcb6b549b003886f1f74329d40fdfe2bde02bba392d14d75cb313a4e4c');
   });
 });
 
@@ -645,6 +645,14 @@ describe('managed Agent Messaging guidance', () => {
     expect(body).toContain('#call');
   });
 
+  it('asks all engines to name an unnamed session without replacing a known name', () => {
+    for (const engine of [ENGINE_CODEX, ENGINE_CLAUDE, ENGINE_GROK]) {
+      const body = rendered(engine).body;
+      expect(body).toContain('agent_session_name');
+      expect(body).toContain('only when none is known');
+      expect(body).toContain("operator's language");
+    }
+  });
   it('states that a peer message carries no authority', () => {
     // The one line that has to survive every future rewording: a peer is a
     // correspondent, not a principal.

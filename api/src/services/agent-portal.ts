@@ -75,6 +75,7 @@ export const AGENT_PORTAL_CLOSE_NOTE_MAX_BYTES = 1000;
 export const AGENT_PORTAL_DEFAULT_CLOSE_NOTE = 'The operator closed this channel from the portal.';
 
 export const AGENT_EVENT_TYPES = [
+  'session_named',
   'started',
   'resumed',
   'user_message',
@@ -96,6 +97,7 @@ export const AGENT_EVENT_TYPES = [
 export type AgentEventType = (typeof AGENT_EVENT_TYPES)[number];
 
 export const AGENT_BRIDGE_EVENT_TYPES = [
+  'session_named',
   'assistant_message',
   'progress',
   'waiting_input',
@@ -1595,6 +1597,13 @@ export class AgentPortalService {
       if (options.terminal && session.endedAt && session.status !== options.terminal.status) {
         throw new ConflictError('Agent session already ended with a different status', 'agent_session_finished');
       }
+      if (input.type === 'session_named') {
+        const expectedNative = normalized.payload.native_session_id;
+        if (expectedNative !== undefined && expectedNative !== session.upstreamSessionId) {
+          throw new ConflictError('Native session changed before naming', 'agent_session_name_stale');
+        }
+        normalized.payload.native_session_id = session.upstreamSessionId;
+      }
       const existing = await tx
         .select()
         .from(agentEvents)
@@ -1608,6 +1617,18 @@ export class AgentPortalService {
           await this.applyTerminalState(tx, sessionId, options.terminal.status, options.terminal.expiresAt);
         }
         return { row: existing[0], payload };
+      }
+      if (input.type === 'session_named' && normalized.payload.only_if_missing === true) {
+        const [named] = await tx
+          .select()
+          .from(agentEvents)
+          .where(and(eq(agentEvents.sessionId, sessionId), eq(agentEvents.eventType, 'session_named')))
+          .orderBy(desc(agentEvents.id))
+          .limit(1);
+        if (named) {
+          const payload = this.decodeJson<Record<string, unknown>>(named.payloadEnc, {});
+          if (payload.native_session_id === session.upstreamSessionId) return { row: named, payload };
+        }
       }
       const now = nowIso();
       if (normalized.prompt) {
@@ -2549,6 +2570,12 @@ function normalizeEventId(value: unknown): string {
 
 function normalizeEvent(type: AgentEventType, input: Record<string, unknown>): NormalizedEvent {
   const payload: Record<string, unknown> = {};
+  if (type === 'session_named') {
+    payload.name = normalizeRequiredText(input.name, 'name', 1000);
+    if (input.only_if_missing === true) payload.only_if_missing = true;
+    if (typeof input.native_session_id === 'string') payload.native_session_id = normalizeRequiredText(input.native_session_id, 'native_session_id', 255);
+    return { payload };
+  }
   if (type === 'user_message' || type === 'assistant_message') {
     const text = normalizeRequiredText(input.text, 'text', AGENT_PORTAL_EVENT_TEXT_MAX_BYTES);
     payload.text = text;

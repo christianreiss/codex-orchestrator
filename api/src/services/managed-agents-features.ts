@@ -362,6 +362,13 @@ function agentMessagingSection(context: ManagedAgentFeatureContext): RenderedSec
     context.agentMessaging,
     `## Agent Messaging
 
+**Session name.** Near the start of work, call \`agent_session_name\` with a concise,
+descriptive name in the operator's language (at most 160 characters). The tool
+preserves a known native or previously assigned session name and sets your suggestion
+only when none is known. Use the task's purpose, never a host/path or credentials.
+This is the main identity on the Android dashboard; host and directory are secondary.
+Older wrappers without this tool can continue normally until updated.
+
 **Wake / Cron.** Use the shared \`#wake-cron\` Skill and orchestrator tools:
 \`schedule_list\` discovers schedules; \`schedule_get\` reads prompt, version and execution
 history; \`schedule_create\` creates a future once/cron/interval wake;

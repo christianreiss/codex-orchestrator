@@ -55,7 +55,7 @@ export async function companionPreviews(
           agentEvents.sessionId,
           sessions.map((s) => String(s.id)),
         ),
-        inArray(agentEvents.eventType, ['assistant_message', 'waiting_input', 'attention']),
+        inArray(agentEvents.eventType, ['assistant_message', 'waiting_input', 'attention', 'session_named']),
       ),
     )
     .groupBy(agentEvents.sessionId, agentEvents.eventType);
@@ -90,6 +90,13 @@ export async function companionPreviews(
   }
   return sessions.map((session) => {
     const events = bySession.get(String(session.id));
+    const named = events?.get('session_named');
+    const naming = named ? decodeSummaryPayload(named.payloadEnc, ctx) : null;
+    const sessionName =
+      naming && naming.native_session_id === (session.upstream_session_id ?? null)
+        ? compactSummary(naming.name)
+        : null;
+    const card = { ...session, session_name: sessionName };
     // Preview priority can select an older prompt/attention event. Unread
     // replies need their own monotonic cursor, including retained ended chats.
     const replyCursor = Number(events?.get('assistant_message')?.id ?? 0);
@@ -99,12 +106,12 @@ export async function companionPreviews(
     const row =
       prompt && promptEvents.get(prompt.id) ? byId.get(promptEvents.get(prompt.id)!) : events?.get(type);
     if (!row)
-      return { ...session, preview: null, reply_cursor: replyCursor, unread_reply_count: unreadReplyCount };
+      return { ...card, preview: null, reply_cursor: replyCursor, unread_reply_count: unreadReplyCount };
     const payload = decodeSummaryPayload(row.payloadEnc, ctx);
     // An older, still-open question must never inherit a newer question's summary.
     const summary = eventSummary(type, prompt && payload.prompt_id !== prompt.id ? {} : payload);
     return {
-      ...session,
+      ...card,
       preview: { summary, cursor: Number(row.id), created_at: row.createdAt },
       reply_cursor: replyCursor,
       unread_reply_count: unreadReplyCount,

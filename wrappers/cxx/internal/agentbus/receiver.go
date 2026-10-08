@@ -31,6 +31,7 @@ type autoReceiver struct {
 	pendingPing     string
 	queue           nativeDelivery
 	boundNativeID   string
+	sessionName     sessionNameReporter
 	// connected, lastBeatOK, gate and gateSince are this process's own account of
 	// whether it can wake the session. They exist so agent_listen can tell "on the
 	// line" from "the line is dead" without a server round trip: a model that
@@ -353,6 +354,9 @@ func (r *autoReceiver) connection(parent context.Context) error {
 				}
 			}
 			lastBeat = time.Now()
+			// Naming is optional metadata. Missing files or an older API must not
+			// disable reception; retry the same event after an ambiguous response.
+			r.sessionName.report(ctx, r.client, engine, nativeID)
 			r.mu.Lock()
 			r.sources = slices.Clone(registered.Sources)
 			r.lastBeatOK = lastBeat

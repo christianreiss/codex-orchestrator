@@ -6,6 +6,17 @@ import org.junit.Test
 
 class MobileOverviewTest {
     private fun agent(json: String) = JSONObject(json)
+    @Test fun namesDistinguishSessionsInTheSameProjectAndUnnamedSessionsHaveAnIdentity() {
+        val first = agent("""{"id":"11111111-aaaa","session_name":" Release\nreview ","cwd":"/work/shared","host":"lab.example"}""")
+        val second = agent("""{"id":"22222222-bbbb","session_name":"Database migration","cwd":"/work/shared","host":"lab.example"}""")
+        assertEquals("Release review", agentTitle(first))
+        assertEquals("Database migration", agentTitle(second))
+        first.put("session_name", JSONObject.NULL)
+        assertEquals("Session 11111111", agentTitle(first))
+        first.put("upstream_session_id", "33333333-cccc")
+        assertEquals("Session 33333333", agentTitle(first))
+        assertEquals("Unnamed session", agentTitle(JSONObject()))
+    }
     @Test fun shortSummariesKeepUnicodeAndNeverUseTheWholeAnswer() {
         assertEquals("DNS fixed. Restart needed.", compactSummary(" DNS fixed.\nRestart needed. "))
         assertEquals("😀".repeat(159) + "…", compactSummary("😀".repeat(161)))

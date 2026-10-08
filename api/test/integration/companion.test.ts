@@ -257,6 +257,105 @@ describe.skipIf(!handle)('Android companion with real MySQL', { timeout: 120_000
         .fcmTokenEnc,
     ).toBeNull();
   });
+  it('projects renamed native sessions only with transcript permission without changing unread replies', async () => {
+    const snapshot = async () => {
+      const result = await app.inject({
+        method: 'GET',
+        url: '/companion/v1/agents',
+        headers: { authorization: authorization() },
+      });
+      expect(result.statusCode).toBe(200);
+      return result.json().data.agents.find((card: { id: string }) => card.id === sessionId);
+    };
+    const before = await snapshot();
+    await Promise.all(
+      ['API review', 'Other AI suggestion'].map((name) =>
+        portal.addAgentEvent(sessionId, bridge, {
+          clientEventId: randomUUID(),
+          type: 'session_named',
+          source: 'engine',
+          payload: { name, only_if_missing: true },
+        }),
+      ),
+    );
+    const assigned = (await snapshot()).session_name;
+    expect(['API review', 'Other AI suggestion']).toContain(assigned);
+    await portal.addAgentEvent(sessionId, bridge, {
+      clientEventId: randomUUID(),
+      type: 'session_named',
+      source: 'engine',
+      payload: { name: 'Overwrite attempt', only_if_missing: true },
+    });
+    expect((await snapshot()).session_name).toBe(assigned);
+    const event = randomUUID();
+    await portal.addAgentEvent(sessionId, bridge, {
+      clientEventId: event,
+      type: 'session_named',
+      source: 'engine',
+      payload: { name: 'Release review', text: 'discard unrelated text' },
+    });
+    await portal.addAgentEvent(sessionId, bridge, {
+      clientEventId: event,
+      type: 'session_named',
+      source: 'engine',
+      payload: { name: 'Release review' },
+    });
+    expect(await snapshot()).toMatchObject({
+      session_name: 'Release review',
+      reply_cursor: before.reply_cursor,
+      unread_reply_count: before.unread_reply_count,
+    });
+    await portal.addAgentEvent(sessionId, bridge, {
+      clientEventId: randomUUID(),
+      type: 'session_named',
+      source: 'engine',
+      payload: { name: 'Schema migration' },
+    });
+    expect(await snapshot()).toMatchObject({ session_name: 'Schema migration' });
+    await db
+      .update(agentSessions)
+      .set({ upstreamSessionId: 'native-next' })
+      .where(eq(agentSessions.id, sessionId));
+    try {
+      expect(await snapshot()).toMatchObject({ session_name: null });
+      await expect(
+        portal.addAgentEvent(sessionId, bridge, {
+          clientEventId: randomUUID(),
+          type: 'session_named',
+          source: 'engine',
+          payload: { name: 'Stale native name', native_session_id: 'native-old' },
+        }),
+      ).rejects.toMatchObject({ code: 'agent_session_name_stale' });
+      await portal.addAgentEvent(sessionId, bridge, {
+        clientEventId: randomUUID(),
+        type: 'session_named',
+        source: 'engine',
+        payload: { name: 'Next task', only_if_missing: true },
+      });
+      expect(await snapshot()).toMatchObject({ session_name: 'Next task' });
+    } finally {
+      await db.update(agentSessions).set({ upstreamSessionId: null }).where(eq(agentSessions.id, sessionId));
+    }
+    await portal.addAgentEvent(sessionId, bridge, {
+      clientEventId: randomUUID(),
+      type: 'session_named',
+      source: 'engine',
+      payload: { name: 'Schema migration' },
+    });
+    await portal.addAgentEvent(sessionId, bridge, {
+      clientEventId: randomUUID(),
+      type: 'session_named',
+      source: 'engine',
+      payload: { name: 'AI suggestion', only_if_missing: true },
+    });
+    expect(await snapshot()).toMatchObject({ session_name: 'Schema migration' });
+    await db.update(adminUsers).set({ accessLevel: 'viewer' }).where(eq(adminUsers.id, userId));
+    try {
+      expect(await snapshot()).toMatchObject({ session_name: null, preview: null });
+    } finally {
+      await db.update(adminUsers).set({ accessLevel: 'owner' }).where(eq(adminUsers.id, userId));
+    }
+  });
   it('projects the latest reply, prioritizes an active question and never reuses an older summary', async () => {
     const put = async (type: string, payload: Record<string, unknown>) => {
       const [result] = await db.insert(agentEvents).values({

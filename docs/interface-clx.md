@@ -1,5 +1,9 @@
 # `clx` Wrapper Interface
 
+## Native names in Android (cxx 0.9.32)
+
+The automatic receiver reads Claude `custom-title` records matching the bound native ID in that session’s project JSONL; custom `CLAUDE_CONFIG_DIR` is honored. Changes are sent as encrypted, idempotent `session_named` events on its 15-second heartbeat. Failed reports retry the original ID/payload and do not disable reception. The metadata reader does not derive titles from transcript text. On the first useful turn, fleet guidance tells the AI to call the session-bound `agent_session_name` tool with a concise name in the operator’s language; its atomic set-if-missing mode preserves known native or AI names. Android 0.4.6 displays the latest name above host and working directory; the API exposes it only with transcript permission. Update the API before wrappers/APK; older builds remain compatible.
+
 ## Managed native starts (cxx 0.9.24)
 
 Fleet installation, update/sync and successful managed launches prepare the native

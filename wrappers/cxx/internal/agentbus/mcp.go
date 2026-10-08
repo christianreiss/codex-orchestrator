@@ -341,6 +341,7 @@ func taskResultProperties() map[string]any {
 
 func toolCatalogJSON() []byte {
 	tools := []map[string]any{
+		tool("agent_session_name", "Give your current session a concise, descriptive name for the Android dashboard. Call once near the start of work. Existing native or previously assigned names are preserved; this sets a name only when none is known.", map[string]any{"name": map[string]any{"type": "string", "minLength": 1, "maxLength": 160}}, []string{"name"}),
 		tool("agent_task_result", "Finish an accepted work delivery with an explicit domain outcome. Wake jobs need this result and no peer reply. Succeeded is an agent report, not independent verification.", map[string]any{"message_id": map[string]any{"type": "string"}, "task_result": taskResultProperties()}, []string{"message_id", "task_result"}),
 		tool("agent_list", "Discover enabled Codex, Claude and Grok agent addresses. No message content is returned.", map[string]any{
 			"engine": map[string]any{"type": "string", "enum": []string{"codex", "claude", "grok"}},
@@ -721,6 +722,8 @@ func callMCPTool(ctx context.Context, client *sessionClient, channelState *chann
 		}
 	}
 	switch name {
+	case "agent_session_name":
+		return assignSessionName(ctx, client, args)
 	case "agent_receiver_reply":
 		if channelState.receiver == nil {
 			return nil, errors.New("automatic receiver unavailable")

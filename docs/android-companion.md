@@ -12,8 +12,8 @@ other agents whose server-reported `relay_ready` is true. Offline, ended, idle
 without a receiver, and read-only sessions are omitted. Unread replies do not bring
 old sessions back into the list; a retained notification can still open read-only
 history. A working agent appears
-only if its receiver can still accept a message. Project name, host, and engine
-identify each conversation; **Review next** opens the next decision directly.
+only if its receiver can still accept a message. Session name, host, working
+directory, and engine identify each conversation; **Review next** opens the next decision directly.
 Each row also shows the agent's latest short summary (one sentence, at most
 160 Unicode characters, displayed on up to two lines). An open question or active
 attention notice takes priority over the last reply. The full answer stays in chat.
@@ -110,10 +110,33 @@ the app picks up newly configured Firebase identifiers and registers its token.
 
 ## Appearance and conversation layout
 
+Version 0.4.6 shows the **native session name** as the main row title and chat
+header. Host and full working-directory path appear in a smaller second line;
+the short summary remains on a separate line. Search includes the name, host,
+directory and summary. Missing names use **Session <short native ID>**, or the
+short orchestrator ID before native binding, so same-project chats remain distinct.
+Long paths and names wrap/truncate within the row; TalkBack retains the text.
+
+Wrapper 0.9.32 reads only the bound session's naming metadata: Codex's
+`session_index.jsonl` (`thread_name`), Claude's `custom-title` records, and Grok's
+`summary.json` title/generated title. It polls on the receiver's 15-second cadence,
+reports only changes, and retries each encrypted `session_named` event with the
+same ID and payload. Naming failures do not stop reception. No transcript text is
+used by this metadata reader to invent a title. For an unnamed session, fleet
+startup guidance tells the AI to call `agent_session_name` with a concise name
+in the operator's language. The tool sets only a missing name, atomically preserving
+an existing native/AI name even during concurrent calls. A later native rename
+supersedes the AI fallback. Names are bound to the native conversation; switching
+conversations hides the old name and allows the AI to name the new one. Until the AI's next turn names it, the short ID stays
+visible. The companion's GET/POST overview exposes `session_name`
+only with transcript permission; names create neither reply counts nor push
+alerts. Deploy the API accepting this additive event and update wrappers before
+installing 0.4.6. Old wrappers/APKs remain compatible; there is no schema migration.
+
 Version 0.4.4 gives the home screen a WhatsApp-inspired layout: a compact green
 **Orchestrator** header, rounded **Search chats** field, **All**, **Unread**, and
 **Needs you** filters, and full-width chat rows. Each row shows its circular engine
-avatar, project name, timestamp, host identity, short summary and a small unread
+avatar, timestamp, short summary and a small unread
 number. The palette follows Android light/dark mode and the rows grow with system
 font scaling. **Review next** floats at the bottom when a decision is available;
 the list leaves room so it does not cover the last chat.

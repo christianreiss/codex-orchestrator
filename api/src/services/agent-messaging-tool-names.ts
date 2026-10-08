@@ -16,6 +16,7 @@
  * silent drift into a build break.
  */
 export const AGENT_MESSAGING_TOOLS = [
+  'agent_session_name',
   'agent_list',
   'agent_send',
   'agent_request',

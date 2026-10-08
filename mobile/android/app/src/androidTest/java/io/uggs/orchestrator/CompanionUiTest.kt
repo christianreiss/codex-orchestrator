@@ -120,7 +120,7 @@ class CompanionUiTest {
                         val replyCursor = if (transcriptAllowed.get()) assistantCursor.toString() else "null"
                         val unreadCount = if (transcriptAllowed.get()) unreadReplies.toString() else "null"
                         val emptyCursor = if (transcriptAllowed.get()) "0" else "null"
-                        val primary = if (!sessionListed.get()) "" else """{"id":"$session","host":${JSONObject.quote(fixtureHost)},"engine":${JSONObject.quote(fixtureEngine)},"cwd":${JSONObject.quote("/work/$fixtureProject")},"presence":${JSONObject.quote(presence.get())},"read_only":${readOnly.get()},"relay_ready":${reachable.get()},"reply_cursor":$replyCursor,"unread_reply_count":$unreadCount,"preview":$preview,"pending_prompt":${if (transcriptAllowed.get() && questionPending.get()) """{"id":"question-1","version":1,"question":"Which target?","options":["Staging","Production"]}""" else "null"}},"""
+                        val primary = if (!sessionListed.get()) "" else """{"id":"$session","session_name":${JSONObject.quote(fixtureProject)},"host":${JSONObject.quote(fixtureHost)},"engine":${JSONObject.quote(fixtureEngine)},"cwd":${JSONObject.quote("/work/$fixtureProject")},"presence":${JSONObject.quote(presence.get())},"read_only":${readOnly.get()},"relay_ready":${reachable.get()},"reply_cursor":$replyCursor,"unread_reply_count":$unreadCount,"preview":$preview,"pending_prompt":${if (transcriptAllowed.get() && questionPending.get()) """{"id":"question-1","version":1,"question":"Which target?","options":["Staging","Production"]}""" else "null"}},"""
                         val additional = extraAgents.joinToString("") { fixture ->
                             val agent = JSONObject(fixture.toString())
                             if (!transcriptAllowed.get()) {
@@ -301,6 +301,21 @@ class CompanionUiTest {
         compose.waitUntil(10000) { answered.get() != null }
         Assert.assertEquals("Staging", answered.get())
         Assert.assertNull("A choice uses the prompt answer endpoint", sent.get())
+    }
+    @Test fun sessionNamesDistinguishChatsSharingTheSameHostAndDirectory() {
+        waitForAgentRows(session)
+        extraAgents.add(agentFixture("name-review", "shared", "worker.example", "Checks passed.", "claude").put("session_name", "Release review"))
+        extraAgents.add(agentFixture("name-migration", "shared", "worker.example", "Schema prepared.", "grok").put("session_name", "Database migration"))
+        changed("agents")
+        waitForAgentRows("name-review", "name-migration")
+        compose.onNodeWithText("Release review").assertIsDisplayed()
+        compose.onNodeWithText("Database migration").assertIsDisplayed()
+        compose.onNode(hasText("/work/shared") and hasAnyAncestor(hasTestTag("agent:name-review")), useUnmergedTree = true).assertIsDisplayed()
+        compose.onNodeWithTag("chat-search").performTextReplacement("Release review")
+        compose.onNodeWithTag("agent:name-review").assertIsDisplayed()
+        compose.onNodeWithTag("agent:name-migration").assertDoesNotExist()
+        Assert.assertFalse("Searching session names does not fetch a transcript", transcriptRequested.get())
+        screenshot("session-names")
     }
     @Test fun localChatSearchMatchesProjectFullHostAndSummaryWhileKeepingApprovalsPinned() {
         waitForAgentRows(session)
@@ -764,7 +779,7 @@ class CompanionUiTest {
 
     private fun changed(scope: String) { Assert.assertTrue(live.get()?.send("""{"type":"changed","scopes":["$scope"]}""") == true) }
     private fun agentFixture(id: String, project: String, host: String, summary: String, engine: String, replyCursor: Long = 0, unreadCount: Int = 0) =
-        JSONObject().put("id", id).put("host", host).put("engine", engine).put("cwd", "/work/$project")
+        JSONObject().put("id", id).put("session_name", project).put("host", host).put("engine", engine).put("cwd", "/work/$project")
             .put("presence", "listening").put("relay_ready", true).put("reply_cursor", replyCursor).put("unread_reply_count", unreadCount)
             .put("preview", JSONObject().put("summary", summary).put("created_at", "2026-10-07T19:00:00Z"))
     private fun waitForAgentRows(vararg ids: String) {
