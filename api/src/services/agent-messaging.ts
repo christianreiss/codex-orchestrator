@@ -1,3 +1,4 @@
+import { hostDaemons, hostDaemonSessions } from '../db/schema.js';
 import { discardPresenceNotices, queuePresenceNotices, recipientSnapshot } from './agent-messaging/presence-feedback.js';
 import { type AgentDiscoveryFilters } from './agent-messaging/discovery.js';
 import { translateAgent } from './agent-messaging/names.js';
@@ -882,6 +883,10 @@ export class AgentMessagingService {
     await this.requireEnabled();
     this.assertEligibleHost(host);
     const username = normalizeRequiredText(input.username, 'username', 255);
+    if (input.capabilities?.host_daemon === true) {
+      const [daemon] = await this.db.select().from(hostDaemons).where(eq(hostDaemons.hostId, host.id));
+      if (!daemon?.settings.enabled || username !== daemon.settings.username + ':daemon') throw new ForbiddenError('Daemon relay is not enabled');
+    }
     const instanceId = normalizeUuid(input.instanceId, 'instance_id');
     const wrapperVersion = normalizeRequiredText(input.wrapperVersion, 'wrapper_version', 64);
     const rawToken = randomBytes(32).toString('base64url');
@@ -978,13 +983,17 @@ export class AgentMessagingService {
 
   async claimForRelay(relayId: string, rawToken: string, claimId: string): Promise<MessageDelivery | null> {
     const relay = await this.authenticateRelay(relayId, rawToken);
+    const daemonRelay = jsonRecord(relay.capabilities)?.host_daemon === true;
+    const targetUsername = daemonRelay ? relay.username.replace(/:daemon$/, '') : relay.username;
+    const remoteSessions = await this.db.select().from(hostDaemonSessions).where(eq(hostDaemonSessions.hostId, relay.hostId));
+    const remoteIds = new Set(remoteSessions.map(s => s.addressId));
     const rows = await this.db
       .select({ id: agentBusAddresses.id, engine: agentBusAddresses.engine, hostEngines: hosts.engines })
       .from(agentBusAddresses)
       .innerJoin(hosts, eq(hosts.id, agentBusAddresses.hostId))
       .where(and(
         eq(agentBusAddresses.hostId, relay.hostId),
-        eq(agentBusAddresses.username, relay.username),
+        eq(agentBusAddresses.username, targetUsername),
         eq(agentBusAddresses.enabled, 1),
         isNull(agentBusAddresses.archivedAt),
         messagingHostEligibleSql(),
@@ -992,7 +1001,7 @@ export class AgentMessagingService {
       ));
     if (rows.length === 0) return null;
     const fleet = await readFleetEngineState(this.db);
-    const eligible = rows.filter((row) => activeHostEngines(row.hostEngines, fleet).includes(row.engine as Engine));
+    const eligible = rows.filter((row) => activeHostEngines(row.hostEngines, fleet).includes(row.engine as Engine) && (daemonRelay ? remoteSessions.some(s => s.addressId === row.id && ['idle', 'waiting'].includes(s.status)) : !remoteIds.has(row.id)));
     if (eligible.length === 0) return null;
     return await this.claimDelivery(eligible.map((row) => row.id), `relay:${relay.id}:${relay.generation}`, claimId, relay.generation, true);
   }
@@ -1492,6 +1501,19 @@ export class AgentMessagingService {
             continue;
           }
         }
+        const [remoteHost] = await tx.select({ hostId: hostDaemonSessions.hostId }).from(hostDaemonSessions).where(eq(hostDaemonSessions.addressId, target.id));
+        if (remoteHost && skipReceiveCapable) await tx.select().from(hostDaemons).where(eq(hostDaemons.hostId, remoteHost.hostId)).for('update');
+        const [remote] = await tx.select().from(hostDaemonSessions).where(eq(hostDaemonSessions.addressId, target.id)).for('update');
+        if (remote && skipReceiveCapable) {
+          const [daemon] = await tx.select().from(hostDaemons).where(eq(hostDaemons.hostId, remote.hostId)).for('update');
+          const working = await tx.select().from(hostDaemonSessions).where(and(eq(hostDaemonSessions.hostId, remote.hostId), inArray(hostDaemonSessions.status, ['running', 'stopping'])));
+          if (!daemon?.settings.enabled || !['idle', 'waiting'].includes(remote.status) || working.length >= daemon.settings.max_parallel) continue;
+          if (Date.now() - Date.parse(candidate.createdAt) >= 600_000) {
+            await tx.update(agentBusMessages).set({ status: 'expired', expiredAt: now, updatedAt: now }).where(eq(agentBusMessages.id, candidate.id));
+            continue;
+          }
+          await tx.update(hostDaemonSessions).set({ status: 'running', activeMessageId: candidate.id, lastActivityAt: now }).where(eq(hostDaemonSessions.id, remote.id));
+        }
         const attempts = candidate.attempts + 1;
         await tx
           .update(agentBusMessages)
@@ -1531,6 +1553,8 @@ export class AgentMessagingService {
     });
     if (!result) return null;
     const delivery = deliveryView(result.message, this.decodeContent(result.message), result.sender, result.target);
+    const [remote] = await this.db.select().from(hostDaemonSessions).where(eq(hostDaemonSessions.addressId, result.target.id));
+    if (remote) delivery.target.daemon_session_id = remote.id;
     if (await freshStartAllowed(this.db, result.message, result.target)) delivery.target.fresh_start_approved = true;
     if (result.message.kind === 'schedule') {
       const [run] = await this.db.select().from(agentScheduleRuns).where(eq(agentScheduleRuns.messageId, result.message.id)).limit(1);

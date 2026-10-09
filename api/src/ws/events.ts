@@ -8,6 +8,10 @@
  * or routed by the frontend's `DEFAULT_INVALIDATIONS`.
  */
 export const WS_EVENT_TYPES = [
+  'host.daemon.changed',
+  'host.daemon.configured',
+  'host.daemon.start_requested',
+  'host.daemon.stop_requested',
   'accounts.updated',
   'companion.devices.changed',
   // Logs

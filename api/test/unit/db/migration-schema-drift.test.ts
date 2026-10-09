@@ -214,6 +214,9 @@ describe('migrations against the test baseline', () => {
       'agent_name_pool',
       'agent_name_leases',
       'agent_watchdogs',
+      'host_daemons',
+      'host_daemon_sessions',
+      'host_daemon_operations',
     ]);
     expect(additions.filter((a) => a.column !== undefined).map((a) => `${a.table}.${a.column}`)).toEqual([
       'auth_payloads.generation',

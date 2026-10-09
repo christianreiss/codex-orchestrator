@@ -46,6 +46,14 @@ const bootstrap = (capability: Capability, reason: string): RouteGuard => ({
 });
 
 export const ROUTE_CAPABILITIES: Readonly<Record<string, RouteGuard>> = {
+  'GET /admin/host-daemons': cap('admin.read'),
+  'GET /admin/hosts/:id/daemon': cap('admin.read'),
+  'PUT /admin/hosts/:id/daemon': cap('agent_messaging.manage'),
+  'POST /admin/daemon-sessions': cap('agent_messaging.manage'),
+  'GET /admin/daemon-sessions/:id': cap('agent_portal.reveal_transcript'),
+  'POST /admin/daemon-sessions/:id/stop': cap('agent_messaging.manage'),
+  'POST /admin/daemon-sessions/:id/messages': cap('agent_messaging.manage'),
+
   // ── Pre-authentication surface ───────────────────────────────────────────
   // The caller is by definition not yet authenticated on any of these. Each
   // one is its own rate-limited, audited flow inside the handler.

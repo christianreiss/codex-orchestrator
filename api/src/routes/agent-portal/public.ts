@@ -1,3 +1,6 @@
+import { HostDaemonService } from '../../services/host-daemon/service.js';
+import { daemonStartSchema } from '../../services/host-daemon/policy.js';
+import { hostDaemons } from '../../db/schema.js';
 import { WatchdogsService } from '../../services/watchdogs.js';
 import { AgentReceiverService } from '../../services/agent-receiver.js';
 import { createSseLifecycle } from '../../http/sse-lifecycle.js';
@@ -124,6 +127,96 @@ export async function registerAgentPortalPublicRoutes(
     return ok({ user: await viewerFor(req) });
   });
 
+  const daemon = new HostDaemonService(ctx);
+  app.get('/go/api/host-daemons', async (req, reply) => {
+    assertPortalOrigin(req, ctx, false);
+    portalHeaders(reply);
+    if (!(await portal.isEnabled()))
+      throw new ForbiddenError('Agent portal disabled');
+    await actorFor(req);
+    const rows = await ctx.db.select().from(hostDaemons);
+    return ok({
+      hosts: await Promise.all(
+        rows
+          .filter((row) => row.settings.enabled)
+          .map((row) => daemon.view(row.hostId)),
+      ),
+    });
+  });
+  app.post('/go/api/daemon-sessions', async (req, reply) => {
+    assertPortalOrigin(req, ctx, true);
+    portalHeaders(reply);
+    if (!(await portal.isEnabled()))
+      throw new ForbiddenError('Agent portal disabled');
+    const actor = await actorFor(req, 'agent_portal.manage');
+    const owner =
+      actor.kind === 'admin'
+        ? `admin:${actor.user.id}`
+        : `portal:${actor.identity.user.id}`;
+    reply.code(202);
+    return ok(await daemon.start(daemonStartSchema.parse(req.body), owner));
+  });
+  app.get('/go/api/daemon-sessions/:id', async (req, reply) => {
+    assertPortalOrigin(req, ctx, false);
+    portalHeaders(reply);
+    if (!(await portal.isEnabled()))
+      throw new ForbiddenError('Agent portal disabled');
+    await actorFor(req, 'agent_portal.reveal_transcript');
+    return ok(
+      await daemon.session(
+        z
+          .string()
+          .uuid()
+          .parse((req.params as { id: string }).id),
+      ),
+    );
+  });
+  app.post('/go/api/daemon-sessions/:id/messages', async (req, reply) => {
+    assertPortalOrigin(req, ctx, true);
+    portalHeaders(reply);
+    if (!(await portal.isEnabled()))
+      throw new ForbiddenError('Agent portal disabled');
+    await actorFor(req, 'agent_portal.manage');
+    const body = z
+      .object({
+        prompt: z.string().trim().min(1).max(100_000),
+        client_message_id: z.string().uuid(),
+      })
+      .strict()
+      .parse(req.body);
+    return ok(
+      await daemon.turn(
+        z
+          .string()
+          .uuid()
+          .parse((req.params as { id: string }).id),
+        body.prompt,
+        body.client_message_id,
+      ),
+    );
+  });
+  app.post('/go/api/daemon-sessions/:id/stop', async (req, reply) => {
+    assertPortalOrigin(req, ctx, true);
+    portalHeaders(reply);
+    if (!(await portal.isEnabled()))
+      throw new ForbiddenError('Agent portal disabled');
+    const actor = await actorFor(req, 'agent_portal.manage');
+    const requester =
+      actor.kind === 'admin'
+        ? `admin:${actor.user.id}`
+        : `portal:${actor.identity.user.id}`;
+    return ok(
+      await daemon.stop(
+        z
+          .string()
+          .uuid()
+          .parse((req.params as { id: string }).id),
+        undefined,
+        undefined,
+        requester,
+      ),
+    );
+  });
   app.get('/go/api/agents', async (req, reply) => {
     assertPortalOrigin(req, ctx, false);
     portalHeaders(reply);

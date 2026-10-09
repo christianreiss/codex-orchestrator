@@ -18,8 +18,12 @@ export type WsInvalidationMap = Record<string, QueryKey[]>;
 
 /** Default invalidation map. */
 export const DEFAULT_INVALIDATIONS: WsInvalidationMap = {
+ "host.daemon.changed": [["host-daemons"], ["daemon-sessions"]],
+ "host.daemon.configured": [["host-daemons"]],
+ "host.daemon.start_requested": [["host-daemons"], ["daemon-sessions"]],
+ "host.daemon.stop_requested": [["host-daemons"], ["daemon-sessions"]],
   // A reconnect has no durable WS replay; resample retained client snapshots.
-  "transport.connected": [["agent-sessions"], ["agent-messaging"]],
+  "transport.connected": [["agent-sessions"], ["agent-messaging"], ["host-daemons"], ["daemon-sessions"]],
   "agent_portal.sessions.changed": [["agent-sessions"]],
   // Logs
   "log.created": [["logs"], ["logs", "api"], ["logs", "events"]],

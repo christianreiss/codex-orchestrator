@@ -287,6 +287,7 @@ func (b *Broker) allowedPath(path string) bool {
 	messagingBase := sessionBase + "/agent-messaging/"
 	for _, operation := range []string{
 		"watchdog/get", "watchdog/enable", "watchdog/disable", "watchdog/finish",
+		"spawn", "spawn-status", "stop",
 		"list", "self", "translate", "send", "reply", "wait", "message", "cancel", "bind", "mailbox", "deliveries/claim",
 		"call/open", "call/join",
 		"groups/list", "groups/create", "groups/detail", "subscribe", "unsubscribe", "subscriptions", "publish",

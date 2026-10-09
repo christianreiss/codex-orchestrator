@@ -221,3 +221,20 @@ cannot be reconstructed reliably.
 recipient session / sender session pair. These informational Server messages
 use the existing encrypted content, FIFO, leases and completion path, but never
 relay wake/resume or redrive. Closed-session notices are canceled before claiming.
+
+
+## Host daemon persistence (migration 0049)
+
+`host_daemons` stores one optional settings/runtime row per host, including
+activation time and generation-fenced heartbeat. Missing row means disabled.
+`host_daemon_sessions` records logical remote sessions, initiating actor, host,
+engine, service account, cwd, title, native portal-session/address bindings,
+status and last actual activity. `host_daemon_operations` stores idempotent
+start/resume requests and immutable completion receipts. Prompts and result
+bodies use the existing secretbox keyring; client keys are unique and request
+hashes detect conflicting retries. Foreign keys cascade only with their host
+or logical session. A transport acknowledgement is not proof of task success.
+
+- **host_daemons** — `host_id` BIGINT UNSIGNED PRIMARY KEY FK → hosts.id (CASCADE), `settings` JSON NOT NULL, `runtime` JSON NULL, `enabled_at` VARCHAR(100) NULL, `updated_at` VARCHAR(100) NOT NULL.
+- **host_daemon_sessions** — `id` CHAR(36) PRIMARY KEY, `host_id` BIGINT UNSIGNED NOT NULL FK → hosts.id (CASCADE), `owner` VARCHAR(100) NOT NULL, `engine` VARCHAR(16) NOT NULL, `username` VARCHAR(64) NOT NULL, `cwd` VARCHAR(1024) NOT NULL, `title` VARCHAR(160) NOT NULL, `address_id` CHAR(36) NULL UNIQUE, `session_id` CHAR(36) NULL, `active_message_id` CHAR(36) NULL (currently owned peer delivery), `status` VARCHAR(24) NOT NULL, `last_activity_at` VARCHAR(100) NOT NULL, `created_at` VARCHAR(100) NOT NULL.
+- **host_daemon_operations** — `id` CHAR(36) PRIMARY KEY, `session_id` CHAR(36) NOT NULL FK → host_daemon_sessions.id (CASCADE), `host_id` BIGINT UNSIGNED NOT NULL FK → hosts.id (CASCADE), `client_key` VARCHAR(150) NOT NULL UNIQUE, `request_hash` CHAR(64) NOT NULL, `prompt_enc` LONGTEXT NOT NULL, `status` VARCHAR(24) NOT NULL, `claim_id` CHAR(36) NULL, `result_enc` LONGTEXT NULL, `created_at` VARCHAR(100) NOT NULL, `updated_at` VARCHAR(100) NOT NULL.

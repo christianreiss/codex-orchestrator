@@ -196,6 +196,10 @@ func Start(parent context.Context, cfg *config.Config, input StartInput) (*Sessi
 	if err != nil {
 		return nil, err
 	}
+	if operation := os.Getenv("CXX_DAEMON_OPERATION_ID"); operation != "" {
+		body["daemon_operation_id"] = operation
+		body["daemon_claim_id"] = os.Getenv("CXX_DAEMON_CLAIM_ID")
+	}
 	body["session_id"] = sessionID
 	body["bridge_token"] = bridgeToken
 	ca := ""

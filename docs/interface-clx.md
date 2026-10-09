@@ -1414,3 +1414,42 @@ When a recipient becomes receive-ready again, manual or automatic, still-online
 senders with waiting mail receive one bundled `presence_notice` from Server.
 The notice belongs to the sender's current session and never wakes a later one.
 It is informational: finish with `agent_listen` once, without a reply.
+
+
+## Optional host execution daemon
+
+Hosts opt in under Remote-Sessions; the default is disabled. Linux/systemd is
+required. `cxx daemon install|status|start|stop|uninstall|run` manages a separate
+`cxx-daemon.service`; its account defaults to root and may be an existing user.
+Installation requires root. Wrapper sync/cron reconciles an enabled service;
+unprivileged sync reports installation pending. The account must have usable
+managed engine configs and installed provider CLIs. Existing `cxx-agent`
+message/auth workers remain separate. No incoming host port is opened.
+
+The daemon authenticates an outbound WebSocket using the existing host key and
+uses generation fencing and a private local journal. Starts are durable and
+idempotent; losing an acceptance or result response never authorizes a second
+execution. After ambiguous process loss the result is unknown, not success.
+Eight remote turns may work concurrently by default; additional starts wait
+at most ten minutes. Only one turn writes a native transcript at once. Idle
+sessions close after 60 minutes, pending questions after 24 hours; host
+settings override both. Heartbeats do not count as activity. Explicit resume
+requires the same existing native transcript. Automatic recovery is separate.
+
+MCP tools: `agent_spawn` takes `host_id`, `engine`, optional absolute `cwd`,
+`title`, `prompt`, and stable UUID `client_message_id`. It returns
+`operation_id` and logical `session_id`. `agent_spawn_status` reads that session
+and its eventual agent address. Use existing messaging/calls for conversation.
+`agent_stop` stops only helpers created by the calling agent; operators may
+stop any remote session. Stop is cooperative, followed after 30 seconds by
+SIGTERM and ten seconds later by SIGKILL to the owned process group. Offline
+stops stay pending until the host reports exit. Host disable rejects new work,
+drains accepted turns, closes idle sessions and stops the optional daemon.
+
+Hosts show the daemon indicator only when enabled. Green means connected and
+ready with capacity; yellow means pending installation, reconnect, partial
+engine readiness or full capacity; red means unavailable or blocked. Heartbeats
+are sent every 15 seconds, stale at 45 seconds and expired at 90 seconds. Initial
+installation gets five minutes before becoming red. Browser disconnection
+never leaves a stale green indicator. Tooltip/text exposes reason, last contact
+and occupied/max slots. Engine readiness dots retain their separate meaning.

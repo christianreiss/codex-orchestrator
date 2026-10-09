@@ -121,10 +121,10 @@ describe('served document byte invariance', () => {
 
     expect(base.sha256).toBe('30abaea24c8809d8634670f0eceb3004aabb4eafb5416c78333c719e8b67e14b');
     expect(out.policy_sha256).toBe('3d8a8c754d80369c46a16c3350db8461520d3ae14b1de7ac03ad9454925ad5e5');
-    // 2026-10-09: add receipt presence and session-bound return notice guidance.
-    expect(out.features_sha256).toBe('2c40d53162a3c303d4b57fa4bc3f3906533ce66101a5d6ba220ef489dd676697');
-    expect(out.managed_sha256).toBe('7addc0353e19e4eb0966e36cf0ab1434b9b4589798f6a5af9d12edf5981d896f');
-    expect(sha256(out.body)).toBe('fe23f9c6d366785e912b5a37478d5e0072329cb5d335603cf597d42820d6a077');
+    // 2026-10-09: add optional remote helper lifecycle guidance.
+    expect(out.features_sha256).toBe('5b2d928e2b0b6154b29ebcb73f58f205d0e524633b726e7675bedfe8444b4b17');
+    expect(out.managed_sha256).toBe('d7eb7804ab33e0c84ea4715299831115553215aa816e18ddcf6a767ee8bd8137');
+    expect(sha256(out.body)).toBe('46b56de6644b2d1e025339dd153c6dbf15bd3de9ec39a3ddd74be781acd9a78e');
   });
 });
 

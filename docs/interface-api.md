@@ -1822,3 +1822,84 @@ backoff; deadline comparisons use server time. User STOP/off, explicit outcome, 
 eligibility, native identity change or the fixed deadline stops future recovery. Accepted
 running work is not killed by expiry/disable. Ambiguous crash recovery can repeat effects.
 Admin updates invalidate `watchdogs.changed`; the Portal displays a read-only projection.
+
+
+## Optional host execution daemon
+
+Hosts opt in under Remote-Sessions; the default is disabled. Linux/systemd is
+required. `cxx daemon install|status|start|stop|uninstall|run` manages a separate
+`cxx-daemon.service`; its account defaults to root and may be an existing user.
+Installation requires root. Wrapper sync/cron reconciles an enabled service;
+unprivileged sync reports installation pending. The account must have usable
+managed engine configs and installed provider CLIs. Existing `cxx-agent`
+message/auth workers remain separate. No incoming host port is opened.
+
+The daemon authenticates an outbound WebSocket using the existing host key and
+uses generation fencing and a private local journal. Starts are durable and
+idempotent; losing an acceptance or result response never authorizes a second
+execution. After ambiguous process loss the result is unknown, not success.
+Eight remote turns may work concurrently by default; additional starts wait
+at most ten minutes. Only one turn writes a native transcript at once. Idle
+sessions close after 60 minutes, pending questions after 24 hours; host
+settings override both. Heartbeats do not count as activity. Explicit resume
+requires the same existing native transcript. Automatic recovery is separate.
+
+MCP tools: `agent_spawn` takes `host_id`, `engine`, optional absolute `cwd`,
+`title`, `prompt`, and stable UUID `client_message_id`. It returns
+`operation_id` and logical `session_id`. `agent_spawn_status` reads that session
+and its eventual agent address; omit `session_id` to discover enabled hosts and readiness. Use existing messaging/calls for conversation.
+`agent_stop` stops only helpers created by the calling agent; operators may
+stop any remote session. Stop is cooperative, followed after 30 seconds by
+SIGTERM and ten seconds later by SIGKILL to the owned process group. Offline
+stops stay pending until the host reports exit. Host disable rejects new work,
+drains accepted turns, closes idle sessions and stops the optional daemon.
+
+Hosts show the daemon indicator only when enabled. Green means connected and
+ready with capacity; yellow means pending installation, reconnect, partial
+engine readiness or full capacity; red means unavailable or blocked. Heartbeats
+are sent every 15 seconds, stale at 45 seconds and expired at 90 seconds. Initial
+installation gets five minutes before becoming red. Browser disconnection
+never leaves a stale green indicator. Tooltip/text exposes reason, last contact
+and occupied/max slots. Engine readiness dots retain their separate meaning.
+
+### Daemon HTTP surfaces
+
+- `GET /admin/host-daemons`, `GET /admin/hosts/:id/daemon` and `PUT /admin/hosts/:id/daemon`: configuration and readiness. PUT accepts `enabled`, `username`, `default_cwd`, `max_parallel` (1–64), `idle_minutes` (1–1440), `question_minutes` (1–10080).
+- `POST /admin/daemon-sessions`: start, using the MCP start fields above. `GET /admin/daemon-sessions/:id` returns status and retained operation results; `POST .../:id/messages` resumes with `prompt` and UUID `client_message_id`; `POST .../:id/stop` requests process termination.
+- Equivalent `/go/api/host-daemons` and `/go/api/daemon-sessions*` routes use existing portal identity, origin and capability checks.
+- `GET /host/daemon/config` uses host authentication. `GET /host/daemon/connect` upgrades to WebSocket. Frames contain UUID `id`, `type`, `payload`; replies echo `id` with `result` or `error`. The handshake (`hello`) supplies instance UUID, username, version and ready engines; `heartbeat` returns current settings and session IDs to stop. `operation` notifications carry offered starts; `accept` must be durably confirmed before execution; `complete` stores an immutable result.
+- Per-session MCP routes: the bridge-token authenticated spawn, spawn-status and stop endpoints under `/host/agent-sessions/:sessionId/agent-messaging/` use the existing bridge token and stable agent ownership.
+- `host.daemon.changed` invalidates host-daemon and remote-session queries. Configuration/start/stop requests have dedicated audited events.
+
+### Remote daemon route inventory
+
+- `GET /admin/host-daemons`
+- `GET /admin/hosts/:id/daemon`
+- `PUT /admin/hosts/:id/daemon`
+- `POST /admin/daemon-sessions`
+- `GET /admin/daemon-sessions/:id`
+- `POST /admin/daemon-sessions/:id/messages`
+- `POST /admin/daemon-sessions/:id/stop`
+- `GET /host/daemon/config`
+- `GET /host/daemon/connect`
+- `POST /host/daemon/peer-finished`
+- `GET /go/api/host-daemons`
+- `POST /go/api/daemon-sessions`
+- `GET /go/api/daemon-sessions/:id`
+- `POST /go/api/daemon-sessions/:id/messages`
+- `POST /go/api/daemon-sessions/:id/stop`
+
+See the optional host execution daemon contract in [interface-api.md](interface-api.md).
+
+Remote operation content follows `AGENT_PORTAL_RETENTION_HOURS` once a session is
+terminal. Encrypted prompts and replies are cleared; metadata tombstones retain
+idempotency keys and daemon ownership so an old request cannot relaunch work or
+fall through to an ordinary user relay. Agent Messaging must be enabled globally
+and for the host. API shutdown and host/engine access rules still apply.
+The default root service needs usable managed configs and provider binaries in
+root's environment; choosing an existing user uses that user's home and native
+transcripts. No provider login is copied from another Unix account.
+
+- `POST /host/agent-sessions/:sessionId/agent-messaging/spawn`
+- `POST /host/agent-sessions/:sessionId/agent-messaging/spawn-status`
+- `POST /host/agent-sessions/:sessionId/agent-messaging/stop`

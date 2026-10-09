@@ -1,3 +1,4 @@
+import { registerHostDaemonRoutes } from './host-daemon.js';
 import type { FastifyInstance } from 'fastify';
 import type { Database } from '../db/client.js';
 import type { Env } from '../env.js';
@@ -49,6 +50,7 @@ export interface RouteContext {
 
 export async function registerAllRoutes(app: FastifyInstance, ctx: RouteContext): Promise<void> {
   await registerHealthRoutes(app, ctx);
+  await registerHostDaemonRoutes(app, ctx);
   await registerCompanionRoutes(app, ctx);
 
   // Host-facing wrapper + auth surface

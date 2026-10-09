@@ -70,7 +70,8 @@ describe.skipIf(!handle)('presence receipts and session-bound return notices', (
 
   for (const engine of Object.keys(protocols) as Engine[]) {
     it(`${engine}: resumes the same address and bundles waiting messages once for live B`, async () => {
-      let a = await peer(engine), b = await peer('claude', undefined, true);
+      let a = await peer(engine);
+      const b = await peer('claude', undefined, true);
       await service.finishSession(a.id, a.token, 'completed');
       const first = await send(b, a), second = await send(b, a);
       a = await peer(engine, a);
@@ -120,7 +121,8 @@ describe.skipIf(!handle)('presence receipts and session-bound return notices', (
   });
 
   it('ignores expired, canceled and already accepted messages', async () => {
-    let a = await peer(), b = await peer();
+    let a = await peer();
+    const b = await peer();
     await service.finishSession(a.id, a.token, 'completed');
     const expired = await send(b, a), canceled = await send(b, a), accepted = await send(b, a);
     await handle!.db.update(agentBusMessages).set({ expiresAt: new Date(Date.now() - 1000).toISOString() }).where(eq(agentBusMessages.id, expired.message.id));
@@ -132,7 +134,8 @@ describe.skipIf(!handle)('presence receipts and session-bound return notices', (
   });
 
   it('includes leased and this resumed launch’s accepted relay message', async () => {
-    let a = await peer(), b = await peer();
+    let a = await peer();
+    const b = await peer();
     await service.finishSession(a.id, a.token, 'completed');
     const leased = await send(b, a), accepted = await send(b, a);
     a = await peer('codex', a);
@@ -170,7 +173,8 @@ describe.skipIf(!handle)('presence receipts and session-bound return notices', (
   });
 
   it('marks live queued mail as waiting when A ends regularly', async () => {
-    let a = await peer('codex', undefined, true), b = await peer();
+    let a = await peer('codex', undefined, true);
+    const b = await peer();
     await send(b, a);
     await service.finishSession(a.id, a.token, 'completed');
     a = await peer('codex', a);

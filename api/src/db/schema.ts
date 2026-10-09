@@ -2334,3 +2334,40 @@ export const agentWatchdogs = mysqlTable('agent_watchdogs', {
   createdAt: varchar('created_at', { length: 100 }).notNull(),
   updatedAt: varchar('updated_at', { length: 100 }).notNull(),
 }, t => ({ task: uniqueIndex('uq_agent_watchdog_task').on(t.targetAddressId, t.nativeSessionId, t.taskKey), schedule: uniqueIndex('uq_agent_watchdog_schedule').on(t.scheduleId), status: index('idx_agent_watchdog_status').on(t.status, t.deadlineAt) }));
+
+// Optional outbound host daemon and its durable remote-session operations.
+export const hostDaemons = mysqlTable('host_daemons', {
+  hostId: bigint('host_id', { mode: 'number', unsigned: true }).primaryKey().references(() => hosts.id, { onDelete: 'cascade' }),
+  settings: json('settings').$type<import('../services/host-daemon/policy.js').DaemonSettings>().notNull(),
+  runtime: json('runtime').$type<import('../services/host-daemon/policy.js').DaemonRuntime>(),
+  enabledAt: varchar('enabled_at', { length: 100 }),
+  updatedAt: varchar('updated_at', { length: 100 }).notNull(),
+});
+export const hostDaemonSessions = mysqlTable('host_daemon_sessions', {
+  id: char('id', { length: 36 }).primaryKey(),
+  hostId: bigint('host_id', { mode: 'number', unsigned: true }).notNull().references(() => hosts.id, { onDelete: 'cascade' }),
+  owner: varchar('owner', { length: 100 }).notNull(),
+  engine: varchar('engine', { length: 16 }).notNull(),
+  username: varchar('username', { length: 64 }).notNull(),
+  cwd: varchar('cwd', { length: 1024 }).notNull(),
+  title: varchar('title', { length: 160 }).notNull(),
+  addressId: char('address_id', { length: 36 }),
+  sessionId: char('session_id', { length: 36 }),
+  activeMessageId: char('active_message_id', { length: 36 }),
+  status: varchar('status', { length: 24 }).notNull(),
+  lastActivityAt: varchar('last_activity_at', { length: 100 }).notNull(),
+  createdAt: varchar('created_at', { length: 100 }).notNull(),
+}, t => [index('idx_daemon_sessions_host').on(t.hostId), uniqueIndex('uq_daemon_session_address').on(t.addressId)]);
+export const hostDaemonOperations = mysqlTable('host_daemon_operations', {
+  id: char('id', { length: 36 }).primaryKey(),
+  sessionId: char('session_id', { length: 36 }).notNull().references(() => hostDaemonSessions.id, { onDelete: 'cascade' }),
+  hostId: bigint('host_id', { mode: 'number', unsigned: true }).notNull().references(() => hosts.id, { onDelete: 'cascade' }),
+  clientKey: varchar('client_key', { length: 150 }).notNull(),
+  requestHash: char('request_hash', { length: 64 }).notNull(),
+  promptEnc: longtext('prompt_enc').notNull(),
+  status: varchar('status', { length: 24 }).notNull(),
+  claimId: char('claim_id', { length: 36 }),
+  resultEnc: longtext('result_enc'),
+  createdAt: varchar('created_at', { length: 100 }).notNull(),
+  updatedAt: varchar('updated_at', { length: 100 }).notNull(),
+}, t => [uniqueIndex('uq_daemon_operation_client').on(t.clientKey), index('idx_daemon_operations_host').on(t.hostId, t.status)]);

@@ -1,5 +1,7 @@
 # 2026-10-09
 
+- Optional Linux host daemons (off by default) start Codex, Claude and Grok sessions from the Web/Chat or agent MCP. Per-host service account defaults to root, with eight work slots, 60-minute idle closure and 24-hour question expiry. Hosts show a dedicated green/yellow/red daemon indicator, readiness reasons and slot usage; durable operation receipts prevent replaying ambiguous starts. Wrapper 0.9.42 supplies `cxx daemon`.
+
 - Agent Messaging send/reply receipts report current recipient presence and distinguish server storage from acceptance or reading. A receive-ready return sends one bundled server notice to each still-online sender with waiting mail; notices belong to that sender’s current session, never wake a later session, and require no reply. Wrapper 0.9.41 handles notices across Codex, Claude and Grok.
 
 - Hosts replaces the Status column with per-engine readiness dots: green for current CLI/wrapper versions and present auth on secure hosts, yellow for missing auth or outdated/unknown versions, and gray for unassigned or suspended engines. Insecure hosts check versions only; host pins and fleet locks are respected, with reasons and installed/target versions in tooltips.

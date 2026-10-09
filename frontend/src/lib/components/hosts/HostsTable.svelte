@@ -1,4 +1,7 @@
 <script lang="ts">
+ import DaemonIndicator from "./DaemonIndicator.svelte";
+ import { hostDaemonsQuery } from "$lib/api/hostDaemons";
+ const daemons=hostDaemonsQuery();
   import { onMount } from "svelte";
   import { base } from "$app/paths";
   import { goto } from "$app/navigation";
@@ -210,6 +213,7 @@
                 </div>
                 <div class="mt-1 flex flex-wrap items-center gap-1 lg:hidden">
                   <EngineStatusDots host={row} />
+ <DaemonIndicator host={$daemons.data?.hosts.find(h=>h.host_id===row.id)}/>
                   {#if row.vip}
                     <span class="rounded bg-warning-muted px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-warning-muted-foreground">VIP</span>
                   {/if}
@@ -217,6 +221,7 @@
               </div>
               <div class="hidden flex-wrap items-center gap-1 lg:flex">
                 <EngineStatusDots host={row} />
+ <DaemonIndicator host={$daemons.data?.hosts.find(h=>h.host_id===row.id)}/>
                 {#if row.vip}
                   <span class="rounded bg-warning-muted px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-warning-muted-foreground">VIP</span>
                 {/if}

@@ -87,7 +87,7 @@ function emit(type: string, payload?: unknown): void {
 
 it("resamples client snapshots and selected timelines after WS reconnect", () => {
   emit("transport.connected");
-  assert.deepEqual(qc.keys, [["agent-sessions"], ["agent-messaging"]]);
+  assert.deepEqual(qc.keys, [["agent-sessions"], ["agent-messaging"], ["host-daemons"], ["daemon-sessions"]]);
 });
 
 describe("toast events", () => {

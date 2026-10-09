@@ -1,4 +1,8 @@
 <script lang="ts">
+ import { QueryClient, QueryClientProvider } from "@tanstack/svelte-query";
+ import RemoteSessions from "$lib/components/portal/RemoteSessions.svelte";
+ const queryClient=new QueryClient();
+ let remoteOpen=$state(false);
   import { onMount } from "svelte";
   import ExternalLinkIcon from "@lucide/svelte/icons/external-link";
   import PowerOffIcon from "@lucide/svelte/icons/power-off";
@@ -66,5 +70,12 @@
     >Retry</button>
   </CenterState>
 {:else}
-  <AppShell {portal} />
+  <QueryClientProvider client={queryClient}>
+  <div class="grid h-full grid-rows-[auto_minmax(0,1fr)]">
+   <div class="border-b border-border bg-background p-2"><button class="rounded border px-3 py-1 text-sm" onclick={()=>remoteOpen=!remoteOpen}>Remote-Sessions</button>
+    {#if remoteOpen}<div class="max-h-[70vh] overflow-auto p-3"><RemoteSessions portal/></div>{/if}
+   </div>
+   <div class="min-h-0"><AppShell {portal} /></div>
+  </div>
+  </QueryClientProvider>
 {/if}

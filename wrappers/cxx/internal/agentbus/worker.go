@@ -66,6 +66,8 @@ type relayDelivery struct {
 }
 
 type relayClient struct {
+	daemon               bool
+	beforeDelivery       func(context.Context, *relayDelivery) (context.Context, func())
 	baseURL              string
 	apiKey               string
 	http                 *http.Client
@@ -242,7 +244,7 @@ func (c *relayClient) register(ctx context.Context, username, instanceID, versio
 	var out relayRegistration
 	err := doJSON(ctx, c.http, c.baseURL, http.MethodPost, "/host/agent-relays/register", map[string]any{
 		"username": username, "instance_id": instanceID, "wrapper_version": version,
-		"capabilities": map[string]any{"execution_contract_version": 2, "watchdog_protocol_version": 1, "headless": true, "codex_exec_resume": true, "claude_print_resume": true, "grok_json_resume": true},
+		"capabilities": map[string]any{"host_daemon": c.daemon, "execution_contract_version": 2, "watchdog_protocol_version": 1, "headless": true, "codex_exec_resume": true, "claude_print_resume": true, "grok_json_resume": true},
 	}, map[string]string{"X-API-Key": c.apiKey}, &out)
 	if err != nil {
 		return nil, err
@@ -310,6 +312,11 @@ func (c *relayClient) poll(ctx context.Context, configs map[string]*config.Confi
 }
 
 func (c *relayClient) processDelivery(ctx context.Context, configs map[string]*config.Config, delivery *relayDelivery) error {
+	if c.beforeDelivery != nil {
+		var finish func()
+		ctx, finish = c.beforeDelivery(ctx, delivery)
+		defer finish()
+	}
 	if delivery.Kind == "presence_notice" {
 		return c.ack(ctx, delivery, "dead", "presence_notice_live_session_only", nil)
 	}
@@ -446,6 +453,11 @@ func (c *relayClient) runNative(ctx context.Context, cfg *config.Config, deliver
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	cmd := exec.CommandContext(runCtx, exe, args...)
+	managed := stringArg(delivery.Target, "daemon_session_id") != ""
+	if managed {
+		cmd = exec.Command(exe, args...)
+		prepareDaemonProcess(cmd)
+	}
 	cmd.Dir = stringArg(delivery.Target, "cwd")
 	cmd.Stdin = strings.NewReader(prompt)
 	if engine == config.EngineGrok {
@@ -497,7 +509,19 @@ func (c *relayClient) runNative(ctx context.Context, cfg *config.Config, deliver
 			}
 		}
 	}()
-	waitErr := cmd.Wait()
+	var waitErr error
+	if managed {
+		done := make(chan error, 1)
+		go func() { done <- cmd.Wait() }()
+		select {
+		case waitErr = <-done:
+		case <-runCtx.Done():
+			stopDaemonProcess(cmd, done)
+			waitErr = runCtx.Err()
+		}
+	} else {
+		waitErr = cmd.Wait()
+	}
 	cancel()
 	<-done
 	select {

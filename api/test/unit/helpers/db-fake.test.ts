@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import { describe, expect, it } from 'vitest';
 import { sharedMemoryChunks } from '../../../src/db/schema.js';
 import { createDbFake, type DbFake } from '../../helpers/db-fake.js';
@@ -36,6 +36,23 @@ function chunkIds(db: DbFake): unknown[] {
 }
 
 describe('createDbFake id allocation', () => {
+  it('applies IN alongside equality without deleting other revisions', async () => {
+    const db = createDbFake();
+    await insertChunks(db, [chunkRow(0), chunkRow(1), chunkRow(2), chunkRow(1, 2)]);
+    await (db.delete(sharedMemoryChunks) as DeleteBuilder).where(
+      and(
+        eq(sharedMemoryChunks.memoryId, 7),
+        eq(sharedMemoryChunks.revision, 1),
+        inArray(sharedMemoryChunks.ordinal, [0, 1]),
+      ),
+    );
+    expect(
+      db.tables.get(sharedMemoryChunks)?.map(({ ordinal, revision }) => ({ ordinal, revision })),
+    ).toEqual([
+      { ordinal: 2, revision: 1 },
+      { ordinal: 1, revision: 2 },
+    ]);
+  });
   it('gives every row of a batch insert its own id', async () => {
     const db = createDbFake();
 

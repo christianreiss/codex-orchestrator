@@ -98,6 +98,8 @@ func runExplicit(args []string, stdout, stderr io.Writer) int {
 		return agentportal.RunCommand(args[1:], stdout, stderr)
 	case "watchdog":
 		return agentbus.RunWatchdogCommand(args[1:], os.Stdin, stdout, stderr)
+	case "daemon":
+		return agentbus.RunDaemonCommand(args[1:], stdout, stderr, Version)
 	case "agent":
 		return agentbus.RunCommand(args[1:], os.Stdin, stdout, stderr, Version)
 	case "remote":
@@ -205,7 +207,13 @@ func runHostSync(args []string, stdout, stderr io.Writer) int {
 			return 2
 		}
 	}
-	return syncEngines(passthrough, stdout, stderr, codexapp.Run, claudeapp.Run, grokapp.Run)
+	code := syncEngines(passthrough, stdout, stderr, codexapp.Run, claudeapp.Run, grokapp.Run)
+	if code == 0 {
+		if err := agentbus.ReconcileHostDaemon(stdout, stderr); err != nil {
+			fmt.Fprintln(stderr, "host daemon:", err)
+		}
+	}
+	return code
 }
 
 // syncEngines walks the engines in the same fixed order the cron coordinator
@@ -338,6 +346,7 @@ func printSelectorHelp(w io.Writer) {
 	fmt.Fprintln(w, "  cxx cron [install|remove|run [--due]]")
 	fmt.Fprintln(w, "  cxx portal [status|notify|resolve|say|ask|wait|accept|leave]")
 	fmt.Fprintln(w, "  cxx agent [list|send|request|wait|reply|message|cancel|status|service]")
+	fmt.Fprintln(w, "  cxx daemon [install|status|start|stop|uninstall|run]")
 	fmt.Fprintln(w, "  cxx remote [info|exec|read|write|wait|signal|ps|rm|get|put|push|pull|down]")
 	fmt.Fprintln(w, "  cxx --version")
 	fmt.Fprintln(w, "")

@@ -1677,3 +1677,59 @@ CREATE TABLE `agent_watchdogs` (
  UNIQUE KEY uq_agent_watchdog_schedule (schedule_id),
  KEY idx_agent_watchdog_status (status, deadline_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+
+CREATE TABLE `host_daemon_operations` (
+	`id` char(36) NOT NULL,
+	`session_id` char(36) NOT NULL,
+	`host_id` bigint unsigned NOT NULL,
+	`client_key` varchar(150) NOT NULL,
+	`request_hash` char(64) NOT NULL,
+	`prompt_enc` longtext NOT NULL,
+	`status` varchar(24) NOT NULL,
+	`claim_id` char(36),
+	`result_enc` longtext,
+	`created_at` varchar(100) NOT NULL,
+	`updated_at` varchar(100) NOT NULL,
+	CONSTRAINT `host_daemon_operations_id` PRIMARY KEY(`id`),
+	CONSTRAINT `uq_daemon_operation_client` UNIQUE(`client_key`)
+);
+
+CREATE TABLE `host_daemon_sessions` (
+	`id` char(36) NOT NULL,
+	`host_id` bigint unsigned NOT NULL,
+	`owner` varchar(100) NOT NULL,
+	`engine` varchar(16) NOT NULL,
+	`username` varchar(64) NOT NULL,
+	`cwd` varchar(1024) NOT NULL,
+	`title` varchar(160) NOT NULL,
+	`address_id` char(36),
+	`session_id` char(36),
+	`active_message_id` char(36),
+	`status` varchar(24) NOT NULL,
+	`last_activity_at` varchar(100) NOT NULL,
+	`created_at` varchar(100) NOT NULL,
+	CONSTRAINT `host_daemon_sessions_id` PRIMARY KEY(`id`),
+	CONSTRAINT `uq_daemon_session_address` UNIQUE(`address_id`)
+);
+
+CREATE TABLE `host_daemons` (
+	`host_id` bigint unsigned NOT NULL,
+	`settings` json NOT NULL,
+	`runtime` json,
+	`enabled_at` varchar(100),
+	`updated_at` varchar(100) NOT NULL,
+	CONSTRAINT `host_daemons_host_id` PRIMARY KEY(`host_id`)
+);
+
+ALTER TABLE `host_daemon_operations` ADD CONSTRAINT `host_daemon_operations_session_id_host_daemon_sessions_id_fk` FOREIGN KEY (`session_id`) REFERENCES `host_daemon_sessions`(`id`) ON DELETE cascade ON UPDATE no action;
+
+ALTER TABLE `host_daemon_operations` ADD CONSTRAINT `host_daemon_operations_host_id_hosts_id_fk` FOREIGN KEY (`host_id`) REFERENCES `hosts`(`id`) ON DELETE cascade ON UPDATE no action;
+
+ALTER TABLE `host_daemon_sessions` ADD CONSTRAINT `host_daemon_sessions_host_id_hosts_id_fk` FOREIGN KEY (`host_id`) REFERENCES `hosts`(`id`) ON DELETE cascade ON UPDATE no action;
+
+ALTER TABLE `host_daemons` ADD CONSTRAINT `host_daemons_host_id_hosts_id_fk` FOREIGN KEY (`host_id`) REFERENCES `hosts`(`id`) ON DELETE cascade ON UPDATE no action;
+
+CREATE INDEX `idx_daemon_operations_host` ON `host_daemon_operations` (`host_id`,`status`);
+
+CREATE INDEX `idx_daemon_sessions_host` ON `host_daemon_sessions` (`host_id`);

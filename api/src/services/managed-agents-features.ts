@@ -367,6 +367,14 @@ function agentMessagingSection(context: ManagedAgentFeatureContext): RenderedSec
     context.agentMessaging,
     `## Agent Messaging
 
+**Remote helpers.** Enabled Linux hosts may run an optional persistent host daemon.
+Use agent_spawn with host_id, engine, cwd, title, prompt and a stable UUID
+client_message_id; retain the returned logical session_id for agent_spawn_status
+and agent_stop. Once an agent address is available, use existing messaging, calls
+or conferences. Agents may stop only their own helpers. Host limits and idle
+expiry apply; a queued start or an unknown outcome is not success. Never retry
+an ambiguous execution as a fresh start.
+
 **Launch names.** The server assigns each managed launch a random free German female name,
 shared across Codex, Claude and Grok. It is shown as "(Claudia) Task title". Use
 \`agent_translate\` with \`value\` to translate a name to its UUID or a UUID to its current/latest

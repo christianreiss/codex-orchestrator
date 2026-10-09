@@ -274,6 +274,7 @@ describe('the exceptions are exceptions, not holes', () => {
       'GET /admin/agent-sessions/:id/events',
       'GET /admin/agent-sessions/events',
       'GET /admin/authorization',
+      'GET /admin/daemon-sessions/:id',
       'PATCH /admin/agent-messaging/addresses/:id',
       'PATCH /admin/schedules/:id',
       'POST /admin/agent-messaging/addresses/:id/enabled',
@@ -295,10 +296,14 @@ describe('the exceptions are exceptions, not holes', () => {
       'POST /admin/agent-sessions/:id/prompts/:promptId/answer',
       'POST /admin/agent-sessions/:id/receiver/verify',
       'POST /admin/authorization',
+      'POST /admin/daemon-sessions',
+      'POST /admin/daemon-sessions/:id/messages',
+      'POST /admin/daemon-sessions/:id/stop',
       'POST /admin/schedules',
       'POST /admin/watchdogs',
       'POST /admin/watchdogs/:id/disable',
-]);
+      'PUT /admin/hosts/:id/daemon',
+    ]);
   });
 });
 

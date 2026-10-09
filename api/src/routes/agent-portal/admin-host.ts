@@ -1,3 +1,4 @@
+import { HostDaemonService } from '../../services/host-daemon/service.js';
 import { randomBytes, randomUUID } from 'node:crypto';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
@@ -173,6 +174,8 @@ export async function registerAgentPortalAdminHostRoutes(
         bridge_token: z.string().min(43).max(128).regex(/^[A-Za-z0-9_-]+$/).optional(),
         delivery_message_id: z.string().uuid().optional(),
         delivery_claim_id: z.string().uuid().optional(),
+        daemon_operation_id: z.string().uuid().optional(),
+        daemon_claim_id: z.string().uuid().optional(),
         agent_address: z.string().nullable().optional(),
         binding_generation: z.number().int().nonnegative().nullable().optional(),
         continuity: z.enum(['native', 'reset']).optional(),
@@ -209,17 +212,26 @@ export async function registerAgentPortalAdminHostRoutes(
         adapterCapabilities: body.adapter_capabilities,
       });
     }
-    if (portalEnabled && body.invocation_kind !== 'peer_delivery') {
+    const remoteAddress = messagingResult.address as { id?: string } | undefined;
+    const daemonPeer = body.invocation_kind === 'peer_delivery' && remoteAddress?.id
+      ? await new HostDaemonService(ctx).bindPeer(host.id, sessionId, remoteAddress.id) : false;
+    if (portalEnabled && (body.invocation_kind !== 'peer_delivery' || body.daemon_operation_id || daemonPeer)) {
       portalResult = await portal.registerAgent(host, {
         engine,
         username: body.username,
         cwd: body.cwd,
         upstreamSessionId: body.upstream_session_id,
-        invocationKind: body.invocation_kind,
+        invocationKind: body.invocation_kind === 'peer_delivery' ? 'execute' : body.invocation_kind,
         resumed: body.resumed,
         sessionId,
         bridgeToken,
       });
+    }
+    if (body.daemon_operation_id && body.daemon_claim_id) {
+      const address = messagingResult.address as { id?: string; address?: string } | undefined;
+      const addressId = address?.id ?? address?.address?.replace(/^agent:/, '');
+      if (!addressId) throw new ForbiddenError('Messaging identity required for daemon session');
+      await new HostDaemonService(ctx).bind(host.id, body.daemon_operation_id, body.daemon_claim_id, sessionId, addressId);
     }
     const enabled = portalResult.enabled || messagingResult.enabled === true;
     if (!enabled) {

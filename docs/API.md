@@ -1026,3 +1026,27 @@ Current bridge routes use the session token; operator host routes use host auth 
 - `POST /host/agent-sessions/:id/agent-messaging/watchdog/enable`
 - `POST /host/agent-sessions/:id/agent-messaging/watchdog/disable`
 - `POST /host/agent-sessions/:id/agent-messaging/watchdog/finish`
+
+### Remote daemon route inventory
+
+- `GET /admin/host-daemons`
+- `GET /admin/hosts/:id/daemon`
+- `PUT /admin/hosts/:id/daemon`
+- `POST /admin/daemon-sessions`
+- `GET /admin/daemon-sessions/:id`
+- `POST /admin/daemon-sessions/:id/messages`
+- `POST /admin/daemon-sessions/:id/stop`
+- `GET /host/daemon/config`
+- `GET /host/daemon/connect`
+- `POST /host/daemon/peer-finished`
+- `GET /go/api/host-daemons`
+- `POST /go/api/daemon-sessions`
+- `GET /go/api/daemon-sessions/:id`
+- `POST /go/api/daemon-sessions/:id/messages`
+- `POST /go/api/daemon-sessions/:id/stop`
+
+See the optional host execution daemon contract in [interface-api.md](interface-api.md).
+
+- `POST /host/agent-sessions/:sessionId/agent-messaging/spawn`
+- `POST /host/agent-sessions/:sessionId/agent-messaging/spawn-status`
+- `POST /host/agent-sessions/:sessionId/agent-messaging/stop`

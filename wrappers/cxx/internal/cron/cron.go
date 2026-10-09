@@ -240,6 +240,13 @@ func run(ctx context.Context, seed *config.Config, minimal, due bool, stdout, st
 	if workerRequired {
 		ensureWorker()
 	}
+	daemonCtx, daemonCancel := context.WithTimeout(ctx, 30*time.Second)
+	daemonCmd := exec.CommandContext(daemonCtx, canonical, "daemon", "reconcile")
+	daemonCmd.Stdout, daemonCmd.Stderr = stdout, stderr
+	if err := daemonCmd.Run(); err != nil {
+		fmt.Fprintln(stderr, "optional host daemon:", err)
+	}
+	daemonCancel()
 	return errors.Join(errs...)
 }
 
