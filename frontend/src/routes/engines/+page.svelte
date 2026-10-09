@@ -1,4 +1,5 @@
 <script lang="ts">
+  import ChattySettings from "$lib/components/chatty/ChattySettings.svelte";
   import PageHeader from "$lib/components/layout/PageHeader.svelte";
   import ModelDefaultsSection from "$lib/components/settings/ModelDefaultsSection.svelte";
   import CodexVersionSection from "$lib/components/settings/CodexVersionSection.svelte";
@@ -97,6 +98,8 @@
       <GrokVersionSection headingLevel={3} />
     </div>
   </section>
+
+  <ChattySettings />
 
   <section id="quota-enforcement" class="setting-boundary">
     <div class="setting-boundary__head">

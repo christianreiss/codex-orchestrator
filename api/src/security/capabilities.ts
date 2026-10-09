@@ -39,6 +39,9 @@ export const CAPABILITIES = [
   // Console-wide reads that carry no fleet state of their own: the overview
   // tiles, the manual, the websocket descriptor, engine usage counters.
   'admin.read',
+  'chatty.use',
+  'chatty.manage',
+
 
   // Acting on your *own* account — logout, password change, your own passkeys.
   // Held by every role including `viewer`: an account you cannot sign out of or

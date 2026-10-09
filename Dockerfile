@@ -22,6 +22,8 @@ RUN apk add --no-cache python3 make g++ libc6-compat
 COPY api/package.json api/package-lock.json ./
 RUN npm ci --no-audit --no-fund
 COPY api ./
+COPY docs /app/docs
+COPY public/admin/manual /app/public/admin/manual
 RUN npm run typecheck && npm run build
 
 # The build emits dist/package.json and dist/package-lock.json holding the exact

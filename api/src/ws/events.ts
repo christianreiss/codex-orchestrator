@@ -8,6 +8,7 @@
  * or routed by the frontend's `DEFAULT_INVALIDATIONS`.
  */
 export const WS_EVENT_TYPES = [
+  'chatty.settings',
   'host.daemon.changed',
   'host.daemon.configured',
   'host.daemon.start_requested',

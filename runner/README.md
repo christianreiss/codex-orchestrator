@@ -57,6 +57,9 @@ The container serves FastAPI via uvicorn on `0.0.0.0:8080`.
 
 ## HTTP API
 
+- `GET /chatty/capabilities` — authenticated Chatty protocol and installed engines.
+- `POST /chatty/turn` — bounded inference-only JSON turn; native tools and MCP disabled.
+
 Every route `runner/app.py` registers, and nothing else.
 `runner/test_docs_surface.py` walks `app.routes` and fails both ways — a
 registered route missing from this index or from its own `### METHOD /path`
@@ -638,3 +641,21 @@ Behavior details:
 - The `claude` path runs with `--output-format json`; a 0-exit response that is not that JSON shape is reported as `status:"fail"` rather than being passed through as reply text, and an `is_error` result inside a 0-exit response is a failure too.
 - The `claude` path also returns `input_tokens`, `output_tokens`, `cache_creation_input_tokens`, and `cache_read_input_tokens`.
 - HTTP 504 on exec timeout (`"exec timeout"`); HTTP 500 on runner exceptions.
+
+### `GET /chatty/capabilities`
+
+Requires `X-Runner-Auth`. Returns `{protocol:1, engines:["codex","claude","grok"]}`
+with only installed, available engines. An old runner does not enable Chatty.
+
+### `POST /chatty/turn`
+
+Requires `X-Runner-Auth`. Body: `protocol:1`, `engine`, `model`, `auth_json`,
+`prompt` (at most 64,000 characters), and `timeout_seconds` (1–120).
+Returns `{protocol:1,response:{kind:"answer"|"question"|"tool_call",...}}`.
+Only the API executes product tools. Native CLI tools, MCP and subagents are
+disabled; every call uses a clean temporary home and an allowlisted environment.
+The existing auth preparers strip refresh credentials from runtime projections.
+Two dedicated slots return 429 when busy. Timeout, disconnect and cancellation
+terminate the process group and remove its home. Output is bounded to 256 KiB.
+Malformed JSON is 502 `chatty_invalid_output`; native errors do not expose stderr.
+This is completed-step transport, not provider token streaming.

@@ -1,3 +1,4 @@
+import { registerAdminChattyRoutes } from './admin/chatty/index.js';
 import { registerHostDaemonRoutes } from './host-daemon.js';
 import type { FastifyInstance } from 'fastify';
 import type { Database } from '../db/client.js';
@@ -86,6 +87,7 @@ export async function registerAllRoutes(app: FastifyInstance, ctx: RouteContext)
   await registerAdminAgentSessionsRoutes(app, ctx);
   await registerAdminProjectBoardRoutes(app, ctx);
   await registerAdminManualRoutes(app, ctx);
+  await registerAdminChattyRoutes(app, ctx);
 
   // SPA fallback last (catches HTML GET /admin/* that didn't match a JSON
   // route). registerStaticAdminRoutes installs its own setNotFoundHandler

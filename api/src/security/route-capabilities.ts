@@ -46,6 +46,19 @@ const bootstrap = (capability: Capability, reason: string): RouteGuard => ({
 });
 
 export const ROUTE_CAPABILITIES: Readonly<Record<string, RouteGuard>> = {
+  'GET /admin/chatty/status': cap('chatty.use'),
+  'GET /admin/chatty/session': cap('chatty.use'),
+  'PUT /admin/chatty/selection': cap('chatty.use'),
+  'POST /admin/chatty/messages': cap('chatty.use'),
+  'POST /admin/chatty/runs/:id/answer': cap('chatty.use'),
+  'POST /admin/chatty/runs/:id/cancel': cap('chatty.use'),
+  'POST /admin/chatty/actions/:id/decision': cap('chatty.use'),
+  'DELETE /admin/chatty/session': cap('chatty.use'),
+  'GET /admin/chatty/sources/:id': cap('chatty.use'),
+  'GET /admin/chatty/events': cap('chatty.use'),
+  'GET /admin/chatty/settings': cap('chatty.manage'),
+  'PUT /admin/chatty/settings': cap('chatty.manage'),
+
   'GET /admin/host-daemons': cap('admin.read'),
   'GET /admin/hosts/:id/daemon': cap('admin.read'),
   'PUT /admin/hosts/:id/daemon': cap('agent_messaging.manage'),

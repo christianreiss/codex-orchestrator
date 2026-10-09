@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
+  import Chatty from "../chatty/Chatty.svelte";
   import Sidebar from "./Sidebar.svelte";
   import MobileNav from "./MobileNav.svelte";
   import TopBar from "./TopBar.svelte";
@@ -25,3 +26,5 @@
   </div>
   <MobileNav />
 </div>
+
+<Chatty />

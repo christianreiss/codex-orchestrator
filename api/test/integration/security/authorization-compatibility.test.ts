@@ -269,6 +269,18 @@ describe('the exceptions are exceptions, not holes', () => {
     // is the fleet's conversations, and for the writes it is instructing, or
     // ending, someone else's running agent.
     expect([...ALWAYS_ENFORCED_ROUTES].sort()).toEqual([
+      'DELETE /admin/chatty/session',
+      'GET /admin/chatty/events',
+      'GET /admin/chatty/session',
+      'GET /admin/chatty/settings',
+      'GET /admin/chatty/sources/:id',
+      'GET /admin/chatty/status',
+      'POST /admin/chatty/actions/:id/decision',
+      'POST /admin/chatty/messages',
+      'POST /admin/chatty/runs/:id/answer',
+      'POST /admin/chatty/runs/:id/cancel',
+      'PUT /admin/chatty/selection',
+      'PUT /admin/chatty/settings',
       'DELETE /admin/agent-portal/users/:id',
       'DELETE /admin/schedules/:id',
       'GET /admin/agent-sessions/:id/events',
@@ -303,7 +315,7 @@ describe('the exceptions are exceptions, not holes', () => {
       'POST /admin/watchdogs',
       'POST /admin/watchdogs/:id/disable',
       'PUT /admin/hosts/:id/daemon',
-    ]);
+    ].sort());
   });
 });
 

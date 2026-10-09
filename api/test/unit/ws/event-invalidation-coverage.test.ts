@@ -242,6 +242,8 @@ function collectPublishSites(): PublishSite[] {
         if (needle === PUBLISH_NEEDLE && INDIRECT_PUBLISHERS.includes(file)) continue;
         let at = isComment ? -1 : line.indexOf(needle);
         while (at !== -1) {
+          // Zod record schemas are not AdminEventsService writes.
+          if (needle === RECORD_NEEDLE && /\bz$/.test(line.slice(0, at))) { at = line.indexOf(needle, at + needle.length); continue; }
           const args = callArguments(source, lineStart + at + needle.length - 1);
           sites.push({
             file,

@@ -949,3 +949,7 @@ Web Chat (Admin and Portal) and Android display per-instruction delivery, explic
 reading/processing and correlated reply receipts. `agent_receiver_status` in cxx
 0.9.43 reports reading or work start; transport acceptance stays distinct. A stale or
 different active turn cannot leave an old message marked as currently processing.
+
+## Chatty
+
+The Admin WebUI includes a personal product assistant for Owner/Admin after the first verified usable AI access. It combines build-versioned documentation and MCP knowledge with typed administration tools, durable confirmations and personal encrypted conversations. See [Chatty architecture and operations](chatty.md).

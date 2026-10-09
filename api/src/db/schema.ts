@@ -2371,3 +2371,52 @@ export const hostDaemonOperations = mysqlTable('host_daemon_operations', {
   createdAt: varchar('created_at', { length: 100 }).notNull(),
   updatedAt: varchar('updated_at', { length: 100 }).notNull(),
 }, t => [uniqueIndex('uq_daemon_operation_client').on(t.clientKey), index('idx_daemon_operations_host').on(t.hostId, t.status)]);
+
+// Chatty conversations are private to one admin; payloads use secretbox.
+export const chattySessions = mysqlTable('chatty_sessions', {
+  userId: bigint('user_id', { mode: 'number', unsigned: true }).primaryKey().references(() => adminUsers.id, { onDelete: 'cascade' }),
+  generation: int('generation').notNull().default(1),
+  selection: json('selection').$type<import('../services/chatty/contracts.js').ChattySelection>().notNull(),
+  seenAvailable: tinyint('seen_available').notNull().default(0),
+  summaryEnc: longtext('summary_enc'),
+  updatedAt: varchar('updated_at', { length: 100 }).notNull(),
+});
+export const chattyRuns = mysqlTable('chatty_runs', {
+  id: char('id', { length: 36 }).primaryKey(),
+  userId: bigint('user_id', { mode: 'number', unsigned: true }).notNull().references(() => adminUsers.id, { onDelete: 'cascade' }),
+  adminSessionId: bigint('admin_session_id', { mode: 'number', unsigned: true }).notNull(),
+  generation: int('generation').notNull(),
+  clientMessageId: char('client_message_id', { length: 36 }).notNull(),
+  requestHash: char('request_hash', { length: 64 }).notNull(),
+  status: varchar('status', { length: 32 }).notNull(),
+  inputEnc: longtext('input_enc').notNull(),
+  stateEnc: longtext('state_enc').notNull(),
+  claimId: char('claim_id', { length: 36 }),
+  leaseUntil: varchar('lease_until', { length: 100 }),
+  steps: int('steps').notNull().default(0),
+  activeMs: int('active_ms').notNull().default(0),
+  createdAt: varchar('created_at', { length: 100 }).notNull(),
+  updatedAt: varchar('updated_at', { length: 100 }).notNull(),
+}, t => [uniqueIndex('uq_chatty_client').on(t.userId,t.clientMessageId), index('idx_chatty_queue').on(t.status,t.createdAt)]);
+export const chattyEvents = mysqlTable('chatty_events', {
+  id: bigint('id', { mode: 'number', unsigned: true }).primaryKey().autoincrement(),
+  userId: bigint('user_id', { mode: 'number', unsigned: true }).notNull().references(() => adminUsers.id, { onDelete: 'cascade' }),
+  generation: int('generation').notNull(),
+  runId: char('run_id', { length: 36 }),
+  kind: varchar('kind', { length: 24 }).notNull(),
+  bodyEnc: longtext('body_enc').notNull(),
+  createdAt: varchar('created_at', { length: 100 }).notNull(),
+}, t => [index('idx_chatty_events').on(t.userId,t.generation,t.id)]);
+export const chattyActions = mysqlTable('chatty_actions', {
+  id: char('id', { length: 36 }).primaryKey(),
+  runId: char('run_id', { length: 36 }).notNull(),
+  userId: bigint('user_id', { mode: 'number', unsigned: true }).notNull().references(() => adminUsers.id, { onDelete: 'cascade' }),
+  generation: int('generation').notNull(),
+  tool: varchar('tool', { length: 100 }).notNull(),
+  status: varchar('status', { length: 24 }).notNull(),
+  payloadEnc: longtext('payload_enc').notNull(),
+  resultEnc: longtext('result_enc'),
+  expiresAt: varchar('expires_at', { length: 100 }).notNull(),
+  createdAt: varchar('created_at', { length: 100 }).notNull(),
+  updatedAt: varchar('updated_at', { length: 100 }).notNull(),
+}, t => [index('idx_chatty_actions').on(t.runId,t.status)]);

@@ -141,6 +141,8 @@ export const LEGACY_OWNER_ADMIN_ROUTES: ReadonlySet<string> = new Set([
  * Enforced under both modes, and `assertCapability` refuses anything else.
  */
 export const ALWAYS_ENFORCED: readonly Capability[] = [
+
+  'chatty.use', 'chatty.manage',
   // New opt-in group publications are an operator action. Compatibility must
   // not let a viewer publish as Server or expose management controls.
   'agent_messaging.manage',

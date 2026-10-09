@@ -1,0 +1,1 @@
+import{K as e,W as t,bt as n,xt as r}from"../chunks/CcbFKhJi.js";import"../chunks/xihTtKlq.js";import"../chunks/jenKwcZg.js";import{t as i}from"../chunks/CXEt_-6L.js";import{t as a}from"../chunks/1kRI4Htx.js";var o=e(`<!> <!>`,1);function s(e){var s=o(),c=n(s);i(c,{title:`Commands`,subtitle:`Claude-native slash commands.`}),a(r(c,2),{}),t(e,s)}export{s as component};

@@ -4,6 +4,9 @@ The auth runner is a FastAPI sidecar (`auth-runner` in `docker-compose.yml`) tha
 
 ## HTTP surface (runner container)
 
+- `GET /chatty/capabilities` — authenticated Chatty protocol and installed engines.
+- `POST /chatty/turn` — bounded inference-only JSON turn; native tools and MCP disabled.
+
 This is every route `runner/app.py` registers. `runner/test_docs_surface.py`
 walks `app.routes` and fails when a registered `METHOD /path` is missing from
 the list below, and when the list names a route the runner does not serve, so a
@@ -294,3 +297,21 @@ instead.
 - `ANTHROPIC_API_BASE` (runner container): base URL the direct API-key half of `POST /verify-claude` posts to. Code default: `https://api.anthropic.com`, with trailing slashes stripped.
 - `RUNNER_SHARED_SECRET` (runner container): validates incoming `X-Runner-Auth` for every POST — `/verify`, `/verify-claude`, `/skills/summarize`, `/memories/summarize`, `/skills/generate`, `/skills/assist`, `/projects/assist`, and `/exec`.
 - `RUNNER_DEBUG_DUMP_AUTH` + `RUNNER_ALLOW_SECRET_DUMP` (runner container): both must be `1` to allow `/tmp/last-auth.json` writes; still disabled when `APP_ENV=production`.
+
+### `GET /chatty/capabilities`
+
+Requires `X-Runner-Auth`. Returns `{protocol:1, engines:["codex","claude","grok"]}`
+with only installed, available engines. An old runner does not enable Chatty.
+
+### `POST /chatty/turn`
+
+Requires `X-Runner-Auth`. Body: `protocol:1`, `engine`, `model`, `auth_json`,
+`prompt` (at most 64,000 characters), and `timeout_seconds` (1–120).
+Returns `{protocol:1,response:{kind:"answer"|"question"|"tool_call",...}}`.
+Only the API executes product tools. Native CLI tools, MCP and subagents are
+disabled; every call uses a clean temporary home and an allowlisted environment.
+The existing auth preparers strip refresh credentials from runtime projections.
+Two dedicated slots return 429 when busy. Timeout, disconnect and cancellation
+terminate the process group and remove its home. Output is bounded to 256 KiB.
+Malformed JSON is 502 `chatty_invalid_output`; native errors do not expose stderr.
+This is completed-step transport, not provider token streaming.

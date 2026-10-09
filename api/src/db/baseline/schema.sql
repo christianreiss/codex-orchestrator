@@ -1733,3 +1733,73 @@ ALTER TABLE `host_daemons` ADD CONSTRAINT `host_daemons_host_id_hosts_id_fk` FOR
 CREATE INDEX `idx_daemon_operations_host` ON `host_daemon_operations` (`host_id`,`status`);
 
 CREATE INDEX `idx_daemon_sessions_host` ON `host_daemon_sessions` (`host_id`);
+
+CREATE TABLE `chatty_actions` (
+	`id` char(36) NOT NULL,
+	`run_id` char(36) NOT NULL,
+	`user_id` bigint unsigned NOT NULL,
+	`generation` int NOT NULL,
+	`tool` varchar(100) NOT NULL,
+	`status` varchar(24) NOT NULL,
+	`payload_enc` longtext NOT NULL,
+	`result_enc` longtext,
+	`expires_at` varchar(100) NOT NULL,
+	`created_at` varchar(100) NOT NULL,
+	`updated_at` varchar(100) NOT NULL,
+	CONSTRAINT `chatty_actions_id` PRIMARY KEY(`id`)
+);
+
+CREATE TABLE `chatty_events` (
+	`id` bigint unsigned AUTO_INCREMENT NOT NULL,
+	`user_id` bigint unsigned NOT NULL,
+	`generation` int NOT NULL,
+	`run_id` char(36),
+	`kind` varchar(24) NOT NULL,
+	`body_enc` longtext NOT NULL,
+	`created_at` varchar(100) NOT NULL,
+	CONSTRAINT `chatty_events_id` PRIMARY KEY(`id`)
+);
+
+CREATE TABLE `chatty_runs` (
+	`id` char(36) NOT NULL,
+	`user_id` bigint unsigned NOT NULL,
+	`admin_session_id` bigint unsigned NOT NULL,
+	`generation` int NOT NULL,
+	`client_message_id` char(36) NOT NULL,
+	`request_hash` char(64) NOT NULL,
+	`status` varchar(32) NOT NULL,
+	`input_enc` longtext NOT NULL,
+	`state_enc` longtext NOT NULL,
+	`claim_id` char(36),
+	`lease_until` varchar(100),
+	`steps` int NOT NULL DEFAULT 0,
+	`active_ms` int NOT NULL DEFAULT 0,
+	`created_at` varchar(100) NOT NULL,
+	`updated_at` varchar(100) NOT NULL,
+	CONSTRAINT `chatty_runs_id` PRIMARY KEY(`id`),
+	CONSTRAINT `uq_chatty_client` UNIQUE(`user_id`,`client_message_id`)
+);
+
+CREATE TABLE `chatty_sessions` (
+	`user_id` bigint unsigned NOT NULL,
+	`generation` int NOT NULL DEFAULT 1,
+	`selection` json NOT NULL,
+	`seen_available` tinyint NOT NULL DEFAULT 0,
+	`summary_enc` longtext,
+	`updated_at` varchar(100) NOT NULL,
+	CONSTRAINT `chatty_sessions_user_id` PRIMARY KEY(`user_id`)
+);
+
+ALTER TABLE `chatty_actions` ADD CONSTRAINT `chatty_actions_user_id_admin_users_id_fk` FOREIGN KEY (`user_id`) REFERENCES `admin_users`(`id`) ON DELETE cascade ON UPDATE no action;
+
+ALTER TABLE `chatty_events` ADD CONSTRAINT `chatty_events_user_id_admin_users_id_fk` FOREIGN KEY (`user_id`) REFERENCES `admin_users`(`id`) ON DELETE cascade ON UPDATE no action;
+
+ALTER TABLE `chatty_runs` ADD CONSTRAINT `chatty_runs_user_id_admin_users_id_fk` FOREIGN KEY (`user_id`) REFERENCES `admin_users`(`id`) ON DELETE cascade ON UPDATE no action;
+
+ALTER TABLE `chatty_sessions` ADD CONSTRAINT `chatty_sessions_user_id_admin_users_id_fk` FOREIGN KEY (`user_id`) REFERENCES `admin_users`(`id`) ON DELETE cascade ON UPDATE no action;
+
+CREATE INDEX `idx_chatty_actions` ON `chatty_actions` (`run_id`,`status`);
+
+CREATE INDEX `idx_chatty_events` ON `chatty_events` (`user_id`,`generation`,`id`);
+
+CREATE INDEX `idx_chatty_queue` ON `chatty_runs` (`status`,`created_at`);

@@ -16,6 +16,9 @@
 
 export const CAPABILITIES = [
   "admin.read",
+  "chatty.use",
+  "chatty.manage",
+
   "account.self_manage",
   "users.read",
   "users.manage",

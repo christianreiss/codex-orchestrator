@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field
 
 import grok
 import runner_engines
+from chatty import register_chatty
 from images import ImageLimits, ImagePolicyError, materialize_images
 
 app = FastAPI()
@@ -1585,3 +1586,7 @@ def exec_prompt(payload: ExecRequest, request: Request):
         raise
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=500, detail=str(exc))
+
+
+# Inference-only product assistant; tools remain in the API process.
+register_chatty(app, _require_runner_auth, _prepare_engine_env, CLAUDE_CLI_PATH, grok, _ENGINE_RUNTIME)

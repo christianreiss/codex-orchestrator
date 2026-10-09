@@ -116,6 +116,8 @@ Code-truth operator map for `/admin/*`. Source of truth is runtime code (`api/sr
 | Capability | `owner` | `admin` | `fleet_operator` | `trusted_user` | `viewer` | `user` |
 | --- | --- | --- | --- | --- | --- | --- |
 | `admin.read` | yes | yes | yes | yes | yes | yes |
+| `chatty.use` | yes | yes | — | — | — | — |
+| `chatty.manage` | yes | yes | — | — | — | — |
 | `account.self_manage` | yes | yes | yes | yes | yes | yes |
 | `users.read` | yes | yes | yes | yes | yes | yes |
 | `users.manage` | yes | yes | — | — | — | — |

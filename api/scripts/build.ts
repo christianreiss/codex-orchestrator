@@ -1,3 +1,4 @@
+import { writeChattyKnowledge } from './build-chatty-knowledge.js';
 import * as esbuild from 'esbuild';
 import { mkdirSync, copyFileSync, writeFileSync, readFileSync, readdirSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -6,6 +7,7 @@ const root = resolve(import.meta.dirname, '..');
 const dist = resolve(root, 'dist');
 
 mkdirSync(dist, { recursive: true });
+writeChattyKnowledge(root, dist);
 
 const sharedBuildOptions: Omit<esbuild.BuildOptions, 'entryPoints' | 'outfile'> = {
   bundle: true,

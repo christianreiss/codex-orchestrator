@@ -1,5 +1,7 @@
 # 2026-10-09
 
+- Chatty adds the personal bottom-right Admin assistant: verified AI access gating, private encrypted cross-device history, product/MCP knowledge, Codex/Claude/Grok selection, typed administration tools, concrete confirmations, cancellation and global Clear. Host-work dispatch stays outside Chatty; interactive credential flows link to the existing UI.
+
 - Web Chat and Android 0.4.9 show per-message delivery, explicit AI read/working receipts and correlated replies. Wrapper 0.9.43 adds `agent_receiver_status`; queue acceptance never fabricates reading, and stale or unrelated turns cannot keep a message marked as working.
 
 - Optional Linux host daemons (off by default) start Codex, Claude and Grok sessions from the Web/Chat or agent MCP. Per-host service account defaults to root, with eight work slots, 60-minute idle closure and 24-hour question expiry. Hosts show a dedicated green/yellow/red daemon indicator, readiness reasons and slot usage; durable operation receipts prevent replaying ambiguous starts. Wrapper 0.9.42 supplies `cxx daemon`.

@@ -1,5 +1,8 @@
 <script lang="ts">
   import { onDestroy } from "svelte";
+  import { get } from "svelte/store";
+  import { authStore } from "$lib/stores/auth";
+  import { chattyKeys, fetchChattyStatus } from "$lib/api/chatty";
   import { useQueryClient } from "@tanstack/svelte-query";
   import LoaderCircle from "@lucide/svelte/icons/loader-circle";
   import ArrowUpRight from "@lucide/svelte/icons/arrow-up-right";
@@ -25,6 +28,16 @@
   try {
     const qc = useQueryClient();
     sources = buildDynamicSources(qc);
+    sources.push(async (query) => {
+      const auth = get(authStore);
+      if (!auth.can('chatty.use') || (query && !['chatty', 'assistant', 'hilfe'].some(word => word.includes(query.toLowerCase())))) return [];
+      const status = await qc.fetchQuery({ queryKey: [...chattyKeys.status, auth.user?.id], queryFn: fetchChattyStatus, staleTime: 30000 });
+      if (!status.visible) return [];
+      return [{ id: 'action:chatty', label: 'Chatty öffnen', description: 'Produktfragen und Verwaltung', group: 'Actions', run() {
+        commandPalette.close();
+        window.dispatchEvent(new CustomEvent('codex:open-chatty'));
+      } }];
+    });
   } catch {
     sources = [];
   }

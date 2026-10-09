@@ -1916,3 +1916,29 @@ revive old work. No new database fields or transport-generated read receipts exi
 Portal/Admin/Companion timelines carry these events under existing transcript gates.
 The UIs correlate them and `assistant_message.message_id` to each outgoing bubble;
 uncorrelated replies and receiver keep-alives never advance a message's read status.
+
+## Chatty personal product assistant
+
+Owner/Admin only through always-enforced `chatty.use`; settings require
+`chatty.manage`. All endpoints use the current admin cookie and user ownership.
+Chat content is encrypted and never broadcast on global admin WS.
+
+| Endpoint | Contract |
+| --- | --- |
+| `GET /admin/chatty/status` | Visibility, actual provider/engine/model/runner readiness and knowledge digest. |
+| `GET /admin/chatty/session` | Current generation, selection, last 100 events, active request; optional before cursor. |
+| `PUT /admin/chatty/selection` | engine/model, each nullable; null engine selects automatically. |
+| `POST /admin/chatty/messages` | client_message_id UUID, generation, text, optional typed page/entity context; deduplicated durable queue admission. |
+| `POST /admin/chatty/runs/:id/answer` | generation and text; resumes the user's pending question. |
+| `POST /admin/chatty/runs/:id/cancel` | Stops the user's request; completed changes remain. |
+| `POST /admin/chatty/actions/:id/decision` | generation and approve boolean; applies only to the user's current unexpired action. |
+| `DELETE /admin/chatty/session` | Deletes content, cancels work and advances the generation across devices; content-free retry tombstones remain. |
+| `GET /admin/chatty/events` | Cookie-authenticated personal SSE change notifications; reconnect fetches the canonical snapshot. |
+| `GET /admin/chatty/sources/:id` | Authorized read of a source in the build's private knowledge corpus. |
+| `GET /admin/chatty/settings` | Installation settings and limits. |
+| `PUT /admin/chatty/settings` | enabled, engine_order (all three once), concurrency (1–2), queue_limit (1–100), steps (2–24), timeout_seconds (30–120). |
+
+409 means stale generation, changed action target, expired decision or conflicting
+request. 503 means no usable AI access. Queue admission has no success semantics:
+only a committed action receipt proves a mutation. Detailed lifecycle, supported
+tools, exclusions and rollout requirements: [Chatty](chatty.md).

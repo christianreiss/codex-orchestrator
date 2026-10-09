@@ -830,7 +830,7 @@ class RunnerAppTest(unittest.TestCase):
 def _request_body_model(endpoint):
     """Return the Pydantic body model a handler declares, or None."""
     for parameter in inspect.signature(endpoint).parameters.values():
-        annotation = parameter.annotation
+        annotation = typing.get_type_hints(endpoint).get(parameter.name, parameter.annotation)
         if isinstance(annotation, type) and issubclass(annotation, BaseModel):
             return annotation
     return None
@@ -840,6 +840,8 @@ def _minimal_field_value(annotation):
     if isinstance(annotation, type) and issubclass(annotation, BaseModel):
         return _minimal_request_body(annotation)
     origin = typing.get_origin(annotation) or annotation
+    if origin is typing.Literal:
+        return typing.get_args(annotation)[0]
     if origin is list:
         return []
     if origin is dict:
@@ -967,11 +969,7 @@ class RunnerRouteAuthTest(unittest.TestCase):
             for method in sorted(route.methods):
                 if (method, route.path) in self.UNAUTHENTICATED_ROUTES:
                     continue
-                self.assertEqual(
-                    "POST",
-                    method,
-                    f"{method} {route.path} is neither guarded nor allowlisted",
-                )
+                self.assertIn(method, {"GET", "POST"}, f"Unexpected guarded method: {method}")
                 routes.append(
                     (method, route.path, _minimal_request_body(_request_body_model(route.endpoint)))
                 )
