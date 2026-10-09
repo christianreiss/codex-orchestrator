@@ -1,5 +1,12 @@
 # API Interface (Source of Truth)
 
+## Fleet commit preferences
+
+- `GET /admin/git-director/commit-settings` requires an admin session and `git_director.read`; returns `{ message_style: "short" | "long", ai_attribution: boolean }` in the standard envelope. Missing or invalid stored values yield `short` / `false` without writing.
+- `POST /admin/git-director/commit-settings` requires `git_director.manage` and both fields with exactly the types above; unknown fields or invalid values return 400. Stores the whole pair as JSON in `versions.git_commit_settings` (last accepted write wins), emits `settings.changed` and records/broadcasts `git_director.commit_settings_updated` with the operator's `admin_user_id`. No migration or engine-specific override.
+- Managed host documents and admin previews carry a mandatory `git_commit_messages` section, with section digest and preview provenance `feature:git_commit_messages`. Short means subject only; long adds change/reason and relevant verification. Attribution adds one engine-specific `AI-Assisted-By: Codex|Claude|Grok` trailer after a blank line, including with short messages. Off forbids automatic AI markers/co-authors. Git identities and commit/push authority are unchanged; explicit operator instructions take precedence.
+- Preferences are independent of Director, MCP and Skills activation. Hosts adopt the changed document hash on their next sync/launch; active sessions may retain previous instructions. The explicit blank AGENTS generation mode still suppresses managed guidance. Host document rendering degrades to the defaults if settings are temporarily unavailable.
+
 ## Native launch connection reuse (cxx 0.9.24)
 
 Managed native command entrypoints and `cdx`/`clx`/`cgx` share the existing

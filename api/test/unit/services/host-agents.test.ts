@@ -19,6 +19,7 @@ import {
 } from '../../../src/services/agent-policy-composer.js';
 import { AGENTS_GENERATION_MODE_KEY } from '../../../src/services/agents-generation-mode.js';
 import { HostAgentsService } from '../../../src/services/host-agents.js';
+import { GIT_COMMIT_SETTINGS_KEY } from '../../../src/services/git-commit-settings.js';
 import { ENGINE_CLAUDE, ENGINE_CODEX, ENGINE_GROK } from '../../../src/util/engine.js';
 import { createDbFake, type DbFake } from '../../helpers/db-fake.js';
 
@@ -247,7 +248,7 @@ describe('HostAgentsService.retrieve', () => {
     expect(out['content']).toContain('Canonical AGENTS body');
     expect(out['content']).toContain('## Fleet Management');
     expect(out['managed_sha256']).toMatch(/^[0-9a-f]{64}$/);
-    expect(out['features_sha256']).toBeNull();
+    expect(out['features_sha256']).toMatch(/^[0-9a-f]{64}$/);
     expect(out['sections']).toMatchObject({
       skills: { present: false, reason: 'mcp_disabled' },
       memories: { present: false, reason: 'mcp_disabled' },
@@ -307,6 +308,29 @@ describe('HostAgentsService document resolution', () => {
     const out = await makeService(db).retrieve(null, makeHost());
 
     expect(out['version_id']).toBe(5);
+  });
+});
+
+describe('HostAgentsService commit preferences', () => {
+  it.each([ENGINE_CODEX, ENGINE_CLAUDE, ENGINE_GROK])('serves saved preferences to %s without MCP or Director', async (engine) => {
+    const body = 'Canonical base\n';
+    const db = makeDb([
+      [agentsDocuments, [agentsRow(4, body, engine)]],
+      [versions, [{ name: GIT_COMMIT_SETTINGS_KEY, version: JSON.stringify({ message_style: 'long', ai_attribution: true }) }]],
+    ]);
+    const service = makeService(db);
+    const first = await service.retrieve(null, makeHost(), engine);
+    expect(first['content']).toContain('explain what changed and why');
+    expect(first['content']).toContain(`AI-Assisted-By: ${{ codex: 'Codex', claude: 'Claude', grok: 'Grok' }[engine]}`);
+    expect(first['sections']).toMatchObject({ git_commit_messages: { present: true }, git_director: { present: false } });
+    expect((await service.retrieve(String(first['sha256']), makeHost(), engine))['status']).toBe('unchanged');
+    db.tables.set(versions, [{ name: GIT_COMMIT_SETTINGS_KEY, version: JSON.stringify({ message_style: 'short', ai_attribution: false }) }]);
+    const changed = await service.retrieve(String(first['sha256']), makeHost(), engine);
+    expect(changed['status']).toBe('updated');
+    expect(changed['sha256']).not.toBe(first['sha256']);
+    expect(changed['content']).not.toContain('AI-Assisted-By:');
+    const preview = await service.renderCurrent(makeHost(), engine);
+    expect(preview['content']).toBe(changed['content']);
   });
 });
 

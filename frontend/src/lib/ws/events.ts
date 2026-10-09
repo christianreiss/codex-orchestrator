@@ -190,6 +190,7 @@ export const DEFAULT_INVALIDATIONS: WsInvalidationMap = {
   // Git Director
   "git_director.changed": [["git-director"]],
   "git_director.module_toggled": [["git-director"]],
+  "git_director.commit_settings_updated": [["settings"], ["agents"]],
   "git_director.decision_forced": [["git-director"]],
   "git_director.worktree_evicted": [["git-director"]],
 

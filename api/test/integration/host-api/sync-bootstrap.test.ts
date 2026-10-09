@@ -601,11 +601,14 @@ describe('POST /sync/bootstrap inlines agents + config', () => {
         memory_routing: { present: false, reason: 'mcp_disabled' },
         projects: { present: false, reason: 'mcp_disabled' },
         browseros: { present: false, reason: 'mcp_disabled' },
+        git_commit_messages: { present: true, reason: 'mandatory' },
       },
     });
     expect(body.agents.sha256).not.toBe(agentsSha);
     expect(body.agents.managed_sha256).toMatch(/^[a-f0-9]{64}$/);
-    expect(servedAgents).not.toContain('cxx:managed-features');
+    expect(servedAgents).toContain('## Git commit messages');
+    expect(servedAgents).not.toContain('## Skills');
+    expect(servedAgents).not.toContain('## Projects / CoCo');
     await app.close();
   });
 

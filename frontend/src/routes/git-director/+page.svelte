@@ -5,6 +5,7 @@
   import { toast } from "svelte-sonner";
   import PageHeader from "$lib/components/layout/PageHeader.svelte";
   import GitDirectorSection from "$lib/components/settings/GitDirectorSection.svelte";
+  import GitCommitSettingsSection from "$lib/components/settings/GitCommitSettingsSection.svelte";
   import { Badge } from "$lib/components/ui/badge";
   import { Button } from "$lib/components/ui/button";
   import { authStore } from "$lib/stores/auth";
@@ -92,6 +93,7 @@
 
 <div class="space-y-6">
   <GitDirectorSection />
+  <GitCommitSettingsSection />
 
   {#if $clones.isPending}
     <p class="text-sm text-muted-foreground">Loading the registry…</p>

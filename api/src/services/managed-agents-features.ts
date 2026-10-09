@@ -27,6 +27,7 @@ import {
   type ResponseVerbosityLevel,
 } from './agent-response-style.js';
 import { REMOTE_EXEC_GUIDANCE } from './remote-exec.js';
+import { DEFAULT_GIT_COMMIT_SETTINGS, renderGitCommitGuidance, type GitCommitSettings } from './git-commit-settings.js';
 
 
 export const MANAGED_FEATURES_START = '<!-- cxx:managed-features:start -->';
@@ -52,6 +53,7 @@ export interface ManagedAgentFeatureContext {
   gitDirector: ManagedFeatureState;
   fileTransfer: ManagedFeatureState;
   remoteExec: ManagedFeatureState;
+  gitCommitSettings?: GitCommitSettings;
 }
 
 export interface ManagedAgentFeatureSection {
@@ -82,6 +84,7 @@ export interface ManagedAgentFeatureSections {
   git_director: ManagedAgentFeatureSection;
   file_transfer: ManagedAgentFeatureSection;
   remote_exec: ManagedAgentFeatureSection;
+  git_commit_messages: ManagedAgentFeatureSection;
 }
 
 export interface RenderManagedAgentFeaturesResult {
@@ -122,6 +125,7 @@ const FEATURE_SECTION_LABELS: Partial<Record<keyof ManagedAgentFeatureSections, 
   // console turns the Director on for every host, so the jump-to-setting link
   // points at a control that exists.
   git_director: 'Git Director (fleet setting)',
+  git_commit_messages: 'Git commit messages (fleet setting)',
   // A fleet setting like the two above: one console switch turns the pool on
   // for every host, so the jump-to-setting link points at a control that exists.
   file_transfer: 'File Transfer (fleet setting)',
@@ -688,6 +692,11 @@ export function renderManagedAgentFeatures(
   const gitDirector = gitDirectorSection(context);
   const fileTransfer = fileTransferSection(context);
   const remoteExec = remoteExecSection(context);
+  const commitText = renderGitCommitGuidance(context.gitCommitSettings ?? DEFAULT_GIT_COMMIT_SETTINGS, context.engine);
+  const gitCommitMessages: RenderedSection = {
+    text: commitText,
+    metadata: { present: true, reason: 'mandatory', sha256: sha256(commitText) },
+  };
 
   const skillsMetadata = skills?.metadata ?? absent(context.skills);
   const memoryMetadata = memory?.metadata ?? absent(context.memory);
@@ -724,6 +733,7 @@ export function renderManagedAgentFeatures(
     git_director: gitDirector?.metadata ?? absent(context.gitDirector),
     file_transfer: fileTransfer?.metadata ?? absent(context.fileTransfer),
     remote_exec: remoteExec?.metadata ?? absent(context.remoteExec),
+    git_commit_messages: gitCommitMessages.metadata,
   };
 
   // Appended last on purpose: provider order is part of `managed_sha256`, so
@@ -740,6 +750,7 @@ export function renderManagedAgentFeatures(
     { key: 'git_director', section: gitDirector },
     { key: 'file_transfer', section: fileTransfer },
     { key: 'remote_exec', section: remoteExec },
+    { key: 'git_commit_messages', section: gitCommitMessages },
   ];
   const presentFeatures = orderedFeatures.filter(
     (entry): entry is { key: keyof ManagedAgentFeatureSections; section: RenderedSection } =>

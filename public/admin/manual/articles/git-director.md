@@ -1,15 +1,25 @@
 ---
 title: Git Director
 section: Admin workspace
-summary: Clone and worktree registry, merge leases and verdicts, the judge, and the operator overrides.
+summary: Fleet commit preferences, clone and worktree registry, merge leases and verdicts, the judge, and operator overrides.
 tags: [git, merge, worktree, coordination]
-verified: 2026-09-09
-sources: api/src/routes/admin/git-director/index.ts, api/src/services/git-director.ts, api/src/services/git-director-judge.ts, api/src/services/git-director-tool-names.ts, api/src/services/mcp-tools.ts, api/src/security/capabilities.ts, api/src/security/route-capabilities.ts, api/src/env.ts, frontend/src/routes/git-director/+page.svelte, frontend/src/lib/components/settings/GitDirectorSection.svelte, frontend/src/lib/api/gitDirector.ts
+verified: 2026-10-09
+sources: api/src/services/git-commit-settings.ts, api/src/services/managed-agents-features.ts, frontend/src/lib/components/settings/GitCommitSettingsSection.svelte, api/src/routes/admin/git-director/index.ts, api/src/services/git-director.ts, api/src/services/git-director-judge.ts, api/src/services/git-director-tool-names.ts, api/src/services/mcp-tools.ts, api/src/security/capabilities.ts, api/src/security/route-capabilities.ts, api/src/env.ts, frontend/src/routes/git-director/+page.svelte, frontend/src/lib/components/settings/GitDirectorSection.svelte, frontend/src/lib/api/gitDirector.ts
 ---
 
 Several agents work this fleet's repositories at once, often in separate worktrees of one checkout. The **Git Director** (`/git-director`, under *Coordinate*) is how they see each other: a registry of who is working in which clone, and an arbiter for merges into shared branches. It never touches a worktree — every agent runs its own git commands and reports what it did. The console page is where an operator watches the registry, forces a verdict, or releases a worktree an agent abandoned.
 
-## The module switch
+## Commit messages
+
+The **Commit messages** card applies one shared preference to Codex, Claude and Grok, even when the Git Director or Skills are disabled:
+
+- **Short** (default): one precise subject line, without an explanatory body.
+- **Long**: a subject, blank line, then what changed and why, with relevant verification results. Unperformed checks must never be presented as passed.
+- **AI Attribution** (default off): when enabled, append one `AI-Assisted-By: Codex`, `AI-Assisted-By: Claude` or `AI-Assisted-By: Grok` trailer after a blank line. This is also allowed with short messages. When off, add no automatic AI trailers, AI co-authors or Generated-by markers. Git author and committer identities remain unchanged.
+
+Changes save immediately, with engine previews, save/error feedback and updates across open tabs. Reads require `git_director.read`; saves require `git_director.manage` and record the operator in the admin audit. Hosts receive the rules through managed AGENTS.md / CLAUDE.md at their next wrapper content sync or launch. Existing sessions may keep their earlier instructions. Explicit operator instructions take precedence; these preferences do not grant permission to commit or push. The explicit blank AGENTS generation mode still suppresses managed instructions.
+
+## Director activation
 
 **Enable the Git Director** (`GET`/`POST /admin/git-director/state`, `git_director.manage`) turns the registry on fleet-wide. While it is on, hosts with MCP enabled receive a Git Director section in their managed `AGENTS.md` / `CLAUDE.md` and the six `git_*` MCP tools answer. The state badge next to the switch reports the clone and worktree counts and the model the judge uses.
 

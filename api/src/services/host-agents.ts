@@ -19,6 +19,7 @@ import { ProjectsService } from './projects.js';
 import { SecretsService } from './secrets.js';
 import { SettingsService } from './settings.js';
 import { GitDirectorService, GIT_DIRECTOR_ENABLED_FLAG } from './git-director.js';
+import { DEFAULT_GIT_COMMIT_SETTINGS, readGitCommitSettings } from './git-commit-settings.js';
 import { AgentTransfersService, TRANSFERS_ENABLED_FLAG } from './agent-transfers.js';
 import { REMOTE_EXEC_ENABLED_KEY } from './remote-exec.js';
 import { AGENT_MESSAGING_ENABLED_KEY } from './agent-messaging.js';
@@ -394,6 +395,7 @@ export class HostAgentsService {
       transfersEnabled,
       transferCount,
       remoteExecEnabled,
+      gitCommitSettings,
     ] = await Promise.all([
       this.db
         .select()
@@ -415,6 +417,9 @@ export class HostAgentsService {
       this.settings.getFlag(TRANSFERS_ENABLED_FLAG, false).catch(() => null),
       this.transfers.availableCount().catch(() => null),
       this.settings.getFlag(REMOTE_EXEC_ENABLED_KEY, false).catch(() => null),
+      // Keep document sync available during a deployment with missing settings,
+      // like the neighbouring policy readers; defaults never add attribution.
+      readGitCommitSettings(this.settings).catch(() => ({ ...DEFAULT_GIT_COMMIT_SETTINGS })),
     ]);
     // db-fake ignores WHERE, so do not borrow another engine's row in tests.
     const configRow = configRows.find((candidate) => candidate.engine === engine) ?? null;
@@ -560,6 +565,7 @@ export class HostAgentsService {
       gitDirector,
       fileTransfer,
       remoteExec,
+      gitCommitSettings,
     };
   }
 

@@ -5,6 +5,7 @@ import { ApiError } from '../../../http/errors.js';
 import { AdminEventsService } from '../../../services/admin-events.js';
 import { GitDirectorService } from '../../../services/git-director.js';
 import { SettingsService } from '../../../services/settings.js';
+import { GIT_COMMIT_SETTINGS_KEY, gitCommitSettingsSchema, readGitCommitSettings } from '../../../services/git-commit-settings.js';
 import { adminSpaHtmlPreHandler } from '../pages/static.js';
 
 /**
@@ -59,6 +60,21 @@ export async function registerAdminGitDirectorRoutes(
   });
   const events = new AdminEventsService(ctx.db);
   const adminSpa = adminSpaHtmlPreHandler(ctx);
+
+  const settings = new SettingsService(ctx.db);
+  app.get('/admin/git-director/commit-settings', { preHandler: app.requireAdmin }, async () => {
+    return await readGitCommitSettings(settings);
+  });
+  app.post('/admin/git-director/commit-settings', { preHandler: app.requireAdmin }, async (req) => {
+    const parsed = gitCommitSettingsSchema.safeParse(req.body);
+    if (!parsed.success) throw badRequest(parsed.error.issues[0]);
+    await settings.set(GIT_COMMIT_SETTINGS_KEY, JSON.stringify(parsed.data));
+    await events.record({
+      type: 'git_director.commit_settings_updated',
+      payload: { ...parsed.data, admin_user_id: actor(req) },
+    });
+    return parsed.data;
+  });
 
   app.get('/admin/git-director/state', { preHandler: app.requireAdmin }, async () => {
     return await director.adminState();

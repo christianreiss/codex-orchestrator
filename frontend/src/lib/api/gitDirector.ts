@@ -17,6 +17,32 @@ export interface GitDirectorState {
   updated_at: string | null;
 }
 
+export interface GitCommitSettings {
+  message_style: "short" | "long";
+  ai_attribution: boolean;
+}
+
+export const gitCommitSettingsKey = ["settings", "git-commit"] as const;
+
+export function gitCommitSettingsQuery() {
+  return createQuery<GitCommitSettings>({
+    queryKey: gitCommitSettingsKey,
+    queryFn: () => api.get<GitCommitSettings>("/admin/git-director/commit-settings"),
+  });
+}
+
+export function gitCommitSettingsMutation(opts: MutationOpts<GitCommitSettings, GitCommitSettings> = {}) {
+  const client = useQueryClient();
+  return createMutation<GitCommitSettings, Error, GitCommitSettings>({
+    mutationFn: (settings) => api.post<GitCommitSettings>("/admin/git-director/commit-settings", settings),
+    ...opts,
+    onSettled: (...args) => {
+      void client.invalidateQueries({ queryKey: gitCommitSettingsKey });
+      opts.onSettled?.(...args);
+    },
+  });
+}
+
 export interface GitWorktreeRow {
   worktree_id: string;
   worktree_path: string;

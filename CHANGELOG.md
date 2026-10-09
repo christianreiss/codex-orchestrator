@@ -1,5 +1,7 @@
 # 2026-10-09
 
+- Git Director now offers fleet-wide short/long commit messages and optional engine-specific `AI-Assisted-By` trailers. Defaults are short and attribution off. Managed Codex, Claude and Grok instructions carry the preferences independently of Director/Skills activation; the UI includes engine previews, audited capability-gated saves and cross-tab updates. Hosts adopt changes on their next content sync or launch.
+
 - Active Clients shows agent launch names, working directories, explicit status, local Codex/Claude/Grok SVG logos and the latest compact summary. Name and summary search works across all engines; summary previews require transcript access.
 
 - Wrapper 0.9.39 makes peer discovery searchable by name/alias/address and pageable with `limit`, `offset` and `next_offset`; the caller remains excluded. Conference invitations now reserve a seat as `invited` until explicit join (migration 0047 preserves historic join timestamps), and task grace deadlines stop at the room deadline. Managed Grok MCP starts keep automatic reception through their private leader even when a project definition omits `--auto`. Messaging tools explicitly describe UUID idempotency keys, omit session paths from errors, and recommend unchanged-payload retries only for uncertain transport/server failures or HTTP 408/429, rather than permanent rejections.

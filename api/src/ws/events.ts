@@ -134,6 +134,7 @@ export const WS_EVENT_TYPES = [
   'git_director.changed',
   // The two operator actions, which are audit facts as well as view changes.
   'git_director.module_toggled',
+  'git_director.commit_settings_updated',
   'git_director.decision_forced',
   'git_director.worktree_evicted',
 

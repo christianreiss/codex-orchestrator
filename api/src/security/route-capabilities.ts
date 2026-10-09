@@ -377,6 +377,8 @@ export const ROUTE_CAPABILITIES: Readonly<Record<string, RouteGuard>> = {
   'POST /admin/projects/:slug/board/columns/:id': cap('projects.manage'),
   'GET /admin/git-director': cap('git_director.read'),
   'GET /admin/git-director/state': cap('git_director.read'),
+  'GET /admin/git-director/commit-settings': cap('git_director.read'),
+  'POST /admin/git-director/commit-settings': cap('git_director.manage'),
   'POST /admin/git-director/state': cap('git_director.manage'),
   'POST /admin/git-director/requests/:id/decide': cap('git_director.manage'),
   'POST /admin/git-director/worktrees/:id/release': cap('git_director.manage'),

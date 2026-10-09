@@ -51,6 +51,35 @@ function context(
 
 const sha256 = (value: string): string => createHash('sha256').update(value).digest('hex');
 
+describe('fleet commit guidance', () => {
+  for (const engine of [ENGINE_CODEX, ENGINE_CLAUDE, ENGINE_GROK]) {
+    for (const message_style of ['short', 'long'] as const) {
+      for (const ai_attribution of [false, true]) {
+        it(`${engine}: ${message_style}, attribution ${ai_attribution}`, () => {
+          const settings = { message_style, ai_attribution };
+          const out = renderManagedAgentFeatures('# Base\n', context(engine, { gitCommitSettings: settings }));
+          const name = { codex: 'Codex', claude: 'Claude', grok: 'Grok' }[engine];
+          expect(out.body).toContain('## Git commit messages');
+          expect(out.body).toContain(message_style === 'short' ? 'one precise subject line' : 'explain what changed and why');
+          expect(out.body.includes(`AI-Assisted-By: ${name}`)).toBe(ai_attribution);
+          expect(out.body).toContain('Explicit operator instructions take precedence');
+          expect(out.body).toContain('Preserve the existing Git author and committer identity');
+          expect(out.sections.git_director.present).toBe(false);
+          expect(out.sections.skills.present).toBe(false);
+          expect(out.sections.git_commit_messages).toMatchObject({ present: true, sha256: expect.stringMatching(/^[0-9a-f]{64}$/) });
+          expect(out.provenance).toContainEqual(expect.objectContaining({ key: 'feature:git_commit_messages', headings: ['Git commit messages'] }));
+          const repeat = renderManagedAgentFeatures(out.body, context(engine, { gitCommitSettings: settings }));
+          expect(repeat.body).toBe(out.body);
+          expect(repeat.managed_sha256).toBe(out.managed_sha256);
+          const changed = renderManagedAgentFeatures(out.body, context(engine, { gitCommitSettings: { ...settings, ai_attribution: !ai_attribution } }));
+          expect(changed.managed_sha256).not.toBe(out.managed_sha256);
+          expect(changed.body.split('## Git commit messages')).toHaveLength(2);
+        });
+      }
+    }
+  }
+});
+
 describe('served document byte invariance', () => {
   /**
    * Every host compares these digests on sync, so a single changed byte anywhere
@@ -92,10 +121,10 @@ describe('served document byte invariance', () => {
 
     expect(base.sha256).toBe('30abaea24c8809d8634670f0eceb3004aabb4eafb5416c78333c719e8b67e14b');
     expect(out.policy_sha256).toBe('3d8a8c754d80369c46a16c3350db8461520d3ae14b1de7ac03ad9454925ad5e5');
-    // 2026-10-08: add confirmed launch identity and agent_self across all engines.
-    expect(out.features_sha256).toBe('f3d0e3d5100316061a700b30269c8d28ed631cf6d98495112642ac6945b8f6cb');
-    expect(out.managed_sha256).toBe('2af6f73008d96d6351c0f95275c47c83956d2d833fefa1343fadb117844278af');
-    expect(sha256(out.body)).toBe('d941bc691a8a4113b34a859ef9a53423c297ec324c728b7e11331ceac1d42417');
+    // 2026-10-09: append mandatory fleet commit preferences across all engines.
+    expect(out.features_sha256).toBe('12070f3f40a1b1775d7ae40b54a417be315db76d93639910ffe48d78c64f6a0b');
+    expect(out.managed_sha256).toBe('605594f2659786c219815a4f284ceaf1dfd841364f659c9103ce6d03fbbc5a64');
+    expect(sha256(out.body)).toBe('888cb3e45bca627a9eeece43bd5012413e11ef2aa4a3209a82c5a077134f6f67');
   });
 });
 
@@ -236,10 +265,10 @@ describe('renderManagedAgentFeatures', () => {
 
     expect(out.body).toContain(MANAGED_POLICY_START);
     expect(out.body).toContain('# Untouched');
-    expect(out.body).not.toContain(MANAGED_FEATURES_START);
+    expect(out.body).toContain(MANAGED_FEATURES_START);
     expect(out.managed_sha256).toMatch(/^[0-9a-f]{64}$/);
     expect(out.policy_sha256).toMatch(/^[0-9a-f]{64}$/);
-    expect(out.features_sha256).toBeNull();
+    expect(out.features_sha256).toMatch(/^[0-9a-f]{64}$/);
     expect(out.sections).toMatchObject({
       fleet_identity: { present: true, reason: 'mandatory' },
       safety_floor: { present: true, reason: 'mandatory' },
@@ -361,8 +390,9 @@ stale
     expect(out.body).toContain('# Base');
     expect(out.body).toContain(MANAGED_POLICY_START);
     expect(out.managed_sha256).toMatch(/^[0-9a-f]{64}$/);
-    expect(out.features_sha256).toBeNull();
-    expect(out.body).not.toContain('managed-features');
+    expect(out.features_sha256).toMatch(/^[0-9a-f]{64}$/);
+    expect(out.body).not.toContain('## Skills');
+    expect(out.body).toContain('## Git commit messages');
   });
 });
 
@@ -458,7 +488,7 @@ describe('managed Secrets guidance', () => {
     // replication. Enumerating would also rewrite every host's document on every
     // secret added, and write credential names to a disk that holds none today.
     const out = rendered(ENGINE_CODEX);
-    const managed = out.body.slice(out.body.indexOf('## Secrets'));
+    const managed = out.body.slice(out.body.indexOf('## Secrets')).split('\n## ')[0]!;
     expect(managed).not.toMatch(/^-\s/m);
   });
 
@@ -748,10 +778,9 @@ describe('managed Agent Messaging guidance', () => {
   });
 
   it('keeps the block free of bullet lists', () => {
-    // The Secrets suite slices from '## Secrets' to end-of-body and forbids
-    // bullets; this section renders after it, so a list here fails that too.
+    // Check this section alone: later sections may contain bullet lists.
     const body = rendered(ENGINE_CODEX).body;
-    expect(body.slice(body.indexOf('## Agent Messaging'))).not.toMatch(/^-\s/m);
+    expect(body.slice(body.indexOf('## Agent Messaging')).split('\n## ')[0]).not.toMatch(/^-\s/m);
   });
 });
 
