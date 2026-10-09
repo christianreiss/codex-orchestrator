@@ -735,6 +735,8 @@ A native Android 8+ companion provides QR pairing from Account → Android devic
 
 The Wake / Cron page and fleet `wake-cron` Skill manage the same durable scheduled agent prompts. Supports one-shot times, five-field Cron and intervals. Persistent native-session recovery is explicit opt-in, requires a progress timeout and uses the existing cxx-agent worker; no new daemon is installed. See [API scheduling contract](interface-api.md#agent-wake--cron-schedules).
 
+The admin page uses a searchable agent-name picker (engine and host disambiguate entries) and a compact schedule list. Creation, editing and execution details open in a right-hand panel, full-screen on mobile; recovery fields appear only when enabled. Agent targets remain canonical UUID addresses, with address fallback for unknown targets.
+
 ### Work outcomes and recovery (execution contract v2)
 
 Wrapper 0.9.22 advertises `execution_contract_version: 2`. Newly queued requests,

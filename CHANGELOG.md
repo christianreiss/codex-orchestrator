@@ -1,5 +1,7 @@
 # 2026-10-09
 
+- Wake / Cron shows agent launch names and a searchable name/alias/host picker. Creation, editing and execution details use a compact side panel, full-screen on mobile, with recovery fields shown only when enabled.
+
 - Git Director now offers fleet-wide short/long commit messages and optional engine-specific `AI-Assisted-By` trailers. Defaults are short and attribution off. Managed Codex, Claude and Grok instructions carry the preferences independently of Director/Skills activation; the UI includes engine previews, audited capability-gated saves and cross-tab updates. Hosts adopt changes on their next content sync or launch.
 
 - Active Clients shows agent launch names, working directories, explicit status, local Codex/Claude/Grok SVG logos and the latest compact summary. Name and summary search works across all engines; summary previews require transcript access.
