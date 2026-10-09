@@ -11,6 +11,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/updateprogress"
 	"io"
 	"log/slog"
 	"net/http"
@@ -83,7 +84,7 @@ func Install(ctx context.Context, cfg *config.Config, binaryURL, expectedSHA, ta
 		_ = tmp.Close()
 		return "", err
 	}
-	written, err := io.Copy(tmp, io.LimitReader(resp.Body, maxBinarySize+1))
+	written, err := io.Copy(tmp, io.LimitReader(updateprogress.Reader(ctx, resp.Body, resp.ContentLength), maxBinarySize+1))
 	if err != nil {
 		_ = tmp.Close()
 		return "", err
@@ -95,6 +96,7 @@ func Install(ctx context.Context, cfg *config.Config, binaryURL, expectedSHA, ta
 	if err := tmp.Close(); err != nil {
 		return "", err
 	}
+	updateprogress.Emit(ctx, updateprogress.Event{Phase: "verifying"})
 	if err := VerifyChecksum(tmpPath, expectedSHA); err != nil {
 		return "", err
 	}

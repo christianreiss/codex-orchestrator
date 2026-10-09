@@ -409,6 +409,23 @@ keeping the timeline, relay, and any open question), `say --text`,
 `ask --question [--options 'one|two']`, `wait [--seconds]`, `accept`, and
 `leave`. See [Agent Portal and Active Clients](/admin/manual/agent-portal).
 
+### Updating the host
+
+Run `cxx update` to check the shared wrapper and all installed Codex, Claude and
+Grok CLIs. A current wrapper is left in place; a newer one is verified and installed
+before the new binary continues the engine updates and managed-content sync.
+
+The compact update display uses engine colors, animated checks and download bars
+with measured bytes. Each component leaves one result line. Grok appears even
+when it needs no update. Use `cxx update --minimal` for plain output; redirected
+output also avoids animations. Update output goes to stderr.
+
+Update policy, suspended engines and custom binary overrides are shown as skips.
+Active sessions retain their executables and can pause content sync; the result
+line distinguishes that pause from a successful update. Pauses and failures return
+nonzero, while other engines still run. Resolve the reported issue and retry;
+`--allow-concurrent-sync` is not enabled automatically.
+
 ### auth-upload
 
 Both `cdx` and `clx` expose an `auth-upload` subcommand that lets an operator

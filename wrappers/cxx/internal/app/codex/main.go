@@ -653,6 +653,10 @@ func runMode(args []string, stdout, stderr io.Writer, native bool, choices ...*q
 			fmt.Fprintln(stderr, ui.UpdateFailure(errCaps, "cdx", "wrapper", Version, err))
 			return 1
 		}
+		if cmp, _ := compareSemver(artifact.Version, Version); cmp == 0 {
+			ui.Say(stderr, "cdx", ui.ToneOK, "wrapper", Version+" up to date")
+			return cmdSync(ctx, cfg, f, logger, stderr)
+		}
 		fmt.Fprintln(stderr, ui.UpdateProgress(errCaps, "cdx", "wrapper", Version, artifact.Version))
 		exe, err := update.SelfUpdateFrom(ctx, cfg, artifact.URL, artifact.SHA256, artifact.Version, logger)
 		if err != nil {

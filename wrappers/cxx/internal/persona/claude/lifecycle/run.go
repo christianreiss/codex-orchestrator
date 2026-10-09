@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/accountpool"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/updateprogress"
 	"io"
 	"log/slog"
 	"os"
@@ -217,10 +218,10 @@ func Run(ctx context.Context, opts Options) (exitCode int, retErr error) {
 			return 1, err
 		}
 		if opts.AllowConcurrentSync {
-			ui.Say(os.Stderr, "clx", ui.ToneWarn, "session", "another session is active; concurrent sync explicitly enabled")
+			ui.Say(updateprogress.Output(ctx, os.Stderr), "clx", ui.ToneWarn, "session", "another session is active; concurrent sync explicitly enabled")
 		} else {
 			concurrent = true
-			ui.Say(os.Stderr, "clx", ui.ToneWarn, "session", "another session is active; managed content sync paused; auth freshness remains active")
+			ui.Say(updateprogress.Output(ctx, os.Stderr), "clx", ui.ToneWarn, "session", "another session is active; managed content sync paused; auth freshness remains active")
 		}
 	} else {
 		defer lock.Release()
@@ -368,7 +369,7 @@ func Run(ctx context.Context, opts Options) (exitCode int, retErr error) {
 				authResp, authErr = client.AuthRetrieve(ctx, lease.CanonicalDigest)
 				dec = decideAuth(authResp, authErr, authPath, cfg.Host.Secure)
 				if !opts.SkipBoot {
-					ui.Say(os.Stderr, "clx", ui.ToneDim, "account", lease.AccountLabel)
+					ui.Say(updateprogress.Output(ctx, os.Stderr), "clx", ui.ToneDim, "account", lease.AccountLabel)
 				}
 			}
 		}
@@ -478,17 +479,17 @@ func Run(ctx context.Context, opts Options) (exitCode int, retErr error) {
 		bootPrinted = true
 		if !opts.SkipBoot {
 			if opts.Minimal {
-				ui.PrintMinimalScreen(os.Stderr, state)
+				ui.PrintMinimalScreen(updateprogress.Output(ctx, os.Stderr), state)
 			} else {
-				ui.PrintBootScreen(os.Stderr, state)
+				ui.PrintBootScreen(updateprogress.Output(ctx, os.Stderr), state)
 			}
 		} else if state.QuotaWarn != "" {
 			// Suppressed startup screens still need advisory usage in cron/CI logs.
-			ui.Say(os.Stderr, "clx", ui.ToneWarn, ui.TopicQuota, state.QuotaWarn)
+			ui.Say(updateprogress.Output(ctx, os.Stderr), "clx", ui.ToneWarn, ui.TopicQuota, state.QuotaWarn)
 			logger.Warn("quota approaching limit", "warn", state.QuotaWarn)
 		}
 		if opts.SkipBoot && state.LoginWarning != "" {
-			ui.Say(os.Stderr, "clx", ui.ToneWarn, ui.TopicAuth, state.LoginWarning)
+			ui.Say(updateprogress.Output(ctx, os.Stderr), "clx", ui.ToneWarn, ui.TopicAuth, state.LoginWarning)
 		}
 	}
 
@@ -624,12 +625,12 @@ func Run(ctx context.Context, opts Options) (exitCode int, retErr error) {
 
 	if !opts.SkipBoot {
 		caps := footerCaps(ui.DetectCaps(themeFromConfig(cfg)), opts.Minimal)
-		fmt.Fprintln(os.Stderr)
+		fmt.Fprintln(updateprogress.Output(ctx, os.Stderr))
 		footerExit := exitCode
 		if runErr != nil && footerExit == 0 {
 			footerExit = 1
 		}
-		ui.PrintExitFooter(os.Stderr, caps, "clx", ui.ExitFooter{
+		ui.PrintExitFooter(updateprogress.Output(ctx, os.Stderr), caps, "clx", ui.ExitFooter{
 			RunDuration:   duration,
 			ExitCode:      footerExit,
 			AuthStatus:    authStatus,
@@ -783,7 +784,7 @@ func startProgress(ctx context.Context, opts Options, logger *slog.Logger, topic
 	if opts.SkipBoot || opts.Minimal || (logger != nil && logger.Enabled(ctx, slog.LevelDebug)) {
 		return nil
 	}
-	return ui.StartProgress(os.Stderr, ui.DetectCapsFor(os.Stderr, themeFromConfig(opts.Config)), "clx", topic, message)
+	return ui.StartProgress(updateprogress.Output(ctx, os.Stderr), ui.DetectCapsFor(updateprogress.Output(ctx, os.Stderr), themeFromConfig(opts.Config)), "clx", topic, message)
 }
 
 // includeAuth false makes this a content-only exchange: no snapshot, no
@@ -1353,12 +1354,12 @@ func recoverClaudeAuth(ctx context.Context, cfg *config.Config, client *orchestr
 	if !lifecycleIsTerminal(int(os.Stdin.Fd())) || !lifecycleIsTerminal(int(os.Stdout.Fd())) || !lifecycleIsTerminal(int(os.Stderr.Fd())) {
 		return errAuthRecoveryNonInteractive
 	}
-	fmt.Fprintln(os.Stderr)
+	fmt.Fprintln(updateprogress.Output(ctx, os.Stderr))
 	var details []string
 	if strings.TrimSpace(reason) != "" {
 		details = append(details, reason)
 	}
-	ok, err := ui.Confirm(ctx, ui.DetectCapsFor(os.Stderr, ""), promptIn, os.Stderr, ui.Question{
+	ok, err := ui.Confirm(ctx, ui.DetectCapsFor(updateprogress.Output(ctx, os.Stderr), ""), promptIn, updateprogress.Output(ctx, os.Stderr), ui.Question{
 		Prefix: "clx", Topic: ui.TopicAuth, Tone: ui.ToneWarn,
 		Title:      "Run `claude auth login` now?",
 		Details:    append(details, "The new credentials are uploaded to the orchestrator and verified."),
@@ -1416,7 +1417,7 @@ func recoverClaudeAuth(ctx context.Context, cfg *config.Config, client *orchestr
 				return errors.New("Claude credentials or logout intent changed while login upload was in flight")
 			}
 			logger.Warn("Claude login succeeded but server upload is deferred", "err", err)
-			ui.Say(os.Stderr, "clx", ui.ToneOK, "auth", "Local Claude login is ready; server upload will retry on the next sync.")
+			ui.Say(updateprogress.Output(ctx, os.Stderr), "clx", ui.ToneOK, "auth", "Local Claude login is ready; server upload will retry on the next sync.")
 			return nil
 		}
 		return fmt.Errorf("upload Claude credentials after login: %w", err)
@@ -1452,7 +1453,7 @@ func recoverClaudeAuth(ctx context.Context, cfg *config.Config, client *orchestr
 				return fmt.Errorf("apply authoritative Claude credentials after rejected login: %w", writeErr)
 			}
 			if applied {
-				ui.Say(os.Stderr, "clx", ui.ToneWarn, "auth", "Submitted login was not accepted; restored the server's verified Claude credentials.")
+				ui.Say(updateprogress.Output(ctx, os.Stderr), "clx", ui.ToneWarn, "auth", "Submitted login was not accepted; restored the server's verified Claude credentials.")
 				return nil
 			}
 			if !applied {
@@ -1480,7 +1481,7 @@ func recoverClaudeAuth(ctx context.Context, cfg *config.Config, client *orchestr
 		if err != nil {
 			if errors.Is(err, claude.ErrUnusableServerAuth) && claude.HasUsableAuth() {
 				logger.Warn("accepted login returned unusable canonical write-back; preserving local login", "err", err)
-				ui.Say(os.Stderr, "clx", ui.ToneWarn, "auth", "Server write-back was unusable; keeping the accepted local Claude login.")
+				ui.Say(updateprogress.Output(ctx, os.Stderr), "clx", ui.ToneWarn, "auth", "Server write-back was unusable; keeping the accepted local Claude login.")
 				return nil
 			}
 			return fmt.Errorf("apply accepted Claude credentials: %w", err)
@@ -1491,7 +1492,7 @@ func recoverClaudeAuth(ctx context.Context, cfg *config.Config, client *orchestr
 			}
 		}
 	}
-	ui.Say(os.Stderr, "clx", ui.ToneOK, "auth", "Claude credentials uploaded and accepted by the server.")
+	ui.Say(updateprogress.Output(ctx, os.Stderr), "clx", ui.ToneOK, "auth", "Claude credentials uploaded and accepted by the server.")
 	return nil
 }
 

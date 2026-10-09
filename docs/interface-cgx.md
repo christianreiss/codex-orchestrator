@@ -560,6 +560,33 @@ and `SessionEnd`: rate limits/capacity recover, no-progress cancellation is a ha
 user interruption stops recovery, permanent errors block. Subagents are ignored.
 Hook payload contract: [Grok hooks guide](https://raw.githubusercontent.com/xai-org/grok-build/main/crates/codegen/xai-grok-pager/docs/user-guide/10-hooks.md).
 
+### Host update output (cxx 0.9.38)
+
+`cxx update [--minimal]` checks the shared wrapper once, then updates the native
+Codex, Claude and Grok CLIs and syncs managed content in that order. Every
+installed engine gets a result, including unchanged or suspended engines.
+Equal wrapper versions mean up to date: no artifact download, replacement or
+restart. New wrapper releases are SHA256-verified and atomically installed,
+then the new binary continues the engine phases without repeating the wrapper
+receipt. Downgrades and unverifiable wrapper versions are refused.
+
+Update runs use compact engine-colored rows instead of startup dashboards:
+animated checks and installation stages, plus download bars with actual byte
+counts and percentages when the server supplies a length. Unknown lengths and
+npm installation use indeterminate animation. Each live row becomes one final
+result. Narrow terminals fit the row; pipes, `TERM=dumb` and `--minimal` emit
+plain completion lines without cursor controls. Output goes to stderr.
+
+Fleet/host binary-update policy, fleet engine suspensions, version targets and
+explicit native binary overrides are retained. Existing native sessions keep
+their staged executable. Managed sync respects session locks; a pause is shown
+separately from a successful binary update and returns nonzero. An engine failure
+does not prevent later engines from running. Credential-preservation failure
+skips that engine's sync; wrapper installation or restart failure stops remaining
+work and reports skipped engines. Version-report failures also return nonzero.
+Direct `cdx update` and `clx update` skip equal-version wrapper installation and
+continue their own sync; `cgx update` already skips equal wrapper versions.
+
 ### Peer discovery and send diagnostics
 
 From wrapper 0.9.39, `agent_list` excludes your own agent and accepts `name`

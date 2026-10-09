@@ -16,6 +16,11 @@ import (
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/claude/orchestrator"
 )
 
+// ProtectUpdateAuth preserves an unsent native login before host maintenance.
+func ProtectUpdateAuth(ctx context.Context, cfg *config.Config, logger *slog.Logger) error {
+	return protectUpdateAuth(ctx, cfg, logger)
+}
+
 func protectUpdateAuth(ctx context.Context, cfg *config.Config, logger *slog.Logger) error {
 	opts := orchestrator.Options{BaseURL: cfg.Orchestrator.BaseURL, APIKey: cfg.Orchestrator.APIKey, AllowInsecure: cfg.Orchestrator.AllowInsecure, Logger: logger}
 	if cfg.Orchestrator.CABundlePath != nil {
@@ -59,6 +64,14 @@ func cmdWrapperUpdate(ctx context.Context, cfg *config.Config, f flags, logger *
 	if err != nil {
 		fmt.Fprintln(stderr, ui.UpdateFailure(errCaps, "clx", "wrapper", Version, err))
 		return 1
+	}
+	if cmp, _ := compareSemver(artifact.Version, Version); cmp == 0 {
+		ui.Say(stderr, "clx", ui.ToneOK, "wrapper", Version+" up to date")
+		if err := commandSession.Close(); err != nil {
+			ui.Say(stderr, "clx", ui.ToneFail, "update", "close maintenance session: "+err.Error())
+			return 1
+		}
+		return cmdSync(ctx, cfg, f, logger, stderr)
 	}
 	fmt.Fprintln(stderr, ui.UpdateProgress(errCaps, "clx", "wrapper", Version, artifact.Version))
 	exe, err := update.SelfUpdateFrom(ctx, cfg, artifact.URL, artifact.SHA256, artifact.Version, logger)

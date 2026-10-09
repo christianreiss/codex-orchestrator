@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/accountpool"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/updateprogress"
 	"io"
 	"log/slog"
 	"os"
@@ -241,10 +242,10 @@ func Run(ctx context.Context, opts Options) (exitCode int, runErr error) {
 			return 1, err
 		}
 		if opts.AllowConcurrentSync {
-			ui.Say(os.Stderr, "cdx", ui.ToneWarn, "session", "another session is active; concurrent sync explicitly enabled")
+			ui.Say(updateprogress.Output(ctx, os.Stderr), "cdx", ui.ToneWarn, "session", "another session is active; concurrent sync explicitly enabled")
 		} else {
 			concurrent = true
-			ui.Say(os.Stderr, "cdx", ui.ToneWarn, "session", "another session is active; managed content sync paused; auth freshness remains active")
+			ui.Say(updateprogress.Output(ctx, os.Stderr), "cdx", ui.ToneWarn, "session", "another session is active; managed content sync paused; auth freshness remains active")
 		}
 	} else {
 		defer lock.Release()
@@ -409,7 +410,7 @@ func Run(ctx context.Context, opts Options) (exitCode int, runErr error) {
 				authResp, authErr = client.AuthRetrieve(ctx, lease.CanonicalDigest)
 				dec = decideAuth(authResp, authErr, authPath, cfg.Host.Secure)
 				if !opts.SkipBoot {
-					ui.Say(os.Stderr, "cdx", ui.ToneDim, "account", lease.AccountLabel)
+					ui.Say(updateprogress.Output(ctx, os.Stderr), "cdx", ui.ToneDim, "account", lease.AccountLabel)
 				}
 			}
 		}
@@ -435,7 +436,7 @@ func Run(ctx context.Context, opts Options) (exitCode int, runErr error) {
 		missingLocalAuth := errors.Is(authCandidateErr, os.ErrNotExist)
 		recovery := decideAuthRecovery(concurrent, opts.Headless, !opts.SkipCredentialExchange && needsInteractiveAuthRecovery(dec, authCandidateErr, cfg.Host.Secure))
 		if recovery != authRecoverySkip && missingLocalAuth && (recovery == authRecoveryFailClosed || !attendedTerminal()) {
-			ui.Say(os.Stderr, "cdx", ui.ToneWarn, ui.TopicAuth, missingLoginNotice)
+			ui.Say(updateprogress.Output(ctx, os.Stderr), "cdx", ui.ToneWarn, ui.TopicAuth, missingLoginNotice)
 			recovery = authRecoverySkip
 		}
 		switch recovery {
@@ -528,14 +529,14 @@ func Run(ctx context.Context, opts Options) (exitCode int, runErr error) {
 	printBoot := func() {
 		if !opts.SkipBoot {
 			if opts.Minimal {
-				ui.PrintMinimalScreen(os.Stderr, state)
+				ui.PrintMinimalScreen(updateprogress.Output(ctx, os.Stderr), state)
 			} else {
-				ui.PrintBootScreen(os.Stderr, state)
+				ui.PrintBootScreen(updateprogress.Output(ctx, os.Stderr), state)
 			}
 		} else if state.QuotaWarn != "" {
 			// Headless path: surface the quota warning so cron/CI logs capture
 			// it. The boot-screen path already renders this text inline.
-			ui.Say(os.Stderr, "cdx", ui.ToneWarn, ui.TopicQuota, state.QuotaWarn)
+			ui.Say(updateprogress.Output(ctx, os.Stderr), "cdx", ui.ToneWarn, ui.TopicQuota, state.QuotaWarn)
 			logger.Warn("quota approaching limit", "warn", state.QuotaWarn)
 		}
 	}
@@ -677,12 +678,12 @@ func Run(ctx context.Context, opts Options) (exitCode int, runErr error) {
 	// Exit footer.
 	if !opts.SkipBoot {
 		caps := footerCaps(ui.DetectCaps(themeFromConfig(cfg)), opts.Minimal)
-		fmt.Fprintln(os.Stderr)
+		fmt.Fprintln(updateprogress.Output(ctx, os.Stderr))
 		footerExit := exitCode
 		if runErr != nil && footerExit == 0 {
 			footerExit = 1
 		}
-		ui.PrintExitFooter(os.Stderr, caps, "cdx", ui.ExitFooter{
+		ui.PrintExitFooter(updateprogress.Output(ctx, os.Stderr), caps, "cdx", ui.ExitFooter{
 			RunDuration:   duration,
 			ExitCode:      footerExit,
 			AuthStatus:    authStatus,
@@ -738,7 +739,7 @@ func startProgress(ctx context.Context, opts Options, logger *slog.Logger, topic
 	if opts.SkipBoot || opts.Minimal || (logger != nil && logger.Enabled(ctx, slog.LevelDebug)) {
 		return nil
 	}
-	return ui.StartProgress(os.Stderr, ui.DetectCapsFor(os.Stderr, themeFromConfig(opts.Config)), "cdx", topic, message)
+	return ui.StartProgress(updateprogress.Output(ctx, os.Stderr), ui.DetectCapsFor(updateprogress.Output(ctx, os.Stderr), themeFromConfig(opts.Config)), "cdx", topic, message)
 }
 
 // bootstrap tries SyncBootstrap first and, on 404/501, falls back to the
@@ -939,7 +940,7 @@ func bootstrapWithProgress(
 		if err := updateAuthSessionSecurity(authResp); err != nil {
 			return authResp, fmt.Errorf("update auth session security state: %w", err), false, summary.ResourceSync{}, summary.ResourceSync{}, resp.Sessions
 		}
-		authSynced, keptFresherLocal, applyErr = applyServerAuth(logger, authPath, authResp, concurrent, expected)
+		authSynced, keptFresherLocal, applyErr = applyServerAuth(logger, authPath, authResp, concurrent, expected, updateprogress.Output(ctx, os.Stderr))
 	}
 	if keptFresherLocal && !concurrent {
 		// The fleet canonical is behind this host's credential (typically a
@@ -949,12 +950,12 @@ func bootstrapWithProgress(
 		if raw, rerr := codex.ReadAuth(); rerr == nil && len(raw) > 0 {
 			if perr := pushAuthCandidate(ctx, client, logger, false); perr != nil {
 				logger.Warn("fresher local auth upload rejected", "err", perr)
-				ui.Say(os.Stderr, "cdx", ui.ToneFail, "auth", "orchestrator did not accept the newer local credentials: "+perr.Error())
+				ui.Say(updateprogress.Output(ctx, os.Stderr), "cdx", ui.ToneFail, "auth", "orchestrator did not accept the newer local credentials: "+perr.Error())
 				if orchestrator.IsUnsafeRunnerUpdatedAuthError(perr) {
 					convergenceErr = perr
 				}
 			} else {
-				ui.Say(os.Stderr, "cdx", ui.ToneOK, "auth", "newer local credentials uploaded to the orchestrator")
+				ui.Say(updateprogress.Output(ctx, os.Stderr), "cdx", ui.ToneOK, "auth", "newer local credentials uploaded to the orchestrator")
 			}
 		}
 	}
@@ -1116,7 +1117,7 @@ func pushAuthCandidate(ctx context.Context, client *orchestrator.Client, logger 
 	}
 	if resp != nil && len(resp.Auth) > 0 {
 		authPath, _ := codex.AuthPath()
-		if _, _, err := applyServerAuth(logger, authPath, resp, false, expected); err != nil {
+		if _, _, err := applyServerAuth(logger, authPath, resp, false, expected, updateprogress.Output(ctx, os.Stderr)); err != nil {
 			return fmt.Errorf("materialize accepted auth: %w", err)
 		}
 	}
@@ -1327,12 +1328,12 @@ func recoverCodexAuth(ctx context.Context, cfg *config.Config, client *orchestra
 	if !attendedTerminal() {
 		return errAuthRecoveryNonInteractive
 	}
-	fmt.Fprintln(os.Stderr)
+	fmt.Fprintln(updateprogress.Output(ctx, os.Stderr))
 	var details []string
 	if strings.TrimSpace(reason) != "" {
 		details = append(details, reason)
 	}
-	ok, err := ui.Confirm(ctx, ui.DetectCapsFor(os.Stderr, ""), promptIn, os.Stderr, ui.Question{
+	ok, err := ui.Confirm(ctx, ui.DetectCapsFor(updateprogress.Output(ctx, os.Stderr), ""), promptIn, updateprogress.Output(ctx, os.Stderr), ui.Question{
 		Prefix: "cdx", Topic: ui.TopicAuth, Tone: ui.ToneFail,
 		Title:      "Run `codex login` now?",
 		Details:    append(details, "The new credentials are uploaded to the orchestrator and verified."),
@@ -1365,7 +1366,7 @@ func recoverCodexAuth(ctx context.Context, cfg *config.Config, client *orchestra
 	if err := pushAuthCandidate(ctx, client, slog.Default(), true); err != nil {
 		return fmt.Errorf("upload Codex credentials after login: %w", err)
 	}
-	ui.Say(os.Stderr, "cdx", ui.ToneOK, ui.TopicAuth, "Codex credentials uploaded and accepted by the server.")
+	ui.Say(updateprogress.Output(ctx, os.Stderr), "cdx", ui.ToneOK, ui.TopicAuth, "Codex credentials uploaded and accepted by the server.")
 	return nil
 }
 
@@ -1408,7 +1409,7 @@ func syncAuthLegacy(ctx context.Context, client *orchestrator.Client, logger *sl
 		return resp, nil, false
 	case "outdated", "updated", "missing":
 		authPath, _ := codex.AuthPath()
-		wrote, keptFresher, writeErr := applyServerAuth(logger, authPath, resp, concurrent, expected)
+		wrote, keptFresher, writeErr := applyServerAuth(logger, authPath, resp, concurrent, expected, updateprogress.Output(ctx, os.Stderr))
 		if writeErr != nil {
 			return resp, &authMaterializationError{err: writeErr}, wrote
 		}
@@ -1426,7 +1427,7 @@ func syncAuthLegacy(ctx context.Context, client *orchestrator.Client, logger *sl
 		storeResp, storeExpected, storeErr := storeCurrentAuthCandidate(storeCtx, client, false)
 		if storeErr == nil {
 			if storeResp != nil && len(storeResp.Auth) > 0 {
-				stored, _, applyErr := applyServerAuth(logger, authPath, storeResp, false, storeExpected)
+				stored, _, applyErr := applyServerAuth(logger, authPath, storeResp, false, storeExpected, updateprogress.Output(ctx, os.Stderr))
 				if applyErr != nil {
 					return storeResp, &authMaterializationError{err: applyErr}, stored
 				}
@@ -1438,7 +1439,7 @@ func syncAuthLegacy(ctx context.Context, client *orchestrator.Client, logger *sl
 			strings.EqualFold(strings.TrimSpace(resp.VerificationState), "verified") {
 			fallback := *resp
 			fallback.CandidateRejectedDefinitive = true
-			healed, _, applyErr := applyServerAuth(logger, authPath, &fallback, false, storeExpected)
+			healed, _, applyErr := applyServerAuth(logger, authPath, &fallback, false, storeExpected, updateprogress.Output(ctx, os.Stderr))
 			if applyErr != nil {
 				return resp, &authMaterializationError{err: applyErr}, healed
 			}
@@ -1481,7 +1482,11 @@ func shouldWriteServerAuth(status string, auth []byte) bool {
 //     failure.
 //
 // Returns (wrote, keptFresherLocal, error).
-func applyServerAuth(logger *slog.Logger, authPath string, resp *orchestrator.AuthRetrieveResponse, concurrent bool, expected codex.AuthGeneration) (bool, bool, error) {
+func applyServerAuth(logger *slog.Logger, authPath string, resp *orchestrator.AuthRetrieveResponse, concurrent bool, expected codex.AuthGeneration, outputs ...io.Writer) (bool, bool, error) {
+	output := io.Writer(os.Stderr)
+	if len(outputs) > 0 {
+		output = outputs[0]
+	}
 	if resp == nil || !shouldWriteServerAuth(resp.Status, resp.Auth) {
 		return false, false, nil
 	}
@@ -1499,7 +1504,7 @@ func applyServerAuth(logger *slog.Logger, authPath string, resp *orchestrator.Au
 	if localAuthFresherThan(authPath, resp.Auth) && !definitiveFallback {
 		logger.Warn("local auth.json is newer than server canonical; refusing to overwrite",
 			"canonical_last_refresh", resp.CanonicalLastRefresh)
-		ui.Say(os.Stderr, "cdx", ui.ToneWarn, "auth", "local auth.json is newer than the fleet canonical; keeping the local copy")
+		ui.Say(output, "cdx", ui.ToneWarn, "auth", "local auth.json is newer than the fleet canonical; keeping the local copy")
 		return false, true, nil
 	}
 	result, err := codex.ConvergeAuthIfCurrent(resp.Auth, expected)

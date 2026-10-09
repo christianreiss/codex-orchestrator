@@ -98,6 +98,31 @@ def verify(output, width, mode):
     return plain
 
 
+def verify_host_update(output, width, mode):
+    """Validate refresh-in-place rows as well as their four settled receipts."""
+    plain = SGR.sub("", output)
+    live = mode in ("rich", "ascii", "no-color")
+    if live:
+        assert output.count("\x1b[?25l") == 4, "missing cursor hide"
+        assert output.count("\x1b[?25h") == 4, "cursor not restored"
+        plain = plain.replace("\x1b[?25l", "").replace("\x1b[?25h", "").replace("\x1b[2K", "")
+        assert "50%" in plain and "100%" in plain, "measured progress missing"
+        assert not any(ord(char) < 32 and char not in "\r\n" for char in plain), "unexpected terminal control"
+        for frame in re.split(r"[\r\n]", plain):
+            assert visible_width(frame) < width, f"update row wraps: {frame!r}"
+        receipts = [line.split("\r")[-1] for line in plain.split("\n") if line]
+    else:
+        assert "\x1b" not in output and plain.isascii(), "non-portable update output"
+        receipts = plain.splitlines()
+    assert len(receipts) == 4, f"duplicate or missing receipts: {receipts}"
+    for label, receipt in zip(("cxx", "Codex", "Claude", "Grok"), receipts):
+        assert label in receipt, f"missing {label} result"
+    assert "sync paused" in receipts[1], "partial success was hidden"
+    if mode == "no-color":
+        assert not SGR.search(output), "color despite NO_COLOR"
+    return "\n".join(receipts) + "\n"
+
+
 def color256(value):
     if value < 16:
         return COLORS.get(30 + value % 8, "#e2e5ed")
@@ -188,6 +213,10 @@ def main():
                 except AssertionError as error:
                     raise AssertionError(f"{engine}/{scene}/{width}/{mode}: {error}") from error
                 cases.append(dict(engine=engine, scene=scene, width=width, mode=mode, output=output, plain=plain))
+    for width, mode in [(80, "rich"), (48, "rich"), (80, "no-color"), (80, "ascii"), (80, "minimal"), (80, "dumb"), (80, "pipe")]:
+        output = capture(args.binary.resolve(), "codex", "host-update", width, mode)
+        plain = verify_host_update(output, width, mode)
+        cases.append(dict(engine="host", scene="host-update", width=width, mode=mode, output=output, plain=plain))
     if args.output:
         write_gallery(args.output, cases)
     print(f"{len(cases)} terminal cases passed: three engines, seven widths, five degraded modes.")

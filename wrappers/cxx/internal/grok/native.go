@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/updateprogress"
 	"io"
 	"net/http"
 	"net/url"
@@ -164,7 +165,7 @@ func download(ctx context.Context, client *http.Client, location string, limit i
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("Grok package download HTTP %d", resp.StatusCode)
 	}
-	raw, err := io.ReadAll(io.LimitReader(resp.Body, limit+1))
+	raw, err := io.ReadAll(io.LimitReader(updateprogress.Reader(ctx, resp.Body, resp.ContentLength), limit+1))
 	if err == nil && int64(len(raw)) > limit {
 		err = errors.New("Grok package exceeds download limit")
 	}
@@ -273,6 +274,7 @@ func installWithClient(ctx context.Context, version string, client *http.Client)
 	if err != nil {
 		return "", err
 	}
+	updateprogress.Emit(ctx, updateprogress.Event{Phase: "verifying"})
 	binary, err := ExtractBinary(archive, meta.Dist.Integrity)
 	if err != nil {
 		return "", err

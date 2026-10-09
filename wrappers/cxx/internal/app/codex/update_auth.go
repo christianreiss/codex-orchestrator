@@ -10,6 +10,11 @@ import (
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/codex/orchestrator"
 )
 
+// ProtectUpdateAuth preserves an unsent native login before host maintenance.
+func ProtectUpdateAuth(ctx context.Context, cfg *config.Config, logger *slog.Logger) error {
+	return protectUpdateAuth(ctx, cfg, logger)
+}
+
 func protectUpdateAuth(ctx context.Context, cfg *config.Config, logger *slog.Logger) error {
 	opts := orchestrator.Options{BaseURL: cfg.Orchestrator.BaseURL, APIKey: cfg.Orchestrator.APIKey, AllowInsecure: cfg.Orchestrator.AllowInsecure, Logger: logger}
 	if cfg.Orchestrator.CABundlePath != nil {

@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/updateprogress"
 	"io"
 	"net/http"
 	"os"
@@ -139,7 +140,7 @@ func downloadClaudeTarball(ctx context.Context, url, dest string, digest []byte)
 		return err
 	}
 	h := sha512.New()
-	n, copyErr := io.Copy(io.MultiWriter(f, h), io.LimitReader(resp.Body, maxClaudeTarball+1))
+	n, copyErr := io.Copy(io.MultiWriter(f, h), io.LimitReader(updateprogress.Reader(ctx, resp.Body, resp.ContentLength), maxClaudeTarball+1))
 	if err := f.Close(); copyErr == nil {
 		copyErr = err
 	}

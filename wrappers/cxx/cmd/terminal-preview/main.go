@@ -15,18 +15,19 @@ import (
 	clx "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/claude/ui"
 	cdx "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/codex/ui"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/terminalui"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/updateprogress"
 )
 
 func main() {
 	engine := flag.String("engine", "codex", "codex, claude, or grok")
-	scene := flag.String("scene", "startup", "startup, attention, blocked, concurrent, stale, forecast, security, doctor, help, session, updates, notices, progress, or prompt")
+	scene := flag.String("scene", "startup", "startup, attention, blocked, concurrent, stale, forecast, security, doctor, help, session, updates, notices, progress, host-update, or prompt")
 	minimal := flag.Bool("minimal", false, "portable ASCII output")
 	flag.Parse()
 	if (*engine != "codex" && *engine != "claude" && *engine != "grok") || flag.NArg() != 0 {
 		fmt.Fprintln(os.Stderr, "terminal-preview: use -engine codex, -engine claude, or -engine grok")
 		os.Exit(2)
 	}
-	valid := map[string]bool{"startup": true, "attention": true, "blocked": true, "concurrent": true, "stale": true, "forecast": true, "security": true, "doctor": true, "help": true, "session": true, "updates": true, "notices": true, "progress": true, "prompt": true}
+	valid := map[string]bool{"startup": true, "attention": true, "blocked": true, "concurrent": true, "stale": true, "forecast": true, "security": true, "doctor": true, "help": true, "session": true, "updates": true, "notices": true, "progress": true, "prompt": true, "host-update": true}
 	if !valid[*scene] || (*scene == "security" && *engine != "claude") {
 		fmt.Fprintln(os.Stderr, "terminal-preview: unknown scene; security requires Claude")
 		os.Exit(2)
@@ -49,6 +50,30 @@ func preview(engine, scene string, minimal bool) {
 		caps = cdx.MinimalCaps(caps)
 	}
 	switch scene {
+	case "host-update":
+		row := terminalui.StartUpdateRow(os.Stdout, caps, "cxx", "0.9.38")
+		time.Sleep(180 * time.Millisecond)
+		row.Finish(terminalui.ToneOK, "0.9.38", "up to date")
+		row = terminalui.StartUpdateRow(os.Stdout, caps, "Codex", "0.161.0 → 0.162.0")
+		for _, percent := range []int64{0, 25, 50, 75, 100} {
+			row.Observe(updateprogress.Event{Phase: "downloading", Bytes: percent << 20, Total: 100 << 20})
+			time.Sleep(140 * time.Millisecond)
+		}
+		row.Observe(updateprogress.Event{Phase: "verifying"})
+		time.Sleep(180 * time.Millisecond)
+		row.Observe(updateprogress.Event{Phase: "syncing"})
+		time.Sleep(180 * time.Millisecond)
+		row.Finish(terminalui.ToneWarn, "0.161.0 → 0.162.0", "updated · sync paused: active session")
+		row = terminalui.StartUpdateRow(os.Stdout, caps, "Claude", "2.1.294 → 2.1.295")
+		row.Observe(updateprogress.Event{Phase: "installing"})
+		time.Sleep(360 * time.Millisecond)
+		row.Finish(terminalui.ToneOK, "2.1.294 → 2.1.295", "updated · synced")
+		row = terminalui.StartUpdateRow(os.Stdout, caps, "Grok", "1.0.46")
+		row.Observe(updateprogress.Event{Phase: "syncing"})
+		time.Sleep(180 * time.Millisecond)
+		row.Finish(terminalui.ToneOK, "1.0.46", "up to date · synced")
+		return
+
 	case "help":
 		if engine == "grok" {
 			grokapp.PrintWrapperHelp(os.Stdout, caps)

@@ -3,6 +3,7 @@ package codex
 import (
 	"context"
 	"fmt"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/updateprogress"
 	"io"
 	"log/slog"
 	"os"
@@ -95,6 +96,7 @@ func EnsureCodexBackground(ctx context.Context, target string, enforceExact bool
 	if err := installVerifiedReleaseAsset(ctx, rel, companion, codeModeHostBinName, companionPath, logger); err != nil {
 		return err
 	}
+	updateprogress.Emit(ctx, updateprogress.Event{Phase: "verifying"})
 	probeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	out, err := exec.CommandContext(probeCtx, cli, "--version").Output()

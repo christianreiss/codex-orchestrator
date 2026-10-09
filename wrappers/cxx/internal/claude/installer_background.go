@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/updateprogress"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -129,6 +130,7 @@ func EnsureClaudeBackground(ctx context.Context, target string, enforceExact boo
 
 func publishNativeClaude(ctx context.Context, stage, target, why string, published *bool, logger *slog.Logger) error {
 	native, err := installNativeClaude(ctx, stage, target)
+	updateprogress.Emit(ctx, updateprogress.Event{Phase: "verifying"})
 	if err != nil {
 		return fmt.Errorf("managed Claude CLI install %s: %w", why, err)
 	}
@@ -155,9 +157,11 @@ func installStagedClaudeNpm(ctx context.Context, npm, stage, target string, publ
 	cmd.Args = append(cmd.Args, "--global=false")
 	output := newRingBuffer(32 << 10)
 	cmd.Stdout, cmd.Stderr = output, output
+	updateprogress.Emit(ctx, updateprogress.Event{Phase: "installing"})
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("staged npm install %s failed: %w: %s", spec, err, strings.TrimSpace(string(output.Bytes())))
 	}
+	updateprogress.Emit(ctx, updateprogress.Event{Phase: "verifying"})
 	candidate := runnableStagedClaude(ctx, stage, target)
 	if candidate == "" {
 		logger.Warn("staged Claude package has no runnable CLI; retrying its postinstall", "target", target)

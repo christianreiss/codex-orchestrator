@@ -105,7 +105,7 @@ func runExplicit(args []string, stdout, stderr io.Writer) int {
 	case "claude-quota-statusline":
 		return claudequota.RunCommand(os.Stdin, stdout, stderr)
 	case "update":
-		return runHostUpdate(stdout, stderr)
+		return runHostUpdate(args[1:], stdout, stderr)
 	case "sync":
 		return runHostSync(args[1:], stdout, stderr)
 	case "--version", "--wrapper-version", "-W":
@@ -184,27 +184,6 @@ func parseHostCronArgs(args []string) (action string, minimal, due bool, err err
 		return "", false, false, fmt.Errorf("--due is only valid for cron run")
 	}
 	return action, minimal, due, nil
-}
-
-// runHostUpdate selects an installed persona only to authenticate the common
-// wrapper update request. Both paths install the same cxx bytes, so the persona
-// choice must not narrow what happens afterwards: HostSyncAfterUpdate makes the
-// re-exec land on `cxx sync`, which converges every installed engine.
-func runHostUpdate(stdout, stderr io.Writer) int {
-	if path, err := configPathFor("codex"); err == nil {
-		codexapp.HostSyncAfterUpdate = true
-		return codexapp.Run([]string{"--config", path, "--update"}, stdout, stderr)
-	}
-	if path, err := configPathFor("claude"); err == nil {
-		claudeapp.HostSyncAfterUpdate = true
-		return claudeapp.Run([]string{"--config", path, "--update"}, stdout, stderr)
-	}
-	if path, err := configPathFor("grok"); err == nil {
-		grokapp.HostSyncAfterUpdate = true
-		return grokapp.Run([]string{"--config", path, "--update"}, stdout, stderr)
-	}
-	fmt.Fprintln(stderr, "cxx update: no installed engine config found")
-	return 1
 }
 
 // engineRunner is a persona entrypoint; parameterized so syncEngines is
@@ -354,7 +333,7 @@ func printSelectorHelp(w io.Writer) {
 	fmt.Fprintln(w, "  cxx grok [cgx arguments]")
 	fmt.Fprintln(w, "  cxx native codex|claude|grok -- [native arguments]")
 	fmt.Fprintln(w, "  cxx native-entry status|install|remove")
-	fmt.Fprintln(w, "  cxx update")
+	fmt.Fprintln(w, "  cxx update [--minimal]")
 	fmt.Fprintln(w, "  cxx sync")
 	fmt.Fprintln(w, "  cxx cron [install|remove|run [--due]]")
 	fmt.Fprintln(w, "  cxx portal [status|notify|resolve|say|ask|wait|accept|leave]")
