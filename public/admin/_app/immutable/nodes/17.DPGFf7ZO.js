@@ -1,1 +1,0 @@
-import{t as e}from"../chunks/BoaDXVPR2.js";export{e as component};

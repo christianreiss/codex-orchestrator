@@ -377,6 +377,19 @@ visible with a choice to load the latest values or discard the draft.
 - **Encryption & secrets** — Secretbox protects API keys, payload bodies, token entries, fleet secrets, portal/messaging bodies and every other `*_enc` column; the key is generated into `.env` by `bin/install.sh` and never at runtime. API keys also stored as sha256 hashes for lookup. File-transfer bytes on `DATA_ROOT` are the one store left in the clear.
 - **Kill switches** — Admin can disable the API (`/admin/api/state` 503s everything else) or set quota mode + limit slider (`/admin/quota-mode` exposes warn-only vs. hard-fail, `limit_percent`, and optional `week_partition` pacing for a daily allowance bar in `cdx`). Hosts can also be marked VIP (per-host toggle) to bypass the quota kill-switch entirely (always warn-only). Admin routes are gated by the admin session.
 
+## Policies workspace
+
+`/admin/policies` groups fleet controls into Host behavior, Agent behavior,
+Access control and Cleanup. Desktop uses a category sidebar; mobile uses a
+category selector. Existing section anchors select the appropriate category.
+Switches and selections apply immediately with inline progress and failure
+feedback. Inactivity and retention durations use Save changes and Reset; drafts
+survive category changes, and external updates require resetting a conflicting
+draft before saving. The retention switch applies saved durations without
+submitting numeric drafts. Capability checks make controls read-only when the
+session cannot manage the corresponding policy. This layout changes no backend
+policy defaults, endpoints or enforcement behavior.
+
 ## Data retention & pruning
 
 - Canonical auth lives in an engine-scoped generation ledger: `auth_payloads`
