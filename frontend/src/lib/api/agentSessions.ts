@@ -33,6 +33,7 @@ export interface SessionWork {
 }
 
 export interface AgentSessionRow extends Agent {
+  preview?: { summary: string; cursor: number; created_at: string } | null;
   host_id: number;
   invocation_kind: string;
   upstream_session_id: string | null;

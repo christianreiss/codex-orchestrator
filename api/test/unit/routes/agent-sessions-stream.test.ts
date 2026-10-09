@@ -14,6 +14,8 @@ import type { RouteContext } from '../../../src/routes/index.js';
 import { AdminAuthService } from '../../../src/services/admin-auth.js';
 import { AgentPortalService } from '../../../src/services/agent-portal.js';
 import { loadTestEnv, testKeyring } from '../../helpers/test-keyring.js';
+import * as previews from '../../../src/services/companion/summary.js';
+import * as sessionWork from '../../../src/services/agent-session-work.js';
 
 const SESSION_ID = '11111111-1111-4111-8111-111111111111';
 const apps: FastifyInstance[] = [];
@@ -77,6 +79,23 @@ async function open(url: string, headers: Record<string, string> = {}): Promise<
     client.on('error', reject);
   });
 }
+
+it('includes compact client summaries only for transcript-authorized operators', async () => {
+  const f = await fixture();
+  const row = { id: SESSION_ID, host_id: 1, cwd: '/srv/repo', launch_name: 'Vivienne' };
+  vi.spyOn(AgentPortalService.prototype, 'listAgentsSnapshot').mockResolvedValue({ generated_at: new Date().toISOString(), sessions: [row] });
+  vi.spyOn(sessionWork, 'loadSessionWork').mockResolvedValue(new Map());
+  const enrich = vi.spyOn(previews, 'companionPreviews').mockResolvedValue([{ ...row, preview: { summary: 'Release verified', cursor: 1, created_at: new Date().toISOString() } }]);
+  const owner = await f.app.inject({ method: 'GET', url: '/admin/agent-sessions' });
+  expect(owner.statusCode).toBe(200);
+  expect(owner.json().sessions[0].preview.summary).toBe('Release verified');
+  expect(enrich).toHaveBeenCalledTimes(1);
+  f.demote();
+  const viewer = await f.app.inject({ method: 'GET', url: '/admin/agent-sessions' });
+  expect(viewer.statusCode).toBe(200);
+  expect(viewer.json().sessions[0]).not.toHaveProperty('preview');
+  expect(enrich).toHaveBeenCalledTimes(1);
+});
 
 describe.each(['/admin/agent-sessions/events', '/go/api/events'])('real HTTP stream %s', (path) => {
   it('flushes headers, stays connected after request completion, and stops reading on disconnect', async () => {

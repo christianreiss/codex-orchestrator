@@ -67,7 +67,7 @@ test("client directory exposes both engines, real presence, searchable work, and
   await expect(page.getByRole("heading", { name: "No clients match" })).toBeVisible();
   await page.getByRole("button", { name: "Clear filters", exact: true }).last().click();
   await page.locator(`#client-${CODEX}`).click();
-  await expect(page.getByRole("heading", { name: "operator on codex.example" })).toBeFocused();
+  await expect(page.getByRole("heading", { name: "codex-review" })).toBeFocused();
   await expect(page.getByRole("button", { name: "Send", exact: true })).toBeDisabled();
   const results = await new AxeBuilder({ page }).analyze();
   expect(results.violations.filter((v) => ["serious", "critical"].includes(v.impact ?? ""))).toEqual([]);
@@ -122,7 +122,7 @@ test("viewer capability gates transcripts, streams, sends, and close controls", 
 test("mobile client details and return navigation remain reachable without overflow", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await fixtures(page); await open(page); await page.locator(`#client-${CLAUDE}`).click();
-  await expect(page.getByRole("heading", { name: "operator on claude.example" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "claude-review" })).toBeVisible();
   await expect(page.getByRole("region", { name: "Client directory" })).toBeHidden();
   await expect(page.getByRole("region", { name: "Session timeline" })).toBeVisible();
   await expect(page.getByLabel("Message this agent")).toBeInViewport();
@@ -310,6 +310,41 @@ test("Grok clients are visible and searchable by cgx", async ({ page }) => {
   await expect(page.locator(`#client-${id}`)).toBeVisible();
   await expect(page.locator(`#client-${CODEX}`)).toHaveCount(0);
   await page.locator(`#client-${id}`).click();
-  await expect(page.getByRole("heading", { name: "operator on grok.example" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "grok-review" })).toBeVisible();
   await expect(page.getByText("Grok · Not listening", { exact: false })).toBeVisible();
 });
+
+for (const width of [1440, 390]) {
+  test(`client cards show launch names, directories, status, local engine logos and summaries at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 1000 });
+    const state = await fixtures(page);
+    state.sessions.push(session("33333333-3333-4333-8333-333333333333", "grok", "idle"));
+    for (const [index, row] of state.sessions.entries()) {
+      row.launch_name = ["Vivienne", "Claudia", "Greta"][index];
+      row.session_name = `(${row.launch_name}) Release review`;
+      row.preview = { summary: `Verified ${row.engine} release`, cursor: index + 1, created_at: new Date().toISOString() };
+      row.cwd = `/home/operator/Documents/${row.engine}/nested/directory`;
+    }
+    await open(page);
+    for (const row of state.sessions) {
+      const card = page.locator(`#client-${row.id}`);
+      await expect(card).toContainText(row.launch_name!);
+      await expect(card).toContainText(row.cwd);
+      await expect(card).toContainText(row.preview!.summary);
+      const bounds = await card.boundingBox();
+      expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(width);
+      const logo = card.getByRole("img", { name: row.engine === "codex" ? "Codex" : row.engine === "claude" ? "Claude" : "Grok", exact: true });
+      await expect(logo).toBeVisible();
+      expect(await logo.evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth > 0)).toBe(true);
+      expect(new URL(await logo.getAttribute("src") ?? "", page.url()).origin).toBe(new URL(page.url()).origin);
+    }
+    await expect(page.locator(`#client-${CLAUDE}`)).toContainText("Working");
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    await page.screenshot({ path: `/tmp/active-clients-cards-${width}.png`, fullPage: true });
+    await page.getByLabel("Find a client").fill("Vivienne Verified codex");
+    await expect(page.locator(`#client-${CODEX}`)).toBeVisible();
+    await expect(page.locator(`#client-${CLAUDE}`)).toHaveCount(0);
+    await page.locator(`#client-${CODEX}`).click();
+    await expect(page.getByRole("heading", { name: "Vivienne", exact: true })).toBeVisible();
+  });
+}

@@ -773,6 +773,7 @@ The Quick Settings page (`/admin/quick-settings`) reuses `GET/POST /admin/model-
   both of which are always-enforced and therefore checkable without a route key.
   Without that, a `viewer` refused at `/admin` could have written through `/go`.
   - `GET /admin/agent-sessions` — `{enabled, generated_at, timings, sessions:[…]}`.
+    Active Clients cards show the launch name (session name, messaging alias or short session ID when absent), current `cwd`, derived status, bundled Codex/Claude/Grok logo and summary. Names and summaries are searchable; full paths remain available on hover. Transcript-authorized callers also receive `preview:{summary,cursor,created_at}` or null, using the same 160-character, prompt/attention-first summary projection as the companion; other callers receive no preview text.
     `generated_at` is the server instant used for the entire presence snapshot.
     `timings` includes `heartbeat_fresh_seconds`, `relay_fresh_seconds`,
     `working_fresh_seconds` (ten relay windows), and `retention_hours`. Each

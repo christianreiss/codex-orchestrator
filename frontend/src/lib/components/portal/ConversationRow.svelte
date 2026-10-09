@@ -17,6 +17,9 @@
     subtitle = "",
     time = "",
     preview,
+    directory = "",
+    status = "",
+    logo = false,
     selected = false,
     needsYou = false,
     badge = null,
@@ -29,6 +32,9 @@
     subtitle?: string;
     time?: string;
     preview: string;
+    directory?: string;
+    status?: string;
+    logo?: boolean;
     selected?: boolean;
     needsYou?: boolean;
     badge?: UnreadBadge;
@@ -44,20 +50,21 @@
          {selected ? 'bg-primary/15' : 'hover:bg-muted/70'}"
   {...rest}
 >
-  <EngineAvatar {engine} {presence} badge />
+  <EngineAvatar {engine} {presence} {logo} badge />
 
   <span class="min-w-0 flex-1">
     <span class="flex items-baseline gap-2">
-      <span class="min-w-0 truncate text-body font-semibold {dim ? 'text-muted-foreground' : ''}">
+      <span class="min-w-0 truncate text-body font-semibold {dim ? 'text-muted-foreground' : ''}" title={title}>
         {title}{#if subtitle}<span class="font-normal text-muted-foreground">{" · "}{subtitle}</span>{/if}
       </span>
-      <span class="ml-auto shrink-0 text-[11px] text-muted-foreground">{time}</span>
+      <span class="ml-auto shrink-0 text-[11px] text-muted-foreground">{status || time}</span>
     </span>
+    {#if directory}<span class="mt-0.5 block truncate font-mono text-[11px] text-muted-foreground" title={directory}>{directory}</span>{/if}
     <span class="mt-0.5 flex items-center gap-2">
       <span
         class="min-w-0 flex-1 truncate text-caption
                {needsYou ? 'font-medium text-destructive' : 'text-muted-foreground'}"
-      >{preview}</span>
+      title={preview}>{preview}</span>
       {#if badge?.kind === "attention"}
         <span
           class="grid h-[1.125rem] min-w-[1.125rem] shrink-0 place-items-center rounded-full bg-destructive px-1

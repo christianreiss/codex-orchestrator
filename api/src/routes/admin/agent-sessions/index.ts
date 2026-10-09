@@ -8,6 +8,8 @@ import { AdminAuthService } from '../../../services/admin-auth.js';
 import { AdminEventsService } from '../../../services/admin-events.js';
 import { createAgentPortalService, type PortalActor } from '../../../services/agent-portal.js';
 import { emptyWork, loadSessionWork, type SessionWorkInput } from '../../../services/agent-session-work.js';
+import { companionPreviews } from '../../../services/companion/summary.js';
+import { roleHasCapability } from '../../../security/capabilities.js';
 
 /**
  * The console's view of the fleet's live agent sessions.
@@ -86,13 +88,15 @@ export async function registerAdminAgentSessionsRoutes(
   const events = new AdminEventsService(ctx.db);
   const auth = new AdminAuthService(ctx.db, ctx.env);
 
-  app.get('/admin/agent-sessions', { preHandler: app.requireAdmin }, async () => {
+  app.get('/admin/agent-sessions', { preHandler: app.requireAdmin }, async (req) => {
     // `enabled` travels with the rows because an empty list has two very
     // different meanings: nobody is running, or the module is off and
     // `registerAgent` has been discarding every registration. The page cannot
     // tell those apart from the rows alone, and the second one reads as a bug.
     const [enabled, snapshot] = await Promise.all([portal.isEnabled(), portal.listAgentsSnapshot()]);
-    const { sessions } = snapshot;
+    const sessions = roleHasCapability(req.admin!.user.accessLevel, 'agent_portal.reveal_transcript')
+      ? await companionPreviews(ctx, snapshot.sessions)
+      : snapshot.sessions;
     const inputs = sessions.map((session) => ({
       id: String(session.id),
       host_id: Number(session.host_id),

@@ -22,7 +22,7 @@
   import { EmptyState } from "$lib/components/ui/empty-state";
   import { Skeleton } from "$lib/components/ui/skeleton";
   import { authStore } from "$lib/stores/auth";
-  import { shortAge, shortPath } from "$lib/portal/browser";
+  import { shortAge } from "$lib/portal/browser";
   import { presenceView } from "$lib/portal/presence";
   import { listTime, visibleTimeline } from "$lib/portal/grouping";
   import { clientClock, clientCounts, snapshotIsStale, visibleClients, type ClientFilter } from "$lib/portal/clients";
@@ -177,7 +177,7 @@
   function onreply(option?: string) { if (option) void submit(option, true); else composerInput?.focus(); }
   function refresh() { void client.invalidateQueries({ queryKey: agentSessionKeys.all }); if (feedState === "reconnecting") feedRetry++; }
   function resetFilters() { search = ""; engine = "all"; filter = "active"; }
-  function place(row: AgentSessionRow) { return shortPath(row.work.worktree_path ?? row.cwd) || "No directory reported"; }
+  function agentName(row: AgentSessionRow) { return row.launch_name || row.session_name || row.work.address_alias || `Session ${row.id.slice(0, 8)}`; }
   function age(value: string | null, clock = serverNow) { return value ? shortAge(value, clock) || "unknown" : "unknown"; }
   function exactTime(value: string | null) { const date = value ? new Date(value) : null; return date && Number.isFinite(date.getTime()) ? date.toLocaleString() : "Not reported"; }
   // Messages-style scope chips; the counts that used to live on four summary cards ride on them.
@@ -189,10 +189,10 @@
     { key: "all" as ClientFilter, label: "All", count: null },
   ]);
   let detailsOpen = $state(false);
-  function preview(row: AgentSessionRow, label: string, ended: boolean) {
+  function preview(row: AgentSessionRow, ended: boolean) {
     const ask = row.pending_prompt?.question ?? row.attention?.summary;
     if (ask && !ended) return ask;
-    return `${label} · ${row.work.task?.split("\n")[0] || place(row)}`;
+    return row.preview?.summary || row.task_title || row.work.task?.split("\n")[0] || "No summary reported";
   }
 </script>
 
@@ -230,14 +230,14 @@
     <EmptyState icon={BotIcon} title="No recorded clients" description="A session appears when cdx, clx, or cgx registers with the Agent Portal. Clients that cannot reach the server may appear after reconnecting." />
   {:else}
     <!-- One Messages-style card: conversation list on the left, thread on the right. -->
-    <div class="grid h-[75dvh] min-h-[28rem] overflow-hidden rounded-xl border bg-card lg:h-[calc(100dvh-15.5rem)] lg:grid-cols-[22rem_minmax(0,1fr)]">
-      <section class="min-h-0 flex-col border-r {selected ? 'hidden lg:flex' : 'flex'}" aria-label="Client directory">
+    <div class="grid grid-cols-1 h-[75dvh] min-h-[28rem] overflow-hidden rounded-xl border bg-card lg:h-[calc(100dvh-15.5rem)] lg:grid-cols-[22rem_minmax(0,1fr)]">
+      <section class="min-h-0 min-w-0 flex-col border-r {selected ? 'hidden lg:flex' : 'flex'}" aria-label="Client directory">
         <div class="space-y-2 border-b px-3 pb-2.5 pt-3">
           <div class="flex items-center gap-2">
             <label class="relative block min-w-0 flex-1">
               <span class="sr-only">Find a client</span>
               <SearchIcon class="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-              <input type="search" bind:value={search} placeholder="Search" title="Host, task, branch, directory…"
+              <input type="search" bind:value={search} placeholder="Search" title="Agent name, summary, host, task, branch, directory…"
                 class="h-8 w-full rounded-lg border-0 bg-muted pl-8 pr-2 text-xs outline-none placeholder:text-muted-foreground focus:ring-2 focus:ring-ring/30" />
             </label>
             <label for="client-engine" class="sr-only">Engine</label>
@@ -267,7 +267,7 @@
         </div>
       </section>
 
-      <section class="min-h-0 flex-col {selected ? 'flex' : 'hidden lg:flex'}" aria-label="Client details">
+      <section class="min-h-0 min-w-0 flex-col {selected ? 'flex' : 'hidden lg:flex'}" aria-label="Client details">
         {#if !selected || !selectedView}
           <div class="grid flex-1 place-content-center p-8 text-center"><BotIcon class="mx-auto h-8 w-8 text-muted-foreground/60" /><h2 class="mt-3 text-sm font-medium">Select a client</h2><p class="mx-auto mt-1 max-w-xs text-xs leading-relaxed text-muted-foreground">Online means a recent heartbeat. A client accepts instructions only while listening or working.</p></div>
         {:else}
@@ -275,8 +275,9 @@
             <header class="grid shrink-0 grid-cols-[5.5rem_1fr_5.5rem] items-center border-b px-2 py-1.5">
               <div><Button variant="ghost" size="sm" class="-ml-1 px-1.5 text-primary lg:hidden" onclick={closeDetail}><ChevronLeftIcon class="h-5 w-5" /> Clients</Button></div>
               <div class="flex min-w-0 flex-col items-center text-center">
-                <EngineAvatar engine={selected.engine} presence={selectedView.presence} size="xs" badge />
-                <h2 bind:this={detailHeading} tabindex="-1" class="mt-0.5 max-w-full truncate text-xs font-semibold focus:outline-none">{selected.username} <span class="font-normal text-muted-foreground">on</span> {selected.host ?? `host ${selected.host_id}`}</h2>
+                <EngineAvatar engine={selected.engine} presence={selectedView.presence} size="xs" badge logo />
+                <h2 bind:this={detailHeading} tabindex="-1" class="mt-0.5 max-w-full truncate text-xs font-semibold focus:outline-none">{agentName(selected)}</h2>
+                <p class="max-w-full truncate text-[11px] text-muted-foreground" title={selected.cwd}>{selected.cwd}</p>
                 <p class="max-w-full truncate text-[11px] text-muted-foreground">
                   {engineLabel(selected.engine)} · {selectedView.label}{selected.read_only ? " · Read-only" : ""}{#if selectedView.presence !== "listening"}{" · "}<span title={selectedView.detail}>{selectedView.detail}</span>{/if}{#if canReadTranscript}{" · "}<span>{feedState === "live" ? "Live timeline updates" : feedState === "connecting" ? "Connecting to live updates…" : "Live updates reconnecting"}</span>{/if}
                 </p>
@@ -290,6 +291,8 @@
                 <p class="leading-relaxed text-muted-foreground">{selectedView.detail}</p>
                 <dl class="mt-2 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5">
                   <dt class="text-muted-foreground">Heartbeat</dt><dd title={exactTime(selected.heartbeat_at)}>{age(selected.heartbeat_at)} ago</dd>
+                  <dt class="text-muted-foreground">Host</dt><dd>{selected.username} on {selected.host ?? `host ${selected.host_id}`}</dd>
+                  <dt class="text-muted-foreground">Summary</dt><dd>{preview(selected, selectedView.presence === "ended")}</dd>
                   <dt class="text-muted-foreground">Last activity</dt><dd title={exactTime(selected.last_event_at ?? selected.started_at)}>{age(selected.last_event_at ?? selected.started_at)} ago</dd>
                   <dt class="text-muted-foreground">Directory</dt><dd class="break-all font-mono">{selected.work.worktree_path ?? selected.cwd}</dd>
                   {#if selected.work.task}<dt class="text-muted-foreground">Task</dt><dd class="whitespace-pre-wrap leading-relaxed">{selected.work.task}</dd>{/if}
@@ -341,10 +344,12 @@
     id="client-{row.id}"
     engine={row.engine}
     presence={view.presence}
-    title={row.host ?? `host ${row.host_id}`}
-    subtitle={row.username}
+    title={agentName(row)}
+    directory={row.cwd || "No directory reported"}
+    status={view.label}
+    logo
     time={listTime(row.last_event_at ?? row.started_at, new Date(serverNow))}
-    preview={preview(row, view.label, ended)}
+    preview={preview(row, ended)}
     selected={row.id === selectedId}
     needsYou={Boolean(row.attention || row.pending_prompt) && !ended}
     badge={(row.attention || row.pending_prompt) && !ended ? { kind: "attention" } : null}

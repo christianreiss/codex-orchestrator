@@ -600,6 +600,10 @@ history; there is no automatic Agent Messaging purge.
 ## Permanent Agent Portal
 
 The admin **Active Clients** page and `/go` use the same session projection.
+Active Clients lists each agent's launch name, current directory, derived status,
+bundled engine logo and compact summary; name and summary search spans all three
+engines. Latest reply summaries use the companion projection and require transcript
+access. Host/user and registered worktree metadata remain in session details.
 Presence requires a valid host/engine/bridge and a fresh wrapper heartbeat;
 listening additionally requires a fresh instruction relay, while working tracks
 an accepted turn with a bounded freshness window. Admin snapshots carry their
