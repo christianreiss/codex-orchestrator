@@ -62,6 +62,10 @@ const IDENTIFIER = /[a-z][a-z0-9]*(?:_(?:[a-z0-9]+|\*))+/g;
  * reason each one is there. Anything not listed here has to be a live tool.
  */
 const NON_TOOL_TOKENS: Record<string, string> = {
+  recipient_presence: 'send/reply receipt presence field, not a tool',
+  observed_at: 'timestamp of the receipt presence snapshot, not a tool',
+  delivery_hint: 'send/reply receipt explanation field, not a tool',
+  presence_notice: 'informational session-bound bus message kind, not a tool',
  task_key: 'stable watchdog task identity',
  duration_seconds: 'bounded watchdog lifetime',
   git_director_worktree_ambiguous: "error code requiring explicit registration to repair duplicate clone mappings, not a tool",

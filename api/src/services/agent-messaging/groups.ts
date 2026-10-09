@@ -335,7 +335,7 @@ export class AgentMessagingGroups {
     return this.asAgent(sessionId, token, (tx, actor) => this.subscriptions(tx, actor.id));
   }
 
-  private async server(tx: AgentMessagingDb): Promise<AgentBusAddress> {
+  async server(tx: AgentMessagingDb): Promise<AgentBusAddress> {
     const rows = await tx
       .select()
       .from(agentBusAddresses)

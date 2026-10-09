@@ -608,3 +608,13 @@ This avoids a project config replacing the runtime entry and silently switching
 to manual listening, including launches from the real home directory. The
 managed bridge is still required; a Grok process without the private leader
 retains manual mode. Existing MCP subprocesses need a restart to use this fix.
+
+### Recipient status and return notices (cxx 0.9.41)
+
+`agent_send`, `agent_request` (inside its send receipt), and `agent_reply`
+report `recipient_presence`, `observed_at` and `delivery_hint`. `queued` means
+stored by the server, not accepted or read; `resumable` means currently offline.
+When a recipient becomes receive-ready again, manual or automatic, still-online
+senders with waiting mail receive one bundled `presence_notice` from Server.
+The notice belongs to the sender's current session and never wakes a later one.
+It is informational: finish with `agent_listen` once, without a reply.

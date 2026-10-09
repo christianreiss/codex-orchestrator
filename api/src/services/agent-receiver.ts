@@ -1,3 +1,4 @@
+import { markWaitingForPresence } from './agent-messaging/presence-feedback.js';
 import { randomUUID } from 'node:crypto';
 import { eq } from 'drizzle-orm';
 import type { Database } from '../db/client.js';
@@ -100,6 +101,7 @@ export class AgentReceiverService {
       }
       return next;
     });
+    if (state.probes.peer) await this.messaging.notifyPresenceReturn(id);
     this.changed(id);
     return { receiver: receiverView(state), sources: Object.keys(state.probes) as ReceiverSource[] };
   }
@@ -132,7 +134,10 @@ export class AgentReceiverService {
       )
         throw new ConflictError('Receiver connection expired; reconnect', 'receiver_expired');
       if (operation === 'heartbeat') state.heartbeat_at = new Date(now).toISOString();
-      if (operation === 'stop') state.failure = input.failure ?? 'receiver_stopped';
+      if (operation === 'stop') {
+        state.failure = input.failure ?? 'receiver_stopped';
+        if (session.agentBusAddressId && state.probes.peer) await markWaitingForPresence(tx, session.agentBusAddressId);
+      }
       if (operation === 'ack') {
         // Compatibility with already-delivered probes from old wrappers. A late
         // receipt is read-only: it cannot renew health or certify model readiness.
@@ -173,6 +178,7 @@ export class AgentReceiverService {
       }
       return receiverView(state);
     });
+    if (peerEnabled && operation !== 'stop') await this.messaging.notifyPresenceReturn(id);
     if (operation !== 'heartbeat') this.changed(id);
     return { receiver: result };
   }
@@ -199,8 +205,10 @@ export class AgentReceiverService {
       if (!receiverReady(state, source))
         throw new ForbiddenError('Source is disabled', 'receiver_source_disabled');
     });
-    if (source === 'peer')
+    if (source === 'peer') {
+      await this.messaging.notifyPresenceReturn(id);
       return { delivery: await this.messaging.claimForSession(id, token, claimId, generation) };
+    }
     return { message: await this.portal.claimMessage(id, token, claimId, undefined, generation) };
   }
 
@@ -211,6 +219,7 @@ export class AgentReceiverService {
       if (!session || session.endedAt || !state)
         throw new ConflictError('No active receiver', 'receiver_missing');
       // Fence delayed claims and heartbeats before the adapter reconnects.
+      if (session.agentBusAddressId && state.probes.peer) await markWaitingForPresence(tx, session.agentBusAddressId);
       state.failure = 'reconnect_requested';
       state.generation = randomUUID();
       await tx

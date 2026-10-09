@@ -1135,6 +1135,11 @@ Session-bound operations require `X-Agent-Bridge-Token`:
 - `POST /host/agent-sessions/{id}/agent-messaging/send` — enqueue a new message
   or request. Body includes `to`, UTF-8 `content`, UUID `client_message_id`, and
   optional `conversation_id`, `ttl_seconds`, and `kind` (`message|request`).
+  Send and reply receipts add `recipient_presence` (`listening|online|resumable|offline|disabled`),
+  `observed_at` (RFC3339), and human-readable `delivery_hint` at the response root.
+  Presence is a fresh snapshot, including on idempotent retries; `resumable` means
+  offline with an existing native conversation. `message.status=queued` proves
+  server storage only, never recipient acceptance or reading.
   Local messaging tools show operation/error code without internal session
   paths. Uncertain transport/server errors and HTTP 408/429 retain the same-UUID
   retry hint; permanent 4xx rejections require correcting the request instead.
@@ -1233,6 +1238,22 @@ session is attached:
   the delivery reply while preserving claim and native-session continuity.
 - `POST /host/agent-relays/{id}/deliveries/{messageId}/ack` — acknowledge the
   relay-owned delivery with the same outcome vocabulary as session delivery.
+
+When a target becomes receive-ready again, valid waiting direct messages/replies
+produce one bundled `presence_notice` per returning target session and currently
+online sender session. Manual and automatic resumes count; receiver readiness,
+not mere launch registration, triggers the notice. The notice includes the stable
+address, current name, observation time and waiting message IDs in its content.
+Queued and leased mail count; the resumed launch's already-accepted relay delivery
+also counts because the worker accepts before launch. Other accepted, expired or
+canceled work does not count. Offline senders at the return are not notified later.
+
+Notices originate from the reserved Server address and are informational, with no
+work contract or reply. `target_session_id` binds them to that one sender session;
+ending/replacing it cancels outstanding notices before FIFO selection. Relays
+cannot claim notices and admins cannot redrive them. Transport retries retain the
+same notice ID; repeated receiver registration/heartbeats do not create duplicates.
+Finish a notice with `agent_listen` once; never acknowledge it with another message.
 
 Delivery is ordered at least once. A monotonic dispatch key and conversation
 sequence provide per-target FIFO; a delayed retry remains head-of-line, and no

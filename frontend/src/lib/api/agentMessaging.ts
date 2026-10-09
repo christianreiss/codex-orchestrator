@@ -122,6 +122,7 @@ export interface AgentConversation extends AgentConversationMetadata {
 }
 
 export interface AgentMessageMetadata {
+  target_session_id?: string | null;
   execution_contract_version?: number;
   work_kind?: string | null;
   execution_version?: number;

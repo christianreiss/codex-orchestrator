@@ -86,3 +86,31 @@ func TestNativeOutputRejectsFailedTurns(t *testing.T) {
 		}
 	}
 }
+
+func TestRelayNeverLaunchesForPresenceNotice(t *testing.T) {
+	for _, engine := range []string{config.EngineCodex, config.EngineClaude, config.EngineGrok} {
+		t.Run(engine, func(t *testing.T) {
+			oldAdapter := runNativeAdapter
+			t.Cleanup(func() { runNativeAdapter = oldAdapter })
+			runNativeAdapter = func(*relayClient, context.Context, *config.Config, *relayDelivery, string, bool) nativeResult {
+				t.Fatal("a presence notice must not resume a native agent")
+				return nativeResult{}
+			}
+			var requests []recordedRequest
+			client := &relayClient{id: "relay", token: "fixture", baseURL: "https://relay.invalid"}
+			client.http = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+				var body map[string]any
+				_ = json.NewDecoder(req.Body).Decode(&body)
+				requests = append(requests, recordedRequest{path: req.URL.Path, body: body})
+				return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"message":{"status":"dead"}}`))}, nil
+			})}
+			delivery := &relayDelivery{MessageID: "notice", ClaimID: "claim", Kind: "presence_notice", Target: map[string]any{"engine": engine}}
+			if err := client.processDelivery(context.Background(), nil, delivery); err != nil {
+				t.Fatal(err)
+			}
+			if len(requests) != 1 || requests[0].body["outcome"] != "dead" || requests[0].body["error_code"] != "presence_notice_live_session_only" {
+				t.Fatalf("unexpected notice outcome: %+v", requests)
+			}
+		})
+	}
+}

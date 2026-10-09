@@ -574,3 +574,21 @@ func TestAuthenticatedPeerGuidanceAcrossEnginesAndDeliveryPaths(t *testing.T) {
 		})
 	}
 }
+
+func TestNativePresenceNoticeFinishesWithoutReply(t *testing.T) {
+	prompt := nativePeerPrompt(map[string]any{"message_id": "held", "kind": "presence_notice", "content": "A is ready again."})
+	for _, required := range []string{"orchestrator server", "not a peer reply or a work request", "Do not reply", "call agent_listen once, then yield"} {
+		if !strings.Contains(prompt, required) {
+			t.Fatalf("presence notice missing %q: %s", required, prompt)
+		}
+	}
+	var calls []string
+	client := heldDeliveryServer(t, &calls)
+	tracker := holdDelivery(client)
+	if _, err := callMCPTool(context.Background(), client, tracker, "agent_listen", map[string]any{}); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(calls, ",") != "deliveries/held/ack" || len(tracker.items) != 0 {
+		t.Fatalf("presence notice sent another message: calls=%v held=%d", calls, len(tracker.items))
+	}
+}

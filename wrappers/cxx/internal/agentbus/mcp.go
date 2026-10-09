@@ -378,12 +378,12 @@ func toolCatalogJSON() []byte {
 			"client_message_id": map[string]any{"type": "string", "format": "uuid", "description": "UUID idempotency key; keep the same UUID when retrying uncertain delivery"},
 			"ttl_seconds":       map[string]any{"type": "integer", "minimum": 60, "maximum": 604800},
 		}, []string{"topic", "content"}),
-		tool("agent_send", "Send one ordinary text message to one agent address. client_message_id must be a UUID; retain it when retrying an uncertain send.", map[string]any{
+		tool("agent_send", "Send one ordinary text message to one agent address. The receipt includes recipient_presence, observed_at and delivery_hint; queued means stored, not accepted or read. client_message_id must be a UUID; retain it when retrying an uncertain send.", map[string]any{
 			"client_message_id": map[string]any{"type": "string", "format": "uuid", "description": "UUID idempotency key; keep the same UUID when retrying uncertain delivery"},
 			"to":                map[string]any{"type": "string"}, "content": map[string]any{"type": "string", "maxLength": maxBodyBytes},
 			"conversation_id": map[string]any{"type": "string"}, "ttl_seconds": map[string]any{"type": "integer", "minimum": 60, "maximum": 604800},
 		}, []string{"to", "content"}),
-		tool("agent_request", "Send work and wait briefly for a correlated response. client_message_id must be a UUID. Retain client_message_id when retrying an uncertain send. If only waiting fails, the result preserves sent and wait_error; use agent_wait on that conversation instead of resending.", map[string]any{
+		tool("agent_request", "Send work and wait briefly for a correlated response. The send receipt includes recipient_presence, observed_at and delivery_hint; queued means stored, not accepted or read. client_message_id must be a UUID. Retain client_message_id when retrying an uncertain send. If only waiting fails, the result preserves sent and wait_error; use agent_wait on that conversation instead of resending.", map[string]any{
 			"client_message_id": map[string]any{"type": "string", "format": "uuid", "description": "UUID idempotency key; keep the same UUID when retrying uncertain delivery"},
 			"to":                map[string]any{"type": "string"}, "content": map[string]any{"type": "string", "maxLength": maxBodyBytes},
 			"wait_seconds": map[string]any{"type": "integer", "minimum": 0, "maximum": 25},
@@ -396,7 +396,7 @@ func toolCatalogJSON() []byte {
 			"message_id": map[string]any{"type": "string"}, "content": map[string]any{"type": "string", "maxLength": maxBodyBytes},
 			"summary": map[string]any{"type": "string", "maxLength": 160},
 		}, []string{"message_id", "content"}),
-		tool("agent_reply", "Answer a peer delivery when an answer is needed. For operator Portal messages use agent_receiver_reply. For an informational reply or closing acknowledgement, call agent_listen once to complete delivery without sending another message.", map[string]any{
+		tool("agent_reply", "Answer a peer delivery when an answer is needed. The receipt includes recipient_presence, observed_at and delivery_hint. Never reply to presence_notice deliveries; finish them with agent_listen once. For operator Portal messages use agent_receiver_reply. For an informational reply or closing acknowledgement, call agent_listen once to complete delivery without sending another message.", map[string]any{
 			"task_result": taskResultProperties(),
 			"message_id":  map[string]any{"type": "string"}, "content": map[string]any{"type": "string", "maxLength": maxBodyBytes},
 		}, []string{"message_id", "content"}),

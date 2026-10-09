@@ -1,3 +1,4 @@
+import { markWaitingForPresence, discardPresenceNotices } from './presence-feedback.js';
 import { pageAgentAddresses, type AgentDiscoveryFilters } from './discovery.js';
 import { assignLaunchNameLocked, endLaunchNamesLocked } from './names.js';
 import { receiverView, receiverState } from '../agent-receiver-state.js';
@@ -452,6 +453,8 @@ export class SessionRegistry {
         .set({ status, endedAt: session.endedAt ?? now, receiveHeartbeatAt: null, adapterProtocol: null, adapterCapabilities: null, updatedAt: now })
         .where(eq(agentSessions.id, sessionId));
       if (session.agentBusAddressId) {
+        const [bound] = await tx.select().from(agentBusAddresses).where(eq(agentBusAddresses.id, session.agentBusAddressId)).limit(1).for('update');
+        if (bound?.currentSessionId === sessionId) await markWaitingForPresence(tx, session.agentBusAddressId);
         await tx
           .update(agentBusAddresses)
           // The PIN dies with the session that opened it: it lives on the
@@ -460,6 +463,7 @@ export class SessionRegistry {
           .set({ currentSessionId: null, readiness: session.upstreamSessionId ? 'resumable' : 'offline', receiveHeartbeatAt: null, callPin: null, callPinExpiresAt: null, lastUpstreamSessionId: session.upstreamSessionId, lastSeenAt: now, updatedAt: now })
           .where(and(eq(agentBusAddresses.id, session.agentBusAddressId), eq(agentBusAddresses.currentSessionId, sessionId)));
       }
+      if (session.agentBusAddressId) await discardPresenceNotices(tx, now, [session.agentBusAddressId]);
       await endLaunchNamesLocked(tx, [sessionId], session.endedAt ?? now);
     });
     wsPublisher.publish('agent_messaging.address.changed', { address_id: authenticated.session.agentBusAddressId, status });

@@ -1839,6 +1839,9 @@ export const agentBusMessages = mysqlTable(
     requestedTarget: varchar('requested_target', { length: 96 }),
     senderAddressId: char('sender_address_id', { length: 36 }).notNull(),
     senderSessionId: char('sender_session_id', { length: 36 }),
+    targetSessionId: char('target_session_id', { length: 36 }),
+    presenceNoticeKey: varchar('presence_notice_key', { length: 100 }),
+    awaitingPresence: tinyint('awaiting_presence').notNull().default(0),
     targetAddressId: char('target_address_id', { length: 36 }).notNull(),
     sourceEngine: varchar('source_engine', { length: 16 }).notNull(),
     targetEngine: varchar('target_engine', { length: 16 }).notNull(),
@@ -1874,6 +1877,7 @@ export const agentBusMessages = mysqlTable(
     updatedAt: varchar('updated_at', { length: 100 }).notNull(),
   },
   (t) => ({
+    presenceNoticeUnique: uniqueIndex('uq_agent_bus_messages_presence_notice').on(t.presenceNoticeKey),
     dispatchOrderUnique: uniqueIndex('uq_agent_bus_messages_dispatch_order').on(t.dispatchOrder),
     senderClientUnique: uniqueIndex('uq_agent_bus_messages_sender_client').on(
       t.senderAddressId,

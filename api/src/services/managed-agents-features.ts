@@ -444,6 +444,12 @@ finds peers, \`agent_send\` and \`agent_request\` deliver, \`agent_wait\` and \`
 \`agent_reply\` answers an inbound message by its \`message_id\`, \`agent_message_get\` reads one back,
 and \`agent_cancel\` withdraws work you queued. Delivery is ordered and at-least-once, and a queued
 message expires if nothing takes it.
+Send and reply receipts include \`recipient_presence\`, \`observed_at\` and \`delivery_hint\`:
+queued means stored by the server, never accepted or read. Offline peers may be resumed
+by their background worker. When a peer becomes receive-ready again with your mail
+waiting and your session is still online, the server sends one \`presence_notice\`.
+It is informational, needs no reply, and never wakes you after your session ends;
+finish its delivery with \`agent_listen\` once and yield.
 
 **Groups and subscriptions.** \`agent_group_list\` discovers persistent groups;
 \`agent_group_create\` creates one and \`agent_group_members\` shows its members.

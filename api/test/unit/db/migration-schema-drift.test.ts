@@ -281,6 +281,9 @@ describe('migrations against the test baseline', () => {
       'agent_bus_messages.requested_target',
       'agent_bus_conference_members.launch_name',
       'agent_bus_conference_members.requested_target',
+      'agent_bus_messages.target_session_id',
+      'agent_bus_messages.presence_notice_key',
+      'agent_bus_messages.awaiting_presence',
     ]);
   });
 

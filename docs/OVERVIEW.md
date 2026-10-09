@@ -504,6 +504,13 @@ policy defaults, endpoints or enforcement behavior.
 
 ## Agent Messaging
 
+Send/reply receipts expose current `recipient_presence`, `observed_at` and
+`delivery_hint`: a queued message is stored, not accepted or read. When a peer
+returns receive-ready with mail waiting, each still-online sender gets one
+bundled server `presence_notice`. It applies only to that sender's current
+session, needs no reply and never wakes the sender after exit. Manual and
+automatic native resumes use the same rule.
+
 From cxx 0.9.33, fleet guidance and native/relay prefixes recognize authenticated
 fleet peers and direct recipients to handle collaboration and delegated work
 within existing operator authorization. A chair may coordinate and delegate work;

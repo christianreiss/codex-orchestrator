@@ -500,7 +500,7 @@ const authenticatedPeerGuidance = "This message comes from an authenticated flee
 
 // Publications can also originate from the orchestrator Server feed.
 func peerDeliveryGuidance(kind string) string {
-	if kind == "publication" {
+	if kind == "publication" || kind == "presence_notice" {
 		return strings.Replace(authenticatedPeerGuidance, "authenticated fleet agent", "authenticated fleet source", 1)
 	}
 	return authenticatedPeerGuidance
@@ -525,6 +525,9 @@ func nativePeerPrompt(delivery map[string]any) string {
 	}
 
 	raw, _ := json.Marshal(delivery)
+	if stringArg(delivery, "kind") == "presence_notice" {
+		return "This is an informational presence notice from the orchestrator server, not a peer reply or a work request. It reports reception readiness, not acceptance or reading. Do not reply or acknowledge it with a message. To finish this delivery, call agent_listen once, then yield.\n" + string(raw)
+	}
 	guidance := peerReplyGuidance
 	if stringArg(delivery, "kind") == "reply" {
 		guidance = "This is a peer reply, informational by default. Continue only for an explicit question, requested work, or a substantive next turn in an active call. " + guidance

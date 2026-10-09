@@ -1,3 +1,4 @@
+import { discardPresenceNotices, queuePresenceNotices, recipientSnapshot } from './agent-messaging/presence-feedback.js';
 import { type AgentDiscoveryFilters } from './agent-messaging/discovery.js';
 import { translateAgent } from './agent-messaging/names.js';
 import { jsonRecord } from './agent-messaging/normalize.js';
@@ -303,7 +304,9 @@ export class AgentMessagingService {
   }
 
   async registerSession(host: Host, input: RegisterMessagingSessionInput): Promise<Record<string, unknown>> {
-    return this.sessions.registerSession(host, input);
+    const result = await this.sessions.registerSession(host, input);
+    if (input.adapterProtocol) await this.notifyPresenceReturn(input.sessionId);
+    return result;
   }
 
   async heartbeatSession(
@@ -320,11 +323,35 @@ export class AgentMessagingService {
       skipIfUnbound?: boolean;
     },
   ): Promise<Record<string, unknown> | null> {
-    return this.sessions.heartbeatSession(sessionId, bridgeToken, input);
+    const result = await this.sessions.heartbeatSession(sessionId, bridgeToken, input);
+    if (result) await this.notifyPresenceReturn(sessionId);
+    return result;
   }
 
   async finishSession(sessionId: string, bridgeToken: string, status: 'completed' | 'failed'): Promise<Record<string, unknown>> {
     return this.sessions.finishSession(sessionId, bridgeToken, status);
+  }
+
+  async notifyPresenceReturn(sessionId: string): Promise<void> {
+    if (!await this.isEnabled()) return;
+    const receipts = await this.db.transaction(async (tx) => {
+      await this.requireEnabledLocked(tx);
+      return queuePresenceNotices(tx, sessionId, {
+        env: this.env, keyring: this.keyring,
+        server: (db) => this.groups.server(db),
+        assertAddressEligibleLocked: (db, address) => this.assertAddressEligibleLocked(db, address),
+      });
+    });
+    for (const receipt of receipts) wsPublisher.publish('agent_messaging.message.changed', receipt);
+  }
+
+  private async sendReceipt(result: { created: boolean; message: AgentBusMessage; content: string; sender: AgentBusAddress; target: AgentBusAddress }) {
+    const [target] = await this.db.select().from(agentBusAddresses).where(eq(agentBusAddresses.id, result.target.id)).limit(1);
+    const snapshot = await recipientSnapshot(this.db, target ?? result.target, this.env);
+    if (result.message.status !== 'queued' && result.message.status !== 'leased') {
+      snapshot.delivery_hint = `Stored receipt; message status is ${result.message.status}. Recipient presence is ${snapshot.recipient_presence}. This is not proof of reading.`;
+    }
+    return { created: result.created, message: messageForParticipant(result.message, result.content, result.sender, result.target), ...snapshot };
   }
 
   async listAddresses(sessionId: string, bridgeToken: string, filters: AgentDiscoveryFilters = {}): Promise<Record<string, unknown>> {
@@ -500,6 +527,7 @@ export class AgentMessagingService {
         redriveOfMessageId: null,
         senderAddressId: sender.id,
         senderSessionId: authenticated.session.id,
+        awaitingPresence: (await recipientSnapshot(tx, target, this.env)).recipient_presence === 'listening' ? 0 : 1,
         senderName: sender.launchName,
         targetName: target.launchName,
         requestedTarget: input.to.trim().toLowerCase(),
@@ -561,10 +589,7 @@ export class AgentMessagingService {
         status: result.message.status,
       });
     }
-    return {
-      created: result.created,
-      message: messageForParticipant(result.message, result.content, result.sender, result.target),
-    };
+    return this.sendReceipt(result);
   }
 
   async replyMessage(
@@ -594,6 +619,7 @@ export class AgentMessagingService {
       if (parent.workKind && !input.claimId) {
         throw new ConflictError('Work replies require the accepted delivery claim', 'agent_task_result_not_accepted');
       }
+      if (parent.kind === 'presence_notice') throw new ConflictError('Presence notices are informational and cannot be replied to', 'agent_messaging_presence_notice_reply');
       if (!parent.workKind && parent.attempts > 0 && parent.status !== 'completed' && !input.claimId) {
         throw new ConflictError('A delivered message requires its current claim; use send for a new follow-up', 'agent_messaging_lease_lost');
       }
@@ -632,6 +658,7 @@ export class AgentMessagingService {
         redriveOfMessageId: null,
         senderAddressId: sender.id,
         senderSessionId: authenticated.session.id,
+        awaitingPresence: (await recipientSnapshot(tx, target, this.env)).recipient_presence === 'listening' ? 0 : 1,
         senderName: sender.launchName,
         targetName: target.launchName,
         targetAddressId: target.id,
@@ -686,7 +713,7 @@ export class AgentMessagingService {
       });
       wsPublisher.publish('agent_messaging.message.changed', { message_id: result.message.id, conversation_id: result.message.conversationId, status: 'queued' });
     }
-    return { created: result.created, message: messageForParticipant(result.message, result.content, result.sender, result.target) };
+    return this.sendReceipt(result);
   }
 
   async waitForMessages(
@@ -1290,6 +1317,7 @@ export class AgentMessagingService {
     const now = nowIso();
     const staleRelay = isoOffsetSeconds(-2 * AGENT_MESSAGING_RECEIVE_FRESH_SECONDS);
     const result = await this.db.transaction(async (tx) => {
+      await discardPresenceNotices(tx, now);
       const releasedBindings = await reapExpiredAgentMessagingBindingsLocked(tx, now);
       // Expired PINs are also swept at mint and redeem time; doing it here as
       // well means a PIN nobody ever dials does not squat its slot in the unique
@@ -1362,6 +1390,7 @@ export class AgentMessagingService {
           throw new ConflictError('Agent session is not receive-capable', 'agent_messaging_adapter_unavailable');
         }
       }
+      await discardPresenceNotices(tx, now, targetAddressIds);
       await tx
         .update(agentBusMessages)
         .set({ status: 'expired', expiredAt: now, leaseOwner: null, leaseUntil: null, updatedAt: now })
@@ -1418,6 +1447,7 @@ export class AgentMessagingService {
         // A one-shot CLI reader cannot keep work alive or report its result.
         // Leave the FIFO head untouched for a persistent execution adapter.
         if (informationalOnly && (candidate.workKind || ['request', 'task', 'schedule'].includes(candidate.kind))) continue;
+        if (candidate.kind === 'presence_notice' && (skipReceiveCapable || candidate.targetSessionId !== sessionIdFromLeaseOwner(leaseOwner))) continue;
         const target = await this.requireAddressLocked(tx, candidate.targetAddressId);
         await this.assertAddressEligibleLocked(tx, target);
         // A relay must never write to a native upstream session while its
@@ -1584,6 +1614,12 @@ export class AgentMessagingService {
         throw new ConflictError('Message lease is no longer owned by this delivery', 'agent_messaging_lease_lost');
       }
       const currentTarget = await this.requireAddressLocked(tx, message.targetAddressId);
+      if (message.kind === 'presence_notice') {
+        const [noticeSession] = message.targetSessionId ? await tx.select().from(agentSessions).where(eq(agentSessions.id, message.targetSessionId)).limit(1) : [];
+        if (relayGeneration != null || currentTarget.currentSessionId !== message.targetSessionId || noticeSession?.endedAt || !noticeSession) {
+          throw new ConflictError('Presence notice belongs to an ended session', 'agent_messaging_lease_lost');
+        }
+      }
       if (currentTarget.bindingGeneration !== message.targetBindingGeneration) {
         throw new ConflictError('Agent address binding changed', 'agent_messaging_binding_stale');
       }

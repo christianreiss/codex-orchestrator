@@ -310,6 +310,9 @@ func (c *relayClient) poll(ctx context.Context, configs map[string]*config.Confi
 }
 
 func (c *relayClient) processDelivery(ctx context.Context, configs map[string]*config.Config, delivery *relayDelivery) error {
+	if delivery.Kind == "presence_notice" {
+		return c.ack(ctx, delivery, "dead", "presence_notice_live_session_only", nil)
+	}
 	engine := stringArg(delivery.Target, "engine")
 	cfg := configs[engine]
 	if cfg == nil {

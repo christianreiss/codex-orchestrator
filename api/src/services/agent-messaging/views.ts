@@ -159,6 +159,7 @@ export function messageMetadata(message: AgentBusMessage, sender?: AgentBusAddre
     sender: sender ? { ...publicAddress(sender), name: message.senderName ?? null } : { id: message.senderAddressId, engine: message.sourceEngine },
     target: target ? { ...publicAddress(target), name: message.targetName ?? null } : { id: message.targetAddressId, engine: message.targetEngine },
     kind: message.kind,
+    target_session_id: message.targetSessionId,
     execution_contract_version: message.executionContractVersion,
     work_kind: message.workKind,
     task_result_status: message.taskResultStatus,

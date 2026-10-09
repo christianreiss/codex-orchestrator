@@ -214,6 +214,9 @@ CREATE TABLE `agent_bus_messages` (
 	`redrive_of_message_id` char(36),
 	`sender_address_id` char(36) NOT NULL,
 	`sender_session_id` char(36),
+	`target_session_id` char(36),
+	`presence_notice_key` varchar(100),
+	`awaiting_presence` tinyint NOT NULL DEFAULT 0,
 	`target_address_id` char(36) NOT NULL,
 	`source_engine` varchar(16) NOT NULL,
 	`target_engine` varchar(16) NOT NULL,
@@ -244,6 +247,7 @@ CREATE TABLE `agent_bus_messages` (
 	`created_at` varchar(100) NOT NULL,
 	`updated_at` varchar(100) NOT NULL,
 	CONSTRAINT `agent_bus_messages_id` PRIMARY KEY(`id`),
+	CONSTRAINT `uq_agent_bus_messages_presence_notice` UNIQUE(`presence_notice_key`),
 	CONSTRAINT `uq_agent_bus_messages_dispatch_order` UNIQUE(`dispatch_order`),
 	CONSTRAINT `uq_agent_bus_messages_sender_client` UNIQUE(`sender_address_id`,`client_message_id`),
 	CONSTRAINT `uq_agent_bus_messages_conversation_sequence` UNIQUE(`conversation_id`,`sequence`)

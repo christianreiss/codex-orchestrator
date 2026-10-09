@@ -585,6 +585,7 @@
                 <span class="rounded-full border px-2 py-0.5 text-[10px] uppercase {statusTone(message.status)}">{message.status}</span>
                 {#if message.work_kind || message.kind === "request" || message.kind === "schedule"}<span class="text-xs">Task: {message.task_result_status ?? "unknown"} · agent report</span>{/if}
               </div>
+              {#if message.kind === "presence_notice"}<p class="mt-1 text-xs text-muted-foreground">Recipient returned · informational · only for the sender’s current session · no reply required</p>{/if}
               {#if message.last_error_code}<p class="mt-1 text-xs text-destructive">{message.last_error_code}</p>{/if}
               {#if revealed?.messageId === message.id}
                 <div class="mt-2 border border-warning/25 bg-warning-muted p-3">
@@ -600,7 +601,7 @@
                   {#if canMutate && message.work_kind && message.kind !== 'schedule' && message.last_error_code === 'native_transcript_missing' && (message.status === 'dead' || message.status === 'ambiguous')}
                     <Button size="sm" variant="outline" onclick={() => approveFresh(message)}>Approve one fresh start</Button>
                   {/if}
-                  {#if canMutate && message.kind !== "schedule" && (message.status === "dead" || message.status === "ambiguous")}
+                  {#if canMutate && message.kind !== "schedule" && message.kind !== "presence_notice" && (message.status === "dead" || message.status === "ambiguous")}
                     <Button size="sm" variant="outline" disabled={$redrive.isPending || !$stateQuery.data?.enabled} onclick={() => redriveMessage(message)}>Redrive</Button>
                   {/if}
                 </div>

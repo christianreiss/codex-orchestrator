@@ -1,3 +1,4 @@
+import { markWaitingForPresence, discardPresenceNotices } from './presence-feedback.js';
 import { endLaunchNamesLocked } from './names.js';
 /**
  * Binding lifecycle outside a live session: suspending a host's runtime,
@@ -161,6 +162,7 @@ export async function releaseAgentMessagingBindingsLocked(
     .where(inArray(agentSessions.id, sessionIds))
     .for('update');
   for (const row of rows) {
+    await markWaitingForPresence(db, row.address.id);
     const upstream = row.session.upstreamSessionId ?? row.address.lastUpstreamSessionId;
     await db
       .update(agentBusAddresses)
@@ -195,6 +197,7 @@ export async function releaseAgentMessagingBindingsLocked(
       .where(inArray(agentSessions.id, boundSessionIds));
   }
   await endLaunchNamesLocked(db, sessionIds, now);
+  if (rows.length) await discardPresenceNotices(db, now, rows.map(row => row.address.id));
   return rows.length;
 }
 

@@ -528,6 +528,7 @@ export class AgentMessagingAdmin {
       const rows = await tx.select().from(agentBusMessages).where(eq(agentBusMessages.id, id)).limit(1).for('update');
       const original = rows[0];
       if (!original) throw new NotFoundError('Message not found', 'agent_messaging_message_not_found');
+      if (original.kind === 'presence_notice') throw new ConflictError('Presence notices belong to one live session and cannot be redriven', 'agent_messaging_redrive_not_allowed');
       if (original.kind === 'schedule') throw new ConflictError('Manage schedule recovery through its schedule', 'schedule_redrive_not_allowed');
       if (original.status !== 'dead' && original.status !== 'ambiguous') {
         throw new ConflictError('Only dead or ambiguous messages can be redriven', 'agent_messaging_redrive_not_allowed');

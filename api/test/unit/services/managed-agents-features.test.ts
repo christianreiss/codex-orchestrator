@@ -121,10 +121,10 @@ describe('served document byte invariance', () => {
 
     expect(base.sha256).toBe('30abaea24c8809d8634670f0eceb3004aabb4eafb5416c78333c719e8b67e14b');
     expect(out.policy_sha256).toBe('3d8a8c754d80369c46a16c3350db8461520d3ae14b1de7ac03ad9454925ad5e5');
-    // 2026-10-09: append mandatory fleet commit preferences across all engines.
-    expect(out.features_sha256).toBe('12070f3f40a1b1775d7ae40b54a417be315db76d93639910ffe48d78c64f6a0b');
-    expect(out.managed_sha256).toBe('605594f2659786c219815a4f284ceaf1dfd841364f659c9103ce6d03fbbc5a64');
-    expect(sha256(out.body)).toBe('888cb3e45bca627a9eeece43bd5012413e11ef2aa4a3209a82c5a077134f6f67');
+    // 2026-10-09: add receipt presence and session-bound return notice guidance.
+    expect(out.features_sha256).toBe('2c40d53162a3c303d4b57fa4bc3f3906533ce66101a5d6ba220ef489dd676697');
+    expect(out.managed_sha256).toBe('7addc0353e19e4eb0966e36cf0ab1434b9b4589798f6a5af9d12edf5981d896f');
+    expect(sha256(out.body)).toBe('fe23f9c6d366785e912b5a37478d5e0072329cb5d335603cf597d42820d6a077');
   });
 });
 
