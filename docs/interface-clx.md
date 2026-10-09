@@ -1363,7 +1363,7 @@ through the private bridge. Capacity/overload is retriable; permanent provider e
 block; hooks return no decision and never change permission policy.
 Hook payload contract: [Claude hooks reference](https://code.claude.com/docs/en/hooks).
 
-### Host update output (cxx 0.9.38)
+### Host update output (cxx 0.9.40)
 
 `cxx update [--minimal]` checks the shared wrapper once, then updates the native
 Codex, Claude and Grok CLIs and syncs managed content in that order. Every

@@ -4,7 +4,7 @@
 
 - Wrapper 0.9.39 makes peer discovery searchable by name/alias/address and pageable with `limit`, `offset` and `next_offset`; the caller remains excluded. Conference invitations now reserve a seat as `invited` until explicit join (migration 0047 preserves historic join timestamps), and task grace deadlines stop at the room deadline. Managed Grok MCP starts keep automatic reception through their private leader even when a project definition omits `--auto`. Messaging tools explicitly describe UUID idempotency keys, omit session paths from errors, and recommend unchanged-payload retries only for uncertain transport/server failures or HTTP 408/429, rather than permanent rejections.
 
-- Wrapper 0.9.38 makes `cxx update` a single host update run: equal wrapper versions skip download/restart, native Codex/Claude/Grok updates and content sync each leave a compact result, and capable terminals show animated checks and measured download bars. Engine suspensions, update policy, binary overrides and active-session locks remain enforced; partial failures remain nonzero. `--minimal` and redirected output use plain completion lines.
+- Wrapper 0.9.40 makes `cxx update` a single host update run: equal wrapper versions skip download/restart, native Codex/Claude/Grok updates and content sync each leave a compact result, and capable terminals show animated checks and measured download bars. Engine suspensions, update policy, binary overrides and active-session locks remain enforced; partial failures remain nonzero. `--minimal` and redirected output use plain completion lines.
 
 # 2026-10-08
 

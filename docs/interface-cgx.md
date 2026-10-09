@@ -560,7 +560,7 @@ and `SessionEnd`: rate limits/capacity recover, no-progress cancellation is a ha
 user interruption stops recovery, permanent errors block. Subagents are ignored.
 Hook payload contract: [Grok hooks guide](https://raw.githubusercontent.com/xai-org/grok-build/main/crates/codegen/xai-grok-pager/docs/user-guide/10-hooks.md).
 
-### Host update output (cxx 0.9.38)
+### Host update output (cxx 0.9.40)
 
 `cxx update [--minimal]` checks the shared wrapper once, then updates the native
 Codex, Claude and Grok CLIs and syncs managed content in that order. Every

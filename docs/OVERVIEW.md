@@ -855,7 +855,7 @@ repeat effects. Portal shows status only. See `docs/interface-api.md` and engine
 
 ### Interactive host updates
 
-`cxx update [--minimal]` (wrapper 0.9.38) checks the common wrapper once, skips
+`cxx update [--minimal]` (wrapper 0.9.40) checks the common wrapper once, skips
 equal-version installation/restart, then updates and syncs every installed native
 engine (Codex, Claude, Grok). A compact animated row per component replaces boot
 and quota dashboards; measured downloads show progress bars, other stages use

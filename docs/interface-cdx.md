@@ -1180,7 +1180,7 @@ Codex native receiver inspects failed/interrupted turn status independently of t
 model; structured provider errors trigger recovery and interruptions disable it.
 The stream and progress supervisor remain wrapper-owned while the model is unavailable.
 
-### Host update output (cxx 0.9.38)
+### Host update output (cxx 0.9.40)
 
 `cxx update [--minimal]` checks the shared wrapper once, then updates the native
 Codex, Claude and Grok CLIs and syncs managed content in that order. Every
