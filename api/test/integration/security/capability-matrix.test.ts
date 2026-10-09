@@ -136,12 +136,6 @@ const PROBES: Probe[] = [
     allowed: [...VALID_ACCESS_LEVELS],
   },
   {
-    what: 'permanent portal link (agent_portal.reveal_link)',
-    method: 'GET',
-    url: '/admin/agent-portal/users/1/link',
-    allowed: ['owner', 'admin'],
-  },
-  {
     what: 'portal module switch (agent_portal.manage)',
     method: 'POST',
     url: '/admin/agent-portal/state',

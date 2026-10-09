@@ -543,15 +543,3 @@ export function setupStatus(done: boolean) {
       : { completed_at: null, dismissed_at: null, last_step: "engines", engines: ["codex", "claude"] },
   };
 }
-
-/* ---------- agent portal (/go) ---------- */
-
-export function portalFixture(pathname: string): unknown {
-  const forge = session(SESSIONS[2]);
-  const agent = { ...forge, attention: { since: ago(240), summary: "Waiting for your go-ahead on production." } };
-  if (pathname.endsWith("/api/state")) return { status: "ok", data: { enabled: true, timings: { heartbeat_fresh_seconds: 45, relay_fresh_seconds: 60, retention_hours: 24 } } };
-  if (pathname.endsWith("/api/me")) return { status: "ok", data: { user: { id: 1, display_name: "Grace" } } };
-  if (pathname.endsWith("/api/agents")) return { status: "ok", data: { agents: [agent], generated_at: new Date(NOW).toISOString() } };
-  if (pathname.includes("/events")) return { status: "ok", data: { events: timeline(), next_cursor: 5 } };
-  return { status: "ok", data: {} };
-}

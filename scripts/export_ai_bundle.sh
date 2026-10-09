@@ -179,7 +179,6 @@ is_path_excluded() {
   # Committed build output and generated indexes.
   case "${path}" in
     public/admin/_app/*) return 0 ;;
-    public/go/assets/*) return 0 ;;
     public/admin/manual/search-index.json) return 0 ;;
   esac
 
@@ -425,7 +424,7 @@ export_bundle_for_component() {
     echo
     echo "===== EXCLUDE POLICY ====="
     echo "Secrets: .env (except .env.example), key material, credentials."
-    echo "Build output: public/admin/_app, public/go/assets, dist/build/.svelte-kit, generated search-index.json."
+    echo "Build output: public/admin/_app, dist/build/.svelte-kit, generated search-index.json."
     echo "Lockfiles (package-lock.json, go.sum), source maps, minified assets, binary/media files."
     echo "Non-canonical markdown outside a declared doc tree (CHANGELOG.md included)."
     echo

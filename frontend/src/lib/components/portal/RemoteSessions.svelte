@@ -1,12 +1,13 @@
 <script lang="ts">
  import { toStore } from "svelte/store";
  import { createQuery,createMutation,useQueryClient } from '@tanstack/svelte-query';
+ import { base } from "$app/paths";
  import { api } from '$lib/api/client';
  import type { DaemonHost,RemoteSession } from '$lib/api/hostDaemons';
- let {fixedHost,portal=false}:{fixedHost?:number;portal?:boolean}=$props();
+ let {fixedHost}:{fixedHost?:number}=$props();
  const qc=useQueryClient();
- const root=$derived(portal?'/go/api':'/admin');
- const hosts=createQuery(toStore(()=>({queryKey:['host-daemons',portal?'portal':'list'],queryFn:()=>api.get<{hosts:DaemonHost[]}>(`${root}/host-daemons`),refetchInterval:15_000})));
+ const root='/admin';
+ const hosts=createQuery(toStore(()=>({queryKey:['host-daemons'],queryFn:()=>api.get<{hosts:DaemonHost[]}>(`${root}/host-daemons`),refetchInterval:15_000})));
  let hostId=$state(0),engine=$state('codex'),cwd=$state(''),title=$state(''),prompt=$state(''),selected=$state(''),message=$state('');
  let startKey=$state(crypto.randomUUID()),turnKey=$state(crypto.randomUUID());
  const available=$derived(($hosts.data?.hosts??[]).filter(h=>h.enabled&&(!fixedHost||h.host_id===fixedHost)));
@@ -40,7 +41,7 @@
   <section class="space-y-3 rounded border p-3" aria-label="Remote-Session">
    <h3 class="font-semibold">{$detail.data.title} · {$detail.data.status}</h3>
    {#each $detail.data.operations??[] as op}<div class="whitespace-pre-wrap text-sm">{op.result?.reply||op.status}</div>{/each}
-   {#if $detail.data.sessionId}<a class="text-sm underline" href={`/go#/a/${$detail.data.sessionId}`}>Nativen Session-Verlauf öffnen</a>{/if}
+   {#if $detail.data.sessionId}<a class="text-sm underline" href={`${base}/clients?session=${encodeURIComponent($detail.data.sessionId)}`}>Nativen Session-Verlauf öffnen</a>{/if}
    <form oninput={()=>turnKey=crypto.randomUUID()} class="space-y-2" onsubmit={e=>{e.preventDefault();$turn.mutate()}}>
     <label class="grid gap-1 text-sm">Nachricht / Fortsetzen<textarea class="rounded border bg-background p-2" bind:value={message} required></textarea></label>
     <button class="rounded bg-primary px-3 py-2 text-primary-foreground" disabled={$turn.isPending||['running','queued','stopping'].includes($detail.data.status)}>Senden / Fortsetzen</button>

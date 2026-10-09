@@ -416,14 +416,7 @@ export const ROUTE_CAPABILITIES: Readonly<Record<string, RouteGuard>> = {
 
   // ── Agent portal ─────────────────────────────────────────────────────────
   'GET /admin/agent-portal/state': cap('agent_portal.read'),
-  'GET /admin/agent-portal/users': cap('agent_portal.read'),
-  'GET /admin/agent-portal/users/:id/link': cap('agent_portal.reveal_link'),
   'POST /admin/agent-portal/state': cap('agent_portal.manage'),
-  'POST /admin/agent-portal/users': cap('agent_portal.manage'),
-  'POST /admin/agent-portal/users/:id': cap('agent_portal.manage'),
-  'DELETE /admin/agent-portal/users/:id': cap('agent_portal.manage'),
-  'POST /admin/agent-portal/users/:id/enabled': cap('agent_portal.manage'),
-  'POST /admin/agent-portal/users/:id/rotate': cap('agent_portal.manage'),
 
   // Live agent sessions. The listing is metadata -- who is running, where, and
   // whether they are stuck -- so it reads at `agent_portal.read`. The timelines

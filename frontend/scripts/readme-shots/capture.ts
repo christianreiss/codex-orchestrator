@@ -4,8 +4,8 @@
  *   npm run shots:readme                 # every shot
  *   npm run shots:readme -- hosts clients  # only the named shots
  *
- * The console and the agent portal run from their Vite dev servers (started
- * here unless already listening on 4173/4174) against the demo fleet in
+ * The console runs from its Vite dev server (started
+ * here unless already listening on 4173) against the demo fleet in
  * fixtures.ts, so no orchestrator, database or real data is involved. Each
  * page is captured, then composited into a window frame.
  *
@@ -18,13 +18,12 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium, type Browser, type Page } from "playwright";
-import { adminFixture, portalFixture } from "./fixtures.ts";
+import { adminFixture } from "./fixtures.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const FRONTEND = resolve(HERE, "../..");
 const OUT = resolve(FRONTEND, "../docs/img");
 const ADMIN = "http://127.0.0.1:4173";
-const PORTAL = "http://127.0.0.1:4174";
 const SCALE = 1.5;
 
 type Scheme = "light" | "dark";
@@ -32,19 +31,13 @@ type Scheme = "light" | "dark";
 interface Shot {
   name: string;
   title: string;
-  /** Admin route under /admin, or a portal URL path. */
+  /** Admin route under /admin. */
   path?: string;
-  app?: "admin" | "portal";
   scheme?: Scheme;
   viewport?: { width: number; height: number };
   /** Terminal persona instead of a browser page. */
   terminal?: "cdx" | "clx";
   prepare?: (page: Page) => Promise<void>;
-}
-
-async function openForge(page: Page) {
-  await page.getByText("forge.example.net").first().click();
-  await page.waitForTimeout(1200);
 }
 
 /** Scroll the first element showing `text` to just under the sticky header. */
@@ -105,7 +98,6 @@ const SHOTS: Shot[] = [
   { name: "git-director", title: "Git Director", path: "/git-director", prepare: scrollTo("git@git.example.net:shop/checkout.git") },
   { name: "fleet-instructions", title: "Fleet Instructions", path: "/instructions" },
   { name: "api-access", title: "API Access", path: "/api-keys", prepare: scrollTo("Proxy endpoints") },
-  { name: "agent-portal", title: "Agent Portal", app: "portal", path: "/go/", viewport: { width: 430, height: 900 }, prepare: openForge },
 ];
 
 /* ---------- dev servers ---------- */
@@ -142,13 +134,7 @@ async function stub(page: Page) {
     if (body === undefined) unmocked.add(`${request.method()} ${url.pathname}`);
     return route.fulfill({ contentType: "application/json", body: JSON.stringify(body ?? { status: "ok" }) });
   });
-  await page.route("**/go/api/**", async (route) => {
-    const path = new URL(route.request().url()).pathname;
-    if (path.endsWith("/api/events")) {
-      return route.fulfill({ status: 200, contentType: "text/event-stream", body: ": idle\n\n" });
-    }
-    return route.fulfill({ contentType: "application/json", body: JSON.stringify(portalFixture(path)) });
-  });
+
   await page.routeWebSocket("**/*ws*", () => {});
 }
 
@@ -161,8 +147,7 @@ async function capturePage(browser: Browser, shot: Shot): Promise<Buffer> {
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await stub(page);
-  const base = shot.app === "portal" ? PORTAL : ADMIN;
-  const url = shot.app === "portal" ? `${base}${shot.path}` : `${base}/admin${shot.path}`;
+  const url = `${ADMIN}/admin${shot.path}`;
   await page.goto(url);
   await page.waitForLoadState("networkidle").catch(() => {});
   await page.locator("h1, h2").first().waitFor({ timeout: 15_000 });
@@ -242,7 +227,6 @@ const FONTS =
 
 function frameHtml(shot: Shot, inner: string, width: number, height: number): string {
   const dark = shot.scheme === "dark" || Boolean(shot.terminal);
-  const phone = shot.app === "portal";
   return `<!doctype html><html><head><style>
 ${FONTS}
 *{box-sizing:border-box;margin:0}
@@ -256,7 +240,7 @@ body{font-family:Inter,sans-serif;display:grid;place-items:center;overflow:hidde
 body::before{content:"";position:fixed;inset:0;opacity:.35;
   background-image:radial-gradient(rgba(255,255,255,.18) 1px, transparent 1px);background-size:22px 22px;
   mask-image:radial-gradient(70% 70% at 50% 50%, transparent 40%, #000 100%)}
-.window{position:relative;border-radius:${phone ? 44 : 14}px;overflow:hidden;
+.window{position:relative;border-radius:14px;overflow:hidden;
   background:${dark ? "#0f1220" : "#f6f7fb"};
   box-shadow:0 40px 80px -20px rgba(0,0,0,.65),0 0 0 1px rgba(255,255,255,${dark ? ".10" : ".35"});}
 .bar{height:40px;display:flex;align-items:center;gap:8px;padding:0 16px;
@@ -264,15 +248,13 @@ body::before{content:"";position:fixed;inset:0;opacity:.35;
 .dot{width:12px;height:12px;border-radius:50%}
 .title{flex:1;text-align:center;margin-right:52px;font-size:13px;font-weight:500;color:${dark ? "#a5abc3" : "#5b6280"}}
 .window img{display:block}
-.phone{padding:14px;background:#05060c}
-.phone img{border-radius:32px}
 .terminal{padding:28px 34px 34px;background:#0c0f1b}
 pre{font-family:"JetBrains Mono",monospace;font-size:16px;line-height:1.5;color:#e4e7f2;font-variant-ligatures:none}
 .cell{display:inline-block;width:1ch;text-align:center;overflow:visible;white-space:pre}
 .prompt{color:#34d399;font-weight:700}.path{color:#60a5fa}.dollar{color:#8b90a5}.dim{color:#8b90a5}
 </style></head><body>
-<div class="window ${phone ? "phone" : ""}">
-${phone ? "" : `<div class="bar"><span class="dot" style="background:#ff5f57"></span><span class="dot" style="background:#febc2e"></span><span class="dot" style="background:#28c840"></span><span class="title">${escapeHtml(shot.title)}</span></div>`}
+<div class="window">
+<div class="bar"><span class="dot" style="background:#ff5f57"></span><span class="dot" style="background:#febc2e"></span><span class="dot" style="background:#28c840"></span><span class="title">${escapeHtml(shot.title)}</span></div>
 ${inner}
 </div></body></html>`;
 }
@@ -286,12 +268,7 @@ async function compose(browser: Browser, shot: Shot, raw: Buffer | null): Promis
     inner = terminalHtml(shot.terminal);
   } else {
     const viewport = shot.viewport ?? { width: 1440, height: 900 };
-    if (shot.app === "portal") {
-      width = 760;
-      height = 1040;
-    }
-    const scale = shot.app === "portal" ? 0.9 : 1;
-    inner = `<img src="data:image/png;base64,${raw!.toString("base64")}" width="${viewport.width * scale}" height="${viewport.height * scale}">`;
+    inner = `<img src="data:image/png;base64,${raw!.toString("base64")}" width="${viewport.width}" height="${viewport.height}">`;
   }
   const context = await browser.newContext({ viewport: { width, height }, deviceScaleFactor: SCALE });
   const page = await context.newPage();
@@ -307,13 +284,11 @@ async function compose(browser: Browser, shot: Shot, raw: Buffer | null): Promis
 
 const only = new Set(process.argv.slice(2));
 const selected = SHOTS.filter((shot) => only.size === 0 || only.has(shot.name));
-const needsAdmin = selected.some((s) => s.path && s.app !== "portal");
-const needsPortal = selected.some((s) => s.app === "portal");
+const needsAdmin = selected.some((s) => s.path);
 
 const servers: (ChildProcess | null)[] = [];
 try {
   if (needsAdmin) servers.push(await ensureServer(`${ADMIN}/admin/dashboard`, ["vite", "dev", "--host", "127.0.0.1", "--port", "4173"]));
-  if (needsPortal) servers.push(await ensureServer(`${PORTAL}/go/`, ["vite", "--config", "vite.portal.config.ts", "--host", "127.0.0.1", "--port", "4174"]));
   const browser = await chromium.launch();
   for (const shot of selected) {
     const raw = shot.terminal ? null : await capturePage(browser, shot);

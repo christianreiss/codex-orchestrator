@@ -187,10 +187,10 @@ describe("STATIC_COMMANDS", () => {
     }
   });
 
-  it("exposes direct Agent Messaging and Agent Portal destinations", () => {
+  it("exposes Agent Messaging without the retired Agent Portal", () => {
     const labels = STATIC_COMMANDS.map((command) => command.label);
     assert.ok(labels.includes("Go to Agent Messaging"));
-    assert.ok(labels.includes("Go to Agent Portal"));
+    assert.ok(!labels.includes("Go to Agent Portal"));
   });
 
   it("explains destinations and makes shared controls searchable for either engine", () => {

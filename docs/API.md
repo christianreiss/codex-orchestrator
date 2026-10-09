@@ -766,17 +766,16 @@ All `/projects*` routes require normal host API-key auth + IP binding and return
   - `GET /admin/transfers/{id}/events` — the audit trail for one file: every upload, chunk, fetch and deletion, with who did it. The pool has no addressing, so this record of who actually took a copy is what stands in for access control.
   - `GET /admin/transfers/{id}/content` — the bytes, streamed, with `Content-Disposition` carrying the uploader's name. Its own capability rather than part of the listing, the same line `secrets.reveal` draws: an agent payload may hold anything the fleet was working on, so a fleet operator may empty the pool without reading what was in it. Recorded as an audit fact and deliberately not broadcast — an operator reading a file changes nothing the console shows.
   - `DELETE /admin/transfers/{id}` — retire a file now instead of at its deadline. The bytes go immediately; the row and its trail stay, so the console can still show that the file existed and who fetched it.
-- Live agent sessions — the console half of the `/go` portal's read surface, over the admin session rather than a portal magic link.
+- Live agent sessions — the authenticated dashboard session directory and operator chat.
   - `GET /admin/agent-sessions` — every wrapper the fleet can see, with derived `presence` (`working`/`listening`/`idle`/`offline`/`ended`), current turn age, last event, outstanding attention and pending prompt, plus a `work` block carrying the Git Director task, branch and declared paths for the worktree the session's `cwd` sits in and the Agent Messaging address a peer would reach it on. Branch on `presence`, never `status`. The response also carries `enabled`, because an empty list means something different when the Agent Portal module is off: registration is discarded server-side, so no wrapper can appear however many are running.
   - `GET /admin/agent-sessions/{id}/events` — one session's timeline (`after`, `limit`, `tail`). These payloads contain message bodies, so the gate is `agent_portal.reveal_transcript`, not `agent_portal.read`.
-  - `GET /admin/agent-sessions/events` — the fleet-wide event stream as SSE, mirroring `GET /go/api/events` with `Last-Event-ID` resume. Same capability as above.
+  - `GET /admin/agent-sessions/events` — the fleet-wide event stream as SSE, with `Last-Event-ID` resume. Same capability as above.
   - `POST /admin/agent-sessions/{id}/messages` — `{client_message_id, content}` queues an instruction (`202`). Needs a live session and a ready relay, the same rules the portal enforces.
   - `POST /admin/agent-sessions/{id}/prompts/{promptId}/answer` — `{client_message_id, answer, version?}` answers an open prompt (`202`), which also clears the session's attention notice.
   - `POST /admin/agent-sessions/{id}/close` — `{client_message_id, note?}` queues a cooperative close for the agent to honour (`202`).
   - `POST /admin/agent-sessions/{id}/close/force` — `{client_message_id, note?}` ends a session immediately, including one that has gone offline and can no longer accept a cooperative close. A repeat answers `{forced:false, already_ended:true}` rather than erroring.
   - `POST /admin/agent-sessions/{id}/receiver/verify` — the **Reconnect receiver** action. Invalidates the session's receiver generation (fencing delayed claims and heartbeats), records failure `reconnect_requested`, clears native-receiver and relay heartbeats, and returns `{reconnect_requested: true, verification_requested: true}` (the second key is legacy). `409 receiver_missing` when the session has ended or has no receiver. Gate: `agent_portal.manage`, always enforced.
   - All four author as the signed-in admin: `agent_messages` carries a nullable `portal_user_id` and a nullable `admin_user_id`, exactly one set (migration `0027`). That pair is the idempotency identity too, so replaying a `client_message_id` as a different actor conflicts instead of silently succeeding, and delivery re-reads the author so a disabled or deleted account's queued instructions are cancelled rather than delivered.
-  - The portal at `/go` accepts an admin session as well, so the magic link is optional for anyone who already has a console account. Those routes have no capability inventory entry, so the admin path asserts `agent_portal.manage` (writes) or `agent_portal.reveal_transcript` (timelines and the stream) explicitly — otherwise a `viewer` refused at `/admin` could act through `/go`.
 - Manual: `GET /admin/manual/manifest`, `GET /admin/manual/search?q=`, `GET /admin/manual/article/{slug}` — the admin UI's in-app manual (article set bundled under `STATIC_ROOT`). Unknown slugs return `404`.
 - Config builder: `GET /admin/config`, `POST /admin/config/render`, `POST /admin/config/store`.
 
@@ -800,41 +799,14 @@ All `/projects*` routes require normal host API-key auth + IP binding and return
 - Canonical auth payloads live in `auth_payloads` and are engine-scoped (`codex` / `claude` / `grok`), with exactly the selected engine-native target mirrored in `auth_entries`; recent host digests in `host_auth_digests` are retained per host per engine (3 each); `host_auth_states` tracks the last payload served to a host per engine.
 - Auth/register/runner events are logged in `logs`.
 
-## Agent Portal
+## Agent sessions
 
-The portal is a separate mobile-first user surface at `/go`. Its persistent
-`agent_portal_enabled` switch is seeded off. Portal users default enabled and
-see every eligible active root session across the fleet; a finished session is
-read-only until the 24-hour retention purge. Browser portal users reach it through their own permanent bookmarked link.
-The separately paired Android companion can receive FCM notifications with
-opaque event identifiers; permanent portal links and transcript bodies are
-never pushed.
+Active Clients and paired Android devices provide operator chat. The legacy `/go`
+magic-link webchat and portal-user APIs are removed. Shared `agent_portal.*`
+capabilities, the saved switch and wrapper/Android contracts remain unchanged.
+Active Clients provides Agent session settings and Remote sessions.
 
-Every `/go/api/*` route is same-origin only and never inherits
-`CORS_ALLOWED_ORIGINS`. Browser mutations require an exact `Origin` match to
-`PUBLIC_BASE_URL`; foreign `Origin` and `Sec-Fetch-Site: same-site|cross-site`
-requests fail closed. Credential-free GET/EventSource requests may omit
-`Origin`.
-
-Public shell and browser API:
-
-- `GET /go` — portal SPA shell; Fastify's global normalization also accepts a
-  trailing slash.
-- `GET /go/u/{publicId}` — stable per-user shell URL. The reusable secret is supplied only as `#t=...`; the SPA exchanges it and scrubs the fragment.
-- `GET /go/api/state` — unauthenticated master-switch state, plus the `timings` the browser needs to age presence between polls (`heartbeat_fresh_seconds`, `relay_fresh_seconds`, `retention_hours`). The SPA reads them rather than hardcoding the windows.
-- `POST /go/api/auth/exchange` — exchange `{public_id, token}` for the Secure, HttpOnly, SameSite=Strict portal cookie.
-- `POST /go/api/logout` — revoke the current browser session and clear its cookie.
-- `GET /go/api/me` — current portal identity.
-- `GET /go/api/agents` — active and retained eligible agents for the chat list. `presence` is the liveness signal (`listening` is polling and accepts instructions, `working` is executing an accepted turn and still accepts them, `idle` is alive but has no open relay, `offline` has not heartbeat within `AGENT_PORTAL_HEARTBEAT_FRESH_SECONDS`, `ended` is read-only); `status` is retained for compatibility only and reads `active` for the life of the wrapper process, so it must not be used for liveness. `working` is derived from `active_turn_id` and is deliberately independent of relay freshness, because nothing polls while an agent executes; it is bounded at ten times the relay window, after which the turn is presumed dead and presence falls back through the ladder. `active_turn_started_at` accompanies it and is null outside that window. `attention` is derived from event cursors with no stored read state — a notice stays outstanding until the same session receives a `user_message` (a plain message or a prompt answer) or a `close_requested`, and is never reported for a session that has ended, because no such acknowledgement can still be sent. `close` reports the operator close lifecycle (`pending`, `acknowledged`, `undeliverable`) read from the close note's own queue row.
-- `GET /go/api/agents/{id}/events[?after=&limit=&tail=1]` — encrypted-at-rest safe timeline, returned in cursor order; `tail=1` returns the latest bounded page.
-- `GET /go/api/events[?after=]` — authenticated SSE stream with resumable event IDs and heartbeats. Cookie/global/user authorization is rechecked transactionally for every page; a slow client is closed and resumes from `Last-Event-ID` instead of accumulating an unbounded buffer.
-- `POST /go/api/agents/{id}/messages` — enqueue ordinary user text with a client idempotency UUID; returns 202. New work requires a fresh live relay or a session inside its working window, while an exact retry returns the committed row even if the session finished. A queued message that no agent ever claims is not discarded silently: cancelling it writes a `message_canceled` event so the timeline stops reading "Queued". Reusing an ID for another user/kind/prompt/body conflicts. A portal message never grants approvals or new authority.
-- `POST /go/api/agents/{id}/prompts/{promptId}/answer` — enqueue an answer under a locked first-answer-wins transaction; later answers conflict. Only one open prompt is retained per agent session.
-- `POST /go/api/agents/{id}/close` — ask the agent to wind down, delivering the operator's note through the instruction queue as a `close`-kind message so it can finish cleanly; returns 202. Requires a live relay, because an undeliverable note would leave the operator believing the channel is closing. The note is capped at 1000 bytes and is idempotent on `client_message_id`. Sets `close_requested_at`, which is never cleared.
-- `POST /go/api/agents/{id}/close/force` — end the session outright; returns 200. Asserts neither liveness nor relay readiness, so it works against an agent that is offline or has already closed its relay. Records the note without delivering it, cancels everything pending, and is a no-op on a session that already ended.
-- `POST /go/api/agents/{id}/receiver/verify` — portal twin of `POST /admin/agent-sessions/{id}/receiver/verify`: origin-guarded mutation that asserts `agent_portal.manage`, invalidates the receiver generation so the adapter reconnects silently, and returns `{reconnect_requested: true, verification_requested: true}`; `409 receiver_missing` without an active receiver.
-
-Host and scoped bridge API:
+### Host registration and bridge
 
 - `GET /host/agent-portal/state` — host-authenticated master-switch probe.
 - `POST /host/agent-sessions` — host-authenticated registration for an eligible interactive or human-started execute session. The wrapper retains the short-lived bridge bearer and gives the engine only a private Unix-socket path/session ID; inherited portal variables are scrubbed.
@@ -856,14 +828,7 @@ All mutations below require an `owner` or `admin` role; authenticated viewers
 may read state and users but cannot change rollout or identity state.
 
 - `GET /admin/agent-portal/state` — switch, configuration, queue health, and dead-letter counts.
-- `POST /admin/agent-portal/state` — toggle the global switch. Turning it off revokes browser sessions and cancels queued/leased portal work without replay.
-- `GET /admin/agent-portal/users` — list active portal identities and link metadata.
-- `POST /admin/agent-portal/users` — create a user with `display_name` and optional `enabled` (default true); returns the permanent magic URL.
-- `POST /admin/agent-portal/users/{id}` — update the display name.
-- `POST /admin/agent-portal/users/{id}/enabled` — per-user switch; disabling revokes sessions and cancels that user's undelivered work.
-- `POST /admin/agent-portal/users/{id}/rotate` — explicitly replace the reusable secret, revoke browser sessions, and return the new URL.
-- `GET /admin/agent-portal/users/{id}/link` — re-render the stored permanent link without rotating it, so an operator can bookmark it on another device. Owner/admin only, and audited as `agent_portal.user.link_revealed`; the link is bearer material and is deliberately absent from the `GET /admin/agent-portal/users` listing, which every authenticated admin may read.
-- `DELETE /admin/agent-portal/users/{id}` — soft-delete the user, revoke sessions, and cancel pending work.
+- `POST /admin/agent-portal/state` — toggle the global switch. Turning it off cancels queued/leased operator input without replay and closes relays.
 
 ### Conference inspector
 
@@ -1039,11 +1004,6 @@ Current bridge routes use the session token; operator host routes use host auth 
 - `GET /host/daemon/config`
 - `GET /host/daemon/connect`
 - `POST /host/daemon/peer-finished`
-- `GET /go/api/host-daemons`
-- `POST /go/api/daemon-sessions`
-- `GET /go/api/daemon-sessions/:id`
-- `POST /go/api/daemon-sessions/:id/messages`
-- `POST /go/api/daemon-sessions/:id/stop`
 
 See the optional host execution daemon contract in [interface-api.md](interface-api.md).
 

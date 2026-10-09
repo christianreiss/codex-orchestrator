@@ -6,7 +6,6 @@
   "scripts": {
     "dev": "vite dev",
     "build": "vite build && node scripts/copy-build.mjs",
-    "build:portal": "vite build --config vite.portal.config.ts",
     "preview": "vite preview",
     "test": "node --test 'src/**/*.test.ts'",
     "test:e2e": "playwright test",

@@ -103,15 +103,11 @@ under **Needs you** — with the question and its answer buttons right there.
 
 ### Answer your agents from your phone
 
-<p align="center">
-  <img src="docs/img/agent-portal.png" width="46%" alt="Agent Portal on a phone: a Codex agent on forge.example.net asks whether to apply a Postgres migration to production, with three answer buttons">
-</p>
+The paired **Android companion** provides agent chat, questions, host-access
+approvals and push notifications. Pair it from **Account → Android devices**;
+see [Android companion](docs/android-companion.md). On desktop, Active Clients
+provides the same session chat plus session settings and Remote sessions.
 
-The **Agent Portal** (`/go`) is a mobile-friendly page where a running agent
-reports progress, asks you questions, and takes instructions — through a
-permanent magic link or your console login. Turn on `#afk` before you walk
-away and the agent keeps working, raising a **Needs you** banner only when it
-actually needs a human.
 
 ### Agents that work as a team
 
@@ -284,7 +280,7 @@ mid-way is fine; the dashboard offers to resume.
    until it lands.
 6. **Agent policy** — the seeded fleet policy, plus a box for your house rules.
 7. **Modules** — Projects and Secrets, both off until you say otherwise.
-8. **Collaboration** — the agent portal (you ↔ agent) and agent messaging
+8. **Collaboration** — agent sessions (you ↔ agent) and agent messaging
    (agent ↔ agent). Also off by default, deliberately.
 9. **First host** — optional. Registering one mints its API key and a one-time
    installer command.
@@ -361,7 +357,7 @@ cdx --uninstall     # remove this engine; the last one decommissions the host
 
 The shared `cxx` binary adds host-wide commands: `cxx sync` converges every
 engine at once, `cxx cron run` pulls a pending engine upgrade now, and
-`cxx portal say|ask|resolve` lets an agent talk to you through the portal.
+`cxx portal say|ask|resolve` lets an agent talk to you through Active Clients and Android.
 
 Managed native `codex`, `claude`, and `grok` commands also use the fleet
 lifecycle while preserving each provider's argument grammar. Open a new shell
@@ -565,7 +561,7 @@ The console also ships its own operator manual under **Manual**.
 
 **About the screenshots:** they use documentation-safe demo data and are
 regenerated with `cd frontend && npm run shots:readme`, which drives the real
-console and portal against a mocked demo fleet
+console against a mocked demo fleet
 ([`frontend/scripts/readme-shots/`](frontend/scripts/readme-shots/capture.ts)).
 
 ## License

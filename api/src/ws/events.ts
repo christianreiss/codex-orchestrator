@@ -106,12 +106,6 @@ export const WS_EVENT_TYPES = [
 
   // Agent portal
   'agent_portal.state',
-  'agent_portal.user.created',
-  'agent_portal.user.updated',
-  'agent_portal.user.enabled',
-  'agent_portal.user.rotated',
-  'agent_portal.user.link_revealed',
-  'agent_portal.user.deleted',
   // Live-session heartbeat traffic is polled; lifecycle and relay changes publish metadata
   // so open consoles refresh without exposing transcript bodies on this bus.
   'agent_portal.session.force_closed',

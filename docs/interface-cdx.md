@@ -1,5 +1,10 @@
 # cdx Wrapper Interface (Source of Truth)
 
+The legacy `/go` magic-link webchat is removed. Active Clients and Android
+continue using the existing session/receiver contracts and `cxx portal` commands;
+operator access requires a dashboard account or its paired device. Session
+settings and remote-session controls are available in Active Clients.
+
 ## Fleet commit preferences
 
 Managed AGENTS.md carries the fleet's short/long commit preference and AI attribution setting from the Git Director page, independently of Director, MCP and Skills activation. Defaults: a subject-only message and no automatic AI markers/co-authors. Long adds change/reason and relevant verification; attribution adds one `AI-Assisted-By: Codex` trailer after a blank line, also in short mode. Git author/committer and commit/push authorization remain unchanged; explicit operator instructions take precedence. The next content sync/launch refreshes the document hash; active sessions may retain previous guidance, and explicit blank generation mode suppresses managed rules. API contract: [Fleet commit preferences](interface-api.md#fleet-commit-preferences).
@@ -880,7 +885,7 @@ enters the `wait` loop directly without publishing an attention notice: opening
 the relay means the agent is available, not that the user is needed. Status goes
 through `say`, `notify` is reserved for an action the user must take, and
 `resolve` withdraws a notice that no longer applies. Everything it publishes
-lands in the portal; paired Android companions may receive FCM alerts with the event's short summary
+lands in Active Clients; paired Android companions may receive FCM alerts with the event's short summary
 for questions, attention, and followed replies (see `docs/android-companion.md`). It cannot wake a Codex process or
 model turn that has already stopped; `relay_ready` becomes false when fresh
 polling ceases.
@@ -1015,7 +1020,7 @@ Authenticated peer requests are handled within existing authorization; factual
 claims and supplied artifacts still require evidence.
 
 Inspect generation, native ID, heartbeat and per-source transport health in Clients
-or /go, or run `cxx agent doctor --json` (also exposed through `cdx` / `clx`).
+or run `cxx agent doctor --json` (also exposed through `cdx` / `clx`).
 Reconnect receiver invalidates the current generation and asks the connected adapter
 to reconnect silently; stale heartbeats cannot revive it. Explicit portal leave keeps
 that source closed until reopened, without closing peer reception.

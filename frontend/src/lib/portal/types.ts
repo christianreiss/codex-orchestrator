@@ -1,5 +1,5 @@
 /**
- * Wire types for the agent portal (`/go/api/*`).
+ * Wire types for Active Clients and shared agent sessions.
  *
  * Shared with the portal app under frontend/portal via the $lib alias so the
  * pure helpers here can be unit-tested by the existing `npm test`, which only

@@ -132,16 +132,16 @@
     },
     {
       "slug": "agent-portal",
-      "title": "Agent Portal and Active Clients",
+      "title": "Active Clients and agent sessions",
       "section": "Admin workspace",
-      "summary": "The portal master switch and permanent links, the Active Clients directory, presence states, the Needs-you banner, and instructing or closing a running agent.",
+      "summary": "Session settings, remote work, presence and operator chat through Active Clients and Android.",
       "tags": [
-        "portal",
         "clients",
         "sessions",
+        "android",
         "afk"
       ],
-      "verified": "2026-09-09"
+      "verified": "2026-10-09"
     },
     {
       "slug": "settings",

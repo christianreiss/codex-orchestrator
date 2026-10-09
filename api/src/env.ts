@@ -129,12 +129,9 @@ const schema = z
     PUBLIC_BASE_URL_REQUIRED: boolish.default(true),
     CODEX_SYNC_BASE_URL: z.string().optional(),
 
-    // Permanent per-user agent portal. The feature state itself is stored in
-    // `versions.agent_portal_enabled`; these values provide its bounded
-    // session/retention timers. The portal has no outbound push transport —
-    // operators reach it through their own permanent link.
-    AGENT_PORTAL_COOKIE: z.string().default('agent_portal_session'),
-    AGENT_PORTAL_SESSION_TTL_HOURS: intish(24).pipe(z.number().int().positive()),
+    // Shared agent sessions for Active Clients, Android and wrapper receivers.
+    // The existing switch and bounded bridge/retention timers retain their
+    // contract names; the /go magic-link browser surface has been removed.
     AGENT_PORTAL_RETENTION_HOURS: intish(24).pipe(z.number().int().positive()),
     AGENT_PORTAL_BRIDGE_TTL_SECONDS: intish(900).pipe(z.number().int().positive()),
     AGENT_PORTAL_PURGE_INTERVAL_SECONDS: intish(300).pipe(z.number().int().positive()),

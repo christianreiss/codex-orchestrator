@@ -333,37 +333,7 @@ CREATE TABLE `agent_policy_profiles` (
 	CONSTRAINT `uniq_agent_policy_profiles_name` UNIQUE(`name`)
 );
 
-CREATE TABLE `agent_portal_browser_sessions` (
-	`id` bigint unsigned AUTO_INCREMENT NOT NULL,
-	`user_id` bigint unsigned NOT NULL,
-	`token_hash` char(64) NOT NULL,
-	`ip` varchar(64),
-	`user_agent` varchar(255),
-	`expires_at` varchar(100) NOT NULL,
-	`last_seen_at` varchar(100) NOT NULL,
-	`created_at` varchar(100) NOT NULL,
-	`revoked_at` varchar(100),
-	CONSTRAINT `agent_portal_browser_sessions_id` PRIMARY KEY(`id`),
-	CONSTRAINT `uq_agent_portal_browser_sessions_token` UNIQUE(`token_hash`)
-);
 
-CREATE TABLE `agent_portal_users` (
-	`id` bigint unsigned AUTO_INCREMENT NOT NULL,
-	`display_name` varchar(255) NOT NULL,
-	`enabled` tinyint NOT NULL DEFAULT 1,
-	`public_id` char(32) NOT NULL,
-	`token_hash` char(64) NOT NULL,
-	`token_enc` longtext NOT NULL,
-	`created_at` varchar(100) NOT NULL,
-	`updated_at` varchar(100) NOT NULL,
-	`last_used_at` varchar(100),
-	`disabled_at` varchar(100),
-	`rotated_at` varchar(100),
-	`deleted_at` varchar(100),
-	CONSTRAINT `agent_portal_users_id` PRIMARY KEY(`id`),
-	CONSTRAINT `uq_agent_portal_users_public_id` UNIQUE(`public_id`),
-	CONSTRAINT `uq_agent_portal_users_token_hash` UNIQUE(`token_hash`)
-);
 
 CREATE TABLE `agent_prompts` (
 	`id` char(36) NOT NULL,
@@ -1402,10 +1372,6 @@ CREATE INDEX `idx_agent_messages_user` ON `agent_messages` (`portal_user_id`,`st
 CREATE INDEX `idx_agent_messages_admin_user` ON `agent_messages` (`admin_user_id`,`status`);
 CREATE INDEX `idx_agent_policy_profile_assignments_profile` ON `agent_policy_profile_assignments` (`profile_id`);
 CREATE INDEX `idx_agent_policy_profiles_is_default` ON `agent_policy_profiles` (`is_default`);
-CREATE INDEX `idx_agent_portal_browser_sessions_user` ON `agent_portal_browser_sessions` (`user_id`);
-CREATE INDEX `idx_agent_portal_browser_sessions_expires` ON `agent_portal_browser_sessions` (`expires_at`);
-CREATE INDEX `idx_agent_portal_users_enabled` ON `agent_portal_users` (`enabled`);
-CREATE INDEX `idx_agent_portal_users_deleted` ON `agent_portal_users` (`deleted_at`);
 CREATE INDEX `idx_agent_prompts_session_status` ON `agent_prompts` (`session_id`,`status`);
 CREATE INDEX `idx_agent_prompts_expires` ON `agent_prompts` (`expires_at`);
 CREATE INDEX `idx_agent_sessions_status` ON `agent_sessions` (`status`,`heartbeat_at`);

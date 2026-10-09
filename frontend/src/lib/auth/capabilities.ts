@@ -43,7 +43,6 @@ export const CAPABILITIES = [
   "secrets.reveal",
   "secrets.manage",
   "agent_portal.read",
-  "agent_portal.reveal_link",
   "agent_portal.reveal_transcript",
   "agent_portal.manage",
   "agent_messaging.read",

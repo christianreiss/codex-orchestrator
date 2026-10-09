@@ -132,10 +132,6 @@ const REGISTRY: NavDefinition[] = [
     description: "Files agents hand each other, and when they expire", keywords: ["file", "transfer", "upload", "download", "artifact", "ttl", "expiry"], icon: FileUp,
   },
   {
-    id: "agent-portal", group: "Coordinate", route: "/agent-portal", label: "Agent Portal",
-    description: "Portal access and permanent links", keywords: ["remote", "portal", "links"], icon: Link,
-  },
-  {
     id: "skills", group: "Knowledge", route: "/skills", label: "Skills",
     description: "Fleet skill manifests", keywords: ["skill", "manifest"], icon: BookOpen,
   },

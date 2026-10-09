@@ -9,7 +9,6 @@ import type { AdminContext } from '../../../src/http/plugins/auth-admin.js';
 import { makeCapabilitiesPlugin } from '../../../src/http/plugins/capabilities.js';
 import { UnauthorizedError } from '../../../src/http/errors.js';
 import { registerAdminAgentSessionsRoutes } from '../../../src/routes/admin/agent-sessions/index.js';
-import { registerAgentPortalPublicRoutes } from '../../../src/routes/agent-portal/public.js';
 import type { RouteContext } from '../../../src/routes/index.js';
 import { AdminAuthService } from '../../../src/services/admin-auth.js';
 import { AgentPortalService } from '../../../src/services/agent-portal.js';
@@ -60,7 +59,6 @@ async function fixture() {
     keyring: testKeyring(),
   };
   await registerAdminAgentSessionsRoutes(app, ctx);
-  await registerAgentPortalPublicRoutes(app, ctx);
   const origin = await app.listen({ host: '127.0.0.1', port: 0 });
   return { app, origin, read, auth, response: () => responseRaw!, isClosing: () => closing, setAdmin: (value: AdminContext | null) => { admin = value; }, demote: () => {
     admin = { ...admin!, user: { ...admin!.user, accessLevel: 'viewer' } };
@@ -97,7 +95,7 @@ it('includes compact client summaries only for transcript-authorized operators',
   expect(enrich).toHaveBeenCalledTimes(1);
 });
 
-describe.each(['/admin/agent-sessions/events', '/go/api/events'])('real HTTP stream %s', (path) => {
+describe.each(['/admin/agent-sessions/events'])('real HTTP stream %s', (path) => {
   it('flushes headers, stays connected after request completion, and stops reading on disconnect', async () => {
     const f = await fixture();
     const stream = await open(`${f.origin}${path}?after=0`);
@@ -220,15 +218,4 @@ it('includes a single server snapshot instant and the matching derived-state inp
   const payload = await response.json() as { generated_at: string; timings: { working_fresh_seconds: number } };
   expect(payload.generated_at).toBe(snapshot.generated_at);
   expect(payload.timings.working_fresh_seconds).toBeGreaterThan(0);
-});
-
-it('gives the phone portal the same server clock contract as Active Clients', async () => {
-  const f = await fixture();
-  const snapshot = { generated_at: '2026-09-08T07:00:00.123Z', sessions: [] };
-  vi.spyOn(AgentPortalService.prototype, 'listAgentsSnapshot').mockResolvedValue(snapshot);
-  const response = await fetch(`${f.origin}/go/api/agents`);
-  expect(response.status).toBe(200);
-  const payload = await response.json() as { data: { generated_at: string; agents: unknown[] } };
-  expect(payload.data.generated_at).toBe(snapshot.generated_at);
-  expect(payload.data.agents).toEqual([]);
 });

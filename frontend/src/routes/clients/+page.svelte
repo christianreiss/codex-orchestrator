@@ -9,7 +9,9 @@
   import ChevronLeftIcon from "@lucide/svelte/icons/chevron-left";
   import InfoIcon from "@lucide/svelte/icons/info";
   import { toast } from "svelte-sonner";
-  import { base } from "$app/paths";
+  import { page } from "$app/state";
+  import RemoteSessions from "$lib/components/portal/RemoteSessions.svelte";
+  import SessionControls from "$lib/components/portal/SessionControls.svelte";
   import PageHeader from "$lib/components/layout/PageHeader.svelte";
   import Composer from "$lib/components/portal/Composer.svelte";
   import AttentionCard from "$lib/components/portal/AttentionCard.svelte";
@@ -35,8 +37,12 @@
   const client = useQueryClient();
   const canManage = $derived($authStore.can("agent_portal.manage"));
   const canReadTranscript = $derived($authStore.can("agent_portal.reveal_transcript"));
-  const canOpenSettings = $derived($authStore.can("agent_portal.manage"));
+  const canRemoteManage = $derived($authStore.can("agent_messaging.manage"));
   let selectedId = $state<string | null>(null);
+  $effect(() => {
+    const id = page.url.searchParams.get("session");
+    if (id) selectedId = id;
+  });
   let search = $state("");
   let engine = $state<"all" | "codex" | "claude" | "grok">("all");
   let filter = $state<ClientFilter>("active");
@@ -56,7 +62,7 @@
   const selected = $derived(rows.find((row) => row.id === selectedId) ?? null);
   const selectedView = $derived(selected ? presenceView(selected, serverNow, timings) : null);
   const actionsUnavailable = $derived(!enabled || stale || $sessions.isError);
-  const disabledReason = $derived(!enabled ? "Agent Portal is disabled. Your draft is kept."
+  const disabledReason = $derived(!enabled ? "Agent sessions are disabled. Your draft is kept."
     : actionsUnavailable ? "Refresh client status before sending. Your draft is kept." : "");
   $effect(() => {
     if ($sessions.data && selectedId && !rows.some((row) => row.id === selectedId)) selectedId = null;
@@ -205,6 +211,17 @@
   {/snippet}
 </PageHeader>
 
+<div class={selected ? "hidden lg:block" : ""}>
+{#if canManage}<SessionControls />{/if}
+{#if canRemoteManage}
+  <details class="mb-4 rounded-lg border border-border p-3" aria-label="Remote sessions">
+    <summary class="cursor-pointer font-semibold">Remote sessions</summary>
+    <div class="mt-3"><RemoteSessions /></div>
+  </details>
+{/if}
+
+</div>
+
 {#if $sessions.isPending && !$sessions.data}
   <div role="status" aria-label="Loading clients" class="space-y-2 lg:w-80">
     {#each Array(5) as _, i (i)}<div class="flex items-center gap-3"><Skeleton class="h-11 w-11 rounded-full" /><Skeleton class="h-9 flex-1 rounded-lg" /></div>{/each}
@@ -223,11 +240,9 @@
     </div>
   {/if}
   {#if !enabled}
-    <EmptyState icon={PowerOffIcon} title="The Agent Portal is off" description="Client registration is paused. Enable the Agent Portal to record new Codex, Claude, and Grok sessions.">
-      {#snippet action()}{#if canOpenSettings}<Button href="{base}/agent-portal" variant="outline">Open Agent Portal settings</Button>{/if}{/snippet}
-    </EmptyState>
+    <EmptyState icon={PowerOffIcon} title="Agent sessions are off" description="Client registration is paused. Enable agent sessions in the controls above to record new Codex, Claude, and Grok sessions." />
   {:else if rows.length === 0}
-    <EmptyState icon={BotIcon} title="No recorded clients" description="A session appears when cdx, clx, or cgx registers with the Agent Portal. Clients that cannot reach the server may appear after reconnecting." />
+    <EmptyState icon={BotIcon} title="No recorded clients" description="A session appears when cdx, clx, or cgx registers its session. Clients that cannot reach the server may appear after reconnecting." />
   {:else}
     <!-- One Messages-style card: conversation list on the left, thread on the right. -->
     <div class="grid grid-cols-1 h-[75dvh] min-h-[28rem] overflow-hidden rounded-xl border bg-card lg:h-[calc(100dvh-15.5rem)] lg:grid-cols-[22rem_minmax(0,1fr)]">

@@ -144,6 +144,8 @@ describe('migrations against the test baseline', () => {
   it('reads the tables and columns the shipped migrations actually remove', async () => {
     expect([...(await migrationRemovals())].sort()).toEqual([
       'agent_matrix_outbox',
+      'agent_portal_browser_sessions',
+      'agent_portal_users',
       'agent_portal_users.matrix_room',
       'claude_usage_snapshots',
       'dashboard_graph_claude_daily_stats',

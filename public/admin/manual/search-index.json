@@ -821,13 +821,18 @@
         },
         {
             "slug": "agent-portal",
-            "title": "Agent Portal and Active Clients",
+            "title": "Active Clients and agent sessions",
             "section": "Admin workspace",
-            "summary": "The portal master switch and permanent links, the Active Clients directory, presence states, the Needs-you banner, and instructing or closing a running agent.",
+            "summary": "Session settings, remote work, presence and operator chat through Active Clients and Android.",
             "anchors": [
                 {
-                    "id": "agent-portal",
-                    "text": "Agent Portal",
+                    "id": "agent-session-settings",
+                    "text": "Agent session settings",
+                    "level": 2
+                },
+                {
+                    "id": "remote-sessions",
+                    "text": "Remote sessions",
                     "level": 2
                 },
                 {
@@ -851,10 +856,17 @@
                     "level": 2
                 },
                 {
-                    "id": "source-references",
-                    "text": "Source references",
+                    "id": "android-companion",
+                    "text": "Android companion",
                     "level": 2
                 }
+            ],
+            "verified": "2026-10-09",
+            "tags": [
+                "clients",
+                "sessions",
+                "android",
+                "afk"
             ]
         },
         {
@@ -3334,24 +3346,6 @@
             12,
             15
         ],
-        "/go": [
-            2,
-            11,
-            23
-        ],
-        "/go/api/": [
-            11,
-            23
-        ],
-        "/go/u/:publicid": [
-            23
-        ],
-        "/go/u/{publicid": [
-            11
-        ],
-        "/go`.": [
-            11
-        ],
         "/healthz": [
             2,
             23
@@ -5647,12 +5641,6 @@
             2,
             11
         ],
-        "agent_portal_browser_sessions": [
-            1
-        ],
-        "agent_portal_cookie": [
-            2
-        ],
         "agent_portal_heartbeat_fresh_seconds": [
             2,
             11,
@@ -5673,13 +5661,6 @@
         ],
         "agent_portal_session": [
             2
-        ],
-        "agent_portal_session_ttl_hours": [
-            2,
-            11
-        ],
-        "agent_portal_users": [
-            1
         ],
         "agent_prompts": [
             1

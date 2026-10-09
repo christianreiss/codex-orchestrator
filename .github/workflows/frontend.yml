@@ -47,12 +47,6 @@ jobs:
       - run: npm run check
       - run: npm run test
       - run: npm run build
-      # The portal is a second Vite build served at /go by the API; `npm run
-      # build` does not produce it, so nothing was compiling it in CI.
-      - run: npm run build:portal
-      # The committed `public/admin` artifact is what the API serves. A build
-      # whose output differs from what is checked in means the console on disk
-      # is not the console in this commit.
       - name: committed admin artifact matches a fresh build
         working-directory: .
         run: |

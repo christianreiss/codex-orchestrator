@@ -29,8 +29,6 @@ export async function registerAgentPortalAdminHostRoutes(
   const portal = createAgentPortalService(ctx.db, ctx.env, ctx.keyring);
   const messaging = createAgentMessagingService(ctx.db, ctx.env, ctx.keyring);
   const events = createAdminEventsService(ctx.db);
-  // Now `agent_portal.manage`, with the permanent-link read carved out as
-  // `agent_portal.reveal_link` — see `security/route-capabilities.ts`.
 
   app.get('/admin/agent-portal/state', { preHandler: app.requireAdmin }, async () =>
     ok(await portal.state()),
@@ -43,103 +41,6 @@ export async function registerAgentPortalAdminHostRoutes(
       type: 'agent_portal.state',
       payload: {
         enabled: body.enabled,
-        canceled: result.canceled,
-        revoked_sessions: result.revoked_sessions,
-        admin_user_id: req.admin?.user.id ?? null,
-      },
-    });
-    return ok(result);
-  });
-
-  app.get('/admin/agent-portal/users', { preHandler: app.requireAdmin }, async () =>
-    ok({ users: await portal.listUsers() }),
-  );
-
-  app.post('/admin/agent-portal/users', { preHandler: app.requireAdmin }, async (req) => {
-    const body = z
-      .object({ display_name: z.string(), enabled: z.boolean().optional() })
-      .parse(req.body ?? {});
-    const result = await portal.createUser({
-      displayName: body.display_name,
-      enabled: body.enabled,
-    });
-    await events.record({
-      type: 'agent_portal.user.created',
-      payload: {
-        portal_user_id: result.user.id,
-        enabled: result.user.enabled,
-        admin_user_id: req.admin?.user.id ?? null,
-      },
-    });
-    return ok(result);
-  });
-
-  app.post('/admin/agent-portal/users/:id', { preHandler: app.requireAdmin }, async (req) => {
-    const id = parsePositiveId(req.params);
-    const body = z
-      .object({ display_name: z.string().optional() })
-      .strict()
-      .parse(req.body ?? {});
-    const user = await portal.updateUser(id, { displayName: body.display_name });
-    await events.record({
-      type: 'agent_portal.user.updated',
-      payload: { portal_user_id: id, admin_user_id: req.admin?.user.id ?? null },
-    });
-    return ok({ user });
-  });
-
-  app.post('/admin/agent-portal/users/:id/enabled', { preHandler: app.requireAdmin }, async (req) => {
-    const id = parsePositiveId(req.params);
-    const body = z.object({ enabled: z.boolean() }).parse(req.body ?? {});
-    const result = await portal.setUserEnabled(id, body.enabled);
-    await events.record({
-      type: 'agent_portal.user.enabled',
-      payload: {
-        portal_user_id: id,
-        enabled: body.enabled,
-        canceled: result.canceled,
-        revoked_sessions: result.revoked_sessions,
-        admin_user_id: req.admin?.user.id ?? null,
-      },
-    });
-    return ok(result);
-  });
-
-  app.post('/admin/agent-portal/users/:id/rotate', { preHandler: app.requireAdmin }, async (req) => {
-    const id = parsePositiveId(req.params);
-    const result = await portal.rotateUser(id);
-    await events.record({
-      type: 'agent_portal.user.rotated',
-      payload: {
-        portal_user_id: id,
-        revoked_sessions: result.revoked_sessions,
-        admin_user_id: req.admin?.user.id ?? null,
-      },
-    });
-    return ok(result);
-  });
-
-  // The permanent link is what the operator bookmarks, so it has to be readable
-  // after creation. Gated to owner/admin and audited: `GET /admin/agent-portal/
-  // users` is open to every admin session, including `viewer`, and must never
-  // carry bearer material.
-  app.get('/admin/agent-portal/users/:id/link', { preHandler: app.requireAdmin }, async (req) => {
-    const id = parsePositiveId(req.params);
-    const result = await portal.revealUserLink(id);
-    await events.record({
-      type: 'agent_portal.user.link_revealed',
-      payload: { portal_user_id: id, admin_user_id: req.admin?.user.id ?? null },
-    });
-    return ok(result);
-  });
-
-  app.delete('/admin/agent-portal/users/:id', { preHandler: app.requireAdmin }, async (req) => {
-    const id = parsePositiveId(req.params);
-    const result = await portal.deleteUser(id);
-    await events.record({
-      type: 'agent_portal.user.deleted',
-      payload: {
-        portal_user_id: id,
         canceled: result.canceled,
         revoked_sessions: result.revoked_sessions,
         admin_user_id: req.admin?.user.id ?? null,
@@ -388,14 +289,6 @@ export async function registerAgentPortalAdminHostRoutes(
       },
     );
   });
-}
-
-function parsePositiveId(params: unknown): number {
-  const id = Number((params as Record<string, unknown> | null)?.id ?? 0);
-  if (!Number.isSafeInteger(id) || id <= 0) {
-    throw new ValidationError('id must be a positive integer', { param: 'id' });
-  }
-  return id;
 }
 
 function stringParam(params: unknown, key: string): string {

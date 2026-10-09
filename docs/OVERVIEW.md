@@ -635,95 +635,28 @@ relays, and generation-fences bindings. Version 1 intentionally retains
 terminal messages, canceled conversations, dormant addresses, and audit
 history; there is no automatic Agent Messaging purge.
 
-## Permanent Agent Portal
+## Active Clients and Android operator chat
 
-The admin **Active Clients** page and `/go` use the same session projection.
-Active Clients lists each agent's launch name, current directory, derived status,
-bundled engine logo and compact summary; name and summary search spans all three
-engines. Latest reply summaries use the companion projection and require transcript
-access. Host/user and registered worktree metadata remain in session details.
-Presence requires a valid host/engine/bridge and a fresh wrapper heartbeat;
-listening additionally requires a fresh instruction relay, while working tracks
-an accepted turn with a bounded freshness window. Admin snapshots carry their
-server timestamp and freshness windows so a browser can age them consistently.
-The client directory provides search, engine/status filters, retained stale
-data with retry controls, and a selected-session event stream. WebSocket state
-invalidations contain metadata only; reconnects reload authoritative snapshots.
-Both stream surfaces revalidate access while connected and stop on response
-disconnect. Heartbeat traffic does not fan out a fleet-wide event per client.
+Active Clients is the desktop session directory and chat for Codex, Claude and
+Grok. It shows launch names, task summaries, current directories, derived presence,
+Needs you, questions and retained history, with receiver reconnect and close actions.
+It also provides **Remote sessions** to start, continue and stop daemon work;
+remote history links select the native session in Active Clients.
 
-The optional `/go` portal gives each configured user one permanent, revocable
-magic link. After fragment-token exchange it presents tabs for every eligible
-active Codex, Claude, and Grok root agent in the fleet. Users can send ordered ordinary
-text and answer explicit prompts; first answer wins. Completed or failed agents
-remain visible but read-only for 24 hours, then their sessions, events, prompts,
-and messages are purged.
+**Agent session settings** holds the shared master switch and queue health.
+The setup wizard calls this feature **Agent sessions**. The Android companion
+keeps its existing pairing, chat, questions, host approvals and FCM notifications.
+The old `/go` webchat, permanent links and separate portal users have been removed.
+The two portal access tables and their authored queued rows are deleted by schema
+cleanup 0051; no identity is transferred to a dashboard account.
 
-`cxx` 0.7.5 registers interactive and human-started execute/resume lifecycles
-with the host credential. It retains the short-lived session bridge bearer and
-proxies a fixed command set over a private Unix socket, leaving only the socket
-path and session metadata in the child. The managed `#afk` Skill starts quietly
-and uses `cxx portal wait` to lease portal text in the existing root session.
-Availability and progress do not request user attention: `say` publishes status,
-`ask` requests an answer, and `notify` is reserved for a concrete action the user
-needs to take. From cxx 0.8.4, `cxx portal resolve --summary TEXT` withdraws a
-mistaken or resolved attention notice, retaining timeline evidence without
-changing relay readiness, active work, or unanswered prompts.
-Both WebUIs surface current attention and unanswered questions in one prominent
-**Needs you** banner above the composer, which disappears when neither remains.
-Historical attention/resolution events are retained by the API but hidden from
-the conversation; resolving a notice never answers an outstanding question.
-Only a live `wait` iteration opens the relay: `cxx portal notify`
-deliberately does not, because notifying is the last thing an agent does before
-its turn ends, and opening the relay there left the portal advertising
-`listening` — and accepting instructions nothing would ever claim — for a full
-relay window after the agent was gone. `cxx portal accept` acknowledges only
-after the instruction reached the model and stamps `active_turn_id` so the
-portal can report `working` while nothing is polling; `say`, `wait` and `leave`
-release it. Unacknowledged leases are redelivered in order. Claim retries carry one stable UUID, while event, acceptance, and
-terminal retries reuse their original idempotency boundary with a fresh request
-deadline. Replies and questions are deliberately published through `cxx portal
-say` and `cxx portal ask`; there is no raw PTY or hidden tool-output stream.
-As soon as the engine child exits, cxx closes relay writability, removes the
-socket capability from the environment, finalizes the portal session, and only
-then runs post-session updater/auth work.
-From cxx 0.8.3, a transient initial registration failure retains its original
-identity and private broker so the running Codex or Claude session can register
-when service returns. Heartbeat attempts are bounded and cancellable, with
-15–60 second failure backoff. Explicit revocation, inactive-host, disabled-engine,
-and terminal-session failures stop recovery; only recognized renewable bridge
-expiry/binding failures use the existing host-authenticated renewal path.
-Stopping a session cancels ordinary requests before finalization, preventing
-late renewals from restarting its local heartbeat after the child has exited.
-This is a cooperative live-turn relay, not an out-of-band wake mechanism: once
-the engine process or model turn stops polling, `relay_ready` becomes false and
-the portal is read-only until a fresh eligible relay is active. Because that is
-true, the portal never claims otherwise and never leaves the operator without a
-next step: a session that cannot take a cooperative close is offered Force end
-directly, a notice on an ended session stops occupying "Needs you", and a
-message that was queued but never claimed is reported as undelivered rather than
-left reading "Queued" forever.
-
-The portal has no outbound push channel. It replaced one: every lifecycle event
-used to fan out as a chat message carrying a freshly rendered deep link, which
-meant a stream of notifications each containing live bearer material. Now the
-link is issued once and read back on demand from Agent Portal, and the
-user bookmarks it. Lifecycle events (`started`, `resumed`, `progress`,
-`waiting_input`, `terminal_block`, `attention`, `failed`, `completed`) are still
-recorded and still stream to an open portal over SSE — they are simply not
-delivered anywhere else. All identity, history, and input remain on `/go`.
-
-The global switch is a persistent `versions.agent_portal_enabled` setting and is
-seeded off on first rollout. New users default enabled. Turning off either the
-global switch or one user revokes matching browser sessions and cancels queued
-or leased undelivered commands/notices; re-enabling does not replay them and
-does not change the permanent link. Explicit rotation is the only operation
-that invalidates and replaces that link. A disabled answering user releases a
-still-live prompt for another enabled user; global, relay, or terminal
-cancellation expires the prompt so an old answer cannot replay after
-re-enable. A maintenance sweep turns abandoned live sessions into failed,
-read-only records, cancels their pending work, and purges the complete session
-tree after retention expires.
+Shared sessions, events, prompts, receiver state and Android devices remain.
+Existing bridge/API names, `agent_portal_enabled`, role capabilities and
+`cxx portal say|ask|wait|accept|resolve|leave` continue serving these clients.
+Messages are ordered and idempotent, prompts remain first-answer-wins, revoked
+accounts cannot deliver queued instructions, and ended sessions remain read-only
+until the configured retention purge. Native health and current receiver generation
+are required for readiness; a browser connection does not prove agent reachability.
 
 Provider quota advice compares fresh saved OpenAI/Claude snapshots before interactive wrapper starts; central settings and the daily local choice are documented in [the API contract](interface-api.md#provider-quota-recommendation).
 
@@ -735,7 +668,7 @@ The dashboard's Runner state card shows a Claude login-expiry warning within thr
 
 Interactive Codex, Claude and Grok receivers check native transport health in the background,
 without synthetic chat probes or acknowledgment turns. Readiness expires after 45 seconds
-without native health. Clients and /go expose transport state and **Reconnect receiver**;
+without native health. Active Clients exposes transport state and **Reconnect receiver**;
 `cxx agent doctor --json` reports local receiver state. Actual correlated message replies
 provide model-response evidence. See the engine and API interfaces for failure semantics.
 

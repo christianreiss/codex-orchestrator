@@ -1,14 +1,13 @@
 <script lang="ts">
   import type { HTMLButtonAttributes } from "svelte/elements";
   import type { Engine, Presence } from "$lib/portal/types";
-  import type { UnreadBadge } from "$lib/portal/unread";
+  type UnreadBadge = { kind: "attention" } | { kind: "dot" } | { kind: "count"; value: number } | null;
   import EngineAvatar from "./EngineAvatar.svelte";
 
   /**
-   * One Messages-style conversation cell, shared by the /go chat list and the
-   * admin Active Clients directory: avatar with presence, name + time, one
+   * One Messages-style conversation cell, used by the Active Clients directory: avatar with presence, name + time, one
    * line of preview, badge. Button attributes (id, aria-*, tabindex, handlers)
-   * pass straight through -- never a `style` key, which the portal CSP blocks.
+   * pass straight through.
    */
   let {
     engine,

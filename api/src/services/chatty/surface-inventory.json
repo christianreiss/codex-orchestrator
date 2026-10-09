@@ -272,7 +272,6 @@
   "excluded": {
     "reason": "Authentication/bootstrap, transport/Chatty control, raw credential reveal, host execution, messaging, work dispatch or recovery activation; never available as a model tool.",
     "routes": [
-      "DELETE /admin/agent-portal/users/:id",
       "DELETE /admin/chatty/session",
       "GET /admin/*",
       "GET /admin/agent-messaging",
@@ -288,8 +287,6 @@
       "GET /admin/agent-messaging/subscriptions",
       "GET /admin/agent-messaging/translate",
       "GET /admin/agent-portal/state",
-      "GET /admin/agent-portal/users",
-      "GET /admin/agent-portal/users/:id/link",
       "GET /admin/auth/status",
       "GET /admin/chatty/events",
       "GET /admin/chatty/session",
@@ -315,10 +312,6 @@
       "POST /admin/agent-messaging/publish",
       "POST /admin/agent-messaging/state",
       "POST /admin/agent-portal/state",
-      "POST /admin/agent-portal/users",
-      "POST /admin/agent-portal/users/:id",
-      "POST /admin/agent-portal/users/:id/enabled",
-      "POST /admin/agent-portal/users/:id/rotate",
       "POST /admin/auth/login",
       "POST /admin/auth/login/method",
       "POST /admin/auth/logout",

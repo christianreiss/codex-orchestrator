@@ -9,7 +9,7 @@
 <span class="presence-dot presence-dot--{presence} {extra}" aria-hidden="true"></span>
 
 <style>
-  /* Shared by /admin and /go; status must not depend on portal-only CSS. */
+  /* Session status styling belongs to the component. */
   .presence-dot { position: relative; display: inline-block; flex: none; width: .5rem; height: .5rem; border-radius: 9999px; background: hsl(var(--muted-foreground)); }
   .presence-dot--listening { background: hsl(var(--success)); box-shadow: 0 0 0 2px hsl(var(--success) / .18); }
   .presence-dot--working { background: hsl(var(--success) / .25); border: 1.5px solid hsl(var(--success)); overflow: hidden; }

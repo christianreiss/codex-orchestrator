@@ -2,7 +2,7 @@ import type { Agent, Presence, PresenceTimings } from "./types";
 
 /**
  * Fallback for AGENT_PORTAL_HEARTBEAT_FRESH_SECONDS. The API serves the real
- * value on `GET /go/api/state`; this is only what the first render uses before
+ * value on `GET /admin/agent-sessions`; this is only what the first render uses before
  * that lands, so the two can no longer drift permanently.
  */
 export const HEARTBEAT_FRESH_MS = 45_000;

@@ -18,8 +18,7 @@ import type { FastifyReply } from 'fastify';
  * and on the portal relay each re-ask is a fresh model turn.
  *
  * `ServerResponse` is destroyed only when the connection actually drops, which
- * is the question being asked. The SSE stream in `agent-portal/public.ts` was
- * already using it.
+ * is the question being asked. The shared SSE lifecycle uses the same signal.
  */
 export function clientGone(reply: FastifyReply): boolean {
   return reply.raw.destroyed;

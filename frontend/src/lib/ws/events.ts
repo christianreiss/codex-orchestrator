@@ -165,12 +165,6 @@ export const DEFAULT_INVALIDATIONS: WsInvalidationMap = {
 
   // Agent portal controls live under Settings.
   "agent_portal.state": [["agent-portal"]],
-  "agent_portal.user.created": [["agent-portal"]],
-  "agent_portal.user.updated": [["agent-portal"]],
-  "agent_portal.user.enabled": [["agent-portal"]],
-  "agent_portal.user.rotated": [["agent-portal"]],
-  "agent_portal.user.link_revealed": [["agent-portal"]],
-  "agent_portal.user.deleted": [["agent-portal"]],
   // Live agent sessions. This is the ONLY event the sessions view gets: nothing
   // publishes on register, heartbeat or event append, so the list polls and the
   // timeline streams over SSE instead. Force-close is broadcast because it ends

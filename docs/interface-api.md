@@ -770,17 +770,8 @@ The Quick Settings page (`/admin/quick-settings`) reuses `GET/POST /admin/model-
   - `DELETE /admin/transfers/{id}` — retire one file early. Unlinks the bytes
     and marks the row `deleted`; the row and its events are kept, because an
     audit trail whose subject has been deleted is not one.
-- Live agent sessions (`agent_portal.*`). The console half of the surface the
-  phone portal at `/go` already served; the projection is the portal's, not a
-  second one. Since the actor widening the traffic runs both ways: every
-  `/go/api/*` route accepts an admin session as well as a portal magic-link
-  browser session, so an operator signed in to the console reaches the portal
-  without exchanging a second credential. A portal cookie still wins when it is
-  valid. The `/go` routes carry no capability inventory entry of their own, so
-  the admin fallback asserts one explicitly — `agent_portal.manage` for the
-  writes and `agent_portal.reveal_transcript` for the timelines and the stream,
-  both of which are always-enforced and therefore checkable without a route key.
-  Without that, a `viewer` refused at `/admin` could have written through `/go`.
+- Live agent sessions (`agent_portal.*`) serve Active Clients and Android.
+  Dashboard access uses the admin session and its current role capabilities.
   - `GET /admin/agent-sessions` — `{enabled, generated_at, timings, sessions:[…]}`.
     Active Clients cards show the launch name (session name, messaging alias or short session ID when absent), current `cwd`, derived status, bundled Codex/Claude/Grok logo and summary. Names and summaries are searchable; full paths remain available on hover. Transcript-authorized callers also receive `preview:{summary,cursor,created_at}` or null, using the same 160-character, prompt/attention-first summary projection as the companion; other callers receive no preview text.
     `generated_at` is the server instant used for the entire presence snapshot.
@@ -807,7 +798,7 @@ The Quick Settings page (`/admin/quick-settings`) reuses `GET/POST /admin/model-
     bodies, so it needs `agent_portal.reveal_transcript` rather than
     `agent_portal.read`.
   - `GET /admin/agent-sessions/events` — the same events fleet-wide as SSE,
-    mirroring `GET /go/api/events`: `event: agent` frames with `Last-Event-ID`
+    with `event: agent` frames with `Last-Event-ID`
     resume and a 15s heartbeat comment plus an observable `event: heartbeat`
     frame. Optional `session_id=<uuid>` restricts
     the admin stream's SQL read to one session while preserving global cursors.
@@ -1329,40 +1320,14 @@ generation. Version 1 performs queue maintenance and state transitions only:
 terminal messages, canceled conversations, dormant addresses, and their audit
 history are retained; there is no automatic Agent Messaging history purge.
 
-## Agent Portal
+## Agent sessions
 
-The portal is a separate mobile-first user surface at `/go`. Its persistent
-`agent_portal_enabled` switch is seeded off. Portal users default enabled and
-see every eligible active root session across the fleet; a finished session is
-read-only until the 24-hour retention purge. Browser portal users reach it through their own permanent bookmarked link.
-The separately paired Android companion can receive FCM notifications with
-opaque event identifiers and the event's short summary; permanent portal links and full transcript bodies are
-never pushed.
+Active Clients and paired Android devices provide operator chat. The legacy `/go`
+magic-link webchat and portal-user APIs are removed. Shared `agent_portal.*`
+capabilities, the saved switch and wrapper/Android contracts remain unchanged.
+Active Clients provides Agent session settings and Remote sessions.
 
-Every `/go/api/*` route is same-origin only and never inherits
-`CORS_ALLOWED_ORIGINS`. Browser mutations require an exact `Origin` match to
-`PUBLIC_BASE_URL`; foreign `Origin` and `Sec-Fetch-Site: same-site|cross-site`
-requests fail closed. Credential-free GET/EventSource requests may omit
-`Origin`.
-
-Public shell and browser API:
-
-- `GET /go` — portal SPA shell; Fastify's global normalization also accepts a
-  trailing slash.
-- `GET /go/u/{publicId}` — stable per-user shell URL. The reusable secret is supplied only as `#t=...`; the SPA exchanges it and scrubs the fragment.
-- `GET /go/api/state` — unauthenticated master-switch state plus the `timings` the browser ages presence with (`heartbeat_fresh_seconds`, `relay_fresh_seconds`, `retention_hours`), so the SPA never hardcodes the windows.
-- `POST /go/api/auth/exchange` — exchange `{public_id, token}` for the Secure, HttpOnly, SameSite=Strict portal cookie.
-- `POST /go/api/logout` — revoke the current browser session and clear its cookie.
-- `GET /go/api/me` — current portal identity.
-- `GET /go/api/agents` — `{generated_at, agents:[…]}` with active and retained eligible agents and the server projection clock for the chat list. `presence` is the liveness signal: `listening` has an open relay, `working` has a recent accepted turn, `idle` has fresh wrapper contact without an open relay, `offline` lacks fresh contact or an eligible bridge, and `ended` is read-only. Freshness windows come from `/go/api/state`; `status` remains a compatibility field and must not be used for liveness. `attention` is derived from event cursors with no stored read state — a notice stays outstanding until the same session receives a `user_message` (a plain message or a prompt answer) or a `close_requested`, or the agent appends `attention_resolved`. Resolution leaves open questions unanswered and preserves the active turn, relay, and session; its original event cursor is reused on retry, so replay cannot clear a later notice. `close` reports the operator close lifecycle (`pending`, `acknowledged`, `undeliverable`) read from the close note's own queue row.
-- `GET /go/api/agents/{id}/events[?after=&limit=&tail=1]` — encrypted-at-rest safe timeline, returned in cursor order; `tail=1` returns the latest bounded page.
-- `GET /go/api/events[?after=]` — authenticated SSE stream with resumable event IDs and 15s heartbeat comments plus observable `event: heartbeat` frames carrying `{server_time}`. Cookie/global/user authorization is rechecked transactionally for every page; a slow client is closed and resumes from `Last-Event-ID` instead of accumulating an unbounded buffer.
-- `POST /go/api/agents/{id}/messages` — enqueue ordinary user text with a client idempotency UUID; returns 202. New work requires a fresh live relay, while an exact retry returns the committed row even if the session finished. Reusing an ID for another user/kind/prompt/body conflicts. A portal message never grants approvals or new authority.
-- `POST /go/api/agents/{id}/prompts/{promptId}/answer` — enqueue an answer under a locked first-answer-wins transaction; later answers conflict. Only one open prompt is retained per agent session.
-- `POST /go/api/agents/{id}/close` — ask the agent to wind down, delivering the operator's note through the instruction queue as a `close`-kind message so it can finish cleanly; returns 202. Requires a live relay, because an undeliverable note would leave the operator believing the channel is closing. The note is capped at 1000 bytes and is idempotent on `client_message_id`. Sets `close_requested_at`, which is never cleared.
-- `POST /go/api/agents/{id}/close/force` — end the session outright; returns 200. Asserts neither liveness nor relay readiness, so it works against an agent that is offline or has already closed its relay. Records the note without delivering it, cancels everything pending, and is a no-op on a session that already ended.
-
-Host and scoped bridge API:
+### Host registration and bridge
 
 - `GET /host/agent-portal/state` — host-authenticated master-switch probe.
 - `POST /host/agent-sessions` — host-authenticated registration for an eligible interactive or human-started execute session. The wrapper retains the short-lived bridge bearer and gives the engine only a private Unix-socket path/session ID; inherited portal variables are scrubbed.
@@ -1378,14 +1343,7 @@ All mutations below require an `owner` or `admin` role; authenticated viewers
 may read state and users but cannot change rollout or identity state.
 
 - `GET /admin/agent-portal/state` — switch, configuration, queue health, and dead-letter counts.
-- `POST /admin/agent-portal/state` — toggle the global switch. Turning it off revokes browser sessions and cancels queued/leased portal work without replay.
-- `GET /admin/agent-portal/users` — list active portal identities and link metadata.
-- `POST /admin/agent-portal/users` — create a user with `display_name` and optional `enabled` (default true); returns the permanent magic URL.
-- `POST /admin/agent-portal/users/{id}` — update the display name.
-- `POST /admin/agent-portal/users/{id}/enabled` — per-user switch; disabling revokes sessions and cancels that user's undelivered work.
-- `POST /admin/agent-portal/users/{id}/rotate` — explicitly replace the reusable secret, revoke browser sessions, and return the new URL.
-- `GET /admin/agent-portal/users/{id}/link` — re-render the stored permanent link without rotating it, so an operator can bookmark it on another device. Owner/admin only, and audited as `agent_portal.user.link_revealed`; the link is bearer material and is deliberately absent from the `GET /admin/agent-portal/users` listing, which every authenticated admin may read.
-- `DELETE /admin/agent-portal/users/{id}` — soft-delete the user, revoke sessions, and cancel pending work.
+- `POST /admin/agent-portal/state` — toggle the global switch. Turning it off cancels queued/leased operator input without replay and closes relays.
 
 ## Provider quota recommendation
 
@@ -1459,8 +1417,7 @@ applicable peer/portal switch. No host credential is sent to the model process.
   Legacy source `delivery_id`, `delivered_at`, `acknowledged_at`, and `latency_ms`
   fields remain present but null. No model-response proof is inferred from readiness.
 
-`POST /admin/agent-sessions/:id/receiver/verify` and
-`POST /go/api/agents/:id/receiver/verify` remain compatibility routes for the
+`POST /admin/agent-sessions/:id/receiver/verify` remains the compatibility route for the
 **Reconnect receiver** action, with existing operator/manage capability and origin
 protections. They invalidate the generation and return `{reconnect_requested: true,
 verification_requested: true}` (the second key is legacy). Reconnection is silent;
@@ -1866,7 +1823,6 @@ and occupied/max slots. Engine readiness dots retain their separate meaning.
 
 - `GET /admin/host-daemons`, `GET /admin/hosts/:id/daemon` and `PUT /admin/hosts/:id/daemon`: configuration and readiness. PUT accepts `enabled`, `username`, `default_cwd`, `max_parallel` (1–64), `idle_minutes` (1–1440), `question_minutes` (1–10080).
 - `POST /admin/daemon-sessions`: start, using the MCP start fields above. `GET /admin/daemon-sessions/:id` returns status and retained operation results; `POST .../:id/messages` resumes with `prompt` and UUID `client_message_id`; `POST .../:id/stop` requests process termination.
-- Equivalent `/go/api/host-daemons` and `/go/api/daemon-sessions*` routes use existing portal identity, origin and capability checks.
 - `GET /host/daemon/config` uses host authentication. `GET /host/daemon/connect` upgrades to WebSocket. Frames contain UUID `id`, `type`, `payload`; replies echo `id` with `result` or `error`. The handshake (`hello`) supplies instance UUID, username, version and ready engines; `heartbeat` returns current settings and session IDs to stop. `operation` notifications carry offered starts; `accept` must be durably confirmed before execution; `complete` stores an immutable result.
 - Per-session MCP routes: the bridge-token authenticated spawn, spawn-status and stop endpoints under `/host/agent-sessions/:sessionId/agent-messaging/` use the existing bridge token and stable agent ownership.
 - `host.daemon.changed` invalidates host-daemon and remote-session queries. Configuration/start/stop requests have dedicated audited events.
@@ -1883,11 +1839,6 @@ and occupied/max slots. Engine readiness dots retain their separate meaning.
 - `GET /host/daemon/config`
 - `GET /host/daemon/connect`
 - `POST /host/daemon/peer-finished`
-- `GET /go/api/host-daemons`
-- `POST /go/api/daemon-sessions`
-- `GET /go/api/daemon-sessions/:id`
-- `POST /go/api/daemon-sessions/:id/messages`
-- `POST /go/api/daemon-sessions/:id/stop`
 
 See the optional host execution daemon contract in [interface-api.md](interface-api.md).
 

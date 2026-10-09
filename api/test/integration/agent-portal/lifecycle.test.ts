@@ -9,28 +9,18 @@
  * behaving.
  */
 import { randomUUID } from 'node:crypto';
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { eq, sql } from 'drizzle-orm';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { agentEvents, agentMessages, agentSessions, hosts } from '../../../src/db/schema.js';
-import { splitSqlStatements } from '../../../src/db/migration-sql.js';
+import { adminUsers, agentEvents, agentMessages, agentSessions, hosts } from '../../../src/db/schema.js';
 import type { Env } from '../../../src/env.js';
 import {
   AGENT_PORTAL_ENABLED_KEY,
   AgentPortalService,
-  type PortalIdentity,
+  type PortalActor,
 } from '../../../src/services/agent-portal.js';
 import { getTestDb, type TestDb } from '../../helpers/test-db.js';
 import { loadTestEnv, testKeyring } from '../../helpers/test-keyring.js';
 
-const HERE = dirname(fileURLToPath(import.meta.url));
-const MIGRATIONS = [
-  join(HERE, '../../../src/db/migrations/0008_add_agent_portal.sql'),
-  join(HERE, '../../../src/db/migrations/0009_drop_agent_portal_matrix.sql'),
-  join(HERE, '../../../src/db/migrations/0015_add_agent_session_close_request.sql'),
-];
 const PREFIX = 'ztest-portal-lifecycle';
 const HOST_FQDN = `${PREFIX}.example`;
 const HOST_KEY = 'b'.repeat(64);
@@ -41,7 +31,7 @@ const handle = await getTestDb();
 
 interface World {
   service: AgentPortalService;
-  identity: PortalIdentity;
+  actor: PortalActor;
   sessionId: string;
   bridgeToken: string;
 }
@@ -54,8 +44,8 @@ describe.skipIf(!handle)('agent portal lifecycle edges', { timeout: 120_000 }, (
   const exec = async (query: string) => await db.execute(sql.raw(query));
 
   const cleanup = async (): Promise<void> => {
-    await exec(`DELETE FROM agent_messages WHERE portal_user_id IN (
-      SELECT id FROM agent_portal_users WHERE display_name LIKE '${PREFIX}%'
+    await exec(`DELETE FROM agent_messages WHERE admin_user_id IN (
+      SELECT id FROM admin_users WHERE username LIKE '${PREFIX}%'
     )`);
     for (const table of ['agent_prompts', 'agent_events']) {
       await exec(`DELETE FROM ${table} WHERE session_id IN (
@@ -63,10 +53,7 @@ describe.skipIf(!handle)('agent portal lifecycle edges', { timeout: 120_000 }, (
       )`);
     }
     await exec(`DELETE FROM agent_sessions WHERE host_id = ${host?.id ?? 0}`);
-    await exec(`DELETE FROM agent_portal_browser_sessions WHERE user_id IN (
-      SELECT id FROM agent_portal_users WHERE display_name LIKE '${PREFIX}%'
-    )`);
-    await exec(`DELETE FROM agent_portal_users WHERE display_name LIKE '${PREFIX}%'`);
+    await exec(`DELETE FROM admin_users WHERE username LIKE '${PREFIX}%'`);
     await exec(
       `INSERT INTO versions (name, version, updated_at)
        VALUES ('${AGENT_PORTAL_ENABLED_KEY}', '0', '1970-01-01T00:00:00.000Z')
@@ -76,11 +63,6 @@ describe.skipIf(!handle)('agent portal lifecycle edges', { timeout: 120_000 }, (
 
   beforeAll(async () => {
     db = handle!.db;
-    for (const migration of MIGRATIONS) {
-      for (const statement of splitSqlStatements(readFileSync(migration, 'utf8'))) {
-        await exec(statement);
-      }
-    }
     await exec(`DELETE FROM hosts WHERE fqdn = '${HOST_FQDN}'`);
     const now = new Date().toISOString();
     await exec(
@@ -93,7 +75,6 @@ describe.skipIf(!handle)('agent portal lifecycle edges', { timeout: 120_000 }, (
       PUBLIC_BASE_URL: 'https://portal.example',
       AGENT_PORTAL_BRIDGE_TTL_SECONDS: 900,
       AGENT_PORTAL_RETENTION_HOURS: 24,
-      AGENT_PORTAL_SESSION_TTL_HOURS: 24,
       AGENT_PORTAL_HEARTBEAT_FRESH_SECONDS: 45,
       AGENT_PORTAL_RELAY_FRESH_SECONDS: RELAY_FRESH_SECONDS,
     } as Env;
@@ -110,9 +91,11 @@ describe.skipIf(!handle)('agent portal lifecycle edges', { timeout: 120_000 }, (
   async function makeWorld(label: string = randomUUID()): Promise<World> {
     const service = new AgentPortalService(db, env, testKeyring());
     await service.setEnabled(true);
-    const created = await service.createUser({ displayName: `${PREFIX}-${label}` });
-    const token = decodeURIComponent(new URL(created.magic_url).hash.slice(3));
-    const login = await service.exchangeMagicLink({ publicId: created.user.public_id, token });
+    const username = `${PREFIX}-${label}`;
+    const now = new Date().toISOString();
+    await db.insert(adminUsers).values({ name: username, username, email: `${username}@example.test`, passwordHash: 'x', accessLevel: 'owner', active: 1, createdAt: now, updatedAt: now });
+    const [user] = await db.select().from(adminUsers).where(eq(adminUsers.username, username));
+    const actor: PortalActor = { kind: 'admin', user: { id: user!.id, displayName: username } };
     const registered = await service.registerAgent(host, {
       engine: 'codex',
       username: 'portal-test',
@@ -128,7 +111,7 @@ describe.skipIf(!handle)('agent portal lifecycle edges', { timeout: 120_000 }, (
     );
     return {
       service,
-      identity: login.identity,
+      actor,
       sessionId: registered.session_id,
       bridgeToken: registered.bridge_token,
     };
@@ -186,7 +169,7 @@ describe.skipIf(!handle)('agent portal lifecycle edges', { timeout: 120_000 }, (
       await raiseAttention(world, 'needs a decision');
       expect(await agentOf(world)).toMatchObject({ attention: { summary: 'needs a decision' } });
 
-      await world.service.forceClose({ kind: 'portal', identity: world.identity }, {
+      await world.service.forceClose(world.actor, {
         sessionId: world.sessionId,
         clientMessageId: randomUUID(),
       });
@@ -203,7 +186,7 @@ describe.skipIf(!handle)('agent portal lifecycle edges', { timeout: 120_000 }, (
       await world.service.heartbeatAgent(world.sessionId, world.bridgeToken, { relayAction: 'close' }, host.id);
       expect(await agentOf(world)).toMatchObject({ presence: 'idle' });
 
-      const forced = await world.service.forceClose({ kind: 'portal', identity: world.identity }, {
+      const forced = await world.service.forceClose(world.actor, {
         sessionId: world.sessionId,
         clientMessageId: randomUUID(),
       });
@@ -216,7 +199,7 @@ describe.skipIf(!handle)('agent portal lifecycle edges', { timeout: 120_000 }, (
       const world = await makeWorld();
       await staleRelay(world.sessionId);
       await expect(
-        world.service.requestClose({ kind: 'portal', identity: world.identity }, {
+        world.service.requestClose(world.actor, {
           sessionId: world.sessionId,
           clientMessageId: randomUUID(),
         }),
@@ -227,7 +210,7 @@ describe.skipIf(!handle)('agent portal lifecycle edges', { timeout: 120_000 }, (
   describe('a message is never discarded in silence', () => {
     it('emits message_canceled when a queued instruction is cancelled undelivered', async () => {
       const world = await makeWorld();
-      const queued = await world.service.enqueueMessage({ kind: 'portal', identity: world.identity }, {
+      const queued = await world.service.enqueueMessage(world.actor, {
         sessionId: world.sessionId,
         clientMessageId: randomUUID(),
         content: 'please stop',
@@ -248,12 +231,12 @@ describe.skipIf(!handle)('agent portal lifecycle edges', { timeout: 120_000 }, (
 
     it('announces an undelivered message when the session is force-ended', async () => {
       const world = await makeWorld();
-      await world.service.enqueueMessage({ kind: 'portal', identity: world.identity }, {
+      await world.service.enqueueMessage(world.actor, {
         sessionId: world.sessionId,
         clientMessageId: randomUUID(),
         content: 'still queued',
       });
-      await world.service.forceClose({ kind: 'portal', identity: world.identity }, {
+      await world.service.forceClose(world.actor, {
         sessionId: world.sessionId,
         clientMessageId: randomUUID(),
       });
@@ -294,7 +277,7 @@ describe.skipIf(!handle)('agent portal lifecycle edges', { timeout: 120_000 }, (
       await beginTurn(world);
       await staleRelay(world.sessionId);
 
-      const queued = await world.service.enqueueMessage({ kind: 'portal', identity: world.identity }, {
+      const queued = await world.service.enqueueMessage(world.actor, {
         sessionId: world.sessionId,
         clientMessageId: randomUUID(),
         content: 'one more thing',
@@ -308,7 +291,7 @@ describe.skipIf(!handle)('agent portal lifecycle edges', { timeout: 120_000 }, (
       await staleRelay(world.sessionId);
 
       await expect(
-        world.service.enqueueMessage({ kind: 'portal', identity: world.identity }, {
+        world.service.enqueueMessage(world.actor, {
           sessionId: world.sessionId,
           clientMessageId: randomUUID(),
           content: 'too late',

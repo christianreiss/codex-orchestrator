@@ -36,14 +36,12 @@ export const corsPlugin = fp(
       hook: 'preHandler',
       delegator: (req: FastifyRequest, cb) => {
         const open = isOpenRoute(req.url);
-        const portal = req.url === '/go' || req.url.startsWith('/go/');
         cb(null, {
           origin: (origin, originCb) => {
             // Same-origin requests have no Origin header — allow.
             if (!origin) return originCb(null, true);
             // /v1, /anthropic/v1 and /grok/v1 are the documented open public API surface.
             if (open) return originCb(null, true);
-            if (portal) return originCb(null, false);
             originCb(null, allowedOrigins.includes(origin));
           },
           methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],

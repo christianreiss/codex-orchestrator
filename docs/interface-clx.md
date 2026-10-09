@@ -1,5 +1,10 @@
 # `clx` Wrapper Interface
 
+The legacy `/go` magic-link webchat is removed. Active Clients and Android
+continue using the existing session/receiver contracts and `cxx portal` commands;
+operator access requires a dashboard account or its paired device. Session
+settings and remote-session controls are available in Active Clients.
+
 ## Fleet commit preferences
 
 Managed CLAUDE.md carries the fleet's short/long commit preference and AI attribution setting from the Git Director page, independently of Director, MCP and Skills activation. Defaults: a subject-only message and no automatic AI markers/co-authors. Long adds change/reason and relevant verification; attribution adds one `AI-Assisted-By: Claude` trailer after a blank line, also in short mode. Git author/committer and commit/push authorization remain unchanged; explicit operator instructions take precedence. The next content sync/launch refreshes the document hash; active sessions may retain previous guidance, and explicit blank generation mode suppresses managed rules. API contract: [Fleet commit preferences](interface-api.md#fleet-commit-preferences).
@@ -1155,7 +1160,7 @@ Authenticated peer requests are handled within existing authorization; factual
 claims and supplied artifacts still require evidence.
 
 Inspect generation, native ID, heartbeat and per-source transport health in Clients
-or /go, or run `cxx agent doctor --json` (also exposed through `cdx` / `clx`). For
+or run `cxx agent doctor --json` (also exposed through `cdx` / `clx`). For
 Claude, that output also carries `receiver.channel_policy` (`approved` /
 `fallback` / absent): the MCP pipe and SessionStart hook behind `receiver.state
 == "ready"` say nothing about whether Claude Code's channel gate actually

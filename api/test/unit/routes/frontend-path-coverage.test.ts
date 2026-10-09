@@ -52,7 +52,6 @@ const NON_ROUTE_ENDPOINTS: Record<string, string> = {};
 
 /** Files that call a path built at runtime, and what feeds that path. */
 const RUNTIME_PATH_CALLERS: Record<string, string> = {
-  'frontend/src/lib/components/portal/RemoteSessions.svelte': 'Shared remote-session controls choose the authenticated /admin or /go/api routes; host and session IDs are reactive.',
   'frontend/src/lib/api/watchdogs.ts': 'Reactive target queries and versioned disable IDs use Watchdog routes; API and browser tests cover activation and disable.',
   'frontend/src/lib/api/schedules.ts': 'Schedule list pagination and detail IDs derive from reactive stores; schedule API and route tests cover methods, versions and target paths.',
   'frontend/src/lib/api/agentSessions.ts': 'A shared bounded GET helper receives the literal session list and encoded session timeline paths from the query builders; browser tests cover both routes and selection changes.',

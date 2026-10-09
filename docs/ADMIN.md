@@ -44,7 +44,7 @@ Code-truth operator map for `/admin/*`. Source of truth is runtime code (`api/sr
   | `defaults` | `POST /admin/model-defaults/:engine` | no |
   | `policy` | `POST /admin/agents/store` (house rules appended to the seeded policy) | no |
   | `modules` | `POST /admin/projects/state`, `POST /admin/secrets/state`, optional `POST /admin/projects` | no |
-  | `collaboration` | `POST /admin/agent-portal/state`, `POST /admin/agent-messaging/state`, optional `POST /admin/agent-portal/users` | no |
+  | `collaboration` | `POST /admin/agent-portal/state`, `POST /admin/agent-messaging/state` | no |
   | `host` | `POST /admin/hosts/register` | no |
 
 - Only the first two block: infrastructure is not fixable from a browser, and nothing else can be written without the session the owner claim issues. Everything after has **Skip**, because "no" is a complete answer to most of it.
@@ -142,7 +142,6 @@ Code-truth operator map for `/admin/*`. Source of truth is runtime code (`api/sr
 | `secrets.reveal` | yes | yes | — | — | — | — |
 | `secrets.manage` | yes | yes | — | — | — | — |
 | `agent_portal.read` | yes | yes | yes | yes | yes | yes |
-| `agent_portal.reveal_link` | yes | yes | — | — | — | — |
 | `agent_portal.reveal_transcript` | yes | yes | — | — | — | — |
 | `agent_portal.manage` | yes | yes | — | — | — | — |
 | `agent_messaging.read` | yes | yes | yes | yes | yes | yes |
@@ -171,10 +170,9 @@ Code-truth operator map for `/admin/*`. Source of truth is runtime code (`api/sr
 - `trusted_user` holds the reads plus `hosts.activate_insecure`, and nothing
   else.
 - `viewer` and the legacy `user` are read-only.
-- Four reads are their own capability rather than part of the domain's `.read`,
+- Three reads are their own capability rather than part of the domain's `.read`,
   because each returns bearer material or private content:
-  `secrets.reveal` (plaintext credential), `agent_portal.reveal_link` (a
-  reusable permanent portal link), `agent_messaging.reveal_content` (a decrypted
+  `secrets.reveal` (plaintext credential), `agent_messaging.reveal_content` (a decrypted
   message body), and `auth.reveal_credential` (the canonical credential the
   fleet distributes to hosts). Every listing beside them is metadata-only.
 - `auth.reveal_credential` is the one capability a route raises *itself*.
@@ -297,32 +295,18 @@ Admin routes:
   authorized per operation while its allowed window is open, which is managed
   from Host Detail like every other insecure-window decision.
 
-## Agent Portal Operations
+## Agent session operations
 
-- The persistent master switch is intentionally seeded off. Creating a portal
-  user defaults that user on, but no link exchange, message, or relay is active
-  until an owner/admin enables the master switch. `PUBLIC_BASE_URL` is the only
-  configuration the portal needs.
-- Agent Portal lets an owner/admin create a user, read that user's
-  permanent link back with **Show link**, enable/disable the user, rotate the
-  link, or delete the user. Read-only roles can inspect portal health but cannot
-  mutate it and cannot read a link.
-- The browser portal is reached through a bookmarked link. Separately, Account → Android devices pairs a native companion for FCM alerts, text chat, and host-access approvals (subject to the current admin role). Each user opens their own
-  permanent link — bookmarked on desktop, or added to the home screen on mobile —
-  and finds whatever the agents recorded while they were away.
-- **Show link** (`GET /admin/agent-portal/users/{id}/link`) re-renders the stored
-  link without rotating it, so an operator can re-bookmark on a new device. It is
-  owner/admin only and writes an `agent_portal.user.link_revealed` admin event;
-  the link is bearer material and never appears on the unrestricted
-  `GET /admin/agent-portal/users` listing. Rotation is the only operation that
-  invalidates an existing bookmark.
-- Disabling either layer revokes browser sessions and cancels queued or leased
-  undelivered commands. Re-enabling never replays them.
+- Active Clients provides agent-session settings and Remote sessions. The saved
+  shared switch and wrapper/Android contracts remain unchanged.
+- The legacy `/go` webchat, magic links and portal-user APIs are removed.
+- Account → Android devices pairs the native companion for FCM, chat and host approvals.
+- Disabling shared sessions cancels queued/leased operator input without replay.
 - `relay_ready` is the operator-visible truth for writability: it requires a
   live wrapper heartbeat and fresh cooperative `#afk` polling. A registered
   process without that poll loop remains visible but cannot accept commands.
-- **Active Clients** (`/admin/clients`) is the same session view over the admin
-  session cookie instead of a portal magic link, so an operator already signed
+- **Active Clients** (`/admin/clients`) uses the authenticated admin
+  session cookie, so an operator already signed
   in to the console does not need a second identity to see what the fleet is
   doing. It lists every wrapper with its derived presence, the age of the turn
   it is running, its outstanding attention notice, and the Git Director task and
@@ -333,7 +317,7 @@ Admin routes:
   (an open instruction relay) and **Working** (a recently accepted instruction).
   Search host, user, task, branch, or directory; filter both engines and session
   states; open the detail pane for heartbeat and relay timestamps. Presence
-  indicators use the same styling in the console and phone portal.
+  indicators use the same styling in Active Clients and Android.
 - Status refreshes every 15 seconds and ages against the server snapshot clock.
   A failed refresh preserves the last rows and selected timeline, labels them
   as last known, and disables instruction actions until status recovers. Drafts
@@ -343,12 +327,7 @@ Admin routes:
   reconnection. Only the current prompt version has active answer buttons.
   An uncertain send keeps its original request identity and question context
   so retrying after a lost response cannot become a duplicate plain message.
-- The console view is fully interactive: send an instruction, answer an open
-  prompt, ask an agent to close, or force it. Migration `0027` is what made that
-  possible — `agent_messages.portal_user_id` was NOT NULL and pointed at the
-  portal's own identity table, so before it an operator signed in to the console
-  had to authenticate a second time at `/go` to send a single line. The column is
-  now a pair, `portal_user_id` or `admin_user_id`, exactly one set.
+- Active Clients can send instructions, answer prompts and close sessions through admin identities. The retired portal identity column remains empty for historical SQL replay.
 - **Ask to close** is queued for the agent to honour and needs an open relay;
   **Force close** writes an event and a terminal state and no queue row, which is
   why it is the only one that still works once the agent has gone offline. A
@@ -358,14 +337,6 @@ Admin routes:
   since been disabled or deleted, so a deactivated admin's pending instruction
   never lands. The account is also re-checked, under the write's own lock, when
   the message is composed.
-- The magic link is no longer the only way into `/go`. Every `/go/api/*` route
-  now accepts a console session as well, so an operator with a console account
-  reaches the portal on a phone without a link; the link remains for anyone who
-  has no console account, and a valid portal cookie still wins. Those routes
-  carry no capability inventory entry of their own, so the admin path asserts
-  `agent_portal.manage` for writes and `agent_portal.reveal_transcript` for
-  timelines and the event stream explicitly — otherwise a role refused in the
-  console could have acted through the portal.
 - Reading a session timeline needs `agent_portal.reveal_transcript`, separate
   from `agent_portal.read` because the events carry the message bodies rather
   than metadata about them. That capability and `agent_portal.manage` are both

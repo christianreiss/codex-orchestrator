@@ -31,7 +31,7 @@ The desktop sidebar groups destinations by task:
 |---|---|
 | **Workspace** | Overview, Active Clients, Hosts, Projects |
 | **Fleet** | Accounts, Quick Settings, Engines, Policies |
-| **Coordinate** | Agent Messaging, Git Director, File Transfer, Agent Portal |
+| **Coordinate** | Agent Messaging, Git Director, File Transfer |
 | **Knowledge** | Skills, Fleet Instructions, Memories, Subagents, Commands, Output Styles |
 | **Access** | API Access, Secrets, Admin Users |
 | **Diagnostics** | Logs (audit trail and MCP requests) |

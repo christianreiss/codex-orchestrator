@@ -12,7 +12,7 @@ The **Overview** page combines reported host installations, upstream CLI version
 
 ## Active Clients
 
-**Active Clients** (`/clients`) is its own destination under *Monitor*; the full reference — presence states, the Agent Portal switch it depends on, roles, and the wrapper side — is in [Agent Portal and Active Clients](/admin/manual/agent-portal). In short: open it for the session directory across Codex, Claude, and Grok. The
+**Active Clients** (`/clients`) is its own destination under *Monitor*; the full reference — presence states, its agent-session switch, roles, and the wrapper side — is in [Active Clients and agent sessions](/admin/manual/agent-portal). In short: open it for the session directory across Codex, Claude, and Grok. The
 summary counts distinguish online clients, outstanding attention, offline
 clients, and recently ended history. Search by host, user, task, branch, or
 working directory, then filter by engine and state. Selecting a client opens

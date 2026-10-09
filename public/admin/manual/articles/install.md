@@ -104,8 +104,6 @@ These are the variables consumed by `api/src/env.ts`. The file is parsed with Zo
 
 ### Agent portal, Active Clients, and file transfer
 
-- `AGENT_PORTAL_COOKIE` — default `agent_portal_session`; the `/go` portal's browser cookie.
-- `AGENT_PORTAL_SESSION_TTL_HOURS` — default `24`; portal browser-session lifetime.
 - `AGENT_PORTAL_RETENTION_HOURS` — default `24`; how long an ended agent session stays readable in Active Clients and the portal.
 - `AGENT_PORTAL_BRIDGE_TTL_SECONDS` — default `900`; lifetime of the per-session bridge token a wrapper uses to register and heartbeat.
 - `AGENT_PORTAL_PURGE_INTERVAL_SECONDS` — default `300`; cadence of the portal worker that purges expired sessions and bridges.

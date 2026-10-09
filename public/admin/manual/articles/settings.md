@@ -337,7 +337,7 @@ Host, project, and shared memory in one workspace over the unified `/admin/memor
 
 ### /secrets, /git-director, /transfers, /agent-portal, /agent-messaging
 
-Each module has its own destination and its own article: [Secrets](/admin/manual/secrets), [Git Director](/admin/manual/git-director), [File Transfer](/admin/manual/transfers), [Agent Portal and Active Clients](/admin/manual/agent-portal), and [Agent Messaging](/admin/manual/agent-messaging).
+Each module has its own destination and its own article: [Secrets](/admin/manual/secrets), [Git Director](/admin/manual/git-director), [File Transfer](/admin/manual/transfers), [Active Clients and agent sessions](/admin/manual/agent-portal), and [Agent Messaging](/admin/manual/agent-messaging).
 
 ### /projects — Projects module
 

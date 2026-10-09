@@ -38,14 +38,12 @@ const ROUTES_DIR = join(API_SRC, 'routes');
  * from the matrix would make it agree with the matrix by construction.
  */
 const PREVIOUSLY_OWNER_ADMIN_ONLY: Array<[string, string]> = [
-  ['DELETE', '/admin/agent-portal/users/:id'],
   ['DELETE', '/admin/hosts/:id'],
   ['DELETE', '/admin/memories/:scope/:recordId'],
   ['DELETE', '/admin/secrets/:id'],
   ['DELETE', '/admin/users/:id'],
   // Reads the permanent portal link back out of storage: a GET, but bearer
   // material, so it carries the same gate as the mutations.
-  ['GET', '/admin/agent-portal/users/:id/link'],
   ['PATCH', '/admin/agent-messaging/addresses/:id'],
   ['PATCH', '/admin/memories/:scope/:recordId'],
   ['PATCH', '/admin/secrets/:id'],
@@ -55,10 +53,6 @@ const PREVIOUSLY_OWNER_ADMIN_ONLY: Array<[string, string]> = [
   ['POST', '/admin/agent-messaging/messages/:id/reveal'],
   ['POST', '/admin/agent-messaging/state'],
   ['POST', '/admin/agent-portal/state'],
-  ['POST', '/admin/agent-portal/users'],
-  ['POST', '/admin/agent-portal/users/:id'],
-  ['POST', '/admin/agent-portal/users/:id/enabled'],
-  ['POST', '/admin/agent-portal/users/:id/rotate'],
   ['POST', '/admin/hosts/:id/engines'],
   ['POST', '/admin/hosts/:id/secure'],
   ['POST', '/admin/hosts/register'],

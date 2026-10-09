@@ -1,33 +1,23 @@
 import { randomUUID } from 'node:crypto';
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { and, eq, sql } from 'drizzle-orm';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import {
   agentEvents,
   agentMessages,
-  agentPortalUsers,
+  adminUsers,
   agentPrompts,
   agentSessions,
   hosts,
 } from '../../../src/db/schema.js';
-import { splitSqlStatements } from '../../../src/db/migration-sql.js';
 import type { Env } from '../../../src/env.js';
 import {
   AGENT_PORTAL_ENABLED_KEY,
   AgentPortalService,
-  type PortalIdentity,
+  type PortalActor,
 } from '../../../src/services/agent-portal.js';
 import { getTestDb, type TestDb } from '../../helpers/test-db.js';
 import { loadTestEnv, testKeyring } from '../../helpers/test-keyring.js';
 
-const HERE = dirname(fileURLToPath(import.meta.url));
-const MIGRATIONS = [
-  join(HERE, '../../../src/db/migrations/0008_add_agent_portal.sql'),
-  join(HERE, '../../../src/db/migrations/0009_drop_agent_portal_matrix.sql'),
-  join(HERE, '../../../src/db/migrations/0015_add_agent_session_close_request.sql'),
-];
 const PREFIX = 'ztest-agent-portal';
 const HOST_FQDN = `${PREFIX}.example`;
 const HOST_KEY = 'a'.repeat(64);
@@ -37,7 +27,7 @@ interface World {
   service: AgentPortalService;
   host: typeof hosts.$inferSelect;
   userId: number;
-  identity: PortalIdentity;
+  actor: PortalActor;
   sessionId: string;
   bridgeToken: string;
 }
@@ -50,8 +40,8 @@ describe.skipIf(!handle)('agent portal durability against a real database', { ti
   const exec = async (query: string) => await db.execute(sql.raw(query));
 
   const cleanup = async (): Promise<void> => {
-    await exec(`DELETE FROM agent_messages WHERE portal_user_id IN (
-      SELECT id FROM agent_portal_users WHERE display_name LIKE '${PREFIX}%'
+    await exec(`DELETE FROM agent_messages WHERE admin_user_id IN (
+      SELECT id FROM admin_users WHERE username LIKE '${PREFIX}%'
     )`);
     await exec(`DELETE FROM agent_prompts WHERE session_id IN (
       SELECT id FROM agent_sessions WHERE host_id = ${host?.id ?? 0}
@@ -60,10 +50,7 @@ describe.skipIf(!handle)('agent portal durability against a real database', { ti
       SELECT id FROM agent_sessions WHERE host_id = ${host?.id ?? 0}
     )`);
     await exec(`DELETE FROM agent_sessions WHERE host_id = ${host?.id ?? 0}`);
-    await exec(`DELETE FROM agent_portal_browser_sessions WHERE user_id IN (
-      SELECT id FROM agent_portal_users WHERE display_name LIKE '${PREFIX}%'
-    )`);
-    await exec(`DELETE FROM agent_portal_users WHERE display_name LIKE '${PREFIX}%'`);
+    await exec(`DELETE FROM admin_users WHERE username LIKE '${PREFIX}%'`);
     await exec(
       `INSERT INTO versions (name, version, updated_at)
        VALUES ('${AGENT_PORTAL_ENABLED_KEY}', '0', '1970-01-01T00:00:00.000Z')
@@ -73,11 +60,6 @@ describe.skipIf(!handle)('agent portal durability against a real database', { ti
 
   beforeAll(async () => {
     db = handle!.db;
-    for (const migration of MIGRATIONS) {
-      for (const statement of splitSqlStatements(readFileSync(migration, 'utf8'))) {
-        await exec(statement);
-      }
-    }
     await exec(`DELETE FROM hosts WHERE fqdn = '${HOST_FQDN}'`);
     const now = new Date().toISOString();
     await exec(
@@ -91,7 +73,6 @@ describe.skipIf(!handle)('agent portal durability against a real database', { ti
       PUBLIC_BASE_URL: 'https://portal.example',
       AGENT_PORTAL_BRIDGE_TTL_SECONDS: 900,
       AGENT_PORTAL_RETENTION_HOURS: 24,
-      AGENT_PORTAL_SESSION_TTL_HOURS: 24,
     } as Env;
   });
 
@@ -112,12 +93,11 @@ describe.skipIf(!handle)('agent portal durability against a real database', { ti
   async function makeWorld(label: string = randomUUID()): Promise<World> {
     const service = new AgentPortalService(db, env, testKeyring());
     await service.setEnabled(true);
-    const created = await service.createUser({ displayName: `${PREFIX}-${label}` });
-    const token = decodeURIComponent(new URL(created.magic_url).hash.slice(3));
-    const login = await service.exchangeMagicLink({
-      publicId: created.user.public_id,
-      token,
-    });
+    const username = `${PREFIX}-${label}`;
+    const now = new Date().toISOString();
+    await db.insert(adminUsers).values({ name: username, username, email: `${username}@example.test`, passwordHash: 'x', accessLevel: 'owner', active: 1, createdAt: now, updatedAt: now });
+    const [user] = await db.select().from(adminUsers).where(eq(adminUsers.username, username));
+    const actor: PortalActor = { kind: 'admin', user: { id: user!.id, displayName: username } };
     const registered = await service.registerAgent(host, {
       engine: 'codex',
       username: 'portal-test',
@@ -134,8 +114,8 @@ describe.skipIf(!handle)('agent portal durability against a real database', { ti
     return {
       service,
       host,
-      userId: created.user.id,
-      identity: login.identity,
+      userId: user!.id,
+      actor,
       sessionId: registered.session_id,
       bridgeToken: registered.bridge_token,
     };
@@ -154,7 +134,7 @@ describe.skipIf(!handle)('agent portal durability against a real database', { ti
       },
       world.host.id,
     );
-    const answer = await world.service.answerPrompt({ kind: 'portal', identity: world.identity }, {
+    const answer = await world.service.answerPrompt(world.actor, {
       sessionId: world.sessionId,
       promptId,
       clientMessageId: randomUUID(),
@@ -239,7 +219,7 @@ describe.skipIf(!handle)('agent portal durability against a real database', { ti
     it('clears once the operator sends a message', async () => {
       const world = await makeWorld();
       await raiseAttention(world, 'Need a decision');
-      await world.service.enqueueMessage({ kind: 'portal', identity: world.identity }, {
+      await world.service.enqueueMessage(world.actor, {
         sessionId: world.sessionId,
         clientMessageId: randomUUID(),
         content: 'go ahead',
@@ -259,7 +239,7 @@ describe.skipIf(!handle)('agent portal durability against a real database', { ti
     it('re-raises for a notice newer than the last reply', async () => {
       const world = await makeWorld();
       await raiseAttention(world, 'first');
-      await world.service.enqueueMessage({ kind: 'portal', identity: world.identity }, {
+      await world.service.enqueueMessage(world.actor, {
         sessionId: world.sessionId,
         clientMessageId: randomUUID(),
         content: 'ok',
@@ -277,7 +257,7 @@ describe.skipIf(!handle)('agent portal durability against a real database', { ti
 
   describe('operator-initiated close', () => {
     const requestClose = async (world: World, note?: string) =>
-      await world.service.requestClose({ kind: 'portal', identity: world.identity }, {
+      await world.service.requestClose(world.actor, {
         sessionId: world.sessionId,
         clientMessageId: randomUUID(),
         note,
@@ -351,12 +331,12 @@ describe.skipIf(!handle)('agent portal durability against a real database', { ti
     it('is idempotent for a repeated client_message_id', async () => {
       const world = await makeWorld();
       const clientMessageId = randomUUID();
-      const first = await world.service.requestClose({ kind: 'portal', identity: world.identity }, {
+      const first = await world.service.requestClose(world.actor, {
         sessionId: world.sessionId,
         clientMessageId,
         note: 'same note',
       });
-      const second = await world.service.requestClose({ kind: 'portal', identity: world.identity }, {
+      const second = await world.service.requestClose(world.actor, {
         sessionId: world.sessionId,
         clientMessageId,
         note: 'same note',
@@ -378,9 +358,9 @@ describe.skipIf(!handle)('agent portal durability against a real database', { ti
     it('rejects a reused client_message_id carrying a different note', async () => {
       const world = await makeWorld();
       const clientMessageId = randomUUID();
-      await world.service.requestClose({ kind: 'portal', identity: world.identity }, { sessionId: world.sessionId, clientMessageId, note: 'one' });
+      await world.service.requestClose(world.actor, { sessionId: world.sessionId, clientMessageId, note: 'one' });
       await expect(
-        world.service.requestClose({ kind: 'portal', identity: world.identity }, { sessionId: world.sessionId, clientMessageId, note: 'two' }),
+        world.service.requestClose(world.actor, { sessionId: world.sessionId, clientMessageId, note: 'two' }),
       ).rejects.toMatchObject({ code: 'client_message_id_conflict' });
     });
 
@@ -409,7 +389,7 @@ describe.skipIf(!handle)('agent portal durability against a real database', { ti
 
   describe('force close', () => {
     const forceClose = async (world: World, note?: string, clientMessageId = randomUUID()) =>
-      await world.service.forceClose({ kind: 'portal', identity: world.identity }, { sessionId: world.sessionId, clientMessageId, note });
+      await world.service.forceClose(world.actor, { sessionId: world.sessionId, clientMessageId, note });
 
     // The whole point of the fallback: it must not depend on the agent.
     it('ends a session whose heartbeat is stale and relay is shut', async () => {
@@ -430,7 +410,7 @@ describe.skipIf(!handle)('agent portal durability against a real database', { ti
 
     it('cancels pending work on the way out', async () => {
       const world = await makeWorld();
-      await world.service.enqueueMessage({ kind: 'portal', identity: world.identity }, {
+      await world.service.enqueueMessage(world.actor, {
         sessionId: world.sessionId,
         clientMessageId: randomUUID(),
         content: 'still queued',
@@ -467,24 +447,6 @@ describe.skipIf(!handle)('agent portal durability against a real database', { ti
         .from(agentEvents)
         .where(and(eq(agentEvents.sessionId, world.sessionId), eq(agentEvents.eventType, 'close_requested')));
       expect(events).toHaveLength(1);
-    });
-  });
-
-  it('reopens a live prompt when the answering user is disabled', async () => {
-    const world = await makeWorld();
-    const { promptId, messageId } = await openPromptAndAnswer(world);
-
-    await world.service.setUserEnabled(world.userId, false);
-
-    const messages = await db.select().from(agentMessages).where(eq(agentMessages.messageId, messageId));
-    const prompts = await db.select().from(agentPrompts).where(eq(agentPrompts.id, promptId));
-    expect(messages[0]).toMatchObject({ status: 'canceled' });
-    expect(prompts[0]).toMatchObject({
-      status: 'open',
-      answeredByUserId: null,
-      answerMessageId: null,
-      answeredAt: null,
-      version: 3,
     });
   });
 
@@ -558,7 +520,7 @@ describe.skipIf(!handle)('agent portal durability against a real database', { ti
 
   it('redelivers an active lease to the same claim id without incrementing attempts', async () => {
     const world = await makeWorld();
-    const queued = await world.service.enqueueMessage({ kind: 'portal', identity: world.identity }, {
+    const queued = await world.service.enqueueMessage(world.actor, {
       sessionId: world.sessionId,
       clientMessageId: randomUUID(),
       content: 'Continue safely',
@@ -606,7 +568,7 @@ describe.skipIf(!handle)('agent portal durability against a real database', { ti
 
   it('records explicit reading and processing only for the current accepted message, with safe retries', async () => {
     const world = await makeWorld();
-    const queued = await world.service.enqueueMessage({ kind: 'portal', identity: world.identity }, {
+    const queued = await world.service.enqueueMessage(world.actor, {
       sessionId: world.sessionId, clientMessageId: randomUUID(), content: 'Track this instruction',
     });
     const id = String(queued.message_id);
@@ -632,7 +594,7 @@ describe.skipIf(!handle)('agent portal durability against a real database', { ti
 
   it('rejects Portal acceptance after the claim lease expires before maintenance', async () => {
     const world = await makeWorld();
-    const queued = await world.service.enqueueMessage({ kind: 'portal', identity: world.identity }, {
+    const queued = await world.service.enqueueMessage(world.actor, {
       sessionId: world.sessionId, clientMessageId: randomUUID(), content: 'do not start stale work',
     });
     const claim = await world.service.claimMessage(world.sessionId, world.bridgeToken, randomUUID(), world.host.id);
@@ -649,7 +611,7 @@ describe.skipIf(!handle)('agent portal durability against a real database', { ti
 
   it('rolls back message acceptance when its visible event cannot commit', async () => {
     const world = await makeWorld();
-    const queued = await world.service.enqueueMessage({ kind: 'portal', identity: world.identity }, {
+    const queued = await world.service.enqueueMessage(world.actor, {
       sessionId: world.sessionId,
       clientMessageId: randomUUID(),
       content: 'Atomic acknowledgement',
@@ -735,40 +697,5 @@ describe.skipIf(!handle)('agent portal durability against a real database', { ti
     expect(acceptedEvents).toHaveLength(1);
   });
 
-  /**
-   * The link is now the only way in, so it has to survive the round trip through
-   * the encrypted column: what an admin reads back later must be byte-identical
-   * to what creation handed out, and must still exchange for a session.
-   */
-  it('reads the permanent link back from storage and it still logs in', async () => {
-    const service = new AgentPortalService(db, env, testKeyring());
-    await service.setEnabled(true);
-    const created = await service.createUser({ displayName: `${PREFIX}-permanent-link` });
 
-    const revealed = await service.revealUserLink(created.user.id);
-    expect(revealed.magic_url).toBe(created.magic_url);
-
-    const url = new URL(revealed.magic_url);
-    expect(url.pathname).toBe(`/go/u/${created.user.public_id}`);
-    // The token rides in the fragment: a bookmarked URL must never put bearer
-    // material anywhere a proxy log or Referer header can reach.
-    expect(url.search).toBe('');
-    const login = await service.exchangeMagicLink({
-      publicId: created.user.public_id,
-      token: decodeURIComponent(url.hash.slice(3)),
-    });
-    expect(login.identity.user.id).toBe(created.user.id);
-
-    // Rotation invalidates the old bookmark and hands out a distinct one.
-    const rotated = await service.rotateUser(created.user.id);
-    expect(rotated.magic_url).not.toBe(created.magic_url);
-    expect(rotated.revoked_sessions).toBe(1);
-    await expect(
-      service.exchangeMagicLink({
-        publicId: created.user.public_id,
-        token: decodeURIComponent(url.hash.slice(3)),
-      }),
-    ).rejects.toThrow();
-    expect((await service.revealUserLink(created.user.id)).magic_url).toBe(rotated.magic_url);
-  });
 });

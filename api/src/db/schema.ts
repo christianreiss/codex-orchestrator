@@ -1469,50 +1469,6 @@ export const wrapperV2Binaries = mysqlTable(
 // encrypted `*_enc` columns; hashes are used for lookup and comparison.
 // ────────────────────────────────────────────────────────────────────────────
 
-export const agentPortalUsers = mysqlTable(
-  'agent_portal_users',
-  {
-    id: bigint('id', { mode: 'number', unsigned: true }).primaryKey().autoincrement(),
-    displayName: varchar('display_name', { length: 255 }).notNull(),
-    enabled: tinyint('enabled').notNull().default(1),
-    publicId: char('public_id', { length: 32 }).notNull(),
-    tokenHash: char('token_hash', { length: 64 }).notNull(),
-    tokenEnc: longtext('token_enc').notNull(),
-    createdAt: varchar('created_at', { length: 100 }).notNull(),
-    updatedAt: varchar('updated_at', { length: 100 }).notNull(),
-    lastUsedAt: varchar('last_used_at', { length: 100 }),
-    disabledAt: varchar('disabled_at', { length: 100 }),
-    rotatedAt: varchar('rotated_at', { length: 100 }),
-    deletedAt: varchar('deleted_at', { length: 100 }),
-  },
-  (t) => ({
-    publicIdUnique: uniqueIndex('uq_agent_portal_users_public_id').on(t.publicId),
-    tokenHashUnique: uniqueIndex('uq_agent_portal_users_token_hash').on(t.tokenHash),
-    enabledIdx: index('idx_agent_portal_users_enabled').on(t.enabled),
-    deletedIdx: index('idx_agent_portal_users_deleted').on(t.deletedAt),
-  }),
-);
-
-export const agentPortalBrowserSessions = mysqlTable(
-  'agent_portal_browser_sessions',
-  {
-    id: bigint('id', { mode: 'number', unsigned: true }).primaryKey().autoincrement(),
-    userId: bigint('user_id', { mode: 'number', unsigned: true }).notNull(),
-    tokenHash: char('token_hash', { length: 64 }).notNull(),
-    ip: varchar('ip', { length: 64 }),
-    userAgent: varchar('user_agent', { length: 255 }),
-    expiresAt: varchar('expires_at', { length: 100 }).notNull(),
-    lastSeenAt: varchar('last_seen_at', { length: 100 }).notNull(),
-    createdAt: varchar('created_at', { length: 100 }).notNull(),
-    revokedAt: varchar('revoked_at', { length: 100 }),
-  },
-  (t) => ({
-    tokenHashUnique: uniqueIndex('uq_agent_portal_browser_sessions_token').on(t.tokenHash),
-    userIdx: index('idx_agent_portal_browser_sessions_user').on(t.userId),
-    expiresIdx: index('idx_agent_portal_browser_sessions_expires').on(t.expiresAt),
-  }),
-);
-
 export const agentNamePool = mysqlTable('agent_name_pool', {
   nameKey: varchar('name_key', { length: 96 }).primaryKey(),
   name: varchar('name', { length: 96 }).notNull(),
@@ -1619,13 +1575,8 @@ export const agentMessages = mysqlTable(
     id: bigint('id', { mode: 'number', unsigned: true }).primaryKey().autoincrement(),
     messageId: char('message_id', { length: 36 }).notNull(),
     sessionId: char('session_id', { length: 36 }).notNull(),
-    /**
-     * Who authored this message. Exactly one of these is set — see
-     * `0027_agent_messages_admin_actor.sql` for why the invariant lives in
-     * `agent-portal.ts` rather than in a CHECK constraint. `portalUserId` points
-     * at a magic-link `agent_portal_users` row, `adminUserId` at the
-     * `admin_users` row behind a console session.
-     */
+    // Empty legacy column retained for replay of historical migration 0027.
+    // Portal authors and their credentials are removed by 0051; new writes use adminUserId.
     portalUserId: bigint('portal_user_id', { mode: 'number', unsigned: true }),
     adminUserId: bigint('admin_user_id', { mode: 'number', unsigned: true }),
     kind: varchar('kind', { length: 16 }).notNull().default('message'),
@@ -2172,8 +2123,6 @@ export type AuthPayload = typeof authPayloads.$inferSelect;
 export type AuthEntry = typeof authEntries.$inferSelect;
 export type HostAuthState = typeof hostAuthStates.$inferSelect;
 export type Skill = typeof skills.$inferSelect;
-export type AgentPortalUser = typeof agentPortalUsers.$inferSelect;
-export type AgentPortalBrowserSession = typeof agentPortalBrowserSessions.$inferSelect;
 export type AgentSession = typeof agentSessions.$inferSelect;
 export type AgentEvent = typeof agentEvents.$inferSelect;
 export type AgentPrompt = typeof agentPrompts.$inferSelect;

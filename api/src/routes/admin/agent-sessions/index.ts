@@ -14,7 +14,7 @@ import { roleHasCapability } from '../../../security/capabilities.js';
 /**
  * The console's view of the fleet's live agent sessions.
  *
- * This mirrors the read half of `/go/api/*` onto the admin session cookie. The
+ * This exposes the shared session projection through the admin session cookie. The
  * projection itself is not duplicated: `AgentPortalService.listAgents()` already
  * derives presence honestly from heartbeat freshness, and re-deriving it here is
  * exactly the drift `services/agent-presence.ts` was written to end. What the

@@ -18,7 +18,6 @@ const SETTINGS_SECTION_DESTINATIONS: Record<string, string> = {
   "insecure-approval": "/policies#insecure-approval",
   "prune-policy": "/policies#host-lifecycle",
   "log-retention": "/policies#log-retention",
-  "agent-portal": "/agent-portal",
 };
 
 export function settingsLegacyTarget(search: URLSearchParams, hash = ""): string {

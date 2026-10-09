@@ -2,7 +2,7 @@
 title: Keyboard shortcuts and API reference
 section: Integrations and reference
 verified: 2026-09-09
-sources: api/src/routes/index.ts, api/src/routes/host-api/index.ts, api/src/routes/projects-mcp/index.ts, api/src/routes/agent-portal/index.ts, api/src/routes/agent-portal/admin-host.ts, api/src/routes/agent-portal/public.ts, api/src/routes/agent-messaging/index.ts, api/src/routes/admin/memories/index.ts, api/src/routes/admin/secrets/index.ts, api/src/routes/admin/git-director/index.ts, api/src/routes/admin/transfers/index.ts, api/src/routes/admin/agent-sessions/index.ts, api/src/routes/admin/project-board/index.ts, api/src/routes/admin/skill-sources/index.ts, api/src/routes/admin-auth-users/index.ts, api/src/routes/admin-overview-settings/index.ts, api/src/routes/admin-content/index.ts, api/src/routes/openai-compat/index.ts, api/src/routes/anthropic-compat/index.ts, api/src/routes/admin/auth/index.ts, api/src/routes/admin/setup/index.ts, api/src/routes/admin/hosts/index.ts, api/src/routes/admin/settings/index.ts, api/src/routes/admin/overview/index.ts, api/src/routes/admin/users/index.ts, api/src/routes/admin/config/index.ts, api/src/routes/admin/keys/openai.ts, api/src/routes/admin/keys/claude.ts, api/src/routes/admin/projects/index.ts, api/src/routes/admin/manual/index.ts, api/src/routes/auth/index.ts, api/src/routes/host/index.ts, api/src/routes/cli-auth/index.ts, api/src/routes/install/index.ts, api/src/routes/wrapper-v2/index.ts, api/src/routes/mcp/index.ts, api/src/routes/v1/index.ts, api/src/routes/anthropic-v1/index.ts, api/src/routes/grok-v1/index.ts, api/src/services/api-surfaces.ts, api/src/services/gateway-backends.ts, api/src/routes/projects-client/index.ts, api/src/routes/health.ts, api/src/ws/server.ts, api/src/services/openai-keys.ts, api/src/services/claude-keys.ts, api/src/services/claude-frontmatter.ts, api/src/db/schema.ts, frontend/src/routes/api-keys/+page.svelte, frontend/src/lib/components/api-keys/ExposedApisTable.svelte, frontend/src/routes/setup/+page.svelte, frontend/src/lib/utils/shortcuts.ts, frontend/src/routes/+layout.svelte, frontend/src/lib/components/shortcuts/ShortcutsModal.svelte, frontend/src/lib/components/command-palette/commands.ts
+sources: api/src/routes/index.ts, api/src/routes/host-api/index.ts, api/src/routes/projects-mcp/index.ts, api/src/routes/agent-portal/index.ts, api/src/routes/agent-portal/admin-host.ts, api/src/routes/agent-messaging/index.ts, api/src/routes/admin/memories/index.ts, api/src/routes/admin/secrets/index.ts, api/src/routes/admin/git-director/index.ts, api/src/routes/admin/transfers/index.ts, api/src/routes/admin/agent-sessions/index.ts, api/src/routes/admin/project-board/index.ts, api/src/routes/admin/skill-sources/index.ts, api/src/routes/admin-auth-users/index.ts, api/src/routes/admin-overview-settings/index.ts, api/src/routes/admin-content/index.ts, api/src/routes/openai-compat/index.ts, api/src/routes/anthropic-compat/index.ts, api/src/routes/admin/auth/index.ts, api/src/routes/admin/setup/index.ts, api/src/routes/admin/hosts/index.ts, api/src/routes/admin/settings/index.ts, api/src/routes/admin/overview/index.ts, api/src/routes/admin/users/index.ts, api/src/routes/admin/config/index.ts, api/src/routes/admin/keys/openai.ts, api/src/routes/admin/keys/claude.ts, api/src/routes/admin/projects/index.ts, api/src/routes/admin/manual/index.ts, api/src/routes/auth/index.ts, api/src/routes/host/index.ts, api/src/routes/cli-auth/index.ts, api/src/routes/install/index.ts, api/src/routes/wrapper-v2/index.ts, api/src/routes/mcp/index.ts, api/src/routes/v1/index.ts, api/src/routes/anthropic-v1/index.ts, api/src/routes/grok-v1/index.ts, api/src/services/api-surfaces.ts, api/src/services/gateway-backends.ts, api/src/routes/projects-client/index.ts, api/src/routes/health.ts, api/src/ws/server.ts, api/src/services/openai-keys.ts, api/src/services/claude-keys.ts, api/src/services/claude-frontmatter.ts, api/src/db/schema.ts, frontend/src/routes/api-keys/+page.svelte, frontend/src/lib/components/api-keys/ExposedApisTable.svelte, frontend/src/routes/setup/+page.svelte, frontend/src/lib/utils/shortcuts.ts, frontend/src/routes/+layout.svelte, frontend/src/lib/components/shortcuts/ShortcutsModal.svelte, frontend/src/lib/components/command-palette/commands.ts
 ---
 
 Two reference tables, pulled from the code as of this manual's verified date.
@@ -348,18 +348,11 @@ Mirrors `/admin/config`, `/admin/agents`, and `/admin/skills` above, but scoped 
 
 The host-facing relay and session bus routes (`/host/agent-relays/*`, `/host/agent-sessions/:id/agent-messaging/*`) live in the same file. See [agent-messaging](/admin/manual/agent-messaging).
 
-### Admin Agent Portal and Active Clients
+### Admin Active Clients and agent sessions
 
 | Method | Route | Source |
 |--------|-------|--------|
 | GET/POST | `/admin/agent-portal/state` | api/src/routes/agent-portal/admin-host.ts |
-| GET | `/admin/agent-portal/users` | api/src/routes/agent-portal/admin-host.ts |
-| POST | `/admin/agent-portal/users` | api/src/routes/agent-portal/admin-host.ts |
-| POST | `/admin/agent-portal/users/:id` | api/src/routes/agent-portal/admin-host.ts |
-| POST | `/admin/agent-portal/users/:id/enabled` | api/src/routes/agent-portal/admin-host.ts |
-| POST | `/admin/agent-portal/users/:id/rotate` | api/src/routes/agent-portal/admin-host.ts |
-| GET | `/admin/agent-portal/users/:id/link` | api/src/routes/agent-portal/admin-host.ts |
-| DELETE | `/admin/agent-portal/users/:id` | api/src/routes/agent-portal/admin-host.ts |
 | GET | `/admin/agent-sessions` | api/src/routes/admin/agent-sessions/index.ts |
 | GET | `/admin/agent-sessions/events` | api/src/routes/admin/agent-sessions/index.ts |
 | GET | `/admin/agent-sessions/:id/events` | api/src/routes/admin/agent-sessions/index.ts |
@@ -368,7 +361,7 @@ The host-facing relay and session bus routes (`/host/agent-relays/*`, `/host/age
 | POST | `/admin/agent-sessions/:id/close` | api/src/routes/admin/agent-sessions/index.ts |
 | POST | `/admin/agent-sessions/:id/close/force` | api/src/routes/admin/agent-sessions/index.ts |
 
-`GET /admin/agent-sessions/events` is a server-sent-event stream. The wrapper-side registration, heartbeat, event and command-claim routes (`/host/agent-sessions*`, `/host/agent-commands/:messageId/ack`, `GET /host/agent-portal/state`) and the phone portal (`GET /go`, `GET /go/u/:publicId`, `/go/api/*`) are in `api/src/routes/agent-portal/admin-host.ts` and `public.ts`. See [agent-portal](/admin/manual/agent-portal).
+`GET /admin/agent-sessions/events` is a server-sent-event stream. The wrapper-side registration, heartbeat, event and command-claim routes (`/host/agent-sessions*`, `/host/agent-commands/:messageId/ack`, `GET /host/agent-portal/state`) are in `api/src/routes/agent-portal/admin-host.ts`. See [agent-portal](/admin/manual/agent-portal).
 
 ### Admin Git Director
 
@@ -487,7 +480,7 @@ Each of the three surfaces is served by a backend engine chosen in **API Access 
 - api/src/routes/host-api/index.ts, admin-auth-users/index.ts, admin-overview-settings/index.ts, admin-content/index.ts (barrel modules that group the route files below)
 - api/src/routes/openai-compat/index.ts, anthropic-compat/index.ts (barrels wiring `/v1/*` and `/anthropic/v1/*` up with their admin key routes)
 - api/src/routes/admin/memories/index.ts, admin/secrets/index.ts, admin/git-director/index.ts, admin/transfers/index.ts, admin/agent-sessions/index.ts, admin/project-board/index.ts, admin/skill-sources/index.ts (the direct-mounted admin route files)
-- api/src/routes/agent-messaging/index.ts, agent-portal/admin-host.ts, agent-portal/public.ts (Agent Messaging, Agent Portal admin/host, and the `/go` portal)
+- api/src/routes/agent-messaging/index.ts, agent-portal/admin-host.ts (Agent Messaging and shared session admin/host routes)
 - api/src/routes/admin/**/*.ts (every admin route: auth, hosts, settings, overview, users, config, keys, projects, manual)
 - api/src/routes/auth/index.ts, host/index.ts, cli-auth/index.ts, install/index.ts (host-facing surface)
 - api/src/routes/wrapper-v2/index.ts (wrapper bakery v2 endpoints)

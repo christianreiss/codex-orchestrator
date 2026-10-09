@@ -140,10 +140,10 @@ describe('compatible mode reproduces the pre-matrix installation', () => {
     });
   }
 
-  it('withholds exactly the 33 routes the old gates covered, and no more', () => {
+  it('withholds exactly the 27 remaining routes the old gates covered, and no more', () => {
     // Guards the oracle itself: if someone adds a route to the legacy set to
     // make a test pass, the count moves and this fails.
-    expect(LEGACY_OWNER_ADMIN_ROUTES.size).toBe(33);
+    expect(LEGACY_OWNER_ADMIN_ROUTES.size).toBe(27);
     const unknown = [...LEGACY_OWNER_ADMIN_ROUTES].filter(
       (key) => !(key in ROUTE_CAPABILITIES),
     );
@@ -281,7 +281,6 @@ describe('the exceptions are exceptions, not holes', () => {
       'POST /admin/chatty/runs/:id/cancel',
       'PUT /admin/chatty/selection',
       'PUT /admin/chatty/settings',
-      'DELETE /admin/agent-portal/users/:id',
       'DELETE /admin/schedules/:id',
       'GET /admin/agent-sessions/:id/events',
       'GET /admin/agent-sessions/events',
@@ -298,10 +297,6 @@ describe('the exceptions are exceptions, not holes', () => {
       'POST /admin/agent-messaging/publish',
       'POST /admin/agent-messaging/state',
       'POST /admin/agent-portal/state',
-      'POST /admin/agent-portal/users',
-      'POST /admin/agent-portal/users/:id',
-      'POST /admin/agent-portal/users/:id/enabled',
-      'POST /admin/agent-portal/users/:id/rotate',
       'POST /admin/agent-sessions/:id/close',
       'POST /admin/agent-sessions/:id/close/force',
       'POST /admin/agent-sessions/:id/messages',

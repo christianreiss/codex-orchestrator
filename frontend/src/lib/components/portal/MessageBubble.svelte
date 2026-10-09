@@ -60,10 +60,7 @@
 
 <style>
   /*
-   * Lives here rather than in either app's stylesheet so /admin and /go render
-   * the same bubble; it used to exist only in the portal CSS, which left admin
-   * bubbles unstyled. A component <style> ships in the CSS bundle, so the
-   * portal CSP (`style-src 'self'`) permits it.
+   * Component styles keep session message bubbles consistent.
    *
    * The tail is a two-shape hook: a wedge in the bubble colour, then a
    * page-coloured shape that bites the outer edge off it.

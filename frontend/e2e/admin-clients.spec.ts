@@ -26,9 +26,13 @@ async function fixtures(page: Page, manage = true) {
     state.calls.push(`${request.method()} ${path}`);
     if (request.method() === "POST") state.bodies.push({ path, body: request.postDataJSON() });
     const json = (data: unknown, status = 200) => route.fulfill({ status, contentType: "application/json", body: JSON.stringify(data) });
-    if (path === "/admin/auth/status") return json({ authenticated: true, enforced: true, user: { id: 1, username: "operator", roles: ["owner"] }, capabilities: manage ? ["agent_portal.read", "agent_portal.manage", "agent_portal.reveal_transcript"] : ["agent_portal.read"] });
+    if (path === "/admin/auth/status") return json({ authenticated: true, enforced: true, user: { id: 1, username: "operator", roles: ["owner"] }, capabilities: manage ? ["agent_portal.read", "agent_portal.manage", "agent_portal.reveal_transcript", "agent_messaging.manage"] : ["agent_portal.read"] });
     if (path === "/admin/setup/status") return json({ setup_complete: true, critical_complete: true, checks: [], next_actions: [], wizard: { completed_at: "2026-09-28T00:00:00Z", dismissed_at: null } });
     if (path === "/admin/ws/info") return json({ enabled: false });
+    if (path === "/admin/agent-portal/state") {
+      if (request.method() === "POST") state.enabled = request.postDataJSON().enabled;
+      return json({ enabled: state.enabled, active_sessions: state.sessions.length, queued_messages: 0, dead_messages: 0 });
+    }
     if (path === "/admin/agent-sessions") return state.failList ? json({ message: "Fixture API temporarily unavailable" }, 503) : json({ enabled: state.enabled, generated_at: new Date().toISOString(), timings: { heartbeat_fresh_seconds: 45, relay_fresh_seconds: 60, working_fresh_seconds: 3600, retention_hours: 24 }, sessions: state.sessions });
     if (path.endsWith("/events")) return state.failEvents ? json({ message: "Fixture timeline unavailable" }, 503) : json({ events: state.events, next_cursor: state.events.length });
     if (path.endsWith("/messages") || path.includes("/prompts/")) {
@@ -241,6 +245,7 @@ for (const engine of ["codex", "claude"] as const) {
     await expect(page.getByRole("region", { name: "Session timeline" })).not.toContainText(/Needed you|Attention resolved|Local acknowledgment needed/);
     // The event alone must not invent a cleared server projection.
     await expect(banner).toContainText("Local acknowledgment needed");
+    await expect(page.getByRole("button", { name: "Refresh clients", exact: true, includeHidden: true })).toBeEnabled();
     target.attention = null;
     await stream(page, "agent", JSON.stringify(resolution));
     await expect(banner).not.toContainText("Local acknowledgment needed");
@@ -249,6 +254,7 @@ for (const engine of ["codex", "claude"] as const) {
     await page.getByRole("button", { name: "Answer current question", exact: true }).click();
     await expect.poll(() => state.bodies.some((entry) => entry.path.endsWith(`/prompts/${question}/answer`) && entry.body.version === 3)).toBe(true);
     await expect(page.getByLabel("Message this agent")).toHaveValue("Keep my unrelated draft");
+    await expect(page.getByRole("button", { name: "Refresh clients", exact: true, includeHidden: true })).toBeEnabled();
     target.pending_prompt = null;
     await stream(page, "agent", JSON.stringify(resolution));
     await expect(banner).toHaveCount(0);
@@ -348,3 +354,46 @@ for (const width of [1440, 390]) {
     await expect(page.getByRole("heading", { name: "Vivienne", exact: true })).toBeVisible();
   });
 }
+
+
+test("session settings and remote work remain available without the old portal", async ({ page }) => {
+  const state = await fixtures(page);
+  const calls: Array<{ path: string; body: Record<string, unknown> }> = [];
+  const remote = { id: "11111111-1111-4111-8111-111111111111", title: "Build helper", engine: "claude", status: "idle", sessionId: CODEX, operations: [{ status: "completed", result: { reply: "Ready to help" } }] };
+  const host = { host_id: 1, fqdn: "worker.test", enabled: true, default_cwd: "/srv/repo", health: { state: "green" }, sessions: [] };
+  await page.route("**/admin/host-daemons", route => route.fulfill({ json: { hosts: [host] } }));
+  await page.route("**/admin/daemon-sessions**", async route => {
+    const path = new URL(route.request().url()).pathname;
+    if (route.request().method() === "POST") {
+      calls.push({ path, body: route.request().postDataJSON() });
+      if (path.endsWith("/stop")) remote.status = "closed";
+      return route.fulfill({ json: { session_id: remote.id } });
+    }
+    return route.fulfill({ json: remote });
+  });
+  await open(page);
+  await expect(page.getByRole("link", { name: "Agent Portal", exact: true })).toHaveCount(0);
+  await page.getByText("Agent session settings", { exact: true }).click();
+  await page.getByRole("switch", { name: "Agent sessions", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Agent sessions are off", exact: true })).toBeVisible();
+  expect(state.enabled).toBe(false);
+  await page.getByRole("switch", { name: "Agent sessions", exact: true }).click();
+  await expect(page.locator(`#client-${CODEX}`)).toBeVisible();
+  await page.getByText("Remote sessions", { exact: true }).click();
+  await page.getByText("Neue Remote-Session", { exact: true }).click();
+  await page.locator('details[aria-label="Remote sessions"]').getByRole('combobox', { name: 'Engine', exact: true }).selectOption("claude");
+  await page.getByLabel("Titel", { exact: true }).fill("Build helper");
+  await page.getByLabel("Auftrag", { exact: true }).fill("Run the build");
+  await page.getByRole("button", { name: "Session starten", exact: true }).click();
+  await expect(page.getByText("Ready to help", { exact: true })).toBeVisible();
+  expect(calls[0]?.body).toMatchObject({ host_id: 1, engine: "claude", cwd: "/srv/repo", title: "Build helper", prompt: "Run the build" });
+  await page.getByLabel("Nachricht / Fortsetzen", { exact: true }).fill("Continue");
+  await page.getByRole("button", { name: "Senden / Fortsetzen", exact: true }).click();
+  await expect.poll(() => calls.filter(c => c.path.endsWith("/messages")).length).toBe(1);
+  const history = page.getByRole("link", { name: "Nativen Session-Verlauf öffnen" });
+  await expect(history).toHaveAttribute("href", `/admin/clients?session=${CODEX}`);
+  await page.getByRole("button", { name: "Beenden", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Build helper · closed" })).toBeVisible();
+  await history.click();
+  await expect(page.getByRole("heading", { name: "codex-review", exact: true })).toBeVisible();
+});

@@ -1,5 +1,10 @@
 # Android companion
 
+The legacy `/go` magic-link webchat is removed. Active Clients and Android
+continue using the existing session/receiver contracts and `cxx portal` commands;
+operator access requires a dashboard account or its paired device. Session
+settings and remote-session controls are available in Active Clients.
+
 The app is **Orchestrator**, package **`io.uggs.orchestrator`**, Android 8 or newer.
 It connects to one orchestrator at a time; each phone is independently revocable.
 Google Play services are needed for FCM, but chat and approval review work without
@@ -97,7 +102,7 @@ this endpoint before installing 0.3.0; roll out wrapper 0.9.17 for authored summ
    upgrades, SSE streaming for older apps, and the Authorization header.
 5. Deploy the API/frontend using the repository's regular deployment workflow.
    Migration `0039` is applied by the normal migration runner, never manually
-   piped into MySQL. Enable the existing agent portal for chat.
+   piped into MySQL. Enable **Agent sessions** in Active Clients for chat.
 6. Open **Account → Android devices → Pair Android device** in the dashboard;
    scan the five-minute QR in the app (or use **Paste pairing code** with its JSON
    payload), check the displayed server, and connect.

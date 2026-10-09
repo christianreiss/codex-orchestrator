@@ -402,12 +402,12 @@ Besides `cxx codex …` and `cxx claude …`, the shared binary owns a few
 host-wide commands that neither alias re-spells: `cxx cron [install|remove|run]`
 (the auto-update coordinator), `cxx update`, `cxx sync`, `cxx agent …` (the
 Agent Messaging relay used by the `cxx-agent` worker), `cxx claude-quota-statusline`
-(the default Claude status line), and `cxx portal …` — the Agent Portal
+(the default Claude status line), and `cxx portal …` — the shared session bridge
 client an agent calls from inside a session: `status`, `notify --summary`,
 `resolve --summary` (withdraw a mistaken or resolved *Needs you* notice while
 keeping the timeline, relay, and any open question), `say --text`,
 `ask --question [--options 'one|two']`, `wait [--seconds]`, `accept`, and
-`leave`. See [Agent Portal and Active Clients](/admin/manual/agent-portal).
+`leave`. See [Active Clients and agent sessions](/admin/manual/agent-portal).
 
 ### Updating the host
 

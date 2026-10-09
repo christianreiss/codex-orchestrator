@@ -12,7 +12,6 @@ import {
   inArray,
   isNotNull,
   isNull,
-  lt,
   lte,
   not,
   or,
@@ -22,15 +21,12 @@ import type { Database } from '../db/client.js';
 import {
   agentEvents,
   agentMessages,
-  agentPortalBrowserSessions,
-  agentPortalUsers,
   agentPrompts,
   agentSessions,
   adminUsers,
   hosts,
   versions,
   type AgentMessage,
-  type AgentPortalUser,
   type AgentSession,
   type Host,
 } from '../db/schema.js';
@@ -44,7 +40,7 @@ import {
   ValidationError,
 } from '../http/errors.js';
 import { decrypt, encrypt } from '../security/secret-box.js';
-import { randomHex, sha256 } from '../security/hash.js';
+import { sha256 } from '../security/hash.js';
 import type { Keyring } from '../security/keyring.js';
 import { isTruthyFlagValue, SettingsService } from './settings.js';
 import { isFreshPresenceTimestamp } from './agent-presence.js';
@@ -73,7 +69,7 @@ export const AGENT_PORTAL_MAX_DELIVERY_ATTEMPTS = 12;
  */
 export const AGENT_PORTAL_WORKING_RELAY_MULTIPLE = 10;
 export const AGENT_PORTAL_CLOSE_NOTE_MAX_BYTES = 1000;
-export const AGENT_PORTAL_DEFAULT_CLOSE_NOTE = 'The operator closed this channel from the portal.';
+export const AGENT_PORTAL_DEFAULT_CLOSE_NOTE = 'The operator closed this session.';
 
 export const AGENT_EVENT_TYPES = [
   'session_named',
@@ -155,53 +151,17 @@ const AGENT_ATTENTION_CLEARING_EVENT_TYPES = ['user_message', 'close_requested',
 export const AGENT_CLOSE_STATES = ['pending', 'acknowledged', 'undeliverable'] as const;
 export type AgentCloseState = (typeof AGENT_CLOSE_STATES)[number];
 
-export interface PortalUserView {
-  id: number;
-  display_name: string;
-  enabled: boolean;
-  public_id: string;
-  created_at: string;
-  updated_at: string;
-  last_used_at: string | null;
-  disabled_at: string | null;
-  rotated_at: string | null;
-}
+/** Authenticated dashboard or companion user acting on a session. */
+export type PortalActor = { kind: 'admin'; user: { id: number; displayName: string } };
 
-export interface PortalIdentity {
-  user: PortalUserView;
-  browserSessionId: number;
-}
-
-/**
- * Who is acting on a session.
- *
- * The portal authenticates a magic-link `agent_portal_users` row; the console
- * authenticates an `admin_users` row over its own session cookie. They are
- * separate identity tables, and `0027_agent_messages_admin_actor.sql` is what
- * lets both reach the message queue: `agent_messages` now carries a nullable
- * column for each, exactly one set.
- *
- * The kind travels with the id everywhere, and that is not decoration. Message
- * idempotency compares the author, so comparing bare numbers across two tables
- * would let admin #3 silently satisfy a retry authored by portal user #3.
- */
-export type PortalActor =
-  | { kind: 'portal'; identity: PortalIdentity }
-  | { kind: 'admin'; user: { id: number; displayName: string } };
-
-/** An actor resolved against its own identity table, inside the write's lock. */
 interface ResolvedActor {
-  kind: 'portal' | 'admin';
+  kind: 'admin';
   id: number;
-  /** What the agent's own timeline shows as the author of the message. */
   displayName: string;
 }
 
-/** The `agent_messages` author columns for an actor; exactly one is non-null. */
-function actorColumns(actor: ResolvedActor): { portalUserId: number | null; adminUserId: number | null } {
-  return actor.kind === 'admin'
-    ? { portalUserId: null, adminUserId: actor.id }
-    : { portalUserId: actor.id, adminUserId: null };
+function actorColumns(actor: ResolvedActor): { adminUserId: number } {
+  return { adminUserId: actor.id };
 }
 
 export interface RegisterAgentInput {
@@ -274,14 +234,6 @@ export class AgentPortalService {
     return await this.settings.getFlag(AGENT_PORTAL_ENABLED_KEY, false);
   }
 
-  /**
-   * The portal is entirely pull-based: the only thing it needs configured is the
-   * origin its permanent links are rendered against.
-   */
-  configured(): boolean {
-    return Boolean(this.env.PUBLIC_BASE_URL?.trim());
-  }
-
   /** Ceiling on how long an `active_turn_id` may stand. See the constant. */
   private workingMaxSeconds(): number {
     return this.env.AGENT_PORTAL_RELAY_FRESH_SECONDS * AGENT_PORTAL_WORKING_RELAY_MULTIPLE;
@@ -303,16 +255,10 @@ export class AgentPortalService {
   async state(): Promise<Record<string, unknown>> {
     const enabled = await this.isEnabled();
     const health = await this.health();
-    return { enabled, initial_default: false, configured: this.configured(), ...health };
+    return { enabled, initial_default: false, configured: true, ...health };
   }
 
   async setEnabled(enabled: boolean): Promise<{ enabled: boolean; canceled: number; revoked_sessions: number }> {
-    if (enabled && !this.configured()) {
-      throw new ServiceUnavailableError(
-        'PUBLIC_BASE_URL is required before enabling the agent portal',
-        'agent_portal_not_configured',
-      );
-    }
     const now = nowIso();
     const result = await this.db.transaction(async (tx) => {
       const setting = await tx
@@ -339,10 +285,6 @@ export class AgentPortalService {
         .select({ value: count() })
         .from(agentMessages)
         .where(inArray(agentMessages.status, ['queued', 'leased']));
-      const browser = await tx
-        .select({ value: count() })
-        .from(agentPortalBrowserSessions)
-        .where(isNull(agentPortalBrowserSessions.revokedAt));
       const pendingAnswers = await tx
         .select({ messageId: agentMessages.messageId })
         .from(agentMessages)
@@ -361,232 +303,17 @@ export class AgentPortalService {
         tx,
       );
       await tx
-        .update(agentPortalBrowserSessions)
-        .set({ revokedAt: now })
-        .where(isNull(agentPortalBrowserSessions.revokedAt));
-      await tx
         .update(agentSessions)
         .set({ relayEnabled: 0, relayHeartbeatAt: null, updatedAt: now })
         .where(inArray(agentSessions.status, [...LIVE_SESSION_STATES]));
       return {
         enabled: false as const,
         canceled: Number(pending[0]?.value ?? 0),
-        revoked_sessions: Number(browser[0]?.value ?? 0),
+        revoked_sessions: 0,
       };
     });
     wsPublisher.publish('settings.changed', { key: AGENT_PORTAL_ENABLED_KEY });
     return result;
-  }
-
-  async listUsers(): Promise<PortalUserView[]> {
-    const rows = await this.db
-      .select()
-      .from(agentPortalUsers)
-      .where(isNull(agentPortalUsers.deletedAt))
-      .orderBy(asc(agentPortalUsers.displayName), asc(agentPortalUsers.id));
-    return rows.map(portalUserView);
-  }
-
-  async createUser(input: { displayName: string; enabled?: boolean }): Promise<{ user: PortalUserView; magic_url: string }> {
-    const displayName = normalizeRequiredText(input.displayName, 'display_name', 255);
-    const token = randomBytes(32).toString('base64url');
-    const now = nowIso();
-    const publicId = randomHex(16);
-    await this.db.insert(agentPortalUsers).values({
-      displayName,
-      enabled: input.enabled === false ? 0 : 1,
-      publicId,
-      tokenHash: sha256(token),
-      tokenEnc: encrypt(token, this.keyring),
-      createdAt: now,
-      updatedAt: now,
-      lastUsedAt: null,
-      disabledAt: input.enabled === false ? now : null,
-      rotatedAt: now,
-      deletedAt: null,
-    });
-    const user = await this.userByPublicId(publicId);
-    if (!user) throw new ServiceUnavailableError('Portal user creation did not persist', 'agent_portal_write_failed');
-    return { user: portalUserView(user), magic_url: this.magicUrl(user, token) };
-  }
-
-  /**
-   * Re-renders the stored permanent link for an owner/admin so it can be
-   * bookmarked from the admin page without rotating the token. Deliberately its
-   * own owner/admin-gated call: `PortalUserView` is also served to the portal
-   * itself, so the bearer material never rides along on a listing.
-   */
-  async revealUserLink(id: number): Promise<{ user: PortalUserView; magic_url: string }> {
-    const rows = await this.db
-      .select()
-      .from(agentPortalUsers)
-      .where(and(eq(agentPortalUsers.id, id), isNull(agentPortalUsers.deletedAt)))
-      .limit(1);
-    const user = rows[0];
-    if (!user) throw new NotFoundError('Portal user not found', 'agent_portal_user_not_found');
-    return { user: portalUserView(user), magic_url: this.magicUrl(user, this.decodeText(user.tokenEnc)) };
-  }
-
-  async setUserEnabled(id: number, enabled: boolean): Promise<{ user: PortalUserView; canceled: number; revoked_sessions: number }> {
-    const now = nowIso();
-    const result = await this.db.transaction(async (tx) => {
-      await this.portalEnabledLocked(tx);
-      await this.requireUserLocked(tx, id);
-      await tx
-        .update(agentPortalUsers)
-        .set({ enabled: enabled ? 1 : 0, disabledAt: enabled ? null : now, updatedAt: now })
-        .where(eq(agentPortalUsers.id, id));
-      const disabled = enabled
-        ? { canceled: 0, revoked_sessions: 0 }
-        : await this.disableUserRows(id, now, tx);
-      const rows = await tx.select().from(agentPortalUsers).where(eq(agentPortalUsers.id, id)).limit(1);
-      return { user: portalUserView(rows[0]!), ...disabled };
-    });
-    return result;
-  }
-
-  async updateUser(id: number, input: { displayName?: string }): Promise<PortalUserView> {
-    const patch: Partial<typeof agentPortalUsers.$inferInsert> = { updatedAt: nowIso() };
-    if (input.displayName !== undefined) patch.displayName = normalizeRequiredText(input.displayName, 'display_name', 255);
-    const user = await this.db.transaction(async (tx) => {
-      await this.portalEnabledLocked(tx);
-      await this.requireUserLocked(tx, id);
-      await tx.update(agentPortalUsers).set(patch).where(eq(agentPortalUsers.id, id));
-      const rows = await tx.select().from(agentPortalUsers).where(eq(agentPortalUsers.id, id)).limit(1);
-      return rows[0]!;
-    });
-    return portalUserView(user);
-  }
-
-  async rotateUser(id: number): Promise<{ user: PortalUserView; magic_url: string; revoked_sessions: number }> {
-    const token = randomBytes(32).toString('base64url');
-    const now = nowIso();
-    const result = await this.db.transaction(async (tx) => {
-      await this.portalEnabledLocked(tx);
-      await this.requireUserLocked(tx, id);
-      const sessions = await tx
-        .select({ value: count() })
-        .from(agentPortalBrowserSessions)
-        .where(and(eq(agentPortalBrowserSessions.userId, id), isNull(agentPortalBrowserSessions.revokedAt)));
-      await tx
-        .update(agentPortalUsers)
-        .set({ tokenHash: sha256(token), tokenEnc: encrypt(token, this.keyring), rotatedAt: now, updatedAt: now })
-        .where(eq(agentPortalUsers.id, id));
-      await tx
-        .update(agentPortalBrowserSessions)
-        .set({ revokedAt: now })
-        .where(and(eq(agentPortalBrowserSessions.userId, id), isNull(agentPortalBrowserSessions.revokedAt)));
-      const rows = await tx.select().from(agentPortalUsers).where(eq(agentPortalUsers.id, id)).limit(1);
-      return { user: rows[0]!, revoked: Number(sessions[0]?.value ?? 0) };
-    });
-    return {
-      user: portalUserView(result.user),
-      magic_url: this.magicUrl(result.user, token),
-      revoked_sessions: result.revoked,
-    };
-  }
-
-  async deleteUser(id: number): Promise<{ canceled: number; revoked_sessions: number }> {
-    const now = nowIso();
-    return await this.db.transaction(async (tx) => {
-      await this.portalEnabledLocked(tx);
-      await this.requireUserLocked(tx, id);
-      await tx
-        .update(agentPortalUsers)
-        .set({ enabled: 0, disabledAt: now, deletedAt: now, updatedAt: now })
-        .where(eq(agentPortalUsers.id, id));
-      return await this.disableUserRows(id, now, tx);
-    });
-  }
-
-  async exchangeMagicLink(input: {
-    publicId: string;
-    token: string;
-    ip?: string | null;
-    userAgent?: string | null;
-  }): Promise<{ identity: PortalIdentity; sessionToken: string; expiresAt: string }> {
-    const submittedHash = sha256(input.token ?? '');
-    const raw = randomBytes(32).toString('base64url');
-    const now = nowIso();
-    const expiresAt = isoOffsetSeconds(this.env.AGENT_PORTAL_SESSION_TTL_HOURS * 3600);
-    return await this.db.transaction(async (tx) => {
-      await this.requirePortalEnabledLocked(tx);
-      const users = await tx
-        .select()
-        .from(agentPortalUsers)
-        .where(eq(agentPortalUsers.publicId, String(input.publicId ?? '').trim()))
-        .limit(1)
-        .for('update');
-      const user = users[0];
-      if (!user || user.deletedAt || !safeHashEqual(submittedHash, user.tokenHash)) {
-        throw new UnauthorizedError('Invalid portal link', 'agent_portal_link_invalid');
-      }
-      if (user.enabled !== 1) throw new ForbiddenError('Portal user is disabled', 'agent_portal_user_disabled');
-      const inserted = await tx.insert(agentPortalBrowserSessions).values({
-        userId: user.id,
-        tokenHash: sha256(raw),
-        ip: normalizeOptionalText(input.ip, 64),
-        userAgent: normalizeOptionalText(input.userAgent, 255),
-        expiresAt,
-        lastSeenAt: now,
-        createdAt: now,
-        revokedAt: null,
-      });
-      await tx
-        .update(agentPortalUsers)
-        .set({ lastUsedAt: now, updatedAt: now })
-        .where(eq(agentPortalUsers.id, user.id));
-      return {
-        identity: {
-          user: portalUserView({ ...user, lastUsedAt: now, updatedAt: now }),
-          browserSessionId: extractInsertId(inserted),
-        },
-        sessionToken: raw,
-        expiresAt,
-      };
-    });
-  }
-
-  async authenticateBrowser(rawToken: string | undefined, touch = true): Promise<PortalIdentity> {
-    await this.requireEnabled();
-    if (!rawToken) throw new UnauthorizedError('Portal login required', 'agent_portal_login_required');
-    const rows = await this.db
-      .select({ session: agentPortalBrowserSessions, user: agentPortalUsers })
-      .from(agentPortalBrowserSessions)
-      .innerJoin(agentPortalUsers, eq(agentPortalUsers.id, agentPortalBrowserSessions.userId))
-      .where(eq(agentPortalBrowserSessions.tokenHash, sha256(rawToken)))
-      .limit(1);
-    const row = rows[0];
-    const now = nowIso();
-    if (
-      !row ||
-      row.session.revokedAt ||
-      row.session.expiresAt <= now ||
-      row.user.deletedAt ||
-      row.user.enabled !== 1
-    ) {
-      throw new UnauthorizedError('Portal session expired', 'agent_portal_session_expired');
-    }
-    if (touch) {
-      await this.db
-        .update(agentPortalBrowserSessions)
-        .set({ lastSeenAt: now })
-        .where(eq(agentPortalBrowserSessions.id, row.session.id));
-    }
-    return { user: portalUserView(row.user), browserSessionId: row.session.id };
-  }
-
-  async logoutBrowser(rawToken: string | undefined): Promise<void> {
-    if (!rawToken) return;
-    await this.db.transaction(async (tx) => {
-      // Serialize with SSE's shared master-setting lock so logout returning is
-      // a strict boundary: no later event page can pass browser validation.
-      await this.portalEnabledLocked(tx);
-      await tx
-        .update(agentPortalBrowserSessions)
-        .set({ revokedAt: nowIso() })
-        .where(eq(agentPortalBrowserSessions.tokenHash, sha256(rawToken)));
-    });
   }
 
   async registerAgent(host: Host, input: RegisterAgentInput): Promise<{ enabled: true; session_id: string; bridge_token: string; expires_at: string } | { enabled: false }> {
@@ -1033,59 +760,6 @@ export class AgentPortalService {
     return { events, next_cursor: rows.at(-1)?.id ?? Math.max(0, Math.trunc(after)) };
   }
 
-  async listEventsAfterAuthenticated(
-    rawToken: string | undefined,
-    after = 0,
-    limit = 250,
-  ): Promise<{ events: Array<Record<string, unknown>>; next_cursor: number }> {
-    if (!rawToken) throw new UnauthorizedError('Portal login required', 'agent_portal_login_required');
-    const bounded = Math.max(1, Math.min(500, Math.trunc(limit)));
-    const cursor = Math.max(0, Math.trunc(after));
-    return await this.db.transaction(async (tx) => {
-      const setting = await tx
-        .select({ version: versions.version })
-        .from(versions)
-        .where(eq(versions.name, AGENT_PORTAL_ENABLED_KEY))
-        .limit(1)
-        .for('share');
-      if (!isTruthyFlagValue(setting[0]?.version)) {
-        throw new ServiceUnavailableError('Agent portal is disabled', 'agent_portal_disabled');
-      }
-      const identities = await tx
-        .select({ session: agentPortalBrowserSessions, user: agentPortalUsers })
-        .from(agentPortalBrowserSessions)
-        .innerJoin(agentPortalUsers, eq(agentPortalUsers.id, agentPortalBrowserSessions.userId))
-        .where(eq(agentPortalBrowserSessions.tokenHash, sha256(rawToken)))
-        .limit(1);
-      const identity = identities[0];
-      const now = nowIso();
-      if (
-        !identity ||
-        identity.session.revokedAt ||
-        identity.session.expiresAt <= now ||
-        identity.user.deletedAt ||
-        identity.user.enabled !== 1
-      ) {
-        throw new UnauthorizedError('Portal session expired', 'agent_portal_session_expired');
-      }
-      const rows = await tx
-        .select()
-        .from(agentEvents)
-        .where(gt(agentEvents.id, cursor))
-        .orderBy(asc(agentEvents.id))
-        .limit(bounded);
-      const events = rows.map((event) => ({
-        cursor: event.id,
-        session_id: event.sessionId,
-        type: event.eventType,
-        source: event.source,
-        payload: this.decodeJson<Record<string, unknown>>(event.payloadEnc, {}),
-        created_at: event.createdAt,
-      }));
-      return { events, next_cursor: rows.at(-1)?.id ?? cursor };
-    });
-  }
-
   async latestEventCursor(): Promise<number> {
     const rows = await this.db.select({ id: agentEvents.id }).from(agentEvents).orderBy(desc(agentEvents.id)).limit(1);
     return rows[0]?.id ?? 0;
@@ -1358,7 +1032,6 @@ export class AgentPortalService {
       const candidateRows = await this.db
         .select({
           id: agentMessages.id,
-          portalUserId: agentMessages.portalUserId,
           adminUserId: agentMessages.adminUserId,
         })
         .from(agentMessages)
@@ -1554,30 +1227,21 @@ export class AgentPortalService {
         await tx.delete(agentSessions).where(inArray(agentSessions.id, ids));
       });
     }
-    const browser = await this.db
-      .select({ value: count() })
-      .from(agentPortalBrowserSessions)
-      .where(or(lte(agentPortalBrowserSessions.expiresAt, now), lt(agentPortalBrowserSessions.revokedAt, isoOffsetSeconds(-7 * 86400))));
-    await this.db
-      .delete(agentPortalBrowserSessions)
-      .where(or(lte(agentPortalBrowserSessions.expiresAt, now), lt(agentPortalBrowserSessions.revokedAt, isoOffsetSeconds(-7 * 86400))));
     return {
       sessions: ids.length,
-      browser_sessions: Number(browser[0]?.value ?? 0),
+      browser_sessions: 0,
       abandoned_sessions: abandonedSessions,
       stale_turns: staleTurns,
     };
   }
 
   async health(): Promise<Record<string, unknown>> {
-    const [users, sessions, queued, dead] = await Promise.all([
-      this.db.select({ value: count() }).from(agentPortalUsers).where(and(isNull(agentPortalUsers.deletedAt), eq(agentPortalUsers.enabled, 1))),
+    const [sessions, queued, dead] = await Promise.all([
       this.db.select({ value: count() }).from(agentSessions).where(inArray(agentSessions.status, [...LIVE_SESSION_STATES])),
       this.db.select({ value: count() }).from(agentMessages).where(inArray(agentMessages.status, ['queued', 'leased'])),
       this.db.select({ value: count() }).from(agentMessages).where(eq(agentMessages.status, 'dead')),
     ]);
     return {
-      enabled_users: Number(users[0]?.value ?? 0),
       active_sessions: Number(sessions[0]?.value ?? 0),
       queued_messages: Number(queued[0]?.value ?? 0),
       dead_messages: Number(dead[0]?.value ?? 0),
@@ -1839,7 +1503,7 @@ export class AgentPortalService {
   }
 
   private async requireEnabled(): Promise<void> {
-    if (!(await this.isEnabled())) throw new ServiceUnavailableError('Agent portal is disabled', 'agent_portal_disabled');
+    if (!(await this.isEnabled())) throw new ServiceUnavailableError('Agent sessions are disabled', 'agent_portal_disabled');
   }
 
   private async portalEnabledLocked(db: AgentPortalDb): Promise<boolean> {
@@ -1854,38 +1518,8 @@ export class AgentPortalService {
 
   private async requirePortalEnabledLocked(db: AgentPortalDb): Promise<void> {
     if (!(await this.portalEnabledLocked(db))) {
-      throw new ServiceUnavailableError('Agent portal is disabled', 'agent_portal_disabled');
+      throw new ServiceUnavailableError('Agent sessions are disabled', 'agent_portal_disabled');
     }
-  }
-
-  private async requireUser(id: number): Promise<AgentPortalUser> {
-    const rows = await this.db
-      .select()
-      .from(agentPortalUsers)
-      .where(and(eq(agentPortalUsers.id, id), isNull(agentPortalUsers.deletedAt)))
-      .limit(1);
-    if (!rows[0]) throw new NotFoundError('Portal user not found', 'agent_portal_user_not_found');
-    return rows[0];
-  }
-
-  private async requireUserLocked(db: AgentPortalDb, id: number): Promise<AgentPortalUser> {
-    const rows = await db
-      .select()
-      .from(agentPortalUsers)
-      .where(and(eq(agentPortalUsers.id, id), isNull(agentPortalUsers.deletedAt)))
-      .limit(1)
-      .for('update');
-    if (!rows[0]) throw new NotFoundError('Portal user not found', 'agent_portal_user_not_found');
-    return rows[0];
-  }
-
-  private async userByPublicId(publicId: string): Promise<AgentPortalUser | null> {
-    const rows = await this.db
-      .select()
-      .from(agentPortalUsers)
-      .where(eq(agentPortalUsers.publicId, String(publicId ?? '').trim()))
-      .limit(1);
-    return rows[0] ?? null;
   }
 
   private async requireVisibleSession(id: string): Promise<AgentSession> {
@@ -1901,28 +1535,10 @@ export class AgentPortalService {
     return session;
   }
 
-  /**
-   * Narrows whichever identity table the actor came from to the one field a
-   * non-queue write needs. The portal branch keeps the full check -- a revoked
-   * browser session must not be able to end an agent -- while an admin arrives
-   * already authenticated by `requireAdmin` and capability-gated at the route.
-   */
-  /**
-   * May this queued message still be delivered?
-   *
-   * Delivery re-reads the author instead of trusting the queue row, so revoking
-   * an account kills its undelivered instructions at the moment an agent
-   * reaches for one -- not merely whenever a sweep next runs. That is the
-   * property, and since 0027 it has two branches: a portal user must still be
-   * enabled and undeleted, an admin must still be active.
-   *
-   * A row with neither column set cannot happen through this service, so it is
-   * the shape a bug would produce -- and the safe reading of "no identifiable
-   * author" is that nobody may act on it.
-   */
+  /** Delivery rechecks the authenticated author's active account under lock. */
   private async authorDeliverableLocked(
     db: AgentPortalDb,
-    row: { portalUserId: number | null; adminUserId: number | null },
+    row: { adminUserId: number | null },
   ): Promise<boolean> {
     if (row.adminUserId != null) {
       const rows = await db
@@ -1933,61 +1549,28 @@ export class AgentPortalService {
         .for('update');
       return rows[0]?.active === 1;
     }
-    if (row.portalUserId == null) return false;
-    const rows = await db
-      .select({ enabled: agentPortalUsers.enabled, deletedAt: agentPortalUsers.deletedAt })
-      .from(agentPortalUsers)
-      .where(eq(agentPortalUsers.id, row.portalUserId))
-      .limit(1)
-      .for('update');
-    const user = rows[0];
-    return Boolean(user && user.enabled === 1 && !user.deletedAt);
+    return false;
   }
 
   private async requireActorLocked(
     db: AgentPortalDb,
     actor: PortalActor,
-    now: string,
+    _now: string,
   ): Promise<ResolvedActor> {
-    if (actor.kind === 'admin') {
-      // Re-read under the write's lock rather than trusting the request's
-      // `requireAdmin`, which resolved the session before this transaction
-      // opened. An account deactivated in between must not get one last
-      // instruction through.
-      const rows = await db
-        .select({ id: adminUsers.id, name: adminUsers.name, username: adminUsers.username, active: adminUsers.active })
-        .from(adminUsers)
-        .where(eq(adminUsers.id, actor.user.id))
-        .limit(1)
-        .for('update');
-      const admin = rows[0];
-      if (!admin) throw new NotFoundError('Admin user not found', 'admin_user_not_found');
-      if (admin.active !== 1) throw new ForbiddenError('Admin account is disabled', 'admin_disabled');
-      return { kind: 'admin', id: admin.id, displayName: admin.name || admin.username };
-    }
-    const user = await this.requireIdentityLocked(db, actor.identity, now);
-    return { kind: 'portal', id: user.id, displayName: user.displayName };
-  }
-
-  private async requireIdentityLocked(db: AgentPortalDb, identity: PortalIdentity, now: string): Promise<AgentPortalUser> {
-    const user = await this.requireUserLocked(db, identity.user.id);
-    if (user.enabled !== 1) throw new ForbiddenError('Portal user is disabled', 'agent_portal_user_disabled');
-    const sessions = await db
-      .select()
-      .from(agentPortalBrowserSessions)
-      .where(eq(agentPortalBrowserSessions.id, identity.browserSessionId))
+    // Re-read under the write's lock rather than trusting the request's
+    // `requireAdmin`, which resolved the session before this transaction
+    // opened. An account deactivated in between must not get one last
+    // instruction through.
+    const rows = await db
+      .select({ id: adminUsers.id, name: adminUsers.name, username: adminUsers.username, active: adminUsers.active })
+      .from(adminUsers)
+      .where(eq(adminUsers.id, actor.user.id))
       .limit(1)
       .for('update');
-    const browser = sessions[0];
-    if (
-      !browser ||
-      browser.userId !== user.id ||
-      browser.revokedAt ||
-      browser.expiresAt <= now
-    ) {
-      throw new UnauthorizedError('Portal session expired', 'agent_portal_session_expired');
-    }
-    return user;
+    const admin = rows[0];
+    if (!admin) throw new NotFoundError('Admin user not found', 'admin_user_not_found');
+    if (admin.active !== 1) throw new ForbiddenError('Admin account is disabled', 'admin_disabled');
+    return { kind: 'admin', id: admin.id, displayName: admin.name || admin.username };
   }
 
   private async requireVisibleSessionLocked(db: AgentPortalDb, id: string, now: string): Promise<AgentSession> {
@@ -2136,12 +1719,7 @@ export class AgentPortalService {
     return rows[0] ?? null;
   }
 
-  /**
-   * A retried `client_message_id` must be the same message or a conflict. The
-   * author is part of that identity, and since 0027 two identity tables can
-   * author -- so the comparison is against the actor's columns rather than a
-   * bare number, or admin #3 would silently satisfy portal user #3's retry.
-   */
+  /** A retry must match the authenticated author, operation and content. */
   private assertMessageIdempotency(
     row: AgentMessage,
     actor: ResolvedActor,
@@ -2151,7 +1729,6 @@ export class AgentPortalService {
   ): void {
     const expected = actorColumns(actor);
     if (
-      row.portalUserId !== expected.portalUserId ||
       row.adminUserId !== expected.adminUserId ||
       row.kind !== kind ||
       row.promptId !== promptId ||
@@ -2225,35 +1802,6 @@ export class AgentPortalService {
     });
   }
 
-  private async disableUserRows(userId: number, now: string, db: AgentPortalDb = this.db): Promise<{ canceled: number; revoked_sessions: number }> {
-    const pendingAnswers = await db
-      .select({ messageId: agentMessages.messageId, promptId: agentMessages.promptId, sessionId: agentMessages.sessionId })
-      .from(agentMessages)
-      .where(and(
-        eq(agentMessages.portalUserId, userId),
-        eq(agentMessages.kind, 'answer'),
-        inArray(agentMessages.status, ['queued', 'leased']),
-      ));
-    const pending = await db
-      .select({ value: count() })
-      .from(agentMessages)
-      .where(and(eq(agentMessages.portalUserId, userId), inArray(agentMessages.status, ['queued', 'leased'])));
-    const sessions = await db
-      .select({ value: count() })
-      .from(agentPortalBrowserSessions)
-      .where(and(eq(agentPortalBrowserSessions.userId, userId), isNull(agentPortalBrowserSessions.revokedAt)));
-    await db
-      .update(agentMessages)
-      .set({ status: 'canceled', canceledAt: now, leaseOwner: null, leaseUntil: null, updatedAt: now })
-      .where(and(eq(agentMessages.portalUserId, userId), inArray(agentMessages.status, ['queued', 'leased'])));
-    await this.reconcileDisabledUserAnswers(pendingAnswers, now, db);
-    await db
-      .update(agentPortalBrowserSessions)
-      .set({ revokedAt: now })
-      .where(and(eq(agentPortalBrowserSessions.userId, userId), isNull(agentPortalBrowserSessions.revokedAt)));
-    return { canceled: Number(pending[0]?.value ?? 0), revoked_sessions: Number(sessions[0]?.value ?? 0) };
-  }
-
   /**
    * Cancels everything still in flight for a session.
    *
@@ -2312,52 +1860,6 @@ export class AgentPortalService {
       now,
       db,
     );
-  }
-
-  private async reconcileDisabledUserAnswers(
-    answers: Array<{ messageId: string; promptId: string | null; sessionId: string }>,
-    now: string,
-    db: AgentPortalDb,
-  ): Promise<void> {
-    if (answers.length === 0) return;
-    const messageById = new Map(answers.map((answer) => [answer.messageId, answer]));
-    const sessionIds = [...new Set(answers.map((answer) => answer.sessionId))];
-    const sessions = await db
-      .select()
-      .from(agentSessions)
-      .where(inArray(agentSessions.id, sessionIds))
-      .for('update');
-    const sessionById = new Map(sessions.map((session) => [session.id, session]));
-    const prompts = await db
-      .select()
-      .from(agentPrompts)
-      .where(and(
-        eq(agentPrompts.status, 'answered'),
-        inArray(agentPrompts.answerMessageId, answers.map((answer) => answer.messageId)),
-      ))
-      .for('update');
-    for (const prompt of prompts) {
-      const answer = prompt.answerMessageId ? messageById.get(prompt.answerMessageId) : undefined;
-      const session = answer ? sessionById.get(answer.sessionId) : undefined;
-      const canReopen = Boolean(
-        answer?.promptId === prompt.id &&
-        session &&
-        !session.endedAt &&
-        LIVE_SESSION_STATE_SET.has(session.status) &&
-        (!prompt.expiresAt || prompt.expiresAt > now),
-      );
-      await db
-        .update(agentPrompts)
-        .set({
-          status: canReopen ? 'open' : 'expired',
-          answeredByUserId: null,
-          answerMessageId: null,
-          answeredAt: null,
-          expiresAt: canReopen ? prompt.expiresAt : now,
-          version: sql`${agentPrompts.version} + 1`,
-        })
-        .where(eq(agentPrompts.id, prompt.id));
-    }
   }
 
   private async expirePromptsForAnswerMessages(
@@ -2472,12 +1974,6 @@ export class AgentPortalService {
     return Number(rows[0]?.value ?? 0);
   }
 
-  private magicUrl(user: Pick<AgentPortalUser, 'publicId'>, token: string): string {
-    const base = this.env.PUBLIC_BASE_URL?.trim().replace(/\/$/, '');
-    if (!base) throw new ServiceUnavailableError('PUBLIC_BASE_URL is not configured', 'agent_portal_not_configured');
-    return `${base}/go/u/${encodeURIComponent(user.publicId)}#t=${encodeURIComponent(token)}`;
-  }
-
   private encodeText(value: string): string {
     return encrypt(value, this.keyring);
   }
@@ -2501,20 +1997,6 @@ export class AgentPortalService {
 
 export function createAgentPortalService(db: Database, env: Env, keyring: Keyring): AgentPortalService {
   return new AgentPortalService(db, env, keyring);
-}
-
-function portalUserView(user: AgentPortalUser): PortalUserView {
-  return {
-    id: user.id,
-    display_name: user.displayName,
-    enabled: user.enabled === 1,
-    public_id: user.publicId,
-    created_at: user.createdAt,
-    updated_at: user.updatedAt,
-    last_used_at: user.lastUsedAt,
-    disabled_at: user.disabledAt,
-    rotated_at: user.rotatedAt,
-  };
 }
 
 function normalizeRequiredText(value: unknown, param: string, max: number): string {

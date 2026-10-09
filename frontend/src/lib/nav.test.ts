@@ -27,7 +27,7 @@ describe("route registry", () => {
   it("has one stable direct destination for every planned operator task", () => {
     assert.deepEqual(NAV_SECTIONS.map((section) => section.label), ["Workspace", "Fleet", "Coordinate", "Knowledge", "Access", "Diagnostics"]);
     assert.deepEqual(NAV_SECTIONS.flatMap((section) => section.items).map((entry) => entry.id), [
-      "overview", "clients", "hosts", "projects", "provider-accounts", "quick-settings", "engines", "policies", "agent-messaging", "schedules", "git-director", "transfers", "agent-portal",
+      "overview", "clients", "hosts", "projects", "provider-accounts", "quick-settings", "engines", "policies", "agent-messaging", "schedules", "git-director", "transfers",
       "skills", "instructions", "memories", "subagents", "commands", "output-styles", "api-access", "secrets", "admin-users", "activity",
     ]);
     assert.deepEqual(NAV_FOOTER.map((entry) => entry.id), ["manual", "account"]);
@@ -66,7 +66,6 @@ describe("location text", () => {
     assert.equal(getPageContext("/skills/deploy-bot"), "Skills / Deploy bot");
     assert.equal(getPageContext("/projects/fleet/todos"), "Projects / Fleet / Todos");
     assert.equal(getPageContext("/logs/mcp"), "Logs / MCP requests");
-    assert.equal(getDocumentTitle("/agent-portal"), "Agent Portal · Codex Orchestrator");
     assert.deepEqual(getBreadcrumbs("/projects/fleet/todos"), [
       { label: "Projects", route: "/projects" },
       { label: "Fleet", route: "/projects/fleet" },

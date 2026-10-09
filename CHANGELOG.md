@@ -1,5 +1,7 @@
 # 2026-10-09
 
+- Removed the legacy `/go` mobile webchat, permanent magic links and portal-user management. Active Clients now holds shared agent-session settings and remote-session start/continue/stop controls. Android chat, notifications and wrapper receiver contracts remain available; cleanup 0051 deletes the retired portal access tables and their authored queue rows without converting identities.
+
 - Chatty adds the personal bottom-right Admin assistant: verified AI access gating, private encrypted cross-device history, product/MCP knowledge, Codex/Claude/Grok selection, typed administration tools, concrete confirmations, cancellation and global Clear. Host-work dispatch stays outside Chatty; interactive credential flows link to the existing UI.
 
 - Web Chat and Android 0.4.9 show per-message delivery, explicit AI read/working receipts and correlated replies. Wrapper 0.9.43 adds `agent_receiver_status`; queue acceptance never fabricates reading, and stale or unrelated turns cannot keep a message marked as working.

@@ -1,5 +1,10 @@
 # cgx — Grok Build fleet wrapper
 
+The legacy `/go` magic-link webchat is removed. Active Clients and Android
+continue using the existing session/receiver contracts and `cxx portal` commands;
+operator access requires a dashboard account or its paired device. Session
+settings and remote-session controls are available in Active Clients.
+
 ## Fleet commit preferences
 
 Managed AGENTS.md carries the fleet's short/long commit preference and AI attribution setting from the Git Director page, independently of Director, MCP and Skills activation. Defaults: a subject-only message and no automatic AI markers/co-authors. Long adds change/reason and relevant verification; attribution adds one `AI-Assisted-By: Grok` trailer after a blank line, also in short mode. Git author/committer and commit/push authorization remain unchanged; explicit operator instructions take precedence. The next content sync/launch refreshes the document hash; active sessions may retain previous guidance, and explicit blank generation mode suppresses managed rules. API contract: [Fleet commit preferences](interface-api.md#fleet-commit-preferences).

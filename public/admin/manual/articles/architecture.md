@@ -68,7 +68,7 @@ Schema is MySQL 8.4, defined as Drizzle table builders in `api/src/db/schema.ts`
 - `chatgpt_usage_snapshots` — ChatGPT quota snapshots.
 - `mcp_session_tokens`, `mcp_access_logs`, `mcp_memories` — MCP identity, access log, and host memory store; `shared_memories` (+ `_chunks`, `_revisions`) and `coord_project_memories` are the other two memory scopes.
 - `secrets` — credentials supplied to agents over MCP.
-- `agent_portal_users`, `agent_portal_browser_sessions`, `agent_sessions`, `agent_events`, `agent_prompts`, `agent_messages` — the Agent Portal and Active Clients session model.
+- `agent_sessions`, `agent_events`, `agent_prompts`, `agent_messages` — the Active Clients and agent sessions session model.
 - `agent_bus_addresses`, `agent_bus_conversations`, `agent_bus_conferences`, `agent_bus_messages`, `agent_bus_relays` — Agent Messaging.
 - `git_clones`, `git_worktrees`, `git_merge_requests` — Git Director.
 - `agent_transfers`, `agent_transfer_events` — the File Transfer pool and its audit trail (bytes live on disk under `<DATA_ROOT>/transfers/`).

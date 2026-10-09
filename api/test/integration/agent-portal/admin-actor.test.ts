@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { splitSqlStatements } from '../../../src/db/migration-sql.js';
 import { randomUUID } from 'node:crypto';
 import { eq, sql } from 'drizzle-orm';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
@@ -79,7 +81,6 @@ describe.skipIf(!handle)('a console session as message author', { timeout: 120_0
       PUBLIC_BASE_URL: 'https://portal.example',
       AGENT_PORTAL_BRIDGE_TTL_SECONDS: 900,
       AGENT_PORTAL_RETENTION_HOURS: 24,
-      AGENT_PORTAL_SESSION_TTL_HOURS: 24,
     } as Env;
     service = new AgentPortalService(db, env, testKeyring());
   });
@@ -136,6 +137,28 @@ describe.skipIf(!handle)('a console session as message author', { timeout: 120_0
     await expect(service.addAgentEvent(sessionId, 'invalid-bridge-token', {
       clientEventId: randomUUID(), type: 'assistant_message', source: 'bridge', payload: { text: 'forged receipt' },
     }, host.id)).rejects.toBeDefined();
+  });
+
+  it('retires only portal-authored data and remains safe to apply twice', async () => {
+    const { sessionId, bridgeToken } = await liveSession();
+    const kept = await service.enqueueMessage(adminActor(), { sessionId, clientMessageId: randomUUID(), content: 'keep admin instruction' });
+    const retired = await service.enqueueMessage(adminActor(), { sessionId, clientMessageId: randomUUID(), content: 'retired portal instruction' });
+    const removedId = String(retired.message_id);
+    // Same numeric ID across old and current authors must never transfer ownership.
+    await exec(`UPDATE agent_messages SET portal_user_id = ${adminId}, admin_user_id = NULL WHERE message_id = '${removedId}'`);
+    const promptId = randomUUID();
+    await exec(`INSERT INTO agent_prompts (id, session_id, question_enc, status, answered_by_user_id, answer_message_id, created_at, answered_at)
+      VALUES ('${promptId}', '${sessionId}', 'retired', 'answered', ${adminId}, '${removedId}', '2026-01-01', '2026-01-01')`);
+    await exec('CREATE TABLE agent_portal_users (id BIGINT PRIMARY KEY)');
+    await exec('CREATE TABLE agent_portal_browser_sessions (id BIGINT PRIMARY KEY)');
+    const statements = splitSqlStatements(readFileSync(new URL('../../../src/db/migrations/0051_remove_agent_portal_access.sql', import.meta.url), 'utf8'));
+    for (let run = 0; run < 2; run++) for (const statement of statements) await exec(statement);
+    expect(rowsOf(await exec("SHOW TABLES LIKE 'agent_portal_%'"))).toEqual([]);
+    expect(rowsOf(await exec(`SELECT message_id FROM agent_messages WHERE message_id = '${removedId}'`))).toEqual([]);
+    expect(rowsOf(await exec(`SELECT * FROM agent_events WHERE client_event_id = 'portal:${removedId}'`))).toEqual([]);
+    expect(rowsOf(await exec(`SELECT status, answered_by_user_id, answer_message_id, version FROM agent_prompts WHERE id = '${promptId}'`))[0])
+      .toMatchObject({ status: 'expired', answered_by_user_id: null, answer_message_id: null, version: 2 });
+    expect(await service.claimMessage(sessionId, bridgeToken, randomUUID(), host.id)).toMatchObject({ message_id: kept.message_id });
   });
 
   it('writes the admin column and leaves the portal one null', async () => {

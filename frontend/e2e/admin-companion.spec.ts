@@ -6,7 +6,7 @@ test('pairs and revokes an Android device from Account', async ({ page }) => {
   await page.route('**/admin/**', async route => {
     if (route.request().resourceType() === 'document') return route.continue();
     const path = new URL(route.request().url()).pathname;
-    if (!['fetch', 'xhr'].includes(route.request().resourceType())) return route.continue();
+    if (!route.request().headers().accept?.includes('application/json')) return route.continue();
     let data: unknown = {};
     if (path === '/admin/auth/status') data = { authenticated: true, enforced: true, user: { id: 1, name: 'Operator', username: 'operator', access_level: 'owner' }, roles: ['owner'], capabilities: ['account.self_manage'] };
     else if (path === '/admin/setup/status') data = { setup_complete: true, next_actions: [], checks: [], critical_complete: true, wizard: { completed_at: new Date().toISOString() } };

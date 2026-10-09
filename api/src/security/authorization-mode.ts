@@ -63,7 +63,7 @@ export function parseAuthorizationMode(raw: string | null | undefined): Authoriz
 }
 
 /**
- * Every route the six removed gates covered, as they stood at `13b4093f` —
+ * Every remaining route the six removed gates covered at `13b4093f` —
  * keyed the way `route-capabilities.ts` keys routes.
  *
  * This is the definition of `compatible`, so it is pinned rather than derived
@@ -73,12 +73,10 @@ export function parseAuthorizationMode(raw: string | null | undefined): Authoriz
  * this one, so neither can be edited quietly.
  */
 export const LEGACY_OWNER_ADMIN_ROUTES: ReadonlySet<string> = new Set([
-  'DELETE /admin/agent-portal/users/:id',
   'DELETE /admin/hosts/:id',
   'DELETE /admin/memories/:scope/:recordId',
   'DELETE /admin/secrets/:id',
   'DELETE /admin/users/:id',
-  'GET /admin/agent-portal/users/:id/link',
   'PATCH /admin/agent-messaging/addresses/:id',
   'PATCH /admin/memories/:scope/:recordId',
   'PATCH /admin/secrets/:id',
@@ -88,10 +86,6 @@ export const LEGACY_OWNER_ADMIN_ROUTES: ReadonlySet<string> = new Set([
   'POST /admin/agent-messaging/messages/:id/reveal',
   'POST /admin/agent-messaging/state',
   'POST /admin/agent-portal/state',
-  'POST /admin/agent-portal/users',
-  'POST /admin/agent-portal/users/:id',
-  'POST /admin/agent-portal/users/:id/enabled',
-  'POST /admin/agent-portal/users/:id/rotate',
   'POST /admin/hosts/:id/engines',
   'POST /admin/hosts/:id/secure',
   'POST /admin/hosts/register',
