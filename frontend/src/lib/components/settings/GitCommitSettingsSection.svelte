@@ -5,6 +5,7 @@
   import SectionCard from "./SectionCard.svelte";
   import SwitchRow from "./SwitchRow.svelte";
 
+  let previewEngine = $state("Codex");
   const query = gitCommitSettingsQuery();
   let lastSavedAt = $state<Date | null>(null);
   const mutation = gitCommitSettingsMutation({
@@ -29,7 +30,7 @@
 <SectionCard
   id="git-commit-messages"
   title="Commit messages"
-  description="Shared preferences for Codex, Claude and Grok. Applies even when the Git Director or Skills are disabled. Defaults: short messages, AI attribution off."
+  description="Commit preferences for Codex, Claude and Grok, independent of the Director switch."
   {status}
   savedAt={lastSavedAt}
   error={$mutation.error?.message ?? $query.error?.message}
@@ -72,17 +73,13 @@
     />
   {/key}
   {#if data}
-    <div class="grid gap-3 md:grid-cols-3">
-      {#each ["Codex", "Claude", "Grok"] as engine}
-        <div class="min-w-0 rounded-md border p-3">
-          <p class="mb-2 text-xs font-medium">{engine} preview</p>
-          <pre class="whitespace-pre-wrap break-words text-xs">{preview(engine)}</pre>
-        </div>
-      {/each}
+    <div class="rounded-md border p-3">
+      <div class="mb-3 flex items-center justify-between gap-3"><label for="git-preview-engine" class="text-xs font-medium">Preview engine</label><select id="git-preview-engine" bind:value={previewEngine} class="rounded-md border border-input bg-background px-2 py-1 text-sm">{#each ["Codex", "Claude", "Grok"] as engine}<option>{engine}</option>{/each}</select></div>
+      <pre aria-label="Commit preview" class="whitespace-pre-wrap break-words text-xs">{preview(previewEngine)}</pre>
     </div>
   {/if}
-  <p class="text-xs text-muted-foreground">
+  <details class="text-xs text-muted-foreground"><summary class="cursor-pointer">Details</summary><p class="mt-2">
     Delivered through managed AGENTS.md / CLAUDE.md on the next wrapper sync or launch.
     Explicit operator instructions take precedence. These preferences do not authorize commits or pushes.
-  </p>
+  </p></details>
 </SectionCard>

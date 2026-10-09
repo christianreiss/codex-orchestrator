@@ -8,6 +8,8 @@ Small Node 22 + Fastify + Drizzle + MySQL service that keeps canonical Codex, Cl
 
 The Git Director page also holds fleet-wide **Commit messages** preferences for Codex, Claude and Grok: short (subject only) or long (subject, change/reason and relevant verification), plus optional AI attribution. Defaults are short and attribution off. These rules are always included in managed AGENTS.md / CLAUDE.md output even with Director or Skills disabled; hosts adopt them on their next sync/launch. Explicit operator instructions take precedence, and Git identities and commit/push authority are unchanged.
 
+Git Director opens on Settings with compact service and commit controls and a selectable engine preview. Activity, Merge requests and History are separate searchable tabs (`?tab=settings|activity|merges|history`). Worktree and request details open in a side panel, full-screen on mobile; release and verdict overrides remain permission-gated in details.
+
 - Centralize `auth.json` instead of managing per-host logins.
 - Bake a one-time installer per host (API key + base URL) and keep hosts in sync automatically.
 - Audit who synced/rotated auth, what versions they run, and how many tokens they burn.

@@ -56,7 +56,8 @@ test('saves all combinations and previews each engine with the Director disabled
       await expect(attribution).toBeChecked({ checked: ai_attribution });
       await expect(attribution).toBeEnabled();
       for (const engine of ['Codex', 'Claude', 'Grok']) {
-        const preview = card.getByText(`${engine} preview`, { exact: true }).locator('..').locator('pre');
+        await card.getByLabel('Preview engine').selectOption(engine);
+        const preview = card.getByLabel('Commit preview');
         await expect(preview).toHaveText('Fix stale host status'
           + (message_style === 'long' ? '\n\nRefresh host status after configuration changes so the dashboard shows the current state.' : '')
           + (ai_attribution ? `\n\nAI-Assisted-By: ${engine}` : ''), { useInnerText: true });
@@ -103,6 +104,7 @@ test('read-only users see disabled settings and previews on mobile', async ({ pa
   await page.goto('/admin/git-director');
   await expect(page.getByLabel('Message length')).toBeDisabled();
   await expect(page.getByRole('switch', { name: 'AI Attribution', exact: true })).toBeDisabled();
-  await expect(page.getByText('Grok preview', { exact: true })).toBeVisible();
+  await page.getByLabel('Preview engine').selectOption('Grok');
+  await expect(page.getByLabel('Commit preview')).toBeVisible();
   expect(shared.writes).toEqual([]);
 });

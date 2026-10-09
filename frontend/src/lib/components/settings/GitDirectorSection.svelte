@@ -33,10 +33,10 @@
 <SectionCard
   id="git-director"
   title="Service state"
-  description="A registry of which agent is working in which git clone, plus an advisory arbiter over merges into shared branches. The initial default is off."
+  description="Enable fleet worktree registration and advisory merge coordination."
   {status}
   savedAt={lastSavedAt}
-  error={$mutation.error?.message}
+  error={$mutation.error?.message ?? $query.error?.message}
 >
   <SwitchRow
     id="git-director-toggle"
@@ -47,11 +47,12 @@
         ? `${data.clones} clones · ${data.worktrees} live worktrees · verdicts judged by ${data.model}`
         : "Registration, discovery, and merge arbitration are disabled."}
     checked={data?.enabled ?? false}
-    disabled={!canMutate || $query.isPending || $mutation.isPending}
+    disabled={!canMutate || $query.isPending || !$query.data || $mutation.isPending}
     onCheckedChange={(next) => $mutation.mutate(next)}
   />
 
-  <p class="text-xs text-muted-foreground">
+  <details class="text-xs text-muted-foreground"><summary class="cursor-pointer">Details</summary>
+  <p class="mt-2">
     Enabling adds a Git Director section to every active host's AGENTS.md / CLAUDE.md, replacing the
     whole file on their next wrapper launch. Disabling stops the <code>git_*</code> tools from serving
     but keeps existing registrations, so turning it back on does not lose the picture.
@@ -62,5 +63,5 @@
     reported by the calling agent and nothing prevents a merge. Uncontended requests are answered
     deterministically without a model; contended ones fall back to a deterministic <em>wait</em>
     whenever no arbiter is reachable, so an inference outage never blocks a merge.
-  </p>
+  </p></details>
 </SectionCard>

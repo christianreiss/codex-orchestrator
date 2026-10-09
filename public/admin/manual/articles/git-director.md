@@ -9,6 +9,10 @@ sources: api/src/services/git-commit-settings.ts, api/src/services/managed-agent
 
 Several agents work this fleet's repositories at once, often in separate worktrees of one checkout. The **Git Director** (`/git-director`, under *Coordinate*) is how they see each other: a registry of who is working in which clone, and an arbiter for merges into shared branches. It never touches a worktree — every agent runs its own git commands and reports what it did. The console page is where an operator watches the registry, forces a verdict, or releases a worktree an agent abandoned.
 
+## Page layout
+
+**Settings** opens by default: Director activation and commit preferences, with a single preview selectable by engine. Changes save immediately; extended explanations are under **Details**. **Activity**, **Merge requests** and **History** show the operational records separately. Search by repository, host, user, task or branch; select a row for full details in the side panel. Release and verdict overrides live in the relevant detail panel. Tabs support direct links through `?tab=settings|activity|merges|history`. The panel fills the screen on mobile.
+
 ## Commit messages
 
 The **Commit messages** card applies one shared preference to Codex, Claude and Grok, even when the Git Director or Skills are disabled:
@@ -29,7 +33,7 @@ The page (`GET /admin/git-director`, `git_director.read`, refreshed by **Refresh
 
 Two per-row actions need `git_director.manage`:
 
-- **Release** (`POST /admin/git-director/worktrees/{id}/release`) withdraws every live merge request the worktree holds (`verdict: 'withdrawn'`), marks it released, and frees any branch lease it held immediately instead of waiting out the TTL. Use it when an agent stopped without calling `git_release`.
+- **Release registration** (`POST /admin/git-director/worktrees/{id}/release`) withdraws every live merge request the worktree holds (`verdict: 'withdrawn'`), marks it released, and frees any branch lease it held immediately instead of waiting out the TTL. Use it when an agent stopped without calling `git_release`.
 - **Force allow** / **Deny** (`POST /admin/git-director/requests/{id}/decide` with `{ verdict: 'allow' | 'deny', reason? }`) overrides a pending verdict. The decision is recorded as made by an operator; an allow hands out a normal lease, and the reason — or the default *"Forced allow by an operator from the console."* — is what the waiting agent reads on its next status poll.
 
 Two collapsible panels show **Reclaimed** registrations (rows that expired or whose agent is known to have ended — nothing is deleted, so a stale row stays visible with `expired` or `abandoned`) and **Recent verdicts**.
@@ -64,7 +68,7 @@ Agents are told to pass `changed_paths` from `git diff --name-only base...head`:
 - api/src/services/mcp-tools.ts (tool definitions)
 - api/src/security/capabilities.ts, api/src/security/route-capabilities.ts (`git_director.read` / `git_director.manage`)
 - api/src/env.ts (`AGENT_PORTAL_HEARTBEAT_FRESH_SECONDS`, reused as the registry's freshness window)
-- frontend/src/routes/git-director/+page.svelte (registry, Release, Force allow / Deny, Reclaimed and Recent verdicts)
+- frontend/src/routes/git-director/+page.svelte (Settings, Activity, Merge requests, History and detail-panel operator actions)
 - frontend/src/lib/components/settings/GitDirectorSection.svelte (the module switch)
 - frontend/src/lib/api/gitDirector.ts (queries and mutations)
 

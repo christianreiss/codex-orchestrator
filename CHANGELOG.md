@@ -1,5 +1,7 @@
 # 2026-10-09
 
+- Git Director opens on compact Settings, with a single selectable engine preview. Activity, merge requests and history have separate searchable tabs, linkable URLs and detail panels; operator actions stay in the relevant details.
+
 - Policies now uses focused Host behavior, Agent behavior, Access control and Cleanup categories with a desktop sidebar and mobile selector. Immediate controls show save/read failures and respect capabilities; numeric forms validate whole-number ranges, preserve drafts across category changes and detect external edits. Insecure-host approval copy now describes access windows rather than browser windows.
 
 - Wake / Cron shows agent launch names and a searchable name/alias/host picker. Creation, editing and execution details use a compact side panel, full-screen on mobile, with recovery fields shown only when enabled.
