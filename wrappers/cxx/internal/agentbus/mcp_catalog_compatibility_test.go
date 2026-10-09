@@ -23,7 +23,7 @@ func TestMCPCatalogCompatibility(t *testing.T) {
 	if err := json.Unmarshal(toolCatalogJSON(), &catalog); err != nil {
 		t.Fatal(err)
 	}
-	if len(catalog) != 36 {
+	if len(catalog) != 37 {
 		t.Fatalf("review new tools: got %d", len(catalog))
 	}
 	// Optional export lets the real Grok MCP doctor load exactly this catalogue
@@ -48,6 +48,8 @@ func TestMCPCatalogCompatibility(t *testing.T) {
 				args["conference_id"] = "fixture"
 			case "agent_conf_invite":
 				args["to"] = []any{"agent:fixture"}
+			case "agent_receiver_status":
+				args["status"] = "working"
 			case "agent_task_result":
 				args["task_result"] = map[string]any{"status": "succeeded", "summary": "fixture"}
 			}
@@ -67,7 +69,7 @@ func TestMCPCatalogCompatibility(t *testing.T) {
 				if tool.Name == "agent_task_result" {
 					tracker.track(ctx, "fixture", "fixture-claim")
 				}
-				if tool.Name == "agent_receiver_reply" {
+				if tool.Name == "agent_receiver_reply" || tool.Name == "agent_receiver_status" {
 					tracker.receiver = &autoReceiver{client: client, pendingPortal: map[string]any{"message_id": "fixture"}}
 				}
 				params, _ := json.Marshal(map[string]any{"name": tool.Name, "arguments": args})

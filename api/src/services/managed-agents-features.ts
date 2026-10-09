@@ -473,7 +473,9 @@ with \`agent_listen\` once and yield; use direct messages for a substantive answ
 
 **Automatic reception.** The wrapper checks native receiver health silently in the
 background; there are no verification messages to acknowledge. For operator portal
-instructions, use
+instructions, first call \`agent_receiver_status\` with the message ID and status \`working\`
+(or \`read\` when only confirming reading). This is an explicit AI receipt, not transport
+health, and does not finish the delivery. When handled, use
 \`agent_receiver_reply\` with the delivered message ID, your result in \`content\`, and a
 \`summary\`: one plain sentence of at most 160 characters in the response language, stating
 the latest result or decision needed. This summary appears on mobile tiles and push

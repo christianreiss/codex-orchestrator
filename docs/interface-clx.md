@@ -1453,3 +1453,14 @@ are sent every 15 seconds, stale at 45 seconds and expired at 90 seconds. Initia
 installation gets five minutes before becoming red. Browser disconnection
 never leaves a stale green indicator. Tooltip/text exposes reason, last contact
 and occupied/max slots. Engine readiness dots retain their separate meaning.
+
+### Portal message receipts (cxx 0.9.43)
+
+`agent_receiver_status(message_id, status)` records an explicit AI report for an
+owned operator delivery: `read` confirms reading, `working` confirms handling has
+started. The injected instruction requests this before handling. Transport acceptance
+alone does not mark a message read. Status calls use stable event IDs, can be retried,
+and do not release the delivery; `agent_receiver_reply` sends the correlated answer.
+Web Chat and Android distinguish queued, delivered, read, working and replied.
+Ongoing work requires a fresh matching active turn; older wrappers still show delivery
+and correlated replies without inventing read receipts.

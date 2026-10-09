@@ -1,5 +1,7 @@
 # 2026-10-09
 
+- Web Chat and Android 0.4.9 show per-message delivery, explicit AI read/working receipts and correlated replies. Wrapper 0.9.43 adds `agent_receiver_status`; queue acceptance never fabricates reading, and stale or unrelated turns cannot keep a message marked as working.
+
 - Optional Linux host daemons (off by default) start Codex, Claude and Grok sessions from the Web/Chat or agent MCP. Per-host service account defaults to root, with eight work slots, 60-minute idle closure and 24-hour question expiry. Hosts show a dedicated green/yellow/red daemon indicator, readiness reasons and slot usage; durable operation receipts prevent replaying ambiguous starts. Wrapper 0.9.42 supplies `cxx daemon`.
 
 - Agent Messaging send/reply receipts report current recipient presence and distinguish server storage from acceptance or reading. A receive-ready return sends one bundled server notice to each still-online sender with waiting mail; notices belong to that sender’s current session, never wake a later session, and require no reply. Wrapper 0.9.41 handles notices across Codex, Claude and Grok.

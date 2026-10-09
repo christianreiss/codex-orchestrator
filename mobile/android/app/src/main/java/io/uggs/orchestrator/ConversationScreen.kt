@@ -37,6 +37,7 @@ import org.json.JSONObject
     val sessionId = remember { model.selected }
     val prompt = agent?.optJSONObject("pending_prompt")
     val rows = remember(model.events) { chatRows(model.events) }
+    val receipts = remember(model.events) { deliveryIndex(model.events) }
     val latestAssistant = rows.filterIsInstance<ChatRow.Message>().lastOrNull { it.event.optString("type") == "assistant_message" }
     val latestReplyCursor = latestAssistant?.event?.optLong("cursor") ?: 0
     val expectedReplyCursor = agent?.optLong("reply_cursor") ?: 0
@@ -112,7 +113,7 @@ import org.json.JSONObject
                         is ChatRow.Day -> Box(Modifier.fillMaxWidth().padding(vertical = 18.dp), contentAlignment = Alignment.Center) {
                             Text(dayLabel(row.date), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
-                        is ChatRow.Message -> MessageBubble(row)
+                        is ChatRow.Message -> MessageBubble(row, deliveryLabel(row.event, receipts, agent, fresh))
                     }
                 }
                 if (prompt != null) item(key = "question:" + prompt.optString("id")) {
@@ -150,7 +151,7 @@ import org.json.JSONObject
     }
 }
 
-@Composable private fun MessageBubble(row: ChatRow.Message) {
+@Composable private fun MessageBubble(row: ChatRow.Message, delivery: String?) {
     val own = row.event.optString("type") == "user_message"
     val shape = RoundedCornerShape(
         topStart = if (!own && row.joinsPrevious) 6.dp else 22.dp,
@@ -168,6 +169,9 @@ import org.json.JSONObject
                         Text(row.event.getJSONObject("payload").optString("text"), Modifier.padding(horizontal = 15.dp, vertical = 10.dp), style = MaterialTheme.typography.bodyLarge)
                     }
                 }
+                if (delivery != null) Text(delivery,
+                    Modifier.padding(horizontal = 9.dp, vertical = 3.dp).testTag("delivery:" + row.event.optJSONObject("payload")?.optString("message_id")),
+                    style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 if (!row.joinsNext) eventTime(row.event)?.let {
                     Text(timeLabel(it, use24Hour), Modifier.padding(horizontal = 9.dp, vertical = 5.dp), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }

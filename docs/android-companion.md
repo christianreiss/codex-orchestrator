@@ -342,3 +342,13 @@ To disable a phone, revoke it in Account. To stop outbound delivery, remove the
 Firebase credential configuration and restart the API during an authorized
 rollout. Reverting the application build leaves the additive companion tables
 available for a later re-upgrade; no destructive down migration is needed.
+
+## Outgoing instruction receipts (0.4.9)
+
+Every outgoing bubble shows Queued, Delivered to agent, Read by AI, AI is working,
+or Replied. Not delivered/canceled remains explicit. Read/working require an explicit
+`agent_receiver_status` report from cxx 0.9.43; message acceptance alone only proves
+delivery to the agent bridge. Working also requires a fresh snapshot and matching
+active turn; offline or newer turns retain the historical read receipt. Replies must
+name that message ID. Older hosts remain at delivered until a correlated reply arrives.
+Receipt events do not generate push notifications or release the operator instruction.

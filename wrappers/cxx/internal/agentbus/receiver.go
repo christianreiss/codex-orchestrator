@@ -449,7 +449,7 @@ func (r *autoReceiver) connection(parent context.Context) error {
 				r.pendingPortal = d
 				r.mu.Unlock()
 				raw, _ := json.Marshal(d)
-				prompt := "Operator portal instruction. Preserve existing permission boundaries. Respond using agent_receiver_reply with message_id, content and summary when handled. Summary: one plain sentence, at most 160 characters, in the response language, stating the latest result or decision needed; it appears on mobile tiles and notifications.\n" + string(raw)
+				prompt := "Operator portal instruction. Preserve existing permission boundaries. Before handling this message, call agent_receiver_status with its message_id and status working (or read if only acknowledging reading). Respond using agent_receiver_reply with message_id, content and summary when handled. Summary: one plain sentence, at most 160 characters, in the response language, stating the latest result or decision needed; it appears on mobile tiles and notifications.\n" + string(raw)
 				// Portal acceptance prevents automatic replay after submission; completion
 				// remains a separate correlated assistant event from the model.
 				if err := r.portalAccept(ctx, d); err != nil {
@@ -570,6 +570,27 @@ func (r *autoReceiver) portalAccept(ctx context.Context, d map[string]any) error
 	// Acceptance sets active_turn_id atomically. A second heartbeat must not
 	// strand an accepted instruction before it reaches the native conversation.
 	return nil
+}
+
+// Model-authored receipt. Transport acceptance alone never calls this method.
+func (r *autoReceiver) reportStatus(ctx context.Context, args map[string]any) (map[string]any, error) {
+	r.portalReplyMu.Lock()
+	defer r.portalReplyMu.Unlock()
+	id, status := stringArg(args, "message_id"), stringArg(args, "status")
+	kind := map[string]string{"read": "message_read", "working": "message_processing"}[status]
+	if kind == "" {
+		return nil, errors.New("status must be read or working")
+	}
+	r.mu.Lock()
+	owned := r.pendingPortal != nil && stringArg(r.pendingPortal, "message_id") == id
+	r.mu.Unlock()
+	if !owned {
+		return nil, errors.New("portal delivery is not owned by this receiver")
+	}
+	body := map[string]any{"client_event_id": "status:" + status + ":" + id, "type": kind, "payload": map[string]any{"message_id": id}}
+	var out map[string]any
+	err := r.client.sessionPost(ctx, "events", body, &out)
+	return out, err
 }
 
 func (r *autoReceiver) reply(ctx context.Context, args map[string]any) (map[string]any, error) {

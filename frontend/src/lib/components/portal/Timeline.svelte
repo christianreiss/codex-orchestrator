@@ -22,7 +22,6 @@
   let scroller = $state<HTMLElement | null>(null);
   const items = $derived(buildTimeline(visibleTimeline(portal.timeline, agent.pending_prompt)));
   const delivery = $derived(deliveryIndex(portal.timeline));
-  const lastOutgoing = $derived(portal.timeline.filter((row) => row.type === "user_message").at(-1)?.cursor);
 
   const ATTENTION_BOTTOM_GAP = 80;
 
@@ -78,7 +77,9 @@
           startsGroup={item.startsGroup}
           endsGroup={item.endsGroup}
           deliveryIndex={delivery}
-          showDelivery={item.event.cursor === lastOutgoing || item.event.cursor < 0}
+          showDelivery={true}
+          activity={agent}
+          now={portal.now}
         />
       {:else}
         <StatusLine event={item.event} />

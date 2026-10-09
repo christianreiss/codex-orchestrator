@@ -85,6 +85,8 @@ export const AGENT_EVENT_TYPES = [
   'waiting_input',
   'terminal_block',
   'message_accepted',
+  'message_read',
+  'message_processing',
   'attention',
   'attention_resolved',
   'close_requested',
@@ -101,6 +103,8 @@ export const AGENT_BRIDGE_EVENT_TYPES = [
   'session_named',
   'assistant_message',
   'progress',
+  'message_read',
+  'message_processing',
   'waiting_input',
   'terminal_block',
   'attention',
@@ -1626,6 +1630,15 @@ export class AgentPortalService {
           await this.applyTerminalState(tx, sessionId, options.terminal.status, options.terminal.expiresAt);
         }
         return { row: existing[0], payload };
+      }
+      if (input.type === 'message_read' || input.type === 'message_processing') {
+        const messageId = normalizeUuid(normalized.payload.message_id, 'message_id');
+        const [message] = await tx.select().from(agentMessages)
+          .where(and(eq(agentMessages.sessionId, sessionId), eq(agentMessages.messageId, messageId)))
+          .limit(1).for('update');
+        if (!message || message.status !== 'accepted' || !message.upstreamId || session.activeTurnId !== message.upstreamId) {
+          throw new ConflictError('Message is not the current accepted instruction', 'agent_message_not_active');
+        }
       }
       if (input.type === 'session_named' && normalized.payload.only_if_missing === true) {
         const [named] = await tx

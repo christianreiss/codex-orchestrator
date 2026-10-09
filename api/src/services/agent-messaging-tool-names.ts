@@ -33,6 +33,7 @@ export const AGENT_MESSAGING_TOOLS = [
   'agent_reply',
   'agent_task_result',
   'agent_receiver_reply',
+  'agent_receiver_status',
   'agent_message_get',
   'agent_cancel',
   'agent_call_open',

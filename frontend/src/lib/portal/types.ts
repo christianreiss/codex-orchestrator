@@ -71,6 +71,7 @@ export interface Agent {
    * ceiling, so this never reports an age the label does not stand behind.
    */
   active_turn_started_at: string | null;
+  active_turn_id?: string | null;
   started_at: string;
   heartbeat_at: string;
   last_event_at: string | null;
@@ -92,6 +93,8 @@ export type EventType =
   | "waiting_input"
   | "terminal_block"
   | "message_accepted"
+  | "message_read"
+  | "message_processing"
   | "attention"
   | "attention_resolved"
   | "close_requested"

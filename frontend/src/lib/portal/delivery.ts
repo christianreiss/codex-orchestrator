@@ -1,49 +1,49 @@
 import type { EventRow } from "./types";
 
-export type Delivery = "sending" | "queued" | "delivered" | "failed" | "canceled";
+export type Delivery = "sending" | "queued" | "delivered" | "read" | "processing" | "replied" | "failed" | "canceled";
+export interface DeliveryActivity { presence: string; active_turn_id?: string | null; heartbeat_at?: string }
 
 export const DELIVERY_LABEL: Record<Delivery, string> = {
   sending: "Sending…",
   queued: "Queued",
-  delivered: "Delivered",
+  delivered: "Delivered to agent",
+  read: "Read by AI",
+  processing: "AI is working…",
+  replied: "Replied",
   failed: "Not delivered",
   canceled: "Not delivered — the agent never picked this up",
 };
 
-/**
- * Outgoing messages carry `delivery_status: "queued"` on the user_message event
- * the API writes at enqueue time. Acceptance arrives later as a separate
- * message_accepted event naming the same message_id, so the state has to be
- * assembled across the timeline rather than read off one row.
- *
- * message_canceled closes the third case: a message that was accepted into the
- * queue and then discarded because no agent ever claimed it. Without it such a
- * message reads "Queued" for the rest of the session's life.
- */
+/** Only explicitly correlated receipts advance a message; transport is not reading. */
 export function deliveryIndex(events: EventRow[]): Map<string, Delivery> {
   const index = new Map<string, Delivery>();
+  const rank: Partial<Record<Delivery, number>> = { delivered: 1, read: 2, processing: 3, replied: 4 };
   for (const event of events) {
     const messageId = event.payload.message_id;
     if (typeof messageId !== "string") continue;
-    // Acceptance is final: the agent has it, and a later cancel of the same id
-    // would be reporting on a lease that was already honoured.
-    if (event.type === "message_accepted") index.set(messageId, "delivered");
-    else if (index.get(messageId) === "delivered") continue;
-    else if (event.type === "message_canceled") index.set(messageId, "canceled");
-    else if (event.type === "failed" && !index.has(messageId)) index.set(messageId, "failed");
+    const state: Delivery | undefined = ({ message_accepted: "delivered", message_read: "read",
+      message_processing: "processing", assistant_message: "replied" } as Record<string, Delivery>)[event.type];
+    const current = index.get(messageId);
+    if (state) {
+      if ((rank[state] ?? 0) >= (rank[current!] ?? 0)) index.set(messageId, state);
+    } else if (!rank[current!]) {
+      if (event.type === "message_canceled") index.set(messageId, "canceled");
+      else if (event.type === "failed" && !current) index.set(messageId, "failed");
+    }
   }
   return index;
 }
 
-export function deliveryFor(event: EventRow, index: Map<string, Delivery>): Delivery | null {
+export function deliveryFor(event: EventRow, index: Map<string, Delivery>, activity?: DeliveryActivity, now = Date.now()): Delivery | null {
   if (event.type !== "user_message") return null;
   const messageId = event.payload.message_id;
   if (typeof messageId !== "string") return null;
   const resolved = index.get(messageId);
+  // A stored start is historical evidence. Show ongoing work only while the
+  // server still reports this exact turn as working, never for an older bubble.
+  if (resolved === "processing") return activity?.presence === "working" && activity.active_turn_id === messageId && Number.isFinite(Date.parse(activity.heartbeat_at ?? "")) && now - Date.parse(activity.heartbeat_at!) >= 0 && now - Date.parse(activity.heartbeat_at!) < 45_000 ? "processing" : "read";
   if (resolved) return resolved;
-  const status = event.payload.delivery_status;
-  if (status === "sending") return "sending";
-  return "queued";
+  return event.payload.delivery_status === "sending" ? "sending" : "queued";
 }
 
 /** Optimistic sends use a negative cursor so they sort last and key stably. */

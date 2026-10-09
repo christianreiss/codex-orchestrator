@@ -19,6 +19,7 @@ interface AgentOverrides {
   presence?: string;
   relay_ready?: boolean;
   active_turn_started_at?: string | null;
+  active_turn_id?: string | null;
   attention?: { since: string; summary: string } | null;
   ended_at?: string | null;
   read_only?: boolean;
@@ -358,4 +359,28 @@ test("Grok portal identity and receiver evidence use native ACP state", async ({
   await page.getByText("Reception: ready", { exact: true }).click();
   await expect(page.getByText("grok-acp-v1 · Native session native-grok-1", { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Reconnect receiver" })).toBeVisible();
+});
+
+
+test("each outgoing message shows its own delivery and AI receipt", async ({ page }) => {
+  const events: Array<Record<string, unknown>> = [];
+  for (const [id, receipt] of [["queued", null], ["delivered", "message_accepted"], ["read", "message_read"], ["working", "message_processing"], ["replied", "assistant_message"]] as const) {
+    events.push({ cursor: events.length + 1, session_id: SESSION_ID, type: "user_message", source: "portal", created_at: new Date().toISOString(), payload: { message_id: id, text: `Instruction ${id}`, delivery_status: "queued" } });
+    if (receipt) events.push({ cursor: events.length + 1, session_id: SESSION_ID, type: receipt, source: "bridge", created_at: new Date().toISOString(), payload: { message_id: id, text: receipt === "assistant_message" ? "Done" : undefined } });
+  }
+  await stubPortal(page, { agent: { presence: "working", active_turn_id: "working", active_turn_started_at: new Date().toISOString() }, events });
+  await openPortal(page);
+  for (const label of ["Queued", "Delivered to agent", "Read by AI", "AI is working…", "Replied"]) {
+    await expect(page.getByRole("region", { name: "Session timeline" }).getByText(label, { exact: true })).toBeVisible();
+  }
+});
+
+test("stored processing receipt does not claim ongoing work for an offline agent", async ({ page }) => {
+  await stubPortal(page, { agent: { presence: "offline", relay_ready: false, active_turn_id: "m1" }, events: [
+    { cursor: 1, session_id: SESSION_ID, type: "user_message", source: "portal", created_at: new Date().toISOString(), payload: { message_id: "m1", text: "Check it" } },
+    { cursor: 2, session_id: SESSION_ID, type: "message_processing", source: "bridge", created_at: new Date().toISOString(), payload: { message_id: "m1" } },
+  ] });
+  await openPortal(page);
+  await expect(page.getByText("Read by AI", { exact: true })).toBeVisible();
+  await expect(page.getByText("AI is working…", { exact: true })).toHaveCount(0);
 });

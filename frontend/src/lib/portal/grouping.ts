@@ -2,7 +2,7 @@ import type { EventRow, PendingPrompt } from "./types";
 
 /** Current attention belongs in the action bar; stored events stay unchanged. */
 export function visibleTimeline(events: EventRow[], prompt: PendingPrompt | null): EventRow[] {
-  return events.filter((event) => event.type !== "attention" && event.type !== "attention_resolved"
+  return events.filter((event) => !["message_accepted", "message_read", "message_processing"].includes(event.type) && event.type !== "attention" && event.type !== "attention_resolved"
     && !(event.type === "waiting_input" && prompt && event.payload.prompt_id === prompt.id && event.payload.prompt_version === prompt.version));
 }
 

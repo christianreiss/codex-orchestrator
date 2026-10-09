@@ -1903,3 +1903,16 @@ transcripts. No provider login is copied from another Unix account.
 - `POST /host/agent-sessions/:sessionId/agent-messaging/spawn`
 - `POST /host/agent-sessions/:sessionId/agent-messaging/spawn-status`
 - `POST /host/agent-sessions/:sessionId/agent-messaging/stop`
+
+### Portal instruction read and processing receipts
+
+Authenticated `POST /host/agent-sessions/:id/events` also accepts `message_read` and
+`message_processing` with `payload.message_id`. These are explicit AI reports. The
+message must belong to the authenticated session, have durable `accepted` status,
+and match the session's active upstream turn. Invalid/missing correlations fail with
+`agent_message_not_active` (409) or validation failure. Retries use the original
+`client_event_id` and payload, including after a completed turn; a new event cannot
+revive old work. No new database fields or transport-generated read receipts exist.
+Portal/Admin/Companion timelines carry these events under existing transcript gates.
+The UIs correlate them and `assistant_message.message_id` to each outgoing bubble;
+uncorrelated replies and receiver keep-alives never advance a message's read status.

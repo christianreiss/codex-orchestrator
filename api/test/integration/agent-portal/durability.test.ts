@@ -604,6 +604,32 @@ describe.skipIf(!handle)('agent portal durability against a real database', { ti
       .resolves.toMatchObject({ status: 'accepted', upstream_id: 'current-turn' });
   });
 
+  it('records explicit reading and processing only for the current accepted message, with safe retries', async () => {
+    const world = await makeWorld();
+    const queued = await world.service.enqueueMessage({ kind: 'portal', identity: world.identity }, {
+      sessionId: world.sessionId, clientMessageId: randomUUID(), content: 'Track this instruction',
+    });
+    const id = String(queued.message_id);
+    const read = { clientEventId: `status:read:${id}`, type: 'message_read' as const, source: 'bridge' as const, payload: { message_id: id } };
+    const report = (input: typeof read | { clientEventId: string; type: 'message_processing'; source: 'bridge'; payload: { message_id: string } }) => world.service.addAgentEvent(world.sessionId, world.bridgeToken, input, world.host.id);
+    await expect(report(read)).rejects.toMatchObject({ code: 'agent_message_not_active' });
+    const claim = await world.service.claimMessage(world.sessionId, world.bridgeToken, randomUUID(), world.host.id);
+    await expect(report(read)).rejects.toMatchObject({ code: 'agent_message_not_active' });
+    await world.service.acknowledgeMessage(world.sessionId, world.bridgeToken, {
+      messageId: id, leaseOwner: claim!.lease_owner, outcome: 'accepted', upstreamId: id,
+    }, world.host.id);
+    const first = await report(read);
+    expect(first).toMatchObject({ type: 'message_read', payload: { message_id: id } });
+    expect(await report(read)).toEqual(first);
+    const working = { ...read, clientEventId: `status:working:${id}`, type: 'message_processing' as const };
+    expect(await report(working)).toMatchObject({ type: 'message_processing', payload: { message_id: id } });
+    await expect(report({ ...read, clientEventId: randomUUID(), payload: { message_id: randomUUID() } })).rejects.toMatchObject({ code: 'agent_message_not_active' });
+    await world.service.heartbeatAgent(world.sessionId, world.bridgeToken, { activeTurnId: null }, world.host.id);
+    // A lost ACK may be retried after work ended; a new claim cannot revive it.
+    expect(await report(read)).toEqual(first);
+    await expect(report({ ...working, clientEventId: randomUUID() })).rejects.toMatchObject({ code: 'agent_message_not_active' });
+  });
+
   it('rejects Portal acceptance after the claim lease expires before maintenance', async () => {
     const world = await makeWorld();
     const queued = await world.service.enqueueMessage({ kind: 'portal', identity: world.identity }, {

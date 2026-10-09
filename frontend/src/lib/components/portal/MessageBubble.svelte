@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { EventRow } from "$lib/portal/types";
   import { eventText } from "$lib/portal/grouping";
-  import { deliveryFor, DELIVERY_LABEL, type Delivery } from "$lib/portal/delivery";
+  import { deliveryFor, DELIVERY_LABEL, type Delivery, type DeliveryActivity } from "$lib/portal/delivery";
   import { clockTime } from "$lib/portal/browser";
   import MarkdownBody from "./MarkdownBody.svelte";
 
@@ -12,6 +12,8 @@
     endsGroup,
     deliveryIndex,
     showDelivery,
+    activity,
+    now,
   }: {
     event: EventRow;
     role: "you" | "agent";
@@ -19,9 +21,11 @@
     endsGroup: boolean;
     deliveryIndex: Map<string, Delivery>;
     showDelivery: boolean;
+    activity?: DeliveryActivity;
+    now?: number;
   } = $props();
 
-  const delivery = $derived(showDelivery ? deliveryFor(event, deliveryIndex) : null);
+  const delivery = $derived(showDelivery ? deliveryFor(event, deliveryIndex, activity, now) : null);
   const time = $derived(clockTime(event.created_at));
 </script>
 
@@ -41,7 +45,7 @@
   </div>
 
   {#if delivery}
-    <p class="mt-0.5 px-1 text-[10px] font-medium {delivery === 'failed' ? 'text-destructive' : 'text-muted-foreground'}">
+    <p role="status" class="mt-0.5 px-1 text-[10px] font-medium {delivery === 'failed' ? 'text-destructive' : 'text-muted-foreground'}">
       {DELIVERY_LABEL[delivery]}
     </p>
   {:else}

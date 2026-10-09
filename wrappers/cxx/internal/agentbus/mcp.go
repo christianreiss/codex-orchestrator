@@ -395,6 +395,10 @@ func toolCatalogJSON() []byte {
 			"conversation_id": map[string]any{"type": "string"}, "after": map[string]any{"type": "integer", "minimum": 0},
 			"seconds": map[string]any{"type": "integer", "minimum": 0, "maximum": 25},
 		}, []string{"conversation_id"}),
+		tool("agent_receiver_status", "Confirm that you read an operator Portal message or started working on it. Use status read when acknowledging reading, working before handling it. These are explicit AI reports, never automatic transport receipts. Does not release the delivery; finish with agent_receiver_reply.", map[string]any{
+			"message_id": map[string]any{"type": "string"},
+			"status":     map[string]any{"type": "string", "enum": []string{"read", "working"}},
+		}, []string{"message_id", "status"}),
 		tool("agent_receiver_reply", "Reply only to an operator Portal delivery. For peer messages use agent_reply. Include summary: one plain sentence in the response language, at most 160 characters, giving the latest result or decision needed for mobile tiles and push notifications.", map[string]any{
 			"message_id": map[string]any{"type": "string"}, "content": map[string]any{"type": "string", "maxLength": maxBodyBytes},
 			"summary": map[string]any{"type": "string", "maxLength": 160},
@@ -756,6 +760,11 @@ func callMCPTool(ctx context.Context, client *sessionClient, channelState *chann
 		return out, nil
 	case "agent_session_name":
 		return assignSessionName(ctx, client, args)
+	case "agent_receiver_status":
+		if channelState == nil || channelState.receiver == nil {
+			return nil, errors.New("automatic receiver unavailable")
+		}
+		return channelState.receiver.reportStatus(ctx, args)
 	case "agent_receiver_reply":
 		if channelState.receiver == nil {
 			return nil, errors.New("automatic receiver unavailable")

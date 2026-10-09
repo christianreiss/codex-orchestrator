@@ -942,3 +942,10 @@ are sent every 15 seconds, stale at 45 seconds and expired at 90 seconds. Initia
 installation gets five minutes before becoming red. Browser disconnection
 never leaves a stale green indicator. Tooltip/text exposes reason, last contact
 and occupied/max slots. Engine readiness dots retain their separate meaning.
+
+### Operator message status
+
+Web Chat (Admin and Portal) and Android display per-instruction delivery, explicit AI
+reading/processing and correlated reply receipts. `agent_receiver_status` in cxx
+0.9.43 reports reading or work start; transport acceptance stays distinct. A stale or
+different active turn cannot leave an old message marked as currently processing.

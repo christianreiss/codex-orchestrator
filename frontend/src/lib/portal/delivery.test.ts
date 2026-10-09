@@ -99,3 +99,30 @@ describe("message_canceled", () => {
     assert.equal(deliveryFor(sent, deliveryIndex(events)), "queued");
   });
 });
+
+describe("AI reading and processing receipts", () => {
+  it("requires an explicit AI receipt, not acceptance or an unrelated reply", () => {
+    const sent = event("user_message", { message_id: "m1" });
+    assert.equal(deliveryFor(sent, deliveryIndex([sent, event("message_accepted", { message_id: "m1" }), event("assistant_message", { text: "other" })])), "delivered");
+    assert.equal(deliveryFor(sent, deliveryIndex([sent, event("message_read", { message_id: "m1" })])), "read");
+  });
+  it("reports ongoing work only for this exact fresh active turn", () => {
+    const sent = event("user_message", { message_id: "m1" });
+    const index = deliveryIndex([sent, event("message_processing", { message_id: "m1" })]);
+    const now = Date.parse(sent.created_at);
+    const active = { presence: "working", active_turn_id: "m1", heartbeat_at: sent.created_at };
+    assert.equal(deliveryFor(sent, index, active, now), "processing");
+    assert.equal(deliveryFor(sent, index, active, now + 45_000), "read");
+    assert.equal(deliveryFor(sent, index, { ...active, active_turn_id: "m2" }, now), "read");
+    assert.equal(deliveryFor(sent, index, { ...active, presence: "offline" }, now), "read");
+    assert.equal(deliveryFor(sent, index), "read");
+  });
+  it("retains the strongest receipt across duplicates and late events", () => {
+    const sent = event("user_message", { message_id: "m1" });
+    const receipts = [event("message_processing", { message_id: "m1" }), event("message_read", { message_id: "m1" }), event("message_accepted", { message_id: "m1" })];
+    assert.equal(deliveryIndex(receipts).get("m1"), "processing");
+    receipts.unshift(event("assistant_message", { message_id: "m1", text: "Done" }));
+    receipts.push(event("message_canceled", { message_id: "m1" }));
+    assert.equal(deliveryFor(sent, deliveryIndex(receipts)), "replied");
+  });
+});

@@ -592,3 +592,44 @@ func TestNativePresenceNoticeFinishesWithoutReply(t *testing.T) {
 		t.Fatalf("presence notice sent another message: calls=%v held=%d", calls, len(tracker.items))
 	}
 }
+
+func TestPortalStatusIsExplicitOwnedIdempotentAndDoesNotReleaseDelivery(t *testing.T) {
+	for _, engine := range []string{"codex", "claude", "grok"} {
+		t.Run(engine, func(t *testing.T) {
+			t.Setenv("CXX_AGENT_PORTAL_ENGINE", engine)
+			var events []map[string]any
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+				var event map[string]any
+				_ = json.NewDecoder(req.Body).Decode(&event)
+				events = append(events, event)
+				_ = json.NewEncoder(w).Encode(map[string]any{})
+			}))
+			defer server.Close()
+			r := &autoReceiver{client: &sessionClient{id: "session", http: &http.Client{Transport: rewriteTransport{server: server}}}, pendingPortal: map[string]any{"message_id": "owned"}}
+			for _, status := range []string{"read", "working", "working"} {
+				if _, err := r.reportStatus(context.Background(), map[string]any{"message_id": "owned", "status": status}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if len(events) != 3 || events[0]["type"] != "message_read" || events[1]["type"] != "message_processing" || events[1]["client_event_id"] != events[2]["client_event_id"] {
+				t.Fatalf("receipts: %v", events)
+			}
+			for _, event := range events {
+				if event["payload"].(map[string]any)["message_id"] != "owned" {
+					t.Fatalf("lost correlation: %v", event)
+				}
+			}
+			if r.pendingPortal == nil {
+				t.Fatal("status released delivery")
+			}
+			for _, args := range []map[string]any{{"message_id": "other", "status": "read"}, {"message_id": "owned", "status": "invalid"}} {
+				if _, err := r.reportStatus(context.Background(), args); err == nil {
+					t.Fatal("invalid status accepted")
+				}
+			}
+			if len(events) != 3 {
+				t.Fatal("invalid receipt escaped to server")
+			}
+		})
+	}
+}
