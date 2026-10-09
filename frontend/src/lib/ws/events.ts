@@ -144,7 +144,7 @@ export const DEFAULT_INVALIDATIONS: WsInvalidationMap = {
   // is unchanged, so keep the source card live across tabs and worker ticks.
   "companion.devices.changed": [["companion-devices"]],
   "accounts.updated": [["accounts"], ["overview"], ["hosts"]],
-  "settings.changed": [["settings"], ["skills", "source"], ["keys", "openai", "state"], ["keys", "claude", "state"], ["keys", "grok", "state"]],
+  "settings.changed": [["settings"], ["hosts"], ["skills", "source"], ["keys", "openai", "state"], ["keys", "claude", "state"], ["keys", "grok", "state"]],
   // Fleet engine master switch. Settings covers the switch rows and the
   // exposed API surfaces; hosts, overview, accounts, setup, messaging and the
   // runner card all render per-engine state that the switch suspends.

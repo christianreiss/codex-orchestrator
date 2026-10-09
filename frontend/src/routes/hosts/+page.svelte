@@ -84,7 +84,6 @@
   // --- URL-synced sort ------------------------------------------------------
   const VALID_SORT_FIELDS: SortField[] = [
     "fqdn",
-    "status",
     "last_refresh",
     "client_version",
     "insecure_enabled_until",

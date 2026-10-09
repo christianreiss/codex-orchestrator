@@ -379,6 +379,20 @@ visible with a choice to load the latest values or discard the draft.
 - **Encryption & secrets** — Secretbox protects API keys, payload bodies, token entries, fleet secrets, portal/messaging bodies and every other `*_enc` column; the key is generated into `.env` by `bin/install.sh` and never at runtime. API keys also stored as sha256 hashes for lookup. File-transfer bytes on `DATA_ROOT` are the one store left in the clear.
 - **Kill switches** — Admin can disable the API (`/admin/api/state` 503s everything else) or set quota mode + limit slider (`/admin/quota-mode` exposes warn-only vs. hard-fail, `limit_percent`, and optional `week_partition` pacing for a daily allowance bar in `cdx`). Hosts can also be marked VIP (per-host toggle) to bypass the quota kill-switch entirely (always warn-only). Admin routes are gated by the admin session.
 
+## Host engine readiness
+
+Hosts uses engine dots instead of a separate Status column. Green means the
+reported engine CLI and cxx wrapper meet their effective version targets and,
+for secure hosts, an engine-local auth digest exists. Yellow means auth is
+missing or a version is out of date/unknown. Insecure hosts skip auth checks;
+older existing auth remains sufficient on secure hosts. Host pins and fleet
+locks define the effective targets. Unassigned or fleet-disabled engines are
+gray. Tooltips and accessible labels show reasons and installed/target versions.
+These colors do not indicate online/offline status; Last seen and the existing
+filters remain available. Legacy Status sort links fall back to hostname.
+Host and settings events refresh the readiness data through normal query
+invalidation, without live provider probes from the hosts list.
+
 ## Policies workspace
 
 `/admin/policies` groups fleet controls into Host behavior, Agent behavior,

@@ -1,5 +1,7 @@
 # 2026-10-09
 
+- Hosts replaces the Status column with per-engine readiness dots: green for current CLI/wrapper versions and present auth on secure hosts, yellow for missing auth or outdated/unknown versions, and gray for unassigned or suspended engines. Insecure hosts check versions only; host pins and fleet locks are respected, with reasons and installed/target versions in tooltips.
+
 - Git Director opens on compact Settings, with a single selectable engine preview. Activity, merge requests and history have separate searchable tabs, linkable URLs and detail panels; operator actions stay in the relevant details.
 
 - Policies now uses focused Host behavior, Agent behavior, Access control and Cleanup categories with a desktop sidebar and mobile selector. Immediate controls show save/read failures and respect capabilities; numeric forms validate whole-number ranges, preserve drafts across category changes and detect external edits. Insecure-host approval copy now describes access windows rather than browser windows.

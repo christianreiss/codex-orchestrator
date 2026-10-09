@@ -777,8 +777,20 @@ export type HostAutoUpdateState =
   | "unknown"
   | string;
 
+export type HostEngineReadinessReason = "not_assigned" | "fleet_disabled" | "auth_missing" | "cli_unknown" | "cli_outdated" | "wrapper_unknown" | "wrapper_outdated";
+export interface HostEngineReadiness {
+  state: "ready" | "attention" | "inactive";
+  reasons: HostEngineReadinessReason[];
+  cli_version: string | null;
+  cli_target: string | null;
+  wrapper_version: string | null;
+  wrapper_target: string | null;
+}
+
 /** Row shape returned by GET /admin/hosts. */
 export interface HostListItem {
+  /** Optional for compatibility with cached/older host-list responses. */
+  engine_readiness?: Record<HostEngine, HostEngineReadiness>;
   id: number;
   fqdn: string;
   status: string;

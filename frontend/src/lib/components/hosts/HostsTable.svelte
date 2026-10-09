@@ -3,19 +3,14 @@
   import { base } from "$app/paths";
   import { goto } from "$app/navigation";
   import { createVirtualizer } from "@tanstack/svelte-virtual";
-  import StatusPill from "./StatusPill.svelte";
   import EngineStatusDots from "./EngineStatusDots.svelte";
   import InsecureCountdown from "./InsecureCountdown.svelte";
   import { EmptyState } from "$lib/components/ui/empty-state";
   import { Button } from "$lib/components/ui/button";
   import { relativeTime } from "$lib/utils/format";
   import {
-    hostEngines,
     hostLatestRefresh,
     hostLatestRefreshMs,
-    hostStatusKind,
-    hostStatusLabel,
-    isInsecureWindowActive,
     type HostFilterId,
   } from "$lib/api/hosts";
   import type { HostListItem } from "$lib/api/types";
@@ -29,7 +24,6 @@
 
   export type SortField =
     | "fqdn"
-    | "status"
     | "last_refresh"
     | "client_version"
     | "insecure_enabled_until";
@@ -90,9 +84,6 @@
     copy.sort((a, b) => {
       const av = (a as unknown as Record<string, unknown>)[sortField];
       const bv = (b as unknown as Record<string, unknown>)[sortField];
-      if (sortField === "status") {
-        return hostStatusLabel(a).localeCompare(hostStatusLabel(b)) * dir;
-      }
       if (sortField === "last_refresh") {
         return ((hostLatestRefreshMs(a) ?? 0) - (hostLatestRefreshMs(b) ?? 0)) * dir;
       }
@@ -148,11 +139,10 @@
 
 <div class="overflow-hidden rounded-md border border-border/75 bg-card text-card-foreground">
   <div
-    class="grid grid-cols-[minmax(0,1fr)_100px] items-center gap-3 border-b bg-muted/45 px-4 py-2.5 text-xs font-medium text-muted-foreground lg:grid-cols-[minmax(0,2.2fr)_minmax(0,1.2fr)_120px_120px_140px_120px]"
+    class="grid grid-cols-[minmax(0,1fr)] items-center gap-3 border-b bg-muted/45 px-4 py-2.5 text-xs font-medium text-muted-foreground lg:grid-cols-[minmax(0,2.2fr)_minmax(0,1.2fr)_120px_140px_120px]"
   >
     {@render headerCell("Host", "fqdn")}
     <div class="hidden lg:block">Engines<span class="mt-1 block text-[10px] font-normal" title="Codex · Claude · Grok">CX · CL · GX</span></div>
-    {@render headerCell("Status", "status")}
     <div class="hidden lg:block">{@render headerCell("Last seen", "last_refresh")}</div>
     <div class="hidden lg:block">{@render headerCell("Codex ver.", "client_version")}</div>
     <div class="hidden lg:block">{@render headerCell("Insecure", "insecure_enabled_until")}</div>
@@ -199,12 +189,10 @@
         {#each virtualItems as virtual (virtual.key)}
           {@const row = sorted[virtual.index]}
           {#if row}
-            {@const engines = hostEngines(row)}
-            {@const insecureActive = isInsecureWindowActive(row)}
             <button
               type="button"
               class={cn(
-                "absolute left-0 top-0 grid w-full grid-cols-[minmax(0,1fr)_100px] items-center gap-3 border-b border-border/60 px-4 text-left text-sm transition-colors hover:bg-accent/40 focus-visible:bg-accent/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring lg:grid-cols-[minmax(0,2.2fr)_minmax(0,1.2fr)_120px_120px_140px_120px]",
+                "absolute left-0 top-0 grid w-full grid-cols-[minmax(0,1fr)] items-center gap-3 border-b border-border/60 px-4 text-left text-sm transition-colors hover:bg-accent/40 focus-visible:bg-accent/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring lg:grid-cols-[minmax(0,2.2fr)_minmax(0,1.2fr)_120px_140px_120px]",
               )}
               style="transform: translateY({virtual.start}px); height: {rowHeight}px;"
               onclick={() => openHost(row)}
@@ -221,23 +209,20 @@
                   <span>· {relativeTime(hostLatestRefresh(row)) || "never"}</span>
                 </div>
                 <div class="mt-1 flex flex-wrap items-center gap-1 lg:hidden">
-                  <EngineStatusDots {engines} />
+                  <EngineStatusDots host={row} />
                   {#if row.vip}
                     <span class="rounded bg-warning-muted px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-warning-muted-foreground">VIP</span>
                   {/if}
                 </div>
               </div>
               <div class="hidden flex-wrap items-center gap-1 lg:flex">
-                <EngineStatusDots {engines} />
+                <EngineStatusDots host={row} />
                 {#if row.vip}
                   <span class="rounded bg-warning-muted px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-warning-muted-foreground">VIP</span>
                 {/if}
                 {#if row.allow_roaming_ips}
                   <span class="rounded bg-info-muted px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-info-muted-foreground">Roam</span>
                 {/if}
-              </div>
-              <div>
-                {@render statusCell(row, insecureActive)}
               </div>
               <div class="hidden truncate text-xs text-muted-foreground lg:block">
                 {relativeTime(hostLatestRefresh(row)) || "—"}
@@ -274,20 +259,4 @@
       <ChevronDown class="h-3 w-3" />
     {/if}
   </button>
-{/snippet}
-
-{#snippet statusCell(host: HostListItem, insecureActive: boolean)}
-  {#if insecureActive}
-    <StatusPill tone="warning" label="Insecure" />
-  {:else if hostStatusKind(host) === "online"}
-    <StatusPill tone="online" label="Online" />
-  {:else if hostStatusKind(host) === "auth-missing"}
-    <StatusPill tone="warning" label="Auth missing" />
-  {:else if hostStatusKind(host) === "auth-outdated"}
-    <StatusPill tone="warning" label="Outdated auth" />
-  {:else if hostStatusKind(host) === "offline"}
-    <StatusPill tone="offline" label="Offline" />
-  {:else}
-    <StatusPill tone="muted" label={hostStatusLabel(host)} />
-  {/if}
 {/snippet}

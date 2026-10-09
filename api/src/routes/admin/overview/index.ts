@@ -19,6 +19,8 @@ import { adminEvents, hosts, insecureDomainAllows, installTokens, logs } from '.
 import { SettingsService } from '../../../services/settings.js';
 import { makeAdminEventsWriter } from '../../../services/admin-events-writer.js';
 import { InsecureWindowAdminService } from '../../../services/insecure-window-admin.js';
+import { createVersionSnapshotService } from '../../../services/version-snapshot.js';
+import { hostEngineReadiness } from '../../../services/host-engine-readiness.js';
 import { ClientVersionsService, isClientVersionStale } from '../../../services/client-versions.js';
 import { ChatGptUsageService } from '../../../services/chatgpt-usage.js';
 import { ClaudeUsageService, normalizeClaudeUsageSnapshot } from '../../../services/claude-usage.js';
@@ -401,6 +403,12 @@ export async function registerAdminOverviewRoutes(
 
   // ── /admin/hosts (JSON listing) ───────────────────────────────────────────
   app.get('/admin/hosts', { preHandler: [adminSpa, app.requireAdmin] }, async () => {
+    // Cached targets only: this list must never probe providers or refresh releases.
+    const snapshots = createVersionSnapshotService({ db: ctx.db, installationId: null });
+    const [codexTarget, claudeTarget, grokTarget] = await Promise.all([
+      snapshots.summary(ENGINE_CODEX), snapshots.summary(ENGINE_CLAUDE), snapshots.summary(ENGINE_GROK),
+    ]);
+    const targets = { codex: codexTarget, claude: claudeTarget, grok: grokTarget };
     const [rows, codexCanonical, claudeCanonical, tokenRows, grokCanonical] = await Promise.all([
       ctx.db.select().from(hosts).orderBy(hosts.fqdn),
       runnerValidation.resolveCanonicalPayload(ENGINE_CODEX),
@@ -431,6 +439,7 @@ export async function registerAdminOverviewRoutes(
       hosts: rows.map((h) => {
         const auth = hostAuthSummary(h, canonicalDigests);
         return {
+          engine_readiness: hostEngineReadiness(h, targets),
           id: Number(h.id),
           fqdn: h.fqdn,
           status: h.status,

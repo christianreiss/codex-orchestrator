@@ -15,6 +15,40 @@ describe('GET /admin/hosts', () => {
     await app?.close?.();
   });
 
+  it('returns engine readiness using cached targets, fleet locks and host pins', async () => {
+    const mock = createMockDb();
+    for (const [name, version] of [
+      ['client_version_codex', 'latest'],
+      ['github_release_codex-cli', JSON.stringify({ version: '1.2.3', fetched_at: '2026-10-09T10:00:00Z' })],
+      ['client_version_claude', '9.0.0'], ['client_version_lock_claude', '1.0.0'],
+      ['client_version_grok', 'auto'],
+      ['github_release_grok-cli', JSON.stringify({ version: '1.2.3', fetched_at: '2026-10-09T10:00:00Z' })],
+      ['wrapper_version', '0.9.40'],
+    ]) mock.insertRow('versions', { name, version });
+    for (const secure of [0, 1]) mock.insertRow('hosts', {
+      id: secure + 1, fqdn: `secure-${secure}.test`, engines: 'codex,claude,grok', secure,
+      client_version: '1.2.3', claude_client_version: '1.0.0', grok_client_version: '1.1.0',
+      grok_client_version_override: '1.1.0', wrapper_version: '0.9.40',
+      claude_wrapper_version: '0.9.40', grok_wrapper_version: '0.9.40',
+      auth_digest: 'older-auth', grok_auth_digest: 'older-auth', claude_auth_digest: null,
+    });
+    const local = Fastify({ logger: false });
+    await local.register(cookie); await local.register(requestIdPlugin); await local.register(envelopePlugin);
+    local.decorate('requireAdmin', async () => undefined); local.decorate('resolveAdmin', async () => null);
+    await registerAdminOverviewRoutes(local, { db: mock.db, env: { ...loadTestEnv(), ADMIN_WS_ENABLED: false }, keyring: testKeyring() });
+    try {
+      const response = await local.inject({ method: 'GET', url: '/admin/hosts', headers: { accept: 'application/json' } });
+      expect(response.statusCode).toBe(200);
+      const rows = response.json().data.hosts;
+      expect(rows[0].engine_readiness.claude).toMatchObject({ state: 'ready', cli_target: '1.0.0', wrapper_target: '0.9.40' });
+      expect(rows[1].engine_readiness.claude).toMatchObject({ state: 'attention', reasons: ['auth_missing'] });
+      for (const row of rows) {
+        expect(row.engine_readiness.codex).toMatchObject({ state: 'ready', cli_target: '1.2.3' });
+        expect(row.engine_readiness.grok).toMatchObject({ state: 'ready', cli_target: '1.1.0' });
+      }
+    } finally { await local.close(); }
+  });
+
   it('returns the parsed engine list alongside the storage string', async () => {
     const mock = createMockDb();
     mock.insertRow('hosts', {
