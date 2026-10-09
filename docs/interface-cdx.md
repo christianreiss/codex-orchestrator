@@ -1179,3 +1179,14 @@ same records; Portal status is read-only. See `docs/interface-api.md` for the wi
 Codex native receiver inspects failed/interrupted turn status independently of the
 model; structured provider errors trigger recovery and interruptions disable it.
 The stream and progress supervisor remain wrapper-owned while the model is unavailable.
+
+### Peer discovery and send diagnostics
+
+From wrapper 0.9.39, `agent_list` excludes your own agent and accepts `name`
+(a literal case-insensitive substring of name, alias or address), `limit` (1–50,
+default 50) and `offset` (default 0). If `truncated` is true, pass `next_offset`
+as `offset` for the next page; `total` counts filtered peers. Live ranking can
+change between pages. `online: true` returns only live peers. Messaging
+`client_message_id` values must be UUIDs. Permanent request rejections no longer
+recommend retrying the unchanged payload; uncertain transport/server failures
+and HTTP 408/429 retain the original-UUID retry hint.

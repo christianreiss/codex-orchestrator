@@ -1,3 +1,4 @@
+import { pageAgentAddresses, type AgentDiscoveryFilters } from './discovery.js';
 import { assignLaunchNameLocked, endLaunchNamesLocked } from './names.js';
 import { receiverView, receiverState } from '../agent-receiver-state.js';
 /**
@@ -42,9 +43,6 @@ import {
 } from '../agent-presence.js';
 import { activeHostEngines, assertHostEngineEnabled } from '../host-engine-policy.js';
 import { readFleetEngineState } from '../engine-switch.js';
-import {
-  AGENT_MESSAGING_LIST_LIMIT,
-} from './constants.js';
 import { messagingHostEligibleSql } from './eligibility.js';
 import { hostAuthFingerprint, safeHashEqual } from './internals.js';
 import {
@@ -468,7 +466,7 @@ export class SessionRegistry {
     return { enabled: true, status };
   }
 
-  async listAddresses(sessionId: string, bridgeToken: string, filters: { engine?: Engine; hostId?: number; includeOffline?: boolean } = {}): Promise<Record<string, unknown>> {
+  async listAddresses(sessionId: string, bridgeToken: string, filters: AgentDiscoveryFilters = {}): Promise<Record<string, unknown>> {
     const authenticated = await this.core.authenticateBridge(sessionId, bridgeToken);
     const currentAddressId = authenticated.session.agentBusAddressId;
     if (!currentAddressId) throw new ConflictError('Agent session has no messaging address', 'agent_messaging_address_missing');
@@ -515,18 +513,13 @@ export class SessionRegistry {
       .sort(
         (a, b) =>
           AGENT_PRESENCE_RANK[a.presence] - AGENT_PRESENCE_RANK[b.presence] ||
-          (a.address.lastSeenAt < b.address.lastSeenAt ? 1 : a.address.lastSeenAt > b.address.lastSeenAt ? -1 : 0),
+          (a.address.lastSeenAt < b.address.lastSeenAt ? 1 : a.address.lastSeenAt > b.address.lastSeenAt ? -1 : 0) ||
+          a.address.address.localeCompare(b.address.address),
       );
-    // An address is never deleted when its agent exits, so this list is a
-    // history that only grows: 201 rows fleet-wide, 104 on one host, and 92 KB
-    // of JSON that overflowed the context of the agent that asked. Live peers
-    // number in the handful, so a ranked cap loses nothing a caller can act on
-    // — and says so rather than silently truncating.
-    const addresses = ranked.slice(0, AGENT_MESSAGING_LIST_LIMIT);
+    const page = pageAgentAddresses(ranked, filters);
     return {
-      addresses: addresses.map((row) => ({ ...publicAddress(row.address, row.fqdn, row.presence), receiver: row.receiver })),
-      total: ranked.length,
-      ...(ranked.length > addresses.length ? { truncated: true } : {}),
+      ...page,
+      addresses: page.addresses.map((row) => ({ ...publicAddress(row.address, row.fqdn, row.presence), receiver: row.receiver })),
     };
   }
 }

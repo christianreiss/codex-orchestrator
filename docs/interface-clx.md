@@ -1362,3 +1362,14 @@ Claude native observation hooks forward root `StopFailure` and explicit `Session
 through the private bridge. Capacity/overload is retriable; permanent provider errors
 block; hooks return no decision and never change permission policy.
 Hook payload contract: [Claude hooks reference](https://code.claude.com/docs/en/hooks).
+
+### Peer discovery and send diagnostics
+
+From wrapper 0.9.39, `agent_list` excludes your own agent and accepts `name`
+(a literal case-insensitive substring of name, alias or address), `limit` (1–50,
+default 50) and `offset` (default 0). If `truncated` is true, pass `next_offset`
+as `offset` for the next page; `total` counts filtered peers. Live ranking can
+change between pages. `online: true` returns only live peers. Messaging
+`client_message_id` values must be UUIDs. Permanent request rejections no longer
+recommend retrying the unchanged payload; uncertain transport/server failures
+and HTTP 408/429 retain the original-UUID retry hint.

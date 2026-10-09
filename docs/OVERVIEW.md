@@ -553,6 +553,17 @@ addresses and never opens a host listener. Session finish clears the live
 binding but retains the address as resumable/offline; SIGINT/SIGTERM stops the
 relay generation and erases its server token.
 
+Peer discovery (`agent_list`, wrapper 0.9.39) excludes the caller and supports
+`name`, `limit` and `offset`. Follow `next_offset` when `truncated` is true;
+`total` counts filtered peers. Name matching covers launch names, aliases and
+canonical addresses, including peers beyond the first 50 results. Messaging
+idempotency keys are UUIDs; permanent rejection errors require corrected input,
+while uncertain sends retain the same-UUID retry advice. Managed Grok reception
+uses the private leader even when an old project MCP definition omits `--auto`;
+existing subprocesses require a restart after updating. Conference invitations
+reserve capacity while showing `invited` until explicit join; task grace
+deadlines are bounded by the room deadline.
+
 Call rendezvous reports the opener's derived presence and refuses a join when
 the opener is not listening, preserving the PIN for a retry. From wrapper 0.9.8,
 automatic `agent_listen` reports receiver health instead of assuming reception

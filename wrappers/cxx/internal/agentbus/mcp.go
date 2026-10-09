@@ -349,9 +349,12 @@ func toolCatalogJSON() []byte {
 		tool("agent_translate", "Translate a German launch name to its canonical agent UUID, or a UUID to its current/latest name. Names are reused after launch end plus 24 hours; preserve UUIDs for durable references.", map[string]any{"value": map[string]any{"type": "string", "minLength": 1, "maxLength": 96}}, []string{"value"}),
 		tool("agent_session_name", "Give your current session a concise, descriptive name for the Android dashboard. Call once near the start of work. Existing native or previously assigned names are preserved; this sets a name only when none is known.", map[string]any{"name": map[string]any{"type": "string", "minLength": 1, "maxLength": 160}}, []string{"name"}),
 		tool("agent_task_result", "Finish an accepted work delivery with an explicit domain outcome. Wake jobs need this result and no peer reply. Succeeded is an agent report, not independent verification.", map[string]any{"message_id": map[string]any{"type": "string"}, "task_result": taskResultProperties()}, []string{"message_id", "task_result"}),
-		tool("agent_list", "Discover enabled Codex, Claude and Grok agent addresses. No message content is returned.", map[string]any{
+		tool("agent_list", "Discover enabled peers, excluding yourself. online=true returns live peers. Use name for a case-insensitive name/alias/address substring, and next_offset as offset to read another page. No message content is returned.", map[string]any{
 			"engine": map[string]any{"type": "string", "enum": []string{"codex", "claude", "grok"}},
 			"online": map[string]any{"type": "boolean"},
+			"name":   map[string]any{"type": "string", "minLength": 1, "maxLength": 96},
+			"limit":  map[string]any{"type": "integer", "minimum": 1, "maximum": 50},
+			"offset": map[string]any{"type": "integer", "minimum": 0, "maximum": 9007199254740991},
 		}, nil),
 		tool("agent_group_list", "List persistent messaging groups. Creating or listing a group does not subscribe you.", map[string]any{}, nil),
 		tool("agent_group_create", "Create a named messaging group. Subscribe explicitly to group:<slug> to join.", map[string]any{
@@ -372,16 +375,16 @@ func toolCatalogJSON() []byte {
 		tool("agent_publish", "Publish to an explicitly joined group or your own agent feed. Only subscribers receive it. Retain client_message_id when retrying. Publications need no acknowledgement reply.", map[string]any{
 			"topic":             map[string]any{"type": "string"},
 			"content":           map[string]any{"type": "string", "minLength": 1, "maxLength": maxPublicationBodyBytes},
-			"client_message_id": map[string]any{"type": "string", "format": "uuid"},
+			"client_message_id": map[string]any{"type": "string", "format": "uuid", "description": "UUID idempotency key; keep the same UUID when retrying uncertain delivery"},
 			"ttl_seconds":       map[string]any{"type": "integer", "minimum": 60, "maximum": 604800},
 		}, []string{"topic", "content"}),
-		tool("agent_send", "Send one ordinary text message to one agent address. Retain client_message_id when retrying an uncertain send.", map[string]any{
-			"client_message_id": map[string]any{"type": "string", "format": "uuid"},
+		tool("agent_send", "Send one ordinary text message to one agent address. client_message_id must be a UUID; retain it when retrying an uncertain send.", map[string]any{
+			"client_message_id": map[string]any{"type": "string", "format": "uuid", "description": "UUID idempotency key; keep the same UUID when retrying uncertain delivery"},
 			"to":                map[string]any{"type": "string"}, "content": map[string]any{"type": "string", "maxLength": maxBodyBytes},
 			"conversation_id": map[string]any{"type": "string"}, "ttl_seconds": map[string]any{"type": "integer", "minimum": 60, "maximum": 604800},
 		}, []string{"to", "content"}),
-		tool("agent_request", "Send work and wait briefly for a correlated response. Retain client_message_id when retrying an uncertain send. If only waiting fails, the result preserves sent and wait_error; use agent_wait on that conversation instead of resending.", map[string]any{
-			"client_message_id": map[string]any{"type": "string", "format": "uuid"},
+		tool("agent_request", "Send work and wait briefly for a correlated response. client_message_id must be a UUID. Retain client_message_id when retrying an uncertain send. If only waiting fails, the result preserves sent and wait_error; use agent_wait on that conversation instead of resending.", map[string]any{
+			"client_message_id": map[string]any{"type": "string", "format": "uuid", "description": "UUID idempotency key; keep the same UUID when retrying uncertain delivery"},
 			"to":                map[string]any{"type": "string"}, "content": map[string]any{"type": "string", "maxLength": maxBodyBytes},
 			"wait_seconds": map[string]any{"type": "integer", "minimum": 0, "maximum": 25},
 		}, []string{"to", "content"}),
@@ -405,7 +408,7 @@ func toolCatalogJSON() []byte {
 			"ttl_seconds": map[string]any{"type": "integer", "minimum": 60, "maximum": 3600},
 		}, nil),
 		tool("agent_call_join", "Dial a peer's 4-digit PIN. Opens the conversation and delivers the first message atomically. Retain client_message_id to recover the original conversation after an uncertain response, even though the PIN is single-use.", map[string]any{
-			"client_message_id": map[string]any{"type": "string", "format": "uuid"},
+			"client_message_id": map[string]any{"type": "string", "format": "uuid", "description": "UUID idempotency key; keep the same UUID when retrying uncertain delivery"},
 			"pin":               map[string]any{"type": "string", "pattern": "^[0-9]{4}$"},
 			"content":           map[string]any{"type": "string", "maxLength": maxBodyBytes},
 		}, []string{"pin", "content"}),
@@ -463,7 +466,11 @@ func tool(name, description string, properties map[string]any, required []string
 
 func runMCPCommand(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 	channel := false
-	automatic := false
+	// Grok project config can replace the runtime's cxx-agent definition
+	// (notably when cwd is the real home). A legacy `agent mcp` entry must
+	// still use the private leader supplied by this managed lifecycle.
+	// Bridge authentication below remains required; an unmanaged CLI stays manual.
+	automatic := os.Getenv("CXX_AGENT_PORTAL_ENGINE") == "grok" && strings.TrimSpace(os.Getenv("CXX_GROK_SOCKET")) != ""
 	for _, arg := range args {
 		switch arg {
 		case "--auto":
@@ -752,6 +759,7 @@ func callMCPTool(ctx context.Context, client *sessionClient, channelState *chann
 		if value := stringArg(args, "engine"); value != "" {
 			body["engine"] = value
 		}
+		copyOptional(args, body, "name", "limit", "offset")
 		if err := client.post(ctx, "list", body, &out); err != nil {
 			return nil, err
 		}
@@ -791,7 +799,7 @@ func callMCPTool(ctx context.Context, client *sessionClient, channelState *chann
 		copyOptional(args, body, "conversation_id", "ttl_seconds")
 		if err := client.post(ctx, "send", body, &out); err != nil || name == "agent_send" {
 			if err != nil {
-				return nil, fmt.Errorf("%w; retry the same send with client_message_id=%s", err, clientID)
+				return nil, uncertainSendError(err, "send", clientID)
 			}
 			if err == nil {
 				armStall(ctx, channelState, out, content)
@@ -936,7 +944,7 @@ func callMCPTool(ctx context.Context, client *sessionClient, channelState *chann
 		if err := client.post(ctx, "call/join", map[string]any{
 			"pin": pin, "content": content, "client_message_id": clientMessageID,
 		}, &out); err != nil {
-			return nil, fmt.Errorf("%w; retry the same hello with client_message_id=%s", err, clientMessageID)
+			return nil, uncertainSendError(err, "hello", clientMessageID)
 		}
 		armStall(ctx, channelState, out, content)
 		return out, nil
@@ -1233,4 +1241,13 @@ func armStall(ctx context.Context, state *channelTracker, result map[string]any,
 	messageID, _ := message["id"].(string)
 	conversationID, _ := message["conversation_id"].(string)
 	state.receiver.watchOutbound(ctx, conversationID, messageID, content)
+}
+
+// Definite rejections must not instruct a retry of an unchanged invalid payload.
+func uncertainSendError(err error, operation, clientID string) error {
+	var apiErr *APIError
+	if errors.As(err, &apiErr) && apiErr.Status >= 400 && apiErr.Status < 500 && apiErr.Status != 408 && apiErr.Status != 429 {
+		return err
+	}
+	return fmt.Errorf("%w; retry the same %s with client_message_id=%s", err, operation, clientID)
 }

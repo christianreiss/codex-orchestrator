@@ -46,9 +46,9 @@ func parseRetryAfter(raw string) time.Duration {
 
 func (e *APIError) Error() string {
 	if e.Code != "" {
-		return fmt.Sprintf("agent messaging %s: %s (%s)", e.Path, e.Message, e.Code)
+		return fmt.Sprintf("agent messaging %s: %s (%s)", messagingOperation(e.Path), e.Message, e.Code)
 	}
-	return fmt.Sprintf("agent messaging %s: HTTP %d: %s", e.Path, e.Status, e.Message)
+	return fmt.Sprintf("agent messaging %s: HTTP %d: %s", messagingOperation(e.Path), e.Status, e.Message)
 }
 
 type sessionClient struct {
@@ -120,7 +120,11 @@ func doJSON(
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		return fmt.Errorf("agent messaging %s %s: %w", method, path, err)
+		var urlErr *url.Error
+		if errors.As(err, &urlErr) {
+			err = urlErr.Err
+		}
+		return fmt.Errorf("agent messaging %s %s: %w", method, messagingOperation(path), err)
 	}
 	defer resp.Body.Close()
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
@@ -167,7 +171,7 @@ func doJSON(
 		payload = envelope.Data
 	}
 	if err := json.Unmarshal(payload, out); err != nil {
-		return fmt.Errorf("agent messaging %s: decode response: %w", path, err)
+		return fmt.Errorf("agent messaging %s: decode response: %w", messagingOperation(path), err)
 	}
 	return nil
 }
@@ -193,4 +197,15 @@ func writeJSON(w io.Writer, value any) error {
 	encoder := json.NewEncoder(w)
 	encoder.SetEscapeHTML(false)
 	return encoder.Encode(value)
+}
+
+// Keep the operation and error code in diagnostics without exposing session IDs.
+func messagingOperation(path string) string {
+	if strings.HasPrefix(path, "/host/agent-sessions/") {
+		scoped := strings.TrimPrefix(path, "/host/agent-sessions/")
+		if _, suffix, ok := strings.Cut(scoped, "/"); ok {
+			return strings.TrimPrefix(suffix, "agent-messaging/")
+		}
+	}
+	return path
 }

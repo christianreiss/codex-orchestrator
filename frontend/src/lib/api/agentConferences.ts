@@ -29,7 +29,7 @@ export interface ConferenceMember {
   dispatched_at: string | null;
   dispatch_deadline_at: string | null;
   last_report_at: string | null;
-  joined_at: string;
+  joined_at: string | null;
   left_at: string | null;
   conversation_id: string | null;
   conversation_status: string | null;

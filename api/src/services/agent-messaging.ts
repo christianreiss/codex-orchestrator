@@ -1,3 +1,4 @@
+import { type AgentDiscoveryFilters } from './agent-messaging/discovery.js';
 import { translateAgent } from './agent-messaging/names.js';
 import { jsonRecord } from './agent-messaging/normalize.js';
 import { agentFreshStartGrants, agentTaskResults } from '../db/schema.js';
@@ -326,7 +327,7 @@ export class AgentMessagingService {
     return this.sessions.finishSession(sessionId, bridgeToken, status);
   }
 
-  async listAddresses(sessionId: string, bridgeToken: string, filters: { engine?: Engine; hostId?: number; includeOffline?: boolean } = {}): Promise<Record<string, unknown>> {
+  async listAddresses(sessionId: string, bridgeToken: string, filters: AgentDiscoveryFilters = {}): Promise<Record<string, unknown>> {
     return this.sessions.listAddresses(sessionId, bridgeToken, filters);
   }
 

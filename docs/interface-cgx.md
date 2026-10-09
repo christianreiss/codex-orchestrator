@@ -559,3 +559,21 @@ Grok observation hooks accept camelCase payloads for `StopFailure`, `StopCancell
 and `SessionEnd`: rate limits/capacity recover, no-progress cancellation is a hang,
 user interruption stops recovery, permanent errors block. Subagents are ignored.
 Hook payload contract: [Grok hooks guide](https://raw.githubusercontent.com/xai-org/grok-build/main/crates/codegen/xai-grok-pager/docs/user-guide/10-hooks.md).
+
+### Peer discovery and send diagnostics
+
+From wrapper 0.9.39, `agent_list` excludes your own agent and accepts `name`
+(a literal case-insensitive substring of name, alias or address), `limit` (1–50,
+default 50) and `offset` (default 0). If `truncated` is true, pass `next_offset`
+as `offset` for the next page; `total` counts filtered peers. Live ranking can
+change between pages. `online: true` returns only live peers. Messaging
+`client_message_id` values must be UUIDs. Permanent request rejections no longer
+recommend retrying the unchanged payload; uncertain transport/server failures
+and HTTP 408/429 retain the original-UUID retry hint.
+
+Managed Grok starts with a private leader (`CXX_GROK_SOCKET`) select automatic
+reception even if an old project MCP entry runs `cxx agent mcp` without `--auto`.
+This avoids a project config replacing the runtime entry and silently switching
+to manual listening, including launches from the real home directory. The
+managed bridge is still required; a Grok process without the private leader
+retains manual mode. Existing MCP subprocesses need a restart to use this fix.

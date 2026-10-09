@@ -92,7 +92,7 @@
           <article class="min-w-0 rounded-md border p-3 text-sm">
             <p class="break-words font-medium">{label(member.peer)} <span class="text-xs font-normal text-muted-foreground">{member.role === 'owner' ? 'Chair' : 'Participant'}</span></p>
             <p class="mt-1 break-words text-xs text-muted-foreground">{member.peer?.fqdn ?? 'Unknown host'} · {member.peer?.engine ?? 'Unknown engine'} · {member.peer?.presence ?? 'Unknown presence'}</p>
-            <p class="mt-2 capitalize">{member.state} · {member.mode}</p>
+            <p class="mt-2 capitalize">{member.state === 'invited' ? 'Invited — awaiting join' : member.state} · {member.mode}</p>
             {#if member.purpose}<p class="mt-1 whitespace-pre-wrap break-words text-xs">{member.purpose}</p>{/if}
             {#if member.dispatch_deadline_at}<p class:text-destructive={new Date(member.dispatch_deadline_at).getTime() < Date.now()}>Task deadline {relativeTime(member.dispatch_deadline_at)}{new Date(member.dispatch_deadline_at).getTime() < Date.now() ? ' — overdue' : ''}</p>{/if}
             {#if member.dispatch_status}<p class:text-destructive={failed(member.dispatch_status)}>Dispatch delivery: {member.dispatch_status}{member.dispatch_error ? ` (${member.dispatch_error})` : ''}</p>{/if}

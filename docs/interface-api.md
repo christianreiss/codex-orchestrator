@@ -976,9 +976,14 @@ without a second heartbeat dependency. Deploy the API before wrapper 0.9.26.
 
 The local MCP `agent_send`, `agent_request` and `agent_call_join` tools accept an
 optional UUID `client_message_id`. Keep it unchanged when retrying an uncertain
-send; a failed send also reports the generated ID. A successful request followed
+send; an uncertain send failure also reports the generated ID. A permanent
+rejection omits the unchanged-payload retry hint. A successful request followed
 by a failed wait returns `sent`, `result`, `wait_error` and `next_action`, so the
 caller continues with `agent_wait` on the saved conversation instead of resending.
+An empty `result.messages` when the wait window expires is a normal success, not
+`wait_error`: the work may still be queued or running. `agent_wait` returns only
+messages addressed to the caller, so a peer's outgoing reply is not echoed in
+that peer's wait result.
 Call joins replay their original hello by sender and message ID before trying to
 consume a PIN again, returning `created: false`; changed content conflicts. That
 ID names the original hello even if the PIN later expires or is reused. Use a new
@@ -1096,7 +1101,9 @@ the engine over its private Unix socket.
 Session-bound operations require `X-Agent-Bridge-Token`:
 
 - `POST /host/agent-sessions/{id}/agent-messaging/list` — discover eligible
-  peer addresses, optionally filtered by engine or host. Each address carries a
+  peer addresses, excluding the caller, optionally filtered by engine or host.
+  `name` (1–96 characters) matches a literal, case-insensitive substring of launch
+  name, alias or canonical address before paging. Each address carries a
   derived `presence` (`listening` | `online` | `resumable` | `offline` |
   `disabled`), computed from the bound session's heartbeat against
   `AGENT_PORTAL_HEARTBEAT_FRESH_SECONDS`, not from the stored `readiness`
@@ -1106,11 +1113,21 @@ Session-bound operations require `X-Agent-Bridge-Token`:
   and could be resumed, not that anyone is home. `readiness` remains on the wire
   for compatibility and is **not** a liveness signal: for a session that never
   calls `agent_listen` it is written once at registration and not again until
-  finish. Results are ranked reachable-first then most-recently-seen and capped
-  at 50, with `total` and `truncated` reporting anything beyond the cap.
+  finish. Results are ranked reachable-first then most-recently-seen, with
+  canonical address as a tie-breaker. `limit` defaults to 50 (range 1–50);
+  `offset` defaults to 0 (non-negative safe integer). `total` counts all filtered
+  peers. When more remain, `truncated: true` and `next_offset` point to the next
+  page; pass that value as `offset`. Ranking is live rather than a snapshot, so
+  peer activity can move rows between pages. Prefer `name` for a known peer.
+  `listening`/receiver `ready` prove healthy transport, not an idle native turn:
+  held deliveries and busy native threads delay claiming until released/idle.
+  A short queue TTL can expire with zero attempts during that delay.
 - `POST /host/agent-sessions/{id}/agent-messaging/send` — enqueue a new message
   or request. Body includes `to`, UTF-8 `content`, UUID `client_message_id`, and
   optional `conversation_id`, `ttl_seconds`, and `kind` (`message|request`).
+  Local messaging tools show operation/error code without internal session
+  paths. Uncertain transport/server errors and HTTP 408/429 retain the same-UUID
+  retry hint; permanent 4xx rejections require correcting the request instead.
 - `POST /host/agent-sessions/{id}/agent-messaging/reply` — append a reply to a
   message using a new sender-scoped idempotency UUID.
 - `POST /host/agent-sessions/{id}/agent-messaging/wait` — conversation-ordered
@@ -1153,7 +1170,11 @@ Session-bound operations require `X-Agent-Bridge-Token`:
 - `POST /host/agent-sessions/{id}/agent-messaging/conf/join` — exactly one of
   `pin` or `conference_id`. The PIN is **multi-use** and is never consumed by a
   join, unlike `call/join`; `conference_id` admits only an already-invited
-  member. Queues the `HELLO` to the chair and returns the roster.
+  member. Invitations reserve capacity as `state: invited`, `joined_at: null`;
+  they receive no broadcast or task until they call join. Joining sets the
+  actual `joined_at`, changes state to `seated`, and queues `HELLO` to the chair.
+  Rejoining an active member preserves its original join time and dispatched
+  state. Historic pre-0047 rows retain their recorded timestamps.
 - `POST /host/agent-sessions/{id}/agent-messaging/conf/roster` — any member. Host
   and engine are joined from `hosts`/`agent_bus_addresses`, not stored per member.
 - `POST /host/agent-sessions/{id}/agent-messaging/conf/say` — chair broadcasts to
@@ -1163,7 +1184,8 @@ Session-bound operations require `X-Agent-Bridge-Token`:
 - `POST /host/agent-sessions/{id}/agent-messaging/conf/dispatch` — chair only.
   Sets the member `dispatched` with a `dispatch_deadline_at` (`eta_seconds`
   0..14400, floored at 900) that the maintenance sweep uses to un-strand a member
-  whose run died.
+  whose run died. This grace deadline is capped at the room deadline; the
+  returned `eta_seconds` still reports the normalized grace duration.
 - `POST /host/agent-sessions/{id}/agent-messaging/conf/adjourn` — chair only.
   Default leaves `dispatched` members to finish and parks the room in
   `adjourning`; `force: true` cancels their conversations, which revokes the

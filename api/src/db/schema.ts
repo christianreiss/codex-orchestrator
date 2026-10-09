@@ -1812,7 +1812,7 @@ export const agentBusConferenceMembers = mysqlTable(
     dispatchedAt: varchar('dispatched_at', { length: 100 }),
     lastReportAt: varchar('last_report_at', { length: 100 }),
     messageCount: int('message_count', { unsigned: true }).notNull().default(0),
-    joinedAt: varchar('joined_at', { length: 100 }).notNull(),
+    joinedAt: varchar('joined_at', { length: 100 }),
     leftAt: varchar('left_at', { length: 100 }),
     createdAt: varchar('created_at', { length: 100 }).notNull(),
     updatedAt: varchar('updated_at', { length: 100 }).notNull(),

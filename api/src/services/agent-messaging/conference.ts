@@ -570,13 +570,13 @@ export class ConferenceCoordinator {
             role: 'participant',
             purpose: null,
             mode: this.conferenceMode(invitee),
-            state: 'seated',
+            state: 'invited',
             dispatchMessageId: null,
             dispatchDeadlineAt: null,
             dispatchedAt: null,
             lastReportAt: null,
             messageCount: priorRows[0]?.messageCount ?? 0,
-            joinedAt: now,
+            joinedAt: null,
             leftAt: null,
             createdAt: priorRows[0]?.createdAt ?? now,
             updatedAt: now,
@@ -710,7 +710,7 @@ export class ConferenceCoordinator {
       } else {
         await tx
           .update(agentBusConferenceMembers)
-          .set({ state: prior.state === 'dispatched' ? 'dispatched' : 'seated', purpose: purpose ?? prior.purpose, mode: this.conferenceMode(self), leftAt: null, updatedAt: now })
+          .set({ state: prior.state === 'dispatched' ? 'dispatched' : 'seated', joinedAt: prior.state === 'invited' || prior.state === 'left' ? now : prior.joinedAt, purpose: purpose ?? prior.purpose, mode: this.conferenceMode(self), leftAt: null, updatedAt: now })
           .where(eq(agentBusConferenceMembers.id, prior.id));
       }
       const member = await this.requireMemberLocked(tx, conference.id, self.id);
@@ -813,6 +813,9 @@ export class ConferenceCoordinator {
       const conference = await this.requireConferenceLocked(tx, conferenceId);
       this.assertConferenceOpen(conference, now);
       const me = await this.requireMemberLocked(tx, conferenceId, selfId);
+      if (me.state === 'invited') {
+        throw new ConflictError('Join the conference before speaking', 'agent_messaging_conference_not_joined');
+      }
       if (me.role !== 'owner') return { chairOnly: true, conference };
       const roster = await this.rosterRowsLocked(tx, conferenceId);
       const targets = roster
@@ -870,6 +873,9 @@ export class ConferenceCoordinator {
       if (member.role === 'owner') {
         throw new ValidationError('The chair cannot dispatch itself', { param: 'to' });
       }
+      if (member.state === 'invited') {
+        throw new ConflictError('Member has not joined the conference', 'agent_messaging_conference_not_joined');
+      }
       if (member.state === 'dispatched') {
         throw new ConflictError('Member is already on a task', 'agent_messaging_conference_member_busy');
       }
@@ -889,7 +895,7 @@ export class ConferenceCoordinator {
         .set({
           state: 'dispatched',
           dispatchMessageId: message.id,
-          dispatchDeadlineAt: isoOffsetSeconds(etaSeconds),
+          dispatchDeadlineAt: new Date(Math.min(Date.parse(now) + etaSeconds * 1000, Date.parse(conference.deadlineAt))).toISOString(),
           dispatchedAt: now,
           updatedAt: now,
         })

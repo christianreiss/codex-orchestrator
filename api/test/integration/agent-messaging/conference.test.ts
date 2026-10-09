@@ -31,6 +31,7 @@ const MIGRATIONS = [
   join(HERE, '../../../src/db/migrations/0014_add_agent_messaging.sql'),
   join(HERE, '../../../src/db/migrations/0020_add_agent_call_pins.sql'),
   join(HERE, '../../../src/db/migrations/0021_add_agent_conferences.sql'),
+  join(HERE, '../../../src/db/migrations/0047_conference_invitation_join.sql'),
 ];
 const PREFIX = 'ztest-agent-conf';
 const HOST_FQDN = `${PREFIX}.example`;
@@ -82,7 +83,7 @@ describe.skipIf(!handle)('conferences against a real database', { timeout: 120_0
       `INSERT INTO hosts (
          fqdn, api_key, status, secure, engines, agent_messaging_enabled, created_at, updated_at
        ) VALUES (
-         '${HOST_FQDN}', '${HOST_KEY}', 'active', 1, 'codex,claude', 1, '${now}', '${now}'
+         '${HOST_FQDN}', '${HOST_KEY}', 'active', 1, 'codex,claude,grok', 1, '${now}', '${now}'
        )`,
     );
     host = (await db.select().from(hosts).where(eq(hosts.fqdn, HOST_FQDN)).limit(1))[0]!;
@@ -171,6 +172,28 @@ describe.skipIf(!handle)('conferences against a real database', { timeout: 120_0
     await service.joinConference(two.sessionId, two.bridgeToken, { pin, purpose: 'web checks' });
     return { chair, one, two, conferenceId, pin, opened };
   }
+
+  it('keeps invited peers pending until they explicitly join', async () => {
+    const { chair, conferenceId } = await room();
+    const invitee = await register('grok', 'invitee');
+    await service.inviteToConference(chair.sessionId, chair.bridgeToken, { conferenceId, to: [invitee.address] });
+    const detail = await service.getAdminConference(conferenceId);
+    expect(detail.members.find((member) => member.address_id === invitee.addressId)).toMatchObject({ state: 'invited', joined_at: null });
+    await expect(service.conferenceDispatch(chair.sessionId, chair.bridgeToken, { conferenceId, to: invitee.address, task: 'too early' })).rejects.toMatchObject({ code: 'agent_messaging_conference_not_joined' });
+    await expect(service.conferenceSay(invitee.sessionId, invitee.bridgeToken, { conferenceId, content: 'too early' })).rejects.toMatchObject({ code: 'agent_messaging_conference_not_joined' });
+    await service.joinConference(invitee.sessionId, invitee.bridgeToken, { conferenceId, purpose: 'joined now' });
+    const joined = await service.getAdminConference(conferenceId);
+    expect(joined.members.find((member) => member.address_id === invitee.addressId)).toMatchObject({ state: 'seated', joined_at: expect.any(String), purpose: 'joined now' });
+  });
+
+  it('caps the dispatch grace deadline at the room deadline', async () => {
+    const { chair, one, conferenceId } = await room();
+    const roomDeadline = new Date(Date.now() + 120_000).toISOString();
+    await db.update(agentBusConferences).set({ deadlineAt: roomDeadline }).where(eq(agentBusConferences.id, conferenceId));
+    const dispatched = await service.conferenceDispatch(chair.sessionId, chair.bridgeToken, { conferenceId, to: one.address, task: 'short room', etaSeconds: 120 });
+    expect(dispatched.eta_seconds).toBe(900);
+    expect((await memberRow(conferenceId, one.addressId))?.dispatchDeadlineAt).toBe(roomDeadline);
+  });
 
   it('keeps a dispatched member busy when it joins again', async () => {
     const { chair, one, conferenceId, pin } = await room();

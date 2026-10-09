@@ -1,3 +1,7 @@
+# 2026-10-09
+
+- Wrapper 0.9.39 makes peer discovery searchable by name/alias/address and pageable with `limit`, `offset` and `next_offset`; the caller remains excluded. Conference invitations now reserve a seat as `invited` until explicit join (migration 0047 preserves historic join timestamps), and task grace deadlines stop at the room deadline. Managed Grok MCP starts keep automatic reception through their private leader even when a project definition omits `--auto`. Messaging tools explicitly describe UUID idempotency keys, omit session paths from errors, and recommend unchanged-payload retries only for uncertain transport/server failures or HTTP 408/429, rather than permanent rejections.
+
 # 2026-10-08
 
 - Wrapper 0.9.37 refuses messaging-enabled native starts until the server confirms a German launch name and matching identity. Codex, Claude and Grok receive their identity in per-launch model instructions; `agent_self` reads the authoritative current binding. Resume refreshes Claude system prompts and native receiver naming replaces historical launch prefixes while preserving task titles. Strict registration rolls back on name-pool exhaustion; same-launch recovery cannot silently change its name.
