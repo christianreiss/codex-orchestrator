@@ -1,6 +1,6 @@
 import { randomUUID, randomBytes } from 'node:crypto';
 import { eq, inArray } from 'drizzle-orm';
-import { beforeAll, afterAll, afterEach, describe, expect, it } from 'vitest';
+import { beforeAll, afterAll, afterEach, describe, expect, it, vi } from 'vitest';
 import {
   agentTaskResults,
   agentFreshStartGrants,
@@ -13,10 +13,12 @@ import {
   agentSchedules,
   agentScheduleRuns,
   agentSessions,
+  agentEvents,
   hosts,
   versions,
 } from '../../../src/db/schema.js';
 import { AgentMessagingService } from '../../../src/services/agent-messaging.js';
+import { AgentPortalService } from '../../../src/services/agent-portal.js';
 import { WatchdogsService } from '../../../src/services/watchdogs.js';
 import { SchedulesService } from '../../../src/services/schedules.js';
 import { invalidateFleetEngineState } from '../../../src/services/engine-switch.js';
@@ -36,6 +38,7 @@ describe.skipIf(!handle)('bounded task watchdogs on MySQL', { timeout: 120000 },
   const flags = [
     'api_disabled',
     'agent_messaging_enabled',
+    'agent_portal_enabled',
     'codex_engine_disabled',
     'claude_engine_disabled',
     'grok_engine_disabled',
@@ -94,6 +97,7 @@ describe.skipIf(!handle)('bounded task watchdogs on MySQL', { timeout: 120000 },
     }
     if (host) await db.delete(agentBusRelays).where(eq(agentBusRelays.hostId, host.id));
     if (sessionIds.length) await db.delete(agentPrompts).where(inArray(agentPrompts.sessionId, sessionIds));
+    if (sessionIds.length) await db.delete(agentEvents).where(inArray(agentEvents.sessionId, sessionIds));
     if (sessionIds.length) await db.delete(agentSessions).where(inArray(agentSessions.id, sessionIds));
     scheduleIds.length = addressIds.length = sessionIds.length = 0;
     for (const name of flags)
@@ -110,7 +114,7 @@ describe.skipIf(!handle)('bounded task watchdogs on MySQL', { timeout: 120000 },
     invalidateFleetEngineState(db);
     await handle!.pool.end();
   });
-  async function agent(engine: Engine) {
+  async function agent(engine: Engine, upstreamSessionId = randomUUID(), invocationKind: 'interactive' | 'execute' | 'peer_delivery' = 'interactive') {
     const id = randomUUID(),
       token = randomBytes(32).toString('base64url');
     sessionIds.push(id);
@@ -120,8 +124,8 @@ describe.skipIf(!handle)('bounded task watchdogs on MySQL', { timeout: 120000 },
       cwd: '/tmp/ztest-watchdogs',
       sessionId: id,
       bridgeToken: token,
-      invocationKind: 'interactive',
-      upstreamSessionId: randomUUID(),
+      invocationKind,
+      upstreamSessionId,
       continuity: 'native',
       adapterProtocol: 'cxx-agent-listen-v1',
       adapterCapabilities: { execution_contract_version: 2, watchdog_protocol_version: 1 },
@@ -149,6 +153,96 @@ describe.skipIf(!handle)('bounded task watchdogs on MySQL', { timeout: 120000 },
     if (!scheduleIds.includes(row!.scheduleId)) scheduleIds.push(row!.scheduleId);
     return w;
   }
+  describe.each(['codex', 'claude', 'grok'] as const)('%s terminal watchdog receipt', (engine) => {
+    it.each(['messaging', 'portal'] as const)('stops atomically through %s when the standalone STOP was lost', async (surface) => {
+      const a = await agent(engine), w = await enable(a);
+      const finish = async () => {
+        if (surface === 'messaging') return bus.finishSession(a.id, a.token, 'completed');
+        await db.update(versions).set({ version: '1' }).where(eq(versions.name, 'agent_portal_enabled'));
+        return new AgentPortalService(db, loadTestEnv(), keyring).finishAgent(a.id, a.token, { status: 'completed', watchdog_failure: 'user_stop' });
+      };
+      await finish();
+      const stopped = await watchdogs.get(w.id);
+      expect(stopped).toMatchObject({ status: 'disabled', last_error: 'user_stop' });
+      expect((await db.select().from(agentSessions).where(eq(agentSessions.id, a.id)))[0]!.endedAt).toBeTruthy();
+      expect((await db.select().from(agentSchedules).where(eq(agentSchedules.id, scheduleIds[0]!)))[0]).toMatchObject({ enabled: 0, nextDueAt: null });
+      await finish(); // lost terminal response: retry the same receipt
+      expect((await watchdogs.get(w.id)).version).toBe(stopped.version);
+      await watchdogs.tick(new Date(Date.now() + 3600000));
+      await service.tick(new Date(Date.now() + 3600000));
+      expect(await runs(scheduleIds[0]!)).toHaveLength(0);
+    });
+    it('keeps worker transport completion separate from the protected task outcome', async () => {
+      const a = await agent(engine, randomUUID(), 'peer_delivery'), w = await enable(a);
+      await bus.finishSession(a.id, a.token, 'completed');
+      expect((await watchdogs.get(w.id)).status).toBe('watching');
+      await watchdogs.tick();
+      expect((await watchdogs.get(w.id)).status).toBe('recovering');
+    });
+  });
+  it.each(['queued', 'leased', 'accepted'] as const)('clean finish cancels %s recovery only before durable acceptance', async (status) => {
+    const a = await agent('codex'), { w, run } = await queued(a), claim = randomUUID();
+    if (status !== 'queued') expect(await bus.claimForSession(a.id, a.token, claim)).toBeTruthy();
+    if (status === 'accepted') {
+      await bus.acknowledgeSessionDelivery(a.id, a.token, run.messageId!, { claimId: claim, outcome: 'accepted' });
+      await service.tick();
+    }
+    await bus.finishSession(a.id, a.token, 'completed', 'user_stop');
+    expect((await watchdogs.get(w.id)).status).toBe('disabled');
+    expect((await db.select().from(agentBusMessages).where(eq(agentBusMessages.id, run.messageId!)))[0]!.status).toBe(status === 'accepted' ? 'accepted' : 'canceled');
+    await service.tick(new Date(Date.now() + 3600000));
+    expect((await runs(scheduleIds[0]!))[0]!.status).toBe(status === 'accepted' ? 'accepted' : 'canceled');
+  });
+  it.each(['crash', 'capacity', 'hang'] as const)('retains %s recovery from the terminal receipt', async (failure) => {
+    const a = await agent('codex'), w = await enable(a);
+    await bus.finishSession(a.id, a.token, 'failed', failure);
+    expect(await watchdogs.get(w.id)).toMatchObject({ status: failure === 'capacity' ? 'capacity_wait' : 'recovering', last_error: failure });
+    await service.tick(new Date((await watchdogs.get(w.id)).next_wake_at!));
+    expect((await runs(scheduleIds[0]!))[0]!.status).toBe('queued');
+  });
+  it('honors an interrupt despite a failed process exit', async () => {
+    const a = await agent('codex'), w = await enable(a);
+    await bus.finishSession(a.id, a.token, 'failed', 'user_stop');
+    expect((await watchdogs.get(w.id)).status).toBe('disabled');
+  });
+  it.each([false, true])('leaves ordinary Wake/Cron enabled on the same target (persistent=%s)', async (persistent) => {
+    const a = await agent('codex'), w = await enable(a);
+    const { schedule } = await service.create({ name: 'Ordinary wake', target: a.address.address, prompt: 'Authorized scheduled task', kind: 'interval', interval_minutes: 1, persistent, ...(persistent ? { progress_timeout_seconds: 60 } : {}) }, 'test');
+    scheduleIds.push(schedule.id);
+    const [before] = await db.select().from(agentSchedules).where(eq(agentSchedules.id, schedule.id));
+    await bus.finishSession(a.id, a.token, 'completed');
+    expect((await watchdogs.get(w.id)).status).toBe('disabled');
+    expect((await db.select().from(agentSchedules).where(eq(agentSchedules.id, schedule.id)))[0]).toEqual(before);
+    await service.tick(new Date(Date.now() + 120000));
+    expect((await runs(schedule.id))[0]!.status).toBe(persistent ? 'queued' : 'waiting');
+  });
+  it('rolls back watchdog cancellation if persisting the session end fails', async () => {
+    const a = await agent('codex'), w = await enable(a);
+    const transaction = db.transaction.bind(db);
+    const fault = vi.spyOn(db, 'transaction').mockImplementationOnce((callback, config) => transaction(async (tx) => {
+      const update = tx.update.bind(tx);
+      const failUpdate = vi.spyOn(tx, 'update').mockImplementation((table) => {
+        if (table === agentSessions) throw new Error('injected session finish failure');
+        return update(table);
+      });
+      try { return await callback(tx); } finally { failUpdate.mockRestore(); }
+    }, config));
+    try {
+      await expect(bus.finishSession(a.id, a.token, 'completed')).rejects.toThrow('injected session finish failure');
+    } finally { fault.mockRestore(); }
+    expect((await watchdogs.get(w.id)).status).toBe('watching');
+    expect((await db.select().from(agentSessions).where(eq(agentSessions.id, a.id)))[0]!.endedAt).toBeNull();
+    expect((await db.select().from(agentSchedules).where(eq(agentSchedules.id, scheduleIds[0]!)))[0]!.enabled).toBe(1);
+  });
+  it('does not stop a newer protection from a delayed old-session receipt', async () => {
+    const upstream = randomUUID(), old = await agent('codex', upstream), first = await enable(old);
+    await bus.finishSession(old.id, old.token, 'completed');
+    const current = await agent('codex', upstream), second = await enable(current, { task_key: 'new-task' });
+    expect(current.address.id).toBe(old.address.id);
+    await bus.finishSession(old.id, old.token, 'completed', 'user_stop');
+    expect((await watchdogs.get(first.id)).status).toBe('disabled');
+    expect((await watchdogs.get(second.id)).status).toBe('watching');
+  });
   it.each(['codex', 'claude', 'grok'] as const)(
     'arms %s without waking a healthy agent; retries never extend the deadline',
     async (engine) => {
@@ -345,6 +439,14 @@ describe.skipIf(!handle)('bounded task watchdogs on MySQL', { timeout: 120000 },
       .where(eq(agentBusMessages.id, run!.messageId!));
     return { w, run: run! };
   }
+  it('rejects durable recovery acceptance after a clean finish', async () => {
+    const a = await agent('codex'), { w, run } = await queued(a), claim = randomUUID();
+    expect(await bus.claimForSession(a.id, a.token, claim)).toBeTruthy();
+    await bus.finishSession(a.id, a.token, 'completed');
+    await expect(bus.acknowledgeSessionDelivery(a.id, a.token, run.messageId!, { claimId: claim, outcome: 'accepted' })).rejects.toThrow();
+    expect((await watchdogs.get(w.id)).status).toBe('disabled');
+    expect((await db.select().from(agentBusMessages).where(eq(agentBusMessages.id, run.messageId!)))[0]!.status).toBe('canceled');
+  });
   it('fences deadline between claim and durable acceptance', async () => {
     const a = await agent('codex'),
       { w, run } = await queued(a),

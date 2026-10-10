@@ -2,6 +2,7 @@ import { markWaitingForPresence, discardPresenceNotices } from './presence-feedb
 import { pageAgentAddresses, type AgentDiscoveryFilters } from './discovery.js';
 import { assignLaunchNameLocked, endLaunchNamesLocked } from './names.js';
 import { receiverView, receiverState } from '../agent-receiver-state.js';
+import { finishSessionWatchdogsLocked, type WatchdogFailure } from '../watchdog-lifecycle.js';
 /**
  * Session lifecycle: a managed CLI run registering its bridge, keeping it warm,
  * ending it, and asking who else is reachable.
@@ -441,13 +442,14 @@ export class SessionRegistry {
     };
   }
 
-  async finishSession(sessionId: string, bridgeToken: string, status: 'completed' | 'failed'): Promise<Record<string, unknown>> {
+  async finishSession(sessionId: string, bridgeToken: string, status: 'completed' | 'failed', watchdogFailure?: WatchdogFailure): Promise<Record<string, unknown>> {
     const authenticated = await this.core.authenticateBridge(sessionId, bridgeToken, true);
     const now = nowIso();
     await this.core.db.transaction(async (tx) => {
       const rows = await tx.select().from(agentSessions).where(eq(agentSessions.id, sessionId)).limit(1).for('update');
       const session = rows[0];
       if (!session) return;
+      await finishSessionWatchdogsLocked(tx, session, status, watchdogFailure, now);
       await tx
         .update(agentSessions)
         .set({ status, endedAt: session.endedAt ?? now, receiveHeartbeatAt: null, adapterProtocol: null, adapterCapabilities: null, updatedAt: now })

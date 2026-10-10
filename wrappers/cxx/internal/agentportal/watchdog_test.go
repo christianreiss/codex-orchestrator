@@ -6,9 +6,71 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"testing"
 	"time"
 )
+
+func TestFinishRetriesTheSameWatchdogCauseAfterLostResponse(t *testing.T) {
+	for _, engine := range []string{"codex", "claude", "grok"} {
+		t.Run(engine, func(t *testing.T) {
+			var requests []map[string]any
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path != "/host/agent-sessions/session/finish" {
+					t.Errorf("unexpected standalone request: %s", r.URL.Path)
+				}
+				var body map[string]any
+				if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+					t.Error(err)
+				}
+				requests = append(requests, body)
+				if len(requests) == 1 {
+					conn, _, err := w.(http.Hijacker).Hijack()
+					if err != nil {
+						t.Error(err)
+						return
+					}
+					_ = conn.Close() // terminal write committed; its response is lost
+					return
+				}
+				_, _ = w.Write([]byte(`{}`))
+			}))
+			defer server.Close()
+			s := &Session{ID: "session", Engine: engine, BridgeToken: "bridge", BaseURL: server.URL, http: server.Client(), watchdog: &watchdogFeed{}}
+			if err := s.Finish("completed", "done"); err != nil {
+				t.Fatal(err)
+			}
+			if err := s.Finish("completed", "done"); err != nil {
+				t.Fatal(err)
+			}
+			if len(requests) != 2 || !reflect.DeepEqual(requests[0], requests[1]) || requests[0]["watchdog_failure"] != "user_stop" {
+				t.Fatalf("terminal retries lost or changed exit cause: %#v", requests)
+			}
+		})
+	}
+}
+
+func TestWatchdogTerminalClassification(t *testing.T) {
+	for _, tc := range []struct {
+		name, status, summary, observed, want string
+		worker                                bool
+	}{
+		{name: "clean", status: "completed", want: "user_stop"},
+		{name: "crash", status: "failed", want: "crash"},
+		{name: "interrupt", status: "failed", summary: "exit status 130", want: "user_stop"},
+		{name: "capacity", status: "failed", observed: "capacity", want: "capacity"},
+		{name: "hang", status: "failed", observed: "hang", want: "hang"},
+		{name: "blocked", status: "failed", observed: "blocked", want: "blocked"},
+		{name: "worker", status: "completed", worker: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := &Session{watchdog: &watchdogFeed{failure: tc.observed}, peerDelivery: tc.worker}
+			if got := s.watchdogExitFailure(tc.status, tc.summary); got != tc.want {
+				t.Fatalf("got %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
 
 func frame(t *testing.T, now time.Time, deadline time.Time) watchdogSnapshot {
 	t.Helper()

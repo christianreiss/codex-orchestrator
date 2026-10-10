@@ -1,5 +1,7 @@
 # 2026-10-10
 
+- Wrapper 0.9.45 includes the Watchdog exit cause in the retried session-finish receipt. A clean exit or user interrupt atomically disables its Watchdog and cancels pending internal recovery, even if the standalone STOP report was lost. Accepted work, crash/capacity recovery and ordinary Wake/Cron schedules are preserved; delayed old-session receipts cannot stop newer protection.
+
 - Wrapper 0.9.44 elects one automatic receiver per managed launch and forwards sibling MCP tool calls to its shared peer/Portal receipt tracker. Native subagents no longer create disconnected reply trackers or compete for reception. Update all MCP processes of a launch together; already accepted work is not replayed.
 
 - Invalid route parameters, including Agent Messaging discovery limits outside 1–50, return `validation_failed` (HTTP 422) instead of an internal server error.

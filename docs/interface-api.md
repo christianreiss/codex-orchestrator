@@ -1725,6 +1725,20 @@ the next managed sync restores its block.
 
 ## Watchdog (wrapper 0.9.36+)
 
+From wrapper 0.9.45, `POST /host/agent-sessions/:id/finish` accepts optional
+`watchdog_failure: capacity|crash|hang|user_stop|blocked` alongside `status` and
+`summary`. The wrapper retries the same terminal body after an ambiguous response;
+the exit classification no longer depends on a separate best-effort activity report.
+Both Portal and messaging-only finish paths finalize the currently bound Watchdog
+in the same transaction as session termination. A completed ordinary client without
+an explicit classification defaults to `user_stop`; a failed client defaults to
+`crash`. User stop disables protection and cancels only pending internal recovery;
+accepted work remains intact. Worker `peer_delivery` completion stays governed by
+its durable work receipt, not its process exit. Address/native-session/current-binding
+checks fence delayed old-session receipts. Ordinary Wake/Cron schedules are unchanged.
+If no terminal receipt reaches the server, a clean exit remains indistinguishable
+from connection loss.
+
 `#watchdog` is a code-managed Skill. Session-scoped `watchdog_get`, `watchdog_enable`,
 `watchdog_disable`, `watchdog_finish` live in the wrapper's `cxx-agent` MCP, not the
 host MCP. AI can protect only its current task; CLI and Admin can explicitly select

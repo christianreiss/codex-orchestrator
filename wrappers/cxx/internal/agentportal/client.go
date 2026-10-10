@@ -74,6 +74,7 @@ func ExplicitResumeSessionID(args []string) string {
 
 type Session struct {
 	watchdog               *watchdogFeed
+	peerDelivery           bool
 	LaunchName             string
 	ID                     string
 	BridgeToken            string
@@ -213,6 +214,7 @@ func Start(parent context.Context, cfg *config.Config, input StartInput) (*Sessi
 		CABundlePath:           ca,
 		AllowInsecure:          cfg.Orchestrator.AllowInsecure,
 		Engine:                 input.Engine,
+		peerDelivery:           input.InvocationKind == "peer_delivery",
 		hostAPIKey:             cfg.Orchestrator.APIKey,
 		http:                   client,
 		registrationBody:       body,
@@ -438,6 +440,9 @@ func (s *Session) Finish(status, summary string) error {
 	}
 	s.mu.Unlock()
 	body := map[string]any{"status": status, "summary": summary}
+	if failure := s.watchdogExitFailure(status, summary); failure != "" {
+		body["watchdog_failure"] = failure
+	}
 	path := "/host/agent-sessions/" + url.PathEscape(s.ID) + "/finish"
 	err := retryAmbiguous(context.Background(), s.attemptTimeout(8*time.Second), func(attemptCtx context.Context) error {
 		return s.bridgeJSON(attemptCtx, http.MethodPost, path, body, nil)

@@ -139,16 +139,19 @@ func (s *Session) reportWatchdog(ctx context.Context, progress time.Time, failur
 	var ignored map[string]any
 	return s.bridgeJSON(ctx, http.MethodPost, "/host/agent-sessions/"+url.PathEscape(s.ID)+"/watchdog/activity", body, &ignored)
 }
-func (s *Session) watchdogExit(status, summary string) {
-	if os.Getenv("CXX_AGENT_MESSAGING_MESSAGE_ID") != "" {
-		return
-	} // Worker stores its durable outcome and retry hint.
-	if s == nil || s.watchdog == nil || !s.signedReceivePlaneEnabled() {
-		return
+
+// The terminal request carries the classification through the same retry path
+// as session finalization. Worker exits are classified by their durable ACK.
+func (s *Session) watchdogExitFailure(status, summary string) string {
+	if s == nil || s.peerDelivery {
+		return ""
 	}
-	s.watchdog.mu.Lock()
-	f := s.watchdog.failure
-	s.watchdog.mu.Unlock()
+	f := ""
+	if s.watchdog != nil {
+		s.watchdog.mu.Lock()
+		f = s.watchdog.failure
+		s.watchdog.mu.Unlock()
+	}
 	if f == "" {
 		if status == "failed" {
 			f = "crash"
@@ -160,7 +163,5 @@ func (s *Session) watchdogExit(status, summary string) {
 	if strings.Contains(text, "130") || strings.Contains(text, "interrupt") || strings.Contains(text, "context canceled") {
 		f = "user_stop"
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
-	defer cancel()
-	_ = s.reportWatchdog(ctx, time.Now(), f)
+	return f
 }

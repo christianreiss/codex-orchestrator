@@ -1170,6 +1170,12 @@ documented in [interface-api.md](interface-api.md#native-memory-reminders-cxx-09
 
 ## Watchdog — cxx 0.9.36
 
+From cxx 0.9.45, a clean exit or user interrupt carries `user_stop` in the
+retried session-finish receipt. The server atomically stops the bound Watchdog
+and pending internal recovery, while preserving accepted work and ordinary
+Wake/Cron schedules. Worker completion retains its durable task-outcome contract.
+An undelivered finish receipt remains indistinguishable from connection loss.
+
 `cxx watchdog` also works through this engine's wrapper alias. In a managed session,
 `watchdog status`, `watchdog on --task-key KEY --stdin` and
 `watchdog off --id UUID --version N` use the private session bridge. Outside a session,

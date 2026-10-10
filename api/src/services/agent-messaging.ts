@@ -6,6 +6,7 @@ import { jsonRecord } from './agent-messaging/normalize.js';
 import { agentFreshStartGrants, agentTaskResults } from '../db/schema.js';
 import { storeTaskResult, queueTaskResultReply, unknownTaskResult, approveFreshStart, freshStartAllowed, taskResultSchema, type TaskResult } from './agent-messaging/task-execution.js';
 import { receiverReady, receiverState } from './agent-receiver-state.js';
+import type { WatchdogFailure } from './watchdog-lifecycle.js';
 import { randomBytes, randomUUID } from 'node:crypto';
 import {
   and,
@@ -329,8 +330,8 @@ export class AgentMessagingService {
     return result;
   }
 
-  async finishSession(sessionId: string, bridgeToken: string, status: 'completed' | 'failed'): Promise<Record<string, unknown>> {
-    return this.sessions.finishSession(sessionId, bridgeToken, status);
+  async finishSession(sessionId: string, bridgeToken: string, status: 'completed' | 'failed', watchdogFailure?: WatchdogFailure): Promise<Record<string, unknown>> {
+    return this.sessions.finishSession(sessionId, bridgeToken, status, watchdogFailure);
   }
 
   async notifyPresenceReturn(sessionId: string): Promise<void> {

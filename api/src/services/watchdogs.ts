@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray } from 'drizzle-orm';
 import { z } from 'zod';
 import type { Database } from '../db/client.js';
 import type { Keyring } from '../security/keyring.js';
@@ -24,10 +24,11 @@ import { isEngine } from '../util/engine.js';
 import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from '../http/errors.js';
 import { wsPublisher } from '../ws/publisher.js';
 import { createAdminEventsService } from './admin-events.js';
+import { WATCHDOG_LIVE, watchdogRetryTime, stopWatchdogLocked } from './watchdog-lifecycle.js';
 
 type Tx = Parameters<Parameters<Database['transaction']>[0]>[0];
 type Watchdog = typeof agentWatchdogs.$inferSelect;
-export const WATCHDOG_LIVE = ['watching', 'recovering', 'capacity_wait'];
+export { WATCHDOG_LIVE, watchdogRetryTime } from './watchdog-lifecycle.js';
 export const watchdogEnableInput = z
   .object({
     target: z.string().regex(/^agent:[0-9a-f-]{36}$/i),
@@ -47,12 +48,6 @@ export const watchdogEnableInput = z
     version: z.number().int().positive().optional(),
   })
   .strict();
-export function watchdogRetryTime(now: Date, providerHint?: string) {
-  const hint = providerHint ? Date.parse(providerHint) : NaN;
-  return new Date(
-    Math.max(now.getTime() + 300000 * (1 + Math.random() * 0.2), Number.isFinite(hint) ? hint : 0),
-  ).toISOString();
-}
 export class WatchdogsService {
   constructor(
     private readonly db: Database,
@@ -334,40 +329,7 @@ export class WatchdogsService {
     wsPublisher.publish('watchdogs.changed', { watchdog_id: id });
   }
   private async stop(tx: Tx, row: Watchdog, status: string, reason: string, now: string) {
-    await tx
-      .update(agentWatchdogs)
-      .set({ status, lastError: reason, version: row.version + 1, updatedAt: now })
-      .where(eq(agentWatchdogs.id, row.id));
-    await tx
-      .update(agentSchedules)
-      .set({
-        enabled: 0,
-        nextDueAt: null,
-        pauseReason: reason,
-        version: sql`${agentSchedules.version} + 1`,
-        updatedAt: now,
-      })
-      .where(eq(agentSchedules.id, row.scheduleId));
-    const runs = await tx
-      .select()
-      .from(agentScheduleRuns)
-      .where(eq(agentScheduleRuns.scheduleId, row.scheduleId));
-    for (const run of runs) {
-      const [message] = run.messageId
-        ? await tx.select().from(agentBusMessages).where(eq(agentBusMessages.id, run.messageId)).for('update')
-        : [];
-      // Durable acceptance can precede the next schedule tick. Preserve that work.
-      if (message?.status === 'accepted' || run.status === 'accepted' || run.status === 'completed') continue;
-      if (message && ['queued', 'leased'].includes(message.status))
-        await tx
-          .update(agentBusMessages)
-          .set({ status: 'canceled', canceledAt: now, leaseOwner: null, leaseUntil: null, updatedAt: now })
-          .where(eq(agentBusMessages.id, message.id));
-      await tx
-        .update(agentScheduleRuns)
-        .set({ status: 'canceled', updatedAt: now })
-        .where(eq(agentScheduleRuns.id, run.id));
-    }
+    await stopWatchdogLocked(tx, row, status, reason, now);
   }
 
   async finish(raw: unknown, actor: string, disabled = false, ownSessionId?: string) {

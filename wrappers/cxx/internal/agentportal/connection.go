@@ -75,9 +75,6 @@ func (r *ConnectionRuntime) Close(status, summary string) error {
 		if r.stopWatchdog != nil {
 			r.stopWatchdog()
 		}
-		if r.session != nil {
-			r.session.watchdogExit(status, summary)
-		}
 		r.stopHeartbeat()
 		ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
 		var heartbeatErr error

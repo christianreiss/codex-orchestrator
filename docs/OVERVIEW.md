@@ -818,6 +818,12 @@ rules](interface-api.md#native-memory-reminders-cxx-0935).
 
 ## Bounded task Watchdog
 
+Wrapper 0.9.45 carries the exit cause in its retried session-finish receipt.
+A clean client exit or interrupt atomically stops the bound Watchdog and pending
+internal recovery. Accepted work and ordinary Wake/Cron schedules remain intact;
+worker completion is governed by its durable task receipt. A host/network loss
+without a delivered terminal receipt remains eligible for authorized recovery.
+
 AI can protect its current task through `#watchdog`; operators enable/disable it with
 `cxx watchdog` or Agent Messaging in Admin. Server SSE keep-alives expose wake/progress
 and deadline metadata independently of model capacity. Defaults: two hours lifetime,

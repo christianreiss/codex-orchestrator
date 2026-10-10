@@ -50,6 +50,7 @@ import { wsPublisher } from '../ws/publisher.js';
 import { activeHostEngines, assertHostEngineEnabled, type FleetEngineState } from './host-engine-policy.js';
 import { readFleetEngineState } from './engine-switch.js';
 import { releaseAgentMessagingBindingsLocked } from './agent-messaging.js';
+import { finishSessionWatchdogsLocked, WATCHDOG_FAILURES, type WatchdogFailure } from './watchdog-lifecycle.js';
 
 export const AGENT_PORTAL_ENABLED_KEY = 'agent_portal_enabled';
 export const AGENT_PORTAL_MESSAGE_MAX_BYTES = 32 * 1024;
@@ -212,6 +213,7 @@ interface EventTransactionOptions {
   terminal?: {
     status: 'completed' | 'failed';
     expiresAt: string;
+    watchdogFailure?: WatchdogFailure;
   };
 }
 
@@ -470,17 +472,17 @@ export class AgentPortalService {
     });
   }
 
-  async finishAgent(sessionId: string, bridgeToken: string, input: { status: 'completed' | 'failed'; summary?: string }, hostId?: number): Promise<Record<string, unknown>> {
+  async finishAgent(sessionId: string, bridgeToken: string, input: { status: 'completed' | 'failed'; summary?: string; watchdog_failure?: WatchdogFailure }, hostId?: number): Promise<Record<string, unknown>> {
     const session = await this.authenticateBridge(sessionId, bridgeToken, hostId, true);
     const expiresAt = isoOffsetSeconds(this.env.AGENT_PORTAL_RETENTION_HOURS * 3600);
     const event = await this.addEventInternal(session.id, {
       clientEventId: `server:${input.status}`,
       type: input.status,
       source: 'bridge',
-      payload: { summary: normalizeOptionalText(input.summary, 1000) ?? (input.status === 'failed' ? 'Agent failed' : 'Agent completed') },
+      payload: { summary: normalizeOptionalText(input.summary, 1000) ?? (input.status === 'failed' ? 'Agent failed' : 'Agent completed'), ...(input.watchdog_failure ? { watchdog_failure: input.watchdog_failure } : {}) },
     }, {
       bridge: { token: bridgeToken, hostId: session.hostId, allowEnded: true },
-      terminal: { status: input.status, expiresAt },
+      terminal: { status: input.status, expiresAt, watchdogFailure: input.watchdog_failure },
     });
     return { ...event, status: input.status, expires_at: expiresAt };
   }
@@ -1291,7 +1293,7 @@ export class AgentPortalService {
         const payload = this.decodeJson<Record<string, unknown>>(existing[0].payloadEnc, {});
         this.assertEventIdempotency(existing[0], input, normalized.payload, payload);
         if (options.terminal && !session.endedAt) {
-          await this.applyTerminalState(tx, sessionId, options.terminal.status, options.terminal.expiresAt);
+          await this.applyTerminalState(tx, sessionId, options.terminal.status, options.terminal.expiresAt, nowIso(), options.terminal.watchdogFailure);
         }
         return { row: existing[0], payload };
       }
@@ -1356,7 +1358,7 @@ export class AgentPortalService {
         await tx.update(agentPrompts).set({ eventId: row.id }).where(eq(agentPrompts.id, normalized.prompt.id));
       }
       if (options.terminal) {
-        await this.applyTerminalState(tx, sessionId, options.terminal.status, options.terminal.expiresAt, now);
+        await this.applyTerminalState(tx, sessionId, options.terminal.status, options.terminal.expiresAt, now, options.terminal.watchdogFailure);
       } else if (input.type === 'waiting_input') {
         await tx
           .update(agentSessions)
@@ -1687,7 +1689,10 @@ export class AgentPortalService {
     status: 'completed' | 'failed',
     expiresAt: string,
     now = nowIso(),
+    watchdogFailure?: WatchdogFailure,
   ): Promise<void> {
+    const [session] = await db.select().from(agentSessions).where(eq(agentSessions.id, sessionId)).for('update');
+    if (session) await finishSessionWatchdogsLocked(db, session, status, watchdogFailure, now);
     await releaseAgentMessagingBindingsLocked(db, [sessionId], now);
     await db
       .update(agentSessions)
@@ -2086,6 +2091,7 @@ function normalizeEvent(type: AgentEventType, input: Record<string, unknown>): N
   }
   const summary = normalizeOptionalText(input.summary, 1000);
   if (summary) payload.summary = summary;
+  if ((type === 'completed' || type === 'failed') && WATCHDOG_FAILURES.includes(input.watchdog_failure as WatchdogFailure)) payload.watchdog_failure = input.watchdog_failure;
   // Resolution is self-authored timeline evidence, never a prompt answer or
   // an operator message. Ignore unrelated payload fields on this event.
   if (type === 'attention_resolved') return { payload };

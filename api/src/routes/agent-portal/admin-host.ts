@@ -18,6 +18,7 @@ import { parseEngine } from '../../util/engine.js';
 import { assertHostEngineEnabled } from '../../services/host-engine-policy.js';
 import { readFleetEngineState } from '../../services/engine-switch.js';
 import { createAgentMessagingService, messagingHostEligible } from '../../services/agent-messaging.js';
+import { WATCHDOG_FAILURES } from '../../services/watchdog-lifecycle.js';
 
 const BRIDGE_TOKEN_HEADER = 'x-agent-bridge-token';
 const JSON_OBJECT_SCHEMA = z.object({}).catchall(z.unknown());
@@ -231,11 +232,11 @@ export async function registerAgentPortalAdminHostRoutes(
     const id = stringParam(req.params, 'id');
     const token = requireBridgeToken(req);
     const body = z
-      .object({ status: z.enum(['completed', 'failed']), summary: z.string().optional() })
+      .object({ status: z.enum(['completed', 'failed']), summary: z.string().optional(), watchdog_failure: z.enum(WATCHDOG_FAILURES).optional() })
       .parse(req.body ?? {});
     const [portalEnabled, messagingEnabled] = await Promise.all([portal.isEnabled(), messaging.isEnabled()]);
     const portalResult = portalEnabled ? await portal.finishAgent(id, token, body) : null;
-    const messagingResult = messagingEnabled ? await messaging.finishSession(id, token, body.status) : null;
+    const messagingResult = messagingEnabled ? await messaging.finishSession(id, token, body.status, body.watchdog_failure) : null;
     return {
       enabled: Boolean(portalResult || messagingResult),
       capabilities: { portal: Boolean(portalResult), agent_messaging: Boolean(messagingResult) },
