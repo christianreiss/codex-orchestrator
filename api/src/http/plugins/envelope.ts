@@ -1,6 +1,7 @@
 import fp from 'fastify-plugin';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
-import { ApiError } from '../errors.js';
+import { ZodError } from 'zod';
+import { ApiError, ValidationError } from '../errors.js';
 import { selectFormatter } from '../envelope/select.js';
 import { isOkResult } from '../reply.js';
 
@@ -79,6 +80,10 @@ export const envelopePlugin = fp(
 
 function toApiError(err: unknown): ApiError {
   if (err instanceof ApiError) return err;
+  if (err instanceof ZodError) {
+    // Do not include input values: validation may concern credentials or text.
+    return new ValidationError(err.issues.map(issue => `${issue.path.join('.') || 'request'}: ${issue.code === 'invalid_enum_value' ? 'Invalid option' : issue.message}`).join('; '));
+  }
   if (
     err &&
     typeof err === 'object' &&

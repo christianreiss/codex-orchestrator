@@ -104,7 +104,7 @@ def run_grok(cxx, native_cli, auth_file):
             raise RuntimeError("Grok native leader canary failed")
 
 
-def run(engine, cxx, timeout, native_cli=None):
+def run(engine, cxx, timeout, native_cli=None, sibling_mcp=False):
     cli = native_cli or engine
     with tempfile.TemporaryDirectory(prefix="cxx-receiver-canary-") as tmp:
         receiver_log = pathlib.Path(tmp) / "receiver.log"
@@ -132,6 +132,7 @@ def run(engine, cxx, timeout, native_cli=None):
         registered = None
         failure = None
         operations = {}
+        sibling_checked = False
         lock = threading.Lock()
 
         class Handler(http.server.BaseHTTPRequestHandler):
@@ -184,7 +185,11 @@ def run(engine, cxx, timeout, native_cli=None):
                             failure = "peer reply lost message correlation"
                     elif op == "events":
                         payload = data.get("payload", {})
-                        if payload.get("message_id") == message_ids["portal"] and payload.get("text", "").strip() == receipts["portal"]:
+                        if data.get("type") in ("message_read", "message_processing") and payload.get("message_id") == message_ids["portal"]:
+                            # Explicit read/working receipts do not complete a
+                            # delivery; only the correlated assistant text does.
+                            pass
+                        elif payload.get("message_id") == message_ids["portal"] and payload.get("text", "").strip() == receipts["portal"]:
                             replied.add("portal")
                         else:
                             failure = "portal reply lost message correlation"
@@ -198,6 +203,11 @@ def run(engine, cxx, timeout, native_cli=None):
                         out = {"receiver": {"sources": [{"source": s} for s in sources]}}
                     elif op == "ack" and data.get("outcome") == "accepted":
                         out = {"status": "accepted"} if "/agent-commands/" in self.path else {"message": {"status": "accepted"}}
+                    elif op == "self":
+                        out = {"session_id": session, "native_session_id": registered["native_session_id"] if registered else native,
+                               "engine": engine, "name": "Canary", "binding_generation": 1}
+                    elif self.path.endswith("/watchdog/get"):
+                        out = {"watchdog": None}
                     elif op in ("heartbeat", "stop", "status", "ack", "renew"):
                         pass
                     else:
@@ -232,7 +242,7 @@ def run(engine, cxx, timeout, native_cli=None):
                     overrides += ["-c", "mcp_servers.cxx-agent.env." + key + "=" + json.dumps(value)]
                 # This isolated canary grants only its own receipt tools; shell
                 # commands and files remain read-only with approvals disabled.
-                for name in ("agent_receiver_reply", "agent_reply"):
+                for name in ("agent_receiver_reply", "agent_receiver_status", "agent_self", "agent_reply"):
                     overrides += ["-c", "mcp_servers.cxx-agent.tools." + name + '.approval_mode="approve"']
                 daemon = subprocess.Popen([cli, "app-server", "--listen", "unix://" + sock, *overrides],
                                           cwd=tmp, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
@@ -283,6 +293,30 @@ def run(engine, cxx, timeout, native_cli=None):
             trusted = False
             channel_confirmed = False
             while time.monotonic() < deadline:
+                if sibling_mcp and registered and healthy and not sibling_checked:
+                    sibling = subprocess.Popen([cxx, "agent", "mcp", "--auto"], env=dict(env, **mcp_env),
+                                               stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                               stderr=subprocess.DEVNULL, start_new_session=True, bufsize=0)
+                    children.append(sibling)
+                    for request in [
+                        {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}},
+                        {"jsonrpc": "2.0", "method": "notifications/initialized"},
+                        {"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "agent_self", "arguments": {}}},
+                    ]:
+                        sibling.stdin.write((json.dumps(request) + "\n").encode())
+                    sibling.stdin.flush()
+                    sibling_deadline = time.monotonic() + 10
+                    while time.monotonic() < sibling_deadline:
+                        if not select.select([sibling.stdout], [], [], .2)[0]:
+                            continue
+                        result = json.loads(sibling.stdout.readline())
+                        if result.get("id") == 2:
+                            if result.get("result", {}).get("isError") or result.get("result", {}).get("structuredContent", {}).get("session_id") != session:
+                                raise RuntimeError("sibling MCP did not use the shared launch owner")
+                            sibling_checked = True
+                            break
+                    if not sibling_checked:
+                        raise RuntimeError("sibling MCP shared-owner response timed out")
                 with lock:
                     if failure:
                         if receiver_log.exists():
@@ -293,6 +327,8 @@ def run(engine, cxx, timeout, native_cli=None):
                         outcome = {"engine": engine, "result": "passed", "native_session_id": registered["native_session_id"],
                                    "generation": registered["generation"], "correlated_message_replies": completed_replies,
                                    "reconnected_and_replied": sorted(replied)}
+                        if sibling_mcp:
+                            outcome["sibling_shared_receiver"] = sibling_checked
                 if outcome:
                     server.shutdown()
                     server.server_close()
@@ -371,9 +407,10 @@ if __name__ == "__main__":
     parser.add_argument("--cxx", required=True, help="absolute path to the built wrapper")
     parser.add_argument("--timeout", type=int, default=180)
     parser.add_argument("--native-cli", help="exact native CLI binary to test; defaults to the engine on PATH")
+    parser.add_argument("--sibling-mcp", action="store_true", help="verify a second MCP process shares the receiver instead of registering one")
     parser.add_argument("--grok-auth", help="protected current access-only Grok projection; never a refresh-bearing auth file")
     args = parser.parse_args()
     if args.engine == "grok":
         run_grok(os.path.abspath(args.cxx), args.native_cli, args.grok_auth)
         sys.exit(0)
-    run(args.engine, os.path.abspath(args.cxx), args.timeout, args.native_cli)
+    run(args.engine, os.path.abspath(args.cxx), args.timeout, args.native_cli, args.sibling_mcp)

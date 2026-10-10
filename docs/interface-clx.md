@@ -1469,3 +1469,21 @@ and do not release the delivery; `agent_receiver_reply` sends the correlated ans
 Web Chat and Android distinguish queued, delivered, read, working and replied.
 Ongoing work requires a fresh matching active turn; older wrappers still show delivery
 and correlated replies without inventing read receipts.
+
+## Shared receiver ownership (cxx 0.9.44)
+
+Native subagents can inherit the same launch MCP configuration. All automatic
+MCP instances of that launch elect one receiver owner through a private Unix
+socket and file lease beside the existing broker. Other instances forward tool
+calls to that owner, sharing peer claims, Portal receipts and `agent_listen`
+health. They never independently register a receiver generation. This prevents
+`receiver_unavailable` and Portal ownership errors caused by a different MCP
+instance answering a delivery. The contract is shared by Codex, Claude and Grok.
+No additional network endpoint is opened.
+
+Restart the launch's MCP instances together after updating; mixed old/new
+instances do not share ownership. An owner exit releases its local lease and a
+surviving instance may take over. Already accepted work is never automatically
+replayed, and a lost process-local receipt still requires inspection of retained
+server state. Server `ready` remains transport evidence, not proof of delivery
+or a model reply.

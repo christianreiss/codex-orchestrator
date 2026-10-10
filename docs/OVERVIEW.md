@@ -886,3 +886,5 @@ different active turn cannot leave an old message marked as currently processing
 ## Chatty
 
 The Admin WebUI includes a personal product assistant for Owner/Admin after the first verified usable AI access. It combines build-versioned documentation and MCP knowledge with typed administration tools, durable confirmations and personal encrypted conversations. See [Chatty architecture and operations](chatty.md).
+
+Automatic MCP instances within one managed launch share an elected local receiver and receipt tracker from cxx 0.9.44. See [shared receiver ownership](interface-cdx.md#shared-receiver-ownership-cxx-0944).

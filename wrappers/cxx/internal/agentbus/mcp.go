@@ -92,6 +92,7 @@ func (p *channelPending) reply() map[string]any { p.mu.Lock(); defer p.mu.Unlock
 // keeps the lease alive while the model thinks beyond the 60s lease.
 type channelTracker struct {
 	receiver *autoReceiver
+	owner    *receiverOwner
 	client   *sessionClient
 	mu       sync.Mutex
 	items    map[string]*channelPending
@@ -515,6 +516,13 @@ func runMCPProtocol(client *sessionClient, channel bool, stdin io.Reader, stdout
 		defer channelState.receiver.stall.stopAll()
 	}
 	receiverStarted := false
+	var receiverDone chan struct{}
+	defer func() {
+		cancel()
+		if receiverDone != nil {
+			<-receiverDone
+		}
+	}()
 	initialized := false
 	channelActive := false
 	defer func() {
@@ -553,7 +561,13 @@ func runMCPProtocol(client *sessionClient, channel bool, stdin io.Reader, stdout
 		}
 		if automatic && initialized && !receiverStarted && req.Method == "notifications/initialized" {
 			receiverStarted = true
-			go channelState.receiver.run(ctx, stderr)
+			channelState.owner = newReceiverOwner(client, channelState)
+			receiverDone = make(chan struct{})
+			if channelState.owner != nil {
+				go func() { defer close(receiverDone); channelState.owner.run(ctx, stderr) }()
+			} else {
+				go func() { defer close(receiverDone); channelState.receiver.run(ctx, stderr) }()
+			}
 			continue
 		}
 		if len(req.ID) == 0 {
@@ -703,6 +717,9 @@ func handleMCPRequest(ctx context.Context, client *sessionClient, req mcpRequest
 		_ = json.Unmarshal(toolCatalogJSON(), &tools)
 		return mcpSuccess(req.ID, map[string]any{"tools": tools})
 	case "tools/call":
+		if channelState != nil && channelState.owner != nil && !channelState.owner.isOwner() {
+			return channelState.owner.forward(ctx, req)
+		}
 		var params struct {
 			Name      string         `json:"name"`
 			Arguments map[string]any `json:"arguments"`

@@ -1893,3 +1893,5 @@ Chat content is encrypted and never broadcast on global admin WS.
 request. 503 means no usable AI access. Queue admission has no success semantics:
 only a committed action receipt proves a mutation. Detailed lifecycle, supported
 tools, exclusions and rollout requirements: [Chatty](chatty.md).
+
+Route-level Zod validation errors return HTTP 422 with `validation_failed`, including invalid Agent Messaging discovery limits (1–50). They are client argument errors rather than HTTP 500 transport failures.

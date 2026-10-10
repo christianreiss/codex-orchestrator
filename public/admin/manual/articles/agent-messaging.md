@@ -3,7 +3,7 @@ title: Agent Messaging operations
 section: Fleet operations
 summary: Direct messages, opt-in groups and individual agent feeds across Codex, Claude, Grok and Server, with delivery receipts and operator controls.
 tags: [agents, messaging, codex, claude, grok, groups, operations]
-verified: 2026-10-08
+verified: 2026-10-10
 sources: api/src/routes/agent-messaging/index.ts, api/src/routes/agent-portal/admin-host.ts, api/src/services/agent-messaging.ts, api/src/services/agent-messaging-tool-names.ts, api/src/services/agent-presence.ts, api/src/services/agent-session-work.ts, api/src/ops/agent-messaging-worker.ts, api/src/db/schema.ts, api/src/db/migrations/0014_add_agent_messaging.sql, api/src/db/migrations/0021_add_agent_conferences.sql, frontend/src/routes/agent-messaging/+page.svelte, frontend/src/lib/components/settings/AgentMessagingSection.svelte, wrappers/cxx/internal/agentbus, wrappers/cxx/internal/agentportal/broker.go
 ---
 
@@ -737,3 +737,7 @@ Historical names for the same address are removed from existing prefixes on resu
 the bare task title remains separate. Naming errors retry without disabling message
 reception. Headless or receiver-disabled launches retain server/Android labels
 and model context, without a guarantee of native title synchronization.
+
+### Receiver ownership with native subagents
+
+Wrapper 0.9.44 shares one receiver and reply tracker across the MCP processes of a managed launch. After updating, restart that launch's MCP connections together; mixed older processes cannot use the shared tracker. This addresses `receiver_unavailable` despite a ready server receiver and Portal replies rejected as not owned by the answering process. A ready heartbeat still does not establish delivery: inspect the message's accepted/completed timestamps. Ordinary messages accept a text reply; explicit task results belong to work sent with `agent_request`, conference tasks or schedules.

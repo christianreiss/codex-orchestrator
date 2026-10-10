@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import Fastify, { type FastifyInstance, type LightMyRequestResponse, type RouteHandlerMethod } from 'fastify';
 import { envelopePlugin } from '../../../src/http/plugins/envelope.js';
 import { ApiError } from '../../../src/http/errors.js';
+import { z } from 'zod';
 import { ok } from '../../../src/http/reply.js';
 
 /**
@@ -22,6 +23,26 @@ import { ok } from '../../../src/http/reply.js';
 
 /** One URL per envelope the plugin can select. */
 const PREFIXES = ['/admin', '/v1', '/anthropic/v1'] as const;
+
+describe('route Zod validation', () => {
+  it('returns a correctable 422 for invalid agent discovery limits without echoing input', async () => {
+    const app = await buildProbe((app, prefix) => {
+      app.post(`${prefix}/discovery`, req => z.object({ limit: z.number().int().min(1).max(50) }).strict().parse(req.body));
+    });
+    try {
+      for (const prefix of PREFIXES) {
+        for (const limit of [100, 'private-input']) {
+          const response = await app.inject({ method: 'POST', url: `${prefix}/discovery`, payload: { limit } });
+          expect(response.statusCode).toBe(422);
+          expect(response.body).toContain('validation_failed');
+          expect(response.body).toContain('limit');
+          expect(response.body).not.toContain('private-input');
+          expect(response.body).not.toContain('server_error');
+        }
+      }
+    } finally { await app.close(); }
+  });
+});
 
 async function buildProbe(routes: (app: FastifyInstance, prefix: string) => void): Promise<FastifyInstance> {
   const app = Fastify({ logger: false });

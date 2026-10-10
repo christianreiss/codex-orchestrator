@@ -1,3 +1,9 @@
+# 2026-10-10
+
+- Wrapper 0.9.44 elects one automatic receiver per managed launch and forwards sibling MCP tool calls to its shared peer/Portal receipt tracker. Native subagents no longer create disconnected reply trackers or compete for reception. Update all MCP processes of a launch together; already accepted work is not replayed.
+
+- Invalid route parameters, including Agent Messaging discovery limits outside 1–50, return `validation_failed` (HTTP 422) instead of an internal server error.
+
 # 2026-10-09
 
 - Removed the legacy `/go` mobile webchat, permanent magic links and portal-user management. Active Clients now holds shared agent-session settings and remote-session start/continue/stop controls. Android chat, notifications and wrapper receiver contracts remain available; cleanup 0051 deletes the retired portal access tables and their authored queue rows without converting identities.
