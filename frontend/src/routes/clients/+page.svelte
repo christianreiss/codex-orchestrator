@@ -301,6 +301,16 @@
                 <Button variant="ghost" size="icon" class="h-8 w-8 rounded-full {detailsOpen ? 'text-primary' : 'text-muted-foreground'}" aria-expanded={detailsOpen} aria-controls="client-info" aria-label="Session details" title="Session details" onclick={() => (detailsOpen = !detailsOpen)}><InfoIcon class="h-4 w-4" /></Button>
               </div>
             </header>
+            {#if selected.reboot}
+              <div class="border-b bg-muted/20 px-4 py-2 text-xs" role="status">
+                Planned reboot · {selected.reboot.state}
+                {#if selected.reboot.new_session_id && selected.reboot.new_session_id !== selected.id}
+                  <button class="ml-2 underline" onclick={() => selectClient(selected!.reboot!.new_session_id!)}>Open resumed session</button>
+                {:else if selected.reboot.old_session_id !== selected.id}
+                  <button class="ml-2 underline" onclick={() => selectClient(selected!.reboot!.old_session_id)}>Open previous session</button>
+                {/if}
+              </div>
+            {/if}
             {#if detailsOpen}
               <div id="client-info" class="max-h-[50%] shrink-0 overflow-y-auto border-b bg-muted/20 px-4 py-3 text-xs">
                 <p class="leading-relaxed text-muted-foreground">{selectedView.detail}</p>

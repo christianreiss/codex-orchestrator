@@ -2389,3 +2389,28 @@ export const sessionHousekeepingReservations = mysqlTable('session_housekeeping_
   token: char('token', { length: 36 }).notNull(),
   createdAt: varchar('created_at', { length: 100 }).notNull(),
 }, t => ({ hostEngine: uniqueIndex('uq_housekeeping_host_engine').on(t.hostId, t.engine) }));
+
+// Planned, at-most-once host reboot. Terminal rows are durable loop guards.
+export const agentRebootHandoffs = mysqlTable('agent_reboot_handoffs', {
+  id: char('id', { length: 36 }).primaryKey(),
+  hostId: bigint('host_id', { mode: 'number', unsigned: true }).notNull(),
+  activeHostId: bigint('active_host_id', { mode: 'number', unsigned: true }),
+  addressId: char('address_id', { length: 36 }).notNull(),
+  oldSessionId: char('old_session_id', { length: 36 }).notNull(),
+  newSessionId: char('new_session_id', { length: 36 }),
+  engine: varchar('engine', { length: 16 }).notNull(),
+  username: varchar('username', { length: 255 }).notNull(),
+  cwd: varchar('cwd', { length: 1024 }).notNull(),
+  nativeSessionId: varchar('native_session_id', { length: 255 }).notNull(),
+  bootId: char('boot_id', { length: 36 }).notNull(),
+  resumeBootId: char('resume_boot_id', { length: 36 }),
+  requestSha: char('request_sha', { length: 64 }).notNull(),
+  continuationEnc: longtext('continuation_enc').notNull(),
+  reason: varchar('reason', { length: 1000 }).notNull(),
+  status: varchar('status', { length: 24 }).notNull(),
+  busMessageIds: json('bus_message_ids').$type<string[]>().notNull(),
+  portalMessageIds: json('portal_message_ids').$type<string[]>().notNull(),
+  expiresAt: varchar('expires_at', { length: 100 }).notNull(),
+  createdAt: varchar('created_at', { length: 100 }).notNull(),
+  updatedAt: varchar('updated_at', { length: 100 }).notNull(),
+}, t => [uniqueIndex('uq_reboot_active_host').on(t.activeHostId), index('idx_reboot_native').on(t.hostId, t.engine, t.nativeSessionId), index('idx_reboot_old_session').on(t.oldSessionId), index('idx_reboot_new_session').on(t.newSessionId)]);

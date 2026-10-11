@@ -524,3 +524,23 @@ Remembered choices apply to both aliases until local midnight; clear them with
 new session in the same directory. Existing conversations, prompts and launch
 options do not transfer, and their loss requires confirmation. Automated starts
 only receive a hint. Authentication and quota enforcement still apply.
+
+## Resume after a planned host reboot
+
+On Linux, use `cxx reboot --request-id UUID --reason TEXT --stdin` inside the
+managed session and supply a short continuation checkpoint on stdin. The agent
+can use `agent_reboot` with the same fields. This requires authorization for the
+reboot, root/passwordless sudo and active cron. cxx saves the exact native session,
+installs one host-wide boot hook, and requests the reboot.
+
+The hook is consumed before the original session resumes. It never repeats native
+execution or starts a replacement transcript. Existing watchdog/persistent Wake
+recovery must be disabled first. Accepted Peer, Wake and Portal work retains its
+original IDs and still needs an explicit result. After reboot, refresh identity
+with `agent_self` and inspect `agent_reboot_status` before continuing the checkpoint.
+
+`cxx reboot status [--id UUID]` shows the durable local journal;
+`cxx reboot disarm --id UUID` removes an unconsumed hook. Disarm cannot cancel a
+reboot already submitted to the OS. A missing transcript or startup failure requires
+manual inspection. Never rearm the resumed transcript under another request ID.
+Active Clients shows the handoff and links both launches.

@@ -1,3 +1,4 @@
+import { RebootHandoffs } from '../../services/reboot-handoffs.js';
 import { taskResultSchema, type TaskResult } from '../../services/agent-messaging/task-execution.js';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
@@ -33,6 +34,30 @@ export async function registerAgentMessagingRoutes(
 ): Promise<void> {
   const messaging = createAgentMessagingService(ctx.db, ctx.env, ctx.keyring);
   registerAgentGroupRoutes(app, ctx, messaging);
+  const reboot = new RebootHandoffs(ctx.db, ctx.keyring);
+  const rebootHandler = (operation: 'prepare' | 'arm' | 'status' | 'restore' | 'disarm') => async (req: FastifyRequest) => {
+      const id = stringParam(req.params, 'id');
+      const token = requireToken(req, BRIDGE_TOKEN_HEADER, 'agent_bridge_token_required');
+      await messaging.self(id, token);
+      if (operation === 'disarm') {
+        const body = z.object({ request_id: z.string().uuid() }).strict().parse(req.body);
+        const { session } = await messaging.authenticateBridge(id, token);
+        return reboot.disarm(session.hostId, body.request_id);
+      }
+      if (operation === 'prepare') return reboot.prepare(id, token, req.body);
+      if (operation === 'arm') {
+        const body = z.object({ request_id: z.string().uuid() }).strict().parse(req.body);
+        return reboot.arm(id, body.request_id);
+      }
+      z.object({}).strict().parse(req.body ?? {});
+      return operation === 'restore' ? reboot.restore(id) : reboot.status(id);
+  };
+  app.post('/host/agent-sessions/:id/agent-messaging/reboot/prepare', rebootHandler('prepare'));
+  app.post('/host/agent-sessions/:id/agent-messaging/reboot/arm', rebootHandler('arm'));
+  app.post('/host/agent-sessions/:id/agent-messaging/reboot/status', rebootHandler('status'));
+  app.post('/host/agent-sessions/:id/agent-messaging/reboot/restore', rebootHandler('restore'));
+  app.post('/host/agent-sessions/:id/agent-messaging/reboot/disarm', rebootHandler('disarm'));
+
   const events = createAdminEventsService(ctx.db);
   const adminSpa = adminSpaHtmlPreHandler(ctx);
   const actor = (req: FastifyRequest): number | null => req.admin?.user.id ?? null;

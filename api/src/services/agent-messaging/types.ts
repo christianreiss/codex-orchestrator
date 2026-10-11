@@ -13,6 +13,8 @@ export type AgentMessagingDb = Pick<Database, 'insert' | 'update' | 'select' | '
 export type AgentMessagingOutcome = 'accepted' | 'completed' | 'retry' | 'dead' | 'ambiguous';
 
 export interface RegisterMessagingSessionInput {
+  rebootRequestId?: string;
+  rebootBootId?: string;
   engine: Engine;
   username: string;
   cwd: string;

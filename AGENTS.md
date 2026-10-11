@@ -180,3 +180,15 @@ Git Director clone, repository and worktree directories must be absolute. Gather
 `git rev-parse --path-format=absolute --show-toplevel --git-common-dir`; report branch and
 HEAD separately. Repair `git_director_worktree_ambiguous` through explicit re-registration
 with the correct clone facts. Never bypass a live lease on an older mapping.
+
+## Planned reboot implementation
+
+For an authorized Linux host reboot use `agent_reboot` (stable request UUID,
+reason, continuation checkpoint) or `cxx reboot --request-id UUID --reason TEXT --stdin`.
+Root/passwordless sudo and active cron are required. Only one host job may be pending.
+The exact native transcript resumes once; consume precedes cron removal and native
+startup. Never rearm a consumed transcript under a new ID. Existing watchdog or
+persistent Wake recovery conflicts are rejected. Accepted work keeps its original
+message/claim IDs and still requires an explicit result. After recovery read
+`agent_self` and `agent_reboot_status`; verify the boot and continue the checkpoint.
+Missing transcripts and startup failures require manual intervention, never fresh start.

@@ -1057,3 +1057,15 @@ Host requests use the host API key, host/IP policy and engine assignment/master 
 Wrapper configs carry the effective rule in optional `session_housekeeping`; absence disables automatic housekeeping for older servers. cxx executes locally, at most daily after a successful pass. Age uses the latest native metadata/artifact modification, retaining all files in parent/subagent bundles together. Age-expired sessions are removed first, then oldest eligible bundles until the session-file budget is met. Index/database sizes are excluded from the selection budget but corresponding rows and physical SQLite space are reclaimed.
 
 Pins, incomplete session metadata, open native goals, queued native work, live sessions and the last native transcript of every known fleet address are protected. This includes paused schedules and later peer/Portal continuations. Protected or young sessions can exceed the budget. An active native process skips its engine; unavailable protection or an unsupported schema prevents deletion. Launch/resume guards and server reservations fence removal; a durable journal quarantines files before deleting associated indexes, then unlinks them. Interrupted operations recover using the same token without retrying native work. Unknown data formats are skipped instead of guessed.
+
+### Planned host reboot (cxx 0.9.54)
+
+The bridge exposes `POST /host/agent-sessions/:id/agent-messaging/reboot/prepare`,
+`POST /host/agent-sessions/:id/agent-messaging/reboot/arm`,
+`POST /host/agent-sessions/:id/agent-messaging/reboot/status`,
+`POST /host/agent-sessions/:id/agent-messaging/reboot/restore` and
+`POST /host/agent-sessions/:id/agent-messaging/reboot/disarm`.
+The boot worker uses host authentication for `POST /host/reboot-handoffs/ready`,
+`POST /host/reboot-handoffs/observe`, `POST /host/reboot-handoffs/disarm` and
+`POST /host/reboot-handoffs/finish`. See [the protocol](reboot-resume.md) for
+request fields, exact native-session binding and one-use execution semantics.

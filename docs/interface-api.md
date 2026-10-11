@@ -1979,3 +1979,34 @@ Host requests use the host API key, host/IP policy and engine assignment/master 
 Wrapper configs carry the effective rule in optional `session_housekeeping`; absence disables automatic housekeeping for older servers. cxx executes locally, at most daily after a successful pass. Age uses the latest native metadata/artifact modification, retaining all files in parent/subagent bundles together. Age-expired sessions are removed first, then oldest eligible bundles until the session-file budget is met. Index/database sizes are excluded from the selection budget but corresponding rows and physical SQLite space are reclaimed.
 
 Pins, incomplete session metadata, open native goals, queued native work, live sessions and the last native transcript of every known fleet address are protected. This includes paused schedules and later peer/Portal continuations. Protected or young sessions can exceed the budget. An active native process skips its engine; unavailable protection or an unsupported schema prevents deletion. Launch/resume guards and server reservations fence removal; a durable journal quarantines files before deleting associated indexes, then unlinks them. Interrupted operations recover using the same token without retrying native work. Unknown data formats are skipped instead of guessed.
+
+## Planned reboot handoff (protocol 1)
+
+All three engines advertise `adapter_capabilities.reboot_protocol_version: 1`.
+Current bridge tools `agent_reboot` and `agent_reboot_status` map to
+`POST /host/agent-sessions/:id/agent-messaging/reboot/prepare`,
+`POST /host/agent-sessions/:id/agent-messaging/reboot/arm`,
+`POST /host/agent-sessions/:id/agent-messaging/reboot/status`,
+`POST /host/agent-sessions/:id/agent-messaging/reboot/restore` and
+`POST /host/agent-sessions/:id/agent-messaging/reboot/disarm`.
+Prepare accepts `{request_id, boot_id, reason, continuation}`; arm accepts
+`{request_id}`; status/restore accept `{}`. Authentication and current native
+binding are required. One active reservation per host; UUID/body replay is
+idempotent. Watchdog/enabled persistent recovery conflicts return 409.
+
+Host-authenticated `POST /host/reboot-handoffs/ready`, `POST /host/reboot-handoffs/observe`,
+`POST /host/reboot-handoffs/disarm` and `POST /host/reboot-handoffs/finish` accepts
+`request_id`; ready also requires the new `boot_id`; finish takes `failed` and
+optional explicit `task_result`. Normal host, engine and access gates apply.
+Readiness polling is bounded locally, never a repeat of native execution.
+`POST /host/agent-sessions` accepts `reboot_request_id` and `reboot_boot_id` for an
+armed handoff with matching host/user/engine/cwd/native UUID. Its transaction
+fences the old launch and transfers original accepted work IDs and claims once.
+Duplicate registration must use the same new launch credentials. A second new
+launch, same boot, canceled work or expired handoff is rejected.
+
+Active Clients session rows include nullable `reboot` with `request_id`, `state`,
+`old_session_id`, `new_session_id`. Planned work is `reboot_hold` until transfer;
+it blocks later FIFO delivery and never falls into normal lease-loss redelivery.
+Unclaimed handoffs expire after 24 hours. Finished transport without an explicit
+work result remains unknown. See [reboot-resume.md](reboot-resume.md).

@@ -82,6 +82,7 @@ export interface Agent {
   close_requested_at: string | null;
   close: { requested_at: string; state: CloseState } | null;
   pending_prompt: PendingPrompt | null;
+  reboot?: { request_id: string; state: string; old_session_id: string; new_session_id: string | null } | null;
 }
 
 export type EventType =

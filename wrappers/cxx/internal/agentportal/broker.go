@@ -151,7 +151,7 @@ func (b *Broker) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		_ = json.Unmarshal(raw, &identity)
 		daemonOwnsWriter := identity.NativeID != "" && identity.NativeID == os.Getenv("CXX_DAEMON_NATIVE_WRITER_ID") && os.Getenv("CXX_DAEMON_OPERATION_ID") != "" && os.Getenv("CXX_DAEMON_CLAIM_ID") != ""
-		if identity.NativeID != "" && isCanonicalUUID(identity.NativeID) && os.Getenv("CXX_AGENT_MESSAGING_MESSAGE_ID") == "" && !daemonOwnsWriter {
+		if identity.NativeID != "" && isCanonicalUUID(identity.NativeID) && os.Getenv("CXX_AGENT_MESSAGING_MESSAGE_ID") == "" && !daemonOwnsWriter && !(identity.NativeID == os.Getenv("CXX_REBOOT_WRITER_ID") && os.Getenv("CXX_REBOOT_REQUEST_ID") != "") {
 			b.nativeMu.Lock()
 			if b.lockedNativeID != identity.NativeID {
 				// A /clear changes native identity but retains this wrapper owner.
@@ -287,6 +287,7 @@ func (b *Broker) allowedPath(path string) bool {
 	}
 	messagingBase := sessionBase + "/agent-messaging/"
 	for _, operation := range []string{
+		"reboot/prepare", "reboot/arm", "reboot/status", "reboot/restore", "reboot/disarm",
 		"watchdog/get", "watchdog/enable", "watchdog/disable", "watchdog/finish",
 		"spawn", "spawn-status", "stop",
 		"list", "self", "translate", "send", "reply", "wait", "message", "cancel", "bind", "mailbox", "deliveries/claim",

@@ -1,3 +1,4 @@
+import { assertNoRebootRecovery } from './reboot-handoffs.js';
 import { recoveryDelaySeconds } from './schedules/recovery.js';
 import { randomUUID } from 'node:crypto';
 import { and, asc, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
@@ -177,7 +178,8 @@ export class SchedulesService {
       .select()
       .from(agentBusAddresses)
       .where(eq(agentBusAddresses.id, v.target.slice(6).toLowerCase()))
-      .limit(1);
+      .limit(1).for('update');
+    if (v.enabled && v.persistent) await assertNoRebootRecovery(tx, v.target.slice(6).toLowerCase());
     if (!target || !isEngine(target.engine) || target.archivedAt)
       throw new ValidationError('Target must be an existing agent address');
     if (v.persistent && (!target.lastUpstreamSessionId || target.continuity !== 'native'))
@@ -390,6 +392,7 @@ export class SchedulesService {
         await set({ status: 'blocked', lastError: 'delivery_missing' });
         return;
       }
+      if (message.status === 'reboot_hold') return;
       if (['queued', 'leased', 'accepted', 'completed', 'canceled'].includes(message.status)) {
         await set({ status: message.status });
         return;

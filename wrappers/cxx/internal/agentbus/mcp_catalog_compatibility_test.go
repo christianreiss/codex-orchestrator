@@ -13,6 +13,13 @@ import (
 // Every locally exposed tool is dispatched against a fake broker. No real
 // peer, portal, schedule or fleet state is touched by this catalogue sweep.
 func TestMCPCatalogCompatibility(t *testing.T) {
+	previous := requestRebootAdapter
+	requestRebootAdapter = func(ctx context.Context, client *sessionClient, args map[string]any, _ io.Writer) (map[string]any, error) {
+		var out map[string]any
+		err := client.post(ctx, "reboot/prepare", args, &out)
+		return out, err
+	}
+	t.Cleanup(func() { requestRebootAdapter = previous })
 	var catalog []struct {
 		Name   string `json:"name"`
 		Schema struct {
@@ -23,7 +30,7 @@ func TestMCPCatalogCompatibility(t *testing.T) {
 	if err := json.Unmarshal(toolCatalogJSON(), &catalog); err != nil {
 		t.Fatal(err)
 	}
-	if len(catalog) != 38 {
+	if len(catalog) != 40 {
 		t.Fatalf("review new tools: got %d", len(catalog))
 	}
 	// Optional export lets the real Grok MCP doctor load exactly this catalogue

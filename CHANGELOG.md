@@ -1,5 +1,7 @@
 # 2026-10-11
 
+- cxx 0.9.54 adds planned Linux reboot/resume: one host-wide boot hook, durable consume-before-start loop protection, exact native transcript resume for all three engines, transfer of accepted work, and linked reboot states in Active Clients. Managed agent guidance documents authorization, recovery conflicts, checkpoints and manual failure handling.
+
 - Wrapper 0.9.51 defaults permanent daemon services and remote starts to the service user's home when no working directory is specified. Explicit request paths override configured defaults; native registration retains the resolved home for continuation. WebUI fields describe the empty default.
 - Wrapper 0.9.50 adds configurable local session housekeeping for Codex, Claude and Grok: fleet defaults and host overrides, dry-run/status/pins, 30-day retention and a 5-GiB per-engine/user budget with a 7-day minimum age. Idle maintenance removes transcript bundles and associated history/search indexes, while preserving active, pinned, queued, goal and fleet-resumable sessions. Durable journals and launch fences make interrupted cleanup recoverable.
 

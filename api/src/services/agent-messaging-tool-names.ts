@@ -26,6 +26,8 @@ export const AGENT_MESSAGING_TOOLS = [
   'watchdog_finish',
   'agent_session_name',
   'agent_self',
+  'agent_reboot',
+  'agent_reboot_status',
   'agent_translate',
   'agent_list',
   'agent_send',

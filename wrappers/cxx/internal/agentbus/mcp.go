@@ -91,11 +91,13 @@ func (p *channelPending) reply() map[string]any { p.mu.Lock(); defer p.mu.Unlock
 // or the next agent_listen; work is durably accepted before exposure. Renewal
 // keeps the lease alive while the model thinks beyond the 60s lease.
 type channelTracker struct {
-	receiver *autoReceiver
-	owner    *receiverOwner
-	client   *sessionClient
-	mu       sync.Mutex
-	items    map[string]*channelPending
+	rebootMu       sync.Mutex
+	rebootRestored bool
+	receiver       *autoReceiver
+	owner          *receiverOwner
+	client         *sessionClient
+	mu             sync.Mutex
+	items          map[string]*channelPending
 	// listenBound records that this process has bound receive_capable for the
 	// listen lane, so the exit restore knows to undo it.
 	listenBound bool
@@ -278,7 +280,7 @@ func (t *channelTracker) ensureListenBind(ctx context.Context) error {
 		// The server preserves the stored adapter_protocol when the field is
 		// omitted, so the pump's identity survives a listen bind untouched.
 		body["adapter_protocol"] = "cxx-agent-listen-v1"
-		body["adapter_capabilities"] = map[string]any{"listen": true, "execution_contract_version": 2, "watchdog_protocol_version": 1}
+		body["adapter_capabilities"] = map[string]any{"listen": true, "execution_contract_version": 2, "watchdog_protocol_version": 1, "reboot_protocol_version": 1}
 	}
 	var ignored map[string]any
 	if err := t.client.post(ctx, "bind", body, &ignored); err != nil {
@@ -347,6 +349,8 @@ func toolCatalogJSON() []byte {
 		tool("agent_spawn_status", "Read the state and result of your remote helper; omit session_id to discover enabled remote hosts.", map[string]any{"session_id": map[string]any{"type": "string"}}, nil),
 		tool("agent_stop", "Stop a remote helper you created. Process termination is confirmed by its host.", map[string]any{"session_id": map[string]any{"type": "string"}}, []string{"session_id"}),
 		tool("agent_self", "Read your authenticated current launch name, agent UUID, native session and binding. Call near startup and after resume or recovery; environment hints and old transcript names may be stale.", map[string]any{}, nil),
+		tool("agent_reboot", "Prepare one planned Linux host reboot and resume this exact native session once. Requires operator authorization, root/passwordless sudo and a continuation checkpoint. Never rearm after resume. Rejects competing recovery.", map[string]any{"request_id": map[string]any{"type": "string"}, "reason": map[string]any{"type": "string"}, "continuation": map[string]any{"type": "string"}}, []string{"request_id", "reason", "continuation"}),
+		tool("agent_reboot_status", "Inspect the current session planned reboot handoff.", map[string]any{}, nil),
 		tool("watchdog_get", "Inspect the watchdog for your current task; server keep-alives do not wake the model.", map[string]any{"id": map[string]any{"type": "string"}}, nil),
 		tool("watchdog_enable", "Enable recovery for your own current authorized task. Announce target/deadline; defaults 2h total and 10min without progress.", map[string]any{"task_key": map[string]any{"type": "string", "minLength": 1, "maxLength": 255}, "continuation": map[string]any{"type": "string", "minLength": 1, "maxLength": 30000}, "duration_seconds": map[string]any{"type": "integer", "minimum": 60, "maximum": 604800}, "progress_timeout_seconds": map[string]any{"type": "integer", "minimum": 60, "maximum": 604800}, "version": map[string]any{"type": "integer", "minimum": 1}}, []string{"task_key", "continuation"}),
 		tool("watchdog_disable", "Stop recovery for the current task. Accepted work continues.", map[string]any{"id": map[string]any{"type": "string"}, "version": map[string]any{"type": "integer", "minimum": 1}}, []string{"id", "version"}),
@@ -575,7 +579,7 @@ func runMCPProtocol(client *sessionClient, channel bool, stdin io.Reader, stdout
 			if !automatic && channel && initialized && !channelActive && req.Method == "notifications/initialized" {
 				var bound map[string]any
 				if err := client.post(ctx, "bind", map[string]any{
-					"adapter_protocol": "claude-channel-preview-v1", "adapter_capabilities": map[string]any{"channel": true, "execution_contract_version": 2, "watchdog_protocol_version": 1}, "receive_capable": true,
+					"adapter_protocol": "claude-channel-preview-v1", "adapter_capabilities": map[string]any{"channel": true, "execution_contract_version": 2, "watchdog_protocol_version": 1, "reboot_protocol_version": 1}, "receive_capable": true,
 				}, &bound); err != nil {
 					return fmt.Errorf("activate Claude channel adapter: %w", err)
 				}
@@ -741,6 +745,11 @@ func handleMCPRequest(ctx context.Context, client *sessionClient, req mcpRequest
 
 func callMCPTool(ctx context.Context, client *sessionClient, channelState *channelTracker, name string, args map[string]any) (map[string]any, error) {
 	var out map[string]any
+	if channelState != nil {
+		if err := channelState.restoreReboot(ctx); err != nil {
+			return nil, err
+		}
+	}
 	// Both sources use UUIDs, so choosing the wrong reply tool is easy. Explain
 	// how to recover for a delivery this process actually owns; never forward
 	// content across the peer/Portal authority boundary on the caller's behalf.
@@ -767,6 +776,11 @@ func callMCPTool(ctx context.Context, client *sessionClient, channelState *chann
 	case "host_insecure_enable", "agent_spawn", "agent_spawn_status", "agent_stop":
 		suffix := map[string]string{"host_insecure_enable": "insecure-enable", "agent_spawn": "spawn", "agent_spawn_status": "spawn-status", "agent_stop": "stop"}[name]
 		err := client.post(ctx, suffix, args, &out)
+		return out, err
+	case "agent_reboot":
+		return requestRebootAdapter(ctx, client, args, io.Discard)
+	case "agent_reboot_status":
+		err := client.post(ctx, "reboot/status", args, &out)
 		return out, err
 	case "agent_self":
 		err := client.post(ctx, "self", map[string]any{}, &out)

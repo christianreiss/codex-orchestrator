@@ -50,6 +50,9 @@ func run(invokedAs string, args []string, stdout, stderr io.Writer) (code int) {
 		}
 	}()
 
+	if len(args) > 0 && args[0] == "reboot" {
+		return agentbus.RunRebootCommand(args[1:], os.Stdin, stdout, stderr)
+	}
 	if len(args) > 0 && args[0] == "watchdog" {
 		return agentbus.RunWatchdogCommand(args[1:], os.Stdin, stdout, stderr)
 	}
@@ -359,6 +362,9 @@ func printSelectorHelp(w io.Writer) {
 
 // Dispatch only after the first app returns, including all deferred auth cleanup.
 func runPersona(engine string, args []string, stdout, stderr io.Writer) int {
+	if len(args) > 0 && args[0] == "reboot" {
+		return agentbus.RunRebootCommand(args[1:], os.Stdin, stdout, stderr)
+	}
 	if len(args) > 0 && args[0] == "housekeeping" {
 		return housekeeping.Command(args[1:], engine, stdout, stderr)
 	}

@@ -1,3 +1,4 @@
+import { expireRebootHandoffs } from './reboot-handoffs.js';
 import { assertHousekeepingAvailable } from './session-housekeeping.js';
 import { hostDaemons, hostDaemonSessions } from '../db/schema.js';
 import { discardPresenceNotices, queuePresenceNotices, recipientSnapshot } from './agent-messaging/presence-feedback.js';
@@ -1329,6 +1330,7 @@ export class AgentMessagingService {
     const now = nowIso();
     const staleRelay = isoOffsetSeconds(-2 * AGENT_MESSAGING_RECEIVE_FRESH_SECONDS);
     const result = await this.db.transaction(async (tx) => {
+      await expireRebootHandoffs(tx, now);
       await discardPresenceNotices(tx, now);
       const releasedBindings = await reapExpiredAgentMessagingBindingsLocked(tx, now);
       // Expired PINs are also swept at mint and redeem time; doing it here as
@@ -1435,20 +1437,21 @@ export class AgentMessagingService {
         .where(and(
           inArray(agentBusMessages.targetAddressId, targetAddressIds),
           eq(agentBusMessages.status, 'queued'),
+          sql`NOT EXISTS (SELECT 1 FROM agent_reboot_handoffs rh WHERE rh.address_id = ${agentBusMessages.targetAddressId} COLLATE utf8mb4_unicode_ci AND rh.status = 'armed')`,
           lte(agentBusMessages.nextAttemptAt, now),
           gt(agentBusMessages.expiresAt, now),
           sql`NOT EXISTS (
             SELECT 1
               FROM agent_bus_messages AS earlier
              WHERE earlier.target_address_id = ${agentBusMessages.targetAddressId}
-               AND earlier.status IN ('queued', 'leased', 'accepted')
+               AND earlier.status IN ('queued', 'leased', 'accepted', 'reboot_hold')
                AND earlier.dispatch_order < ${agentBusMessages.dispatchOrder}
           )`,
           sql`NOT EXISTS (
             SELECT 1
               FROM agent_bus_messages AS in_flight
              WHERE in_flight.target_address_id = ${agentBusMessages.targetAddressId}
-               AND in_flight.status IN ('leased', 'accepted')
+               AND in_flight.status IN ('leased', 'accepted', 'reboot_hold')
                AND in_flight.id <> ${agentBusMessages.id}
           )`,
         ))
@@ -1589,9 +1592,10 @@ export class AgentMessagingService {
       }
       const rows = await tx.select().from(agentBusMessages).where(eq(agentBusMessages.id, id)).limit(1).for('update');
       const message = rows[0];
-      if (!message || (message.status !== 'leased' && message.status !== 'accepted') || message.leaseOwner !== leaseOwner || message.claimId !== claimId) {
+      if (!message || (message.status !== 'leased' && message.status !== 'accepted' && message.status !== 'reboot_hold') || message.leaseOwner !== leaseOwner || message.claimId !== claimId) {
         throw new ConflictError('Message lease is no longer owned by this delivery', 'agent_messaging_lease_lost');
       }
+      if (message.status === 'reboot_hold') return message;
       const boundTarget = await this.requireAddressLocked(tx, message.targetAddressId);
       if (message.targetBindingGeneration !== boundTarget.bindingGeneration || !message.leaseUntil || message.leaseUntil <= now) throw new ConflictError('Delivery lease or target binding changed', 'agent_messaging_lease_lost');
       const sessionId = sessionIdFromLeaseOwner(leaseOwner);
@@ -1640,6 +1644,7 @@ export class AgentMessagingService {
       if (message.leaseOwner !== leaseOwner || message.claimId !== claimId || (relayGeneration != null && message.relayGeneration !== relayGeneration)) {
         throw new ConflictError('Message lease is no longer owned by this delivery', 'agent_messaging_lease_lost');
       }
+      if (message.status === 'reboot_hold') return message;
       const currentTarget = await this.requireAddressLocked(tx, message.targetAddressId);
       if (message.kind === 'presence_notice') {
         const [noticeSession] = message.targetSessionId ? await tx.select().from(agentSessions).where(eq(agentSessions.id, message.targetSessionId)).limit(1) : [];

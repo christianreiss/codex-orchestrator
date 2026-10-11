@@ -1,3 +1,4 @@
+import { beginRebootBinding, completeRebootBinding, plannedRebootForSession } from '../reboot-handoffs.js';
 import { assertHousekeepingAvailable } from '../session-housekeeping.js';
 import { markWaitingForPresence, discardPresenceNotices } from './presence-feedback.js';
 import { pageAgentAddresses, type AgentDiscoveryFilters } from './discovery.js';
@@ -144,6 +145,7 @@ export class SessionRegistry {
         throw new UnauthorizedError('Host credential changed during registration', 'agent_bridge_host_auth_changed');
       }
       assertHostEngineEnabled(lockedHost, input.engine, await readFleetEngineState(tx));
+      const reboot = await beginRebootBinding(tx, host, input);
       // A crashed wrapper may leave its durable address bound until the portal
       // reaper runs. Reclaim expired bindings for this identity in-band so an
       // exact native resume can reclaim its address without guessing by cwd.
@@ -321,6 +323,7 @@ export class SessionRegistry {
           updatedAt: now,
         })
         .where(eq(agentSessions.id, sessionId));
+      await completeRebootBinding(tx, reboot, sessionId, address);
       const launchName = await assignLaunchNameLocked(tx, sessionId, address.id, now);
       if (!launchName && input.adapterCapabilities?.launch_identity_version === 1)
         throw new ConflictError('No free launch name; retry after a name becomes available', 'agent_name_pool_exhausted');
@@ -452,6 +455,7 @@ export class SessionRegistry {
       const rows = await tx.select().from(agentSessions).where(eq(agentSessions.id, sessionId)).limit(1).for('update');
       const session = rows[0];
       if (!session) return;
+      if (!session.closeRequestedAt && await plannedRebootForSession(tx, sessionId)) return;
       await finishSessionWatchdogsLocked(tx, session, status, watchdogFailure, now);
       await tx
         .update(agentSessions)

@@ -1,3 +1,4 @@
+import { assertNoRebootRecovery } from './reboot-handoffs.js';
 import { randomUUID } from 'node:crypto';
 import { and, asc, desc, eq, inArray } from 'drizzle-orm';
 import { z } from 'zod';
@@ -196,6 +197,7 @@ export class WatchdogsService {
         .for('update');
       if (!target) throw new NotFoundError('Agent not found');
       await this.eligible(tx, target.id);
+      await assertNoRebootRecovery(tx, target.id);
       if (!target.lastUpstreamSessionId || target.continuity !== 'native' || !target.currentSessionId)
         throw new ValidationError('A current native session is required');
       if (ownSessionId && target.currentSessionId !== ownSessionId)

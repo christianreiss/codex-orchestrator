@@ -434,6 +434,23 @@ Deadline does not cancel accepted running work. Recovery can repeat ambiguous ef
 preserve idempotency. Another target requires explicit operator selection via CLI/admin.
 Finish with watchdog_finish and the normal work receipt where applicable.
 
+**Planned host reboot.** For an operator-authorized Linux reboot, use
+\`agent_reboot\` with a stable UUID \`request_id\`, a \`reason\`, and a concise
+\`continuation\` checkpoint (what is already done, pending checks and original work IDs).
+The equivalent CLI is \`cxx reboot --request-id UUID --reason TEXT --stdin\`.
+cxx requires root or passwordless sudo and active cron, durably stores the exact
+native session, installs one host-wide one-use boot job, then requests the reboot.
+Existing watchdog or persistent Wake recovery must be disabled first; conflicts
+are rejected without reboot. Accepted Peer/Wake/Portal work transfers its existing
+identity; never resend its original prompt as a new task. After resume, call
+\`agent_self\` and \`agent_reboot_status\`, verify the new boot and continue the checkpoint.
+The job is consumed before native startup and never retries native execution.
+Never rearm the resumed transcript, including under a new request UUID. Missing
+transcripts or failed startup require operator intervention, never a fresh session.
+\`cxx reboot status [--id UUID]\` shows the local journal; \`cxx reboot disarm --id UUID\`
+removes an unconsumed job but cannot cancel an OS reboot already requested.
+Explicit work results are still required; process exit zero is not task success.
+
 **Work outcomes.** An accepted delivery is permission to handle the supplied task
 within existing operator authority; it is not proof of success. Requests, conference
 TASK dispatches and wakes are explicitly marked as work. Finish accepted work with

@@ -683,6 +683,7 @@ export class HostDaemonService {
       const [op] = await tx.select().from(operations).where(eq(operations.id, id)).for('update');
       if (!op || op.hostId !== hostId || op.claimId !== claim)
         throw new ForbiddenError('Invalid operation claim');
+      if (op.status === 'reboot_hold') return; // The planned continuation owns completion now.
       if (op.resultEnc) {
         if (decrypt(op.resultEnc, this.ctx.keyring) !== JSON.stringify(result))
           throw new ConflictError('Result already stored');

@@ -950,3 +950,11 @@ kept alive merely because the daemon is online.
 Policies → Cleanup configures fleet defaults for Codex, Claude and Grok; the host detail page supports a complete override per engine. Enabled by default: 30 days retention, 5 GiB session files per engine/local user, and at least 7 days inactivity for budget-pressure deletion. cxx runs this through its existing daily-coalesced maintenance coordinator. Active, pinned and resumable fleet sessions remain protected; budget excess is reported honestly.
 
 Use `cxx housekeeping status`, `cxx housekeeping run --dry-run`, or `cxx housekeeping run`, with `--engine codex|claude|grok` and optional `--json`. `cdx`, `clx`, `cgx` select their respective engine. `cxx housekeeping pin UUID --engine ENGINE` protects an important local session; `unpin` removes only the cxx pin, never a native pin. Deletion is permanent. A retained recovery journal fences native launches until `cxx housekeeping run --engine ENGINE` completes the interrupted operation.
+
+## Planned host reboot
+
+cxx can checkpoint and reboot a Linux host, then resume the exact native Codex,
+Claude or Grok session once. One root-owned cron entry and a durable consumed
+journal prevent reboot loops. Accepted Peer, Wake and Portal instructions retain
+their identities through the handoff. Agents receive the usage contract through
+managed guidance; Active Clients links both launches. See [reboot/resume](reboot-resume.md).

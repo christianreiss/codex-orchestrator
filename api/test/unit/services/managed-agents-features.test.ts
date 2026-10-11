@@ -121,10 +121,10 @@ describe('served document byte invariance', () => {
 
     expect(base.sha256).toBe('30abaea24c8809d8634670f0eceb3004aabb4eafb5416c78333c719e8b67e14b');
     expect(out.policy_sha256).toBe('3d8a8c754d80369c46a16c3350db8461520d3ae14b1de7ac03ad9454925ad5e5');
-    // 2026-10-11: secure-source window activation and bounded session renewal.
-    expect(out.features_sha256).toBe('5550c731f095805c626c9446c61839c1a32e5d932647ba33fd5bbee178d85e83');
-    expect(out.managed_sha256).toBe('1ff2999c5f5442576eb889780cda59aaad65c5fc35a640b74f22617e3724fcd6');
-    expect(sha256(out.body)).toBe('de1e92bd07d785a21afbb10051d88d209993795d665dceaa0f0aefc9c12a6c23');
+    // 2026-10-11: add planned one-use reboot/resume guidance for all engines.
+    expect(out.features_sha256).toBe('f59b1ee229aac226b81b7fdbc8fbf9ea6999c66c29a836167649c4d5eae2a5da');
+    expect(out.managed_sha256).toBe('bfd8b6f2979cff1233076a49e381ed68707dca802ba6daf693cf772b76a09e75');
+    expect(sha256(out.body)).toBe('a4938afb7040cb1bc2c7339416f53afa9bb92b25a833f73a92791ca3f99b8b6a');
   });
 });
 

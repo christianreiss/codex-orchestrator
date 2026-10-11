@@ -1,3 +1,4 @@
+import { plannedRebootForSession } from './reboot-handoffs.js';
 import { assertHousekeepingAvailable } from './session-housekeeping.js';
 import { namedSessionTitle } from './agent-messaging/names.js';
 import { receiverView, receiverReady, receiverState } from './agent-receiver-state.js';
@@ -20,6 +21,7 @@ import {
 } from 'drizzle-orm';
 import type { Database } from '../db/client.js';
 import {
+  agentRebootHandoffs,
   agentEvents,
   agentMessages,
   agentPrompts,
@@ -503,6 +505,14 @@ export class AgentPortalService {
       .where(or(isNull(agentSessions.endedAt), gt(agentSessions.expiresAt, now)))
       .orderBy(desc(agentSessions.startedAt));
     const sessionIds = rows.map((row) => row.session.id);
+    const reboots = sessionIds.length ? await this.db.select().from(agentRebootHandoffs).where(or(inArray(agentRebootHandoffs.oldSessionId, sessionIds), inArray(agentRebootHandoffs.newSessionId, sessionIds))) : [];
+    const rebootBySession = new Map<string, Record<string, unknown>>();
+    for (const r of reboots) {
+      const view = { request_id: r.id, state: r.status, old_session_id: r.oldSessionId, new_session_id: r.newSessionId };
+      rebootBySession.set(r.oldSessionId, view);
+      if (r.newSessionId) rebootBySession.set(r.newSessionId, view);
+    }
+
     const prompts = sessionIds.length
       ? await this.db
           .select({ id: agentPrompts.id, sessionId: agentPrompts.sessionId, questionEnc: agentPrompts.questionEnc, optionsEnc: agentPrompts.optionsEnc, version: agentPrompts.version, createdAt: agentPrompts.createdAt })
@@ -660,6 +670,7 @@ export class AgentPortalService {
 
       return {
         id: session.id,
+        reboot: rebootBySession.get(session.id) ?? null,
         engine: session.engine,
         host: host.fqdn,
         host_id: session.hostId,
@@ -1053,6 +1064,7 @@ export class AgentPortalService {
           bridgeToken,
           authenticated.hostId,
         );
+        if (await plannedRebootForSession(tx, sessionId)) return null;
         if (receiverState(session.receiver) && receiverState(session.receiver)?.generation !== receiverGeneration) {
           throw new ConflictError('Receiver generation changed', 'receiver_generation_changed');
         }
@@ -1398,6 +1410,7 @@ export class AgentPortalService {
       .limit(100);
     let cleared = 0;
     for (const candidate of candidates) {
+      if (await plannedRebootForSession(this.db, candidate.id)) continue;
       const rows = await this.db
         .select({ createdAt: agentEvents.createdAt })
         .from(agentEvents)
@@ -1695,6 +1708,7 @@ export class AgentPortalService {
     watchdogFailure?: WatchdogFailure,
   ): Promise<void> {
     const [session] = await db.select().from(agentSessions).where(eq(agentSessions.id, sessionId)).for('update');
+    if (session && !session.closeRequestedAt && await plannedRebootForSession(db, sessionId)) return;
     if (session) await finishSessionWatchdogsLocked(db, session, status, watchdogFailure, now);
     await releaseAgentMessagingBindingsLocked(db, [sessionId], now);
     await db

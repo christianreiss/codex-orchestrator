@@ -1804,3 +1804,32 @@ CREATE TABLE `session_housekeeping_reservations` (
  UNIQUE KEY `uq_housekeeping_host_engine` (`host_id`, `engine`),
  CONSTRAINT `fk_housekeeping_host` FOREIGN KEY (`host_id`) REFERENCES `hosts`(`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE `agent_reboot_handoffs` (
+	`id` char(36) NOT NULL,
+	`host_id` bigint unsigned NOT NULL,
+	`active_host_id` bigint unsigned,
+	`address_id` char(36) NOT NULL,
+	`old_session_id` char(36) NOT NULL,
+	`new_session_id` char(36),
+	`engine` varchar(16) NOT NULL,
+	`username` varchar(255) NOT NULL,
+	`cwd` varchar(1024) NOT NULL,
+	`native_session_id` varchar(255) NOT NULL,
+	`boot_id` char(36) NOT NULL,
+	`resume_boot_id` char(36),
+	`request_sha` char(64) NOT NULL,
+	`continuation_enc` longtext NOT NULL,
+	`reason` varchar(1000) NOT NULL,
+	`status` varchar(24) NOT NULL,
+	`bus_message_ids` json NOT NULL,
+	`portal_message_ids` json NOT NULL,
+	`expires_at` varchar(100) NOT NULL,
+	`created_at` varchar(100) NOT NULL,
+	`updated_at` varchar(100) NOT NULL,
+	CONSTRAINT `agent_reboot_handoffs_id` PRIMARY KEY(`id`),
+	CONSTRAINT `uq_reboot_active_host` UNIQUE(`active_host_id`)
+);
+CREATE INDEX `idx_reboot_native` ON `agent_reboot_handoffs` (`host_id`,`engine`,`native_session_id`);
+CREATE INDEX `idx_reboot_old_session` ON `agent_reboot_handoffs` (`old_session_id`);
+CREATE INDEX `idx_reboot_new_session` ON `agent_reboot_handoffs` (`new_session_id`);

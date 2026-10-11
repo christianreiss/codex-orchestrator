@@ -397,3 +397,17 @@ test("session settings and remote work remain available without the old portal",
   await history.click();
   await expect(page.getByRole("heading", { name: "codex-review", exact: true })).toBeVisible();
 });
+
+ test("planned reboot links the previous and resumed launch", async ({ page }) => {
+  const state = await fixtures(page);
+  const handoff = { request_id: "33333333-3333-4333-8333-333333333333", state: "resumed", old_session_id: CODEX, new_session_id: CLAUDE };
+  state.sessions[0].reboot = handoff;
+  state.sessions[1].reboot = handoff;
+  await open(page);
+  await page.locator(`#client-${CODEX}`).click();
+  await expect(page.getByText("Planned reboot · resumed")).toBeVisible();
+  await page.getByRole("button", { name: "Open resumed session" }).click();
+  await expect(page.getByRole("heading", { name: "claude-review", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Open previous session" }).click();
+  await expect(page.getByRole("heading", { name: "codex-review", exact: true })).toBeVisible();
+});

@@ -173,7 +173,7 @@ func Start(parent context.Context, cfg *config.Config, input StartInput) (*Sessi
 	}
 	body := map[string]any{
 		"engine":               input.Engine,
-		"adapter_capabilities": map[string]any{"execution_contract_version": 2, "watchdog_protocol_version": 1, "launch_identity_version": 1},
+		"adapter_capabilities": map[string]any{"execution_contract_version": 2, "watchdog_protocol_version": 1, "launch_identity_version": 1, "reboot_protocol_version": 1},
 		"username":             username,
 		"cwd":                  cwd,
 		"invocation_kind":      input.InvocationKind,
@@ -191,6 +191,12 @@ func Start(parent context.Context, cfg *config.Config, input StartInput) (*Sessi
 		if continuity := strings.TrimSpace(os.Getenv(envMessagingContinuity)); continuity == "native" || continuity == "reset" {
 			body["continuity"] = continuity
 		}
+	}
+	if rebootID := os.Getenv("CXX_REBOOT_REQUEST_ID"); rebootID != "" {
+		body["resumed"] = true
+		body["reboot_request_id"] = rebootID
+		body["reboot_boot_id"] = os.Getenv("CXX_REBOOT_BOOT_ID")
+		body["upstream_session_id"] = os.Getenv(envMessagingUpstream)
 	}
 	sessionID := newUUID()
 	bridgeToken, err := newBridgeToken()

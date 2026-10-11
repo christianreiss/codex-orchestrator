@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
@@ -43,6 +44,9 @@ func (i Identity) SessionTitle(task string) string {
 // Signed messaging-disabled launches retain their local-only behavior.
 func (r *ConnectionRuntime) RequireIdentity(ctx context.Context, cfg *config.Config) (Identity, error) {
 	if cfg == nil || !cfg.AgentMessaging.Enabled {
+		if os.Getenv("CXX_REBOOT_REQUEST_ID") != "" {
+			return Identity{}, fmt.Errorf("reboot resume requires an enabled, confirmed managed binding")
+		}
 		return Identity{}, nil
 	}
 	if r == nil || r.session == nil || r.broker == nil {

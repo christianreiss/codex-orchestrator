@@ -753,3 +753,14 @@ kept alive merely because the daemon is online.
 Default: enabled, 30 days inactivity, 5 GiB session files per engine/local user, with budget removal only after 7 days. Parent/subagent bundles share their newest activity and protection. Native pins, open goals/queued work, incomplete metadata and fleet resume/wake/recovery bindings are retained. Unknown database versions and unavailable protection skip deletion. Supported current native layouts are Codex state_5/thread_history_1/goals_1/queue_1/logs_2/memories_1 SQLite databases, Claude project transcripts/subagent artifacts/session indexes, and Grok native session directories plus external-content FTS search. General logs, provider auth/config and project memory files are not removed.
 
 Removal uses an exclusive native-home guard and a host/engine reservation. A journal under the original native home's `.cxx-housekeeping` records quarantine paths and session IDs. Recovery resumes this cleanup, never native work; run `cgx housekeeping run` to finish it. Reservations do not expire automatically while native data may be inconsistent. The budget can remain exceeded by protected or young sessions; results state this instead of removing them.
+
+## Planned reboot resume (cxx 0.9.54)
+
+`cxx reboot --request-id UUID --reason TEXT --stdin` and `agent_reboot` prepare
+one Linux host reboot and resume the exact Grok native transcript once.
+`agent_reboot_status`, `cxx reboot status [--id UUID]` and
+`cxx reboot disarm --id UUID` inspect or remove an unconsumed hook. Requires
+root/passwordless sudo and active cron. Consumption precedes cron removal and
+native startup; no native retry or fresh session fallback. Accepted work retains
+its original IDs. Watchdog/persistent Wake recovery conflicts are rejected.
+See [the full reboot contract](reboot-resume.md) for state, failures and recovery.

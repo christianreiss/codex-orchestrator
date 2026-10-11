@@ -279,6 +279,9 @@ func (r *autoReceiver) connection(parent context.Context) error {
 		r.mu.Unlock()
 	}
 	r.boundNativeID = nativeID
+	if err := r.tracker.restoreReboot(ctx); err != nil {
+		return err
+	}
 	// Registration advertises immediate readiness. Channels must first prove
 	// both MCP pipes; merely receiving a SessionStart hook is insufficient.
 	if r.queue == nil {

@@ -1,3 +1,5 @@
+import { taskResultSchema } from '../../services/agent-messaging/task-execution.js';
+import { RebootHandoffs } from '../../services/reboot-handoffs.js';
 import { HostDaemonService } from '../../services/host-daemon/service.js';
 import { randomBytes, randomUUID } from 'node:crypto';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
@@ -57,6 +59,24 @@ export async function registerAgentPortalAdminHostRoutes(
     return raw.secure === 1 ? raw : await insecure.enforce(raw, purpose, req.clientIp);
   };
 
+  const reboot = new RebootHandoffs(ctx.db, ctx.keyring);
+  const rebootHandler = (operation: 'ready' | 'observe' | 'disarm' | 'finish') => async (req: FastifyRequest) => {
+      const host = await authenticateHost(req, 'reboot_handoff');
+      const body = z.object({ request_id: z.string().uuid(), boot_id: z.string().uuid().optional(), failed: z.boolean().optional(), task_result: taskResultSchema.optional() }).strict().parse(req.body);
+      if (operation === 'disarm') return reboot.disarm(host.id, body.request_id);
+      if (operation === 'finish') return reboot.finish(host.id, body.request_id, body.failed ?? true, body.task_result);
+      if (operation === 'observe') return reboot.observe(host.id, body.request_id);
+      if (!body.boot_id) throw new ValidationError('boot_id required');
+      const record = await reboot.ready(host.id, body.request_id, body.boot_id);
+      assertHostEngineEnabled(host, parseEngine(record.engine), await readFleetEngineState(ctx.db));
+      if (!(await messaging.isEnabled()) || !messagingHostEligible(host)) throw new ForbiddenError('Agent messaging is disabled');
+      return record;
+  };
+  app.post('/host/reboot-handoffs/ready', rebootHandler('ready'));
+  app.post('/host/reboot-handoffs/observe', rebootHandler('observe'));
+  app.post('/host/reboot-handoffs/disarm', rebootHandler('disarm'));
+  app.post('/host/reboot-handoffs/finish', rebootHandler('finish'));
+
   app.get('/host/agent-portal/state', async (req) => {
     const host = await authenticateHost(req, 'agent_portal_state');
     return { enabled: await portal.isEnabled(), host_id: host.id };
@@ -66,6 +86,8 @@ export async function registerAgentPortalAdminHostRoutes(
     const host = await authenticateHost(req, 'agent_session_register');
     const body = z
       .object({
+        reboot_request_id: z.string().uuid().optional(),
+        reboot_boot_id: z.string().uuid().optional(),
         engine: z.string(),
         username: z.string(),
         cwd: z.string(),
@@ -97,6 +119,8 @@ export async function registerAgentPortalAdminHostRoutes(
     let messagingResult: Record<string, unknown> = { enabled: false };
     if (messagingEnabled && messagingHostEligible(host)) {
       messagingResult = await messaging.registerSession(host, {
+        rebootRequestId: body.reboot_request_id,
+        rebootBootId: body.reboot_boot_id,
         engine,
         username: body.username,
         cwd: body.cwd,
