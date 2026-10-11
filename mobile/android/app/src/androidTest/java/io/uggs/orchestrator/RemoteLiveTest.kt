@@ -63,8 +63,9 @@ class RemoteLiveTest {
             compose.waitUntil(240_000) {
                 Thread.sleep(1_000)
                 conversation = runBlocking { api.request("/agents") }.getJSONArray("agents").objects().firstOrNull { it.optString("id") == sessionId }
-                conversation?.let { it.optString("remote_status") == "idle" && it.optLong("reply_cursor") > replyCursor } == true
+                conversation?.let { it.optString("remote_status") in setOf("failed", "unknown", "closed") || (it.optString("remote_status") == "idle" && it.optLong("reply_cursor") > replyCursor) } == true
             }
+            Assert.assertEquals("Native continuation must succeed", "idle", conversation!!.getString("remote_status"))
             Assert.assertEquals(upstream, conversation!!.getString("upstream_session_id"))
             val events = runBlocking { api.request("/agents/$sessionId/events?tail=1") }.getJSONArray("events").objects()
             Assert.assertTrue(events.any { it.optString("type") == "assistant_message" && it.optJSONObject("payload")?.optString("text")?.contains("HOSTS-LIVE-OK") == true })

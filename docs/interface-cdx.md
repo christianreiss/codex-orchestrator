@@ -1267,6 +1267,9 @@ at most ten minutes. Only one turn writes a native transcript at once. Idle
 sessions close after 60 minutes, pending questions after 24 hours; host
 settings override both. Heartbeats do not count as activity. Explicit resume
 requires the same existing native transcript. Automatic recovery is separate.
+From cxx 0.9.47, a daemon resume child recognizes the writer lock held by its
+parent for that exact native ID. Other wrappers and native identity changes
+still acquire their own lock.
 
 MCP tools: `agent_spawn` takes `host_id`, `engine`, optional absolute `cwd`,
 `title`, `prompt`, and stable UUID `client_message_id`. It returns

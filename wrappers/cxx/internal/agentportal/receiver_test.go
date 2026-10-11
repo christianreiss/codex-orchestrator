@@ -2,6 +2,7 @@ package agentportal
 
 import (
 	"encoding/json"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/nativewriter"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -226,5 +227,39 @@ func TestNativeIdentityIsLocalAndRequiresReceiverGrant(t *testing.T) {
 	session.receiverAllowed = false
 	if got := post(`{}`); got.Code != 403 {
 		t.Fatalf("disabled grant: %d", got.Code)
+	}
+}
+
+func TestDaemonChildUsesParentWriterOnlyForItsExactNativeIdentity(t *testing.T) {
+	for _, engine := range []string{"codex", "claude", "grok"} {
+		t.Run(engine, func(t *testing.T) {
+			t.Setenv("HOME", t.TempDir())
+			t.Setenv("CXX_AGENT_MESSAGING_MESSAGE_ID", "")
+			const id = "22222222-2222-4222-8222-222222222222"
+			parent, err := nativewriter.Acquire(engine, id)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer parent.Release()
+			broker := &Broker{session: &Session{ID: "session", Engine: engine, receiverAllowed: true}}
+			post := func() *httptest.ResponseRecorder {
+				response := httptest.NewRecorder()
+				broker.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/host/agent-sessions/session/receiver/native", strings.NewReader(`{"native_session_id":"`+id+`"}`)))
+				return response
+			}
+			if response := post(); response.Code != 409 {
+				t.Fatalf("ordinary second writer was allowed: %d", response.Code)
+			}
+			t.Setenv("CXX_DAEMON_OPERATION_ID", "operation")
+			t.Setenv("CXX_DAEMON_CLAIM_ID", "claim")
+			t.Setenv("CXX_DAEMON_NATIVE_WRITER_ID", id)
+			if response := post(); response.Code != 200 {
+				t.Fatalf("parent-owned resume blocked: %d %s", response.Code, response.Body)
+			}
+			t.Setenv("CXX_DAEMON_NATIVE_WRITER_ID", "33333333-3333-4333-8333-333333333333")
+			if response := post(); response.Code != 409 {
+				t.Fatalf("unrelated native identity bypassed the writer lock: %d", response.Code)
+			}
+		})
 	}
 }

@@ -150,7 +150,8 @@ func (b *Broker) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			NativeID string `json:"native_session_id"`
 		}
 		_ = json.Unmarshal(raw, &identity)
-		if identity.NativeID != "" && isCanonicalUUID(identity.NativeID) && os.Getenv("CXX_AGENT_MESSAGING_MESSAGE_ID") == "" {
+		daemonOwnsWriter := identity.NativeID != "" && identity.NativeID == os.Getenv("CXX_DAEMON_NATIVE_WRITER_ID") && os.Getenv("CXX_DAEMON_OPERATION_ID") != "" && os.Getenv("CXX_DAEMON_CLAIM_ID") != ""
+		if identity.NativeID != "" && isCanonicalUUID(identity.NativeID) && os.Getenv("CXX_AGENT_MESSAGING_MESSAGE_ID") == "" && !daemonOwnsWriter {
 			b.nativeMu.Lock()
 			if b.lockedNativeID != identity.NativeID {
 				// A /clear changes native identity but retains this wrapper owner.

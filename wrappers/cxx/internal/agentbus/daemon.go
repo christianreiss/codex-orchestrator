@@ -594,6 +594,10 @@ func runDaemonOperation(ctx context.Context, op daemonOperation) daemonResult {
 	if op.Address != "" {
 		cmd.Env = append(cmd.Env, "CXX_AGENT_MESSAGING_ADDRESS="+op.Address, "CXX_AGENT_MESSAGING_BINDING_GENERATION="+strconv.Itoa(op.Generation), "CXX_AGENT_MESSAGING_CONTINUITY=native", "CXX_AGENT_MESSAGING_UPSTREAM_SESSION_ID="+op.Upstream)
 	}
+	if op.Upstream != "" {
+		// This parent holds the writer lock until the child has exited.
+		cmd.Env = append(cmd.Env, "CXX_DAEMON_NATIVE_WRITER_ID="+op.Upstream)
+	}
 	var output, diagnostic tailBuffer
 	output.limit = workerOutputLimit
 	diagnostic.limit = 64 * 1024
