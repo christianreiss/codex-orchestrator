@@ -703,6 +703,11 @@ Fleet → Accounts manages any number of ChatGPT and Claude subscriptions indepe
 
 ## Android companion
 
+Android 0.4.14 presents agent chats with green message bubbles, inline photos,
+quoted reply previews and long-press Reply/Copy actions. A compact composer opens
+the photo/camera/video/audio/document sheet and shows selected-photo previews
+with upload progress. Existing chat, attachment and delivery contracts remain.
+
 Android 0.4.12 displays completed refreshes during sustained live metadata
 traffic, fixing empty chats, unseen replies and stale host readiness. Queued
 changes trigger another read; permission and conversation changes still discard

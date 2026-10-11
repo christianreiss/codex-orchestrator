@@ -16,7 +16,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 
-internal enum class CompanionSymbol { Back, Forward, Up, Down, More, MoreVertical, Search, Chat, Shield, Close, Check, Scan, Computer, Terminal }
+internal enum class CompanionSymbol { Back, Forward, Up, Down, More, MoreVertical, Search, Chat, Shield, Close, Check, Scan, Computer, Terminal, Attach, Camera, Send, Reply, Photo, Video, Audio, File }
 
 /** Small local vector icons; no font, image downloads, or icon library required. */
 @Composable internal fun CompanionIcon(symbol: CompanionSymbol, description: String? = null, tint: Color = LocalContentColor.current, modifier: Modifier = Modifier) {
@@ -31,6 +31,20 @@ internal enum class CompanionSymbol { Back, Forward, Up, Down, More, MoreVertica
                 drawPath(path, tint, style = stroke)
             }
             when (symbol) {
+                CompanionSymbol.Attach -> drawPath(Path().apply {
+                    moveTo(8f, 12f); lineTo(14f, 6f); quadraticTo(18f, 2f, 21f, 6f)
+                    quadraticTo(23f, 9f, 19f, 13f); lineTo(11f, 21f)
+                    quadraticTo(7f, 25f, 3f, 20f); quadraticTo(0f, 16f, 4f, 12f)
+                    lineTo(12f, 4f); moveTo(8f, 12f); lineTo(5f, 15f)
+                    quadraticTo(3f, 18f, 6f, 19f); quadraticTo(7f, 20f, 9f, 18f); lineTo(17f, 10f)
+                }, tint, style = stroke)
+                CompanionSymbol.Camera -> { line(3f, 7f, 7f, 7f, 9f, 4f, 15f, 4f, 17f, 7f, 21f, 7f, 21f, 20f, 3f, 20f, 3f, 7f); drawCircle(tint, 4f, Offset(12f, 13f), style = stroke) }
+                CompanionSymbol.Send -> { line(3f, 3f, 22f, 12f, 3f, 21f, 6f, 12f, 3f, 3f); line(6f, 12f, 22f, 12f) }
+                CompanionSymbol.Reply -> { line(10f, 5f, 3f, 11f, 10f, 17f); drawPath(Path().apply { moveTo(3f, 11f); quadraticTo(20f, 6f, 21f, 20f) }, tint, style = stroke) }
+                CompanionSymbol.Photo -> { line(3f, 3f, 21f, 3f, 21f, 21f, 3f, 21f, 3f, 3f); line(3f, 17f, 9f, 11f, 15f, 17f, 18f, 14f, 21f, 17f); drawCircle(tint, 1.5f, Offset(16f, 8f)) }
+                CompanionSymbol.Video -> { line(3f, 6f, 16f, 6f, 16f, 18f, 3f, 18f, 3f, 6f); line(16f, 10f, 22f, 6f, 22f, 18f, 16f, 14f) }
+                CompanionSymbol.Audio -> { drawRoundRect(tint, Offset(9f, 2f), androidx.compose.ui.geometry.Size(6f, 13f), androidx.compose.ui.geometry.CornerRadius(3f), style = stroke); drawPath(Path().apply { moveTo(5f, 11f); cubicTo(5f, 22f, 19f, 22f, 19f, 11f) }, tint, style = stroke); line(12f, 19f, 12f, 23f) }
+                CompanionSymbol.File -> { line(5f, 2f, 14f, 2f, 20f, 8f, 20f, 22f, 5f, 22f, 5f, 2f); line(14f, 2f, 14f, 8f, 20f, 8f) }
                 CompanionSymbol.Back -> line(15f, 5f, 8f, 12f, 15f, 19f)
                 CompanionSymbol.Forward -> line(9f, 5f, 16f, 12f, 9f, 19f)
                 CompanionSymbol.Up -> { line(6f, 11f, 12f, 5f, 18f, 11f); line(12f, 5f, 12f, 19f) }

@@ -82,3 +82,16 @@ internal fun deliveryLabel(event: JSONObject, receipts: Map<String, String>, age
 }
 
 private fun JSONObject.receiptString(key: String): String? = (opt(key) as? String)?.takeIf { it.isNotBlank() }
+
+internal data class ReplyPreview(val author: String, val text: String)
+
+/** Quote only retained message content; an expired reference must not quote a different event. */
+internal fun replyPreview(events: List<JSONObject>, cursor: Long, agentName: String): ReplyPreview {
+    val event = conversationEvents(events).firstOrNull { it.optLong("cursor") == cursor }
+        ?: return ReplyPreview("Earlier message", "Message is no longer in this history")
+    val payload = event.optJSONObject("payload")
+    val text = payload?.optString("text")?.trim().orEmpty()
+    val attachments = payload?.optJSONArray("attachments")?.length() ?: 0
+    return ReplyPreview(if (event.optString("type") == "user_message") "You" else agentName,
+        text.ifBlank { if (attachments == 1) "Attachment" else if (attachments > 1) "$attachments attachments" else "Message" })
+}

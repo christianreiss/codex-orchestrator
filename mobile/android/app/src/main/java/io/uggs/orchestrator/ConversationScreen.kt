@@ -1,7 +1,10 @@
 package io.uggs.orchestrator
 
 import android.text.format.DateFormat
-import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -10,7 +13,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -19,9 +21,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -101,19 +106,21 @@ import org.json.JSONObject
             }
         }
     }
-    Column(Modifier.fillMaxSize()) {
+    Column(Modifier.fillMaxSize().background(if (isSystemInDarkTheme()) Color(0xFF0B141A) else Color(0xFFEFEAE2))) {
         Box(Modifier.weight(1f).fillMaxWidth()) {
             LazyColumn(
                 Modifier.fillMaxSize().testTag("conversation"), state = list,
-                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 12.dp),
                 verticalArrangement = Arrangement.Bottom,
             ) {
                 items(rows, key = { it.key }) { row ->
                     when (row) {
                         is ChatRow.Day -> Box(Modifier.fillMaxWidth().padding(vertical = 18.dp), contentAlignment = Alignment.Center) {
-                            Text(dayLabel(row.date), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Surface(shape = RoundedCornerShape(8.dp), color = MaterialTheme.colorScheme.surfaceContainer) {
+                                Text(dayLabel(row.date), Modifier.padding(horizontal = 12.dp, vertical = 5.dp), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
                         }
-                        is ChatRow.Message -> MessageBubble(model, sessionId ?: "", row, deliveryLabel(row.event, receipts, agent, fresh))
+                        is ChatRow.Message -> MessageBubble(model, sessionId ?: "", row, deliveryLabel(row.event, receipts, agent, fresh), agent?.let(::agentTitle) ?: "Agent", writable)
                     }
                 }
                 if (prompt != null) item(key = "question:" + prompt.optString("id")) {
@@ -151,43 +158,108 @@ import org.json.JSONObject
                 TextButton(onClick={ model.resolveChatNotice(sessionId ?: "",notice.getString("id")) },enabled=fresh && model.can("agent_portal.manage") && !model.busy) { Text("Resolve") }
             }
         }
-        model.replyTargets[sessionId]?.let { cursor -> Row(Modifier.padding(horizontal=12.dp)) { Text("Reply to message #$cursor",style=MaterialTheme.typography.bodySmall); TextButton(onClick={model.replyTo(null)}) {Text("Cancel")} } }
-        if(sessionId != null && model.can("agent_portal.manage")) ChatUploadControls(model,sessionId,writable && !model.busy)
-        if(prompt?.optString("answer_mode") != "buttons") MessageComposer(model.draft, { model.draft = it }, prompt != null, writable, model.busy, !(model.chatUploads[sessionId].isNullOrEmpty())) {
-            followLatest = true; newMessages = false
-            scope.launch { latest(true) }; model.send(prompt)
+        if (prompt?.optString("answer_mode") != "buttons") {
+            Column(Modifier.imePadding()) {
+                model.replyTargets[sessionId]?.let { cursor ->
+                    Row(Modifier.fillMaxWidth().padding(start = 12.dp, end = 60.dp, top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                        ReplyQuote(replyPreview(model.events, cursor, agent?.let(::agentTitle) ?: "Agent"), Modifier.weight(1f))
+                        IconButton(onClick = { model.replyTo(null) }) { CompanionIcon(CompanionSymbol.Close, "Cancel reply") }
+                    }
+                }
+                val composer: @Composable (() -> Unit, () -> Unit) -> Unit = { attach, camera ->
+                    MessageComposer(model.draft, { model.draft = it }, prompt != null, writable, model.busy,
+                        !(model.chatUploads[sessionId].isNullOrEmpty()),
+                        mediaActions = {
+                            if (sessionId != null && model.can("agent_portal.manage")) {
+                                IconButton(onClick = attach, enabled = writable && !model.busy) { CompanionIcon(CompanionSymbol.Attach, "Attach") }
+                                if (model.draft.isEmpty()) IconButton(onClick = camera, enabled = writable && !model.busy) { CompanionIcon(CompanionSymbol.Camera, "Take photo") }
+                            }
+                        }) {
+                        followLatest = true; newMessages = false
+                        scope.launch { latest(true) }; model.send(prompt)
+                    }
+                }
+                if (sessionId != null && model.can("agent_portal.manage")) ChatUploadControls(model, sessionId, writable && !model.busy, composer)
+                else composer({}, {})
+            }
+        } else if (sessionId != null && model.can("agent_portal.manage")) {
+            // Button-only answers may still carry media; keep pending uploads reachable.
+            ChatUploadControls(model, sessionId, writable && !model.busy) { attach, camera ->
+                Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), horizontalArrangement = Arrangement.End) {
+                    IconButton(onClick = attach, enabled = writable && !model.busy) { CompanionIcon(CompanionSymbol.Attach, "Attach") }
+                    IconButton(onClick = camera, enabled = writable && !model.busy) { CompanionIcon(CompanionSymbol.Camera, "Take photo") }
+                }
+            }
         }
     }
 }
 
-@Composable private fun MessageBubble(model: CompanionModel, session: String, row: ChatRow.Message, delivery: String?) {
+@OptIn(ExperimentalFoundationApi::class)
+@Composable private fun MessageBubble(model: CompanionModel, session: String, row: ChatRow.Message, delivery: String?, agentName: String, writable: Boolean) {
     val own = row.event.optString("type") == "user_message"
+    val payload = row.event.getJSONObject("payload")
+    val text = payload.optString("text")
+    val cursor = row.event.optLong("cursor")
     val shape = RoundedCornerShape(
-        topStart = if (!own && row.joinsPrevious) 6.dp else 22.dp,
-        topEnd = if (own && row.joinsPrevious) 6.dp else 22.dp,
-        bottomEnd = if (own) 6.dp else 22.dp,
-        bottomStart = if (!own) 6.dp else 22.dp,
+        topStart = if (!own && !row.joinsPrevious) 3.dp else 14.dp,
+        topEnd = if (own && !row.joinsPrevious) 3.dp else 14.dp,
+        bottomEnd = 14.dp, bottomStart = 14.dp,
     )
+    val dark = isSystemInDarkTheme()
     val use24Hour = DateFormat.is24HourFormat(LocalContext.current)
+    val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
+    var actions by remember(cursor) { mutableStateOf(false) }
+    fun copy() { clipboard.setText(androidx.compose.ui.text.AnnotatedString(text)) }
     BoxWithConstraints(Modifier.fillMaxWidth().padding(top = if (row.joinsPrevious) 3.dp else 10.dp)) {
-        val bubbleWidth = maxWidth * .85f
+        val bubbleWidth = maxWidth * .88f
         Row(Modifier.fillMaxWidth(), horizontalArrangement = if (own) Arrangement.End else Arrangement.Start) {
-            Column(Modifier.widthIn(max = bubbleWidth), horizontalAlignment = if (own) Alignment.End else Alignment.Start) {
-                Surface(shape = shape, color = if (own) MessageBlue else MaterialTheme.colorScheme.surfaceContainerHigh, contentColor = if (own) Color.White else MaterialTheme.colorScheme.onSurface) {
-                    SelectionContainer {
-                        if(row.event.optString("type") == "assistant_message") ChatMarkdown(row.event.getJSONObject("payload").optString("text"),Modifier.padding(horizontal=15.dp,vertical=10.dp))
-                        else Text(row.event.getJSONObject("payload").optString("text"), Modifier.padding(horizontal = 15.dp, vertical = 10.dp), style = MaterialTheme.typography.bodyLarge)
+            Box(Modifier.widthIn(max = bubbleWidth)) {
+                Surface(
+                    modifier = Modifier.testTag("bubble:$cursor").combinedClickable(onClick = {}, onLongClickLabel = "Message actions", onLongClick = { actions = true })
+                        .semantics { customActions = buildList {
+                            if (writable) add(CustomAccessibilityAction("Reply") { model.replyTo(cursor); true })
+                            if (text.isNotBlank()) add(CustomAccessibilityAction("Copy") { copy(); true })
+                        } },
+                    shape = shape,
+                    color = if (own) (if (dark) Color(0xFF144D37) else Color(0xFFD9FDD3)) else MaterialTheme.colorScheme.surfaceContainerLow,
+                    contentColor = MaterialTheme.colorScheme.onSurface,
+                    shadowElevation = 1.dp,
+                ) {
+                    Column(Modifier.padding(4.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                        payload.optLong("reply_to").takeIf { it > 0 }?.let {
+                            ReplyQuote(replyPreview(model.events, it, agentName))
+                        }
+                        payload.optJSONArray("attachments")?.strings()?.forEach { id -> ChatAttachment(model, session, id) }
+                        if (text.isNotBlank()) {
+                            if (!own) ChatMarkdown(text, Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
+                            else Text(text, Modifier.padding(horizontal = 8.dp, vertical = 4.dp), style = MaterialTheme.typography.bodyLarge)
+                        }
+                        Row(Modifier.align(Alignment.End).padding(horizontal = 5.dp, vertical = 2.dp),
+                            horizontalArrangement = Arrangement.spacedBy(5.dp), verticalAlignment = Alignment.CenterVertically) {
+                            eventTime(row.event)?.let { Text(timeLabel(it, use24Hour), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                            if (delivery != null) Text(delivery,
+                                Modifier.widthIn(max = 180.dp).testTag("delivery:" + payload.optString("message_id")),
+                                style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
                     }
                 }
-                row.event.getJSONObject("payload").optLong("reply_to").takeIf { it > 0 }?.let { Text("Reply to message #$it",style=MaterialTheme.typography.bodySmall) }
-                row.event.getJSONObject("payload").optJSONArray("attachments")?.strings()?.forEach { id -> ChatAttachment(model,session,id) }
-                Row { TextButton(onClick={model.replyTo(row.event.optLong("cursor"))}) {Text("Reply")}; val clipboard=androidx.compose.ui.platform.LocalClipboardManager.current; TextButton(onClick={clipboard.setText(androidx.compose.ui.text.AnnotatedString(row.event.getJSONObject("payload").optString("text")))}) {Text("Copy")} }
-                if (delivery != null) Text(delivery,
-                    Modifier.padding(horizontal = 9.dp, vertical = 3.dp).testTag("delivery:" + row.event.optJSONObject("payload")?.optString("message_id")),
-                    style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                if (!row.joinsNext) eventTime(row.event)?.let {
-                    Text(timeLabel(it, use24Hour), Modifier.padding(horizontal = 9.dp, vertical = 5.dp), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                DropdownMenu(expanded = actions, onDismissRequest = { actions = false }) {
+                    DropdownMenuItem(text = { Text("Reply") }, leadingIcon = { CompanionIcon(CompanionSymbol.Reply) }, enabled = writable,
+                        onClick = { actions = false; model.replyTo(cursor) })
+                    if (text.isNotBlank()) DropdownMenuItem(text = { Text("Copy") }, onClick = { actions = false; copy() })
                 }
+            }
+        }
+    }
+}
+
+@Composable private fun ReplyQuote(preview: ReplyPreview, modifier: Modifier = Modifier) {
+    Surface(modifier, shape = RoundedCornerShape(8.dp), color = MaterialTheme.colorScheme.primary.copy(alpha = .10f)) {
+        Row(Modifier.height(IntrinsicSize.Min)) {
+            Spacer(Modifier.width(4.dp).fillMaxHeight().background(MaterialTheme.colorScheme.primary))
+            Column(Modifier.padding(horizontal = 10.dp, vertical = 7.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(preview.author, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(preview.text, style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
             }
         }
     }
@@ -206,33 +278,30 @@ import org.json.JSONObject
     }
 }
 
-@Composable private fun MessageComposer(draft: String, change: (String) -> Unit, answering: Boolean, writable: Boolean, sending: Boolean, hasAttachments:Boolean = false, send: () -> Unit) {
-    Surface(color = MaterialTheme.colorScheme.background) {
-        Surface(
-            modifier = Modifier.fillMaxWidth().imePadding().padding(horizontal = 12.dp, vertical = 8.dp),
-            shape = RoundedCornerShape(28.dp), color = MaterialTheme.colorScheme.surface,
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-        ) {
-            Row(Modifier.fillMaxWidth().padding(4.dp), verticalAlignment = Alignment.Bottom) {
+@Composable private fun MessageComposer(draft: String, change: (String) -> Unit, answering: Boolean, writable: Boolean, sending: Boolean, hasAttachments: Boolean, mediaActions: @Composable RowScope.() -> Unit, send: () -> Unit) {
+    Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp), verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        Surface(modifier = Modifier.weight(1f), shape = RoundedCornerShape(26.dp), color = MaterialTheme.colorScheme.surfaceContainerLow, shadowElevation = 1.dp) {
+            Row(verticalAlignment = Alignment.Bottom) {
                 BasicTextField(
                     value = draft, onValueChange = change, enabled = !sending, maxLines = 4,
                     textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface),
                     keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
                     cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-                    modifier = Modifier.weight(1f).heightIn(min = 48.dp).padding(horizontal = 14.dp, vertical = 12.dp)
+                    modifier = Modifier.weight(1f).heightIn(min = 48.dp).padding(start = 16.dp, end = 4.dp, top = 12.dp, bottom = 12.dp)
                         .semantics { contentDescription = if (answering) "Your answer" else "Message" },
                     decorationBox = { field ->
                         Box { if (draft.isEmpty()) Text(if (answering) "Your answer" else "Message", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant); field() }
                     },
                 )
-                FilledIconButton(
-                    onClick = send, enabled = writable && !sending && (draft.isNotBlank() || hasAttachments), modifier = Modifier.size(48.dp).semantics { contentDescription = "Send" },
-                    colors = IconButtonDefaults.filledIconButtonColors(containerColor = MessageBlue, contentColor = Color.White),
-                ) {
-                    if (sending) CircularProgressIndicator(Modifier.size(20.dp).semantics { contentDescription = "Sending" }, strokeWidth = 2.dp)
-                    else CompanionIcon(CompanionSymbol.Up)
-                }
+                mediaActions()
             }
+        }
+        FilledIconButton(
+            onClick = send, enabled = writable && !sending && (draft.isNotBlank() || hasAttachments), modifier = Modifier.size(48.dp).semantics { contentDescription = "Send" },
+            colors = IconButtonDefaults.filledIconButtonColors(containerColor = MaterialTheme.colorScheme.primary, contentColor = MaterialTheme.colorScheme.onPrimary),
+        ) {
+            if (sending) CircularProgressIndicator(Modifier.size(20.dp).semantics { contentDescription = "Sending" }, strokeWidth = 2.dp)
+            else CompanionIcon(CompanionSymbol.Send)
         }
     }
 }
