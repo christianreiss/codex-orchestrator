@@ -29,6 +29,19 @@ import (
 )
 
 var daemonExecutable = os.Executable
+var reconcileHostDaemon = ReconcileHostDaemon
+
+// ReconcileConfiguredHostDaemon runs after managed sync and before a native
+// launch. Disabled messaging and non-Linux hosts have no daemon to manage.
+// Optional service failures remain visible without blocking a native session.
+func ReconcileConfiguredHostDaemon(cfg *config.Config, output io.Writer) {
+	if runtime.GOOS != "linux" || cfg == nil || !cfg.AgentMessaging.Enabled || cfg.EngineSuspended(cfg.Engine) || cfg.SourcePath() == "" || os.Getenv("CXX_DAEMON_OPERATION_ID") != "" || os.Getenv("CXX_AGENT_MESSAGING_MESSAGE_ID") != "" {
+		return
+	}
+	if err := reconcileHostDaemon(output, output); err != nil {
+		fmt.Fprintln(output, "host daemon:", err)
+	}
+}
 
 type daemonSettings struct {
 	Enabled     bool   `json:"enabled"`
@@ -353,6 +366,7 @@ func runHostDaemon(parent context.Context, version string, stdout, stderr io.Wri
 		wc.TlsConfig = client.http.Transport.(*http.Transport).TLSClientConfig
 		ws, err := websocket.DialConfig(wc)
 		if err != nil {
+			fmt.Fprintln(stderr, "daemon connection unavailable:", err)
 			if !retry() {
 				break
 			}
@@ -393,6 +407,7 @@ func runHostDaemon(parent context.Context, version string, stdout, stderr io.Wri
 		engines := daemonReadyEngines(configs)
 		err = c.rpc(ctx, "hello", map[string]any{"instance_id": instance, "username": settings.Username, "version": version, "engines": engines, "error": nil}, nil)
 		if err != nil {
+			fmt.Fprintln(stderr, "daemon registration rejected:", err)
 			ws.Close()
 			if !retry() {
 				break

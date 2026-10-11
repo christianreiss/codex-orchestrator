@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io"
 	"os"
 	"strings"
 	"testing"
@@ -286,5 +287,30 @@ func TestHostUpdateWrapperVerificationAndExecFailuresStopRemainingWork(t *testin
 				t.Fatalf("unsafe or missing result: %s", &out)
 			}
 		})
+	}
+}
+
+func TestHostUpdateReconcilesDaemonWhenAlreadyCurrent(t *testing.T) {
+	f := newUpdateFixture(t, "codex", "claude", "grok")
+	load := f.deps.load
+	f.deps.load = func(ctx context.Context, path, engine string) (*config.Config, error) {
+		cfg, err := load(ctx, path, engine)
+		cfg.AgentMessaging.Enabled = true
+		return cfg, err
+	}
+	calls := 0
+	f.deps.reconcile = func(cfg *config.Config, output io.Writer) {
+		calls++
+		if len(f.syncs) != 3 {
+			t.Fatal("daemon reconciled before engine sync", f.syncs)
+		}
+		io.WriteString(output, "daemon installation pending\n")
+	}
+	var out bytes.Buffer
+	if code := updateHost(context.Background(), nil, &out, ui.Caps{}, f.deps, false); code != 0 {
+		t.Fatal(code, &out)
+	}
+	if calls != 1 || !strings.Contains(out.String(), "daemon installation pending") {
+		t.Fatalf("calls=%d output=%s", calls, &out)
 	}
 }

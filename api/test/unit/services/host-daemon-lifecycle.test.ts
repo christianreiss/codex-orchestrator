@@ -224,13 +224,29 @@ describe('host daemon service decisions', () => {
     await expect(service.host(99)).rejects.toThrow('not found');
     await expect(service.session('missing')).rejects.toThrow('not found');
     await expect(service.start({ ...request(), cwd: 'relative' }, 'owner')).rejects.toThrow('absolute');
-    row(hosts).agentMessagingEnabled = 0;
+    row(hosts).status = 'disabled';
     expect((await service.view(1)).health.reasons).toContain('host_access_blocked');
     await expect(service.eligible(1)).rejects.toThrow('available');
-    row(hosts).agentMessagingEnabled = 1;
+    row(hosts).status = 'active';
     row(versions).version = '0';
     expect((await service.view(1)).health.reasons).toContain('messaging_or_api_disabled');
     await expect(service.eligible(1)).rejects.toThrow('disabled');
+  });
+  it('ignores the retired per-host messaging flag for connection, health and starts', async () => {
+    row(hosts).agentMessagingEnabled = 0;
+    expect((await service.view(1)).health.state).toBe('green');
+    await expect(service.eligible(1)).resolves.toBeDefined();
+    const runtime = (await service.settings(1)).runtime!;
+    await expect(service.connect(1, runtime)).resolves.toHaveProperty('generation');
+    await expect(service.start(request(), 'agent:owner')).resolves.toHaveProperty('session_id');
+  });
+  it('still blocks insecure hosts outside their allowed window', async () => {
+    row(hosts).secure = 0;
+    row(hosts).insecureEnabledUntil = null;
+    expect((await service.view(1)).health.reasons).toContain('host_access_blocked');
+    await expect(service.eligible(1)).rejects.toThrow('available');
+    row(hosts).insecureEnabledUntil = new Date(Date.now() + 60_000);
+    await expect(service.eligible(1)).resolves.toBeDefined();
   });
   it('checks service identity and rejects stale transport generations', async () => {
     const runtime = (await service.settings(1)).runtime!;

@@ -636,8 +636,12 @@ It is informational: finish with `agent_listen` once, without a reply.
 Hosts opt in under Remote-Sessions; the default is disabled. Linux/systemd is
 required. `cxx daemon install|status|start|stop|uninstall|run` manages a separate
 `cxx-daemon.service`; its account defaults to root and may be an existing user.
-Installation requires root. Wrapper sync/cron reconciles an enabled service;
-unprivileged sync reports installation pending. The account must have usable
+Installation requires root. `cxx update`, wrapper sync/cron and managed
+Codex/Claude/Grok launches reconcile an enabled service before native execution;
+unprivileged runs report `sudo cxx daemon install` as the pending step. Accepted
+daemon operations and peer deliveries do not reconcile their parent service.
+Agent Messaging uses the fleet switch and the current host access policy; the
+retired per-host messaging flag is ignored. The account must have usable
 managed engine configs and installed provider CLIs. Existing `cxx-agent`
 message/auth workers remain separate. No incoming host port is opened.
 

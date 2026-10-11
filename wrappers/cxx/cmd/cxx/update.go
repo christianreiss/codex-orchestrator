@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/agentbus"
 	"io"
 	"log/slog"
 	"net/url"
@@ -47,6 +48,7 @@ type hostUpdateDeps struct {
 	install        func(context.Context, string, string, bool) error
 	sync           func(context.Context, *config.Config) error
 	report         func(context.Context, *config.Config, string) error
+	reconcile      func(*config.Config, io.Writer)
 }
 
 type engineUpdate struct {
@@ -218,6 +220,16 @@ func updateHost(ctx context.Context, args []string, w io.Writer, caps ui.Caps, d
 			worst = 1
 		}
 	}
+	// Reconcile once with visible output even when the wrapper was already
+	// current. Per-engine sync uses quiet output for its compact update rows.
+	if deps.reconcile != nil {
+		for _, e := range engines {
+			if e.loadErr == nil && e.cfg.AgentMessaging.Enabled && !e.cfg.EngineSuspended(e.name) {
+				deps.reconcile(e.cfg, w)
+				break
+			}
+		}
+	}
 	return worst
 }
 
@@ -353,7 +365,8 @@ func updateClient(cfg *config.Config) (*orchestrator.Client, error) {
 func defaultHostUpdateDeps() hostUpdateDeps {
 	logger := slog.New(slog.DiscardHandler)
 	return hostUpdateDeps{
-		resolve: configPathFor,
+		reconcile: agentbus.ReconcileConfiguredHostDaemon,
+		resolve:   configPathFor,
 		load: func(ctx context.Context, path, engine string) (*config.Config, error) {
 			key, err := signing.PublicKey()
 			if err != nil {

@@ -16,10 +16,10 @@ import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from '.
 import { encrypt, decrypt } from '../../security/secret-box.js';
 import { activeHostEngines, assertHostEngineEnabled } from '../host-engine-policy.js';
 import { readFleetEngineState } from '../engine-switch.js';
-import { insecureWindowActive } from '../insecure-window.js';
 import { wsPublisher } from '../../ws/publisher.js';
 import { daemonSettingsSchema, daemonHealth, type DaemonRuntime, type DaemonSettings } from './policy.js';
 import { ENGINE_HOST_FIELDS, type Engine } from '../../util/engine.js';
+import { messagingHostEligible } from '../agent-messaging.js';
 
 const now = () => new Date().toISOString();
 const hash = (v: unknown) => createHash('sha256').update(JSON.stringify(v)).digest('hex');
@@ -71,9 +71,7 @@ export class HostDaemonService {
     );
     if (
       row.settings.enabled &&
-      (host.status !== 'active' ||
-        !host.agentMessagingEnabled ||
-        (!host.secure && !insecureWindowActive(host)))
+      !messagingHostEligible(host)
     ) {
       health.state = 'red';
       health.reasons.unshift('host_access_blocked');
@@ -140,9 +138,7 @@ export class HostDaemonService {
       throw new ForbiddenError('Agent messaging or API disabled');
     if (
       (!config.settings.enabled && !drain) ||
-      host.status !== 'active' ||
-      !host.agentMessagingEnabled ||
-      (!host.secure && !insecureWindowActive(host))
+      !messagingHostEligible(host)
     )
       throw new ForbiddenError('Host daemon is not available', 'daemon_disabled');
     if (engine) assertHostEngineEnabled(host, engine, await readFleetEngineState(this.db));

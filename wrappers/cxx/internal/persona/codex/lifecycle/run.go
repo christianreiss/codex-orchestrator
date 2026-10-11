@@ -23,6 +23,7 @@ import (
 
 	"golang.org/x/term"
 
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/agentbus"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/agentportal"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/codex"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
@@ -553,6 +554,10 @@ func Run(ctx context.Context, opts Options) (exitCode int, runErr error) {
 			}
 		}
 		return 1, markPresented(fmt.Errorf("launch refused: %s", dec.Reason), opts)
+	}
+
+	if !concurrent && !opts.SkipAuthSync && !strings.EqualFold(dec.Status, "offline") {
+		agentbus.ReconcileConfiguredHostDaemon(cfg, updateprogress.Output(ctx, os.Stderr))
 	}
 
 	// A sync-only pass has now done everything asked of it. Render the same

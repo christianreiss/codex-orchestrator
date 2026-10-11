@@ -1,10 +1,16 @@
 package agentbus
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
+	"io"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -72,6 +78,51 @@ func TestDaemonNativeAdaptersProduceResumableResults(t *testing.T) {
 			result := runDaemonOperation(context.Background(), daemonOperation{ID: newUUID(), Claim: newUUID(), Cwd: dir, Engine: engine, Prompt: "hello", Title: "test"})
 			if result.Status != "completed" || result.Reply != "hello" || result.Upstream != "native-1" {
 				t.Fatal(result)
+			}
+		})
+	}
+}
+
+func TestConfiguredDaemonReconciliation(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("Linux service")
+	}
+	original := reconcileHostDaemon
+	t.Cleanup(func() { reconcileHostDaemon = original })
+	for _, engine := range []string{"codex", "claude", "grok"} {
+		t.Run(engine, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "config.json")
+			fixture := config.Config{SchemaVersion: 1, Engine: engine, IssuedAt: "2026-10-11T00:00:00Z",
+				Orchestrator:   config.Orchestrator{BaseURL: "https://example.test", APIKey: "test-key", InstallationID: "test"},
+				Host:           config.Host{ID: 1, FQDN: "example.test", Secure: true},
+				Wrapper:        config.Wrapper{Version: "test", BinaryURL: "https://example.test/cxx", BinarySHA256: strings.Repeat("0", 64)},
+				AgentMessaging: config.AgentMessaging{Enabled: true, RelayPollSeconds: 25, QueuedTTLSeconds: 86400},
+			}
+			body, _ := json.Marshal(fixture)
+			if err := os.WriteFile(path, body, 0600); err != nil {
+				t.Fatal(err)
+			}
+			cfg, err := config.LoadForEngine(path, nil, true, engine)
+			if err != nil {
+				t.Fatal(err)
+			}
+			calls := 0
+			reconcileHostDaemon = func(stdout, stderr io.Writer) error { calls++; return errors.New("installation pending") }
+			var out bytes.Buffer
+			ReconcileConfiguredHostDaemon(cfg, &out)
+			if calls != 1 || !strings.Contains(out.String(), "installation pending") {
+				t.Fatalf("calls=%d output=%s", calls, &out)
+			}
+			cfg.AgentMessaging.Enabled = false
+			ReconcileConfiguredHostDaemon(cfg, &out)
+			cfg.AgentMessaging.Enabled = true
+			for _, key := range []string{"CXX_DAEMON_OPERATION_ID", "CXX_AGENT_MESSAGING_MESSAGE_ID"} {
+				t.Setenv(key, "owned-work")
+				ReconcileConfiguredHostDaemon(cfg, &out)
+				t.Setenv(key, "")
+			}
+			if calls != 1 {
+				t.Fatal("disabled messaging or accepted work managed its parent service", calls)
 			}
 		})
 	}

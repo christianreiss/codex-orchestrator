@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/accountpool"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/agentbus"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/agentportal"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/codex"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
@@ -40,6 +41,7 @@ import (
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/terminalui"
 	shareduninstall "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/uninstall"
 	coreupdate "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/update"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/updateprogress"
 )
 
 var Version, Commit, BuildDate = "dev", "unknown", "unknown"
@@ -340,6 +342,9 @@ func newClient(cfg *config.Config, forceIPv4 ...bool) (*orchestrator.Client, err
 
 func syncManaged(ctx context.Context, cfg *config.Config, client *orchestrator.Client) error {
 	_, err := syncMeasuredManaged(ctx, cfg, client)
+	if err == nil {
+		agentbus.ReconcileConfiguredHostDaemon(cfg, updateprogress.Output(ctx, os.Stderr))
+	}
 	return err
 }
 
@@ -538,6 +543,7 @@ func run(ctx context.Context, cfg *config.Config, client *orchestrator.Client, o
 	if initial.Versions != nil && initial.Versions.APIDisabled {
 		return 1, errors.New(apiDisabledReason)
 	}
+	agentbus.ReconcileConfiguredHostDaemon(cfg, stderr)
 	reconcileEngineDrift(cfg, initial, client)
 	if _, err := native.FindCLI(); err != nil {
 		// First launch on a host whose installer or cron has not yet placed the

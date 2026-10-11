@@ -1,3 +1,8 @@
+# 2026-10-11
+
+- Wrapper 0.9.46 installs/starts enabled Linux host daemons during `cxx update`, wrapper sync/cron and Codex/Claude/Grok startup. Unprivileged runs show the required root installation step; accepted daemon work never restarts its parent service. Daemon connection and registration errors are visible in the journal.
+- Host daemon readiness and admission use the current fleet Agent Messaging policy instead of the retired per-host messaging flag, fixing enabled hosts stuck at `host_access_blocked` despite working managed engine configs.
+
 # 2026-10-10
 
 - Wrapper 0.9.45 includes the Watchdog exit cause in the retried session-finish receipt. A clean exit or user interrupt atomically disables its Watchdog and cancels pending internal recovery, even if the standalone STOP report was lost. Accepted work, crash/capacity recovery and ordinary Wake/Cron schedules are preserved; delayed old-session receipts cannot stop newer protection.
