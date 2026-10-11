@@ -14,7 +14,7 @@ import (
 func runDaemonPeers(ctx context.Context, version string, mu *sync.Mutex, active map[string]context.CancelFunc, stderr io.Writer) {
 	for ctx.Err() == nil {
 		configs, client, settings, err := daemonConfig(ctx)
-		if err != nil || !settings.Enabled {
+		if err != nil || !settings.Enabled || daemonLocalExpired() {
 			if !waitContext(ctx, 5*time.Second) {
 				return
 			}
@@ -35,7 +35,7 @@ func runDaemonPeers(ctx context.Context, version string, mu *sync.Mutex, active 
 			path := filepath.Join(dir, "receipts", delivery.MessageID+".json")
 			receipt := map[string]any{"session_id": stringArg(delivery.Target, "daemon_session_id"), "message_id": delivery.MessageID, "ready": false}
 			body, _ := json.Marshal(receipt)
-			if journalErr != nil || writeProtectedFile(path, body) != nil {
+			if daemonLocalExpired() || journalErr != nil || writeProtectedFile(path, body) != nil {
 				stop()
 			}
 			id := stringArg(delivery.Target, "daemon_session_id")

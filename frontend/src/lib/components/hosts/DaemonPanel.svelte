@@ -9,7 +9,7 @@
  // svelte-ignore state_referenced_locally
  const qc=useQueryClient(),query=hostDaemonQuery(id),save=configureDaemon(qc,id),enableAccess=createEnableInsecureMutation(qc);
  let settings=$state({...daemonDefaults}),dirty=$state(false);
- $effect(()=>{if($query.data&&!dirty){const {enabled,username,default_cwd,max_parallel,idle_minutes,question_minutes}=$query.data;settings={enabled,username,default_cwd,max_parallel,idle_minutes,question_minutes}}});
+ $effect(()=>{if($query.data&&!dirty){const {enabled,username,default_cwd,max_parallel,idle_minutes,question_minutes,lifetime_minutes,expires_at}=$query.data;settings={enabled,username,default_cwd,max_parallel,idle_minutes,question_minutes,lifetime_minutes,expires_at}}});
 </script>
 <section class="space-y-4 rounded-xl border border-border bg-card p-5">
  <div class="flex flex-wrap items-center justify-between gap-3"><h2 class="font-semibold">Remote-Sessions</h2><DaemonIndicator host={$query.data}/></div>
@@ -24,6 +24,8 @@
   </div>
  {/if}
  {#if $query.error}<p role="alert">{$query.error.message}</p>{/if}
+ {#if $query.data?.spawn}<p class="text-sm text-muted-foreground">Provisioniert durch VIP-Host {$query.data.spawn.sourceHostId} · {$query.data.spawn.operationId}</p>{/if}
+ {#if $query.data?.lifetime_minutes}<p class="text-sm text-muted-foreground">Zeitlich begrenzt: {$query.data.lifetime_minutes} Minuten · {$query.data.expires_at ? new Date($query.data.expires_at).toLocaleString() : 'Frist beginnt mit erster Verbindung'}{$query.data.deadline_expired ? ' · Abgelaufen; laufende Arbeit wird abgeschlossen.' : ''}</p>{/if}
  <fieldset disabled={!$authStore.can("agent_messaging.manage")}><form class="grid gap-3 sm:grid-cols-2" oninput={()=>dirty=true} onsubmit={async(e)=>{e.preventDefault();await $save.mutateAsync(settings);dirty=false}}>
   <label class="flex items-center gap-2 sm:col-span-2"><input type="checkbox" bind:checked={settings.enabled}/> Remote-Starts aktivieren</label>
   <label class="grid gap-1 text-sm">Dienstkonto<input class="rounded border bg-background p-2" bind:value={settings.username} required/></label>

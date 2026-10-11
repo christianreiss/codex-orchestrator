@@ -1,5 +1,7 @@
 # 2026-10-11
 
+- System Spawn (off by default) lets active VIP hosts provision new non-VIP systems through MCP and install them over SSH. Setup defaults to secure, supports Codex/Claude/Grok, durable idempotent requests and renewable one-time installers. Optional permanent or timed Linux/systemd daemons enforce a fixed first-connection deadline, stop accepting new work at expiry and drain accepted work/results. Wrapper 0.9.53 persists deadlines locally across outages and restarts. Policies and host details expose the switch, provenance and expiry.
+
 - Android 0.4.11 hides closed, failed and unknown daemon conversations from Chats. Ended conversations clear their unread counters and reply notifications; delayed pushes cannot restore those stale badges. Waiting conversations and unread replies during temporary connection loss remain available.
 
 - Wrapper 0.9.51 defaults permanent daemon services and remote starts to the service user's home when no working directory is specified. Explicit request paths override configured defaults; native registration retains the resolved home for continuation. WebUI fields describe the empty default.

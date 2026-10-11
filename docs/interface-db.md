@@ -259,3 +259,9 @@ See [Android companion](android-companion.md#hosts-and-remote-conversations-0410
 ## Session housekeeping (migration 0054)
 
 - **session_housekeeping_reservations** — Durable local-removal fence. `host_id` BIGINT UNSIGNED NOT NULL FK to hosts (CASCADE), `engine` VARCHAR(16) NOT NULL, `token` CHAR(36) NOT NULL, `created_at` VARCHAR(100) NOT NULL; unique host/engine. Reservations have no automatic expiry: a crashed client may have already quarantined transcripts. The same local journal token must recover and release the reservation. Fleet policy and full host overrides are JSON entries in versions, named session_housekeeping_ENGINE and session_housekeeping_ENGINE_host_ID.
+
+## System provisioning records (0056)
+
+`host_spawns` stores the source host ID, target host ID, stable client UUID, normalized request/hash, encrypted installer and renewal receipts, target setup-completion report and timestamps. Unique `(source_host_id,client_message_id)` serializes retries; unique target ID binds provenance. Target FK cascades on deletion. Source ID intentionally remains immutable without a cascading FK so deleting a source cannot bypass outstanding installer restrictions. Daemon `settings` JSON gains optional `lifetime_minutes` and `expires_at`; existing rows remain permanent.
+
+- **host_spawns** — durable new-host provisioning (`id` CHAR(36) PRIMARY KEY, `source_host_id` BIGINT UNSIGNED NOT NULL, `target_host_id` BIGINT UNSIGNED NOT NULL, `client_message_id` CHAR(36) NOT NULL, `request_hash` CHAR(64) NOT NULL, `request` JSON NOT NULL, `installer_enc` LONGTEXT NOT NULL, `installer_revision` INT NOT NULL DEFAULT 0, `renewal_receipts` JSON NOT NULL, `renewal_client_message_id` CHAR(36) NULL, `setup_completed_at` VARCHAR(100) NULL, `created_at` VARCHAR(100) NOT NULL, `updated_at` VARCHAR(100) NOT NULL). Unique source/client UUID and target ID; target deletion cascades. Source attribution survives source deletion.

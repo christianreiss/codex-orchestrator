@@ -562,6 +562,8 @@ export class HostAgentsService {
       secrets,
       apiKeysInChat,
       agentMessaging,
+      hostSpawn: state(mcp.enabled && host.vip === 1 && host.status === 'active' &&
+        await this.settings.getFlag('host_spawn_enabled', false).catch(() => false), 'vip_and_fleet_switch'),
       gitDirector,
       fileTransfer,
       remoteExec,

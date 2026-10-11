@@ -1057,3 +1057,10 @@ Host requests use the host API key, host/IP policy and engine assignment/master 
 Wrapper configs carry the effective rule in optional `session_housekeeping`; absence disables automatic housekeeping for older servers. cxx executes locally, at most daily after a successful pass. Age uses the latest native metadata/artifact modification, retaining all files in parent/subagent bundles together. Age-expired sessions are removed first, then oldest eligible bundles until the session-file budget is met. Index/database sizes are excluded from the selection budget but corresponding rows and physical SQLite space are reclaimed.
 
 Pins, incomplete session metadata, open native goals, queued native work, live sessions and the last native transcript of every known fleet address are protected. This includes paused schedules and later peer/Portal continuations. Protected or young sessions can exceed the budget. An active native process skips its engine; unavailable protection or an unsupported schema prevents deletion. Launch/resume guards and server reservations fence removal; a durable journal quarantines files before deleting associated indexes, then unlinks them. Interrupted operations recover using the same token without retrying native work. Unknown data formats are skipped instead of guessed.
+
+## System Spawn
+
+`GET /admin/host-spawn/state` reads the global switch (off by default).
+`POST /admin/host-spawn/state` with `{enabled:boolean}` requires settings.manage.
+`POST /host/spawn/setup-complete` accepts the successful installer's authenticated target-host report.
+See [System Spawn](interface-api.md#system-spawn-new-system-provisioning) for VIP-only MCP provisioning, installer retries and timed daemon behavior.

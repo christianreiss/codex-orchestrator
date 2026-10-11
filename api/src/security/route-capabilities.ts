@@ -60,6 +60,8 @@ export const ROUTE_CAPABILITIES: Readonly<Record<string, RouteGuard>> = {
   'PUT /admin/chatty/settings': cap('chatty.manage'),
 
   'GET /admin/host-daemons': cap('admin.read'),
+  'GET /admin/host-spawn/state': cap('admin.read'),
+  'POST /admin/host-spawn/state': cap('settings.manage'),
   'GET /admin/hosts/:id/daemon': cap('admin.read'),
   'PUT /admin/hosts/:id/daemon': cap('agent_messaging.manage'),
   'POST /admin/daemon-sessions': cap('agent_messaging.manage'),

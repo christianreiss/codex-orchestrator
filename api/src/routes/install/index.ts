@@ -1,7 +1,8 @@
+import { HostSpawnService } from '../../services/host-spawn.js';
 import { createPooledAuthStoreService as createCanonicalAuthStoreService } from '../../services/pooled-auth-store.js';
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { eq } from 'drizzle-orm';
-import { hosts as hostsTable, logs as logsTable } from '../../db/schema.js';
+import { hosts as hostsTable, hostSpawns, logs as logsTable } from '../../db/schema.js';
 import type { RouteContext } from '../index.js';
 import { ApiError, NotFoundError, ValidationError } from '../../http/errors.js';
 import { nowIso } from '../../util/timestamp.js';
@@ -84,6 +85,12 @@ export async function registerInstallRoutes(app: FastifyInstance, ctx: RouteCont
     if (!baseUrl)
       return shellishError(reply, 'Installer base URL invalid', 'installer_base_url_invalid', row.expiresAt);
 
+    const spawnRows = await ctx.db.select().from(hostSpawns).where(eq(hostSpawns.targetHostId, host.id)).limit(1);
+    if (spawnRows.length) {
+      const [source] = await ctx.db.select().from(hostsTable).where(eq(hostsTable.id, spawnRows[0]!.sourceHostId));
+      if (!(await new HostSpawnService(ctx).enabled()) || !source || source.status !== 'active' || source.vip !== 1)
+        return shellishError(reply, 'System spawn is disabled or source VIP revoked', 'host_spawn_disabled');
+    }
     const claimed = await installSvc.markInstallUsed(row.id);
     if (!claimed) return shellishError(reply, 'Installer already used', 'installer_used', row.expiresAt);
     await ctx.db.insert(logsTable).values({
@@ -112,6 +119,14 @@ export async function registerInstallRoutes(app: FastifyInstance, ctx: RouteCont
         'installer_build_failed',
         row.expiresAt,
       );
+    }
+    if (spawnRows.length) {
+      body = body.replace('  exit 0\nfi\n\nui_result_fail', `  # Authenticated target reports successful installer completion.
+  curl -fsS --retry 2 -X POST -H "X-API-Key: $HOST_API_KEY" "$BASE_URL/host/spawn/setup-complete" >/dev/null
+  exit 0
+fi
+
+ui_result_fail`);
     }
     emitInstaller(reply, body, 200, row.expiresAt);
   };

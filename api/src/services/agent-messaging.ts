@@ -1,3 +1,4 @@
+import { daemonAccepting } from './host-daemon/policy.js';
 import { assertHousekeepingAvailable } from './session-housekeeping.js';
 import { hostDaemons, hostDaemonSessions } from '../db/schema.js';
 import { discardPresenceNotices, queuePresenceNotices, recipientSnapshot } from './agent-messaging/presence-feedback.js';
@@ -887,7 +888,7 @@ export class AgentMessagingService {
     const username = normalizeRequiredText(input.username, 'username', 255);
     if (input.capabilities?.host_daemon === true) {
       const [daemon] = await this.db.select().from(hostDaemons).where(eq(hostDaemons.hostId, host.id));
-      if (!daemon?.settings.enabled || username !== daemon.settings.username + ':daemon') throw new ForbiddenError('Daemon relay is not enabled');
+      if ((!daemon || !daemonAccepting(daemon.settings)) || username !== daemon.settings.username + ':daemon') throw new ForbiddenError('Daemon relay is not enabled');
     }
     const instanceId = normalizeUuid(input.instanceId, 'instance_id');
     const wrapperVersion = normalizeRequiredText(input.wrapperVersion, 'wrapper_version', 64);
@@ -1510,7 +1511,7 @@ export class AgentMessagingService {
         if (remote && skipReceiveCapable) {
           const [daemon] = await tx.select().from(hostDaemons).where(eq(hostDaemons.hostId, remote.hostId)).for('update');
           const working = await tx.select().from(hostDaemonSessions).where(and(eq(hostDaemonSessions.hostId, remote.hostId), inArray(hostDaemonSessions.status, ['running', 'stopping'])));
-          if (!daemon?.settings.enabled || !['idle', 'waiting'].includes(remote.status) || working.length >= daemon.settings.max_parallel) continue;
+          if ((!daemon || !daemonAccepting(daemon.settings)) || !['idle', 'waiting'].includes(remote.status) || working.length >= daemon.settings.max_parallel) continue;
           if (Date.now() - Date.parse(candidate.createdAt) >= 600_000) {
             await tx.update(agentBusMessages).set({ status: 'expired', expiredAt: now, updatedAt: now }).where(eq(agentBusMessages.id, candidate.id));
             continue;
@@ -1669,6 +1670,15 @@ export class AgentMessagingService {
       }
       if (input.outcome === 'accepted' && await freshStartAllowed(tx, message, currentTarget)) {
         await tx.update(agentFreshStartGrants).set({ consumedAt: now, consumedClaimId: claimId }).where(eq(agentFreshStartGrants.messageId, message.id));
+      }
+      if (input.outcome === 'accepted' && relayGeneration != null && message.status === 'leased') {
+        const [remote] = await tx.select().from(hostDaemonSessions)
+          .where(eq(hostDaemonSessions.addressId, message.targetAddressId));
+        if (remote?.activeMessageId === message.id) {
+          const [daemon] = await tx.select().from(hostDaemons).where(eq(hostDaemons.hostId, remote.hostId));
+          if (!daemon || !daemonAccepting(daemon.settings))
+            throw new ConflictError('Host daemon deadline expired or disabled', 'daemon_disabled');
+        }
       }
       if (input.outcome === 'accepted' && message.status !== 'leased') {
         throw new ConflictError('Only a leased message can be accepted', 'agent_messaging_ack_invalid');

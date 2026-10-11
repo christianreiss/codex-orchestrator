@@ -45,6 +45,7 @@ func ReconcileConfiguredHostDaemon(cfg *config.Config, output io.Writer) {
 
 type daemonSettings struct {
 	Enabled     bool   `json:"enabled"`
+	ExpiresAt   string `json:"expires_at"`
 	Username    string `json:"username"`
 	MaxParallel int    `json:"max_parallel"`
 }
@@ -157,6 +158,12 @@ func daemonConfig(ctx context.Context) (map[string]*config.Config, *relayClient,
 	}
 	var settings daemonSettings
 	err = doJSON(ctx, client.http, client.baseURL, http.MethodGet, "/host/daemon/config", nil, map[string]string{"X-API-Key": client.apiKey}, &settings)
+	if err == nil {
+		err = rememberDaemonDeadline(settings)
+		if deadlineExpired(settings.ExpiresAt, time.Now()) {
+			settings.Enabled = false
+		}
+	}
 	return configs, client, settings, err
 }
 
@@ -169,7 +176,7 @@ func ReconcileHostDaemon(stdout, stderr io.Writer) error {
 	if err != nil {
 		return err
 	}
-	if !settings.Enabled {
+	if !settings.Enabled || daemonLocalExpired() {
 		return nil
 	} // the connected service drains itself
 	if os.Geteuid() != 0 {
@@ -200,7 +207,7 @@ func daemonService(action string, stdout, stderr io.Writer) error {
 		if err != nil {
 			return err
 		}
-		if !settings.Enabled {
+		if !settings.Enabled || daemonLocalExpired() {
 			return errors.New("enable the host daemon in the WebUI first")
 		}
 		account, err := user.Lookup(settings.Username)
@@ -343,6 +350,12 @@ func runHostDaemon(parent context.Context, version string, stdout, stderr io.Wri
 		return waitContext(ctx, delay)
 	}
 	for ctx.Err() == nil {
+		activeMu.Lock()
+		noActiveWork := len(active) == 0
+		activeMu.Unlock()
+		if daemonLocalExpired() && noActiveWork && len(pendingDaemonReceipts(dir)) == 0 {
+			return nil
+		}
 		configs, client, settings, err := daemonConfig(ctx)
 		if err != nil {
 			fmt.Fprintln(stderr, "daemon configuration unavailable:", err)
@@ -355,7 +368,7 @@ func runHostDaemon(parent context.Context, version string, stdout, stderr io.Wri
 		count := len(active)
 		activeMu.Unlock()
 		pendingJournals := pendingDaemonReceipts(dir)
-		if !settings.Enabled && count == 0 && len(pendingJournals) == 0 {
+		if (!settings.Enabled || daemonLocalExpired()) && count == 0 && len(pendingJournals) == 0 {
 			return nil
 		}
 		if settings.Username != currentUserName() {
@@ -402,7 +415,10 @@ func runHostDaemon(parent context.Context, version string, stdout, stderr io.Wri
 			}
 		}()
 		engines := daemonReadyEngines(configs)
-		err = c.rpc(ctx, "hello", map[string]any{"instance_id": instance, "username": settings.Username, "version": version, "engines": engines, "error": nil}, nil)
+		var hello struct {
+			Settings daemonSettings `json:"settings"`
+		}
+		err = c.rpc(ctx, "hello", map[string]any{"instance_id": instance, "username": settings.Username, "version": version, "engines": engines, "error": nil}, &hello)
 		if err != nil {
 			fmt.Fprintln(stderr, "daemon registration rejected:", err)
 			ws.Close()
@@ -411,11 +427,19 @@ func runHostDaemon(parent context.Context, version string, stdout, stderr io.Wri
 			}
 			continue
 		}
+		settings = hello.Settings
+		if err := rememberDaemonDeadline(settings); err != nil {
+			ws.Close()
+			return err
+		}
 		fmt.Fprintln(stdout, "host daemon connected")
 		replayDaemonPeerReceipts(ctx, client)
 		// An accepted launch found after process restart is ambiguous, never replayed.
 		files, _ := filepath.Glob(filepath.Join(dir, "*.json"))
 		for _, path := range files {
+			if filepath.Base(path) == "deadline.json" {
+				continue
+			}
 			data, e := os.ReadFile(path)
 			if e != nil {
 				continue
@@ -445,6 +469,9 @@ func runHostDaemon(parent context.Context, version string, stdout, stderr io.Wri
 			case <-c.done:
 				break loop
 			case op := <-incoming:
+				if daemonLocalExpired() || !settings.Enabled {
+					continue
+				}
 				activeMu.Lock()
 				_, running := active[op.Session]
 				activeMu.Unlock()
@@ -489,6 +516,9 @@ func runHostDaemon(parent context.Context, version string, stdout, stderr io.Wri
 				}()
 			case <-ticker.C:
 				replayDaemonPeerReceipts(ctx, client)
+				if daemonLocalExpired() {
+					settings.Enabled = false
+				}
 				if refreshed, _, _, e := daemonConfig(ctx); e == nil {
 					configs = refreshed
 					engines = daemonReadyEngines(configs)
@@ -516,7 +546,11 @@ func runHostDaemon(parent context.Context, version string, stdout, stderr io.Wri
 				count := len(active)
 				activeMu.Unlock()
 				pendingJournals := pendingDaemonReceipts(dir)
-				if !heartbeat.Settings.Enabled && count == 0 && len(pendingJournals) == 0 {
+				settings = heartbeat.Settings
+				if err := rememberDaemonDeadline(settings); err != nil {
+					break loop
+				}
+				if (!settings.Enabled || daemonLocalExpired()) && count == 0 && len(pendingJournals) == 0 {
 					ticker.Stop()
 					ws.Close()
 					return nil
@@ -524,6 +558,9 @@ func runHostDaemon(parent context.Context, version string, stdout, stderr io.Wri
 				// Retry receipts without rerunning the native process.
 				files, _ := filepath.Glob(filepath.Join(dir, "*.json"))
 				for _, path := range files {
+					if filepath.Base(path) == "deadline.json" {
+						continue
+					}
 					data, e := os.ReadFile(path)
 					if e != nil {
 						continue
@@ -660,7 +697,13 @@ func daemonReadyEngines(configs map[string]*config.Config) []string {
 }
 
 func pendingDaemonReceipts(dir string) []string {
-	work, _ := filepath.Glob(filepath.Join(dir, "*.json"))
+	all, _ := filepath.Glob(filepath.Join(dir, "*.json"))
+	work := make([]string, 0, len(all))
+	for _, path := range all {
+		if filepath.Base(path) != "deadline.json" {
+			work = append(work, path)
+		}
+	}
 	peers, _ := filepath.Glob(filepath.Join(dir, "receipts", "*.json"))
 	return append(work, peers...)
 }

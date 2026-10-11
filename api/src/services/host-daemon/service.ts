@@ -5,6 +5,7 @@ import {
   versions,
   hosts,
   hostDaemons,
+  hostSpawns,
   hostDaemonSessions as sessions,
   hostDaemonOperations as operations,
   adminEvents,
@@ -22,7 +23,7 @@ import { encrypt, decrypt } from '../../security/secret-box.js';
 import { activeHostEngines, assertHostEngineEnabled } from '../host-engine-policy.js';
 import { readFleetEngineState } from '../engine-switch.js';
 import { wsPublisher } from '../../ws/publisher.js';
-import { daemonSettingsSchema, daemonHealth, type DaemonRuntime, type DaemonSettings } from './policy.js';
+import { daemonSettingsSchema, daemonHealth, daemonExpired, daemonAccepting, type DaemonRuntime, type DaemonSettings } from './policy.js';
 import { ENGINE_HOST_FIELDS, type Engine } from '../../util/engine.js';
 import { messagingHostEligible } from '../agent-messaging.js';
 
@@ -49,6 +50,10 @@ export class HostDaemonService {
   }
   async settings(id: number) {
     const [row] = await this.db.select().from(hostDaemons).where(eq(hostDaemons.hostId, id));
+    if (row && daemonExpired(row.settings)) {
+      await this.expirePending(id);
+      return { ...row, settings: { ...row.settings, enabled: false } };
+    }
     return (
       row ?? {
         hostId: id,
@@ -101,7 +106,12 @@ export class HostDaemonService {
       health.state = 'red';
       health.reasons.unshift('messaging_or_api_disabled');
     }
+    const [spawn] = await this.db.select({ sourceHostId: hostSpawns.sourceHostId, operationId: hostSpawns.id })
+      .from(hostSpawns).where(eq(hostSpawns.targetHostId, id)).limit(1);
     return {
+      spawn: spawn ?? null,
+      daemon_mode: !row.settings.lifetime_minutes ? 'permanent' : 'timed',
+      deadline_expired: daemonExpired(row.settings),
       host_id: id,
       fqdn: host.fqdn,
       ...row.settings,
@@ -196,7 +206,11 @@ export class HostDaemonService {
     await this.db.transaction(async (tx) => {
       await tx.select().from(hosts).where(eq(hosts.id, id)).for('update');
       const [old] = await tx.select().from(hostDaemons).where(eq(hostDaemons.hostId, id)).for('update');
-      const settings = resolve(old?.settings ?? daemonSettingsSchema.parse({}));
+      const requested = resolve(old?.settings ?? daemonSettingsSchema.parse({}));
+      const settings = { ...requested,
+        lifetime_minutes: requested.lifetime_minutes ?? old?.settings.lifetime_minutes,
+        expires_at: old?.settings.expires_at ?? requested.expires_at,
+      };
       const active = await tx
         .select()
         .from(sessions)
@@ -245,7 +259,7 @@ export class HostDaemonService {
       !flags.some((f) => f.name === 'agent_messaging_enabled' && f.version === '1')
     )
       throw new ForbiddenError('Agent messaging or API disabled');
-    if ((!config.settings.enabled && !drain) || host.status !== 'active')
+    if ((!daemonAccepting(config.settings) && !drain) || host.status !== 'active')
       throw new ForbiddenError('Host daemon is not available', 'daemon_disabled');
     if (!drain && !daemonAccess(host).allowed)
       throw new ForbiddenError('Insecure host window is closed', 'daemon_insecure_window_closed');
@@ -264,15 +278,18 @@ export class HostDaemonService {
         Date.now() - Date.parse(config.runtime.heartbeat_at) < 90_000
       )
         throw new ConflictError('Another daemon instance is connected');
+      if (config.settings.lifetime_minutes && !config.settings.expires_at) {
+        config.settings = { ...config.settings, expires_at: new Date(Date.now() + config.settings.lifetime_minutes * 60000).toISOString() };
+      }
       const runtime: DaemonRuntime = {
         ...input,
         generation: randomUUID(),
         heartbeat_at: now(),
         connected: true,
       };
-      await tx.update(hostDaemons).set({ runtime, updatedAt: now() }).where(eq(hostDaemons.hostId, id));
+      await tx.update(hostDaemons).set({ runtime, settings: config.settings, updatedAt: now() }).where(eq(hostDaemons.hostId, id));
       this.changed(id);
-      return { generation: runtime.generation, settings: config.settings };
+      return { generation: runtime.generation, settings: { ...config.settings, enabled: daemonAccepting(config.settings) } };
     });
   }
   async heartbeat(id: number, generation: string, engines: string[], error: string | null, activeSessions: string[] = []) {
@@ -334,7 +351,7 @@ export class HostDaemonService {
         .from(hostDaemons)
         .where(eq(hostDaemons.hostId, input.host_id))
         .for('update');
-      if (!locked?.settings.enabled) throw new ForbiddenError('Host daemon disabled');
+      if (!locked || !daemonAccepting(locked.settings)) throw new ForbiddenError('Host daemon disabled');
       const [existing] = await tx.select().from(operations).where(eq(operations.clientKey, clientKey));
       if (existing) {
         if (existing.requestHash !== requestHash)
@@ -417,7 +434,7 @@ export class HostDaemonService {
         .from(hostDaemons)
         .where(eq(hostDaemons.hostId, row.hostId))
         .for('update');
-      if (!config?.settings.enabled) throw new ForbiddenError('Host daemon disabled');
+      if (!config || !daemonAccepting(config.settings)) throw new ForbiddenError('Host daemon disabled');
       const [locked] = await tx.select().from(sessions).where(eq(sessions.id, id)).for('update');
       const [prior] = await tx.select().from(operations).where(eq(operations.clientKey, key));
       if (prior) {
@@ -525,7 +542,7 @@ export class HostDaemonService {
     return this.db.transaction(async (tx) => {
       const host = await this.assertWorkAccess(tx, id);
       const [current] = await tx.select().from(hostDaemons).where(eq(hostDaemons.hostId, id)).for('update');
-      if (!current?.settings.enabled || current.runtime?.generation !== generation)
+      if ((!current || !daemonAccepting(current.settings)) || current.runtime?.generation !== generation)
         throw new ConflictError('Daemon generation changed');
       const work = await tx.select().from(sessions).where(eq(sessions.hostId, id));
       const [op] = await tx
@@ -595,7 +612,7 @@ export class HostDaemonService {
         .select()
         .from(sessions)
         .where(and(eq(sessions.hostId, hostId), inArray(sessions.status, ['running', 'stopping'])));
-      if (!config?.settings.enabled || running.length >= config.settings.max_parallel)
+      if ((!config || !daemonAccepting(config.settings)) || running.length >= config.settings.max_parallel)
         throw new ConflictError('No work slot available');
       await tx.update(operations).set({ status: 'accepted', updatedAt: now() }).where(eq(operations.id, id));
       await tx
@@ -808,7 +825,7 @@ export class HostDaemonService {
             .limit(1)
         : [];
       const status =
-        session?.status === 'stopping' || result.status === 'stopped' || !config?.settings.enabled
+        session?.status === 'stopping' || result.status === 'stopped' || (!config || !daemonAccepting(config.settings))
           ? 'closed'
           : result.status === 'completed'
             ? prompts.length
@@ -838,7 +855,7 @@ export class HostDaemonService {
         .update(sessions)
         .set({
           status:
-            session.status === 'stopping' || !config?.settings.enabled
+            session.status === 'stopping' || (!config || !daemonAccepting(config.settings))
               ? 'closed'
               : message.status === 'ambiguous'
                 ? 'unknown'
@@ -850,6 +867,16 @@ export class HostDaemonService {
     });
     this.changed(hostId);
     return { stored: true };
+  }
+  private async expirePending(hostId: number) {
+    await this.db.transaction(async tx => {
+      const [locked] = await tx.select().from(hostDaemons).where(eq(hostDaemons.hostId, hostId)).for('update');
+      if (!locked || !daemonExpired(locked.settings)) return;
+      await tx.update(operations).set({ status: 'canceled', updatedAt: now() })
+        .where(and(eq(operations.hostId, hostId), inArray(operations.status, ['queued', 'offered'])));
+      await tx.update(sessions).set({ status: 'closed', lastActivityAt: now() })
+        .where(and(eq(sessions.hostId, hostId), inArray(sessions.status, ['queued', 'idle', 'waiting'])));
+    });
   }
   async sweep(hostId: number) {
     const config = await this.settings(hostId);
@@ -942,7 +969,7 @@ export class HostDaemonService {
       if (pending.length) continue;
       const minutes =
         session.status === 'waiting' ? config.settings.question_minutes : config.settings.idle_minutes;
-      if (!config.settings.enabled || Date.now() - Date.parse(session.lastActivityAt) >= minutes * 60_000)
+      if (!daemonAccepting(config.settings) || Date.now() - Date.parse(session.lastActivityAt) >= minutes * 60_000)
         await this.stop(session.id, undefined, session, 'timeout');
     }
   }

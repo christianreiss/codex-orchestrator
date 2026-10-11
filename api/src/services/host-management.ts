@@ -249,11 +249,15 @@ export class HostManagementService {
 
   async register(
     req: RegisterRequest,
+    options: { createOnly?: boolean } = {},
   ): Promise<{ host: Host; apiKeyPlain: string; installer: InstallerInfo }> {
     const fqdn = (req.fqdn ?? '').trim();
     if (!fqdn) throw new ValidationError('fqdn is required', { param: 'fqdn' });
 
     const existing = await this.findByFqdn(fqdn);
+    if (existing && options.createOnly) {
+      throw new ConflictError(`Host "${fqdn}" is already registered`, 'host_fqdn_conflict');
+    }
 
     // When re-registering/rotating an already-known host, an omitted
     // secure/engines field means "keep what's there", not "reset to the

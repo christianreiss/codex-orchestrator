@@ -1804,3 +1804,23 @@ CREATE TABLE `session_housekeeping_reservations` (
  UNIQUE KEY `uq_housekeeping_host_engine` (`host_id`, `engine`),
  CONSTRAINT `fk_housekeeping_host` FOREIGN KEY (`host_id`) REFERENCES `hosts`(`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE `host_spawns` (
+	`id` char(36) NOT NULL,
+	`source_host_id` bigint unsigned NOT NULL,
+	`target_host_id` bigint unsigned NOT NULL,
+	`client_message_id` char(36) NOT NULL,
+	`request_hash` char(64) NOT NULL,
+	`request` json NOT NULL,
+	`installer_enc` longtext NOT NULL,
+	`installer_revision` int NOT NULL DEFAULT 0,
+	`renewal_receipts` json NOT NULL,
+	`renewal_client_message_id` char(36),
+	`setup_completed_at` varchar(100),
+	`created_at` varchar(100) NOT NULL,
+	`updated_at` varchar(100) NOT NULL,
+	CONSTRAINT `host_spawns_id` PRIMARY KEY(`id`),
+	CONSTRAINT `uq_host_spawn_client` UNIQUE(`source_host_id`,`client_message_id`),
+	CONSTRAINT `uq_host_spawn_target` UNIQUE(`target_host_id`)
+);
+ALTER TABLE `host_spawns` ADD CONSTRAINT `host_spawns_target_host_id_hosts_id_fk` FOREIGN KEY (`target_host_id`) REFERENCES `hosts`(`id`) ON DELETE cascade ON UPDATE no action;
