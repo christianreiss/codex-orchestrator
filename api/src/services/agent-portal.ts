@@ -171,7 +171,7 @@ export interface RegisterAgentInput {
   username: string;
   cwd: string;
   upstreamSessionId?: string | null;
-  invocationKind: 'interactive' | 'execute';
+  invocationKind: 'interactive' | 'execute' | 'peer_delivery';
   resumed?: boolean;
   sessionId?: string;
   bridgeToken?: string;

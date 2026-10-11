@@ -123,7 +123,7 @@ export async function registerAgentPortalAdminHostRoutes(
         username: body.username,
         cwd: body.cwd,
         upstreamSessionId: body.upstream_session_id,
-        invocationKind: body.invocation_kind === 'peer_delivery' ? 'execute' : body.invocation_kind,
+        invocationKind: body.invocation_kind,
         resumed: body.resumed,
         sessionId,
         bridgeToken,

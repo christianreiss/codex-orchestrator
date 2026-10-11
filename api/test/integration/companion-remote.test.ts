@@ -19,6 +19,7 @@ import {
 import { CompanionPush } from '../../src/services/companion/push.js';
 import { encrypt } from '../../src/security/secret-box.js';
 import { CompanionDevices } from '../../src/services/companion/devices.js';
+import { registerAgentPortalAdminHostRoutes } from '../../src/routes/agent-portal/admin-host.js';
 import { registerCompanionRoutes } from '../../src/routes/companion/index.js';
 import { HostDaemonService } from '../../src/services/host-daemon/service.js';
 import { daemonSettingsSchema } from '../../src/services/host-daemon/policy.js';
@@ -101,6 +102,7 @@ describe.skipIf(!handle)('companion remote conversations with MySQL', () => {
     app.decorate('requireAdmin', async () => {});
     await app.register(envelopePlugin);
     await registerCompanionRoutes(app, ctx);
+    await registerAgentPortalAdminHostRoutes(app, ctx);
     await app.ready();
   });
   afterAll(async () => {
@@ -241,16 +243,20 @@ describe.skipIf(!handle)('companion remote conversations with MySQL', () => {
     expect(op.upstream_session_id).toBe('native-test');
     await daemon.accept(hostId, op.operation_id, op.claim_id);
     expect((await send()).json()).toEqual(first.json());
-    const reg = await portal.registerAgent(await daemon.host(hostId), {
-      engine: 'codex',
-      username: 'root',
-      cwd: '/tmp',
-      invocationKind: 'execute',
-      upstreamSessionId: 'native-test',
-      resumed: true,
-    });
-    if (!reg.enabled) throw new Error('Portal disabled');
-    await daemon.bind(hostId, op.operation_id, op.claim_id, reg.session_id, address);
+    const host = await daemon.host(hostId);
+    const registration = { engine: 'codex', username: 'root', cwd: '/tmp',
+      invocation_kind: 'peer_delivery', upstream_session_id: 'native-test', resumed: true,
+      session_id: randomUUID(), bridge_token: randomBytes(32).toString('base64url'),
+      daemon_operation_id: op.operation_id, daemon_claim_id: op.claim_id,
+      agent_address: `agent:${address}`, binding_generation: op.binding_generation, continuity: 'native' };
+    const register = () => app.inject({ method: 'POST', url: '/host/agent-sessions',
+      headers: { 'x-api-key': host.apiKey }, payload: registration });
+    const response = await register();
+    expect(response.statusCode, response.body).toBe(200);
+    const reg = response.json();
+    expect(reg.capabilities).toEqual({ portal: true, agent_messaging: true });
+    expect((await register()).statusCode).toBe(200);
+    expect((await daemon.session(logical)).sessionId).toBe(reg.session_id);
     await portal.addAgentEvent(
       reg.session_id,
       reg.bridge_token,

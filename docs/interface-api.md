@@ -1085,8 +1085,10 @@ acknowledgement transactions. The matrix is complete: all nine source/target
 pairs across Codex, Claude, and Grok use the same contract.
 
 An agent receives a stable canonical address (`agent:<uuid>`) from the shared
-`POST /host/agent-sessions` lifecycle registration. The address is rebound on a
-an exact native-transcript resume. A fresh conversation always gets a new
+`POST /host/agent-sessions` lifecycle registration. Portal and Messaging keep the
+same `invocation_kind` (`interactive`, `execute`, or `peer_delivery`) in their
+shared session row, including daemon resumes and registration retries. The address
+is rebound on an exact native-transcript resume. A fresh conversation always gets a new
 address, even in the same host/user/engine/cwd. Picker/continue launches recover
 the old address only after native identity is reported; `/clear` or another native
 identity change switches mailboxes without carrying queued mail, subscriptions or

@@ -4,6 +4,10 @@
 
 Small Node 22 + Fastify + Drizzle + MySQL service that keeps canonical Codex, Claude, and Grok subscription credentials for every host in your fleet. Hosts talk to `/auth` (retrieve/store) with per-host API keys baked into their `cdx`/`clx`/`cgx` wrappers. The same API also ships Skills, shared project coordination, fleet memories and secrets, agent-to-agent messaging, a TTL'd file transfer pool, token-usage telemetry, and ChatGPT/Claude usage snapshots.
 
+Daemon continuations register one shared Portal/Messaging session with the original
+`peer_delivery` invocation kind; the resumed native transcript and its chat history
+remain bound to the same logical Android conversation.
+
 ## Primary use cases
 
 The Git Director page also holds fleet-wide **Commit messages** preferences for Codex, Claude and Grok: short (subject only) or long (subject, change/reason and relevant verification), plus optional AI attribution. Defaults are short and attribution off. These rules are always included in managed AGENTS.md / CLAUDE.md output even with Director or Skills disabled; hosts adopt them on their next sync/launch. Explicit operator instructions take precedence, and Git identities and commit/push authority are unchanged.

@@ -1,5 +1,7 @@
 # 2026-10-11
 
+- Portal and Messaging preserve the same `peer_delivery` invocation kind during daemon resumes, preventing registration conflicts before native continuation.
+
 - Android 0.4.10 adds Chats/Hosts navigation, searchable daemon-ready hosts and contact-only or task-based remote starts. Daemon launches remain one Portal conversation across native resumptions, with real agent replies, durable retry identity, inherited device follows and first-reply push. Companion routes enforce current device permissions, engine readiness and available work slots.
 - Remote-conversation migration preserves the existing ID collations independently for older Portal and newer daemon/device tables, including upgrades with mixed collations.
 - Daemon completion persists the native transcript proved by headless output so the next Android instruction resumes it; sessions lacking transcript proof remain unavailable for continuation.
