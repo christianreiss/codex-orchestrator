@@ -962,6 +962,7 @@ export interface HostInstallerPayload {
 
 export interface HostRegisterPayload {
   fqdn: string;
+  daemon_enabled?: boolean;
   secure?: boolean;
   vip?: boolean;
   temporary?: boolean;

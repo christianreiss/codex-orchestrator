@@ -70,6 +70,7 @@
       "5": () => form?.toggleEngine("codex" satisfies HostFormEngine),
       "6": () => form?.toggleEngine("claude" satisfies HostFormEngine),
       "7": () => form?.toggleEngine("grok" satisfies HostFormEngine),
+      "8": () => form?.toggleOption("daemon"),
     };
 
     const action = actions[event.key];

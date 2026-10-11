@@ -5,6 +5,8 @@ import { envelopePlugin } from '../../../src/http/plugins/envelope.js';
 import { requestIdPlugin } from '../../../src/http/plugins/request-id.js';
 import { registerAdminHostsRoutes } from '../../../src/routes/admin/hosts/index.js';
 import { UnauthorizedError } from '../../../src/http/errors.js';
+import type { HostDaemonService } from '../../../src/services/host-daemon/service.js';
+import { daemonSettingsSchema } from '../../../src/services/host-daemon/policy.js';
 import type { HostManagementService } from '../../../src/services/host-management.js';
 import type { InsecureWindowAdminService } from '../../../src/services/insecure-window-admin.js';
 import type { Host } from '../../../src/db/schema.js';
@@ -271,6 +273,7 @@ function makeMocks() {
 }
 
 interface BuildOptions {
+  daemonService?: Pick<HostDaemonService, 'configureEnabled'>;
   authenticated?: boolean;
   hostService?: HostManagementService;
   insecure?: InsecureWindowAdminService;
@@ -297,7 +300,12 @@ async function build(options: BuildOptions): Promise<{ app: FastifyInstance; cal
   });
   // We need a fake env on the ctx for register
   const ctx: RouteContext = {
-    db: {} as never,
+    db: {
+      insert: () => ({ values: async (values: unknown) => {
+        mocks.calls.push({ method: 'audit', args: [values] });
+        return [{ insertId: 1 }];
+      } }),
+    } as never,
     env: { DEFAULT_HOST_ENGINES: 'codex' } as never,
     keyring: {} as never,
   };
@@ -307,7 +315,13 @@ async function build(options: BuildOptions): Promise<{ app: FastifyInstance; cal
     recent_digests: [],
     auth: null,
   });
-  await registerAdminHostsRoutes(app, ctx, { hostService, insecure, authView });
+  const daemonService = options.daemonService ?? {
+    configureEnabled: async (id: number, enabled: boolean) => {
+      mocks.calls.push({ method: 'configureEnabled', args: [id, enabled] });
+      return { ...daemonSettingsSchema.parse({ enabled }), host_id: id } as Awaited<ReturnType<HostDaemonService['configureEnabled']>>;
+    },
+  };
+  await registerAdminHostsRoutes(app, ctx, { hostService, insecure, authView, daemonService });
   return { app, calls: mocks.calls };
 }
 
@@ -354,6 +368,48 @@ describe('admin hosts routes', () => {
       });
       expect(body.installer.token).toBe('tok-deadbeef');
       expect(calls.find((c) => c.method === 'register')).toBeTruthy();
+      await app.close();
+    });
+
+    it.each([true, false])('stores daemon_enabled=%s before returning the installer and audits it', async (enabled) => {
+      const { app, calls } = await build({ authenticated: true });
+      const response = await app.inject({
+        method: 'POST', url: '/admin/hosts/register',
+        payload: { fqdn: 'vm.example.com', daemon_enabled: enabled },
+      });
+      expect(response.statusCode).toBe(200);
+      expect(calls.map((call) => call.method)).toEqual(['register', 'configureEnabled', 'audit']);
+      expect(calls[1]!.args).toEqual([42, enabled]);
+      expect(calls[2]!.args[0]).toMatchObject({
+        type: 'host.daemon.configured', hostId: 42,
+        payload: { settings: { enabled, username: 'root' }, admin_user_id: 1 },
+      });
+      expect(response.json().installer.token).toBe('tok-deadbeef');
+      await app.close();
+    });
+
+    it('leaves daemon configuration unchanged when the field is omitted', async () => {
+      const { app, calls } = await build({ authenticated: true });
+      expect((await app.inject({ method: 'POST', url: '/admin/hosts/register', payload: { fqdn: 'vm.example.com' } })).statusCode).toBe(200);
+      expect(calls.map((call) => call.method)).toEqual(['register']);
+      await app.close();
+    });
+
+    it.each(['true', 1, null])('rejects non-boolean daemon_enabled=%s before registration', async (enabled) => {
+      const { app, calls } = await build({ authenticated: true });
+      const response = await app.inject({ method: 'POST', url: '/admin/hosts/register', payload: { fqdn: 'vm.example.com', daemon_enabled: enabled } });
+      expect(response.statusCode).toBe(422);
+      expect(calls).toEqual([]);
+      await app.close();
+    });
+
+    it('does not return registration success or the installer when daemon storage fails', async () => {
+      const { app } = await build({ authenticated: true, daemonService: {
+        configureEnabled: async () => { throw new Error('daemon storage failed'); },
+      } });
+      const response = await app.inject({ method: 'POST', url: '/admin/hosts/register', payload: { fqdn: 'vm.example.com', daemon_enabled: true } });
+      expect(response.statusCode).toBe(500);
+      expect(response.json()).not.toHaveProperty('installer');
       await app.close();
     });
 

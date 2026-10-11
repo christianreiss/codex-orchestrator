@@ -184,10 +184,17 @@ export class HostDaemonService {
       .onDuplicateKeyUpdate({ set: { clientEventId: `daemon:${operationId}` } });
   }
   async configure(id: number, settings: DaemonSettings) {
+    return this.configureSettings(id, () => settings);
+  }
+  async configureEnabled(id: number, enabled: boolean) {
+    return this.configureSettings(id, (settings) => ({ ...settings, enabled }));
+  }
+  private async configureSettings(id: number, resolve: (settings: DaemonSettings) => DaemonSettings) {
     await this.host(id);
     await this.db.transaction(async (tx) => {
       await tx.select().from(hosts).where(eq(hosts.id, id)).for('update');
       const [old] = await tx.select().from(hostDaemons).where(eq(hostDaemons.hostId, id)).for('update');
+      const settings = resolve(old?.settings ?? daemonSettingsSchema.parse({}));
       const active = await tx
         .select()
         .from(sessions)

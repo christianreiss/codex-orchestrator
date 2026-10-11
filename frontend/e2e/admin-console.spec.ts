@@ -549,6 +549,8 @@ function fixture(pathname: string): Record<string, unknown> {
       };
     case "/admin/skills":
       return { skills: [{ slug: "fleet-ops", display_name: "Fleet operations", description: "Operator runbook", status: "ok" }] };
+    case "/admin/host-daemons":
+      return { hosts: [] };
     case "/admin/hosts":
       return {
         hosts: [
@@ -2707,4 +2709,59 @@ test("appearance menu restores the previous theme when saving fails", async ({ p
   await expect(page.getByText("Could not save appearance", { exact: true })).toBeVisible();
   await expect(page.locator("html")).toHaveClass(/dark/);
   await expect.poll(() => page.evaluate(() => localStorage.getItem("codex.theme"))).toBe("dark");
+});
+
+
+test("new host persistent daemon defaults off, supports key 8 and resets", async ({ page }) => {
+  const registrations: Record<string, unknown>[] = [];
+  const detail = fixture("/admin/hosts/1/detail") as { host: Record<string, unknown> };
+  await installFixtures(page, (path, body) => {
+    if (path === "/admin/hosts/register") {
+      registrations.push(body as Record<string, unknown>);
+      return { host: detail.host, installer: { command: "printf 'fake installer'", expires_at: new Date(Date.now() + 3_600_000).toISOString() } };
+    }
+  });
+  await page.goto("/admin/hosts?dialog=new-host");
+  const daemon = page.getByRole("checkbox", { name: /Persistent daemon/ });
+  await expect(daemon).not.toBeChecked();
+  await page.getByLabel("Hostname (FQDN)").fill("daemon.example.test");
+  await daemon.focus();
+  await page.keyboard.press("8");
+  await expect(daemon).toBeChecked();
+  await expect(page.getByText("Requires root and enabled Agent Messaging.", { exact: false })).toBeVisible();
+  await page.getByRole("button", { name: "Register host", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Host registered", exact: true })).toBeVisible();
+  expect(registrations[0]).toMatchObject({ daemon_enabled: true });
+  await expect(page.getByText("Persistent daemon", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Register another", exact: true }).click();
+  await expect(daemon).not.toBeChecked();
+  await daemon.click();
+  await expect(daemon).toBeChecked();
+  await daemon.click();
+  await expect(daemon).not.toBeChecked();
+  await page.getByLabel("Hostname (FQDN)").fill("regular.example.test");
+  await page.getByRole("button", { name: "Register host", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Host registered", exact: true })).toBeVisible();
+  expect(registrations[1]).toMatchObject({ daemon_enabled: false });
+  await expect(page.getByText("Persistent daemon", { exact: true })).toHaveCount(0);
+});
+
+
+test("setup host registration offers the same optional persistent daemon", async ({ page }) => {
+  let registered: unknown;
+  const detail = fixture("/admin/hosts/1/detail") as { host: Record<string, unknown> };
+  await installFixtures(page, (path, body) => {
+    if (path === "/admin/hosts/register") {
+      registered = body;
+      return { host: detail.host, installer: { command: "printf 'fake installer'", expires_at: new Date(Date.now() + 3_600_000).toISOString() } };
+    }
+  });
+  await page.goto("/admin/setup?step=host");
+  const daemon = page.getByRole("checkbox", { name: /Persistent daemon/ });
+  await expect(daemon).not.toBeChecked();
+  await daemon.click();
+  await page.getByLabel("Hostname (FQDN)").fill("setup-daemon.example.test");
+  await page.getByRole("button", { name: "Register host", exact: true }).click();
+  await expect.poll(() => registered).toMatchObject({ daemon_enabled: true, fqdn: "setup-daemon.example.test" });
+  await expect(page.getByText("printf 'fake installer'", { exact: false }).first()).toBeVisible();
 });

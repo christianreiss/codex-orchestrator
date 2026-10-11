@@ -71,6 +71,19 @@ describe.skipIf(!handle)('durable host daemon lifecycle', () => {
     prompt: 'Return hello',
     client_message_id: randomUUID(),
   });
+  it('upserts enablement while preserving existing daemon settings', async () => {
+    const custom = daemonSettingsSchema.parse({ enabled: true, username: 'worker', default_cwd: '/srv/work', max_parallel: 3, idle_minutes: 25, question_minutes: 120 });
+    await service.configure(id, custom);
+    const enabledAt = (await service.settings(id)).enabledAt;
+    await service.configureEnabled(id, true);
+    expect((await service.settings(id)).enabledAt).toBe(enabledAt);
+    await service.configureEnabled(id, false);
+    expect((await service.settings(id)).settings).toEqual({ ...custom, enabled: false });
+    expect((await service.settings(id)).enabledAt).toBeNull();
+    await service.configureEnabled(id, true);
+    expect((await service.settings(id)).settings).toEqual(custom);
+    expect((await service.settings(id)).enabledAt).not.toBeNull();
+  });
   it('keeps one operation for concurrent retries, rejecting changed input', async () => {
     const request = input();
     const [a, b] = await Promise.all([

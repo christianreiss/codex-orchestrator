@@ -1,5 +1,7 @@
 # 2026-10-11
 
+- New Host and setup registration offer an optional persistent daemon (default off, New Host shortcut 8), saving enablement before returning the installer while preserving existing daemon settings.
+
 - Portal and Messaging preserve the same `peer_delivery` invocation kind during daemon resumes, preventing registration conflicts before native continuation.
 
 - Android 0.4.10 adds Chats/Hosts navigation, searchable daemon-ready hosts and contact-only or task-based remote starts. Daemon launches remain one Portal conversation across native resumptions, with real agent replies, durable retry identity, inherited device follows and first-reply push. Companion routes enforce current device permissions, engine readiness and available work slots.
