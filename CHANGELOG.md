@@ -1,5 +1,6 @@
 # 2026-10-11
 
+- Android 0.4.12 prevents frequent live metadata updates from discarding every in-flight refresh, which left chats empty, replies unseen, sending unavailable and host cards stale. Completed snapshots are displayed before queued updates; permission changes, reconnects and conversation switches still reject superseded responses.
 - Wrapper 0.9.55 fixes optional Linux host daemon startup: systemd now resolves the service user's home using `WorkingDirectory=~`, avoiding rejection of a quoted absolute path. Verified against Debian 13 systemd during the real System Spawn SSH test.
 - System Spawn installer completion now uses the wrapper's IPv4-first connection policy, with a dual-stack fallback, avoiding rejected completion callbacks on secure hosts bound over IPv4. The callback also honours the installer's TLS policy.
 - cxx 0.9.54 adds planned Linux reboot/resume: one host-wide boot hook, durable consume-before-start loop protection, exact native transcript resume for all three engines, transfer of accepted work, and linked reboot states in Active Clients. Managed agent guidance documents authorization, recovery conflicts, checkpoints and manual failure handling.

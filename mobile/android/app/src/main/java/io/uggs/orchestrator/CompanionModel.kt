@@ -193,7 +193,10 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
         if (!foreground || connection == null || !socketReady) return
         val known = scopes.intersect(setOf("me", "agents", "approvals", "hosts"))
         if (known.isEmpty()) return
-        revision++; pendingScopes.addAll(known)
+        // Metadata changes queue another read; they must not starve the read
+        // already in flight. Permission changes still fence its result.
+        if ("me" in known) revision++
+        pendingScopes.addAll(known)
         if (refreshJob?.isActive == true) return
         refreshJob = viewModelScope.launch {
             while (pendingScopes.isNotEmpty() && foreground && connection != null) {
@@ -290,6 +293,7 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
     fun refreshNow() { if (socketReady) invalidate() else startLive() }
     fun openSession(id: String) {
         if (!canReadSession(id)) { notice = "Conversation is no longer available"; return }
+        revision++
         selected = id; events = emptyList(); eventsLoaded = false; draft = ""; pendingSend = null
         invalidate(setOf("agents"))
         viewModelScope.launch {
@@ -297,6 +301,7 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
         }
     }
     fun closeSession() {
+        revision++
         selected = null; events = emptyList(); eventsLoaded = false; VisibleConversation.session = null
         invalidate(setOf("agents"))
         if (foreground && connection != null) viewModelScope.launch { runCatching { updatePresence() } }

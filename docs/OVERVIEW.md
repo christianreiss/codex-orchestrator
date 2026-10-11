@@ -703,6 +703,11 @@ Fleet → Accounts manages any number of ChatGPT and Claude subscriptions indepe
 
 ## Android companion
 
+Android 0.4.12 displays completed refreshes during sustained live metadata
+traffic, fixing empty chats, unseen replies and stale host readiness. Queued
+changes trigger another read; permission and conversation changes still discard
+superseded responses. The existing server API supports this APK-only update.
+
 Android 0.4.11 hides closed daemon chats and clears unread counters and reply
 notifications for ended conversations, including delayed push replays. Waiting
 daemon conversations remain available. This update requires only the APK.

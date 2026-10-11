@@ -86,6 +86,7 @@ class CompanionUiTest {
     private val meRequested = AtomicBoolean(false)
     private val holdTranscript = AtomicBoolean(false)
     private val transcriptRequested = AtomicBoolean(false)
+    private val invalidateDuringRead = AtomicBoolean(false)
     private val agentsRequested = AtomicLong(0)
     private val answered = AtomicReference<String?>(null)
     private var expiresAt = Instant.now().plusSeconds(120)
@@ -146,7 +147,13 @@ class CompanionUiTest {
                         if (body.has("fcm_token")) registeredToken.set(body.getString("fcm_token"))
                         "{}"
                     }
-                    path == "/hosts" -> """{"hosts":[{"host_id":7,"fqdn":"jadon.eulie.de","startable":true,"free_slots":8,"default_cwd":"/tmp","engines":["codex","claude"],"health":{"reasons":[]}}, {"host_id":8,"fqdn":"offline.example","startable":false,"free_slots":8,"engines":["grok"],"health":{"reasons":["heartbeat_expired"]}}]}"""
+                    path == "/hosts" -> {
+                        if (invalidateDuringRead.get()) {
+                            live.get()?.send("""{"type":"changed","scopes":["agents","hosts"]}""")
+                            Thread.sleep(150)
+                        }
+                        """{"hosts":[{"host_id":7,"fqdn":"jadon.eulie.de","startable":true,"free_slots":8,"default_cwd":"/tmp","engines":["codex","claude"],"health":{"reasons":[]}}, {"host_id":8,"fqdn":"offline.example","startable":false,"free_slots":8,"engines":["grok"],"health":{"reasons":["heartbeat_expired"]}}]}"""
+                    }
                     path == "/daemon-sessions" -> {
                         spawned.set(JSONObject(request.body.readUtf8()))
                         extraAgents.clear()
@@ -209,6 +216,7 @@ class CompanionUiTest {
         scenario = ActivityScenario.launch(MainActivity::class.java)
     }
     @After fun cleanup() {
+        invalidateDuringRead.set(false)
         holdMe.set(false)
         holdTranscript.set(false)
         scenario.close()
@@ -744,6 +752,29 @@ class CompanionUiTest {
         changed("agents")
         compose.waitUntil(3000) { cursorsRequested.contains(2) }
         compose.onAllNodesWithText(reply.get()).assertCountEquals(1)
+    }
+    @Test fun chatLoadsAndSendsWhileEveryReadReceivesAnotherInvalidation() {
+        compose.waitUntil(15000) { compose.onAllNodesWithText("project").fetchSemanticsNodes().isNotEmpty() }
+        invalidateDuringRead.set(true)
+        compose.onNodeWithText("project").performClick()
+        compose.waitUntil(5000) { compose.onAllNodesWithText(reply.get()).fetchSemanticsNodes().isNotEmpty() }
+        compose.onNode(hasSetTextAction()).performTextInput("Message during live traffic")
+        compose.onNodeWithContentDescription("Send").assertIsEnabled().performClick()
+        compose.waitUntil(5000) { sent.get() == "Message during live traffic" }
+        reply.set("Reply during live traffic"); cursor.set(2)
+        changed("agents")
+        compose.waitUntil(5000) { compose.onAllNodesWithText(reply.get()).fetchSemanticsNodes().isNotEmpty() }
+    }
+    @Test fun coldStartPublishesHostsWhileMetadataKeepsChanging() {
+        compose.waitUntil(15000) { compose.onAllNodesWithText("project").fetchSemanticsNodes().isNotEmpty() }
+        scenario.close()
+        invalidateDuringRead.set(true)
+        scenario = ActivityScenario.launch(MainActivity::class.java)
+        compose.waitUntil(5000) { compose.onAllNodesWithTag("tab-hosts").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("tab-hosts").performClick()
+        compose.waitUntil(5000) { compose.onAllNodesWithTag("spawn:7").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("spawn:7").assertIsEnabled()
+        compose.onNodeWithText("Connecting…").assertDoesNotExist()
     }
     @Test fun reconnectAndResumeCatchUpWhilePreservingDraft() {
         compose.waitUntil(15000) { compose.onAllNodesWithText("project").fetchSemanticsNodes().isNotEmpty() }

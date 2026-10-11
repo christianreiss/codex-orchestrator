@@ -90,6 +90,12 @@ under **More**. Desktop retains the full session inventory and administration.
 
 ## Live updates
 
+Version 0.4.12 completes in-flight refreshes even while further agent/host
+metadata invalidations arrive, then reads the queued changes. This prevents busy
+fleets from leaving chat history empty, replies unseen or host readiness stale.
+Permission changes, connection generations and conversation switches still fence
+superseded responses. This APK fix uses the existing server API.
+
 Version 0.4.5 presents the first connection attempt as **Connecting…**, with a
 quiet **Loading your chats…** indicator on an empty home screen. Returning from
 the background uses the same calm state while refreshing. A real failure or lost
@@ -109,8 +115,10 @@ Server changes invalidate immediately; one shared five-second reconciliation
 also catches expired requests and lost agent readiness. Authorized heartbeats
 arrive every 15 seconds. The app stops showing Live after a lost connection or
 30 seconds without a frame, reconnects with a 1–30 second backoff, and reconciles
-before enabling actions again. Refreshes are serialized and stale responses are
-discarded. Backgrounding closes the socket; FCM continues to deliver notifications.
+before enabling actions again. Refreshes are serialized; responses superseded by
+permission, connection or conversation changes are discarded. Metadata changes
+queue a follow-up refresh without discarding the completed snapshot.
+Backgrounding closes the socket; FCM continues to deliver notifications.
 The visible conversation is renewed every 20 seconds for push suppression.
 
 The socket uses the paired device's Bearer header, rejects browser-origin
