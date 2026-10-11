@@ -1,6 +1,6 @@
 # 2026-10-11
 
-- cxx adds configurable local session housekeeping for Codex, Claude and Grok: fleet defaults and host overrides, dry-run/status/pins, 30-day retention and a 5-GiB per-engine/user budget with a 7-day minimum age. Idle maintenance removes transcript bundles and associated history/search indexes, while preserving active, pinned, queued, goal and fleet-resumable sessions. Durable journals and launch fences make interrupted cleanup recoverable.
+- Wrapper 0.9.50 adds configurable local session housekeeping for Codex, Claude and Grok: fleet defaults and host overrides, dry-run/status/pins, 30-day retention and a 5-GiB per-engine/user budget with a 7-day minimum age. Idle maintenance removes transcript bundles and associated history/search indexes, while preserving active, pinned, queued, goal and fleet-resumable sessions. Durable journals and launch fences make interrupted cleanup recoverable.
 
 - Fresh-install Portal/daemon foreign keys use the canonical short migration names, avoiding MySQL identifier-length failures during baseline setup.
 
