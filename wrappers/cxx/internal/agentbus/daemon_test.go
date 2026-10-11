@@ -83,6 +83,53 @@ func TestDaemonNativeAdaptersProduceResumableResults(t *testing.T) {
 	}
 }
 
+func TestDaemonWorkingDirectoryDefaultsToServiceHome(t *testing.T) {
+	original := daemonExecutable
+	t.Cleanup(func() { daemonExecutable = original })
+	home := filepath.Join(t.TempDir(), "service home")
+	if err := os.Mkdir(home, 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", home)
+	for engine, body := range map[string]string{
+		"codex":  "{\"type\":\"thread.started\",\"thread_id\":\"native-home\"}\n{\"type\":\"item.completed\",\"item\":{\"type\":\"agent_message\",\"text\":\"ok\"}}",
+		"claude": "{\"result\":\"ok\",\"session_id\":\"native-home\",\"subtype\":\"success\"}",
+		"grok":   "{\"text\":\"ok\",\"sessionId\":\"native-home\",\"stopReason\":\"end_turn\"}",
+	} {
+		t.Run(engine, func(t *testing.T) {
+			dir := t.TempDir()
+			record := filepath.Join(dir, "cwd")
+			t.Setenv("CXX_DAEMON_CWD_PROBE", record)
+			script := filepath.Join(dir, "native-fixture")
+			if err := os.WriteFile(script, []byte("#!/bin/sh\nprintf '%s\\n' \"$PWD\" > \"$CXX_DAEMON_CWD_PROBE\"\ncat <<'RESULT'\n"+body+"\nRESULT\n"), 0700); err != nil {
+				t.Fatal(err)
+			}
+			daemonExecutable = func() (string, error) { return script, nil }
+			for _, cwd := range []string{"", dir} {
+				result := runDaemonOperation(context.Background(), daemonOperation{ID: newUUID(), Claim: newUUID(), Engine: engine, Cwd: cwd, Prompt: "probe"})
+				if result.Status != "completed" {
+					t.Fatal(result)
+				}
+				actual, err := os.ReadFile(record)
+				if err != nil {
+					t.Fatal(err)
+				}
+				want := cwd
+				if want == "" {
+					want = home
+				}
+				if strings.TrimSpace(string(actual)) != want {
+					t.Fatalf("cwd=%q got=%q want=%q", cwd, actual, want)
+				}
+			}
+		})
+	}
+	t.Setenv("HOME", "")
+	if result := runDaemonOperation(context.Background(), daemonOperation{Engine: "codex"}); result.Status != "failed" || !strings.Contains(result.Reply, "home directory") {
+		t.Fatal(result)
+	}
+}
+
 func TestConfiguredDaemonReconciliation(t *testing.T) {
 	if runtime.GOOS != "linux" {
 		t.Skip("Linux service")

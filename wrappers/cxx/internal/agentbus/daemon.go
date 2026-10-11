@@ -238,7 +238,7 @@ func daemonService(action string, stdout, stderr io.Writer) error {
 			key := map[string]string{"codex": "CDX_CONFIG_PATH", "claude": "CLX_CONFIG_PATH", "grok": "CGX_CONFIG_PATH"}[engine]
 			fmt.Fprintf(&env, "Environment=%s\n", systemdQuote(key+"="+cfg.SourcePath()))
 		}
-		unit := fmt.Sprintf("[Unit]\nDescription=Codex Orchestrator optional host daemon\nAfter=network-online.target\nWants=network-online.target\n[Service]\nType=simple\nUser=%s\nEnvironment=%s\n%sExecStart=%s daemon run\nRestart=on-failure\nRestartSec=5\nUMask=0077\nKillMode=control-group\nTimeoutStopSec=45\n[Install]\nWantedBy=multi-user.target\n", settings.Username, systemdQuote("HOME="+account.HomeDir), env.String(), systemdQuote(installed))
+		unit := fmt.Sprintf("[Unit]\nDescription=Codex Orchestrator optional host daemon\nAfter=network-online.target\nWants=network-online.target\n[Service]\nType=simple\nUser=%s\nWorkingDirectory=%s\nEnvironment=%s\n%sExecStart=%s daemon run\nRestart=on-failure\nRestartSec=5\nUMask=0077\nKillMode=control-group\nTimeoutStopSec=45\n[Install]\nWantedBy=multi-user.target\n", settings.Username, systemdQuote(account.HomeDir), systemdQuote("HOME="+account.HomeDir), env.String(), systemdQuote(installed))
 		unitChanged, err := writeProtectedFileIfChanged("/etc/systemd/system/cxx-daemon.service", []byte(unit))
 		if err != nil {
 			return err
@@ -550,6 +550,13 @@ func runHostDaemon(parent context.Context, version string, stdout, stderr io.Wri
 }
 
 func runDaemonOperation(ctx context.Context, op daemonOperation) daemonResult {
+	if op.Cwd == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return daemonResult{Status: "failed", Reply: "Service user home directory unavailable"}
+		}
+		op.Cwd = home
+	}
 	if !filepath.IsAbs(op.Cwd) {
 		return daemonResult{Status: "failed", Reply: "Working directory must be absolute"}
 	}

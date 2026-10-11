@@ -14,6 +14,7 @@ import {
   agentBusAddresses,
   agentBusMessages,
   agentPrompts,
+  agentSessions,
 } from '../../../src/db/schema.js';
 import type { RouteContext } from '../../../src/routes/index.js';
 import { createDbFake } from '../../helpers/db-fake.js';
@@ -87,6 +88,36 @@ describe('host daemon service decisions', () => {
     await service.configureEnabled(1, true);
     expect((await service.settings(1)).settings).toEqual(daemonSettingsSchema.parse({ enabled: true }));
     expect((await service.view(1)).health.reasons).toContain('installation_pending');
+  });
+  it.each(['codex', 'claude', 'grok'] as const)('preserves cwd precedence and resolves omitted %s cwd on the host', async (engine) => {
+    const settings = row(hostDaemons).settings as Record<string, unknown>;
+    for (const cwd of [undefined, '']) {
+      const start = await service.start({ ...request(), engine, cwd }, 'owner');
+      expect((await service.session(start.session_id)).cwd).toBe('');
+    }
+    settings.default_cwd = '/srv/work';
+    const configured = await service.start({ ...request(), engine, cwd: undefined }, 'owner');
+    expect((await service.session(configured.session_id)).cwd).toBe('/srv/work');
+    const explicit = await service.start({ ...request(), engine, cwd: '/opt/project' }, 'owner');
+    expect((await service.session(explicit.session_id)).cwd).toBe('/opt/project');
+  });
+  it('retains the registered native home for continuation without replacing explicit cwd', async () => {
+    fake.tables.set(agentSessions, [{ id: 'native', hostId: 1, cwd: '/home/worker' }]);
+    for (const cwd of ['', '/opt/project']) {
+      const start = await service.start({ ...request(), cwd }, 'owner');
+      const op = (await service.offer(1, generation))!;
+      await service.accept(1, op.operation_id, op.claim_id);
+      await service.bind(1, op.operation_id, op.claim_id, 'native', 'address');
+      expect((await service.session(start.session_id)).cwd).toBe(cwd || '/home/worker');
+      fake.tables.set(agentBusAddresses, [{ id: 'address', lastUpstreamSessionId: 'transcript', bindingGeneration: 2 }]);
+      await service.complete(1, op.operation_id, op.claim_id, { status: 'completed', reply: 'Hello' });
+      await service.turn(start.session_id, 'Next', randomUUID());
+      expect((await service.offer(1, generation))!.cwd).toBe(cwd || '/home/worker');
+      // Finish this synthetic continuation before testing the next launch.
+      const next = (await service.offer(1, generation))!;
+      await service.accept(1, next.operation_id, next.claim_id);
+      await service.complete(1, next.operation_id, next.claim_id, { status: 'completed', reply: 'Hello again' });
+    }
   });
   it('admits daemon relays only for the configured service user on an enabled host', async () => {
     const messaging = createAgentMessagingService(

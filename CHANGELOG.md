@@ -1,5 +1,7 @@
 # 2026-10-11
 
+- Wrapper 0.9.50 defaults permanent daemon services and remote starts to the service user's home when no working directory is specified. Explicit request paths override configured defaults; native registration retains the resolved home for continuation. WebUI fields describe the empty default.
+
 - Fresh-install Portal/daemon foreign keys use the canonical short migration names, avoiding MySQL identifier-length failures during baseline setup.
 
 - Persistent daemons remain online with closed insecure access windows. WebUI and agents on active secure hosts can open windows; accepted running and retained waiting sessions renew them without resetting session timeouts. Manual Disable fences renewal, while stop/result receipts remain available. Wrapper 0.9.49 reports active processes and exposes `host_insecure_enable` for all three engines.

@@ -27,7 +27,7 @@
    <label class="grid gap-1 text-sm">Host<select class="rounded border bg-background p-2" bind:value={hostId} disabled={!!fixedHost}>{#each available as h}<option value={h.host_id}>{h.fqdn??`Host #${h.host_id}`}</option>{/each}</select></label>
    <label class="grid gap-1 text-sm">Engine<select class="rounded border bg-background p-2" bind:value={engine}><option value="codex">Codex</option><option value="claude">Claude</option><option value="grok">Grok</option></select></label>
    <label class="grid gap-1 text-sm">Titel<input class="rounded border bg-background p-2" bind:value={title} maxlength="160" required/></label>
-   <label class="grid gap-1 text-sm">Arbeitsverzeichnis<input class="rounded border bg-background p-2" bind:value={cwd} placeholder={host?.default_cwd||'/absoluter/pfad'}/></label>
+   <label class="grid gap-1 text-sm">Arbeitsverzeichnis<input class="rounded border bg-background p-2" bind:value={cwd} placeholder={host?.default_cwd||'Home-Verzeichnis des Dienstkontos'}/></label>
    <label class="grid gap-1 text-sm sm:col-span-2">Auftrag<textarea class="rounded border bg-background p-2" bind:value={prompt} required rows="3"></textarea></label>
    <button class="rounded bg-primary px-4 py-2 text-primary-foreground" disabled={!host||host.access?.allowed===false||host.health.state==='red'||$start.isPending}>Session starten</button>
   </form>

@@ -27,7 +27,7 @@
  <fieldset disabled={!$authStore.can("agent_messaging.manage")}><form class="grid gap-3 sm:grid-cols-2" oninput={()=>dirty=true} onsubmit={async(e)=>{e.preventDefault();await $save.mutateAsync(settings);dirty=false}}>
   <label class="flex items-center gap-2 sm:col-span-2"><input type="checkbox" bind:checked={settings.enabled}/> Remote-Starts aktivieren</label>
   <label class="grid gap-1 text-sm">Dienstkonto<input class="rounded border bg-background p-2" bind:value={settings.username} required/></label>
-  <label class="grid gap-1 text-sm">Standardverzeichnis<input class="rounded border bg-background p-2" bind:value={settings.default_cwd} placeholder="/home/chris/Documents"/></label>
+  <label class="grid gap-1 text-sm">Standardverzeichnis<input class="rounded border bg-background p-2" bind:value={settings.default_cwd} placeholder="Leer: Home-Verzeichnis des Dienstkontos"/></label>
   <label class="grid gap-1 text-sm">Parallele Arbeitsslots<input class="rounded border bg-background p-2" type="number" min="1" max="64" bind:value={settings.max_parallel}/></label>
   <label class="grid gap-1 text-sm">Idle-Frist (Minuten)<input class="rounded border bg-background p-2" type="number" min="1" max="1440" bind:value={settings.idle_minutes}/></label>
   <label class="grid gap-1 text-sm">Rückfragefrist (Minuten)<input class="rounded border bg-background p-2" type="number" min="1" max="10080" bind:value={settings.question_minutes}/></label>

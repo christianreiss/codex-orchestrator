@@ -98,13 +98,14 @@ test("daemon indicators are separate, enabled-only, and update live", async ({
 test('closed-window daemon remains online and can be opened from host details', async ({ page }) => {
   const stamp = () => new Date().toISOString();
   const daemon = {
-    host_id: 1, enabled: true, username: 'root', default_cwd: '/tmp',
+    host_id: 1, enabled: true, username: 'root', default_cwd: '',
     max_parallel: 8, idle_minutes: 60, question_minutes: 1440,
     access: {allowed: false, reason: 'insecure_window_closed' as string | null, secure: false, enabled_until: null as string | null},
     health: {state: 'yellow', reasons: ['insecure_window_closed'], heartbeat_at: stamp(), evaluated_at: stamp(), used_slots: 0, max_slots: 8},
     sessions: [],
   };
   let grants = 0;
+  let cwdSeen: string | null = null;
   await page.routeWebSocket('**/insecure-daemon-ws', () => {});
   await page.route('**/admin/**', route => {
     if (!route.request().headers().accept?.includes('application/json')) return route.continue();
@@ -116,6 +117,7 @@ test('closed-window daemon remains online and can be opened from host details', 
     if(path==='/admin/hosts/1/detail') return json({host:{id:1,fqdn:'insecure-daemon.test',secure:false,status:'active',engines:'codex',engines_list:['codex'],updated_at:stamp(),users:[],insecure_window_minutes:10}});
     if(path==='/admin/hosts/1/daemon') return json(daemon);
     if(path==='/admin/host-daemons') return json({hosts:[daemon]});
+    if(path==='/admin/daemon-sessions') {cwdSeen=route.request().postDataJSON().cwd;return json({session_id:'temporary-home-session'});}
     if(path==='/admin/hosts/1/insecure/enable') {
       grants++; daemon.access={allowed:true,reason:null,secure:false,enabled_until:new Date(Date.now()+600_000).toISOString()};
       daemon.health={...daemon.health,state:'green',reasons:[]};return json({host:{id:1}});
@@ -132,4 +134,9 @@ test('closed-window daemon remains online and can be opened from host details', 
   await expect(page.getByText(/^Zugriff bis /)).toBeVisible();
   expect(grants).toBe(1);
   await expect(page.getByText('Daemon · Bereit')).toBeVisible();
+  await expect(page.getByLabel('Arbeitsverzeichnis',{exact:true})).toHaveAttribute('placeholder','Home-Verzeichnis des Dienstkontos');
+  await page.getByLabel('Titel',{exact:true}).fill('Home default');
+  await page.getByLabel('Auftrag',{exact:true}).fill('Use the service home');
+  await page.getByRole('button',{name:'Session starten',exact:true}).click();
+  await expect.poll(()=>cwdSeen).toBe('');
 });

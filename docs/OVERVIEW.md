@@ -909,6 +909,16 @@ The Admin WebUI includes a personal product assistant for Owner/Admin after the 
 
 Automatic MCP instances within one managed launch share an elected local receiver and receipt tracker from cxx 0.9.44. See [shared receiver ownership](interface-cdx.md#shared-receiver-ownership-cxx-0944).
 
+### Daemon working directory
+
+Remote starts use an explicitly supplied `cwd`, then the host daemon's configured
+`default_cwd`. When both are empty or omitted, wrapper 0.9.50 resolves the home
+of the daemon service user on that host. The systemd service also starts in that
+user's home. Explicit paths must remain absolute and exist on the remote host;
+an invalid explicit path fails rather than falling back. Registration retains
+the resolved native working directory for subsequent resumptions. This applies
+to WebUI, companion and agent starts for Codex, Claude and Grok.
+
 ### Persistent daemon on insecure hosts
 
 The daemon stays connected outside an insecure access window and reports

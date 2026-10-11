@@ -710,6 +710,16 @@ replayed, and a lost process-local receipt still requires inspection of retained
 server state. Server `ready` remains transport evidence, not proof of delivery
 or a model reply.
 
+### Daemon working directory
+
+Remote starts use an explicitly supplied `cwd`, then the host daemon's configured
+`default_cwd`. When both are empty or omitted, wrapper 0.9.50 resolves the home
+of the daemon service user on that host. The systemd service also starts in that
+user's home. Explicit paths must remain absolute and exist on the remote host;
+an invalid explicit path fails rather than falling back. Registration retains
+the resolved native working directory for subsequent resumptions. This applies
+to WebUI, companion and agent starts for Codex, Claude and Grok.
+
 ### Persistent daemon on insecure hosts
 
 The daemon stays connected outside an insecure access window and reports

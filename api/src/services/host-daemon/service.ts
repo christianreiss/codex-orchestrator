@@ -323,8 +323,8 @@ export class HostDaemonService {
   ) {
     const config = await this.eligible(input.host_id, input.engine);
     const cwd = input.cwd || config.settings.default_cwd;
-    if (!cwd.startsWith('/') || cwd.includes('\0'))
-      throw new ValidationError('An existing absolute working directory is required');
+    if (cwd && (!cwd.startsWith('/') || cwd.includes('\0')))
+      throw new ValidationError('Working directory must be absolute when specified');
     const clientKey = `${owner}:${input.client_message_id}`,
       requestHash = hash(input);
     return this.db.transaction(async (tx) => {
@@ -611,6 +611,12 @@ export class HostDaemonService {
       throw new ForbiddenError('Invalid daemon launch binding');
     await this.db.transaction(async (tx) => {
       await tx.update(sessions).set({ sessionId, addressId }).where(eq(sessions.id, op.sessionId));
+      // An empty launch cwd is resolved by the service user on the remote host.
+      // Retain that registered native cwd for every subsequent continuation.
+      const [native] = await tx.select().from(agentSessions).where(eq(agentSessions.id, sessionId));
+      if (native?.hostId === hostId && native.cwd.startsWith('/') && !native.cwd.includes('\0'))
+        await tx.update(sessions).set({ cwd: native.cwd })
+          .where(and(eq(sessions.id, op.sessionId), eq(sessions.cwd, '')));
       await this.bindPortal(tx, op.sessionId, sessionId);
       if (
         (await tx.select().from(agentSessions).where(eq(agentSessions.id, sessionId)).limit(1)).length &&
