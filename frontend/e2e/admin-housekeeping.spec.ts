@@ -12,7 +12,7 @@ async function fixture(page: Page, manage = true) {
     const json = (data: unknown) => route.fulfill({ json: { status: 'ok', data } });
     if (path === '/admin/auth/status') return json({ authenticated: true, enforced: true, user: { id: 1, username: 'operator', roles: [manage ? 'owner' : 'viewer'] }, capabilities: ['admin.read', 'settings.read', ...(manage ? ['settings.manage'] : [])] });
     if (path === '/admin/setup/status') return json({ setup_complete: true, critical_complete: true, checks: [], next_actions: [], wizard: { completed_at: new Date().toISOString() } });
-    if (path === '/admin/ws/info') return json({ enabled: true, url: 'ws://127.0.0.1:4173/housekeeping-ws' });
+    if (path === '/admin/ws/info') return json({ enabled: true, url: new URL('/housekeeping-ws', req.url()).href.replace(/^http/, 'ws') });
     if (path === '/admin/session-housekeeping') return json(policies);
     if (path.startsWith('/admin/session-housekeeping/')) {
       const engine = path.split('/').pop() as keyof typeof policies;

@@ -17,7 +17,7 @@ async function fixture(page: Page, shared: ReturnType<typeof state>, manage = tr
       capabilities: ['admin.read', 'git_director.read', ...(manage ? ['git_director.manage'] : [])] });
     if (path === '/admin/setup/status') return json({ setup_complete: true, critical_complete: true,
       checks: [], next_actions: [], wizard: { completed_at: '2026-10-09T08:00:00Z', dismissed_at: null } });
-    if (path === '/admin/ws/info') return json({ enabled: true, url: 'ws://127.0.0.1:4173/commit-ws' });
+    if (path === '/admin/ws/info') return json({ enabled: true, url: new URL('/commit-ws', req.url()).href.replace(/^http/, 'ws') });
     if (path === '/admin/git-director/state') return json({ enabled: false, model: 'test', clones: 0, worktrees: 0, updated_at: null });
     if (path === '/admin/git-director') return json({ clones: [] });
     if (path === '/admin/git-director/commit-settings') {
