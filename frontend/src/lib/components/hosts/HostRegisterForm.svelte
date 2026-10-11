@@ -1,5 +1,5 @@
 <script lang="ts" module>
-  export type HostOption = "trusted" | "curl_insecure" | "temporary" | "vip";
+  export type HostOption = "trusted" | "curl_insecure" | "temporary" | "vip" | "daemon";
   export type HostFormEngine = "codex" | "claude" | "grok";
 
   /**
@@ -13,6 +13,7 @@
     { id: "curl_insecure", key: "2", label: "Skip TLS verification", desc: "For self-signed certificates" },
     { id: "temporary", key: "3", label: "Temporary", desc: "Expires after 2 hours" },
     { id: "vip", key: "4", label: "VIP", desc: "Quota limits only warn" },
+    { id: "daemon", key: "8", label: "Persistent daemon", desc: "Linux/systemd remote sessions" },
   ];
 
   export const HOST_ENGINE_OPTIONS: { id: HostFormEngine; key: string; label: string; desc: string }[] = [
@@ -50,7 +51,7 @@
     defaultEngines: HostFormEngine[];
     /** Prefix for element ids; two forms can be mounted at once. */
     idPrefix?: string;
-    /** Show the 1–7 keyboard hints (the sheet binds those keys). */
+    /** Show the 1–8 keyboard hints (the sheet binds those keys). */
     showShortcuts?: boolean;
     /** Hide the submit row; the container calls `submit()` itself. */
     hideSubmit?: boolean;
@@ -153,6 +154,7 @@
         curl_insecure: options.includes("curl_insecure"),
         temporary: options.includes("temporary"),
         vip: options.includes("vip"),
+        daemon_enabled: options.includes("daemon"),
       });
       void qc.invalidateQueries({ queryKey: ["hosts"] });
       invalidateSetup(qc);
@@ -212,6 +214,7 @@
           size="sm"
           title={opt.label}
           description={opt.desc}
+          class={opt.id === "daemon" ? "sm:col-span-2" : undefined}
           checked={options.includes(opt.id)}
           onSelect={() => toggleOption(opt.id)}
         >
@@ -219,6 +222,12 @@
         </ChoiceCard>
       {/each}
     </div>
+    {#if options.includes("daemon")}
+      <p class="text-xs text-muted-foreground">
+        Requires root and enabled Agent Messaging. Without root, run
+        <code>sudo cxx daemon install</code> after installing the host.
+      </p>
+    {/if}
   </div>
 
   <div class="space-y-2">

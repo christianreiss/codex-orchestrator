@@ -220,7 +220,7 @@ describe('closeFleetWindow', () => {
 });
 
 describe('sweepIfLapsed', () => {
-  it('closes a window whose deadline has passed', async () => {
+  it('preserves a host grant extended beyond the lapsed fleet deadline', async () => {
     const past = new Date(Date.now() - 60_000).toISOString().replace(/\.\d{3}Z$/, 'Z');
     const tables = new Map<unknown, Row[]>();
     tables.set(hosts, [host({ insecureEnabledUntil: new Date(Date.now() + 60_000) })]);
@@ -230,7 +230,7 @@ describe('sweepIfLapsed', () => {
     const { db, svc } = build(tables);
 
     expect(await svc.sweepIfLapsed()).toBe(true);
-    expect(db.tables.get(hosts)?.[0]?.insecureEnabledUntil).toBeNull();
+    expect(db.tables.get(hosts)?.[0]?.insecureEnabledUntil).toBeInstanceOf(Date);
     expect(storedDeadline(db)).toBeNull();
     // Nothing owed the second time round.
     expect(await svc.sweepIfLapsed()).toBe(false);

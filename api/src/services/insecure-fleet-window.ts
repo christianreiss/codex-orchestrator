@@ -110,7 +110,7 @@ export async function stampAllInsecureHosts(
     if (h.secure === 1) continue;
     await db
       .update(hosts)
-      .set({ insecureEnabledUntil: until, insecureGraceUntil: null, updatedAt: nowStr })
+      .set({ insecureEnabledUntil: until, insecureGraceUntil: null, insecureSessionRenewalBlocked: 0, updatedAt: nowStr })
       .where(eq(hosts.id, h.id));
     stamped.push({ id: Number(h.id), fqdn: h.fqdn });
   }
@@ -143,6 +143,7 @@ export interface FleetCloseCounts {
 export async function closeAllInsecureAccess(
   db: Database,
   onHost?: (host: { id: number; fqdn: string }) => Promise<void> | void,
+  preserveAfter: Date | null = null,
 ): Promise<FleetCloseCounts> {
   const nowMs = Date.now();
   const nowStr = nowIso();
@@ -150,13 +151,21 @@ export async function closeAllInsecureAccess(
   let closedHosts = 0;
   for (const h of allHosts) {
     if (h.secure === 1) continue;
-    const enabledUntilMs = h.insecureEnabledUntil ? new Date(h.insecureEnabledUntil).getTime() : 0;
-    const graceUntilMs = h.insecureGraceUntil ? new Date(h.insecureGraceUntil).getTime() : 0;
-    if (enabledUntilMs <= nowMs && graceUntilMs <= nowMs) continue;
-    await db
-      .update(hosts)
-      .set({ insecureEnabledUntil: null, insecureGraceUntil: null, updatedAt: nowStr })
-      .where(eq(hosts.id, h.id));
+    const closed = await db.transaction(async (tx) => {
+      const [current] = await tx.select().from(hosts).where(eq(hosts.id, h.id)).for('update');
+      if (!current || current.secure === 1) return false;
+      const enabledUntilMs = current.insecureEnabledUntil ? new Date(current.insecureEnabledUntil).getTime() : 0;
+      const graceUntilMs = current.insecureGraceUntil ? new Date(current.insecureGraceUntil).getTime() : 0;
+      // Natural expiry preserves a grant extended beyond the fleet deadline.
+      if (preserveAfter && enabledUntilMs > preserveAfter.getTime()) return false;
+      if (enabledUntilMs <= nowMs && graceUntilMs <= nowMs) return false;
+      await tx.update(hosts).set({
+        insecureEnabledUntil: null, insecureGraceUntil: null,
+        insecureSessionRenewalBlocked: preserveAfter ? 0 : 1, updatedAt: nowStr,
+      }).where(eq(hosts.id, h.id));
+      return true;
+    });
+    if (!closed) continue;
     closedHosts += 1;
     if (onHost) await onHost({ id: Number(h.id), fqdn: h.fqdn });
   }

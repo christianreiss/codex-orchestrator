@@ -266,4 +266,14 @@ describe.skipIf(!handle)('migration runner against a real database', { timeout: 
     const restored = await runMigrations(pool, { appliedBy: 'vitest', lockTimeoutSeconds: 30 });
     expect(restored.outcomes).toHaveLength(files.length);
   });
+  it('upgrades a host without the renewal fence and safely reapplies migration 0053', async () => {
+    await pool.query('ALTER TABLE hosts DROP COLUMN insecure_session_renewal_blocked');
+    for (let attempt=0;attempt<2;attempt++) {
+      const report=await runMigrations(pool,{appliedBy:'vitest',lockTimeoutSeconds:30,reapply:['0053']});
+      expect(report.outcomes).toHaveLength(1);
+      const [columns]=await pool.query<RowDataPacket[]>("SHOW COLUMNS FROM hosts LIKE 'insecure_session_renewal_blocked'");
+      expect(columns[0]).toMatchObject({Null:'NO',Default:'0'});
+    }
+  });
+
 });

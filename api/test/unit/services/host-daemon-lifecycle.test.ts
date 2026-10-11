@@ -70,6 +70,24 @@ describe('host daemon service decisions', () => {
       })
     ).generation;
   });
+  it.each([true, false])('changes only daemon enablement (%s), preserving settings under the lock', async (enabled) => {
+    const settings = daemonSettingsSchema.parse({ enabled: true, username: 'worker', default_cwd: '/srv/work', max_parallel: 3, idle_minutes: 25, question_minutes: 120 });
+    row(hostDaemons).settings = settings;
+    row(hostDaemons).enabledAt = '2026-10-01T00:00:00Z';
+    await service.configureEnabled(1, enabled);
+    // The fake records inserts but does not implement MySQL upserts.
+    const write = fake.inserts.filter((entry) => entry.table === hostDaemons).at(-1)!;
+    expect(write.values).toMatchObject({
+      hostId: 1, settings: { ...settings, enabled },
+      enabledAt: enabled ? '2026-10-01T00:00:00Z' : null,
+    });
+  });
+  it('uses canonical daemon defaults for a newly registered host', async () => {
+    fake.tables.set(hostDaemons, []);
+    await service.configureEnabled(1, true);
+    expect((await service.settings(1)).settings).toEqual(daemonSettingsSchema.parse({ enabled: true }));
+    expect((await service.view(1)).health.reasons).toContain('installation_pending');
+  });
   it('admits daemon relays only for the configured service user on an enabled host', async () => {
     const messaging = createAgentMessagingService(
       fake as unknown as RouteContext['db'],
@@ -243,8 +261,10 @@ describe('host daemon service decisions', () => {
   it('still blocks insecure hosts outside their allowed window', async () => {
     row(hosts).secure = 0;
     row(hosts).insecureEnabledUntil = null;
-    expect((await service.view(1)).health.reasons).toContain('host_access_blocked');
-    await expect(service.eligible(1)).rejects.toThrow('available');
+    expect((await service.view(1)).health.reasons).toContain('insecure_window_closed');
+    expect((await service.view(1)).health.state).toBe('yellow');
+    await expect(service.eligible(1)).rejects.toThrow('window is closed');
+    await expect(service.eligible(1, undefined, true)).resolves.toBeDefined();
     row(hosts).insecureEnabledUntil = new Date(Date.now() + 60_000);
     await expect(service.eligible(1)).resolves.toBeDefined();
   });

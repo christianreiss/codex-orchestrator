@@ -1009,6 +1009,7 @@ CREATE TABLE `hosts` (
 	`insecure_enabled_until` datetime,
 	`insecure_grace_until` datetime,
 	`insecure_window_minutes` int,
+	`insecure_session_renewal_blocked` tinyint NOT NULL DEFAULT 0,
 	`curl_insecure` tinyint NOT NULL DEFAULT 0,
 	`browseros_mcp_enabled` tinyint NOT NULL DEFAULT 0,
 	`agent_messaging_enabled` tinyint NOT NULL DEFAULT 0,
@@ -1778,9 +1779,9 @@ CREATE TABLE `host_daemon_portal_bindings` (
 	CONSTRAINT `host_daemon_portal_bindings_portal_session_id` PRIMARY KEY(`portal_session_id`)
 );
 
-ALTER TABLE `host_daemon_portal_bindings` ADD CONSTRAINT `host_daemon_portal_bindings_portal_session_id_agent_sessions_id_fk` FOREIGN KEY (`portal_session_id`) REFERENCES `agent_sessions`(`id`) ON DELETE cascade ON UPDATE no action;
+ALTER TABLE `host_daemon_portal_bindings` ADD CONSTRAINT `fk_daemon_portal_launch` FOREIGN KEY (`portal_session_id`) REFERENCES `agent_sessions`(`id`) ON DELETE cascade ON UPDATE no action;
 
-ALTER TABLE `host_daemon_portal_bindings` ADD CONSTRAINT `host_daemon_portal_bindings_daemon_session_id_host_daemon_sessions_id_fk` FOREIGN KEY (`daemon_session_id`) REFERENCES `host_daemon_sessions`(`id`) ON DELETE cascade ON UPDATE no action;
+ALTER TABLE `host_daemon_portal_bindings` ADD CONSTRAINT `fk_daemon_portal_remote` FOREIGN KEY (`daemon_session_id`) REFERENCES `host_daemon_sessions`(`id`) ON DELETE cascade ON UPDATE no action;
 
 CREATE INDEX `idx_daemon_portal_session` ON `host_daemon_portal_bindings` (`daemon_session_id`);
 
@@ -1791,9 +1792,9 @@ CREATE TABLE `companion_daemon_follows` (
 	CONSTRAINT `companion_daemon_follows_device_id_daemon_session_id_pk` PRIMARY KEY(`device_id`,`daemon_session_id`)
 );
 
-ALTER TABLE `companion_daemon_follows` ADD CONSTRAINT `companion_daemon_follows_device_id_companion_devices_id_fk` FOREIGN KEY (`device_id`) REFERENCES `companion_devices`(`id`) ON DELETE cascade ON UPDATE no action;
+ALTER TABLE `companion_daemon_follows` ADD CONSTRAINT `fk_companion_daemon_device` FOREIGN KEY (`device_id`) REFERENCES `companion_devices`(`id`) ON DELETE cascade ON UPDATE no action;
 
-ALTER TABLE `companion_daemon_follows` ADD CONSTRAINT `companion_daemon_follows_daemon_session_id_host_daemon_sessions_id_fk` FOREIGN KEY (`daemon_session_id`) REFERENCES `host_daemon_sessions`(`id`) ON DELETE cascade ON UPDATE no action;
+ALTER TABLE `companion_daemon_follows` ADD CONSTRAINT `fk_companion_daemon_remote` FOREIGN KEY (`daemon_session_id`) REFERENCES `host_daemon_sessions`(`id`) ON DELETE cascade ON UPDATE no action;
 
 CREATE TABLE `session_housekeeping_reservations` (
  `host_id` BIGINT UNSIGNED NOT NULL,

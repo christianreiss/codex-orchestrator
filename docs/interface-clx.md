@@ -1436,6 +1436,11 @@ Installation requires root. `cxx update`, wrapper sync/cron and managed
 Codex/Claude/Grok launches reconcile an enabled service before native execution;
 unprivileged runs report `sudo cxx daemon install` as the pending step. Accepted
 daemon operations and peer deliveries do not reconcile their parent service.
+From cxx 0.9.48, successful service reconciliation prints an enabled/start
+confirmation; this confirms systemd startup, while connection health is shown
+in `cxx daemon status` and the WebUI. The daemon WebSocket uses the same IPv4
+preference and CA trust as relay HTTP calls, with a cancellable 35-second
+connection/handshake timeout.
 Agent Messaging uses the fleet switch and the current host access policy; the
 retired per-host messaging flag is ignored. The account must have usable
 managed engine configs and installed provider CLIs. Existing `cxx-agent`
@@ -1500,6 +1505,32 @@ surviving instance may take over. Already accepted work is never automatically
 replayed, and a lost process-local receipt still requires inspection of retained
 server state. Server `ready` remains transport evidence, not proof of delivery
 or a model reply.
+
+### Persistent daemon on insecure hosts
+
+The daemon stays connected outside an insecure access window and reports
+`access: {allowed, reason, secure, enabled_until}` separately from transport
+health. A connected, locked daemon is yellow (Online · Zugriff gesperrt).
+Only status, heartbeat, stop and existing acceptance/result receipts are
+allowed outside the window; new starts, offers, acceptance and resume require
+an open window. Provider credential distribution retains its existing gate.
+
+WebUI uses the existing host-window activation. Authenticated agents on any
+active secure host may use `host_insecure_enable(host_id, duration_minutes?)`
+through cxx-agent, for Codex, Claude and Grok alike. Duration defaults to the
+target's stored value and is bounded to 0–480 minutes. Source host, agent,
+session, target and duration are audited. Insecure callers cannot activate.
+
+A fresh daemon heartbeat renews an already-open window to at least now plus
+the stored host duration only for accepted, reported active execution or a
+retained native conversation within its idle/question timeout. Queue entries,
+unknown transcripts, stale generations and an idle daemon do not renew it.
+Heartbeat renewal does not reset session activity or its timeout. Once the
+last session ends, the remaining window expires normally. Manual Disable
+fences renewal until an explicit enable/approval; accepted work may finish.
+Natural fleet-window expiry preserves a later renewed host grant; explicit
+fleet closure removes it. No automatic provider session or credential sync is
+kept alive merely because the daemon is online.
 
 ## Session housekeeping
 

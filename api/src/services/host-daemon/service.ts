@@ -24,10 +24,9 @@ import { readFleetEngineState } from '../engine-switch.js';
 import { wsPublisher } from '../../ws/publisher.js';
 import { daemonSettingsSchema, daemonHealth, type DaemonRuntime, type DaemonSettings } from './policy.js';
 import { ENGINE_HOST_FIELDS, type Engine } from '../../util/engine.js';
-import type { Database } from '../../db/client.js';
 import { messagingHostEligible } from '../agent-messaging.js';
 
-type DaemonDb = Database | Parameters<Parameters<Database['transaction']>[0]>[0];
+import { daemonAccess, renewDaemonWindow, type DaemonDb } from './access.js';
 export interface PortalDaemonInput {
   deviceId: string;
   content: string;
@@ -84,9 +83,11 @@ export class HostDaemonService {
       work.filter((s) => ['running', 'stopping'].includes(s.status)).length,
       engines,
     );
-    if (row.settings.enabled && !messagingHostEligible(host)) {
-      health.state = 'red';
-      health.reasons.unshift('host_access_blocked');
+    const access = daemonAccess(host);
+    if (row.settings.enabled && !access.allowed) {
+      if (access.reason === 'host_access_blocked') health.state = 'red';
+      else if (health.state === 'green') health.state = 'yellow';
+      health.reasons.unshift(access.reason!);
     }
     const flags = await this.db
       .select()
@@ -105,6 +106,7 @@ export class HostDaemonService {
       fqdn: host.fqdn,
       ...row.settings,
       health,
+      access,
       engines: runtime?.engines ?? [],
       sessions: work,
     };
@@ -184,10 +186,17 @@ export class HostDaemonService {
       .onDuplicateKeyUpdate({ set: { clientEventId: `daemon:${operationId}` } });
   }
   async configure(id: number, settings: DaemonSettings) {
+    return this.configureSettings(id, () => settings);
+  }
+  async configureEnabled(id: number, enabled: boolean) {
+    return this.configureSettings(id, (settings) => ({ ...settings, enabled }));
+  }
+  private async configureSettings(id: number, resolve: (settings: DaemonSettings) => DaemonSettings) {
     await this.host(id);
     await this.db.transaction(async (tx) => {
       await tx.select().from(hosts).where(eq(hosts.id, id)).for('update');
       const [old] = await tx.select().from(hostDaemons).where(eq(hostDaemons.hostId, id)).for('update');
+      const settings = resolve(old?.settings ?? daemonSettingsSchema.parse({}));
       const active = await tx
         .select()
         .from(sessions)
@@ -217,6 +226,13 @@ export class HostDaemonService {
     this.changed(id);
     return this.view(id);
   }
+  private async assertWorkAccess(db: DaemonDb, id: number, engine?: Engine) {
+    const [host] = await db.select().from(hosts).where(eq(hosts.id, id)).for('update');
+    if (!host || !daemonAccess(host).allowed)
+      throw new ForbiddenError('Host work access is blocked', 'daemon_insecure_window_closed');
+    if (engine) assertHostEngineEnabled(host, engine, await readFleetEngineState(db));
+    return host;
+  }
   async eligible(id: number, engine?: Engine, drain = false) {
     const host = await this.host(id),
       config = await this.settings(id);
@@ -229,8 +245,10 @@ export class HostDaemonService {
       !flags.some((f) => f.name === 'agent_messaging_enabled' && f.version === '1')
     )
       throw new ForbiddenError('Agent messaging or API disabled');
-    if ((!config.settings.enabled && !drain) || !messagingHostEligible(host))
+    if ((!config.settings.enabled && !drain) || host.status !== 'active')
       throw new ForbiddenError('Host daemon is not available', 'daemon_disabled');
+    if (!drain && !daemonAccess(host).allowed)
+      throw new ForbiddenError('Insecure host window is closed', 'daemon_insecure_window_closed');
     if (engine) assertHostEngineEnabled(host, engine, await readFleetEngineState(this.db));
     return config;
   }
@@ -257,19 +275,21 @@ export class HostDaemonService {
       return { generation: runtime.generation, settings: config.settings };
     });
   }
-  async heartbeat(id: number, generation: string, engines: string[], error: string | null) {
-    const row = await this.settings(id);
-    if (row.runtime?.generation !== generation) throw new ConflictError('Daemon generation changed');
-    await this.db
-      .update(hostDaemons)
-      .set({ runtime: { ...row.runtime, engines, error, connected: true, heartbeat_at: now() } })
-      .where(
-        and(
-          eq(hostDaemons.hostId, id),
-          sql`JSON_UNQUOTE(JSON_EXTRACT(${hostDaemons.runtime}, '$.generation')) = ${generation}`,
-        ),
-      );
+  async heartbeat(id: number, generation: string, engines: string[], error: string | null, activeSessions: string[] = []) {
+    await this.eligible(id, undefined, true);
     await this.sweep(id);
+    let renewed = false;
+    await this.db.transaction(async (tx) => {
+      await tx.select().from(hosts).where(eq(hosts.id, id)).for('update');
+      const [row] = await tx.select().from(hostDaemons).where(eq(hostDaemons.hostId, id)).for('update');
+      if (!row?.runtime || row.runtime.generation !== generation) throw new ConflictError('Daemon generation changed');
+      if (!error) renewed = await renewDaemonWindow(tx, id, row.runtime, row.settings, activeSessions);
+      await tx.update(hostDaemons).set({
+        runtime: { ...row.runtime, engines, error, connected: true, heartbeat_at: now() },
+      }).where(eq(hostDaemons.hostId, id));
+    });
+    if (renewed) wsPublisher.publish('host.updated', { id });
+    const row = await this.settings(id);
     const work = await this.db.select().from(sessions).where(eq(sessions.hostId, id));
     this.changed(id);
     return { settings: row.settings, stop: work.filter((s) => s.status === 'stopping').map((s) => s.id) };
@@ -308,6 +328,7 @@ export class HostDaemonService {
     const clientKey = `${owner}:${input.client_message_id}`,
       requestHash = hash(input);
     return this.db.transaction(async (tx) => {
+      await this.assertWorkAccess(tx, input.host_id, input.engine);
       const [locked] = await tx
         .select()
         .from(hostDaemons)
@@ -390,6 +411,7 @@ export class HostDaemonService {
     await this.eligible(row.hostId, row.engine as Engine);
     const key = `${owner ?? 'admin'}:${clientId}`;
     return this.db.transaction(async (tx) => {
+      await this.assertWorkAccess(tx, row.hostId, row.engine as Engine);
       const [config] = await tx
         .select()
         .from(hostDaemons)
@@ -499,11 +521,12 @@ export class HostDaemonService {
   }
   async offer(id: number, generation: string) {
     const config = await this.eligible(id);
-    const host = await this.host(id),
-      fleet = await readFleetEngineState(this.db);
     if (config.runtime?.generation !== generation) throw new ConflictError('Daemon generation changed');
     return this.db.transaction(async (tx) => {
-      await tx.select().from(hostDaemons).where(eq(hostDaemons.hostId, id)).for('update');
+      const host = await this.assertWorkAccess(tx, id);
+      const [current] = await tx.select().from(hostDaemons).where(eq(hostDaemons.hostId, id)).for('update');
+      if (!current?.settings.enabled || current.runtime?.generation !== generation)
+        throw new ConflictError('Daemon generation changed');
       const work = await tx.select().from(sessions).where(eq(sessions.hostId, id));
       const [op] = await tx
         .select()
@@ -526,7 +549,7 @@ export class HostDaemonService {
         work.filter((s) => ['running', 'stopping'].includes(s.status)).length >= config.settings.max_parallel
       )
         return null;
-      assertHostEngineEnabled(host, session.engine as Engine, fleet);
+      assertHostEngineEnabled(host, session.engine as Engine, await readFleetEngineState(tx));
       if (!config.runtime?.engines.includes(session.engine)) return null;
       const claimId = op.claimId ?? randomUUID();
       await tx
@@ -551,10 +574,9 @@ export class HostDaemonService {
     });
   }
   async accept(hostId: number, id: string, claim: string) {
-    await this.eligible(hostId);
-    const host = await this.host(hostId),
-      fleet = await readFleetEngineState(this.db);
+    await this.eligible(hostId, undefined, true);
     return this.db.transaction(async (tx) => {
+      await tx.select().from(hosts).where(eq(hosts.id, hostId)).for('update');
       const [config] = await tx
         .select()
         .from(hostDaemons)
@@ -565,9 +587,10 @@ export class HostDaemonService {
         throw new ForbiddenError('Invalid operation claim');
       if (op.status === 'accepted') return { accepted: true };
       if (op.status !== 'offered') throw new ConflictError('Operation is no longer offered');
+      const host = await this.assertWorkAccess(tx, hostId);
       const [target] = await tx.select().from(sessions).where(eq(sessions.id, op.sessionId));
       if (!target || target.status !== 'queued') throw new ConflictError('Session is no longer queued');
-      assertHostEngineEnabled(host, target.engine as Engine, fleet);
+      assertHostEngineEnabled(host, target.engine as Engine, await readFleetEngineState(tx));
       const running = await tx
         .select()
         .from(sessions)

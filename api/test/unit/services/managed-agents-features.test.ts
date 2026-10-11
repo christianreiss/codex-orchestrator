@@ -121,10 +121,10 @@ describe('served document byte invariance', () => {
 
     expect(base.sha256).toBe('30abaea24c8809d8634670f0eceb3004aabb4eafb5416c78333c719e8b67e14b');
     expect(out.policy_sha256).toBe('3d8a8c754d80369c46a16c3350db8461520d3ae14b1de7ac03ad9454925ad5e5');
-    // 2026-10-09: add explicit Portal reading and processing receipts.
-    expect(out.features_sha256).toBe('3c659f6d3b577268af9c04671c23209b4a4efdd66b7cee99771a56224d4b0674');
-    expect(out.managed_sha256).toBe('9d6a5e1bdf9d280d264fbe83ef0604d573fa30adb29c8404928f7beba99abb92');
-    expect(sha256(out.body)).toBe('c64cc9728a5c8784d560e3461db454f345cbbda24996d85accf9c38ee7675f11');
+    // 2026-10-11: secure-source window activation and bounded session renewal.
+    expect(out.features_sha256).toBe('5550c731f095805c626c9446c61839c1a32e5d932647ba33fd5bbee178d85e83');
+    expect(out.managed_sha256).toBe('1ff2999c5f5442576eb889780cda59aaad65c5fc35a640b74f22617e3724fcd6');
+    expect(sha256(out.body)).toBe('de1e92bd07d785a21afbb10051d88d209993795d665dceaa0f0aefc9c12a6c23');
   });
 });
 

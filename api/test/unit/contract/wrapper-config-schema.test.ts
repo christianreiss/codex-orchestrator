@@ -111,6 +111,7 @@ function fakeHost(): Host {
     insecureEnabledUntil: null,
     insecureGraceUntil: null,
     insecureWindowMinutes: null,
+    insecureSessionRenewalBlocked: 0,
     curlInsecure: 0,
     browserosMcpEnabled: 1,
     agentMessagingEnabled: 0,

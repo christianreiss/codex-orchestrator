@@ -2,6 +2,12 @@
 
 - cxx adds configurable local session housekeeping for Codex, Claude and Grok: fleet defaults and host overrides, dry-run/status/pins, 30-day retention and a 5-GiB per-engine/user budget with a 7-day minimum age. Idle maintenance removes transcript bundles and associated history/search indexes, while preserving active, pinned, queued, goal and fleet-resumable sessions. Durable journals and launch fences make interrupted cleanup recoverable.
 
+- Fresh-install Portal/daemon foreign keys use the canonical short migration names, avoiding MySQL identifier-length failures during baseline setup.
+
+- Persistent daemons remain online with closed insecure access windows. WebUI and agents on active secure hosts can open windows; accepted running and retained waiting sessions renew them without resetting session timeouts. Manual Disable fences renewal, while stop/result receipts remain available. Wrapper 0.9.49 reports active processes and exposes `host_insecure_enable` for all three engines.
+- New Host and setup registration offer an optional persistent daemon (default off, New Host shortcut 8), saving enablement before returning the installer while preserving existing daemon settings.
+- Wrapper 0.9.48 uses the relay's IPv4 preference and CA trust for the host daemon WebSocket, fixing `401 ip_mismatch` on dual-stack hosts whose HTTP API calls succeed. TLS and WebSocket handshakes honor cancellation and a 35-second timeout. Enabled service installation/start now prints a confirmation during `cxx update`; remote connection health remains visible in `cxx daemon status` and the WebUI.
+
 - Portal and Messaging preserve the same `peer_delivery` invocation kind during daemon resumes, preventing registration conflicts before native continuation.
 
 - Android 0.4.10 adds Chats/Hosts navigation, searchable daemon-ready hosts and contact-only or task-based remote starts. Daemon launches remain one Portal conversation across native resumptions, with real agent replies, durable retry identity, inherited device follows and first-reply push. Companion routes enforce current device permissions, engine readiness and available work slots.

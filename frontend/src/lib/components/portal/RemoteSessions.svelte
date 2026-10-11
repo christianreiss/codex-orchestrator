@@ -12,6 +12,7 @@
  let startKey=$state(crypto.randomUUID()),turnKey=$state(crypto.randomUUID());
  const available=$derived(($hosts.data?.hosts??[]).filter(h=>h.enabled&&(!fixedHost||h.host_id===fixedHost)));
  const host=$derived(available.find(h=>h.host_id===hostId));
+ const selectedHost=$derived(available.find(h=>h.sessions.some(s=>s.id===selected)));
  $effect(()=>{if(fixedHost)hostId=fixedHost;else if(!hostId&&available[0])hostId=available[0].host_id});
  const detail=createQuery<RemoteSession>(toStore(()=>({queryKey:['daemon-sessions',selected],queryFn:()=>api.get<RemoteSession>(`${root}/daemon-sessions/${selected}`),enabled:!!selected,refetchInterval:3000})));
  const refresh=()=>{void qc.invalidateQueries({queryKey:['host-daemons']});void qc.invalidateQueries({queryKey:['daemon-sessions']})};
@@ -28,7 +29,7 @@
    <label class="grid gap-1 text-sm">Titel<input class="rounded border bg-background p-2" bind:value={title} maxlength="160" required/></label>
    <label class="grid gap-1 text-sm">Arbeitsverzeichnis<input class="rounded border bg-background p-2" bind:value={cwd} placeholder={host?.default_cwd||'/absoluter/pfad'}/></label>
    <label class="grid gap-1 text-sm sm:col-span-2">Auftrag<textarea class="rounded border bg-background p-2" bind:value={prompt} required rows="3"></textarea></label>
-   <button class="rounded bg-primary px-4 py-2 text-primary-foreground" disabled={!host||host.health.state==='red'||$start.isPending}>Session starten</button>
+   <button class="rounded bg-primary px-4 py-2 text-primary-foreground" disabled={!host||host.access?.allowed===false||host.health.state==='red'||$start.isPending}>Session starten</button>
   </form>
  </details>
  {#if $hosts.error||$start.error||$turn.error||$stop.error}<p role="alert" class="text-destructive">{($hosts.error??$start.error??$turn.error??$stop.error)?.message}</p>{/if}
@@ -44,7 +45,7 @@
    {#if $detail.data.sessionId}<a class="text-sm underline" href={`${base}/clients?session=${encodeURIComponent($detail.data.sessionId)}`}>Nativen Session-Verlauf öffnen</a>{/if}
    <form oninput={()=>turnKey=crypto.randomUUID()} class="space-y-2" onsubmit={e=>{e.preventDefault();$turn.mutate()}}>
     <label class="grid gap-1 text-sm">Nachricht / Fortsetzen<textarea class="rounded border bg-background p-2" bind:value={message} required></textarea></label>
-    <button class="rounded bg-primary px-3 py-2 text-primary-foreground" disabled={$turn.isPending||['running','queued','stopping'].includes($detail.data.status)}>Senden / Fortsetzen</button>
+    <button class="rounded bg-primary px-3 py-2 text-primary-foreground" disabled={selectedHost?.access?.allowed===false||$turn.isPending||['running','queued','stopping'].includes($detail.data.status)}>Senden / Fortsetzen</button>
     <button type="button" class="ml-2 rounded border px-3 py-2" onclick={()=>$stop.mutate()} disabled={$stop.isPending||$detail.data.status==='closed'}>Beenden</button>
    </form>
   </section>

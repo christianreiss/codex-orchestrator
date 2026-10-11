@@ -253,7 +253,11 @@ func daemonService(action string, stdout, stderr io.Writer) error {
 		if changed || unitChanged {
 			verb = "restart"
 		}
-		return runServiceProcess(stdout, stderr, "systemctl", verb, "cxx-daemon.service")
+		if err := runServiceProcess(stdout, stderr, "systemctl", verb, "cxx-daemon.service"); err != nil {
+			return err
+		}
+		fmt.Fprintf(stdout, "host daemon: cxx-daemon.service enabled · %sed (connection: cxx daemon status)\n", verb)
+		return nil
 	default:
 		return fmt.Errorf("unknown daemon action %q", action)
 	}
@@ -357,14 +361,7 @@ func runHostDaemon(parent context.Context, version string, stdout, stderr io.Wri
 		if settings.Username != currentUserName() {
 			return errors.New("configured daemon user differs from current user")
 		}
-		address := strings.Replace(strings.Replace(client.baseURL, "https://", "wss://", 1), "http://", "ws://", 1) + "/host/daemon/connect"
-		wc, err := websocket.NewConfig(address, client.baseURL)
-		if err != nil {
-			return err
-		}
-		wc.Header.Set("X-API-Key", client.apiKey)
-		wc.TlsConfig = client.http.Transport.(*http.Transport).TLSClientConfig
-		ws, err := websocket.DialConfig(wc)
+		ws, err := dialDaemonConnection(ctx, client)
 		if err != nil {
 			fmt.Fprintln(stderr, "daemon connection unavailable:", err)
 			if !retry() {
@@ -500,7 +497,13 @@ func runHostDaemon(parent context.Context, version string, stdout, stderr io.Wri
 					Settings daemonSettings `json:"settings"`
 					Stop     []string       `json:"stop"`
 				}
-				if err := c.rpc(ctx, "heartbeat", map[string]any{"engines": engines, "error": nil}, &heartbeat); err != nil {
+				activeMu.Lock()
+				activeSessions := make([]string, 0, len(active))
+				for id := range active {
+					activeSessions = append(activeSessions, id)
+				}
+				activeMu.Unlock()
+				if err := c.rpc(ctx, "heartbeat", map[string]any{"engines": engines, "error": nil, "active_sessions": activeSessions}, &heartbeat); err != nil {
 					break loop
 				}
 				backoff = time.Second

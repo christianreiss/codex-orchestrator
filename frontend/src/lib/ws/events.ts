@@ -34,7 +34,7 @@ export const DEFAULT_INVALIDATIONS: WsInvalidationMap = {
   // Hosts + overview dashboard counters
   // `setup` too: the checklist counts registered and synced hosts, and the
   // installer-progress view in the wizard reads both.
-  "host.updated": [["hosts"], ["overview"], ["agent-messaging"], ["setup"]],
+  "host.updated": [["hosts"], ["overview"], ["agent-messaging"], ["setup"], ["host-daemons"]],
   "host.created": [["hosts"], ["overview"], ["setup"]],
   "host.deleted": [["hosts"], ["overview"], ["agent-messaging"]],
   "host.pruned": [["hosts"], ["overview"], ["agent-messaging"]],
@@ -208,7 +208,7 @@ export const DEFAULT_INVALIDATIONS: WsInvalidationMap = {
   "claude.usage.updated": [["usage", "claude"]],
   // Also carries the fleet-window open/close, which restamps or clears every
   // insecure host row -- so the hosts list has to refresh, not just the summary.
-  "insecure.approval.changed": [
+  "insecure.approval.changed": [["host-daemons"],
     ["overview"],
     ["overview", "insecure-approvals"],
     ["insecure-approvals"],

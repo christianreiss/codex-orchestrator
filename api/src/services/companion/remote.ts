@@ -65,6 +65,7 @@ export class CompanionRemote {
             host_id: view.host_id,
             fqdn: view.fqdn,
             default_cwd: view.default_cwd,
+            access: view.access,
             engines: view.engines,
             health: {
               ...view.health,
@@ -79,6 +80,7 @@ export class CompanionRemote {
                   'engines_partially_ready',
                   'busy',
                   'host_access_blocked',
+                  'insecure_window_closed',
                   'messaging_or_api_disabled',
                 ].includes(reason)
                   ? reason

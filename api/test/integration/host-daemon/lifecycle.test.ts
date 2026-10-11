@@ -15,6 +15,8 @@ import {
   versions,
 } from '../../../src/db/schema.js';
 import { HostDaemonService } from '../../../src/services/host-daemon/service.js';
+import { InsecureWindowAdminService } from '../../../src/services/insecure-window-admin.js';
+import { makeAdminEventsWriter } from '../../../src/services/admin-events-writer.js';
 import { daemonSettingsSchema } from '../../../src/services/host-daemon/policy.js';
 import { getTestDb } from '../../helpers/test-db.js';
 import { loadTestEnv, testKeyring } from '../../helpers/test-keyring.js';
@@ -46,6 +48,7 @@ describe.skipIf(!handle)('durable host daemon lifecycle', () => {
     service = new HostDaemonService({ db: handle!.db, env: loadTestEnv(), keyring: testKeyring() });
   });
   beforeEach(async () => {
+    await handle!.db.update(hosts).set({ secure: 1, insecureSessionRenewalBlocked: 0 }).where(eq(hosts.id, id));
     await handle!.db.delete(hostDaemonSessions).where(eq(hostDaemonSessions.hostId, id));
     await handle!.db.delete(hostDaemons).where(eq(hostDaemons.hostId, id));
     await service.configure(id, daemonSettingsSchema.parse({ enabled: true }));
@@ -70,6 +73,32 @@ describe.skipIf(!handle)('durable host daemon lifecycle', () => {
     title: 'Remote helper',
     prompt: 'Return hello',
     client_message_id: randomUUID(),
+  });
+  it('upserts enablement while preserving existing daemon settings', async () => {
+    const custom = daemonSettingsSchema.parse({ enabled: true, username: 'worker', default_cwd: '/srv/work', max_parallel: 3, idle_minutes: 25, question_minutes: 120 });
+    await service.configure(id, custom);
+    const enabledAt = (await service.settings(id)).enabledAt;
+    await service.configureEnabled(id, true);
+    expect((await service.settings(id)).enabledAt).toBe(enabledAt);
+    await service.configureEnabled(id, false);
+    expect((await service.settings(id)).settings).toEqual({ ...custom, enabled: false });
+    expect((await service.settings(id)).enabledAt).toBeNull();
+    await service.configureEnabled(id, true);
+    expect((await service.settings(id)).settings).toEqual(custom);
+    expect((await service.settings(id)).enabledAt).not.toBeNull();
+  });
+  it('serializes heartbeat renewal with daemon configuration without lock inversion', async () => {
+    await handle!.db.update(hosts).set({ secure: 0, insecureEnabledUntil: new Date(Date.now() + 60_000), insecureWindowMinutes: 10 }).where(eq(hosts.id, id));
+    const start = await service.start(input(), 'agent:owner');
+    const op = (await service.offer(id, generation))!;
+    await service.accept(id, op.operation_id, op.claim_id);
+    for (let i = 0; i < 4; i++) {
+      await Promise.all([
+        service.heartbeat(id, generation, ['codex', 'claude', 'grok'], null, [start.session_id]),
+        service.configureEnabled(id, true),
+      ]);
+    }
+    expect((await service.session(start.session_id)).status).toBe('running');
   });
   it('keeps one operation for concurrent retries, rejecting changed input', async () => {
     const request = input();
@@ -181,7 +210,7 @@ describe.skipIf(!handle)('durable host daemon lifecycle', () => {
       .update(hosts)
       .set({ agentMessagingEnabled: 1, secure: 0, insecureEnabledUntil: null })
       .where(eq(hosts.id, id));
-    await expect(service.start(input(), 'agent:owner')).rejects.toThrow('available');
+    await expect(service.start(input(), 'agent:owner')).rejects.toThrow('window is closed');
     await handle!.db.update(hosts).set({ secure: 1 }).where(eq(hosts.id, id));
   });
   it('preserves open questions for 24 hours and requests an actual stop at the deadline', async () => {
@@ -351,4 +380,31 @@ describe.skipIf(!handle)('durable host daemon lifecycle', () => {
       await handle!.db.delete(agentBusMessages).where(eq(agentBusMessages.id, message));
     }
   });
+  it('serializes Disable against running-session renewal and reopens only by explicit grant', async () => {
+    const db = handle!.db;
+    await db.update(hosts).set({secure:0,insecureWindowMinutes:10,insecureEnabledUntil:new Date(Date.now()+60_000)}).where(eq(hosts.id,id));
+    const start = await service.start(input(),'owner'), op = (await service.offer(id,generation))!;
+    await service.accept(id,op.operation_id,op.claim_id);
+    const admin = new InsecureWindowAdminService({db,env:loadTestEnv(),events:makeAdminEventsWriter(db)});
+    await Promise.all([service.heartbeat(id,generation,['codex'],null,[start.session_id]),admin.disable(id)]);
+    const [closed]=await db.select().from(hosts).where(eq(hosts.id,id));
+    expect(closed).toMatchObject({insecureEnabledUntil:null,insecureSessionRenewalBlocked:1});
+    await service.heartbeat(id,generation,['codex'],null,[start.session_id]);
+    expect((await service.view(id)).access.allowed).toBe(false);
+    await admin.enable(id,10);
+    await service.heartbeat(id,generation,['codex'],null,[start.session_id]);
+    expect((await service.view(id)).access.allowed).toBe(true);
+    const [opened]=await db.select().from(hosts).where(eq(hosts.id,id));
+    expect(new Date(opened!.insecureEnabledUntil!).getTime()).toBeGreaterThan(Date.now()+580_000);
+  });
+  it('rejects an offer accepted after the access deadline and keeps its claim unexecuted', async () => {
+    const db=handle!.db;
+    await db.update(hosts).set({secure:0,insecureEnabledUntil:new Date(Date.now()+60_000)}).where(eq(hosts.id,id));
+    await service.start(input(),'owner');const op=(await service.offer(id,generation))!;
+    await db.update(hosts).set({insecureEnabledUntil:new Date(Date.now()-1000)}).where(eq(hosts.id,id));
+    await expect(service.accept(id,op.operation_id,op.claim_id)).rejects.toThrow('work access');
+    const [retained]=await db.select().from(hostDaemonOperations).where(eq(hostDaemonOperations.id,op.operation_id));
+    expect(retained!.status).toBe('offered');
+  });
+
 });
