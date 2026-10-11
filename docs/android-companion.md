@@ -60,11 +60,18 @@ push. No Analytics SDK is included.
 
 ## On-the-move interface
 
+Version 0.4.11 omits ended conversations, including daemon sessions whose
+`remote_status` is `closed`, `failed` or `unknown`. Queued, running, stopping,
+idle and waiting daemon conversations remain listed, including while their host
+is temporarily unavailable. Closure clears old unread counters and reply alerts;
+the local ledger retains the closed state so delayed pushes cannot recreate them.
+This APK-only fix uses the existing server projection; no API rollout is required.
+
 **Now** shows live host requests and reachable agents needing a reply first, then
 other agents whose server-reported `relay_ready` is true. Offline, ended, idle
 without a receiver, and read-only sessions are omitted. Unread replies do not bring
-old sessions back into the list; a retained notification can still open read-only
-history. A working agent appears
+old sessions back into the list; closed sessions also stop contributing to
+notifications and badge counts. A working agent appears
 only if its receiver can still accept a message. Session name, host, working
 directory, and engine identify each conversation; **Review next** opens the next decision directly.
 Each row also shows the agent's latest short summary (one sentence, at most
@@ -262,7 +269,9 @@ advertised reply explicitly before allowing a read receipt.
 Only hashed pairing identity, session identifiers, read/latest cursors and counts are
 persisted locally, with bounded temporary identifiers for older cursorless pushes.
 No transcript or summary is stored. State survives process restarts, is isolated
-between pairings, and is pruned when authorized retention removes a conversation;
+between pairings, and is pruned when authorized retention removes a conversation.
+An authorized closure clears its count and pending alerts without advancing the
+read cursor, and ignores delayed reply pushes while the session remains closed;
 sign-out or revocation clears it. In-flight snapshots cannot erase newer pushes.
 Transcript permission loss hides the unread overview and removes reply badges.
 

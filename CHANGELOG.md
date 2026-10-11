@@ -1,5 +1,7 @@
 # 2026-10-11
 
+- Android 0.4.11 hides closed, failed and unknown daemon conversations from Chats. Ended conversations clear their unread counters and reply notifications; delayed pushes cannot restore those stale badges. Waiting conversations and unread replies during temporary connection loss remain available.
+
 - Wrapper 0.9.51 defaults permanent daemon services and remote starts to the service user's home when no working directory is specified. Explicit request paths override configured defaults; native registration retains the resolved home for continuation. WebUI fields describe the empty default.
 - Wrapper 0.9.50 adds configurable local session housekeeping for Codex, Claude and Grok: fleet defaults and host overrides, dry-run/status/pins, 30-day retention and a 5-GiB per-engine/user budget with a 7-day minimum age. Idle maintenance removes transcript bundles and associated history/search indexes, while preserving active, pinned, queued, goal and fleet-resumable sessions. Durable journals and launch fences make interrupted cleanup recoverable.
 

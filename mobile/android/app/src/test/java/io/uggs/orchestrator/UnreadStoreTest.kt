@@ -4,6 +4,31 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class UnreadStoreTest {
+    @Test fun closureClearsOldReplyBadgesAndRejectsDelayedPushesWithoutInventingAReadReceipt() {
+        val state = ReplyUnreadLedger()
+        state.observe(mapOf("a" to 10L), counts = mapOf("a" to 1))
+        state.read("a", 10)
+        state.push("a", 20, "new-reply")
+        state.push("a", null, "legacy-push")
+        state.observe(mapOf("a" to 20L), counts = mapOf("a" to 1), closedIds = setOf("a"))
+        val restored = ReplyUnreadLedger(state.json())
+        assertTrue(restored.unreadIds().isEmpty())
+        assertEquals(0, restored.unreadReplyCount("a"))
+        assertEquals(mapOf("a" to 10L), restored.readCursors())
+        assertFalse(restored.push("a", 20, "delayed-reply"))
+        assertFalse(restored.push("a", null, "delayed-legacy"))
+        restored.observe(mapOf("a" to 20L), pruneMissing = false, counts = mapOf("a" to 1))
+        assertTrue(restored.unreadIds().isEmpty())
+    }
+    @Test fun staleClosureCannotEraseANewerPush() {
+        val state = ReplyUnreadLedger()
+        state.observe(mapOf("a" to 10L), counts = mapOf("a" to 1))
+        state.push("a", 20, "new-reply")
+        state.observe(mapOf("a" to 10L), pruneMissing = false, counts = mapOf("a" to 1), closedIds = setOf("a"))
+        assertEquals(2, state.unreadReplyCount("a"))
+        state.observe(mapOf("a" to 20L), counts = mapOf("a" to 2), closedIds = setOf("a"))
+        assertTrue(state.unreadIds().isEmpty())
+    }
     @Test fun authoritativeCountsAreRepliesNotGlobalCursorDistance() {
         val state = ReplyUnreadLedger()
         state.observe(mapOf("a" to 900L, "b" to 1200L), counts = mapOf("a" to 2, "b" to 1))

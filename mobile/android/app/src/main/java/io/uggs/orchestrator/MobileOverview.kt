@@ -5,7 +5,13 @@ import java.time.Instant
 
 /** Use the server's receiver readiness, never a session's historical status. */
 fun isReachable(agent: JSONObject): Boolean = agent.optBoolean("relay_ready", false) &&
-    !agent.optBoolean("read_only", false) && agent.optString("presence") !in setOf("ended", "offline")
+    !agent.optBoolean("read_only", false) && !isClosedAgent(agent) && agent.optString("presence") != "offline"
+
+fun isClosedAgent(agent: JSONObject): Boolean = agent.optString("presence") == "ended" ||
+    (agent.optBoolean("daemon_session") && agent.optString("remote_status") in setOf("closed", "failed", "unknown"))
+
+fun isOverviewAgent(agent: JSONObject): Boolean = !isClosedAgent(agent) &&
+    (agent.optBoolean("daemon_session") || isReachable(agent))
 
 fun needsReply(agent: JSONObject) = agent.optJSONObject("pending_prompt") != null || agent.optJSONObject("attention") != null
 
