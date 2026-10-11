@@ -15,6 +15,8 @@ export interface ReceiverState {
   heartbeat_at: string;
   failure: string | null;
   portal_closed?: boolean;
+  /** Negotiated once per connection; replaying registration preserves it. */
+  activity_v1?: boolean;
   probes: Partial<Record<ReceiverSource, ReceiverSourceState>>;
 }
 export const RECEIVER_FRESH_MS = 45_000;

@@ -58,6 +58,7 @@ class MainActivity : ComponentActivity() {
     LaunchedEffect(Unit) { while (true) { clock = System.currentTimeMillis(); kotlinx.coroutines.delay(1000) } }
     val fresh = model.fresh()
     val agents = model.overviewAgents()
+    val activityClock = remember(clock, model.agents) { model.activityNow() }
     val requests = if (fresh) model.approvals.filter { liveApproval(it, clock) } else emptyList()
     val needsYou = if (fresh && model.can("agent_portal.manage")) agents.filter { needsReply(it) && (hasUrgentNotice(it) || isReachable(it)) } else emptyList()
     val total = requests.size + needsYou.size
@@ -85,7 +86,10 @@ class MainActivity : ComponentActivity() {
                             color = if (model.selected == null && model.connection != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onBackground,
                             style = MaterialTheme.typography.titleLarge)
                     }
-                    if (model.selected != null) HostBadge(current)
+                    if (model.selected != null) {
+                        HostBadge(current)
+                        current?.let { Text(activityDetail(it, activityClock), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                    }
                     if (model.connection != null && !fresh) {
                         Text(if (model.connecting) "Connecting…" else "Reconnecting…", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
@@ -117,7 +121,7 @@ class MainActivity : ComponentActivity() {
                 model.selected != null -> ChatScreen(model, current, fresh)
                 else -> overviewState.SaveableStateProvider(model.connection!!.deviceId) {
                     if (homeTab == "hosts" && model.can("admin.read")) HostsScreen(model, fresh)
-                    else NowScreen(model, agents, requests, fresh, onReview = { review = it })
+                    else NowScreen(model, agents, requests, fresh, activityClock, onReview = { review = it })
                 }
             }
         }

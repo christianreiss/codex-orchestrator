@@ -476,3 +476,23 @@ test('switching conversations pauses queued uploads and keeps drafts with their 
     expect(creates).toBe(1);
   } finally { release(); }
 });
+
+test("native activity changes labels without changing receiver send permission", async ({ page }) => {
+  const state = await fixtures(page);
+  state.sessions[0].activity = { state: "working", wait_reason: null, source: "codex-thread", changed_at: new Date().toISOString(), expires_at: new Date(Date.now() + 45_000).toISOString() };
+  await open(page);
+  await expect(page.locator(`#client-${CODEX}`)).toContainText("Working");
+  await page.locator(`#client-${CODEX}`).click();
+  await page.getByLabel("Message this agent").fill("Next instruction");
+  await expect(page.getByRole("button", { name: "Send", exact: true })).toBeEnabled();
+  for (const [activity, label] of [["idle", "Idle"], ["waiting", "Waiting for you"], ["unknown", "Unknown"]] as const) {
+    state.sessions[0].activity = { ...state.sessions[0].activity!, state: activity, wait_reason: activity === "waiting" ? "approval" : null };
+    await page.getByRole("button", { name: "Refresh clients" }).click();
+    await expect(page.locator(`#client-${CODEX}`)).toContainText(label);
+    await expect(page.getByRole("button", { name: "Send", exact: true })).toBeEnabled();
+  }
+  state.sessions[0].activity = { ...state.sessions[0].activity!, state: "working", expires_at: new Date(Date.now() - 1000).toISOString() };
+  await page.getByRole("button", { name: "Refresh clients" }).click();
+  await expect(page.locator(`#client-${CODEX}`)).toContainText("Unknown");
+  await page.screenshot({path: "/tmp/cxx-native-activity-web.png", fullPage: true});
+});

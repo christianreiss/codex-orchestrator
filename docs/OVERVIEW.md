@@ -991,3 +991,5 @@ managed guidance; Active Clients links both launches. See [reboot/resume](reboot
 System Spawn is optional new-host provisioning through server MCP, restricted to active VIP source hosts. Agents receive setup material and install it over SSH; optional Linux/systemd daemons may be permanent or timed. Configure under Policies → Agent behavior; see [the API contract](interface-api.md#system-spawn-new-system-provisioning).
 
 Agent chat supports explicit Needs you severity, reply buttons/text, and files/media in both directions; see [Agent chat](agent-chat.md). The isolated local media worker is part of the Compose stack.
+
+Native chat activity: cxx 0.9.60 observes Codex/Grok native status and bounded Claude hook evidence. API migration 0060 persists the latest fenced observation; WebUI and Android 0.4.16 display Working, Idle, Waiting for you or Unknown independently of connection readiness. Unknown includes expired/unsupported evidence; see `interface-api.md` and the engine interfaces.

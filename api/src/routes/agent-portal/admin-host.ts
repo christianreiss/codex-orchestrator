@@ -1,3 +1,4 @@
+import { activityInputSchema } from '../../services/agent-activity.js';
 import { taskResultSchema } from '../../services/agent-messaging/task-execution.js';
 import { workspaceInputSchema } from '../../services/agent-messaging/workspace.js';
 import { RebootHandoffs } from '../../services/reboot-handoffs.js';
@@ -189,6 +190,10 @@ export async function registerAgentPortalAdminHostRoutes(
       ...(messagingResult.address ? { agent_address: messagingResult.address, name_status: messagingResult.name_status } : {}),
     };
   });
+
+  app.post('/host/agent-sessions/:id/activity', async (req) =>
+    portal.reportActivity(stringParam(req.params, 'id'), requireBridgeToken(req), activityInputSchema.parse(req.body)),
+  );
 
   app.post('/host/agent-sessions/:id/heartbeat', async (req) => {
     const id = stringParam(req.params, 'id');

@@ -77,6 +77,9 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
     private val pendingScopes = mutableSetOf<String>()
     private var eventsLoaded = false
     private val presenceMutex = Mutex()
+    private var activityServerAt = 0L
+    private var activitySnapshotAt = 0L
+    fun activityNow(): Long = if (activityServerAt > 0) activityServerAt + (SystemClock.elapsedRealtime() - activitySnapshotAt).coerceAtLeast(0) else System.currentTimeMillis()
     private var reconnect: Job? = null
     private var pendingOpen: String? = null
     private var permissionsKnown = false
@@ -259,7 +262,11 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
             approvals = requests?.getJSONArray("requests")?.objects()?.filter { it.optBoolean("live") } ?: emptyList()
             defaultMinutes = requests?.optInt("default_duration_minutes", 480) ?: 480
         }
-        if (loadAgents) agents = snapshot?.getJSONArray("agents")?.objects() ?: emptyList()
+        if (loadAgents) {
+            agents = snapshot?.getJSONArray("agents")?.objects() ?: emptyList()
+            activityServerAt = runCatching { java.time.Instant.parse(snapshot?.optString("generated_at")).toEpochMilli() }.getOrDefault(System.currentTimeMillis())
+            activitySnapshotAt = SystemClock.elapsedRealtime()
+        }
         if (loadAgents && snapshot != null && "agent_portal.reveal_transcript" in caps && !portalDisabled) {
             if (!unreadStore.observeReplies(agents, unreadRevision)) pendingScopes.add("agents")
         }
