@@ -18,6 +18,11 @@ func Root(engine string) (string, error) {
 		return "", errors.New("unknown housekeeping engine")
 	}
 	root := os.Getenv(env)
+	// Managed Claude deliberately strips CLAUDE_CONFIG_DIR before launch:
+	// credentials and native session storage stay in the default ~/.claude.
+	if engine == "claude" {
+		root = ""
+	}
 	if root == "" {
 		root = filepath.Join(home, "."+engine)
 	}

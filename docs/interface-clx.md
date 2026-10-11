@@ -1534,6 +1534,8 @@ kept alive merely because the daemon is online.
 
 ## Session housekeeping
 
+Managed Claude uses `~/.claude` for both native launches and housekeeping. An inherited `CLAUDE_CONFIG_DIR` does not redirect either path; cxx strips this foreign-account selector before starting Claude.
+
 `clx housekeeping status`, `clx housekeeping run --dry-run`, and `clx housekeeping run` inspect or remove local native sessions using the centrally signed/current effective policy. `--json` returns structured results; `--engine` selects an engine when using `cxx`. `clx housekeeping pin UUID` and `unpin UUID` manage local protection. Automatic upkeep uses the existing cxx coordinator, at most daily after success; active engines retry on later maintenance ticks.
 
 Default: enabled, 30 days inactivity, 5 GiB session files per engine/local user, with budget removal only after 7 days. Parent/subagent bundles share their newest activity and protection. Native pins, open goals/queued work, incomplete metadata and fleet resume/wake/recovery bindings are retained. Unknown database versions and unavailable protection skip deletion. Supported current native layouts are Codex state_5/thread_history_1/goals_1/queue_1/logs_2/memories_1 SQLite databases, Claude project transcripts/subagent artifacts/session indexes, and Grok native session directories plus external-content FTS search. General logs, provider auth/config and project memory files are not removed.
