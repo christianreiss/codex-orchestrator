@@ -392,6 +392,22 @@ export class RebootHandoffs {
               inArray(agentBusMessages.status, ['accepted', 'reboot_hold']),
             ),
           );
+      if (r.portalMessageIds.length)
+        await tx
+          .update(agentMessages)
+          .set({
+            status: 'dead',
+            lastError: 'Reboot continuation failed before binding',
+            leaseOwner: null,
+            leaseUntil: null,
+            updatedAt: now,
+          })
+          .where(
+            and(
+              inArray(agentMessages.messageId, r.portalMessageIds),
+              eq(agentMessages.status, 'reboot_hold'),
+            ),
+          );
       const [remote] = await tx
         .select()
         .from(hostDaemonPortalBindings)

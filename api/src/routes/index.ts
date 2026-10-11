@@ -1,3 +1,4 @@
+import { registerHostSpawnRoutes } from './host-spawn.js';
 import { registerHousekeepingRoutes } from './session-housekeeping.js';
 import { registerAdminChattyRoutes } from './admin/chatty/index.js';
 import { registerHostDaemonRoutes } from './host-daemon.js';
@@ -54,6 +55,7 @@ export async function registerAllRoutes(app: FastifyInstance, ctx: RouteContext)
   await registerHealthRoutes(app, ctx);
   await registerHousekeepingRoutes(app, ctx);
   await registerHostDaemonRoutes(app, ctx);
+  await registerHostSpawnRoutes(app, ctx);
   await registerCompanionRoutes(app, ctx);
 
   // Host-facing wrapper + auth surface

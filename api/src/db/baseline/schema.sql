@@ -1833,3 +1833,22 @@ CREATE TABLE `agent_reboot_handoffs` (
 CREATE INDEX `idx_reboot_native` ON `agent_reboot_handoffs` (`host_id`,`engine`,`native_session_id`);
 CREATE INDEX `idx_reboot_old_session` ON `agent_reboot_handoffs` (`old_session_id`);
 CREATE INDEX `idx_reboot_new_session` ON `agent_reboot_handoffs` (`new_session_id`);
+CREATE TABLE `host_spawns` (
+	`id` char(36) NOT NULL,
+	`source_host_id` bigint unsigned NOT NULL,
+	`target_host_id` bigint unsigned NOT NULL,
+	`client_message_id` char(36) NOT NULL,
+	`request_hash` char(64) NOT NULL,
+	`request` json NOT NULL,
+	`installer_enc` longtext NOT NULL,
+	`installer_revision` int NOT NULL DEFAULT 0,
+	`renewal_receipts` json NOT NULL,
+	`renewal_client_message_id` char(36),
+	`setup_completed_at` varchar(100),
+	`created_at` varchar(100) NOT NULL,
+	`updated_at` varchar(100) NOT NULL,
+	CONSTRAINT `host_spawns_id` PRIMARY KEY(`id`),
+	CONSTRAINT `uq_host_spawn_client` UNIQUE(`source_host_id`,`client_message_id`),
+	CONSTRAINT `uq_host_spawn_target` UNIQUE(`target_host_id`)
+);
+ALTER TABLE `host_spawns` ADD CONSTRAINT `host_spawns_target_host_id_hosts_id_fk` FOREIGN KEY (`target_host_id`) REFERENCES `hosts`(`id`) ON DELETE cascade ON UPDATE no action;

@@ -6,9 +6,13 @@
   import PolicyCard from "./PolicyCard.svelte";
   import { autoUpdateQuery, autoUpdateMutation, reverseDnsQuery, reverseDnsMutation,
     apiKeysInChatQuery, apiKeysInChatMutation, remoteExecQuery, remoteExecMutation,
-    insecureApprovalQuery, insecureApprovalMutation } from "$lib/api/settings";
+    insecureApprovalQuery, insecureApprovalMutation, hostSpawnQuery, hostSpawnMutation } from "$lib/api/settings";
 
   const policies = {
+    "host-spawn": { query: hostSpawnQuery, mutation: hostSpawnMutation, title: "System Spawn",
+      label: "Allow agents to provision new systems", scope: "VIP source hosts only · Codex, Claude and Grok",
+      description: "Agents receive one-time installers through MCP and install them on new systems over SSH.",
+      details: "Off by default. Only active VIP hosts may provision. New hosts are secure by default and never inherit VIP. Optional daemons run permanently or for a fixed duration, then finish active work and stop. Turning this off blocks further setup material; installed hosts remain." },
     "auto-update": { query: autoUpdateQuery, mutation: autoUpdateMutation, title: "Automatic updates",
       label: "Enable automatic updates", scope: "Fleet default · host overrides apply",
       description: "Keep managed hosts on the fleet’s pinned version in the background.",

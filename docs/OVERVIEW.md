@@ -703,6 +703,10 @@ Fleet → Accounts manages any number of ChatGPT and Claude subscriptions indepe
 
 ## Android companion
 
+Android 0.4.11 hides closed daemon chats and clears unread counters and reply
+notifications for ended conversations, including delayed push replays. Waiting
+daemon conversations remain available. This update requires only the APK.
+
 Android 0.4.10 adds a Hosts tab for searchable remote-start hosts, free slots and available Codex/Claude/Grok engines. Contact-only is the default; an optional task starts work immediately. Starts and subsequent native resumptions share one durable Portal conversation and device follow. A native Android 8+ companion provides QR pairing from Account → Android devices, agent text conversations, host-access approval review, and FCM notifications. Version 0.3.0 keeps the overview and open chat current through one foreground WebSocket, with cursor-based catch-up after reconnect. Version 0.4.2 adds persistent unread reply indicators, read-only access to unread retained conversations, and a silent unread-conversation badge on supported launchers; replies clear only after their actual text is visible at the latest position. Agent-authored summaries (one sentence, at most 160 characters) appear on cards and in their corresponding push notifications; full answers remain in chat. It uses revocable device credentials bound to existing administrator permissions and the existing portal/host services. Version 0.4.6 promotes the native session name above host and working directory; wrapper 0.9.32 forwards naming metadata through encrypted events, gated by transcript permission, and agents set unknown names through the atomic `agent_session_name` tool. See [setup and release instructions](android-companion.md).
 
 ## Wake / Cron
@@ -958,3 +962,4 @@ Claude or Grok session once. One root-owned cron entry and a durable consumed
 journal prevent reboot loops. Accepted Peer, Wake and Portal instructions retain
 their identities through the handoff. Agents receive the usage contract through
 managed guidance; Active Clients links both launches. See [reboot/resume](reboot-resume.md).
+System Spawn is optional new-host provisioning through server MCP, restricted to active VIP source hosts. Agents receive setup material and install it over SSH; optional Linux/systemd daemons may be permanent or timed. Configure under Policies → Agent behavior; see [the API contract](interface-api.md#system-spawn-new-system-provisioning).

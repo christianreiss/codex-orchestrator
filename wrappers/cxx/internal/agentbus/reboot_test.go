@@ -11,6 +11,17 @@ import (
 	"testing"
 )
 
+func TestRebootContinuationRequiresOriginalWorkReceipts(t *testing.T) {
+	for _, text := range []string{"agent_task_result", "agent_receiver_reply", "original message ID", "does not store these receipts"} {
+		if !strings.Contains(rebootOutputInstruction, text) {
+			t.Fatalf("resume guidance lost receipt requirement %q", text)
+		}
+	}
+	if strings.Contains(rebootOutputInstruction, "Do not call agent_reply") {
+		t.Fatal("ordinary background-worker guidance suppresses required transferred receipts")
+	}
+}
+
 func TestRebootRestorePreservesClaimsWithoutReinjecting(t *testing.T) {
 	t.Setenv("CXX_REBOOT_REQUEST_ID", "request")
 	calls := 0

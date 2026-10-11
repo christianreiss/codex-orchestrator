@@ -1,3 +1,4 @@
+import type { HostSpawnService } from './host-spawn.js';
 import type { AgentMessagingService } from './agent-messaging.js';
 /**
  * MCP tool registry + dispatcher.
@@ -37,6 +38,7 @@ export interface ToolDefinition {
 }
 
 export interface ToolDeps {
+  hostSpawn?: HostSpawnService;
   schedules?: SchedulesService;
   taskMessaging?: AgentMessagingService;
   memories: McpMemoriesService;
@@ -404,6 +406,26 @@ interface RegistrationInput {
 
 function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
   const inputs: RegistrationInput[] = [];
+
+  if (deps.hostSpawn) {
+    const service = deps.hostSpawn;
+    inputs.push({ definition: {
+      name: 'host_spawn_prepare',
+      description: 'Register a NEW system and return one-time setup material for installation over SSH by the calling agent. Requires System Spawn enabled and an active VIP source host. Never rotates existing hosts or starts an agent. Keep client_message_id for retries.',
+      inputSchema: { type: 'object', additionalProperties: false, properties: {
+        fqdn: { type: 'string' }, engines: { type: 'array', minItems: 1, items: { type: 'string', enum: ['codex', 'claude', 'grok'] } },
+        secure: { type: 'boolean', default: true }, client_message_id: { type: 'string' },
+        daemon: { type: 'object', properties: { mode: { type: 'string', enum: ['none', 'permanent', 'timed'] }, username: { type: 'string' }, default_cwd: { type: 'string' }, duration_minutes: { type: 'integer', minimum: 1, maximum: 10080 } }, required: ['mode'] },
+      }, required: ['fqdn', 'engines', 'client_message_id'] },
+    }, handler: (args, host) => service.prepare(args, host.id) });
+    inputs.push({ definition: {
+      name: 'host_spawn_status',
+      description: 'Read your system provisioning status and setup material. Installer download is not installation proof. To renew a consumed or expired installer set renew_installer and supply a stable client_message_id. Requires System Spawn enabled and an active VIP source host.',
+      inputSchema: { type: 'object', additionalProperties: false, properties: {
+        operation_id: { type: 'string' }, renew_installer: { type: 'boolean' }, client_message_id: { type: 'string' },
+      }, required: ['operation_id'] },
+    }, handler: (args, host) => service.status(args, host.id) });
+  }
 
   // Host-capability tools (memory_*, project_*, skill_*).
   inputs.push({

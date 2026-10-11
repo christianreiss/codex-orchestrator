@@ -6,6 +6,8 @@ import {
 import { api } from "./client";
 export interface DaemonSettings {
   enabled: boolean;
+  lifetime_minutes?: number | null;
+  expires_at?: string | null;
   username: string;
   default_cwd: string;
   max_parallel: number;
@@ -27,6 +29,8 @@ export interface RemoteSession {
   }[];
 }
 export interface DaemonHost extends DaemonSettings {
+  spawn?: { sourceHostId: number; operationId: string } | null;
+  deadline_expired?: boolean;
   host_id: number;
   fqdn?: string;
   access?: { allowed: boolean; reason: string | null; secure: boolean; enabled_until: string | null };

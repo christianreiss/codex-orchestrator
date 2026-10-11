@@ -598,13 +598,41 @@ class CompanionUiTest {
             changed("agents")
             compose.waitUntil(5000) { compose.onAllNodesWithTag("agent:$session").fetchSemanticsNodes().isEmpty() }
             compose.onNodeWithText("Conversation history · read only").assertDoesNotExist()
-            Assert.assertEquals("Hidden history stays unread without adding a session row", setOf(session), unreadIds())
-            Assert.assertEquals(ledger, preferences.getString("state", null))
+            if (state == "offline") {
+                Assert.assertEquals("Temporary network loss preserves unread replies", setOf(session), unreadIds())
+                Assert.assertEquals(ledger, preferences.getString("state", null))
+            } else {
+                waitForUnread(emptySet())
+            }
             reachable.set(true); readOnly.set(false); presence.set("listening")
             changed("agents")
             waitForUnreadBadge(1)
         }
         screenshot("compact-unread-session")
+    }
+    @Test fun closedDaemonChatsClearBadgesAndLatePushesWhileWaitingChatsRemain() {
+        compose.waitUntil(15000) { compose.onAllNodesWithTag("agent:$session").fetchSemanticsNodes().isNotEmpty() }
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val waiting = agentFixture(remoteId, "Waiting remote chat", "jadon.eulie.de", "Ready.", "codex", 10, 1)
+            .put("daemon_session", true).put("remote_status", "waiting")
+        extraAgents.add(waiting)
+        changed("agents")
+        compose.waitUntil(5000) { compose.onAllNodesWithTag("agent:$remoteId").fetchSemanticsNodes().isNotEmpty() }
+        waitForUnread(setOf(session, remoteId))
+        val push = mapOf("device_id" to "test-device", "notification_id" to java.util.UUID.randomUUID().toString(),
+            "kind" to "reply", "target_id" to remoteId, "event_cursor" to "11", "summary" to "Old greeting")
+        showCompanionNotification(context, push)
+        val manager = context.getSystemService(NotificationManager::class.java)
+        compose.waitUntil(5000) { manager.activeNotifications.any { it.notification.extras.getString(NOTIFICATION_TARGET) == remoteId } }
+        for (status in listOf("closed", "failed", "unknown")) {
+            waiting.put("remote_status", status).put("presence", "ended").put("relay_ready", false)
+            changed("agents")
+            compose.waitUntil(5000) { compose.onAllNodesWithTag("agent:$remoteId").fetchSemanticsNodes().isEmpty() }
+            waitForUnread(setOf(session))
+            showCompanionNotification(context, push + ("notification_id" to java.util.UUID.randomUUID().toString()))
+            Assert.assertEquals(setOf(session), unreadIds())
+            compose.waitUntil(5000) { manager.activeNotifications.none { it.notification.extras.getString(NOTIFICATION_TARGET) == remoteId } }
+        }
     }
     @Test fun secondPushUpdatesTheNumberWithoutChangingTheUnreadSessionSet() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext

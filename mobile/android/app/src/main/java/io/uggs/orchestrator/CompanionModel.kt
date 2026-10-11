@@ -87,7 +87,7 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
     fun canReadSession(id: String) = connection != null && portalAvailable &&
         can("agent_portal.read") && can("agent_portal.reveal_transcript") && agents.any { it.optString("id") == id }
     fun overviewAgents(): List<JSONObject> = if (!can("agent_portal.read") || !can("agent_portal.reveal_transcript") || !portalAvailable) emptyList() else
-        agents.filter { it.optBoolean("daemon_session") || (isReachable(it) && (can("agent_portal.manage") || it.optString("id") in unreadSessions)) }.sortedByDescending { it.optString("last_event_at") }
+        agents.filter { isOverviewAgent(it) && (it.optBoolean("daemon_session") || can("agent_portal.manage") || it.optString("id") in unreadSessions) }.sortedByDescending { it.optString("last_event_at") }
     fun canSpawn() = fresh() && portalAvailable && can("agent_messaging.manage") && can("agent_portal.manage") && can("agent_portal.read") && can("agent_portal.reveal_transcript")
     fun canSendSession(id: String?) = id != null && reachable().any { it.optString("id") == id }
     private fun refreshUnreadState() {

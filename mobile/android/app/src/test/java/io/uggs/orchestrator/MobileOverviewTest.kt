@@ -6,6 +6,19 @@ import org.junit.Test
 
 class MobileOverviewTest {
     private fun agent(json: String) = JSONObject(json)
+    @Test fun overviewExcludesClosedDaemonChatsButKeepsStartsAndWaitingConversations() {
+        for (status in listOf("queued", "running", "stopping", "idle", "waiting")) {
+            assertTrue(isOverviewAgent(agent("""{"daemon_session":true,"remote_status":"$status","relay_ready":false}""")))
+        }
+        for (status in listOf("closed", "failed", "unknown")) {
+            val row = agent("""{"daemon_session":true,"remote_status":"$status","relay_ready":true}""")
+            assertFalse(isOverviewAgent(row))
+            assertFalse(isReachable(row))
+        }
+        assertFalse(isOverviewAgent(agent("""{"daemon_session":true,"presence":"ended"}""")))
+        assertFalse(isOverviewAgent(agent("""{"presence":"offline","relay_ready":false}""")))
+        assertTrue(isOverviewAgent(agent("""{"presence":"listening","relay_ready":true}""")))
+    }
     @Test fun launchNamesIdentifyChatsWithAndWithoutTaskTitles() {
         val named = agent("""{"id":"11111111-aaaa","launch_name":"Claudia","session_name":"Release review","task_title":"Release review"}""")
         assertEquals("(Claudia) Release review", agentTitle(named))

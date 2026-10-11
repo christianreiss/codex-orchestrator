@@ -43,6 +43,7 @@ export interface ManagedFeatureState {
 
 export interface ManagedAgentFeatureContext {
   engine: Engine;
+  hostSpawn?: ManagedFeatureState;
   skills: ManagedFeatureState;
   memory: ManagedFeatureState;
   projects: ManagedFeatureState;
@@ -80,6 +81,7 @@ export interface ManagedAgentFeatureSections {
   browseros: ManagedAgentFeatureSection;
   secrets: ManagedAgentFeatureSection;
   api_keys_in_chat: ManagedAgentFeatureSection;
+  host_spawn?: ManagedAgentFeatureSection;
   agent_messaging: ManagedAgentFeatureSection;
   git_director: ManagedAgentFeatureSection;
   file_transfer: ManagedAgentFeatureSection;
@@ -120,6 +122,7 @@ const FEATURE_SECTION_LABELS: Partial<Record<keyof ManagedAgentFeatureSections, 
   api_keys_in_chat: 'API keys in chat (fleet setting)',
   // A fleet setting, not a host capability: there is deliberately no per-host
   // Agent Messaging switch, so the console's jump-to-setting link is correct.
+  host_spawn: 'System Spawn (VIP hosts)',
   agent_messaging: 'Agent Messaging (fleet setting)',
   // Also a fleet setting rather than a per-host capability: one switch in the
   // console turns the Director on for every host, so the jump-to-setting link
@@ -726,6 +729,22 @@ export function renderManagedAgentFeatures(
   const browseros = browserOsSection(context);
   const secrets = secretsSection(context);
   const apiKeysInChat = apiKeysInChatSection(context);
+  const hostSpawn = context.hostSpawn?.enabled ? present(context.hostSpawn, `## System Spawn
+
+On an active VIP source host, use host_spawn_prepare with fqdn, explicit engines,
+secure (default true), a stable UUID client_message_id and optional daemon configuration.
+Daemon modes are none (default), permanent and timed; permanent/timed require username
+and an absolute default_cwd, timed also requires duration_minutes (1–10080).
+The server registers a new non-VIP host and returns a one-time installer and setup_steps.
+You install it on the target over SSH; the server never connects over SSH or starts work.
+Run setup under the intended service user; the user and directory must exist.
+Use host_spawn_status with operation_id to verify the installer report and daemon connection.
+Installer download is not installation proof. Renew only with renew_installer and a stable
+client_message_id; never rotate an existing host. Start a task separately with agent_spawn.
+Timed daemon deadlines begin at first connection: no new work after expiry, accepted work
+and results drain before the service exits. Reboots and reconnects never extend the deadline.
+The operator controls System Spawn under Policies; off blocks new setup material.
+`) : null;
   const agentMessaging = agentMessagingSection(context);
   const gitDirector = gitDirectorSection(context);
   const fileTransfer = fileTransferSection(context);
@@ -767,6 +786,7 @@ export function renderManagedAgentFeatures(
     browseros: browserOsMetadata,
     secrets: secrets?.metadata ?? absent(context.secrets),
     api_keys_in_chat: apiKeysInChat?.metadata ?? absent(context.apiKeysInChat),
+    host_spawn: hostSpawn?.metadata ?? absent(context.hostSpawn ?? { enabled: false, reason: 'disabled' }),
     agent_messaging: agentMessaging?.metadata ?? absent(context.agentMessaging),
     git_director: gitDirector?.metadata ?? absent(context.gitDirector),
     file_transfer: fileTransfer?.metadata ?? absent(context.fileTransfer),
@@ -785,6 +805,7 @@ export function renderManagedAgentFeatures(
     { key: 'secrets', section: secrets },
     { key: 'api_keys_in_chat', section: apiKeysInChat },
     { key: 'agent_messaging', section: agentMessaging },
+    ...(hostSpawn ? [{ key: 'host_spawn' as const, section: hostSpawn }] : []),
     { key: 'git_director', section: gitDirector },
     { key: 'file_transfer', section: fileTransfer },
     { key: 'remote_exec', section: remoteExec },

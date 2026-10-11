@@ -635,3 +635,15 @@ export function grokVersionMutation(opts: MutationOpts<ClaudeVersionLockValue, s
   const qc = useQueryClient();
   return createMutation<ClaudeVersionLockValue, Error, string>({ mutationFn: (selection) => api.post<ClaudeVersionLockValue>("/admin/grok/version", { selection }), ...opts, onSettled: (...args) => { void qc.invalidateQueries({ queryKey: versionsCheckQueryKey }); opts.onSettled?.(...args); } });
 }
+
+export function hostSpawnQuery() {
+  return createQuery({ queryKey: ['settings', 'host-spawn'],
+    queryFn: () => api.get<{ enabled: boolean; vip_required: boolean }>('/admin/host-spawn/state') });
+}
+export function hostSpawnMutation(opts: MutationOpts<{ enabled: boolean; vip_required: boolean }, boolean> = {}) {
+  const client = useQueryClient();
+  return createMutation({ mutationFn: (enabled: boolean) =>
+    api.post<{ enabled: boolean; vip_required: boolean }>('/admin/host-spawn/state', { enabled }),
+    ...opts,
+    onSettled: (...args) => { void client.invalidateQueries({ queryKey: ['settings', 'host-spawn'] }); opts.onSettled?.(...args); } });
+}

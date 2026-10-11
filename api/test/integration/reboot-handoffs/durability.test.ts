@@ -330,45 +330,72 @@ describe.skipIf(!handle)('planned reboot durable transfer', { timeout: 120000 },
         ?.activeHostId,
     ).toBeNull();
   });
+  it('marks held Portal work dead when the continuation cannot start', async () => {
+    const f = await fixture(),
+      messageId = randomUUID(),
+      now = new Date().toISOString();
+    await db
+      .insert(agentMessages)
+      .values({
+        messageId,
+        sessionId: f.input.sessionId,
+        kind: 'message',
+        clientMessageId: randomUUID(),
+        contentEnc: encrypt('portal task', keyring),
+        status: 'accepted',
+        nextAttemptAt: now,
+        upstreamId: messageId,
+        leaseOwner: randomUUID(),
+        createdAt: now,
+        updatedAt: now,
+      });
+    await db
+      .update(agentSessions)
+      .set({ activeTurnId: messageId })
+      .where(eq(agentSessions.id, f.input.sessionId));
+    await reboots.prepare(f.input.sessionId, f.input.bridgeToken, f.body);
+    await reboots.arm(f.input.sessionId, f.body.request_id);
+    await reboots.finish(f.host.id, f.body.request_id, true);
+    expect(
+      (await db.select().from(agentMessages).where(eq(agentMessages.messageId, messageId)))[0]?.status,
+    ).toBe('dead');
+    await expect(reboots.ready(f.host.id, f.body.request_id, randomUUID())).rejects.toThrow();
+  });
   for (const outcome of ['expired', 'finished'] as const)
     it(`preserves the remote logical session and resolves held operation as ${outcome}`, async () => {
       const f = await fixture(),
         now = new Date().toISOString(),
         logical = randomUUID(),
         operation = randomUUID();
-      await db
-        .insert(hostDaemonSessions)
-        .values({
-          id: logical,
-          hostId: f.host.id,
-          owner: 'test',
-          engine: f.input.engine,
-          username: f.input.username,
-          cwd: f.input.cwd,
-          title: 'Reboot test',
-          addressId: f.address.id,
-          sessionId: f.input.sessionId,
-          status: 'running',
-          lastActivityAt: now,
-          createdAt: now,
-        });
+      await db.insert(hostDaemonSessions).values({
+        id: logical,
+        hostId: f.host.id,
+        owner: 'test',
+        engine: f.input.engine,
+        username: f.input.username,
+        cwd: f.input.cwd,
+        title: 'Reboot test',
+        addressId: f.address.id,
+        sessionId: f.input.sessionId,
+        status: 'running',
+        lastActivityAt: now,
+        createdAt: now,
+      });
       await db
         .insert(hostDaemonPortalBindings)
         .values({ portalSessionId: f.input.sessionId, daemonSessionId: logical });
-      await db
-        .insert(hostDaemonOperations)
-        .values({
-          id: operation,
-          sessionId: logical,
-          hostId: f.host.id,
-          clientKey: randomUUID(),
-          requestHash: 'a'.repeat(64),
-          promptEnc: encrypt('task', keyring),
-          status: 'accepted',
-          claimId: randomUUID(),
-          createdAt: now,
-          updatedAt: now,
-        });
+      await db.insert(hostDaemonOperations).values({
+        id: operation,
+        sessionId: logical,
+        hostId: f.host.id,
+        clientKey: randomUUID(),
+        requestHash: 'a'.repeat(64),
+        promptEnc: encrypt('task', keyring),
+        status: 'accepted',
+        claimId: randomUUID(),
+        createdAt: now,
+        updatedAt: now,
+      });
       await reboots.prepare(f.input.sessionId, f.input.bridgeToken, f.body);
       await reboots.arm(f.input.sessionId, f.body.request_id);
       if (outcome === 'expired') {

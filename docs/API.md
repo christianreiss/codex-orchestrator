@@ -1069,3 +1069,9 @@ The boot worker uses host authentication for `POST /host/reboot-handoffs/ready`,
 `POST /host/reboot-handoffs/observe`, `POST /host/reboot-handoffs/disarm` and
 `POST /host/reboot-handoffs/finish`. See [the protocol](reboot-resume.md) for
 request fields, exact native-session binding and one-use execution semantics.
+## System Spawn
+
+`GET /admin/host-spawn/state` reads the global switch (off by default).
+`POST /admin/host-spawn/state` with `{enabled:boolean}` requires settings.manage.
+`POST /host/spawn/setup-complete` accepts the successful installer's authenticated target-host report.
+See [System Spawn](interface-api.md#system-spawn-new-system-provisioning) for VIP-only MCP provisioning, installer retries and timed daemon behavior.

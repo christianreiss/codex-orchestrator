@@ -142,6 +142,7 @@ interface QueryCase {
 }
 
 const QUERY_CASES: QueryCase[] = [
+  { name: 'hostSpawnQuery', build: () => asQuery(settings.hostSpawnQuery()), queryKey: ['settings', 'host-spawn'], method: 'GET', path: '/admin/host-spawn/state' },
   { name: "grokStateQuery", build: () => asQuery(settings.grokStateQuery()), queryKey: ["settings", "grok-state"], method: "GET", path: "/admin/grok/state" },
   { name: "grokSettingsQuery", build: () => asQuery(settings.grokSettingsQuery()), queryKey: ["settings", "grok-settings"], method: "GET", path: "/admin/grok/settings" },
   { name: "grokModelsQuery", build: () => asQuery(settings.grokModelsQuery()), queryKey: ["settings", "grok-models"], method: "GET", path: "/admin/grok/models" },
@@ -305,6 +306,8 @@ interface MutationCase {
 }
 
 const MUTATION_CASES: MutationCase[] = [
+  { name: 'hostSpawnMutation', build: (opts) => asMutation(settings.hostSpawnMutation(opts)), variables: true,
+    request: { method: 'POST', path: '/admin/host-spawn/state', body: { enabled: true } }, invalidates: [['settings', 'host-spawn']] },
   { name: "grokStateMutation", build: opts => asMutation(settings.grokStateMutation(opts)), variables: true,
     request: { method: "POST", path: "/admin/grok/state", body: { disabled: true } }, invalidates: [["settings", "grok-state"], ["keys", "grok", "state"]] },
   { name: "grokSettingsMutation", build: opts => asMutation(settings.grokSettingsMutation(opts)), variables: { default_model: "grok-4.6" },
@@ -632,6 +635,8 @@ describe("module surface", () => {
     "grokVersionMutation",
     "grokVersionsCheckMutation",
     "grokVersionsQuery",
+    "hostSpawnMutation",
+    "hostSpawnQuery",
     "insecureApprovalMutation",
     "insecureApprovalQuery",
     "insecureApprovalQueryKey",

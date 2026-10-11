@@ -1,3 +1,4 @@
+import { daemonAccepting } from './policy.js';
 import { and, eq } from 'drizzle-orm';
 import type { Database } from '../../db/client.js';
 import {
@@ -42,7 +43,7 @@ export async function renewDaemonWindow(
   now = Date.now(),
 ): Promise<boolean> {
   const age = now - Date.parse(runtime.heartbeat_at);
-  if (!settings.enabled || !runtime.connected || runtime.error || !Number.isFinite(age) || age < 0 || age >= 45_000) return false;
+  if (!daemonAccepting(settings) || !runtime.connected || runtime.error || !Number.isFinite(age) || age < 0 || age >= 45_000) return false;
   // Serializes with operator enable/disable and acceptance checks. Never reopen
   // an expired grant, and never undo a manual closure.
   const [host] = await db.select().from(hosts).where(eq(hosts.id, hostId)).for('update');

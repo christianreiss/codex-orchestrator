@@ -3,6 +3,8 @@ import { z } from 'zod';
 export const daemonSettingsSchema = z
   .object({
     enabled: z.boolean().default(false),
+    lifetime_minutes: z.number().int().min(1).max(10080).nullable().optional(),
+    expires_at: z.string().datetime().nullable().optional(),
     username: z
       .string()
       .regex(/^[a-z_][a-z0-9_-]*[$]?$/i)
@@ -83,3 +85,13 @@ export const daemonStartSchema = z
     client_message_id: z.string().uuid(),
   })
   .strict();
+
+/** Fixed deadline; reconnects and restarts never renew it. */
+export function daemonExpired(settings: Pick<DaemonSettings, 'expires_at'>, now = Date.now()): boolean {
+  if (!settings.expires_at) return false;
+  const deadline = Date.parse(settings.expires_at);
+  return !Number.isFinite(deadline) || deadline <= now;
+}
+export function daemonAccepting(settings: DaemonSettings): boolean {
+  return settings.enabled && !daemonExpired(settings);
+}

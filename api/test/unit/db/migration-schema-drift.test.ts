@@ -227,6 +227,7 @@ describe('migrations against the test baseline', () => {
       'companion_daemon_follows',
       'session_housekeeping_reservations',
       'agent_reboot_handoffs',
+      'host_spawns',
     ]);
     expect(additions.filter((a) => a.column !== undefined).map((a) => `${a.table}.${a.column}`)).toEqual([
       'auth_payloads.generation',

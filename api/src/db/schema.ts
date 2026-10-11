@@ -304,6 +304,23 @@ export const installTokens = mysqlTable(
   }),
 );
 
+export const hostSpawns = mysqlTable('host_spawns', {
+  id: char('id', { length: 36 }).primaryKey(),
+  sourceHostId: bigint('source_host_id', { mode: 'number', unsigned: true }).notNull(),
+  targetHostId: bigint('target_host_id', { mode: 'number', unsigned: true }).notNull().references(() => hosts.id, { onDelete: 'cascade' }),
+  clientMessageId: char('client_message_id', { length: 36 }).notNull(),
+  requestHash: char('request_hash', { length: 64 }).notNull(),
+  request: json('request').$type<import('zod').z.infer<typeof import('../services/host-spawn.js').hostSpawnSchema>>().notNull(),
+  installerEnc: longtext('installer_enc').notNull(),
+  installerRevision: int('installer_revision').notNull().default(0),
+  renewalReceipts: json('renewal_receipts').$type<Record<string, string>>().notNull(),
+  renewalClientMessageId: char('renewal_client_message_id', { length: 36 }),
+  setupCompletedAt: varchar('setup_completed_at', { length: 100 }),
+  createdAt: varchar('created_at', { length: 100 }).notNull(),
+  updatedAt: varchar('updated_at', { length: 100 }).notNull(),
+}, t => ({ client: uniqueIndex('uq_host_spawn_client').on(t.sourceHostId, t.clientMessageId),
+  target: uniqueIndex('uq_host_spawn_target').on(t.targetHostId) }));
+
 export const authSeedTokens = mysqlTable(
   'auth_seed_tokens',
   {

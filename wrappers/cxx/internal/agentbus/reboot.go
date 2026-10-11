@@ -453,7 +453,7 @@ func resumeAfterReboot(r rebootresume.Record, stdout, stderr io.Writer) error {
 	args := nativeArgs(r.Engine, r.NativeID)
 	prompt := "Planned host reboot completed. This one-use reboot request " + r.ID + " is consumed. Do not reboot or rearm again. Call agent_self to refresh your launch identity, then continue the SAME task from this checkpoint. Preserve original work message IDs and report their results explicitly.\n\n" + r.Continuation
 	ids, _ := json.Marshal(readiness["message_ids"])
-	prompt += "\nTransferred original work message IDs: " + string(ids) + "\n" + taskOutputInstruction
+	prompt += "\nTransferred original work message IDs: " + string(ids) + "\n" + rebootOutputInstruction
 	if r.Engine == "grok" {
 		f, err := os.CreateTemp("", "cxx-reboot-prompt-*.txt")
 		if err != nil {
@@ -518,6 +518,8 @@ func resumeAfterReboot(r rebootresume.Record, stdout, stderr io.Writer) error {
 	finishErr := rebootHostCall(finishCtx, r.Engine, "finish", body, nil)
 	return errors.Join(runErr, finishErr)
 }
+
+const rebootOutputInstruction = "For each transferred Peer or Wake task, store its explicit result with agent_task_result or agent_reply using the original message ID. Answer a transferred Portal instruction with agent_receiver_reply and its original message ID. The reboot supervisor does not store these receipts for you. Then report the overall continuation outcome as JSON: {\"content\":\"human response\",\"task_result\":{\"status\":\"succeeded|failed|blocked|unknown\",\"summary\":\"plain result (maximum 4096 UTF-8 bytes)\"}}. A successful reboot alone is not proof that the original task succeeded.\n"
 
 func rebootHostCall(ctx context.Context, engine, operation string, body any, out any) error {
 	configs, cfg, err := loadMessagingConfigs()

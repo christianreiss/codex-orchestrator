@@ -2010,3 +2010,60 @@ Active Clients session rows include nullable `reboot` with `request_id`, `state`
 it blocks later FIFO delivery and never falls into normal lease-loss redelivery.
 Unclaimed handoffs expire after 24 hours. Finished transport without an explicit
 work result remains unknown. See [reboot-resume.md](reboot-resume.md).
+## System Spawn (new-system provisioning)
+
+Off by default: `versions.host_spawn_enabled`. The operator enables it under
+**Policies → Agent behavior → System Spawn**. Only authenticated active VIP
+source hosts may use it. New targets are non-VIP; source privilege is never inherited.
+The server prepares installation material; the calling agent performs SSH itself.
+No SSH credentials are sent to the server and provisioning never starts an agent task.
+
+`host_spawn_prepare({fqdn, engines, secure?, client_message_id, daemon?})` creates
+only new hosts. Engines must be a nonempty subset of `codex|claude|grok` and obey
+fleet master switches. `secure` defaults to true; false uses the existing initial
+30-minute insecure window. Known FQDNs fail without rotation or modification.
+A stable UUID and identical normalized input replay the same operation. Different
+input with the same UUID conflicts. Host, installer, daemon settings and operation
+are committed together; sensitive material is secretbox-encrypted at rest.
+
+Daemon modes: `{mode:"none"}` (default), `{mode:"permanent",username,default_cwd}`,
+or `{mode:"timed",username,default_cwd,duration_minutes}` (1–10080 minutes).
+The user and absolute working directory must exist on the target. Daemon setup
+requires Agent Messaging and Linux/systemd. `setup_script` downloads the existing
+one-time installer to a temporary file, checks download success, installs under
+the service user, then installs the system daemon as root with that user's signed
+config paths. Execute this script over SSH; daemon modes require root.
+
+Response: `operation_id`, `host_id`, `fqdn`, `engines`, `secure`, `daemon`,
+`installer` (token, URL, command, expiry), `setup_script` and `setup_steps`.
+`host_spawn_status({operation_id})` is scoped to the source host and reports
+`state` (`registered|installer_downloaded|installed`), `installer_used`,
+`setup_completed_at`, `daemon_connected` and `daemon_expires_at` plus setup material.
+`installed` is an authenticated report from the successful target installer;
+`daemon_connected` requires a fresh heartbeat. Neither proves a task succeeded.
+Start the actual task separately with `agent_spawn`.
+
+To recover a consumed/expired installer use
+`host_spawn_status({operation_id,renew_installer:true,client_message_id})` with a
+stable renewal UUID. Live unused installers cannot be renewed. Retries replay
+the renewal receipt; keys are not rotated. Once renewed, obtain material through
+status rather than replaying the original prepare call. Revoked VIP or disabled
+feature blocks setup access, including the installer GET before token consumption.
+Already installed targets remain intact. Source deletion retains provenance and
+blocks installer access; target deletion removes the provisioning record.
+
+Timed daemon lifetime starts at its first successful authenticated connection.
+The UTC deadline is stored in daemon settings and locally by wrapper 0.9.53.
+Reconnects/reboots do not extend it. At expiry new starts, offers, acceptances and
+remote continuation are refused; queued/unaccepted starts are canceled. Accepted
+work and durable result receipts drain, then the service exits normally. During
+an outage no new work starts; result replay can keep an expired daemon alive until
+connectivity returns. Existing idle/question timeout and engine/access policies
+still apply. Host registration, installation and auth are not removed.
+
+Admin APIs: `GET /admin/host-spawn/state` (`admin.read`) and
+`POST /admin/host-spawn/state` with `{enabled:boolean}` (`settings.manage`).
+The target installer reports completion using `POST /host/spawn/setup-complete`
+with its own host API key. This endpoint remains available for already installed
+targets when the spawn switch is turned off. Audit events contain source/target
+IDs and operation UUIDs, never installer tokens or host API keys.
