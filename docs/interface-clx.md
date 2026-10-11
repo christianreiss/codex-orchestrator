@@ -1565,3 +1565,5 @@ See [the full reboot contract](reboot-resume.md) for state, failures and recover
 ## System Spawn and daemon deadlines
 
 Server MCP exposes `host_spawn_prepare` / `host_spawn_status` to provision new systems from active VIP hosts when the fleet System Spawn switch is on. See [System Spawn](interface-api.md#system-spawn-new-system-provisioning) for setup and retry contracts. All engines use the same installer and optional system daemon. Wrapper 0.9.53 records timed daemon deadlines locally, fences new work after expiry and drains accepted work/results before exiting; reconnects and reboots do not renew the deadline. Provisioning itself never launches an agent task.
+
+Wrapper 0.9.55 renders the optional Linux daemon service with `WorkingDirectory=~`, so systemd resolves the configured service user's home directly (including homes containing spaces).

@@ -245,7 +245,7 @@ func daemonService(action string, stdout, stderr io.Writer) error {
 			key := map[string]string{"codex": "CDX_CONFIG_PATH", "claude": "CLX_CONFIG_PATH", "grok": "CGX_CONFIG_PATH"}[engine]
 			fmt.Fprintf(&env, "Environment=%s\n", systemdQuote(key+"="+cfg.SourcePath()))
 		}
-		unit := fmt.Sprintf("[Unit]\nDescription=Codex Orchestrator optional host daemon\nAfter=network-online.target\nWants=network-online.target\n[Service]\nType=simple\nUser=%s\nWorkingDirectory=%s\nEnvironment=%s\n%sExecStart=%s daemon run\nRestart=on-failure\nRestartSec=5\nUMask=0077\nKillMode=control-group\nTimeoutStopSec=45\n[Install]\nWantedBy=multi-user.target\n", settings.Username, systemdQuote(account.HomeDir), systemdQuote("HOME="+account.HomeDir), env.String(), systemdQuote(installed))
+		unit := hostDaemonUnit(settings.Username, account.HomeDir, env.String(), installed)
 		unitChanged, err := writeProtectedFileIfChanged("/etc/systemd/system/cxx-daemon.service", []byte(unit))
 		if err != nil {
 			return err
@@ -268,6 +268,12 @@ func daemonService(action string, stdout, stderr io.Writer) error {
 	default:
 		return fmt.Errorf("unknown daemon action %q", action)
 	}
+}
+
+// systemd treats WorkingDirectory as a path, not a quoted command argument.
+// Its tilde form resolves the configured service user's home without escaping.
+func hostDaemonUnit(username, home, environment, installed string) string {
+	return fmt.Sprintf("[Unit]\nDescription=Codex Orchestrator optional host daemon\nAfter=network-online.target\nWants=network-online.target\n[Service]\nType=simple\nUser=%s\nWorkingDirectory=~\nEnvironment=%s\n%sExecStart=%s daemon run\nRestart=on-failure\nRestartSec=5\nUMask=0077\nKillMode=control-group\nTimeoutStopSec=45\n[Install]\nWantedBy=multi-user.target\n", username, systemdQuote("HOME="+home), environment, systemdQuote(installed))
 }
 
 func daemonStateDir() (string, error) {
