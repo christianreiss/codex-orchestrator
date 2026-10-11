@@ -88,7 +88,7 @@ func captureWorkspace(parent context.Context, cwd string) Workspace {
 	}
 	root, common := canonicalPath(lines[0]), canonicalPath(lines[1])
 	w.GitStatus, w.GitRoot, w.GitCommonDir = "repository", &root, &common
-	remote := exec.CommandContext(ctx, "git", "-C", cwd, "config", "--get", "remote.origin.url")
+	remote := exec.CommandContext(ctx, "git", "-C", cwd, "remote", "get-url", "origin")
 	if raw, err := remote.Output(); err == nil {
 		if origin := discoveryOrigin(strings.TrimSpace(string(raw))); origin != "" && len(origin) <= 4096 {
 			w.OriginURL = &origin

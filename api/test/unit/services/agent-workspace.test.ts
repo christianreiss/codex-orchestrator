@@ -73,6 +73,7 @@ describe('workspace discovery', () => {
     });
     expect(workspaceMatch(location(1, noGit), location(1, null), 'project')).toBe('same_directory');
     expect(workspaceMatch(location(1, null), location(), 'directory')).toBe('same_directory');
+    expect(workspaceMatch(location(1, null, '/repo/'), location(), 'directory')).toBe('same_directory');
     expect(workspaceMatch(location(1, null), location(1, null, '/repo-other'), 'project')).toBeNull();
   });
   it('filters scope before pagination and preserves multiple agents at one path', () => {

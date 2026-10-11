@@ -28,6 +28,8 @@ export const workspaceInputSchema = z
 export type WorkspaceInput = z.infer<typeof workspaceInputSchema>;
 export type AgentWorkspace = Omit<WorkspaceInput, 'origin_url'> & { repository_key: string | null };
 
+const cleanPath = (value: string) => posix.normalize(value).replace(/\/+$/, '') || '/';
+
 /** Remote text is never persisted or returned; local remotes cannot identify a fleet project. */
 export function normalizeWorkspace(input: WorkspaceInput | undefined): AgentWorkspace | null {
   if (!input) return null;
@@ -38,10 +40,10 @@ export function normalizeWorkspace(input: WorkspaceInput | undefined): AgentWork
     (/^(?:[^/@:]+@)?[^/:]+:[^:]/.test(origin) && !origin.includes('://'));
   const remote = networkRemote ? normalizeRemote(origin) : null;
   return {
-    cwd: posix.normalize(value.cwd),
+    cwd: cleanPath(value.cwd),
     git_status: value.git_status,
-    git_root: value.git_root ? posix.normalize(value.git_root) : null,
-    git_common_dir: value.git_common_dir ? posix.normalize(value.git_common_dir) : null,
+    git_root: value.git_root ? cleanPath(value.git_root) : null,
+    git_common_dir: value.git_common_dir ? cleanPath(value.git_common_dir) : null,
     repository_key: remote ? sha256(remote) : null,
   };
 }
@@ -72,7 +74,7 @@ export function workspaceMatch(
     b = readWorkspace(peer.workspace);
   const sameHost = caller.hostId === peer.hostId;
   const sameDirectory =
-    sameHost && posix.normalize(a?.cwd ?? caller.cwd) === posix.normalize(b?.cwd ?? peer.cwd);
+    sameHost && cleanPath(a?.cwd ?? caller.cwd) === cleanPath(b?.cwd ?? peer.cwd);
   if (scope === 'directory') return sameDirectory ? 'same_directory' : null;
   if (sameDirectory) return 'same_directory';
   if (a?.git_common_dir && b?.git_common_dir && sameHost && a.git_common_dir === b.git_common_dir)

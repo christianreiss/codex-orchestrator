@@ -59,14 +59,19 @@ func TestCaptureWorkspace(t *testing.T) {
 		t.Fatal(err)
 	}
 	w := captureWorkspace(context.Background(), alias)
-	if w.GitStatus != "repository" || w.Cwd != child || *w.GitRoot != dir || *w.GitCommonDir != filepath.Join(dir, ".git") || *w.OriginURL != "https://example.org/team/repo.git" {
+	if w.GitStatus != "repository" || w.Cwd != canonicalPath(child) || *w.GitRoot != canonicalPath(dir) || *w.GitCommonDir != canonicalPath(filepath.Join(dir, ".git")) || *w.OriginURL != "https://example.org/team/repo.git" {
 		t.Fatalf("%+v", w)
 	}
 	linked := filepath.Join(t.TempDir(), "linked")
 	git("worktree", "add", "--detach", linked)
 	w = captureWorkspace(context.Background(), linked)
-	if w.GitStatus != "repository" || *w.GitRoot != linked || *w.GitCommonDir != filepath.Join(dir, ".git") {
+	if w.GitStatus != "repository" || *w.GitRoot != canonicalPath(linked) || *w.GitCommonDir != canonicalPath(filepath.Join(dir, ".git")) {
 		t.Fatalf("%+v", w)
+	}
+	git("config", "url.https://example.org/team/.insteadOf", "fleet:")
+	git("remote", "set-url", "origin", "fleet:repo.git")
+	if got := captureWorkspace(context.Background(), dir); got.OriginURL == nil || *got.OriginURL != "https://example.org/team/repo.git" {
+		t.Fatal("origin rewrite not resolved", got)
 	}
 	git("remote", "remove", "origin")
 	if got := captureWorkspace(context.Background(), dir); got.GitStatus != "repository" || got.OriginURL != nil {
