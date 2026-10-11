@@ -219,7 +219,13 @@ describe.skipIf(!handle)('German launch name leases on MySQL', { timeout: 120_00
     expect(next.address.name).toBe('Claudia');
     const retry = await service.sendMessage(sender.sessionId, sender.token, input);
     expect(retry.created).toBe(false);
-    expect(retry.message).toEqual(receipt.message);
+    // Ending the first launch refreshes its address's live last_seen_at.
+    // The durable message and historical name/UUID must still be identical.
+    const original = receipt.message as Record<string, unknown>;
+    expect(retry.message).toEqual({
+      ...original,
+      target: { ...(original.target as Record<string, unknown>), last_seen_at: expect.any(String) },
+    });
     const [stored] = await db!
       .select()
       .from(agentBusMessages)
