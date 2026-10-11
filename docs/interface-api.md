@@ -2064,6 +2064,8 @@ still apply. Host registration, installation and auth are not removed.
 Admin APIs: `GET /admin/host-spawn/state` (`admin.read`) and
 `POST /admin/host-spawn/state` with `{enabled:boolean}` (`settings.manage`).
 The target installer reports completion using `POST /host/spawn/setup-complete`
-with its own host API key. This endpoint remains available for already installed
+with its own host API key. The callback follows cxx's IPv4-first transport policy
+(with a dual-stack fallback) and the installer's TLS policy, preserving the host's
+existing source-IP binding. This endpoint remains available for already installed
 targets when the spawn switch is turned off. Audit events contain source/target
 IDs and operation UUIDs, never installer tokens or host API keys.

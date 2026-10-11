@@ -1,4 +1,4 @@
-import { HostSpawnService } from '../../services/host-spawn.js';
+import { HostSpawnService, hostSpawnCompletionScript } from '../../services/host-spawn.js';
 import { createPooledAuthStoreService as createCanonicalAuthStoreService } from '../../services/pooled-auth-store.js';
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { eq } from 'drizzle-orm';
@@ -121,8 +121,7 @@ export async function registerInstallRoutes(app: FastifyInstance, ctx: RouteCont
       );
     }
     if (spawnRows.length) {
-      body = body.replace('  exit 0\nfi\n\nui_result_fail', `  # Authenticated target reports successful installer completion.
-  curl -fsS --retry 2 -X POST -H "X-API-Key: $HOST_API_KEY" "$BASE_URL/host/spawn/setup-complete" >/dev/null
+      body = body.replace('  exit 0\nfi\n\nui_result_fail', `${hostSpawnCompletionScript()}
   exit 0
 fi
 

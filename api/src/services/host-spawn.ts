@@ -152,6 +152,13 @@ export class HostSpawnService {
 }
 function hashToken(token: string) { return createHash('sha256').update(token).digest('hex'); }
 
+export function hostSpawnCompletionScript(): string {
+  return `  # Match cxx's IPv4-first transport so the completion uses the bound source IP.
+  if ! curl $CURL_INSECURE_FLAG -4 -fsS --retry 2 --connect-timeout 10 --max-time 30 -X POST -H "X-API-Key: $HOST_API_KEY" "$BASE_URL/host/spawn/setup-complete" >"$STEP_LOG" 2>&1; then
+    curl $CURL_INSECURE_FLAG -fsS --retry 2 --connect-timeout 10 --max-time 30 -X POST -H "X-API-Key: $HOST_API_KEY" "$BASE_URL/host/spawn/setup-complete" >/dev/null
+  fi`;
+}
+
 function quote(value: string) { return "'" + value.replace(/'/g, "'\\''") + "'"; }
 export function hostSpawnSetupScript(url: string, daemon: z.infer<typeof hostSpawnSchema>['daemon']): string {
   const download = `setup_file=$(mktemp)

@@ -1,10 +1,10 @@
 import { randomUUID } from 'node:crypto';
-import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { describe, it, expect } from 'vitest';
-import { hostSpawnSchema, hostSpawnStatusSchema, hostSpawnSetupScript } from '../../../src/services/host-spawn.js';
+import { hostSpawnSchema, hostSpawnStatusSchema, hostSpawnSetupScript, hostSpawnCompletionScript } from '../../../src/services/host-spawn.js';
 import { daemonAccepting, daemonExpired } from '../../../src/services/host-daemon/policy.js';
 const base = () => ({ fqdn: 'new.example.test', engines: ['codex'], client_message_id: randomUUID() });
 describe('system spawn contracts', () => {
@@ -43,6 +43,23 @@ describe('system spawn contracts', () => {
       writeFileSync(join(dir, 'sh'), '#!/bin/sh\nexit 99\n', { mode: 0o755 });
       const script = hostSpawnSetupScript('https://example.test/install/token', { mode: 'none' });
       expect(spawnSync('/bin/sh', ['-c', script], { env: { ...process.env, PATH: `${dir}:/usr/bin:/bin` } }).status).toBe(23);
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  });
+  it.each([
+    { ipv4: 0, fallback: 99, expected: 0, calls: 'ipv4\n' },
+    { ipv4: 7, fallback: 0, expected: 0, calls: 'ipv4\ndefault\n' },
+    { ipv4: 22, fallback: 22, expected: 22, calls: 'ipv4\ndefault\n' },
+  ])('completion uses the bound IPv4 route, falls back and preserves failure: %j', test => {
+    const dir = mkdtempSync(join(tmpdir(), 'spawn-callback-'));
+    try {
+      const calls = join(dir, 'calls');
+      writeFileSync(join(dir, 'curl'), `#!/bin/sh\nfor arg; do\n if [ "$arg" = '-4' ]; then echo ipv4 >> "$CALLS"; exit ${test.ipv4}; fi\ndone\necho default >> "$CALLS"\nexit ${test.fallback}\n`, { mode: 0o755 });
+      const script = '#!/bin/sh\nset -eu\n' + hostSpawnCompletionScript() + '\necho success\n';
+      const result = spawnSync('/bin/sh', ['-c', script], { env: { ...process.env, PATH: `${dir}:/usr/bin:/bin`,
+        CURL_INSECURE_FLAG: '', HOST_API_KEY: 'test-key', BASE_URL: 'https://example.test', STEP_LOG: join(dir, 'step.log'), CALLS: calls } });
+      expect(result.status).toBe(test.expected);
+      expect(readFileSync(calls, 'utf8')).toBe(test.calls);
+      expect(result.stdout.toString().includes('success')).toBe(test.expected === 0);
     } finally { rmSync(dir, { recursive: true, force: true }); }
   });
 });

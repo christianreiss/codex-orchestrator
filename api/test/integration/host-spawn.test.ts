@@ -77,6 +77,7 @@ describe.skipIf(!handle)('durable system provisioning', () => {
       const installed = await app.inject({ url: new URL(result.installer.url).pathname });
       expect(installed.headers['x-installer-error']).toBeUndefined();
       expect(installed.body).toContain('$BASE_URL/host/spawn/setup-complete');
+      expect(installed.body).toContain('curl $CURL_INSECURE_FLAG -4 -fsS');
       expect(installed.body.indexOf('$BASE_URL/host/spawn/setup-complete')).toBeLessThan(installed.body.indexOf('  exit 0\nfi\n\nui_result_fail'));
       expect((await service.status({ operation_id: result.operation_id }, source)).state).toBe('installer_downloaded');
     } finally { await app.close(); }
