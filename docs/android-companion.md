@@ -1,5 +1,15 @@
 # Android companion
 
+## Reconnecting after the rich-chat server upgrade
+
+If the phone authenticates but stays on **Reconnecting…**, a server-side chat
+snapshot failure can close its WebSocket with code 1013. Migration `0058` repairs
+the rich-chat tables' `session_id` columns to match the existing `agent_sessions.id`
+charset and collation. This prevents MySQL's **Illegal mix of collations** error
+on installations whose database default differs from older Portal tables.
+Apply it through the normal migration runner; chat data and device pairing are
+preserved. The existing APK reconnects automatically after the repair.
+
 ## Hosts and remote conversations (0.4.10)
 
 Chats remains the default. Hosts lists daemon-enabled hosts, sorted by availability,

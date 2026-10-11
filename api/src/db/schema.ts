@@ -2436,6 +2436,8 @@ export const agentRebootHandoffs = mysqlTable('agent_reboot_handoffs', {
 }, t => [uniqueIndex('uq_reboot_active_host').on(t.activeHostId), index('idx_reboot_native').on(t.hostId, t.engine, t.nativeSessionId), index('idx_reboot_old_session').on(t.oldSessionId), index('idx_reboot_new_session').on(t.newSessionId)]);
 
 // Durable attachments and explicit urgency belong to existing operator/agent chats.
+// Migration 0058 matches both session_id charsets/collations to agent_sessions.id;
+// Drizzle does not model per-column collation. Preserve this for SQL joins.
 export const agentChatAttachments = mysqlTable('agent_chat_attachments', {
   id: char('id', { length: 36 }).primaryKey(),
   sessionId: char('session_id', { length: 36 }).notNull(),
