@@ -36,6 +36,14 @@ describe('system spawn contracts', () => {
     const script = hostSpawnSetupScript("https://example.test/install/a'b", daemon);
     expect(spawnSync('/bin/sh', ['-n'], { input: script }).status).toBe(0);
   });
+  it('repairs an expired timed installation without reactivating the daemon', () => {
+    const script = hostSpawnSetupScript('https://example.test/install/token',
+      { mode: 'timed', username: 'root', default_cwd: '/root', duration_minutes: 1 }, true);
+    expect(spawnSync('/bin/sh', ['-n'], { input: script }).status).toBe(0);
+    expect(script).toContain('sh "$setup_file"');
+    expect(script).toContain('deadline expired');
+    expect(script).not.toContain('daemon install');
+  });
   it('a failed installer download never executes an empty or partial installer', () => {
     const dir = mkdtempSync(join(tmpdir(), 'spawn-setup-'));
     try {

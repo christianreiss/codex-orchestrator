@@ -8,7 +8,7 @@ import { encrypt, decrypt } from '../security/secret-box.js';
 import { SettingsService } from './settings.js';
 import { HostManagementService, type InstallerInfo } from './host-management.js';
 import { makeAdminEventsWriter } from './admin-events-writer.js';
-import { daemonSettingsSchema } from './host-daemon/policy.js';
+import { daemonSettingsSchema, daemonExpired } from './host-daemon/policy.js';
 import { wsPublisher } from '../ws/publisher.js';
 
 export const HOST_SPAWN_ENABLED_KEY = 'host_spawn_enabled';
@@ -90,12 +90,14 @@ export class HostSpawnService {
     wsPublisher.publish('host.updated', { id: result.host_id });
     return result;
   }
-  private response(row: typeof hostSpawns.$inferSelect) {
+  private response(row: typeof hostSpawns.$inferSelect, deadlineExpired = false) {
     const installer = JSON.parse(decrypt(row.installerEnc, this.ctx.keyring)) as InstallerInfo;
     const daemon = row.request.daemon;
     return { operation_id: row.id, host_id: row.targetHostId, fqdn: row.request.fqdn,
       engines: row.request.engines, secure: row.request.secure, installer,
-      daemon, setup_script: hostSpawnSetupScript(installer.url, daemon), setup_steps: daemon.mode === 'none'
+      daemon, setup_script: hostSpawnSetupScript(installer.url, daemon, deadlineExpired), setup_steps: deadlineExpired
+        ? ["Run the installer to repair the existing installation. The expired daemon remains disabled."]
+        : daemon.mode === 'none'
         ? ['Run installer.command on the target host over SSH. No agent is started.']
         : [`Run installer.command on Linux/systemd as ${daemon.username} (the user and working directory must already exist).`,
           'Install the system service as root with cxx daemon install, using the signed config paths of that user.',
@@ -137,10 +139,11 @@ export class HostSpawnService {
     });
     const [config] = await this.ctx.db.select().from(hostDaemons).where(eq(hostDaemons.hostId, row.targetHostId));
     const connected = !!config?.runtime?.connected && Date.now() - Date.parse(config.runtime.heartbeat_at) < 45000;
-    const response = this.response(row);
+    const deadlineExpired = !!config && daemonExpired(config.settings);
+    const response = this.response(row, deadlineExpired);
     const [token] = await this.ctx.db.select().from(installTokens).where(eq(installTokens.token, hashToken(response.installer.token)));
     return { ...response, installer_used: !!token?.usedAt, setup_completed_at: row.setupCompletedAt,
-      daemon_connected: connected, daemon_expires_at: config?.settings.expires_at ?? null,
+      daemon_connected: connected, daemon_deadline_expired: deadlineExpired, daemon_expires_at: config?.settings.expires_at ?? null,
       state: row.setupCompletedAt ? 'installed' : token?.usedAt ? 'installer_downloaded' : 'registered' };
   }
   async complete(targetHostId: number) {
@@ -160,7 +163,7 @@ export function hostSpawnCompletionScript(): string {
 }
 
 function quote(value: string) { return "'" + value.replace(/'/g, "'\\''") + "'"; }
-export function hostSpawnSetupScript(url: string, daemon: z.infer<typeof hostSpawnSchema>['daemon']): string {
+export function hostSpawnSetupScript(url: string, daemon: z.infer<typeof hostSpawnSchema>['daemon'], deadlineExpired = false): string {
   const download = `setup_file=$(mktemp)
 trap 'rm -f "$setup_file"' EXIT HUP INT TERM
 curl -fsSL ${quote(url)} -o "$setup_file"
@@ -176,6 +179,6 @@ service_home=$(getent passwd "$service_user" | cut -d: -f6)
 ${download}chown "$service_user" "$setup_file"
 chmod 600 "$setup_file"
 runuser -u "$service_user" -- env HOME="$service_home" XDG_CONFIG_HOME="$service_home/.config" BIN_DIR="$service_home/.local/bin" sh "$setup_file"
-env HOME="$service_home" CDX_CONFIG_PATH="$service_home/.config/codex-orchestrator/cdx.json" CLX_CONFIG_PATH="$service_home/.config/codex-orchestrator/clx.json" CGX_CONFIG_PATH="$service_home/.config/codex-orchestrator/cgx.json" "$service_home/.local/bin/cxx" daemon install
+${deadlineExpired ? "echo 'cxx daemon: deadline expired; installation repaired, daemon remains disabled'" : `env HOME="$service_home" CDX_CONFIG_PATH="$service_home/.config/codex-orchestrator/cdx.json" CLX_CONFIG_PATH="$service_home/.config/codex-orchestrator/clx.json" CGX_CONFIG_PATH="$service_home/.config/codex-orchestrator/cgx.json" "$service_home/.local/bin/cxx" daemon install`}
 `;
 }

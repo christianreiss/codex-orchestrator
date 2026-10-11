@@ -756,6 +756,10 @@ Removal uses an exclusive native-home guard and a host/engine reservation. A jou
 
 ## Planned reboot resume (cxx 0.9.54)
 
+From 0.9.56 the private Grok runtime exports `CXX_GROK_BASE_HOME` so reboot
+checkpoints restore the durable native home. Disposable auth projections and
+sockets are recreated normally, never restored from the previous launch.
+
 `cxx reboot --request-id UUID --reason TEXT --stdin` and `agent_reboot` prepare
 one Linux host reboot and resume the exact Grok native transcript once.
 `agent_reboot_status`, `cxx reboot status [--id UUID]` and
@@ -763,6 +767,8 @@ one Linux host reboot and resume the exact Grok native transcript once.
 root/passwordless sudo and active cron. Consumption precedes cron removal and
 native startup; no native retry or fresh session fallback. Accepted work retains
 its original IDs. Watchdog/persistent Wake recovery conflicts are rejected.
+From cxx 0.9.56, an early-boot IP-binding mismatch waits within the five-minute
+readiness deadline for the bound network route; native startup is still one-use.
 See [the full reboot contract](reboot-resume.md) for state, failures and recovery.
 ## System Spawn and daemon deadlines
 

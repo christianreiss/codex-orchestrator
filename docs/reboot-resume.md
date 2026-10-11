@@ -45,6 +45,9 @@ work remains supported and an accepted Wake keeps its original execution.
 6. Wait at most five minutes for signed configuration/control-plane readiness,
    verify the native transcript and acquire its writer lock. Start one native
    resume with the exact saved ID through normal cxx auth and launch policy.
+   An IP-binding mismatch during early network startup is retried only within
+   this readiness deadline: IPv6 may be online before the bound IPv4 route.
+   Invalid credentials and other permanent policy failures still stop immediately.
 7. Registration atomically fences the old launch token, retains the agent UUID,
    assigns the new launch identity and transfers work to its new receiver. Lost
    registration responses replay the same new session ID. The receiver restores
@@ -85,3 +88,38 @@ manually. Automatic recovery never deletes its loop guard.
 The boot journal contains no old bridge token or provider auth copy. It saves only
 identity, checkpoint, user/workdir and selected nonsecret path/locale settings.
 Normal signed fleet credentials are loaded again as the original user.
+Grok saves the managed runtime's durable base home, not its disposable access-only
+auth projection. A pre-0.9.56 Grok launch must be restarted through an updated
+wrapper before it can prepare this handoff.
+
+## VM acceptance (2026-10-11)
+
+Tested on the operator's Debian 13 VM `10.2.0.204`, as `reboottest` (UID 1000)
+in `/home/reboottest/reboot-test`, with the cxx 0.9.56 candidate. Each engine
+issued a real reboot through `agent_reboot`, then automatically continued and
+exclusively wrote/fsynced its after-proof. Independent comparison confirmed the
+same native UUID and agent address, a new launch and kernel boot UUID, unchanged
+user/workdir, and removal of the cron entry before native startup.
+
+| Engine / native CLI | Preserved native session | Result |
+| --- | --- | --- |
+| Codex 0.162.1 | `01a12a7c-67ce-7163-bf40-b387f6a08aa4` | Passed |
+| Claude 2.1.296 | `08de09d4-af31-4d9d-b825-d72c0c69e7cd` | Passed |
+| Grok 1.0.46 | `01a12a7f-c351-7872-89ba-dfa70d0bb72a` | Passed |
+
+A further unarmed reboot (`02748dfc…` → `cf67ebbd…`) left all five journals
+and three after-proofs byte-identical. No boot hook, native provider process or
+new test-host launch appeared. Frozen binaries also ship their relative persona
+aliases so an unprivileged continuation need not repair the root-owned layout.
+
+Fresh headless launches without a native binding were rejected before arming.
+The real boot test exposed an early IPv6/IPv4 readiness race; the first two
+attempts stopped without retrying native execution. Their journals were retained,
+their server reservations manually disarmed, and subsequent tests used separate
+native sessions. The final readiness fix preserves strict IP binding.
+
+Source verification includes full Go tests/build/vet and targeted race tests,
+API unit/contract coverage, MySQL integration for original Peer/Wake/Portal
+claims and daemon continuity, frontend checks, and Active Clients browser tests.
+The VM proves provider resume and host lifecycle; transferred work receipts were
+verified by integration tests, not by the direct-prompt VM runs.

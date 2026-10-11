@@ -136,6 +136,11 @@ describe.skipIf(!handle)('durable system provisioning', () => {
     const queued = await daemon.start({ host_id: result.host_id, engine: 'codex', prompt: 'queued', title: 'queued', client_message_id: randomUUID() }, 'test');
     const settings = (await daemon.settings(result.host_id)).settings;
     await handle!.db.update(hostDaemons).set({ settings: { ...settings, expires_at: new Date(Date.now() - 1).toISOString() } }).where(eq(hostDaemons.hostId, result.host_id));
+    const expired = await service.status({ operation_id: result.operation_id }, source);
+    expect(expired.daemon_deadline_expired).toBe(true);
+    expect(expired.setup_script).not.toContain('daemon install');
+    expect(expired.setup_script).toContain('deadline expired');
+    expect((await daemon.settings(result.host_id)).settings.expires_at).toBe(expired.daemon_expires_at);
     await expect(daemon.start({ host_id: result.host_id, engine: 'codex', prompt: 'new', title: 'new', client_message_id: randomUUID() }, 'test')).rejects.toThrow(/available/);
     await daemon.heartbeat(result.host_id, connected.generation, ['codex'], null);
     const [pending] = await handle!.db.select().from(hostDaemonOperations).where(eq(hostDaemonOperations.id, queued.operation_id));

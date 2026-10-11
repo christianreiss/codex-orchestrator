@@ -19,6 +19,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/layout"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/nativewriter"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/rebootresume"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/sessionguard"
@@ -119,19 +120,16 @@ func requestReboot(ctx context.Context, client *sessionClient, args map[string]a
 	}
 	r.UID, r.GID, r.Home = uint32(os.Getuid()), uint32(os.Getgid()), home
 	r.Executable = rebootExecutable(r.ID)
-	// Deliberately exclude bridge tokens, provider credentials and old receiver
-	// sockets. Normal signed-config/auth setup runs anew after the reboot.
-	for _, key := range []string{"PATH", "LANG", "CODEX_HOME", "CLAUDE_CONFIG_DIR", "GROK_HOME", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "CDX_CONFIG_PATH", "CLX_CONFIG_PATH", "CGX_CONFIG_PATH"} {
-		if v, ok := os.LookupEnv(key); ok {
-			r.Environment = append(r.Environment, key+"="+v)
-		}
-	}
 	cleanup := func(cause error) error {
 		cleanupCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
 		_, localErr := rebootRoot(cleanupCtx, "_disarm", r.ID, nil, io.Discard, stderr)
 		remoteErr := client.post(cleanupCtx, "reboot/disarm", map[string]any{"request_id": r.ID}, nil)
 		return errors.Join(cause, localErr, remoteErr)
+	}
+	r.Environment, err = rebootEnvironment(r.Engine)
+	if err != nil {
+		return nil, cleanup(err)
 	}
 	raw, err := json.Marshal(r)
 	if err != nil {
@@ -148,6 +146,25 @@ func requestReboot(ctx context.Context, client *sessionClient, args map[string]a
 		return nil, err
 	}
 	return out, nil
+}
+
+func rebootEnvironment(engine string) ([]string, error) {
+	var env []string
+	// Exclude bridge tokens, provider credentials and old receiver sockets.
+	// Normal signed-config/auth setup runs anew after the reboot.
+	for _, key := range []string{"PATH", "LANG", "CODEX_HOME", "CLAUDE_CONFIG_DIR", "GROK_HOME", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "CDX_CONFIG_PATH", "CLX_CONFIG_PATH", "CGX_CONFIG_PATH"} {
+		v, ok := os.LookupEnv(key)
+		if key == "GROK_HOME" && engine == "grok" {
+			v, ok = os.LookupEnv("CXX_GROK_BASE_HOME")
+			if !ok || !filepath.IsAbs(v) {
+				return nil, errors.New("durable Grok home unavailable; start a current managed wrapper before requesting reboot")
+			}
+		}
+		if ok {
+			env = append(env, key+"="+v)
+		}
+	}
+	return env, nil
 }
 
 func rebootRoot(ctx context.Context, action, id string, body []byte, stdout, stderr io.Writer) ([]byte, error) {
@@ -272,6 +289,11 @@ func rebootInternal(args []string, stdin io.Reader, stdout, stderr io.Writer) er
 				return err
 			}
 			if err = os.Rename(tmp.Name(), r.Executable); err != nil {
+				return err
+			}
+			// The resumed user cannot repair this root-owned layout. Freeze the
+			// relative persona aliases too, before normal peer reconciliation runs.
+			if _, err = layout.EnsureAliases(context.Background(), r.Executable, []string{"codex", "claude", "grok"}); err != nil {
 				return err
 			}
 			directory, err := os.Open(filepath.Dir(r.Executable))
@@ -422,21 +444,37 @@ func resumeAfterReboot(r rebootresume.Record, stdout, stderr io.Writer) error {
 	var readiness map[string]any
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
+	err = waitRebootReady(ctx, 5*time.Second, func(ctx context.Context) error {
+		return rebootHostCall(ctx, r.Engine, "ready", map[string]any{"request_id": r.ID, "boot_id": r.ResumeBootID}, &readiness)
+	})
+	if err != nil {
+		return err
+	}
+	return runRebootContinuation(r, readiness, stdout, stderr)
+}
+
+// During boot IPv6 can become usable before the host's bound IPv4 route.
+// Readiness is read-only: retrying that IP mismatch within the existing deadline
+// never retries native execution or weakens the server's binding policy.
+func waitRebootReady(ctx context.Context, interval time.Duration, probe func(context.Context) error) error {
 	for {
-		err = rebootHostCall(ctx, r.Engine, "ready", map[string]any{"request_id": r.ID, "boot_id": r.ResumeBootID}, &readiness)
+		err := probe(ctx)
 		if err == nil {
-			break
+			return nil
 		}
 		var apiErr *APIError
-		if errors.As(err, &apiErr) && apiErr.Status >= 400 && apiErr.Status < 500 && apiErr.Status != 429 {
+		if errors.As(err, &apiErr) && apiErr.Status >= 400 && apiErr.Status < 500 && apiErr.Status != 429 && apiErr.Code != "ip_mismatch" {
 			return err
 		}
 		select {
 		case <-ctx.Done():
 			return fmt.Errorf("reboot readiness deadline: %w", err)
-		case <-time.After(5 * time.Second):
+		case <-time.After(interval):
 		}
 	}
+}
+
+func runRebootContinuation(r rebootresume.Record, readiness map[string]any, stdout, stderr io.Writer) error {
 	guard, err := sessionguard.Launch(r.Engine)
 	if err != nil {
 		return err
