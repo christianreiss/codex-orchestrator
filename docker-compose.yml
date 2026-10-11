@@ -82,6 +82,12 @@ services:
     security_opt:
       - no-new-privileges:true
     network_mode: none
+    healthcheck:
+      test: ["CMD", "python", "-c", "import os; p='/app/storage/agent-chat'; raise SystemExit(0 if os.path.isdir(p) and os.access(p, os.W_OK) and os.path.isfile('/models/small/model.bin') else 1)"]
+      interval: 20s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
     restart: unless-stopped
 
   mysql:
