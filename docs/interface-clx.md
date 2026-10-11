@@ -1570,7 +1570,7 @@ Server MCP exposes `host_spawn_prepare` / `host_spawn_status` to provision new s
 
 Wrapper 0.9.55 renders the optional Linux daemon service with `WorkingDirectory=~`, so systemd resolves the configured service user's home directly (including homes containing spaces).
 
-## Rich operator agent chat (cxx 0.9.56)
+## Rich operator agent chat (cxx 0.9.57)
 
 All three engines share five local MCP tools in managed lifecycles: `agent_portal_ask`, `agent_portal_notify`, `agent_portal_resolve`, `agent_attachment_upload` and `agent_attachment_get`. Reply tools also accept `attachments`, `reply_to`, `severity` and `notice_id`. The scope is the existing operator agent conversation; see [Agent chat](agent-chat.md).
 
