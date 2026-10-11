@@ -99,8 +99,6 @@
   }
 </script>
 
-<svelte:head><title>File Transfer</title></svelte:head>
-
 <PageHeader
   title="File Transfer"
   subtitle="A fleet-wide pool of files agents hand each other. Every upload carries a deadline, and the bytes are swept off disk when it passes."
