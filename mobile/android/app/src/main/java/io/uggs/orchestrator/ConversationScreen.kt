@@ -94,8 +94,8 @@ import org.json.JSONObject
     }
     // A snapshot/open is not a read receipt. Wait for the current assistant
     // bubble to appear in a completed layout at the latest position while resumed.
-    LaunchedEffect(sessionId, latestReplyCursor, expectedReplyCursor, foreground, fresh) {
-        if (sessionId == null || !foreground || !fresh || latestReplyCursor <= 0 || latestReplyCursor < expectedReplyCursor) return@LaunchedEffect
+    LaunchedEffect(sessionId, latestReplyCursor, expectedReplyCursor, foreground, fresh, model.showingCachedTranscript) {
+        if (sessionId == null || !foreground || !fresh || model.showingCachedTranscript || latestReplyCursor <= 0 || latestReplyCursor < expectedReplyCursor) return@LaunchedEffect
         snapshotFlow { list.layoutInfo to list.isScrollInProgress }.collect { (layout, scrolling) ->
             val last = layout.visibleItemsInfo.lastOrNull()
             val assistant = layout.visibleItemsInfo.firstOrNull { it.key == latestAssistant?.key }
@@ -108,6 +108,11 @@ import org.json.JSONObject
         }
     }
     Column(Modifier.fillMaxSize().background(if (isSystemInDarkTheme()) Color(0xFF0B141A) else Color(0xFFEFEAE2))) {
+        if (model.showingCachedTranscript) Text(
+            if (fresh) "Saved messages · Updating from server…" else "Saved messages · Waiting for server…",
+            Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainer).padding(10.dp).testTag("cached-history"),
+            style = MaterialTheme.typography.labelMedium,
+        )
         Box(Modifier.weight(1f).fillMaxWidth()) {
             LazyColumn(
                 Modifier.fillMaxSize().testTag("conversation"), state = list,
@@ -121,7 +126,7 @@ import org.json.JSONObject
                                 Text(dayLabel(row.date), Modifier.padding(horizontal = 12.dp, vertical = 5.dp), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         }
-                        is ChatRow.Message -> MessageBubble(model, sessionId ?: "", row, deliveryLabel(row.event, receipts, agent, fresh), agent?.let(::agentTitle) ?: "Agent", writable)
+                        is ChatRow.Message -> MessageBubble(model, sessionId ?: "", row, deliveryLabel(row.event, receipts, agent, fresh && !model.showingCachedTranscript), agent?.let(::agentTitle) ?: "Agent", writable)
                     }
                 }
                 if (prompt != null) item(key = "question:" + prompt.optString("id")) {
