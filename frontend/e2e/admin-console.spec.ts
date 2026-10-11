@@ -1,6 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import type { ModelDefaultsValue } from "../src/lib/api/types";
+import { CAPABILITIES } from "../src/lib/auth/capabilities";
 
 const user = {
   id: 1,
@@ -119,6 +120,7 @@ const BUILDER_CATALOG = {
  */
 const CANONICAL_DESTINATIONS = [
   { path: "/dashboard", heading: "Overview", title: "Overview" },
+  { path: "/accounts", heading: "Accounts", title: "Accounts" },
   { path: "/clients", heading: "Active Clients", title: "Active Clients" },
   { path: "/logs/events", heading: "Logs", title: "Logs / Audit trail" },
   { path: "/hosts", heading: "Hosts", title: "Hosts" },
@@ -127,7 +129,9 @@ const CANONICAL_DESTINATIONS = [
   { path: "/policies", heading: "Policies", title: "Policies" },
   { path: "/projects", heading: "Projects", title: "Projects" },
   { path: "/agent-messaging", heading: "Agent Messaging", title: "Agent Messaging" },
-  { path: "/agent-portal", heading: "Agent Portal", title: "Agent Portal" },
+  { path: "/schedules", heading: "Wake / Cron", title: "Wake / Cron" },
+  { path: "/git-director", heading: "Git Director", title: "Git Director" },
+  { path: "/transfers", heading: "File Transfer", title: "File Transfer" },
   { path: "/skills", heading: "Skills", title: "Skills" },
   { path: "/instructions", heading: "Fleet Instructions", title: "Fleet Instructions" },
   { path: "/memories", heading: "Memories", title: "Memories" },
@@ -154,7 +158,7 @@ function fixture(pathname: string): Record<string, unknown> {
       backends: [{ engine: "codex", label: "Codex" }, { engine: "claude", label: "Claude" }, { engine: "grok", label: "Grok" }],
     };
     case "/admin/auth/status":
-      return { authenticated: true, enforced: true, user, roles: ["owner"] };
+      return { authenticated: true, enforced: true, user, roles: ["owner"], capabilities: [...CAPABILITIES] };
     case "/admin/setup/status":
       return { setup_complete: true, critical_complete: true, checks: [], next_actions: [], wizard: { completed_at: "2026-09-28T00:00:00Z", dismissed_at: null } };
     case "/admin/ws/info":
@@ -203,6 +207,17 @@ function fixture(pathname: string): Record<string, unknown> {
           },
         ],
       };
+    case "/admin/accounts": return { accounts: [] };
+    case "/admin/chatty/status": return { visible: false, ready: false, enabled: false, knowledge_version: "test", engines: [] };
+    case "/admin/chatty/settings": return { enabled: false, engine_order: ["codex", "claude", "grok"], concurrency: 1, queue_limit: 10, steps: 10, timeout_seconds: 120 };
+    case "/admin/authorization": return { mode: "compatible", updated_at: null, would_deny: [] };
+    case "/admin/watchdogs": return { watchdogs: [] };
+    case "/admin/schedules": return { schedules: [], next_cursor: null };
+    case "/admin/git-director/state": return { enabled: true, model: "test", clones: 0, worktrees: 0, updated_at: null };
+    case "/admin/git-director": return { clones: [] };
+    case "/admin/git-director/commit-settings": return { message_style: "short", ai_attribution: true };
+    case "/admin/transfers/state": return { enabled: true, updated_at: null, used_bytes: 0, live_count: 0, default_ttl_seconds: 3600, max_ttl_seconds: 86400, max_file_bytes: 1048576, quota_bytes: 10485760 };
+    case "/admin/transfers": return { transfers: [] };
     case "/admin/theme":
       return { theme: "auto" };
     case "/admin/openai/keys":
@@ -577,6 +592,10 @@ function fixture(pathname: string): Record<string, unknown> {
             canonical_digest: "0123456789abcdef",
             claude_canonical_digest: "abcdef0123456789",
             engines: "codex,claude",
+            engine_readiness: {
+              codex: { state: "ready", reasons: [], cli_version: "0.125.0", cli_target: "0.125.0", wrapper_version: "2.4.0", wrapper_target: "2.4.0" },
+              claude: { state: "ready", reasons: [], cli_version: "2.1.170", cli_target: "2.1.170", wrapper_version: "2.4.0", wrapper_target: "2.4.0" },
+            },
             authed: true,
             auth_outdated: false,
           },
@@ -1162,7 +1181,7 @@ test("desktop shell exposes direct task navigation and the command palette", asy
   const destinations: Array<[string, string[]]> = [
     ["Workspace", ["Overview", "Active Clients", "Hosts", "Projects"]],
     ["Fleet", ["Accounts", "Quick Settings", "Engines", "Policies"]],
-    ["Coordinate", ["Agent Messaging", "Agent Portal"]],
+    ["Coordinate", ["Agent Messaging", "Wake / Cron", "Git Director", "File Transfer"]],
     ["Knowledge", ["Skills", "Fleet Instructions"]],
     ["Access", ["Admin Users"]],
     ["Diagnostics", ["Logs"]],
@@ -1178,7 +1197,13 @@ test("desktop shell exposes direct task navigation and the command palette", asy
 
   await page.keyboard.press("Control+K");
   await expect(page.getByRole("combobox", { name: "Search fleet and commands" })).toBeVisible();
-  await expect(page.getByText("Agent Portal", { exact: true })).toBeVisible();
+  await page.getByRole("combobox", { name: "Search fleet and commands" }).fill("Active Clients");
+  await page.getByRole("option", { name: /Go to Active Clients/ }).click();
+  await expect(page).toHaveURL(/\/admin\/clients$/);
+  await expect(page.getByRole("heading", { name: "Active Clients", exact: true })).toBeVisible();
+  await page.keyboard.press("Control+K");
+  await page.getByRole("combobox", { name: "Search fleet and commands" }).fill("Agent Portal");
+  await expect(page.getByRole("option", { name: /Agent Portal/ })).toHaveCount(0);
 });
 
 test("an existing fleet skips automatic first-run setup without wizard history", async ({ page }) => {
@@ -1542,7 +1567,13 @@ test("operator tables use the full workspace and the mobile menu retains all rou
   await page.getByRole("button", { name: "Open navigation menu" }).click();
   const dialog = page.getByRole("dialog");
   await expect(dialog.getByRole("link", { name: /Output Styles/ })).toBeVisible();
-  await expect(dialog.getByRole("link", { name: /Agent Portal/ })).toBeVisible();
+  for (const label of ["Agent Messaging", "Wake / Cron", "Git Director", "File Transfer"]) {
+    await expect(dialog.getByRole("link", { name: new RegExp(label) })).toBeVisible();
+  }
+  await expect(dialog.getByRole("link", { name: /Agent Portal/ })).toHaveCount(0);
+  await dialog.getByRole("link", { name: /Wake \/ Cron/ }).click();
+  await expect(page.getByRole("heading", { name: "Wake / Cron", exact: true })).toBeVisible();
+  await expect(dialog).toHaveCount(0);
 });
 
 test("hosts keep desktop data rows dense without losing the mobile summary", async ({ page }) => {
@@ -1898,18 +1929,18 @@ test("host table engine dots show assignments and fleet suspension on desktop an
     await page.goto("/admin/hosts");
     const row = page.getByRole("button").filter({ hasText: "console.example.test" });
     await expect(row).toBeVisible();
-    await expect(row.getByRole("img", { name: "Codex: enabled", exact: true }).filter({ visible: true })).toHaveCount(1);
-    await expect(row.getByRole("img", { name: "Claude: enabled", exact: true }).filter({ visible: true })).toHaveCount(1);
+    await expect(row.getByRole("img", { name: /^Codex: ready/ }).filter({ visible: true })).toHaveCount(1);
+    await expect(row.getByRole("img", { name: /^Claude: ready/ }).filter({ visible: true })).toHaveCount(1);
     await expect(row.getByRole("img", { name: "Grok: not assigned", exact: true }).filter({ visible: true })).toHaveCount(1);
-    await expect(row.locator('[aria-label="Codex: enabled"] span').first()).toHaveClass(/bg-green-500/);
-    await expect(row.locator('[aria-label="Grok: not assigned"] span').first()).toHaveClass(/bg-red-500/);
+    await expect(row.getByRole("img", { name: /^Codex: ready/ }).filter({ visible: true }).locator("span")).toHaveClass(/bg-green-500/);
+    await expect(row.getByRole("img", { name: "Grok: not assigned", exact: true }).filter({ visible: true }).locator("span")).toHaveClass(/bg-slate-400/);
     await expectNoSeriousAxeFindings(page);
   }
   suspended = true;
   await page.reload();
   const row = page.getByRole("button").filter({ hasText: "console.example.test" });
-  await expect(row.getByRole("img", { name: "Claude: disabled fleet-wide", exact: true }).filter({ visible: true })).toHaveCount(1);
-  await expect(row.locator('[aria-label="Claude: disabled fleet-wide"] span').first()).toHaveClass(/bg-red-500/);
+  await expect(row.getByRole("img", { name: /^Claude: disabled fleet-wide/ }).filter({ visible: true })).toHaveCount(1);
+  await expect(row.getByRole("img", { name: /^Claude: disabled fleet-wide/ }).filter({ visible: true }).locator("span")).toHaveClass(/bg-slate-400/);
 });
 
 test("engine coverage reports independent counts, zeroes, and unavailable snapshots", async ({ page }) => {
@@ -1969,14 +2000,16 @@ test("control overview distinguishes unavailable, stale, and recovered snapshots
   await expect(page.getByRole("region", { name: "Engine coverage" })).toContainText("unavailable");
   failed = false;
   await page.getByRole("button", { name: "Retry overview", exact: true }).click();
-  await expect(page.getByRole("region", { name: "Engine coverage" })).toContainText("Codex + Claude");
+  const coverage = page.getByRole("region", { name: "Engine coverage" });
+  await expect(coverage.locator("dd")).toHaveText(["9 / 12 75%", "8 / 12 67%", "No data"]);
   failed = true;
   await page.getByRole("button", { name: "Refresh overview", exact: true }).click();
   await expect(page.getByText("Overview could not refresh", { exact: true })).toBeVisible();
-  await expect(page.getByRole("region", { name: "Engine coverage" }).locator("dd").first()).toContainText("6");
+  await expect(coverage.locator("dd")).toHaveText(["9 / 12 75%", "8 / 12 67%", "No data"]);
   failed = false;
   await page.getByRole("button", { name: "Retry overview", exact: true }).click();
   await expect(page.getByText("Overview could not refresh", { exact: true })).toHaveCount(0);
+  await expect(coverage.locator("dd")).toHaveText(["9 / 12 75%", "8 / 12 67%", "No data"]);
 });
 
 test("control usage preserves missing windows and bounds over-limit meter semantics", async ({ page }) => {
@@ -2345,7 +2378,7 @@ test("Grok quick defaults honor model-specific effort and persist across reload"
   await expect(grok.getByRole("radio", { name: "Extra high", exact: true })).toHaveCount(0);
   await expect(grok.getByRole("radio", { name: "High Default", exact: true })).toBeChecked();
   await expect(grok.getByRole("status")).toHaveText("Saved");
-  expect(writes).toEqual([{ model: "grok-4.6", reasoning_effort: "xhigh" }, { model: "grok-4.5", reasoning_effort: "high" }]);
+  expect(writes).toEqual([{ model: "grok-4.6", reasoning_effort: "xhigh", context_window: 256_000 }, { model: "grok-4.5", reasoning_effort: "high", context_window: 256_000 }]);
   await page.reload();
   await expect(grok.getByRole("radio", { name: "Grok 4.5", exact: true })).toBeChecked();
 });
