@@ -1,7 +1,4 @@
 import { randomBytes, randomUUID } from 'node:crypto';
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { and, eq, sql } from 'drizzle-orm';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
@@ -12,7 +9,7 @@ import {
   agentBusMessages,
   hosts,
 } from '../../../src/db/schema.js';
-import { splitSqlStatements } from '../../../src/db/migration-sql.js';
+import { runMigrations } from '../../../src/db/migrator.js';
 import type { Env } from '../../../src/env.js';
 import {
   AGENT_MESSAGING_CONFERENCE_MEMBER_MESSAGE_CAP,
@@ -25,14 +22,6 @@ import type { Engine } from '../../../src/util/engine.js';
 import { getTestDb, type TestDb } from '../../helpers/test-db.js';
 import { loadTestEnv, testKeyring } from '../../helpers/test-keyring.js';
 
-const HERE = dirname(fileURLToPath(import.meta.url));
-const MIGRATIONS = [
-  join(HERE, '../../../src/db/migrations/0008_add_agent_portal.sql'),
-  join(HERE, '../../../src/db/migrations/0014_add_agent_messaging.sql'),
-  join(HERE, '../../../src/db/migrations/0020_add_agent_call_pins.sql'),
-  join(HERE, '../../../src/db/migrations/0021_add_agent_conferences.sql'),
-  join(HERE, '../../../src/db/migrations/0047_conference_invitation_join.sql'),
-];
 const PREFIX = 'ztest-agent-conf';
 const HOST_FQDN = `${PREFIX}.example`;
 const HOST_KEY = 'd'.repeat(64);
@@ -72,11 +61,9 @@ describe.skipIf(!handle)('conferences against a real database', { timeout: 120_0
 
   beforeAll(async () => {
     db = handle!.db;
-    for (const migration of MIGRATIONS) {
-      for (const statement of splitSqlStatements(readFileSync(migration, 'utf8'))) {
-        await exec(statement);
-      }
-    }
+    // Use the complete migration chain: replaying 0008 alone resurrects
+    // portal tables retired by 0051 and pollutes later migration tests.
+    await runMigrations(handle!.pool);
     await exec(`DELETE FROM hosts WHERE fqdn = '${HOST_FQDN}'`);
     const now = new Date().toISOString();
     await exec(

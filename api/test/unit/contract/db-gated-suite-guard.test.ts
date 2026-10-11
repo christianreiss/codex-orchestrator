@@ -6,19 +6,20 @@ import { fileURLToPath } from 'node:url';
 /**
  * The DB-backed suites under `test/integration` are the only coverage some
  * behaviour has — FULLTEXT ranking, unique indexes, FK cascade, the migration
- * runner — and they run against real MySQL only under `npm run test:db`. The
- * default `npm test` collects them all the same, so each one stays honest by
+ * runner — and they run against real MySQL under `npm run test:db` or the
+ * complete `npm run test:coverage` gate. The default `npm test` collects them
+ * all the same, so each one stays honest by
  * binding `const handle = await getTestDb()` at module level and wrapping its
  * suites in `describe.skipIf(!handle)`.
  *
  * Nothing enforced that convention. A new suite that dereferenced the null
  * handle in a describe body would fail every run without a database, and one
  * that asserted against a null `db` would pass vacuously — the failure mode
- * this file exists to prevent, since `test:db` is not part of the gate.
+ * this file exists to prevent in the fast database-free tier.
  *
  * The scan reads every `*.test.ts` under `test/integration` that imports
  * `getTestDb` as a value and fails when either half of the convention is
- * missing. It also pins the `test:db` invocation itself: the suites' docstrings
+ * missing. It also pins both database test commands: the suites' docstrings
  * call `--no-file-parallelism` non-optional (the index-drop tests race the
  * migration suite), and that requirement lives only in the npm script.
  */
@@ -83,14 +84,21 @@ describe('DB-backed integration suites', () => {
   });
 });
 
-describe('the test:db script', () => {
-  it('opts into the database and disables file parallelism', () => {
+describe('database test scripts', () => {
+  it.each(['test:db', 'test:coverage'])('%s opts into the database and disables file parallelism', (name) => {
     const scripts = (JSON.parse(readFileSync(PACKAGE_JSON, 'utf8')) as { scripts: Record<string, string> })
       .scripts;
-    const testDb = scripts['test:db'] ?? '';
+    const testDb = scripts[name] ?? '';
     expect(testDb).toContain('TEST_USE_DB=1');
     expect(testDb, 'the index-drop suites race the migration suite when files run in parallel').toContain(
       '--no-file-parallelism',
     );
+  });
+
+  it('measures coverage across the full suite, including real-DB tests', () => {
+    const scripts = (JSON.parse(readFileSync(PACKAGE_JSON, 'utf8')) as { scripts: Record<string, string> })
+      .scripts;
+    expect(scripts['test:coverage']).toContain('vitest run --coverage');
+    expect(scripts['test:coverage']).not.toContain('test/integration');
   });
 });

@@ -1,7 +1,4 @@
 import { randomBytes, randomUUID } from 'node:crypto';
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { eq, sql } from 'drizzle-orm';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
@@ -13,7 +10,7 @@ import {
   agentSessions,
   hosts,
 } from '../../../src/db/schema.js';
-import { splitSqlStatements } from '../../../src/db/migration-sql.js';
+import { runMigrations } from '../../../src/db/migrator.js';
 import type { Env } from '../../../src/env.js';
 import {
   AGENT_MESSAGING_ENABLED_KEY,
@@ -27,11 +24,6 @@ import { ENGINES, type Engine } from '../../../src/util/engine.js';
 import { getTestDb, type TestDb } from '../../helpers/test-db.js';
 import { loadTestEnv, testKeyring } from '../../helpers/test-keyring.js';
 
-const HERE = dirname(fileURLToPath(import.meta.url));
-const MIGRATIONS = [
-  join(HERE, '../../../src/db/migrations/0008_add_agent_portal.sql'),
-  join(HERE, '../../../src/db/migrations/0014_add_agent_messaging.sql'),
-];
 const PREFIX = 'ztest-agent-messaging';
 const HOST_FQDN = `${PREFIX}.example`;
 const HOST_KEY = 'b'.repeat(64);
@@ -89,11 +81,9 @@ describe.skipIf(!handle)('agent messaging durability against a real database', {
 
   beforeAll(async () => {
     db = handle!.db;
-    for (const migration of MIGRATIONS) {
-      for (const statement of splitSqlStatements(readFileSync(migration, 'utf8'))) {
-        await exec(statement);
-      }
-    }
+    // Use the complete migration chain: replaying 0008 alone resurrects
+    // portal tables retired by 0051 and pollutes later migration tests.
+    await runMigrations(handle!.pool);
     await exec(`DELETE FROM hosts WHERE fqdn = '${HOST_FQDN}'`);
     const now = new Date().toISOString();
     await exec(
