@@ -146,6 +146,7 @@ export class CompanionRemote {
       const resumable =
         ['idle', 'waiting'].includes(row.status) &&
         !!row.addressId &&
+        !!bound?.upstream_session_id &&
         !!host?.startable &&
         host.engines.includes(row.engine);
       const running = row.status === 'running';
@@ -171,8 +172,11 @@ export class CompanionRemote {
               ? 'ended'
               : 'offline',
         relay_ready: writable,
-        read_only: ['closed', 'failed', 'unknown'].includes(row.status),
-        remote_status: row.status,
+        read_only:
+          ['closed', 'failed', 'unknown'].includes(row.status) ||
+          (['idle', 'waiting'].includes(row.status) && !bound?.upstream_session_id),
+        remote_status:
+          ['idle', 'waiting'].includes(row.status) && !bound?.upstream_session_id ? 'unknown' : row.status,
         pending_prompt: bound?.pending_prompt ?? null,
         last_event_at: bound?.last_event_at ?? row.createdAt,
         preview: null,

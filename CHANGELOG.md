@@ -2,6 +2,7 @@
 
 - Android 0.4.10 adds Chats/Hosts navigation, searchable daemon-ready hosts and contact-only or task-based remote starts. Daemon launches remain one Portal conversation across native resumptions, with real agent replies, durable retry identity, inherited device follows and first-reply push. Companion routes enforce current device permissions, engine readiness and available work slots.
 - Remote-conversation migration preserves the existing ID collations independently for older Portal and newer daemon/device tables, including upgrades with mixed collations.
+- Daemon completion persists the native transcript proved by headless output so the next Android instruction resumes it; sessions lacking transcript proof remain unavailable for continuation.
 
 - Wrapper 0.9.46 installs/starts enabled Linux host daemons during `cxx update`, wrapper sync/cron and Codex/Claude/Grok startup. Unprivileged runs show the required root installation step; accepted daemon work never restarts its parent service. Daemon connection and registration errors are visible in the journal.
 - Host daemon readiness and admission use the current fleet Agent Messaging policy instead of the retired per-host messaging flag, fixing enabled hosts stuck at `host_access_blocked` despite working managed engine configs.

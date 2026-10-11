@@ -26,6 +26,9 @@ closed/failed/unknown sessions and occupied hosts reject continuation. A repeate
 UUID returns the original operation, including after acceptance. Live ordinary
 Portal messages still use the normal receiver. Completed daemon launches retain
 open Portal questions for explicit answers through a native resume.
+At completion, authenticated headless output supplies the native transcript ID
+even when the receiver ended before reporting it. The server persists it on the
+bound mailbox and Portal launch; conflicting bindings reject that completion.
 
 `companion_daemon_follows` exists before the first Portal registration, then copies
 the follow to every bound launch. Push targets the logical UUID and suppresses

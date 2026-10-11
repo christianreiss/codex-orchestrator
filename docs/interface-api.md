@@ -1820,6 +1820,9 @@ at most ten minutes. Only one turn writes a native transcript at once. Idle
 sessions close after 60 minutes, pending questions after 24 hours; host
 settings override both. Heartbeats do not count as activity. Explicit resume
 requires the same existing native transcript. Automatic recovery is separate.
+Authenticated completion records the transcript ID extracted from native headless
+output on the bound mailbox and Portal launch, including when the receiver ended
+without reporting it. A changed mailbox/native binding rejects completion.
 
 MCP tools: `agent_spawn` takes `host_id`, `engine`, optional absolute `cwd`,
 `title`, `prompt`, and stable UUID `client_message_id`. It returns

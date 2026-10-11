@@ -1,5 +1,5 @@
 import { randomUUID, createHash } from 'node:crypto';
-import { and, eq, inArray, asc, sql } from 'drizzle-orm';
+import { and, eq, inArray, asc, desc, sql } from 'drizzle-orm';
 import type { RouteContext } from '../../routes/index.js';
 import {
   versions,
@@ -666,6 +666,66 @@ export class HostDaemonService {
         throw new ConflictError('Operation is no longer active');
       const [session] = await tx.select().from(sessions).where(eq(sessions.id, op.sessionId)).for('update');
       const [config] = await tx.select().from(hostDaemons).where(eq(hostDaemons.hostId, hostId));
+      // Headless native output proves the transcript only when the process ends.
+      // Its receiver may already have unregistered without ever reporting that ID.
+      if (result.status === 'completed' && result.upstream_session_id && session?.addressId) {
+        const [address] = await tx
+          .select()
+          .from(agentBusAddresses)
+          .where(eq(agentBusAddresses.id, session.addressId))
+          .for('update');
+        if (
+          !address ||
+          address.enabled !== 1 ||
+          address.archivedAt ||
+          address.hostId !== hostId ||
+          address.engine !== session.engine ||
+          (address.currentSessionId && address.currentSessionId !== session.sessionId) ||
+          (address.lastUpstreamSessionId && address.lastUpstreamSessionId !== result.upstream_session_id)
+        )
+          throw new ConflictError('Native completion binding changed');
+        await tx
+          .update(agentBusAddresses)
+          .set({
+            lastUpstreamSessionId: result.upstream_session_id,
+            continuity: 'native',
+            readiness: address.currentSessionId ? address.readiness : 'resumable',
+            updatedAt: now(),
+          })
+          .where(eq(agentBusAddresses.id, address.id));
+        const [portal] = session.sessionId
+          ? await tx.select().from(agentSessions).where(eq(agentSessions.id, session.sessionId)).for('update')
+          : [];
+        if (portal && !portal.upstreamSessionId) {
+          await tx
+            .update(agentSessions)
+            .set({ upstreamSessionId: result.upstream_session_id })
+            .where(eq(agentSessions.id, portal.id));
+          const [named] = await tx
+            .select()
+            .from(agentEvents)
+            .where(and(eq(agentEvents.sessionId, portal.id), eq(agentEvents.eventType, 'session_named')))
+            .orderBy(desc(agentEvents.id))
+            .limit(1);
+          const naming = named
+            ? (JSON.parse(decrypt(named.payloadEnc, this.ctx.keyring)) as Record<string, unknown>)
+            : null;
+          if (naming && naming.native_session_id == null)
+            await tx
+              .insert(agentEvents)
+              .values({
+                sessionId: portal.id,
+                clientEventId: `daemon:native-name:${id}`,
+                eventType: 'session_named',
+                source: 'bridge',
+                payloadEnc: encrypt(
+                  JSON.stringify({ ...naming, native_session_id: result.upstream_session_id }),
+                  this.ctx.keyring,
+                ),
+                createdAt: now(),
+              });
+        }
+      }
       await tx
         .update(operations)
         .set({ status: result.status, resultEnc: encoded, updatedAt: now() })

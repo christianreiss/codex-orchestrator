@@ -168,7 +168,7 @@ describe.skipIf(!handle)('companion remote conversations with MySQL', () => {
       username: 'root',
       cwd: '/tmp',
       invocationKind: 'execute',
-      upstreamSessionId: 'native-test',
+      upstreamSessionId: null,
     });
     if (!registered.enabled) throw new Error('Portal disabled');
     firstPortal = registered.session_id;
@@ -184,7 +184,7 @@ describe.skipIf(!handle)('companion remote conversations with MySQL', () => {
         username: 'root',
         cwd: '/tmp',
         cwdHash: createHash('sha256').update('/tmp').digest('hex'),
-        lastUpstreamSessionId: 'native-test',
+        lastUpstreamSessionId: null,
         lastSeenAt: nowIso(),
         createdAt: nowIso(),
         updatedAt: nowIso(),
@@ -219,9 +219,12 @@ describe.skipIf(!handle)('companion remote conversations with MySQL', () => {
       remote_status: 'idle',
       relay_ready: true,
       read_only: false,
+      upstream_session_id: 'native-test',
       unread_reply_count: 1,
     });
     expect((await snapshot()).some((s) => s.id === firstPortal)).toBe(false);
+    const [nativeAddress] = await ctx.db.select().from(agentBusAddresses).where(eq(agentBusAddresses.id, address));
+    expect(nativeAddress?.lastUpstreamSessionId).toBe('native-test');
   });
   it('resumes the same transcript and replays a lost send response even after acceptance', async () => {
     const payload = { client_message_id: randomUUID(), content: 'Do the next step.' };
