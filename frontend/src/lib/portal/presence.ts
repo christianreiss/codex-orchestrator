@@ -1,3 +1,4 @@
+import { liveActivity, ACTIVITY_LABEL } from './activity';
 import type { Agent, Presence, PresenceTimings } from "./types";
 
 /**
@@ -111,6 +112,14 @@ export function endedDetail(agent: Agent, now: number): string {
 
 export function presenceView(agent: Agent, now: number, timings: PresenceTimings = configuredTimings): PresenceView {
   const presence = livePresence(agent, now, timings);
+  const activity = liveActivity(agent, now);
+  if (activity !== null && presence !== "offline" && presence !== "ended") {
+    const receiver = agent.receiver;
+    const ready = receiver ? !receiver.failure && timestampFresh(receiver.heartbeat_at, now, 45_000) && receiver.sources.some(s => s.source === "portal" && s.state === "ready") : agent.relay_ready;
+    const connection = ready ? "Connected · Can receive messages" : "Connected · Receiver unavailable";
+    const explanation = activity === "unknown" ? "Activity observation expired or unavailable" : activity === "waiting" ? (agent.activity?.wait_reason === "approval" ? "Approval requested in the native client" : "Input requested") : activity === "working" ? "Native conversation is active" : "No active native turn";
+    return { presence: ready ? "listening" : "idle", label: ACTIVITY_LABEL[activity], detail: `${explanation} · ${connection}`, canSend: !agent.read_only && ready };
+  }
   switch (presence) {
     case "listening":
       return { presence, label: "Listening", detail: agent.read_only ? "This session is read-only" : "Relay open — you can reply", canSend: !agent.read_only };
@@ -144,11 +153,13 @@ export function presenceView(agent: Agent, now: number, timings: PresenceTimings
  * Sidebar grouping. "Needs you" is first and is orthogonal to presence: an
  * agent that has gone offline while waiting for an answer still needs you.
  */
-export type GroupKey = "attention" | "working" | "listening" | "idle" | "offline" | "ended";
+export type GroupKey = "waiting" | "unknown" | "attention" | "working" | "listening" | "idle" | "offline" | "ended";
 
 export const GROUP_ORDER: GroupKey[] = [
   "attention",
+  "waiting",
   "working",
+  "unknown",
   "listening",
   "idle",
   "offline",
@@ -157,9 +168,11 @@ export const GROUP_ORDER: GroupKey[] = [
 
 export const GROUP_LABEL: Record<GroupKey, string> = {
   attention: "Needs you",
+  waiting: "Waiting for you",
+  unknown: "Unknown activity",
   working: "Working",
   listening: "Listening",
-  idle: "Not listening",
+  idle: "Idle",
   offline: "Offline",
   ended: "Recently ended",
 };
@@ -174,7 +187,7 @@ export function groupFor(agent: Agent, now: number): GroupKey {
   if (agent.attention?.severity) return "attention";
   if (presence === "ended") return "ended";
   if (agent.attention || (agent.pending_prompt && !agent.pending_prompt.answer_mode)) return "attention";
-  return presence;
+  return presence === "offline" ? presence : liveActivity(agent, now) ?? presence;
 }
 
 export function groupAgents(agents: Agent[], now: number): Array<{ key: GroupKey; agents: Agent[] }> {

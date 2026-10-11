@@ -297,7 +297,7 @@ function collectRequestSites(): RequestSite[] {
 // --- what the runner accepts ------------------------------------------------
 
 const RUNNER_SOURCE = readFileSync(RUNNER_APP, 'utf8');
-const POST_ROUTE = /@app\.post\(\s*"([^"]+)"\s*\)\s*\ndef\s+\w+\(([^)]*)\)/g;
+const POST_ROUTE = /@app\.post\(\s*"([^"]+)"\s*\)\s*\n(?:async\s+)?def\s+\w+\(([^)]*)\)/g;
 
 /** Runner path -> the pydantic model its handler validates the body against. */
 function collectRunnerRoutes(): Map<string, string | null> {

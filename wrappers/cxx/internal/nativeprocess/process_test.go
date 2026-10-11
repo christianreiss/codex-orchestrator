@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -113,12 +114,28 @@ func TestCancellationEscalatesAndReapsOwnedDescendants(t *testing.T) {
 	if elapsed := time.Since(started); elapsed < 60*time.Millisecond || elapsed > 2*time.Second {
 		t.Fatalf("unbounded or immediate kill: %v", elapsed)
 	}
-	// Linux may retain the orphan as a zombie until PID 1 reaps it. A zombie
-	// holds neither descriptors nor executable work; do not confuse it with a survivor.
-	if status, readErr := os.ReadFile(filepath.Join("/proc", strconv.Itoa(pid), "stat")); readErr == nil {
-		fields := strings.Fields(string(status))
-		if len(fields) < 3 || fields[2] != "Z" {
-			t.Fatalf("descendant survived group cleanup: %s", status)
+	// Kill delivers SIGKILL asynchronously, and Wait only joins the direct child.
+	// Allow the descendant to be scheduled to handle the pending fatal signal.
+	// Linux may then retain it as a zombie until PID 1 reaps it; a zombie holds
+	// neither descriptors nor executable work. A live descendant still fails.
+	if runtime.GOOS == "linux" {
+		deadline := time.Now().Add(time.Second)
+		for {
+			status, readErr := os.ReadFile(filepath.Join("/proc", strconv.Itoa(pid), "stat"))
+			if errors.Is(readErr, os.ErrNotExist) || errors.Is(readErr, syscall.ESRCH) {
+				break
+			}
+			if readErr != nil {
+				t.Fatalf("read descendant state: %v", readErr)
+			}
+			fields := strings.Fields(string(status))
+			if len(fields) >= 3 && fields[2] == "Z" {
+				break
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("descendant survived group cleanup: %s", status)
+			}
+			time.Sleep(time.Millisecond)
 		}
 	}
 }

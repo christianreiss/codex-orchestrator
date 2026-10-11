@@ -28,6 +28,7 @@ const API_SRC = resolve(ROOT, 'api/src');
  */
 const NON_API_VARS: Record<string, string> = {
   CODEX_INSTALL_CURL_INSECURE: 'api/src/services/wrapper-transition.ts (generated installer)',
+  E_NOT_IMPLEMENTED: 'wrappers/cxx/internal/remote/output.go (command error code, not an env var)',
   RUNNER_SHARED_SECRET: 'runner/app.py',
 };
 

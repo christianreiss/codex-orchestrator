@@ -306,3 +306,73 @@ func TestClaudeHeadlessPluginRetainsFailureHooksWithoutReceiver(t *testing.T) {
 		t.Fatal("headless plugin must not pretend to register a channel identity")
 	}
 }
+
+// The activity and recovery changes both extend this one native hook map.
+// A merge must preserve both commands on shared events without adding channel
+// identity or activity reporting to headless launches.
+func TestClaudePluginHooksCombineActivityAndFailureLifecycle(t *testing.T) {
+	for _, receiver := range []bool{false, true} {
+		name := "headless"
+		if receiver {
+			name = "receiver"
+		}
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			t.Setenv(envSocket, filepath.Join(dir, "portal.sock"))
+			t.Setenv(envSessionID, "session")
+			t.Setenv(channelPolicyDirEnv, filepath.Join(dir, "managed"))
+			var err error
+			if receiver {
+				_, err = ClaudeReceiverArgs(nil)
+			} else {
+				_, err = ClaudeAgentArgs(nil)
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			raw, err := os.ReadFile(filepath.Join(dir, PluginName, "hooks", "hooks.json"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			var parsed struct {
+				Hooks map[string][]struct {
+					Hooks []struct {
+						Type, Command string
+						Timeout       int
+					}
+				}
+			}
+			if err := json.Unmarshal(raw, &parsed); err != nil {
+				t.Fatalf("invalid native hooks schema: %v: %s", err, raw)
+			}
+			expected := map[string][]string{
+				"StopFailure": {"watchdog-event"},
+				"SessionEnd":  {"watchdog-event"},
+			}
+			if receiver {
+				expected["SessionStart"] = []string{"native-session"}
+				for _, event := range []string{"SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PostToolUseFailure", "PermissionRequest", "Elicitation", "ElicitationResult", "Stop", "StopFailure", "SessionEnd"} {
+					expected[event] = append(expected[event], "activity-event")
+				}
+			}
+			if len(parsed.Hooks) != len(expected) {
+				t.Fatalf("unexpected hook events: %s", raw)
+			}
+			for event, commands := range expected {
+				entries := parsed.Hooks[event]
+				if len(entries) != len(commands) {
+					t.Fatalf("%s lost lifecycle hook: %s", event, raw)
+				}
+				for i, command := range commands {
+					if len(entries[i].Hooks) != 1 {
+						t.Fatalf("%s has invalid hook entries: %s", event, raw)
+					}
+					hook := entries[i].Hooks[0]
+					if hook.Type != "command" || !strings.HasSuffix(hook.Command, " agent "+command) || hook.Timeout <= 0 {
+						t.Fatalf("%s lost %s: %s", event, command, raw)
+					}
+				}
+			}
+		})
+	}
+}

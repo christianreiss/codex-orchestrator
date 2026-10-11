@@ -293,7 +293,11 @@ func (r *autoReceiver) connection(parent context.Context) error {
 		}
 	}
 	var registered struct {
-		Sources []string `json:"sources"`
+		Sources      []string `json:"sources"`
+		Capabilities struct {
+			Activity bool `json:"activity_v1"`
+		} `json:"capabilities"`
+		BindingGeneration int `json:"binding_generation"`
 	}
 	if err := r.client.receiver(ctx, "register", map[string]any{"generation": generation, "protocol": protocol, "native_session_id": nativeID}, &registered); err != nil {
 		return err
@@ -303,6 +307,9 @@ func (r *autoReceiver) connection(parent context.Context) error {
 	r.sources = slices.Clone(registered.Sources)
 	r.mu.Unlock()
 	r.setConnected(true)
+	if registered.Capabilities.Activity {
+		go r.observeActivity(ctx, engine, nativeID, generation, registered.BindingGeneration)
+	}
 	defer func() {
 		r.setConnected(false)
 		stopCtx, stop := context.WithTimeout(context.Background(), 3*time.Second)

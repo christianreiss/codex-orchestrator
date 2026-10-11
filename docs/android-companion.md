@@ -413,7 +413,8 @@ upload or production rollout is part of the development build.
 - Devices expire after one year. Disabled admins, role changes, device revocation,
   and portal suspension are rechecked by the API; revocation terminates access
   on the next stream page. Revocation cannot recall a push already accepted by
-  FCM. No chat history is persisted on the phone.
+  FCM. From 0.4.16, the bounded active-chat cache described below persists
+  previously authorized history on the phone.
 - If notifications stop, inspect Android notification permission/channel settings,
   Google Play services, server Firebase configuration, and outbox failed counts.
   The server never logs service-account keys, device bearers, or FCM tokens.
@@ -487,3 +488,27 @@ Receipt events do not generate push notifications or release the operator instru
 Chats use the existing paired operator/daemon identity and history. Questions support buttons, text or both; button labels may differ from stable answer values. Needs you means explicitly important, critical or blocker, with one Resolve action per notice. An unresolved notice stays visible for offline/ended agents; viewing or answering never clears it.
 
 Attach files/photos through Android's document picker, capture a photo/video, or record audio after microphone permission. Uploads show progress and support cancel/retry with the same upload ID. Defaults are ten files, 100 MiB/file, 250 MiB total and 15 minutes per recording. Incoming pictures have a full-image viewer; audio/video play locally and files can open in another installed app. Automatic local ASR and video frames are prepared by the server worker for agent inspection. Failures retain the original. Drafts and upload intent survive switching conversations; confirmed sends clear their own draft and attachments. Agent replies render native Markdown text/code and offer Copy/Reply with an event reference. No Pixel installation was performed for this release.
+
+## Saved active chats (0.4.16)
+
+Recently opened, unfinished conversations retain confirmed server events locally,
+including receipt events used by message bubbles. Progress chatter is omitted while
+its server cursor is retained for resumption. Reopening a chat or starting the
+app offline shows saved history immediately. A saved-content banner remains until
+an authorized server refresh succeeds. The existing WebSocket invalidations fetch
+new events after the cached cursor; repeated server rows replace the cached row
+with that cursor. Cached content never enables sending, establishes live activity,
+creates unread notifications or acknowledges an unseen reply.
+
+The cache holds at most 20 conversations, 500 events per conversation and 4 MiB in
+total. It lives in backup-excluded private app storage, uses AES-GCM with Android
+Keystore, and is scoped to server, device and pairing credential. File replacement
+is atomic; corrupt/undecryptable data is discarded and recovered from the server.
+This caches viewed history, not media bytes, drafts or pending send operations.
+
+Successful snapshots prune missing, ended and read-only conversations while keeping
+unfinished offline sessions. Unpairing, known loss of transcript permission or
+portal suspension clears the cache. During a network outage, previously authorized
+saved history remains readable; revocation can be learned only when the app reaches
+the server again. The server remains authoritative for permissions, lifecycle,
+activity and unread state.

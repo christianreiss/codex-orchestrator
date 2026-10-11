@@ -362,6 +362,7 @@ CREATE TABLE `agent_sessions` (
 	`username` varchar(255) NOT NULL,
 	`cwd` varchar(1024) NOT NULL,
 	`workspace` json,
+	`activity` json,
 	`upstream_session_id` varchar(255),
 	`agent_bus_address_id` char(36),
 	`invocation_kind` varchar(24) NOT NULL,

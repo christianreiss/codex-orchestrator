@@ -2233,3 +2233,38 @@ provider slot. A day with no usable baseline remains unknown. The daily allowanc
 is `100 / partition` percent of the weekly budget; the wrapper applies the same
 warn/deny threshold, advisory mode and VIP policy as other quota rows. It does not
 carry a previous UTC day's reading into the current daily gate.
+
+### Native conversation activity (migration 0060, cxx 0.9.60)
+
+Receiver registration negotiates `capabilities.activity_v1` when Portal is enabled and
+returns the current numeric `binding_generation`. Capabilities remain fixed for that
+receiver generation, including registration retries. Older wrappers ignore these fields;
+new wrappers do not send activity to servers that omit the capability.
+
+`POST /host/agent-sessions/{id}/activity` uses the existing `X-Agent-Bridge-Token`.
+Body: `generation` (receiver UUID), `binding_generation`, `native_session_id`,
+`sequence` (positive safe integer increasing per receiver generation),
+`state` (`working|idle|waiting|unknown`), `wait_reason` (`approval|input` for waiting,
+otherwise null), `source` (`codex-thread|claude-hooks|grok-session`), and
+`evidence_age_ms` (0..86400000). Only the current bound engine, native session and
+fresh receiver may report. Stale ownership returns 409; duplicate or older sequence
+numbers return `{accepted:false}` without refreshing evidence. Successful writes
+return `{accepted:true}`. This endpoint does not renew liveness, mark work complete,
+change portal turn ownership, or act as watchdog progress.
+
+Session list/companion responses add `activity: {state, wait_reason, source,
+changed_at, expires_at, reason}`. The latest observation is durable JSON on
+`agent_sessions.activity`; expiry is server receipt time plus 45 seconds minus
+reported evidence age. Receiver failure, changed native binding and expired evidence
+project Unknown. A still-open portal question supplies a `portal-question` input
+wait when native state is Idle/Unknown; fresh Working takes precedence. Activity
+transitions publish `agent_portal.sessions.changed`, without transcript events or
+push notifications. Clients age evidence locally using the snapshot server clock.
+Companion reconciliation includes observation expiry so refreshed evidence reaches
+phones even when the native activity state stays unchanged.
+Existing `presence`, `relay_ready`, `active_turn_id` and work receipts retain their
+contracts. Offline/Ended take precedence visually; activity never grants send access.
+
+Roll out the additive API/migration before wrapper and UI updates. Older wrappers
+appear with Unknown activity; an older server retains the clients' legacy display.
+Rollback can restore older wrappers/clients/API while retaining the nullable column.

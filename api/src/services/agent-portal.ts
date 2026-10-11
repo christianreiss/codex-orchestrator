@@ -1,3 +1,4 @@
+import { acceptActivity, activityView, type ActivityInput } from './agent-activity.js';
 import { ChatAttachments } from './agent-chat/attachments.js';
 import { normalizeWorkspace, type WorkspaceInput } from './agent-messaging/workspace.js';
 import { chatMetadataSchema, promptChoices, severitySchema, validAnswer, type ChatMetadata } from './agent-chat/contracts.js';
@@ -482,6 +483,23 @@ export class AgentPortalService {
     return { enabled: true, expires_at: expiresAt, ...response };
   }
 
+  async reportActivity(sessionId: string, bridgeToken: string, input: ActivityInput) {
+    const session = await this.authenticateBridge(sessionId, bridgeToken);
+    const result = await this.db.transaction(async (tx) => {
+      await this.requirePortalEnabledLocked(tx);
+      const locked = await this.requireBridgeSessionLocked(tx, sessionId, bridgeToken, session.hostId);
+      const now = Date.now();
+      const next = acceptActivity(locked, input, now);
+      if (!next) return { accepted: false, changed: false };
+      const before = activityView(locked, now);
+      const after = activityView({ ...locked, activity: next }, now);
+      await tx.update(agentSessions).set({ activity: next }).where(eq(agentSessions.id, sessionId));
+      return { accepted: true, changed: before.state !== after.state || before.wait_reason !== after.wait_reason || before.source !== after.source };
+    });
+    if (result.changed) wsPublisher.publish('agent_portal.sessions.changed', { session_id: sessionId });
+    return { accepted: result.accepted };
+  }
+
   async addAgentEvent(sessionId: string, bridgeToken: string, input: AgentEventInput, hostId?: number): Promise<Record<string, unknown>> {
     const session = await this.authenticateBridge(sessionId, bridgeToken, hostId);
     return await this.addEventInternal(sessionId, input, {
@@ -705,6 +723,7 @@ export class AgentPortalService {
         // is not a liveness signal. Read `presence`.
         status: effectiveStatus,
         presence,
+        activity: activityView(session, snapshotTime, Boolean(promptBySession.get(session.id))),
         relay_ready: relayReady,
         receiver: receiverView(session.receiver, snapshotTime),
         relay_enabled: session.relayEnabled === 1,

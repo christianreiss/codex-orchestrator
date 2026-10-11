@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { registerHooks } from "node:module";
 import { describe, it } from "node:test";
 import type { AgentSessionRow, AgentSessionsResponse } from "../api/agentSessions";
-registerHooks({ resolve(specifier, context, nextResolve) { return nextResolve(specifier === "./presence" ? "./presence.ts" : specifier, context); } });
+registerHooks({ resolve(specifier, context, nextResolve) { return nextResolve(specifier === "./presence" ? "./presence.ts" : specifier === "./activity" ? "./activity.ts" : specifier, context); } });
 const modulePath: string = "./clients.ts";
 const { clientClock, clientCounts, snapshotIsStale, visibleClients } = await import(modulePath) as typeof import("./clients");
 const NOW = Date.parse("2026-09-08T12:00:00Z");

@@ -223,6 +223,10 @@
     { key: "active" as ClientFilter, label: "Current", count: null },
     { key: "attention" as ClientFilter, label: "Needs you", count: counts.attention },
     { key: "online" as ClientFilter, label: "Online", count: counts.online },
+    { key: "working" as const, label: "Working", count: null },
+    { key: "idle" as const, label: "Idle", count: null },
+    { key: "waiting" as const, label: "Waiting", count: null },
+    { key: "unknown" as const, label: "Unknown", count: null },
     { key: "ended" as ClientFilter, label: "Ended", count: counts.ended },
   ]);
   let detailsOpen = $state(false);
@@ -322,7 +326,7 @@
 
       <section class="min-h-0 min-w-0 flex-col {selected ? 'flex' : 'hidden lg:flex'}" aria-label="Client details">
         {#if !selected || !selectedView}
-          <div class="grid flex-1 place-content-center p-8 text-center"><BotIcon class="mx-auto h-8 w-8 text-muted-foreground/60" /><h2 class="mt-3 text-sm font-medium">Select a client</h2><p class="mx-auto mt-1 max-w-xs text-xs leading-relaxed text-muted-foreground">Online means a recent heartbeat. A client accepts instructions only while listening or working.</p></div>
+          <div class="grid flex-1 place-content-center p-8 text-center"><BotIcon class="mx-auto h-8 w-8 text-muted-foreground/60" /><h2 class="mt-3 text-sm font-medium">Select a client</h2><p class="mx-auto mt-1 max-w-xs text-xs leading-relaxed text-muted-foreground">Online means a recent heartbeat. Receiver readiness determines whether a client accepts instructions; native activity is shown separately.</p></div>
         {:else}
           {@render nativeConversation()}
         {/if}
@@ -350,7 +354,7 @@
                 <h2 bind:this={detailHeading} tabindex="-1" class="mt-0.5 max-w-full truncate text-xs font-semibold focus:outline-none">{agentName(selected)}</h2>
                 <p class="max-w-full truncate text-[11px] text-muted-foreground" title={selected.cwd}>{selected.cwd}</p>
                 <p class="max-w-full truncate text-[11px] text-muted-foreground">
-                  {engineLabel(selected.engine)} · {selectedView.label}{selected.read_only ? " · Read-only" : ""}{#if selectedView.presence !== "listening"}{" · "}<span title={selectedView.detail}>{selectedView.detail}</span>{/if}{#if canReadTranscript}{" · "}<span>{feedState === "live" ? "Live timeline updates" : feedState === "connecting" ? "Connecting to live updates…" : "Live updates reconnecting"}</span>{/if}
+                  {engineLabel(selected.engine)} · {selectedView.label}{selected.read_only ? " · Read-only" : ""}{#if selected.activity || selectedView.presence !== "listening"}{" · "}<span title={selectedView.detail}>{selectedView.detail}</span>{/if}{#if canReadTranscript}{" · "}<span>{feedState === "live" ? "Live timeline updates" : feedState === "connecting" ? "Connecting to live updates…" : "Live updates reconnecting"}</span>{/if}
                 </p>
               </div>
               <div class="flex justify-end">

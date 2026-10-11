@@ -781,6 +781,39 @@ class CompanionUiTest {
         waitForUnread(emptySet())
         screenshot("unread-recovered-reply")
     }
+    @Test fun cachedHistorySurvivesModelRestartOfflineAndThenLoadsNewServerEvents() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        fun persisted() = runCatching { String(ConnectionStore(context).decryptCache(
+            java.io.File(context.noBackupFilesDir, "active-chat-cache.bin").readBytes()), Charsets.UTF_8) }.getOrNull()
+        val original = reply.get()
+        waitForAgentRows(session)
+        compose.onNodeWithTag("agent:$session").performClick()
+        compose.waitUntil(10_000) { compose.onAllNodesWithText(original).fetchSemanticsNodes().isNotEmpty() }
+        compose.waitUntil(5_000) { persisted()?.contains(original) == true }
+        val bytes = java.io.File(context.noBackupFilesDir, "active-chat-cache.bin").readBytes()
+        Assert.assertFalse("Transcript bytes on disk must be encrypted", bytes.toString(Charsets.UTF_8).contains(original))
+
+        networkAvailable.set(false)
+        scenario.close()
+        live.getAndSet(null)?.close(1001, "Restart offline")
+        scenario = ActivityScenario.launch(MainActivity::class.java)
+        waitForAgentRows(session)
+        compose.onNodeWithTag("agent:$session").performClick()
+        compose.waitUntil(5_000) { compose.onAllNodesWithText(original).fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("cached-history").assertIsDisplayed()
+
+        history.add(JSONObject().put("cursor", cursor.get()).put("type", "assistant_message")
+            .put("payload", JSONObject().put("text", original)))
+        val updated = "This reply arrived while the phone was offline."
+        history.add(JSONObject().put("cursor", cursor.incrementAndGet()).put("type", "assistant_message")
+            .put("payload", JSONObject().put("text", updated)))
+        reply.set(updated)
+        networkAvailable.set(true)
+        compose.waitUntil(20_000) { compose.onAllNodesWithText(updated).fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("cached-history").assertDoesNotExist()
+        Assert.assertTrue("Resume reads after the cached cursor", cursorsRequested.contains(cursor.get() - 1))
+        compose.waitUntil(5_000) { persisted()?.contains(updated) == true }
+    }
     @Test fun transcriptPermissionLossHidesUnreadWithoutAcknowledgingIt() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val manager = context.getSystemService(NotificationManager::class.java)
@@ -806,6 +839,7 @@ class CompanionUiTest {
 
         transcriptAllowed.set(false); changed("me")
         compose.waitUntil(10000) { compose.onAllNodesWithTag("conversation").fetchSemanticsNodes().isEmpty() && ownedNotifications().isEmpty() }
+        compose.waitUntil(5000) { !java.io.File(context.noBackupFilesDir, "active-chat-cache.bin").exists() }
         compose.onNodeWithTag("agent:$session").assertDoesNotExist()
         compose.onNodeWithText("1 unread chat", substring = true).assertDoesNotExist()
         compose.onNodeWithText("Earlier history reply 1.").assertDoesNotExist()

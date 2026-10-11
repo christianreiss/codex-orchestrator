@@ -100,7 +100,8 @@ export async function registerCompanionRoutes(app: FastifyInstance, ctx: RouteCo
       const enabled = await portal.isEnabled();
       const snapshot = enabled ? await portal.listAgentsSnapshot() : null;
       const cursor = enabled ? await portal.latestEventCursor() : 0;
-      // Heartbeat timestamps change constantly; only rendered state and durable event cursors invalidate.
+      // Native observation deadlines must reach phones even while the state
+      // stays Working/Idle; ordinary transport heartbeats remain excluded.
       const sessions = snapshot?.sessions.map((s) => ({
         id: s.id,
         host: s.host,
@@ -108,6 +109,7 @@ export async function registerCompanionRoutes(app: FastifyInstance, ctx: RouteCo
         engine: s.engine,
         presence: s.presence,
         ready: s.relay_ready,
+        activity: s.activity,
         prompt: s.pending_prompt,
         attention: s.attention,
         close: s.close,

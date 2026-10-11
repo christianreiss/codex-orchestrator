@@ -46,6 +46,17 @@ class ConnectionStore(context: Context) {
         val encrypted = cipher.doFinal(json.toString().toByteArray(Charsets.UTF_8))
         check(prefs.edit().putString("value", Base64.encodeToString(cipher.iv + encrypted, Base64.NO_WRAP)).commit())
     }
+    internal fun encryptCache(bytes: ByteArray): ByteArray {
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding").apply { init(Cipher.ENCRYPT_MODE, key()) }
+        return cipher.iv + cipher.doFinal(bytes)
+    }
+    internal fun decryptCache(bytes: ByteArray): ByteArray {
+        require(bytes.size >= 28)
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding").apply {
+            init(Cipher.DECRYPT_MODE, key(), GCMParameterSpec(128, bytes.copyOfRange(0, 12)))
+        }
+        return cipher.doFinal(bytes.copyOfRange(12, bytes.size))
+    }
     @Synchronized fun load(): Connection? {
         val encoded = prefs.getString("value", null) ?: return null
         return try {

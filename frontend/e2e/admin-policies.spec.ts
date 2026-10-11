@@ -58,8 +58,9 @@ test('immediate controls save, reload and recover after failure', async ({ page 
   await expect(toggle).toBeEnabled(); shared.fail = 'auto-update'; await toggle.click();
   await expect(page.locator('#auto-update')).toContainText('Save failed'); await expect(toggle).not.toBeChecked(); await expect(toggle).toBeEnabled();
   shared.fail = ''; await toggle.click(); await expect(toggle).toBeChecked(); await expect(toggle).toBeEnabled();
-  await category(page, 'Agent behavior'); await page.getByRole('switch', { name: 'Enable remote execution', exact: true }).click();
-  await expect(page.getByRole('switch', { name: 'Enable remote execution', exact: true })).toBeChecked();
+  await category(page, 'Agent behavior'); await page.getByRole('switch', { name: 'Remote execution (unavailable)', exact: true }).click();
+  await expect(page.getByRole('switch', { name: 'Remote execution (unavailable)', exact: true })).toBeChecked();
+  await expect(page.locator('#remote-exec')).toContainText('remote jobs are not implemented');
   await category(page, 'Access control'); const mode = page.getByLabel('Authorization mode');
   shared.fail = 'authorization'; await mode.selectOption('strict'); await expect(page.locator('#authorization')).toContainText('Save failed'); await expect(mode).toHaveValue('compatible'); await expect(mode).toBeEnabled();
   shared.fail = ''; await mode.selectOption('strict'); await expect(mode).toHaveValue('strict'); await expect(mode).toBeEnabled();

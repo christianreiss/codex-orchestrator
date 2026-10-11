@@ -1424,6 +1424,12 @@ All three engines share five local MCP tools in managed lifecycles: `agent_porta
 
 `agent_attachment_get` returns a protected local path plus metadata/processing state. Read original images with native image tools; fetch `transcript.json` for local ASR and `frame-NN.jpg` for video inspection. Originals survive preparation failure. Update the wrapper and start/resume a managed lifecycle to load the new tool catalog; existing running older wrappers continue with their old catalog.
 
+### Native chat activity (cxx 0.9.60)
+
+Codex uses a second passive app-server connection, reading the exact bound thread with `includeTurns:false` every two seconds. `idle` maps to Idle; `active` maps to Working, with `waitingOnApproval` and `waitingOnUserInput` mapping to Waiting. Unknown/unloaded states and failed reads map to Unknown. The observer never starts turns or responds to approval requests.
+
+Activity reporting requires an automatic receiver and the server `activity_v1` capability. Disabled/unsupported adapters remain Unknown. Transitions are reported immediately after observation and refreshed every 15 seconds; network failures do not stop reception or the engine. Evidence expires after 45 seconds. Activity is independent of transport readiness, portal delivery receipts and watchdog/work outcomes. Upgrade the API first; see `interface-api.md` for the additive contract.
+
 ## Sync and cleanup recovery (cxx 0.9.61)
 
 Housekeeping launch guards are inherited by native children, including help and

@@ -71,6 +71,7 @@ const NON_TOOL_TOKENS: Record<string, string> = {
   session_id: 'logical remote session identifier',
   recipient_presence: 'send/reply receipt presence field, not a tool',
   observed_at: 'timestamp of the receipt presence snapshot, not a tool',
+  effective_scope: 'agent_list response field describing discovery fallback scope, not a tool',
   delivery_hint: 'send/reply receipt explanation field, not a tool',
   presence_notice: 'informational session-bound bus message kind, not a tool',
  task_key: 'stable watchdog task identity',

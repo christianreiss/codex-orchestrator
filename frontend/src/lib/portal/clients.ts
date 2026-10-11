@@ -1,8 +1,9 @@
+import { liveActivity } from './activity';
 import type { AgentSessionRow, AgentSessionsResponse } from "../api/agentSessions";
 import type { PresenceTimings } from "./types";
 import { livePresence } from "./presence";
 
-export type ClientFilter = "all" | "active" | "online" | "attention" | "working" | "listening" | "idle" | "offline" | "ended";
+export type ClientFilter = "waiting" | "unknown" | "all" | "active" | "online" | "attention" | "working" | "listening" | "idle" | "offline" | "ended";
 export type ClientSort = "status" | "recent" | "host";
 
 /** Age server timestamps using the server snapshot clock, then elapsed browser time. */
@@ -46,16 +47,16 @@ export function visibleClients(
     if (options.filter === "active" && presence === "ended" && !row.attention?.severity) return false;
     if (options.filter === "online" && (presence === "ended" || presence === "offline")) return false;
     if (options.filter === "attention" && (!row.attention?.severity && (!(row.attention || (row.pending_prompt && !row.pending_prompt.answer_mode)) || presence === "ended"))) return false;
-    if (!["all", "active", "online", "attention"].includes(options.filter) && presence !== options.filter) return false;
+    if (!["all", "active", "online", "attention"].includes(options.filter) && (presence === "offline" || presence === "ended" || options.filter === "listening" ? presence : liveActivity(row, now) ?? presence) !== options.filter) return false;
     const text = [row.id, row.launch_name, row.session_name, row.task_title, row.preview?.summary, row.engine, row.engine === "codex" ? "cdx" : row.engine === "claude" ? "clx" : "cgx", row.username, row.host, row.cwd, row.invocation_kind,
       row.work.task, row.work.branch, row.work.target_branch, row.work.worktree_path,
       row.work.address, row.work.address_alias, ...row.work.declared_paths].filter(Boolean).join(" ").toLocaleLowerCase();
     return terms.every((term) => text.includes(term));
   });
-  const order = { working: 1, listening: 2, idle: 3, offline: 4, ended: 5 };
+  const order = { waiting: 0.5, unknown: 3.5, working: 1, listening: 2, idle: 3, offline: 4, ended: 5 };
   const priority = (row: AgentSessionRow) => {
     const presence = livePresence(row, now, timings);
-    return row.attention?.severity || ((row.attention || (row.pending_prompt && !row.pending_prompt.answer_mode)) && presence !== "ended") ? 0 : order[presence];
+    return row.attention?.severity || ((row.attention || (row.pending_prompt && !row.pending_prompt.answer_mode)) && presence !== "ended") ? 0 : order[presence === "offline" || presence === "ended" ? presence : liveActivity(row, now) ?? presence];
   };
   const activity = (row: AgentSessionRow) => Date.parse(row.last_event_at ?? row.started_at) || 0;
   return filtered.sort((a, b) => {
