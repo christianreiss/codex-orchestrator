@@ -10,10 +10,13 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.yield
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import okhttp3.Response
@@ -30,6 +33,14 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
     private val store = ConnectionStore(app)
     private val unreadStore = UnreadStore(app)
     var connection by mutableStateOf(store.load()); private set
+    private val cacheStore = ChatCacheStore(app)
+    private var historyCache = ChatHistoryCache(connection?.let(ChatHistoryCache::owner).orEmpty())
+    private val cacheWrites = Channel<String?>(Channel.CONFLATED)
+    private var lastCacheBody: String? = null
+    private var cacheEpoch = 0L
+    private var cachedOverview by mutableStateOf(false)
+    val showingSavedChats get() = cachedOverview && !permissionsKnown
+    var showingCachedTranscript by mutableStateOf(false); private set
     var unreadSessions by mutableStateOf<Set<String>>(emptySet()); private set
     private var unreadReplyCounts by mutableStateOf<Map<String, Int>>(emptyMap())
     val unreadCount get() = unreadSessions.size
@@ -76,6 +87,7 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
     private var refreshJob: Job? = null
     private val pendingScopes = mutableSetOf<String>()
     private var eventsLoaded = false
+    private var eventCursor = 0L
     private val presenceMutex = Mutex()
     private var activityServerAt = 0L
     private var activitySnapshotAt = 0L
@@ -93,17 +105,49 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
     init {
         connection?.let(unreadStore::activate) ?: unreadStore.clear()
         unreadPreferences.registerOnSharedPreferenceChangeListener(unreadListener)
+        val initial = connection
+        val initialCacheEpoch = cacheEpoch
+        viewModelScope.launch(Dispatchers.IO) {
+            val saved = cacheStore.read()
+            val restored = initial?.let { ChatHistoryCache(ChatHistoryCache.owner(it), saved) }
+            withContext(Dispatchers.Main) {
+                if (initial != null && restored != null && connection?.let(ChatHistoryCache::owner) == ChatHistoryCache.owner(initial) && cacheEpoch == initialCacheEpoch) {
+                    if (!permissionsKnown && agents.isEmpty()) {
+                        historyCache = restored; agents = historyCache.agents(); cachedOverview = agents.isNotEmpty()
+                    } else if (can("agent_portal.read") && can("agent_portal.reveal_transcript") && portalAvailable) {
+                        restored.reconcile(agents)
+                        historyCache.agents().forEach { restored.remember(it, historyCache.events(it.getString("id")), historyCache.cursor(it.getString("id"))) }
+                        historyCache = restored
+                    }
+                    persistChatCache(force = true)
+                } else if (connection == null) cacheWrites.trySend(null)
+            }
+            // A single writer preserves order across refresh, revocation and re-pairing.
+            for (body in cacheWrites) runCatching { cacheStore.write(body) }
+        }
+    }
+    private fun persistChatCache(force: Boolean = false) {
+        val body = historyCache.takeIf { it.agents().isNotEmpty() }?.json()
+        if (force || body != lastCacheBody) { lastCacheBody = body; cacheWrites.trySend(body) }
+    }
+    private fun discardChatCache() {
+        cacheEpoch++; historyCache.clear(); lastCacheBody = null; cachedOverview = false
+        cacheWrites.trySend(null)
+    }
+    private fun clearTranscript() {
+        selected = null; events = emptyList(); pendingChats = emptyMap(); chatSends.clear()
+        eventsLoaded = false; eventCursor = 0; showingCachedTranscript = false; VisibleConversation.session = null
     }
     private fun api() = connection!!.let { Api(it.server, it.token) }
     fun can(cap: String) = capabilities.contains(cap)
     fun fresh(now: Long = SystemClock.elapsedRealtime()) = online && lastSync > 0 && now - lastSync in 0..30_000
     fun reachable() = if (fresh() && can("agent_portal.manage") && can("agent_portal.reveal_transcript")) readyAgents(agents).filter { !it.optBoolean("daemon_session") || can("agent_messaging.manage") } else emptyList()
     fun canReadSession(id: String) = connection != null && portalAvailable &&
-        can("agent_portal.read") && can("agent_portal.reveal_transcript") && agents.any { it.optString("id") == id }
-    fun overviewAgents(): List<JSONObject> = if (!can("agent_portal.read") || !can("agent_portal.reveal_transcript") || !portalAvailable) emptyList() else
+        ((can("agent_portal.read") && can("agent_portal.reveal_transcript")) || showingSavedChats) && agents.any { it.optString("id") == id }
+    fun overviewAgents(): List<JSONObject> = if ((!can("agent_portal.read") || !can("agent_portal.reveal_transcript")) && !showingSavedChats || !portalAvailable) emptyList() else
         retainedChats(agents)
     fun canSpawn() = fresh() && portalAvailable && can("agent_messaging.manage") && can("agent_portal.manage") && can("agent_portal.read") && can("agent_portal.reveal_transcript")
-    fun canSendSession(id: String?) = id != null && reachable().any { it.optString("id") == id }
+    fun canSendSession(id: String?) = id != null && !(selected == id && showingCachedTranscript) && reachable().any { it.optString("id") == id }
     private fun refreshUnreadState() {
         unreadSessions = if (!permissionsKnown || !can("agent_portal.read") || !can("agent_portal.reveal_transcript") || !portalAvailable) emptySet() else unreadStore.unreadIds()
         unreadReplyCounts = unreadSessions.associateWith(unreadStore::unreadReplyCount)
@@ -113,7 +157,7 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
         }
     }
     fun markConversationRead(id: String, replyCursor: Long) {
-        if (!foreground || !fresh() || selected != id || !canReadSession(id) || replyCursor <= 0) return
+        if (!foreground || !fresh() || showingCachedTranscript || selected != id || !canReadSession(id) || replyCursor <= 0) return
         if (events.none { it.optString("type") == "assistant_message" && it.optLong("cursor") == replyCursor &&
                 !it.optJSONObject("payload")?.optString("text").isNullOrBlank() }) return
         unreadStore.markRead(id, replyCursor)
@@ -135,6 +179,7 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
                 val result = Api(pairing.server).request("/pair", "POST", JSONObject().put("token", pairing.token).put("name", android.os.Build.MODEL))
                 val c = Connection(pairing.server, result.getString("token"), result.getString("device_id"), result.optJSONObject("firebase"))
                 store.save(c); connection = c; unreadStore.activate(c); unreadSessions = emptySet(); unreadReplyCounts = emptyMap(); permissionsKnown = false
+                discardChatCache(); historyCache = ChatHistoryCache(ChatHistoryCache.owner(c))
                 configurePush(getApplication(), c); startLive()
             } catch (e: Exception) { failure(e) } finally { busy = false }
         }
@@ -227,17 +272,26 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
         val unreadRevision = unreadStore.revision()
         val me = if ("me" in scopes) client.request("/me") else null
         val caps = me?.optJSONArray("capabilities")?.strings() ?: capabilities
+        if (current != generation || epoch != revision || !foreground) return false
+        if (me != null && !("agent_portal.read" in caps && "agent_portal.reveal_transcript" in caps)) {
+            capabilities = caps; permissionsKnown = true; agents = emptyList()
+            discardChatCache(); clearTranscript()
+            refreshUnreadState()
+        }
         val loadApprovals = "approvals" in scopes || me != null
         val loadAgents = "agents" in scopes || me != null
         val requests = if (loadApprovals && "hosts.activate_insecure" in caps) client.request("/approvals") else null
         var portalDisabled = false
         val snapshot = if (loadAgents && "agent_portal.read" in caps) {
             try { client.request("/agents", "POST", JSONObject().put("read_cursors", unreadStore.readCursors())) }
-            catch (e: ApiException) { if (e.status == 503 && e.code == "agent_portal_disabled") { portalDisabled = true; null } else throw e }
+            catch (e: ApiException) {
+                if (e.status == 403 && current == generation && epoch == revision) { discardChatCache(); clearTranscript(); agents = emptyList() }
+                if (e.status == 503 && e.code == "agent_portal_disabled") { portalDisabled = true; null } else throw e
+            }
         } else null
         val hostSnapshot = if (("hosts" in scopes || me != null) && "admin.read" in caps) client.request("/hosts") else null
         val id = selected
-        var transcriptAllowed = "agent_portal.reveal_transcript" in caps && !portalDisabled
+        var transcriptAllowed = "agent_portal.read" in caps && "agent_portal.reveal_transcript" in caps && !portalDisabled
         val nextEvents = if (loadAgents && id != null && transcriptAllowed) {
             val expectedReply = snapshot?.optJSONArray("agents")?.objects()?.firstOrNull { it.optString("id") == id }?.optLong("reply_cursor") ?: 0
             try { loadEvents(client, id, expectedReply) }
@@ -270,10 +324,15 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
         if (loadAgents && snapshot != null && "agent_portal.reveal_transcript" in caps && !portalDisabled) {
             if (!unreadStore.observeReplies(agents, unreadRevision)) pendingScopes.add("agents")
         }
-        if (!transcriptAllowed) { selected = null; events = emptyList(); pendingChats = emptyMap(); chatSends.clear(); eventsLoaded = false; VisibleConversation.session = null }
+        if (!transcriptAllowed) { discardChatCache(); clearTranscript() }
         else if (nextEvents != null && selected == id) {
-            events = nextEvents; eventsLoaded = true
-            if (id != null) pendingChats = pendingChats + (id to pendingChatsAfterRefresh(pendingChats[id] ?: emptyList(), nextEvents))
+            events = nextEvents.events; eventCursor = nextEvents.cursor; eventsLoaded = true; showingCachedTranscript = false
+            if (id != null) pendingChats = pendingChats + (id to pendingChatsAfterRefresh(pendingChats[id] ?: emptyList(), nextEvents.events))
+        }
+        if (loadAgents && transcriptAllowed) {
+            historyCache.reconcile(agents)
+            if (nextEvents != null && selected == id) agents.firstOrNull { it.optString("id") == id }?.let { historyCache.remember(it, nextEvents.events, nextEvents.cursor) }
+            persistChatCache()
         }
         val reconnected = !online
         if (reconnected) error = null
@@ -284,26 +343,34 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
         pendingOpen?.let { if (loadAgents) { pendingOpen = null; openSession(it) } }
         return true
     }
-    private suspend fun loadEvents(client: Api, id: String, expectedReply: Long): List<JSONObject> {
+    private data class LoadedHistory(val events: List<JSONObject>, val cursor: Long)
+    private suspend fun loadEvents(client: Api, id: String, expectedReply: Long): LoadedHistory {
         var result = events
-        var cursor = result.maxOfOrNull { it.optLong("cursor") } ?: 0
+        var cursor = maxOf(eventCursor, result.maxOfOrNull { it.optLong("cursor") } ?: 0)
         var tail = !eventsLoaded
+        // Retention or a restored server may have removed previously cached replies.
+        if (expectedReply < (result.filter { it.optString("type") == "assistant_message" }.maxOfOrNull { it.optLong("cursor") } ?: 0)) {
+            result = emptyList(); cursor = 0; tail = true
+        }
         do {
             val page = client.request("/agents/$id/events?${if (tail) "tail=1" else "after=$cursor"}")
             val batch = page.getJSONArray("events").objects()
-            result = (result + batch).distinctBy { it.optLong("cursor") }.sortedBy { it.optLong("cursor") }
+            result = mergeChatEvents(result, batch)
             val next = page.optLong("next_cursor", cursor)
-            if (next <= cursor || batch.size < 250) break
-            cursor = next; tail = false
+            val advanced = next > cursor
+            cursor = maxOf(cursor, next, batch.maxOfOrNull { it.optLong("cursor") } ?: 0)
+            if (!advanced || batch.size < 250) break
+            tail = false
         } while (true)
         // Progress can fill the tail without any visible chat message. Load
         // the exact last reply advertised by the authorized overview in that
         // case, rather than acknowledging a cursor whose text was never seen.
         if (expectedReply > 0 && result.none { it.optString("type") == "assistant_message" && it.optLong("cursor") >= expectedReply }) {
             val replyPage = client.request("/agents/$id/events?after=${expectedReply - 1}")
-            result = (result + replyPage.getJSONArray("events").objects()).distinctBy { it.optLong("cursor") }.sortedBy { it.optLong("cursor") }
+            result = mergeChatEvents(result, replyPage.getJSONArray("events").objects())
+            cursor = maxOf(cursor, replyPage.optLong("next_cursor"), result.maxOfOrNull { it.optLong("cursor") } ?: 0)
         }
-        return result
+        return LoadedHistory(result, cursor)
     }
     private suspend fun updatePresence() = presenceMutex.withLock {
         val c = connection ?: return@withLock
@@ -315,7 +382,7 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
     fun openSession(id: String) {
         if (!canReadSession(id)) { notice = "Conversation is no longer available"; return }
         revision++
-        selected = id; events = emptyList(); eventsLoaded = false
+        selected = id; events = historyCache.events(id); eventCursor = historyCache.cursor(id); eventsLoaded = events.isNotEmpty(); showingCachedTranscript = eventsLoaded
         invalidate(setOf("agents"))
         viewModelScope.launch {
             try { updatePresence() } catch (e: Exception) { failure(e) }
@@ -323,7 +390,7 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
     }
     fun closeSession() {
         revision++
-        selected = null; events = emptyList(); eventsLoaded = false; VisibleConversation.session = null
+        selected = null; events = emptyList(); eventCursor = 0; eventsLoaded = false; showingCachedTranscript = false; VisibleConversation.session = null
         invalidate(setOf("agents"))
         if (foreground && connection != null) viewModelScope.launch { runCatching { updatePresence() } }
     }
@@ -488,6 +555,8 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
     } }
     fun logout() { mutate { api().request("/device", "DELETE"); clearConnection() } }
     private fun clearConnection() {
+        discardChatCache()
+        showingCachedTranscript = false; eventCursor = 0; eventsLoaded = false
         uploadJobs.values.forEach { it.cancel() }; uploadJobs.clear()
         chatUploads.values.flatten().forEach { it.file.delete() }; chatUploads=emptyMap(); chatDrafts=emptyMap(); replyTargets=emptyMap(); chatSends.clear(); noticeOperations.clear()
         java.io.File(getApplication<Application>().cacheDir,"chat-downloads").deleteRecursively()
@@ -517,5 +586,5 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
         if (kind == "approval") { closeSession(); highlightApproval = target }
         else if (runCatching { UUID.fromString(target) }.isSuccess) { closeSession(); pendingOpen = target; refreshNow() }
     }
-    override fun onCleared() { unreadPreferences.unregisterOnSharedPreferenceChangeListener(unreadListener); stopLive(); super.onCleared() }
+    override fun onCleared() { unreadPreferences.unregisterOnSharedPreferenceChangeListener(unreadListener); cacheWrites.close(); stopLive(); super.onCleared() }
 }

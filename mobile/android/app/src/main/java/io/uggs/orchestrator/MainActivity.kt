@@ -91,6 +91,7 @@ class MainActivity : ComponentActivity() {
                         current?.let { Text(activityDetail(it, activityClock), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                     }
                     if (model.connection != null && !fresh) {
+                        if (model.showingSavedChats) Text("Saved chats", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Text(if (model.connecting) "Connecting…" else "Reconnecting…", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }

@@ -1,5 +1,7 @@
 # 2026-10-11
 
+- Android 0.4.16 caches recently opened active chat histories in encrypted, backup-excluded app storage. Saved messages appear immediately across chat switches and app restarts, then refresh from the server cursor. Cached content never grants send access or read receipts; reconnects update it, and ended/missing conversations, lost transcript access and unpairing remove it.
+
 - Wrapper 0.9.60 reports native conversation activity for Codex, Claude and Grok independently of message reception and task results. WebUI and Android 0.4.16 show Working, Idle, Waiting for you or Unknown, including terminal-started work. Observations expire after 45 seconds; Claude hooks cannot conclusively observe every interruption, so long silent periods become Unknown. Additive migration 0060 stores the latest generation-fenced observation. Update the API before wrappers and clients.
 
 - Wrapper 0.9.59 lets agents discover peers in their exact directory or Git project, including linked worktrees and clones across hosts. Managed Codex, Claude and Grok launches include a timestamped peer snapshot; scoped discovery reports tasks, presence and incomplete coverage for older clients. Session workspace metadata uses additive migration 0059 and does not require Git Director registration. Fleet guidance and its pinned digests now teach both scopes.
