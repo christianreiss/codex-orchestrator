@@ -246,13 +246,17 @@ func run(ctx context.Context, seed *config.Config, minimal, due bool, stdout, st
 	if workerRequired {
 		ensureWorker()
 	}
-	daemonCtx, daemonCancel := context.WithTimeout(ctx, 30*time.Second)
+	daemonCtx, daemonCancel := context.WithTimeout(runCtx, 30*time.Second)
 	daemonCmd := exec.CommandContext(daemonCtx, canonical, "daemon", "reconcile")
+	boundCommandChildren(daemonCmd)
 	daemonCmd.Stdout, daemonCmd.Stderr = stdout, stderr
 	if err := daemonCmd.Run(); err != nil {
 		fmt.Fprintln(stderr, "optional host daemon:", err)
 	}
 	daemonCancel()
+	if err := runCtx.Err(); err != nil {
+		errs = append(errs, err)
+	}
 	return errors.Join(errs...)
 }
 
@@ -305,10 +309,20 @@ func activeTickEngines(configs []*config.Config, engines []string, w io.Writer) 
 	return active
 }
 
+type concurrentSyncKey struct{}
+
+// WithConcurrentSync carries an explicit operator override to engine ticks.
+func WithConcurrentSync(ctx context.Context, enabled bool) context.Context {
+	return context.WithValue(ctx, concurrentSyncKey{}, enabled)
+}
+
 func runEnabledTicks(ctx context.Context, canonical string, engines []string, minimal bool, stdout, stderr io.Writer) error {
 	var errs []error
 	for _, engine := range engines {
 		args := []string{engine, "--cron", "run"}
+		if engine == "grok" && ctx.Value(concurrentSyncKey{}) == true {
+			args = append(args, "--allow-concurrent-sync")
+		}
 		if minimal {
 			args = append(args, "--minimal")
 		}

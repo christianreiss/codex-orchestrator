@@ -686,15 +686,16 @@ function injectManagedMcp(
         : ['codex-memory', 'codex-orchestrator', 'cdx']) {
         managedNames.add(reserved);
       }
-      if (opts.engine === ENGINE_CODEX && opts.host?.browserosMcpEnabled === 1) {
-        managedNames.add('browseros');
-        managedEntries.push({
-          name: 'browseros',
-          url: 'http://127.0.0.1:9000/mcp',
-          startup_timeout_sec: 30,
-        });
-      }
     }
+  }
+  // BrowserOS is a local host capability and needs no fleet MCP bearer.
+  if (opts.engine === ENGINE_CODEX && opts.host?.browserosMcpEnabled === 1) {
+    managedNames.add('browseros');
+    managedEntries.push({
+      name: 'browseros',
+      url: 'http://127.0.0.1:9000/mcp',
+      startup_timeout_sec: 30,
+    });
   }
   // Provisioning, not authorization. The MCP server is injected whenever the
   // fleet switch is on so the agent_* tools are stably present; an insecure

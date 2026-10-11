@@ -453,3 +453,37 @@ func readFile(t *testing.T, p string) []byte {
 	}
 	return b
 }
+
+func TestMissingSettingsPartialPreservesManagedSettingsAndMCP(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	logger := slog.New(slog.DiscardHandler)
+	cs := &orchestrator.ClaudeSettings{
+		Status: "updated", Partial: json.RawMessage(`{"model":"sonnet","mcpServers":{"clx":{"command":"fleet"}}}`),
+		OwnedPaths: []string{"model", "mcpServers.clx"},
+	}
+	if _, err := applyManagedSettingsResult(cs, logger); err != nil {
+		t.Fatal(err)
+	}
+	paths := []string{settingsPath(), userConfigPath(), managedStatePath(), managedMcpStatePath()}
+	before := make(map[string]string)
+	for _, path := range paths {
+		before[path] = string(readFile(t, path))
+	}
+	missing := &orchestrator.ClaudeSettings{Status: "missing", Partial: json.RawMessage(`{}`)}
+	if changed, err := applyManagedSettingsResult(missing, logger); changed || err == nil {
+		t.Fatalf("missing partial must report unavailable without writes: %v %v", changed, err)
+	}
+	for _, path := range paths {
+		if string(readFile(t, path)) != before[path] {
+			t.Errorf("missing partial changed %s", path)
+		}
+	}
+	// An authoritative empty update still intentionally retires fleet keys.
+	missing.Status = "updated"
+	if changed, err := applyManagedSettingsResult(missing, logger); !changed || err != nil {
+		t.Fatalf("authoritative empty update did not retire managed keys: %v %v", changed, err)
+	}
+	if len(loadManagedState().KeyPaths) != 0 || len(loadManagedMcpState().Names) != 0 {
+		t.Fatal("authoritative empty update kept stale ownership")
+	}
+}

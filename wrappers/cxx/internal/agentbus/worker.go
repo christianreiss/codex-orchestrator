@@ -27,6 +27,7 @@ import (
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/ipc"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/ipv4"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/nativeprocess"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/signing"
 )
 
@@ -422,6 +423,13 @@ func (c *relayClient) runNative(ctx context.Context, cfg *config.Config, deliver
 		return result
 	}
 	engine := stringArg(delivery.Target, "engine")
+	if engine == config.EngineGrok && upstream != "" {
+		if err := checkGrokTranscript(upstream); err != nil {
+			result.Err = err
+			result.MissingTranscript = errors.Is(err, errNativeTranscriptMissing)
+			return result
+		}
+	}
 	args := nativeArgs(engine, upstream)
 	prompt := peerPrompt(delivery)
 	if delivery.WorkKind != "" {
@@ -454,9 +462,15 @@ func (c *relayClient) runNative(ctx context.Context, cfg *config.Config, deliver
 	defer cancel()
 	cmd := exec.CommandContext(runCtx, exe, args...)
 	managed := stringArg(delivery.Target, "daemon_session_id") != ""
+	var supervisor *nativeprocess.Supervisor
 	if managed {
 		cmd = exec.Command(exe, args...)
 		prepareDaemonProcess(cmd)
+	} else {
+		// Allow the inner wrapper's ten-second native shutdown to finish before
+		// forcing this wrapper down. Keep the writer lease until group cleanup.
+		supervisor = nativeprocess.PrepareWithGrace(runCtx, cmd, true, 2*nativeprocess.Grace)
+		defer supervisor.Close()
 	}
 	cmd.Dir = stringArg(delivery.Target, "cwd")
 	cmd.Stdin = strings.NewReader(prompt)
@@ -521,6 +535,7 @@ func (c *relayClient) runNative(ctx context.Context, cfg *config.Config, deliver
 		}
 	} else {
 		waitErr = cmd.Wait()
+		supervisor.Close()
 	}
 	cancel()
 	<-done

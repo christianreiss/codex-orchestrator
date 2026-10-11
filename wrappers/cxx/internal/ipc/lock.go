@@ -23,6 +23,21 @@ type ExecLease struct {
 	f *os.File
 }
 
+// DowngradeToShared retains this acquisition while allowing other live
+// consumers to join it after an exclusive content-sync phase. Conversion is
+// non-atomic: ErrHeld means a writer won the gap and the old exclusive lock
+// is no longer held. The caller must release/retry or abort.
+func (l *Lock) DowngradeToShared() error {
+	if l == nil || l.f == nil {
+		return errors.New("lock is not held")
+	}
+	err := syscall.Flock(int(l.f.Fd()), syscall.LOCK_SH|syscall.LOCK_NB)
+	if errors.Is(err, syscall.EWOULDBLOCK) {
+		return ErrHeld
+	}
+	return err
+}
+
 // InheritOnExec clears FD_CLOEXEC so a syscall.Exec replacement continues to
 // hold this lease for the lifetime of the native child. The normal exec.Cmd
 // path does not use this; it holds the Go object around Start/Wait instead.
@@ -129,6 +144,11 @@ func Acquire(name string) (*Lock, error) {
 // lease. Unlike /proc counting, this works on both Linux and Darwin.
 func AcquireShared(name string) (*Lock, error) {
 	return acquire(name, syscall.LOCK_SH, false)
+}
+
+// TryAcquireShared joins live readers without waiting behind a writer.
+func TryAcquireShared(name string) (*Lock, error) {
+	return acquire(name, syscall.LOCK_SH|syscall.LOCK_NB, false)
 }
 
 // TryAcquireExclusive takes a non-blocking exclusive lease without rewriting

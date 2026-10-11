@@ -143,6 +143,7 @@ const board = (c: ToolContext) =>
     db: c.db,
     projects: new HostProjectsService(c.db),
     settings: new SettingsService(c.db),
+    freshSeconds: c.env.AGENT_PORTAL_HEARTBEAT_FRESH_SECONDS,
   });
 const account = (c: ToolContext) => new ProviderAccountsService(c.db, c.keyring);
 const user = (c: ToolContext) =>

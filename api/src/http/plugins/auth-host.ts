@@ -1,3 +1,4 @@
+import { assertHostNotExpired, recordHostContact, pruneHosts } from '../../services/host-lifecycle.js';
 import fp from 'fastify-plugin';
 import type { FastifyInstance, FastifyRequest, preHandlerHookHandler } from 'fastify';
 import { eq } from 'drizzle-orm';
@@ -25,10 +26,19 @@ export function makeAuthHostPlugin(db: Database) {
         if (!key) return null;
         const hash = hashApiKey(key);
         const rows = await db.select().from(hostsTable).where(eq(hostsTable.apiKeyHash, hash)).limit(1);
-        if (rows[0]) return rows[0];
+        if (rows[0]) {
+          assertHostNotExpired(rows[0]);
+          return rows[0];
+        }
         // Fall back to legacy plaintext api_key column for hosts not yet hashed.
         const legacy = await db.select().from(hostsTable).where(eq(hostsTable.apiKey, key)).limit(1);
+        if (legacy[0]) assertHostNotExpired(legacy[0]);
         return legacy[0] ?? null;
+      });
+
+      app.addHook('onResponse', async (req, reply) => {
+        if (!req.authHost || req.method === 'DELETE' || reply.statusCode >= 400) return;
+        await pruneHosts(db);
       });
 
       app.decorate('requireHost', async function requireHost(req: FastifyRequest) {
@@ -37,7 +47,7 @@ export function makeAuthHostPlugin(db: Database) {
         if (host.status && host.status !== 'active') {
           throw new UnauthorizedError(`Host ${host.status}`, `host_${host.status}`);
         }
-        req.authHost = host;
+        req.authHost = req.method === 'DELETE' ? host : await recordHostContact(db, host);
       });
     },
     { name: 'auth-host' },

@@ -127,3 +127,51 @@ func TestContextWindowOwnershipPreservesModelSiblingsAndPrunesOnModelSwitch(t *t
 		t.Fatal("subsequent local edit was pruned")
 	}
 }
+
+func TestConfigOwnershipRecoversInterruptedPublication(t *testing.T) {
+	for _, phase := range []string{"before-config", "after-config", "user-edit"} {
+		t.Run(phase, func(t *testing.T) {
+			r, _ := runtimeFixture(t)
+			if err := SyncConfig(r.BaseHome, []byte("[models]\ndefault='old-fleet'\nuser='keep'\n"), []string{"models.default"}); err != nil {
+				t.Fatal(err)
+			}
+			state, _ := StateDir()
+			journal := configJournal{Previous: configOwnership{Version: 1, Paths: map[string]string{"models.default": configValueDigest("old-fleet")}}, Next: configOwnership{Version: 1, Paths: map[string]string{"models.default": configValueDigest("new-fleet")}}}
+			raw, _ := json.Marshal(journal)
+			if err := AtomicWrite(filepath.Join(state, "managed-keys.pending.json"), raw, 0600); err != nil {
+				t.Fatal(err)
+			}
+			value := "old-fleet"
+			if phase == "after-config" {
+				value = "new-fleet"
+			}
+			if phase == "user-edit" {
+				value = "user-model"
+			}
+			if err := AtomicWrite(filepath.Join(r.BaseHome, "config.toml"), []byte("[models]\ndefault='"+value+"'\nuser='keep'\n"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			if err := SyncConfig(r.BaseHome, nil, []string{}); err != nil {
+				t.Fatal(err)
+			}
+			data, _ := os.ReadFile(filepath.Join(r.BaseHome, "config.toml"))
+			tree, err := toml.LoadBytes(data)
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := any(nil)
+			if phase == "user-edit" {
+				want = "user-model"
+			}
+			if got := tree.Get("models.default"); got != want {
+				t.Fatalf("ownership recovery: got%v want%v", got, want)
+			}
+			if tree.Get("models.user") != "keep" {
+				t.Fatal("user setting lost")
+			}
+			if _, err := os.Stat(filepath.Join(state, "managed-keys.pending.json")); !os.IsNotExist(err) {
+				t.Fatal("committed journal remains", err)
+			}
+		})
+	}
+}

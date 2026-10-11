@@ -1,4 +1,4 @@
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -133,10 +133,12 @@ describe('install-token: shell builders', () => {
     expect(out).toContain('/seed/v2/auth/test-token');
     // A copied live login would leave two refreshers on one rotating token chain.
     expect(out).not.toContain('$HOME/.grok/auth.json');
-    expect(out).toContain('SEED_HOME=$(mktemp -d)');
-    expect(out).toContain('GROK_HOME="$SEED_HOME" GROK_AUTH_PATH="$SEED_HOME/auth.json"');
-    expect(out).toContain('login --device-auth');
-    expect(out).toContain('trap cleanup EXIT INT TERM');
+    expect(out).toContain("tempfile.mkdtemp(prefix='cgx-seed-')");
+    expect(out).toContain("env.update(GROK_HOME=private, GROK_AUTH_PATH=private + '/auth.json'");
+    expect(out).toContain("[binary, 'login', '--device-auth']");
+    expect(out).toContain('os.fork()');
+    expect(out).toContain('os.read(ack_read, 1)');
+    expect(out).toContain('python3 is required');
     expect(out).toContain('GROK_SEED_AUTH_PATH');
   });
 
@@ -187,6 +189,46 @@ printf '{"status":"ok"}' > "$out"
       expect(second).not.toContain('grok login');
       expect(second).toContain(`upload @${existing} {"existing":true}`);
     } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it.each(['login', 'upload'])('cleans dedicated seed after SIGKILL during %s while preserving a live FD-closing child', async phase => {
+    const dir = mkdtempSync(join(tmpdir(), 'grok-seed-kill-'));
+    let nativePid = 0;
+    const bin = join(dir, 'bin'); mkdirSync(bin);
+    const ready = join(dir, 'ready'); const script = join(dir, 'seed.sh');
+    const fixture = `#!/usr/bin/python3
+import json, os, time
+from pathlib import Path
+for fd in range(3, 256):
+    try: os.close(fd)
+    except OSError: pass
+Path(os.environ['GROK_AUTH_PATH']).write_text('test-secret')
+Path(os.environ['READY']).write_text(json.dumps({'pid': os.getpid(), 'home': os.environ['GROK_HOME']}))
+time.sleep(30)
+`;
+    writeFileSync(join(bin, 'grok'), phase === 'login' ? fixture : '#!/bin/sh\necho test-secret > "$GROK_AUTH_PATH"\n', { mode: 0o755 });
+    writeFileSync(join(bin, 'curl'), fixture, { mode: 0o755 });
+    writeFileSync(script, buildSeedAuthScript({ baseUrl: 'https://o.example.com', token: 'tok', engine: 'grok' }));
+    const child = spawn('sh', [script], { env: { PATH: `${bin}:/usr/bin:/bin`, HOME: dir, TMPDIR: dir, READY: ready }, stdio: 'ignore' });
+    const ended = new Promise<void>(resolve => child.on('close', () => resolve()));
+    const waitFor = async (fn: () => boolean) => {
+      const until = Date.now() + 4000;
+      while (!fn() && Date.now() < until) await new Promise(resolve => setTimeout(resolve, 20));
+      expect(fn()).toBe(true);
+    };
+    try {
+      await waitFor(() => existsSync(ready));
+      const record = JSON.parse(readFileSync(ready, 'utf8')); nativePid = record.pid;
+      child.kill('SIGKILL'); await ended;
+      await new Promise(resolve => setTimeout(resolve, 150));
+      expect(existsSync(join(record.home, 'auth.json'))).toBe(true);
+      process.kill(nativePid, 'SIGKILL'); nativePid = 0;
+      await waitFor(() => !existsSync(record.home));
+    } finally {
+      child.kill('SIGKILL');
+      if (nativePid) process.kill(nativePid, 'SIGKILL');
       rmSync(dir, { recursive: true, force: true });
     }
   });

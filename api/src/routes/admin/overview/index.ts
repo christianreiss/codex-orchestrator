@@ -1,3 +1,4 @@
+import { pruneHosts } from '../../../services/host-lifecycle.js';
 import { ProviderAccountsService } from '../../../services/provider-accounts.js';
 import { createPooledAuthStoreService as createCanonicalAuthStoreService } from '../../../services/pooled-auth-store.js';
 /**
@@ -403,6 +404,7 @@ export async function registerAdminOverviewRoutes(
 
   // ── /admin/hosts (JSON listing) ───────────────────────────────────────────
   app.get('/admin/hosts', { preHandler: [adminSpa, app.requireAdmin] }, async () => {
+    await pruneHosts(ctx.db);
     // Cached targets only: this list must never probe providers or refresh releases.
     const snapshots = createVersionSnapshotService({ db: ctx.db, installationId: null });
     const [codexTarget, claudeTarget, grokTarget] = await Promise.all([

@@ -108,8 +108,8 @@ export class AgentsService {
         .from(agentsDocuments)
         .where(eq(agentsDocuments.id, state.activeDocumentId))
         .limit(1);
-      if (rows[0]) return rows[0];
-      // Fallback: state pointed at a deleted row; reset to latest.
+      if (rows[0]?.engine === engine) return rows[0];
+      // Fallback: state pointed at a deleted or foreign-engine row; reset to latest.
       await this.writeState(AGENTS_MODE_LATEST, null, engine);
     }
     const latestEngine = await this.db
@@ -377,6 +377,9 @@ export class AgentsService {
       .limit(1);
     if (!target[0]) {
       throw new ValidationError('version_id not found', { param: 'version_id' });
+    }
+    if (target[0].engine !== engine) {
+      throw new ValidationError('version_id belongs to another engine', { param: 'version_id' });
     }
     await this.writeState(AGENTS_MODE_LOCKED, versionId, engine);
     wsPublisher.publish('agents.stored', { engine, version_id: versionId, mode: 'locked' });

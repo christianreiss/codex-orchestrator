@@ -931,7 +931,8 @@ retention. Agent/engine switches and receiver readiness retain their existing
 meaning; ordinary chats never wake engines; explicit remote starts and resumptions use the enabled host daemon and retain host assignments.
 
 A durable per-device outbox scans committed portal events and live host requests
-every five seconds. It notifies questions/attention and followed replies, skips
+every five seconds. It notifies ordinary questions and replies for followed conversations, plus explicit
+important/critical/blocker notices for eligible devices regardless of follow state, skips
 routine activity, and sends opaque IDs plus the triggering event's short summary
 through FCM for agent notifications. Agent payloads also include `event_cursor`
 as a decimal string when the exact source event is available; approvals omit it.

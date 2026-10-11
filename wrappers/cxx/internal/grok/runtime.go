@@ -67,6 +67,7 @@ type Runtime struct {
 	listener                              net.Listener
 	effective                             string
 	sessionLease                          *ipc.Lock
+	privateDirectory                      *PrivateDirectory
 }
 
 func nativeProjection(raw json.RawMessage) (map[string]json.RawMessage, string, Credential, error) {
@@ -116,7 +117,7 @@ func nativeProjection(raw json.RawMessage) (map[string]json.RawMessage, string, 
 	return envelope.GrokAuth, selected, credential, nil
 }
 
-func NewRuntime(baseHome string, cfg *config.Config, client *orchestrator.Client, pool *accountpool.Context) (*Runtime, error) {
+func NewRuntime(baseHome string, cfg *config.Config, client *orchestrator.Client, pool *accountpool.Context, lifetimeLeases ...*ipc.Lock) (*Runtime, error) {
 	guard, err := sessionguard.LaunchAt(baseHome)
 	if err != nil {
 		return nil, err
@@ -133,6 +134,9 @@ func NewRuntime(baseHome string, cfg *config.Config, client *orchestrator.Client
 			_ = lease.Release()
 		}
 	}()
+	if err := SweepPrivateDirectories(); err != nil {
+		return nil, err
+	}
 	state, err := StateDir()
 	if err != nil {
 		return nil, err
@@ -154,6 +158,11 @@ func NewRuntime(baseHome string, cfg *config.Config, client *orchestrator.Client
 		}
 	}
 	r := &Runtime{Dir: dir, Home: filepath.Join(dir, "home"), BaseHome: baseHome, Client: client, Pool: pool, Socket: filepath.Join(dir, "auth.sock"), sessionLease: lease}
+	protected, err := GuardPrivateDirectory(dir, append([]*ipc.Lock{lease}, lifetimeLeases...)...)
+	if err != nil {
+		return nil, err
+	}
+	r.privateDirectory = protected
 	owned = true
 	r.AuthPath = filepath.Join(r.Home, "auth.json")
 	if err := os.MkdirAll(r.Home, 0o700); err != nil {
@@ -218,7 +227,12 @@ func (r *Runtime) AttachChild(cmd *exec.Cmd) (func(), error) {
 		return nil, err
 	}
 	cmd.ExtraFiles = append(cmd.ExtraFiles, lease.File())
-	return func() { _ = lease.Release() }, nil
+	closePrivate, err := r.privateDirectory.Attach(cmd)
+	if err != nil {
+		_ = lease.Release()
+		return nil, err
+	}
+	return func() { closePrivate(); _ = lease.Release() }, nil
 }
 
 func copyOptional(source, dest string) error {
@@ -624,7 +638,7 @@ func (r *Runtime) Close() error {
 		_ = r.listener.Close()
 	}
 	if r.Dir != "" {
-		err := os.RemoveAll(r.Dir)
+		err := r.privateDirectory.Close()
 		if r.sessionLease != nil {
 			err = errors.Join(err, r.sessionLease.Release())
 			r.sessionLease = nil

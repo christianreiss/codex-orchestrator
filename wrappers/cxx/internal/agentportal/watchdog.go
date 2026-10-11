@@ -152,7 +152,8 @@ func (s *Session) watchdogExitFailure(status, summary string) string {
 		f = s.watchdog.failure
 		s.watchdog.mu.Unlock()
 	}
-	if f == "" {
+	observed := f != ""
+	if !observed {
 		if status == "failed" {
 			f = "crash"
 		} else {
@@ -160,7 +161,11 @@ func (s *Session) watchdogExitFailure(status, summary string) string {
 		}
 	}
 	text := strings.ToLower(summary)
-	if strings.Contains(text, "130") || strings.Contains(text, "interrupt") || strings.Contains(text, "context canceled") {
+	// Signal exits use conventional shell status values. Do not turn a
+	// watchdog-initiated TERM (already classified hang/capacity) into a user stop.
+	if strings.HasSuffix(text, "code 130") || strings.HasSuffix(text, "status 130") || strings.Contains(text, "interrupt") || strings.Contains(text, "context canceled") {
+		f = "user_stop"
+	} else if (!observed || f == "crash") && (strings.HasSuffix(text, "code 129") || strings.HasSuffix(text, "code 143")) {
 		f = "user_stop"
 	}
 	return f

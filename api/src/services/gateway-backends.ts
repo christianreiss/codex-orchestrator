@@ -305,6 +305,16 @@ export function assertBackendRequestControls(
   engine: Engine,
   controls: { stream?: unknown; tools?: unknown; top_k?: unknown },
 ): void {
+  // Null and omission both mean no stream; reject other malformed flags before
+  // selecting any backend-specific behavior.
+  if (controls.stream !== undefined && controls.stream !== null && typeof controls.stream !== 'boolean') {
+    throw new ApiError('stream must be a boolean.', {
+      status: 400,
+      code: 'invalid_stream',
+      type: 'invalid_request_error',
+      param: 'stream',
+    });
+  }
   if (engine !== ENGINE_GROK) return;
   assertControlsSupported(
     { stream: controls.stream === true ? true : undefined, tools: controls.tools, top_k: controls.top_k },

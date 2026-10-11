@@ -373,7 +373,7 @@ describe.skipIf(!handle)('git director against a real database', () => {
      * directions of the fix, because a reclaim that is merely *eager* would be
      * a worse bug than the one it replaces.
      */
-    const bindLiveSession = async (heartbeatAt: string) => {
+    const bindLiveSession = async (heartbeatAt: string, engine = 'claude', username = 'chris', bindWorktree = true) => {
       const addressId = randomUUID();
       const sessionId = randomUUID();
       const now = isoSeconds(new Date());
@@ -381,7 +381,7 @@ describe.skipIf(!handle)('git director against a real database', () => {
         `INSERT INTO agent_bus_addresses
            (id, address, host_id, engine, username, cwd, cwd_hash, enabled, readiness,
             current_session_id, last_seen_at, created_at, updated_at)
-         VALUES ('${addressId}', 'agent:${addressId}', ${host.id}, 'claude', 'chris', '${MAIN_WT}',
+         VALUES ('${addressId}', 'agent:${addressId}', ${host.id}, '${engine}', '${username}', '${MAIN_WT}',
                  SHA2('${MAIN_WT}', 256), 1, 'resumable', '${sessionId}', '${now}', '${now}', '${now}')`,
       );
       await exec(
@@ -389,14 +389,16 @@ describe.skipIf(!handle)('git director against a real database', () => {
            (id, host_id, engine, username, cwd, agent_bus_address_id, invocation_kind, status,
             host_auth_fingerprint, bridge_token_hash, bridge_expires_at, started_at, heartbeat_at,
             created_at, updated_at)
-         VALUES ('${sessionId}', ${host.id}, 'claude', 'chris', '${MAIN_WT}', '${addressId}',
+         VALUES ('${sessionId}', ${host.id}, '${engine}', '${username}', '${MAIN_WT}', '${addressId}',
                  'interactive', 'active', SHA2('fp', 256), SHA2('tok', 256),
                  '${isoSeconds(new Date(Date.now() + 900_000))}', '${now}', '${heartbeatAt}',
                  '${now}', '${now}')`,
       );
-      await exec(
-        `UPDATE git_worktrees SET agent_bus_address_id = '${addressId}' WHERE worktree_path = '${MAIN_WT}'`,
-      );
+      if (bindWorktree) {
+        await exec(
+          `UPDATE git_worktrees SET agent_bus_address_id = '${addressId}' WHERE worktree_path = '${MAIN_WT}'`,
+        );
+      }
       return { addressId, sessionId };
     };
 
@@ -404,6 +406,48 @@ describe.skipIf(!handle)('git director against a real database', () => {
       await exec(`DELETE FROM agent_sessions WHERE id = '${ids.sessionId}'`);
       await exec(`DELETE FROM agent_bus_addresses WHERE id = '${ids.addressId}'`);
     };
+
+    it.each(['codex', 'claude', 'grok'])('binds a unique live %s caller without a username and reclaims it on exit', async (engine) => {
+      const ids = await bindLiveSession(isoSeconds(new Date()), engine, 'chris', false);
+      try {
+        await register(MAIN_WT, { engine, username: undefined });
+        const bound = rowsOf(await exec(`SELECT username, engine, agent_bus_address_id FROM git_worktrees WHERE worktree_path = '${MAIN_WT}'`))[0]!;
+        expect(bound).toMatchObject({ username: 'chris', engine, agent_bus_address_id: ids.addressId });
+        const granted = await requestMerge(MAIN_WT, ['api/a.ts']);
+        await exec(`UPDATE agent_bus_addresses SET current_session_id = NULL WHERE id = '${ids.addressId}'`);
+        await svc.list({ scope: 'host' }, host);
+        expect(rowsOf(await exec(`SELECT status FROM git_worktrees WHERE worktree_path = '${MAIN_WT}'`))[0]!['status']).toBe('abandoned');
+        expect(rowsOf(await exec(`SELECT verdict FROM git_merge_requests WHERE id = '${granted['request_id']}'`))[0]!['verdict']).toBe('expired');
+      } finally {
+        await cleanupBinding(ids);
+      }
+    });
+
+    it('does not guess between live users but binds an explicit matching username', async () => {
+      const first = await bindLiveSession(isoSeconds(new Date()), 'codex', 'chris', false);
+      const second = await bindLiveSession(isoSeconds(new Date()), 'codex', 'other', false);
+      try {
+        await register(MAIN_WT, { engine: 'codex', username: undefined });
+        expect(rowsOf(await exec(`SELECT agent_bus_address_id FROM git_worktrees WHERE worktree_path = '${MAIN_WT}'`))[0]!['agent_bus_address_id']).toBeNull();
+        await register(MAIN_WT, { engine: 'codex', username: 'chris' });
+        expect(rowsOf(await exec(`SELECT agent_bus_address_id FROM git_worktrees WHERE worktree_path = '${MAIN_WT}'`))[0]!['agent_bus_address_id']).toBe(first.addressId);
+      } finally {
+        await cleanupBinding(first);
+        await cleanupBinding(second);
+      }
+    });
+
+    it('ignores a stale address when inferring the unique live caller', async () => {
+      const stale = await bindLiveSession(isoSeconds(new Date(Date.now() - 600_000)), 'grok', 'old-user', false);
+      const live = await bindLiveSession(isoSeconds(new Date()), 'grok', 'chris', false);
+      try {
+        await register(MAIN_WT, { engine: 'grok', username: undefined });
+        expect(rowsOf(await exec(`SELECT agent_bus_address_id FROM git_worktrees WHERE worktree_path = '${MAIN_WT}'`))[0]!['agent_bus_address_id']).toBe(live.addressId);
+      } finally {
+        await cleanupBinding(stale);
+        await cleanupBinding(live);
+      }
+    });
 
     it('reclaims a bound holder whose heartbeat stopped, without waiting out the TTL', async () => {
       await register(MAIN_WT);
@@ -442,6 +486,10 @@ describe.skipIf(!handle)('git director against a real database', () => {
       // Same shape, one field different: the wrapper is still ticking. An agent
       // thinking its way through a long tool call must not lose its branch.
       const ids = await bindLiveSession(isoSeconds(new Date()));
+      // The registration's one-hour fallback must not override fresh fleet
+      // liveness, nor let a second registrant steal this holder's live lease.
+      const past = isoSeconds(new Date(Date.now() - 86_400_000));
+      await exec(`UPDATE git_worktrees SET expires_at = '${past}' WHERE worktree_path = '${MAIN_WT}'`);
 
       const after = (await requestMerge(LINKED_WT, ['api/a.ts'])) as Record<string, unknown>;
       expect(after['verdict']).toBe('wait');
@@ -451,7 +499,31 @@ describe.skipIf(!handle)('git director against a real database', () => {
       )[0]!;
       expect(holder['status']).toBe('active');
 
+      await expect(register(MAIN_WT, { username: 'another-user' })).rejects.toMatchObject({ code: 'git_director_lease_held' });
+
       await cleanupBinding(ids);
+    });
+
+    it('keeps an unbound registration alive when its holder only renews the merge lease', async () => {
+      await register(MAIN_WT);
+      const granted = await requestMerge(MAIN_WT, ['api/a.ts']);
+      const past = isoSeconds(new Date(Date.now() - 86_400_000));
+      await exec(`UPDATE git_worktrees SET expires_at = '${past}' WHERE worktree_path = '${MAIN_WT}'`);
+      const renewed = await svc.mergeStatus({ request_id: granted['request_id'] }, host);
+      expect(renewed).toMatchObject({ verdict: 'allow', renewed: true });
+      const row = rowsOf(await exec(`SELECT status, expires_at FROM git_worktrees WHERE worktree_path = '${MAIN_WT}'`))[0]!;
+      expect(row['status']).toBe('active');
+      expect(String(row['expires_at']) > past).toBe(true);
+    });
+
+    it('does not revive an expired lease when refreshing its registration', async () => {
+      await register(MAIN_WT);
+      const granted = await requestMerge(MAIN_WT, ['api/a.ts']);
+      const past = isoSeconds(new Date(Date.now() - 86_400_000));
+      await exec(`UPDATE git_merge_requests SET lease_expires_at = '${past}' WHERE id = '${granted['request_id']}'`);
+      const expired = await svc.mergeStatus({ request_id: granted['request_id'] }, host);
+      expect(expired['verdict']).toBe('expired');
+      expect(expired['renewed']).not.toBe(true);
     });
 
     it('keeps an agent alive while it only watches, which is what polling looks like', async () => {

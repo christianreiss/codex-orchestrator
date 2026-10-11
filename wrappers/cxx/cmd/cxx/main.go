@@ -40,6 +40,9 @@ func main() {
 }
 
 func run(invokedAs string, args []string, stdout, stderr io.Writer) (code int) {
+	if len(args) > 0 && args[0] == grok.PrivateReaperCommand {
+		return grok.RunPrivateReaper(args[1:])
+	}
 	setPersonaBuildInfo()
 	defer func() {
 		if code == 0 && shouldReconcileNativeEntries(args) {

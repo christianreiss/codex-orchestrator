@@ -101,6 +101,7 @@ export async function registerAdminProjectBoardRoutes(
     db: ctx.db,
     projects: new HostProjectsService(ctx.db),
     settings: new SettingsService(ctx.db),
+    freshSeconds: ctx.env.AGENT_PORTAL_HEARTBEAT_FRESH_SECONDS,
   });
   const events = new AdminEventsService(ctx.db);
   const adminSpa = adminSpaHtmlPreHandler(ctx);

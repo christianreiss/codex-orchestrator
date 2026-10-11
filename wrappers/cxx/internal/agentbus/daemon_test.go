@@ -70,8 +70,24 @@ func TestDaemonNativeAdaptersProduceResumableResults(t *testing.T) {
 		t.Run(engine, func(t *testing.T) {
 			dir := t.TempDir()
 			script := filepath.Join(dir, "native-fixture")
+			probe := `if [ "$1" = grok ]; then
+if [ -n "$(cat)" ]; then echo 'Grok stdin must be empty' >&2; exit 42; fi
+found=false
+while [ "$#" -gt 0 ]; do
+ if [ "$1" = --prompt-file ]; then shift; [ "$(cat "$1")" = "hello
+
+Session title: test" ] || exit 43; found=true; break; fi
+ shift
+done
+[ "$found" = true ] || exit 45
+else
+ [ "$(cat)" = "hello
+
+Session title: test" ] || exit 44
+fi
+`
 			// Fixed fixture strings contain no shell metacharacters or credentials.
-			if err := os.WriteFile(script, []byte("#!/bin/sh\ncat <<'RESULT'\n"+body+"\nRESULT\n"), 0700); err != nil {
+			if err := os.WriteFile(script, []byte("#!/bin/sh\n"+probe+"cat <<'RESULT'\n"+body+"\nRESULT\n"), 0700); err != nil {
 				t.Fatal(err)
 			}
 			daemonExecutable = func() (string, error) { return script, nil }

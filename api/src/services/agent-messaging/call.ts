@@ -72,7 +72,7 @@ export class CallCoordinator {
    * waiting on each other -- a lost wake-up with no detector. `listening` is the
    * same derived presence `listAddresses` reports, so the two never disagree.
    */
-  private async presenceLocked(db: AgentMessagingDb, address: AgentBusAddress): Promise<AgentAddressPresence> {
+  async presenceLocked(db: AgentMessagingDb, address: AgentBusAddress): Promise<AgentAddressPresence> {
     const rows = address.currentSessionId
       ? await db
           .select({ heartbeatAt: agentSessions.heartbeatAt, endedAt: agentSessions.endedAt, receiver: agentSessions.receiver })

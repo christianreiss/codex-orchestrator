@@ -412,7 +412,7 @@ export class SharedMemoriesService {
    * meanwhile. Without it, last writer wins.
    */
   async write(payload: Record<string, unknown>, host: Host | null = null, engine: Engine | null = null): Promise<Record<string, unknown>> {
-    return this.retryOnDuplicateSlug(() => this.writeOnce(payload, host, engine));
+    return this.retryOnWriteRace(() => this.writeOnce(payload, host, engine));
   }
 
   private async writeOnce(payload: Record<string, unknown>, host: Host | null, engine: Engine | null): Promise<Record<string, unknown>> {
@@ -429,36 +429,51 @@ export class SharedMemoriesService {
       });
     }
 
-    const existing = await this.findBySlug(slug, true);
-    const expected = payload['expected_sha256'];
-    if (typeof expected === 'string' && expected.trim() !== '') {
-      const actual = existing && existing.deletedAtIsNull ? existing.doc.contentSha256 : null;
-      if (actual !== expected.trim()) {
-        throw new ConflictError(
-          `shared memory "${slug}" changed since it was read (expected_sha256 ${expected.trim()}, current ${actual ?? 'absent'}); re-read before writing`,
-          'shared_memory_conflict',
-        );
+    // Lock before reading the digest and keep the lock through chunks, parent
+    // and revision writes. A check outside the transaction lets two replaces
+    // accept the same digest; sharing append's lock also protects against an
+    // append that lands while a replacement is checking its expected digest.
+    const { result, id } = await this.db.transaction(async (tx) => {
+      await tx.select({ id: sharedMemories.id }).from(sharedMemories).where(eq(sharedMemories.slug, slug)).for('update');
+      const scoped = new SharedMemoriesService(tx as unknown as Database, { publishEvents: false });
+      const existing = await scoped.findBySlug(slug, true);
+      const expected = payload['expected_sha256'];
+      if (typeof expected === 'string' && expected.trim() !== '') {
+        const actual = existing && existing.deletedAtIsNull ? existing.doc.contentSha256 : null;
+        if (actual !== expected.trim()) {
+          throw new ConflictError(
+            `shared memory "${slug}" changed since it was read (expected_sha256 ${expected.trim()}, current ${actual ?? 'absent'}); re-read before writing`,
+            'shared_memory_conflict',
+          );
+        }
       }
-    }
 
-    // `write` replaces the BODY. Labels the caller did not supply are carried
-    // over from the stored document rather than reset: the resource surface
-    // (`resources/update shared://{slug}`) can only send text, so blanking
-    // unsupplied fields there silently stripped a document's title, summary,
-    // tags and metadata.
-    const live = existing && existing.deletedAtIsNull ? existing.doc : null;
-    return this.persist({
-      slug,
-      title: supplied(payload, 'title') ? title : (live?.title ?? title),
-      summary: supplied(payload, 'summary') ? summary : (live?.summary ?? summary),
-      content,
-      tags: supplied(payload, 'tags') ? tags : (live?.tags ?? tags),
-      metadata: supplied(payload, 'metadata') ? metadata : (live?.metadata ?? metadata),
-      existing,
-      op: 'write',
-      host,
-      engine,
+      // `write` replaces the BODY. Labels the caller did not supply are carried
+      // over from the stored document rather than reset: the resource surface
+      // (`resources/update shared://{slug}`) can only send text, so blanking
+      // unsupplied fields there silently stripped a document's title, summary,
+      // tags and metadata.
+      const live = existing && existing.deletedAtIsNull ? existing.doc : null;
+      const result = await scoped.persist({
+        slug,
+        title: supplied(payload, 'title') ? title : (live?.title ?? title),
+        summary: supplied(payload, 'summary') ? summary : (live?.summary ?? summary),
+        content,
+        tags: supplied(payload, 'tags') ? tags : (live?.tags ?? tags),
+        metadata: supplied(payload, 'metadata') ? metadata : (live?.metadata ?? metadata),
+        existing,
+        op: 'write',
+        host,
+        engine,
+      });
+      const saved = await tx.select({ id: sharedMemories.id }).from(sharedMemories).where(eq(sharedMemories.slug, slug)).limit(1);
+      return { result, id: saved[0]?.id };
     });
+    // Consumers must not re-read a change before the transaction commits.
+    if (result['status'] !== 'unchanged') {
+      this.publish(result['status'] === 'created' ? 'shared_memory.created' : 'shared_memory.changed', { slug, id });
+    }
+    return result;
   }
 
   /**
@@ -467,7 +482,7 @@ export class SharedMemoriesService {
    * read-modify-write pair would silently drop one of them.
    */
   async append(payload: Record<string, unknown>, host: Host | null = null, engine: Engine | null = null): Promise<Record<string, unknown>> {
-    return this.retryOnDuplicateSlug(() => this.appendOnce(payload, host, engine));
+    return this.retryOnWriteRace(() => this.appendOnce(payload, host, engine));
   }
 
   private async appendOnce(payload: Record<string, unknown>, host: Host | null, engine: Engine | null): Promise<Record<string, unknown>> {
@@ -490,8 +505,8 @@ export class SharedMemoriesService {
     // onto it, and the second UPDATE overwrites the first — no error, one
     // writer's text simply gone. That is precisely the failure `append` exists
     // to prevent, and it is the behavior the tool description promises.
-    // On a slug that does not exist yet the SELECT ... FOR UPDATE takes a gap
-    // lock on the unique index, which serializes concurrent creates too.
+    // An absent slug takes a gap lock; competing inserts can deadlock while
+    // upgrading it, so retryOnWriteRace retries the rolled-back transaction.
     return this.db.transaction(async (tx) => {
       await tx.select({ id: sharedMemories.id }).from(sharedMemories).where(eq(sharedMemories.slug, slug)).for('update');
       const scoped = new SharedMemoriesService(tx as unknown as Database);
@@ -927,22 +942,18 @@ export class SharedMemoriesService {
   }
 
   /**
-   * Two hosts creating the same new slug both see `findBySlug` miss and both
-   * INSERT; the loser gets `ER_DUP_ENTRY`, which is not an `ApiError` and would
-   * surface as a 500. Re-running the operation once is the right repair rather
-   * than translating the error: the retry re-reads the winner's document, so
-   * `append` re-merges onto the text that actually landed instead of dropping
-   * it, and a `write` carrying `expected_sha256` now compares against the
-   * winner and correctly reports a conflict. One retry only — a second
-   * duplicate means something other than a create race.
+   * Competing creates can hit a duplicate slug or deadlock while upgrading
+   * their gap locks to insert. Retry the entire rolled-back transaction so an
+   * append merges onto the winner's text and a replace rechecks its digest.
+   * Attempts are bounded; unrelated database errors are never retried.
    */
-  private async retryOnDuplicateSlug<T>(run: () => Promise<T>): Promise<T> {
+  private async retryOnWriteRace<T>(run: () => Promise<T>): Promise<T> {
     let lastErr: unknown;
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
         return await run();
       } catch (err) {
-        if (!isDuplicateKey(err)) throw err;
+        if (!isWriteRace(err)) throw err;
         lastErr = err;
       }
     }
@@ -1460,10 +1471,10 @@ function readInsertId(res: unknown): number | null {
 }
 
 /** Drizzle wraps driver errors, so walk the cause chain like the FULLTEXT probe. */
-function isDuplicateKey(err: unknown): boolean {
+function isWriteRace(err: unknown): boolean {
   for (let cur: unknown = err, depth = 0; cur && depth < 5; depth++) {
     const e = cur as { errno?: unknown; code?: unknown; message?: unknown; cause?: unknown };
-    if (e.errno === 1062 || e.code === 'ER_DUP_ENTRY') return true;
+    if (e.errno === 1062 || e.code === 'ER_DUP_ENTRY' || e.errno === 1213 || e.code === 'ER_LOCK_DEADLOCK') return true;
     cur = e.cause;
   }
   return false;

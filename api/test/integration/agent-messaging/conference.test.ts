@@ -7,6 +7,7 @@ import {
   agentBusConferenceMembers,
   agentBusConferences,
   agentBusMessages,
+  agentSessions,
   hosts,
 } from '../../../src/db/schema.js';
 import { runMigrations } from '../../../src/db/migrator.js';
@@ -653,4 +654,36 @@ describe.skipIf(!handle)('conferences against a real database', { timeout: 120_0
     expect(row?.status).toBe('adjourned');
     expect(row?.pin).toBeNull();
   });
+
+  it.each(['codex', 'claude', 'grok'] as const)('refuses a %s chair without fresh listening presence and permits retry after recovery', async (engine) => {
+    const chair = await register(engine, 'chair');
+    const member = await register('claude', 'new-member');
+    const opened = await service.openConference(chair.sessionId, chair.bridgeToken, {});
+    const pin = String(opened.pin);
+    const conferenceId = String(opened.conference_id);
+    await db.update(agentBusAddresses).set({ receiveHeartbeatAt: '1970-01-01T00:00:00Z' })
+      .where(eq(agentBusAddresses.id, chair.addressId));
+    await db.update(agentSessions).set({ receiver: null }).where(eq(agentSessions.id, chair.sessionId));
+    await expect(service.joinConference(member.sessionId, member.bridgeToken, { pin })).rejects.toMatchObject({
+      code: 'agent_messaging_conference_chair_not_listening',
+    });
+    expect(await memberRow(conferenceId, member.addressId)).toBeUndefined();
+    expect((await conferenceRow(conferenceId))!.pin).toBe(pin);
+    // Receiver alone cannot make a dead wrapper live.
+    await db.update(agentBusAddresses).set({ receiveHeartbeatAt: new Date().toISOString() })
+      .where(eq(agentBusAddresses.id, chair.addressId));
+    await db.update(agentSessions).set({ heartbeatAt: '1970-01-01T00:00:00Z' }).where(eq(agentSessions.id, chair.sessionId));
+    await expect(service.joinConference(member.sessionId, member.bridgeToken, { pin })).rejects.toMatchObject({
+      code: 'agent_messaging_conference_chair_not_listening',
+    });
+    await db.update(agentSessions).set({ heartbeatAt: new Date().toISOString() }).where(eq(agentSessions.id, chair.sessionId));
+    await service.joinConference(member.sessionId, member.bridgeToken, { pin });
+    expect((await memberRow(conferenceId, member.addressId))!.state).toBe('seated');
+    await service.finishSession(chair.sessionId, chair.bridgeToken, 'completed');
+    // An already seated invitee cannot bypass liveness through the UUID path.
+    await expect(service.joinConference(member.sessionId, member.bridgeToken, { conferenceId })).rejects.toMatchObject({
+      code: 'agent_messaging_conference_chair_not_listening',
+    });
+  });
+
 });

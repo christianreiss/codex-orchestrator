@@ -120,7 +120,7 @@ export function chatCompletionStreamEvents(
   events.push({
     data: {
       ...base,
-      choices: [{ index: 0, delta: {}, finish_reason: 'stop' }],
+      choices: [{ index: 0, delta: {}, finish_reason: extractChatCompletionFinishReason(completion) }],
       ...usageField,
     },
   });
@@ -153,6 +153,13 @@ function extractUsage(completion: Record<string, unknown>): {
     return { prompt_tokens: prompt, completion_tokens: completion_, total_tokens: total };
   }
   return { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 };
+}
+
+function extractChatCompletionFinishReason(completion: Record<string, unknown>): string | null {
+  const choices = completion.choices;
+  if (!Array.isArray(choices)) return null;
+  const first = choices[0] as Record<string, unknown> | undefined;
+  return typeof first?.finish_reason === 'string' ? first.finish_reason : null;
 }
 
 function extractChatCompletionContent(completion: Record<string, unknown>): string {

@@ -14,10 +14,8 @@ import (
 	"io"
 	"log/slog"
 	"os"
-	"os/signal"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/terminalui"
@@ -29,6 +27,7 @@ import (
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/layout"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/log"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/maintenance"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/nativeprocess"
 	enginecron "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/claude/cron"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/claude/lifecycle"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/claude/orchestrator"
@@ -320,7 +319,7 @@ func runMode(args []string, stdout, stderr io.Writer, native bool, choices ...*q
 
 	enginecron.WrapperVersion = Version
 
-	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	ctx, cancel := nativeprocess.NotifyContext(context.Background())
 	defer cancel()
 	if len(choices) > 0 {
 		ctx = quotaadvice.WithSession(ctx, choices[0])

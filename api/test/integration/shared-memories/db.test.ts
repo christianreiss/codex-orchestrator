@@ -293,6 +293,81 @@ describe.skipIf(!handle)('shared memories against a real database', () => {
       expect(body).toContain('beta addition');
     });
 
+    it.each([
+      ['codex', 'claude'],
+      ['claude', 'grok'],
+      ['grok', 'codex'],
+    ] as const)('rejects one of two same-digest replacements from %s and %s', async (engineA, engineB) => {
+      const slug = `ztest-cas-${engineA}-${engineB}`;
+      const created = await svc.write({ slug, content: 'base body', title: 'Keep this title', tags: ['ops'] }, hostA);
+      const expected = (created['memory'] as { sha256: string }).sha256;
+      const results = await Promise.allSettled([
+        svc.write({ slug, content: 'alpha replacement', expected_sha256: expected }, hostA, engineA),
+        svc.write({ slug, content: 'beta replacement', expected_sha256: expected }, hostB, engineB),
+      ]);
+      expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
+      const rejected = results.find((result) => result.status === 'rejected');
+      expect(rejected?.status === 'rejected' && rejected.reason).toMatchObject({ code: 'shared_memory_conflict' });
+
+      const doc = rowsOf(await exec(`SELECT id, content, revision, title FROM shared_memories WHERE slug = '${slug}'`))[0]!;
+      expect(['alpha replacement', 'beta replacement']).toContain(doc['content']);
+      expect(Number(doc['revision'])).toBe(2);
+      expect(doc['title']).toBe('Keep this title');
+      const chunks = rowsOf(await exec(`SELECT revision, content FROM shared_memory_chunks WHERE memory_id = ${Number(doc['id'])}`));
+      expect(chunks).toHaveLength(1);
+      expect(chunks[0]).toMatchObject({ content: doc['content'], revision: 2 });
+      const ledger = rowsOf(await exec(`SELECT revision, op, prev_content FROM shared_memory_revisions WHERE memory_id = ${Number(doc['id'])} ORDER BY revision`));
+      expect(ledger).toHaveLength(2);
+      expect(ledger[1]).toMatchObject({ revision: 2, op: 'replace', prev_content: 'base body' });
+    });
+
+    it('serializes an append against a replacement with an expected digest', async () => {
+      const slug = 'ztest-append-replace';
+      const created = await svc.write({ slug, content: 'base body' }, hostA);
+      const expected = (created['memory'] as { sha256: string }).sha256;
+      const [append, replace] = await Promise.allSettled([
+        svc.append({ slug, content: 'appended text' }, hostA),
+        svc.write({ slug, content: 'replacement body', expected_sha256: expected }, hostB),
+      ]);
+      expect(append.status).toBe('fulfilled');
+      const doc = rowsOf(await exec(`SELECT content, revision FROM shared_memories WHERE slug = '${slug}'`))[0]!;
+      if (replace.status === 'fulfilled') {
+        expect(doc['content']).toBe('replacement body\n\nappended text');
+        expect(Number(doc['revision'])).toBe(3);
+      } else {
+        expect(replace.reason).toMatchObject({ code: 'shared_memory_conflict' });
+        expect(doc['content']).toBe('base body\n\nappended text');
+        expect(Number(doc['revision'])).toBe(2);
+      }
+    });
+
+    it('preserves last-writer-wins for concurrent replacements without a digest', async () => {
+      await svc.write({ slug: 'ztest-unconditional', content: 'base body' }, hostA);
+      const results = await Promise.allSettled([
+        svc.write({ slug: 'ztest-unconditional', content: 'alpha body' }, hostA),
+        svc.write({ slug: 'ztest-unconditional', content: 'beta body' }, hostB),
+      ]);
+      expect(results.every((result) => result.status === 'fulfilled')).toBe(true);
+      const doc = rowsOf(await exec(`SELECT id, content, revision FROM shared_memories WHERE slug = 'ztest-unconditional'`))[0]!;
+      expect(['alpha body', 'beta body']).toContain(doc['content']);
+      expect(Number(doc['revision'])).toBe(3);
+      const chunks = rowsOf(await exec(`SELECT revision, content FROM shared_memory_chunks WHERE memory_id = ${Number(doc['id'])}`));
+      expect(chunks).toHaveLength(1);
+      expect(chunks[0]).toMatchObject({ content: doc['content'], revision: 3 });
+    });
+
+    it('retries concurrent creates of a new slug without losing an append', async () => {
+      const results = await Promise.allSettled([
+        svc.append({ slug: 'ztest-create-race', content: 'alpha body' }, hostA),
+        svc.append({ slug: 'ztest-create-race', content: 'beta body' }, hostB),
+      ]);
+      expect(results.filter((result) => result.status === 'rejected')).toHaveLength(0);
+      const doc = rowsOf(await exec(`SELECT content, revision FROM shared_memories WHERE slug = 'ztest-create-race'`))[0]!;
+      expect(doc['content']).toContain('alpha body');
+      expect(doc['content']).toContain('beta body');
+      expect(Number(doc['revision'])).toBe(2);
+    });
+
     // Simulates a write that died after inserting chunks but before flipping the
     // parent to that revision. Reusing the revision number collided on
     // uniq_shared_memory_chunk, and since the leftover rows never go away that

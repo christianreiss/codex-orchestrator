@@ -1,3 +1,4 @@
+import { request as httpRequest, type ClientRequest } from 'node:http';
 import Fastify, { type FastifyInstance } from 'fastify';
 import cookie from '@fastify/cookie';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -206,6 +207,154 @@ describe('any-to-any gateway routing', () => {
         expect(models.data.map((m: { id: string }) => m.id)).toContain(DEFAULT_MODEL[backend]);
       } finally { await close(app); }
     });
+  }
+
+  for (const backend of BACKENDS) {
+    it(`rejects malformed stream values before executing ${backend} on every generation route`, async () => {
+      const { app, runner } = await harness(backend);
+      try {
+        const routes = [
+          ...OPENAI_SURFACES.flatMap((surface) => [
+            { url: `${surface.base}/chat/completions`, headers: { authorization: `Bearer ${surface.key}` } },
+            { url: `${surface.base}/completions`, headers: { authorization: `Bearer ${surface.key}` } },
+            { url: `${surface.base}/responses`, headers: { authorization: `Bearer ${surface.key}` } },
+          ]),
+          ...['messages', 'complete', 'completions', 'responses'].map((route) => ({
+            url: `/anthropic/v1/${route}`,
+            headers: { 'x-api-key': KEYS.claude, 'anthropic-version': '2023-06-01' },
+          })),
+        ];
+        for (const route of routes) {
+          for (const stream of [1, 0, 'true', 'false', '', {}, []]) {
+            const reply = await app.inject({
+              method: 'POST', ...route,
+              payload: { messages: [{ role: 'user', content: 'hi' }], input: 'hi', prompt: 'hi', stream },
+            });
+            expect(reply.statusCode, `${route.url}: stream=${JSON.stringify(stream)}`).toBe(400);
+            expect(reply.json()).toMatchObject({ error: { type: 'invalid_request_error', code: 'invalid_stream' } });
+            if (!route.url.startsWith('/anthropic/')) expect(reply.json().error.param).toBe('stream');
+            expect(runner).not.toHaveBeenCalled();
+          }
+        }
+      } finally { await close(app); }
+    });
+
+    it(`treats stream:null as omitted on every generation route served by ${backend}`, async () => {
+      const { app, runner } = await harness(backend);
+      try {
+        const routes = [
+          ...OPENAI_SURFACES.flatMap((surface) => ['chat/completions', 'completions', 'responses'].map((path) => ({
+            url: `${surface.base}/${path}`, headers: { authorization: `Bearer ${surface.key}` },
+            payload: { messages: [{ role: 'user', content: 'hi' }], prompt: 'hi', input: 'hi', stream: null },
+          }))),
+          ...['messages', 'complete', 'completions', 'responses'].map((path) => ({
+            url: `/anthropic/v1/${path}`, headers: { 'x-api-key': KEYS.claude, 'anthropic-version': '2023-06-01' },
+            payload: { messages: [{ role: 'user', content: 'hi' }], prompt: 'hi', input: 'hi', max_tokens: 64, stream: null },
+          })),
+        ];
+        for (const route of routes) {
+          const reply = await app.inject({ method: 'POST', ...route });
+          expect(reply.statusCode, route.url).toBe(200);
+          expect(reply.headers['content-type']).toContain('application/json');
+        }
+        expect(runner).toHaveBeenCalledTimes(routes.length);
+      } finally { await close(app); }
+    });
+
+    it(`keeps unknown stop reasons null for legacy Anthropic completions served by ${backend}`, async () => {
+      const { app } = await harness(backend);
+      try {
+        for (const route of ['complete', 'completions']) {
+          const reply = await app.inject({
+            method: 'POST', url: `/anthropic/v1/${route}`,
+            headers: { 'x-api-key': KEYS.claude, 'anthropic-version': '2023-06-01' },
+            payload: { prompt: 'hi', stream: false },
+          });
+          expect(reply.statusCode).toBe(200);
+          expect(reply.json().stop_reason).toBe(backend === 'grok' ? 'stop_sequence' : null);
+        }
+      } finally { await close(app); }
+    });
+  }
+
+  for (const backend of ['codex', 'claude'] as const) {
+    it(`keeps ${backend}'s unknown stop reasons null in synthesized SSE`, async () => {
+      const { app } = await harness(backend);
+      try {
+        for (const surface of OPENAI_SURFACES) {
+          const reply = await app.inject({
+            method: 'POST', url: `${surface.base}/chat/completions`,
+            headers: { authorization: `Bearer ${surface.key}` },
+            payload: { messages: [{ role: 'user', content: 'hi' }], stream: true },
+          });
+          expect(reply.statusCode).toBe(200);
+          expect(reply.body).toContain('data: [DONE]');
+          const events = reply.body.split('\n').filter((line) => line.startsWith('data: {')).map((line) => JSON.parse(line.slice(6)));
+          expect(events.at(-1).choices[0].finish_reason).toBeNull();
+        }
+        for (const route of ['messages', 'complete', 'completions']) {
+          const reply = await app.inject({
+            method: 'POST', url: `/anthropic/v1/${route}`,
+            headers: { 'x-api-key': KEYS.claude, 'anthropic-version': '2023-06-01' },
+            payload: { max_tokens: 64, messages: [{ role: 'user', content: 'hi' }], prompt: 'hi', stream: true },
+          });
+          expect(reply.statusCode).toBe(200);
+          const events = reply.body.split('\n').filter((line) => line.startsWith('data: {')).map((line) => JSON.parse(line.slice(6)));
+          expect(events.find((event) => event.type === 'message_delta').delta.stop_reason).toBeNull();
+          expect(events.at(-1).type).toBe('message_stop');
+        }
+      } finally { await close(app); }
+    });
+  }
+
+  for (const backend of BACKENDS) {
+    for (const stop of ['disconnect', 'shutdown'] as const) {
+      it(`cancels ${backend} generation on ${stop} across every wire route`, async () => {
+        const routes = [
+          ...OPENAI_SURFACES.flatMap((surface) => [
+            { url: `${surface.base}/chat/completions`, headers: { authorization: `Bearer ${surface.key}` }, payload: { messages: [{ role: 'user', content: 'hi' }] } },
+            { url: `${surface.base}/completions`, headers: { authorization: `Bearer ${surface.key}` }, payload: { prompt: 'hi' } },
+            { url: `${surface.base}/responses`, headers: { authorization: `Bearer ${surface.key}` }, payload: { input: 'hi' } },
+          ]),
+          ...['messages', 'complete', 'completions', 'responses'].map((route) => ({
+            url: `/anthropic/v1/${route}`,
+            headers: { 'x-api-key': KEYS.claude, 'anthropic-version': '2023-06-01' },
+            payload: { messages: [{ role: 'user', content: 'hi' }], prompt: 'hi', input: 'hi', max_tokens: 64 },
+          })),
+        ];
+        for (const route of routes) {
+          const { app, runner, execs } = await harness(backend);
+          let request: ClientRequest | undefined;
+          let cancelPending: ((reason: unknown) => void) | undefined;
+          runner.mockImplementation(async (_url, init) => new Promise<Response>((_resolve, reject) => {
+            cancelPending = reject;
+            const signal = init!.signal!;
+            signal.addEventListener('abort', () => reject(signal.reason), { once: true });
+          }));
+          try {
+            const address = await app.listen({ host: '127.0.0.1', port: 0 });
+            request = httpRequest(`${address}${route.url}`, {
+              method: 'POST', agent: false, headers: { ...route.headers, 'content-type': 'application/json' },
+            }, (response) => response.resume());
+            request.on('error', () => undefined);
+            request.end(JSON.stringify(route.payload));
+            await vi.waitFor(() => expect(runner, route.url).toHaveBeenCalledTimes(1));
+            const signal = runner.mock.calls[0]![1]!.signal!;
+            let closing: Promise<void> | undefined;
+            if (stop === 'disconnect') request.destroy();
+            else closing = app.close();
+            await vi.waitFor(() => expect(signal.aborted, route.url).toBe(true));
+            expect(signal.reason).toMatchObject({ code: stop === 'disconnect' ? 'request_cancelled' : 'gateway_stopping' });
+            if (closing) await closing;
+            expect(execs).toEqual([]);
+          } finally {
+            cancelPending?.(new Error('test cleanup'));
+            request?.destroy();
+            await close(app);
+          }
+        }
+      });
+    }
   }
 
   it('keeps keys on the surface when the backend changes', async () => {

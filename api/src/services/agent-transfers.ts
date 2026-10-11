@@ -29,7 +29,7 @@
  */
 
 import { createHash, randomUUID } from 'node:crypto';
-import { appendFile, mkdir, open, readdir, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, open, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import { createReadStream, type ReadStream } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { asc, desc, eq, inArray } from 'drizzle-orm';
@@ -83,6 +83,8 @@ export const TRANSFER_STATUS_DELETED = 'deleted';
 const HOLDING_STATUSES = [TRANSFER_STATUS_UPLOADING, TRANSFER_STATUS_LIVE];
 
 const STORAGE_DIR = 'transfers';
+
+type TransferDb = Pick<Database, 'select' | 'insert' | 'update'>;
 
 /**
  * How long a file with no row may sit before the orphan reaper takes it. Long
@@ -601,57 +603,81 @@ export class AgentTransfersService {
     limits: TransferLimits,
     host: Host | null,
   ): Promise<PutTransferResult> {
-    const row = await this.requireRow(id);
-    if (row.status !== TRANSFER_STATUS_UPLOADING) {
-      throw new ConflictError(
-        `Transfer ${id} is ${row.status} and no longer accepts chunks. Start a new transfer instead of appending to a sealed one.`,
-      );
-    }
-    const size = Number(row.sizeBytes ?? 0);
-    if (input.offset !== undefined && input.offset !== null) {
-      const offset = requiredInt(input.offset, 'offset');
-      if (offset !== size) {
+    // The row is the committed byte boundary. Hold its lock across filesystem
+    // work and the metadata commit so other API workers cannot use a stale size.
+    const result = await this.deps.db.transaction(async (tx) => {
+      const row = await this.requireRow(id, tx, true);
+      if (row.status !== TRANSFER_STATUS_UPLOADING) {
         throw new ConflictError(
-          `offset ${offset} does not match this transfer's current size ${size}. Resume from ${size}.`,
+          `Transfer ${id} is ${row.status} and no longer accepts chunks. Start a new transfer instead of appending to a sealed one.`,
         );
       }
-    }
-    const total = size + chunk.length;
-    if (total > limits.max_file_bytes) {
-      throw new ValidationError(
-        `This chunk would take the file to ${formatBytes(total)}, over the fleet's ${formatBytes(limits.max_file_bytes)} per-file limit.`,
-      );
-    }
-    await this.requireQuota(chunk.length, limits);
+      const size = Number(row.sizeBytes ?? 0);
+      if (input.offset !== undefined && input.offset !== null) {
+        const offset = requiredInt(input.offset, 'offset');
+        if (offset !== size) {
+          throw new ConflictError(
+            `offset ${offset} does not match this transfer's current size ${size}. Resume from ${size}.`,
+          );
+        }
+      }
+      const total = size + chunk.length;
+      if (total > limits.max_file_bytes) {
+        throw new ValidationError(
+          `This chunk would take the file to ${formatBytes(total)}, over the fleet's ${formatBytes(limits.max_file_bytes)} per-file limit.`,
+        );
+      }
+      await this.requireQuota(chunk.length, limits, tx);
 
-    const absolute = this.absolutePath(row);
-    try {
-      await appendFile(absolute, chunk);
-    } catch (error) {
-      rethrowStorageError(error, this.deps.dataRoot);
-    }
-    const now = this.now();
-    const update: Record<string, unknown> = {
-      sizeBytes: total,
-      status: isFinal ? TRANSFER_STATUS_LIVE : TRANSFER_STATUS_UPLOADING,
-      sealedAt: isFinal ? now : null,
-      updatedAt: now,
-    };
-    if (isFinal) update['contentSha256'] = await this.hashFile(absolute);
-    await this.deps.db.update(agentTransfers).set(update).where(eq(agentTransfers.id, id));
-    await this.recordEvent(
-      id,
-      isFinal ? 'sealed' : 'appended',
-      { kind: 'agent', label: row.uploadedBy ?? null, hostId: host?.id ?? null },
-      `${chunk.length} bytes at offset ${size}`,
-    );
+      const absolute = this.absolutePath(row);
+      try {
+        // Never use append mode: a killed writer may have left an uncommitted
+        // tail. Also never recreate a missing file or zero-fill a lost prefix.
+        const handle = await open(absolute, 'r+');
+        try {
+          if ((await handle.stat()).size < size) {
+            throw new ConflictError(`Transfer ${id} is shorter than its committed size. Start a new transfer.`);
+          }
+          await handle.truncate(size);
+          let written = 0;
+          while (written < chunk.length) {
+            const { bytesWritten } = await handle.write(chunk, written, chunk.length - written, size + written);
+            if (bytesWritten === 0) throw new Error(`Could not write transfer ${id}.`);
+            written += bytesWritten;
+          }
+          // The database must never commit a size whose bytes are not durable.
+          await handle.sync();
+        } finally {
+          await handle.close();
+        }
+      } catch (error) {
+        rethrowStorageError(error, this.deps.dataRoot);
+      }
+      const now = this.now();
+      const update: Record<string, unknown> = {
+        sizeBytes: total,
+        status: isFinal ? TRANSFER_STATUS_LIVE : TRANSFER_STATUS_UPLOADING,
+        sealedAt: isFinal ? now : null,
+        updatedAt: now,
+      };
+      if (isFinal) update['contentSha256'] = await this.hashFile(absolute);
+      await tx.update(agentTransfers).set(update).where(eq(agentTransfers.id, id));
+      await this.recordEvent(
+        id,
+        isFinal ? 'sealed' : 'appended',
+        { kind: 'agent', label: row.uploadedBy ?? null, hostId: host?.id ?? null },
+        `${chunk.length} bytes at offset ${size}`,
+        tx,
+      );
+      return {
+        transfer: this.view({ ...row, ...update } as AgentTransfer),
+        ttl_clamped: false,
+        bytes_written: chunk.length,
+        complete: isFinal,
+      };
+    });
     wsPublisher.publish('transfers.changed', { kind: isFinal ? 'sealed' : 'appended', id });
-    return {
-      transfer: this.view({ ...row, ...update } as AgentTransfer),
-      ttl_clamped: false,
-      bytes_written: chunk.length,
-      complete: isFinal,
-    };
+    return result;
   }
 
   /** Retire a transfer early. The bytes go, the row and its audit trail stay. */
@@ -743,27 +769,28 @@ export class AgentTransfersService {
 
   // ── internals ─────────────────────────────────────────────────────────────
 
-  private async holdingRows(): Promise<AgentTransfer[]> {
+  private async holdingRows(db: TransferDb = this.deps.db): Promise<AgentTransfer[]> {
     // Filtered in JS rather than SQL for the same reason availableCount() in
     // git-director.ts is: the test db-fake ignores WHERE clauses.
-    const rows = await this.deps.db.select().from(agentTransfers);
+    const rows = await db.select().from(agentTransfers);
     return rows.filter((row) => HOLDING_STATUSES.includes(row.status));
   }
 
-  private async requireRow(id: string): Promise<AgentTransfer> {
+  private async requireRow(id: string, db: TransferDb = this.deps.db, forUpdate = false): Promise<AgentTransfer> {
     const trimmed = typeof id === 'string' ? id.trim() : '';
     if (!trimmed) throw new ValidationError('id is required');
-    const rows = await this.deps.db
+    const query = db
       .select()
       .from(agentTransfers)
       .where(eq(agentTransfers.id, trimmed));
+    const rows = forUpdate ? await query.for('update') : await query;
     const row = rows.find((candidate) => candidate.id === trimmed);
     if (!row) throw new NotFoundError(`No transfer with id ${trimmed}. It may have expired.`);
     return row;
   }
 
-  private async requireQuota(incoming: number, limits: TransferLimits): Promise<void> {
-    const used = (await this.holdingRows()).reduce(
+  private async requireQuota(incoming: number, limits: TransferLimits, db: TransferDb = this.deps.db): Promise<void> {
+    const used = (await this.holdingRows(db)).reduce(
       (sum, row) => sum + Number(row.sizeBytes ?? 0),
       0,
     );
@@ -822,8 +849,9 @@ export class AgentTransfersService {
     action: string,
     actor: TransferActor,
     detail: string | null,
+    db: TransferDb = this.deps.db,
   ): Promise<void> {
-    await this.deps.db.insert(agentTransferEvents).values({
+    await db.insert(agentTransferEvents).values({
       id: randomUUID(),
       transferId,
       action,

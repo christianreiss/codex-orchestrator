@@ -160,3 +160,42 @@ func TestFreshRevocationPreventsForcedTermination(t *testing.T) {
 	cmd.Process.Kill()
 	<-done
 }
+
+func TestSiblingLeaderToolProtectsQuietTUI(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("native /proc activity required")
+	}
+	prior := pollInterval
+	pollInterval = 20 * time.Millisecond
+	defer func() { pollInterval = prior }()
+	leader := exec.Command("sh", "-c", "sleep 0.7; wait")
+	if err := leader.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = leader.Process.Kill(); _ = leader.Wait() }()
+	ctx := WithPolicy(context.Background(), func(context.Context) (Policy, error) {
+		return Policy{TimeoutSeconds: 60, BindingGeneration: 1, TerminateRequested: true}, nil
+	})
+	ctx = WithActivity(ctx, leader)
+	tui := exec.Command("sleep", "30")
+	if err := tui.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer tui.Process.Kill()
+	stop := Start(ctx, tui)
+	done := make(chan error, 1)
+	go func() { done <- tui.Wait(); stop() }()
+	select {
+	case err := <-done:
+		t.Fatalf("leader's running tool failed to protect TUI: %v", err)
+	case <-time.After(300 * time.Millisecond):
+	}
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("authorized idle TUI was not terminated")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("finished leader tool blocked termination forever")
+	}
+}

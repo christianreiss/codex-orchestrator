@@ -12,6 +12,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/atomicdir"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/ipc"
 	"os"
 	"path"
 	"path/filepath"
@@ -65,6 +67,14 @@ func (s Store) Apply(items []Item) (updated bool, resultErr error) {
 	if items == nil {
 		return false, nil
 	}
+	lock, err := ipc.TryAcquireExclusivePath(s.ManifestPath + ".lock")
+	if err != nil {
+		return false, err
+	}
+	defer lock.Release()
+	if err := s.recoverPending(); err != nil {
+		return false, err
+	}
 	man := s.load()
 	next := map[string]entry{}
 	for _, it := range items {
@@ -108,14 +118,29 @@ func (s Store) Apply(items []Item) (updated bool, resultErr error) {
 			}
 			continue
 		}
-		written, err := replaceBundle(s.Root, name, it)
+		written, err := replaceBundle(s.Root, name, it, func(stage string, out written) (bool, error) {
+			rec := entry{Filename: filepath.Join(name, "SKILL.md"), SHA256: it.SHA256, ManifestSHA256: out.manifestSHA256, Files: out.files, FileSHA256: out.fileSHA256}
+			return recorded && exists(filepath.Join(s.Root, name)), s.preparePending(it.Slug, stage, rec)
+		})
 		if err != nil {
 			resultErr = errors.Join(resultErr, fmt.Errorf("write %s skill %q: %w", s.Label, it.Slug, err))
 			keepPrevious()
+			if exists(s.ManifestPath + ".pending") {
+				return updated, resultErr
+			}
 			continue
 		}
 		updated = true
 		next[it.Slug] = entry{Filename: filepath.Join(name, "SKILL.md"), SHA256: it.SHA256, ManifestSHA256: written.manifestSHA256, Files: written.files, FileSHA256: written.fileSHA256}
+		// Commit ownership before another bundle can replace the one pending
+		// journal. On interruption, recovery recognizes the published inode.
+		man.Items[it.Slug] = next[it.Slug]
+		if err := s.save(man); err != nil {
+			return updated, errors.Join(resultErr, err)
+		}
+		if err := s.clearPending(); err != nil {
+			return updated, errors.Join(resultErr, err)
+		}
 	}
 	for slug, rec := range man.Items {
 		if _, kept := next[slug]; kept {
@@ -160,6 +185,14 @@ func (s Store) Count() int { return len(s.load().Items) }
 // Strip removes every owned skill directory (uninstall or trust loss). The
 // root and user-authored directories are never touched.
 func (s Store) Strip() error {
+	lock, err := ipc.TryAcquireExclusivePath(s.ManifestPath + ".lock")
+	if err != nil {
+		return err
+	}
+	defer lock.Release()
+	if err := s.recoverPending(); err != nil {
+		return err
+	}
 	man := s.load()
 	remaining := map[string]entry{}
 	var resultErr error
@@ -223,10 +256,17 @@ func (s Store) save(m manifest) error {
 		tmp.Close()
 		return err
 	}
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		return err
+	}
 	if err := tmp.Close(); err != nil {
 		return err
 	}
-	return os.Rename(tmp.Name(), s.ManifestPath)
+	if err := os.Rename(tmp.Name(), s.ManifestPath); err != nil {
+		return err
+	}
+	return atomicdir.SyncDir(filepath.Dir(s.ManifestPath))
 }
 
 // sanitizeSlug rejects path separators, traversal, dot-only names and anything
@@ -385,7 +425,7 @@ type written struct {
 
 // replaceBundle stages and verifies the complete directory, then swaps it in.
 // Any failure leaves the previous directory untouched.
-func replaceBundle(root, name string, it Item) (written, error) {
+func replaceBundle(root, name string, it Item, beforePublish ...func(string, written) (bool, error)) (written, error) {
 	manifestSHA256 := digest(it.Content)
 	directory := it.ManifestSHA256 != "" || it.Files != nil
 	if directory {
@@ -402,7 +442,12 @@ func replaceBundle(root, name string, it Item) (written, error) {
 	if err != nil {
 		return written{}, err
 	}
-	defer func() { _ = os.RemoveAll(stage) }()
+	preserveStage := false
+	defer func() {
+		if !preserveStage {
+			_ = os.RemoveAll(stage)
+		}
+	}()
 	if err := os.WriteFile(filepath.Join(stage, "SKILL.md"), []byte(it.Content), 0o644); err != nil {
 		return written{}, err
 	}
@@ -436,19 +481,18 @@ func replaceBundle(root, name string, it Item) (written, error) {
 		return written{}, errors.New("skill bundle does not match advertised sha256")
 	}
 	target := filepath.Join(root, name)
-	backup := stage + ".old"
-	had := exists(target)
-	if had {
-		if err := os.Rename(target, backup); err != nil {
+	replace := exists(target)
+	for _, prepare := range beforePublish {
+		var err error
+		replace, err = prepare(stage, out)
+		if err != nil {
 			return written{}, err
 		}
+		preserveStage = true
 	}
-	if err := os.Rename(stage, target); err != nil {
-		if had {
-			_ = os.Rename(backup, target)
-		}
+	if err := atomicdir.Publish(stage, target, replace); err != nil {
 		return written{}, err
 	}
-	_ = os.RemoveAll(backup)
+	preserveStage = false
 	return out, nil
 }

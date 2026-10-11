@@ -1,4 +1,5 @@
-import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
+import { describe, it, expect, beforeAll, beforeEach, vi } from 'vitest';
+import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
@@ -7,12 +8,13 @@ import {
   CARD_CLAIM_TTL_SECONDS,
   PROJECT_BOARD_ENABLED_FLAG,
   ProjectBoardService,
+  actorFromHost,
 } from '../../../src/services/project-board.js';
 import { HostProjectsService } from '../../../src/services/host-projects.js';
 import { SettingsService } from '../../../src/services/settings.js';
 import { getTestDb, type TestDb } from '../../helpers/test-db.js';
 import { splitSqlStatements } from '../../../src/db/migration-sql.js';
-import type { Host } from '../../../src/db/schema.js';
+import { agentBusAddresses, type Host } from '../../../src/db/schema.js';
 
 /**
  * The project board against real MySQL. Everything here needs a database to
@@ -112,6 +114,7 @@ describe.skipIf(!handle)('project board against a real database', () => {
     // Bus addresses are keyed on (host, cwd) and outlive a project, so a dead
     // one left by an earlier case would bind a later claim and reclaim it for
     // the wrong reason. That the leak was visible at all is the binding working.
+    await exec(`DELETE FROM agent_sessions WHERE host_id = ${host.id}`);
     await exec(`DELETE FROM agent_bus_addresses WHERE host_id = ${host.id}`);
     const now = new Date().toISOString();
     await exec(
@@ -235,25 +238,97 @@ describe.skipIf(!handle)('project board against a real database', () => {
     expect(String(row['claim_release_reason'])).toContain('never renewed');
   });
 
-  it('leaves a bound, live agent holding its card however quiet it is', async () => {
-    // The case implementations get wrong. An agent working quietly between calls
-    // must not be evicted for being silent, so a live session keeps the card
-    // even when the sweep runs repeatedly.
-    await claim(1, 'code', agent('chris', '/srv/a'));
-    const addressId = '88888888-8888-4888-8888-888888888888';
-    const sessionId = '77777777-7777-4777-8777-777777777777';
-    await exec(`DELETE FROM agent_bus_addresses WHERE id = '${addressId}'`);
-    const now = new Date().toISOString();
+  const bindSession = async (engine: string, heartbeatAt = new Date().toISOString()) => {
+    const addressId = randomUUID();
+    const sessionId = randomUUID();
+    // Server-authored session heartbeats use whole seconds, like board.now().
+    const now = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
+    heartbeatAt = heartbeatAt.replace(/\.\d{3}Z$/, 'Z');
     await exec(
       `INSERT INTO agent_bus_addresses
          (id, address, host_id, engine, username, cwd, cwd_hash, current_session_id, enabled, readiness, binding_generation, continuity, last_seen_at, created_at, updated_at)
-       VALUES ('${addressId}', 'agent:${addressId}', ${host.id}, 'claude', 'chris', '/srv/a', SHA2('/srv/a', 256), '${sessionId}', 1, 'ready', 1, 'native', '${now}', '${now}', '${now}')`,
+       VALUES ('${addressId}', 'agent:${addressId}', ${host.id}, '${engine}', 'chris', '/srv/a', SHA2('/srv/a', 256), '${sessionId}', 1, 'resumable', 1, 'native', '${now}', '${now}', '${now}')`,
     );
+    await exec(`INSERT INTO agent_sessions
+      (id, host_id, engine, username, cwd, agent_bus_address_id, invocation_kind, status,
+       host_auth_fingerprint, bridge_token_hash, bridge_expires_at, started_at, heartbeat_at, created_at, updated_at)
+      VALUES ('${sessionId}', ${host.id}, '${engine}', 'chris', '/srv/a', '${addressId}', 'interactive', 'active',
+       SHA2('test-fp', 256), SHA2('test-token', 256), '${new Date(Date.now() + 900_000).toISOString()}',
+       '${now}', '${heartbeatAt}', '${now}', '${now}')`);
     await exec(`UPDATE coord_project_cards SET claimed_agent_bus_address_id = '${addressId}' WHERE project_id = ${projectId} AND card_number = 1`);
+    return { addressId, sessionId };
+  };
+
+  it.each(['codex', 'claude', 'grok'])('leaves a fresh bound %s session holding its card', async (engine) => {
+    await claim(1, 'code', agent('chris', '/srv/a'));
+    await bindSession(engine);
 
     for (let i = 0; i < 3; i++) await board.listBoards({ slug: SLUG }, host);
 
     expect((await cardRow(1))['claim_released_at']).toBeNull();
+  });
+
+  it.each(['codex', 'claude', 'grok'])('reclaims a stale-heartbeat %s claim without waiting for its TTL', async (engine) => {
+    await claim(1, 'code', agent('chris', '/srv/a'));
+    await bindSession(engine, new Date(Date.now() - 600_000).toISOString());
+
+    const next = await claim(1, 'review', agent('dana', '/srv/b'));
+    expect(next['claimed']).toBe(true);
+    expect((await cardRow(1))['claimed_by_username']).toBe('dana');
+    const reclaims = rowsOf(await exec(`SELECT action FROM coord_project_events WHERE project_id = ${projectId} AND action = 'claim_expired'`));
+    expect(reclaims).toHaveLength(1);
+  });
+
+  it.each(['codex', 'claude', 'grok'])('projects ended %s claims as unheld in discovery without changing rows', async (engine) => {
+    const who = agent('chris', '/srv/a');
+    await claim(1, 'code', who);
+    const ids = await bindSession(engine);
+    const claimedBefore = (await board.adminState()).claimed;
+    await exec(`UPDATE agent_bus_addresses SET current_session_id = NULL WHERE id = '${ids.addressId}'`);
+    const before = await cardRow(1);
+    const seq = rowsOf(await exec(`SELECT latest_event_seq FROM coord_projects WHERE id = ${projectId}`))[0];
+
+    const summary = await board.summaryFor(SLUG, actorFromHost(host, who, engine));
+    expect(summary['your_claims']).toEqual([]);
+    expect(summary['open_cards']).toEqual([expect.objectContaining({ number: 1, held_by: null })]);
+    const listing = await board.listBoards({ ...who, engine, unclaimed: true }, host);
+    const ours = (listing['boards'] as Array<{ project: string; columns: Array<{ cards: Array<{ number: number; claim: unknown }> }> }>).find((entry) => entry.project === SLUG)!;
+    expect(ours.columns.flatMap((column) => column.cards)).toEqual([expect.objectContaining({ number: 1 })]);
+    expect(await cardRow(1)).toEqual(before);
+    expect(rowsOf(await exec(`SELECT latest_event_seq FROM coord_projects WHERE id = ${projectId}`))[0]).toEqual(seq);
+    expect((await board.adminState()).claimed).toBe(claimedBefore - 1);
+  });
+
+  it('uses the configured heartbeat freshness for summaries and reclamation', async () => {
+    await claim(1, 'code', agent('chris', '/srv/a'));
+    await bindSession('grok', new Date(Date.now() - 90_000).toISOString());
+    const tolerant = new ProjectBoardService({ db, projects, settings: new SettingsService(db), freshSeconds: 120 });
+    const summary = await tolerant.summaryFor(SLUG, actorFromHost(host, agent('chris', '/srv/a'), 'grok'));
+    expect(summary['your_claims']).toHaveLength(1);
+    await tolerant.listBoards({ slug: SLUG }, host);
+    expect((await cardRow(1))['claim_released_at']).toBeNull();
+  });
+
+  it('keeps the TTL fallback when presence tables cannot be read', async () => {
+    await claim(1, 'code', agent('chris', '/srv/a'));
+    await bindSession('codex');
+    const select = db.select.bind(db);
+    const unavailable = vi.spyOn(db, 'select').mockImplementation((...args: Parameters<typeof db.select>) => {
+      const query = select(...args);
+      const from = query.from.bind(query);
+      query.from = ((table: unknown) => {
+        if (table === agentBusAddresses) throw new Error('presence table unavailable');
+        return from(table as never);
+      }) as typeof query.from;
+      return query;
+    });
+    try {
+      const summary = await board.summaryFor(SLUG, actorFromHost(host, agent('chris', '/srv/a'), 'codex'));
+      expect(summary['your_claims']).toHaveLength(1);
+      expect((await cardRow(1))['claim_released_at']).toBeNull();
+    } finally {
+      unavailable.mockRestore();
+    }
   });
 
   it('lists only sweep reclaims as reclaimed, not cards that finished normally', async () => {

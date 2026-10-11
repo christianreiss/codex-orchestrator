@@ -70,6 +70,12 @@ export async function registerInstallRoutes(app: FastifyInstance, ctx: RouteCont
     const hostRows = await ctx.db.select().from(hostsTable).where(eq(hostsTable.id, row.hostId)).limit(1);
     const host = hostRows[0];
     if (!host) return shellishError(reply, 'Installer host missing', 'installer_host_missing');
+    if ((host.status && host.status !== 'active') || (host.expiresAt && tokenExpired(host.expiresAt))) {
+      return shellishError(reply, 'Installer host unavailable', 'installer_host_unavailable');
+    }
+    if (!hostEnginesList(host.engines).includes(row.engine)) {
+      return shellishError(reply, 'Installer engine no longer assigned to host', 'engine_disabled', row.expiresAt);
+    }
     // Checked before the token is consumed, so it still works once the engine
     // is switched back on.
     if (!(await isFleetEngineEnabled(ctx.db, row.engine))) {
@@ -91,16 +97,6 @@ export async function registerInstallRoutes(app: FastifyInstance, ctx: RouteCont
       if (!(await new HostSpawnService(ctx).enabled()) || !source || source.status !== 'active' || source.vip !== 1)
         return shellishError(reply, 'System spawn is disabled or source VIP revoked', 'host_spawn_disabled');
     }
-    const claimed = await installSvc.markInstallUsed(row.id);
-    if (!claimed) return shellishError(reply, 'Installer already used', 'installer_used', row.expiresAt);
-    await ctx.db.insert(logsTable).values({
-      hostId: row.hostId,
-      action: 'install.v2.token.consume',
-      details: JSON.stringify({ token: token.slice(0, 8) + '…', engine: row.engine }),
-      createdAt: nowIso(),
-    });
-    // The host list shows installer state; tell open consoles it just changed.
-    wsPublisher.publish('host.updated', { id: host.id, fqdn: host.fqdn, engine: row.engine });
 
     let body: string;
     try {
@@ -127,6 +123,17 @@ fi
 
 ui_result_fail`);
     }
+    const claimed = await installSvc.markInstallUsed(row.id);
+    if (!claimed) return shellishError(reply, 'Installer already used', 'installer_used', row.expiresAt);
+    await ctx.db.insert(logsTable).values({
+      hostId: row.hostId,
+      action: 'install.v2.token.consume',
+      details: JSON.stringify({ token: token.slice(0, 8) + '…', engine: row.engine }),
+      createdAt: nowIso(),
+    });
+    // The host list shows installer state; tell open consoles it just changed.
+    wsPublisher.publish('host.updated', { id: host.id, fqdn: host.fqdn, engine: row.engine });
+
     emitInstaller(reply, body, 200, row.expiresAt);
   };
 

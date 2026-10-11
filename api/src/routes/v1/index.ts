@@ -1,6 +1,7 @@
 import type { FastifyInstance, preHandlerHookHandler } from 'fastify';
 import type { RouteContext } from '../index.js';
 import { ApiError } from '../../http/errors.js';
+import { createGatewayLifecycle } from '../../http/gateway-lifecycle.js';
 import { OpenAiKeyService } from '../../services/openai-keys.js';
 import { makeOpenAiKeyResolver } from '../../services/openai-key-resolver.js';
 import { makeOpenAiKillSwitch, type KillSwitch } from '../../services/openai-kill-switch.js';
@@ -61,6 +62,7 @@ export async function registerOpenAiCompatRoutes(
   ctx: RouteContext,
   overrides: OpenAiCompatOverrides = {},
 ): Promise<void> {
+  const runGeneration = createGatewayLifecycle(app);
   const surface = API_SURFACES[overrides.surface ?? 'openai'];
   const gateway = overrides.gateway ?? defaultGatewayWiring(ctx, app.log);
   const keys = overrides.keys ?? new OpenAiKeyService({ db: ctx.db, keyring: ctx.keyring });
@@ -105,7 +107,7 @@ export async function registerOpenAiCompatRoutes(
 
   app.post('/v1/chat/completions', {
     preHandler: [killSwitchHook, keyResolver],
-    handler: async (req, reply) => {
+    handler: async (req, reply) => runGeneration(reply, async (signal) => {
       const backend = await backendNow();
       const adapter = adapterFor(backend);
       ensureAdapter(adapter);
@@ -138,9 +140,9 @@ export async function registerOpenAiCompatRoutes(
       }
       const model = await resolveRequested(backend, payload.model);
       const params = extractParams(payload, { capKeys: ['max_completion_tokens', 'max_tokens'] });
-      const result = await adapter.chatCompletions(messages, model, params);
+      const result = await adapter.chatCompletions(messages, model, params, signal);
 
-      if (payload.stream) {
+      if (payload.stream === true) {
         const events = chatCompletionStreamEvents(result as unknown as Record<string, unknown>, {
           includeUsage: wantsUsageChunk(payload),
         });
@@ -148,12 +150,12 @@ export async function registerOpenAiCompatRoutes(
         return reply;
       }
       return result;
-    },
+    }),
   });
 
   app.post('/v1/responses', {
     preHandler: [killSwitchHook, keyResolver],
-    handler: async (req, _reply) => {
+    handler: async (req, reply) => runGeneration(reply, async (signal) => {
       const backend = await backendNow();
       const adapter = adapterFor(backend);
       ensureAdapter(adapter);
@@ -170,7 +172,7 @@ export async function registerOpenAiCompatRoutes(
       }
       const model = await resolveRequested(backend, payload.model);
       const params = extractParams(payload, { capKeys: ['max_output_tokens'] });
-      if (payload.stream) {
+      if (payload.stream === true) {
         throw new ApiError(
           'Streaming responses are not implemented for this backend yet.',
           {
@@ -180,13 +182,13 @@ export async function registerOpenAiCompatRoutes(
           },
         );
       }
-      return adapter.responses(messages, model, params);
-    },
+      return adapter.responses(messages, model, params, signal);
+    }),
   });
 
   app.post('/v1/completions', {
     preHandler: [killSwitchHook, keyResolver],
-    handler: async (req, reply) => {
+    handler: async (req, reply) => runGeneration(reply, async (signal) => {
       const backend = await backendNow();
       const adapter = adapterFor(backend);
       ensureAdapter(adapter);
@@ -203,14 +205,14 @@ export async function registerOpenAiCompatRoutes(
       }
       const model = await resolveRequested(backend, payload.model);
       const params = extractParams(payload, { capKeys: ['max_tokens'] });
-      const result = await adapter.completions(prompt, model, params);
+      const result = await adapter.completions(prompt, model, params, signal);
 
-      if (payload.stream) {
+      if (payload.stream === true) {
         await pipeOpenAiStream(reply, asyncIter([{ data: result as unknown }]));
         return reply;
       }
       return result;
-    },
+    }),
   });
 
   app.post('/v1/embeddings', {

@@ -309,6 +309,18 @@ func installWithClient(ctx context.Context, version string, client *http.Client)
 }
 
 func Prune() error {
+	home, err := Home()
+	if err != nil {
+		return err
+	}
+	guard, err := TryAcquireMaintenance(home)
+	if errors.Is(err, ipc.ErrHeld) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	defer guard.Release()
 	root, err := StoreDir()
 	if err != nil {
 		return err

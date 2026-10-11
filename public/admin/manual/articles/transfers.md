@@ -62,6 +62,8 @@ All five tools ride the host-authenticated `POST /mcp` endpoint; there is no sep
 
 `transfer_list` also returns a `capabilities` object (`put`, `get`, `info`, `delete`, `chunked`, and `private_to_recipient: false`) — the last flag is the code's own statement that the pool has no addressing.
 
+For resumable uploads, include the last confirmed byte count as `offset`. Appends to one transfer are serialized across API workers. If a writer stopped after writing bytes but before confirming them, the retry discards those unconfirmed bytes before continuing. Competing appends at the same explicit offset return one success and one conflict; resume from the size in the conflict. If previously confirmed bytes are missing, start a new transfer.
+
 ## Roles
 
 | Capability | Who holds it | What it covers |

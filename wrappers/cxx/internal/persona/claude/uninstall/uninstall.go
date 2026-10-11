@@ -182,6 +182,12 @@ func Run(ctx context.Context, cfg *config.Config, stdout, stderr io.Writer) erro
 		ui.Say(stderr, "clx", ui.ToneFail, "uninstall", "server-side delete skipped (best-effort): "+fmt.Sprint(clientErr))
 	}
 
+	// Cancellation must stop the destructive phase, unlike an ordinary server
+	// failure for which local uninstall remains best-effort.
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
 	home, homeErr := os.UserHomeDir()
 	if homeErr != nil {
 		return fmt.Errorf("uninstall: cannot resolve home directory: %w", homeErr)

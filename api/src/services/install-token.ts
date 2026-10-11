@@ -196,59 +196,116 @@ echo
  * existing file instead, for a login that will not be used anywhere else.
  */
 function buildGrokSeedAuthScript(postUrl: string): string {
-  const postUrlQ = shellQuote(postUrl);
   return `#!/bin/sh
 # Codex Orchestrator wrapper-v2 seed-auth uploader (grok).
 set -eu
+command -v python3 >/dev/null 2>&1 || { echo "python3 is required for private Grok seed cleanup" >&2; exit 1; }
+exec python3 - ${shellQuote(postUrl)} <<'CXX_GROK_SEED_PY'
+import os, pathlib, shutil, subprocess, sys, tempfile, time
 
-SEED_HOME=
-cleanup() { if [ -n "$SEED_HOME" ]; then rm -rf "$SEED_HOME"; fi; }
-trap cleanup EXIT INT TERM
+post_url = sys.argv[1]
+existing = os.environ.get('GROK_SEED_AUTH_PATH', '')
+private = None
+lease = None
+reaper = None
 
-if [ -n "\${GROK_SEED_AUTH_PATH:-}" ]; then
-  AUTH_PATH=$GROK_SEED_AUTH_PATH
-  if [ ! -f "$AUTH_PATH" ]; then
-    echo "Grok subscription credentials not found at $AUTH_PATH" >&2
-    exit 1
-  fi
-  echo "!! Uploading an existing Grok login. Do not use it anywhere else afterwards:" >&2
-  echo "!! the orchestrator now refreshes it, and xAI rejects the other copy's next refresh." >&2
-else
-  GROK_BIN=
-  if [ -r "$HOME/.cgx/state/grok-bin" ]; then GROK_BIN=$(cat "$HOME/.cgx/state/grok-bin"); fi
-  if [ -z "$GROK_BIN" ] || [ ! -x "$GROK_BIN" ]; then GROK_BIN=$(command -v grok 2>/dev/null || true); fi
-  if [ -z "$GROK_BIN" ]; then
-    echo "Grok CLI not found; install cgx (or the official grok CLI), or set GROK_SEED_AUTH_PATH" >&2
-    exit 1
-  fi
-  SEED_HOME=$(mktemp -d)
-  chmod 700 "$SEED_HOME"
-  echo ">> Starting a dedicated Grok subscription login; the orchestrator will own its refresh"
-  # Readable is not enough: without a controlling terminal opening it fails,
-  # and a failed redirect on a special builtin would exit this shell.
-  if ( : </dev/tty ) 2>/dev/null; then LOGIN_IN=/dev/tty; else LOGIN_IN=/dev/null; fi
-  env -u GROK_API_KEY -u XAI_API_KEY -u GROK_AUTH -u GROK_AUTH_PROVIDER_COMMAND \\
-    GROK_HOME="$SEED_HOME" GROK_AUTH_PATH="$SEED_HOME/auth.json" GROK_DISABLE_API_KEY_AUTH=1 \\
-    "$GROK_BIN" login --device-auth <"$LOGIN_IN"
-  AUTH_PATH=$SEED_HOME/auth.json
-  if [ ! -f "$AUTH_PATH" ]; then
-    echo "Grok login did not produce credentials" >&2
-    exit 1
-  fi
-fi
+def active(path):
+    # A native process may close the inherited pipe; its private environment
+    # independently fences cleanup until that process has exited.
+    if pathlib.Path('/proc').is_dir():
+        for entry in pathlib.Path('/proc').iterdir():
+            if not entry.name.isdigit() or int(entry.name) == os.getpid():
+                continue
+            try:
+                env = (entry / 'environ').read_bytes().split(bytes([0]))
+            except (OSError, PermissionError):
+                continue
+            for item in env:
+                key, sep, value = item.partition(b'=')
+                if key in (b'GROK_HOME', b'GROK_AUTH_PATH') and (value == os.fsencode(path) or value.startswith(os.fsencode(path + '/'))):
+                    return True
+        return False
+    try:
+        rows = subprocess.check_output(['ps', 'eww', '-U', str(os.getuid()), '-o', 'command='], stderr=subprocess.DEVNULL).decode()
+        return 'GROK_HOME=' + path in rows or 'GROK_AUTH_PATH=' + path in rows
+    except (OSError, subprocess.CalledProcessError):
+        return True
 
-echo ">> Uploading Grok subscription credentials to orchestrator"
-RESPONSE=$(mktemp)
-curl -fsSL -X POST \\
-  -H "Content-Type: application/json" \\
-  --data-binary @"$AUTH_PATH" \\
-  -o "$RESPONSE" \\
-  ${postUrlQ} || { echo "Upload failed; see $RESPONSE" >&2; exit 1; }
-
-echo "Done. Server response:"
-cat "$RESPONSE"
-rm -f "$RESPONSE"
-echo
+try:
+    if existing:
+        auth_path = existing
+        if not pathlib.Path(auth_path).is_file():
+            raise RuntimeError('Grok subscription credentials not found')
+        print('!! Uploading an existing Grok login; do not use it elsewhere after upload.', file=sys.stderr)
+        env = dict(os.environ)
+    else:
+        hint = pathlib.Path.home() / '.cgx/state/grok-bin'
+        binary = hint.read_text().strip() if hint.is_file() else ''
+        if not binary or not os.access(binary, os.X_OK):
+            binary = shutil.which('grok')
+        if not binary:
+            raise RuntimeError('Grok CLI not found; install cgx (or the official grok CLI), or set GROK_SEED_AUTH_PATH')
+        private = tempfile.mkdtemp(prefix='cgx-seed-')
+        read_fd, lease = os.pipe()
+        ack_read, ack_write = os.pipe()
+        reaper = os.fork()
+        if reaper == 0:
+            os.setsid()
+            os.close(lease)
+            os.close(ack_read)
+            # Detach terminal/pipeline handles before acknowledging readiness.
+            null = os.open(os.devnull, os.O_RDWR)
+            for fd in (0, 1, 2):
+                os.dup2(null, fd)
+            os.close(null)
+            os.write(ack_write, b'1')
+            os.close(ack_write)
+            while os.read(read_fd, 4096):
+                pass
+            os.close(read_fd)
+            while active(private):
+                time.sleep(0.1)
+            shutil.rmtree(private)
+            os._exit(0)
+        os.close(read_fd)
+        os.close(ack_write)
+        if os.read(ack_read, 1) != b'1':
+            raise RuntimeError('Grok seed cleanup helper did not become ready')
+        os.close(ack_read)
+        env = dict(os.environ)
+        for key in ('GROK_API_KEY', 'XAI_API_KEY', 'GROK_AUTH', 'GROK_AUTH_PROVIDER_COMMAND'):
+            env.pop(key, None)
+        env.update(GROK_HOME=private, GROK_AUTH_PATH=private + '/auth.json', GROK_DISABLE_API_KEY_AUTH='1')
+        print('>> Starting a dedicated Grok subscription login; the orchestrator will own its refresh', flush=True)
+        try:
+            login_in = open('/dev/tty', 'rb')
+        except OSError:
+            login_in = open(os.devnull, 'rb')
+        with login_in:
+            subprocess.run([binary, 'login', '--device-auth'], stdin=login_in, env=env, pass_fds=(lease,), check=True)
+        auth_path = private + '/auth.json'
+        if not pathlib.Path(auth_path).is_file():
+            raise RuntimeError('Grok login did not produce credentials')
+    print('>> Uploading Grok subscription credentials to orchestrator', flush=True)
+    response = tempfile.NamedTemporaryFile(prefix='cgx-seed-response-', delete=False)
+    response.close()
+    try:
+        subprocess.run(['curl', '-fsSL', '-X', 'POST', '-H', 'Content-Type: application/json', '--data-binary', '@' + auth_path, '-o', response.name, post_url], env=env, pass_fds=(() if lease is None else (lease,)), check=True)
+        print('Done. Server response:')
+        print(pathlib.Path(response.name).read_text())
+    finally:
+        os.unlink(response.name)
+except (OSError, RuntimeError, subprocess.CalledProcessError) as error:
+    print(str(error), file=sys.stderr)
+    sys.exit(1)
+finally:
+    if lease is not None:
+        os.close(lease)
+        if reaper is not None:
+            os.waitpid(reaper, 0)
+        elif private is not None:
+            shutil.rmtree(private)
+CXX_GROK_SEED_PY
 `;
 }
 

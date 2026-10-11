@@ -10,7 +10,7 @@
  * until the host-runner pipeline owned by Phase 2.1 is wired.
  */
 
-import { and, desc, eq, gte, lte, isNull } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, lte, isNull, isNotNull, inArray, or } from 'drizzle-orm';
 import type { Database } from '../db/client.js';
 import { chatgptUsageSnapshots, dashboardGraphQuotaSnapshots } from '../db/schema.js';
 import { wsPublisher } from '../ws/publisher.js';
@@ -36,6 +36,7 @@ export interface FetchResult {
 }
 
 type ChatGptSnapshotRow = typeof chatgptUsageSnapshots.$inferSelect;
+type ChatGptSnapshotView = ChatGptSnapshotRow & { refreshError?: string | null; refreshAttemptedAt?: string };
 type ChatGptSnapshotInsert = typeof chatgptUsageSnapshots.$inferInsert;
 
 const MIN_REFRESH_SECONDS = 300;
@@ -102,7 +103,7 @@ function windowFrom(
   };
 }
 
-export function normalizeChatGptUsageSnapshot(row: ChatGptSnapshotRow): Record<string, unknown> {
+export function normalizeChatGptUsageSnapshot(row: ChatGptSnapshotView): Record<string, unknown> {
   const primaryWindow = windowFrom(
     row.primaryUsedPercent,
     row.primaryLimitSeconds,
@@ -140,6 +141,10 @@ export function normalizeChatGptUsageSnapshot(row: ChatGptSnapshotRow): Record<s
     host_id: row.hostId,
     account_id: row.accountId ?? null,
     status: row.status,
+    error: row.error,
+    refresh_error: row.refreshError ?? null,
+    refresh_attempted_at: row.refreshAttemptedAt ?? row.fetchedAt,
+    cached: row.refreshAttemptedAt !== undefined,
     plan_type: row.planType,
     rate_allowed: boolFromTinyint(row.rateAllowed),
     rate_limit_reached: boolFromTinyint(row.rateLimitReached),
@@ -357,22 +362,40 @@ export class ChatGptUsageService {
       Math.max(1000, Math.round((deps.env?.CHATGPT_USAGE_TIMEOUT ?? 10) * 1000)) || DEFAULT_TIMEOUT_MS;
   }
 
-  async latest(): Promise<ChatGptSnapshotRow | null> {
+  async latest(): Promise<ChatGptSnapshotView | null> {
+    const attempt = await this.latestAttempt();
+    if (!attempt || attempt.status !== 'error') return attempt;
+    const usable = await this.latestAttempt(true);
+    if (!usable) return attempt;
+    // Preserve the provider observation and its age. A failed attempt is not a
+    // new quota reading, but still controls retry timing and remains visible.
+    return {
+      ...usable,
+      nextEligibleAt: attempt.nextEligibleAt,
+      refreshError: attempt.error,
+      refreshAttemptedAt: attempt.fetchedAt,
+    };
+  }
+
+  private async latestAttempt(usableOnly = false): Promise<ChatGptSnapshotRow | null> {
     const rows = await this.db
       .select()
       .from(chatgptUsageSnapshots)
-      .where(
+      .where(and(
         this.deps.accountId === undefined
           ? isNull(chatgptUsageSnapshots.accountId)
           : eq(chatgptUsageSnapshots.accountId, this.deps.accountId),
-      )
+        usableOnly ? inArray(chatgptUsageSnapshots.status, ['ok', 'rate_limited']) : undefined,
+      ))
       .orderBy(desc(chatgptUsageSnapshots.fetchedAt), desc(chatgptUsageSnapshots.id))
       .limit(1);
     return rows[0] ?? null;
   }
 
-  async fetchLatest(force = false): Promise<FetchResult> {
+  async fetchLatest(force = false, signal?: AbortSignal): Promise<FetchResult> {
+    signal?.throwIfAborted();
     const latest = await this.latest();
+    signal?.throwIfAborted();
     // Codex switched off fleet-wide: never call the provider. The last stored
     // snapshot (if any) is still served, marked as cached.
     if (!(await isFleetEngineEnabled(this.db, 'codex'))) {
@@ -389,26 +412,15 @@ export class ChatGptUsageService {
     const nextTs = nextEligibleAt ? (parseIso(nextEligibleAt)?.getTime() ?? 0) : 0;
     if (!force && latest && nextTs > now) {
       return {
-        status: 'ok',
+        status: latest.refreshAttemptedAt || latest.status === 'error' ? 'error' : latest.status === 'rate_limited' ? 'rate_limited' : 'ok',
         snapshot: this.normalizeSnapshot(latest),
         cached: true,
         next_eligible_at: nextEligibleAt,
+        error: latest.refreshError ?? latest.error,
       };
     }
 
-    const refreshed = await this.fetchAndStore();
-    if (refreshed.status === 'ok' || refreshed.snapshot) return refreshed;
-
-    if (latest && !force) {
-      return {
-        status: 'ok',
-        snapshot: this.normalizeSnapshot(latest),
-        cached: true,
-        next_eligible_at: latest.nextEligibleAt,
-        error: refreshed.error ?? null,
-      };
-    }
-    return refreshed;
+    return this.fetchAndStore(signal);
   }
 
   async refresh(): Promise<FetchResult> {
@@ -494,6 +506,41 @@ export class ChatGptUsageService {
     };
   }
 
+  async dailyUsage(row: ChatGptSnapshotRow, now = new Date()): Promise<{
+    daily_used_percent: number | null;
+    daily_baseline_at: string | null;
+  }> {
+    const unavailable = { daily_used_percent: null, daily_baseline_at: null };
+    const observed = parseIso(row.fetchedAt);
+    const midnight = new Date(now);
+    midnight.setUTCHours(0, 0, 0, 0);
+    const weeklyUsed = (snapshot: ChatGptSnapshotRow) =>
+      snapshot.primaryLimitSeconds === 604800 && snapshot.primaryUsedPercent !== null ? snapshot.primaryUsedPercent :
+        snapshot.secondaryLimitSeconds === 604800 ? snapshot.secondaryUsedPercent : null;
+    const current = weeklyUsed(row);
+    if (!observed || observed < midnight || observed > now || current === null ||
+      !['ok', 'rate_limited'].includes(row.status)) return unavailable;
+    // Restore the legacy UTC-day delta, using the actual weekly slot (providers
+    // can move it between primary and secondary) and this account's observations.
+    const [baseline] = await this.db.select().from(chatgptUsageSnapshots).where(and(
+      this.deps.accountId === undefined ? isNull(chatgptUsageSnapshots.accountId) :
+        eq(chatgptUsageSnapshots.accountId, this.deps.accountId),
+      inArray(chatgptUsageSnapshots.status, ['ok', 'rate_limited']),
+      gte(chatgptUsageSnapshots.fetchedAt, midnight.toISOString()),
+      lte(chatgptUsageSnapshots.fetchedAt, row.fetchedAt),
+      or(
+        and(eq(chatgptUsageSnapshots.primaryLimitSeconds, 604800), isNotNull(chatgptUsageSnapshots.primaryUsedPercent)),
+        and(eq(chatgptUsageSnapshots.secondaryLimitSeconds, 604800), isNotNull(chatgptUsageSnapshots.secondaryUsedPercent)),
+      ),
+    )).orderBy(asc(chatgptUsageSnapshots.fetchedAt), asc(chatgptUsageSnapshots.id)).limit(1);
+    const initial = baseline ? weeklyUsed(baseline) : null;
+    if (!baseline || initial === null) return unavailable;
+    return {
+      daily_used_percent: Math.max(0, current - initial),
+      daily_baseline_at: baseline.fetchedAt,
+    };
+  }
+
   async latestWindowSummary(): Promise<{
     primary_used_percent: number | null;
     secondary_used_percent: number | null;
@@ -514,14 +561,15 @@ export class ChatGptUsageService {
     return isoOffsetSeconds(-days * 86400);
   }
 
-  private normalizeSnapshot(row: ChatGptSnapshotRow): Record<string, unknown> {
+  private normalizeSnapshot(row: ChatGptSnapshotView): Record<string, unknown> {
     return normalizeChatGptUsageSnapshot(row);
   }
 
-  private async fetchAndStore(): Promise<FetchResult> {
+  private async fetchAndStore(signal?: AbortSignal): Promise<FetchResult> {
     const now = nowIso();
     const nextEligible = isoOffsetSeconds(MIN_REFRESH_SECONDS);
     const canonical = await this.validation.resolveCanonicalPayload(ENGINE_CODEX, this.deps.accountId);
+    signal?.throwIfAborted();
     const auth = canonical ? this.validation.canonicalAuthFromPayload(canonical) : null;
     if (!auth) {
       return this.storeError('missing_canonical_auth', 'Canonical Codex auth.json not available');
@@ -537,7 +585,7 @@ export class ChatGptUsageService {
         ? tokens['account_id'].trim()
         : null;
 
-    const response = await this.requestUsage(accessToken, accountId);
+    const response = await this.requestUsage(accessToken, accountId, signal);
 
     // A non-2xx status (e.g. 429 once the account is already at its limit)
     // still carries a usable rate_limit payload from chatgpt.com in most
@@ -574,6 +622,7 @@ export class ChatGptUsageService {
   private async requestUsage(
     accessToken: string,
     accountId: string | null,
+    signal?: AbortSignal,
   ): Promise<
     | { status: number; body: string; json: Record<string, unknown>; error: null }
     | { status: number; body: string; json: Record<string, unknown> | null; error: string }
@@ -581,6 +630,7 @@ export class ChatGptUsageService {
     const url = `${this.baseUrl.replace(/\/+$/, '')}/wham/usage`;
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
+    const requestSignal = signal ? AbortSignal.any([signal, controller.signal]) : controller.signal;
     try {
       const headers: Record<string, string> = {
         Authorization: `Bearer ${accessToken}`,
@@ -588,8 +638,10 @@ export class ChatGptUsageService {
         'User-Agent': 'codex-auth',
       };
       if (accountId) headers['ChatGPT-Account-Id'] = accountId;
-      const res = await this.fetchImpl(url, { headers, signal: controller.signal });
+      requestSignal.throwIfAborted();
+      const res = await this.fetchImpl(url, { headers, signal: requestSignal });
       const body = await res.text();
+      requestSignal.throwIfAborted();
       let json: unknown = null;
       try {
         json = body ? JSON.parse(body) : null;
@@ -614,6 +666,7 @@ export class ChatGptUsageService {
       }
       return { status: res.status, body, json, error: null };
     } catch (err) {
+      signal?.throwIfAborted();
       const message = err instanceof Error ? err.message : 'fetch failed';
       return { status: 0, body: '', json: null, error: message };
     } finally {
@@ -641,10 +694,17 @@ export class ChatGptUsageService {
       { reason, http_status: httpStatus, fetched_at: row.fetchedAt },
       'chatgpt.usage refresh failed',
     );
+    const usable = await this.latestAttempt(true);
+    const snapshot = usable ? {
+      ...usable,
+      nextEligibleAt: row.nextEligibleAt,
+      refreshError: message,
+      refreshAttemptedAt: row.fetchedAt,
+    } : row;
     return {
       status: 'error',
-      snapshot: this.normalizeSnapshot(row),
-      cached: false,
+      snapshot: this.normalizeSnapshot(snapshot),
+      cached: usable !== null,
       next_eligible_at: row.nextEligibleAt,
       error: message,
     };
@@ -667,7 +727,7 @@ export class ChatGptUsageService {
         .limit(1);
       if (rows[0]) return rows[0];
     }
-    const row = await this.latest();
+    const row = await this.latestAttempt();
     if (!row) throw new Error('Failed to persist ChatGPT usage snapshot');
     return row;
   }

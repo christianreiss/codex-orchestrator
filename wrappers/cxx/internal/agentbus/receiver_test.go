@@ -633,3 +633,25 @@ func TestPortalStatusIsExplicitOwnedIdempotentAndDoesNotReleaseDelivery(t *testi
 		})
 	}
 }
+
+func TestClaudeFallbackRefusesBeforeReceiverRegistrationOrClaim(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("CXX_AGENT_PORTAL_ENGINE", "claude")
+	t.Setenv(envSocket, filepath.Join(dir, "portal.sock"))
+	plugin := filepath.Join(dir, agentportal.PluginName)
+	if err := os.MkdirAll(plugin, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(plugin, agentportal.ChannelPolicyMarker), []byte("fallback"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// No client/tracker: the refusal must precede native identity, readiness,
+	// registration and every server-side delivery admission side effect.
+	r := &autoReceiver{}
+	if err := r.connection(context.Background()); err == nil || !strings.Contains(err.Error(), "channel policy") {
+		t.Fatalf("fallback admitted receiver: %v", err)
+	}
+	if r.connected || r.generation != "" {
+		t.Fatal("fallback advertised readiness")
+	}
+}

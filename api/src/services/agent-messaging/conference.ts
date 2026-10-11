@@ -66,6 +66,7 @@ import {
   normalizeUuid,
 } from './normalize.js';
 import type { AgentMessagingDb } from './types.js';
+import type { AgentAddressPresence } from '../agent-presence.js';
 import { newQueuedMessage, publicAddress, publicConferenceMember } from './views.js';
 
 /**
@@ -81,6 +82,7 @@ import { newQueuedMessage, publicAddress, publicConferenceMember } from './views
 export interface ConferenceCore {
   readonly db: Database;
   readonly keyring: Keyring;
+  presenceLocked(db: AgentMessagingDb, address: AgentBusAddress): Promise<AgentAddressPresence>;
   requireEnabledLocked(db: AgentMessagingDb): Promise<void>;
   requireAddressLocked(db: AgentMessagingDb, id: string): Promise<AgentBusAddress>;
   resolveAddressLocked(db: AgentMessagingDb, raw: string, forUpdate: boolean): Promise<AgentBusAddress>;
@@ -668,6 +670,12 @@ export class ConferenceCoordinator {
       }
       const chair = await this.core.requireAddressLocked(tx, conference.ownerAddressId);
       await this.core.assertAddressEligibleLocked(tx, chair);
+      if ((await this.core.presenceLocked(tx, chair)) !== 'listening') {
+        throw new ConflictError(
+          'The conference chair has no live receiver, so a join would go unanswered',
+          'agent_messaging_conference_chair_not_listening',
+        );
+      }
       const priorRows = await tx
         .select()
         .from(agentBusConferenceMembers)

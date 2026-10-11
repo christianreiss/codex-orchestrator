@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, readdir, rm, stat, utimes, writeFile, mkdir } from 'node:fs/promises';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { appendFile, mkdtemp, readFile, readdir, rm, stat, truncate, utimes, writeFile, mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
@@ -58,13 +58,14 @@ function createDb(): Database & { rows: Map<unknown, Row[]> } {
     if (!rows.has(table)) rows.set(table, []);
     return rows.get(table)!;
   };
+  const locks = new Map<unknown, Promise<void>>();
 
   const db = {
     rows,
-    select() {
+    select(releases?: Array<() => void>) {
       return {
         from(table: unknown) {
-          const result: Row[] = [...get(table)];
+          const result: Row[] = get(table).map((row) => ({ ...row }));
           const chain = {
             where: (predicate: unknown) => {
               const ids = new Set(paramsOf(predicate));
@@ -72,6 +73,19 @@ function createDb(): Database & { rows: Map<unknown, Row[]> } {
               return Object.assign(Promise.resolve(filtered), {
                 limit: () => Promise.resolve(filtered),
                 orderBy: () => Promise.resolve(filtered),
+                for: async () => {
+                  if (!releases) throw new Error('Row locks require a transaction');
+                  for (const id of ids) {
+                    const previous = locks.get(id) ?? Promise.resolve();
+                    let release!: () => void;
+                    locks.set(id, new Promise<void>((resolve) => { release = resolve; }));
+                    await previous;
+                    releases.push(release);
+                  }
+                  // A locking read sees the row after its preceding writer
+                  // commits, rather than the snapshot at query construction.
+                  return get(table).filter((row) => ids.has(row['id'])).map((row) => ({ ...row }));
+                },
               });
             },
             orderBy: () => Object.assign(Promise.resolve(result), { limit: () => Promise.resolve(result) }),
@@ -81,6 +95,14 @@ function createDb(): Database & { rows: Map<unknown, Row[]> } {
           return chain;
         },
       };
+    },
+    async transaction<T>(callback: (tx: Database) => Promise<T>): Promise<T> {
+      const releases: Array<() => void> = [];
+      try {
+        return await callback({ ...db, select: () => db.select(releases) } as unknown as Database);
+      } finally {
+        for (const release of releases.reverse()) release();
+      }
     },
     insert(table: unknown) {
       return {
@@ -275,6 +297,84 @@ describe('put', () => {
 });
 
 describe('chunked put', () => {
+  it('retries bytes from a failed metadata update without duplicating the chunk', async () => {
+    const first = await put({ content_b64: Buffer.from('AAAA').toString('base64'), final: false });
+    const id = first.transfer.id;
+    const input = { id, content_b64: Buffer.from('BBBB').toString('base64'), offset: 4 };
+    const update = vi.spyOn(db, 'update').mockImplementationOnce(() => ({
+      set: () => ({ where: () => Promise.reject(new Error('database connection lost')) }),
+    }) as unknown as ReturnType<Database['update']>);
+    await expect(service.put(input, HOST)).rejects.toThrow('database connection lost');
+    update.mockRestore();
+    expect((await service.info(id)).size_bytes).toBe(4);
+    expect(await readFile(join(dataRoot, 'transfers', id.slice(0, 2), id), 'utf8')).toBe('AAAABBBB');
+
+    const restarted = new AgentTransfersService({ db, settings, dataRoot });
+    const retried = await restarted.put(input, HOST);
+    expect(retried.transfer.size_bytes).toBe(8);
+    expect(Buffer.from((await restarted.get(id)).content_b64, 'base64').toString()).toBe('AAAABBBB');
+    expect(retried.transfer.content_sha256).toBe(createHash('sha256').update('AAAABBBB').digest('hex'));
+  });
+
+  it.each([true, false])('discards an uncommitted tail before retrying (final=%s)', async (final) => {
+    const first = await put({ content_b64: Buffer.from('AAAA').toString('base64'), final: false });
+    const id = first.transfer.id;
+    const path = join(dataRoot, 'transfers', id.slice(0, 2), id);
+    // Model a process killed after a longer chunk reached disk, before the row commit.
+    await appendFile(path, 'uncommitted bytes from a killed writer');
+    const restarted = new AgentTransfersService({ db, settings, dataRoot });
+    const result = await restarted.put(
+      { id, content_b64: Buffer.from('BBBB').toString('base64'), offset: 4, final },
+      HOST,
+    );
+    expect(result.transfer.size_bytes).toBe(8);
+    expect(await readFile(path, 'utf8')).toBe('AAAABBBB');
+    if (final) {
+      const fetched = await restarted.get(id);
+      const content = Buffer.from(fetched.content_b64, 'base64');
+      expect(content.toString()).toBe('AAAABBBB');
+      expect(fetched.transfer.content_sha256).toBe(createHash('sha256').update(content).digest('hex'));
+    }
+  });
+
+  it('accepts only one overlapping retry at the same committed offset', async () => {
+    const first = await put({ content_b64: Buffer.from('AAAA').toString('base64'), final: false });
+    const id = first.transfer.id;
+    const otherWorker = new AgentTransfersService({ db, settings, dataRoot });
+    const input = { id, content_b64: Buffer.from('BBBB').toString('base64'), offset: 4, final: false };
+    const results = await Promise.allSettled([service.put(input, HOST), otherWorker.put(input, HOST)]);
+    expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
+    const rejected = results.find((result) => result.status === 'rejected');
+    expect(rejected?.status === 'rejected' && String(rejected.reason)).toMatch(/Resume from 8/);
+    expect((await service.info(id)).size_bytes).toBe(8);
+    expect(await readFile(join(dataRoot, 'transfers', id.slice(0, 2), id), 'utf8')).toBe('AAAABBBB');
+  });
+
+  it('serializes appends without offsets so every accepted chunk is counted', async () => {
+    const first = await put({ content_b64: Buffer.from('AAAA').toString('base64'), final: false });
+    const id = first.transfer.id;
+    const otherWorker = new AgentTransfersService({ db, settings, dataRoot });
+    await Promise.all([
+      service.put({ id, content_b64: Buffer.from('BBBB').toString('base64'), final: false }, HOST),
+      otherWorker.put({ id, content_b64: Buffer.from('CCCC').toString('base64'), final: false }, HOST),
+    ]);
+    expect((await service.info(id)).size_bytes).toBe(12);
+    expect(['AAAABBBBCCCC', 'AAAACCCCBBBB']).toContain(
+      await readFile(join(dataRoot, 'transfers', id.slice(0, 2), id), 'utf8'),
+    );
+  });
+
+  it('rejects a missing committed prefix instead of sealing a truncated file', async () => {
+    const first = await put({ content_b64: Buffer.from('AAAA').toString('base64'), final: false });
+    const id = first.transfer.id;
+    const path = join(dataRoot, 'transfers', id.slice(0, 2), id);
+    await truncate(path, 2);
+    await expect(service.put({ id, content_b64: Buffer.from('BBBB').toString('base64'), offset: 4 }, HOST))
+      .rejects.toThrow(/shorter than its committed size/);
+    expect(await readFile(path, 'utf8')).toBe('AA');
+    expect((await service.info(id)).status).toBe(TRANSFER_STATUS_UPLOADING);
+  });
+
   it('appends across calls and only computes the checksum when sealed', async () => {
     const first = await put({
       content_b64: Buffer.from('AAAA').toString('base64'),

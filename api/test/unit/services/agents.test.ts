@@ -237,6 +237,17 @@ describe('agents served-version resolution', () => {
     expect(view.served_id).toBe(2);
     expect(stateRows(db)[0]).toMatchObject({ id: 1, mode: 'latest', activeDocumentId: null });
   });
+
+  it.each(['codex', 'claude', 'grok'] as const)('heals a historical %s lock pointing at another engine', async (engine) => {
+    const db = makeDb();
+    const foreign = engine === 'codex' ? 'claude' : 'codex';
+    const stateId = { codex: 1, claude: 2, grok: 3 }[engine];
+    seedDocs(db, [{ id: 1, body: 'own policy', engine }, { id: 2, body: 'foreign policy', engine: foreign }]);
+    seedState(db, [{ id: stateId, mode: 'locked', activeDocumentId: 2, engine }]);
+
+    expect(await makeService(db).adminFetch(engine)).toMatchObject({ served_id: 1, content: 'own policy' });
+    expect(stateRows(db)[0]).toMatchObject({ id: stateId, mode: 'latest', activeDocumentId: null });
+  });
 });
 
 describe('agents store', () => {
@@ -359,6 +370,22 @@ describe('agents store', () => {
 });
 
 describe('agents serve mode', () => {
+  it.each(['codex', 'claude', 'grok'] as const)('refuses a foreign document in a %s lock without changing state', async (engine) => {
+    const db = makeDb();
+    const foreign = engine === 'codex' ? 'claude' : 'codex';
+    const stateId = { codex: 1, claude: 2, grok: 3 }[engine];
+    seedDocs(db, [{ id: 1, body: 'own policy', engine }, { id: 2, body: 'foreign policy', engine: foreign }]);
+    seedState(db, [{ id: stateId, mode: 'latest', activeDocumentId: null, engine }]);
+    const svc = makeService(db);
+
+    const error = await caught(svc.setServeMode('locked', 2, engine));
+    expect(error).toBeInstanceOf(ValidationError);
+    expect(error.param).toBe('version_id');
+    expect(error.message).toBe('version_id belongs to another engine');
+    expect(stateRows(db)[0]).toMatchObject({ mode: 'latest', activeDocumentId: null });
+    expect(await svc.setServeMode('locked', 1, engine)).toMatchObject({ mode: 'locked', served_id: 1 });
+  });
+
   it('rejects an unknown mode', async () => {
     const svc = makeService(makeDb());
 

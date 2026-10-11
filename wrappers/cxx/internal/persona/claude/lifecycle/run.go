@@ -1029,7 +1029,7 @@ func bootstrapWithProgress(
 		// Settings: prefer the deep-merge partial (preserves user-owned keys);
 		// fall back to the legacy wholesale write only for old servers that
 		// don't return claude_settings.
-		if resp.ClaudeSettings != nil && len(resp.ClaudeSettings.Partial) > 0 {
+		if resp.ClaudeSettings != nil {
 			updated, err := applyManagedSettingsResult(resp.ClaudeSettings, logger)
 			configSync.Updated = configSync.Updated || updated
 			configSync.Err = errors.Join(configSync.Err, err)

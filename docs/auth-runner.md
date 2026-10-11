@@ -80,6 +80,17 @@ the maximum 600-second execution budget plus that buffer. Verification requires
 300 seconds. Insufficient lifetime fails with a refresh-required error and never
 attempts native refresh. Provider metadata probes cannot generate billed output.
 
+## Gateway execution cancellation
+
+Every generation route propagates client disconnect and API pre-close through
+the adapter to the runner request. Adapter deadlines include the response body;
+an aborted request cannot record a successful credential verification. The
+runner's `/exec` path gives each CLI its own process group, sends SIGTERM on
+timeout/disconnect/cancellation, allows two seconds, then uses SIGKILL for
+remaining members. It removes the isolated home after cleanup. Cancellation
+returns HTTP 499 when a response is possible; a deadline returns HTTP 504.
+Verification probes retain their separate lifecycle below.
+
 ## Probe lifecycle (runner/app.py)
 
 1. Optionally persist the incoming auth to `/tmp/last-auth.json` (0600) only when all are true: `RUNNER_DEBUG_DUMP_AUTH=1`, `RUNNER_ALLOW_SECRET_DUMP=1`, and `APP_ENV!=production`.

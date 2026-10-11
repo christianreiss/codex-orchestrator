@@ -376,7 +376,7 @@ func TestGrokStatusShowsFleetSuspension(t *testing.T) {
 		engineRow = engineRow || (row.Label == "Engine" && row.Value == "suspended (fleet)")
 	}
 	for _, hint := range report.Hints {
-		if strings.Contains(hint, "cgx login") {
+		if strings.Contains(hint, "cgx login") || strings.Contains(hint, "cgx update") {
 			t.Fatalf("doctor advised a login for an administrator switch: %q", report.Hints)
 		}
 	}

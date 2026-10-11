@@ -147,6 +147,21 @@ func TestClaudeReceiverFallsBackWhenOrgPolicyOwnsChannels(t *testing.T) {
 	if string(marker) != "fallback" {
 		t.Fatalf("expected doctor's marker to say fallback, got %q", marker)
 	}
+	raw, err := os.ReadFile(filepath.Join(dir, PluginName, ".mcp.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var mcp struct {
+		Servers map[string]struct {
+			Args []string `json:"args"`
+		} `json:"mcpServers"`
+	}
+	if err := json.Unmarshal(raw, &mcp); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(mcp.Servers["cxx-agent"].Args, []string{"agent", "mcp"}) {
+		t.Fatalf("fallback auto-claims work despite no approved channel: %s", raw)
+	}
 }
 
 // Claude Code resolves a `server:<name>` channel only against the enterprise,
@@ -261,5 +276,33 @@ func TestDaemonChildUsesParentWriterOnlyForItsExactNativeIdentity(t *testing.T) 
 				t.Fatalf("unrelated native identity bypassed the writer lock: %d", response.Code)
 			}
 		})
+	}
+}
+
+func TestClaudeHeadlessPluginRetainsFailureHooksWithoutReceiver(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv(envSocket, filepath.Join(dir, "portal.sock"))
+	t.Setenv(envSessionID, "session")
+	if _, err := ClaudeAgentArgs(nil); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(filepath.Join(dir, PluginName, "hooks", "hooks.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var parsed struct {
+		Hooks map[string][]struct{ Hooks []struct{ Command string } }
+	}
+	if err := json.Unmarshal(raw, &parsed); err != nil {
+		t.Fatal(err)
+	}
+	for _, event := range []string{"StopFailure", "SessionEnd"} {
+		hooks := parsed.Hooks[event]
+		if len(hooks) != 1 || len(hooks[0].Hooks) != 1 || !strings.HasSuffix(hooks[0].Hooks[0].Command, " agent watchdog-event") {
+			t.Fatalf("missing %s failure forwarding: %s", event, raw)
+		}
+	}
+	if len(parsed.Hooks["SessionStart"]) != 0 {
+		t.Fatal("headless plugin must not pretend to register a channel identity")
 	}
 }

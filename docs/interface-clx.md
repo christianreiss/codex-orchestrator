@@ -5,6 +5,17 @@ continue using the existing session/receiver contracts and `cxx portal` commands
 operator access requires a dashboard account or its paired device. Session
 settings and remote-session controls are available in Active Clients.
 
+## Native shutdown
+
+Native launches and help forward SIGINT, SIGTERM and SIGHUP as catchable
+signals, allowing ten seconds for cleanup before forced termination. Exit
+status uses the shell convention `128 + signal`. Headless children, the Codex
+app-server receiver and the Grok private leader own process groups whose
+remaining members are terminated on completion. Interactive children retain
+the terminal foreground group; forced escalation targets their direct child.
+User stops finish as `user_stop`, while genuine crashes and an already reported
+hang or capacity failure keep their own recovery classification.
+
 ## Fleet commit preferences
 
 Managed CLAUDE.md carries the fleet's short/long commit preference and AI attribution setting from the Git Director page, independently of Director, MCP and Skills activation. Defaults: a subject-only message and no automatic AI markers/co-authors. Long adds change/reason and relevant verification; attribution adds one `AI-Assisted-By: Claude` trailer after a blank line, also in short mode. Git author/committer and commit/push authorization remain unchanged; explicit operator instructions take precedence. The next content sync/launch refreshes the document hash; active sessions may retain previous guidance, and explicit blank generation mode suppresses managed rules. API contract: [Fleet commit preferences](interface-api.md#fleet-commit-preferences).
@@ -85,7 +96,7 @@ Claude settings and MCP merges preserve unreadable or non-object user files and 
 | `auth ...` | Passed through to upstream Claude under the active-child/session leases. `auth login` uploads the resulting generation and applies guarded canonical writeback; `auth logout` journals durable intent before destructive native mutation; `auth status` remains read-only passthrough. The top-level `login`/`logout` aliases follow the same rules. |
 | `exec -- <cmd...>` | Bypass startup sync; run a single Claude command |
 | `cxx agent ...` | Shared Agent Messaging control surface: `list` (alias `peers`, `--engine codex\|claude\|grok`, `--online`), `send`, `request`, `wait`, `reply`, `message <id>`, `cancel`, `call-open`, `call-join --pin`, `listen`, `poll --hook Stop\|UserPromptSubmit` (the Claude ringer hook), `status`, `service install\|remove\|start\|stop\|restart\|status`, `worker --foreground`, and `mcp [--channel|--auto]` (the stdio MCP server the managed `cxx-agent` entry launches). Message and reply content is accepted only on stdin. |
-| `cxx remote ...` | Shared remote-execution surface, default off behind the signed `remote.enabled` switch: `info`, `exec -- ARGV...`, `read`, `write`, `wait`, `signal`, `ps`, `rm`, `get`, `put`, `push`, `pull`, `down`. One ssh connection per destination is established and reused through a private `ControlMaster` path, so a command is a channel on it rather than a new handshake. Jobs live in a directory on the target and survive a dropped connection: a cursor is a byte offset into the job's log, and reconnecting reads on rather than re-running. Everything after `--` is argv, verbatim, with no shell unless one is asked for explicitly. One JSON object per invocation on stdout; diagnostics on stderr. A destination is whatever `ssh` accepts, so `~/.ssh/config` aliases work, and the target needs only SSH access — the binary installs itself there on first contact. |
+| `cxx remote ...` | Reserved, unavailable command family. The parser and signed `remote.enabled` gate exist, but all operational verbs return `E_NOT_IMPLEMENTED`. Enabling the switch provides no SSH transport, remote jobs or file transfer. Use ordinary SSH tools within existing task authorization. |
 | `--continue` / `-c` | Passed straight through to the upstream `claude` binary |
 | `resume [<session>] [<prompt>]` | Reopen a previous Claude session through the normal startup lifecycle. With no session id, the upstream picker is shown |
 | `--resume[=<session>]` / `-r` | Alias for the `resume` subcommand above — the session is optional, and a following option is never consumed as its value |
@@ -203,13 +214,14 @@ or put it into its temporary auth settings overlay. Claude's normal
 state, preventing an otherwise valid synchronized login from reopening the
 first-run theme or login flow.
 
-Normal startup and session exit never download or install wrapper, Claude, or
-peer binaries. A launch uses the installed Claude CLI and can queue detached
-maintenance after acquiring its auth session; a changed host engine set
-bypasses the maintenance cooldown so an enabled/disabled peer lands on this
-launch. Explicit `clx --update` and
-`cxx cron run` remain visible maintenance commands. Missing Claude fails quickly
-with an installation command; it does not start a foreground npm repair.
+Normal startup uses the installed Claude CLI and leaves routine upgrades to
+maintenance. If the CLI is missing, the outer launch command performs the
+supported foreground installation before retrying launch; installation failure
+returns exit 127 with the repair command. The inner lifecycle does not run
+installers. A launch can queue detached maintenance after acquiring its auth
+session; a changed host engine set bypasses its cooldown. Explicit `clx --update`
+and `cxx cron run` remain visible maintenance commands. Session exit does not
+install binaries.
 
 The shared background coordinator checks both enabled engines, honors the
 fleet/host auto-update policy, verifies wrapper SHA256, and stages Claude with
@@ -1017,7 +1029,7 @@ reserves `notify` for an action the user must take, and withdraws a stale notice
 with `resolve`. Attention and lifecycle notices are
 recorded in the portal, which the user reaches through their own permanent
 bookmarked link. Paired Android companions may also receive FCM alerts with the event's short summary
-for questions, attention, and followed replies (see `docs/android-companion.md`). It cannot wake a
+for ordinary questions and replies in followed conversations, plus explicit classified notices (see `docs/android-companion.md`). It cannot wake a
 Claude process or model turn that has already stopped, and `relay_ready` ages
 false when active polling ceases. The relay, socket capability, and environment
 are torn down immediately when the Claude child exits, before post-run updater
@@ -1592,3 +1604,34 @@ All three engines share five local MCP tools in managed lifecycles: `agent_porta
 `cxx portal ask --question "Deploy this release?" --summary "Choose the release" --answer-mode buttons --choices '[{"label":"Approve","value":"approve"},{"label":"Cancel","value":"cancel"}]'` creates a normal question. Use `--answer-mode text` or `both` for free text. `--attachments '["UUID"]'` accepts already sealed attachments. `cxx portal notify --severity blocker --notice-id UUID --summary "Waiting for the release decision"` creates explicit Needs you. `cxx portal resolve --notice-id UUID --summary "Release reviewed"` clears only that notice. MCP operations require stable caller-generated event/prompt/notice/upload UUIDs retained on retries. The CLI retains its existing invocation behavior.
 
 `agent_attachment_get` returns a protected local path plus metadata/processing state. Read original images with native image tools; fetch `transcript.json` for local ASR and `frame-NN.jpg` for video inspection. Originals survive preparation failure. Update the wrapper and start/resume a managed lifecycle to load the new tool catalog; existing running older wrappers continue with their old catalog.
+
+## Sync and cleanup recovery (cxx 0.9.61)
+
+Missing config partials preserve existing Claude settings, MCP definitions and
+both ownership manifests. An explicitly supplied empty object remains an
+authoritative update. Fallback mode keeps manual fleet tools but does not register
+an automatic receiver or claim automatically delivered work.
+
+Housekeeping launch guards are inherited by native children, including help and
+Codex's app-server, so wrapper SIGKILL does not free an active child's fence.
+Process scans preserve executable paths containing spaces and recognize native
+shell/env/node launchers. Activity is checked again after reservation and during
+recovery. Raw unwrapped CLIs do not honor the flock; process scans reduce the race
+but cannot atomically prevent a new unwrapped launch.
+
+Version-2 cleanup journals mark the indexing boundary durably. If an interrupted
+move finds a changed original before indexing, recovery restores missing originals
+without replacing reappeared files, keeps conflicting copies in quarantine with
+a recovery receipt, and releases the launch fence. Once indexing may have begun,
+ambiguous state stays fenced for manual recovery; transcripts are not blindly
+overwritten or discarded.
+
+Skill directory replacement uses atomic directory exchange on Linux and macOS,
+with synced staged content. A filesystem without exchange support returns an
+error while preserving the existing directory; it does not use a two-rename gap.
+
+Claude skill publication also retains a synced ownership intent across process
+crashes. The next sync or trust-loss cleanup recovers only the recorded directory
+identity; identical bytes in an unrelated directory never grant fleet ownership.
+Apply and cleanup share a process lock, and ownership is committed before another
+bundle can replace the pending intent.

@@ -71,8 +71,9 @@ app. Check the server address and connect; the code expires after five minutes
 and works once. The phone receives its own revocable credential for your account.
 
 The **Agents** tab supports text conversations and answers to agent questions.
-Sending a message follows the conversation; toggle **Following** to stop reply
-notifications. Questions and attention notices notify eligible devices, while
+Sending a message follows the conversation; toggle **Following** to stop ordinary question and reply
+notifications. Explicit important/critical/blocker notices notify eligible devices
+regardless of follow state, while
 routine progress stays quiet. Firebase configuration is required for background
 push, and Android must allow notifications.
 

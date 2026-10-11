@@ -128,3 +128,48 @@ func TestReenabledEngineRequestsImmediateMaintenance(t *testing.T) {
 		t.Fatalf("a sibling switched off fleet-wide did not refresh configs: %v", calls)
 	}
 }
+
+func TestObservedSuspensionSurvivesNextOfflineLaunchUntilPositiveAnswer(t *testing.T) {
+	refuse := true
+	cfg := engineSwitchHost(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if refuse {
+			w.WriteHeader(http.StatusForbidden)
+			_, _ = w.Write([]byte(`{"status":"error","message":"Codex is disabled fleet-wide by the administrator","code":"engine_disabled","scope":"fleet","engine":"codex"}`))
+		} else {
+			w.WriteHeader(http.StatusServiceUnavailable)
+		}
+	})
+	if exit, err := runSyncOnly(t, cfg); exit == 0 || err == nil || !strings.Contains(err.Error(), codexFleetDisabled) {
+		t.Fatalf("first refusal=%d %v", exit, err)
+	}
+	if len(cfg.Host.FleetDisabledEngines) != 0 {
+		t.Fatal("observations must not modify signed policy")
+	}
+	if found, err := observedSuspension(cfg); !found || err != nil {
+		t.Fatalf("refusal not recorded: %v %v", found, err)
+	}
+	refuse = false
+	// A new config instance models a separate invocation before cron has synced.
+	next := *cfg
+	if exit, err := runSyncOnly(t, &next); exit == 0 || err == nil || !strings.Contains(err.Error(), codexFleetDisabled) {
+		t.Fatalf("outage lost the prior refusal: %d %v", exit, err)
+	}
+	if err := recordSuspensionObservation(&next, &orchestrator.AuthRetrieveResponse{Status: "valid"}); err != nil {
+		t.Fatal(err)
+	}
+	if dec := applyLocalSuspension(&next, orchestrator.AuthDecision{Allowed: true, Status: "offline"}); !dec.Allowed {
+		t.Fatalf("positive answer did not clear observation: %+v", dec)
+	}
+}
+
+func TestObservedSuspensionIsScopedToFleetCredential(t *testing.T) {
+	cfg := engineSwitchHost(t, nil)
+	if err := recordSuspensionObservation(cfg, &orchestrator.AuthRetrieveResponse{Status: orchestrator.AuthStatusSuspended}); err != nil {
+		t.Fatal(err)
+	}
+	cfg.Orchestrator.APIKey = "different-host-key"
+	if dec := applyLocalSuspension(cfg, orchestrator.AuthDecision{Allowed: true, Status: "offline"}); !dec.Allowed {
+		t.Fatal("one host credential's refusal suspended a different binding")
+	}
+}

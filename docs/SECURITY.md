@@ -82,27 +82,13 @@ We acknowledge within 3 business days and share an assessment/fix ETA shortly af
 
 ## Remote execution (`cxx remote`)
 
-Default off, behind the `remote_exec_enabled` fleet switch, which reaches each wrapper as
-`remote.enabled` in its signed host config. Understand what the switch is before turning it on:
+The command family is reserved and unavailable: its parser and signed
+`remote.enabled` gate exist, but every operational verb returns
+`E_NOT_IMPLEMENTED`. There is no SSH transport, job execution or file transfer
+implementation behind this switch. Enabling it grants no new capability.
 
-- **It is a fleet control, not a boundary.** An agent that can run `cxx remote` can already run
-  `ssh`: it executes as the invoking user, with that user's `~/.ssh` keys and agent socket. The
-  switch decides whether this fleet works this way and gives you one place to see and change that.
-  It takes no reach away from anyone, and nothing in the design confines the model.
-- **It is a sandbox escape.** An agent that a local sandbox restricts — Codex's seatbelt or
-  Landlock, a restricted filesystem, a blocked network — gets unsandboxed code execution on another
-  machine through it, including writes to `~/.ssh/authorized_keys` and `~/.bashrc` on the target. If
-  the key authenticates as a user with passwordless `sudo`, that is root on that machine.
-- **The keys are the allowlist.** There is deliberately no target list to maintain: a destination is
-  whatever `ssh` accepts. Scope what a host can reach by scoping the keys and `~/.ssh/config` on
-  that host, which is the control that actually holds, rather than by a list the same agent could
-  edit.
-- **Secrets belong in `--env`, never in argv.** On the target, argv is world-readable through
-  `/proc`. The wrapper never returns a full argv or an environment value to the model, and never
-  writes either to a log.
-- Turning the switch off stops hosts accepting the verbs and removes the guidance section from
-  served AGENTS.md/CLAUDE.md on the next sync. It does not reach into a target machine: jobs already
-  started there keep running until they finish or somebody stops them.
+Ordinary SSH tools remain subject to the operator's task scope and existing
+host permissions. The configuration switch does not restrict those tools.
 
 ## Operational Notes
 

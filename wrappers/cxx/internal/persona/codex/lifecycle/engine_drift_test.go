@@ -24,6 +24,10 @@ func TestReconcileEngineDriftForcesMaintenanceOnlyOnChange(t *testing.T) {
 	if reconcileEngineDrift(cfg, &orchestrator.AuthRetrieveResponse{}, logger) || len(calls) != 0 {
 		t.Fatalf("missing host block requested maintenance: %v", calls)
 	}
+	if !reconcileEngineDrift(cfg, &orchestrator.AuthRetrieveResponse{Status: orchestrator.AuthStatusSuspended}, logger) || len(calls) != 1 {
+		t.Fatalf("hostless fleet refusal did not force maintenance: %v", calls)
+	}
+	calls = nil
 	both := &orchestrator.AuthRetrieveResponse{Host: &orchestrator.HostInfo{Engines: "codex,claude"}}
 	if !reconcileEngineDrift(cfg, both, logger) || len(calls) != 1 || calls[0] != config.EngineCodex {
 		t.Fatalf("enabled peer engine did not force maintenance: %v", calls)

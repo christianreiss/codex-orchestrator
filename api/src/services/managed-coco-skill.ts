@@ -47,11 +47,11 @@ Pick the right memory substrate — there are three and they are not interchange
 
 Choosing between them: if the next agent on a DIFFERENT project would want it, it is a shared memory. If it is a sentence you would tell the next agent on THIS work, it is a project memory. If it is something they would copy or run, it is a project file — store those under stable names beginning \`context/\`.
 
-Bootstrap before acting, even when the task looks self-evident:
+Load the project context before acting, even when the task looks self-evident:
 1. shared_memory_list for the fleet-wide index (it needs no query, so never guess search terms), narrow with shared_memory_search, then shared_memory_read what the task touches. Reads come back windowed: follow next_offset while truncated is true.
 2. Resolve the project slug — an explicit slug wins, otherwise derive it from the git repo or working directory and confirm with project_list. Never invent one.
-3. project_bootstrap, then project_memory_list for the full index, then project_memory_get for the entries the task touches.
-4. project_file_list, then project_file_read for artifacts the task needs.
+3. project_summary, then project_memory_list for the full index, then project_memory_get for the entries the task touches.
+4. project_files, then project_file_read for artifacts the task needs.
 5. If resuming, project_changes since the stored latest_seq. It returns at most 200 events per call, so iterate until you reach latest_seq.
 6. State in one line what you loaded and what you believe the current state is, then act.
 `;

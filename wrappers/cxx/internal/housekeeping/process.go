@@ -61,23 +61,61 @@ func nativeBusy(engine string) (bool, error) {
 		if err != nil {
 			return false, err
 		}
-		if nativeCommand(engine, strings.ReplaceAll(string(raw), "\x00", " ")) {
+		if nativeArgv(engine, strings.Split(strings.TrimRight(string(raw), "\x00"), "\x00")) {
 			return true, nil
 		}
 	}
 	return false, nil
 }
 func nativeCommand(engine, cmd string) bool {
+	// ps lacks argv boundaries. Preserve a native executable path containing
+	// spaces when possible; otherwise conservatively inspect its words.
 	f := strings.Fields(cmd)
-	if len(f) == 0 {
+	for n := 1; n <= len(f); n++ {
+		if nativeExecutable(engine, strings.Join(f[:n], " ")) {
+			return true
+		}
+	}
+	return nativeArgv(engine, f)
+}
+
+func nativeExecutable(engine, path string) bool {
+	bin := filepath.Base(path)
+	return bin == engine || strings.HasPrefix(bin, engine+"-") ||
+		engine == "claude" && (strings.Contains(path, "/claude-code/") || strings.Contains(path, "/engines/claude/"))
+}
+
+func nativeArgv(engine string, argv []string) bool {
+	if len(argv) == 0 || argv[0] == "" {
 		return false
 	}
-	bin := filepath.Base(f[0])
-	if bin == engine || strings.HasPrefix(bin, engine+"-") {
+	if nativeExecutable(engine, argv[0]) {
 		return true
 	}
-	if engine == "claude" && (bin == "node" || strings.HasPrefix(bin, "node-")) {
-		return strings.Contains(cmd, "claude-code") || strings.Contains(cmd, "/engines/claude/")
+	bin := filepath.Base(argv[0])
+	if bin == "env" {
+		for i := 1; i < len(argv); i++ {
+			arg := argv[i]
+			if arg == "-u" || arg == "--unset" || arg == "-C" || arg == "--chdir" {
+				i++
+				continue
+			}
+			if strings.HasPrefix(arg, "-") || strings.Contains(arg, "=") {
+				continue
+			}
+			return nativeArgv(engine, argv[i:])
+		}
+	}
+	if bin == "sh" || bin == "bash" || bin == "dash" || bin == "zsh" || bin == "node" || strings.HasPrefix(bin, "node-") {
+		for _, arg := range argv[1:] {
+			// -c/-e code and ordinary prompt arguments are not script paths.
+			if arg == "-c" || arg == "-e" || arg == "--eval" || arg == "-p" || arg == "--print" {
+				return false
+			}
+			if !strings.HasPrefix(arg, "-") {
+				return nativeExecutable(engine, arg)
+			}
+		}
 	}
 	return false
 }

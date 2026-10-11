@@ -14,6 +14,8 @@ func TestWatchdogHookFailuresAcrossEngines(t *testing.T) {
 		{map[string]any{"hookEventName": "StopFailure", "error": "server_error"}, "crash"},
 		{map[string]any{"hookEventName": "StopCancelled", "reason": "no_progress"}, "hang"},
 		{map[string]any{"hookEventName": "StopCancelled", "reason": "user_interrupt"}, "user_stop"},
+		{map[string]any{"hookEventName": "StopCancelled", "reason": "permission_cancelled", "cancelledBy": "user"}, "user_stop"},
+		{map[string]any{"hookEventName": "StopCancelled", "reason": "unknown"}, "crash"},
 		{map[string]any{"hook_event_name": "SessionEnd", "reason": "prompt_input_exit"}, "user_stop"},
 		{map[string]any{"hookEventName": "StopFailure", "error": "rate_limit", "subagentType": "helper"}, ""},
 		{map[string]any{"hookEventName": "Stop", "lastAssistantMessage": "at capacity"}, ""},

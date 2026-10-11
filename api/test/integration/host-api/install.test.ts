@@ -1,3 +1,4 @@
+import * as installModule from '../../../src/services/install-token.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { buildHostApiTestApp } from '../../helpers/build-host-api-app.js';
 import { createDbFake } from '../../helpers/db-fake.js';
@@ -38,9 +39,37 @@ const seedToken = 'abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 
 describe('GET /install/:token', () => {
+  it.each(['codex', 'claude', 'grok'])('keeps a %s token retryable after script generation fails', async engine => {
+    const db = createDbFake();
+    db.tables.set(hostsTable, [{ id: 9, fqdn: 'retry.test', engines: engine, status: 'active' }]);
+    db.tables.set(installTokens, [{ id: 1, token: installToken, hostId: 9, apiKey: 'sk-test', baseUrl: 'https://o.example', engine, expiresAt: futureExpiry, usedAt: null }]);
+    const app = await buildHostApiTestApp({ db: db as any, env, keyring: makeKeyring() });
+    const build = vi.spyOn(installModule, 'buildInstallerScript').mockImplementationOnce(() => { throw new Error('builder unavailable'); });
+    try {
+      const failed = await app.inject({ url: `/install/${installToken}` });
+      expect(failed.headers['x-installer-error']).toBe('installer_build_failed');
+      expect(db.tables.get(installTokens)![0]!.usedAt).toBeNull();
+      build.mockRestore();
+      expect((await app.inject({ url: `/install/${installToken}` })).headers['x-installer-error']).toBeUndefined();
+      expect(db.tables.get(installTokens)![0]!.usedAt).toBeTruthy();
+      expect((await app.inject({ url: `/install/${installToken}` })).headers['x-installer-error']).toBe('installer_used');
+    } finally { await app.close(); }
+  });
+  it.each(['codex', 'claude', 'grok'])('refuses a stale %s token after host assignment changes', async engine => {
+    const db = createDbFake();
+    db.tables.set(hostsTable, [{ id: 9, fqdn: 'removed.test', engines: engine === 'codex' ? 'claude' : 'codex' }]);
+    db.tables.set(installTokens, [{ id: 1, token: installToken, hostId: 9, apiKey: 'sk-test', baseUrl: 'https://o.example', engine, expiresAt: futureExpiry, usedAt: null }]);
+    const app = await buildHostApiTestApp({ db: db as any, env, keyring: makeKeyring() });
+    try {
+      expect((await app.inject({ url: `/install/${installToken}` })).headers['x-installer-error']).toBe('engine_disabled');
+      expect(db.tables.get(installTokens)![0]!.usedAt).toBeNull();
+    } finally { await app.close(); }
+  });
+
   it('emits a text/x-shellscript installer for a valid token', async () => {
     const db = createDbFake();
     db.tables.set(hostsTable, [

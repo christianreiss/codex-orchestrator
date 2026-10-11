@@ -1,3 +1,4 @@
+import { invalidateFleetEngineState } from '../../../src/services/engine-switch.js';
 /**
  * Service-level integration tests for the admin-hosts services. They wire the
  * real Drizzle ORM against the hand-rolled in-memory store from
@@ -72,6 +73,28 @@ async function buildKeyring(): Promise<Keyring> {
 }
 
 describe('HostManagementService.register', () => {
+  it.each(['codex', 'claude', 'grok'] as const)('retains prior tokens when a disabled %s installer mint is rejected', async engine => {
+    const mock = createMockDb();
+    const svc = new HostManagementService({ db: mock.db, env: buildEnv(), keyring: await buildKeyring(), events: makeAdminEventsWriter(mock.db) });
+    const registered = await svc.register({ fqdn: `mint-${engine}.test`, engines: ['codex', 'claude', 'grok'] });
+    const previous = structuredClone(mock.rows('install_tokens'));
+    mock.insertRow('versions', { name: `${engine}_engine_disabled`, version: '1' });
+    invalidateFleetEngineState(mock.db);
+    await expect(svc.mintInstaller(registered.host.id, [engine])).rejects.toMatchObject({ code: 'engine_disabled' });
+    expect(mock.rows('install_tokens')).toEqual(previous);
+  });
+  it.each(['codex', 'claude', 'grok'] as const)('revokes tokens after %s assignment removal and final host deletion', async engine => {
+    const mock = createMockDb();
+    const svc = new HostManagementService({ db: mock.db, env: buildEnv(), keyring: await buildKeyring(), events: makeAdminEventsWriter(mock.db) });
+    const registered = await svc.register({ fqdn: `remove-${engine}.test`, engines: ['codex', 'claude', 'grok'] });
+    await svc.setEngines(registered.host.id, engine === 'codex' ? ['claude'] : ['codex']);
+    expect(mock.rows('install_tokens')).toEqual([]);
+    await svc.mintInstaller(registered.host.id);
+    expect(mock.rows('install_tokens')).toHaveLength(1);
+    await svc.delete(registered.host.id);
+    expect(mock.rows('install_tokens')).toEqual([]);
+  });
+
   it('creates a new host with hashed + encrypted api_key on first call', async () => {
     const mock = createMockDb();
     const env = buildEnv();

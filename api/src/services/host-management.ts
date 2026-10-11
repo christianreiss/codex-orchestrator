@@ -1,3 +1,4 @@
+import { pruneHosts } from './host-lifecycle.js';
 /**
  * Admin-side host management: register / clear / delete / toggle flags / set
  * version overrides. Mirrors the surface of the legacy PHP AdminHostController
@@ -303,6 +304,7 @@ export class HostManagementService {
             ? req.engines
             : parseEnginesInput(locked.engines, [ENGINE_CODEX]);
         engines = lockedEngines.length ? lockedEngines : [ENGINE_CODEX];
+        assertEnginesAddable(engines, parseEnginesInput(locked.engines, [ENGINE_CODEX]), await readFleetEngineState(tx));
         await tx
           .update(hosts)
           .set({
@@ -422,6 +424,7 @@ export class HostManagementService {
       },
     );
 
+    await pruneHosts(this.db);
     return { host, apiKeyPlain, installer };
   }
 
@@ -561,9 +564,6 @@ export class HostManagementService {
     const ttl = INSTALL_TOKEN_TTL_SECONDS_DEFAULT;
     const expiresAt = isoOffsetSeconds(ttl);
 
-    // Replace any existing pending install token for this host.
-    await this.db.delete(installTokens).where(eq(installTokens.hostId, host.id));
-
     const token = randomUUID();
     // Schema column is CHAR(64), the legacy code stores sha256 of the token in
     // `token` and the encrypted real token in `token_enc`.
@@ -594,17 +594,27 @@ export class HostManagementService {
           ? ENGINE_CODEX
           : installable[0]!;
 
-    await this.db.insert(installTokens).values({
-      token: tokenHash,
-      tokenEnc,
-      hostId: host.id,
-      apiKey: apiKeyHash,
-      apiKeyEnc,
-      fqdn: host.fqdn,
-      baseUrl,
-      engine: installerEngine,
-      expiresAt,
-      createdAt: nowIso(),
+    // Validate and build all token material before replacing an earlier token.
+    // The host lock serializes minting against assignment changes/deletion.
+    await this.db.transaction(async (tx) => {
+      const [current] = await tx.select().from(hosts).where(eq(hosts.id, host.id)).limit(1).for('update');
+      if (!current) throw new NotFoundError('Host not found', 'host_not_found');
+      if (current.engines !== host.engines || current.apiKey !== host.apiKey) {
+        throw new ConflictError('Host changed; retry installer minting', 'host_changed');
+      }
+      await tx.delete(installTokens).where(eq(installTokens.hostId, host.id));
+      await tx.insert(installTokens).values({
+        token: tokenHash,
+        tokenEnc,
+        hostId: host.id,
+        apiKey: apiKeyHash,
+        apiKeyEnc,
+        fqdn: host.fqdn,
+        baseUrl,
+        engine: installerEngine,
+        expiresAt,
+        createdAt: nowIso(),
+      });
     });
 
     await this.writeLog(host.id, 'admin.install_token.create', {
@@ -648,6 +658,7 @@ export class HostManagementService {
     // matches the legacy controller for safety.
     await this.db.transaction(async (tx) => {
       await suspendAgentMessagingRuntimeLocked(tx, id, 'host_inactive');
+      await tx.delete(installTokens).where(eq(installTokens.hostId, id));
       await tx.delete(hostAuthDigests).where(eq(hostAuthDigests.hostId, id));
       await tx.delete(hosts).where(eq(hosts.id, id));
     });
@@ -821,7 +832,7 @@ export class HostManagementService {
     if (!engines.length) {
       throw new ValidationError('engines must contain at least one of: codex, claude, grok', { param: 'engines' });
     }
-    const previous = serializeEngines(parseEnginesInput(host.engines, [ENGINE_CODEX]));
+    let previous = serializeEngines(parseEnginesInput(host.engines, [ENGINE_CODEX]));
     assertEnginesAddable(engines, parseEnginesInput(host.engines, [ENGINE_CODEX]), await readFleetEngineState(this.db));
     const next = serializeEngines(engines);
     if (engines.includes(ENGINE_GROK)) {
@@ -829,10 +840,15 @@ export class HostManagementService {
     }
     const disabled = ENGINES.filter((engine) => !engines.includes(engine));
     await this.db.transaction(async (tx) => {
+      const [current] = await tx.select().from(hosts).where(eq(hosts.id, id)).limit(1).for('update');
+      if (!current) throw new NotFoundError('Host not found', 'host_not_found');
+      previous = serializeEngines(parseEnginesInput(current.engines, [ENGINE_CODEX]));
+      assertEnginesAddable(engines, parseEnginesInput(current.engines, [ENGINE_CODEX]), await readFleetEngineState(tx));
       if (disabled.length > 0) {
         await suspendAgentMessagingRuntimeLocked(tx, id, 'engine_disabled', disabled);
       }
       if (next !== previous) {
+        await tx.delete(installTokens).where(eq(installTokens.hostId, id));
         await tx
           .update(hosts)
           .set({ engines: next, updatedAt: nowIso() })

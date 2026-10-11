@@ -126,7 +126,13 @@ export class CompanionLive {
       const next = await bounded(this.sources.revisions());
       if (next.agents !== this.previous?.agents) scopes.add('agents');
       if (next.approvals !== this.previous?.approvals) scopes.add('approvals');
-      if (next.hosts !== this.previous?.hosts) scopes.add('hosts');
+      if (next.hosts !== this.previous?.hosts) {
+        scopes.add('hosts');
+        // Remote conversation presence is projected from daemon health too.
+        // A lost daemon can leave its durable session unchanged, so refresh
+        // agent cards even when no Portal event or agent revision changed.
+        scopes.add('agents');
+      }
       this.previous = next;
       for (const client of authorized) {
         const allowed = [...scopes].filter(

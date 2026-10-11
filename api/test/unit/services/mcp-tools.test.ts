@@ -8,6 +8,7 @@ import type { McpResourcesService } from '../../../src/services/mcp-resources.js
 import type { SharedMemoriesService } from '../../../src/services/shared-memories.js';
 import type { SecretsService } from '../../../src/services/secrets.js';
 import type { AgentTransfersService } from '../../../src/services/agent-transfers.js';
+import type { GitDirectorService } from '../../../src/services/git-director.js';
 import type { Host } from '../../../src/db/schema.js';
 
 const stubMemories = {
@@ -164,6 +165,24 @@ const stubSharedMemories = {
 } as unknown as SharedMemoriesService;
 
 const host: Host = { id: 1, fqdn: 'example.com' } as unknown as Host;
+
+describe('Git Director caller engine', () => {
+  it.each(['codex', 'claude', 'grok'] as const)('binds %s from dispatch, including an omitted or conflicting model argument', async (engine) => {
+    const calls: Record<string, unknown>[] = [];
+    const registry = new McpToolsRegistry({
+      memories: stubMemories,
+      projects: stubProjects,
+      skills: stubSkills,
+      gitDirector: {
+        getEnabled: async () => true,
+        register: async (args: Record<string, unknown>) => { calls.push(args); return { registered: true }; },
+      } as unknown as GitDirectorService,
+    });
+    await registry.dispatch('git_register', { worktree_path: '/repo' }, host, 'host', engine);
+    await registry.dispatch('git_register', { worktree_path: '/repo', engine: 'wrong-engine' }, host, 'host', engine);
+    expect(calls).toEqual([{ worktree_path: '/repo', engine }, { worktree_path: '/repo', engine }]);
+  });
+});
 
 describe('McpToolsRegistry', () => {
   const registry = new McpToolsRegistry({ memories: stubMemories, projects: stubProjects, skills: stubSkills });

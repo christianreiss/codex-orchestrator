@@ -8,6 +8,11 @@ import { extractApiKey } from '../../../src/util/api-key-helpers.js';
 import type { RouteContext } from '../../../src/routes/index.js';
 import type { Host } from '../../../src/db/schema.js';
 
+// Persistence is covered by host-lifecycle tests; this suite uses a stub DB.
+vi.mock('../../../src/services/host-lifecycle.js', () => ({
+  recordHostContact: async (_db: unknown, host: Host) => host,
+}));
+
 /**
  * Credential resolution for POST /mcp (resolveHost() in routes/mcp/index.ts).
  * jsonrpc.test.ts stubs resolveHostFromKey to hand back a host for every

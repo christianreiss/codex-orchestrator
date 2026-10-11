@@ -15,6 +15,7 @@ import (
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/accountpool"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
 	native "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/grok"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/ipc"
 	orchestrator "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/codex/orchestrator"
 )
 
@@ -117,11 +118,27 @@ func login(ctx context.Context, cfg *config.Config, client *orchestrator.Client,
 		_ = clearPendingLogin()
 		return errors.New("insecure hosts require a fresh cgx login")
 	}
+	home, err := native.Home()
+	if err != nil {
+		return err
+	}
+	activity, err := ipc.TryAcquireSharedPath(filepath.Join(home, ".cgx-sessions.lock"))
+	if err != nil {
+		return err
+	}
+	defer activity.Release()
+	if err := native.SweepPrivateDirectories(); err != nil {
+		return err
+	}
 	dir, err := os.MkdirTemp("", "cgx-login-")
 	if err != nil {
 		return err
 	}
-	defer os.RemoveAll(dir)
+	private, err := native.GuardPrivateDirectory(dir, activity)
+	if err != nil {
+		return err
+	}
+	defer private.Close()
 	previous := client.Pool
 	client.Pool = accountpool.Load("grok", filepath.Join(dir, "auth.json"), cfg.Orchestrator.BaseURL)
 	defer func() { client.Pool = previous }()
@@ -147,7 +164,7 @@ func login(ctx context.Context, cfg *config.Config, client *orchestrator.Client,
 		env = native.SetEnv(env, "GROK_HOME", dir)
 		env = native.SetEnv(env, "GROK_AUTH_PATH", filepath.Join(dir, "auth.json"))
 		env = native.SetEnv(env, "GROK_DISABLE_API_KEY_AUTH", "1")
-		if code := execute(ctx, path, append([]string{"login"}, args...), env, stdout, stderr); code != 0 {
+		if code := execute(ctx, path, append([]string{"login", "--device-auth"}, args...), env, stdout, stderr, private); code != 0 {
 			return fmt.Errorf("Grok subscription login exited %d", code)
 		}
 		raw, err := os.ReadFile(filepath.Join(dir, "auth.json"))

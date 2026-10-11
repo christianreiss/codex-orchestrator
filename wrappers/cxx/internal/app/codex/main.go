@@ -13,10 +13,8 @@ import (
 	"log/slog"
 	"os"
 	"os/exec"
-	"os/signal"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/terminalui"
@@ -29,6 +27,7 @@ import (
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/layout"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/log"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/maintenance"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/nativeprocess"
 	enginecron "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/codex/cron"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/codex/lifecycle"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/codex/orchestrator"
@@ -37,6 +36,7 @@ import (
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/codex/uninstall"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/codex/update"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/quotaadvice"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/sessionguard"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/signing"
 )
 
@@ -128,6 +128,11 @@ func nativeSubcommand(args []string) string {
 		return arg
 	}
 	return ""
+}
+
+func nativeHeadless(args []string) bool {
+	command := nativeSubcommand(args)
+	return command == "exec" || command == "e"
 }
 
 func invocationFlags(args []string, native bool) (flags, []string, []string) {
@@ -395,7 +400,7 @@ func runMode(args []string, stdout, stderr io.Writer, native bool, choices ...*q
 	// /cron/check + /cron/report payloads carry the right wrapper_version.
 	enginecron.WrapperVersion = Version
 
-	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	ctx, cancel := nativeprocess.NotifyContext(context.Background())
 	defer cancel()
 	if len(choices) > 0 {
 		ctx = quotaadvice.WithSession(ctx, choices[0])
@@ -564,11 +569,12 @@ func runMode(args []string, stdout, stderr io.Writer, native bool, choices ...*q
 
 	switch sub {
 	case "run":
+		launchArgs := append(subArgs, passthrough...)
 		exit, err := lifecycle.Run(ctx, lifecycle.Options{
 			QuotaChoiceReset:    f.quotaChoiceReset,
 			Config:              cfg,
-			ExtraArgs:           append(subArgs, passthrough...),
-			Headless:            native && (nativeSubcommand(args) == "exec" || nativeSubcommand(args) == "e"),
+			ExtraArgs:           launchArgs,
+			Headless:            nativeHeadless(launchArgs),
 			Resumed:             native && nativeSubcommand(args) == "resume",
 			SkipBoot:            f.skipBoot || f.silent,
 			Minimal:             f.minimal,
@@ -812,6 +818,11 @@ func prepareHelpChildLeases() (*codex.AuthSession, *ipc.Lock, error) {
 }
 
 func runHelpChild(ctx context.Context, cli string, args []string, stdout, stderr io.Writer) (exitCode int, removed bool, err error) {
+	guard, err := sessionguard.Launch("codex")
+	if err != nil {
+		return 1, false, err
+	}
+	defer guard.Release()
 	session, child, err := prepareHelpChildLeases()
 	if err != nil {
 		return 1, false, fmt.Errorf("acquire auth safety leases: %w", err)
@@ -824,9 +835,11 @@ func runHelpChild(ctx context.Context, cli string, args []string, stdout, stderr
 
 	cmd := exec.CommandContext(ctx, cli, args...)
 	cmd.Stdin = os.Stdin
+	supervisor := nativeprocess.Prepare(ctx, cmd, nativeprocess.Headless(cmd.Stdin))
+	defer supervisor.Close()
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
-	closeExtras, inheritErr := codex.AttachAuthLeaseFiles(cmd, session, child)
+	closeExtras, inheritErr := codex.AttachAuthLeaseFiles(cmd, session, child, guard)
 	if inheritErr != nil {
 		removed, cleanupErr := finish()
 		return 1, removed, errors.Join(fmt.Errorf("inherit auth safety leases: %w", inheritErr), cleanupErr)
@@ -838,24 +851,12 @@ func runHelpChild(ctx context.Context, cli string, args []string, stdout, stderr
 	}
 	bridgeErr := closeExtras()
 	waitErr := cmd.Wait()
+	supervisor.Close()
 	removed, cleanupErr := finish()
 
-	exitCode = 0
-	if waitErr != nil {
-		var exitErr *exec.ExitError
-		if errors.As(waitErr, &exitErr) {
-			exitCode = exitErr.ExitCode()
-			if exitCode < 0 {
-				if ctx.Err() != nil {
-					exitCode = 130
-				} else {
-					exitCode = 1
-				}
-			}
-		} else {
-			exitCode = 1
-			err = fmt.Errorf("wait for native help: %w", waitErr)
-		}
+	exitCode, err = supervisor.Result(waitErr)
+	if err != nil {
+		err = fmt.Errorf("wait for native help: %w", err)
 	}
 	if bridgeErr != nil || cleanupErr != nil {
 		err = errors.Join(err, fmt.Errorf("release auth safety leases: %w", errors.Join(bridgeErr, cleanupErr)))

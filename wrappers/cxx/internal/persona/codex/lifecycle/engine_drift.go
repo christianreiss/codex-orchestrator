@@ -39,6 +39,9 @@ func engineDriftReason(cfg *config.Config, auth *orchestrator.AuthRetrieveRespon
 	if cfg.EngineSuspended(config.EngineCodex) && serverAnsweredForEngine(auth) {
 		return "fleet engine switch turned back on"
 	}
+	if auth.Status == orchestrator.AuthStatusSuspended && !cfg.EngineSuspended(config.EngineCodex) {
+		return "fleet engine switch turned off"
+	}
 	if auth.Host == nil {
 		return ""
 	}
@@ -73,12 +76,13 @@ func serverAnsweredForEngine(auth *orchestrator.AuthRetrieveResponse) bool {
 // positive server answer leaves the decision alone — reconcileEngineDrift then
 // refreshes the stale signed config — and every refusal already refuses.
 func applyLocalSuspension(cfg *config.Config, dec orchestrator.AuthDecision) orchestrator.AuthDecision {
-	if !cfg.EngineSuspended(config.EngineCodex) {
-		return dec
-	}
 	switch strings.ToLower(strings.TrimSpace(dec.Status)) {
 	case "offline", "error", "":
 	default:
+		return dec
+	}
+	observed, err := observedSuspension(cfg)
+	if !cfg.EngineSuspended(config.EngineCodex) && !observed && err == nil {
 		return dec
 	}
 	dec.Allowed = false
@@ -87,5 +91,8 @@ func applyLocalSuspension(cfg *config.Config, dec orchestrator.AuthDecision) orc
 	dec.VerificationFailed = false
 	dec.Status = orchestrator.AuthStatusSuspended
 	dec.Reason = config.FleetDisabledMessage(config.EngineCodex)
+	if err != nil {
+		dec.Reason = "Cannot read fleet suspension observation: " + err.Error()
+	}
 	return dec
 }

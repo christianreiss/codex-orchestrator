@@ -320,6 +320,7 @@ export async function registerAuthRoutes(app: FastifyInstance, ctx: RouteContext
         details: JSON.stringify({ host_id: host.id, fqdn: host.fqdn, initiator: 'host_api', force }),
         createdAt: nowIso(),
       });
+      await tx.delete(installTokens).where(eq(installTokens.hostId, host.id));
       await tx.delete(hostAuthDigests).where(eq(hostAuthDigests.hostId, host.id));
       await tx.delete(hostAuthStates).where(eq(hostAuthStates.hostId, host.id));
       await tx.delete(hostsTable).where(eq(hostsTable.id, host.id));
@@ -571,6 +572,22 @@ async function handleRetrieve(
   authStore: ReturnType<typeof createCanonicalAuthStoreService>,
 ): Promise<Record<string, unknown>> {
   if (engine === ENGINE_GROK) {
+    if (payload.metadata_only === true) {
+      // Startup must reach account selection even when the old/default head
+      // needs login. Doctor must never spend a rotating refresh credential.
+      const row = await runnerValidation.resolveCanonicalPayload(engine, accountIdFrom(payload.account_id));
+      const snapshot = row ? runnerValidation.validateCanonicalPayload(row) : null;
+      const base = await buildRetrieveBaseResponse(ctx, host, payload, engine, projectVersions);
+      return {
+        ...base, account_pool: true, metadata_only: true,
+        status: snapshot ? 'available' : 'missing',
+        verification_state: row?.verificationState ?? 'unknown',
+        canonical_generation: row?.generation ?? null,
+        canonical_last_refresh: snapshot?.last_refresh ?? null,
+        ...(snapshot ? grokProjectionMetadata(snapshot.auth) : {}),
+        usage: { supported: false },
+      };
+    }
     const refresh = payload.refresh_if_generation;
     if (refresh !== undefined && (!Number.isSafeInteger(refresh) || Number(refresh) < 0)) throw new ValidationError('refresh_if_generation must be a non-negative integer', { param: 'refresh_if_generation' });
     const snapshot = await createGrokAuthOwner({ db: ctx.db, keyring: ctx.keyring, runner: createRunnerClient({ env: ctx.env }) }).ensureFresh({ accountId: accountIdFrom(payload.account_id), sourceHostId: host.id, sessionId: typeof payload.session_id === 'string' ? payload.session_id : undefined, refreshIfGeneration: refresh === undefined ? undefined : Number(refresh) });
@@ -1292,6 +1309,7 @@ async function readChatgptSnapshot(ctx: RouteContext, accountId?: number): Promi
     if (!row) return unavailable;
     return {
       ...normalizeChatGptUsageSnapshot(row),
+      ...await svc.dailyUsage(row),
       // Usage snapshots are account-wide, but the active lane is host state.
       // Shape it at the host response boundary instead of leaking the
       // normal-lane default baked into the account snapshot normalizer. The

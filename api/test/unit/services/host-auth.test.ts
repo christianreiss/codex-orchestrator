@@ -10,9 +10,9 @@ vi.mock('node:dns', () => ({ promises: dnsMock }));
 
 import type { FastifyRequest } from 'fastify';
 import { createDbFake, type DbFake } from '../../helpers/db-fake.js';
-import { hosts, type Host } from '../../../src/db/schema.js';
+import { hosts, insecureAuthRequests, versions, type Host } from '../../../src/db/schema.js';
 import { createHostAuthService, type HostAuthService } from '../../../src/services/host-auth.js';
-import type { InsecureWindowService } from '../../../src/services/insecure-window.js';
+import { createInsecureWindowService, type InsecureWindowService } from '../../../src/services/insecure-window.js';
 import type { SettingsService } from '../../../src/services/settings.js';
 import { ForbiddenError, UnauthorizedError } from '../../../src/http/errors.js';
 import { hashApiKey } from '../../../src/util/api-key-helpers.js';
@@ -39,6 +39,7 @@ function hostRow(overrides: Partial<Host> = {}): Host {
     ip4: null,
     ip6: null,
     insecureEnabledUntil: null,
+    apiCalls: 1,
     createdAt: '2026-01-01T00:00:00Z',
     updatedAt: '2026-01-01T00:00:00Z',
     ...overrides,
@@ -179,7 +180,7 @@ describe('IP binding', () => {
     const host = await h.svc.authenticate(makeReq({ key: KEY }));
 
     expect(host.ip4).toBe(CLIENT_IP);
-    expect(h.db.updates).toHaveLength(1);
+    expect(h.db.updates.filter(({ set }) => 'ip4' in set || 'ip6' in set)).toHaveLength(1);
     expect(h.db.updates[0]?.set).toMatchObject({ ip4: CLIENT_IP });
   });
 
@@ -199,7 +200,7 @@ describe('IP binding', () => {
     const host = await h.svc.authenticate(makeReq({ key: KEY }));
 
     expect(host.ip4).toBe(CLIENT_IP);
-    expect(h.db.updates).toHaveLength(0);
+    expect(h.db.updates.filter(({ set }) => 'ip4' in set || 'ip6' in set)).toHaveLength(0);
   });
 
   it('rejects a same-family mismatch when no insecure window service is wired', async () => {
@@ -209,7 +210,7 @@ describe('IP binding', () => {
 
     expect(err).toBeInstanceOf(UnauthorizedError);
     expect(err).toMatchObject({ code: 'ip_mismatch', status: 401 });
-    expect(h.db.updates).toHaveLength(0);
+    expect(h.db.updates.filter(({ set }) => 'ip4' in set || 'ip6' in set)).toHaveLength(0);
   });
 
   it('rejects a same-family mismatch when the insecure window refuses', async () => {
@@ -232,15 +233,44 @@ describe('IP binding', () => {
     expect(h.db.updates[0]?.set).toMatchObject({ ip4: CLIENT_IP });
   });
 
-  it('rebinds when the insecure window grants the extension', async () => {
+  it('rebinds while the existing insecure window is active', async () => {
     const h = harness({
-      rows: [hostRow({ ip4: '198.51.100.9', allowRoamingIps: 0, secure: 0 })],
+      rows: [hostRow({ ip4: '198.51.100.9', allowRoamingIps: 0, secure: 0, insecureEnabledUntil: new Date(Date.now() + 60_000) })],
       insecure: insecureStub('grant'),
     });
 
     const host = await h.svc.authenticate(makeReq({ key: KEY }));
 
     expect(host.ip4).toBe(CLIENT_IP);
+  });
+
+  it.each([CLIENT_IP, CLIENT_IP6])('does not open an approval when a closed insecure host changes to %s', async (ip) => {
+    const h = harness({ rows: [hostRow({ ip4: '198.51.100.9', secure: 0 })] });
+    h.db.tables.set(insecureAuthRequests, []);
+    h.db.tables.set(versions, [{ name: 'insecure_approval_enabled', version: '1' }]);
+    const env = { INSECURE_GRACE_MINUTES: 60 } as Env;
+    const insecure = createInsecureWindowService({ db: h.db as never, env });
+    const auth = createHostAuthService({ db: h.db as never, env, insecure });
+
+    await expect(auth.authenticate(makeReq({ key: KEY, ip }))).rejects.toMatchObject({ code: 'ip_mismatch' });
+    expect(h.db.tables.get(insecureAuthRequests)).toEqual([]);
+    expect(h.db.updates).toEqual([]);
+  });
+
+  it('rebinds an auth store without sliding the already-open retrieve window', async () => {
+    const until = new Date(Date.now() + 60_000);
+    const h = harness({ rows: [hostRow({ ip4: '198.51.100.9', secure: 0, insecureEnabledUntil: until, insecureWindowMinutes: 10 })] });
+    const env = { INSECURE_GRACE_MINUTES: 60 } as Env;
+    const insecure = createInsecureWindowService({ db: h.db as never, env });
+    const auth = createHostAuthService({ db: h.db as never, env, insecure });
+    const request = makeReq({ key: KEY, method: 'POST' });
+    request.body = { command: 'store' };
+
+    const rebound = await auth.authenticate(request);
+    expect(rebound.ip4).toBe(CLIENT_IP);
+    expect(h.db.tables.get(hosts)?.[0]?.insecureEnabledUntil).toEqual(until);
+    expect(h.db.updates.filter(({ set }) => 'ip4' in set || 'ip6' in set)).toHaveLength(1);
+    expect(h.db.updates[0]?.set).not.toHaveProperty('insecureEnabledUntil');
   });
 
   it('rejects a v4 client on a v6-only host when roaming is off', async () => {
@@ -264,13 +294,13 @@ describe('IP binding', () => {
     await expect(absent.svc.authenticate(makeReq({ key: KEY, ip: null }))).resolves.toMatchObject({
       ip4: '198.51.100.9',
     });
-    expect(absent.db.updates).toHaveLength(0);
+    expect(absent.db.updates.filter(({ set }) => 'ip4' in set || 'ip6' in set)).toHaveLength(0);
 
     const junk = harness({ rows: [hostRow({ ip4: '198.51.100.9' })] });
     await expect(
       junk.svc.authenticate(makeReq({ key: KEY, ip: 'not-an-ip' })),
     ).resolves.toMatchObject({ ip4: '198.51.100.9' });
-    expect(junk.db.updates).toHaveLength(0);
+    expect(junk.db.updates.filter(({ set }) => 'ip4' in set || 'ip6' in set)).toHaveLength(0);
   });
 });
 
@@ -284,7 +314,7 @@ describe('AUTH_RUNNER_IP_BYPASS', () => {
     const host = await h.svc.authenticate(makeReq({ key: KEY, ip: '10.1.2.3' }));
 
     expect(host.ip4).toBe('198.51.100.9');
-    expect(h.db.updates).toHaveLength(0);
+    expect(h.db.updates.filter(({ set }) => 'ip4' in set || 'ip6' in set)).toHaveLength(0);
   });
 
   it('ignores malformed CIDR entries', async () => {
@@ -295,7 +325,7 @@ describe('AUTH_RUNNER_IP_BYPASS', () => {
     await expect(
       mixed.svc.authenticate(makeReq({ key: KEY, ip: '10.1.2.3' })),
     ).resolves.toMatchObject({ ip4: '198.51.100.9' });
-    expect(mixed.db.updates).toHaveLength(0);
+    expect(mixed.db.updates.filter(({ set }) => 'ip4' in set || 'ip6' in set)).toHaveLength(0);
 
     // A list that parses to nothing leaves the binding machinery in charge.
     const onlyJunk = harness({
@@ -331,7 +361,7 @@ describe('force delete', () => {
     );
 
     expect(host.ip4).toBe('198.51.100.9');
-    expect(h.db.updates).toHaveLength(0);
+    expect(h.db.updates.filter(({ set }) => 'ip4' in set || 'ip6' in set)).toHaveLength(0);
     expect(dnsMock.reverse).not.toHaveBeenCalled();
     expect(warnSpy).toHaveBeenCalledTimes(1);
     expect(events).toContainEqual({
@@ -404,12 +434,9 @@ describe('reverse DNS', () => {
 
 describe('pruneInactiveHosts', () => {
   const now = new Date('2026-07-28T12:00:00.000Z');
-  // createDbFake has no comparison operators: for a `lt` filter it falls back to
-  // matching rows that carry the bound parameter's value, so a row seeded at
-  // exactly the cutoff is what the fake reports as stale. That makes the seeded
-  // cutoff itself the assertion about which window the service used.
+  // One second before the cutoff is stale; the boundary itself remains valid.
   const cutoff = (days: number) =>
-    new Date(now.getTime() - days * 86400 * 1000).toISOString().replace(/\.\d{3}Z$/, 'Z');
+    new Date(now.getTime() - days * 86400 * 1000 - 1000).toISOString().replace(/\.\d{3}Z$/, 'Z');
 
   it('returns 0 for a zero or negative window', async () => {
     const zero = harness({
@@ -448,7 +475,7 @@ describe('pruneInactiveHosts', () => {
     });
 
     await expect(h.svc.pruneInactiveHosts(now)).resolves.toBe(2);
-    expect(h.db.deletes).toHaveLength(2);
+    expect(h.db.deletes.filter((entry) => entry.table === hosts)).toHaveLength(2);
     expect(h.db.tables.get(hosts)).toEqual([expect.objectContaining({ id: 9 })]);
     expect(events).toEqual([
       { type: 'host.pruned', payload: { id: 7, fqdn: 'stale-a.example.com', reason: 'inactive' } },

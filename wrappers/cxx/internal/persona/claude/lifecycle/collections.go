@@ -26,6 +26,8 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/atomicdir"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/ipc"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/observability/tracing"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/claude/orchestrator"
 )
@@ -280,9 +282,11 @@ type writtenSkillBundle struct {
 	FileSHA256     map[string]string
 }
 
+var publishSkillBundle = atomicdir.Publish
+
 // replaceSkillBundle stages the complete directory and swaps it into place.
 // A failed validation/write leaves the previous directory untouched.
-func replaceSkillBundle(skillsRoot, name string, it orchestrator.CollectionItem) (writtenSkillBundle, error) {
+func replaceSkillBundle(skillsRoot, manPath, name string, it orchestrator.CollectionItem, replace bool) (writtenSkillBundle, error) {
 	empty := writtenSkillBundle{}
 	manifestSHA256 := collectionFileDigest(it.Content)
 	directoryBundle := it.ManifestSHA256 != "" || it.Files != nil
@@ -300,7 +304,12 @@ func replaceSkillBundle(skillsRoot, name string, it orchestrator.CollectionItem)
 	if err != nil {
 		return empty, err
 	}
-	defer func() { _ = os.RemoveAll(stage) }()
+	preserveStage := false
+	defer func() {
+		if !preserveStage {
+			_ = os.RemoveAll(stage)
+		}
+	}()
 	if err := os.WriteFile(filepath.Join(stage, "SKILL.md"), []byte(it.Content), 0o644); err != nil {
 		return empty, err
 	}
@@ -343,22 +352,17 @@ func replaceSkillBundle(skillsRoot, name string, it orchestrator.CollectionItem)
 	}
 
 	target := filepath.Join(skillsRoot, name)
-	backup := stage + ".old"
-	hadTarget := fileExists(target)
-	if hadTarget {
-		if err := os.Rename(target, backup); err != nil {
-			return empty, err
-		}
-	}
-	if err := os.Rename(stage, target); err != nil {
-		if hadTarget {
-			_ = os.Rename(backup, target)
-		}
+	rec := manifestEntry{Filename: filepath.Join(name, "SKILL.md"), SHA256: it.SHA256, ManifestSHA256: manifestSHA256, Files: written, FileSHA256: writtenSHA}
+	if err := prepareSkillPublication(skillsRoot, manPath, name, stage, rec); err != nil {
 		return empty, err
 	}
-	// The new directory is authoritative now. A stale hidden backup is safer
-	// than rolling back a successful swap because cleanup alone failed.
-	_ = os.RemoveAll(backup)
+	preserveStage = true
+	if err := publishSkillBundle(stage, target, replace); err != nil {
+		return empty, err
+	}
+	preserveStage = false
+	// Exchange keeps the old directory at stage; the deferred cleanup removes
+	// it only after the complete replacement is visible and synced.
 	return writtenSkillBundle{
 		ManifestSHA256: manifestSHA256,
 		Files:          written,
@@ -526,6 +530,14 @@ func applyClaudeSkillsResult(ctx context.Context, items []orchestrator.Collectio
 
 	skillsRoot := claudeSubdir("skills")
 	manPath := collectionManifestPath("skills")
+	lock, err := ipc.TryAcquireExclusivePath(manPath + ".lock")
+	if err != nil {
+		return false, err
+	}
+	defer lock.Release()
+	if err := recoverSkillPublication(skillsRoot, manPath); err != nil {
+		return false, err
+	}
 	man := loadManifest(manPath)
 	newItems := map[string]manifestEntry{}
 
@@ -567,11 +579,14 @@ func applyClaudeSkillsResult(ctx context.Context, items []orchestrator.Collectio
 			newItems[it.Slug] = prev
 			continue
 		} else if it.Content != "" {
-			written, err := replaceSkillBundle(skillsRoot, name, it)
+			written, err := replaceSkillBundle(skillsRoot, manPath, name, it, known && fileExists(skillDir))
 			if err != nil {
 				logger.Debug("skill write failed", "slug", it.Slug, "err", err)
 				resultErr = errors.Join(resultErr, fmt.Errorf("write Claude skill %q: %w", it.Slug, err))
 				preservePrevious()
+				if fileExists(manPath + ".pending") {
+					return updated, resultErr
+				}
 				continue
 			}
 			updated = true
@@ -581,6 +596,14 @@ func applyClaudeSkillsResult(ctx context.Context, items []orchestrator.Collectio
 				ManifestSHA256: written.ManifestSHA256,
 				Files:          written.Files,
 				FileSHA256:     written.FileSHA256,
+			}
+			// Commit ownership before a later bundle can replace this intent.
+			man.Items[it.Slug] = newItems[it.Slug]
+			if err := saveSkillManifest(manPath, man); err != nil {
+				return updated, errors.Join(resultErr, err)
+			}
+			if err := clearSkillPublication(manPath); err != nil {
+				return updated, errors.Join(resultErr, err)
 			}
 			continue
 		} else {
@@ -619,7 +642,7 @@ func applyClaudeSkillsResult(ctx context.Context, items []orchestrator.Collectio
 	}
 
 	man.Items = newItems
-	if err := saveManifest(manPath, man); err != nil {
+	if err := saveSkillManifest(manPath, man); err != nil {
 		logger.Debug("skill manifest write failed", "err", err)
 		resultErr = errors.Join(resultErr, fmt.Errorf("save Claude skill manifest: %w", err))
 	}
@@ -663,6 +686,14 @@ func stripClaudeSkills(logger *slog.Logger) error {
 func stripClaudeSkillsWith(logger *slog.Logger, removeAll func(string) error) error {
 	skillsRoot := claudeSubdir("skills")
 	manPath := collectionManifestPath("skills")
+	lock, err := ipc.TryAcquireExclusivePath(manPath + ".lock")
+	if err != nil {
+		return err
+	}
+	defer lock.Release()
+	if err := recoverSkillPublication(skillsRoot, manPath); err != nil {
+		return err
+	}
 	man := loadManifest(manPath)
 	remaining := map[string]manifestEntry{}
 	var resultErr error
@@ -679,7 +710,7 @@ func stripClaudeSkillsWith(logger *slog.Logger, removeAll func(string) error) er
 			resultErr = errors.Join(resultErr, fmt.Errorf("strip Claude skill %q: %w", slug, err))
 		}
 	}
-	if err := saveManifest(manPath, collectionManifest{Version: 1, Items: remaining}); err != nil {
+	if err := saveSkillManifest(manPath, collectionManifest{Version: 1, Items: remaining}); err != nil {
 		resultErr = errors.Join(resultErr, fmt.Errorf("save Claude skill ownership: %w", err))
 	}
 	return resultErr

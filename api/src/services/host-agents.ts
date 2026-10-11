@@ -602,7 +602,7 @@ export class HostAgentsService {
     const activeId = state[0]?.activeDocumentId ?? null;
     if (mode === MODE_LOCKED && activeId !== null) {
       const active = await this.db.select().from(agentsDocuments).where(eq(agentsDocuments.id, Number(activeId))).limit(1);
-      if (active[0]) return active[0];
+      if (active[0]?.engine === engine) return active[0];
     }
     const latestEngine = await this.db
       .select()

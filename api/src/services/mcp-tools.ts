@@ -1681,9 +1681,9 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
           required: ['worktree_path'],
         },
       },
-      handler: async (args, host) => {
+      handler: async (args, host, engine) => {
         await requireEnabled();
-        return await director.register(args, host);
+        return await director.register({ ...args, engine: engine ?? args['engine'] }, host);
       },
     });
 

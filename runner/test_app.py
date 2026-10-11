@@ -1244,6 +1244,7 @@ class RunnerResponseContractTest(unittest.TestCase):
         self.client = TestClient(runner_app.app)
         self._original_secret = runner_app.RUNNER_SHARED_SECRET
         self._original_run = runner_app.subprocess.run
+        self._original_prompt_process = runner_app.run_prompt_process
         self._original_post = runner_app.httpx.post
         self._original_engine_exec = runner_app._run_engine_exec
         runner_app.RUNNER_SHARED_SECRET = "runner-secret"
@@ -1251,6 +1252,7 @@ class RunnerResponseContractTest(unittest.TestCase):
     def tearDown(self):
         runner_app.RUNNER_SHARED_SECRET = self._original_secret
         runner_app.subprocess.run = self._original_run
+        runner_app.run_prompt_process = self._original_prompt_process
         runner_app.httpx.post = self._original_post
         runner_app._run_engine_exec = self._original_engine_exec
 
@@ -1263,6 +1265,9 @@ class RunnerResponseContractTest(unittest.TestCase):
             return on_exec(env)
 
         runner_app.subprocess.run = fake_run
+        runner_app.run_prompt_process = lambda cmd, *, env, timeout, cancelled=None: fake_run(
+            cmd, env=env, capture_output=True, text=True, timeout=timeout
+        )
 
     def stub_anthropic(self, outcome):
         """Answer the Anthropic HTTP probe with `outcome`, or raise it."""
@@ -1847,11 +1852,13 @@ class RunnerClaudeExecResultTest(unittest.TestCase):
         self.client = TestClient(runner_app.app)
         self._original_secret = runner_app.RUNNER_SHARED_SECRET
         self._original_run = runner_app.subprocess.run
+        self._original_prompt_process = runner_app.run_prompt_process
         runner_app.RUNNER_SHARED_SECRET = "runner-secret"
 
     def tearDown(self):
         runner_app.RUNNER_SHARED_SECRET = self._original_secret
         runner_app.subprocess.run = self._original_run
+        runner_app.run_prompt_process = self._original_prompt_process
 
     def stub_exec(self, returncode, stdout="", stderr=""):
         """Answer the one process /exec spawns with the given CLI outcome."""
@@ -1859,7 +1866,9 @@ class RunnerClaudeExecResultTest(unittest.TestCase):
         def fake_run(cmd, env=None, capture_output=False, text=False, timeout=None):
             return _FakeCompletedProcess(returncode, stdout=stdout, stderr=stderr)
 
-        runner_app.subprocess.run = fake_run
+        runner_app.run_prompt_process = lambda cmd, *, env, timeout, cancelled=None: fake_run(
+            cmd, env=env, capture_output=True, text=True, timeout=timeout
+        )
 
     def exec_claude(self):
         response = self.client.post(

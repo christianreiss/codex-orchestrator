@@ -43,7 +43,7 @@ func cronCommand(ctx context.Context, cfg *config.Config, client *orchestrator.C
 		return 0
 	case "run":
 		if !hostcron.IsEngineOnly() {
-			if err := hostcron.Run(ctx, cfg, o.minimal, stdout, stderr); err != nil {
+			if err := hostcron.Run(hostcron.WithConcurrentSync(ctx, o.concurrent), cfg, o.minimal, stdout, stderr); err != nil {
 				fmt.Fprintln(stderr, "cgx cron:", err)
 				return 1
 			}
@@ -55,7 +55,7 @@ func cronCommand(ctx context.Context, cfg *config.Config, client *orchestrator.C
 			fmt.Fprintln(stdout, "cron: grok suspended fleet-wide; skipping maintenance tick")
 			return 0
 		}
-		if err := maintenance(ctx, cfg, client, false, stdout, stderr); err != nil {
+		if err := maintenance(ctx, cfg, client, false, stdout, stderr, o.concurrent); err != nil {
 			fmt.Fprintln(stderr, "cgx cron:", err)
 			return 1
 		}
@@ -94,7 +94,7 @@ type grokAuthChecker struct{ client *orchestrator.Client }
 
 func (c grokAuthChecker) CheckAuthStatus(ctx context.Context) (string, string, error) {
 	var out startupAuth
-	err := c.client.JSON(ctx, http.MethodPost, "/auth", map[string]any{"engine": "grok", "command": "retrieve"}, &out, 0)
+	err := c.client.JSON(ctx, http.MethodPost, "/auth", map[string]any{"engine": "grok", "command": "retrieve", "metadata_only": true}, &out, 0)
 	if status := orchestrator.InsecureStatusFromError(err); status != "" {
 		return status, "", nil
 	}
@@ -116,7 +116,7 @@ var pollApproval = terminalui.PollApprovalFor("cgx")
 // headless launches refuse with the actionable instruction instead of hanging.
 func retrieveStartupAuth(ctx context.Context, client *orchestrator.Client, headless, minimal bool, stderr io.Writer) (startupAuth, error) {
 	var auth startupAuth
-	err := client.JSON(ctx, http.MethodPost, "/auth", map[string]any{"engine": "grok", "command": "retrieve"}, &auth, 0)
+	err := client.JSON(ctx, http.MethodPost, "/auth", map[string]any{"engine": "grok", "command": "retrieve", "metadata_only": true}, &auth, 0)
 	switch orchestrator.InsecureStatusFromError(err) {
 	case "":
 		return auth, err
@@ -134,7 +134,7 @@ func retrieveStartupAuth(ctx context.Context, client *orchestrator.Client, headl
 		return auth, errors.New("insecure host approval is still pending")
 	}
 	auth = startupAuth{}
-	err = client.JSON(ctx, http.MethodPost, "/auth", map[string]any{"engine": "grok", "command": "retrieve"}, &auth, 0)
+	err = client.JSON(ctx, http.MethodPost, "/auth", map[string]any{"engine": "grok", "command": "retrieve", "metadata_only": true}, &auth, 0)
 	if status := orchestrator.InsecureStatusFromError(err); status != "" {
 		return auth, errors.New("insecure host approval is still pending")
 	}

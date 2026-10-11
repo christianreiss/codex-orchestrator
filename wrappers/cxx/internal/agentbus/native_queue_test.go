@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -192,5 +193,58 @@ func TestNativeWatchdogClassifiesFreshTurnsAndPreservesResetHints(t *testing.T) 
 		if i == 0 && hint != reset {
 			t.Fatal("provider reset lost", hint)
 		}
+	}
+}
+
+func TestNativeQueueDoesNotAbandonNewDeliveryForHistoricalFailure(t *testing.T) {
+	socket := filepath.Join(t.TempDir(), "native.sock")
+	listener, err := net.Listen("unix", socket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var current atomic.Value
+	current.Store("old-failed-turn")
+	server := &http.Server{Handler: websocket.Handler(func(ws *websocket.Conn) {
+		defer ws.Close()
+		for {
+			var req struct {
+				ID     int    `json:"id"`
+				Method string `json:"method"`
+			}
+			if websocket.JSON.Receive(ws, &req) != nil {
+				return
+			}
+			if req.Method == "initialized" {
+				continue
+			}
+			result := map[string]any{}
+			if req.Method == "thread/read" {
+				result["thread"] = map[string]any{"turns": []any{map[string]any{"id": current.Load().(string), "status": "failed", "error": map[string]any{"message": "native crash"}}}}
+			}
+			if req.Method == "thread/queue/add" {
+				result["queuedSubmission"] = map[string]any{"id": "queued", "clientUserMessageId": "delivery"}
+			}
+			if websocket.JSON.Send(ws, map[string]any{"id": req.ID, "result": result}) != nil {
+				return
+			}
+		}
+	})}
+	go server.Serve(listener)
+	defer server.Close()
+	q, err := openNativeQueue(context.Background(), socket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer q.close()
+	q.thread = "native"
+	if err := q.send("delivery", "new work"); err != nil {
+		t.Fatal(err)
+	}
+	if failure, _, err := q.watchdogFailure(); err != nil || failure != "" {
+		t.Fatalf("historical turn abandoned new delivery: %q %v", failure, err)
+	}
+	current.Store("new-failed-turn")
+	if failure, _, err := q.watchdogFailure(); err != nil || failure != "crash" {
+		t.Fatalf("new terminal turn was missed: %q %v", failure, err)
 	}
 }

@@ -211,7 +211,7 @@ interface EventRow {
 }
 
 export class HostProjectsService {
-  constructor(private readonly db: Database) {}
+  constructor(private readonly db: Database, private readonly options: { presenceFreshSeconds?: number } = {}) {}
 
   async listProjects(host: Host, args: Record<string, unknown> = {}): Promise<{ projects: ProjectSummary[] }> {
     const includeArchived = this.normalizeBoolFlag(args['include_archived']);
@@ -1170,6 +1170,7 @@ export class HostProjectsService {
       db: this.db,
       projects: this,
       settings: new SettingsService(this.db),
+      freshSeconds: this.options.presenceFreshSeconds,
     });
     return this.boardService;
   }

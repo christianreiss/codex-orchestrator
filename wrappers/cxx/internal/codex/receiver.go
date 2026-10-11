@@ -11,12 +11,13 @@ import (
 	"time"
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/ipc"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/nativeprocess"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/schedulewatch"
 )
 
 // The native TUI and receive adapter share this one app-server process. Its
 // private socket lives beside the already protected portal broker socket.
-func startReceiverServer(ctx context.Context, binary string, args, env []string, session *AuthSession, lease *ipc.Lock) ([]string, func(), error) {
+func startReceiverServer(ctx context.Context, binary string, args, env []string, session *AuthSession, lease *ipc.Lock, extraLeases ...*ipc.Lock) ([]string, func(), error) {
 	for _, arg := range args {
 		if arg == "--remote" || strings.HasPrefix(arg, "--remote=") {
 			return args, func() {}, fmt.Errorf("existing remote endpoint owns the native session")
@@ -51,24 +52,27 @@ func startReceiverServer(ctx context.Context, binary string, args, env []string,
 	serverArgs = append(serverArgs, overrides...)
 	serverCtx, cancel := context.WithCancel(ctx)
 	cmd := exec.CommandContext(serverCtx, binary, serverArgs...)
+	supervisor := nativeprocess.Prepare(serverCtx, cmd, true)
 	cmd.Env = env
 	// Bounded diagnostics without copying conversations or prompts to a log.
 	diagnostic := newRingBuffer(4096)
 	cmd.Stderr = diagnostic
-	closeFiles, err := AttachAuthLeaseFiles(cmd, session, lease)
+	closeFiles, err := AttachAuthLeaseFiles(cmd, session, append([]*ipc.Lock{lease}, extraLeases...)...)
 	if err != nil {
 		cancel()
+		supervisor.Close()
 		return args, func() {}, err
 	}
 	if err = cmd.Start(); err != nil {
 		cancel()
 		_ = closeFiles()
+		supervisor.Close()
 		return args, func() {}, err
 	}
 	_ = closeFiles()
 	done := make(chan error, 1)
 	stopWatch := schedulewatch.Start(ctx, cmd)
-	go func() { err := cmd.Wait(); stopWatch(); done <- err }()
+	go func() { err := cmd.Wait(); supervisor.Close(); stopWatch(); done <- err }()
 	cleanup := func() { cancel(); <-done; _ = os.Remove(socket) }
 	deadline := time.NewTimer(10 * time.Second)
 	defer deadline.Stop()

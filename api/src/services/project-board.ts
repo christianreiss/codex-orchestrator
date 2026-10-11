@@ -45,6 +45,7 @@ import { and, asc, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import type { Database } from '../db/client.js';
 import {
   agentBusAddresses,
+  agentSessions,
   coordProjectBoardColumns,
   coordProjectBoards,
   coordProjectCards,
@@ -63,6 +64,7 @@ import { wsPublisher } from '../ws/publisher.js';
 import type { SettingsService } from './settings.js';
 import type { HostProjectsService, ProjectEventTx } from './host-projects.js';
 import { normalizeProjectBoardRole, PROJECT_BOARD_ROLES } from './project-board-roles.js';
+import { AGENT_PRESENCE_FRESH_SECONDS, deriveAddressPresence, isPresent } from './agent-presence.js';
 
 /** The `versions` row that switches the whole module on. Absent means off. */
 export const PROJECT_BOARD_ENABLED_FLAG = 'project_board_enabled';
@@ -485,6 +487,7 @@ export interface ProjectBoardServiceDeps {
    */
   settings?: SettingsService;
   now?: () => string;
+  freshSeconds?: number;
 }
 
 /** The `project_todo_*` wire shape, unchanged from before the board existed. */
@@ -605,17 +608,20 @@ export class ProjectBoardService {
         claimedAt: coordProjectCards.claimedAt,
         claimExpiresAt: coordProjectCards.claimExpiresAt,
         claimReleasedAt: coordProjectCards.claimReleasedAt,
+        claimedAgentBusAddressId: coordProjectCards.claimedAgentBusAddressId,
         archivedAt: coordProjectCards.archivedAt,
       })
       .from(coordProjectCards);
     const now = this.now();
     const live = cardRows.filter((row) => !row.archivedAt);
+    const dead = await this.deadAddressIds(this.deps.db,
+      live.map((row) => row.claimedAgentBusAddressId).filter((id): id is string => Boolean(id)), now);
     return {
       enabled: await this.getEnabled(),
       boards: boardRows.length,
       cards: live.length,
       claimed: live.filter((row) =>
-        claimIsLive(
+        !(row.claimedAgentBusAddressId && dead.has(row.claimedAgentBusAddressId)) && claimIsLive(
           {
             role: null,
             hostId: null,
@@ -902,7 +908,7 @@ export class ProjectBoardService {
     const boundIds = candidates
       .map((card) => card.claimedAgentBusAddressId)
       .filter((id): id is string => typeof id === 'string' && id.length > 0);
-    const dead = await this.deadAddressIds(tx, boundIds);
+    const dead = await this.deadAddressIds(tx, boundIds, now);
 
     const reclaimed: CoordProjectCard[] = [];
     for (const card of candidates) {
@@ -949,7 +955,7 @@ export class ProjectBoardService {
    * Guessing "dead" on a failed read would free cards out from under agents that
    * are working on them.
    */
-  private async deadAddressIds(tx: ProjectBoardDb, ids: readonly string[]): Promise<Set<string>> {
+  private async deadAddressIds(tx: ProjectBoardDb, ids: readonly string[], now: string): Promise<Set<string>> {
     const unique = [...new Set(ids)];
     if (unique.length === 0) return new Set();
     try {
@@ -960,11 +966,17 @@ export class ProjectBoardService {
           enabled: agentBusAddresses.enabled,
           archivedAt: agentBusAddresses.archivedAt,
           readiness: agentBusAddresses.readiness,
+          lastUpstreamSessionId: agentBusAddresses.lastUpstreamSessionId,
+          receiveHeartbeatAt: agentBusAddresses.receiveHeartbeatAt,
+          session: { heartbeatAt: agentSessions.heartbeatAt, endedAt: agentSessions.endedAt },
         })
         .from(agentBusAddresses)
+        .leftJoin(agentSessions, eq(agentSessions.id, agentBusAddresses.currentSessionId))
         .where(inArray(agentBusAddresses.id, unique))
         .limit(Math.max(unique.length, 1));
       const known = new Map(rows.map((row) => [row.id, row]));
+      const clock = parseIso(now) ?? new Date();
+      const freshAfter = isoOffsetSeconds(-(this.deps.freshSeconds ?? AGENT_PRESENCE_FRESH_SECONDS), clock);
       const dead = new Set<string>();
       for (const id of unique) {
         const row = known.get(id);
@@ -973,9 +985,7 @@ export class ProjectBoardService {
           dead.add(id);
           continue;
         }
-        if (row.archivedAt || row.enabled !== 1) dead.add(id);
-        else if (!row.currentSessionId) dead.add(id);
-        else if (row.readiness === 'offline' || row.readiness === 'disabled') dead.add(id);
+        if (!isPresent(deriveAddressPresence(row, row.session, freshAfter, clock.getTime()))) dead.add(id);
       }
       return dead;
     } catch {
@@ -1256,7 +1266,13 @@ export class ProjectBoardService {
     now: string,
     actor: CardActor,
     hostLabels: Map<number, string>,
+    deadAddresses?: ReadonlySet<string>,
   ): Record<string, unknown> | null {
+    if (card.claimReleasedAt === null && card.claimedAgentBusAddressId && deadAddresses?.has(card.claimedAgentBusAddressId)) {
+      // Discovery computes availability without claiming a durable release time;
+      // the next scoped operation records the reclaim under the project lock.
+      return { held: false, released_at: null, release_reason: 'Holding agent is no longer running.' };
+    }
     const state = this.claimStateOf(card);
     if (!claimIsLive(state, now)) {
       return card.claimReleaseReason
@@ -1289,6 +1305,7 @@ export class ProjectBoardService {
     actor: CardActor,
     hostLabels: Map<number, string>,
     readiness?: CardReadiness,
+    deadAddresses?: ReadonlySet<string>,
   ): Record<string, unknown> {
     const column = columns.find((entry) => entry.id === card.columnId) ?? null;
     const waiting = readiness?.waitingOn.get(card.id) ?? [];
@@ -1308,7 +1325,7 @@ export class ProjectBoardService {
       depends_on: (readiness?.dependsOn.get(card.id) ?? []).map((dep) => dep.number),
       blocked_reason: card.blockedReason,
       column: column ? { id: column.id, key: column.columnKey, title: column.title } : null,
-      claim: this.claimWire(card, now, actor, hostLabels),
+      claim: this.claimWire(card, now, actor, hostLabels, deadAddresses),
       entered_column_at: card.enteredColumnAt,
       created_at: card.createdAt,
       updated_at: card.updatedAt,
@@ -1392,9 +1409,8 @@ export class ProjectBoardService {
         // is the tool every agent calls first in every session, and taking a
         // write transaction and a `FOR UPDATE` on every project in the fleet to
         // answer "what is there" would make the cheapest call the most expensive
-        // one. Nothing is lost by reading: `claimIsLive` is computed at render
-        // time, so a claim that ran out still renders as expired whether or not
-        // anybody has reclaimed the row yet.
+        // one. Availability includes TTL and derived session liveness at render
+        // time, so dead holders appear unheld before their durable reclaim.
         boards.push(
           slug
             ? await this.withBoard(each, actor, (ctx) => this.renderBoard(ctx, filters))
@@ -1535,6 +1551,9 @@ export class ProjectBoardService {
     filters: { column: string | null; role: string | null; mine: boolean; unclaimed: boolean },
   ): Promise<Record<string, unknown>> {
     const cards = await this.cardsOf(ctx.tx, ctx.project.id);
+    const dead = await this.deadAddressIds(ctx.tx,
+      cards.filter((card) => card.claimReleasedAt === null)
+        .map((card) => card.claimedAgentBusAddressId).filter((id): id is string => Boolean(id)), ctx.now);
     const labels = await this.hostLabels(
       ctx.tx,
       cards.map((card) => (card.claimedByHostId === null ? null : Number(card.claimedByHostId))),
@@ -1544,11 +1563,12 @@ export class ProjectBoardService {
     const readiness = await this.loadReadiness(ctx.tx, ctx.project.id, cards, ctx.columns);
 
     const visible = cards.filter((card) => {
-      const live = claimIsLive(this.claimStateOf(card), ctx.now);
+      const live = !(card.claimedAgentBusAddressId && dead.has(card.claimedAgentBusAddressId)) &&
+        claimIsLive(this.claimStateOf(card), ctx.now);
       if (filters.unclaimed && live) return false;
       if (filters.role && card.claimRole !== filters.role) return false;
       if (filters.mine) {
-        const wire = this.claimWire(card, ctx.now, ctx.actor, labels);
+        const wire = this.claimWire(card, ctx.now, ctx.actor, labels, dead);
         if (!wire || wire['yours'] !== true) return false;
       }
       return true;
@@ -1565,17 +1585,17 @@ export class ProjectBoardService {
           over_wip: column.wipLimit !== null && column.wipLimit > 0 && occupancy > column.wipLimit,
           cards: inColumn
             .slice(0, MAX_CARDS_PER_COLUMN)
-            .map((card) => this.cardWire(card, ctx.columns, ctx.now, ctx.actor, labels, readiness)),
+            .map((card) => this.cardWire(card, ctx.columns, ctx.now, ctx.actor, labels, readiness, dead)),
           truncated: inColumn.length > MAX_CARDS_PER_COLUMN,
         };
       });
 
     const yours = cards
       .filter((card) => {
-        const wire = this.claimWire(card, ctx.now, ctx.actor, labels);
+        const wire = this.claimWire(card, ctx.now, ctx.actor, labels, dead);
         return wire !== null && wire['yours'] === true;
       })
-      .map((card) => this.cardWire(card, ctx.columns, ctx.now, ctx.actor, labels, readiness));
+      .map((card) => this.cardWire(card, ctx.columns, ctx.now, ctx.actor, labels, readiness, dead));
 
     // What the SWEEP took back, so an agent that lost a card can see why rather
     // than finding it mysteriously free.

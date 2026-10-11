@@ -78,6 +78,13 @@ function resolvesToTool(token: string): boolean {
 }
 
 describe('managed #coco skill names only real MCP surfaces', () => {
+  it('uses compact discovery throughout the startup checklist', () => {
+    const steps = managedCocoManifest().split('\n').filter((line) => /^\d+\./.test(line)).join('\n');
+    expect(steps).toContain('project_summary');
+    expect(steps).toContain('project_files');
+    expect(steps).not.toMatch(/project_bootstrap|project_file_list/);
+  });
+
   for (const { label, text } of cocoTexts) {
     it(`names only registered tools in the ${label}`, () => {
       const tokens = tokensIn(text, TOOL_TOKEN_RE);

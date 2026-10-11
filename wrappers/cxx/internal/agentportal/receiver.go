@@ -48,7 +48,7 @@ func ClaudeReceiverArgs(args []string) ([]string, error) {
 }
 
 // ClaudeAgentArgs attaches the same plugin without the receiver: the `cxx-agent`
-// tools and nothing else. Headless and piped launches take this path, because
+// tools and lifecycle failure hooks. Headless and piped launches take this path, because
 // the fleet no longer renders a user-scope `cxx-agent` entry for Claude — the
 // plugin is now the only thing that carries the server, so a session that skips
 // it would have no messaging tools at all.
@@ -71,26 +71,33 @@ func claudePluginArgs(args []string, receiver bool) ([]string, error) {
 			return args, err
 		}
 	}
-	// A session without the receiver has no native identity to report, so it
-	// gets no hook; an empty hooks.json would still be a plugin hook source.
-	hooksBody := []byte("{}")
+	quote := func(s string) string { return "'" + strings.ReplaceAll(s, "'", "'\"'\"'") + "'" }
+	// Failure/exit evidence belongs to every managed launch. Only receiver
+	// launches publish the native identity needed for channel registration.
+	watchdogHook := map[string]any{"type": "command", "command": quote(binary) + " agent watchdog-event", "timeout": 5}
+	hooks := map[string]any{
+		"StopFailure": []any{map[string]any{"hooks": []any{watchdogHook}}},
+		"SessionEnd":  []any{map[string]any{"hooks": []any{watchdogHook}}},
+	}
 	if receiver {
-		quote := func(s string) string { return "'" + strings.ReplaceAll(s, "'", "'\"'\"'") + "'" }
 		command := quote(binary) + " agent native-session"
 		hook := map[string]any{"type": "command", "command": command, "timeout": 5}
-		hooks := map[string]any{"hooks": map[string]any{"SessionStart": []any{map[string]any{"hooks": []any{hook}}},
-			"StopFailure": []any{map[string]any{"hooks": []any{map[string]any{"type": "command", "command": quote(binary) + " agent watchdog-event", "timeout": 5}}}},
-			"SessionEnd":  []any{map[string]any{"hooks": []any{map[string]any{"type": "command", "command": quote(binary) + " agent watchdog-event", "timeout": 5}}}}}}
-		hooksBody, _ = json.Marshal(hooks)
+		hooks["SessionStart"] = []any{map[string]any{"hooks": []any{hook}}}
 	}
+	hooksBody, _ := json.Marshal(map[string]any{"hooks": hooks})
 	if err := os.WriteFile(filepath.Join(plugin, "hooks", "hooks.json"), hooksBody, 0600); err != nil {
 		return args, err
 	}
+	approved := receiver && ensureChannelPolicy()
 	manifest := map[string]any{"name": PluginName, "version": "1.0.0"}
 	serverArgs := []string{"agent", "mcp"}
 	if receiver {
 		manifest["channels"] = []any{map[string]any{"server": "cxx-agent"}}
-		serverArgs = append(serverArgs, "--auto")
+		// An MCP pong does not prove that Claude admits channel notifications.
+		// Keep tools usable during policy fallback, but leave automatic work queued.
+		if approved {
+			serverArgs = append(serverArgs, "--auto")
+		}
 	}
 	body, _ := json.Marshal(manifest)
 	if err := os.WriteFile(filepath.Join(plugin, ".claude-plugin", "plugin.json"), body, 0600); err != nil {
@@ -105,7 +112,7 @@ func claudePluginArgs(args []string, receiver bool) ([]string, error) {
 	if !receiver {
 		return out, nil
 	}
-	if ensureChannelPolicy() {
+	if approved {
 		recordChannelPolicy(plugin, "approved")
 		return append(out, "--channels", ChannelEntry), nil
 	}
@@ -113,14 +120,9 @@ func claudePluginArgs(args []string, receiver bool) ([]string, error) {
 	return append(out, "--dangerously-load-development-channels", ChannelEntry), nil
 }
 
-// ChannelPolicyMarker is the filename `cxx agent doctor` reads back to tell an
-// "approved" launch (--channels, push notifications actually reach the
-// transcript) from a "fallback" one (--dangerously-load-development-channels,
-// the confirmation prompt returned and nothing is proven delivered). The MCP
-// pipe and SessionStart hook stay healthy either way -- doctor's "ready" state
-// is about those, not about this -- so without this marker there is no way to
-// tell "receiver ready" apart from "push notifications are silently dropped",
-// which is exactly the trap the fleet's channel runbook warns about.
+// ChannelPolicyMarker distinguishes approved push delivery from development
+// fallback. Fallback retains manual MCP tools but never starts automatic work
+// admission; the receiver checks the marker again before registering readiness.
 const ChannelPolicyMarker = "channel-policy"
 
 // recordChannelPolicy is best-effort: a write failure here must never fail

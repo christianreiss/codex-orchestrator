@@ -9,11 +9,12 @@
  * bookkeeping, read windowing, and the degraded-search fallback (with
  * `execute` monkey-patched, the same way host-projects-memories.test.ts does).
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { logs, sharedMemories, sharedMemoryChunks, sharedMemoryRevisions } from '../../../src/db/schema.js';
 import { MAX_CONTENT_CHARS, SharedMemoriesService } from '../../../src/services/shared-memories.js';
 import { createDbFake, type DbFake } from '../../helpers/db-fake.js';
 import type { Host } from '../../../src/db/schema.js';
+import { wsPublisher } from '../../../src/ws/publisher.js';
 
 const host: Host = { id: 3, fqdn: 'alpha.example' } as unknown as Host;
 const otherHost: Host = { id: 9, fqdn: 'beta.example' } as unknown as Host;
@@ -182,6 +183,82 @@ describe('SharedMemoriesService.write', () => {
       otherHost,
     )) as Record<string, unknown>;
     expect(out['status']).toBe('updated');
+  });
+
+  it('lets only one concurrent replacement commit against the same digest', async () => {
+    const db = makeDb();
+    const created = await service(db).write({ slug: 'doc', content: 'v1' }, host) as { memory: { sha256: string } };
+    // db-fake does not isolate transactions. Serialize them here to model the
+    // slug lock; the MySQL suite exercises the actual database lock.
+    let pending: Promise<unknown> = Promise.resolve();
+    db.transaction = (run) => {
+      const result = pending.then(() => run(db));
+      pending = result.catch(() => undefined);
+      return result;
+    };
+    db.locks.length = 0;
+
+    const results = await Promise.allSettled([
+      service(db).write({ slug: 'doc', content: 'alpha', expected_sha256: created.memory.sha256 }, host, 'codex'),
+      service(db).write({ slug: 'doc', content: 'beta', expected_sha256: created.memory.sha256 }, otherHost, 'grok'),
+    ]);
+
+    expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
+    const rejected = results.find((result) => result.status === 'rejected');
+    expect(rejected?.status === 'rejected' && rejected.reason).toMatchObject({ code: 'shared_memory_conflict' });
+    expect(db.locks.filter((lock) => lock.table === sharedMemories && lock.strength === 'update')).toHaveLength(2);
+    expect((db.tables.get(sharedMemories) ?? [])[0]).toMatchObject({ content: 'alpha', revision: 2 });
+    expect(db.tables.get(sharedMemoryRevisions)).toHaveLength(2);
+    expect(chunkRowsFor(db, 1)).toMatchObject([{ content: 'alpha', revision: 2 }]);
+  });
+
+  it('publishes changes only after a successful transaction commit', async () => {
+    const db = makeDb();
+    const publish = vi.spyOn(wsPublisher, 'publish');
+    db.transaction = async (run) => {
+      const result = await run(db);
+      expect(publish).not.toHaveBeenCalled();
+      return result;
+    };
+    try {
+      await service(db).write({ slug: 'doc', content: 'body' }, host);
+      expect(publish).toHaveBeenCalledTimes(1);
+      expect(publish).toHaveBeenCalledWith('shared_memory.created', { slug: 'doc', id: 1 });
+      publish.mockClear();
+      db.transaction = async (run) => {
+        await run(db);
+        throw new Error('commit failed');
+      };
+      await expect(service(db).write({ slug: 'doc', content: 'new body' }, host)).rejects.toThrow('commit failed');
+      expect(publish).not.toHaveBeenCalled();
+    } finally {
+      publish.mockRestore();
+    }
+  });
+
+  it('rechecks the digest after a deadlock retry and bounds persistent deadlocks', async () => {
+    const db = makeDb();
+    const created = await service(db).write({ slug: 'doc', content: 'v1' }, host) as { memory: { sha256: string } };
+    let attempts = 0;
+    const deadlock = Object.assign(new Error('query failed'), { cause: { code: 'ER_LOCK_DEADLOCK', errno: 1213 } });
+    db.transaction = async (run) => {
+      attempts++;
+      if (attempts === 1) {
+        // Another writer wins while this transaction is selected as victim.
+        (db.tables.get(sharedMemories) ?? [])[0]!['contentSha256'] = 'winner-sha';
+        throw deadlock;
+      }
+      return run(db);
+    };
+    await expect(service(db).write({ slug: 'doc', content: 'new body', expected_sha256: created.memory.sha256 }, host))
+      .rejects.toMatchObject({ code: 'shared_memory_conflict' });
+    expect(attempts).toBe(2);
+    expect(db.tables.get(sharedMemoryRevisions)).toHaveLength(1);
+
+    attempts = 0;
+    db.transaction = async () => { attempts++; throw deadlock; };
+    await expect(service(db).write({ slug: 'doc', content: 'new body' }, host)).rejects.toBe(deadlock);
+    expect(attempts).toBe(3);
   });
 
   it('rejects expected_sha256 on a slug that does not exist yet', async () => {

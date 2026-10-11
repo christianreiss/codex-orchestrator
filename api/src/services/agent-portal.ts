@@ -4,7 +4,7 @@ import { chatMetadataSchema, promptChoices, severitySchema, validAnswer, type Ch
 import { plannedRebootForSession } from './reboot-handoffs.js';
 import { assertHousekeepingAvailable } from './session-housekeeping.js';
 import { namedSessionTitle } from './agent-messaging/names.js';
-import { receiverView, receiverReady, receiverState } from './agent-receiver-state.js';
+import { receiverView, receiverReady, receiverState, RECEIVER_FRESH_MS } from './agent-receiver-state.js';
 import { StringDecoder } from 'node:string_decoder';
 import { randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import {
@@ -1267,6 +1267,7 @@ export class AgentPortalService {
   }> {
     const now = nowIso();
     const staleTurns = await this.clearStaleTurns(now);
+    await this.expireDisconnectedReceiverPrompts(now);
     const abandonedSessions = await this.expireAbandonedSessions(now);
     const expired = await this.db
       .select({ id: agentSessions.id })
@@ -1487,6 +1488,40 @@ export class AgentPortalService {
       cleared += 1;
     }
     return cleared;
+  }
+
+  private async expireDisconnectedReceiverPrompts(now: string): Promise<void> {
+    // A wrapper can keep its bridge alive after its native receiver dies. Its
+    // unanswered questions no longer have a delivery path, even though the
+    // overall session must remain available for a reconnect.
+    const cutoff = new Date(Date.parse(now) - RECEIVER_FRESH_MS).toISOString();
+    const candidates = await this.db.select({ id: agentPrompts.id, sessionId: agentPrompts.sessionId })
+      .from(agentPrompts)
+      .innerJoin(agentSessions, eq(agentSessions.id, agentPrompts.sessionId))
+      .where(and(eq(agentPrompts.status, 'open'), isNull(agentSessions.endedAt), isNotNull(agentSessions.receiver),
+        sql`(JSON_UNQUOTE(JSON_EXTRACT(${agentSessions.receiver}, '$.heartbeat_at')) <= ${cutoff}
+          OR JSON_UNQUOTE(JSON_EXTRACT(${agentSessions.receiver}, '$.failure')) NOT IN ('', 'null')
+          OR JSON_EXTRACT(${agentSessions.receiver}, '$.portal_closed') = true)`,
+        sql`NOT EXISTS (SELECT 1 FROM host_daemon_portal_bindings b WHERE b.portal_session_id = ${agentSessions.id})`,
+      ))
+      .limit(100);
+    for (const candidate of candidates) {
+      const changed = await this.db.transaction(async (tx) => {
+        const [session] = await tx.select().from(agentSessions).where(eq(agentSessions.id, candidate.sessionId)).for('update');
+        if (!session || session.endedAt || !receiverState(session.receiver) || receiverReady(session.receiver, 'portal', Date.parse(now))) return false;
+        if (await plannedRebootForSession(tx, session.id)) return false;
+        // Companion Remote can resume a headless answer after native exit;
+        // those prompts have a separate durable delivery owner.
+        const [remote] = await tx.select().from(hostDaemonPortalBindings).where(eq(hostDaemonPortalBindings.portalSessionId, session.id)).limit(1);
+        if (remote) return false;
+        const [prompt] = await tx.select().from(agentPrompts).where(eq(agentPrompts.id, candidate.id)).for('update');
+        if (!prompt || prompt.status !== 'open') return false;
+        await tx.update(agentPrompts).set({ status: 'expired', expiresAt: now, version: sql`${agentPrompts.version} + 1` }).where(eq(agentPrompts.id, prompt.id));
+        if (session.status === 'waiting') await tx.update(agentSessions).set({ status: 'active', updatedAt: now }).where(eq(agentSessions.id, session.id));
+        return true;
+      });
+      if (changed) wsPublisher.publish('agent_portal.sessions.changed', { session_id: candidate.sessionId });
+    }
   }
 
   private async expireAbandonedSessions(now: string): Promise<number> {

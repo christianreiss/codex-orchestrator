@@ -145,3 +145,62 @@ func TestRebootTranscriptMissingCannotBecomeFreshSession(t *testing.T) {
 		})
 	}
 }
+
+func TestHeadlessRebootRestoresAndRepliesToOriginalPortalReceipt(t *testing.T) {
+	for _, engine := range []string{"codex", "claude"} {
+		t.Run(engine, func(t *testing.T) {
+			t.Setenv("CXX_REBOOT_REQUEST_ID", "request")
+			t.Setenv("CXX_AGENT_PORTAL_ENGINE", engine)
+			restores, receipts := 0, 0
+			client := &sessionClient{id: "resumed", http: &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+				body := `{}`
+				switch {
+				case strings.HasSuffix(req.URL.Path, "/reboot/restore"):
+					restores++
+					body = `{"portal":{"message_id":"original-portal","lease_owner":"original-owner"}}`
+				case strings.HasSuffix(req.URL.Path, "/events"):
+					var event map[string]any
+					if err := json.NewDecoder(req.Body).Decode(&event); err != nil {
+						t.Fatal(err)
+					}
+					payload, _ := event["payload"].(map[string]any)
+					if stringArg(payload, "message_id") != "original-portal" {
+						t.Fatalf("lost original receipt: %v", event)
+					}
+					receipts++
+				case strings.HasSuffix(req.URL.Path, "/heartbeat"):
+				default:
+					t.Fatalf("headless receipt unexpectedly accessed receiver transport: %s", req.URL.Path)
+				}
+				return &http.Response{StatusCode: 200, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(body))}, nil
+			})}}
+			tracker := newChannelTracker(client)
+			for _, call := range []struct {
+				name string
+				args map[string]any
+			}{
+				{"agent_self", nil},
+				{"agent_receiver_status", map[string]any{"message_id": "original-portal", "status": "working"}},
+				{"agent_receiver_reply", map[string]any{"message_id": "original-portal", "content": "Done", "summary": "Task complete"}},
+			} {
+				// The first restore is independent of a receiver; use it directly instead
+				// of issuing agent_self to this receipt-only fixture.
+				if call.name == "agent_self" {
+					if err := tracker.restoreReboot(context.Background()); err != nil {
+						t.Fatal(err)
+					}
+					continue
+				}
+				if _, err := callMCPTool(context.Background(), client, tracker, call.name, call.args); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if restores != 1 || receipts != 2 || tracker.receiver.pendingPortal != nil {
+				t.Fatalf("restores=%d receipts=%d tracker=%+v", restores, receipts, tracker.receiver)
+			}
+			if tracker.receiver.health()["state"] != "unavailable" {
+				t.Fatal("receipt restoration falsely advertised automatic reception")
+			}
+		})
+	}
+}

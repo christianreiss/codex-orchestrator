@@ -23,6 +23,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { randomBytes } from 'node:crypto';
 import type { RouteContext } from '../index.js';
 import { ApiError } from '../../http/errors.js';
+import { createGatewayLifecycle } from '../../http/gateway-lifecycle.js';
 import {
   createClaudeKeyResolver,
   type ClaudeKeyResolver,
@@ -98,6 +99,7 @@ export async function registerAnthropicCompatRoutes(
   ctx: RouteContext,
   options: RegisterAnthropicCompatOptions = {},
 ): Promise<void> {
+  const runGeneration = createGatewayLifecycle(app);
   const keyResolver = options.keyResolver ?? createClaudeKeyResolver(ctx.db);
   const killSwitch = options.killSwitch ?? createClaudeKillSwitch(ctx.db);
   const gateway = options.gateway ?? defaultGatewayWiring(ctx, app.log);
@@ -181,7 +183,7 @@ export async function registerAnthropicCompatRoutes(
       keyResolver.preHandler,
       versionHeaderHook(),
     ],
-    handler: async (req, reply) => {
+    handler: async (req, reply) => runGeneration(reply, async (signal) => {
       const { backend, adapter, models } = await deps.backend();
       const payload = (req.body ?? {}) as Record<string, unknown>;
       let messages = normalizeChatMessages(payload.messages);
@@ -217,14 +219,14 @@ export async function registerAnthropicCompatRoutes(
       messages = mergeConsecutiveSameRole(messages);
 
       ensureAdapter(adapter);
-      const result = await adapter.messages(messages, model, params);
+      const result = await adapter.messages(messages, model, params, signal);
 
       if (payload.stream === true) {
         await writeSseResponse(reply, messageStreamEvents(result));
         return reply;
       }
       return result;
-    },
+    }),
   });
 
   // POST /anthropic/v1/messages/count_tokens — best-effort token estimate.
@@ -266,7 +268,7 @@ export async function registerAnthropicCompatRoutes(
     keyResolver.preHandler,
     versionHeaderHook(),
   ];
-  const completionsHandler = async (req: FastifyRequest, reply: FastifyReply) => {
+  const completionsHandler = async (req: FastifyRequest, reply: FastifyReply) => runGeneration(reply, async (signal) => {
     const { backend, adapter, models } = await deps.backend();
     const payload = (req.body ?? {}) as Record<string, unknown>;
     const prompt = typeof payload.prompt === 'string' ? payload.prompt : '';
@@ -286,6 +288,7 @@ export async function registerAnthropicCompatRoutes(
       [{ role: 'user', content: prompt }],
       model,
       params,
+      signal,
     );
 
     let text = '';
@@ -307,7 +310,8 @@ export async function registerAnthropicCompatRoutes(
     // (stop_sequence | max_tokens) — not the Messages value `end_turn`.
     const suffix = (result.id || '').replace(/^[^_]+_/, '');
     const id = `compl_${suffix || randomBytes(16).toString('hex')}`;
-    const stopReason = result.stop_reason === 'max_tokens' ? 'max_tokens' : 'stop_sequence';
+    const stopReason = result.stop_reason === 'max_tokens' ? 'max_tokens'
+      : result.stop_reason === 'end_turn' || result.stop_reason === 'stop_sequence' ? 'stop_sequence' : null;
     return {
       id,
       type: 'completion',
@@ -316,7 +320,7 @@ export async function registerAnthropicCompatRoutes(
       stop_reason: stopReason,
       usage: result.usage ?? { input_tokens: 0, output_tokens: 0 },
     };
-  };
+  });
   app.route({
     method: 'POST',
     url: '/anthropic/v1/complete',
@@ -374,8 +378,8 @@ export async function registerAnthropicCompatRoutes(
       keyResolver.preHandler,
       versionHeaderHook(),
     ],
-    handler: async (req) => {
-      const { adapter, models } = await deps.backend();
+    handler: async (req, reply) => runGeneration(reply, async (signal) => {
+      const { backend, adapter, models } = await deps.backend();
       const payload = (req.body ?? {}) as Record<string, unknown>;
       if (payload.stream === true) {
         throw new ApiError(
@@ -387,6 +391,7 @@ export async function registerAnthropicCompatRoutes(
           },
         );
       }
+      assertBackendRequestControls(backend.engine, { stream: payload.stream });
       const messages = normalizeResponsesInput(payload.input, payload.instructions);
       if (!messages) {
         throw new ApiError('Missing required parameter: input', {
@@ -399,9 +404,9 @@ export async function registerAnthropicCompatRoutes(
       const model = await models.resolveRequestedModel(payload.model);
       const params = extractParams(payload);
       ensureAdapter(adapter);
-      const result = await adapter.messages(messages, model, params);
+      const result = await adapter.messages(messages, model, params, signal);
       return responseFromMessage(result);
-    },
+    }),
   });
 
   // POST /anthropic/v1/embeddings — 501; Anthropic has no embeddings endpoint.

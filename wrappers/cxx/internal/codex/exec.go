@@ -8,11 +8,9 @@ import (
 	"io"
 	"os"
 	"os/exec"
-	"os/signal"
 	"path/filepath"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	"golang.org/x/term"
@@ -20,6 +18,7 @@ import (
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/ipc"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/nativeentry"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/nativeprocess"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/quotaadvice"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/schedulewatch"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/sessionguard"
@@ -265,7 +264,7 @@ func runCapturePreparedWithHeldLeases(ctx context.Context, cfg *config.Config, a
 	}
 
 	if cfg != nil && cfg.AgentMessaging.ReceiverEnabled && stdoutIsTTY && stdinIsTTY && os.Getenv("CXX_AGENT_PORTAL_SOCKET") != "" {
-		receiverArgs, stopReceiver, receiverErr := startReceiverServer(ctx, cli, args, env, session, childLease)
+		receiverArgs, stopReceiver, receiverErr := startReceiverServer(ctx, cli, args, env, session, childLease, guard)
 		if receiverErr != nil {
 			fmt.Fprintln(os.Stderr, "cxx receiver unavailable:", receiverErr)
 		} else {
@@ -277,6 +276,8 @@ func runCapturePreparedWithHeldLeases(ctx context.Context, cfg *config.Config, a
 	cmd := exec.CommandContext(ctx, cli, args...)
 	cmd.Env = env
 	cmd.Stdin = os.Stdin
+	supervisor := nativeprocess.Prepare(ctx, cmd, nativeprocess.Headless(cmd.Stdin))
+	defer supervisor.Close()
 	cmd.Stderr = schedulewatch.Writer(ctx, os.Stderr)
 
 	var capture *ringBuffer
@@ -287,7 +288,7 @@ func runCapturePreparedWithHeldLeases(ctx context.Context, cfg *config.Config, a
 		cmd.Stdout = schedulewatch.Writer(ctx, io.MultiWriter(os.Stdout, capture))
 	}
 
-	closeExtras, err := AttachAuthLeaseFiles(cmd, session, append([]*ipc.Lock{childLease}, extraLeases...)...)
+	closeExtras, err := AttachAuthLeaseFiles(cmd, session, append([]*ipc.Lock{childLease, guard}, extraLeases...)...)
 	if err != nil {
 		return 1, nil, fmt.Errorf("inherit Codex auth safety leases: %w", err)
 	}
@@ -298,20 +299,9 @@ func runCapturePreparedWithHeldLeases(ctx context.Context, cfg *config.Config, a
 	quotaadvice.MarkStarted(ctx)
 	bridgeErr := closeExtras()
 
-	sigCh := make(chan os.Signal, 4)
-	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
-	go func() {
-		for s := range sigCh {
-			if cmd.Process != nil {
-				_ = cmd.Process.Signal(s)
-			}
-		}
-	}()
-
 	waitErr := cmd.Wait()
+	supervisor.Close()
 	stopScheduleWatch()
-	signal.Stop(sigCh)
-	close(sigCh)
 
 	if capture != nil {
 		captured = capture.Bytes()
@@ -319,17 +309,13 @@ func runCapturePreparedWithHeldLeases(ctx context.Context, cfg *config.Config, a
 
 	if bridgeErr != nil {
 		if exitErr, ok := waitErr.(*exec.ExitError); ok {
-			return exitErr.ExitCode(), captured, fmt.Errorf("release inherited Codex auth lease copies: %w", bridgeErr)
+			code, _ := supervisor.Result(exitErr)
+			return code, captured, fmt.Errorf("release inherited Codex auth lease copies: %w", bridgeErr)
 		}
 		return 1, captured, errors.Join(waitErr, fmt.Errorf("release inherited Codex auth lease copies: %w", bridgeErr))
 	}
-	if waitErr == nil {
-		return 0, captured, nil
-	}
-	if exitErr, ok := waitErr.(*exec.ExitError); ok {
-		return exitErr.ExitCode(), captured, nil
-	}
-	return 1, captured, waitErr
+	code, resultErr := supervisor.Result(waitErr)
+	return code, captured, resultErr
 }
 
 // Codex rust-v0.153.4 documents this option for centrally managed updates;

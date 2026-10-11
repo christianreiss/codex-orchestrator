@@ -1,6 +1,8 @@
+import { pruneHosts } from './host-lifecycle.js';
 import { eq } from 'drizzle-orm';
 import {
   adminEvents,
+  installTokens,
   hosts as hostsTable,
   logs as logsTable,
   type Host,
@@ -14,11 +16,11 @@ import { wsPublisher } from '../ws/publisher.js';
 import type { InsecureWindowService } from './insecure-window.js';
 import { suspendAgentMessagingRuntimeLocked } from './agent-messaging.js';
 import { NotFoundError } from '../http/errors.js';
-import { ENGINE_GROK } from '../util/engine.js';
+import { ENGINE_CODEX, ENGINE_GROK } from '../util/engine.js';
 import { ModelDefaultsService } from './model-defaults.js';
 import { readFleetEngineState } from './engine-switch.js';
 import { hostEnginesList } from './host-engine-policy.js';
-import { assertEnginesAddable } from './host-management.js';
+import { assertEnginesAddable, parseEnginesInput } from './host-management.js';
 
 /**
  * Host create + API-key rotate, used by the CLI auth approve path. Emits a
@@ -44,6 +46,7 @@ export interface HostRegistrationDeps {
   db: Database;
   keyring: Keyring;
   insecure: InsecureWindowService;
+  defaultHostEngines?: string;
 }
 
 export function createHostRegistrationService(deps: HostRegistrationDeps): HostRegistrationService {
@@ -56,13 +59,19 @@ export function createHostRegistrationService(deps: HostRegistrationDeps): HostR
 
       // Same rule as the admin host forms: an engine switched off fleet-wide
       // cannot be newly assigned; one the host already carries may stay.
-      if (enginesIn) {
-        assertEnginesAddable(
-          hostEnginesList(enginesIn),
-          existing[0] ? hostEnginesList(existing[0].engines) : [],
-          await readFleetEngineState(db),
-        );
+      const fleet = await readFleetEngineState(db);
+      let newEngines = enginesIn ?? existing[0]?.engines;
+      if (newEngines === undefined) {
+        const defaults = parseEnginesInput(deps.defaultHostEngines, [ENGINE_CODEX]);
+        const usable = defaults.filter((engine) => fleet[engine]);
+        // Preserve the explicit engine_disabled error when no default remains.
+        newEngines = (usable.length ? usable : defaults).join(',');
       }
+      assertEnginesAddable(
+        hostEnginesList(newEngines),
+        existing[0] ? hostEnginesList(existing[0].engines) : [],
+        fleet,
+      );
 
       const { key: apiKey, hash: apiKeyHash } = generateApiKey('sk-codex-');
       const apiKeyEnc = encrypt(apiKey, keyring);
@@ -83,10 +92,12 @@ export function createHostRegistrationService(deps: HostRegistrationDeps): HostR
           const locked = lockedRows[0];
           if (!locked) throw new NotFoundError('Host not found', 'host_not_found');
           engines = enginesIn ?? locked.engines;
+          assertEnginesAddable(hostEnginesList(engines), hostEnginesList(locked.engines), await readFleetEngineState(tx));
           // The host API key fingerprints every active bridge and relay. Rotate
           // that authentication generation and fence all bus runtime together;
           // a secure/same-engine rotation is just as definitive as a demotion.
           await suspendAgentMessagingRuntimeLocked(tx, locked.id, 'host_auth_rotated');
+          await tx.delete(installTokens).where(eq(installTokens.hostId, locked.id));
           await tx
             .update(hostsTable)
             .set({
@@ -111,10 +122,11 @@ export function createHostRegistrationService(deps: HostRegistrationDeps): HostR
         }
         await audit(db, host.id, 'host.rotated', { fqdn: host.fqdn, createdBy: createdBy ?? null, engines });
         wsPublisher.publish('host.updated', { id: host.id, fqdn: host.fqdn });
+        await pruneHosts(db);
         return { host, apiKey };
       }
 
-      const engines = enginesIn ?? 'codex';
+      const engines = newEngines;
       const ins = await db.insert(hostsTable).values({
         fqdn: trimmed,
         apiKey: apiKeyHash,
@@ -140,6 +152,7 @@ export function createHostRegistrationService(deps: HostRegistrationDeps): HostR
       }
       await audit(db, host.id, 'host.created', { fqdn: host.fqdn, createdBy: createdBy ?? null, engines });
       wsPublisher.publish('host.created', { id: host.id, fqdn: host.fqdn });
+      await pruneHosts(db);
       return { host, apiKey };
     },
   };

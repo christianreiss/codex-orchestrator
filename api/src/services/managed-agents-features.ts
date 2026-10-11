@@ -277,8 +277,9 @@ function projectsSection(context: ManagedAgentFeatureContext): RenderedSection |
 
 Project coordination is enabled through MCP. Use \`#coco\` for its managed workflow and
 \`project_*\` tools for shared project state, handoffs, and workstream memory. Start by reading
-\`project_bootstrap\` for the active project — bootstrap before acting, even when the task looks
-self-evident. The same curation rule as Memory applies here: correct a fact with
+\`project_summary\` for the active project, then read the relevant memories and files before
+acting. Use \`project_files\` for file metadata and \`project_file_read\` for selected bodies.
+The same curation rule as Memory applies here: correct a fact with
 \`project_memory_upsert\` on the same key rather than adding a near-duplicate beside it.`,
   );
 }

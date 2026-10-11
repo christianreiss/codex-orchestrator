@@ -11,7 +11,7 @@
 import { randomUUID } from 'node:crypto';
 import { eq, sql } from 'drizzle-orm';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { adminUsers, agentEvents, agentMessages, agentSessions, hosts } from '../../../src/db/schema.js';
+import { adminUsers, agentEvents, agentMessages, agentPrompts, agentRebootHandoffs, agentSessions, hostDaemonSessions, hostDaemonPortalBindings, hosts } from '../../../src/db/schema.js';
 import type { Env } from '../../../src/env.js';
 import {
   AGENT_PORTAL_ENABLED_KEY,
@@ -53,6 +53,8 @@ describe.skipIf(!handle)('agent portal lifecycle edges', { timeout: 120_000 }, (
       )`);
     }
     await exec(`DELETE FROM agent_sessions WHERE host_id = ${host?.id ?? 0}`);
+    await exec(`DELETE FROM host_daemon_sessions WHERE host_id = ${host?.id ?? 0}`);
+    await exec(`DELETE FROM agent_reboot_handoffs WHERE host_id = ${host?.id ?? 0}`);
     await exec(`DELETE FROM admin_users WHERE username LIKE '${PREFIX}%'`);
     await exec(
       `INSERT INTO versions (name, version, updated_at)
@@ -123,6 +125,54 @@ describe.skipIf(!handle)('agent portal lifecycle edges', { timeout: 120_000 }, (
   const eventTypes = async (sessionId: string) =>
     (await db.select({ type: agentEvents.eventType }).from(agentEvents).where(eq(agentEvents.sessionId, sessionId)))
       .map((row) => row.type);
+
+  it.each(['stale', 'stopped', 'fresh'] as const)('expires unanswered questions only when the native receiver is %s', async (kind) => {
+    const world = await makeWorld();
+    const promptId = randomUUID();
+    await world.service.addAgentEvent(world.sessionId, world.bridgeToken, {
+      clientEventId: randomUUID(), type: 'waiting_input', source: 'engine',
+      payload: { prompt_id: promptId, question: 'Proceed?', allow_answer: true },
+    }, host.id);
+    const now = new Date().toISOString();
+    const receiver = {
+      generation: randomUUID(), protocol: 'codex-queue-v1', native_session_id: randomUUID(),
+      heartbeat_at: kind === 'stale' ? new Date(Date.now() - 60_000).toISOString() : now,
+      failure: kind === 'stopped' ? 'adapter_disconnected' : null, probes: { portal: {} },
+    };
+    await db.update(agentSessions).set({ receiver, heartbeatAt: now, bridgeExpiresAt: new Date(Date.now() + 900_000).toISOString() }).where(eq(agentSessions.id, world.sessionId));
+    await world.service.purgeExpired();
+    const [prompt] = await db.select().from(agentPrompts).where(eq(agentPrompts.id, promptId));
+    const [session] = await db.select().from(agentSessions).where(eq(agentSessions.id, world.sessionId));
+    expect(prompt).toMatchObject({ status: kind === 'fresh' ? 'open' : 'expired', version: kind === 'fresh' ? 1 : 2 });
+    expect(session).toMatchObject({ endedAt: null, status: kind === 'fresh' ? 'waiting' : 'active' });
+    await world.service.purgeExpired();
+    const [again] = await db.select().from(agentPrompts).where(eq(agentPrompts.id, promptId));
+    expect(again!.version).toBe(prompt!.version);
+  });
+
+  it.each(['companion', 'reboot'] as const)('preserves questions with a durable %s answer path', async (kind) => {
+    const world = await makeWorld();
+    const promptId = randomUUID();
+    const now = new Date().toISOString();
+    await world.service.addAgentEvent(world.sessionId, world.bridgeToken, {
+      clientEventId: randomUUID(), type: 'waiting_input', source: 'engine',
+      payload: { prompt_id: promptId, question: 'Proceed after resume?', allow_answer: true },
+    }, host.id);
+    await db.update(agentSessions).set({ receiver: {
+      generation: randomUUID(), protocol: 'codex-queue-v1', native_session_id: randomUUID(),
+      heartbeat_at: new Date(Date.now() - 60_000).toISOString(), failure: null, probes: { portal: {} },
+    } }).where(eq(agentSessions.id, world.sessionId));
+    if (kind === 'companion') {
+      const daemonId = randomUUID();
+      await db.insert(hostDaemonSessions).values({ id: daemonId, hostId: host.id, owner: 'test', engine: 'codex', username: 'portal-test', cwd: '/tmp/test', title: 'Test', status: 'waiting', lastActivityAt: now, createdAt: now });
+      await db.insert(hostDaemonPortalBindings).values({ portalSessionId: world.sessionId, daemonSessionId: daemonId });
+    } else {
+      await db.insert(agentRebootHandoffs).values({ id: randomUUID(), hostId: host.id, addressId: randomUUID(), oldSessionId: world.sessionId, engine: 'codex', username: 'portal-test', cwd: '/tmp/test', nativeSessionId: randomUUID(), bootId: randomUUID(), requestSha: 'a'.repeat(64), continuationEnc: 'test', reason: 'test', status: 'armed', busMessageIds: [], portalMessageIds: [], expiresAt: new Date(Date.now()+900_000).toISOString(), createdAt: now, updatedAt: now });
+    }
+    await world.service.purgeExpired();
+    const [prompt] = await db.select().from(agentPrompts).where(eq(agentPrompts.id, promptId));
+    expect(prompt).toMatchObject({ status: 'open', version: 1 });
+  });
 
   it('keeps chat history for the full session lifetime and 24 hours after ending', async () => {
     const world = await makeWorld();

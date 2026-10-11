@@ -355,15 +355,12 @@ export class GitDirectorService {
     );
 
     const abandoned = active.filter(
-      (row) => row.agentBusAddressId !== null && dead.has(row.agentBusAddressId),
+      (row) => row.agentBusAddressId !== null && dead?.has(row.agentBusAddressId),
     );
-    // TTL only bites where there is no address to ask. A bound-but-live agent is
-    // working quietly between calls and must not be evicted for being silent.
+    // TTL only bites where there is no address to ask or presence is unavailable.
+    // A live bound agent must not be evicted for being quiet between calls.
     const timedOut = active.filter(
-      (row) =>
-        !abandoned.includes(row) &&
-        (row.agentBusAddressId === null || !dead.has(row.agentBusAddressId)) &&
-        isExpired(row.expiresAt, now),
+      (row) => (row.agentBusAddressId === null || dead === null) && isExpired(row.expiresAt, now),
     );
 
     if (abandoned.length > 0) {
@@ -444,7 +441,7 @@ export class GitDirectorService {
    * and every registration falls back to its TTL. Guessing "dead" on a failed
    * read would evict live agents wholesale.
    */
-  private async deadAddressIds(db: GitDirectorDb, ids: readonly string[], now: string): Promise<Set<string>> {
+  private async deadAddressIds(db: GitDirectorDb, ids: readonly string[], now: string): Promise<Set<string> | null> {
     const unique = [...new Set(ids)];
     if (unique.length === 0) return new Set();
     try {
@@ -485,7 +482,7 @@ export class GitDirectorService {
       }
       return dead;
     } catch {
-      return new Set();
+      return null;
     }
   }
 
@@ -524,7 +521,7 @@ export class GitDirectorService {
     const remoteUrl = optionalString(args, 'remote_url');
     const branch = optionalString(args, 'branch', 255);
     const headSha = optionalString(args, 'head_sha', 64);
-    const username = optionalString(args, 'username', 255) ?? 'unknown';
+    const requestedUsername = optionalString(args, 'username', 255);
     const engineRaw = optionalString(args, 'engine', 16);
     const engine = isEngine(engineRaw) ? engineRaw : null;
 
@@ -582,7 +579,8 @@ export class GitDirectorService {
         wsPublisher.publish('git_director.changed', { kind: 'worktree', clone_id: row.cloneId });
       }
 
-      const address = await this.resolveAddress(tx, host, username, engine, worktreePath);
+      const address = await this.resolveAddress(tx, host, requestedUsername, engine, worktreePath, now);
+      const username = requestedUsername ?? address?.username ?? 'unknown';
       const existing = (
         await tx
           .select()
@@ -632,7 +630,7 @@ export class GitDirectorService {
       const rebound =
         existing.username !== username ||
         (address?.id ?? null) !== (existing.agentBusAddressId ?? null);
-      if (rebound && existing.status === 'active' && !isExpired(existing.expiresAt, now)) {
+      if (rebound && existing.status === 'active') {
         const lease = await this.liveLeaseForWorktree(tx, existing.id, now);
         if (lease) {
           throw new ConflictError(
@@ -1069,6 +1067,24 @@ export class GitDirectorService {
     const now = this.now();
 
     const current = await this.deps.db.transaction(async (tx) => {
+      const polling = await this.requireRequest(tx, requestId, host);
+      if (!polling.completedAt && (polling.verdict === 'allow' || polling.verdict === 'wait')) {
+        // A status poll proves this holder is still working, just as git_list
+        // with a worktree path does. Refresh before sweeping the fallback TTL;
+        // never revive a released/replaced registration or an expired lease.
+        await tx
+          .update(gitWorktrees)
+          .set({
+            heartbeatAt: now,
+            expiresAt: isoOffsetSeconds(REGISTRATION_TTL_SECONDS, new Date(now)),
+            updatedAt: now,
+          })
+          .where(and(
+            eq(gitWorktrees.id, polling.worktreeId),
+            eq(gitWorktrees.hostId, host.id),
+            eq(gitWorktrees.status, 'active'),
+          ));
+      }
       await this.sweepExpired(tx, now);
       const request = await this.requireRequest(tx, requestId, host);
       if (request.verdict === 'allow' && !request.completedAt) {
@@ -1331,10 +1347,11 @@ export class GitDirectorService {
   private async resolveAddress(
     tx: GitDirectorDb,
     host: Host,
-    username: string,
+    username: string | null,
     engine: string | null,
     worktreePath: string,
-  ): Promise<{ id: string } | null> {
+    now: string,
+  ): Promise<{ id: string; username: string } | null> {
     if (!engine) return null;
     const cwdHash = sha256(worktreePath);
     try {
@@ -1346,20 +1363,38 @@ export class GitDirectorService {
           username: agentBusAddresses.username,
           cwdHash: agentBusAddresses.cwdHash,
           archivedAt: agentBusAddresses.archivedAt,
+          currentSessionId: agentBusAddresses.currentSessionId,
+          lastUpstreamSessionId: agentBusAddresses.lastUpstreamSessionId,
+          receiveHeartbeatAt: agentBusAddresses.receiveHeartbeatAt,
+          enabled: agentBusAddresses.enabled,
+          readiness: agentBusAddresses.readiness,
+          session: { heartbeatAt: agentSessions.heartbeatAt, endedAt: agentSessions.endedAt },
         })
         .from(agentBusAddresses)
-        .where(and(eq(agentBusAddresses.hostId, host.id), eq(agentBusAddresses.cwdHash, cwdHash)))
-        .limit(4);
-      return (
-        rows.find(
-          (row) =>
-            row.hostId === host.id &&
-            row.cwdHash === cwdHash &&
-            row.engine === engine &&
-            row.username === username &&
-            !row.archivedAt,
-        ) ?? null
+        .leftJoin(agentSessions, eq(agentSessions.id, agentBusAddresses.currentSessionId))
+        .where(and(
+          eq(agentBusAddresses.hostId, host.id),
+          eq(agentBusAddresses.cwdHash, cwdHash),
+          eq(agentBusAddresses.engine, engine),
+          username === null ? undefined : eq(agentBusAddresses.username, username),
+          isNull(agentBusAddresses.archivedAt),
+        ));
+      const freshAfter = isoOffsetSeconds(
+        -(this.deps.freshSeconds ?? AGENT_PRESENCE_FRESH_SECONDS),
+        parseIso(now) ?? new Date(),
       );
+      const live = rows.filter(
+        (row) =>
+          row.hostId === host.id &&
+          row.cwdHash === cwdHash &&
+          row.engine === engine &&
+          (username === null || row.username === username) &&
+          isPresent(deriveAddressPresence(row, row.session, freshAfter)),
+      );
+      // Host MCP has no session-bound username. Infer it only when this engine
+      // and directory identify exactly one live address; an arbitrary match
+      // could make another agent's exit reclaim this registration.
+      return live.length === 1 ? live[0]! : null;
     } catch {
       // Agent Messaging tables may not exist on a box mid-deploy. Enrichment is
       // optional by construction, so a miss must never fail a registration.

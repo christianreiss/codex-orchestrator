@@ -153,3 +153,34 @@ func TestInstallerRejectsForeignOriginBeforeDownload(t *testing.T) {
 		t.Fatalf("foreign download attempted: %d calls", calls)
 	}
 }
+
+func TestPrunePreservesPrefixesSelectedBeforeNativeExec(t *testing.T) {
+	r, _ := runtimeFixture(t)
+	root, err := StoreDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := filepath.Join(root, "1.0.40")
+	current := filepath.Join(root, "1.0.46")
+	for _, dir := range []string{old, current} {
+		if err := os.MkdirAll(dir, 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "grok"), []byte("#!/bin/sh\nexit 0\n"), 0700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	state, _ := StateDir()
+	if err := AtomicWrite(filepath.Join(state, "grok-bin"), []byte(filepath.Join(current, "grok")), 0600); err != nil {
+		t.Fatal(err)
+	}
+	// There is no native executable yet for /proc to discover. The runtime's
+	// launch lease must nevertheless protect its already selected old prefix.
+	if err := Prune(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(old); err != nil {
+		t.Fatal("selected pre-exec prefix was removed")
+	}
+	_ = r.Close()
+}

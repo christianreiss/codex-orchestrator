@@ -8,7 +8,6 @@ import (
 	"io"
 	"os"
 	"os/exec"
-	"os/signal"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -18,6 +17,7 @@ import (
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/nativeentry"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/nativeprocess"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/quotaadvice"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/schedulewatch"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/sessionguard"
@@ -249,6 +249,8 @@ func runCaptureWithHeldAuthLeaseUsing(
 	cmd := exec.CommandContext(ctx, cli, args...)
 	cmd.Env = env
 	cmd.Stdin = os.Stdin
+	supervisor := nativeprocess.Prepare(ctx, cmd, nativeprocess.Headless(cmd.Stdin))
+	defer supervisor.Close()
 	cmd.Stderr = schedulewatch.Writer(ctx, os.Stderr)
 
 	var capture *ringBuffer
@@ -259,7 +261,7 @@ func runCaptureWithHeldAuthLeaseUsing(
 		cmd.Stdout = schedulewatch.Writer(ctx, io.MultiWriter(os.Stdout, capture))
 	}
 
-	closeExtras, err := attachAuthLeaseFiles(cmd, session, childLease)
+	closeExtras, err := attachAuthLeaseFiles(cmd, session, childLease, guard)
 	if err != nil {
 		if closeChildLease {
 			_ = childLease.Close()
@@ -277,24 +279,13 @@ func runCaptureWithHeldAuthLeaseUsing(
 	quotaadvice.MarkStarted(ctx)
 	closeExtras()
 
-	sigCh := make(chan os.Signal, 4)
-	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
-	go func() {
-		for s := range sigCh {
-			if cmd.Process != nil {
-				_ = cmd.Process.Signal(s)
-			}
-		}
-	}()
-
 	waitErr := cmd.Wait()
+	supervisor.Close()
 	stopScheduleWatch()
 	var leaseErr error
 	if closeChildLease {
 		leaseErr = childLease.Close()
 	}
-	signal.Stop(sigCh)
-	close(sigCh)
 
 	var captured []byte
 	if capture != nil {
@@ -304,13 +295,8 @@ func runCaptureWithHeldAuthLeaseUsing(
 	if waitErr == nil && leaseErr != nil {
 		return 1, captured, fmt.Errorf("release Claude auth child lease: %w", leaseErr)
 	}
-	if waitErr == nil {
-		return 0, captured, nil
-	}
-	if exitErr, ok := waitErr.(*exec.ExitError); ok {
-		return exitErr.ExitCode(), captured, nil
-	}
-	return 1, captured, waitErr
+	code, resultErr := supervisor.Result(waitErr)
+	return code, captured, resultErr
 }
 
 // ringBuffer is the same thread-safe append-with-trim buffer used by cdx.

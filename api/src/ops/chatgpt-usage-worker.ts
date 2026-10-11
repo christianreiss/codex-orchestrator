@@ -29,6 +29,7 @@ export interface ChatGptUsageWorkerTickDeps {
   healthPath: string;
   log: WorkerLog;
   now?: () => string;
+  signal?: AbortSignal;
   /**
    * Codex fleet master switch. This worker is its own container, so it reads
    * the database flag every tick rather than sharing the API's cache.
@@ -43,6 +44,7 @@ export interface ChatGptUsageWorkerTickDeps {
  * a process that is still alive.
  */
 export async function runChatGptUsageWorkerTick(deps: ChatGptUsageWorkerTickDeps): Promise<FetchResult> {
+  deps.signal?.throwIfAborted();
   if (deps.codexEnabled && !(await deps.codexEnabled())) {
     // Deliberately off is not unhealthy: keep the heartbeat fresh so Compose
     // does not flag the container, and record why nothing was polled.
@@ -55,7 +57,9 @@ export async function runChatGptUsageWorkerTick(deps: ChatGptUsageWorkerTickDeps
     deps.log.info({ reason: 'engine_disabled' }, 'chatgpt usage polling suspended: Codex is disabled fleet-wide');
     return { status: 'unavailable', snapshot: null, cached: false, next_eligible_at: null, error: 'engine_disabled' };
   }
-  const result = await deps.usage.fetchLatest(false);
+  deps.signal?.throwIfAborted();
+  const result = await deps.usage.fetchLatest(false, deps.signal);
+  deps.signal?.throwIfAborted();
   const snapshotStatus =
     typeof result.snapshot?.['status'] === 'string' ? result.snapshot['status'] : 'unavailable';
   const fields = {
@@ -89,6 +93,45 @@ export async function writeUsageHeartbeat(
   await rename(temporaryPath, healthPath);
 }
 
+/** Own one tick at a time, including the initial tick, until shutdown drains it. */
+export function createChatGptUsageWorkerLifecycle(deps: {
+  tick: (signal: AbortSignal) => Promise<unknown>;
+  close: () => Promise<void>;
+  intervalMs: number;
+  log: WorkerLog;
+}): { start: () => Promise<void>; stop: () => Promise<void> } {
+  const controller = new AbortController();
+  let pending: Promise<void> | undefined;
+  let closing: Promise<void> | undefined;
+  let timer: ReturnType<typeof setInterval> | undefined;
+  const tick = (): Promise<void> => {
+    if (controller.signal.aborted) return Promise.resolve();
+    if (pending) return pending;
+    pending = Promise.resolve().then(() => deps.tick(controller.signal)).then(() => undefined)
+      .catch((err: unknown) => {
+        if (!controller.signal.aborted) deps.log.error({ err: errorMessage(err) }, 'chatgpt usage worker tick failed');
+      }).finally(() => { pending = undefined; });
+    return pending;
+  };
+  return {
+    start() {
+      if (!timer && !controller.signal.aborted) {
+        timer = setInterval(() => void tick(), deps.intervalMs);
+        timer.unref?.();
+      }
+      return tick();
+    },
+    stop() {
+      if (!closing) {
+        controller.abort(new Error('chatgpt usage worker stopping'));
+        clearInterval(timer);
+        closing = (async () => { await pending; await deps.close(); })();
+      }
+      return closing;
+    },
+  };
+}
+
 async function main(): Promise<void> {
   const env = loadEnv();
   const { db, pool } = createDb(env);
@@ -98,32 +141,34 @@ async function main(): Promise<void> {
     keyring: Keyring.fromEnv(env),
   });
   const intervalSeconds = resolveChatGptUsageWorkerIntervalSeconds(env.CHATGPT_USAGE_CRON_INTERVAL);
-  let running = false;
-  let stopped = false;
-
-  const tick = async (): Promise<void> => {
-    if (running || stopped) return;
-    running = true;
-    try {
+  const worker = createChatGptUsageWorkerLifecycle({
+    intervalMs: intervalSeconds * 1000,
+    close: () => pool.end(),
+    log,
+    tick: async (signal) => {
       await runChatGptUsageWorkerTick({
+        signal,
         usage: {
-          async fetchLatest(force) {
+          async fetchLatest(force, signal) {
             const accounts = await db
               .select()
               .from(providerAccounts)
               .where(and(eq(providerAccounts.engine, 'codex'), eq(providerAccounts.state, 'enabled')));
-            if (!accounts.length) return usage.fetchLatest(force);
+            signal?.throwIfAborted();
+            if (!accounts.length) return usage.fetchLatest(force, signal);
             const results: FetchResult[] = [];
             for (const account of accounts) {
+              signal?.throwIfAborted();
               try {
                 results.push(
                   await new ChatGptUsageService(db, log, {
                     env,
                     keyring: Keyring.fromEnv(env),
                     accountId: account.id,
-                  }).fetchLatest(force),
+                  }).fetchLatest(force, signal),
                 );
               } catch (err) {
+                signal?.throwIfAborted();
                 log.warn(
                   { account_id: account.id, error: errorMessage(err) },
                   'account quota refresh failed',
@@ -140,30 +185,21 @@ async function main(): Promise<void> {
         log,
         codexEnabled: async () => (await readFleetEngineState(db, { fresh: true })).codex,
       });
-    } catch (err) {
-      log.error({ err: errorMessage(err) }, 'chatgpt usage worker tick failed');
-    } finally {
-      running = false;
-    }
-  };
-
-  await tick();
-  const timer = setInterval(() => void tick(), intervalSeconds * 1000);
-  timer.unref?.();
+    },
+  });
 
   const shutdown = async (signal: string): Promise<void> => {
-    stopped = true;
-    clearInterval(timer);
     log.info({ signal }, 'chatgpt usage worker shutdown requested');
     try {
-      await pool.end();
+      await worker.stop();
     } catch (err) {
       log.error({ err: errorMessage(err) }, 'chatgpt usage worker database shutdown failed');
+      process.exitCode = 1;
     }
-    process.exit(0);
   };
   process.once('SIGINT', () => void shutdown('SIGINT'));
   process.once('SIGTERM', () => void shutdown('SIGTERM'));
+  await worker.start();
 }
 
 function workerLog(): WorkerLog {

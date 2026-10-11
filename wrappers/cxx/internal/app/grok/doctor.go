@@ -35,6 +35,10 @@ type doctorInput struct {
 func doctorReport(in doctorInput) terminalui.DoctorReport {
 	report := terminalui.DoctorReport{Engine: "cgx", When: time.Now()}
 	hints := []string{}
+	suspended := in.Config.EngineSuspended(config.EngineGrok)
+	if refusal := launchRefusal(in.Config, in.AuthErr); refusal != nil && refusal.Error() == config.FleetDisabledMessage(config.EngineGrok) {
+		suspended = true
+	}
 	row := func(label string, tone terminalui.Tone, value string) {
 		report.Rows = append(report.Rows, terminalui.DoctorRow{Label: label, Tone: tone, Value: value})
 	}
@@ -48,7 +52,9 @@ func doctorReport(in doctorInput) terminalui.DoctorReport {
 	switch {
 	case in.VersionErr != nil || in.EngineVersion == "":
 		row("CLI", terminalui.ToneFail, "Grok CLI missing or unusable")
-		hints = append(hints, "Run `cgx update` to install the fleet's Grok CLI.")
+		if !suspended {
+			hints = append(hints, "Run `cgx update` to install the fleet's Grok CLI.")
+		}
 	default:
 		tone, value := terminalui.ToneOK, fmt.Sprintf("grok %s (%s)", in.EngineVersion, in.CLIPath)
 		if in.Auth != nil && in.Auth.Versions != nil {
@@ -58,7 +64,9 @@ func doctorReport(in doctorInput) terminalui.DoctorReport {
 			}
 			if target != "" && target != "latest" && target != in.EngineVersion {
 				tone, value = terminalui.ToneWarn, value+"; fleet target "+target
-				hints = append(hints, "Run `cgx update` to converge on the fleet's Grok version.")
+				if !suspended {
+					hints = append(hints, "Run `cgx update` to converge on the fleet's Grok version.")
+				}
 			}
 		}
 		row("CLI", tone, value)

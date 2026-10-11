@@ -541,6 +541,48 @@ func buildQuota(auth *orchestrator.AuthRetrieveResponse) ([]ui.QuotaRow, string,
 	addRow("5h", q.SparkPrimaryUsed, q.SparkPrimaryLimitSec, q.SparkPrimaryResetAfter, q.SparkPrimaryResetAt, "spark")
 	addRow("weekly", q.SparkSecondaryUsed, q.SparkSecondaryLimitSec, q.SparkSecondaryResetAfter, q.SparkSecondaryResetAt, "spark")
 
+	partition := 0
+	if auth.QuotaWeekPartition != nil {
+		partition = *auth.QuotaWeekPartition
+	} else if q.WeekPart != nil {
+		partition = *q.WeekPart
+	}
+	if partition == 5 || partition == 7 {
+		daily := q.DailyUsed
+		if daily == nil || *daily < 0 || *daily > 100 {
+			if warnText == "" {
+				warnText = "Daily quota usage unavailable"
+			}
+		} else {
+			// DailyUsed is the observed weekly percentage-point delta since
+			// the first usable UTC-day snapshot. Each day gets 1/partition
+			// of the week, so its allowance percentage is delta * partition.
+			used := *daily * partition
+			stale := telemetryWarning != ""
+			for _, stamp := range []string{q.FetchedAt, q.DailyBaselineAt} {
+				if stamp == "" {
+					continue
+				}
+				at, err := time.Parse(time.RFC3339, stamp)
+				if err != nil || at.UTC().Format("2006-01-02") != now.UTC().Format("2006-01-02") {
+					stale = true
+				}
+			}
+			tomorrow := time.Date(now.UTC().Year(), now.UTC().Month(), now.UTC().Day()+1, 0, 0, 0, 0, time.UTC)
+			note := fmt.Sprintf("%d%% of allowance; today used %d%% of week; allowance %.2f%%/day", used, *daily, 100.0/float64(partition))
+			rows = append(rows, ui.QuotaRow{Label: "daily", Used: min(100, used), Lane: "normal", ResetAfter: tomorrow.Sub(now), Note: note, Stale: stale, WarnAtPct: warnAt, BlockAtPct: limitPct})
+			if !stale && activeLane == "normal" {
+				if used >= limitPct && blockText == "" {
+					blockText = fmt.Sprintf("daily allowance reached (%d%% of allowance; resets at UTC midnight)", used)
+				} else if used >= warnAt && warnText == "" {
+					warnText = fmt.Sprintf("daily allowance high (%d%% of allowance)", used)
+				}
+			} else if stale && warnText == "" {
+				warnText = "Daily quota usage needs a current UTC-day report"
+			}
+		}
+	}
+
 	// Stale, malformed, or unavailable quota telemetry remains useful as
 	// last-known context, but it must never warn/block from percentage,
 	// provider-gate, or burn-rate projections as if it were current.

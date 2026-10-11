@@ -43,8 +43,9 @@ const probeTimeout = 5 * time.Second
 
 // Indirected so privilege-gate tests never probe the host's real sudo policy.
 var (
-	effectiveUID = os.Geteuid
-	sudoProbe    = sudoWorksNonInteractively
+	effectiveUID          = os.Geteuid
+	sudoProbe             = sudoWorksNonInteractively
+	systemInstallWritable = optWritable
 )
 
 // hostUsersResponse models POST /host/users. The envelope plugin spreads the
@@ -134,6 +135,12 @@ func Run(ctx context.Context, cfg *config.Config, stdout, stderr io.Writer) (run
 		}
 	}
 
+	// An operator cancellation is not a best-effort server failure. Stop before
+	// destructive local work even if the remote delete already took effect.
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
 	// (3) Remove local state.
 	home, homeErr := os.UserHomeDir()
 	if homeErr != nil || home == "" {
@@ -183,7 +190,7 @@ func Run(ctx context.Context, cfg *config.Config, stdout, stderr io.Writer) (run
 
 	// /opt/codex — only attempt when writable to avoid clobbering a
 	// system-managed install when the operator runs cdx as themselves.
-	if optWritable("/opt/codex") {
+	if systemInstallWritable("/opt/codex") {
 		if err := os.RemoveAll("/opt/codex"); err != nil {
 			ui.Say(stderr, "cdx", ui.ToneFail, "uninstall", "remove /opt/codex: "+fmt.Sprint(err))
 		} else {

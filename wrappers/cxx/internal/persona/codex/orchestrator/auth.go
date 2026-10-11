@@ -34,6 +34,7 @@ type AuthRetrieveResponse struct {
 	ChatGPT              *ChatGPTQuota   `json:"chatgpt,omitempty"`
 	QuotaHardFail        bool            `json:"quota_hard_fail,omitempty"`
 	QuotaLimitPercent    *int            `json:"quota_limit_percent,omitempty"`
+	QuotaWeekPartition   *int            `json:"quota_week_partition,omitempty"`
 	Engine               string          `json:"engine,omitempty"`
 	VerificationState    string          `json:"verification_state,omitempty"`
 	// CandidateRejectedDefinitive is emitted only when the server has
@@ -127,12 +128,13 @@ type ChatGPTQuota struct {
 	ActiveLane string `json:"active_quota_lane,omitempty"`
 	// Pointer booleans preserve the difference between an older response that
 	// omitted provider gate state and an explicit provider-side denial.
-	RateAllowed           *bool `json:"rate_allowed,omitempty"`
-	RateLimitReached      *bool `json:"rate_limit_reached,omitempty"`
-	SparkRateAllowed      *bool `json:"spark_rate_allowed,omitempty"`
-	SparkRateLimitReached *bool `json:"spark_rate_limit_reached,omitempty"`
-	DailyUsed             *int  `json:"daily_used_percent,omitempty"`
-	WeekPart              *int  `json:"week_partition,omitempty"`
+	RateAllowed           *bool  `json:"rate_allowed,omitempty"`
+	RateLimitReached      *bool  `json:"rate_limit_reached,omitempty"`
+	SparkRateAllowed      *bool  `json:"spark_rate_allowed,omitempty"`
+	SparkRateLimitReached *bool  `json:"spark_rate_limit_reached,omitempty"`
+	DailyUsed             *int   `json:"daily_used_percent,omitempty"`
+	DailyBaselineAt       string `json:"daily_baseline_at,omitempty"`
+	WeekPart              *int   `json:"week_partition,omitempty"`
 
 	PrimaryUsed       *int   `json:"primary_used_percent,omitempty"`
 	PrimaryLimitSec   *int64 `json:"primary_limit_seconds,omitempty"`

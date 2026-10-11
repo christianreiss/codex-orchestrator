@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import Fastify, { type FastifyInstance, type FastifyRequest } from 'fastify';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -7,6 +7,11 @@ import { envelopePlugin } from '../../../src/http/plugins/envelope.js';
 import { registerMcpRoutes } from '../../../src/routes/mcp/index.js';
 import type { RouteContext } from '../../../src/routes/index.js';
 import type { Host } from '../../../src/db/schema.js';
+
+// Persistence is covered by host-lifecycle tests; this suite uses a stub DB.
+vi.mock('../../../src/services/host-lifecycle.js', () => ({
+  recordHostContact: async (_db: unknown, host: Host) => host,
+}));
 
 /**
  * The /mcp routes are wired against a stub DB + env. We don't exercise

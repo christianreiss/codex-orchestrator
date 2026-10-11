@@ -90,7 +90,7 @@ async function requireEngineHost(req: FastifyRequest, engine: Engine, db: Databa
 }
 
 export async function registerProjectsClientRoutes(app: FastifyInstance, ctx: RouteContext): Promise<void> {
-  const projects = new HostProjectsService(ctx.db);
+  const projects = new HostProjectsService(ctx.db, { presenceFreshSeconds: ctx.env.AGENT_PORTAL_HEARTBEAT_FRESH_SECONDS });
   const skills = new HostSkillsService(ctx.db);
   const agents = new HostAgentsService(ctx.db, {
     publicBaseUrl: ctx.env.PUBLIC_BASE_URL ?? null,

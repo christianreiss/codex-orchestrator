@@ -421,6 +421,9 @@ func Run(ctx context.Context, opts Options) (exitCode int, runErr error) {
 		// must not turn cached credentials into a way around the switch. It is
 		// applied before recovery so a suspended engine never prompts a login.
 		if !opts.SkipCredentialExchange {
+			if err := recordSuspensionObservation(cfg, authResp); err != nil {
+				return 1, fmt.Errorf("persist fleet suspension observation: %w", err)
+			}
 			dec = applyLocalSuspension(cfg, dec)
 		}
 
@@ -1632,11 +1635,26 @@ func atomicWrite(path string, body []byte, mode os.FileMode) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
-	tmp := path + ".new"
-	if err := os.WriteFile(tmp, body, mode); err != nil {
+	file, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+"-*")
+	if err != nil {
 		return err
 	}
-	return os.Rename(tmp, path)
+	temporary := file.Name()
+	defer os.Remove(temporary)
+	defer file.Close()
+	if err := file.Chmod(mode); err != nil {
+		return err
+	}
+	if _, err := file.Write(body); err != nil {
+		return err
+	}
+	if err := file.Sync(); err != nil {
+		return err
+	}
+	if err := file.Close(); err != nil {
+		return err
+	}
+	return os.Rename(temporary, path)
 }
 
 func fileDigest(p string) string {

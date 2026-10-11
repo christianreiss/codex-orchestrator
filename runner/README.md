@@ -590,6 +590,8 @@ Readiness probe for the one-shot prompt path:
 
 Run a single prompt through the engine CLI. This is the route the API uses to serve OpenAI/Anthropic-style completions from a host's stored credentials.
 
+Each call owns a process group. Timeout, client disconnect and cancellation send SIGTERM, allow two seconds of cleanup, then SIGKILL remaining group members. The private home is removed after process cleanup. A disconnect/cancellation reports HTTP 499 when a response can still be delivered; an execution deadline remains HTTP 504.
+
 Request body:
 
 ```json

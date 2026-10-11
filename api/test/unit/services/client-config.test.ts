@@ -11,7 +11,7 @@ import {
   renderTomlForHost,
 } from '../../../src/services/client-config.js';
 import { DEFAULT_CLAUDE_PERMISSION_MODE, normalizeSettings } from '../../../src/services/config-normalizer.js';
-import { ENGINE_CLAUDE } from '../../../src/util/engine.js';
+import { ENGINE_CLAUDE, ENGINE_GROK } from '../../../src/util/engine.js';
 import { presetLevels } from '../../../src/services/agent-security-levels.js';
 
 describe('client-config: renderToml', () => {
@@ -259,6 +259,33 @@ describe('client-config: renderToml', () => {
     expect(rendered.content).toContain('startup_timeout_sec = 30');
     expect(rendered.content).not.toContain('http://old.example/mcp');
     expect(rendered.content).toContain('[mcp_servers.user-custom]');
+  });
+
+  it.each([
+    { label: 'fleet MCP disabled', enabled: false, secure: 1, baseUrl: 'https://coord.example', apiKey: 'abc123' },
+    { label: 'fleet service unavailable', enabled: true, secure: 1, baseUrl: null, apiKey: null },
+    { label: 'insecure host without a session token', enabled: true, secure: 0, baseUrl: 'https://coord.example', apiKey: 'abc123' },
+  ])('injects local BrowserOS independently when $label', ({ enabled, secure, baseUrl, apiKey }) => {
+    const rendered = renderTomlForHost({
+      settings: { orchestrator_mcp_enabled: enabled },
+      host: { id: 7, fqdn: 'host.example', secure, browserosMcpEnabled: 1 } as never,
+      baseUrl,
+      apiKey,
+    });
+    expect(rendered.content).toContain('[mcp_servers.browseros]');
+    expect(rendered.content).toContain('url = "http://127.0.0.1:9000/mcp"');
+    expect(rendered.content).not.toContain('[mcp_servers.cdx]');
+  });
+
+  it.each([ENGINE_CLAUDE, ENGINE_GROK])('does not inject Codex BrowserOS for %s', (engine) => {
+    const rendered = renderTomlForHost({
+      settings: { orchestrator_mcp_enabled: false },
+      host: { id: 7, fqdn: 'host.example', secure: 1, browserosMcpEnabled: 1 } as never,
+      baseUrl: null,
+      apiKey: null,
+      engine,
+    });
+    expect(rendered.content).not.toContain('[mcp_servers.browseros]');
   });
 
   it('injects the local Agent Messaging MCP whenever the fleet switch is on', () => {

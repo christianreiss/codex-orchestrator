@@ -1,3 +1,4 @@
+import { withRunnerCancellation } from './runner-cancellation.js';
 import { randomBytes } from 'node:crypto';
 import { ApiError } from '../../http/errors.js';
 import {
@@ -174,6 +175,7 @@ export class RunnerOpenAiAdapter {
     messages: OpenAiMessage[],
     model: string,
     params: OpenAiGenerationParams = {},
+    signal?: AbortSignal,
   ): Promise<ChatCompletionResult> {
     // A backend that enforces `system` (Grok, Claude) gets system/developer
     // turns as its system instruction; Codex has nowhere to put one, so they
@@ -185,7 +187,7 @@ export class RunnerOpenAiAdapter {
     const { prompt, images } = buildPromptPayload(hoist ? messages.filter(message => !systemMessages.includes(message)) : messages);
     images.push(...systemImages);
     if (system) params = { ...params, system: [params.system, system].filter(Boolean).join('\n') };
-    const result = await this.runPrompt(prompt, model, images, params);
+    const result = await this.runPrompt(prompt, model, images, params, signal);
     const usage = extractUsage(result, this.config.engine ?? ENGINE_CODEX);
     return {
       id: `chatcmpl-${randomBytes(12).toString('hex')}`,
@@ -207,8 +209,9 @@ export class RunnerOpenAiAdapter {
     messages: OpenAiMessage[],
     model: string,
     params: OpenAiGenerationParams = {},
+    signal?: AbortSignal,
   ): Promise<ResponsesResult> {
-    const completion = await this.chatCompletions(messages, model, params);
+    const completion = await this.chatCompletions(messages, model, params, signal);
     return responseFromChatCompletion(completion, this.config.engine === ENGINE_GROK);
   }
 
@@ -216,8 +219,9 @@ export class RunnerOpenAiAdapter {
     prompt: string,
     model: string,
     params: OpenAiGenerationParams = {},
+    signal?: AbortSignal,
   ): Promise<CompletionResult> {
-    const result = await this.runPrompt(prompt, model, [], params);
+    const result = await this.runPrompt(prompt, model, [], params, signal);
     const usage = extractUsage(result, this.config.engine ?? ENGINE_CODEX);
     return {
       id: `cmpl-${randomBytes(12).toString('hex')}`,
@@ -241,7 +245,9 @@ export class RunnerOpenAiAdapter {
     model: string,
     images: OpenAiMessageImage[],
     params: OpenAiGenerationParams,
+    signal?: AbortSignal,
   ): Promise<RunnerResponse> {
+    signal?.throwIfAborted();
     if (this.config.engine === ENGINE_GROK && images.length > 0) {
       throw new ApiError('Image inputs are not supported by the Grok CLI transport', {
         status: 400, code: 'unsupported_generation_control', type: 'invalid_request_error', param: 'images',
@@ -267,6 +273,7 @@ export class RunnerOpenAiAdapter {
     );
 
     const authPayload = this.config.authSnapshot ? await this.config.authSnapshot() : null;
+    signal?.throwIfAborted();
     if (this.config.authSnapshot && authPayload === null) {
       throw new ApiError(
         'No auth credentials available. Upload auth.json first.',
@@ -293,55 +300,56 @@ export class RunnerOpenAiAdapter {
       headers['x-runner-auth'] = this.config.sharedSecret.trim();
     }
 
-    let res: Response;
-    const controller = new AbortController();
-    const timeoutMs = (this.config.timeoutSeconds + 5) * 1000;
-    const timeoutHandle = setTimeout(() => controller.abort(), timeoutMs);
-    try {
-      res = await fetch(this.config.execUrl, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(body),
-        signal: controller.signal,
-      });
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Runner request failed';
-      throw new ApiError(message, { status: 502, code: 'runner_unreachable', type: 'api_error' });
-    } finally {
-      clearTimeout(timeoutHandle);
-    }
+    return withRunnerCancellation((this.config.timeoutSeconds + 5) * 1000, signal, async (activeSignal) => {
+      let res: Response;
+      try {
+        res = await fetch(this.config.execUrl, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify(body),
+          signal: activeSignal,
+        });
+      } catch (err) {
+        activeSignal.throwIfAborted();
+        const message = err instanceof Error ? err.message : 'Runner request failed';
+        throw new ApiError(message, { status: 502, code: 'runner_unreachable', type: 'api_error' });
+      }
+      activeSignal.throwIfAborted();
 
-    let decoded: unknown;
-    try {
-      decoded = await res.json();
-    } catch {
-      throw new ApiError('Invalid runner response', {
-        status: 502,
-        code: 'runner_bad_response',
-        type: 'api_error',
-      });
-    }
-    if (!decoded || typeof decoded !== 'object') {
-      throw new ApiError('Invalid runner response', {
-        status: 502,
-        code: 'runner_bad_response',
-        type: 'api_error',
-      });
-    }
-    const obj = decoded as RunnerResponse & { error?: unknown; reason?: unknown; detail?: unknown };
-    if (obj.status === 'ok') {
-      this.config.onExecSuccess?.(authPayload);
-      return obj;
-    }
-    const errorMsg =
-      typeof obj.error === 'string'
-        ? obj.error
-        : typeof obj.reason === 'string'
-          ? obj.reason
-          : typeof obj.detail === 'string'
-            ? obj.detail
-            : 'Runner execution failed';
-    throw new ApiError(errorMsg, { status: 502, code: 'runner_failed', type: 'api_error' });
+      let decoded: unknown;
+      try {
+        decoded = await res.json();
+      } catch {
+        activeSignal.throwIfAborted();
+        throw new ApiError('Invalid runner response', {
+          status: 502,
+          code: 'runner_bad_response',
+          type: 'api_error',
+        });
+      }
+      if (!decoded || typeof decoded !== 'object') {
+        throw new ApiError('Invalid runner response', {
+          status: 502,
+          code: 'runner_bad_response',
+          type: 'api_error',
+        });
+      }
+      const obj = decoded as RunnerResponse & { error?: unknown; reason?: unknown; detail?: unknown };
+      if (obj.status === 'ok') {
+        activeSignal.throwIfAborted();
+        this.config.onExecSuccess?.(authPayload);
+        return obj;
+      }
+      const errorMsg =
+        typeof obj.error === 'string'
+          ? obj.error
+          : typeof obj.reason === 'string'
+            ? obj.reason
+            : typeof obj.detail === 'string'
+              ? obj.detail
+              : 'Runner execution failed';
+      throw new ApiError(errorMsg, { status: 502, code: 'runner_failed', type: 'api_error' });
+    });
   }
 }
 

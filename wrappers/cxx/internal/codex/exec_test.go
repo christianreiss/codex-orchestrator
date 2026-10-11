@@ -13,6 +13,7 @@ import (
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/ipc"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/sessionguard"
 )
 
 func TestBuildEnvIncludesOverrides(t *testing.T) {
@@ -198,6 +199,12 @@ func TestNativeChildInheritsAuthLeasesAfterWrapperSIGKILL(t *testing.T) {
 	_ = cmd.Wait()
 
 	t.Setenv("CODEX_HOME", dir)
+	if guard, err := sessionguard.Maintenance(dir); !errors.Is(err, ipc.ErrHeld) {
+		if guard != nil {
+			_ = guard.Release()
+		}
+		t.Fatalf("orphan child lost housekeeping guard: %v", err)
+	}
 	if maintenance, err := TryAcquireAuthMaintenance(); !errors.Is(err, ipc.ErrHeld) {
 		if maintenance != nil {
 			_ = maintenance.Release()

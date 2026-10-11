@@ -278,7 +278,13 @@ func applyManagedSettings(cs *orchestrator.ClaudeSettings, logger *slog.Logger) 
 }
 
 func applyManagedSettingsResult(cs *orchestrator.ClaudeSettings, logger *slog.Logger) (bool, error) {
-	if cs == nil || len(cs.Partial) == 0 {
+	if cs == nil {
+		return false, nil
+	}
+	if cs.Status == "missing" {
+		return false, errors.New("claude_settings unavailable; preserving managed settings and MCP servers")
+	}
+	if len(cs.Partial) == 0 {
 		return false, nil
 	}
 	var partial map[string]any

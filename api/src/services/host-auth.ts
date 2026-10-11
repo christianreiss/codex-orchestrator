@@ -1,18 +1,18 @@
+import { wsPublisher } from '../ws/publisher.js';
 import type { FastifyRequest } from 'fastify';
-import { and, eq, isNotNull, lt } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import net from 'node:net';
 import ipaddr from 'ipaddr.js';
 import { hosts as hostsTable, type Host } from '../db/schema.js';
 import type { Database } from '../db/client.js';
 import { ForbiddenError, UnauthorizedError } from '../http/errors.js';
 import { extractApiKey, hashApiKey } from '../util/api-key-helpers.js';
-import { isoOffsetSeconds, nowIso } from '../util/timestamp.js';
-import { wsPublisher } from '../ws/publisher.js';
+import { nowIso } from '../util/timestamp.js';
 import { insecureWindowActive, type InsecureWindowService } from './insecure-window.js';
 import { SettingsService } from './settings.js';
 import { assertReverseDnsMatch } from './reverse-dns.js';
 import type { Env } from '../env.js';
-import { suspendAgentMessagingRuntimeLocked } from './agent-messaging.js';
+import { assertHostNotExpired, pruneHosts, recordHostContact } from './host-lifecycle.js';
 
 /**
  * Host authentication helpers. Foundation already provides
@@ -27,8 +27,8 @@ export interface HostAuthService {
    */
   authenticate(req: FastifyRequest): Promise<Host>;
   /**
-   * Remove inactive hosts whose `updatedAt` is older than `inactivity_window_days`
-   * (default 30, max 60, 0 disables). Returns the count of removed rows.
+   * Remove inactive, expired temporary and abandoned unprovisioned hosts.
+   * A zero inactivity_window_days disables only the inactivity criterion.
    */
   pruneInactiveHosts(now?: Date): Promise<number>;
 }
@@ -80,6 +80,7 @@ export function createHostAuthService(deps: HostAuthDeps): HostAuthService {
         throw new ForbiddenError(`Host ${host.status}`, `host_${host.status}`);
       }
 
+      assertHostNotExpired(host);
       const force = req.method === 'DELETE' && (req.query as { force?: string })?.force === '1';
       if (!force) {
         host = await enforceIpBinding(deps, host, ip, bypassCidrs);
@@ -87,28 +88,13 @@ export function createHostAuthService(deps: HostAuthDeps): HostAuthService {
       } else {
         logForceDeleteIpMismatch(req, host, ip);
       }
+      if (req.method !== 'DELETE') host = await recordHostContact(deps.db, host);
+      req.authHost = host;
       return host;
     },
 
     async pruneInactiveHosts(now = new Date()) {
-      const days = await settings.getInt('inactivity_window_days', 30);
-      const clamped = days < 0 ? 0 : days > 60 ? 60 : days;
-      if (clamped === 0) return 0;
-      const cutoff = isoOffsetSeconds(-clamped * 86400, now);
-      const stale = await deps.db
-        .select()
-        .from(hostsTable)
-        .where(and(isNotNull(hostsTable.updatedAt), lt(hostsTable.updatedAt, cutoff)));
-      let removed = 0;
-      for (const row of stale) {
-        await deps.db.transaction(async (tx) => {
-          await suspendAgentMessagingRuntimeLocked(tx, row.id, 'host_inactive');
-          await tx.delete(hostsTable).where(eq(hostsTable.id, row.id));
-        });
-        wsPublisher.publish('host.pruned', { id: row.id, fqdn: row.fqdn, reason: 'inactive' });
-        removed += 1;
-      }
-      return removed;
+      return pruneHosts(deps.db, settings, now);
     },
   };
 }
@@ -136,13 +122,13 @@ async function enforceIpBinding(
   if (boundSame && boundSame === ip) return host;
   if (boundSame && boundSame !== ip) {
     if (host.allowRoamingIps === 1) return bindIp(deps.db, host, ip, family);
-    if (await canExtendInsecureWindow(deps, host, ip)) return bindIp(deps.db, host, ip, family);
+    if (canRebindInsecureHost(host)) return bindIp(deps.db, host, ip, family);
     throw new UnauthorizedError('API key not allowed from this IP', 'ip_mismatch');
   }
   // Same family not yet bound, other family is.
   if (boundOther) {
     if (host.allowRoamingIps === 1) return bindIp(deps.db, host, ip, family);
-    if (await canExtendInsecureWindow(deps, host, ip)) return bindIp(deps.db, host, ip, family);
+    if (canRebindInsecureHost(host)) return bindIp(deps.db, host, ip, family);
     throw new UnauthorizedError('API key not allowed from this IP', 'ip_mismatch');
   }
   return host;
@@ -175,18 +161,10 @@ async function bindIp(db: Database, host: Host, ip: string, family: 'ipv4' | 'ip
     : { ...host, ip6: ip, updatedAt: patch.updatedAt };
 }
 
-async function canExtendInsecureWindow(
-  deps: HostAuthDeps,
-  host: Host,
-  ip: string | null,
-): Promise<boolean> {
-  if (host.secure === 1 || !deps.insecure) return false;
-  try {
-    await deps.insecure.enforce(host, 'auth', ip);
-    return true;
-  } catch {
-    return false;
-  }
+function canRebindInsecureHost(host: Host): boolean {
+  // IP authentication may use an existing grant, never create an approval or
+  // slide a window. The authenticated route applies its own command policy.
+  return host.secure !== 1 && insecureWindowActive(host);
 }
 
 async function enforceReverseDns(

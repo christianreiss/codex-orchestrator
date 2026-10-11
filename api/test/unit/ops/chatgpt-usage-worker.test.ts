@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   DEFAULT_CHATGPT_USAGE_CRON_INTERVAL_SECONDS,
+  createChatGptUsageWorkerLifecycle,
   resolveChatGptUsageWorkerIntervalSeconds,
   runChatGptUsageWorkerTick,
 } from '../../../src/ops/chatgpt-usage-worker.js';
@@ -75,6 +76,20 @@ describe('chatgpt usage worker tick', () => {
     );
   });
 
+  it('does not mark a failed refresh healthy merely because the cached observation is usable', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'codex-quota-worker-'));
+    tempDirs.push(dir);
+    const healthPath = join(dir, 'health.json');
+    await runChatGptUsageWorkerTick({
+      usage: { fetchLatest: async () => ({
+        status: 'error', snapshot: { status: 'ok', fetched_at: '2026-10-11T08:00:00Z' },
+        cached: true, next_eligible_at: '2026-10-11T08:05:00Z', error: 'request timed out',
+      }) },
+      healthPath, log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    });
+    await expect(readFile(healthPath, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
   it('polls nothing while Codex is switched off fleet-wide, and stays healthy', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'codex-quota-worker-'));
     tempDirs.push(dir);
@@ -98,5 +113,44 @@ describe('chatgpt usage worker tick', () => {
       suspended: 'codex_engine_disabled',
     });
     expect(info).toHaveBeenCalledWith({ reason: 'engine_disabled' }, expect.stringContaining('suspended'));
+  });
+});
+
+
+describe('ChatGPT worker shutdown', () => {
+  it('cancels the initial tick and waits for its cleanup before closing the pool once', async () => {
+    let finish!: () => void;
+    let signal!: AbortSignal;
+    const close = vi.fn(async () => undefined);
+    const tick = vi.fn(async (incoming: AbortSignal) => {
+      signal = incoming;
+      await new Promise<void>((resolve) => { finish = resolve; });
+    });
+    const worker = createChatGptUsageWorkerLifecycle({
+      tick, close, intervalMs: 30_000, log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    });
+    const initial = worker.start();
+    await Promise.resolve();
+    const stopped = worker.stop();
+    expect(signal.aborted).toBe(true);
+    expect(worker.stop()).toBe(stopped);
+    await worker.start();
+    expect(close).not.toHaveBeenCalled();
+    expect(tick).toHaveBeenCalledTimes(1);
+    finish();
+    await Promise.all([stopped, initial]);
+    expect(close).toHaveBeenCalledTimes(1);
+  });
+
+  it('never starts a tick when a signal arrives before startup', async () => {
+    const tick = vi.fn();
+    const close = vi.fn(async () => undefined);
+    const worker = createChatGptUsageWorkerLifecycle({
+      tick, close, intervalMs: 30_000, log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    });
+    await worker.stop();
+    await worker.start();
+    expect(tick).not.toHaveBeenCalled();
+    expect(close).toHaveBeenCalledTimes(1);
   });
 });

@@ -139,6 +139,11 @@ func (q *nativeQueue) send(id, content string) error {
 	if q.thread == "" {
 		return errors.New("native thread identity missing")
 	}
+	// A historical failure must not terminate a newly admitted delivery.
+	// Observe it before queueing; only a fresh terminal turn can abandon work.
+	if _, _, err := q.watchdogFailure(); err != nil {
+		return err
+	}
 	var added struct {
 		Submission struct {
 			ID       string `json:"id"`

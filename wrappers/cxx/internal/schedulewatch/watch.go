@@ -24,6 +24,33 @@ var pollInterval = 5 * time.Second
 
 type PolicyReader func(context.Context) (Policy, error)
 type key struct{}
+type activityKey struct{}
+
+// WithActivity includes another child owned by this launch when deciding
+// whether the primary child is idle. It grants no authority to signal siblings.
+func WithActivity(ctx context.Context, cmd *exec.Cmd) context.Context {
+	if cmd == nil || cmd.Process == nil {
+		return ctx
+	}
+	previous, _ := ctx.Value(activityKey{}).([]*os.Process)
+	processes := append(append([]*os.Process(nil), previous...), cmd.Process)
+	return context.WithValue(ctx, activityKey{}, processes)
+}
+
+func launchActivity(ctx context.Context, pid int) processActivity {
+	result := activity(pid)
+	processes, _ := ctx.Value(activityKey{}).([]*os.Process)
+	for _, process := range processes {
+		if process.Pid == pid {
+			continue
+		}
+		other := activity(process.Pid)
+		result.cpu += other.cpu
+		result.tool = result.tool || other.tool
+	}
+	return result
+}
+
 type Watch struct {
 	mu       sync.Mutex
 	last     time.Time
@@ -143,7 +170,7 @@ func Start(ctx context.Context, cmd *exec.Cmd) func() {
 	}
 	childCtx, cancel := context.WithCancel(ctx)
 	done := make(chan struct{})
-	baseline := activity(cmd.Process.Pid)
+	baseline := launchActivity(ctx, cmd.Process.Pid)
 	go func() {
 		defer close(done)
 		ticker := time.NewTicker(pollInterval)
@@ -154,7 +181,7 @@ func Start(ctx context.Context, cmd *exec.Cmd) func() {
 			case <-childCtx.Done():
 				return
 			case <-ticker.C:
-				current := activity(cmd.Process.Pid)
+				current := launchActivity(ctx, cmd.Process.Pid)
 				if current.known && (current.cpu != baseline.cpu || current.tool) {
 					Touch(ctx)
 				}
@@ -198,7 +225,7 @@ func Start(ctx context.Context, cmd *exec.Cmd) func() {
 					reset(ctx)
 					continue
 				}
-				if activity(cmd.Process.Pid).tool {
+				if launchActivity(ctx, cmd.Process.Pid).tool {
 					Touch(ctx)
 					continue
 				}

@@ -1,3 +1,4 @@
+import { recordHostContact } from '../../services/host-lifecycle.js';
 import { HostSpawnService } from '../../services/host-spawn.js';
 import { createAgentMessagingService } from '../../services/agent-messaging.js';
 /**
@@ -53,7 +54,7 @@ export async function registerMcpRoutes(app: FastifyInstance, ctx: RouteContext)
   const accessLog = new McpAccessLogService(ctx.db);
   const memories = new McpMemoriesService(ctx.db);
   const sharedMemories = new SharedMemoriesService(ctx.db);
-  const projects = new HostProjectsService(ctx.db);
+  const projects = new HostProjectsService(ctx.db, { presenceFreshSeconds: ctx.env.AGENT_PORTAL_HEARTBEAT_FRESH_SECONDS });
   const skills = new HostSkillsService(ctx.db);
 
   // fs_* tools are only registered when MCP_FS_ROOT points at an existing
@@ -109,6 +110,7 @@ export async function registerMcpRoutes(app: FastifyInstance, ctx: RouteContext)
     db: ctx.db,
     projects,
     settings: new SettingsService(ctx.db),
+    freshSeconds: ctx.env.AGENT_PORTAL_HEARTBEAT_FRESH_SECONDS,
   });
 
   const transfers = new AgentTransfersService({
@@ -210,7 +212,7 @@ export async function registerMcpRoutes(app: FastifyInstance, ctx: RouteContext)
       return;
     }
 
-    const host = await resolveHost(req);
+    let host = await resolveHost(req);
     if (!host) {
       throw new UnauthorizedError('Invalid MCP credential', 'invalid_mcp_credential');
     }
@@ -230,6 +232,8 @@ export async function registerMcpRoutes(app: FastifyInstance, ctx: RouteContext)
     // re-pointed at the engine it happens to have enabled.
     const engine = resolveRequestEngine(req, undefined, { fallback: ENGINE_CODEX });
     assertHostEngineEnabled(host, engine, await readFleetEngineState(ctx.db));
+    host = await recordHostContact(ctx.db, host);
+    req.authHost = host;
     const result = await server.handlePayload(body, {
       host,
       clientIp: clientIp(req),

@@ -156,6 +156,11 @@ export class CompanionRemote {
         !!host?.startable &&
         host.engines.includes(row.engine);
       const running = row.status === 'running';
+      // The persisted operation state survives lost connections. Only a fresh
+      // daemon or a reachable bound agent can justify live working presence.
+      const daemonOnline = !!host && host.health.state !== 'disabled' &&
+        !host.health.reasons.some((reason) =>
+          ['heartbeat_expired', 'reconnecting', 'installation_pending'].includes(reason));
       const writable = resumable || (running && bound?.relay_ready === true && bound.read_only !== true);
       projected.push({
         ...bound,
@@ -173,7 +178,7 @@ export class CompanionRemote {
             ? (bound?.presence ?? 'working')
             : 'listening'
           : ['queued', 'running', 'stopping'].includes(row.status)
-            ? 'working'
+            ? daemonOnline ? 'working' : 'offline'
             : ['closed', 'failed', 'unknown'].includes(row.status)
               ? 'ended'
               : 'offline',

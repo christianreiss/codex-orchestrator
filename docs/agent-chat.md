@@ -15,7 +15,9 @@ The fleet-wide **Agent sessions** switch is under **Fleet → Policies → Agent
 
 Both clients list all retained conversations by default, including offline, idle and ended agents. History is stored on the server throughout the session and for 24 hours after it ends (`AGENT_PORTAL_RETENTION_HOURS`, default 24); leaving the screen or restarting the client does not delete it. A temporarily disconnected agent can return to its existing conversation. Presence controls sending, not history visibility. Android closure still clears unread alerts, and web filters can narrow the list to current or ended sessions.
 
-Questions choose `buttons`, `text` or `both`. A choice has a display `label` and stable `value`; button answers send the value. The first queued answer owns the question, and exact retries retain their original operation. Normal questions appear under Your answer. Only explicit `important`, `critical` or `blocker` with a stable notice UUID appears under Needs you. Reading, replying, becoming offline or ending does not clear classified notices; operator/agent resolution targets one UUID. Unresolved notices retain the relevant existing session context until resolution, then its ordinary retention resumes. Identical notice/severity pushes deduplicate; escalation permits one new notification.
+Questions choose `buttons`, `text` or `both`. A choice has a display `label` and stable `value`; button answers send the value. The first queued answer owns the question, and exact retries retain their original operation. Normal questions appear under Your answer and notify devices following the conversation. Explicit classified notices notify eligible devices regardless of follow state. Only explicit `important`, `critical` or `blocker` with a stable notice UUID appears under Needs you. Reading, replying, becoming offline or ending does not clear classified notices; operator/agent resolution targets one UUID. Unresolved notices retain the relevant existing session context until resolution, then its ordinary retention resumes. Identical notice/severity pushes deduplicate; escalation permits one new notification.
+
+An unanswered question tied to a stopped native receiver, or one without a fresh receiver heartbeat for 45 seconds, expires on the next maintenance sweep even while the wrapper remains connected. A receiver that recovers before the locked recheck preserves the question. Armed reboot handoffs and Companion Remote conversations with a durable resume path are exempt from this cleanup. Expiry leaves the conversation and classified notices intact.
 
 ## Files and media
 
@@ -28,6 +30,8 @@ Metadata is encrypted in MySQL; file bytes are private on the store volume. Down
 ## Agent usage
 
 Use `agent_portal_ask` with stable `client_event_id`, `prompt_id`, `answer_mode` and optional `choices`. Add `severity`, `notice_id` and a short reason in `summary` only when operator attention is important/critical/blocking. `agent_portal_notify` publishes a classified notice; `agent_portal_resolve` resolves one. Retain caller IDs on retry.
+
+An authorized unattended reboot continuation restores the original Portal reply/status and accepted-work correlation through its shared MCP owner, even without an automatic receiver. Continue with those original IDs; restoration neither submits the task again nor establishes readiness for new automatic deliveries.
 
 Upload a local file with `agent_attachment_upload` (`upload_id`, `path`, `mime_type`), then pass returned IDs in `agent_receiver_reply.attachments` or a question. Incoming instructions include `metadata.attachments` and optional `reply_to`. `agent_attachment_get` takes an attachment UUID and optional `original`, `transcript.json` or `frame-NN.jpg`, returning metadata, preparation state and a local path for the engine's own file/image tools. Preparation is asynchronous: recheck queued results or inspect the original. No automatic execution or authority is inferred from files.
 

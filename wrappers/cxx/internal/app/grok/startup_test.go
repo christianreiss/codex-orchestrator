@@ -259,6 +259,11 @@ func TestDoctorSummaryDisplaysLiveMetadataWithoutTouchingCredentials(t *testing.
 		if r.URL.Path != "/auth" {
 			t.Errorf("doctor performed a content/lease mutation: %s", r.URL.Path)
 		}
+		var payload map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&payload)
+		if payload["metadata_only"] != true {
+			t.Error("doctor requested rotating subscription credentials")
+		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(in.Auth)
 	}))
@@ -285,5 +290,47 @@ func TestExplicitStatusMinimalFlagsRetainCompactRequest(t *testing.T) {
 		if err != nil || !o.minimal {
 			t.Fatalf("compact status flag lost: %v -> %+v %v", args, o, err)
 		}
+	}
+}
+
+func TestStartupMetadataLetsPoolChooseHealthyAccountAfterStaleBinding(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	var seenAcquire bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/auth":
+			if body["metadata_only"] != true {
+				t.Error("startup attempted credential refresh")
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"account_pool": true, "metadata_only": true, "status": "missing", "verification_state": "failed"})
+		case "/auth/sessions":
+			seenAcquire = true
+			if _, pinned := body["account_id"]; pinned {
+				t.Error("new private launch pinned failed previous account")
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"account_id": 2, "session_id": body["session_id"], "verification_state": "verified", "auth": map[string]any{"fixture": "access-only"}})
+		case "/auth/sessions/release":
+			_, _ = w.Write([]byte(`{"status":"ok"}`))
+		default:
+			t.Errorf("unexpected route %s", r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+	pool := accountpool.Load("grok", filepath.Join(t.TempDir(), "auth.json"), srv.URL)
+	pool.AccountID = 1
+	client := &orchestrator.Client{BaseURL: srv.URL, HTTP: srv.Client(), Pool: pool}
+	if _, err := retrieveStartupAuth(context.Background(), client, true, true, &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+	release, lease, err := pool.Start(context.Background(), client, false, func(json.RawMessage, string, bool) (bool, error) { return true, nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer release()
+	if !seenAcquire || lease.AccountID != 2 {
+		t.Fatal("healthy pool account was unreachable")
 	}
 }

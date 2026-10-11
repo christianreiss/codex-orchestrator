@@ -32,6 +32,15 @@ function trailingUsage(completion: Record<string, unknown>): unknown {
   return dataOf(events[events.length - 1]!).usage;
 }
 
+describe('chatCompletionStreamEvents stop reasons', () => {
+  it.each([null, 'stop', 'length', 'content_filter', 'tool_calls'])('preserves finish_reason %s', (reason) => {
+    const events = chatCompletionStreamEvents(sampleCompletion({
+      choices: [{ index: 0, message: { role: 'assistant', content: 'hello' }, finish_reason: reason }],
+    }));
+    expect(dataOf(events.at(-1)!).choices).toEqual([{ index: 0, delta: {}, finish_reason: reason }]);
+  });
+});
+
 describe('chatCompletionStreamEvents include_usage', () => {
   it('appends a trailing usage chunk and marks content chunks usage:null', () => {
     const events = chatCompletionStreamEvents(sampleCompletion(), { includeUsage: true });
@@ -113,19 +122,19 @@ describe('chatCompletionStreamEvents usage extraction', () => {
 
 describe('chatCompletionStreamEvents content extraction', () => {
   it('skips the content delta for unusable choices', () => {
-    for (const completion of [
-      sampleCompletion({ choices: [] }),
-      sampleCompletion({ choices: 'nope' }),
-      sampleCompletion({ choices: [{ index: 0, finish_reason: 'stop' }] }),
-      sampleCompletion({ choices: [{ index: 0, message: { content: { text: 'hi' } } }] }),
-    ]) {
+    for (const [completion, finishReason] of [
+      [sampleCompletion({ choices: [] }), null],
+      [sampleCompletion({ choices: 'nope' }), null],
+      [sampleCompletion({ choices: [{ index: 0, finish_reason: 'stop' }] }), 'stop'],
+      [sampleCompletion({ choices: [{ index: 0, message: { content: { text: 'hi' } } }] }), null],
+    ] as const) {
       const events = chatCompletionStreamEvents(completion);
       expect(events).toHaveLength(2);
       expect(dataOf(events[0]!).choices).toEqual([
         { index: 0, delta: { role: 'assistant', content: '' }, finish_reason: null },
       ]);
       expect(dataOf(events[1]!).choices).toEqual([
-        { index: 0, delta: {}, finish_reason: 'stop' },
+        { index: 0, delta: {}, finish_reason: finishReason },
       ]);
     }
   });

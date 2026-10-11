@@ -32,7 +32,9 @@ const VERIFY_PAGE_PATH = '/admin/cli-auth/verify';
  */
 export async function registerCliAuthRoutes(app: FastifyInstance, ctx: RouteContext): Promise<void> {
   const insecure = createInsecureWindowService({ db: ctx.db, env: ctx.env });
-  const registration = createHostRegistrationService({ db: ctx.db, keyring: ctx.keyring, insecure });
+  const registration = createHostRegistrationService({
+    db: ctx.db, keyring: ctx.keyring, insecure, defaultHostEngines: ctx.env.DEFAULT_HOST_ENGINES,
+  });
   const cli = createCliAuthService({ db: ctx.db, keyring: ctx.keyring, registration });
 
   app.post('/cli/auth/start', async (req) => {

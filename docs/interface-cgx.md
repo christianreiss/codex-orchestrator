@@ -5,6 +5,17 @@ continue using the existing session/receiver contracts and `cxx portal` commands
 operator access requires a dashboard account or its paired device. Session
 settings and remote-session controls are available in Active Clients.
 
+## Native shutdown
+
+Native launches and help forward SIGINT, SIGTERM and SIGHUP as catchable
+signals, allowing ten seconds for cleanup before forced termination. Exit
+status uses the shell convention `128 + signal`. Headless children, the Codex
+app-server receiver and the Grok private leader own process groups whose
+remaining members are terminated on completion. Interactive children retain
+the terminal foreground group; forced escalation targets their direct child.
+User stops finish as `user_stop`, while genuine crashes and an already reported
+hang or capacity failure keep their own recovery classification.
+
 ## Fleet commit preferences
 
 Managed AGENTS.md carries the fleet's short/long commit preference and AI attribution setting from the Git Director page, independently of Director, MCP and Skills activation. Defaults: a subject-only message and no automatic AI markers/co-authors. Long adds change/reason and relevant verification; attribution adds one `AI-Assisted-By: Grok` trailer after a blank line, also in short mode. Git author/committer and commit/push authorization remain unchanged; explicit operator instructions take precedence. The next content sync/launch refreshes the document hash; active sessions may retain previous guidance, and explicit blank generation mode suppresses managed rules. API contract: [Fleet commit preferences](interface-api.md#fleet-commit-preferences).
@@ -257,6 +268,11 @@ whichever refreshes second receives `invalid_grant`, and if that is the server
 the account enters `login_required` fleet-wide. Only upload a login nothing else
 will use.
 
+The standalone seed script requires Python 3 before starting login. A detached
+cleanup helper is ready before private credentials are created and waits until
+login/upload users exit, including after the launching process is killed. The
+`GROK_SEED_AUTH_PATH` override remains caller-owned and is never removed.
+
 The encrypted canonical envelope contains `last_refresh`, the complete
 `grok_auth` scope map, `grok_scope`, and a derived `auths` bearer entry for
 `cli-chat-proxy.grok.com`. Unknown native fields and unselected scopes survive
@@ -274,7 +290,12 @@ remain `uncertain`; invalid grants require login. A verified distinct login can
 recover the account. OAuth discovery is constrained to `https://auth.x.ai`;
 uploaded issuer URLs cannot redirect credentials to another endpoint.
 
-`/auth` returns the access-only envelope with `canonical_generation`,
+Startup, `status` and `doctor` use `/auth` with `metadata_only: true` to inspect
+local canonical metadata without refreshing provider credentials or allocating an
+account lease. A missing/default account cannot block the subsequent account-pool
+selection; the actual runtime grant is obtained through `/auth/sessions`.
+
+Ordinary credential retrieval through `/auth` returns the access-only envelope with `canonical_generation`,
 `access_token_digest`, `expires_at`, and refresh-state metadata.
 The shared `host` block includes `grok_last_refresh`, `grok_client_version`,
 `grok_client_version_override`, `grok_wrapper_version`, `grok_auth_digest`,
@@ -798,3 +819,49 @@ All three engines share five local MCP tools in managed lifecycles: `agent_porta
 `cxx portal ask --question "Deploy this release?" --summary "Choose the release" --answer-mode buttons --choices '[{"label":"Approve","value":"approve"},{"label":"Cancel","value":"cancel"}]'` creates a normal question. Use `--answer-mode text` or `both` for free text. `--attachments '["UUID"]'` accepts already sealed attachments. `cxx portal notify --severity blocker --notice-id UUID --summary "Waiting for the release decision"` creates explicit Needs you. `cxx portal resolve --notice-id UUID --summary "Release reviewed"` clears only that notice. MCP operations require stable caller-generated event/prompt/notice/upload UUIDs retained on retries. The CLI retains its existing invocation behavior.
 
 `agent_attachment_get` returns a protected local path plus metadata/processing state. Read original images with native image tools; fetch `transcript.json` for local ASR and `frame-NN.jpg` for video inspection. Originals survive preparation failure. Update the wrapper and start/resume a managed lifecycle to load the new tool catalog; existing running older wrappers continue with their old catalog.
+
+## Sync and cleanup recovery (cxx 0.9.61)
+
+Housekeeping launch guards are inherited by native children, including help and
+Codex's app-server, so wrapper SIGKILL does not free an active child's fence.
+Process scans preserve executable paths containing spaces and recognize native
+shell/env/node launchers. Activity is checked again after reservation and during
+recovery. Raw unwrapped CLIs do not honor the flock; process scans reduce the race
+but cannot atomically prevent a new unwrapped launch.
+
+Version-2 cleanup journals mark the indexing boundary durably. If an interrupted
+move finds a changed original before indexing, recovery restores missing originals
+without replacing reappeared files, keeps conflicting copies in quarantine with
+a recovery receipt, and releases the launch fence. Once indexing may have begun,
+ambiguous state stays fenced for manual recovery; transcripts are not blindly
+overwritten or discarded.
+
+Skill directory replacement uses atomic directory exchange on Linux and macOS,
+with synced staged content. A filesystem without exchange support returns an
+error while preserving the existing directory; it does not use a two-rename gap.
+
+The Grok skill store records a synced publication intent before exposing a new
+bundle and commits its ownership before beginning another. Recovery recognizes
+only the directory inode originally staged by that operation; an identical-content
+user directory does not grant ownership. Interrupted first installs therefore
+recover without abandoning an unrecorded live skill.
+
+Managed Grok config updates serialize config and ownership publication with a
+hash-only pending journal. Recovery recognizes the old or proposed value by its
+digest while preserving intervening user edits; it never stores a second copy of
+MCP credentials in the journal.
+
+Private runtime and login directories have an independent cleanup process ready
+before credential publication. It retains inherited session guards and waits for
+private-directory holders before removal. On Linux, matching private-home process
+environment also protects native children that close inherited descriptors. A
+later maintenance sweep only removes marked directories whose locks and process
+checks are idle. This does not claim cleanup while the host is powered off.
+
+Managed content sync takes an exclusive lock, then each parallel native runtime
+holds its own shared lease through native exit. `--allow-concurrent-sync` permits
+writes despite these leases and is forwarded through sync, update and cron.
+Maintenance respects native-download disable and `CGX_GROK_BIN`; old managed
+prefixes are reclaimed only on a later idle tick. Explicit trust loss removes
+recorded fleet skills, unchanged owned config and unchanged managed AGENTS while
+preserving user edits. Ordinary network failure retains the last synced content.

@@ -7,9 +7,12 @@ import (
 	"io"
 	"os"
 	"os/exec"
-	"os/signal"
 	"path/filepath"
 	"syscall"
+
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/ipc"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/nativeprocess"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/sessionguard"
 )
 
 // ErrAuthChildActive means a clx-launched Claude process is actively using the
@@ -35,7 +38,7 @@ func duplicateLeaseFile(f *os.File, name string) (*os.File, error) {
 // attachAuthLeaseFiles gives the native CLI duplicate descriptors for both
 // coordination leases. flock ownership then survives a SIGKILL of the wrapper:
 // the orphaned Claude process remains the last holder until it actually exits.
-func attachAuthLeaseFiles(cmd *exec.Cmd, session *AuthSession, child *authChildLease) (func(), error) {
+func attachAuthLeaseFiles(cmd *exec.Cmd, session *AuthSession, child *authChildLease, extraLeases ...*ipc.Lock) (func(), error) {
 	files := make([]*os.File, 0, 2)
 	closeFiles := func() {
 		for _, f := range files {
@@ -62,6 +65,14 @@ func attachAuthLeaseFiles(cmd *exec.Cmd, session *AuthSession, child *authChildL
 			return func() {}, err
 		}
 		files = append(files, dup)
+	}
+	for _, lease := range extraLeases {
+		dup, err := lease.DuplicateForExec()
+		if err != nil {
+			closeFiles()
+			return func() {}, err
+		}
+		files = append(files, dup.File())
 	}
 	cmd.ExtraFiles = append(cmd.ExtraFiles, files...)
 	return closeFiles, nil
@@ -103,6 +114,11 @@ func RunHelpPassthrough(
 	stdout, stderr io.Writer,
 	session *AuthSession,
 ) (int, error) {
+	guard, err := sessionguard.Launch("claude")
+	if err != nil {
+		return 1, err
+	}
+	defer guard.Release()
 	lease, err := acquireAuthChildShared()
 	if err != nil {
 		return 1, err
@@ -114,9 +130,11 @@ func RunHelpPassthrough(
 	cmd := exec.CommandContext(ctx, path, argv[1:]...)
 	cmd.Env = managedClaudeEnv(path, env)
 	cmd.Stdin = stdin
+	supervisor := nativeprocess.Prepare(ctx, cmd, nativeprocess.Headless(cmd.Stdin))
+	defer supervisor.Close()
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
-	closeExtras, err := attachAuthLeaseFiles(cmd, session, lease)
+	closeExtras, err := attachAuthLeaseFiles(cmd, session, lease, guard)
 	if err != nil {
 		_ = lease.Close()
 		return 1, err
@@ -128,33 +146,13 @@ func RunHelpPassthrough(
 	}
 	closeExtras()
 
-	sigCh := make(chan os.Signal, 4)
-	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		for sig := range sigCh {
-			if cmd.Process != nil {
-				_ = cmd.Process.Signal(sig)
-			}
-		}
-	}()
-
 	waitErr := cmd.Wait()
+	supervisor.Close()
 	leaseErr := lease.Close()
-	signal.Stop(sigCh)
-	close(sigCh)
-	<-done
 	if waitErr == nil && leaseErr != nil {
 		return 1, fmt.Errorf("release Claude help auth child lease: %w", leaseErr)
 	}
-	if waitErr == nil {
-		return 0, nil
-	}
-	if exitErr, ok := waitErr.(*exec.ExitError); ok {
-		return exitErr.ExitCode(), nil
-	}
-	return 1, waitErr
+	return supervisor.Result(waitErr)
 }
 
 func openAuthChildLease() (*os.File, error) {

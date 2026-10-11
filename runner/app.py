@@ -1,3 +1,4 @@
+import asyncio
 import json
 import os
 import re
@@ -5,6 +6,7 @@ import secrets
 import shutil
 import subprocess
 import tempfile
+import threading
 import time
 from typing import Literal, Optional
 
@@ -15,6 +17,7 @@ from pydantic import BaseModel, Field
 import grok
 import runner_engines
 from chatty import register_chatty
+from exec_process import ExecCancelled, run_prompt_process
 from images import ImageLimits, ImagePolicyError, materialize_images
 
 app = FastAPI()
@@ -1458,7 +1461,9 @@ def _build_codex_exec_cmd(prompt: str, model: Optional[str], image_paths: Option
     return cmd
 
 
-def _exec_prompt(payload: ExecRequest) -> dict:
+def _exec_prompt(payload: ExecRequest, cancelled: Optional[threading.Event] = None) -> dict:
+    if cancelled is not None and cancelled.is_set():
+        raise ExecCancelled("exec cancelled")
     prompt = payload.prompt.strip()
     if prompt == "":
         raise HTTPException(status_code=400, detail="prompt is required")
@@ -1493,12 +1498,11 @@ def _exec_prompt(payload: ExecRequest) -> dict:
         else:
             cmd = _build_codex_exec_cmd(prompt, payload.model, image_paths)
         start = time.perf_counter()
-        proc = subprocess.run(
+        proc = run_prompt_process(
             cmd,
             env=env,
-            capture_output=True,
-            text=True,
             timeout=timeout,
+            cancelled=cancelled,
         )
         latency_ms = int((time.perf_counter() - start) * 1000)
         stdout = (proc.stdout or "").strip()
@@ -1575,17 +1579,40 @@ def exec_health():
 
 
 @app.post("/exec")
-def exec_prompt(payload: ExecRequest, request: Request):
+async def exec_prompt(payload: ExecRequest, request: Request):
     _require_runner_auth(request)
-
+    cancelled = threading.Event()
+    work = asyncio.create_task(asyncio.to_thread(_exec_prompt, payload, cancelled))
     try:
-        return _exec_prompt(payload)
+        while True:
+            done, _ = await asyncio.wait({work}, timeout=0.1)
+            if await request.is_disconnected():
+                raise HTTPException(status_code=499, detail="exec cancelled")
+            if done:
+                return await work
+    except ExecCancelled:
+        raise HTTPException(status_code=499, detail="exec cancelled") from None
     except subprocess.TimeoutExpired:
         raise HTTPException(status_code=504, detail="exec timeout")
     except HTTPException:
         raise
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=500, detail=str(exc))
+    finally:
+        cancelled.set()
+        # Cancelling an asyncio task does not stop its worker thread. Let that
+        # thread terminate/reap its process group before it removes the home.
+        while not work.done():
+            try:
+                await asyncio.shield(work)
+            except asyncio.CancelledError:
+                continue
+            except Exception:  # noqa: BLE001
+                break
+        # Retrieve an exception after disconnect/cancellation to avoid an
+        # unobserved-task warning; the original HTTP/cancellation result wins.
+        if work.done() and not work.cancelled():
+            work.exception()
 
 
 # Inference-only product assistant; tools remain in the API process.

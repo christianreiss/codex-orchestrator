@@ -107,7 +107,13 @@ type channelTracker struct {
 }
 
 func newChannelTracker(client *sessionClient) *channelTracker {
-	return &channelTracker{client: client, items: make(map[string]*channelPending)}
+	t := &channelTracker{client: client, items: make(map[string]*channelPending)}
+	if os.Getenv("CXX_REBOOT_REQUEST_ID") != "" {
+		// Headless continuation needs the original Portal receipt ownership,
+		// but has no automatic delivery transport to advertise as ready.
+		t.receiver = &autoReceiver{client: client, tracker: t, stall: newStallWatcher()}
+	}
+	return t
 }
 
 func (t *channelTracker) track(parent context.Context, messageID, claimID string, delivery ...map[string]any) *channelPending {
@@ -524,6 +530,8 @@ func runMCPProtocol(client *sessionClient, channel bool, stdin io.Reader, stdout
 	automatic := len(auto) > 0 && auto[0]
 	if automatic {
 		channelState.receiver = &autoReceiver{client: client, tracker: channelState, output: output, stall: newStallWatcher()}
+	}
+	if channelState.receiver != nil {
 		defer channelState.receiver.stall.stopAll()
 	}
 	receiverStarted := false
@@ -570,14 +578,21 @@ func runMCPProtocol(client *sessionClient, channel bool, stdin io.Reader, stdout
 			channelState.receiver.acceptPong(line)
 			continue
 		}
-		if automatic && initialized && !receiverStarted && req.Method == "notifications/initialized" {
+		if channelState.receiver != nil && initialized && !receiverStarted && req.Method == "notifications/initialized" {
 			receiverStarted = true
 			channelState.owner = newReceiverOwner(client, channelState)
+			if !automatic && channelState.owner != nil {
+				// Elect one receipt owner across native subagents without starting
+				// a receiver that this unattended continuation cannot consume.
+				channelState.owner.runReceiver = func(ctx context.Context, _ io.Writer) { <-ctx.Done() }
+			}
 			receiverDone = make(chan struct{})
 			if channelState.owner != nil {
 				go func() { defer close(receiverDone); channelState.owner.run(ctx, stderr) }()
-			} else {
+			} else if automatic {
 				go func() { defer close(receiverDone); channelState.receiver.run(ctx, stderr) }()
+			} else {
+				close(receiverDone)
 			}
 			continue
 		}

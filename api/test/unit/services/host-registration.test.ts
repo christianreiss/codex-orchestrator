@@ -1,8 +1,9 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   adminEvents,
   hosts as hostsTable,
   logs as logsTable,
+  versions,
 } from '../../../src/db/schema.js';
 import {
   createHostRegistrationService,
@@ -37,7 +38,7 @@ interface Harness {
   openCalls: Array<{ hostId: number; windowMinutes: number | undefined }>;
 }
 
-function setup(rows: Row[] = []): Harness {
+function setup(rows: Row[] = [], defaultHostEngines?: string): Harness {
   const db = createDbFake();
   db.tables.set(hostsTable, rows);
   db.tables.set(adminEvents, []);
@@ -61,7 +62,7 @@ function setup(rows: Row[] = []): Harness {
     },
   };
 
-  const service = createHostRegistrationService({ db: db as never, keyring, insecure });
+  const service = createHostRegistrationService({ db: db as never, keyring, insecure, defaultHostEngines });
   return { db, keyring, service, openCalls };
 }
 
@@ -95,6 +96,41 @@ afterEach(() => {
 });
 
 describe('registerOrRotate: new host', () => {
+  it('revalidates suspended assignment against the host locked after concurrent removal', async () => {
+    const h = setup([existingRow({ engines: 'codex,claude' })]);
+    h.db.tables.set(versions, [{ name: 'codex_engine_disabled', version: '1' }]);
+    const transaction = h.db.transaction.bind(h.db);
+    vi.spyOn(h.db, 'transaction').mockImplementationOnce(async callback => {
+      h.db.tables.set(hostsTable, [existingRow({ engines: 'claude' })]);
+      return transaction(callback);
+    });
+    await expect(h.service.registerOrRotate({ fqdn: ROTATE_FQDN, engines: 'codex,claude' })).rejects.toMatchObject({ code: 'engine_disabled' });
+    expect(h.db.tables.get(hostsTable)?.[0]?.engines).toBe('claude');
+    expect(h.db.tables.get(hostsTable)?.[0]?.apiKeyHash).toBe(sha256(STALE_KEY));
+  });
+
+  it('refuses an implicit Codex assignment while Codex is suspended before storing credentials', async () => {
+    const h = setup();
+    h.db.tables.set(versions, [{ name: 'codex_engine_disabled', version: '1' }]);
+    await expect(h.service.registerOrRotate({ fqdn: 'new.example.com' })).rejects.toMatchObject({ code: 'engine_disabled', status: 409 });
+    expect(h.db.tables.get(hostsTable)).toEqual([]);
+    expect(events).toEqual([]);
+  });
+
+  it('drops suspended engines from configured defaults on a new host', async () => {
+    const h = setup([], 'codex,claude,grok');
+    h.db.tables.set(versions, [{ name: 'codex_engine_disabled', version: '1' }, { name: 'grok_engine_disabled', version: '1' }]);
+    const out = await h.service.registerOrRotate({ fqdn: 'new.example.com' });
+    expect(out.host.engines).toBe('claude');
+  });
+
+  it.each(['codex', 'claude', 'grok'])('refuses an explicitly suspended %s assignment', async (engine) => {
+    const h = setup();
+    h.db.tables.set(versions, [{ name: `${engine}_engine_disabled`, version: '1' }]);
+    await expect(h.service.registerOrRotate({ fqdn: 'new.example.com', engines: engine })).rejects.toMatchObject({ code: 'engine_disabled' });
+    expect(h.db.tables.get(hostsTable)).toEqual([]);
+  });
+
   it('inserts one active row carrying the hash in both key columns and the encrypted key', async () => {
     const h = setup();
 
@@ -147,6 +183,13 @@ describe('registerOrRotate: new host', () => {
 });
 
 describe('registerOrRotate: existing host', () => {
+  it('keeps an existing suspended engine assignment during key rotation', async () => {
+    const h = setup([existingRow({ engines: 'codex,claude' })]);
+    h.db.tables.set(versions, [{ name: 'codex_engine_disabled', version: '1' }]);
+    const out = await h.service.registerOrRotate({ fqdn: ROTATE_FQDN });
+    expect(out.host.engines).toBe('codex,claude');
+  });
+
   it('rotates the row in place with a fresh key and a refreshed updatedAt', async () => {
     const h = setup([existingRow()]);
 

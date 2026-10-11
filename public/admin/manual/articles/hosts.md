@@ -167,7 +167,7 @@ Review endpoints:
 
 ## Pruning stale hosts
 
-`POST /admin/prune-policy` (in the settings routes) sets `inactivity_window_days` (clamped 0–60, default 30; `0` disables it), configurable under *Policies → Host lifecycle*. The routine that would act on it — `HostAuthService.pruneInactiveHosts()` in `host-auth.ts`, which deletes host rows whose `updated_at` is older than the window and publishes `host.pruned` — exists but is not wired to any scheduler or route in this codebase, so the stored policy is not currently enforced automatically.
+`POST /admin/prune-policy` sets `inactivity_window_days` (0–60, default 30) under *Policies → Host lifecycle*. Successful host requests, registration and admin host listing enforce cleanup. `0` disables inactivity cleanup only: expired temporary hosts and records never provisioned after 30 minutes without activity still expire. Valid authenticated contacts renew temporary hosts for two hours; expired credentials cannot renew themselves. Cleanup rechecks each host under its row lock, revokes its installer tokens, removes host metadata and emits `host.pruned`. Canonical provider accounts remain intact.
 
 ## Source references
 

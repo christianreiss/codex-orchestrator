@@ -68,6 +68,18 @@ describe('companion live invalidations', () => {
     await vi.advanceTimersByTimeAsync(5000);
     expect(socket.frames.at(-1)).toMatchObject({ type: 'changed', scopes: ['agents', 'approvals'] });
   });
+  it.each([false, true])('refreshes remote conversation presence when only daemon health changes (host access %s)', async (hostAccess) => {
+    vi.mocked(sources.authorize).mockResolvedValue(['agent_portal.read', ...(hostAccess ? ['admin.read'] : [])]);
+    vi.mocked(sources.revisions).mockResolvedValue({ agents: 'unchanged', approvals: 'unchanged', hosts: 'online' });
+    const socket = await connect();
+    socket.frames = [];
+    // An unbound queued/running daemon session has no Portal row whose own
+    // presence changes. Its projected card still depends on daemon freshness.
+    vi.mocked(sources.revisions).mockResolvedValue({ agents: 'unchanged', approvals: 'unchanged', hosts: 'offline' });
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(socket.frames.at(-1)?.scopes).toContain('agents');
+    expect(socket.frames.at(-1)?.scopes?.includes('hosts')).toBe(hostAccess);
+  });
   it('filters scopes, notices role changes and closes a revoked device', async () => {
     vi.mocked(sources.authorize).mockResolvedValue(['hosts.activate_insecure']);
     const socket = await connect();

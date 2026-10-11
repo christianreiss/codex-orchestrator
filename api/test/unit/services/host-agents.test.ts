@@ -302,6 +302,17 @@ describe('HostAgentsService document resolution', () => {
     expect((await makeService(db).retrieve(null, makeHost()))['version_id']).toBe(9);
   });
 
+  it.each([ENGINE_CODEX, ENGINE_CLAUDE, ENGINE_GROK])('ignores a historical foreign lock for %s', async (engine) => {
+    const foreign = engine === ENGINE_CODEX ? ENGINE_CLAUDE : ENGINE_CODEX;
+    const stateId = { codex: 1, claude: 2, grok: 3 }[engine];
+    const db = makeDb([
+      [agentsDocuments, [agentsRow(9, 'foreign policy', foreign), agentsRow(5, 'own policy', engine)]],
+      [agentsDocumentState, [{ id: stateId, mode: 'locked', activeDocumentId: 9, engine }]],
+    ]);
+
+    expect((await makeService(db).retrieve(null, makeHost(), engine))['version_id']).toBe(5);
+  });
+
   it('falls back to any engine when no document matches the requested one', async () => {
     const db = makeDb([[agentsDocuments, [agentsRow(5, 'newest claude', ENGINE_CLAUDE)]]]);
 

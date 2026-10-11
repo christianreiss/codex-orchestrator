@@ -1,3 +1,4 @@
+import { withRunnerCancellation } from './runner-cancellation.js';
 /**
  * Runner-backed Anthropic adapter. Mirror of src/Adapters/ClaudeBackendAdapter.php.
  *
@@ -85,6 +86,7 @@ export interface RunnerClaudeAdapter {
     messages: ClaudeMessage[],
     model: string,
     params: ClaudeRequestParams,
+    signal?: AbortSignal,
   ): Promise<ClaudeMessageResponse>;
 }
 
@@ -126,7 +128,8 @@ export function createRunnerClaudeAdapter(deps: RunnerClaudeAdapterDeps): Runner
   const getAuth = deps.getAuthSnapshot ?? (async () => null);
 
   return {
-    async messages(messages, model, params) {
+    async messages(messages, model, params, signal) {
+      signal?.throwIfAborted();
       // Codex has nowhere to put a system instruction: fold it into the
       // transcript as a leading `system:` line, exactly how a system turn
       // reaches Codex through `/v1`. Grok cannot accept `max_tokens`, which
@@ -165,6 +168,7 @@ export function createRunnerClaudeAdapter(deps: RunnerClaudeAdapterDeps): Runner
       );
 
       const auth = await getAuth();
+      signal?.throwIfAborted();
       if (auth === null || auth === undefined) {
         throw new ApiError(
           `No auth credentials available. Upload ${ENGINE_LABELS[engine]} auth first.`,
@@ -186,76 +190,76 @@ export function createRunnerClaudeAdapter(deps: RunnerClaudeAdapterDeps): Runner
       const headers: Record<string, string> = { 'content-type': 'application/json' };
       if (secret) headers['x-runner-auth'] = secret;
 
-      const controller = new AbortController();
-      const timeoutMs = Math.max(1, timeoutSeconds + 5) * 1000;
-      const timer = setTimeout(() => controller.abort(), timeoutMs);
+      return withRunnerCancellation(Math.max(1, timeoutSeconds + 5) * 1000, signal, async (activeSignal) => {
+        let res: Response;
+        try {
+          res = await fetcher(execUrl, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify(payload),
+            signal: activeSignal,
+          });
+        } catch (err) {
+          activeSignal.throwIfAborted();
+          const msg = err instanceof Error ? err.message : String(err);
+          throw new ApiError(`Runner request failed: ${msg}`, {
+            status: 502,
+            code: 'runner_unavailable',
+            type: 'api_error',
+          });
+        }
+        activeSignal.throwIfAborted();
 
-      let res: Response;
-      try {
-        res = await fetcher(execUrl, {
-          method: 'POST',
-          headers,
-          body: JSON.stringify(payload),
-          signal: controller.signal,
-        });
-      } catch (err) {
-        clearTimeout(timer);
-        const msg = err instanceof Error ? err.message : String(err);
-        throw new ApiError(`Runner request failed: ${msg}`, {
-          status: 502,
-          code: 'runner_unavailable',
-          type: 'api_error',
-        });
-      }
-      clearTimeout(timer);
+        let data: unknown;
+        try {
+          data = await res.json();
+        } catch {
+          activeSignal.throwIfAborted();
+          throw new ApiError('Invalid runner response (not JSON)', {
+            status: 502,
+            code: 'runner_bad_response',
+            type: 'api_error',
+          });
+        }
+        if (!data || typeof data !== 'object') {
+          throw new ApiError('Invalid runner response shape', {
+            status: 502,
+            code: 'runner_bad_response',
+            type: 'api_error',
+          });
+        }
 
-      let data: unknown;
-      try {
-        data = await res.json();
-      } catch {
-        throw new ApiError('Invalid runner response (not JSON)', {
-          status: 502,
-          code: 'runner_bad_response',
-          type: 'api_error',
-        });
-      }
-      if (!data || typeof data !== 'object') {
-        throw new ApiError('Invalid runner response shape', {
-          status: 502,
-          code: 'runner_bad_response',
-          type: 'api_error',
-        });
-      }
+        const obj = data as Record<string, unknown>;
+        if (obj.status !== 'ok') {
+          const error =
+            stringOrUndefined(obj.error) ??
+            stringOrUndefined(obj.reason) ??
+            stringOrUndefined(obj.detail) ??
+            'Runner execution failed';
+          throw new ApiError(error, {
+            status: 502,
+            code: 'runner_failed',
+            type: 'api_error',
+          });
+        }
 
-      const obj = data as Record<string, unknown>;
-      if (obj.status !== 'ok') {
-        const error =
-          stringOrUndefined(obj.error) ??
-          stringOrUndefined(obj.reason) ??
-          stringOrUndefined(obj.detail) ??
-          'Runner execution failed';
-        throw new ApiError(error, {
-          status: 502,
-          code: 'runner_failed',
-          type: 'api_error',
-        });
-      }
+        activeSignal.throwIfAborted();
+        deps.onExecSuccess?.(auth);
 
-      deps.onExecSuccess?.(auth);
+        const output = typeof obj.output === 'string' ? obj.output : '';
+        const usage = extractUsage(obj, engine);
 
-      const output = typeof obj.output === 'string' ? obj.output : '';
-      const usage = extractUsage(obj, engine);
-
-      return {
-        id: 'msg_' + randomHex16(),
-        type: 'message',
-        role: 'assistant',
-        content: [{ type: 'text', text: output }],
-        model,
-        stop_reason: stopReasonFor(capabilities, anthropicStopReason(obj)),
-        stop_sequence: null,
-        usage,
-      };
+        return {
+          id: 'msg_' + randomHex16(),
+          type: 'message',
+          role: 'assistant',
+          content: [{ type: 'text', text: output }],
+          model,
+          stop_reason: stopReasonFor(capabilities, anthropicStopReason(obj)),
+          stop_sequence: null,
+          usage,
+        };
+      });
     },
   };
 }

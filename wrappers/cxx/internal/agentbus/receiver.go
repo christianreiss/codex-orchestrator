@@ -187,6 +187,9 @@ func (r *autoReceiver) connection(parent context.Context) error {
 	nativeID := ""
 	protocol := "claude-channel-v1"
 	engine := os.Getenv("CXX_AGENT_PORTAL_ENGINE")
+	if engine == "claude" && channelPolicyFor(os.Getenv(envSocket)) == "fallback" {
+		return errors.New("Claude channel policy is unavailable; automatic delivery remains queued")
+	}
 	if engine == "codex" || engine == "grok" {
 		protocol = "codex-queue-v1"
 		if engine == "grok" {
@@ -317,23 +320,8 @@ func (r *autoReceiver) connection(parent context.Context) error {
 				if _, err := r.queue.identity(); err != nil {
 					return err
 				}
-				// Read native turn contents only while this task has protection.
-				var policy struct {
-					Watchdog json.RawMessage `json:"watchdog"`
-				}
-				if r.client.post(ctx, "watchdog/get", map[string]any{}, &policy) == nil && len(policy.Watchdog) > 0 && string(policy.Watchdog) != "null" {
-					if observed, ok := r.queue.(interface {
-						watchdogFailure() (string, string, error)
-					}); ok {
-						if failure, retry, err := observed.watchdogFailure(); err == nil && failure != "" {
-							body := map[string]any{"last_progress_at": time.Now().UTC().Format(time.RFC3339Nano), "failure": failure, "native_session_id": nativeID}
-							if retry != "" {
-								body["retry_not_before"] = retry
-							}
-							var out map[string]any
-							_ = r.client.sessionPost(ctx, "watchdog/activity", body, &out)
-						}
-					}
+				if err := r.observeFailure(ctx, nativeID); err != nil {
+					return err
 				}
 			}
 			// For Channels, the MCP input stream's EOF cancels this context. Successful

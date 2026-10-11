@@ -61,6 +61,11 @@ describe('messageStreamEvents', () => {
     });
   });
 
+  it.each([null, 'end_turn', 'max_tokens', 'stop_sequence'])('preserves stop_reason %s', (reason) => {
+    const events = messageStreamEvents({ ...sample, stop_reason: reason });
+    expect(events.find((event) => event.event === 'message_delta')?.data).toMatchObject({ delta: { stop_reason: reason } });
+  });
+
   it('ends the stream with a bare message_stop', () => {
     const events = messageStreamEvents(sample);
     expect(events[5]!.event).toBe('message_stop');

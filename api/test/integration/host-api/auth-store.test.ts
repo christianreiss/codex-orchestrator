@@ -266,6 +266,18 @@ describe('POST /auth command=store', () => {
 });
 
 describe('DELETE /auth uninstall scope', () => {
+  it.each(['codex', 'claude', 'grok'])('removes installer ciphertext on last-engine %s uninstall', async engine => {
+    const apiKey = `sk-last-${engine}`; const db = seedDb(apiKey);
+    db.tables.set(hostsTable, [hostRow(apiKey, { engines: engine })]);
+    db.tables.set(installTokens, [{ id: 1, hostId: 1, engine, tokenEnc: 'encrypted-token', apiKeyEnc: 'encrypted-key' }]);
+    const app = await buildHostApiTestApp({ db: db as any, env: baseEnv, keyring: makeKeyring() });
+    try {
+      expect((await app.inject({ method: 'DELETE', url: `/auth?force=1&engine=${engine}`, headers: { authorization: `Bearer ${apiKey}` } })).statusCode).toBe(200);
+      expect(db.tables.get(hostsTable)).toEqual([]);
+      expect(db.tables.get(installTokens)).toEqual([]);
+    } finally { await app.close(); }
+  });
+
   it('removes only an explicitly requested engine from a dual-engine host', async () => {
     const apiKey = 'sk-delete-claude-only';
     const db = seedDb(apiKey);
@@ -705,5 +717,25 @@ describe('POST /auth command=retrieve quota lane shaping', () => {
     // envelope the standalone route adds so the same contract judges it.
     assertContract('auth-retrieve.schema.json', { status: auth.status, data: auth });
     await app.close();
+  });
+});
+
+
+describe('Grok metadata-only probes', () => {
+  it('reports missing account metadata without refreshing or returning credentials', async () => {
+    const apiKey = 'sk-grok-metadata'; const db = seedDb(apiKey);
+    db.tables.set(hostsTable, [hostRow(apiKey, { engines: 'grok' })]);
+    const fetch = vi.fn(async () => { throw new Error('metadata probe must not call provider'); });
+    vi.stubGlobal('fetch', fetch);
+    const app = await buildHostApiTestApp({ db: db as any, env: baseEnv, keyring: makeKeyring() });
+    try {
+      const response = await app.inject({ method: 'POST', url: '/auth', headers: { authorization: `Bearer ${apiKey}` }, payload: { engine: 'grok', command: 'retrieve', metadata_only: true } });
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toMatchObject({ account_pool: true, metadata_only: true, status: 'missing', verification_state: 'unknown' });
+      expect(response.json()).not.toHaveProperty('auth');
+      expect(fetch).not.toHaveBeenCalled();
+      expect(db.updates.filter(entry => entry.table === authPayloads)).toEqual([]);
+      expect(db.inserts.filter(entry => entry.table === hostAuthStates)).toEqual([]);
+    } finally { await app.close(); }
   });
 });

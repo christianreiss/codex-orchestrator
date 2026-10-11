@@ -28,13 +28,24 @@ config, runner state, auth digest, host pin, wrapper version, and instruction st
 are engine-specific. Subscription credentials are modern xAI OIDC scope maps;
 legacy web login and metered provider API keys are unsupported.
 
-`/auth` retrieve and account-session auth return an access-only Grok projection,
+Ordinary `/auth` retrieve and account-session auth return an access-only Grok projection,
 `canonical_generation`, `access_token_digest`, `expires_at`, and refresh state.
 Reactive `refresh_if_generation` requires the exact active host/account/session;
 only the centralized owner can spend a refresh token. Pending/ambiguous renewal
 returns a typed error. Full native login uploads remain encrypted server-side;
 runtime External projections cannot advance canonical auth. Account leases cannot
 resurrect after expiry. See [complete Grok contract](interface-cgx.md).
+
+Grok startup and doctor instead send `POST /auth` with
+`{engine:"grok", command:"retrieve", metadata_only:true}`. This returns normal
+host/version metadata, `account_pool:true`, `metadata_only:true`, stored
+`verification_state`, nullable `canonical_generation`/`canonical_last_refresh`,
+and `status:"available"|"missing"`. Stored credential metadata may also include
+`access_token_digest` and `expires_at`; no credential bytes are returned.
+`available` describes a stored payload, not a fresh provider validation. This path
+does not call `ensureFresh`, contact xAI or acquire an account lease. Startup
+selects and acquires its actual account grant through `/auth/sessions`; doctor
+remains a metadata inspection. Normal host, engine and access checks still apply.
 
 The independent OpenAI-shaped `/grok/v1` group serves `POST /grok/v1/chat/completions`,
 `POST /grok/v1/responses`, `POST /grok/v1/completions`, `GET /grok/v1/models`, and `GET /grok/v1/models/:model`
@@ -50,6 +61,14 @@ are based on native session/queue evidence. Messaging supports all nine engine
 source/target pairs. Grok quota has no synthetic percentage or capacity claim.
 
 ## Exposed API routing (any-to-any)
+
+Generation requests accept an omitted, null or boolean `stream` flag. Other
+values return `400 invalid_stream` before execution; Grok continues to refuse
+`stream: true`. Synthesized streams preserve the backend's reported finish
+reason, including `null` when unknown, instead of inventing a clean stop.
+Client disconnect and API pre-close abort in-flight execution for every backend
+and surface; adapter timeouts include reading the response body. An aborted
+call cannot record a successful auth verification.
 
 The three inference gateways are **surfaces**; the engine that answers is the
 surface's **backend**, chosen per surface and resolved per request (1 s cache),
@@ -363,7 +382,7 @@ Host resource sync (`/skills`, `/agents/retrieve`, `/config/retrieve`) and cron 
   - `GET /shared-memories` / `POST /shared-memories/list` — the discovery entry point; needs no query. Query/body: optional `prefix` (slug prefix), optional `tags` (AND-filtered), optional `limit` (1–200, default 50, clamped to 20 when `include_content` is set — bodies run to 1 MiB each), `offset`, `include_content` (default false). Returns `count`, `total` (live documents), `scanned_all` (false when the 2000-document scan cap was hit before filtering finished), and `memories` — each with `slug`, `title`, `summary`, `tags`, `metadata`, `content_length`, `chunk_count`, `revision`, `sha256`, `uri` (`shared://{slug}`), `source_host_id`, `source_engine`, timestamps, and a whitespace-collapsed `preview` (the summary when set, else the body).
   - `POST /shared-memories/search` — body: `query` (empty falls back to a recency listing rather than erroring), optional `tags` (AND-filtered), optional `mode` (`chunks` default, or `documents`), optional `limit` (1–50, default 10). Ranked by MySQL full-text score over chunk text, headings and tags. `chunks` mode returns one entry per passage (`slug`, `title`, `uri` `shared://{slug}#{ordinal}`, `chunk`, `heading`, `excerpt` windowed around the match, `score`, `char_start`, `char_end`); `documents` mode returns one entry per document with its best `score` and up to three `hits`. The response carries `degraded: true` when the chunk full-text index is missing and it fell back to a bounded substring scan (the first 64 KiB of each of at most 200 documents — a match past that prefix is missed, which is an accepted loss on an already-degraded path). Note MySQL's defaults: tokens shorter than `innodb_ft_min_token_size` (3) and stopwords match nothing, which is indistinguishable from no results.
   - `POST /shared-memories/read` / `GET /shared-memories/{slug}` — body/query: `slug` (required in the POST form), optional `max_chars` (default 32000, up to 1048576), optional `offset`, optional `chunk` or `from_chunk`/`to_chunk`. Returns `status` (`found` | `missing`), `memory` metadata, a bounded `content` window, plus `offset`, `returned_chars`, `truncated`, `next_offset`, and `chunk_range` — enough to walk a 1 MiB document without ever holding all of it.
-  - `POST /shared-memories/write` — body: `slug` (required, `^[a-z0-9][a-z0-9._:-]*$`, ≤160 chars, lower-cased on write), `content` (required, ≤1048576 chars), optional `title` (≤255, defaults to the slug), `summary` (≤1000), `metadata` (object), `tags` (≤32, ≤64 chars each), `engine` (provenance only), and `expected_sha256`. When `expected_sha256` is supplied and does not match the stored digest the write is rejected with `409 shared_memory_conflict` instead of clobbering a concurrent writer. Status: `created` | `updated` | `unchanged` — an `unchanged` re-store writes nothing and burns no revision.
+  - `POST /shared-memories/write` — body: `slug` (required, `^[a-z0-9][a-z0-9._:-]*$`, ≤160 chars, lower-cased on write), `content` (required, ≤1048576 chars), optional `title` (≤255, defaults to the slug), `summary` (≤1000), `metadata` (object), `tags` (≤32, ≤64 chars each), `engine` (provenance only), and `expected_sha256`. When `expected_sha256` is supplied and does not match the stored digest the write is rejected with `409 shared_memory_conflict` instead of clobbering a concurrent writer. The digest check and complete replacement run under the same per-slug database lock used by append, so distinct concurrent replacements from one digest cannot both succeed; writes without a digest retain last-writer-wins semantics. Status: `created` | `updated` | `unchanged` — an `unchanged` re-store writes nothing and burns no revision.
   - `POST /shared-memories/append` — body: `slug` and `content` (required), optional `heading` (rendered as an `## ` block), `separator` (default `\n\n`), `title`, `summary`, `tags`, `metadata`, `engine`. Creates the document when the slug is absent. This is the multi-writer-safe path: two agents appending concurrently both keep their text, where a read-modify-write pair would silently drop one. Tags are unioned, not replaced. Status: `created` | `appended` | `unchanged`, plus `appended_chars`.
   - `POST /shared-memories/delete` / `DELETE /shared-memories/{slug}` — soft-deletes the document and drops its chunks; the slug stays reserved and a later write revives it. Returns `status` (`deleted` | `missing`).
 - `GET /mcp` — transport probe; returns 405 with `Allow: POST`.
@@ -511,7 +530,7 @@ The Quick Settings page (`/admin/quick-settings`) reuses `GET/POST /admin/model-
 - `GET /admin/quota-mode` / `POST /admin/quota-mode` — read/set ChatGPT quota policy (`hard_fail` boolean), the warn/kill threshold (`limit_percent`, integer 50–100), and optional weekly partitioning (`week_partition`: `0|off`, `7`, or `5`). When `false`, `cdx` warns once usage meets the configured limit but still launches Codex; when `true`, exceeding the limit blocks execution. A non-zero `week_partition` adds a daily allowance bar in `cdx` (derived from the weekly window) that obeys the same warn/deny policy.
 - `GET /admin/cdx-silent` / `POST /admin/cdx-silent` — read/set fleet-wide wrapper quiet mode (`silent` boolean). When enabled, `cdx` suppresses boot info/warn logs and only emits errors.
 - `GET /admin/api-keys-in-chat` / `POST /admin/api-keys-in-chat` — read/set the default-off cross-engine chat-key policy (`enabled` boolean). When enabled, served AGENTS.md/CLAUDE.md tells agents to accept operator-supplied API keys without generic security lectures while avoiding unnecessary echoing, persistence, or use outside the requested task.
-- `GET /admin/remote-exec` / `POST /admin/remote-exec` — read/set the default-off fleet switch for `cxx remote`, the wrapper's process API on machines reached over SSH (`enabled` boolean). The value is baked into every active host's signed config as `remote.enabled`, which is the wrapper's own gate, and adds a "Remote execution" section to served AGENTS.md/CLAUDE.md. It is a fleet control rather than a boundary: an agent that can run `cxx remote` can already run `ssh`, so turning it off removes the structured path and the guidance, not the reach.
+- `GET /admin/remote-exec` / `POST /admin/remote-exec` — read/set the default-off reserved configuration gate for `cxx remote` (`enabled` boolean). The value is baked into signed host configuration as `remote.enabled`. All operational verbs remain unavailable and return `E_NOT_IMPLEMENTED`; enabling the gate adds managed guidance that explains this limitation. Ordinary SSH access is unaffected.
 - `GET /admin/agents-generation-mode` / `POST /admin/agents-generation-mode` — read/set the fleet-wide master switch for how the canonical middle of AGENTS.md/CLAUDE.md is produced. Body/response `mode` is one of `managed` (default: the composed policy modules plus custom instructions), `manual` (the stored document verbatim), or `off` (the generated modules are dropped and only the operator's custom instructions remain). Unknown values are rejected with `422 validation_failed`; an unrecognized *stored* value reads back as `managed`, so a settings row this build cannot parse never strips prose fleet-wide. The switch is applied when a document is rendered, not when it is stored — `POST /admin/agents/store` keeps writing the full module selection at every mode, so flipping back restores it without a new version. No position suppresses the mandatory policy block or the managed feature block. Also reported as `generation_mode` on `GET /admin/agents`.
 - `GET /admin/reverse-dns` / `POST /admin/reverse-dns` — read/set fleet-wide reverse DNS enforcement (`enabled` boolean). When enabled (or per-host override enabled), `/auth` requires a forward A/AAAA match and reverse PTR match for the calling IP.
 - `GET /admin/response-verbosity` / `POST /admin/response-verbosity` — read/set the fleet-wide response-verbosity dial. Body/response `level` is `0..4` (`0` default, a true no-op: byte-identical to the level being unset). Non-zero levels replace the served `## Default Response Shape` policy text with progressively terser wording (see `api/src/services/agent-response-style.ts`) and, for `clx` hosts, set `outputStyle` in the rendered `settings.json` partial to a matching `verbosity-*` Claude output style — level 0 omits `outputStyle` entirely so a host/user's manually chosen style is left alone. The four `verbosity-*` documents themselves are ordinary `output-style` artifacts (kind `output-style`), seeded once by migration and editable like any other via `GET /admin/claude/{kind}` / `GET /admin/claude/{kind}/{slug}`.
@@ -547,7 +566,7 @@ The Quick Settings page (`/admin/quick-settings`) reuses `GET/POST /admin/model-
 - `POST /admin/agent-policy-profiles/:id/default` — make this profile the fleet default, clearing the flag from whichever profile held it.
 - `POST /admin/agent-policy-profiles/assign` — assign a host to a profile. Body: `{ host_id, profile_id }`; `profile_id: null` clears the assignment back to the fleet default. Orthogonal to `agents_document_id_override`, which pins which prose document a host receives.
 - `GET /admin/agent-policy-profiles/enforcement?host_id=` — read-only projection of a host's resolved posture onto engine config (`approval_policy`, `sandbox_mode`, `sandbox_workspace_write.network_access`, `web_search`, `features.guardian_approval`, Claude `permissions.defaultMode`), each naming the axis currently governing it, plus the keys deliberately not enforced and why. Also returns `permission_clamps`: non-empty when the host cannot be served the Claude permission mode its posture asks for, which today means a root agent user and `bypassPermissions` (Claude Code refuses to start in that combination, so `auto` is served instead). `GET /admin/agent-policy-profiles` correspondingly returns `root_hosts`, the fqdns whose agent user is root, and gives each profile a derived `claude_permission_mode` so the console never re-implements the level-to-mode rule.
-- `POST /admin/agents/serve` — set the serving mode. Body: `{ mode: "latest" | "locked", version_id?: number }`. `mode=latest` follows newest editions; `mode=locked` pins the served version to `version_id`.
+- `POST /admin/agents/serve` — set the serving mode. Body: `{ mode: "latest" | "locked", version_id?: number }`. `mode=latest` follows newest editions; `mode=locked` pins the served version to `version_id`, which must belong to the requested engine. Old cross-engine locks fall back to normal latest selection; the existing latest-any fallback for an engine without a document remains available.
 - `POST /admin/agents/revert` — create a new latest AGENTS.md edition by cloning a historical version. Body: `{ version_id: number }`. Revert preserves immutable history, creates a fresh newest row with the selected content, resets serving mode to `latest` so the new latest version is also what the fleet receives, and may return `pruned_count` when retention cleanup deletes older unprotected backups.
 - `DELETE /admin/agents/versions/{id}` — delete a non-served AGENTS.md edition by id.
 - `GET /admin/config` — fetch canonical `config.toml` metadata + `content` + `settings` (the structured builder payload). Returns `status` (`missing` when unset), `sha256`, `updated_at`, `size_bytes`. Normalized settings include root `personality` (`friendly|pragmatic|none`, default `friendly`), default-on feature flags `features.apps`, `features.fast_mode`, `features.memories`, and `features.multi_agent` when unset, and builder-default disabled flags `features.guardian_approval`, `features.js_repl`, `features.tui_app_server`, and `features.prevent_idle_sleep` unless explicitly enabled.
@@ -708,6 +727,12 @@ The Quick Settings page (`/admin/quick-settings`) reuses `GET/POST /admin/model-
   agent and the verdict is advice it can ignore — nothing is enforced and no
   hooks are installed. The module switch and forcing a verdict require the
   owner, admin, or fleet role.
+  Registration takes its engine from MCP dispatch. When `username` is omitted,
+  a unique fresh live address matching the host, engine and worktree directory
+  supplies it; missing or ambiguous matches remain unbound. Live bound sessions
+  survive registration TTL, while ended or stale sessions are reclaimed on
+  sweep. `git_merge_status` also refreshes an active registration before sweeping;
+  an expired merge lease still requires a new request.
   - `GET /admin/git-director/state` — `{enabled, model, clones, worktrees,
     updated_at}` for the `git_director_enabled` switch.
   - `POST /admin/git-director/state` — `{enabled}` (boolean, `0`/`1`, or
@@ -742,6 +767,12 @@ The Quick Settings page (`/admin/quick-settings`) reuses `GET/POST /admin/model-
   `transfers.read`; the switch, the bounds and deleting take `transfers.manage`;
   the bytes themselves take `transfers.download`, which no role below admin
   holds.
+  Chunk appends serialize under a per-transfer database row lock. A retry at
+  the last committed `size_bytes` removes an interrupted write's uncommitted
+  tail before writing and syncing the replacement bytes; the sealed SHA-256
+  therefore covers the same bytes returned by downloads. Supply `offset` on
+  retries: competing appends at one explicit offset yield one success and one
+  conflict. A missing committed file prefix requires a new transfer.
   - `GET /admin/transfers/state` — `{enabled, updated_at, default_ttl_seconds,
     max_ttl_seconds, max_file_bytes, quota_bytes, used_bytes, live_count}` for
     the `transfers_module_enabled` switch and its bounds.
@@ -862,7 +893,7 @@ The Quick Settings page (`/admin/quick-settings`) reuses `GET/POST /admin/model-
 ## Auth + IP rules
 
 - API key is bound to the first caller IP, plus one secondary IP when the host is dual-stack (one IPv4 + one IPv6); subsequent calls from new IPs are blocked unless `allow_roaming_ips` is enabled via admin or `?force=1` on `DELETE /auth`.
-- Insecure hosts auto-rebind to the current caller IP while their insecure window is active, so reinstall/rotate flows don’t get stuck on “IP bound” if the host comes back on a new address during that window.
+- Insecure hosts auto-rebind to the current caller IP while their insecure window is active, so reinstall/rotate flows don’t get stuck on “IP bound” if the host comes back on a new address during that window. The IP check uses only an existing active grant; it neither creates an approval request nor extends the window. After authentication, the route applies its normal retrieve/store window policy.
 - Admin endpoints require the admin session cookie. The API never checks a client certificate: `auth-mtls` parses `X-MTLS-Fingerprint`/`-Subject`/`-Issuer` into `req.mtls` and no route reads it, so `X-MTLS-Present` changes nothing. The bundled `caddy` profile (`caddy/Caddyfile`) no longer issues or verifies certificates either — it terminates TLS and reverse-proxies every path alike — so lock down `/admin` via VPN or firewall, or put a proxy of your own that terminates mTLS in front.
 - Runner IP bypass: when `AUTH_RUNNER_IP_BYPASS=1` and `AUTH_RUNNER_BYPASS_SUBNETS` contains CIDRs, runner-originated `/auth` validation can proceed without rebinding the stored host IP (logged as `auth.runner_ip_bypass`).
 - Runner auth: when `AUTH_RUNNER_SHARED_SECRET` is set on API and `RUNNER_SHARED_SECRET` is set on the runner, API calls to runner include `X-Runner-Auth`; runner rejects missing/invalid secrets with HTTP 401.
@@ -966,6 +997,13 @@ within the same MCP process and native identity. Reconnection keeps the held
 delivery and renews its lease without resubmitting it. Process loss, expired
 leases and revoked bindings retain the existing ambiguous-outcome semantics.
 Explicit Portal source closure releases its local gate so peers can continue.
+
+For accepted Codex work, a fresh failed or interrupted native turn stops claim
+renewal even when watchdog recovery is disabled. The receiver acknowledges the
+original claim as `ambiguous`; a lost acknowledgement falls back to lease expiry.
+An explicit result or reply already awaiting storage confirmation keeps its
+original receipt instead. A historical failed turn observed before new queue
+admission does not release the new delivery.
 
 Interactive reply/result retries retain the original body and claim even when
 a committed completion makes lease renewal return 409. Concurrent reply, result
@@ -1211,6 +1249,10 @@ metadata; omitted metadata preserves the existing value. Old sessions remain val
   member. Invitations reserve capacity as `state: invited`, `joined_at: null`;
   they receive no broadcast or task until they call join. Joining sets the
   actual `joined_at`, changes state to `seated`, and queues `HELLO` to the chair.
+  Both join forms require the chair's current derived presence to be `listening`.
+  Otherwise they return `409 agent_messaging_conference_chair_not_listening`
+  before creating a member or queuing `HELLO`. The room and PIN remain available
+  for retry after the chair's receiver recovers.
   Rejoining an active member preserves its original join time and dispatched
   state. Historic pre-0047 rows retain their recorded timestamps.
 - `POST /host/agent-sessions/{id}/agent-messaging/conf/roster` — any member. Host
@@ -1459,6 +1501,14 @@ verification_requested: true}` (the second key is legacy). Reconnection is silen
 there is no manual chat probe. Ordinary session heartbeat does not renew receiver
 health. Admin/peer/portal listings return the same public `receiver` evidence.
 
+Portal maintenance expires open unanswered questions with a registered receiver
+after its stop or 45 seconds without a fresh native-health heartbeat, including
+when the wrapper's bridge heartbeat continues. It rechecks readiness under the session lock
+before expiring the prompt and incrementing its version. A recovered receiver,
+an armed reboot handoff or a durable Companion Remote binding preserves the
+question. This cleanup leaves the session and classified notices intact and runs
+on the next maintenance sweep, not at the exact instant of process loss.
+
 The private local broker additionally implements `receiver/native`, used only by
 the Claude SessionStart hook and adapter to exchange actual native identity; it is
 not an HTTP API route. All local receiver operations require the signed
@@ -1535,6 +1585,11 @@ Device credentials expire after one year; pairing again creates a new device.
 - `POST /companion/v1/pair` — `{token,name}` exchanges a QR token once for `{device_id,token,firebase,capabilities}`; the token is never logged or stored in plaintext.
 - `GET /companion/v1/hosts` — `admin.read`; daemon-enabled host cards with `host_id`, `fqdn`, `default_cwd`, ready `engines`, safe `health`, `free_slots` and `startable`. No credential/runtime payloads.
 - `POST /companion/v1/daemon-sessions` — `{host_id,engine,client_message_id,task?,title?,cwd?}`; requires messaging management plus Portal read/manage/transcript permissions. Empty task establishes contact only. Returns 202 `{operation_id,session_id}`; UUID is retained across retries. Rechecks host/engine readiness and capacity under the daemon lock. Owned remote conversations are projected in `/agents` with their logical ID and `daemon_session:true`; existing events/messages/answers/follows routes span or resume their bound Portal launches. Missing transcripts and unknown outcomes never trigger a replacement start.
+  Queued/running/stopping sessions project `presence: offline` when daemon health
+  is stale or disconnected, unless a usable bound Portal relay remains. Stored
+  `remote_status` and work outcomes are unchanged. Daemon health revision changes
+  invalidate both `hosts` and `agents` WebSocket scopes, each filtered by its
+  existing capability, so remote conversation cards refresh automatically.
 - `GET /companion/v1/me` — identity, current capabilities, public Firebase configuration, notification preference, and followed session IDs.
 - `PATCH /companion/v1/device` — optional `fcm_token` (nullable), `notifications` boolean, `visible_session_id` (nullable UUID); updates last-seen time. Visible-session suppression expires after 45 seconds.
 - `DELETE /companion/v1/device` — self-revoke on logout.
@@ -1557,7 +1612,8 @@ retention. Agent/engine switches and receiver readiness retain their existing
 meaning; ordinary chats never wake engines; explicit remote starts and resumptions use the enabled host daemon and retain host assignments.
 
 A durable per-device outbox scans committed portal events and live host requests
-every five seconds. It notifies questions/attention and followed replies, skips
+every five seconds. It notifies ordinary questions and replies for followed conversations, plus explicit
+important/critical/blocker notices for eligible devices regardless of follow state, skips
 routine activity, and sends opaque IDs plus the source event's short `summary`
 through FCM for agent notifications. Agent payloads additionally carry optional
 `event_cursor`, a decimal string identifying the exact outbox source event;
@@ -2038,6 +2094,14 @@ fences the old launch and transfers original accepted work IDs and claims once.
 Duplicate registration must use the same new launch credentials. A second new
 launch, same boot, canceled work or expired handoff is rejected.
 
+Codex unattended `exec resume` continuations use the existing headless auth,
+quota and approval rules. Codex and piped Claude continuations restore the original
+Portal message/status/reply IDs and peer claims through one elected local MCP
+receipt owner even without an automatic adapter. That owner neither registers
+receiver readiness nor claims or resubmits new work. Headless and piped Claude
+launches retain `StopFailure`/`SessionEnd` reporting; channel identity hooks remain
+specific to receiver launches.
+
 Active Clients session rows include nullable `reboot` with `request_id`, `state`,
 `old_session_id`, `new_session_id`. Planned work is `reboot_hold` until transfer;
 it blocks later FIFO delivery and never falls into normal lease-loss redelivery.
@@ -2138,3 +2202,34 @@ Attachment uploads use a caller-generated UUID, declared filename/MIME/size and 
 - `POST /host/agent-sessions/:id/attachments/get` — Host bridge chunk download: {attachment_id,variant?,offset?}; base64 bytes, next_offset, done.
 
 Audio and video preparation runs locally in the isolated `media-worker` service with no network. The baked Whisper small model produces timestamped transcript JSON; video also produces up to twenty timestamped JPEG frames. Preparation failure leaves the original downloadable. Host bridge routes require the scoped bridge token, while admin and companion routes enforce transcript/manage capabilities even under compatible authorization.
+
+## Audit corrections: host lifecycle and quota observations
+
+Installer generation completes before the single-use token is consumed. A build
+failure remains retryable; an invalid mint request preserves existing tokens,
+and successful replacement is transactional. Engine reassignment, API-key
+rotation and host deletion revoke old installers. Redemption checks the current
+assignment, status and temporary expiry. A delivered installer remains single
+use after client SIGKILL; abandoned unprovisioned hosts are reclaimed by lifecycle
+cleanup, and a new installer can be minted.
+
+Temporary-host credentials expire after two hours without authenticated contact.
+Contact renewal and cleanup recheck the same locked host row. Inactivity policy
+zero disables only inactivity pruning; expired and never-provisioned records
+still expire. Cleanup runs on successful host requests, registration and admin
+host listing. All engines and pooled-account provisioning count.
+
+A failed quota refresh preserves the last measured usable observation, its true
+`fetched_at`, percentages and provider gates. `refresh_error`,
+`refresh_attempted_at` and `cached` disclose the failed refresh; history retains
+the failed attempt and its retry cooldown. With no usable observation, quota is
+unavailable. The usage worker cancels and drains its active refresh before closing
+the database. Existing wrapper age limits still apply to cached observations.
+
+With `quota_week_partition` set to 5 or 7, Codex uses `daily_used_percent` and
+`daily_baseline_at`: the nonnegative weekly usage delta from the first usable
+UTC-day observation for the same account. Weekly windows may occupy either
+provider slot. A day with no usable baseline remains unknown. The daily allowance
+is `100 / partition` percent of the weekly budget; the wrapper applies the same
+warn/deny threshold, advisory mode and VIP policy as other quota rows. It does not
+carry a previous UTC day's reading into the current daily gate.

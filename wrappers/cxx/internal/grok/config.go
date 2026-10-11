@@ -9,12 +9,18 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/ipc"
 	"github.com/pelletier/go-toml"
 )
 
 type configOwnership struct {
 	Version int               `json:"version"`
 	Paths   map[string]string `json:"paths"`
+}
+
+type configJournal struct {
+	Previous configOwnership `json:"previous"`
+	Next     configOwnership `json:"next"`
 }
 
 func configPathParts(path string) []string {
@@ -75,6 +81,15 @@ func SyncConfig(home string, body []byte, owned []string) error {
 	if err != nil {
 		return errors.New("invalid managed Grok TOML")
 	}
+	state, err := StateDir()
+	if err != nil {
+		return err
+	}
+	lock, err := ipc.TryAcquireExclusivePath(filepath.Join(state, "managed-config.lock"))
+	if err != nil {
+		return err
+	}
+	defer lock.Release()
 	partial := managed.ToMap()
 	merged := map[string]any{}
 	path := filepath.Join(home, "config.toml")
@@ -87,15 +102,32 @@ func SyncConfig(home string, body []byte, owned []string) error {
 	} else if !os.IsNotExist(err) {
 		return err
 	}
-	state, err := StateDir()
-	if err != nil {
-		return err
-	}
 	manifest := filepath.Join(state, "managed-keys.json")
-	previous := configOwnership{}
+	previous := configOwnership{Version: 1, Paths: map[string]string{}}
 	if raw, err := os.ReadFile(manifest); err == nil {
 		if json.Unmarshal(raw, &previous) != nil || previous.Version != 1 {
 			return errors.New("invalid Grok managed ownership manifest")
+		}
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+	journalPath := filepath.Join(state, "managed-keys.pending.json")
+	if raw, err := os.ReadFile(journalPath); err == nil {
+		var pending configJournal
+		if json.Unmarshal(raw, &pending) != nil || pending.Previous.Version != 1 || pending.Next.Version != 1 {
+			return errors.New("invalid Grok ownership journal")
+		}
+		if previous.Paths == nil {
+			previous.Paths = map[string]string{}
+		}
+		// A crash can leave either old or proposed values on disk. Claim only a
+		// matching digest; a user's subsequent edit must remain theirs.
+		for _, owner := range []configOwnership{pending.Previous, pending.Next} {
+			for path, digest := range owner.Paths {
+				if value, present := configGet(merged, configPathParts(path)); present && configValueDigest(value) == digest {
+					previous.Paths[path] = digest
+				}
+			}
 		}
 	} else if !os.IsNotExist(err) {
 		return err
@@ -154,6 +186,15 @@ func SyncConfig(home string, body []byte, owned []string) error {
 	if err != nil {
 		return err
 	}
+	// Persist the intent before config publication. The journal stores hashes
+	// only, so interrupted publication never duplicates MCP credentials.
+	pending, err := json.Marshal(configJournal{Previous: previous, Next: next})
+	if err != nil {
+		return err
+	}
+	if err := AtomicWrite(journalPath, pending, 0o600); err != nil {
+		return err
+	}
 	if err := AtomicWrite(path, []byte(text), 0o600); err != nil {
 		return err
 	}
@@ -161,5 +202,8 @@ func SyncConfig(home string, body []byte, owned []string) error {
 	if err != nil {
 		return err
 	}
-	return AtomicWrite(manifest, raw, 0o600)
+	if err := AtomicWrite(manifest, raw, 0o600); err != nil {
+		return err
+	}
+	return os.Remove(journalPath)
 }

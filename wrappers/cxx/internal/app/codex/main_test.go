@@ -21,6 +21,7 @@ import (
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/ipc"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/codex/cron"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/codex/ui"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/sessionguard"
 )
 
 func TestHelpChildLeasesBlockMutationsAndServicePendingPurge(t *testing.T) {
@@ -55,6 +56,12 @@ func TestHelpChildLeasesBlockMutationsAndServicePendingPurge(t *testing.T) {
 			t.Fatal("supervised help child did not start")
 		}
 		time.Sleep(10 * time.Millisecond)
+	}
+	if guard, err := sessionguard.Maintenance(dir); !errors.Is(err, ipc.ErrHeld) {
+		if guard != nil {
+			_ = guard.Release()
+		}
+		t.Fatalf("help child escaped housekeeping guard: %v", err)
 	}
 	if maintenance, err := codex.TryAcquireAuthMaintenance(); !errors.Is(err, ipc.ErrHeld) {
 		if maintenance != nil {
@@ -1279,5 +1286,21 @@ func TestFormatCronResultReportsFailedSync(t *testing.T) {
 	failed := formatCronResult(cron.Result{WrapperVersion: "0.7.0", CodexVersion: "1.0.0", Reported: true, SyncAction: "failed"}, true)
 	if !strings.Contains(failed, "sync=failed") {
 		t.Fatalf("failed sync stayed invisible: %q", failed)
+	}
+}
+
+func TestNativeHeadlessIncludesWrapperRebootExecResume(t *testing.T) {
+	for _, tc := range []struct {
+		args []string
+		want bool
+	}{
+		{[]string{"exec", "resume", "--json", "session", "-"}, true},
+		{[]string{"-c", "approval_policy=on-request", "e", "resume", "session", "-"}, true},
+		{[]string{"resume", "session"}, false},
+		{[]string{"Explain exec resume"}, false},
+	} {
+		if got := nativeHeadless(tc.args); got != tc.want {
+			t.Fatalf("nativeHeadless(%q) = %v, want %v", tc.args, got, tc.want)
+		}
 	}
 }

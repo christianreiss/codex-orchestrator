@@ -78,7 +78,7 @@ func TestPendingLoginSecureRetryAndInsecureCleanup(t *testing.T) {
 			}
 			_ = json.Unmarshal(auth, &envelope)
 			cli := filepath.Join(t.TempDir(), "grok")
-			script := "#!/bin/sh\n[ \"$1\" = login ] || exit 9\ncat >\"$GROK_AUTH_PATH\" <<'CGX_FIXTURE'\n" + string(envelope.Native) + "\nCGX_FIXTURE\n"
+			script := "#!/bin/sh\n[ \"$1\" = login ] || exit 9\n[ \"$2\" = --device-auth ] || exit 10\ncat >\"$GROK_AUTH_PATH\" <<'CGX_FIXTURE'\n" + string(envelope.Native) + "\nCGX_FIXTURE\n"
 			if err := os.WriteFile(cli, []byte(script), 0o700); err != nil {
 				t.Fatal(err)
 			}

@@ -643,6 +643,9 @@ func runDaemonOperation(ctx context.Context, op daemonOperation) daemonResult {
 	cmd := exec.Command(exe, args...)
 	cmd.Dir = op.Cwd
 	cmd.Stdin = strings.NewReader(prompt)
+	if op.Engine == config.EngineGrok {
+		cmd.Stdin = nil
+	}
 	cmd.Env = append(os.Environ(), "CXX_DAEMON_OPERATION_ID="+op.ID, "CXX_DAEMON_CLAIM_ID="+op.Claim)
 	if op.Address != "" {
 		cmd.Env = append(cmd.Env, "CXX_AGENT_MESSAGING_ADDRESS="+op.Address, "CXX_AGENT_MESSAGING_BINDING_GENERATION="+strconv.Itoa(op.Generation), "CXX_AGENT_MESSAGING_CONTINUITY=native", "CXX_AGENT_MESSAGING_UPSTREAM_SESSION_ID="+op.Upstream)

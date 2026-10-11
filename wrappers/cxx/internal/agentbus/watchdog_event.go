@@ -24,7 +24,7 @@ func watchdogHookFailure(v map[string]any) string {
 			return "hang"
 		}
 		reason := stringArg(v, "reason")
-		if reason == "user_interrupt" || reason == "permission_rejected" {
+		if reason == "user_interrupt" || reason == "permission_rejected" || reason == "permission_cancelled" {
 			return "user_stop"
 		}
 		if reason == "max_turns" {

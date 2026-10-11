@@ -121,14 +121,21 @@ describe('served document byte invariance', () => {
 
     expect(base.sha256).toBe('30abaea24c8809d8634670f0eceb3004aabb4eafb5416c78333c719e8b67e14b');
     expect(out.policy_sha256).toBe('3d8a8c754d80369c46a16c3350db8461520d3ae14b1de7ac03ad9454925ad5e5');
-    // 2026-10-11: teach directory/project discovery and startup snapshot limits for all engines.
-    expect(out.features_sha256).toBe('587db2afaf77cfed6e930b7ab8daf4fdab02709c9a20befea69f2abc8c07142b');
-    expect(out.managed_sha256).toBe('8426521fb5cf229f823c8949c1566f48a867a4fb563108e4a77d449f4cb66e8a');
-    expect(sha256(out.body)).toBe('0a2abf312e2ad1ec231a3b7fdccda95c01e0b8a6de8be7de55b62b2d3cd658a3');
+    // 2026-10-11: compact project discovery consistently starts with project_summary.
+    expect(out.features_sha256).toBe('649f3a84f59725d1af6d355b73221279836f3d7d9a94bb270f7ea9d1bb3e04fe');
+    expect(out.managed_sha256).toBe('b051037bb440da6dcf5b6eecdbb6dba5696b9e9b09c4547d870a4a37a5c787a5');
+    expect(sha256(out.body)).toBe('e5b32d6db214eb8e67321f748b65b6e75a8bc7982e4d17544ceef051992c5134');
   });
 });
 
 describe('renderManagedAgentFeatures', () => {
+  it.each([ENGINE_CODEX, ENGINE_CLAUDE, ENGINE_GROK])('starts %s project work with compact discovery', (engine) => {
+    const out = renderManagedAgentFeatures('# Fleet rules', context(engine, { projects: enabled() }));
+    expect(out.body).toContain('`project_summary` for the active project');
+    expect(out.body).toContain('`project_files`');
+    expect(out.body).not.toContain('`project_bootstrap`');
+  });
+
   it('renders Grok MCP guidance and replaces its own legacy memory block without Codex local-memory copy', () => {
     const base = `# Fleet rules\n\n${buildManagedMemoryBlock('grok')}`;
     const rendered = renderManagedAgentFeatures(base, context('grok', { skills: enabled(2), memory: enabled(), projects: enabled(), secrets: enabled(1), agentMessaging: enabled() }));

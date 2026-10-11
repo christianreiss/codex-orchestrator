@@ -254,6 +254,7 @@ export class AgentMessagingService {
     this.conference = new ConferenceCoordinator({
       db,
       keyring,
+      presenceLocked: (tx, address) => this.call.presenceLocked(tx, address),
       requireEnabledLocked: (tx) => this.requireEnabledLocked(tx),
       requireAddressLocked: (tx, id) => this.requireAddressLocked(tx, id),
       resolveAddressLocked: (tx, raw, forUpdate) => this.resolveAddressLocked(tx, raw, forUpdate),

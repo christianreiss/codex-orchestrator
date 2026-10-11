@@ -99,7 +99,7 @@ def test_exec_uses_protected_prompt_file_and_system_override():
         assert "--system-prompt-override" in cmd
         return subprocess.CompletedProcess(cmd, 0, '{"text":"ok","stopReason":"end_turn"}', "")
 
-    with patch("app.subprocess.run", side_effect=run):
+    with patch("app.run_prompt_process", side_effect=run):
         result = app._exec_prompt(app.ExecRequest(auth_json=auth(), engine="grok", model="grok-4.6",
                                   prompt="-this is a prompt, not flags", system="Only text", timeout_seconds=30))
     assert result["status"] == "ok"
@@ -109,7 +109,7 @@ def test_exec_uses_protected_prompt_file_and_system_override():
 
 
 def test_controls_rejected_before_launch():
-    with patch("app.subprocess.run") as run, pytest.raises(HTTPException) as error:
+    with patch("app.run_prompt_process") as run, pytest.raises(HTTPException) as error:
         app._exec_prompt(app.ExecRequest(auth_json=auth(), engine="grok", prompt="hi", temperature=0))
     assert error.value.status_code == 400
     run.assert_not_called()

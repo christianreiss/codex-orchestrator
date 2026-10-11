@@ -36,6 +36,13 @@ closed/failed/unknown sessions and occupied hosts reject continuation. A repeate
 UUID returns the original operation, including after acceptance. Live ordinary
 Portal messages still use the normal receiver. Completed daemon launches retain
 open Portal questions for explicit answers through a native resume.
+
+Queued, running and stopping remote conversations show **Offline** when the daemon
+loses its fresh connection, unless the bound agent still has a usable Portal relay.
+This changes displayed presence only: the persisted `remote_status` and unresolved
+work outcome remain available for reconciliation. A busy but connected daemon
+continues to show active work.
+
 At completion, authenticated headless output supplies the native transcript ID
 even when the receiver ended before reporting it. The server persists it on the
 bound mailbox and Portal launch; conflicting bindings reject that completion.
@@ -95,6 +102,13 @@ directory, and engine identify each conversation; **Review next** opens the next
 Each row also shows the agent's latest short summary (one sentence, at most
 160 Unicode characters, displayed on up to two lines). An open question or active
 attention notice takes priority over the last reply. The full answer stays in chat.
+
+Questions backed by a native receiver expire on the next server maintenance sweep
+when that receiver stops or has no fresh heartbeat for 45 seconds, even if the
+wrapper remains connected. A recovered receiver, armed reboot handoff or durable
+Companion Remote answer path preserves the question. Expiry does not close the
+conversation or resolve classified notices.
+
 The compact layout uses flat chat rows, circular avatars, and at least 48 dp
 action targets while respecting Android text size settings.
 
@@ -124,7 +138,7 @@ This presentation-only APK update needs no server rollout.
 
 Version 0.3.0 keeps one foreground WebSocket at `/companion/v1/ws` for overview,
 approvals and the open chat. `hello` starts a full refresh; `changed` carries a
-`scopes` array (`me`, `agents`, `approvals`) and triggers the corresponding REST
+`scopes` array (`me`, `agents`, `approvals`, `hosts`) and triggers the corresponding REST
 reads. Chat resumes from its last durable event cursor. The socket carries no
 transcript content or admin event payloads. The existing SSE endpoint remains
 available to older APKs.
@@ -136,6 +150,10 @@ arrive every 15 seconds. The app stops showing Live after a lost connection or
 before enabling actions again. Refreshes are serialized; responses superseded by
 permission, connection or conversation changes are discarded. Metadata changes
 queue a follow-up refresh without discarding the completed snapshot.
+Daemon health changes invalidate both host cards and remote conversation cards,
+including heartbeat expiry without a new session event. Each scope retains its
+own permission check, so conversation presence also refreshes for devices without
+host-list access.
 Backgrounding closes the socket; FCM continues to deliver notifications.
 The visible conversation is renewed every 20 seconds for push suppression.
 
@@ -386,8 +404,9 @@ upload or production rollout is part of the development build.
   An FCM acceptance means accepted by Google, not proof the phone displayed it.
 - Approvals notify only after the CLI polls again (a live waiter), and expire with
   the existing five-minute request. Both desktop and phone lock the same request.
-- Chat notifications expire after one hour. Questions/attention reach eligible
-  devices; replies notify only followed conversations. Routine progress and
+- Chat notifications expire after one hour. Ordinary questions and replies notify
+  followed conversations. Explicit important/critical/blocker notices reach eligible
+  devices regardless of follow state. Routine progress and
   session lifecycle events are silent. Foreground conversations suppress alerts.
 - WebSocket runs only while the app is visible. Cursor-based resumption and idempotent
   sends handle reconnects; an unsuccessful send preserves its draft and retry ID.

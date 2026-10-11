@@ -67,13 +67,14 @@ type move struct {
 	Modified   time.Time `json:"modified"`
 }
 type journal struct {
-	Token  string   `json:"token"`
-	Engine string   `json:"engine"`
-	Moves  []move   `json:"moves"`
-	IDs    []string `json:"ids"`
-	Phase  string   `json:"phase"`
-	Bytes  int64    `json:"bytes"`
-	Count  int      `json:"count"`
+	Version int      `json:"version,omitempty"`
+	Token   string   `json:"token"`
+	Engine  string   `json:"engine"`
+	Moves   []move   `json:"moves"`
+	IDs     []string `json:"ids"`
+	Phase   string   `json:"phase"`
+	Bytes   int64    `json:"bytes"`
+	Count   int      `json:"count"`
 }
 
 func atomicJSONBytes(path string, raw []byte) error {
@@ -266,7 +267,11 @@ func Run(ctx context.Context, o Options) (r Result, err error) {
 		if _, e = o.Server.Reserve(ctx, j.Token); e != nil {
 			return r, e
 		}
-		if e = completeJournal(ctx, o.Root, journalPath, &j, dbs, o.Server); e != nil {
+		if e = completeJournal(ctx, o.Root, journalPath, &j, dbs, o.Server, o.Busy); e != nil {
+			if errors.Is(e, errSelectionChanged) {
+				r.Outcome, r.Reason = "rolled_back", e.Error()
+				return r, nil
+			}
 			return r, e
 		}
 		r.FreedBytes = j.Bytes
@@ -319,7 +324,7 @@ func Run(ctx context.Context, o Options) (r Result, err error) {
 		return r, nil
 	}
 	if len(chosen) > 0 {
-		j := journal{Token: uuid.NewString(), Engine: o.Engine, Phase: "prepared"}
+		j := journal{Version: 2, Token: uuid.NewString(), Engine: o.Engine, Phase: "prepared"}
 		if e = writeJSON(journalPath, j); e != nil {
 			return r, e
 		}
@@ -331,6 +336,13 @@ func Run(ctx context.Context, o Options) (r Result, err error) {
 		}
 		if e = p.Policy.validate(); e != nil {
 			return r, e
+		}
+		if busy, e = o.Busy(o.Engine); e != nil || busy {
+			// No local artifact has moved. Release this reservation without
+			// leaving a journal that would block a legitimate native launch.
+			releaseErr := completeJournal(ctx, o.Root, journalPath, &j, dbs, o.Server)
+			r.Outcome, r.Reason = "skipped", "native_process_active"
+			return r, errors.Join(e, releaseErr)
 		}
 		sessions, e = scan(o.Root, o.Engine)
 		if e != nil {
@@ -365,7 +377,11 @@ func Run(ctx context.Context, o Options) (r Result, err error) {
 		if e = writeJSON(journalPath, j); e != nil {
 			return r, e
 		}
-		if e = completeJournal(ctx, o.Root, journalPath, &j, dbs, o.Server); e != nil {
+		if e = completeJournal(ctx, o.Root, journalPath, &j, dbs, o.Server, o.Busy); e != nil {
+			if errors.Is(e, errSelectionChanged) {
+				r.Outcome, r.Reason = "rolled_back", e.Error()
+				return r, nil
+			}
 			return r, e
 		}
 		r.FreedBytes = j.Bytes
@@ -382,42 +398,47 @@ func Run(ctx context.Context, o Options) (r Result, err error) {
 	err = o.Server.Report(ctx, r)
 	return r, err
 }
-func completeJournal(ctx context.Context, root, path string, j *journal, dbs []database, server Server) error {
+func completeJournal(ctx context.Context, root, path string, j *journal, dbs []database, server Server, busyChecks ...func(string) (bool, error)) error {
+	checkIdle := func() error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		for _, check := range busyChecks {
+			busy, err := check(j.Engine)
+			if err != nil {
+				return err
+			}
+			if busy {
+				return errors.New("native process became active; housekeeping deferred")
+			}
+		}
+		return nil
+	}
 	if j.Phase == "prepared" {
 		if err := server.Release(ctx, j.Token); err != nil {
 			return err
 		}
 		return os.Remove(path)
 	}
+	if err := checkIdle(); err != nil {
+		return err
+	}
+	if j.Phase == "rolling_back" {
+		return rollbackJournal(ctx, root, path, j, server, checkIdle)
+	}
+	if j.Phase != "moving" && j.Phase != "indexing" && j.Phase != "purging" {
+		return errors.New("invalid housekeeping journal phase")
+	}
 	if j.Phase == "moving" {
-		alreadyMoved := false
-		for _, m := range j.Moves {
-			if _, e := os.Lstat(m.Quarantine); e == nil {
-				alreadyMoved = true
-				break
-			}
+		changed, rollbackSafe, err := checkMovingSnapshot(root, j)
+		if err != nil {
+			return err
 		}
-		if !alreadyMoved {
-			for _, m := range j.Moves {
-				if e := validateMove(root, j.Token, m); e != nil {
-					return e
-				}
-				st, e := os.Lstat(m.Original)
-				changed := e != nil || !st.Mode().IsRegular() || st.Size() != m.Size || !st.ModTime().Equal(m.Modified)
-				if !changed {
-					e = safePath(root, m.Original)
-					changed = e != nil
-				}
-				if changed {
-					if e = server.Release(ctx, j.Token); e != nil {
-						return e
-					}
-					if e = os.Remove(path); e != nil {
-						return e
-					}
-					return errors.New("session changed before housekeeping; nothing deleted")
-				}
+		if changed {
+			if !rollbackSafe {
+				return errors.New("legacy housekeeping journal may have modified indexes; manual recovery required")
 			}
+			return rollbackJournal(ctx, root, path, j, server, checkIdle)
 		}
 	}
 	ids := map[string]bool{}
@@ -428,7 +449,7 @@ func completeJournal(ctx context.Context, root, path string, j *journal, dbs []d
 		ids[id] = true
 	}
 	for _, m := range j.Moves {
-		if err := ctx.Err(); err != nil {
+		if err := checkIdle(); err != nil {
 			return err
 		}
 		if err := validateMove(root, j.Token, m); err != nil {
@@ -444,14 +465,14 @@ func completeJournal(ctx context.Context, root, path string, j *journal, dbs []d
 		if err != nil {
 			return err
 		}
-		if j.Phase == "purging" {
+		if j.Phase == "purging" || j.Phase == "indexing" {
 			return errors.New("native artifact reappeared during housekeeping")
 		}
 		if err = safePath(root, m.Original); err != nil {
 			return err
 		}
 		if !st.Mode().IsRegular() || st.Size() != m.Size || !st.ModTime().Equal(m.Modified) {
-			return errors.New("session changed during housekeeping; journal retained")
+			return rollbackJournal(ctx, root, path, j, server, checkIdle)
 		}
 		if err = ensureRealDir(root, filepath.Dir(m.Quarantine)); err != nil {
 			return err
@@ -464,6 +485,15 @@ func completeJournal(ctx context.Context, root, path string, j *journal, dbs []d
 		}
 	}
 	if j.Phase != "purging" {
+		// A durable boundary prevents recovery from restoring files after
+		// their database/index entries have already been removed.
+		j.Phase = "indexing"
+		if err := writeJSON(path, j); err != nil {
+			return err
+		}
+		if err := checkIdle(); err != nil {
+			return err
+		}
 		if err := cleanDatabases(ctx, dbs, ids); err != nil {
 			return err
 		}
@@ -476,6 +506,9 @@ func completeJournal(ctx context.Context, root, path string, j *journal, dbs []d
 		}
 	}
 	for _, m := range j.Moves {
+		if err := checkIdle(); err != nil {
+			return err
+		}
 		if err := safePath(root, m.Quarantine); err != nil && !os.IsNotExist(err) {
 			return err
 		}

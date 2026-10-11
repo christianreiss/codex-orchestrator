@@ -89,7 +89,7 @@ export function messageStreamEvents(message: ClaudeMessageResponse): AnthropicSs
       data: {
         type: 'message_delta',
         delta: {
-          stop_reason: message.stop_reason ?? 'end_turn',
+          stop_reason: message.stop_reason ?? null,
           stop_sequence: message.stop_sequence ?? null,
         },
         usage: { output_tokens: usage.output_tokens },
