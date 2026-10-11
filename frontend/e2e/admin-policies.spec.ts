@@ -19,7 +19,7 @@ async function fixture(page: Page, shared: ReturnType<typeof state>, manage = tr
     const json = (body: unknown, status = 200) => route.fulfill({ status, json: body });
     if (path === '/admin/auth/status') return json({ authenticated: true, enforced: true, user: { id: 1, username: 'operator', roles: [manage ? 'owner' : 'viewer'] }, capabilities: ['admin.read', 'settings.read', ...(manage ? ['settings.manage', 'security.manage_authorization'] : [])] });
     if (path === '/admin/setup/status') return json({ setup_complete: true, critical_complete: true, checks: [], next_actions: [], wizard: { completed_at: '2026-10-09T08:00:00Z', dismissed_at: null } });
-    if (path === '/admin/ws/info') return json({ enabled: true, url: 'ws://127.0.0.1:4173/policies-ws' });
+    if (path === '/admin/ws/info') return json({ enabled: true, url: new URL('/policies-ws', req.url()).href.replace(/^http/, 'ws') });
     if (path === '/admin/overview') return shared.readFail === 'prune-policy' ? json({ status: 'error', message: 'Read unavailable' }, 503) : json(shared.values['prune-policy']);
     if (shared.values[key]) {
       if (req.method() === 'POST') {

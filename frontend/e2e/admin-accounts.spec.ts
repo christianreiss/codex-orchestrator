@@ -3,7 +3,7 @@ import { expect, test, type Page } from "@playwright/test";
 const reset = "2026-10-01T12:00:00Z";
 function account(id: number, engine: "claude" | "codex" | "grok", label: string, percent: number | null) {
   return { id, engine, label, state: "enabled", verification_state: "verified", verification_reason: null, verification_checked_at: reset, generation: 1, refresh_state: "idle",
-    usage: { supported: engine !== "grok", fetched_at: reset, stale: false, short_used_percent: percent, short_resets_at: engine === "grok" ? null : reset, weekly_used_percent: percent, weekly_resets_at: engine === "grok" ? null : reset }, sessions: [] };
+    usage: { supported: true, fetched_at: engine === "grok" ? null : reset, checked_at: reset, stale: engine === "grok", current_window: null, short_used_percent: percent, short_resets_at: engine === "grok" ? null : reset, weekly_used_percent: percent, weekly_resets_at: engine === "grok" ? null : reset }, sessions: [] };
 }
 async function fixtures(page: Page, canManage = true, extra: ReturnType<typeof account>[] = []) {
   const accounts = [account(1, "claude", "Claude Alpha", 20), account(2, "claude", "Claude Beta", 80), account(3, "claude", "Claude Gamma", 20), ...extra];
@@ -36,9 +36,10 @@ async function fixtures(page: Page, canManage = true, extra: ReturnType<typeof a
 test("manages a Claude-only pool and shows each quota separately", async ({ page }) => {
   const writes = await fixtures(page);
   await page.goto("/admin/accounts");
-  await expect(page.getByRole("heading", { name: "No ChatGPT accounts" })).toBeVisible();
-  await page.getByRole("button", { name: "Claude", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Claude Alpha" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Claude Beta" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Claude Gamma" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Claude", exact: true })).toHaveCount(0);
   await expect(page.getByText("80%", { exact: true })).toHaveCount(2);
   const first = page.locator("section").filter({ hasText: "Account #1" });
   await first.getByRole("button", { name: "Pause", exact: true }).click();
@@ -52,6 +53,7 @@ test("manages a Claude-only pool and shows each quota separately", async ({ page
   await page.getByRole("button", { name: "Add account", exact: true }).click();
   const dialog = page.getByRole("dialog");
   await dialog.getByRole("textbox", { name: "Account name" }).fill("Claude Fourth");
+  await dialog.getByRole("radio", { name: "Claude", exact: true }).click();
   await dialog.locator("textarea").fill('{"claudeAiOauth":{"accessToken":"test"}}');
   await dialog.getByRole("button", { name: "Upload credentials" }).click();
   await expect(page.getByRole("heading", { name: "Claude Fourth" })).toBeVisible();
@@ -68,11 +70,26 @@ test("manages a Claude-only pool and shows each quota separately", async ({ page
 test("read-only operators can inspect quotas without management actions", async ({ page }) => {
   const writes = await fixtures(page, false);
   await page.goto("/admin/accounts");
-  await page.getByRole("button", { name: "Claude", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Claude Alpha" })).toBeVisible();
+  await expect(page.getByText("80%", { exact: true })).toHaveCount(2);
   await expect(page.getByRole("button", { name: "Add account" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Replace credentials" })).toHaveCount(0);
   expect(writes).toEqual([]);
+});
+
+test("larger account pools retain engine tabs and engine-specific empty states", async ({ page }) => {
+  await fixtures(page, false, [
+    account(4, "claude", "Claude Delta", 40), account(5, "claude", "Claude Epsilon", 50),
+    account(6, "claude", "Claude Zeta", 60), account(7, "grok", "Grok Primary", null),
+  ]);
+  await page.goto("/admin/accounts");
+  await expect(page.getByRole("heading", { name: "No ChatGPT accounts" })).toBeVisible();
+  await page.getByRole("button", { name: "Claude", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Claude Alpha" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Grok Primary" })).toHaveCount(0);
+  await page.getByRole("button", { name: "Grok", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Grok Primary" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Claude Alpha" })).toHaveCount(0);
 });
 
 
@@ -80,9 +97,8 @@ test("Grok subscription accounts show unavailable quota and upload full OIDC cre
   const grok = { ...account(5, "grok", "Grok Primary", null), refresh_state: "login_required" };
   const writes = await fixtures(page, true, [grok]);
   await page.goto("/admin/accounts");
-  await page.getByRole("button", { name: "Grok", exact: true }).click();
   const card = page.locator("section").filter({ has: page.getByRole("heading", { name: "Grok Primary" }) });
-  await expect(card).toContainText("Subscription quota is unavailable");
+  await expect(card).toContainText("Usage unavailable");
   await expect(card).toContainText("cgx login");
   await expect(card.getByRole("progressbar")).toHaveCount(0);
   await card.getByRole("button", { name: "Replace credentials" }).click();
