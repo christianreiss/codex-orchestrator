@@ -858,6 +858,11 @@ Installation requires root. `cxx update`, wrapper sync/cron and managed
 Codex/Claude/Grok launches reconcile an enabled service before native execution;
 unprivileged runs report `sudo cxx daemon install` as the pending step. Accepted
 daemon operations and peer deliveries do not reconcile their parent service.
+From cxx 0.9.48, successful service reconciliation prints an enabled/start
+confirmation; this confirms systemd startup, while connection health is shown
+in `cxx daemon status` and the WebUI. The daemon WebSocket uses the same IPv4
+preference and CA trust as relay HTTP calls, with a cancellable 35-second
+connection/handshake timeout.
 Agent Messaging uses the fleet switch and the current host access policy; the
 retired per-host messaging flag is ignored. The account must have usable
 managed engine configs and installed provider CLIs. Existing `cxx-agent`
