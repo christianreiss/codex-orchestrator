@@ -21,6 +21,11 @@ JetBrains Mono is reserved for technical values. Semantic colors indicate real
 state only. Decorative gradients, glass, entry motion, serif display type,
 oversized radii, and card-within-card presentation are out of scope.
 
+Destructive controls use the shared semantic foreground/background pair. In
+dark mode, dark text on a lighter red keeps small labels readable, including
+the translucent button and badge hover states. Theme contrast tests cover
+this pair alongside primary controls; browser Axe checks remain required.
+
 Desktop controls are 32–36px high. Dense table rows are 36–40px when their
 content is single-line. Overlays may use a shadow; ordinary surfaces use
 hairlines and 4–8px radii.

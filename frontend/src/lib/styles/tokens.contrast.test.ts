@@ -28,18 +28,29 @@ function rgb(value: string): [number, number, number] {
   const a = s * Math.min(l, 1 - l); const f = (n: number) => l - a * Math.max(-1, Math.min((n + h / 30) % 12 - 3, Math.min(9 - ((n + h / 30) % 12), 1)));
   return [f(0), f(8), f(4)];
 }
-function contrast(a: string, b: string) {
+function contrast(a: string, b: string, opacity = 1, backdrop = b) {
   const luminance = ([r, g, b]: [number, number, number]) => {
     const linear = (v: number) => v <= .03928 ? v / 12.92 : ((v + .055) / 1.055) ** 2.4;
     return .2126 * linear(r) + .7152 * linear(g) + .0722 * linear(b);
   };
-  const [x, y] = [luminance(rgb(a)), luminance(rgb(b))]; return (Math.max(x, y) + .05) / (Math.min(x, y) + .05);
+  const base = rgb(backdrop);
+  const background = rgb(b).map((value, i) => opacity * value + (1 - opacity) * base[i]!) as [number, number, number];
+  const [x, y] = [luminance(rgb(a)), luminance(background)]; return (Math.max(x, y) + .05) / (Math.min(x, y) + .05);
 }
 describe("neutral theme contrast", () => {
   for (const [name, tokens] of Object.entries({ light, dark, "portal auto dark": portalAutoDark })) {
     it(`${name} retains readable text and visible controls`, () => {
-      for (const [fg, bg, min] of [["foreground", "background", 7], ["muted-foreground", "card", 4.5], ["primary-foreground", "primary", 4.5], ["input", "background", 3], ["ring", "background", 3]] as const) {
+      for (const [fg, bg, min] of [["foreground", "background", 7], ["muted-foreground", "card", 4.5], ["primary-foreground", "primary", 4.5], ["destructive-foreground", "destructive", 4.5], ["input", "background", 3], ["ring", "background", 3]] as const) {
         assert.ok(contrast(tokens[fg]!, tokens[bg]!) >= min, `${name}: ${fg} on ${bg}`);
+      }
+      for (const surface of ["background", "card"]) {
+        assert.ok(contrast(tokens.destructive!, tokens[surface]!) >= 4.5, `${name}: destructive text on ${surface}`);
+      }
+      for (const surface of ["background", "card", "popover", "sidebar-bg"]) {
+        for (const opacity of [.8, .9]) {
+          assert.ok(contrast(tokens["destructive-foreground"]!, tokens.destructive!, opacity, tokens[surface]!) >= 4.5,
+            `${name}: destructive hover at ${opacity} on ${surface}`);
+        }
       }
     });
   }

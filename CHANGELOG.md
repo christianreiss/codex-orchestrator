@@ -4,6 +4,8 @@
 
 - File Transfer now uses the shared admin document title. Wrapper 0.9.58 is a validation-only rebuild: the reboot journal regression test now checks that a consumed request still reports a foreign cron file without retrying the native session.
 
+- Destructive controls in dark mode now use readable text on a lighter red, fixing the Accounts delete button contrast failure. The shared theme regression checks enforce the same minimum contrast in light, dark and automatic dark modes.
+
 - Migration 0058 aligns rich-chat session IDs with existing Portal IDs on installations with mixed MySQL collations. This fixes failed chat snapshots and Android connections stuck on Reconnecting after the rich-chat upgrade, preserving chat data and device pairing.
 
 - README features and the three-engine matrix now reflect current code, including Accounts, remote sessions, System Spawn, rich chat, recovery and housekeeping. Corrected API key namespaces, CLI examples and transport/security limits. Refreshed 16 documentation screenshots with a fictional fleet; capture now rejects unknown shots, missing API fixtures and page errors, and a helper regenerates all three terminal previews.
