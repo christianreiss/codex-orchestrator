@@ -22,6 +22,7 @@ import (
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/ipc"
 	orchestrator "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/codex/orchestrator"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/sessionguard"
 	"github.com/pelletier/go-toml"
 )
 
@@ -116,6 +117,12 @@ func nativeProjection(raw json.RawMessage) (map[string]json.RawMessage, string, 
 }
 
 func NewRuntime(baseHome string, cfg *config.Config, client *orchestrator.Client, pool *accountpool.Context) (*Runtime, error) {
+	guard, err := sessionguard.LaunchAt(baseHome)
+	if err != nil {
+		return nil, err
+	}
+	defer guard.Release()
+	// Existing native lifetime lease below remains shared with housekeeping.
 	lease, err := ipc.TryAcquireSharedPath(filepath.Join(baseHome, ".cgx-sessions.lock"))
 	if err != nil {
 		return nil, err

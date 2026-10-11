@@ -1500,3 +1500,11 @@ surviving instance may take over. Already accepted work is never automatically
 replayed, and a lost process-local receipt still requires inspection of retained
 server state. Server `ready` remains transport evidence, not proof of delivery
 or a model reply.
+
+## Session housekeeping
+
+`clx housekeeping status`, `clx housekeeping run --dry-run`, and `clx housekeeping run` inspect or remove local native sessions using the centrally signed/current effective policy. `--json` returns structured results; `--engine` selects an engine when using `cxx`. `clx housekeeping pin UUID` and `unpin UUID` manage local protection. Automatic upkeep uses the existing cxx coordinator, at most daily after success; active engines retry on later maintenance ticks.
+
+Default: enabled, 30 days inactivity, 5 GiB session files per engine/local user, with budget removal only after 7 days. Parent/subagent bundles share their newest activity and protection. Native pins, open goals/queued work, incomplete metadata and fleet resume/wake/recovery bindings are retained. Unknown database versions and unavailable protection skip deletion. Supported current native layouts are Codex state_5/thread_history_1/goals_1/queue_1/logs_2/memories_1 SQLite databases, Claude project transcripts/subagent artifacts/session indexes, and Grok native session directories plus external-content FTS search. General logs, provider auth/config and project memory files are not removed.
+
+Removal uses an exclusive native-home guard and a host/engine reservation. A journal under the original native home's `.cxx-housekeeping` records quarantine paths and session IDs. Recovery resumes this cleanup, never native work; run `clx housekeeping run` to finish it. Reservations do not expire automatically while native data may be inconsistent. The budget can remain exceeded by protected or young sessions; results state this instead of removing them.

@@ -310,6 +310,7 @@ func TestGoldenDecodesToExpectedFields(t *testing.T) {
 			}
 			// sourcePath is loader metadata, never part of the signed document.
 			got.sourcePath = ""
+			fixture.want.SessionHousekeeping = &SessionHousekeepingPolicy{Enabled: true, RetentionDays: 30, MaxBytes: 5 << 30, MinAgeDays: 7}
 
 			if !reflect.DeepEqual(*got, fixture.want) {
 				t.Fatalf("decoded config mismatch\n got: %+v\nwant: %+v", *got, fixture.want)

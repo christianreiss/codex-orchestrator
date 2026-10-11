@@ -200,7 +200,11 @@ function fakeDb(rows: FakeRows): Database {
         selected = rowsFor[getTableName(table as Table)] ?? [];
         return self;
       },
-      where() {
+      where(condition: { queryChunks?: unknown[] }) {
+        const values: unknown[] = [];
+        const walk = (v: unknown) => { if (v && typeof v === 'object') { const x = v as { queryChunks?: unknown[]; value?: unknown }; if ('value' in x) values.push(x.value); x.queryChunks?.forEach(walk); } };
+        walk(condition);
+        if (values.some(v => typeof v === 'string' && v.startsWith('session_housekeeping_'))) selected = [];
         return self;
       },
       orderBy() {

@@ -251,3 +251,7 @@ See [Android companion](android-companion.md#hosts-and-remote-conversations-0410
 
 - **host_daemon_portal_bindings** — `portal_session_id` CHAR(36) PRIMARY KEY FK → agent_sessions.id (CASCADE), `daemon_session_id` CHAR(36) NOT NULL FK → host_daemon_sessions.id (CASCADE). Links each native Portal launch to its durable daemon conversation.
 - **companion_daemon_follows** — `device_id` CHAR(36) NOT NULL FK → companion_devices.id (CASCADE), `daemon_session_id` CHAR(36) NOT NULL FK → host_daemon_sessions.id (CASCADE). Composite primary key; persists the device subscription before the first launch binds.
+
+## Session housekeeping (migration 0054)
+
+- **session_housekeeping_reservations** — Durable local-removal fence. `host_id` BIGINT UNSIGNED NOT NULL FK to hosts (CASCADE), `engine` VARCHAR(16) NOT NULL, `token` CHAR(36) NOT NULL, `created_at` VARCHAR(100) NOT NULL; unique host/engine. Reservations have no automatic expiry: a crashed client may have already quarantined transcripts. The same local journal token must recover and release the reservation. Fleet policy and full host overrides are JSON entries in versions, named session_housekeeping_ENGINE and session_housekeeping_ENGINE_host_ID.

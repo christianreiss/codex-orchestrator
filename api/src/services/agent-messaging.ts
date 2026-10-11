@@ -1,3 +1,4 @@
+import { assertHousekeepingAvailable } from './session-housekeeping.js';
 import { hostDaemons, hostDaemonSessions } from '../db/schema.js';
 import { discardPresenceNotices, queuePresenceNotices, recipientSnapshot } from './agent-messaging/presence-feedback.js';
 import { type AgentDiscoveryFilters } from './agent-messaging/discovery.js';
@@ -1216,6 +1217,7 @@ export class AgentMessagingService {
         .set({ deliverySessionId: deliverySessionId ?? parent.deliverySessionId, deliveryUpstreamSessionId: upstreamSessionId ?? parent.deliveryUpstreamSessionId, updatedAt: now })
         .where(eq(agentBusMessages.id, parent.id));
       if (upstreamSessionId) {
+        await assertHousekeepingAvailable(tx, sender.hostId, sender.engine);
         await tx.update(agentBusAddresses).set({ lastUpstreamSessionId: upstreamSessionId, continuity: 'native', readiness: sender.currentSessionId ? sender.readiness : 'resumable', lastSeenAt: now, updatedAt: now }).where(eq(agentBusAddresses.id, sender.id));
       }
       return { message: persisted, sender, target, created: true };
@@ -1731,6 +1733,7 @@ export class AgentMessagingService {
           .for('update');
         const target = targetRows[0];
         if (target) {
+          await assertHousekeepingAvailable(tx, target.hostId, target.engine);
           await tx
             .update(agentBusAddresses)
             .set({

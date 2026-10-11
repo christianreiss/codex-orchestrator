@@ -1794,3 +1794,12 @@ CREATE TABLE `companion_daemon_follows` (
 ALTER TABLE `companion_daemon_follows` ADD CONSTRAINT `companion_daemon_follows_device_id_companion_devices_id_fk` FOREIGN KEY (`device_id`) REFERENCES `companion_devices`(`id`) ON DELETE cascade ON UPDATE no action;
 
 ALTER TABLE `companion_daemon_follows` ADD CONSTRAINT `companion_daemon_follows_daemon_session_id_host_daemon_sessions_id_fk` FOREIGN KEY (`daemon_session_id`) REFERENCES `host_daemon_sessions`(`id`) ON DELETE cascade ON UPDATE no action;
+
+CREATE TABLE `session_housekeeping_reservations` (
+ `host_id` BIGINT UNSIGNED NOT NULL,
+ `engine` VARCHAR(16) NOT NULL,
+ `token` CHAR(36) NOT NULL,
+ `created_at` VARCHAR(100) NOT NULL,
+ UNIQUE KEY `uq_housekeeping_host_engine` (`host_id`, `engine`),
+ CONSTRAINT `fk_housekeeping_host` FOREIGN KEY (`host_id`) REFERENCES `hosts`(`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

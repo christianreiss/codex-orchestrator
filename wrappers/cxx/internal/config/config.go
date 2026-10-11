@@ -13,18 +13,26 @@ const (
 	EngineGrok   = "grok"
 )
 
+type SessionHousekeepingPolicy struct {
+	Enabled       bool  `json:"enabled"`
+	RetentionDays int   `json:"retention_days"`
+	MaxBytes      int64 `json:"max_bytes"`
+	MinAgeDays    int   `json:"min_age_days"`
+}
+
 type Config struct {
-	SchemaVersion  int            `json:"schema_version"`
-	Engine         string         `json:"engine"`
-	IssuedAt       string         `json:"issued_at"`
-	ExpiresAt      *string        `json:"expires_at,omitempty"`
-	Orchestrator   Orchestrator   `json:"orchestrator"`
-	Host           Host           `json:"host"`
-	EngineOptions  EngineOptions  `json:"engine_options"`
-	AgentMessaging AgentMessaging `json:"agent_messaging,omitempty"`
-	Remote         Remote         `json:"remote,omitempty"`
-	Wrapper        Wrapper        `json:"wrapper"`
-	ConfigVersion  int64          `json:"config_version,omitempty"`
+	SessionHousekeeping *SessionHousekeepingPolicy `json:"session_housekeeping,omitempty"`
+	SchemaVersion       int                        `json:"schema_version"`
+	Engine              string                     `json:"engine"`
+	IssuedAt            string                     `json:"issued_at"`
+	ExpiresAt           *string                    `json:"expires_at,omitempty"`
+	Orchestrator        Orchestrator               `json:"orchestrator"`
+	Host                Host                       `json:"host"`
+	EngineOptions       EngineOptions              `json:"engine_options"`
+	AgentMessaging      AgentMessaging             `json:"agent_messaging,omitempty"`
+	Remote              Remote                     `json:"remote,omitempty"`
+	Wrapper             Wrapper                    `json:"wrapper"`
+	ConfigVersion       int64                      `json:"config_version,omitempty"`
 
 	// sourcePath is local loader metadata, never part of the signed JSON. It lets
 	// long-running wrapper capabilities re-check the same signed policy file

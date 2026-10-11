@@ -1,3 +1,4 @@
+import { housekeepingPolicy, type HousekeepingPolicy } from './session-housekeeping.js';
 import { createHash } from 'node:crypto';
 import { desc, eq } from 'drizzle-orm';
 import {
@@ -101,6 +102,7 @@ export interface WrapperConfigPayload {
     fleet_disabled_engines?: Engine[];
   };
   engine_options: Record<string, unknown>;
+  session_housekeeping?: HousekeepingPolicy;
   remote: {
     enabled: boolean;
   };
@@ -490,6 +492,7 @@ export function createWrapperConfigService(deps: WrapperConfigDeps): WrapperConf
       // gate the bus uses. Deliberately not gated on `host.secure`: the switch
       // decides whether the fleet works this way, and an insecure host's
       // operator already holds the ssh keys this would use.
+      session_housekeeping: (({ enabled, retention_days, max_bytes, min_age_days }) => ({ enabled, retention_days, max_bytes, min_age_days }))(await housekeepingPolicy(deps.db, engine, host.id)),
       remote: {
         enabled: remoteExecEnabled && engineActive,
       },

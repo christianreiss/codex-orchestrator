@@ -1,3 +1,4 @@
+import { assertHousekeepingAvailable } from './session-housekeeping.js';
 import { namedSessionTitle } from './agent-messaging/names.js';
 import { receiverView, receiverReady, receiverState } from './agent-receiver-state.js';
 import { StringDecoder } from 'node:string_decoder';
@@ -340,6 +341,7 @@ export class AgentPortalService {
         throw new ForbiddenError('Agent bridge host is inactive', 'agent_bridge_host_inactive');
       }
       assertHostEngineEnabled(currentHost, input.engine, await readFleetEngineState(tx));
+      await assertHousekeepingAvailable(tx, host.id, input.engine);
       if (!safeHashEqual(hostAuthFingerprint(currentHost), fingerprint)) {
         throw new UnauthorizedError('Host credential changed during registration', 'agent_bridge_host_auth_changed');
       }

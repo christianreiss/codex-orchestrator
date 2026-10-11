@@ -1,3 +1,4 @@
+import { assertHousekeepingAvailable } from '../session-housekeeping.js';
 import { markWaitingForPresence, discardPresenceNotices } from './presence-feedback.js';
 import { pageAgentAddresses, type AgentDiscoveryFilters } from './discovery.js';
 import { assignLaunchNameLocked, endLaunchNamesLocked } from './names.js';
@@ -138,6 +139,7 @@ export class SessionRegistry {
     const result = await this.core.db.transaction(async (tx) => {
       await this.core.requireEnabledLocked(tx);
       const lockedHost = await this.core.requireEligibleHostLocked(tx, host.id);
+      await assertHousekeepingAvailable(tx, host.id, input.engine);
       if (!safeHashEqual(hostAuthFingerprint(lockedHost), fingerprint)) {
         throw new UnauthorizedError('Host credential changed during registration', 'agent_bridge_host_auth_changed');
       }
@@ -368,6 +370,7 @@ export class SessionRegistry {
     const expiresAt = isoOffsetSeconds(this.core.env.AGENT_PORTAL_BRIDGE_TTL_SECONDS);
     const result = await this.core.db.transaction(async (tx) => {
       await this.core.requireEnabledLocked(tx);
+      await assertHousekeepingAvailable(tx, authenticated.host.id, authenticated.session.engine);
       const session = await this.core.requireBridgeSessionLocked(tx, authenticated.session.id, bridgeToken, authenticated.host.id);
       if (!session.agentBusAddressId) {
         if (input.skipIfUnbound) return null;
