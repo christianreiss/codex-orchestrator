@@ -81,6 +81,12 @@ func claudePluginArgs(args []string, receiver bool) ([]string, error) {
 		hooks := map[string]any{"hooks": map[string]any{"SessionStart": []any{map[string]any{"hooks": []any{hook}}},
 			"StopFailure": []any{map[string]any{"hooks": []any{map[string]any{"type": "command", "command": quote(binary) + " agent watchdog-event", "timeout": 5}}}},
 			"SessionEnd":  []any{map[string]any{"hooks": []any{map[string]any{"type": "command", "command": quote(binary) + " agent watchdog-event", "timeout": 5}}}}}}
+		entries := hooks["hooks"].(map[string]any)
+		for _, event := range []string{"SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PostToolUseFailure", "PermissionRequest", "Elicitation", "ElicitationResult", "Stop", "StopFailure", "SessionEnd"} {
+			entry := map[string]any{"hooks": []any{map[string]any{"type": "command", "command": quote(binary) + " agent activity-event", "timeout": 1}}}
+			prior, _ := entries[event].([]any)
+			entries[event] = append(prior, entry)
+		}
 		hooksBody, _ = json.Marshal(hooks)
 	}
 	if err := os.WriteFile(filepath.Join(plugin, "hooks", "hooks.json"), hooksBody, 0600); err != nil {

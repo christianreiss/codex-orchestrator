@@ -44,6 +44,9 @@ func RunCommand(args []string, stdin io.Reader, stdout, stderr io.Writer, versio
 		err = runListen(args[1:], stdout, stderr)
 	case "poll":
 		err = runPoll(args[1:], stdout, stderr)
+	case "activity-event":
+		// Observation is best effort and must never block a native hook.
+		_ = reportActivityHook(stdin)
 	case "watchdog-event":
 		err = reportWatchdogEvent(stdin)
 	case "native-session":

@@ -1,9 +1,11 @@
+import { registerHooks } from "node:module";
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { Agent, CloseState, Presence } from "./types";
 
 // `node --test` strips types but resolves specifiers verbatim, so the runtime
 // import needs the ".ts" extension TypeScript rejects on a static import.
+registerHooks({ resolve(specifier, context, nextResolve) { return nextResolve(specifier === "./activity" ? "./activity.ts" : specifier, context); } });
 const presenceModule: string = "./presence.ts";
 const { groupAgents, groupFor, livePresence, matchesAgent, notListeningDetail, presenceView } = (await import(presenceModule)) as typeof import("./presence");
 

@@ -652,6 +652,45 @@ describe.skipIf(!handle)('Android companion with real MySQL', { timeout: 120_000
       ]),
     );
   });
+  it('renews native activity on phones without a state change or transcript event', async () => {
+    const [host] = await db.select().from(hosts).where(eq(hosts.id, hostId));
+    const registered = await portal.registerAgent(host!, {
+      engine: 'codex', username: 'activity-test', cwd: '/tmp/companion-activity', invocationKind: 'interactive',
+    });
+    if (!registered.enabled) throw new Error('Registration disabled');
+    const id = registered.session_id;
+    const nativeId = randomUUID();
+    const generation = randomUUID();
+    await db.update(agentSessions).set({ upstreamSessionId: nativeId, receiver: {
+      generation, native_session_id: nativeId, protocol: 'codex-queue-v1', heartbeat_at: nowIso(),
+      failure: null, probes: { portal: {} },
+    } }).where(eq(agentSessions.id, id));
+    const input = { generation, native_session_id: nativeId, binding_generation: 0, sequence: 1,
+      state: 'working' as const, wait_reason: null, source: 'codex-thread' as const, evidence_age_ms: 10_000 };
+    await portal.reportActivity(id, registered.bridge_token, input);
+    const frames: Array<{ type: string; scopes?: string[] }> = [];
+    const socket = await app.injectWS('/companion/v1/ws', { headers: { authorization: authorization() } }, {
+      onInit: (ws) => ws.on('message', (raw: Buffer) => frames.push(JSON.parse(raw.toString()))),
+    });
+    try {
+      await vi.waitFor(() => expect(frames.some((f) => f.type === 'changed')).toBe(true));
+      frames.length = 0;
+      const publish = vi.spyOn(wsPublisher, 'publish');
+      try {
+        await portal.reportActivity(id, registered.bridge_token, { ...input, sequence: 2, evidence_age_ms: 0 });
+        expect(publish).not.toHaveBeenCalled();
+      } finally { publish.mockRestore(); }
+      await vi.waitFor(() => expect(frames.some((f) => f.scopes?.includes('agents'))).toBe(true), { timeout: 10_000 });
+      const response = await app.inject({ url: '/companion/v1/agents', headers: { authorization: authorization() } });
+      const row = response.json().data.agents.find((a: { id: string }) => a.id === id);
+      expect(row.activity.state).toBe('working');
+      expect(Date.parse(row.activity.expires_at)).toBeGreaterThan(Date.now() + 30_000);
+      expect(row.active_turn_id).toBeNull();
+    } finally {
+      socket.terminate();
+      await db.delete(agentSessions).where(eq(agentSessions.id, id));
+    }
+  });
   it('upgrades with a native bearer, invalidates immediately and closes on the kill switch', async () => {
     const frames: Array<{ type: string; scopes?: string[] }> = [];
     const socket = await app.injectWS(

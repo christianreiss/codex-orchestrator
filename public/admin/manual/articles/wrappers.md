@@ -544,3 +544,9 @@ with `agent_self` and inspect `agent_reboot_status` before continuing the checkp
 reboot already submitted to the OS. A missing transcript or startup failure requires
 manual inspection. Never rearm the resumed transcript under another request ID.
 Active Clients shows the handoff and links both launches.
+
+## Conversation activity
+
+Chat lists and headers show Working, Idle, Waiting for you or Unknown. This includes work started in the terminal. Connection readiness separately says whether the session can receive messages. Offline and Ended retain their meaning; Idle does not mean a task succeeded.
+
+Unknown means that a current native observation is unavailable or expired, not that the engine has stopped. Codex and Grok expose native status; Claude uses lifecycle hooks, which expire after 45 seconds without new evidence because interruptions are not always observable. Approval waits still require the native approval flow; the status badge does not approve anything.

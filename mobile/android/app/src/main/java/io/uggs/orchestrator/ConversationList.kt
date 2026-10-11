@@ -33,7 +33,7 @@ import androidx.compose.ui.unit.dp
 import org.json.JSONObject
 import java.time.Instant
 
-@Composable internal fun NowScreen(model: CompanionModel, agents: List<JSONObject>, requests: List<JSONObject>, fresh: Boolean, onReview: (JSONObject) -> Unit) {
+@Composable internal fun NowScreen(model: CompanionModel, agents: List<JSONObject>, requests: List<JSONObject>, fresh: Boolean, now: Long = System.currentTimeMillis(), onReview: (JSONObject) -> Unit) {
     var query by rememberSaveable { mutableStateOf("") }
     var filter by rememberSaveable { mutableStateOf("all") }
     val keyboard = LocalSoftwareKeyboardController.current
@@ -45,6 +45,7 @@ import java.time.Instant
         val matchesFilter = when (filter) {
             "unread" -> model.unreadReplyCount(agent.getString("id")) > 0
             "needs-you" -> attention(agent)
+            "working", "idle", "waiting", "unknown" -> isOnlineActiveAgent(agent) && nativeActivity(agent, now) == filter
             else -> isOnlineActiveAgent(agent)
         }
         matchesFilter && (search.isEmpty() || listOf(agentTitle(agent), agent.optString("cwd"),
@@ -71,7 +72,7 @@ import java.time.Instant
                 keyboardActions = KeyboardActions(onSearch = { keyboard?.hide() }),
             )
             Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf("all" to "All", "unread" to "Unread", "needs-you" to "Needs you").forEach { (id, label) ->
+                listOf("all" to "All", "unread" to "Unread", "needs-you" to "Needs you", "working" to "Working", "idle" to "Idle", "waiting" to "Waiting", "unknown" to "Unknown").forEach { (id, label) ->
                     FilterChip(
                         selected = filter == id, onClick = { filter = id },
                         modifier = Modifier.heightIn(min = 48.dp).testTag("chat-filter:$id"),
@@ -97,7 +98,7 @@ import java.time.Instant
                 ApprovalRow(request) { onReview(request) }
             }
             itemsIndexed(visible, key = { _, agent -> "agent:" + agent.getString("id") }) { index, agent ->
-                AgentRow(agent, attention(agent), model.unreadReplyCount(agent.getString("id")), index < visible.lastIndex) { model.openSession(agent.getString("id")) }
+                AgentRow(agent, now, attention(agent), model.unreadReplyCount(agent.getString("id")), index < visible.lastIndex) { model.openSession(agent.getString("id")) }
             }
             if (visible.isEmpty() && (requests.isEmpty() || search.isNotEmpty() || filter != "all")) item(key = "empty") {
                 Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 40.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -134,7 +135,7 @@ import java.time.Instant
     }
 }
 
-@Composable private fun AgentRow(agent: JSONObject, attention: Boolean, unreadCount: Int, divider: Boolean, onClick: () -> Unit) {
+@Composable private fun AgentRow(agent: JSONObject, now: Long, attention: Boolean, unreadCount: Int, divider: Boolean, onClick: () -> Unit) {
     val timestamp = runCatching { Instant.parse(agent.optJSONObject("preview")?.optString("created_at").orEmpty().ifBlank { agent.optString("last_event_at") }) }.getOrNull()
     val host = agentHost(agent)
     val shortHost = host?.let { if (it.contains(':') || it.all { char -> char.isDigit() || char == '.' }) it else it.substringBefore('.') }
@@ -157,6 +158,7 @@ import java.time.Instant
                         }
                         if (directory != null) Text(directory, Modifier.weight(1f), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
+                    Text(activityDetail(agent, now), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     if (summary != null) Text(summary, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     if (agent.optBoolean("daemon_session") && summary == null) Text(remoteStatus(agent.optString("remote_status")), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     if (attention) Text(agent.optJSONObject("attention")?.optString("severity")?.takeIf { it.isNotBlank() } ?: "Reply needed", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)

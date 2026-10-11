@@ -31,24 +31,27 @@ const mcpServerName = "cxx-agent"
 // The model process receives only a private Unix-socket path whose handler is
 // bound to this one agent session and a narrow set of portal operations.
 type Broker struct {
-	session        *Session
-	ctx            context.Context
-	cancel         context.CancelFunc
-	dir            string
-	socketPath     string
-	listener       net.Listener
-	server         *http.Server
-	closeOnce      sync.Once
-	closeMu        sync.Mutex
-	closeErr       error
-	requestMu      sync.Mutex
-	requestSeq     uint64
-	requests       map[uint64]context.CancelFunc
-	registryPath   string
-	nativeMu       sync.Mutex
-	nativeLock     *ipc.Lock
-	lockedNativeID string
-	nativeID       string
+	session              *Session
+	ctx                  context.Context
+	cancel               context.CancelFunc
+	dir                  string
+	socketPath           string
+	listener             net.Listener
+	server               *http.Server
+	closeOnce            sync.Once
+	closeMu              sync.Mutex
+	closeErr             error
+	requestMu            sync.Mutex
+	requestSeq           uint64
+	requests             map[uint64]context.CancelFunc
+	registryPath         string
+	nativeMu             sync.Mutex
+	nativeLock           *ipc.Lock
+	lockedNativeID       string
+	nativeID             string
+	hookActivity         ActivityObservation
+	hookActivityAt       time.Time
+	hookActivityNativeID string
 }
 
 func (s *Session) StartBroker(parent context.Context) (*Broker, error) {
@@ -207,6 +210,10 @@ func (b *Broker) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]string{"native_session_id": id})
 		return
 	}
+	if strings.HasSuffix(r.URL.Path, "/receiver/activity-hook") {
+		b.activityHook(w, raw)
+		return
+	}
 	// Long polls may wait 25 seconds. A 35-second ceiling also bounds a
 	// response that sends headers and then stalls its body indefinitely.
 	requestCtx, cancel := context.WithTimeout(b.ctx, 35*time.Second)
@@ -290,10 +297,10 @@ func (b *Broker) allowedPath(path string) bool {
 			return true
 		}
 	}
-	if path == sessionBase+"/watchdog/activity" || path == sessionBase+"/heartbeat" || path == sessionBase+"/events" || path == sessionBase+"/commands/claim" {
+	if path == sessionBase+"/activity" || path == sessionBase+"/watchdog/activity" || path == sessionBase+"/heartbeat" || path == sessionBase+"/events" || path == sessionBase+"/commands/claim" {
 		return true
 	}
-	for _, op := range []string{"register", "heartbeat", "stop", "ack", "status", "claim", "native"} {
+	for _, op := range []string{"register", "heartbeat", "stop", "ack", "status", "claim", "native", "activity-hook"} {
 		if path == sessionBase+"/receiver/"+op {
 			return true
 		}

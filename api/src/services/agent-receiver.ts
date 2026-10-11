@@ -53,8 +53,9 @@ export class AgentReceiverService {
     if ({ codex: 'codex-queue-v1', claude: 'claude-channel-v1', grok: 'grok-acp-v1' }[auth.engine] !== input.protocol)
       throw new ForbiddenError('Receiver engine mismatch', 'receiver_engine_mismatch');
     const sources: ReceiverSource[] = [];
+    const activityEnabled = await this.portal.isEnabled();
     if ((await this.messaging.isEnabled()) && auth.agentBusAddressId) sources.push('peer');
-    if ((await this.portal.isEnabled()) && !receiverState(auth.receiver)?.portal_closed)
+    if (activityEnabled && !receiverState(auth.receiver)?.portal_closed)
       sources.push('portal');
     const now = new Date().toISOString();
     const state = await this.db.transaction(async (tx) => {
@@ -72,6 +73,7 @@ export class AgentReceiverService {
       const next: ReceiverState = {
         ...input,
         portal_closed: old?.portal_closed,
+        activity_v1: activityEnabled,
         heartbeat_at: now,
         failure: null,
         probes: Object.fromEntries(sources.map((source) => [source, {}])),
@@ -103,7 +105,9 @@ export class AgentReceiverService {
     });
     if (state.probes.peer) await this.messaging.notifyPresenceReturn(id);
     this.changed(id);
-    return { receiver: receiverView(state), sources: Object.keys(state.probes) as ReceiverSource[] };
+    const [bound] = await this.db.select({ bindingGeneration: agentSessions.bindingGeneration }).from(agentSessions).where(eq(agentSessions.id, id));
+    return { receiver: receiverView(state), sources: Object.keys(state.probes) as ReceiverSource[],
+      capabilities: { activity_v1: state.activity_v1 === true }, binding_generation: bound?.bindingGeneration ?? 0 };
   }
 
   async update(

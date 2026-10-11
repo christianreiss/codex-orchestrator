@@ -51,7 +51,18 @@ export interface ReceiverEvidence {
   sources: Array<{ source: "peer" | "portal"; state: string; delivery_id: string | null; delivered_at: string | null; acknowledged_at: string | null; latency_ms: number | null }>;
 }
 
+export type ActivityState = "working" | "idle" | "waiting" | "unknown";
+export interface NativeActivity {
+  state: ActivityState;
+  wait_reason: "approval" | "input" | null;
+  source: string | null;
+  changed_at: string | null;
+  expires_at: string | null;
+  reason?: string | null;
+}
+
 export interface Agent {
+  activity?: NativeActivity;
   watchdog?: { status:string; deadline_at:string; next_wake_at:string|null; last_wake_at:string|null; last_error:string|null } | null;
   launch_name?: string | null;
   session_name?: string | null;
