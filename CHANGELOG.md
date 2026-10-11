@@ -6,7 +6,11 @@
 
 - Destructive controls in dark mode now use readable text on a lighter red, fixing the Accounts delete button contrast failure. The shared theme regression checks enforce the same minimum contrast in light, dark and automatic dark modes.
 
+- The Appearance menu preserves keyboard focus when overlapping autofocus callbacks finish during opening, preventing fast arrow-key navigation from jumping back to the first option.
+
 - Android 0.4.14 gives agent conversations a messenger layout: green outgoing bubbles, inline photos with tap-to-open, quoted reply previews, long-press Reply/Copy, and a compact composer with camera and attachment sheet. Selected photos show thumbnails and upload progress; existing delivery receipts and send/retry contracts are preserved.
+
+- Android media capture remains active when an incoming question switches the composer to button-only answers or back. Voice recordings and pending camera results keep their state across those prompt changes.
 
 - Migration 0058 aligns rich-chat session IDs with existing Portal IDs on installations with mixed MySQL collations. This fixes failed chat snapshots and Android connections stuck on Reconnecting after the rich-chat upgrade, preserving chat data and device pairing.
 

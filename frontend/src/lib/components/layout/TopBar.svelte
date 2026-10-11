@@ -43,6 +43,18 @@
     },
   });
 
+  let appearanceContent = $state<HTMLDivElement | null>(null);
+  function focusAppearanceMenu(event: Event) {
+    event.preventDefault();
+    const content = appearanceContent;
+    // Bits UI can remount its focus scope while opening, queuing autofocus
+    // twice. A later callback must preserve an item reached with ArrowDown.
+    requestAnimationFrame(() => {
+      if (!content?.isConnected || content !== appearanceContent || content.dataset.state !== "open") return;
+      if (!content.contains(document.activeElement)) content.focus({ preventScroll: true });
+    });
+  }
+
   let modifierKey = $state("Ctrl");
   onMount(() => {
     modifierKey = /Mac|iPod|iPhone|iPad/.test(navigator.platform) ? "⌘" : "Ctrl";
@@ -102,7 +114,7 @@
     {/if}
     <DropdownMenu.Root>
       <DropdownMenu.Trigger class="shell-icon-button" aria-label="Appearance"><Sun class="h-4 w-4 dark:hidden" /><Moon class="hidden h-4 w-4 dark:block" /></DropdownMenu.Trigger>
-      <DropdownMenu.Content align="end" class="w-44">
+      <DropdownMenu.Content align="end" class="w-44" bind:ref={appearanceContent} onOpenAutoFocus={focusAppearanceMenu}>
         <DropdownMenu.Group>
           <DropdownMenu.Label>Appearance</DropdownMenu.Label>
           <DropdownMenu.Item disabled={$themeMutation.isPending} onSelect={() => $themeMutation.mutate("light")}><Sun class="h-4 w-4" />Light</DropdownMenu.Item>

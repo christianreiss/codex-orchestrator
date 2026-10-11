@@ -2,6 +2,14 @@ package io.uggs.orchestrator
 
 import android.Manifest
 import android.app.NotificationManager
+import androidx.activity.compose.LocalActivityResultRegistryOwner
+import androidx.activity.compose.setContent
+import androidx.activity.result.ActivityResultRegistry
+import androidx.activity.result.ActivityResultRegistryOwner
+import androidx.activity.result.contract.ActivityResultContract
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.core.app.ActivityOptionsCompat
 import androidx.lifecycle.Lifecycle
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.semantics.SemanticsActions
@@ -44,6 +52,7 @@ class CompanionUiTest {
     }
 
     @Test fun startsContactOnReachableHostAndOpensQueuedConversation() {
+        waitForAgentRows(session)
         compose.onNodeWithTag("tab-hosts").performClick()
         compose.onNodeWithText("jadon.eulie.de").assertIsDisplayed()
         compose.onNodeWithTag("spawn:8").assertIsNotEnabled()
@@ -56,6 +65,7 @@ class CompanionUiTest {
         compose.onNodeWithText("Start queued — waiting for the host").assertIsDisplayed()
     }
     @Test fun startsWithOptionalTaskAndPreservesHostSearch() {
+        waitForAgentRows(session)
         compose.onNodeWithTag("tab-hosts").performClick()
         compose.onNodeWithTag("host-search").performTextInput("jadon")
         compose.onNodeWithText("offline.example").assertDoesNotExist()
@@ -76,6 +86,7 @@ class CompanionUiTest {
     private val registeredToken = AtomicReference<String?>(null)
     private val approved = AtomicBoolean(false)
     private val questionPending = AtomicBoolean(false)
+    private val questionAnswerMode = AtomicReference<String?>(null)
     private val reachable = AtomicBoolean(true)
     private val readOnly = AtomicBoolean(false)
     private val presence = AtomicReference("listening")
@@ -191,7 +202,8 @@ class CompanionUiTest {
                         val replyCursor = if (transcriptAllowed.get()) assistantCursor.toString() else "null"
                         val unreadCount = if (transcriptAllowed.get()) unreadReplies.toString() else "null"
                         val emptyCursor = if (transcriptAllowed.get()) "0" else "null"
-                        val primary = if (!sessionListed.get()) "" else """{"id":"$session","session_name":${JSONObject.quote(fixtureProject)},"host":${JSONObject.quote(fixtureHost)},"engine":${JSONObject.quote(fixtureEngine)},"cwd":${JSONObject.quote("/work/$fixtureProject")},"presence":${JSONObject.quote(presence.get())},"read_only":${readOnly.get()},"relay_ready":${reachable.get()},"reply_cursor":$replyCursor,"unread_reply_count":$unreadCount,"preview":$preview,"pending_prompt":${if (transcriptAllowed.get() && questionPending.get()) """{"id":"question-1","version":1,"question":"Which target?","options":["Staging","Production"]}""" else "null"}},"""
+                        val pendingPrompt = if (transcriptAllowed.get() && questionPending.get()) JSONObject("""{"id":"question-1","version":1,"question":"Which target?","options":["Staging","Production"]}""").put("answer_mode", questionAnswerMode.get()) else null
+                        val primary = if (!sessionListed.get()) "" else """{"id":"$session","session_name":${JSONObject.quote(fixtureProject)},"host":${JSONObject.quote(fixtureHost)},"engine":${JSONObject.quote(fixtureEngine)},"cwd":${JSONObject.quote("/work/$fixtureProject")},"presence":${JSONObject.quote(presence.get())},"read_only":${readOnly.get()},"relay_ready":${reachable.get()},"reply_cursor":$replyCursor,"unread_reply_count":$unreadCount,"preview":$preview,"pending_prompt":$pendingPrompt},"""
                         val additional = extraAgents.joinToString("") { fixture ->
                             val agent = JSONObject(fixture.toString())
                             if (!transcriptAllowed.get()) {
@@ -906,6 +918,7 @@ class CompanionUiTest {
     }
 
     @Test fun messengerPhotosQuotesAndAttachmentMenu() {
+        waitForAgentRows(session)
         val now = Instant.now()
         history.add(JSONObject().put("cursor", 1).put("type", "assistant_message").put("created_at", now.toString())
             .put("payload", JSONObject().put("text", "Here is the photo for your review.").put("attachments", org.json.JSONArray().put("test-photo"))))
@@ -940,6 +953,7 @@ class CompanionUiTest {
     }
 
     @Test fun photoDraftPreviewCanBeRemovedAndSentWithoutCaption() {
+        waitForAgentRows(session)
         compose.onNodeWithText("project").performClick()
         compose.waitUntil(10000) { compose.onAllNodesWithText(reply.get()).fetchSemanticsNodes().isNotEmpty() }
         fun addPhoto() {
@@ -960,6 +974,79 @@ class CompanionUiTest {
         compose.waitUntil(10000) { sent.get() == "" && sentMetadata.get() != null }
         Assert.assertEquals(1, sentMetadata.get()!!.getJSONArray("attachments").length())
         compose.waitUntil(10000) { compose.onAllNodesWithTag("attachment-previews").fetchSemanticsNodes().isEmpty() }
+    }
+
+    @Test fun audioRecordingSurvivesButtonOnlyPromptChanges() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        instrumentation.uiAutomation.grantRuntimePermission(instrumentation.targetContext.packageName, Manifest.permission.RECORD_AUDIO)
+        waitForAgentRows(session)
+        compose.onNodeWithText("project").performClick()
+        compose.onNodeWithContentDescription("Attach").performClick()
+        compose.onNodeWithText("Audio").performClick()
+        compose.waitUntil(10000) { compose.onAllNodesWithText("Recording audio…").fetchSemanticsNodes().isNotEmpty() }
+
+        buttonOnlyQuestion(true)
+        compose.onNodeWithText("Recording audio…").assertIsDisplayed()
+        buttonOnlyQuestion(false)
+        compose.onNodeWithText("Recording audio…").assertIsDisplayed()
+        compose.onNodeWithText("Stop").performClick()
+        compose.waitUntil(10000) { compose.onAllNodesWithText("Ready to send").fetchSemanticsNodes().isNotEmpty() }
+        scenario.onActivity { activity ->
+            val upload = androidx.lifecycle.ViewModelProvider(activity)[CompanionModel::class.java].chatUploads[session]!!.single()
+            Assert.assertEquals("audio/mp4", upload.mime)
+            Assert.assertTrue("Recording bytes must survive the prompt changes", upload.file.length() > 0)
+        }
+        compose.onNodeWithContentDescription("Send").assertIsEnabled().performClick()
+        compose.waitUntil(10000) { sentMetadata.get()?.optJSONArray("attachments")?.length() == 1 }
+    }
+
+    @Test fun cameraResultSurvivesButtonOnlyPromptChanges() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val pendingCapture = AtomicReference<Int?>(null)
+        val registry = object : ActivityResultRegistry() {
+            override fun <I, O> onLaunch(requestCode: Int, contract: ActivityResultContract<I, O>, input: I, options: ActivityOptionsCompat?) {
+                when (contract) {
+                    is ActivityResultContracts.RequestPermission -> dispatchResult(requestCode, true)
+                    is ActivityResultContracts.TakePicture -> {
+                        context.contentResolver.openOutputStream(input as android.net.Uri)!!.use { it.write(photoBytes) }
+                        pendingCapture.set(requestCode)
+                    }
+                    else -> error("Unexpected activity result contract: $contract")
+                }
+            }
+        }
+        val registryOwner = object : ActivityResultRegistryOwner { override val activityResultRegistry = registry }
+        scenario.onActivity { activity ->
+            val model = androidx.lifecycle.ViewModelProvider(activity)[CompanionModel::class.java]
+            activity.setContent {
+                CompositionLocalProvider(LocalActivityResultRegistryOwner provides registryOwner) {
+                    CompanionTheme { CompanionScreen(model) }
+                }
+            }
+        }
+        waitForAgentRows(session)
+        compose.onNodeWithText("project").performClick()
+        compose.onNodeWithContentDescription("Take photo").performClick()
+        compose.waitUntil(10000) { pendingCapture.get() != null }
+        buttonOnlyQuestion(true)
+        buttonOnlyQuestion(false)
+        scenario.onActivity { Assert.assertTrue(registry.dispatchResult(pendingCapture.get()!!, true)) }
+        compose.waitUntil(10000) { compose.onAllNodesWithText("Ready to send").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithContentDescription("photo.jpg").assertIsDisplayed()
+        scenario.onActivity { activity ->
+            val upload = androidx.lifecycle.ViewModelProvider(activity)[CompanionModel::class.java].chatUploads[session]!!.single()
+            Assert.assertArrayEquals(photoBytes, upload.file.readBytes())
+        }
+        compose.onNodeWithContentDescription("Send").assertIsEnabled().performClick()
+        compose.waitUntil(10000) { sentMetadata.get()?.optJSONArray("attachments")?.length() == 1 }
+    }
+
+    private fun buttonOnlyQuestion(pending: Boolean) {
+        questionAnswerMode.set("buttons"); questionPending.set(pending); changed("agents")
+        compose.waitUntil(10000) {
+            compose.onAllNodesWithText("Which target?").fetchSemanticsNodes().isNotEmpty() == pending &&
+                compose.onAllNodes(hasSetTextAction()).fetchSemanticsNodes().isEmpty() == pending
+        }
     }
 
     private fun changed(scope: String) { Assert.assertTrue(live.get()?.send("""{"type":"changed","scopes":["$scope"]}""") == true) }

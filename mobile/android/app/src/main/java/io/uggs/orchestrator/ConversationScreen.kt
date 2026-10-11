@@ -158,15 +158,18 @@ import org.json.JSONObject
                 TextButton(onClick={ model.resolveChatNotice(sessionId ?: "",notice.getString("id")) },enabled=fresh && model.can("agent_portal.manage") && !model.busy) { Text("Resolve") }
             }
         }
-        if (prompt?.optString("answer_mode") != "buttons") {
-            Column(Modifier.imePadding()) {
+        Column(Modifier.imePadding()) {
+            val buttonsOnly = prompt?.optString("answer_mode") == "buttons"
+            if (!buttonsOnly) {
                 model.replyTargets[sessionId]?.let { cursor ->
                     Row(Modifier.fillMaxWidth().padding(start = 12.dp, end = 60.dp, top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                         ReplyQuote(replyPreview(model.events, cursor, agent?.let(::agentTitle) ?: "Agent"), Modifier.weight(1f))
                         IconButton(onClick = { model.replyTo(null) }) { CompanionIcon(CompanionSymbol.Close, "Cancel reply") }
                     }
                 }
-                val composer: @Composable (() -> Unit, () -> Unit) -> Unit = { attach, camera ->
+            }
+            val composer: @Composable (() -> Unit, () -> Unit) -> Unit = { attach, camera ->
+                if (!buttonsOnly) {
                     MessageComposer(model.draft, { model.draft = it }, prompt != null, writable, model.busy,
                         !(model.chatUploads[sessionId].isNullOrEmpty()),
                         mediaActions = {
@@ -178,18 +181,17 @@ import org.json.JSONObject
                         followLatest = true; newMessages = false
                         scope.launch { latest(true) }; model.send(prompt)
                     }
-                }
-                if (sessionId != null && model.can("agent_portal.manage")) ChatUploadControls(model, sessionId, writable && !model.busy, composer)
-                else composer({}, {})
-            }
-        } else if (sessionId != null && model.can("agent_portal.manage")) {
-            // Button-only answers may still carry media; keep pending uploads reachable.
-            ChatUploadControls(model, sessionId, writable && !model.busy) { attach, camera ->
-                Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), horizontalArrangement = Arrangement.End) {
-                    IconButton(onClick = attach, enabled = writable && !model.busy) { CompanionIcon(CompanionSymbol.Attach, "Attach") }
-                    IconButton(onClick = camera, enabled = writable && !model.busy) { CompanionIcon(CompanionSymbol.Camera, "Take photo") }
+                } else if (sessionId != null && model.can("agent_portal.manage")) {
+                    // Button-only answers may still carry media; keep pending uploads reachable.
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), horizontalArrangement = Arrangement.End) {
+                        IconButton(onClick = attach, enabled = writable && !model.busy) { CompanionIcon(CompanionSymbol.Attach, "Attach") }
+                        IconButton(onClick = camera, enabled = writable && !model.busy) { CompanionIcon(CompanionSymbol.Camera, "Take photo") }
+                    }
                 }
             }
+            // Keep capture launchers and an active recorder alive when prompt modes change.
+            if (sessionId != null && model.can("agent_portal.manage")) ChatUploadControls(model, sessionId, writable && !model.busy, composer)
+            else composer({}, {})
         }
     }
 }

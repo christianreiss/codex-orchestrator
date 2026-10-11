@@ -202,7 +202,9 @@ with a separate round Send button. Sending no longer overlays the input with a
 redundant Sent snackbar; the bubble and delivery receipt provide confirmation.
 The attachment sheet offers Photos, Camera,
 Video, Audio and Document. Selected photos show thumbnails, upload progress and
-remove/retry controls above the input. Drafts, upload IDs and receipt semantics
+remove/retry controls above the input. An incoming button-only question, or its
+removal, preserves an active voice recording and pending camera capture.
+Drafts, upload IDs and receipt semantics
 use the existing 0.4.13 API. No server rollout is required.
 
 Version 0.4.8 reads the server-assigned `launch_name` and displays
