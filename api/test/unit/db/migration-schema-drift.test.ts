@@ -223,6 +223,8 @@ describe('migrations against the test baseline', () => {
       'chatty_runs',
       'chatty_events',
       'chatty_actions',
+      'host_daemon_portal_bindings',
+      'companion_daemon_follows',
     ]);
     expect(additions.filter((a) => a.column !== undefined).map((a) => `${a.table}.${a.column}`)).toEqual([
       'auth_payloads.generation',
@@ -293,6 +295,7 @@ describe('migrations against the test baseline', () => {
       'agent_bus_messages.target_session_id',
       'agent_bus_messages.presence_notice_key',
       'agent_bus_messages.awaiting_presence',
+      'host_daemon_operations.portal_content_enc',
     ]);
   });
 

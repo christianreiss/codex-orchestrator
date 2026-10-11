@@ -35,31 +35,40 @@ export async function companionPreviews(
   ctx: RouteContext,
   sessions: Array<Record<string, unknown>>,
   readCursors: Readonly<Record<string, number>> = {},
+  aliases: ReadonlyMap<string, string> = new Map(),
 ): Promise<Array<Record<string, unknown>>> {
   if (!sessions.length) return sessions;
   const sessionIds = new Set(sessions.map((s) => String(s.id)));
+  const physicalIds = [
+    ...new Set([...sessionIds, ...[...aliases].filter(([, id]) => sessionIds.has(id)).map(([id]) => id)]),
+  ];
+  const logicalId = aliases.size
+    ? sql<string>`CASE ${sql.join(
+        [...aliases].map(
+          ([physical, logical]) => sql`WHEN ${agentEvents.sessionId} = ${physical} THEN ${logical}`,
+        ),
+        sql` `,
+      )} ELSE ${agentEvents.sessionId} END`
+    : agentEvents.sessionId;
   const markers = Object.entries(readCursors)
     .filter(([sessionId, cursor]) => sessionIds.has(sessionId) && cursor > 0)
-    .map(([sessionId, cursor]) => sql`WHEN ${agentEvents.sessionId} = ${sessionId} THEN ${cursor}`);
+    .map(([sessionId, cursor]) => sql`WHEN ${logicalId} = ${sessionId} THEN ${cursor}`);
   const readCursor = markers.length ? sql`CASE ${sql.join(markers, sql` `)} ELSE 0 END` : sql`0`;
   const latest = await ctx.db
     .select({
       id: sql<number>`MAX(${agentEvents.id})`,
-      sessionId: agentEvents.sessionId,
+      sessionId: logicalId,
       type: agentEvents.eventType,
       unread: sql<number>`SUM(CASE WHEN ${agentEvents.eventType} = 'assistant_message' AND ${agentEvents.id} > ${readCursor} THEN 1 ELSE 0 END)`,
     })
     .from(agentEvents)
     .where(
       and(
-        inArray(
-          agentEvents.sessionId,
-          sessions.map((s) => String(s.id)),
-        ),
+        inArray(agentEvents.sessionId, physicalIds),
         inArray(agentEvents.eventType, ['assistant_message', 'waiting_input', 'attention', 'session_named']),
       ),
     )
-    .groupBy(agentEvents.sessionId, agentEvents.eventType);
+    .groupBy(logicalId, agentEvents.eventType);
   const unreadBySession = new Map(
     latest
       .filter((row) => row.type === 'assistant_message')
@@ -85,8 +94,9 @@ export async function companionPreviews(
   const byId = new Map(rows.map((r) => [r.id, r]));
   const bySession = new Map<string, Map<string, (typeof rows)[number]>>();
   for (const row of rows) {
-    if (!bySession.has(row.sessionId)) bySession.set(row.sessionId, new Map());
-    const events = bySession.get(row.sessionId)!;
+    const id = aliases.get(row.sessionId) ?? row.sessionId;
+    if (!bySession.has(id)) bySession.set(id, new Map());
+    const events = bySession.get(id)!;
     if (row.id > (events.get(row.eventType)?.id ?? 0)) events.set(row.eventType, row);
   }
   return sessions.map((session) => {
@@ -97,7 +107,11 @@ export async function companionPreviews(
       naming && naming.native_session_id === (session.upstream_session_id ?? null)
         ? compactSummary(naming.name)
         : null;
-    const card = { ...session, task_title: sessionName, session_name: namedSessionTitle(session.launch_name as string | null, sessionName) };
+    const card = {
+      ...session,
+      task_title: sessionName,
+      session_name: namedSessionTitle(session.launch_name as string | null, sessionName),
+    };
     // Preview priority can select an older prompt/attention event. Unread
     // replies need their own monotonic cursor, including retained ended chats.
     const replyCursor = Number(events?.get('assistant_message')?.id ?? 0);

@@ -16,6 +16,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -50,6 +51,7 @@ class MainActivity : ComponentActivity() {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable private fun CompanionContent(model: CompanionModel) {
     val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
+    var homeTab by rememberSaveable { mutableStateOf("chats") }
     var more by remember { mutableStateOf(false) }
     var review by remember { mutableStateOf<JSONObject?>(null) }
     var clock by remember { mutableLongStateOf(System.currentTimeMillis()) }
@@ -91,6 +93,11 @@ class MainActivity : ComponentActivity() {
                 if (model.connection != null) IconButton(onClick = { more = true }, modifier = Modifier.size(48.dp)) { CompanionIcon(CompanionSymbol.MoreVertical, "More") }
             }
         }
+    }, bottomBar = {
+        if (model.connection != null && model.selected == null) NavigationBar {
+            NavigationBarItem(selected = homeTab == "chats", onClick = { homeTab = "chats" }, icon = { CompanionIcon(CompanionSymbol.Chat) }, label = { Text("Chats") }, modifier = Modifier.testTag("tab-chats"))
+            if (model.can("admin.read")) NavigationBarItem(selected = homeTab == "hosts", onClick = { homeTab = "hosts" }, icon = { CompanionIcon(CompanionSymbol.Computer) }, label = { Text("Hosts") }, modifier = Modifier.testTag("tab-hosts"))
+        }
     }, snackbarHost = { SnackbarHost(snackbar) }, floatingActionButton = {
         if (model.connection != null && model.selected == null && total > 0) {
             Button(onClick = { if (requests.isNotEmpty()) review = requests.first() else model.openSession(needsYou.first().getString("id")) },
@@ -109,7 +116,8 @@ class MainActivity : ComponentActivity() {
                 model.connection == null -> PairScreen(model)
                 model.selected != null -> ChatScreen(model, current, fresh)
                 else -> overviewState.SaveableStateProvider(model.connection!!.deviceId) {
-                    NowScreen(model, agents, requests, fresh, onReview = { review = it })
+                    if (homeTab == "hosts" && model.can("admin.read")) HostsScreen(model, fresh)
+                    else NowScreen(model, agents, requests, fresh, onReview = { review = it })
                 }
             }
         }

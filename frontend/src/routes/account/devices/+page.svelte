@@ -50,7 +50,7 @@
 </script>
 
 <div class="space-y-6">
-  <PageHeader title="Android devices" subtitle="Live agent updates, short summaries in cards and notifications, and host access review from your phone." />
+  <PageHeader title="Android devices" subtitle="Chats, reachable hosts, remote agent starts and host access review from your phone." />
   <Button onclick={pair} disabled={busy}>Pair Android device</Button>
   {#if $devices.data && !$devices.data.push_configured}
     <p class="rounded-lg border border-border p-4 text-sm text-muted-foreground">Push delivery is not configured. Pairing and chat are available; configure Firebase on the server to enable notifications.</p>

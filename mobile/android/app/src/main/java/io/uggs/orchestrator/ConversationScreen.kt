@@ -50,7 +50,7 @@ import org.json.JSONObject
         onDispose { lifecycle.removeObserver(observer) }
     }
     val scope = rememberCoroutineScope()
-    val writable = fresh && model.can("agent_portal.manage") && agent?.let(::isReachable) == true
+    val writable = fresh && model.canSendSession(model.selected)
     var followLatest by remember { mutableStateOf(true) }
     var newMessages by remember { mutableStateOf(false) }
     var autoScrolling by remember { mutableStateOf(false) }
@@ -140,7 +140,7 @@ import org.json.JSONObject
             }
         }
         if (!writable) Text(
-            if (!fresh) (if (model.connecting) "Connecting — draft kept" else "Reconnecting — draft kept") else "Agent is no longer reachable",
+            if (!fresh) (if (model.connecting) "Connecting — draft kept" else "Reconnecting — draft kept") else agent?.takeIf { it.optBoolean("daemon_session") }?.let { remoteStatus(it.optString("remote_status")) } ?: "Agent is no longer reachable",
             Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
         )

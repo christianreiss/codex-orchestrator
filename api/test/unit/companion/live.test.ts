@@ -86,6 +86,19 @@ describe('companion live invalidations', () => {
     expect(socket.frames.at(-1)?.type).toBe('ping');
     expect(socket.frames.filter((f) => f.type === 'changed')).toHaveLength(changes);
   });
+  it('invalidates host readiness only for host-authorized devices without leaking data', async () => {
+    vi.mocked(sources.authorize).mockResolvedValue(['admin.read']);
+    const socket = await connect();
+    wsPublisher.publish('host.daemon.changed', { host_id: 7, api_key: 'private' });
+    await vi.advanceTimersByTimeAsync(60);
+    expect(socket.frames.at(-1)).toMatchObject({ type: 'changed', scopes: ['hosts'] });
+    expect(JSON.stringify(socket.frames)).not.toMatch(/host_id|private/);
+    vi.mocked(sources.authorize).mockResolvedValue([]);
+    await vi.advanceTimersByTimeAsync(5000);
+    wsPublisher.publish('host.daemon.changed', {});
+    await vi.advanceTimersByTimeAsync(60);
+    expect(socket.frames.at(-1)?.scopes).toEqual(['me']);
+  });
   it('fails closed on an unavailable or hung authority', async () => {
     const socket = await connect();
     vi.mocked(sources.authorize).mockImplementation(() => new Promise(() => {}));

@@ -11,6 +11,11 @@ import {
   agentPrompts,
   agentBusAddresses,
   agentBusMessages,
+  agentEvents,
+  agentSessions,
+  companionDaemonFollows,
+  companionFollows,
+  hostDaemonPortalBindings,
 } from '../../db/schema.js';
 import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from '../../http/errors.js';
 import { encrypt, decrypt } from '../../security/secret-box.js';
@@ -19,7 +24,17 @@ import { readFleetEngineState } from '../engine-switch.js';
 import { wsPublisher } from '../../ws/publisher.js';
 import { daemonSettingsSchema, daemonHealth, type DaemonRuntime, type DaemonSettings } from './policy.js';
 import { ENGINE_HOST_FIELDS, type Engine } from '../../util/engine.js';
+import type { Database } from '../../db/client.js';
 import { messagingHostEligible } from '../agent-messaging.js';
+
+type DaemonDb = Database | Parameters<Parameters<Database['transaction']>[0]>[0];
+export interface PortalDaemonInput {
+  deviceId: string;
+  content: string;
+  author: string;
+  promptId?: string;
+  version?: number;
+}
 
 const now = () => new Date().toISOString();
 const hash = (v: unknown) => createHash('sha256').update(JSON.stringify(v)).digest('hex');
@@ -69,10 +84,7 @@ export class HostDaemonService {
       work.filter((s) => ['running', 'stopping'].includes(s.status)).length,
       engines,
     );
-    if (
-      row.settings.enabled &&
-      !messagingHostEligible(host)
-    ) {
+    if (row.settings.enabled && !messagingHostEligible(host)) {
       health.state = 'red';
       health.reasons.unshift('host_access_blocked');
     }
@@ -88,7 +100,88 @@ export class HostDaemonService {
       health.state = 'red';
       health.reasons.unshift('messaging_or_api_disabled');
     }
-    return { host_id: id, fqdn: host.fqdn, ...row.settings, health, sessions: work };
+    return {
+      host_id: id,
+      fqdn: host.fqdn,
+      ...row.settings,
+      health,
+      engines: runtime?.engines ?? [],
+      sessions: work,
+    };
+  }
+  private async assertMobileReady(
+    db: DaemonDb,
+    hostId: number,
+    engine: Engine,
+    config: typeof hostDaemons.$inferSelect,
+  ) {
+    const [host] = await db.select().from(hosts).where(eq(hosts.id, hostId));
+    if (!host || !messagingHostEligible(host)) throw new ForbiddenError('Host access is blocked');
+    assertHostEngineEnabled(host, engine, await readFleetEngineState(db));
+    const runtime = config.runtime;
+    const age = runtime ? Date.now() - Date.parse(runtime.heartbeat_at) : Infinity;
+    if (
+      !runtime?.connected ||
+      !Number.isFinite(age) ||
+      age < 0 ||
+      age >= 45_000 ||
+      runtime.error ||
+      runtime.username !== config.settings.username
+    )
+      throw new ConflictError('Host daemon is not reachable', 'daemon_unreachable');
+    if (!runtime.engines.includes(engine) || (host.secure && !host[ENGINE_HOST_FIELDS[engine].authDigest]))
+      throw new ConflictError('Engine is not ready on this host', 'daemon_engine_unavailable');
+    const work = await db
+      .select()
+      .from(sessions)
+      .where(and(eq(sessions.hostId, hostId), inArray(sessions.status, ['queued', 'running', 'stopping'])));
+    if (work.length >= config.settings.max_parallel)
+      throw new ConflictError('Host has no free slots', 'daemon_busy');
+  }
+  private async bindPortal(db: DaemonDb, daemonSessionId: string, portalSessionId: string) {
+    // Portal may be disabled for non-mobile daemon launches.
+    if (!(await db.select().from(agentSessions).where(eq(agentSessions.id, portalSessionId)).limit(1)).length)
+      return;
+    await db
+      .insert(hostDaemonPortalBindings)
+      .values({ daemonSessionId, portalSessionId })
+      .onDuplicateKeyUpdate({ set: { daemonSessionId } });
+    const follows = await db
+      .select()
+      .from(companionDaemonFollows)
+      .where(eq(companionDaemonFollows.daemonSessionId, daemonSessionId));
+    for (const f of follows)
+      await db
+        .insert(companionFollows)
+        .values({ deviceId: f.deviceId, sessionId: portalSessionId })
+        .onDuplicateKeyUpdate({ set: { sessionId: portalSessionId } });
+  }
+  private async portalInputEvent(
+    db: DaemonDb,
+    sessionId: string,
+    operationId: string,
+    input: PortalDaemonInput,
+  ) {
+    await db
+      .insert(agentEvents)
+      .values({
+        sessionId,
+        clientEventId: `daemon:${operationId}`,
+        eventType: 'user_message',
+        source: 'portal',
+        payloadEnc: encrypt(
+          JSON.stringify({
+            text: input.content,
+            author: input.author,
+            message_id: operationId,
+            delivery_status: 'queued',
+            ...(input.promptId ? { prompt_id: input.promptId } : {}),
+          }),
+          this.ctx.keyring,
+        ),
+        createdAt: now(),
+      })
+      .onDuplicateKeyUpdate({ set: { clientEventId: `daemon:${operationId}` } });
   }
   async configure(id: number, settings: DaemonSettings) {
     await this.host(id);
@@ -136,10 +229,7 @@ export class HostDaemonService {
       !flags.some((f) => f.name === 'agent_messaging_enabled' && f.version === '1')
     )
       throw new ForbiddenError('Agent messaging or API disabled');
-    if (
-      (!config.settings.enabled && !drain) ||
-      !messagingHostEligible(host)
-    )
+    if ((!config.settings.enabled && !drain) || !messagingHostEligible(host))
       throw new ForbiddenError('Host daemon is not available', 'daemon_disabled');
     if (engine) assertHostEngineEnabled(host, engine, await readFleetEngineState(this.db));
     return config;
@@ -209,6 +299,7 @@ export class HostDaemonService {
       client_message_id: string;
     },
     owner: string,
+    portalInput?: PortalDaemonInput,
   ) {
     const config = await this.eligible(input.host_id, input.engine);
     const cwd = input.cwd || config.settings.default_cwd;
@@ -227,8 +318,14 @@ export class HostDaemonService {
       if (existing) {
         if (existing.requestHash !== requestHash)
           throw new ConflictError('Idempotency key reused with different input');
+        if (portalInput)
+          await tx
+            .insert(companionDaemonFollows)
+            .values({ deviceId: portalInput.deviceId, daemonSessionId: existing.sessionId })
+            .onDuplicateKeyUpdate({ set: { daemonSessionId: existing.sessionId } });
         return { operation_id: existing.id, session_id: existing.sessionId };
       }
+      if (portalInput) await this.assertMobileReady(tx, input.host_id, input.engine, locked);
       const id = randomUUID(),
         opId = randomUUID();
       await tx.insert(sessions).values({
@@ -250,6 +347,7 @@ export class HostDaemonService {
         clientKey,
         requestHash,
         promptEnc: encrypt(input.prompt, this.ctx.keyring),
+        portalContentEnc: portalInput ? encrypt(JSON.stringify(portalInput), this.ctx.keyring) : null,
         status: 'queued',
         createdAt: now(),
         updatedAt: now(),
@@ -260,6 +358,10 @@ export class HostDaemonService {
         payload: { owner, session_id: id, operation_id: opId, engine: input.engine },
         createdAt: now(),
       });
+      if (portalInput)
+        await tx
+          .insert(companionDaemonFollows)
+          .values({ deviceId: portalInput.deviceId, daemonSessionId: id });
       this.changed(input.host_id);
       return { operation_id: opId, session_id: id };
     });
@@ -277,13 +379,13 @@ export class HostDaemonService {
     return {
       ...row,
       address: row.addressId ? `agent:${row.addressId}` : null,
-      operations: ops.map(({ promptEnc: _prompt, resultEnc, ...op }) => ({
+      operations: ops.map(({ promptEnc: _prompt, portalContentEnc: _portalContent, resultEnc, ...op }) => ({
         ...op,
         result: resultEnc ? (JSON.parse(decrypt(resultEnc, this.ctx.keyring)) as unknown) : null,
       })),
     };
   }
-  async turn(id: string, prompt: string, clientId: string, owner?: string) {
+  async turn(id: string, prompt: string, clientId: string, owner?: string, portalInput?: PortalDaemonInput) {
     const row = await this.session(id, owner);
     await this.eligible(row.hostId, row.engine as Engine);
     const key = `${owner ?? 'admin'}:${clientId}`;
@@ -302,6 +404,11 @@ export class HostDaemonService {
       }
       if (!locked || ['running', 'stopping', 'queued'].includes(locked.status))
         throw new ConflictError('Session is busy');
+      if (portalInput) {
+        if (!['idle', 'waiting'].includes(locked.status))
+          throw new ConflictError('Session cannot be resumed', 'daemon_session_unavailable');
+        await this.assertMobileReady(tx, row.hostId, row.engine as Engine, config);
+      }
       if (!locked.addressId) throw new ConflictError('No native transcript to resume');
       const [address] = await tx
         .select()
@@ -309,6 +416,30 @@ export class HostDaemonService {
         .where(eq(agentBusAddresses.id, locked.addressId));
       if (!address?.lastUpstreamSessionId) throw new ConflictError('Native transcript missing');
       const opId = randomUUID();
+      if (portalInput && locked.sessionId) {
+        if (portalInput.promptId) {
+          const [question] = await tx
+            .select()
+            .from(agentPrompts)
+            .where(
+              and(eq(agentPrompts.id, portalInput.promptId), eq(agentPrompts.sessionId, locked.sessionId)),
+            )
+            .for('update');
+          if (!question || question.status !== 'open')
+            throw new ConflictError('Prompt was already answered', 'already_answered');
+          if (portalInput.version !== undefined && question.version !== portalInput.version)
+            throw new ConflictError('Prompt version changed', 'prompt_version_conflict');
+          await tx
+            .update(agentPrompts)
+            .set({ status: 'answered', answeredAt: now(), version: question.version + 1 })
+            .where(eq(agentPrompts.id, question.id));
+        }
+        await this.portalInputEvent(tx, locked.sessionId, opId, portalInput);
+        await tx
+          .insert(companionDaemonFollows)
+          .values({ deviceId: portalInput.deviceId, daemonSessionId: id })
+          .onDuplicateKeyUpdate({ set: { daemonSessionId: id } });
+      }
       await tx.insert(operations).values({
         id: opId,
         sessionId: id,
@@ -316,6 +447,7 @@ export class HostDaemonService {
         clientKey: key,
         requestHash: hash({ id, prompt }),
         promptEnc: encrypt(prompt, this.ctx.keyring),
+        portalContentEnc: portalInput ? encrypt(JSON.stringify(portalInput), this.ctx.keyring) : null,
         status: 'queued',
         createdAt: now(),
         updatedAt: now(),
@@ -454,7 +586,43 @@ export class HostDaemonService {
     const [op] = await this.db.select().from(operations).where(eq(operations.id, operationId));
     if (!op || op.hostId !== hostId || op.claimId !== claim || op.status !== 'accepted')
       throw new ForbiddenError('Invalid daemon launch binding');
-    await this.db.update(sessions).set({ sessionId, addressId }).where(eq(sessions.id, op.sessionId));
+    await this.db.transaction(async (tx) => {
+      await tx.update(sessions).set({ sessionId, addressId }).where(eq(sessions.id, op.sessionId));
+      await this.bindPortal(tx, op.sessionId, sessionId);
+      if (
+        (await tx.select().from(agentSessions).where(eq(agentSessions.id, sessionId)).limit(1)).length &&
+        op.portalContentEnc &&
+        !(
+          await tx
+            .select()
+            .from(agentEvents)
+            .where(eq(agentEvents.clientEventId, `daemon:${operationId}`))
+            .limit(1)
+        ).length
+      )
+        await this.portalInputEvent(
+          tx,
+          sessionId,
+          operationId,
+          JSON.parse(decrypt(op.portalContentEnc, this.ctx.keyring)) as PortalDaemonInput,
+        );
+      if (
+        op.portalContentEnc &&
+        (await tx.select().from(agentSessions).where(eq(agentSessions.id, sessionId)).limit(1)).length
+      )
+        await tx
+          .insert(agentEvents)
+          .values({
+            sessionId,
+            clientEventId: `daemon:accepted:${operationId}`,
+            eventType: 'message_accepted',
+            source: 'bridge',
+            payloadEnc: encrypt(JSON.stringify({ message_id: operationId }), this.ctx.keyring),
+            createdAt: now(),
+          })
+          .onDuplicateKeyUpdate({ set: { clientEventId: `daemon:accepted:${operationId}` } });
+    });
+    this.changed(hostId);
   }
   async bindPeer(hostId: number, sessionId: string, addressId: string) {
     const [remote] = await this.db
@@ -464,7 +632,11 @@ export class HostDaemonService {
         and(eq(sessions.hostId, hostId), eq(sessions.addressId, addressId), eq(sessions.status, 'running')),
       );
     if (!remote) return false;
-    await this.db.update(sessions).set({ sessionId }).where(eq(sessions.id, remote.id));
+    await this.db.transaction(async (tx) => {
+      await tx.update(sessions).set({ sessionId }).where(eq(sessions.id, remote.id));
+      await this.bindPortal(tx, remote.id, sessionId);
+    });
+    this.changed(hostId);
     return true;
   }
   async complete(
@@ -498,6 +670,47 @@ export class HostDaemonService {
         .update(operations)
         .set({ status: result.status, resultEnc: encoded, updatedAt: now() })
         .where(eq(operations.id, id));
+      if (op.portalContentEnc && session?.sessionId) {
+        const [binding] = await tx
+          .select()
+          .from(hostDaemonPortalBindings)
+          .where(
+            and(
+              eq(hostDaemonPortalBindings.portalSessionId, session.sessionId),
+              eq(hostDaemonPortalBindings.daemonSessionId, session.id),
+            ),
+          );
+        if (binding) {
+          const [reply] = await tx
+            .select()
+            .from(agentEvents)
+            .where(
+              and(
+                eq(agentEvents.sessionId, session.sessionId),
+                eq(agentEvents.eventType, 'assistant_message'),
+              ),
+            )
+            .limit(1);
+          if (result.status === 'completed' && !reply && result.reply.trim())
+            await tx
+              .insert(agentEvents)
+              .values({
+                sessionId: session.sessionId,
+                clientEventId: `daemon:result:${op.id}`,
+                eventType: 'assistant_message',
+                source: 'bridge',
+                payloadEnc: encrypt(
+                  JSON.stringify({
+                    text: result.reply,
+                    message_id: op.id,
+                    summary: 'New reply from the agent.',
+                  }),
+                  this.ctx.keyring,
+                ),
+                createdAt: now(),
+              });
+        }
+      }
       const prompts = session?.sessionId
         ? await tx
             .select()

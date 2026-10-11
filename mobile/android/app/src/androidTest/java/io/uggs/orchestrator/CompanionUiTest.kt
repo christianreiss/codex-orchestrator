@@ -43,6 +43,31 @@ class CompanionUiTest {
         Assert.assertEquals("Unnamed session", agentTitle(unnamed))
     }
 
+    @Test fun startsContactOnReachableHostAndOpensQueuedConversation() {
+        compose.onNodeWithTag("tab-hosts").performClick()
+        compose.onNodeWithText("jadon.eulie.de").assertIsDisplayed()
+        compose.onNodeWithTag("spawn:8").assertIsNotEnabled()
+        compose.onNodeWithTag("spawn:7").performClick()
+        compose.onNodeWithTag("confirm-spawn").assertIsEnabled().performClick()
+        compose.waitUntil(10_000) { spawned.get() != null }
+        Assert.assertEquals("", spawned.get()!!.getString("task"))
+        Assert.assertEquals("codex", spawned.get()!!.getString("engine"))
+        compose.waitUntil(10_000) { compose.onAllNodesWithTag("conversation").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("Start queued — waiting for the host").assertIsDisplayed()
+    }
+    @Test fun startsWithOptionalTaskAndPreservesHostSearch() {
+        compose.onNodeWithTag("tab-hosts").performClick()
+        compose.onNodeWithTag("host-search").performTextInput("jadon")
+        compose.onNodeWithText("offline.example").assertDoesNotExist()
+        compose.onNodeWithTag("spawn:7").performClick()
+        compose.onNodeWithTag("spawn-task").performTextInput("Inspect the daemon logs")
+        compose.onNodeWithText("Claude", useUnmergedTree = true).performClick()
+        compose.onNodeWithTag("confirm-spawn").performClick()
+        compose.waitUntil(10_000) { spawned.get() != null }
+        Assert.assertEquals("Inspect the daemon logs", spawned.get()!!.getString("task"))
+        Assert.assertEquals("claude", spawned.get()!!.getString("engine"))
+    }
+
     @get:Rule val compose = createEmptyComposeRule()
     private val server = MockWebServer()
     private lateinit var scenario: ActivityScenario<MainActivity>
@@ -64,6 +89,8 @@ class CompanionUiTest {
     private val agentsRequested = AtomicLong(0)
     private val answered = AtomicReference<String?>(null)
     private var expiresAt = Instant.now().plusSeconds(120)
+    private val spawned = AtomicReference<JSONObject?>(null)
+    private val remoteId = "151d89e9-5a82-420a-bc88-926d53db6ca2"
     private val sent = AtomicReference<String?>(null)
     private val live = AtomicReference<WebSocket?>(null)
     private val summary = AtomicReference("Ready for your message.")
@@ -110,7 +137,7 @@ class CompanionUiTest {
                     path == "/me" -> {
                         meRequested.set(true)
                         while (holdMe.get()) Thread.sleep(20)
-                        val capabilities = mutableListOf("agent_portal.read", "agent_portal.manage", "hosts.activate_insecure")
+                        val capabilities = mutableListOf("agent_portal.read", "agent_portal.manage", "hosts.activate_insecure", "admin.read", "agent_messaging.manage")
                         if (transcriptAllowed.get()) capabilities.add("agent_portal.reveal_transcript")
                         """{"device_id":"test-device","name":"Operator","capabilities":${org.json.JSONArray(capabilities)},"notifications":true,"follows":[],"firebase":${firebase ?: "null"}}"""
                     }
@@ -119,6 +146,14 @@ class CompanionUiTest {
                         if (body.has("fcm_token")) registeredToken.set(body.getString("fcm_token"))
                         "{}"
                     }
+                    path == "/hosts" -> """{"hosts":[{"host_id":7,"fqdn":"jadon.eulie.de","startable":true,"free_slots":8,"default_cwd":"/tmp","engines":["codex","claude"],"health":{"reasons":[]}}, {"host_id":8,"fqdn":"offline.example","startable":false,"free_slots":8,"engines":["grok"],"health":{"reasons":["heartbeat_expired"]}}]}"""
+                    path == "/daemon-sessions" -> {
+                        spawned.set(JSONObject(request.body.readUtf8()))
+                        extraAgents.clear()
+                        extraAgents.add(JSONObject().put("id", remoteId).put("session_name", "Contact on jadon").put("host", "jadon.eulie.de").put("engine", "codex").put("cwd", "/tmp").put("daemon_session", true).put("remote_status", "queued").put("presence", "working").put("relay_ready", false).put("reply_cursor", 0).put("unread_reply_count", 0))
+                        """{"session_id":"$remoteId","operation_id":"operation-remote"}"""
+                    }
+                    path == "/agents/$remoteId/events" -> """{"events":[],"next_cursor":0}"""
                     path == "/agents" -> {
                         agentsRequested.incrementAndGet()
                         val assistantCursor = if (history.isEmpty()) cursor.get() else history.filter { it.optString("type") == "assistant_message" }.maxOfOrNull { it.getLong("cursor") } ?: 0

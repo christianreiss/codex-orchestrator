@@ -3,10 +3,16 @@ import { and, eq } from 'drizzle-orm';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import type { RouteContext } from '../index.js';
-import { companionDevices, companionFollows } from '../../db/schema.js';
+import {
+  companionDevices,
+  companionFollows,
+  companionDaemonFollows,
+  hostDaemonSessions,
+} from '../../db/schema.js';
 import { CompanionDevices } from '../../services/companion/devices.js';
 import { startCompanionPush } from '../../services/companion/push.js';
 import { companionPreviews } from '../../services/companion/summary.js';
+import { CompanionRemote, companionStartSchema, contactPrompt } from '../../services/companion/remote.js';
 import { CompanionLive } from '../../services/companion/live.js';
 import { SettingsService } from '../../services/settings.js';
 import { registerWebsocketTransport } from '../../ws/transport.js';
@@ -52,6 +58,7 @@ export async function registerCompanionRoutes(app: FastifyInstance, ctx: RouteCo
   await registerWebsocketTransport(app);
   const devices = new CompanionDevices(ctx);
   const settings = new SettingsService(ctx.db);
+  const remote = new CompanionRemote(ctx);
   const portal = createAgentPortalService(ctx.db, ctx.env, ctx.keyring);
   const insecure = new InsecureWindowAdminService({
     db: ctx.db,
@@ -110,7 +117,19 @@ export async function registerCompanionRoutes(app: FastifyInstance, ctx: RouteCo
         fqdn: r.fqdn,
         request_ip: r.request_ip,
       }));
-      return { agents: JSON.stringify({ enabled, cursor, sessions }), approvals: JSON.stringify(approvals) };
+      const remoteSessions = (await ctx.db.select().from(hostDaemonSessions)).map((s) => ({
+        id: s.id,
+        status: s.status,
+        sessionId: s.sessionId,
+      }));
+      const hostCards = (await remote.hosts()).map(
+        ({ health: { heartbeat_at: _beat, evaluated_at: _at, ...health }, ...card }) => ({ ...card, health }),
+      );
+      return {
+        agents: JSON.stringify({ enabled, cursor, sessions, remoteSessions }),
+        approvals: JSON.stringify(approvals),
+        hosts: JSON.stringify(hostCards),
+      };
     },
   });
   app.addHook('preClose', () => live.stop());
@@ -159,9 +178,17 @@ export async function registerCompanionRoutes(app: FastifyInstance, ctx: RouteCo
         capabilities: capabilitiesForRole(user.accessLevel),
         firebase: devices.firebase(),
         notifications: !!device.notifications,
-        follows: (
-          await ctx.db.select().from(companionFollows).where(eq(companionFollows.deviceId, device.id))
-        ).map((f) => f.sessionId),
+        follows: [
+          ...(
+            await ctx.db.select().from(companionFollows).where(eq(companionFollows.deviceId, device.id))
+          ).map((f) => f.sessionId),
+          ...(
+            await ctx.db
+              .select()
+              .from(companionDaemonFollows)
+              .where(eq(companionDaemonFollows.deviceId, device.id))
+          ).map((f) => f.daemonSessionId),
+        ],
       };
     });
     app.patch('/companion/v1/device', async (req) => {
@@ -197,11 +224,17 @@ export async function registerCompanionRoutes(app: FastifyInstance, ctx: RouteCo
       await devices.revoke(user.id, device.id);
       return { revoked: true };
     });
-    const agentsSnapshot = async (accessLevel: string, readCursors?: Record<string, number>) => {
+    const agentsSnapshot = async (
+      user: { id: number; accessLevel: string },
+      readCursors?: Record<string, number>,
+    ) => {
       const snapshot = await portal.listAgentsSnapshot();
-      const reveal = capabilitiesForRole(accessLevel).includes('agent_portal.reveal_transcript');
+      const reveal = capabilitiesForRole(user.accessLevel).includes('agent_portal.reveal_transcript');
+      const projection = await remote.project(user.id, snapshot.sessions);
       const sessions = (
-        reveal ? await companionPreviews(ctx, snapshot.sessions, readCursors) : snapshot.sessions
+        reveal
+          ? await companionPreviews(ctx, projection.sessions, readCursors, projection.aliases)
+          : projection.sessions
       ).map((session) =>
         reveal
           ? session
@@ -221,7 +254,7 @@ export async function registerCompanionRoutes(app: FastifyInstance, ctx: RouteCo
     app.get('/companion/v1/agents', async (req) => {
       const { user } = await auth(req, 'agent_portal.read');
       await requirePortal();
-      return agentsSnapshot(user.accessLevel);
+      return agentsSnapshot(user);
     });
     app.post('/companion/v1/agents', async (req) => {
       const { user } = await auth(req, 'agent_portal.read');
@@ -237,10 +270,10 @@ export async function registerCompanionRoutes(app: FastifyInstance, ctx: RouteCo
             param: 'read_cursors',
           },
         );
-      return agentsSnapshot(user.accessLevel, parsed.data.read_cursors);
+      return agentsSnapshot(user, parsed.data.read_cursors);
     });
     app.get('/companion/v1/agents/:id/events', async (req) => {
-      await auth(req, 'agent_portal.reveal_transcript');
+      const { user } = await auth(req, 'agent_portal.reveal_transcript');
       await requirePortal();
       const query = z
         .object({
@@ -248,17 +281,39 @@ export async function registerCompanionRoutes(app: FastifyInstance, ctx: RouteCo
           tail: z.enum(['1', '0']).default('0'),
         })
         .parse(req.query);
-      return portal.listEvents(id(req), query.after, 250, query.tail === '1');
+      return (
+        (await remote.events(id(req), user.id, query.after, query.tail === '1')) ??
+        portal.listEvents(id(req), query.after, 250, query.tail === '1')
+      );
     });
     app.post('/companion/v1/agents/:id/messages', async (req, reply) => {
       const { device, user } = await auth(req, 'agent_portal.manage');
       const body = message.parse(req.body);
-      const result = await portal.enqueueMessage(actor(user), {
-        sessionId: id(req),
-        clientMessageId: body.client_message_id,
-        content: body.content,
-      });
-      await follow(device.id, id(req));
+      await requirePortal();
+      const linked = await remote.find(id(req), user.id);
+      let result;
+      if (
+        linked &&
+        (linked.status !== 'running' || (await remote.hasOperation(body.client_message_id, user.id)))
+      ) {
+        await auth(req, 'agent_messaging.manage');
+        await auth(req, 'agent_portal.reveal_transcript');
+        result = await remote.daemon.turn(
+          linked.id,
+          body.content + '\n\nReply to the operator through cxx portal say or cxx portal ask with --summary.',
+          body.client_message_id,
+          `admin:${user.id}`,
+          { deviceId: device.id, content: body.content, author: user.name },
+        );
+      } else {
+        result = await portal.enqueueMessage(actor(user), {
+          sessionId: linked?.sessionId ?? id(req),
+          clientMessageId: body.client_message_id,
+          content: body.content,
+        });
+        if (linked) await remote.follow(device.id, linked.id, true);
+        else await follow(device.id, id(req));
+      }
       wsPublisher.publish('companion.devices.changed', {});
       reply.code(202);
       return result;
@@ -273,21 +328,54 @@ export async function registerCompanionRoutes(app: FastifyInstance, ctx: RouteCo
         })
         .parse(req.body);
       const params = z.object({ id: z.string().uuid(), promptId: z.string().uuid() }).parse(req.params);
-      const result = await portal.answerPrompt(actor(user), {
-        sessionId: params.id,
-        promptId: params.promptId,
-        clientMessageId: body.client_message_id,
-        answer: body.answer,
-        version: body.version,
-      });
-      await follow(device.id, params.id);
+      await requirePortal();
+      const linked = await remote.find(params.id, user.id);
+      let result;
+      if (
+        linked &&
+        (linked.status !== 'running' || (await remote.hasOperation(body.client_message_id, user.id)))
+      ) {
+        await auth(req, 'agent_messaging.manage');
+        await auth(req, 'agent_portal.reveal_transcript');
+        result = await remote.daemon.turn(
+          linked.id,
+          body.answer +
+            '\n\nThis answers your open Portal question. Continue the same task and report through cxx portal say or cxx portal ask with --summary.',
+          body.client_message_id,
+          `admin:${user.id}`,
+          {
+            deviceId: device.id,
+            content: body.answer,
+            author: user.name,
+            promptId: params.promptId,
+            version: body.version,
+          },
+        );
+      } else {
+        result = await portal.answerPrompt(actor(user), {
+          sessionId: linked?.sessionId ?? params.id,
+          promptId: params.promptId,
+          clientMessageId: body.client_message_id,
+          answer: body.answer,
+          version: body.version,
+        });
+        if (linked) await remote.follow(device.id, linked.id, true);
+        else await follow(device.id, params.id);
+      }
       wsPublisher.publish('companion.devices.changed', {});
       reply.code(202);
       return result;
     });
     app.put('/companion/v1/agents/:id/follow', async (req) => {
-      const { device } = await auth(req, 'agent_portal.reveal_transcript');
+      const { device, user } = await auth(req, 'agent_portal.reveal_transcript');
       await requirePortal();
+      const linked = await remote.find(id(req), user.id);
+      if (linked) {
+        const body = z.object({ followed: z.boolean() }).parse(req.body);
+        await remote.follow(device.id, linked.id, body.followed);
+        wsPublisher.publish('companion.devices.changed', {});
+        return { followed: body.followed };
+      }
       await portal.listEvents(id(req), 0, 1, true);
       const body = z.object({ followed: z.boolean() }).parse(req.body);
       if (body.followed) await follow(device.id, id(req));
@@ -297,6 +385,33 @@ export async function registerCompanionRoutes(app: FastifyInstance, ctx: RouteCo
           .where(and(eq(companionFollows.deviceId, device.id), eq(companionFollows.sessionId, id(req))));
       wsPublisher.publish('companion.devices.changed', {});
       return { followed: body.followed };
+    });
+    app.get('/companion/v1/hosts', async (req) => {
+      await auth(req, 'admin.read');
+      return { hosts: await remote.hosts() };
+    });
+    app.post('/companion/v1/daemon-sessions', async (req, reply) => {
+      const { device, user } = await auth(req, 'agent_messaging.manage');
+      await auth(req, 'agent_portal.manage');
+      await auth(req, 'agent_portal.read');
+      await auth(req, 'agent_portal.reveal_transcript');
+      await requirePortal();
+      const body = companionStartSchema.parse(req.body);
+      const result = await remote.daemon.start(
+        {
+          host_id: body.host_id,
+          engine: body.engine,
+          ...(body.cwd ? { cwd: body.cwd } : {}),
+          title: body.title || (body.task ? body.task.slice(0, 160) : 'Kontakt herstellen'),
+          prompt: contactPrompt(body.task),
+          client_message_id: body.client_message_id,
+        },
+        `admin:${user.id}`,
+        { deviceId: device.id, content: body.task || 'Kontakt herstellen', author: user.name },
+      );
+      wsPublisher.publish('companion.devices.changed', {});
+      reply.code(202);
+      return result;
     });
     app.get('/companion/v1/approvals', async (req) => {
       await auth(req, 'hosts.activate_insecure');

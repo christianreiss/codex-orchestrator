@@ -23,6 +23,7 @@ import {
   agentMessages,
   agentPrompts,
   agentSessions,
+  hostDaemonPortalBindings,
   adminUsers,
   hosts,
   versions,
@@ -1706,7 +1707,8 @@ export class AgentPortalService {
         updatedAt: now,
       })
       .where(eq(agentSessions.id, sessionId));
-    await this.cancelSessionPending(sessionId, now, db);
+    const [remoteBinding] = status === 'completed' ? await db.select().from(hostDaemonPortalBindings).where(eq(hostDaemonPortalBindings.portalSessionId, sessionId)).limit(1) : [];
+    await this.cancelSessionPending(sessionId, now, db, { keepOpenPrompts: !!remoteBinding });
   }
 
   private async findMessageByClientId(
@@ -1828,7 +1830,7 @@ export class AgentPortalService {
     sessionId: string,
     now: string,
     db: AgentPortalDb = this.db,
-    options: { keepLeasedClose?: boolean } = {},
+    options: { keepLeasedClose?: boolean; keepOpenPrompts?: boolean } = {},
   ): Promise<void> {
     const cancelable = and(
       eq(agentMessages.sessionId, sessionId),
@@ -1856,7 +1858,7 @@ export class AgentPortalService {
       .set({ status: 'canceled', canceledAt: now, leaseOwner: null, leaseUntil: null, updatedAt: now })
       .where(cancelable);
     for (const row of doomed) await this.announceUndelivered(row, now, db);
-    await db
+    if (!options.keepOpenPrompts) await db
       .update(agentPrompts)
       .set({ status: 'expired', expiresAt: now, version: sql`${agentPrompts.version} + 1` })
       .where(and(eq(agentPrompts.sessionId, sessionId), eq(agentPrompts.status, 'open')));

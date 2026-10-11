@@ -129,6 +129,11 @@ export async function registerAgentPortalAdminHostRoutes(
         bridgeToken,
       });
     }
+    // bindPeer runs before registration to decide Portal eligibility. Link the
+    // newly registered Portal row as well, before the child can publish a reply.
+    if (daemonPeer && remoteAddress?.id && portalResult.enabled) {
+      await new HostDaemonService(ctx).bindPeer(host.id, sessionId, remoteAddress.id);
+    }
     if (body.daemon_operation_id && body.daemon_claim_id) {
       const address = messagingResult.address as { id?: string; address?: string } | undefined;
       const addressId = address?.id ?? address?.address?.replace(/^agent:/, '');

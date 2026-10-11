@@ -1,6 +1,6 @@
 import { wsPublisher } from '../../ws/publisher.js';
 
-export type CompanionScope = 'me' | 'agents' | 'approvals';
+export type CompanionScope = 'me' | 'agents' | 'approvals' | 'hosts';
 export interface CompanionSocket {
   readyState: number;
   bufferedAmount: number;
@@ -10,7 +10,7 @@ export interface CompanionSocket {
 }
 export interface CompanionLiveSources {
   authorize(token: string | undefined): Promise<readonly string[]>;
-  revisions(): Promise<{ agents: string; approvals: string }>;
+  revisions(): Promise<{ agents: string; approvals: string; hosts?: string }>;
 }
 
 interface Client {
@@ -43,17 +43,18 @@ export class CompanionLive {
   private scheduled?: ReturnType<typeof setTimeout>;
   private running?: Promise<void>;
   private pending = new Set<CompanionScope>();
-  private previous?: { agents: string; approvals: string };
+  private previous?: { agents: string; approvals: string; hosts?: string };
   private stopped = false;
 
   constructor(private readonly sources: CompanionLiveSources) {
     this.interval = setInterval(() => this.schedule(), 5000);
     this.interval.unref();
     this.unsubscribe = wsPublisher.subscribe(({ type }) => {
-      if (/^(agent_portal\.|agent_messaging\.|host\.|engine\.)/.test(type)) this.schedule('agents');
+      if (/^(host\.|engine\.)/.test(type)) this.schedule('agents', 'hosts');
+      else if (/^(agent_portal\.|agent_messaging\.)/.test(type)) this.schedule('agents');
       else if (/^insecure\./.test(type)) this.schedule('approvals');
       else if (/^(companion\.|user\.|admin\.user\.|settings\.)/.test(type))
-        this.schedule('me', 'agents', 'approvals');
+        this.schedule('me', 'agents', 'approvals', 'hosts');
     });
   }
 
@@ -64,7 +65,7 @@ export class CompanionLive {
     socket.on('close', cleanup);
     socket.on('error', cleanup);
     this.send(client, { type: 'hello' });
-    this.schedule('me', 'agents', 'approvals');
+    this.schedule('me', 'agents', 'approvals', 'hosts');
   }
 
   private send(client: Client, frame: Record<string, unknown>): void {
@@ -125,13 +126,18 @@ export class CompanionLive {
       const next = await bounded(this.sources.revisions());
       if (next.agents !== this.previous?.agents) scopes.add('agents');
       if (next.approvals !== this.previous?.approvals) scopes.add('approvals');
+      if (next.hosts !== this.previous?.hosts) scopes.add('hosts');
       this.previous = next;
       for (const client of authorized) {
         const allowed = [...scopes].filter(
           (scope) =>
             scope === 'me' ||
             client.capabilities.includes(
-              scope === 'agents' ? 'agent_portal.read' : 'hosts.activate_insecure',
+              scope === 'agents'
+                ? 'agent_portal.read'
+                : scope === 'hosts'
+                  ? 'admin.read'
+                  : 'hosts.activate_insecure',
             ),
         );
         if (allowed.length) this.send(client, { type: 'changed', scopes: allowed });

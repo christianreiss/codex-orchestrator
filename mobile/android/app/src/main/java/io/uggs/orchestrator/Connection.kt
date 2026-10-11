@@ -55,5 +55,21 @@ class ConnectionStore(context: Context) {
             Connection(json.getString("server"), json.getString("token"), json.getString("device_id"), json.optJSONObject("firebase"))
         } catch (_: Exception) { clear(); null }
     }
+    @Synchronized fun savePendingStart(deviceId: String, body: JSONObject) {
+        val json = JSONObject().put("device_id", deviceId).put("body", body)
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding").apply { init(Cipher.ENCRYPT_MODE, key()) }
+        val bytes = cipher.doFinal(json.toString().toByteArray(Charsets.UTF_8))
+        check(prefs.edit().putString("pending_start", Base64.encodeToString(cipher.iv + bytes, Base64.NO_WRAP)).commit())
+    }
+    @Synchronized fun loadPendingStart(deviceId: String): JSONObject? {
+        val encoded = prefs.getString("pending_start", null) ?: return null
+        return runCatching {
+            val bytes = Base64.decode(encoded, Base64.NO_WRAP)
+            val cipher = Cipher.getInstance("AES/GCM/NoPadding").apply { init(Cipher.DECRYPT_MODE, key(), GCMParameterSpec(128, bytes.copyOfRange(0, 12))) }
+            val json = JSONObject(String(cipher.doFinal(bytes.copyOfRange(12, bytes.size)), Charsets.UTF_8))
+            json.getJSONObject("body").takeIf { json.getString("device_id") == deviceId }
+        }.getOrNull()
+    }
+    fun clearPendingStart() { check(prefs.edit().remove("pending_start").commit()) }
     fun clear() { prefs.edit().clear().commit() }
 }

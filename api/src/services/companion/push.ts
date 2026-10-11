@@ -7,6 +7,9 @@ import {
   agentEvents,
   companionDevices,
   companionFollows,
+  companionDaemonFollows,
+  hostDaemonPortalBindings,
+  hostDaemonSessions,
   companionNotifications,
   companionPairings,
   insecureAuthRequests,
@@ -46,6 +49,17 @@ export class CompanionPush {
             .map((s) => String(s.id)),
         )
       : new Set<string>();
+    const bindings = await db
+      .select({
+        portal: hostDaemonPortalBindings.portalSessionId,
+        remote: hostDaemonSessions.id,
+        owner: hostDaemonSessions.owner,
+      })
+      .from(hostDaemonPortalBindings)
+      .innerJoin(hostDaemonSessions, eq(hostDaemonSessions.id, hostDaemonPortalBindings.daemonSessionId));
+    const remoteByPortal = new Map(bindings.map((b) => [b.portal, b]));
+    const ownerByRemote = new Map(bindings.map((b) => [b.remote, b.owner]));
+    for (const b of bindings) if (visible.has(b.portal)) visible.add(b.remote);
     const devices = await db
       .select()
       .from(companionDevices)
@@ -69,6 +83,11 @@ export class CompanionPush {
             (f) => f.sessionId,
           ),
         );
+        for (const f of await tx
+          .select()
+          .from(companionDaemonFollows)
+          .where(eq(companionDaemonFollows.deviceId, fresh.id)))
+          follows.add(f.daemonSessionId);
         const enqueue = async (sourceKey: string, kind: string, targetId: string, expiresAt: string) => {
           await tx
             .insert(companionNotifications)
@@ -109,13 +128,15 @@ export class CompanionPush {
             !roleHasCapability(user.accessLevel, 'agent_portal.reveal_transcript')
           )
             continue;
-          const kind = notificationKind(event.eventType, follows.has(event.sessionId));
+          const binding = remoteByPortal.get(event.sessionId);
+          const targetId = binding?.owner === `admin:${user.id}` ? binding.remote : event.sessionId;
+          const kind = notificationKind(event.eventType, follows.has(targetId));
           if (!kind || Date.parse(event.createdAt) < Date.now() - 3600_000) continue;
-          if (fresh.visibleSessionId === event.sessionId && (fresh.visibleUntil ?? '') > nowIso()) continue;
+          if (fresh.visibleSessionId === targetId && (fresh.visibleUntil ?? '') > nowIso()) continue;
           await enqueue(
             `event:${event.id}`,
             kind,
-            event.sessionId,
+            targetId,
             isoOffsetSeconds(3600, new Date(event.createdAt)),
           );
         }
@@ -174,6 +195,8 @@ export class CompanionPush {
           eligible =
             (await portal.isEnabled()) &&
             visible.has(job.targetId) &&
+            (!ownerByRemote.has(job.targetId) ||
+              ownerByRemote.get(job.targetId) === `admin:${row.user.id}`) &&
             roleHasCapability(row.user.accessLevel, 'agent_portal.reveal_transcript');
           if (row.device.visibleSessionId === job.targetId && (row.device.visibleUntil ?? '') > nowIso())
             eligible = false;
@@ -187,7 +210,16 @@ export class CompanionPush {
                   eq(companionFollows.sessionId, job.targetId),
                 ),
               );
-            eligible = eligible && !!follow;
+            const [remoteFollow] = await db
+              .select()
+              .from(companionDaemonFollows)
+              .where(
+                and(
+                  eq(companionDaemonFollows.deviceId, job.deviceId),
+                  eq(companionDaemonFollows.daemonSessionId, job.targetId),
+                ),
+              );
+            eligible = eligible && (!!follow || !!remoteFollow);
           }
         }
       }
@@ -213,8 +245,14 @@ export class CompanionPush {
             ? await db
                 .select()
                 .from(agentEvents)
-                .where(and(eq(agentEvents.id, Number(eventId)), eq(agentEvents.sessionId, job.targetId)))
+                .where(eq(agentEvents.id, Number(eventId)))
             : [];
+          if (
+            event &&
+            event.sessionId !== job.targetId &&
+            remoteByPortal.get(event.sessionId)?.remote !== job.targetId
+          )
+            throw new Error('Push source does not belong to conversation');
           data.summary = eventSummary(
             event?.eventType ?? 'assistant_message',
             event ? decodeSummaryPayload(event.payloadEnc, this.ctx) : {},

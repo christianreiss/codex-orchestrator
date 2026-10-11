@@ -171,9 +171,12 @@ describe.skipIf(!handle)('durable host daemon lifecycle', () => {
     await service.complete(id, op.operation_id, op.claim_id, { status: 'completed', reply: 'done' });
     expect((await service.session(start.session_id)).status).toBe('closed');
   });
-  it('rejects host messaging disable and expired insecure windows', async () => {
+  it('honors fleet messaging policy and expired insecure windows', async () => {
     await handle!.db.update(hosts).set({ agentMessagingEnabled: 0 }).where(eq(hosts.id, id));
-    await expect(service.start(input(), 'agent:owner')).rejects.toThrow('available');
+    await expect(service.start(input(), 'agent:owner')).resolves.toHaveProperty('session_id');
+    await handle!.db.update(versions).set({ version: '0' }).where(eq(versions.name, 'agent_messaging_enabled'));
+    await expect(service.start(input(), 'agent:owner')).rejects.toThrow('disabled');
+    await handle!.db.update(versions).set({ version: '1' }).where(eq(versions.name, 'agent_messaging_enabled'));
     await handle!.db
       .update(hosts)
       .set({ agentMessagingEnabled: 1, secure: 0, insecureEnabledUntil: null })

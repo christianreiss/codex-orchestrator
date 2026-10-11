@@ -1498,6 +1498,8 @@ Device credentials expire after one year; pairing again creates a new device.
 - `POST /admin/companion/pairings` — own single-use five-minute QR JSON (`version:1`, HTTPS `server`, random `token`); creates an audit entry and replaces outstanding codes for that user.
 - `DELETE /admin/companion/devices/{id}` — revoke an owned device and clear its FCM token; audited, publishes `companion.devices.changed`.
 - `POST /companion/v1/pair` — `{token,name}` exchanges a QR token once for `{device_id,token,firebase,capabilities}`; the token is never logged or stored in plaintext.
+- `GET /companion/v1/hosts` — `admin.read`; daemon-enabled host cards with `host_id`, `fqdn`, `default_cwd`, ready `engines`, safe `health`, `free_slots` and `startable`. No credential/runtime payloads.
+- `POST /companion/v1/daemon-sessions` — `{host_id,engine,client_message_id,task?,title?,cwd?}`; requires messaging management plus Portal read/manage/transcript permissions. Empty task establishes contact only. Returns 202 `{operation_id,session_id}`; UUID is retained across retries. Rechecks host/engine readiness and capacity under the daemon lock. Owned remote conversations are projected in `/agents` with their logical ID and `daemon_session:true`; existing events/messages/answers/follows routes span or resume their bound Portal launches. Missing transcripts and unknown outcomes never trigger a replacement start.
 - `GET /companion/v1/me` — identity, current capabilities, public Firebase configuration, notification preference, and followed session IDs.
 - `PATCH /companion/v1/device` — optional `fcm_token` (nullable), `notifications` boolean, `visible_session_id` (nullable UUID); updates last-seen time. Visible-session suppression expires after 45 seconds.
 - `DELETE /companion/v1/device` — self-revoke on logout.
@@ -1517,7 +1519,7 @@ Device credentials expire after one year; pairing again creates a new device.
 Host access approves the existing insecure-host window; it does not grant agent
 tool/command approvals. Finished conversations remain readable under portal
 retention. Agent/engine switches and receiver readiness retain their existing
-meaning; the app never wakes engines or bypasses their host assignment.
+meaning; ordinary chats never wake engines; explicit remote starts and resumptions use the enabled host daemon and retain host assignments.
 
 A durable per-device outbox scans committed portal events and live host requests
 every five seconds. It notifies questions/attention and followed replies, skips
@@ -1913,3 +1915,7 @@ only a committed action receipt proves a mutation. Detailed lifecycle, supported
 tools, exclusions and rollout requirements: [Chatty](chatty.md).
 
 Route-level Zod validation errors return HTTP 422 with `validation_failed`, including invalid Agent Messaging discovery limits (1–50). They are client argument errors rather than HTTP 500 transport failures.
+
+## Android remote conversations (0.4.10)
+
+See [Android companion](android-companion.md#hosts-and-remote-conversations-0410) for the device-bearer host/start contract and logical Portal conversation projection. Migration 0052 adds `host_daemon_portal_bindings`, `companion_daemon_follows` and encrypted `host_daemon_operations.portal_content_enc`; it preserves existing sessions and permits safe retries. Remote conversations are owned by the paired administrator and retain real Portal events across native launches.

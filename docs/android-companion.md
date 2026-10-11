@@ -1,5 +1,50 @@
 # Android companion
 
+## Hosts and remote conversations (0.4.10)
+
+Chats remains the default. Hosts lists daemon-enabled hosts, sorted by availability,
+with search, free slots, supported engines and an explicit reason when starting is
+unavailable. Starts require a fresh foreground connection. Codex is selected if
+ready, otherwise Claude or Grok. The sheet accepts an optional task, title and
+absolute working directory; an empty task establishes contact only. The agent
+publishes its real greeting and subsequent results/questions through Portal.
+
+Device-bearer routes `GET /companion/v1/hosts` and
+`POST /companion/v1/daemon-sessions` expose this entry point. The start body is
+`{host_id, engine, client_message_id, task?, title?, cwd?}`; the 202 result contains
+`operation_id` and the durable logical `session_id`. Listing needs `admin.read`;
+starting also needs `agent_messaging.manage`, `agent_portal.read`,
+`agent_portal.manage` and `agent_portal.reveal_transcript`. Readiness and capacity
+are rechecked under the daemon lock. No daemon settings are changed by the app.
+
+The server projects owned remote sessions through the existing `/agents` routes,
+with `daemon_session:true`, `remote_status` and `portal_session_id`. Their `id` is
+the logical daemon UUID. Each native run is linked by
+`host_daemon_portal_bindings`; events and unread reply counts span those bindings.
+Sending while idle/waiting resumes the same native transcript; missing transcripts,
+closed/failed/unknown sessions and occupied hosts reject continuation. A repeated
+UUID returns the original operation, including after acceptance. Live ordinary
+Portal messages still use the normal receiver. Completed daemon launches retain
+open Portal questions for explicit answers through a native resume.
+
+`companion_daemon_follows` exists before the first Portal registration, then copies
+the follow to every bound launch. Push targets the logical UUID and suppresses
+notifications while that conversation is visible. No greeting is fabricated in
+the app. Pending starts are persisted in Keystore-encrypted storage before sending;
+Retry uses the original body and UUID after an interrupted response or app restart.
+The new `hosts` WebSocket invalidation scope is metadata-only and permission gated.
+Existing APKs and ordinary conversations retain their routes and behavior.
+
+`RemoteLiveTest.contactAndFollowupUseTheSameNativeTranscript` is an opt-in live
+acceptance test. Supply `-e livePairingPath /data/local/tmp/companion-live.json`
+to Android instrumentation. The protected, disposable fixture contains
+`{pairing:{version:1,server,token},host,host_id}` and explicitly selects the host.
+It starts contact through Hosts, waits for the actual greeting, sends a harmless
+follow-up through the composer and verifies the same native transcript and both
+real assistant replies. It revokes its test device and clears app credentials.
+Its credential-free result is `files/live-remote-proof.json` in the debug app.
+This checks the remote conversation; physical FCM acceptance remains separate.
+
 The legacy `/go` magic-link webchat is removed. Active Clients and Android
 continue using the existing session/receiver contracts and `cxx portal` commands;
 operator access requires a dashboard account or its paired device. Session

@@ -35,6 +35,8 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
     val unreadCount get() = unreadSessions.size
     fun unreadReplyCount(id: String) = unreadReplyCounts[id] ?: 0
     var agents by mutableStateOf<List<JSONObject>>(emptyList()); private set
+    var hosts by mutableStateOf<List<JSONObject>>(emptyList()); private set
+    var pendingStart by mutableStateOf(connection?.let { store.loadPendingStart(it.deviceId) }); private set
     var approvals by mutableStateOf<List<JSONObject>>(emptyList()); private set
     var events by mutableStateOf<List<JSONObject>>(emptyList()); private set
     var follows by mutableStateOf<Set<String>>(emptySet()); private set
@@ -81,11 +83,13 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
     private fun api() = connection!!.let { Api(it.server, it.token) }
     fun can(cap: String) = capabilities.contains(cap)
     fun fresh(now: Long = SystemClock.elapsedRealtime()) = online && lastSync > 0 && now - lastSync in 0..30_000
-    fun reachable() = if (fresh() && can("agent_portal.manage") && can("agent_portal.reveal_transcript")) readyAgents(agents) else emptyList()
+    fun reachable() = if (fresh() && can("agent_portal.manage") && can("agent_portal.reveal_transcript")) readyAgents(agents).filter { !it.optBoolean("daemon_session") || can("agent_messaging.manage") } else emptyList()
     fun canReadSession(id: String) = connection != null && portalAvailable &&
         can("agent_portal.read") && can("agent_portal.reveal_transcript") && agents.any { it.optString("id") == id }
     fun overviewAgents(): List<JSONObject> = if (!can("agent_portal.read") || !can("agent_portal.reveal_transcript") || !portalAvailable) emptyList() else
-        readyAgents(agents).filter { can("agent_portal.manage") || it.optString("id") in unreadSessions }
+        agents.filter { it.optBoolean("daemon_session") || (isReachable(it) && (can("agent_portal.manage") || it.optString("id") in unreadSessions)) }.sortedByDescending { it.optString("last_event_at") }
+    fun canSpawn() = fresh() && portalAvailable && can("agent_messaging.manage") && can("agent_portal.manage") && can("agent_portal.read") && can("agent_portal.reveal_transcript")
+    fun canSendSession(id: String?) = id != null && reachable().any { it.optString("id") == id }
     private fun refreshUnreadState() {
         unreadSessions = if (!permissionsKnown || !can("agent_portal.read") || !can("agent_portal.reveal_transcript") || !portalAvailable) emptySet() else unreadStore.unreadIds()
         unreadReplyCounts = unreadSessions.associateWith(unreadStore::unreadReplyCount)
@@ -185,9 +189,9 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
         reconnectAttempt++
         reconnect = viewModelScope.launch { delay(wait); startLive() }
     }
-    private fun invalidate(scopes: Set<String> = setOf("me", "agents", "approvals")) {
+    private fun invalidate(scopes: Set<String> = setOf("me", "agents", "approvals", "hosts")) {
         if (!foreground || connection == null || !socketReady) return
-        val known = scopes.intersect(setOf("me", "agents", "approvals"))
+        val known = scopes.intersect(setOf("me", "agents", "approvals", "hosts"))
         if (known.isEmpty()) return
         revision++; pendingScopes.addAll(known)
         if (refreshJob?.isActive == true) return
@@ -214,6 +218,7 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
             try { client.request("/agents", "POST", JSONObject().put("read_cursors", unreadStore.readCursors())) }
             catch (e: ApiException) { if (e.status == 503 && e.code == "agent_portal_disabled") { portalDisabled = true; null } else throw e }
         } else null
+        val hostSnapshot = if (("hosts" in scopes || me != null) && "admin.read" in caps) client.request("/hosts") else null
         val id = selected
         var transcriptAllowed = "agent_portal.reveal_transcript" in caps && !portalDisabled
         val nextEvents = if (loadAgents && id != null && transcriptAllowed) {
@@ -225,6 +230,7 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
         } else null
         if (current != generation || epoch != revision || !foreground) return false
         capabilities = caps
+        if ("hosts" in scopes || me != null) hosts = hostSnapshot?.optJSONArray("hosts")?.objects() ?: emptyList()
         permissionsKnown = true
         if (loadAgents) portalAvailable = !portalDisabled
         if (me != null) {
@@ -251,7 +257,7 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
         online = socketReady; lastSync = SystemClock.elapsedRealtime(); reconnectAttempt = 0
         refreshUnreadState()
         if (reconnected && selected != null) viewModelScope.launch { runCatching { updatePresence() } }
-        pendingOpen?.let { pendingOpen = null; openSession(it) }
+        pendingOpen?.let { if (loadAgents) { pendingOpen = null; openSession(it) } }
         return true
     }
     private suspend fun loadEvents(client: Api, id: String, expectedReply: Long): List<JSONObject> {
@@ -312,6 +318,32 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
             follows = follows + id; notice = "Sent"
         }
     }
+    fun startHost(hostId: Long, engine: String, task: String, title: String, cwd: String, onSuccess: () -> Unit) {
+        if (pendingStart != null || busy || !canSpawn() || hosts.none { it.optLong("host_id") == hostId && it.optBoolean("startable") && engine in (it.optJSONArray("engines")?.strings() ?: emptySet()) }) return
+        val body = JSONObject().put("host_id", hostId).put("engine", engine).put("task", task.trim()).put("title", title.trim()).put("client_message_id", UUID.randomUUID().toString())
+        if (cwd.isNotBlank()) body.put("cwd", cwd.trim())
+        store.savePendingStart(connection!!.deviceId, body); pendingStart = body
+        retryStart(onSuccess)
+    }
+    fun retryStart(onSuccess: () -> Unit = {}) {
+        val body = pendingStart ?: return
+        val c = connection ?: return
+        if (busy || !canSpawn()) return
+        viewModelScope.launch {
+            busy = true; error = null; revision++
+            try {
+                val result = Api(c.server, c.token).request("/daemon-sessions", "POST", body)
+                if (connection?.deviceId != c.deviceId) return@launch
+                store.clearPendingStart(); pendingStart = null
+                pendingOpen = result.getString("session_id")
+                notice = "Start queued — waiting for the agent"
+                onSuccess(); refreshNow()
+            } catch (e: Exception) {
+                if (e is ApiException && e.status in setOf(400, 403, 404, 409)) { store.clearPendingStart(); pendingStart = null }
+                failure(e); if (connection != null) refreshNow()
+            } finally { busy = false }
+        }
+    }
     fun decide(id: Long, approve: Boolean, minutes: Int, onSuccess: () -> Unit = {}) {
         if (!fresh() || approvals.none { it.optLong("id") == id && liveApproval(it, System.currentTimeMillis()) }) {
             error = "Request is no longer available"; refreshNow(); return
@@ -330,7 +362,7 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
     } }
     fun logout() { mutate { api().request("/device", "DELETE"); clearConnection() } }
     private fun clearConnection() {
-        store.clear(); connection = null; selected = null; events = emptyList(); agents = emptyList(); approvals = emptyList(); capabilities = emptySet()
+        store.clear(); connection = null; selected = null; events = emptyList(); agents = emptyList(); hosts = emptyList(); pendingStart = null; approvals = emptyList(); capabilities = emptySet()
         unreadStore.clear(); unreadSessions = emptySet(); unreadReplyCounts = emptyMap(); permissionsKnown = false
         syncUnreadNotifications(getApplication(), null, emptySet())
         online = false; lastSync = 0; reconnectAttempt = 0; pendingOpen = null; highlightApproval = null

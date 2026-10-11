@@ -1,0 +1,111 @@
+package io.uggs.orchestrator
+
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.unit.dp
+import org.json.JSONObject
+
+internal fun remoteStatus(status: String) = when (status) {
+    "queued" -> "Start queued — waiting for the host"
+    "running" -> "Agent is working"
+    "stopping" -> "Agent is stopping"
+    "idle" -> "Ready for your next instruction"
+    "waiting" -> "Your reply is needed"
+    "unknown" -> "Outcome unknown — inspect the session on the host"
+    "failed" -> "Start or execution failed"
+    "closed" -> "Session closed"
+    else -> "Waiting for the agent"
+}
+
+internal fun defaultHostEngine(host: JSONObject): String? {
+    val engines = host.optJSONArray("engines")?.strings() ?: emptySet()
+    return if ("codex" in engines) "codex" else listOf("claude", "grok").firstOrNull { it in engines }
+}
+
+internal fun hostReason(host: JSONObject): String {
+    val reasons = host.optJSONObject("health")?.optJSONArray("reasons")?.strings() ?: emptySet()
+    return when {
+        "messaging_or_api_disabled" in reasons -> "Remote starts are disabled"
+        "host_access_blocked" in reasons -> "Host access is blocked"
+        "installation_pending" in reasons -> "Waiting for daemon installation"
+        "heartbeat_expired" in reasons -> "Host is offline"
+        "reconnecting" in reasons -> "Host is reconnecting"
+        "service_user_mismatch" in reasons -> "Daemon service user does not match"
+        "daemon_error" in reasons -> "Daemon needs attention"
+        "no_engine_ready" in reasons || defaultHostEngine(host) == null -> "No engine is ready"
+        host.optInt("free_slots") == 0 -> "All slots are occupied"
+        else -> "${host.optInt("free_slots")} free slots · ${host.optJSONArray("engines")?.strings()?.joinToString(" · ").orEmpty()}"
+    }
+}
+
+@Composable internal fun HostsScreen(model: CompanionModel, fresh: Boolean) {
+    var query by rememberSaveable { mutableStateOf("") }
+    var start by rememberSaveable { mutableStateOf<Long?>(null) }
+    val hosts = model.hosts.filter { it.optString("fqdn").contains(query.trim(), ignoreCase = true) }
+        .sortedWith(compareByDescending<JSONObject> { it.optBoolean("startable") }.thenBy { it.optString("fqdn") })
+    Column(Modifier.fillMaxSize()) {
+        OutlinedTextField(query, { query = it }, modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).testTag("host-search"), singleLine = true, placeholder = { Text("Search hosts") }, leadingIcon = { CompanionIcon(CompanionSymbol.Search) })
+        model.pendingStart?.let {
+            Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                Text("Start outcome pending. Retry checks the same start; it does not create a second agent.", style = MaterialTheme.typography.bodySmall)
+                TextButton(onClick = { model.retryStart() }, enabled = model.canSpawn() && !model.busy, modifier = Modifier.testTag("retry-start")) { Text("Retry start") }
+            }
+        }
+        if (!fresh) Text("Reconnect to start an agent", Modifier.padding(16.dp), style = MaterialTheme.typography.bodySmall)
+        else if (!model.canSpawn()) Text("Remote starts need messaging and portal permissions", Modifier.padding(16.dp), style = MaterialTheme.typography.bodySmall)
+        LazyColumn(Modifier.fillMaxSize().testTag("host-list"), contentPadding = PaddingValues(bottom = 24.dp)) {
+            if (hosts.isEmpty()) item { Text(if (query.isBlank()) "No hosts with remote starts enabled" else "No matching hosts", Modifier.padding(16.dp)) }
+            items(hosts, key = { it.optLong("host_id") }) { host ->
+                Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    CompanionIcon(CompanionSymbol.Computer)
+                    Column(Modifier.weight(1f)) {
+                        Text(host.optString("fqdn"), style = MaterialTheme.typography.titleMedium)
+                        Text(hostReason(host), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    OutlinedButton(onClick = { start = host.optLong("host_id") }, enabled = fresh && model.canSpawn() && host.optBoolean("startable") && !model.busy && model.pendingStart == null, modifier = Modifier.testTag("spawn:${host.optLong("host_id")}")) { Text("Start") }
+                }
+                HorizontalDivider(Modifier.padding(horizontal = 16.dp))
+            }
+        }
+    }
+    start?.let { id -> model.hosts.firstOrNull { it.optLong("host_id") == id }?.let { host -> StartAgentSheet(model, host, onDismiss = { start = null }) } }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable private fun StartAgentSheet(model: CompanionModel, host: JSONObject, onDismiss: () -> Unit) {
+    var engine by rememberSaveable(host.optLong("host_id")) { mutableStateOf(defaultHostEngine(host).orEmpty()) }
+    var task by rememberSaveable { mutableStateOf("") }
+    var title by rememberSaveable { mutableStateOf("") }
+    var cwd by rememberSaveable { mutableStateOf(host.optString("default_cwd")) }
+    var advanced by rememberSaveable { mutableStateOf(false) }
+    val engines = host.optJSONArray("engines")?.strings() ?: emptySet()
+    val ready = model.canSpawn() && host.optBoolean("startable") && engine in engines && (cwd.isBlank() || cwd.startsWith('/'))
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
+        Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).imePadding().padding(horizontal = 16.dp).padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text("Start an agent", style = MaterialTheme.typography.titleLarge)
+            Text(host.optString("fqdn"), style = MaterialTheme.typography.bodyMedium)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf("codex", "claude", "grok").filter { it in engines }.forEach { value -> FilterChip(selected = engine == value, onClick = { engine = value }, label = { Text(value.replaceFirstChar { it.uppercase() }) }, enabled = !model.busy && model.pendingStart == null) }
+            }
+            OutlinedTextField(task, { task = it.take(32768) }, label = { Text("Task (optional)") }, placeholder = { Text("Leave empty to establish contact") }, modifier = Modifier.fillMaxWidth().testTag("spawn-task"), minLines = 2, maxLines = 5, enabled = !model.busy && model.pendingStart == null)
+            Text(if (task.isBlank()) "The agent will greet you in the portal and wait for your instruction." else "The agent will greet you, then work on this task and report in the portal.", style = MaterialTheme.typography.bodySmall)
+            TextButton(onClick = { advanced = !advanced }) { Text(if (advanced) "Fewer options" else "More options") }
+            if (advanced) {
+                OutlinedTextField(title, { title = it.take(160) }, label = { Text("Title (optional)") }, modifier = Modifier.fillMaxWidth(), singleLine = true, enabled = !model.busy && model.pendingStart == null)
+                OutlinedTextField(cwd, { cwd = it.take(1024) }, label = { Text("Working directory") }, supportingText = { Text("Use an existing absolute directory on the host") }, modifier = Modifier.fillMaxWidth(), singleLine = true, enabled = !model.busy && model.pendingStart == null)
+            }
+            if (!host.optBoolean("startable")) Text(hostReason(host), color = MaterialTheme.colorScheme.error)
+            if (model.pendingStart != null) TextButton(onClick = { model.retryStart(onDismiss) }, enabled = ready && !model.busy) { Text("Retry same start") }
+            else Button(onClick = { model.startHost(host.optLong("host_id"), engine, task, title, cwd, onDismiss) }, enabled = ready && !model.busy, modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp).testTag("confirm-spawn")) { Text(if (task.isBlank()) "Establish contact" else "Start with task") }
+        }
+    }
+}

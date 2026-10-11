@@ -2317,9 +2317,20 @@ export const hostDaemonOperations = mysqlTable('host_daemon_operations', {
   status: varchar('status', { length: 24 }).notNull(),
   claimId: char('claim_id', { length: 36 }),
   resultEnc: longtext('result_enc'),
+  portalContentEnc: longtext('portal_content_enc'),
   createdAt: varchar('created_at', { length: 100 }).notNull(),
   updatedAt: varchar('updated_at', { length: 100 }).notNull(),
 }, t => [uniqueIndex('uq_daemon_operation_client').on(t.clientKey), index('idx_daemon_operations_host').on(t.hostId, t.status)]);
+
+export const hostDaemonPortalBindings = mysqlTable('host_daemon_portal_bindings', {
+  portalSessionId: char('portal_session_id', { length: 36 }).primaryKey().references(() => agentSessions.id, { onDelete: 'cascade' }),
+  daemonSessionId: char('daemon_session_id', { length: 36 }).notNull().references(() => hostDaemonSessions.id, { onDelete: 'cascade' }),
+}, t => [index('idx_daemon_portal_session').on(t.daemonSessionId)]);
+
+export const companionDaemonFollows = mysqlTable('companion_daemon_follows', {
+  deviceId: char('device_id', { length: 36 }).notNull().references(() => companionDevices.id, { onDelete: 'cascade' }),
+  daemonSessionId: char('daemon_session_id', { length: 36 }).notNull().references(() => hostDaemonSessions.id, { onDelete: 'cascade' }),
+}, t => [primaryKey({ columns: [t.deviceId, t.daemonSessionId] })]);
 
 // Chatty conversations are private to one admin; payloads use secretbox.
 export const chattySessions = mysqlTable('chatty_sessions', {
