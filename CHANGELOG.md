@@ -6,6 +6,8 @@
 
 - Destructive controls in dark mode now use readable text on a lighter red, fixing the Accounts delete button contrast failure. The shared theme regression checks enforce the same minimum contrast in light, dark and automatic dark modes.
 
+- Android 0.4.14 gives agent conversations a messenger layout: green outgoing bubbles, inline photos with tap-to-open, quoted reply previews, long-press Reply/Copy, and a compact composer with camera and attachment sheet. Selected photos show thumbnails and upload progress; existing delivery receipts and send/retry contracts are preserved.
+
 - Migration 0058 aligns rich-chat session IDs with existing Portal IDs on installations with mixed MySQL collations. This fixes failed chat snapshots and Android connections stuck on Reconnecting after the rich-chat upgrade, preserving chat data and device pairing.
 
 - README features and the three-engine matrix now reflect current code, including Accounts, remote sessions, System Spawn, rich chat, recovery and housekeeping. Corrected API key namespaces, CLI examples and transport/security limits. Refreshed 16 documentation screenshots with a fictional fleet; capture now rejects unknown shots, missing API fixtures and page errors, and a helper regenerates all three terminal previews.

@@ -45,7 +45,7 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable fun CompanionScreen(model: CompanionModel) {
-    CompanionHomeTheme(enabled = model.connection != null && model.selected == null) { CompanionContent(model) }
+    CompanionHomeTheme(enabled = model.connection != null) { CompanionContent(model) }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)

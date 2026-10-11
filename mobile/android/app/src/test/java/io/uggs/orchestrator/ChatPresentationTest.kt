@@ -51,6 +51,16 @@ class ChatPresentationTest {
         assertTrue(chatRows(listOf(attachment)).isEmpty())
     }
 
+    @Test fun replyPreviewUsesTheExactRetainedMessageAndHandlesMediaOrExpiredHistory() {
+        val own = message(4, "user_message", null)
+        val media = message(5, "assistant_message", null).put("payload", JSONObject().put("attachments", org.json.JSONArray().put("photo")))
+        val events = listOf(own, media, message(6, "message_read", null))
+        assertEquals(ReplyPreview("You", "Message 4"), replyPreview(events, 4, "Claudia"))
+        assertEquals(ReplyPreview("Claudia", "Attachment"), replyPreview(events, 5, "Claudia"))
+        assertEquals(ReplyPreview("Earlier message", "Message is no longer in this history"), replyPreview(events, 3, "Claudia"))
+        assertEquals(ReplyPreview("Earlier message", "Message is no longer in this history"), replyPreview(events, 6, "Claudia"))
+    }
+
     @Test fun changingClockDoesNotCreateDuplicateListKeys() {
         val rows = chatRows(listOf(
             message(1, "assistant_message", "2026-10-07T21:59:00Z"),

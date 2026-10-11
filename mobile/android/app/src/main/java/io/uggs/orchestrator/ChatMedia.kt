@@ -13,10 +13,21 @@ import android.widget.VideoView
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -49,7 +60,10 @@ suspend fun copyChatFile(context: Context, uri: Uri): Triple<File, String, Strin
     } catch(e: Exception) { file.delete(); throw e }
 }
 
-@Composable internal fun ChatUploadControls(model: CompanionModel, session: String, enabled: Boolean) {
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable internal fun ChatUploadControls(model: CompanionModel, session: String, enabled: Boolean, composer: @Composable (() -> Unit, () -> Unit) -> Unit) {
+    var menu by remember { mutableStateOf(false) }
+    val focus = androidx.compose.ui.platform.LocalFocusManager.current
     val context = LocalContext.current
     var captureFile by remember { mutableStateOf<File?>(null) }
     var recording by remember { mutableStateOf(false) }
@@ -57,6 +71,7 @@ suspend fun copyChatFile(context: Context, uri: Uri): Triple<File, String, Strin
     var audioFile by remember { mutableStateOf<File?>(null) }
     val files = model.chatUploads[session] ?: emptyList()
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris -> uris.forEach { model.addChatFile(session, it) } }
+    val gallery = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris -> uris.forEach { model.addChatFile(session, it) } }
     val photo = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok -> if (ok) captureFile?.let { model.addCapturedFile(session, it, "photo.jpg", "image/jpeg") } else captureFile?.delete() }
     val videoContract = remember { object : ActivityResultContracts.CaptureVideo() {
         override fun createIntent(context: Context, input: Uri): Intent = super.createIntent(context, input).putExtra("android.intent.extra.durationLimit", 900)
@@ -89,21 +104,75 @@ suspend fun copyChatFile(context: Context, uri: Uri): Triple<File, String, Strin
         else model.chatError("Camera permission is required for capture")
     }
     DisposableEffect(Unit) { onDispose { runCatching { recorder?.stop() }; recorder?.release() } }
-    Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp)) {
-        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-            TextButton(onClick = { picker.launch(arrayOf("*/*")) }, enabled = enabled && !recording) { Text("Attach") }
-            TextButton(onClick = { captureKind="image"; cameraPermission.launch(Manifest.permission.CAMERA) }, enabled = enabled && !recording) { Text("Photo") }
-            TextButton(onClick = { captureKind="video"; cameraPermission.launch(Manifest.permission.CAMERA) }, enabled = enabled && !recording) { Text("Video") }
-            TextButton(onClick = { if(recording) stopAudio() else audioPermission.launch(Manifest.permission.RECORD_AUDIO) }, enabled = enabled) { Text(if(recording) "Stop" else "Audio") }
+    if (menu) ModalBottomSheet(onDismissRequest = { menu = false }, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
+        Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp).padding(bottom = 24.dp)) {
+            Text("Add to message", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(bottom = 12.dp))
+            AttachmentOption("Photos", CompanionSymbol.Photo, enabled) { menu = false; gallery.launch(arrayOf("image/*")) }
+            AttachmentOption("Camera", CompanionSymbol.Camera, enabled) { menu = false; captureKind = "image"; cameraPermission.launch(Manifest.permission.CAMERA) }
+            AttachmentOption("Video", CompanionSymbol.Video, enabled) { menu = false; captureKind = "video"; cameraPermission.launch(Manifest.permission.CAMERA) }
+            AttachmentOption("Audio", CompanionSymbol.Audio, enabled) { menu = false; audioPermission.launch(Manifest.permission.RECORD_AUDIO) }
+            AttachmentOption("Document", CompanionSymbol.File, enabled) { menu = false; picker.launch(arrayOf("*/*")) }
         }
-        files.forEach { item ->
-            Row(Modifier.fillMaxWidth()) {
-                Column(Modifier.weight(1f)) { Text(item.name, style = MaterialTheme.typography.labelMedium); Text(item.error ?: if(item.state == "uploading") "${(item.progress * 100).toInt()}% uploaded" else item.state, style = MaterialTheme.typography.bodySmall) }
-                if(item.state == "failed") TextButton(onClick = { model.retryChatUpload(session, item) }, enabled = enabled) { Text("Retry") }
-                TextButton(onClick = { model.removeChatUpload(session, item.id) }, enabled = enabled) { Text("Remove") }
+    }
+    if (files.isNotEmpty()) LazyRow(Modifier.fillMaxWidth().testTag("attachment-previews"), contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        items(files, key = { it.id }) { item ->
+            Surface(shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.surfaceContainerLow, modifier = Modifier.width(136.dp)) {
+                Column {
+                    Box {
+                        if (item.mime.startsWith("image/")) LocalChatImage(item.file, item.name, Modifier.fillMaxWidth().height(88.dp), crop = true)
+                        else Box(Modifier.fillMaxWidth().height(56.dp), contentAlignment = Alignment.Center) { CompanionIcon(CompanionSymbol.File) }
+                        FilledTonalIconButton(onClick = { model.removeChatUpload(session, item.id) }, enabled = enabled, modifier = Modifier.align(Alignment.TopEnd).size(48.dp)) {
+                            CompanionIcon(CompanionSymbol.Close, "Remove ${item.name}")
+                        }
+                    }
+                    Column(Modifier.padding(horizontal = 8.dp, vertical = 4.dp)) {
+                        Text(item.name, style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        when (item.state) {
+                            "uploading" -> {
+                                LinearProgressIndicator(progress = { item.progress }, modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp))
+                                Text("${(item.progress * 100).toInt()}% uploaded", style = MaterialTheme.typography.labelSmall)
+                            }
+                            "failed" -> {
+                                Text(item.error ?: "Upload failed", style = MaterialTheme.typography.labelSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                TextButton(onClick = { model.retryChatUpload(session, item) }, enabled = enabled) { Text("Retry") }
+                            }
+                            else -> Text("Ready to send", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                        }
+                    }
+                }
             }
         }
     }
+    if (recording) Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+        CompanionIcon(CompanionSymbol.Audio, tint = MaterialTheme.colorScheme.error)
+        Text("Recording audio…", Modifier.weight(1f).padding(horizontal = 12.dp))
+        TextButton(onClick = { stopAudio() }) { Text("Stop") }
+    }
+    composer({ if (enabled && !recording) { focus.clearFocus(); menu = true } }, { if (enabled && !recording) { captureKind = "image"; cameraPermission.launch(Manifest.permission.CAMERA) } })
+}
+
+@Composable private fun AttachmentOption(label: String, symbol: CompanionSymbol, enabled: Boolean, action: () -> Unit) {
+    Surface(onClick = action, enabled = enabled, shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.surface) {
+        Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(18.dp)) {
+            CompanionIcon(symbol, tint = MaterialTheme.colorScheme.primary)
+            Text(label, style = MaterialTheme.typography.bodyLarge)
+        }
+    }
+}
+
+@Composable private fun LocalChatImage(file: File, name: String, modifier: Modifier, crop: Boolean = false) {
+    var bitmap by remember(file) { mutableStateOf<android.graphics.Bitmap?>(null) }
+    LaunchedEffect(file) {
+        bitmap = withContext(Dispatchers.IO) {
+            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            BitmapFactory.decodeFile(file.absolutePath, bounds)
+            var sample = 1
+            while (bounds.outWidth / sample > 1600 || bounds.outHeight / sample > 1600) sample *= 2
+            BitmapFactory.decodeFile(file.absolutePath, BitmapFactory.Options().apply { inSampleSize = sample })
+        }
+    }
+    bitmap?.let { Image(it.asImageBitmap(), name, modifier, contentScale = if (crop) ContentScale.Crop else ContentScale.Fit) }
+        ?: Box(modifier, contentAlignment = Alignment.Center) { CompanionIcon(CompanionSymbol.Photo, "Image preview unavailable") }
 }
 
 @Composable internal fun ChatAttachment(model: CompanionModel, session: String, id: String) {
@@ -119,26 +188,55 @@ suspend fun copyChatFile(context: Context, uri: Uri): Triple<File, String, Strin
             while(info?.optJSONObject("processing")?.optString("state") in listOf("queued","processing")) { kotlinx.coroutines.delay(5000); info = model.chatAttachmentInfo(session,id) }
         } catch(e: Exception) { failed = e.message ?: "Attachment unavailable" }
     }
-    Column(Modifier.padding(8.dp)) {
-        Text(info?.optString("name") ?: "Attachment", style = MaterialTheme.typography.labelMedium)
-        if(failed != null) { Text(failed!!, style = MaterialTheme.typography.bodySmall); TextButton(onClick = { failed = null; reload++ }) { Text("Retry download") } }
-        else if(file == null) LinearProgressIndicator(Modifier.fillMaxWidth())
+    Column(Modifier.fillMaxWidth()) {
+        if (failed != null) {
+            Text(failed!!, Modifier.padding(8.dp), style = MaterialTheme.typography.bodySmall)
+            TextButton(onClick = { failed = null; reload++ }) { Text("Retry download") }
+        } else if (file == null) {
+            Box(Modifier.fillMaxWidth().height(140.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator(Modifier.size(28.dp)) }
+        }
         file?.let { local ->
             val mime = info?.optString("mime_type") ?: "application/octet-stream"
-            if(mime.startsWith("image/")) {
-                var bitmap by remember(local) { mutableStateOf<android.graphics.Bitmap?>(null) }
-                LaunchedEffect(local) { bitmap = withContext(Dispatchers.IO) { val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }; BitmapFactory.decodeFile(local.absolutePath,bounds); var sample=1; while(bounds.outWidth/sample>1600 || bounds.outHeight/sample>1600) sample*=2; BitmapFactory.decodeFile(local.absolutePath,BitmapFactory.Options().apply { inSampleSize=sample }) } }
-                bitmap?.let { Image(it.asImageBitmap(), info?.optString("name"), Modifier.fillMaxWidth().heightIn(max=240.dp)) }
-            } else if(mime.startsWith("audio/")) AudioPlayback(local)
-            else if(mime.startsWith("video/")) AndroidView(factory = { ctx -> VideoView(ctx).apply { setVideoPath(local.absolutePath); setMediaController(MediaController(ctx).also { it.setAnchorView(this) }) } }, modifier = Modifier.fillMaxWidth().height(220.dp))
-            val save = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument(mime)) { uri -> if(uri != null) model.saveChatAttachment(local,uri) }
-            TextButton(onClick = { save.launch(info?.optString("name") ?: "attachment") }) { Text("Save file") }
-            TextButton(onClick = {
-                runCatching { val uri = FileProvider.getUriForFile(context,"${context.packageName}.files",local); context.startActivity(Intent(Intent.ACTION_VIEW).setDataAndType(uri,mime).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)) }.onFailure { model.chatError("No installed app can open this file") }
-            }) { Text(if(mime.startsWith("image/")) "Open full image" else "Open file") }
+            val name = info?.optString("name") ?: "Attachment"
+            fun open() {
+                runCatching {
+                    val uri = FileProvider.getUriForFile(context, "${context.packageName}.files", local)
+                    context.startActivity(Intent(Intent.ACTION_VIEW).setDataAndType(uri, mime).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION))
+                }.onFailure { model.chatError("No installed app can open this file") }
+            }
+            var actions by remember(id) { mutableStateOf(false) }
+            val save = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument(mime)) { uri -> if (uri != null) model.saveChatAttachment(local, uri) }
+            if (mime.startsWith("image/")) {
+                Box {
+                    LocalChatImage(local, name, Modifier.fillMaxWidth().height(220.dp).clip(RoundedCornerShape(10.dp)).clickable(onClickLabel = "Open full image") { open() }, crop = true)
+                    IconButton(onClick = { actions = true }, modifier = Modifier.align(Alignment.TopEnd).size(48.dp)) {
+                        Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surface.copy(alpha = .9f)) {
+                            CompanionIcon(CompanionSymbol.MoreVertical, "Photo options", modifier = Modifier.padding(4.dp))
+                        }
+                    }
+                    DropdownMenu(expanded = actions, onDismissRequest = { actions = false }) {
+                        DropdownMenuItem(text = { Text("Save file") }, onClick = { actions = false; save.launch(name) })
+                        DropdownMenuItem(text = { Text("Open full image") }, onClick = { actions = false; open() })
+                    }
+                }
+            } else {
+                Row(Modifier.fillMaxWidth().padding(start = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    CompanionIcon(if (mime.startsWith("audio/")) CompanionSymbol.Audio else if (mime.startsWith("video/")) CompanionSymbol.Video else CompanionSymbol.File)
+                    Text(name, Modifier.weight(1f).padding(horizontal = 8.dp), style = MaterialTheme.typography.labelMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    Box {
+                        IconButton(onClick = { actions = true }) { CompanionIcon(CompanionSymbol.MoreVertical, "Attachment options") }
+                        DropdownMenu(expanded = actions, onDismissRequest = { actions = false }) {
+                            DropdownMenuItem(text = { Text("Save file") }, onClick = { actions = false; save.launch(name) })
+                            DropdownMenuItem(text = { Text("Open file") }, onClick = { actions = false; open() })
+                        }
+                    }
+                }
+                if (mime.startsWith("audio/")) AudioPlayback(local)
+                else if (mime.startsWith("video/")) AndroidView(factory = { ctx -> VideoView(ctx).apply { setVideoPath(local.absolutePath); setMediaController(MediaController(ctx).also { it.setAnchorView(this) }) } }, modifier = Modifier.fillMaxWidth().height(220.dp))
+            }
         }
-        info?.optJSONObject("processing")?.let { processing ->
-            Text(if(processing.optString("state") == "ready") "Prepared for agent" else processing.optString("error", "Media: ${processing.optString("state")}"),style = MaterialTheme.typography.bodySmall)
+        info?.optJSONObject("processing")?.takeIf { it.optString("state") == "failed" }?.let { processing ->
+            Text(processing.optString("error", "Media preparation failed; original available"), Modifier.padding(8.dp), style = MaterialTheme.typography.bodySmall)
         }
     }
 }

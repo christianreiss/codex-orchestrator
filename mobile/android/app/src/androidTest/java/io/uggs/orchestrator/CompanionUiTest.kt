@@ -93,6 +93,17 @@ class CompanionUiTest {
     private val spawned = AtomicReference<JSONObject?>(null)
     private val remoteId = "151d89e9-5a82-420a-bc88-926d53db6ca2"
     private val sent = AtomicReference<String?>(null)
+    private val sentMetadata = AtomicReference<JSONObject?>(null)
+    private val photoBytes by lazy {
+        val bitmap = android.graphics.Bitmap.createBitmap(480, 300, android.graphics.Bitmap.Config.ARGB_8888)
+        val canvas = android.graphics.Canvas(bitmap)
+        canvas.drawColor(android.graphics.Color.rgb(174, 213, 222))
+        val paint = android.graphics.Paint().apply { color = android.graphics.Color.rgb(57, 123, 82) }
+        canvas.drawCircle(130f, 310f, 240f, paint)
+        paint.color = android.graphics.Color.rgb(250, 208, 100)
+        canvas.drawCircle(365f, 70f, 35f, paint)
+        java.io.ByteArrayOutputStream().use { bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it); bitmap.recycle(); it.toByteArray() }
+    }
     private val live = AtomicReference<WebSocket?>(null)
     private val summary = AtomicReference("Ready for your message.")
     private val reply = AtomicReference("Ready for your message.")
@@ -134,7 +145,16 @@ class CompanionUiTest {
                     override fun onClosing(webSocket: WebSocket, code: Int, reason: String) { webSocket.close(code, null) }
                     override fun onClosed(webSocket: WebSocket, code: Int, reason: String) { live.compareAndSet(webSocket, null) }
                 })
+                if (path == "/agents/$session/attachments/test-photo/content") return MockResponse().setHeader("Content-Type", "image/png").setBody(okio.Buffer().write(photoBytes))
                 val body = when {
+                    path == "/agents/$session/attachments/test-photo" -> JSONObject().put("name", "Landscape.png").put("mime_type", "image/png")
+                        .put("sha256", java.security.MessageDigest.getInstance("SHA-256").digest(photoBytes).joinToString("") { "%02x".format(it) }).toString()
+
+                    path == "/agents/$session/attachments" && request.method == "POST" -> """{"uploaded_bytes":0}"""
+                    path.startsWith("/agents/$session/attachments/") && path.endsWith("/chunks") -> {
+                        val chunk = JSONObject(request.body.readUtf8())
+                        JSONObject().put("uploaded_bytes", chunk.getLong("offset") + android.util.Base64.decode(chunk.getString("content_b64"), android.util.Base64.DEFAULT).size).toString()
+                    }
                     path == "/me" -> {
                         meRequested.set(true)
                         while (holdMe.get()) Thread.sleep(20)
@@ -198,8 +218,8 @@ class CompanionUiTest {
                     path == "/approvals/42/approve" -> { approved.set(true); "{}" }
                     path == "/agents/$session/prompts/question-1/answer" -> { answered.set(JSONObject(request.body.readUtf8()).getString("answer")); questionPending.set(false); "{}" }
                     path == "/agents/$session/messages" -> {
-                        val text = JSONObject(request.body.readUtf8()).getString("content"); sent.set(text)
-                        if (history.isNotEmpty()) history.add(JSONObject().put("cursor", cursor.incrementAndGet()).put("type", "user_message").put("created_at", Instant.now().toString()).put("payload", JSONObject().put("text", text)))
+                        val body = JSONObject(request.body.readUtf8()); val text = body.getString("content"); sent.set(text); sentMetadata.set(body.optJSONObject("metadata"))
+                        if (history.isNotEmpty()) history.add(JSONObject().put("cursor", cursor.incrementAndGet()).put("type", "user_message").put("created_at", Instant.now().toString()).put("payload", JSONObject().put("text", text).put("reply_to", body.optJSONObject("metadata")?.optLong("reply_to"))))
                         "{}"
                     }
                     else -> "{}"
@@ -883,6 +903,63 @@ class CompanionUiTest {
         compose.onNodeWithContentDescription("Send").assertIsDisplayed()
         Assert.assertTrue("The outgoing user message does not create an unread reply", unreadIds().isEmpty())
         screenshot("modern-chat-keyboard")
+    }
+
+    @Test fun messengerPhotosQuotesAndAttachmentMenu() {
+        val now = Instant.now()
+        history.add(JSONObject().put("cursor", 1).put("type", "assistant_message").put("created_at", now.toString())
+            .put("payload", JSONObject().put("text", "Here is the photo for your review.").put("attachments", org.json.JSONArray().put("test-photo"))))
+        history.add(JSONObject().put("cursor", 2).put("type", "user_message").put("created_at", now.plusSeconds(10).toString())
+            .put("payload", JSONObject().put("text", "That looks good. Keep this version.").put("reply_to", 1)))
+        cursor.set(2); changed("agents")
+        compose.onNodeWithText("project").performClick()
+        compose.waitUntil(10000) { compose.onAllNodesWithContentDescription("Landscape.png").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithContentDescription("Landscape.png").assertIsDisplayed()
+        compose.onAllNodesWithText("Here is the photo for your review.").assertCountEquals(2)
+        compose.onNodeWithText("Reply").assertDoesNotExist()
+        screenshot("messenger-photo-quote")
+        compose.onNodeWithTag("bubble:2").performTouchInput { longClick() }
+        compose.onNodeWithText("Reply").performClick()
+        compose.onNodeWithText("You").assertIsDisplayed()
+        compose.onNodeWithContentDescription("Cancel reply").assertIsDisplayed().performClick()
+        compose.onNodeWithContentDescription("Cancel reply").assertDoesNotExist()
+        compose.onNodeWithTag("bubble:2").performTouchInput { longClick() }
+        compose.onNodeWithText("Reply").performClick()
+        compose.onNode(hasSetTextAction()).performTextInput("Please send the original.")
+        screenshot("messenger-reply-composer")
+        compose.onNodeWithContentDescription("Send").performClick()
+        compose.waitUntil(10000) { sent.get() == "Please send the original." }
+        Assert.assertEquals(2L, sentMetadata.get()!!.getLong("reply_to"))
+        compose.waitUntil(10000) { compose.onAllNodesWithContentDescription("Cancel reply").fetchSemanticsNodes().isEmpty() }
+        compose.waitUntil(10000) { compose.onAllNodesWithContentDescription("Attach").filter(isEnabled()).fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithContentDescription("Attach").performClick()
+        try { compose.waitUntil(5000) { compose.onAllNodesWithText("Document").fetchSemanticsNodes().isNotEmpty() && compose.onNodeWithText("Document").isDisplayed() } }
+        catch (failure: Throwable) { screenshot("messenger-menu-failure"); throw failure }
+        screenshot("messenger-attachments")
+        listOf("Photos", "Camera", "Video", "Audio", "Document").forEach { label -> compose.onNodeWithText(label).assertIsDisplayed() }
+    }
+
+    @Test fun photoDraftPreviewCanBeRemovedAndSentWithoutCaption() {
+        compose.onNodeWithText("project").performClick()
+        compose.waitUntil(10000) { compose.onAllNodesWithText(reply.get()).fetchSemanticsNodes().isNotEmpty() }
+        fun addPhoto() {
+            scenario.onActivity { activity ->
+                val file = java.io.File(activity.cacheDir, "draft-photo-${java.util.UUID.randomUUID()}.png").apply { writeBytes(photoBytes) }
+                androidx.lifecycle.ViewModelProvider(activity)[CompanionModel::class.java].addCapturedFile(session, file, "Draft.png", "image/png")
+            }
+            compose.waitUntil(10000) { compose.onAllNodesWithText("Ready to send").fetchSemanticsNodes().isNotEmpty() }
+            compose.onNodeWithContentDescription("Draft.png").assertIsDisplayed()
+        }
+        addPhoto()
+        screenshot("messenger-photo-draft")
+        compose.onNodeWithContentDescription("Remove Draft.png").performClick()
+        compose.onNodeWithTag("attachment-previews").assertDoesNotExist()
+        compose.onNodeWithContentDescription("Send").assertIsNotEnabled()
+        addPhoto()
+        compose.onNodeWithContentDescription("Send").assertIsEnabled().performClick()
+        compose.waitUntil(10000) { sent.get() == "" && sentMetadata.get() != null }
+        Assert.assertEquals(1, sentMetadata.get()!!.getJSONArray("attachments").length())
+        compose.waitUntil(10000) { compose.onAllNodesWithTag("attachment-previews").fetchSemanticsNodes().isEmpty() }
     }
 
     private fun changed(scope: String) { Assert.assertTrue(live.get()?.send("""{"type":"changed","scopes":["$scope"]}""") == true) }

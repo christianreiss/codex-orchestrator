@@ -188,6 +188,23 @@ the app picks up newly configured Firebase identifiers and registers its token.
 
 ## Appearance and conversation layout
 
+Version 0.4.14 extends the Chats palette to conversations in light and dark mode.
+Own messages use green bubbles over a warm neutral (dark: charcoal) background;
+photos, captions, timestamps and delivery receipts stay inside each bubble. Tap a
+photo to open the full image; its overflow menu offers Save. Long-press a message
+for Reply or Copy (also available as TalkBack actions). Reply quotes show the
+original sender and retained text, with an attachment fallback for media-only
+messages and an explicit unavailable preview for expired history. The composer
+shows the selected quote with a cancel button before sending the same event reference.
+
+The rounded input has an attachment button and a camera shortcut when empty,
+with a separate round Send button. Sending no longer overlays the input with a
+redundant Sent snackbar; the bubble and delivery receipt provide confirmation.
+The attachment sheet offers Photos, Camera,
+Video, Audio and Document. Selected photos show thumbnails, upload progress and
+remove/retry controls above the input. Drafts, upload IDs and receipt semantics
+use the existing 0.4.13 API. No server rollout is required.
+
 Version 0.4.8 reads the server-assigned `launch_name` and displays
 `(Claudia) Release review` in the chat list, chat header and search. A launch
 without a task title still shows `(Claudia)`; an already-prefixed server title
@@ -246,11 +263,13 @@ engine names. Missing hosts have no badge and unknown engines use a terminal
 symbol. Marks adapt to light/dark mode and load entirely from the APK; their
 pinned source and license are included with the Android resources/assets.
 
-Chats place your messages on the right in blue and agent replies on the left.
+The original 0.4.0 layout placed your messages on the right in blue and agent
+replies on the left.
 Consecutive messages from one sender group within five minutes on the same local
 day. Day separators and group timestamps use server event times; legacy messages
-without valid timestamps do not invent a time. Text remains selectable, wraps to
-85% of the chat width, and respects system font scaling. The rounded composer
+without valid timestamps do not invent a time. Text respects system font scaling;
+0.4.14 uses up to 88% of the chat width and
+provides Copy through the message menu. The rounded composer
 grows to four lines above the keyboard. While reading older messages, incoming
 replies leave the reading position intact and offer **New messages** to jump back.
 Pairing, settings and host-access sheets share the same theme and 48 dp targets.

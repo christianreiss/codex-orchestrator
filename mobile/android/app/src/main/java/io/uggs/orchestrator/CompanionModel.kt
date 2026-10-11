@@ -392,7 +392,7 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
             api().request(intent.target,"POST",body)
             if(selected == id && draft.trim() == intent.text) draft=""
             chatSends.remove(id); chatUploads=chatUploads - id; replyTargets=replyTargets - id
-            items.forEach { it.file.delete() }; follows=follows + id; notice="Sent"
+            items.forEach { it.file.delete() }; follows=follows + id
         }
     }
     fun startHost(hostId: Long, engine: String, task: String, title: String, cwd: String, onSuccess: () -> Unit) {
