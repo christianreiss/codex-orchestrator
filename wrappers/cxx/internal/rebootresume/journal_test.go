@@ -69,8 +69,8 @@ func TestUnlinkFailureCannotRepeat(t *testing.T) {
 		t.Fatal("consume was not durable")
 	}
 	got, err = j.Consume(r.ID, newBoot)
-	if got != nil {
-		t.Fatal("retried after unlink failure")
+	if err == nil || got != nil {
+		t.Fatalf("must preserve foreign cron failure without retrying: record=%v err=%v", got, err)
 	}
 	b, _ := os.ReadFile(j.Cron)
 	if string(b) != "foreign" {
