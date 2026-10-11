@@ -1,5 +1,9 @@
 # 2026-10-11
 
+- Fresh-install Portal/daemon foreign keys use the canonical short migration names, avoiding MySQL identifier-length failures during baseline setup.
+
+- Persistent daemons remain online with closed insecure access windows. WebUI and agents on active secure hosts can open windows; accepted running and retained waiting sessions renew them without resetting session timeouts. Manual Disable fences renewal, while stop/result receipts remain available. Wrapper 0.9.48 reports active processes and exposes `host_insecure_enable` for all three engines.
+
 - Portal and Messaging preserve the same `peer_delivery` invocation kind during daemon resumes, preventing registration conflicts before native continuation.
 
 - Android 0.4.10 adds Chats/Hosts navigation, searchable daemon-ready hosts and contact-only or task-based remote starts. Daemon launches remain one Portal conversation across native resumptions, with real agent replies, durable retry identity, inherited device follows and first-reply push. Companion routes enforce current device permissions, engine readiness and available work slots.

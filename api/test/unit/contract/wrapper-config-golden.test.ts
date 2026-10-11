@@ -247,6 +247,7 @@ function host(overrides: Partial<Host>): Host {
     insecureEnabledUntil: null,
     insecureGraceUntil: null,
     insecureWindowMinutes: null,
+    insecureSessionRenewalBlocked: 0,
     curlInsecure: 0,
     browserosMcpEnabled: 0,
     agentMessagingEnabled: 0,

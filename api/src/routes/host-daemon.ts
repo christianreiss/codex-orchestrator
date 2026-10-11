@@ -1,14 +1,16 @@
-import { eq } from 'drizzle-orm';
+import { asc, eq, inArray } from 'drizzle-orm';
 import { registerWebsocketTransport } from '../ws/transport.js';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import type { RouteContext } from './index.js';
-import { hostDaemons, versions } from '../db/schema.js';
+import { hosts, hostDaemons, versions } from '../db/schema.js';
 import { HostDaemonService } from '../services/host-daemon/service.js';
 import { daemonSettingsSchema, daemonStartSchema } from '../services/host-daemon/policy.js';
 import { createHostAuthService } from '../services/host-auth.js';
 import { createAgentMessagingService } from '../services/agent-messaging.js';
 import { createAdminEventsService } from '../services/admin-events.js';
+import { InsecureWindowAdminService } from '../services/insecure-window-admin.js';
+import { makeAdminEventsWriter } from '../services/admin-events-writer.js';
 import { ForbiddenError } from '../http/errors.js';
 
 export async function registerHostDaemonRoutes(app: FastifyInstance, ctx: RouteContext) {
@@ -68,6 +70,32 @@ export async function registerHostDaemonRoutes(app: FastifyInstance, ctx: RouteC
       .strict()
       .parse(req.body);
     return service.turn(sessionId(req), body.prompt, body.client_message_id);
+  });
+  app.post('/host/agent-sessions/:sessionId/agent-messaging/insecure-enable', async (req) => {
+    const { session, host } = await messaging.authenticateBridge(
+      (req.params as { sessionId: string }).sessionId,
+      String(req.headers['x-agent-bridge-token'] ?? ''),
+    );
+    const body = z.object({
+      host_id: z.number().int().positive(),
+      duration_minutes: z.number().int().min(0).max(480).optional(),
+    }).strict().parse(req.body);
+    if (host.secure !== 1 || !session.agentBusAddressId)
+      throw new ForbiddenError('An authenticated agent on a secure host is required', 'secure_host_required');
+    const opened = await ctx.db.transaction(async (tx) => {
+      const locked = await tx.select().from(hosts)
+        .where(inArray(hosts.id, [host.id, body.host_id])).orderBy(asc(hosts.id)).for('update');
+      const caller = locked.find((h) => h.id === host.id), target = locked.find((h) => h.id === body.host_id);
+      if (!caller || caller.secure !== 1 || caller.status !== 'active')
+        throw new ForbiddenError('An active secure host is required', 'secure_host_required');
+      if (!target || target.status !== 'active') throw new ForbiddenError('Target host is inactive');
+      const db = tx as unknown as RouteContext['db'];
+      const insecure = new InsecureWindowAdminService({ db, env: ctx.env, events: makeAdminEventsWriter(db) });
+      return insecure.enable(body.host_id, body.duration_minutes ?? null, {
+        host_id: host.id, agent_address: `agent:${session.agentBusAddressId}`, session_id: session.id,
+      });
+    });
+    return { host_id: opened.id, enabled_until: opened.insecureEnabledUntil, window_minutes: opened.insecureWindowMinutes };
   });
   app.post('/host/agent-sessions/:sessionId/agent-messaging/spawn', async (req) => {
     const actor = await owner(req);
@@ -180,9 +208,10 @@ export async function registerHostDaemonRoutes(app: FastifyInstance, ctx: RouteC
                     .object({
                       engines: z.array(z.enum(['codex', 'claude', 'grok'])),
                       error: z.string().max(200).nullable().default(null),
+                      active_sessions: z.array(z.string().uuid()).max(64).default([]),
                     })
                     .parse(msg.payload);
-                  result = await service.heartbeat(host.id, generation, body.engines, body.error);
+                  result = await service.heartbeat(host.id, generation, body.engines, body.error, body.active_sessions);
                 } else if (msg.type === 'accept') {
                   result = await service.accept(
                     host.id,

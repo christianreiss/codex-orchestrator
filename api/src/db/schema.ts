@@ -56,6 +56,7 @@ export const hosts = mysqlTable(
     insecureEnabledUntil: datetime('insecure_enabled_until'),
     insecureGraceUntil: datetime('insecure_grace_until'),
     insecureWindowMinutes: int('insecure_window_minutes'),
+    insecureSessionRenewalBlocked: tinyint('insecure_session_renewal_blocked').notNull().default(0),
     curlInsecure: tinyint('curl_insecure').notNull().default(0),
     browserosMcpEnabled: tinyint('browseros_mcp_enabled').notNull().default(0),
     /** Retired per-host Agent Messaging switch. Nothing reads it: the fleet

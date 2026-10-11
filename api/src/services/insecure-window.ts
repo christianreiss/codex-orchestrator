@@ -166,7 +166,7 @@ export function createInsecureWindowService(deps: InsecureWindowDeps): InsecureW
 
       if (enabledActive) {
         const windowMinutes = clampWindow(host.insecureWindowMinutes ?? null);
-        const newUntil = new Date(now.getTime() + windowMinutes * 60_000);
+        const newUntil = new Date(Math.max(enabledUntil!.getTime(), now.getTime() + windowMinutes * 60_000));
         const newGrace = computeGrace(newUntil, windowMinutes, env);
         await db
           .update(hostsTable)
@@ -321,6 +321,7 @@ export function createInsecureWindowService(deps: InsecureWindowDeps): InsecureW
         .update(hostsTable)
         .set({
           insecureEnabledUntil: enabledUntil,
+          insecureSessionRenewalBlocked: 0,
           insecureGraceUntil: grace,
           insecureWindowMinutes: storedMinutes,
           updatedAt: nowIso(),

@@ -243,8 +243,10 @@ describe('host daemon service decisions', () => {
   it('still blocks insecure hosts outside their allowed window', async () => {
     row(hosts).secure = 0;
     row(hosts).insecureEnabledUntil = null;
-    expect((await service.view(1)).health.reasons).toContain('host_access_blocked');
-    await expect(service.eligible(1)).rejects.toThrow('available');
+    expect((await service.view(1)).health.reasons).toContain('insecure_window_closed');
+    expect((await service.view(1)).health.state).toBe('yellow');
+    await expect(service.eligible(1)).rejects.toThrow('window is closed');
+    await expect(service.eligible(1, undefined, true)).resolves.toBeDefined();
     row(hosts).insecureEnabledUntil = new Date(Date.now() + 60_000);
     await expect(service.eligible(1)).resolves.toBeDefined();
   });

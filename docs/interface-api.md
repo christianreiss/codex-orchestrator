@@ -1848,7 +1848,7 @@ and occupied/max slots. Engine readiness dots retain their separate meaning.
 
 - `GET /admin/host-daemons`, `GET /admin/hosts/:id/daemon` and `PUT /admin/hosts/:id/daemon`: configuration and readiness. PUT accepts `enabled`, `username`, `default_cwd`, `max_parallel` (1–64), `idle_minutes` (1–1440), `question_minutes` (1–10080).
 - `POST /admin/daemon-sessions`: start, using the MCP start fields above. `GET /admin/daemon-sessions/:id` returns status and retained operation results; `POST .../:id/messages` resumes with `prompt` and UUID `client_message_id`; `POST .../:id/stop` requests process termination.
-- `GET /host/daemon/config` uses host authentication. `GET /host/daemon/connect` upgrades to WebSocket. Frames contain UUID `id`, `type`, `payload`; replies echo `id` with `result` or `error`. The handshake (`hello`) supplies instance UUID, username, version and ready engines; `heartbeat` returns current settings and session IDs to stop. `operation` notifications carry offered starts; `accept` must be durably confirmed before execution; `complete` stores an immutable result.
+- `GET /host/daemon/config` uses host authentication. `GET /host/daemon/connect` upgrades to WebSocket. Frames contain UUID `id`, `type`, `payload`; replies echo `id` with `result` or `error`. The handshake (`hello`) supplies instance UUID, username, version and ready engines; `heartbeat` accepts optional UUID `active_sessions` (max 64), naming locally running owned processes, and returns current settings and session IDs to stop. `operation` notifications carry offered starts; `accept` must be durably confirmed before execution; `complete` stores an immutable result.
 - Per-session MCP routes: the bridge-token authenticated spawn, spawn-status and stop endpoints under `/host/agent-sessions/:sessionId/agent-messaging/` use the existing bridge token and stable agent ownership.
 - `host.daemon.changed` invalidates host-daemon and remote-session queries. Configuration/start/stop requests have dedicated audited events.
 
@@ -1924,3 +1924,31 @@ Route-level Zod validation errors return HTTP 422 with `validation_failed`, incl
 ## Android remote conversations (0.4.10)
 
 See [Android companion](android-companion.md#hosts-and-remote-conversations-0410) for the device-bearer host/start contract and logical Portal conversation projection. Migration 0052 adds `host_daemon_portal_bindings`, `companion_daemon_follows` and encrypted `host_daemon_operations.portal_content_enc`; it preserves existing sessions and permits safe retries. Remote conversations are owned by the paired administrator and retain real Portal events across native launches.
+
+### Persistent daemon on insecure hosts
+
+The daemon stays connected outside an insecure access window and reports
+`access: {allowed, reason, secure, enabled_until}` separately from transport
+health. A connected, locked daemon is yellow (Online · Zugriff gesperrt).
+Only status, heartbeat, stop and existing acceptance/result receipts are
+allowed outside the window; new starts, offers, acceptance and resume require
+an open window. Provider credential distribution retains its existing gate.
+
+WebUI uses the existing host-window activation. Authenticated agents on any
+active secure host may use `host_insecure_enable(host_id, duration_minutes?)`
+through cxx-agent, for Codex, Claude and Grok alike. Duration defaults to the
+target's stored value and is bounded to 0–480 minutes. Source host, agent,
+session, target and duration are audited. Insecure callers cannot activate.
+
+A fresh daemon heartbeat renews an already-open window to at least now plus
+the stored host duration only for accepted, reported active execution or a
+retained native conversation within its idle/question timeout. Queue entries,
+unknown transcripts, stale generations and an idle daemon do not renew it.
+Heartbeat renewal does not reset session activity or its timeout. Once the
+last session ends, the remaining window expires normally. Manual Disable
+fences renewal until an explicit enable/approval; accepted work may finish.
+Natural fleet-window expiry preserves a later renewed host grant; explicit
+fleet closure removes it. No automatic provider session or credential sync is
+kept alive merely because the daemon is online.
+
+- `POST /host/agent-sessions/:sessionId/agent-messaging/insecure-enable`: bridge-authenticated secure-source activation; body `{host_id, duration_minutes?}`, result `{host_id, enabled_until, window_minutes}`. New work errors use `daemon_insecure_window_closed`.

@@ -1038,3 +1038,5 @@ Chat content is encrypted and never broadcast on global admin WS.
 request. 503 means no usable AI access. Queue admission has no success semantics:
 only a committed action receipt proves a mutation. Detailed lifecycle, supported
 tools, exclusions and rollout requirements: [Chatty](chatty.md).
+
+- `POST /host/agent-sessions/:sessionId/agent-messaging/insecure-enable` — authenticated secure-host agent opens the target insecure window; `{host_id, duration_minutes?}`. See persistent daemon window contract in interface-api.md.

@@ -296,6 +296,7 @@ describe('migrations against the test baseline', () => {
       'agent_bus_messages.presence_notice_key',
       'agent_bus_messages.awaiting_presence',
       'host_daemon_operations.portal_content_enc',
+      'hosts.insecure_session_renewal_blocked',
     ]);
   });
 

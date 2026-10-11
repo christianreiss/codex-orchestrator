@@ -29,6 +29,7 @@ export interface RemoteSession {
 export interface DaemonHost extends DaemonSettings {
   host_id: number;
   fqdn?: string;
+  access?: { allowed: boolean; reason: string | null; secure: boolean; enabled_until: string | null };
   health: {
     state: "disabled" | "green" | "yellow" | "red";
     reasons: string[];

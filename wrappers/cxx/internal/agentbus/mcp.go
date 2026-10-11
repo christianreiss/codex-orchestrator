@@ -342,6 +342,7 @@ func taskResultProperties() map[string]any {
 
 func toolCatalogJSON() []byte {
 	tools := []map[string]any{
+		tool("host_insecure_enable", "Open an insecure host access window from an authenticated agent on an active secure host. Defaults to the target host window duration; this is audited and does not start work.", map[string]any{"host_id": map[string]any{"type": "integer", "minimum": 1}, "duration_minutes": map[string]any{"type": "integer", "minimum": 0, "maximum": 480}}, []string{"host_id"}),
 		tool("agent_spawn", "Start a helper on an enabled remote host. Keep client_message_id for retries. Returns operation_id and session_id; use agent_spawn_status, then existing messaging with its address.", map[string]any{"host_id": map[string]any{"type": "integer"}, "engine": map[string]any{"type": "string", "enum": []string{"codex", "claude", "grok"}}, "cwd": map[string]any{"type": "string"}, "title": map[string]any{"type": "string"}, "prompt": map[string]any{"type": "string"}, "client_message_id": map[string]any{"type": "string", "description": "Stable UUID for idempotent retries"}}, []string{"host_id", "engine", "title", "prompt", "client_message_id"}),
 		tool("agent_spawn_status", "Read the state and result of your remote helper; omit session_id to discover enabled remote hosts.", map[string]any{"session_id": map[string]any{"type": "string"}}, nil),
 		tool("agent_stop", "Stop a remote helper you created. Process termination is confirmed by its host.", map[string]any{"session_id": map[string]any{"type": "string"}}, []string{"session_id"}),
@@ -763,8 +764,8 @@ func callMCPTool(ctx context.Context, client *sessionClient, channelState *chann
 		var out map[string]any
 		err := client.post(ctx, "watchdog/"+strings.TrimPrefix(name, "watchdog_"), args, &out)
 		return out, err
-	case "agent_spawn", "agent_spawn_status", "agent_stop":
-		suffix := map[string]string{"agent_spawn": "spawn", "agent_spawn_status": "spawn-status", "agent_stop": "stop"}[name]
+	case "host_insecure_enable", "agent_spawn", "agent_spawn_status", "agent_stop":
+		suffix := map[string]string{"host_insecure_enable": "insecure-enable", "agent_spawn": "spawn", "agent_spawn_status": "spawn-status", "agent_stop": "stop"}[name]
 		err := client.post(ctx, suffix, args, &out)
 		return out, err
 	case "agent_self":

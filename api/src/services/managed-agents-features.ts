@@ -374,6 +374,11 @@ and agent_stop. Once an agent address is available, use existing messaging, call
 or conferences. Agents may stop only their own helpers. Host limits and idle
 expiry apply; a queued start or an unknown outcome is not success. Never retry
 an ambiguous execution as a fresh start.
+On an active secure host, use host_insecure_enable with host_id and optional
+duration_minutes (0–480) to open an insecure target window. The daemon stays
+online while access is closed; new work requires a grant. Accepted running or
+retained waiting sessions renew an open grant until their session timeout.
+Manual Disable blocks automatic renewal; an idle daemon never renews it.
 
 **Launch names.** The server assigns each managed launch a random free German female name,
 shared across Codex, Claude and Grok. It is shown as "(Claudia) Task title". Use

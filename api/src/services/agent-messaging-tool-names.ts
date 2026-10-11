@@ -16,6 +16,7 @@
  * silent drift into a build break.
  */
 export const AGENT_MESSAGING_TOOLS = [
+  'host_insecure_enable',
   'agent_spawn',
   'agent_spawn_status',
   'agent_stop',

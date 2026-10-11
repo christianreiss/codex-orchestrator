@@ -363,6 +363,7 @@ export class HostManagementService {
         .update(hosts)
         .set({
           insecureEnabledUntil: enabledUntil,
+          insecureSessionRenewalBlocked: 0,
           insecureGraceUntil: grace,
           insecureWindowMinutes: storedMinutes,
           updatedAt: nowIso(),

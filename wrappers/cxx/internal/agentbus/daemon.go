@@ -500,7 +500,13 @@ func runHostDaemon(parent context.Context, version string, stdout, stderr io.Wri
 					Settings daemonSettings `json:"settings"`
 					Stop     []string       `json:"stop"`
 				}
-				if err := c.rpc(ctx, "heartbeat", map[string]any{"engines": engines, "error": nil}, &heartbeat); err != nil {
+				activeMu.Lock()
+				activeSessions := make([]string, 0, len(active))
+				for id := range active {
+					activeSessions = append(activeSessions, id)
+				}
+				activeMu.Unlock()
+				if err := c.rpc(ctx, "heartbeat", map[string]any{"engines": engines, "error": nil, "active_sessions": activeSessions}, &heartbeat); err != nil {
 					break loop
 				}
 				backoff = time.Second

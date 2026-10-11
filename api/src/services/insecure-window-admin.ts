@@ -212,6 +212,7 @@ export class InsecureWindowAdminService {
       .update(hosts)
       .set({
         insecureEnabledUntil: enabledUntil,
+        insecureSessionRenewalBlocked: 0,
         insecureGraceUntil: grace,
         insecureWindowMinutes: minutes,
         updatedAt: nowIso(),
@@ -411,7 +412,7 @@ export class InsecureWindowAdminService {
         source: `fleet_window_${reason}`,
       });
       wsPublisher.publish('host.updated', { id: host.id });
-    });
+    }, reason === 'expired' ? state.until : null);
 
     if (state.raw === null) {
       // No window was stored; the sweep still ran, which is what "disable all"
@@ -459,7 +460,7 @@ export class InsecureWindowAdminService {
 
   // ────────── enable / disable ──────────
 
-  async enable(hostId: number, durationMinutes: number | null): Promise<Host> {
+  async enable(hostId: number, durationMinutes: number | null, actor?: { host_id: number; agent_address: string; session_id: string }): Promise<Host> {
     const host = await this.findHost(hostId);
     if (host.secure === 1) {
       throw new ValidationError('Host is secure; insecure window not applicable');
@@ -481,6 +482,7 @@ export class InsecureWindowAdminService {
       .update(hosts)
       .set({
         insecureEnabledUntil: enabledUntil,
+        insecureSessionRenewalBlocked: 0,
         insecureGraceUntil: grace,
         insecureWindowMinutes: minutes,
         updatedAt: nowIso(),
@@ -488,6 +490,7 @@ export class InsecureWindowAdminService {
       .where(eq(hosts.id, hostId));
 
     await this.writeLog(hostId, 'admin.host.insecure_enable', {
+      ...(actor ? { source: 'secure_host', actor } : {}),
       fqdn: host.fqdn,
       enabled_until: enabledUntil.toISOString(),
       window_minutes: minutes,
@@ -498,6 +501,7 @@ export class InsecureWindowAdminService {
       'insecure.requested',
       {
         host_id: hostId,
+        ...(actor ? { source: 'secure_host', actor } : {}),
         fqdn: host.fqdn,
         enabled_until: enabledUntil.toISOString(),
         window_minutes: minutes,
@@ -527,6 +531,7 @@ export class InsecureWindowAdminService {
       .update(hosts)
       .set({
         insecureEnabledUntil: null,
+        insecureSessionRenewalBlocked: 1,
         insecureGraceUntil: null,
         updatedAt: nowIso(),
       })
