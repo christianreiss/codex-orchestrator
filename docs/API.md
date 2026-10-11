@@ -1040,3 +1040,20 @@ only a committed action receipt proves a mutation. Detailed lifecycle, supported
 tools, exclusions and rollout requirements: [Chatty](chatty.md).
 
 - `POST /host/agent-sessions/:sessionId/agent-messaging/insecure-enable` — authenticated secure-host agent opens the target insecure window; `{host_id, duration_minutes?}`. See persistent daemon window contract in interface-api.md.
+
+## Local session housekeeping
+
+- `GET /admin/session-housekeeping` returns effective fleet rules for Codex, Claude and Grok.
+- `POST /admin/session-housekeeping/:engine` saves a complete fleet rule (settings.manage).
+- `GET /admin/hosts/:id/session-housekeeping` returns effective rules, fleet values, overrides and last reported run (hosts.read).
+- `POST /admin/hosts/:id/session-housekeeping/:engine` saves a complete host rule or `{ "inherit": true }` to reset it (hosts.manage).
+- `POST /host/session-housekeeping/inspect` returns the current effective policy and protected native IDs.
+- `POST /host/session-housekeeping/reserve` reserves this host/engine with a durable UUID journal token and returns a fresh protection snapshot.
+- `POST /host/session-housekeeping/release` releases only the matching token.
+- `POST /host/session-housekeeping/report` records bounded counts and bytes without transcripts or paths.
+
+Host requests use the host API key, host/IP policy and engine assignment/master switch. Host maintenance does not extend an insecure interactive window. Rules contain `enabled`, `retention_days` (1–3650), `max_bytes` (1 MiB–1 TiB), and `min_age_days` (1–retention_days). Defaults are enabled, 30 days, 5 GiB and 7 days, separately per engine/local user. Overrides replace the entire rule; disabling preserves its durations. API responses identify source (fleet/host) and return fleet and override values.
+
+Wrapper configs carry the effective rule in optional `session_housekeeping`; absence disables automatic housekeeping for older servers. cxx executes locally, at most daily after a successful pass. Age uses the latest native metadata/artifact modification, retaining all files in parent/subagent bundles together. Age-expired sessions are removed first, then oldest eligible bundles until the session-file budget is met. Index/database sizes are excluded from the selection budget but corresponding rows and physical SQLite space are reclaimed.
+
+Pins, incomplete session metadata, open native goals, queued native work, live sessions and the last native transcript of every known fleet address are protected. This includes paused schedules and later peer/Portal continuations. Protected or young sessions can exceed the budget. An active native process skips its engine; unavailable protection or an unsupported schema prevents deletion. Launch/resume guards and server reservations fence removal; a durable journal quarantines files before deleting associated indexes, then unlinks them. Interrupted operations recover using the same token without retrying native work. Unknown data formats are skipped instead of guessed.

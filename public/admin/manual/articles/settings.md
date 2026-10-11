@@ -1,7 +1,7 @@
 ---
 title: Engines, Policies, and API Access
 section: Admin workspace
-verified: 2026-10-05
+verified: 2026-10-11
 sources: frontend/src/routes/engines/+page.svelte, frontend/src/lib/components/settings/EngineMasterSwitches.svelte, api/src/routes/admin/engines/index.ts, api/src/services/engine-switch.ts, frontend/src/routes/policies/+page.svelte, frontend/src/routes/api-keys/+page.svelte, frontend/src/routes/settings/+page.svelte, frontend/src/routes/authoring/+page.svelte, frontend/src/routes/authoring/settings/+page.ts, frontend/src/lib/legacy-admin-routes.ts, frontend/src/lib/components/settings/AuthorizationSection.svelte, frontend/src/lib/components/settings/ApiKeysInChatSection.svelte, frontend/src/lib/components/settings/InsecureApprovalSection.svelte, frontend/src/lib/components/authoring/HooksEditor.svelte, frontend/src/lib/constants/models.ts, frontend/src/lib/components/authoring/MattPocockSkillsSource.svelte, frontend/src/lib/api/skillSources.ts, frontend/src/lib/components/settings/ModelDefaultsSection.svelte, frontend/src/lib/components/settings/ClaudeFleetSettings.svelte, frontend/src/lib/components/command-palette/commands.ts, api/src/routes/admin/settings/index.ts, api/src/routes/admin/config/index.ts, api/src/routes/admin/skill-sources/index.ts, api/src/services/mattpocock-skills.ts, api/src/ops/mattpocock-skills-worker.ts, api/src/services/model-defaults.ts, api/src/services/agents.ts, api/src/services/skills.ts, api/src/services/skill-provenance.ts, api/src/services/mcp-resources.ts, api/src/services/memories.ts, api/src/services/client-config.ts, api/src/services/config-normalizer.ts, api/src/services/client-versions.ts, api/src/services/host-auth.ts, api/src/db/migrations/0007_add_skill_provenance.sql, wrappers/cxx/internal/persona/claude/lifecycle/collections.go
 ---
 
@@ -409,3 +409,9 @@ The following variables are read from the process environment at startup. They c
 - `api/src/services/client-versions.ts` — version lock read/write shape (no `locked` request field)
 - `api/src/services/host-auth.ts` — `pruneInactiveHosts`; confirms the prune-policy setting has no scheduled caller
 - `api/src/services/usage-scaling.ts`
+
+### Session housekeeping
+
+**Policies → Cleanup → Session housekeeping** sets retention and disk budgets separately for Codex, Claude and Grok. Defaults are automatic removal enabled, 30 days retention, 5 GiB per engine/local user and a minimum of 7 days inactivity when under budget pressure. A host's detail page can inherit the fleet rule or save a full override. Disabling removal preserves configured values.
+
+cxx performs deletion locally during idle maintenance, including associated session history and search indexes. Active sessions, pins, open goals, queued work and fleet resume/wake bindings remain protected. Protected or young sessions can exceed the budget. Removed sessions cannot be resumed. Preview with `cxx housekeeping run --dry-run`; use `cxx housekeeping pin UUID --engine ENGINE` for sessions you want to retain.

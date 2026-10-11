@@ -26,6 +26,7 @@ import (
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/fleetconfig"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/housekeeping"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/layout"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/maintenance"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/signing"
@@ -234,6 +235,11 @@ func run(ctx context.Context, seed *config.Config, minimal, due bool, stdout, st
 	}
 	if err := runEnabledTicks(runCtx, canonical, activeTickEngines(configs, engines, stdout), minimal, stdout, stderr); err != nil {
 		errs = append(errs, err)
+	}
+	for _, cfg := range configs {
+		if err := housekeeping.Automatic(runCtx, cfg, stdout); err != nil {
+			errs = append(errs, fmt.Errorf("session housekeeping: %w", err))
+		}
 	}
 	// A child may have atomically replaced cxx. Reconcile the service using the
 	// installed executable so a long-running worker picks up that release too.

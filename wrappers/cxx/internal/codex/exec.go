@@ -22,6 +22,7 @@ import (
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/nativeentry"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/quotaadvice"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/schedulewatch"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/sessionguard"
 )
 
 // captureMaxBytes caps the in-memory stdout buffer for pipe-mode runs. The
@@ -241,6 +242,11 @@ func RunCapturePrepared(ctx context.Context, cfg *config.Config, args []string) 
 // active-child lease; explicit logout passes exclusive maintenance + writer
 // leases so no shared process can queue through its destructive transaction.
 func runCapturePreparedWithHeldLeases(ctx context.Context, cfg *config.Config, args []string, session *AuthSession, childLease *ipc.Lock, extraLeases ...*ipc.Lock) (exitCode int, captured []byte, runErr error) {
+	guard, guardErr := sessionguard.Launch("codex")
+	if guardErr != nil {
+		return 1, nil, guardErr
+	}
+	defer guard.Release()
 	cli, err := FindCLI()
 	if err != nil {
 		return 127, nil, err

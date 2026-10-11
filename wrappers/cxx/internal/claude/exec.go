@@ -20,6 +20,7 @@ import (
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/nativeentry"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/quotaadvice"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/schedulewatch"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/sessionguard"
 )
 
 // captureMaxBytes caps the in-memory stdout buffer for pipe-mode runs. The
@@ -192,6 +193,11 @@ func runCaptureWithHeldAuthLeaseUsing(
 	session *AuthSession,
 	acquireShared func() (*authChildLease, error),
 ) (int, []byte, error) {
+	guard, guardErr := sessionguard.Launch("claude")
+	if guardErr != nil {
+		return 1, nil, guardErr
+	}
+	defer guard.Release()
 	cli, err := FindCLI()
 	if err != nil {
 		return 127, nil, err

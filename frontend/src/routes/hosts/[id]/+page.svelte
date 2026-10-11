@@ -1,4 +1,5 @@
 <script lang="ts">
+ import SessionHousekeeping from "$lib/components/policies/SessionHousekeeping.svelte";
  import DaemonPanel from "$lib/components/hosts/DaemonPanel.svelte";
   import { page } from "$app/state";
   import { goto } from "$app/navigation";
@@ -757,7 +758,7 @@
       </CardContent>
     </Card>
 
-    {#key id}<DaemonPanel {id}/>{/key}
+    {#key id}<SessionHousekeeping hostId={id}/><DaemonPanel {id}/>{/key}
     <DangerZone description="Permanently remove this host from the fleet.">
       <Button variant="destructive" onclick={() => (confirmDeleteOpen = true)}>
         <Trash2 class="h-4 w-4" /> Delete host

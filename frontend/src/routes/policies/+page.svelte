@@ -5,6 +5,7 @@
   import PageHeader from "$lib/components/layout/PageHeader.svelte";
   import TogglePolicy from "$lib/components/policies/TogglePolicy.svelte";
   import AuthorizationPolicy from "$lib/components/policies/AuthorizationPolicy.svelte";
+  import SessionHousekeeping from "$lib/components/policies/SessionHousekeeping.svelte";
   import CleanupPolicy from "$lib/components/policies/CleanupPolicy.svelte";
   import Server from "@lucide/svelte/icons/server";
   import Bot from "@lucide/svelte/icons/bot";
@@ -14,13 +15,13 @@
     { id: "fleet-behavior", title: "Host behavior", description: "Updates and connection metadata", icon: Server },
     { id: "agent-behavior", title: "Agent behavior", description: "Instructions and remote jobs", icon: Bot },
     { id: "access-control", title: "Access control", description: "Roles and host approvals", icon: ShieldCheck },
-    { id: "cleanup", title: "Cleanup", description: "Inactive hosts and log retention", icon: Archive },
+    { id: "cleanup", title: "Cleanup", description: "Sessions, inactive hosts and log retention", icon: Archive },
   ];
   const anchors: Record<string, string> = {
     "auto-update": "fleet-behavior", "reverse-dns": "fleet-behavior",
     "api-keys-in-chat": "agent-behavior", "remote-exec": "agent-behavior",
     authorization: "access-control", "insecure-approval": "access-control",
-    "host-lifecycle": "cleanup", "prune-policy": "cleanup", "log-retention": "cleanup",
+    "session-housekeeping": "cleanup", "host-lifecycle": "cleanup", "prune-policy": "cleanup", "log-retention": "cleanup",
   };
   const active = $derived(anchors[page.url.hash.slice(1)] ?? (categories.some((c) => c.id === page.url.hash.slice(1)) ? page.url.hash.slice(1) : "fleet-behavior"));
   function navigate(id: string) { void goto(`${page.url.pathname}${page.url.search}#${id}`, { noScroll: true, keepFocus: true }); }
@@ -54,7 +55,7 @@
         {#if category.id === "fleet-behavior"}<TogglePolicy id="auto-update" /><TogglePolicy id="reverse-dns" />
         {:else if category.id === "agent-behavior"}<TogglePolicy id="api-keys-in-chat" /><TogglePolicy id="remote-exec" />
         {:else if category.id === "access-control"}<AuthorizationPolicy /><TogglePolicy id="insecure-approval" />
-        {:else}<div id="host-lifecycle" class="scroll-mt-24"><CleanupPolicy kind="prune-policy" /></div><CleanupPolicy kind="log-retention" />{/if}
+        {:else}<div id="host-lifecycle" class="scroll-mt-24"><CleanupPolicy kind="prune-policy" /></div><CleanupPolicy kind="log-retention" /><SessionHousekeeping />{/if}
       </section>
     {/each}
   </div>

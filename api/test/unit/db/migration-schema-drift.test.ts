@@ -225,6 +225,7 @@ describe('migrations against the test baseline', () => {
       'chatty_actions',
       'host_daemon_portal_bindings',
       'companion_daemon_follows',
+      'session_housekeeping_reservations',
     ]);
     expect(additions.filter((a) => a.column !== undefined).map((a) => `${a.table}.${a.column}`)).toEqual([
       'auth_payloads.generation',

@@ -267,6 +267,7 @@ const CLOSED = [
   'engine_options',
   'agent_messaging',
   'remote',
+  'session_housekeeping',
   'wrapper',
   'documents',
   'documents.agents',

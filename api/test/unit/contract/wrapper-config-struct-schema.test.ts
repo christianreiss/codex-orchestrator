@@ -82,6 +82,7 @@ const TYPES = [
   { type: 'Host', path: 'host' },
   { type: 'EngineOptions', path: 'engine_options' },
   { type: 'AgentMessaging', path: 'agent_messaging' },
+  { type: 'SessionHousekeepingPolicy', path: 'session_housekeeping' },
   { type: 'Wrapper', path: 'wrapper' },
 ];
 

@@ -1,3 +1,4 @@
+import { assertHousekeepingAvailable } from '../session-housekeeping.js';
 import { moveLaunchNameLocked } from './names.js';
 import { randomUUID } from 'node:crypto';
 import { and, desc, eq, isNull } from 'drizzle-orm';
@@ -9,6 +10,7 @@ import type { AgentMessagingDb } from './types.js';
 export async function bindNativeMessagingIdentityLocked(
   db: AgentMessagingDb, session: AgentSession, nativeId: string, now: string,
 ) {
+  await assertHousekeepingAvailable(db, session.hostId, session.engine);
   const [current] = await db.select().from(agentBusAddresses)
     .where(eq(agentBusAddresses.id, session.agentBusAddressId!)).for('update');
   if (!current || current.currentSessionId !== session.id || current.archivedAt || current.enabled !== 1)

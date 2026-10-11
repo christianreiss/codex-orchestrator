@@ -2381,3 +2381,11 @@ export const chattyActions = mysqlTable('chatty_actions', {
   createdAt: varchar('created_at', { length: 100 }).notNull(),
   updatedAt: varchar('updated_at', { length: 100 }).notNull(),
 }, t => [index('idx_chatty_actions').on(t.runId,t.status)]);
+
+// Durable home/engine fence; retained until the owning local journal finishes.
+export const sessionHousekeepingReservations = mysqlTable('session_housekeeping_reservations', {
+  hostId: bigint('host_id', { mode: 'number', unsigned: true }).notNull().references(() => hosts.id, { onDelete: 'cascade' }),
+  engine: varchar('engine', { length: 16 }).notNull(),
+  token: char('token', { length: 36 }).notNull(),
+  createdAt: varchar('created_at', { length: 100 }).notNull(),
+}, t => ({ hostEngine: uniqueIndex('uq_housekeeping_host_engine').on(t.hostId, t.engine) }));

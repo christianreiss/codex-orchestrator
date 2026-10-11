@@ -912,7 +912,7 @@ Automatic MCP instances within one managed launch share an elected local receive
 ### Daemon working directory
 
 Remote starts use an explicitly supplied `cwd`, then the host daemon's configured
-`default_cwd`. When both are empty or omitted, wrapper 0.9.50 resolves the home
+`default_cwd`. When both are empty or omitted, wrapper 0.9.51 resolves the home
 of the daemon service user on that host. The systemd service also starts in that
 user's home. Explicit paths must remain absolute and exist on the remote host;
 an invalid explicit path fails rather than falling back. Registration retains
@@ -944,3 +944,9 @@ fences renewal until an explicit enable/approval; accepted work may finish.
 Natural fleet-window expiry preserves a later renewed host grant; explicit
 fleet closure removes it. No automatic provider session or credential sync is
 kept alive merely because the daemon is online.
+
+## Local session housekeeping
+
+Policies → Cleanup configures fleet defaults for Codex, Claude and Grok; the host detail page supports a complete override per engine. Enabled by default: 30 days retention, 5 GiB session files per engine/local user, and at least 7 days inactivity for budget-pressure deletion. cxx runs this through its existing daily-coalesced maintenance coordinator. Active, pinned and resumable fleet sessions remain protected; budget excess is reported honestly.
+
+Use `cxx housekeeping status`, `cxx housekeeping run --dry-run`, or `cxx housekeeping run`, with `--engine codex|claude|grok` and optional `--json`. `cdx`, `clx`, `cgx` select their respective engine. `cxx housekeeping pin UUID --engine ENGINE` protects an important local session; `unpin` removes only the cxx pin, never a native pin. Deletion is permanent. A retained recovery journal fences native launches until `cxx housekeeping run --engine ENGINE` completes the interrupted operation.

@@ -157,6 +157,11 @@ func (c *Config) Validate() error {
 // ValidateForEngine validates shared schema invariants and pins the config to
 // the persona selected by the multicall dispatcher.
 func (c *Config) ValidateForEngine(expectedEngine string) error {
+	if p := c.SessionHousekeeping; p != nil {
+		if p.RetentionDays < 1 || p.RetentionDays > 3650 || p.MinAgeDays < 1 || p.MinAgeDays > p.RetentionDays || p.MaxBytes < 1<<20 || p.MaxBytes > 1<<40 {
+			return errors.New("invalid session_housekeeping policy")
+		}
+	}
 	if c.SchemaVersion != SchemaVersion {
 		return fmt.Errorf("unsupported schema_version %d (want %d)", c.SchemaVersion, SchemaVersion)
 	}

@@ -255,3 +255,7 @@ See [Android companion](android-companion.md#hosts-and-remote-conversations-0410
 ## Insecure session renewal fence (0053)
 
 `hosts.insecure_session_renewal_blocked` is a TINYINT NOT NULL DEFAULT 0. Manual host Disable and explicit fleet closure set it to 1. Explicit enable, approval/domain approval and fleet opening clear it. Daemon session renewal reads it under a host row lock and cannot reopen an expired window. Migration 0053 adds the column idempotently without changing existing grants.
+
+## Session housekeeping (migration 0054)
+
+- **session_housekeeping_reservations** — Durable local-removal fence. `host_id` BIGINT UNSIGNED NOT NULL FK to hosts (CASCADE), `engine` VARCHAR(16) NOT NULL, `token` CHAR(36) NOT NULL, `created_at` VARCHAR(100) NOT NULL; unique host/engine. Reservations have no automatic expiry: a crashed client may have already quarantined transcripts. The same local journal token must recover and release the reservation. Fleet policy and full host overrides are JSON entries in versions, named session_housekeeping_ENGINE and session_housekeeping_ENGINE_host_ID.
