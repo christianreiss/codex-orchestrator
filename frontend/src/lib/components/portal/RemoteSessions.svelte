@@ -1,53 +1,184 @@
 <script lang="ts">
- import { toStore } from "svelte/store";
- import { createQuery,createMutation,useQueryClient } from '@tanstack/svelte-query';
- import { base } from "$app/paths";
- import { api } from '$lib/api/client';
- import type { DaemonHost,RemoteSession } from '$lib/api/hostDaemons';
- let {fixedHost}:{fixedHost?:number}=$props();
- const qc=useQueryClient();
- const root='/admin';
- const hosts=createQuery(toStore(()=>({queryKey:['host-daemons'],queryFn:()=>api.get<{hosts:DaemonHost[]}>(`${root}/host-daemons`),refetchInterval:15_000})));
- let hostId=$state(0),engine=$state('codex'),cwd=$state(''),title=$state(''),prompt=$state(''),selected=$state(''),message=$state('');
- let startKey=$state(crypto.randomUUID()),turnKey=$state(crypto.randomUUID());
- const available=$derived(($hosts.data?.hosts??[]).filter(h=>h.enabled&&(!fixedHost||h.host_id===fixedHost)));
- const host=$derived(available.find(h=>h.host_id===hostId));
- const selectedHost=$derived(available.find(h=>h.sessions.some(s=>s.id===selected)));
- $effect(()=>{if(fixedHost)hostId=fixedHost;else if(!hostId&&available[0])hostId=available[0].host_id});
- const detail=createQuery<RemoteSession>(toStore(()=>({queryKey:['daemon-sessions',selected],queryFn:()=>api.get<RemoteSession>(`${root}/daemon-sessions/${selected}`),enabled:!!selected,refetchInterval:3000})));
- const refresh=()=>{void qc.invalidateQueries({queryKey:['host-daemons']});void qc.invalidateQueries({queryKey:['daemon-sessions']})};
- const start=createMutation({mutationFn:()=>api.post<{session_id:string}>(`${root}/daemon-sessions`,{host_id:hostId,engine,cwd:cwd||host?.default_cwd,title,prompt,client_message_id:startKey}),onSuccess:r=>{selected=r.session_id;startKey=crypto.randomUUID();prompt='';refresh()}});
- const turn=createMutation({mutationFn:()=>api.post(`${root}/daemon-sessions/${selected}/messages`,{prompt:message,client_message_id:turnKey}),onSuccess:()=>{message='';turnKey=crypto.randomUUID();refresh()}});
- const stop=createMutation({mutationFn:()=>api.post(`${root}/daemon-sessions/${selected}/stop`,{}),onSuccess:refresh});
+  import { tick, type Snippet } from "svelte";
+  import { toStore } from "svelte/store";
+  import { createQuery, createMutation } from "@tanstack/svelte-query";
+  import { base } from "$app/paths";
+  import { api } from "$lib/api/client";
+  import type { DaemonHost, RemoteSession } from "$lib/api/hostDaemons";
+  import type { AgentSessionRow } from "$lib/api/agentSessions";
+  import type { Engine } from "$lib/portal/types";
+  import { hostBlockReason, continuationBlockReason, remoteState, remoteForAgent } from "$lib/portal/remote-sessions";
+  import { listTime } from "$lib/portal/grouping";
+  import { authStore } from "$lib/stores/auth";
+  import { Button } from "$lib/components/ui/button";
+  import { Input } from "$lib/components/ui/input";
+  import { Textarea } from "$lib/components/ui/textarea";
+  import * as Sheet from "$lib/components/ui/sheet";
+  import ConversationRow from "./ConversationRow.svelte";
+  import BotIcon from "@lucide/svelte/icons/bot";
+  import ChevronLeftIcon from "@lucide/svelte/icons/chevron-left";
+
+  let { active = true, hosts, agents, loading, error, stale, selectedId = $bindable(null), startOpen = $bindable(false), fixedHost, refresh, onselect, conversation }: {
+    active?: boolean; hosts: DaemonHost[]; agents: AgentSessionRow[]; loading: boolean; error: Error | null; stale: boolean;
+    selectedId?: string | null; startOpen?: boolean; fixedHost?: number; refresh: () => void;
+    onselect: (id: string | null) => void; conversation: Snippet<[string, Snippet, boolean]>;
+  } = $props();
+  const canRead = $derived($authStore.can("agent_portal.reveal_transcript"));
+  const canManage = $derived($authStore.can("agent_messaging.manage"));
+  let search = $state("");
+  let filter = $state("current");
+  let engineFilter = $state("all");
+  let hostId = $state(0);
+  let engine = $state<Engine>("codex");
+  let title = $state("");
+  let cwd = $state("");
+  let prompt = $state("");
+  let drafts = $state<Record<string, string>>({});
+  let detailsOpen = $state(false);
+  let heading = $state<HTMLHeadingElement | null>(null);
+  const entries = $derived(hosts.flatMap(host => host.sessions.map(session => ({ session, host }))));
+  const selectedEntry = $derived(entries.find(entry => entry.session.id === selectedId));
+  const detail = createQuery<RemoteSession>(toStore(() => ({
+    queryKey: ["daemon-sessions", selectedId], enabled: active && !!selectedId && canRead,
+    queryFn: ({ queryKey, signal }) => api.get<RemoteSession>(`/admin/daemon-sessions/${queryKey[1]}`, { signal }),
+    refetchInterval: 3000,
+  })));
+  const selected = $derived($detail.data ?? selectedEntry?.session);
+  const selectedHost = $derived(selectedEntry?.host);
+  const native = $derived(selected ? (agents.find(agent => agent.id === selected!.sessionId) ?? agents.find(agent => remoteForAgent(agent, [selected!]))) : undefined);
+  const visible = $derived(entries.filter(({ session, host }) => {
+    const terminal = ["closed", "failed", "unknown"].includes(session.status);
+    return (!fixedHost || host.host_id === fixedHost) && (engineFilter === "all" || session.engine === engineFilter)
+      && (filter === "all" || (filter === "ended" ? terminal : !terminal))
+      && `${session.title} ${host.fqdn} ${session.cwd} ${session.engine}`.toLowerCase().includes(search.trim().toLowerCase());
+  }).sort((a, b) => (b.session.lastActivityAt ?? b.session.createdAt ?? "").localeCompare(a.session.lastActivityAt ?? a.session.createdAt ?? "") || a.session.id.localeCompare(b.session.id)));
+  const host = $derived(hosts.find(row => row.host_id === hostId));
+  const startReason = $derived(!canManage ? "Remote session management is required." : error || stale ? "Refresh host status before starting work." : hostBlockReason(host) || (host?.engines?.includes(engine) ? "" : "This engine is not ready on the host."));
+  const resumeReason = $derived(!canManage || !canRead ? "Conversation access and remote session management are required." : error || stale || $detail.isError ? "Refresh session status before continuing." : native?.pending_prompt ? "Answer the pending question when the agent is reachable." : selected ? continuationBlockReason(selected, selectedHost) : "Select a session.");
+  const live = $derived(selected?.status === "running" || Boolean(selected?.status === "waiting" && native?.pending_prompt && !native.read_only));
+  $effect(() => {
+    if (fixedHost) hostId = fixedHost;
+    else if (!hostId && hosts.length) hostId = (hosts.find(row => !hostBlockReason(row)) ?? hosts[0]).host_id;
+  });
+  $effect(() => {
+    if (host?.engines?.length && !host.engines.includes(engine)) engine = host.engines[0];
+  });
+  $effect(() => { if (active) onselect(native?.id ?? null); });
+  $effect(() => { if (!active) startOpen = false; });
+
+  // A retry after a lost response retains the exact request key. Selection and
+  // edits during a request must never change that request's target or body.
+  const keys = new Map<string, string>();
+  function requestKey(kind: string, body: unknown) {
+    const signature = JSON.stringify([$authStore.user?.id, kind, body]);
+    let key = keys.get(signature);
+    if (!key) { key = crypto.randomUUID(); keys.set(signature, key); }
+    return { signature, key };
+  }
+  type StartBody = { host_id: number; engine: Engine; title: string; cwd: string; prompt: string };
+  const start = createMutation({
+    mutationFn: ({ body, key }: { body: StartBody; key: string }) => api.post<{ session_id: string }>("/admin/daemon-sessions", { ...body, client_message_id: key }),
+  });
+  async function submitStart() {
+    if (startReason || !title.trim() || !prompt.trim() || $start.isPending) return;
+    const body = { host_id: hostId, engine, title: title.trim(), cwd: cwd.trim() || host?.default_cwd || "", prompt: prompt.trim() };
+    const { key, signature } = requestKey("start", body);
+    try {
+      const result = await $start.mutateAsync({ body, key });
+      keys.delete(signature); selectedId = result.session_id; filter = "all"; startOpen = false;
+      if (prompt.trim() === body.prompt) prompt = "";
+      refresh();
+    } catch { /* The inline error and unchanged draft remain available. */ }
+  }
+  const turn = createMutation({ mutationFn: ({ id, text, key }: { id: string; text: string; key: string }) => api.post(`/admin/daemon-sessions/${id}/messages`, { prompt: text, client_message_id: key }) });
+  async function resume() {
+    if (!selected || resumeReason || $turn.isPending || $stop.isPending) return;
+    const id = selected.id, text = (drafts[id] ?? "").trim();
+    if (!text) return;
+    const { key, signature } = requestKey("resume", { id, text });
+    try {
+      await $turn.mutateAsync({ id, text, key }); keys.delete(signature);
+      if ((drafts[id] ?? "").trim() === text) drafts = { ...drafts, [id]: "" };
+      refresh();
+    } catch { /* Keep the request key and draft for an explicit retry. */ }
+  }
+  const stop = createMutation({ mutationFn: (id: string) => api.post(`/admin/daemon-sessions/${id}/stop`, {}), onSuccess: () => refresh() });
+  async function select(id: string) { selectedId = id; detailsOpen = false; if (!$turn.isPending) $turn.reset(); if (!$stop.isPending) $stop.reset(); await tick(); heading?.focus(); }
+  async function back() { const id = selectedId; selectedId = null; await tick(); document.getElementById(`remote-${id}`)?.focus(); }
 </script>
-<div class="space-y-4">
- <details class="rounded-lg border border-border p-3">
-  <summary class="cursor-pointer font-semibold">Neue Remote-Session</summary>
-  <form class="mt-3 grid gap-3 sm:grid-cols-2" oninput={()=>startKey=crypto.randomUUID()} onsubmit={e=>{e.preventDefault();$start.mutate()}}>
-   <label class="grid gap-1 text-sm">Host<select class="rounded border bg-background p-2" bind:value={hostId} disabled={!!fixedHost}>{#each available as h}<option value={h.host_id}>{h.fqdn??`Host #${h.host_id}`}</option>{/each}</select></label>
-   <label class="grid gap-1 text-sm">Engine<select class="rounded border bg-background p-2" bind:value={engine}><option value="codex">Codex</option><option value="claude">Claude</option><option value="grok">Grok</option></select></label>
-   <label class="grid gap-1 text-sm">Titel<input class="rounded border bg-background p-2" bind:value={title} maxlength="160" required/></label>
-   <label class="grid gap-1 text-sm">Arbeitsverzeichnis<input class="rounded border bg-background p-2" bind:value={cwd} placeholder={host?.default_cwd||'Home-Verzeichnis des Dienstkontos'}/></label>
-   <label class="grid gap-1 text-sm sm:col-span-2">Auftrag<textarea class="rounded border bg-background p-2" bind:value={prompt} required rows="3"></textarea></label>
-   <button class="rounded bg-primary px-4 py-2 text-primary-foreground" disabled={!host||host.access?.allowed===false||host.health.state==='red'||$start.isPending}>Session starten</button>
-  </form>
- </details>
- {#if $hosts.error||$start.error||$turn.error||$stop.error}<p role="alert" class="text-destructive">{($hosts.error??$start.error??$turn.error??$stop.error)?.message}</p>{/if}
- {#each available as h}
-  {#each h.sessions as session}
-   <button class="mr-2 mb-2 rounded border px-3 py-2 text-sm" class:bg-muted={selected===session.id} onclick={()=>selected=session.id}>{session.title} · {session.engine} · {session.status}</button>
-  {/each}
- {/each}
- {#if $detail.data}
-  <section class="space-y-3 rounded border p-3" aria-label="Remote-Session">
-   <h3 class="font-semibold">{$detail.data.title} · {$detail.data.status}</h3>
-   {#each $detail.data.operations??[] as op}<div class="whitespace-pre-wrap text-sm">{op.result?.reply||op.status}</div>{/each}
-   {#if $detail.data.sessionId}<a class="text-sm underline" href={`${base}/clients?session=${encodeURIComponent($detail.data.sessionId)}`}>Nativen Session-Verlauf öffnen</a>{/if}
-   <form oninput={()=>turnKey=crypto.randomUUID()} class="space-y-2" onsubmit={e=>{e.preventDefault();$turn.mutate()}}>
-    <label class="grid gap-1 text-sm">Nachricht / Fortsetzen<textarea class="rounded border bg-background p-2" bind:value={message} required></textarea></label>
-    <button class="rounded bg-primary px-3 py-2 text-primary-foreground" disabled={selectedHost?.access?.allowed===false||$turn.isPending||['running','queued','stopping'].includes($detail.data.status)}>Senden / Fortsetzen</button>
-    <button type="button" class="ml-2 rounded border px-3 py-2" onclick={()=>$stop.mutate()} disabled={$stop.isPending||$detail.data.status==='closed'}>Beenden</button>
-   </form>
-  </section>
- {/if}
-</div>
+
+{#if active}
+  {#if error}<div role="alert" class="mb-3 flex items-center justify-between rounded-lg border border-destructive/30 p-3 text-sm"><span>Remote sessions could not be refreshed. {error.message}</span><Button variant="outline" size="sm" onclick={refresh}>Retry remote sessions</Button></div>{/if}
+  <div class="grid h-[75dvh] min-h-[28rem] grid-cols-1 overflow-hidden rounded-xl border bg-card lg:h-[calc(100dvh-15.5rem)] lg:grid-cols-[22rem_minmax(0,1fr)]">
+    <section aria-label="Remote session directory" class="min-h-0 min-w-0 flex-col border-r {selectedId ? 'hidden lg:flex' : 'flex'}">
+      <div class="space-y-2 border-b p-3">
+        <div class="flex gap-2">
+          <Input aria-label="Find a remote session" type="search" placeholder="Search sessions or hosts" bind:value={search} class="h-8 min-w-0 bg-muted text-xs" />
+          <select aria-label="Remote engine" bind:value={engineFilter} class="h-8 w-28 shrink-0 rounded-lg bg-muted px-2 text-xs"><option value="all">All engines</option><option value="codex">Codex</option><option value="claude">Claude</option><option value="grok">Grok</option></select>
+        </div>
+        <div class="flex gap-1" role="group" aria-label="Show remote sessions">
+          {#each [{ key: 'current', label: 'Current' }, { key: 'ended', label: 'Ended' }, { key: 'all', label: 'All' }] as item}
+            <button class="rounded-full px-2.5 py-1 text-xs {filter === item.key ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'}" aria-pressed={filter === item.key} onclick={() => filter = item.key}>{item.label}</button>
+          {/each}
+        </div>
+        {#if fixedHost}<p class="text-xs text-muted-foreground">{hosts.find(row => row.host_id === fixedHost)?.fqdn ?? `Host #${fixedHost}`} · <a class="text-primary underline" href={`${base}/clients?view=remote`}>All hosts</a></p>{/if}
+      </div>
+      <div class="min-h-0 flex-1 overflow-y-auto p-1.5">
+        {#if loading}<p role="status" class="p-5 text-sm text-muted-foreground">Loading remote sessions…</p>
+        {:else if !visible.length}<div class="px-4 py-8 text-center"><BotIcon class="mx-auto h-6 w-6 text-muted-foreground" /><h2 class="mt-3 text-sm font-medium">No remote sessions match</h2><p class="mt-1 text-xs text-muted-foreground">Start a session or change the search and status filter.</p></div>
+        {:else}{#each visible as { session, host } (session.id)}
+          {@const state = remoteState(session.status)}
+          <ConversationRow id={`remote-${session.id}`} engine={session.engine} presence={state.presence} title={session.title} time={session.lastActivityAt ? listTime(session.lastActivityAt, new Date()) : ""} directory={host.fqdn ?? `Host #${host.host_id}`} preview={`${session.engine} · ${state.label}`} selected={selectedId === session.id} aria-pressed={selectedId === session.id} logo onclick={() => select(session.id)} />
+        {/each}{/if}
+      </div>
+    </section>
+    <section aria-label="Remote session conversation" class="min-h-0 min-w-0 flex-col {selectedId ? 'flex' : 'hidden lg:flex'}">
+      {#if selectedId}
+        <header class="flex items-center gap-2 border-b px-3 py-2">
+          <Button variant="ghost" size="icon" class="shrink-0 lg:hidden" aria-label="Back to remote sessions" onclick={back}><ChevronLeftIcon class="h-5 w-5" /></Button>
+          <div class="min-w-0 flex-1"><h2 bind:this={heading} tabindex="-1" class="truncate text-sm font-semibold outline-none">{selected?.title ?? 'Remote session'}</h2><p class="truncate text-xs text-muted-foreground">{selectedHost?.fqdn ?? 'Host'} · {remoteState(selected?.status ?? 'queued').label}</p></div>
+          <Button variant="ghost" size="sm" aria-expanded={detailsOpen} onclick={() => detailsOpen = !detailsOpen}>Details</Button>
+        </header>
+        {#if detailsOpen && selected}<div class="max-h-[40%] shrink-0 space-y-2 overflow-y-auto border-b bg-muted/20 p-4 text-xs">
+          <p class="break-all">{selected.engine} · {selected.cwd}</p>
+          {#if selectedHost}<a class="text-primary underline" href={`${base}/hosts/${selectedHost.host_id}`}>Host settings</a>{/if}
+          {#if canRead}{#each selected.operations ?? [] as operation}<div class="whitespace-pre-wrap break-words border-t pt-2"><p>{operation.status}</p>{#if operation.result?.error}<p class="text-destructive">{operation.result.error}</p>{/if}{#if operation.result?.reply}<p>{operation.result.reply}</p>{/if}</div>{/each}{/if}
+          {#if canManage && !['closed', 'stopping'].includes(selected.status)}<Button variant="outline" size="sm" disabled={$stop.isPending || $turn.isPending || !!error || stale} onclick={() => $stop.mutate(selected!.id)}>End session</Button>{/if}
+        </div>{/if}
+        {#if $detail.error}<p role="alert" class="px-4 py-2 text-sm text-destructive">{$detail.error.message} <button class="underline" onclick={() => $detail.refetch()}>Retry session</button></p>{/if}
+        {#if $stop.error && $stop.variables === selectedId}<p role="alert" class="px-4 py-2 text-sm text-destructive">{$stop.error.message}</p>{/if}
+        {#if native}{@render conversation(native.id, controls, live)}
+        {:else}<div class="grid flex-1 place-content-center p-6 text-center"><BotIcon class="mx-auto h-8 w-8 text-muted-foreground/60" /><h3 class="mt-3 text-sm font-medium">{selected ? remoteState(selected.status).label : 'Loading session…'}</h3><p class="mt-1 max-w-sm text-sm text-muted-foreground">{selected ? remoteState(selected.status).detail : 'Waiting for session details.'}</p></div>{@render controls()}{/if}
+      {:else}<div class="grid flex-1 place-content-center p-8 text-center"><BotIcon class="mx-auto h-8 w-8 text-muted-foreground/60" /><h2 class="mt-3 text-sm font-medium">Select a remote session</h2><p class="mt-1 max-w-xs text-xs text-muted-foreground">Start work on a host, follow its conversation and continue it here.</p></div>{/if}
+    </section>
+  </div>
+{/if}
+
+{#snippet controls()}
+  {#if !live && selected}
+    <footer class="shrink-0 space-y-2 border-t p-3 sm:p-4">
+      {#if resumeReason}<p class="text-xs text-muted-foreground">{resumeReason}</p>{/if}
+      {#if $turn.error && $turn.variables?.id === selected.id}<p role="alert" class="text-sm text-destructive">{$turn.error.message} Your draft is kept. Retry sends the same request.</p>{/if}
+      {#if canRead && canManage}<form class="flex items-end gap-2" onsubmit={event => { event.preventDefault(); void resume(); }}>
+        <Textarea aria-label="Continue remote session" placeholder="Next instruction…" rows={1} maxlength={100000} value={drafts[selected.id] ?? ''} oninput={event => drafts = { ...drafts, [selected!.id]: event.currentTarget.value }} class="min-h-10 flex-1 resize-none" />
+        <Button type="submit" disabled={!!resumeReason || !(drafts[selected.id] ?? '').trim() || $turn.isPending || $stop.isPending}>{$turn.isPending ? 'Continuing…' : 'Continue'}</Button>
+      </form>{/if}
+    </footer>
+  {/if}
+{/snippet}
+
+<Sheet.Root bind:open={startOpen}>
+  <Sheet.Content class="flex w-full flex-col overflow-y-auto sm:max-w-lg">
+    <Sheet.Header><Sheet.Title>Start remote session</Sheet.Title><Sheet.Description>Choose a host and give the agent its first instruction.</Sheet.Description></Sheet.Header>
+    <form class="mt-6 space-y-5" onsubmit={event => { event.preventDefault(); void submitStart(); }}>
+      <div class="space-y-1.5"><label class="text-sm font-medium" for="remote-host">Host</label><select id="remote-host" class="h-10 w-full rounded-md border bg-background px-3 text-sm" bind:value={hostId}><option value={0}>Choose a host</option>{#each hosts as row}<option value={row.host_id}>{row.fqdn ?? `Host #${row.host_id}`}{!row.enabled ? ' · Disabled' : ''}</option>{/each}</select></div>
+      <div class="space-y-1.5"><label class="text-sm font-medium" for="remote-engine">Engine</label><select id="remote-engine" class="h-10 w-full rounded-md border bg-background px-3 text-sm" bind:value={engine}>{#each ['codex', 'claude', 'grok'] as value}<option value={value} disabled={!host?.engines?.includes(value as Engine)}>{value === 'codex' ? 'Codex' : value === 'claude' ? 'Claude' : 'Grok'}</option>{/each}</select></div>
+      <div class="space-y-1.5"><label class="text-sm font-medium" for="remote-title">Title</label><Input id="remote-title" bind:value={title} maxlength={160} required placeholder="What should this session accomplish?" /></div>
+      <div class="space-y-1.5"><label class="text-sm font-medium" for="remote-prompt">Instruction</label><Textarea id="remote-prompt" bind:value={prompt} maxlength={100000} required rows={5} placeholder="Describe the task…" /></div>
+      <details class="rounded-lg border p-3"><summary class="cursor-pointer text-sm font-medium">Advanced options</summary><div class="mt-3 space-y-1.5"><label class="text-sm" for="remote-cwd">Working directory</label><Input id="remote-cwd" bind:value={cwd} maxlength={1024} placeholder={host?.default_cwd || 'Service account home directory'} /></div></details>
+      {#if startReason}<p role="status" class="text-sm text-muted-foreground">{startReason}</p>{/if}
+      {#if $start.error}<p role="alert" class="text-sm text-destructive">{$start.error.message} Your instruction is kept. Retry sends the same request.</p>{/if}
+      <Button type="submit" class="w-full" disabled={!!startReason || !title.trim() || !prompt.trim() || $start.isPending}>{$start.isPending ? 'Starting…' : 'Start session'}</Button>
+    </form>
+  </Sheet.Content>
+</Sheet.Root>

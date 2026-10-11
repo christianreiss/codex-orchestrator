@@ -649,10 +649,12 @@ Needs you, questions and retained history, with receiver reconnect and close act
 Android Chats and the web's default All filter include offline and ended
 conversations throughout server retention (session lifetime plus 24 hours by
 default). History remains readable; fresh receiver readiness still gates sending.
-It also provides **Remote sessions** to start, continue and stop daemon work;
-remote history links select the native session in Active Clients.
+**Agents** and **Remote sessions** are separate lists sharing the native conversation view.
+Remote sessions use a searchable directory and a start side panel; the host page opens
+the same workspace with its host selected. Bound remote agents are not duplicated in Agents.
+Existing native-session links select the corresponding workspace.
 
-**Agent session settings** holds the shared master switch and queue health.
+**Fleet → Policies → Agent behavior → Agent sessions** holds the shared master switch and queue health (`/admin/policies#agent-sessions`).
 The setup wizard calls this feature **Agent sessions**. The Android companion
 keeps its existing pairing, chat, questions, host approvals and FCM notifications.
 The old `/go` webchat, permanent links and separate portal users have been removed.

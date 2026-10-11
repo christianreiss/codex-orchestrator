@@ -79,7 +79,7 @@ describe("internal links", () => {
           file: relative(srcDir, file),
           target,
           // `/hosts/${h.id}?tab=x` -> `/hosts/*`, which `resolves` matches against `[id]`.
-          path: target.split("?")[0].replace(/\$\{[^}]*\}/g, "*"),
+          path: target.split(/[?#]/)[0].replace(/\$\{[^}]*\}/g, "*"),
         });
       }
     }

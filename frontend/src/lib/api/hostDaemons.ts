@@ -3,6 +3,8 @@ import {
   createMutation,
   type QueryClient,
 } from "@tanstack/svelte-query";
+import { toStore } from "svelte/store";
+import type { Engine } from "$lib/portal/types";
 import { api } from "./client";
 export interface DaemonSettings {
   enabled: boolean;
@@ -17,7 +19,9 @@ export interface DaemonSettings {
 export interface RemoteSession {
   id: string;
   title: string;
-  engine: string;
+  engine: Engine;
+  createdAt?: string;
+  lastActivityAt?: string;
   cwd: string;
   status: string;
   sessionId: string | null;
@@ -25,7 +29,8 @@ export interface RemoteSession {
   operations?: {
     id: string;
     status: string;
-    result: { reply?: string } | null;
+    createdAt?: string;
+    result: { reply?: string; error?: string } | null;
   }[];
 }
 export interface DaemonHost extends DaemonSettings {
@@ -42,6 +47,7 @@ export interface DaemonHost extends DaemonSettings {
     used_slots: number;
     max_slots: number;
   };
+  engines?: Engine[];
   sessions: RemoteSession[];
 }
 export const daemonDefaults: DaemonSettings = {
@@ -52,12 +58,13 @@ export const daemonDefaults: DaemonSettings = {
   idle_minutes: 60,
   question_minutes: 1440,
 };
-export function hostDaemonsQuery() {
-  return createQuery({
+export function hostDaemonsQuery(enabled: () => boolean = () => true) {
+  return createQuery(toStore(() => ({
+    enabled: enabled(),
     queryKey: ["host-daemons"],
     queryFn: () => api.get<{ hosts: DaemonHost[] }>("/admin/host-daemons"),
     refetchInterval: 15_000,
-  });
+  })));
 }
 export function hostDaemonQuery(id: string | number) {
   return createQuery({

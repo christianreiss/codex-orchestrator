@@ -2,6 +2,17 @@
 
 Agent chat is the existing Active Clients / Android Chats conversation with managed Codex, Claude and Grok sessions. It uses the existing session/daemon binding, delivery receipts and retention. It is separate from the product assistant.
 
+## Active Clients workspace
+
+Active Clients opens on **Agents**. **Remote sessions** has a separate searchable list of host-daemon sessions, including sessions on disabled hosts. Current / Ended / All filters retain access to completed work. A remote session's bound agent is shown only in the Remote sessions workspace, using the same native timeline, attachments, questions and delivery receipts as ordinary agents. Session and address UUIDs establish this association; names and host labels do not.
+
+**Start remote session** opens a side panel for host, engine, title and instruction. The directory override is under Advanced options. Only engines reported ready by the selected daemon can be started. The host page's **Open remote sessions** link opens this workspace scoped to that host. `/admin/clients?session=<native-session-id>` continues to work and selects the Remote sessions workspace when bound; `/admin/clients?remote=<daemon-session-id>` opens a remote session directly.
+
+Running remote agents use the existing **Send** composer. Idle or ended processes use **Continue**, subject to host access and native-transcript availability. Open questions retain the existing answer flow, and unavailable questions cannot be bypassed by starting a continuation; queued, running, stopping and unknown outcomes cannot launch a second continuation. Retries after lost responses reuse the request ID and retain the draft. **Details** contains operation diagnostics and **End session**. Operation replies are diagnostics, not fabricated chat events. Transcript access still gates message and operation-output reads.
+
+The fleet-wide **Agent sessions** switch is under **Fleet → Policies → Agent behavior**, directly linked by `/admin/policies#agent-sessions`. Turning it off still cancels pending portal input. It is no longer an inline control on Active Clients. This UI change does not alter retention, daemon lifecycle or the HTTP API.
+
+
 Both clients list all retained conversations by default, including offline, idle and ended agents. History is stored on the server throughout the session and for 24 hours after it ends (`AGENT_PORTAL_RETENTION_HOURS`, default 24); leaving the screen or restarting the client does not delete it. A temporarily disconnected agent can return to its existing conversation. Presence controls sending, not history visibility. Android closure still clears unread alerts, and web filters can narrow the list to current or ended sessions.
 
 Questions choose `buttons`, `text` or `both`. A choice has a display `label` and stable `value`; button answers send the value. The first queued answer owns the question, and exact retries retain their original operation. Normal questions appear under Your answer. Only explicit `important`, `critical` or `blocker` with a stable notice UUID appears under Needs you. Reading, replying, becoming offline or ending does not clear classified notices; operator/agent resolution targets one UUID. Unresolved notices retain the relevant existing session context until resolution, then its ordinary retention resumes. Identical notice/severity pushes deduplicate; escalation permits one new notification.

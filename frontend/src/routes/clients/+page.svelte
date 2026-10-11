@@ -1,6 +1,9 @@
 <script lang="ts">
   import { engineLabel } from "$lib/constants/engines";
-  import { tick, untrack } from "svelte";
+  import { tick, untrack, type Snippet } from "svelte";
+  import { base } from "$app/paths";
+  import { hostDaemonsQuery } from "$lib/api/hostDaemons";
+  import { remoteForAgent } from "$lib/portal/remote-sessions";
   import { useQueryClient } from "@tanstack/svelte-query";
   import BotIcon from "@lucide/svelte/icons/bot";
   import PowerOffIcon from "@lucide/svelte/icons/power-off";
@@ -11,7 +14,6 @@
   import { toast } from "svelte-sonner";
   import { page } from "$app/state";
   import RemoteSessions from "$lib/components/portal/RemoteSessions.svelte";
-  import SessionControls from "$lib/components/portal/SessionControls.svelte";
   import PageHeader from "$lib/components/layout/PageHeader.svelte";
   import ChatUploads from "$lib/components/portal/ChatUploads.svelte";
   import type { UploadItem } from "$lib/portal/chat-files";
@@ -40,10 +42,28 @@
   const canManage = $derived($authStore.can("agent_portal.manage"));
   const canReadTranscript = $derived($authStore.can("agent_portal.reveal_transcript"));
   const canRemoteManage = $derived($authStore.can("agent_messaging.manage"));
+  const daemonHosts = hostDaemonsQuery(() => canRemoteManage);
+  let workspace = $state<"agents" | "remote">("agents");
+  let remoteId = $state<string | null>(null);
+  let startRemote = $state(false);
+  const remoteRows = $derived(($daemonHosts.data?.hosts ?? []).flatMap(host => host.sessions));
   let selectedId = $state<string | null>(null);
+  let handledLink = $state("");
   $effect(() => {
+    const link = page.url.search;
+    if (link === handledLink) return;
     const id = page.url.searchParams.get("session");
-    if (id) selectedId = id;
+    if (id && ($sessions.isPending || (canRemoteManage && $daemonHosts.isPending))) return;
+    const remote = page.url.searchParams.get("remote");
+    if (canRemoteManage && (remote || page.url.searchParams.get("view") === "remote")) {
+      workspace = "remote"; remoteId = remote;
+    }
+    handledLink = link;
+    if (id) {
+      selectedId = id;
+      const match = remoteForAgent(($sessions.data?.sessions ?? []).find(row => row.id === id), remoteRows);
+      if (match && canRemoteManage) { workspace = "remote"; remoteId = match.id; }
+    }
   });
   let search = $state("");
   let engine = $state<"all" | "codex" | "claude" | "grok">("all");
@@ -54,20 +74,21 @@
     const timer = setInterval(() => (now = Date.now()), 1000);
     return () => clearInterval(timer);
   });
-  const rows = $derived($sessions.data?.sessions ?? []);
+  const allRows = $derived($sessions.data?.sessions ?? []);
+  const rows = $derived(allRows.filter(row => !canRemoteManage || !remoteForAgent(row, remoteRows)));
   const enabled = $derived($sessions.data?.enabled ?? true);
   const timings = $derived($sessions.data?.timings ?? {});
   const serverNow = $derived(clientClock($sessions.data, $sessions.dataUpdatedAt, now));
   const stale = $derived(Boolean($sessions.data) && snapshotIsStale($sessions.dataUpdatedAt, now, timings));
   const counts = $derived(clientCounts(rows, serverNow, timings));
   const visible = $derived(visibleClients(rows, { search, engine, filter, sort: "status" }, serverNow, timings));
-  const selected = $derived(rows.find((row) => row.id === selectedId) ?? null);
+  const selected = $derived(allRows.find((row) => row.id === selectedId) ?? null);
   const selectedView = $derived(selected ? presenceView(selected, serverNow, timings) : null);
   const actionsUnavailable = $derived(!enabled || stale || $sessions.isError);
   const disabledReason = $derived(!enabled ? "Agent sessions are disabled. Your draft is kept."
     : actionsUnavailable ? "Refresh client status before sending. Your draft is kept." : "");
   $effect(() => {
-    if ($sessions.data && selectedId && !rows.some((row) => row.id === selectedId)) selectedId = null;
+    if ($sessions.data && selectedId && !allRows.some((row) => row.id === selectedId)) selectedId = null;
   });
 
   async function selectClient(id: string) {
@@ -82,6 +103,7 @@
     const id = selectedId;
     selectedId = null;
     await tick();
+    if (workspace === "remote") remoteId = null;
     if (id) document.getElementById(`client-${id}`)?.focus();
   }
 
@@ -190,7 +212,7 @@
     }
   }
   function onreply(option?: string) { if (option) void submit(option, true); else composerInput?.focus(); }
-  function refresh() { void client.invalidateQueries({ queryKey: agentSessionKeys.all }); if (feedState === "reconnecting") feedRetry++; }
+  function refresh() { void client.invalidateQueries({ queryKey: ["host-daemons"] }); void client.invalidateQueries({ queryKey: ["daemon-sessions"] }); void client.invalidateQueries({ queryKey: agentSessionKeys.all }); if (feedState === "reconnecting") feedRetry++; }
   function resetFilters() { search = ""; engine = "all"; filter = "all"; }
   function agentName(row: AgentSessionRow) { return row.launch_name || row.session_name || row.work.address_alias || `Session ${row.id.slice(0, 8)}`; }
   function age(value: string | null, clock = serverNow) { return value ? shortAge(value, clock) || "unknown" : "unknown"; }
@@ -220,17 +242,23 @@
   {/snippet}
 </PageHeader>
 
-<div class={selected ? "hidden lg:block" : ""}>
-{#if canManage}<SessionControls />{/if}
+<div class="mb-3 flex flex-wrap items-center justify-between gap-3">
+  <div class="inline-flex rounded-lg bg-muted p-1" role="group" aria-label="Client workspace">
+    <Button size="sm" variant="ghost" class={workspace === "agents" ? "bg-background shadow-sm" : "text-muted-foreground"} aria-pressed={workspace === "agents"} onclick={() => { workspace = "agents"; selectedId = null; }}>Agents</Button>
+    {#if canRemoteManage}<Button size="sm" variant="ghost" class={workspace === "remote" ? "bg-background shadow-sm" : "text-muted-foreground"} aria-pressed={workspace === "remote"} onclick={() => { workspace = "remote"; selectedId = null; }}>Remote sessions</Button>{/if}
+  </div>
+  {#if canRemoteManage}<Button size="sm" onclick={() => { workspace = "remote"; startRemote = true; }}>Start remote session</Button>{/if}
+</div>
 {#if canRemoteManage}
-  <details class="mb-4 rounded-lg border border-border p-3" aria-label="Remote sessions">
-    <summary class="cursor-pointer font-semibold">Remote sessions</summary>
-    <div class="mt-3"><RemoteSessions /></div>
-  </details>
+  <RemoteSessions active={workspace === "remote"} hosts={$daemonHosts.data?.hosts ?? []} loading={$daemonHosts.isPending} error={$daemonHosts.error} stale={!$daemonHosts.dataUpdatedAt || now - $daemonHosts.dataUpdatedAt > 45_000} agents={allRows} bind:selectedId={remoteId} bind:startOpen={startRemote} {refresh}
+    onselect={(id) => { selectedId = id; }} fixedHost={Number(page.url.searchParams.get("host")) || undefined}>
+    {#snippet conversation(id: string, controls: Snippet, live: boolean)}
+      {#if selected?.id === id}{@render nativeConversation(controls, live)}{/if}
+    {/snippet}
+  </RemoteSessions>
 {/if}
 
-</div>
-
+{#if workspace === "agents"}
 {#if $sessions.isPending && !$sessions.data}
   <div role="status" aria-label="Loading clients" class="space-y-2 lg:w-80">
     {#each Array(5) as _, i (i)}<div class="flex items-center gap-3"><Skeleton class="h-11 w-11 rounded-full" /><Skeleton class="h-9 flex-1 rounded-lg" /></div>{/each}
@@ -249,7 +277,8 @@
     </div>
   {/if}
   {#if !enabled}
-    <EmptyState icon={PowerOffIcon} title="Agent sessions are off" description="Client registration is paused. Enable agent sessions in the controls above to record new Codex, Claude, and Grok sessions." />
+    <EmptyState icon={PowerOffIcon} title="Agent sessions are off" description="Client registration is paused. Enable agent sessions in Fleet → Policies to record new sessions." />
+    {#if canManage}<a class="text-sm text-primary underline" href={`${base}/policies#agent-sessions`}>Agent session settings</a>{/if}
   {:else if rows.length === 0}
     <EmptyState icon={BotIcon} title="No recorded clients" description="A session appears when cdx, clx, or cgx registers its session. Clients that cannot reach the server may appear after reconnecting." />
   {:else}
@@ -279,7 +308,7 @@
           <p class="flex items-center gap-1.5 text-[10px] text-muted-foreground">
             <span class="h-1.5 w-1.5 rounded-full {stale || $sessions.isError ? 'bg-warning' : 'bg-success'}" aria-hidden="true"></span>
             <span class="truncate">{visible.length} of {rows.length} · {counts.codex} Codex · {counts.claude} Claude · {counts.grok} Grok · checked {age(new Date($sessions.dataUpdatedAt).toISOString(), now)} ago</span>
-            {#if search || engine !== "all" || filter !== "active"}<button type="button" class="ml-auto shrink-0 text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" onclick={resetFilters}>Clear filters</button>{/if}
+            {#if search || engine !== "all" || filter !== "all"}<button type="button" class="ml-auto shrink-0 text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" onclick={resetFilters}>Clear filters</button>{/if}
           </p>
         </div>
         <div class="min-h-0 flex-1 overflow-y-auto p-1.5">
@@ -295,7 +324,25 @@
         {#if !selected || !selectedView}
           <div class="grid flex-1 place-content-center p-8 text-center"><BotIcon class="mx-auto h-8 w-8 text-muted-foreground/60" /><h2 class="mt-3 text-sm font-medium">Select a client</h2><p class="mx-auto mt-1 max-w-xs text-xs leading-relaxed text-muted-foreground">Online means a recent heartbeat. A client accepts instructions only while listening or working.</p></div>
         {:else}
+          {@render nativeConversation()}
+        {/if}
+      </section>
+    </div>
+  {/if}
+{/if}
+
+{/if}
+
+{#snippet nativeConversation(remoteControls?: Snippet, remoteLive = false)}
+  {#if selected && selectedView}
           <div id="client-detail" class="flex min-h-0 flex-1 flex-col">
+            {#if remoteControls}
+              <div class="flex shrink-0 items-center gap-2 border-b px-4 py-2">
+                <EngineAvatar engine={selected.engine} presence={selectedView.presence} size="xs" logo />
+                <p class="min-w-0 flex-1 truncate text-xs text-muted-foreground"><span class="font-medium text-foreground">{agentName(selected)}</span> · {selected.cwd}{#if remoteLive} · {selectedView.label}{/if}</p>
+                <Button variant="ghost" size="icon" class="h-8 w-8 shrink-0" aria-expanded={detailsOpen} aria-controls="client-info" aria-label="Session details" onclick={() => detailsOpen = !detailsOpen}><InfoIcon class="h-4 w-4" /></Button>
+              </div>
+            {:else}
             <header class="grid shrink-0 grid-cols-[5.5rem_1fr_5.5rem] items-center border-b px-2 py-1.5">
               <div><Button variant="ghost" size="sm" class="-ml-1 px-1.5 text-primary lg:hidden" onclick={closeDetail}><ChevronLeftIcon class="h-5 w-5" /> Clients</Button></div>
               <div class="flex min-w-0 flex-col items-center text-center">
@@ -310,6 +357,7 @@
                 <Button variant="ghost" size="icon" class="h-8 w-8 rounded-full {detailsOpen ? 'text-primary' : 'text-muted-foreground'}" aria-expanded={detailsOpen} aria-controls="client-info" aria-label="Session details" title="Session details" onclick={() => (detailsOpen = !detailsOpen)}><InfoIcon class="h-4 w-4" /></Button>
               </div>
             </header>
+            {/if}
             {#if selected.reboot}
               <div class="border-b bg-muted/20 px-4 py-2 text-xs" role="status">
                 Planned reboot · {selected.reboot.state}
@@ -349,7 +397,7 @@
                     {#if canManage && !selected.ended_at}<Button class="mt-2" variant="outline" size="sm" disabled={$reconnectReceiver.isPending || actionsUnavailable} onclick={() => $reconnectReceiver.mutate(selected.id, { onError: (error) => toast.error(error.message) })}>Reconnect receiver</Button>{/if}
                   </div>
                 {/if}
-                {#if canManage && !selected.ended_at && !selected.read_only}
+                {#if !remoteControls && canManage && !selected.ended_at && !selected.read_only}
                   <div class="mt-3 flex flex-wrap gap-2 border-t pt-3">{#if selectedView.canSend && !selected.close}<Button variant="outline" size="sm" disabled={$cooperativeClose.isPending || actionsUnavailable} onclick={() => $cooperativeClose.mutate({ id: selected.id })}>Ask to close</Button>{/if}<Button variant="outline" size="sm" class="text-destructive" disabled={$force.isPending || !enabled} onclick={() => { forceTarget = selected; forceOpen = true; }}>Force close</Button></div>
                 {/if}
               </div>
@@ -359,19 +407,17 @@
             {:else}
               {#if $events.isError}<div role="status" class="flex items-center justify-between gap-2 border-b border-warning/20 bg-warning-muted px-4 py-1.5 text-xs"><span>{$events.data ? "Timeline refresh failed. Showing saved messages." : "Timeline could not be loaded."}</span><Button variant="ghost" size="sm" onclick={() => $events.refetch()} disabled={$events.isFetching}>Retry timeline</Button></div>{/if}
               {#if $events.isPending && !$events.data}<div class="flex-1 space-y-2 p-4" role="status" aria-label="Loading timeline">{#each Array(4) as _, i (i)}<Skeleton class="h-10 w-2/3 rounded-2xl {i % 2 ? 'ml-auto' : ''}" />{/each}</div>
-              {:else if $events.data}{#key selected.id}<Timeline portal={timelineSource} agent={selected} onreply={cursor => { replyTargets = {...replyTargets,[selected.id]:cursor}; composerInput?.focus(); }} />{/key}
+              {:else if $events.data}{#key selected.id}<Timeline portal={timelineSource} agent={selected} onreply={remoteControls && !remoteLive ? undefined : cursor => { replyTargets = {...replyTargets,[selected.id]:cursor}; composerInput?.focus(); }} />{/key}
               {:else}<div class="flex-1"></div>{/if}
-              <AttentionCard agent={selected} now={serverNow} {timings} {onreply} onresolved={refresh} busy={$send.isPending} readonly={!canManage || actionsUnavailable} />
-              {#if canManage}{#if retryingDraft}<p class="border-t bg-warning-muted px-4 py-1.5 text-xs text-muted-foreground">A previous send was not confirmed. Sending this draft again retries the same request.</p>{/if}{#if replyTargets[selected.id]}<p class="px-4 py-1 text-xs">Reply to message #{replyTargets[selected.id]} <button type="button" onclick={() => replyTargets = {...replyTargets,[selected.id]:undefined}}>Cancel</button></p>{/if}
+              <AttentionCard agent={selected} now={serverNow} {timings} {onreply} onresolved={refresh} busy={$send.isPending} readonly={!canManage || actionsUnavailable || (!!remoteControls && !remoteLive)} />
+              {#if !remoteControls || remoteLive}{#if canManage}{#if retryingDraft}<p class="border-t bg-warning-muted px-4 py-1.5 text-xs text-muted-foreground">A previous send was not confirmed. Sending this draft again retries the same request.</p>{/if}{#if replyTargets[selected.id]}<p class="px-4 py-1 text-xs">Reply to message #{replyTargets[selected.id]} <button type="button" onclick={() => replyTargets = {...replyTargets,[selected.id]:undefined}}>Cancel</button></p>{/if}
                 {#key selected.id}<ChatUploads session={selected.id} items={uploads[selected.id] ?? []} onitems={(id, items) => uploads = {...uploads,[id]:items}} disabled={$send.isPending} />{/key}
-                {#if selected.pending_prompt?.answer_mode !== 'buttons'}<Composer hasAttachments={Boolean(uploads[selected.id]?.length)} agent={selected} now={serverNow} {timings} sending={$send.isPending} {draft} {disabledReason} ondraft={(text) => (drafts = { ...drafts, [selected.id]: text })} onsend={submit} bind:input={composerInput} />{/if}{/if}
+                {#if selected.pending_prompt?.answer_mode !== 'buttons'}<Composer hasAttachments={Boolean(uploads[selected.id]?.length)} agent={selected} now={serverNow} {timings} sending={$send.isPending} {draft} {disabledReason} ondraft={(text) => (drafts = { ...drafts, [selected.id]: text })} onsend={submit} bind:input={composerInput} />{/if}{/if}{/if}
             {/if}
+            {#if remoteControls}{@render remoteControls()}{/if}
           </div>
-        {/if}
-      </section>
-    </div>
   {/if}
-{/if}
+{/snippet}
 
 {#snippet sessionRow(row: AgentSessionRow)}
   {@const view = presenceView(row, serverNow, timings)}

@@ -1,5 +1,7 @@
 # 2026-10-11
 
+- Active Clients separates ordinary agents from remote sessions while sharing the native conversation view. Remote work now has a searchable list, a start side panel, clear continuation states and retained retry drafts; host links open the same workspace. Fleet-wide agent session settings moved to Policies → Agent behavior.
+
 - Android 0.4.15 and web Active Clients keep retained chats visible by default when an agent goes offline or ends. History follows the existing session-lifetime plus 24-hour server retention; sending still requires a reachable agent, and ended Android chats keep their badges cleared.
 - Android chat displays outgoing messages immediately with Sending, then Queued and existing delivery receipts. Slow responses no longer leave an empty conversation; unconfirmed sends retain their bubble and draft with a Retry action that reuses the original request ID.
 

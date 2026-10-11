@@ -384,46 +384,23 @@ for (const width of [1440, 390]) {
 }
 
 
-test("session settings and remote work remain available without the old portal", async ({ page }) => {
+test("session settings live in Policies and disabled clients link there", async ({ page }) => {
   const state = await fixtures(page);
-  const calls: Array<{ path: string; body: Record<string, unknown> }> = [];
-  const remote = { id: "11111111-1111-4111-8111-111111111111", title: "Build helper", engine: "claude", status: "idle", sessionId: CODEX, operations: [{ status: "completed", result: { reply: "Ready to help" } }] };
-  const host = { host_id: 1, fqdn: "worker.test", enabled: true, default_cwd: "/srv/repo", health: { state: "green" }, sessions: [] };
-  await page.route("**/admin/host-daemons", route => route.fulfill({ json: { hosts: [host] } }));
-  await page.route("**/admin/daemon-sessions**", async route => {
-    const path = new URL(route.request().url()).pathname;
-    if (route.request().method() === "POST") {
-      calls.push({ path, body: route.request().postDataJSON() });
-      if (path.endsWith("/stop")) remote.status = "closed";
-      return route.fulfill({ json: { session_id: remote.id } });
-    }
-    return route.fulfill({ json: remote });
-  });
+  await page.route("**/admin/authorization", route => route.fulfill({ json: { mode: "compatible", would_deny: [], updated_at: null } }));
   await open(page);
-  await expect(page.getByRole("link", { name: "Agent Portal", exact: true })).toHaveCount(0);
-  await page.getByText("Agent session settings", { exact: true }).click();
-  await page.getByRole("switch", { name: "Agent sessions", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "Agent sessions are off", exact: true })).toBeVisible();
+  await expect(page.getByRole("switch", { name: "Agent sessions", exact: true })).toHaveCount(0);
+  await page.goto("/admin/policies#agent-sessions");
+  const toggle = page.getByRole("switch", { name: "Agent sessions", exact: true });
+  await expect(toggle).toBeVisible();
+  await toggle.click();
+  await expect(toggle).not.toBeChecked();
   expect(state.enabled).toBe(false);
-  await page.getByRole("switch", { name: "Agent sessions", exact: true }).click();
-  await expect(page.locator(`#client-${CODEX}`)).toBeVisible();
-  await page.getByText("Remote sessions", { exact: true }).click();
-  await page.getByText("Neue Remote-Session", { exact: true }).click();
-  await page.locator('details[aria-label="Remote sessions"]').getByRole('combobox', { name: 'Engine', exact: true }).selectOption("claude");
-  await page.getByLabel("Titel", { exact: true }).fill("Build helper");
-  await page.getByLabel("Auftrag", { exact: true }).fill("Run the build");
-  await page.getByRole("button", { name: "Session starten", exact: true }).click();
-  await expect(page.getByText("Ready to help", { exact: true })).toBeVisible();
-  expect(calls[0]?.body).toMatchObject({ host_id: 1, engine: "claude", cwd: "/srv/repo", title: "Build helper", prompt: "Run the build" });
-  await page.getByLabel("Nachricht / Fortsetzen", { exact: true }).fill("Continue");
-  await page.getByRole("button", { name: "Senden / Fortsetzen", exact: true }).click();
-  await expect.poll(() => calls.filter(c => c.path.endsWith("/messages")).length).toBe(1);
-  const history = page.getByRole("link", { name: "Nativen Session-Verlauf öffnen" });
-  await expect(history).toHaveAttribute("href", `/admin/clients?session=${CODEX}`);
-  await page.getByRole("button", { name: "Beenden", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "Build helper · closed" })).toBeVisible();
-  await history.click();
-  await expect(page.getByRole("heading", { name: "codex-review", exact: true })).toBeVisible();
+  await page.goto("/admin/clients");
+  await expect(page.getByRole("heading", { name: "Agent sessions are off", exact: true })).toBeVisible();
+  await page.getByRole("link", { name: "Agent session settings", exact: true }).click();
+  await expect(toggle).toBeVisible();
+  await toggle.click();
+  await expect(toggle).toBeChecked();
 });
 
  test("planned reboot links the previous and resumed launch", async ({ page }) => {

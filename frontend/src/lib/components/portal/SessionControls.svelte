@@ -2,6 +2,7 @@
   import { createQuery, useQueryClient } from "@tanstack/svelte-query";
   import { toast } from "svelte-sonner";
   import { api } from "$lib/api/client";
+  import PolicyCard from "$lib/components/policies/PolicyCard.svelte";
   import SwitchRow from "$lib/components/settings/SwitchRow.svelte";
   import { agentSessionKeys } from "$lib/api/agentSessions";
 
@@ -26,8 +27,7 @@
   }
 </script>
 
-<details class="mb-4 rounded-lg border border-border p-3">
-  <summary class="cursor-pointer font-semibold">Agent session settings</summary>
+<PolicyCard id="agent-sessions" title="Agent sessions" scope="Fleet-wide" description="Session recording and operator conversations in Active Clients and Android.">
   {#if $stateQuery.isError}
     <p role="alert" class="mt-3 text-destructive">{$stateQuery.error.message}</p>
     <button class="mt-2 underline" onclick={() => $stateQuery.refetch()}>Retry settings</button>
@@ -40,4 +40,4 @@
       <p class="mt-2 text-sm text-muted-foreground">{$stateQuery.data.active_sessions ?? 0} active · {$stateQuery.data.queued_messages ?? 0} queued · {$stateQuery.data.dead_messages ?? 0} failed deliveries</p>
     {/if}
   {/if}
-</details>
+</PolicyCard>

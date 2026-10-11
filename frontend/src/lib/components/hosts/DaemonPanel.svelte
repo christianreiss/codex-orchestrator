@@ -4,7 +4,8 @@
  import { hostDaemonQuery, configureDaemon, daemonDefaults } from '$lib/api/hostDaemons';
  import { createEnableInsecureMutation } from '$lib/api/insecure';
  import DaemonIndicator from './DaemonIndicator.svelte';
- import RemoteSessions from '$lib/components/portal/RemoteSessions.svelte';
+ import { base } from '$app/paths';
+ import { Button } from '$lib/components/ui/button';
  let {id}:{id:string|number}=$props();
  // svelte-ignore state_referenced_locally
  const qc=useQueryClient(),query=hostDaemonQuery(id),save=configureDaemon(qc,id),enableAccess=createEnableInsecureMutation(qc);
@@ -36,5 +37,5 @@
   <button class="self-end rounded bg-primary px-4 py-2 text-primary-foreground" disabled={$save.isPending||$query.isPending}>Speichern</button>
   {#if $save.error}<p role="alert" class="text-destructive sm:col-span-2">{$save.error.message}</p>{/if}
  </form></fieldset>
- {#if $query.data?.enabled}<RemoteSessions fixedHost={Number(id)}/>{/if}
+ <Button variant="outline" href={`${base}/clients?view=remote&host=${id}`}>Open remote sessions</Button>
 </section>

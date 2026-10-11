@@ -99,7 +99,7 @@ test('closed-window daemon remains online and can be opened from host details', 
   const stamp = () => new Date().toISOString();
   const daemon = {
     host_id: 1, enabled: true, username: 'root', default_cwd: '',
-    max_parallel: 8, idle_minutes: 60, question_minutes: 1440,
+    max_parallel: 8, idle_minutes: 60, question_minutes: 1440, engines: ['codex'],
     access: {allowed: false, reason: 'insecure_window_closed' as string | null, secure: false, enabled_until: null as string | null},
     health: {state: 'yellow', reasons: ['insecure_window_closed'], heartbeat_at: stamp(), evaluated_at: stamp(), used_slots: 0, max_slots: 8},
     sessions: [],
@@ -111,7 +111,7 @@ test('closed-window daemon remains online and can be opened from host details', 
     if (!route.request().headers().accept?.includes('application/json')) return route.continue();
     const path = new URL(route.request().url()).pathname;
     const json = (data: unknown) => route.fulfill({json:{status:'ok',data}});
-    if(path==='/admin/auth/status') return json({authenticated:true,enforced:true,user:{id:1,username:'owner',roles:['owner']},capabilities:['admin.read','hosts.read','hosts.activate_insecure','agent_messaging.manage','settings.read']});
+    if(path==='/admin/auth/status') return json({authenticated:true,enforced:true,user:{id:1,username:'owner',roles:['owner']},capabilities:['admin.read','hosts.read','hosts.activate_insecure','agent_messaging.manage','agent_portal.read','settings.read']});
     if(path==='/admin/setup/status') return json({setup_complete:true,critical_complete:true,checks:[],next_actions:[],wizard:{completed_at:stamp(),dismissed_at:null}});
     if(path==='/admin/ws/info') return json({enabled:true,url:'ws://127.0.0.1:4173/insecure-daemon-ws'});
     if(path==='/admin/hosts/1/detail') return json({host:{id:1,fqdn:'insecure-daemon.test',secure:false,status:'active',engines:'codex',engines_list:['codex'],updated_at:stamp(),users:[],insecure_window_minutes:10}});
@@ -128,15 +128,18 @@ test('closed-window daemon remains online and can be opened from host details', 
   });
   await page.goto('/admin/hosts/1');
   await expect(page.getByText('Daemon · Online · Zugriff gesperrt')).toBeVisible();
-  await page.getByText('Neue Remote-Session',{exact:true}).click();
-  await expect(page.getByRole('button',{name:'Session starten',exact:true})).toBeDisabled();
+  await expect(page.getByRole('link', {name:'Open remote sessions'})).toHaveAttribute('href', '/admin/clients?view=remote&host=1');
   await page.getByRole('button',{name:'Fenster öffnen',exact:true}).click();
   await expect(page.getByText(/^Zugriff bis /)).toBeVisible();
   expect(grants).toBe(1);
   await expect(page.getByText('Daemon · Bereit')).toBeVisible();
-  await expect(page.getByLabel('Arbeitsverzeichnis',{exact:true})).toHaveAttribute('placeholder','Home-Verzeichnis des Dienstkontos');
-  await page.getByLabel('Titel',{exact:true}).fill('Home default');
-  await page.getByLabel('Auftrag',{exact:true}).fill('Use the service home');
-  await page.getByRole('button',{name:'Session starten',exact:true}).click();
+  await page.getByRole('link', {name:'Open remote sessions'}).click();
+  await page.getByRole('button', {name:'Start remote session',exact:true}).click();
+  await expect(page.getByLabel('Host',{exact:true})).toHaveValue('1');
+  await page.getByText('Advanced options',{exact:true}).click();
+  await expect(page.getByLabel('Working directory',{exact:true})).toHaveAttribute('placeholder','Service account home directory');
+  await page.getByLabel('Title',{exact:true}).fill('Home default');
+  await page.getByLabel('Instruction',{exact:true}).fill('Use the service home');
+  await page.getByRole('button',{name:'Start session',exact:true}).click();
   await expect.poll(()=>cwdSeen).toBe('');
 });

@@ -1331,7 +1331,10 @@ history are retained; there is no automatic Agent Messaging history purge.
 Active Clients and paired Android devices provide operator chat. The legacy `/go`
 magic-link webchat and portal-user APIs are removed. Shared `agent_portal.*`
 capabilities, the saved switch and wrapper/Android contracts remain unchanged.
-Active Clients provides Agent session settings and Remote sessions.
+Active Clients separates Agents and Remote sessions, with a shared native conversation view.
+Remote start/continue/stop reuse the existing daemon endpoints; `/admin/clients?remote=<id>`
+selects a daemon session and existing `?session=<id>` links resolve its native binding.
+The Agent sessions master switch lives at `/admin/policies#agent-sessions`; its API is unchanged.
 
 ### Host registration and bridge
 
