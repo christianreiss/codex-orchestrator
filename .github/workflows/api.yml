@@ -58,14 +58,15 @@ jobs:
       - run: npm ci --no-audit --no-fund
       - run: npm run typecheck
       - run: npm run lint
-      - run: npm test -- --coverage
+      - run: npm test
       - run: npm run build
 
   # The real-MySQL tier. `ci` above runs without a database, so every suite that
   # needs one skips there — which is where migration idempotency, FULLTEXT
   # ranking, unique indexes and FK cascade live. `test:db:setup` turns the empty
-  # service database into the "push-built" schema the migrations expect to
-  # evolve; without it there is nothing for them to run against.
+  # service database into the schema the migrations expect to evolve. Coverage
+  # is enforced here across the complete suite, including DB-dependent code;
+  # the fast tier above cannot measure behavior it deliberately skips.
   db:
     runs-on: ubuntu-latest
     defaults:
@@ -105,4 +106,4 @@ jobs:
       - run: npm ci --no-audit --no-fund
       - run: npm run test:db:setup
       - run: npm run migrate
-      - run: npm run test:db
+      - run: npm run test:coverage

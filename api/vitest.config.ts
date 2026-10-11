@@ -19,9 +19,8 @@ export default defineConfig({
       reporter: ['text', 'html', 'lcov'],
       include: ['src/**/*.ts'],
       exclude: ['src/db/migrations/**', 'src/**/*.d.ts'],
-      // The measured floor, not an aspiration: CI enforces these, so they have
-      // to sit at or below what the suite actually covers today. Raise them as
-      // coverage climbs.
+      // CI enforces these floors with test:coverage, including the real-MySQL
+      // suites. The fast database-free tier intentionally skips that behavior.
       thresholds: {
         branches: 73,
         functions: 74,
