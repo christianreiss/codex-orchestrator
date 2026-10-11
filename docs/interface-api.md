@@ -2038,7 +2038,8 @@ Response: `operation_id`, `host_id`, `fqdn`, `engines`, `secure`, `daemon`,
 `installer` (token, URL, command, expiry), `setup_script` and `setup_steps`.
 `host_spawn_status({operation_id})` is scoped to the source host and reports
 `state` (`registered|installer_downloaded|installed`), `installer_used`,
-`setup_completed_at`, `daemon_connected` and `daemon_expires_at` plus setup material.
+`setup_completed_at`, `daemon_connected`, `daemon_deadline_expired` and
+`daemon_expires_at` plus setup material.
 `installed` is an authenticated report from the successful target installer;
 `daemon_connected` requires a fresh heartbeat. Neither proves a task succeeded.
 Start the actual task separately with `agent_spawn`.
@@ -2047,7 +2048,10 @@ To recover a consumed/expired installer use
 `host_spawn_status({operation_id,renew_installer:true,client_message_id})` with a
 stable renewal UUID. Live unused installers cannot be renewed. Retries replay
 the renewal receipt; keys are not rotated. Once renewed, obtain material through
-status rather than replaying the original prepare call. Revoked VIP or disabled
+status rather than replaying the original prepare call. After a timed daemon has
+expired, the returned setup script repairs the installation and reports the expiry
+without reinstalling or reactivating that daemon. The original deadline stays fixed.
+Revoked VIP or disabled
 feature blocks setup access, including the installer GET before token consumption.
 Already installed targets remain intact. Source deletion retains provenance and
 blocks installer access; target deletion removes the provisioning record.

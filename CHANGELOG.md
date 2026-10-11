@@ -1,5 +1,6 @@
 # 2026-10-11
 
+- System Spawn installer retries after a timed daemon deadline repair all installed engines and report the expiry without attempting to reactivate the disabled daemon.
 - cxx 0.9.56 waits within the five-minute reboot readiness deadline when early boot briefly falls back to an unbound IP family. It keeps strict IP binding and one-use native startup; invalid credentials still fail immediately. Grok checkpoints preserve the durable native home instead of a disposable auth runtime. The top-level CLI help now lists the reboot command.
 - Android 0.4.12 prevents frequent live metadata updates from discarding every in-flight refresh, which left chats empty, replies unseen, sending unavailable and host cards stale. Completed snapshots are displayed before queued updates; permission changes, reconnects and conversation switches still reject superseded responses.
 - Wrapper 0.9.55 fixes optional Linux host daemon startup: systemd now resolves the service user's home using `WorkingDirectory=~`, avoiding rejection of a quoted absolute path. Verified against Debian 13 systemd during the real System Spawn SSH test.
