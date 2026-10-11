@@ -19,6 +19,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/layout"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/nativewriter"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/rebootresume"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/sessionguard"
@@ -288,6 +289,11 @@ func rebootInternal(args []string, stdin io.Reader, stdout, stderr io.Writer) er
 				return err
 			}
 			if err = os.Rename(tmp.Name(), r.Executable); err != nil {
+				return err
+			}
+			// The resumed user cannot repair this root-owned layout. Freeze the
+			// relative persona aliases too, before normal peer reconciliation runs.
+			if _, err = layout.EnsureAliases(context.Background(), r.Executable, []string{"codex", "claude", "grok"}); err != nil {
 				return err
 			}
 			directory, err := os.Open(filepath.Dir(r.Executable))
