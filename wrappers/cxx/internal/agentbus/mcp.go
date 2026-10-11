@@ -358,7 +358,8 @@ func toolCatalogJSON() []byte {
 		tool("agent_translate", "Translate a German launch name to its canonical agent UUID, or a UUID to its current/latest name. Names are reused after launch end plus 24 hours; preserve UUIDs for durable references.", map[string]any{"value": map[string]any{"type": "string", "minLength": 1, "maxLength": 96}}, []string{"value"}),
 		tool("agent_session_name", "Give your current session a concise, descriptive name for the Android dashboard. Call once near the start of work. Existing native or previously assigned names are preserved; this sets a name only when none is known.", map[string]any{"name": map[string]any{"type": "string", "minLength": 1, "maxLength": 160}}, []string{"name"}),
 		tool("agent_task_result", "Finish an accepted work delivery with an explicit domain outcome. Wake jobs need this result and no peer reply. Succeeded is an agent report, not independent verification.", map[string]any{"message_id": map[string]any{"type": "string"}, "task_result": taskResultProperties()}, []string{"message_id", "task_result"}),
-		tool("agent_list", "Discover enabled peers, excluding yourself. online=true returns live peers. Use name for a case-insensitive name/alias/address substring, and next_offset as offset to read another page. No message content is returned.", map[string]any{
+		tool("agent_list", "Discover peers, excluding yourself. scope=directory matches your canonical directory on this host; scope=project includes subdirectories, linked worktrees and clones sharing origin across hosts. Default scope=fleet. online=true returns present sessions, not proof of editing. Returns task titles and match reasons; coverage reports missing workspace metadata. Use name to filter and next_offset as offset to page. No messages are returned.", map[string]any{
+			"scope":  map[string]any{"type": "string", "enum": []string{"fleet", "directory", "project"}},
 			"engine": map[string]any{"type": "string", "enum": []string{"codex", "claude", "grok"}},
 			"online": map[string]any{"type": "boolean"},
 			"name":   map[string]any{"type": "string", "minLength": 1, "maxLength": 96},
@@ -814,7 +815,7 @@ func callMCPTool(ctx context.Context, client *sessionClient, channelState *chann
 		if value := stringArg(args, "engine"); value != "" {
 			body["engine"] = value
 		}
-		copyOptional(args, body, "name", "limit", "offset")
+		copyOptional(args, body, "scope", "name", "limit", "offset")
 		if err := client.post(ctx, "list", body, &out); err != nil {
 			return nil, err
 		}

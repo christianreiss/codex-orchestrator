@@ -45,7 +45,7 @@ import java.time.Instant
         val matchesFilter = when (filter) {
             "unread" -> model.unreadReplyCount(agent.getString("id")) > 0
             "needs-you" -> attention(agent)
-            else -> true
+            else -> isOnlineActiveAgent(agent)
         }
         matchesFilter && (search.isEmpty() || listOf(agentTitle(agent), agent.optString("cwd"),
             agentHost(agent).orEmpty(), agentSummary(agent).orEmpty(), agent.optString("engine"))
@@ -112,7 +112,7 @@ import java.time.Instant
                     if (model.connecting) CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
                     Text(empty, style = MaterialTheme.typography.titleMedium)
                     if (!model.connecting && (search.isNotEmpty() || filter != "all")) TextButton(onClick = { query = ""; filter = "all" }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Clear filters") }
-                    else if (fresh) Text("No agents ready to talk.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    else if (fresh) Text("No active agents online.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
         }

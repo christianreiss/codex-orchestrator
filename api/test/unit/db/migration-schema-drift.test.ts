@@ -305,6 +305,7 @@ describe('migrations against the test baseline', () => {
       'agent_prompts.answer_mode',
       'agent_prompts.choices_enc',
       'agent_messages.metadata_enc',
+      'agent_sessions.workspace',
     ]);
   });
 

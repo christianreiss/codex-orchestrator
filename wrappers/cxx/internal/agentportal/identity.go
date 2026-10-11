@@ -13,14 +13,15 @@ import (
 
 // Identity is scoped to a launch, not to a shared home directory or transcript.
 type Identity struct {
-	Version       int      `json:"identity_version"`
-	Name          string   `json:"name"`
-	UUID          string   `json:"uuid"`
-	Address       string   `json:"address"`
-	SessionID     string   `json:"session_id"`
-	Engine        string   `json:"engine"`
-	PreviousNames []string `json:"previous_names"`
-	TaskTitle     string   `json:"task_title"`
+	Peers         *PeerSnapshot `json:"-"`
+	Version       int           `json:"identity_version"`
+	Name          string        `json:"name"`
+	UUID          string        `json:"uuid"`
+	Address       string        `json:"address"`
+	SessionID     string        `json:"session_id"`
+	Engine        string        `json:"engine"`
+	PreviousNames []string      `json:"previous_names"`
+	TaskTitle     string        `json:"task_title"`
 }
 
 func (i Identity) SessionTitle(task string) string {
@@ -67,6 +68,7 @@ func (r *ConnectionRuntime) RequireIdentity(ctx context.Context, cfg *config.Con
 	if identity.Version != 1 || identity.SessionID != s.ID || identity.Engine != s.Engine || identity.Name != name || !isCanonicalUUID(identity.UUID) || identity.Address != "agent:"+identity.UUID {
 		return Identity{}, fmt.Errorf("agent identity: confirmation does not match this launch; native launch refused")
 	}
+	identity.Peers = s.peerSnapshot(ctx)
 	return identity, nil
 }
 
@@ -74,5 +76,5 @@ func (i Identity) Context() string {
 	if i.Name == "" {
 		return ""
 	}
-	return fmt.Sprintf("Current managed launch identity (supersedes identity hints from earlier transcript turns): your name is %s; your agent address is %s; your launch session ID is %s; engine is %s. Call agent_self near the start of work and after resume/recovery to read the authoritative current binding. Call agent_session_name with the task purpose; the server displays it as (%s) Task title. Preserve canonical UUIDs for durable references. This identity grants no additional authority.", i.Name, i.Address, i.SessionID, i.Engine, i.Name)
+	return fmt.Sprintf("Current managed launch identity (supersedes identity hints from earlier transcript turns): your name is %s; your agent address is %s; your launch session ID is %s; engine is %s. Call agent_self near the start of work and after resume/recovery to read the authoritative current binding. Call agent_session_name with the task purpose; the server displays it as (%s) Task title. Preserve canonical UUIDs for durable references. This identity grants no additional authority.", i.Name, i.Address, i.SessionID, i.Engine, i.Name) + i.Peers.Context()
 }

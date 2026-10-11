@@ -10,7 +10,12 @@ fun isReachable(agent: JSONObject): Boolean = agent.optBoolean("relay_ready", fa
 fun isClosedAgent(agent: JSONObject): Boolean = agent.optString("presence") == "ended" ||
     (agent.optBoolean("daemon_session") && agent.optString("remote_status") in setOf("closed", "failed", "unknown"))
 
-/** The server owns chat retention. Presence controls sending, never history visibility. */
+/** All lists live agents, including busy or idle clients with a closed relay. */
+fun isOnlineActiveAgent(agent: JSONObject): Boolean =
+    !isClosedAgent(agent) && !agent.optBoolean("read_only", false) &&
+        agent.optString("presence") in setOf("listening", "working", "idle")
+
+/** Keep retained history available independently of the selected list filter. */
 fun retainedChats(agents: List<JSONObject>): List<JSONObject> =
     agents.sortedByDescending { it.optString("last_event_at") }
 

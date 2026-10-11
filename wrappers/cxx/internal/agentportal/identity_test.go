@@ -29,6 +29,10 @@ func TestIdentityGateAndProviderContextAcrossEngines(t *testing.T) {
 				t.Run(engine+"/resume="+map[bool]string{true: "yes", false: "no"}[resumed]+"/"+failure, func(t *testing.T) {
 					t.Setenv("CODEX_HOME", t.TempDir())
 					server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+						if strings.HasSuffix(r.URL.Path, "/agent-messaging/list") {
+							_ = json.NewEncoder(w).Encode(map[string]any{"scope": "project", "effective_scope": "project", "observed_at": "2026-10-11T12:00:00Z", "total": 1, "addresses": []any{map[string]any{"name": "PeerFixture", "address": "agent:peer", "task_title": "Review workspace"}}})
+							return
+						}
 						if r.URL.Path == "/host/agent-sessions" {
 							var body map[string]any
 							_ = json.NewDecoder(r.Body).Decode(&body)
@@ -105,7 +109,7 @@ func TestIdentityGateAndProviderContextAcrossEngines(t *testing.T) {
 						t.Fatal(err)
 					}
 					context := strings.Join(child.Args, " ")
-					for _, value := range []string{"Claudia", uuid, runtime.Session().ID, "agent_self", "Keep this user prompt"} {
+					for _, value := range []string{"Claudia", uuid, runtime.Session().ID, "agent_self", "Keep this user prompt", "PeerFixture", "Review workspace", "snapshot only"} {
 						if !strings.Contains(context, value) {
 							t.Fatalf("child context missing %s", value)
 						}

@@ -556,6 +556,7 @@ func Run(ctx context.Context, opts Options) (exitCode int, retErr error) {
 		upstreamSessionID = agentportal.ExplicitResumeSessionID(opts.ExtraArgs)
 	}
 	connection, connectionErr := agentportal.StartConnection(ctx, cfg, agentportal.StartInput{
+		NativeArgs:        opts.ExtraArgs,
 		Engine:            config.EngineClaude,
 		InvocationKind:    portalInvocationKind(opts.Headless),
 		Resumed:           opts.Resumed,

@@ -1,4 +1,5 @@
 import { ChatAttachments } from './agent-chat/attachments.js';
+import { normalizeWorkspace, type WorkspaceInput } from './agent-messaging/workspace.js';
 import { chatMetadataSchema, promptChoices, severitySchema, validAnswer, type ChatMetadata } from './agent-chat/contracts.js';
 import { plannedRebootForSession } from './reboot-handoffs.js';
 import { assertHousekeepingAvailable } from './session-housekeeping.js';
@@ -177,6 +178,7 @@ export interface RegisterAgentInput {
   engine: Engine;
   username: string;
   cwd: string;
+  workspace?: WorkspaceInput;
   upstreamSessionId?: string | null;
   invocationKind: 'interactive' | 'execute' | 'peer_delivery';
   resumed?: boolean;
@@ -332,6 +334,7 @@ export class AgentPortalService {
   async registerAgent(host: Host, input: RegisterAgentInput): Promise<{ enabled: true; session_id: string; bridge_token: string; expires_at: string } | { enabled: false }> {
     const username = normalizeRequiredText(input.username, 'username', 255);
     const cwd = normalizeRequiredText(input.cwd, 'cwd', 1024);
+    const workspace = normalizeWorkspace(input.workspace);
     if (!isEngine(input.engine)) {
       throw new ValidationError('engine must be codex, claude or grok', { param: 'engine' });
     }
@@ -377,6 +380,7 @@ export class AgentPortalService {
           .update(agentSessions)
           .set({
             hostAuthFingerprint: fingerprint,
+            ...(input.workspace ? { workspace } : {}),
             bridgeExpiresAt: expiresAt,
             heartbeatAt: now,
             updatedAt: now,
@@ -390,6 +394,7 @@ export class AgentPortalService {
         engine: input.engine,
         username,
         cwd,
+        workspace,
         upstreamSessionId: normalizeOptionalText(input.upstreamSessionId, 255),
         invocationKind: input.invocationKind,
         status: 'active',

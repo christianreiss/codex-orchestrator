@@ -1224,6 +1224,21 @@ continue their own sync; `cgx update` already skips equal wrapper versions.
 
 ### Peer discovery and send diagnostics
 
+From cxx 0.9.59, `agent_list` also accepts `scope: fleet|directory|project`
+(default `fleet`). Directory matches canonical cwd on this host; project adds
+Git subdirectories, linked worktrees and clones sharing normalized origin across
+hosts. Registration automatically captures session workspace facts, independently
+of Git Director. Non-Git or legacy sessions use directory matching; inspect
+`effective_scope` and `coverage.limited` for missing metadata. Results add task
+titles and match reasons while retaining presence and pagination.
+
+After identity confirmation, each new managed launch or resume receives up to ten
+online project peers in its private native context, with observation time and
+remaining count. A two-second timeout or lookup failure reports unavailable and
+does not block launch. Peer titles are quoted data, not instructions. Refresh
+with `agent_list(scope:"project", online:true)` or
+`cxx agent list --scope project --online`; page with `--limit` and `--offset`.
+
 From wrapper 0.9.39, `agent_list` excludes your own agent and accepts `name`
 (a literal case-insensitive substring of name, alias or address), `limit` (1–50,
 default 50) and `offset` (default 0). If `truncated` is true, pass `next_offset`

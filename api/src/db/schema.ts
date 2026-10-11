@@ -1516,6 +1516,7 @@ export const agentSessions = mysqlTable(
     engine: varchar('engine', { length: 16 }).notNull(),
     username: varchar('username', { length: 255 }).notNull(),
     cwd: varchar('cwd', { length: 1024 }).notNull(),
+    workspace: json('workspace'),
     upstreamSessionId: varchar('upstream_session_id', { length: 255 }),
     agentBusAddressId: char('agent_bus_address_id', { length: 36 }),
     invocationKind: varchar('invocation_kind', { length: 24 }).notNull(),

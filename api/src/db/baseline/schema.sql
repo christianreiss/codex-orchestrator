@@ -355,12 +355,13 @@ CREATE TABLE `agent_prompts` (
 );
 
 CREATE TABLE `agent_sessions` (
-	`launch_name` varchar(96),
 	`id` char(36) NOT NULL,
 	`host_id` bigint unsigned NOT NULL,
+	`launch_name` varchar(96),
 	`engine` varchar(16) NOT NULL,
 	`username` varchar(255) NOT NULL,
 	`cwd` varchar(1024) NOT NULL,
+	`workspace` json,
 	`upstream_session_id` varchar(255),
 	`agent_bus_address_id` char(36),
 	`invocation_kind` varchar(24) NOT NULL,

@@ -2,6 +2,9 @@ import { beginRebootBinding, completeRebootBinding, plannedRebootForSession } fr
 import { assertHousekeepingAvailable } from '../session-housekeeping.js';
 import { markWaitingForPresence, discardPresenceNotices } from './presence-feedback.js';
 import { pageAgentAddresses, type AgentDiscoveryFilters } from './discovery.js';
+import { normalizeWorkspace, readWorkspace, workspaceMatch } from './workspace.js';
+import { sessionTaskTitles } from './task-titles.js';
+import type { Keyring } from '../../security/keyring.js';
 import { assignLaunchNameLocked, endLaunchNamesLocked } from './names.js';
 import { receiverView, receiverState } from '../agent-receiver-state.js';
 import { finishSessionWatchdogsLocked, type WatchdogFailure } from '../watchdog-lifecycle.js';
@@ -67,6 +70,7 @@ import {
 /** What the session registry borrows from the bus. */
 export interface SessionCore {
   readonly db: Database;
+  readonly keyring: Keyring;
   readonly env: Env;
   isEnabled(): Promise<boolean>;
   requireEnabledLocked(db: AgentMessagingDb): Promise<void>;
@@ -134,6 +138,7 @@ export class SessionRegistry {
     const bridgeToken = normalizeBridgeToken(input.bridgeToken);
     const username = normalizeRequiredText(input.username, 'username', 255);
     const cwd = normalizeRequiredText(input.cwd, 'cwd', 1024);
+    const workspace = normalizeWorkspace(input.workspace);
     const now = nowIso();
     const bridgeExpiresAt = isoOffsetSeconds(this.core.env.AGENT_PORTAL_BRIDGE_TTL_SECONDS);
     const fingerprint = hostAuthFingerprint(host);
@@ -159,7 +164,7 @@ export class SessionRegistry {
       if (existing) {
         this.core.assertSessionRegistration(existing, host, input.engine, username, cwd, input.invocationKind, bridgeToken);
         if (existing.endedAt) throw new ConflictError('Agent session is finished', 'agent_session_finished');
-        await tx.update(agentSessions).set({ hostAuthFingerprint: fingerprint, bridgeExpiresAt, heartbeatAt: now, updatedAt: now }).where(eq(agentSessions.id, sessionId));
+        await tx.update(agentSessions).set({ ...(input.workspace ? { workspace } : {}), hostAuthFingerprint: fingerprint, bridgeExpiresAt, heartbeatAt: now, updatedAt: now }).where(eq(agentSessions.id, sessionId));
       } else {
         await tx.insert(agentSessions).values({
           id: sessionId,
@@ -167,6 +172,7 @@ export class SessionRegistry {
           engine: input.engine,
           username,
           cwd,
+          workspace,
           upstreamSessionId: normalizeOptionalText(input.upstreamSessionId, 255),
           agentBusAddressId: null,
           invocationKind: input.invocationKind,
@@ -481,6 +487,8 @@ export class SessionRegistry {
 
   async listAddresses(sessionId: string, bridgeToken: string, filters: AgentDiscoveryFilters = {}): Promise<Record<string, unknown>> {
     const authenticated = await this.core.authenticateBridge(sessionId, bridgeToken);
+    const scope = filters.scope ?? 'fleet';
+    const callerWorkspace = readWorkspace(authenticated.session.workspace);
     const currentAddressId = authenticated.session.agentBusAddressId;
     if (!currentAddressId) throw new ConflictError('Agent session has no messaging address', 'agent_messaging_address_missing');
     const predicates = [
@@ -502,7 +510,7 @@ export class SessionRegistry {
           hostEngines: hosts.engines,
           // Left, not inner: an address whose binding was reaped has no session
           // row to join, and that absence is itself the answer.
-          session: { heartbeatAt: agentSessions.heartbeatAt, endedAt: agentSessions.endedAt, receiver: agentSessions.receiver },
+          session: { id: agentSessions.id, upstreamSessionId: agentSessions.upstreamSessionId, cwd: agentSessions.cwd, workspace: agentSessions.workspace, heartbeatAt: agentSessions.heartbeatAt, endedAt: agentSessions.endedAt, receiver: agentSessions.receiver },
         })
         .from(agentBusAddresses)
         .innerJoin(hosts, eq(hosts.id, agentBusAddresses.hostId))
@@ -512,14 +520,19 @@ export class SessionRegistry {
     });
     const freshAfter = isoOffsetSeconds(-this.core.env.AGENT_PORTAL_HEARTBEAT_FRESH_SECONDS);
     const fleet = await readFleetEngineState(this.core.db);
-    const ranked = rows
+    const eligible = rows
       .filter((row) => activeHostEngines(row.hostEngines, fleet).includes(row.address.engine as Engine))
       .map((row) => ({ ...row, receiver: receiverView(row.session?.receiver), presence: deriveAddressPresence(row.address, row.session, freshAfter) }))
       // `online: true` reaches here as `includeOffline: false`. It filters on
       // derived presence, not on `readiness`: that column is a registration
       // latch, so the old blocklist reported a peer as reachable for as long as
       // its row survived — a month, in the worst case observed live.
-      .filter((row) => filters.includeOffline !== false || isPresent(row.presence))
+      .filter((row) => filters.includeOffline !== false || isPresent(row.presence));
+    const ranked = eligible
+      .map((row) => ({ ...row, match: workspaceMatch(authenticated.session, {
+        hostId: row.address.hostId, cwd: row.session?.cwd ?? row.address.cwd, workspace: row.session?.workspace,
+      }, scope) }))
+      .filter((row) => row.match !== null)
       // Reachable first, then most recently seen. The old ordering was
       // alphabetical by address, which is a UUID — so truncating it would have
       // cut at random. Ranking is what makes the cap below safe.
@@ -530,9 +543,23 @@ export class SessionRegistry {
           a.address.address.localeCompare(b.address.address),
       );
     const page = pageAgentAddresses(ranked, filters);
+    const titles = await sessionTaskTitles(this.core.db, this.core.keyring, page.addresses.flatMap((row) => row.session ? [row.session] : []));
+    const missingWorkspace = eligible.filter((row) => !readWorkspace(row.session?.workspace) || readWorkspace(row.session?.workspace)?.git_status === 'unavailable').length;
     return {
       ...page,
-      addresses: page.addresses.map((row) => ({ ...publicAddress(row.address, row.fqdn, row.presence), receiver: row.receiver })),
+      scope,
+      effective_scope: scope === 'project' && !callerWorkspace?.git_common_dir ? 'directory' : scope,
+      observed_at: nowIso(),
+      coverage: {
+        limited: scope === 'project' && (!callerWorkspace || callerWorkspace.git_status === 'unavailable' || missingWorkspace > 0),
+        peers_without_workspace: missingWorkspace,
+      },
+      addresses: page.addresses.map((row) => ({
+        ...publicAddress(row.address, row.fqdn, row.presence), receiver: row.receiver,
+        cwd: readWorkspace(row.session?.workspace)?.cwd ?? row.session?.cwd ?? row.address.cwd,
+        task_title: row.session ? titles.get(row.session.id) ?? null : null,
+        match_reason: row.match,
+      })),
     };
   }
 }

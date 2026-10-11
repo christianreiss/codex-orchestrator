@@ -1,5 +1,9 @@
 # 2026-10-11
 
+- Wrapper 0.9.59 lets agents discover peers in their exact directory or Git project, including linked worktrees and clones across hosts. Managed Codex, Claude and Grok launches include a timestamped peer snapshot; scoped discovery reports tasks, presence and incomplete coverage for older clients. Session workspace metadata uses additive migration 0059 and does not require Git Director registration. Fleet guidance and its pinned digests now teach both scopes.
+
+- Android Chats now limits All to online, active agents across engines, including working and idle clients. Offline, ended and read-only sessions are hidden from All without deleting retained history or changing Unread and Needs you.
+
 - Active Clients separates ordinary agents from remote sessions while sharing the native conversation view. Remote work now has a searchable list, a start side panel, clear continuation states and retained retry drafts; host links open the same workspace. Fleet-wide agent session settings moved to Policies → Agent behavior.
 
 - Android 0.4.15 and web Active Clients keep retained chats visible by default when an agent goes offline or ends. History follows the existing session-lifetime plus 24-hour server retention; sending still requires a reachable agent, and ended Android chats keep their badges cleared.

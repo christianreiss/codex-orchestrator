@@ -7,6 +7,7 @@
 
 import type { Database } from '../../db/client.js';
 import type { Engine } from '../../util/engine.js';
+import type { WorkspaceInput } from './workspace.js';
 
 export type AgentMessagingDb = Pick<Database, 'insert' | 'update' | 'select' | 'delete'>;
 
@@ -18,6 +19,7 @@ export interface RegisterMessagingSessionInput {
   engine: Engine;
   username: string;
   cwd: string;
+  workspace?: WorkspaceInput;
   upstreamSessionId?: string | null;
   invocationKind: 'interactive' | 'execute' | 'peer_delivery';
   resumed?: boolean;

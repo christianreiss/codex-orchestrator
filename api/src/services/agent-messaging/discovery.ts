@@ -1,8 +1,10 @@
 import { AGENT_MESSAGING_LIST_LIMIT } from './constants.js';
 import { ValidationError } from '../../http/errors.js';
 import type { Engine } from '../../util/engine.js';
+import type { DiscoveryScope } from './workspace.js';
 
 export interface AgentDiscoveryFilters {
+  scope?: DiscoveryScope;
   engine?: Engine;
   hostId?: number;
   includeOffline?: boolean;

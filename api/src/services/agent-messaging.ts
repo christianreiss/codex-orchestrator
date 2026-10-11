@@ -219,6 +219,7 @@ export class AgentMessagingService {
     this.sessions = new SessionRegistry({
       db,
       env,
+      keyring,
       isEnabled: () => this.isEnabled(),
       requireEnabledLocked: (tx) => this.requireEnabledLocked(tx),
       requireAddressLocked: (tx, id) => this.requireAddressLocked(tx, id),

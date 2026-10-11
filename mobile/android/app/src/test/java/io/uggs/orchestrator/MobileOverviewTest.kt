@@ -6,6 +6,20 @@ import org.junit.Test
 
 class MobileOverviewTest {
     private fun agent(json: String) = JSONObject(json)
+    @Test fun allShowsOnlineActiveAgentsAcrossEnginesWithoutRequiringAnOpenRelay() {
+        for (engine in listOf("codex", "claude", "grok")) {
+            for (presence in listOf("listening", "working", "idle", "offline", "ended", "unknown", "")) {
+                val row = agent("""{"engine":"$engine","presence":"$presence","relay_ready":false,"status":"active"}""")
+                assertEquals(presence, presence in listOf("listening", "working", "idle"), isOnlineActiveAgent(row))
+                assertEquals(listOf(row), retainedChats(listOf(row)))
+            }
+        }
+        assertFalse(isOnlineActiveAgent(agent("""{"presence":"listening","read_only":true}""")))
+        for (status in listOf("closed", "failed", "unknown")) {
+            assertFalse(isOnlineActiveAgent(agent("""{"presence":"working","daemon_session":true,"remote_status":"$status"}""")))
+        }
+        assertTrue(isOnlineActiveAgent(agent("""{"presence":"working","daemon_session":true,"remote_status":"queued","relay_ready":false}""")))
+    }
     @Test fun retainedChatsSurvivePresenceChangesUntilTheServerRemovesThem() {
         val chat = agent("""{"id":"chat","presence":"listening","relay_ready":true}""")
         for (state in listOf("listening", "working", "idle", "offline", "ended", "listening")) {

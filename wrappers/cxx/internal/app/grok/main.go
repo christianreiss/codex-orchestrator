@@ -630,7 +630,7 @@ func run(ctx context.Context, cfg *config.Config, client *orchestrator.Client, o
 		f.Close()
 		args = []string{"--prompt-file", f.Name(), "--output-format", "json"}
 	}
-	connection, portalErr := agentportal.StartConnection(ctx, cfg, agentportal.StartInput{Engine: "grok", InvocationKind: map[bool]string{true: "execute", false: "interactive"}[headless], Resumed: nativeAnyFlag(args, "--resume", "--continue", "-r", "-c"), UpstreamSessionID: agentportal.ExplicitResumeSessionID(args)})
+	connection, portalErr := agentportal.StartConnection(ctx, cfg, agentportal.StartInput{NativeArgs: args, Engine: "grok", InvocationKind: map[bool]string{true: "execute", false: "interactive"}[headless], Resumed: nativeAnyFlag(args, "--resume", "--continue", "-r", "-c"), UpstreamSessionID: agentportal.ExplicitResumeSessionID(args)})
 	identity, identityErr := connection.RequireIdentity(ctx, cfg)
 	if identityErr != nil {
 		_ = connection.Close("failed", "Launch identity could not be confirmed")

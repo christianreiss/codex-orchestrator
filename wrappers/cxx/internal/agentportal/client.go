@@ -45,6 +45,7 @@ const (
 )
 
 type StartInput struct {
+	NativeArgs        []string
 	Engine            string
 	InvocationKind    string
 	Resumed           bool
@@ -157,7 +158,7 @@ func Start(parent context.Context, cfg *config.Config, input StartInput) (*Sessi
 	if err != nil {
 		return nil, err
 	}
-	cwd, err := os.Getwd()
+	cwd, err := launchCwd(input.Engine, input.NativeArgs)
 	if err != nil {
 		return nil, fmt.Errorf("agent portal: determine cwd: %w", err)
 	}
@@ -176,6 +177,7 @@ func Start(parent context.Context, cfg *config.Config, input StartInput) (*Sessi
 		"adapter_capabilities": map[string]any{"execution_contract_version": 2, "watchdog_protocol_version": 1, "launch_identity_version": 1, "reboot_protocol_version": 1},
 		"username":             username,
 		"cwd":                  cwd,
+		"workspace":            captureWorkspace(parent, cwd),
 		"invocation_kind":      input.InvocationKind,
 		"resumed":              input.Resumed,
 		"upstream_session_id":  emptyToNil(upstreamSessionID),

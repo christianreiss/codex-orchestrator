@@ -1,4 +1,5 @@
 import { taskResultSchema } from '../../services/agent-messaging/task-execution.js';
+import { workspaceInputSchema } from '../../services/agent-messaging/workspace.js';
 import { RebootHandoffs } from '../../services/reboot-handoffs.js';
 import { HostDaemonService } from '../../services/host-daemon/service.js';
 import { randomBytes, randomUUID } from 'node:crypto';
@@ -91,6 +92,7 @@ export async function registerAgentPortalAdminHostRoutes(
         engine: z.string(),
         username: z.string(),
         cwd: z.string(),
+        workspace: workspaceInputSchema.optional(),
         upstream_session_id: z.string().nullable().optional(),
         invocation_kind: z.enum(['interactive', 'execute', 'peer_delivery']),
         resumed: z.boolean().optional(),
@@ -124,6 +126,7 @@ export async function registerAgentPortalAdminHostRoutes(
         engine,
         username: body.username,
         cwd: body.cwd,
+        workspace: body.workspace,
         upstreamSessionId: body.upstream_session_id,
         invocationKind: body.invocation_kind,
         resumed: body.resumed,
@@ -146,6 +149,7 @@ export async function registerAgentPortalAdminHostRoutes(
         engine,
         username: body.username,
         cwd: body.cwd,
+        workspace: body.workspace,
         upstreamSessionId: body.upstream_session_id,
         invocationKind: body.invocation_kind,
         resumed: body.resumed,

@@ -70,8 +70,11 @@ push. No Analytics SDK is included.
 
 ## On-the-move interface
 
-Version 0.4.15 keeps every server-retained conversation in **Chats**, including
-offline, ended, idle and read-only agents and closed/failed/unknown daemon sessions.
+Chats retain the server-provided history, including offline and ended conversations.
+The default **All** filter shows only online, active agents across all engines:
+listening, working and idle sessions, excluding read-only or closed sessions.
+**Unread** and **Needs you** keep their own filters; hiding a row in All does not
+delete its conversation or change read markers.
 Server history lasts for the session lifetime plus 24 hours by default. Closing
 the app or losing agent connectivity does not remove the conversation. Closure
 still clears unread counters and reply alerts; delayed pushes cannot recreate them.
@@ -291,8 +294,9 @@ Version 0.4.3 introduced one **Sessions** list below live decisions; 0.4.4 uses 
 chat rows, with a small unread reply number at the trailing edge
 (visually capped at `99+`, with the full count
 available to TalkBack). There is no separate unread section or repeated **New**
-label. From 0.4.15, retained ended/offline sessions remain in the list regardless
-of unread state. Cached conversations remain visible while reconnecting; sending still
+label. Offline and ended sessions are excluded from **All** while their retained
+history remains available to existing conversation and notification links.
+Cached online sessions remain visible while reconnecting; sending still
 requires a fresh connection and an available receiver.
 
 The authorized `/agents` snapshot exposes `reply_cursor`, the latest actual

@@ -380,9 +380,9 @@ class CompanionUiTest {
         compose.waitUntil(10000) { approved.get() }
         compose.waitUntil(10000) { compose.onAllNodesWithText("waiting.uggs.io").fetchSemanticsNodes().isEmpty() }
     }
-    @Test fun retainedAgentsAndDirectQuestionChoices() {
+    @Test fun allShowsOnlyOnlineActiveAgentsAndDirectQuestionChoices() {
         compose.waitUntil(15000) { compose.onAllNodesWithText("project").fetchSemanticsNodes().isNotEmpty() }
-        compose.onNodeWithTag("agent:offline").assertExists()
+        compose.onNodeWithTag("agent:offline").assertDoesNotExist()
         compose.onNodeWithTag("agent:idle").assertExists()
         questionPending.set(true)
         changed("agents")
@@ -684,11 +684,15 @@ class CompanionUiTest {
             reachable.set(false); readOnly.set(true); presence.set(state)
             summary.set("$state retained history")
             changed("agents")
-            compose.waitUntil(5000) { compose.onAllNodesWithText("$state retained history").fetchSemanticsNodes().isNotEmpty() }
-            compose.onNodeWithTag("agent:$session").assertExists()
+            compose.waitUntil(5000) { compose.onAllNodesWithTag("agent:$session").fetchSemanticsNodes().isEmpty() }
+            compose.onNodeWithTag("agent:$session").assertDoesNotExist()
             if (state == "offline") {
                 Assert.assertEquals("Temporary network loss preserves unread replies", setOf(session), unreadIds())
                 Assert.assertEquals(ledger, preferences.getString("state", null))
+                compose.onNodeWithTag("chat-filter:unread").performClick()
+                compose.onNodeWithTag("agent:$session").assertExists()
+                compose.onNodeWithTag("chat-filter:all").performClick()
+                compose.onNodeWithTag("agent:$session").assertDoesNotExist()
             } else {
                 waitForUnread(emptySet())
             }
@@ -716,7 +720,7 @@ class CompanionUiTest {
             waiting.put("remote_status", status).put("presence", "ended").put("relay_ready", false)
             changed("agents")
             waitForUnread(setOf(session))
-            compose.onNodeWithTag("agent:$remoteId").assertExists()
+            compose.onNodeWithTag("agent:$remoteId").assertDoesNotExist()
             showCompanionNotification(context, push + ("notification_id" to java.util.UUID.randomUUID().toString()))
             Assert.assertEquals(setOf(session), unreadIds())
             compose.waitUntil(5000) { manager.activeNotifications.none { it.notification.extras.getString(NOTIFICATION_TARGET) == remoteId } }

@@ -597,6 +597,15 @@ addresses and never opens a host listener. Session finish clears the live
 binding but retains the address as resumable/offline; SIGINT/SIGTERM stops the
 relay generation and erases its server token.
 
+From cxx 0.9.59, `agent_list(scope:"project", online:true)` finds agents in the
+same Git repository, including subdirectories, linked worktrees and clones on
+other hosts. `scope:"directory"` selects the exact canonical cwd on this host;
+the default remains `fleet`. Per-session workspace metadata is collected at
+launch and resume, independently of Git Director. Results include task titles,
+match reasons and coverage limits for older clients. Every managed engine gets
+a timestamped startup snapshot of up to ten online peers; discovery failure
+does not block launch. Presence reports a session, not proof of file edits.
+
 Peer discovery (`agent_list`, wrapper 0.9.39) excludes the caller and supports
 `name`, `limit` and `offset`. Follow `next_offset` when `truncated` is true;
 `total` counts filtered peers. Name matching covers launch names, aliases and
@@ -646,9 +655,10 @@ history; there is no automatic Agent Messaging purge.
 Active Clients is the desktop session directory and chat for Codex, Claude and
 Grok. It shows launch names, task summaries, current directories, derived presence,
 Needs you, questions and retained history, with receiver reconnect and close actions.
-Android Chats and the web's default All filter include offline and ended
-conversations throughout server retention (session lifetime plus 24 hours by
-default). History remains readable; fresh receiver readiness still gates sending.
+The web's default All filter includes retained offline and ended conversations.
+Android's All filter shows only online, active agents across engines; its retained
+history is kept independently (session lifetime plus 24 hours by default).
+History remains readable; fresh receiver readiness still gates sending.
 **Agents** and **Remote sessions** are separate lists sharing the native conversation view.
 Remote sessions use a searchable directory and a start side panel; the host page opens
 the same workspace with its host selected. Bound remote agents are not duplicated in Agents.

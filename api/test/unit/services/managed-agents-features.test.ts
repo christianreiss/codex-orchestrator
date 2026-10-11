@@ -121,10 +121,10 @@ describe('served document byte invariance', () => {
 
     expect(base.sha256).toBe('30abaea24c8809d8634670f0eceb3004aabb4eafb5416c78333c719e8b67e14b');
     expect(out.policy_sha256).toBe('3d8a8c754d80369c46a16c3350db8461520d3ae14b1de7ac03ad9454925ad5e5');
-    // 2026-10-11: add operator chat questions, urgency and local media tools for all engines.
-    expect(out.features_sha256).toBe('e7ab5f4dc33b8a60da6f2323e6fa60d10b1d9ee2fafc9215813f298bee47e535');
-    expect(out.managed_sha256).toBe('3f6bf7c0ac47f33417af9d74635ff085d60454f440c5302a1b8efc3a478ac8c3');
-    expect(sha256(out.body)).toBe('f3cf57256fdaa1b0d8f1dff1698f5dd13e58afd91cca5599bbd8fd2f95790fbb');
+    // 2026-10-11: teach directory/project discovery and startup snapshot limits for all engines.
+    expect(out.features_sha256).toBe('587db2afaf77cfed6e930b7ab8daf4fdab02709c9a20befea69f2abc8c07142b');
+    expect(out.managed_sha256).toBe('8426521fb5cf229f823c8949c1566f48a867a4fb563108e4a77d449f4cb66e8a');
+    expect(sha256(out.body)).toBe('0a2abf312e2ad1ec231a3b7fdccda95c01e0b8a6de8be7de55b62b2d3cd658a3');
   });
 });
 
@@ -664,6 +664,16 @@ describe('retired authority sentences', () => {
 describe('managed Agent Messaging guidance', () => {
   const rendered = (engine: Engine) =>
     renderManagedAgentFeatures('# Base\n', context(engine, { agentMessaging: enabled() }));
+
+  it('teaches scoped discovery and its coverage limits on every engine', () => {
+    for (const engine of [ENGINE_CODEX, ENGINE_CLAUDE, ENGINE_GROK]) {
+      const body = rendered(engine).body;
+      expect(body).toContain('scope:"project", online:true');
+      expect(body).toContain('scope:"directory"');
+      expect(body).toContain('coverage.limited');
+      expect(body).toContain('Presence is not proof of editing');
+    }
+  });
 
   it('names every tool the fleet actually provisions', () => {
     // The permission allowlist and this prose read the same array, so a rename

@@ -53,11 +53,11 @@ func TestMCPDiscoveryPassesPageAndName(t *testing.T) {
 		}
 		return &http.Response{StatusCode: 200, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"addresses":[],"total":51,"truncated":true,"next_offset":50}`))}, nil
 	})}}
-	result, err := callMCPTool(context.Background(), client, nil, "agent_list", map[string]any{"online": true, "engine": "grok", "name": "Amelie", "limit": 25, "offset": 25})
+	result, err := callMCPTool(context.Background(), client, nil, "agent_list", map[string]any{"scope": "project", "online": true, "engine": "grok", "name": "Amelie", "limit": 25, "offset": 25})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if body["include_offline"] != false || body["name"] != "Amelie" || body["engine"] != "grok" || body["limit"] != float64(25) || body["offset"] != float64(25) || result["next_offset"] != float64(50) {
+	if body["scope"] != "project" || body["include_offline"] != false || body["name"] != "Amelie" || body["engine"] != "grok" || body["limit"] != float64(25) || body["offset"] != float64(25) || result["next_offset"] != float64(50) {
 		t.Fatal(body, result)
 	}
 }

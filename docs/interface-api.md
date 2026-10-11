@@ -1107,8 +1107,34 @@ the engine over its private Unix socket.
 
 Session-bound operations require `X-Agent-Bridge-Token`:
 
+From cxx 0.9.59, registration accepts optional `workspace` with absolute `cwd`,
+`git_status` (`repository|none|unavailable`), nullable `git_root` and
+`git_common_dir`, and optional nullable `origin_url`. Repository status requires
+both Git paths; other statuses require null paths and no origin. The wrapper
+resolves symlinks locally and honors Codex `-C/--cd` and Grok `--cwd`, including
+on managed resume. Git probes are local and bounded to two seconds. Origin
+userinfo, query and fragment are removed before transmission; the API persists
+only SHA-256 of the Git Director-normalized network remote. Local filesystem
+remotes never establish a cross-host match. Registration retries refresh supplied
+metadata; omitted metadata preserves the existing value. Old sessions remain valid.
+
 - `POST /host/agent-sessions/{id}/agent-messaging/list` — discover eligible
   peer addresses, excluding the caller, optionally filtered by engine or host.
+  Optional `scope` is `fleet` (default), `directory` or `project`, always relative
+  to the authenticated caller. Directory matches canonical cwd on the same host.
+  Project also matches the same common Git directory on that host or the same
+  normalized network origin across hosts. Each session is independent, even
+  when several agents use one directory; Git Director registration is unnecessary.
+  Scope filtering precedes pagination. Results add `scope`, `effective_scope`,
+  `observed_at` and `coverage: { limited, peers_without_workspace }`. Project
+  queries fall back to `effective_scope: "directory"` when the caller has no Git
+  metadata. `limited` flags missing/unavailable caller metadata or eligible peers
+  without it; the count describes the eligible population before scope/name filtering.
+  A known non-Git caller falls back without itself marking coverage incomplete.
+  Legacy peers retain matching by reported cwd; no repository identity is guessed.
+  Each address adds `task_title` (latest naming event for the bound native session,
+  or null), canonical `cwd` when known, and `match_reason`
+  (`fleet|same_directory|same_clone|same_repository`). No conversation content is returned.
   `name` (1–96 characters) matches a literal, case-insensitive substring of launch
   name, alias or canonical address before paging. Each address carries a
   derived `presence` (`listening` | `online` | `resumable` | `offline` |
