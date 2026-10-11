@@ -1,5 +1,7 @@
 # 2026-10-11
 
+- Wrapper 0.9.48 uses the relay's IPv4 preference and CA trust for the host daemon WebSocket, fixing `401 ip_mismatch` on dual-stack hosts whose HTTP API calls succeed. TLS and WebSocket handshakes honor cancellation and a 35-second timeout. Enabled service installation/start now prints a confirmation during `cxx update`; remote connection health remains visible in `cxx daemon status` and the WebUI.
+
 - Portal and Messaging preserve the same `peer_delivery` invocation kind during daemon resumes, preventing registration conflicts before native continuation.
 
 - Android 0.4.10 adds Chats/Hosts navigation, searchable daemon-ready hosts and contact-only or task-based remote starts. Daemon launches remain one Portal conversation across native resumptions, with real agent replies, durable retry identity, inherited device follows and first-reply push. Companion routes enforce current device permissions, engine readiness and available work slots.
