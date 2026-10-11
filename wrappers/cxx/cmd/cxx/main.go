@@ -354,6 +354,7 @@ func printSelectorHelp(w io.Writer) {
 	fmt.Fprintln(w, "  cxx portal [status|notify|resolve|say|ask|wait|accept|leave]")
 	fmt.Fprintln(w, "  cxx agent [list|send|request|wait|reply|message|cancel|status|service]")
 	fmt.Fprintln(w, "  cxx daemon [install|status|start|stop|uninstall|run]")
+	fmt.Fprintln(w, "  cxx reboot [--request-id UUID --reason TEXT --stdin|status|disarm]")
 	fmt.Fprintln(w, "  cxx remote [info|exec|read|write|wait|signal|ps|rm|get|put|push|pull|down]")
 	fmt.Fprintln(w, "  cxx --version")
 	fmt.Fprintln(w, "")

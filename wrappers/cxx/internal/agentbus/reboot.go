@@ -422,21 +422,37 @@ func resumeAfterReboot(r rebootresume.Record, stdout, stderr io.Writer) error {
 	var readiness map[string]any
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
+	err = waitRebootReady(ctx, 5*time.Second, func(ctx context.Context) error {
+		return rebootHostCall(ctx, r.Engine, "ready", map[string]any{"request_id": r.ID, "boot_id": r.ResumeBootID}, &readiness)
+	})
+	if err != nil {
+		return err
+	}
+	return runRebootContinuation(r, readiness, stdout, stderr)
+}
+
+// During boot IPv6 can become usable before the host's bound IPv4 route.
+// Readiness is read-only: retrying that IP mismatch within the existing deadline
+// never retries native execution or weakens the server's binding policy.
+func waitRebootReady(ctx context.Context, interval time.Duration, probe func(context.Context) error) error {
 	for {
-		err = rebootHostCall(ctx, r.Engine, "ready", map[string]any{"request_id": r.ID, "boot_id": r.ResumeBootID}, &readiness)
+		err := probe(ctx)
 		if err == nil {
-			break
+			return nil
 		}
 		var apiErr *APIError
-		if errors.As(err, &apiErr) && apiErr.Status >= 400 && apiErr.Status < 500 && apiErr.Status != 429 {
+		if errors.As(err, &apiErr) && apiErr.Status >= 400 && apiErr.Status < 500 && apiErr.Status != 429 && apiErr.Code != "ip_mismatch" {
 			return err
 		}
 		select {
 		case <-ctx.Done():
 			return fmt.Errorf("reboot readiness deadline: %w", err)
-		case <-time.After(5 * time.Second):
+		case <-time.After(interval):
 		}
 	}
+}
+
+func runRebootContinuation(r rebootresume.Record, readiness map[string]any, stdout, stderr io.Writer) error {
 	guard, err := sessionguard.Launch(r.Engine)
 	if err != nil {
 		return err

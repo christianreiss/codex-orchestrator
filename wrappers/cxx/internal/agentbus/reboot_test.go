@@ -9,7 +9,46 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
+
+func TestRebootReadinessWaitsForBoundNetworkWithoutRetryingDeniedCredentials(t *testing.T) {
+	for _, tc := range []struct {
+		code  string
+		calls int
+	}{
+		{"ip_mismatch", 2},
+		{"invalid_api_key", 1},
+		{"reboot_handoff_conflict", 1},
+	} {
+		t.Run(tc.code, func(t *testing.T) {
+			calls := 0
+			err := waitRebootReady(context.Background(), time.Millisecond, func(context.Context) error {
+				calls++
+				if calls == 1 {
+					return &APIError{Status: 401, Code: tc.code}
+				}
+				return nil
+			})
+			if calls != tc.calls || (err == nil) != (tc.calls == 2) {
+				t.Fatalf("calls=%d err=%v", calls, err)
+			}
+		})
+	}
+}
+
+func TestRebootReadinessIPMismatchCannotWaitPastDeadline(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	calls := 0
+	err := waitRebootReady(ctx, time.Hour, func(context.Context) error {
+		calls++
+		cancel()
+		return &APIError{Status: 401, Code: "ip_mismatch"}
+	})
+	if calls != 1 || err == nil || !strings.Contains(err.Error(), "readiness deadline") {
+		t.Fatalf("calls=%d err=%v", calls, err)
+	}
+}
 
 func TestRebootContinuationRequiresOriginalWorkReceipts(t *testing.T) {
 	for _, text := range []string{"agent_task_result", "agent_receiver_reply", "original message ID", "does not store these receipts"} {

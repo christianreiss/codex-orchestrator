@@ -763,6 +763,8 @@ one Linux host reboot and resume the exact Grok native transcript once.
 root/passwordless sudo and active cron. Consumption precedes cron removal and
 native startup; no native retry or fresh session fallback. Accepted work retains
 its original IDs. Watchdog/persistent Wake recovery conflicts are rejected.
+From cxx 0.9.56, an early-boot IP-binding mismatch waits within the five-minute
+readiness deadline for the bound network route; native startup is still one-use.
 See [the full reboot contract](reboot-resume.md) for state, failures and recovery.
 ## System Spawn and daemon deadlines
 

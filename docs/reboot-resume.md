@@ -45,6 +45,9 @@ work remains supported and an accepted Wake keeps its original execution.
 6. Wait at most five minutes for signed configuration/control-plane readiness,
    verify the native transcript and acquire its writer lock. Start one native
    resume with the exact saved ID through normal cxx auth and launch policy.
+   An IP-binding mismatch during early network startup is retried only within
+   this readiness deadline: IPv6 may be online before the bound IPv4 route.
+   Invalid credentials and other permanent policy failures still stop immediately.
 7. Registration atomically fences the old launch token, retains the agent UUID,
    assigns the new launch identity and transfers work to its new receiver. Lost
    registration responses replay the same new session ID. The receiver restores
