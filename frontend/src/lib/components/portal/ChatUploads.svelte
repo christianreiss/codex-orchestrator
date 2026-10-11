@@ -2,8 +2,9 @@
   import { onDestroy } from 'svelte';
   import { api } from '$lib/api/client';
   import { uploadChatFile, type UploadItem } from '$lib/portal/chat-files';
-  let { session, items, onitems, disabled = false }: {session: string; items: UploadItem[]; onitems: (items: UploadItem[]) => void; disabled?: boolean} = $props();
+  let { session, items, onitems, disabled = false }: {session: string; items: UploadItem[]; onitems: (session: string, items: UploadItem[]) => void; disabled?: boolean} = $props();
   let error = $state('');
+  let closed = false;
   let recording = $state<'audio' | 'video' | null>(null);
   let recorder: MediaRecorder | null = null;
   let stream: MediaStream | null = null;
@@ -11,7 +12,7 @@
   const previews = new Map<File,string>();
   function preview(file:File) { let url=previews.get(file); if(!url) { url=URL.createObjectURL(file); previews.set(file,url); } return url; }
   const requests = new Map<string, AbortController>();
-  function change(id: string, update: Partial<UploadItem>) { onitems(items.map(i => i.id === id ? {...i, ...update} : i)); }
+  function change(id: string, update: Partial<UploadItem>) { if (!closed) onitems(session, items.map(i => i.id === id ? {...i, ...update} : i)); }
   async function upload(item: UploadItem) {
     const abort = new AbortController(); requests.set(item.id, abort); change(item.id, {state:'uploading',error:undefined});
     try { await uploadChatFile(session, item, abort.signal, bytes => change(item.id, {progress:bytes / item.file.size})); change(item.id, {state:'ready',progress:1}); }
@@ -20,23 +21,25 @@
   }
   async function add(files: File[]) {
     const limits = await api.get<{max_file_bytes:number; max_total_bytes:number;max_attachments:number}>('/admin/agent-chat/limits').catch(() => ({max_file_bytes:100*1024*1024,max_total_bytes:250*1024*1024,max_attachments:10}));
+    if (closed) return;
     if (items.length + files.length > limits.max_attachments || files.some(f => !f.size || f.size > limits.max_file_bytes) || [...items.map(i => i.file),...files].reduce((s,f) => s+f.size,0) > limits.max_total_bytes) { error = 'Attachment limit exceeded: ten files, 100 MiB per file, 250 MiB total by default.'; return; }
-    const next = files.map(file => ({id:crypto.randomUUID(),file,progress:0,state:'uploading' as const})); onitems([...items,...next]); error = '';
+    const next = files.map(file => ({id:crypto.randomUUID(),file,progress:0,state:'uploading' as const})); onitems(session, [...items,...next]); error = '';
     // Serial uploads keep memory and base64 request size bounded.
-    for (const item of next) await upload(item);
+    for (const item of next) { if (closed) break; await upload(item); }
   }
-  async function remove(item: UploadItem) { requests.get(item.id)?.abort(); onitems(items.filter(i => i.id !== item.id)); await api.delete(`/admin/agent-sessions/${session}/attachments/${item.id}`).catch(() => {}); }
+  async function remove(item: UploadItem) { requests.get(item.id)?.abort(); onitems(session, items.filter(i => i.id !== item.id)); await api.delete(`/admin/agent-sessions/${session}/attachments/${item.id}`).catch(() => {}); }
   function stop() { if (recorder?.state === 'recording') recorder.stop(); stream?.getTracks().forEach(t => t.stop()); clearTimeout(captureTimer); recording = null; }
   async function record(kind:'audio'|'video') {
     try {
       stream = await navigator.mediaDevices.getUserMedia({audio:true,video:kind === 'video'});
+      if (closed) { stream.getTracks().forEach(t => t.stop()); return; }
       recorder = new MediaRecorder(stream); const chunks: Blob[] = []; const mime = recorder.mimeType || `${kind}/webm`;
       recorder.ondataavailable = e => { if (e.data.size) chunks.push(e.data); };
       recorder.onstop = () => { void add([new File(chunks, `${kind}-${Date.now()}.webm`, {type:mime.split(';')[0]})]); stream?.getTracks().forEach(t => t.stop()); recording = null; };
       recording = kind; recorder.start(1000); captureTimer = setTimeout(stop,900000);
     } catch(e) { error = e instanceof Error ? e.message : 'Recording unavailable'; stream?.getTracks().forEach(t => t.stop()); }
   }
-  onDestroy(() => { previews.forEach(url => URL.revokeObjectURL(url)); if(recorder) recorder.onstop = null; stop(); const interrupted = new Set(requests.keys()); requests.forEach(r => r.abort()); onitems(items.map(i => interrupted.has(i.id) ? {...i,state:'failed',error:'Upload paused; retry to resume.'} : i)); });
+  onDestroy(() => { closed = true; previews.forEach(url => URL.revokeObjectURL(url)); if(recorder) recorder.onstop = null; stop(); requests.forEach(r => r.abort()); onitems(session, items.map(i => i.state === 'uploading' ? {...i,state:'failed',error:'Upload paused; retry to resume.'} : i)); });
 </script>
 <div class="border-t px-4 py-2 text-xs">
   <div class="flex flex-wrap items-center gap-3">

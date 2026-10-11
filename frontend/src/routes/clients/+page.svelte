@@ -363,7 +363,7 @@
               {:else}<div class="flex-1"></div>{/if}
               <AttentionCard agent={selected} now={serverNow} {timings} {onreply} onresolved={refresh} busy={$send.isPending} readonly={!canManage || actionsUnavailable} />
               {#if canManage}{#if retryingDraft}<p class="border-t bg-warning-muted px-4 py-1.5 text-xs text-muted-foreground">A previous send was not confirmed. Sending this draft again retries the same request.</p>{/if}{#if replyTargets[selected.id]}<p class="px-4 py-1 text-xs">Reply to message #{replyTargets[selected.id]} <button type="button" onclick={() => replyTargets = {...replyTargets,[selected.id]:undefined}}>Cancel</button></p>{/if}
-                {#key selected.id}<ChatUploads session={selected.id} items={uploads[selected.id] ?? []} onitems={items => uploads = {...uploads,[selected.id]:items}} disabled={$send.isPending} />{/key}
+                {#key selected.id}<ChatUploads session={selected.id} items={uploads[selected.id] ?? []} onitems={(id, items) => uploads = {...uploads,[id]:items}} disabled={$send.isPending} />{/key}
                 {#if selected.pending_prompt?.answer_mode !== 'buttons'}<Composer hasAttachments={Boolean(uploads[selected.id]?.length)} agent={selected} now={serverNow} {timings} sending={$send.isPending} {draft} {disabledReason} ondraft={(text) => (drafts = { ...drafts, [selected.id]: text })} onsend={submit} bind:input={composerInput} />{/if}{/if}
             {/if}
           </div>

@@ -443,3 +443,31 @@ test("attachment-only upload retains an ID through chunking and sends once seale
   await expect(page.getByText('test.txt · ready',{exact:false})).toBeVisible();await page.getByRole('button',{name:'Send',exact:true}).click();
   await expect.poll(()=>state.bodies.some(b=>b.path.endsWith('/messages') && b.body.content==='' && (b.body.metadata as {attachments:string[]}).attachments[0]===attachment)).toBe(true);
 });
+
+test('switching conversations pauses queued uploads and keeps drafts with their original conversation', async ({page}) => {
+  await fixtures(page);
+  let chunkStarted = false;
+  let creates = 0;
+  let release!: () => void;
+  const blocked = new Promise<void>(resolve => { release = resolve; });
+  await page.route('**/admin/agent-sessions/*/attachments**', async route => {
+    const path = new URL(route.request().url()).pathname;
+    if (path.endsWith('/chunks')) { chunkStarted = true; await blocked; }
+    if (path.endsWith('/attachments')) creates++;
+    await route.fulfill({contentType:'application/json',body:JSON.stringify({uploaded_bytes:0,status:'uploading'})}).catch(() => {});
+  });
+  try {
+    await open(page); await page.locator(`#client-${CODEX}`).click();
+    await page.locator('input[type=file]').first().setInputFiles([
+      {name:'first.txt',mimeType:'text/plain',buffer:Buffer.from('first')},
+      {name:'queued.txt',mimeType:'text/plain',buffer:Buffer.from('queued')},
+    ]);
+    await expect.poll(() => chunkStarted).toBe(true);
+    await page.locator(`#client-${CLAUDE}`).click();
+    await expect(page.getByText('first.txt ·', {exact:false})).toHaveCount(0);
+    await page.locator(`#client-${CODEX}`).click();
+    await expect(page.getByText('first.txt · failed', {exact:false})).toBeVisible();
+    await expect(page.getByText('queued.txt · failed', {exact:false})).toBeVisible();
+    expect(creates).toBe(1);
+  } finally { release(); }
+});
