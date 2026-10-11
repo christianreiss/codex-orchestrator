@@ -1,5 +1,8 @@
 # 2026-10-11
 
+- Android 0.4.15 and web Active Clients keep retained chats visible by default when an agent goes offline or ends. History follows the existing session-lifetime plus 24-hour server retention; sending still requires a reachable agent, and ended Android chats keep their badges cleared.
+- Android chat displays outgoing messages immediately with Sending, then Queued and existing delivery receipts. Slow responses no longer leave an empty conversation; unconfirmed sends retain their bubble and draft with a Retry action that reuses the original request ID.
+
 - Restored the complete validation gates: API fixtures apply the current migration chain without resurrecting retired Portal tables, and unchanged coverage thresholds run against the full MySQL suite. Browser checks use a fresh production preview and current Accounts, navigation, policy, quota and model-setting contracts while preserving the existing scenarios.
 
 - File Transfer now uses the shared admin document title. Wrapper 0.9.58 is a validation-only rebuild: the reboot journal regression test now checks that a consumed request still reports a foreign cron file without retrying the native session.

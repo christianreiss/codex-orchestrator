@@ -10,8 +10,9 @@ fun isReachable(agent: JSONObject): Boolean = agent.optBoolean("relay_ready", fa
 fun isClosedAgent(agent: JSONObject): Boolean = agent.optString("presence") == "ended" ||
     (agent.optBoolean("daemon_session") && agent.optString("remote_status") in setOf("closed", "failed", "unknown"))
 
-fun isOverviewAgent(agent: JSONObject): Boolean = hasUrgentNotice(agent) || !isClosedAgent(agent) &&
-    (agent.optBoolean("daemon_session") || isReachable(agent))
+/** The server owns chat retention. Presence controls sending, never history visibility. */
+fun retainedChats(agents: List<JSONObject>): List<JSONObject> =
+    agents.sortedByDescending { it.optString("last_event_at") }
 
 fun hasUrgentNotice(agent: JSONObject) = agent.optJSONObject("attention")?.optString("severity") in listOf("important","critical","blocker")
 fun needsReply(agent: JSONObject) = agent.optJSONObject("attention") != null || (agent.optJSONObject("pending_prompt")?.let { !it.has("answer_mode") } ?: false)

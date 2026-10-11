@@ -6,18 +6,23 @@ import org.junit.Test
 
 class MobileOverviewTest {
     private fun agent(json: String) = JSONObject(json)
-    @Test fun overviewExcludesClosedDaemonChatsButKeepsStartsAndWaitingConversations() {
-        for (status in listOf("queued", "running", "stopping", "idle", "waiting")) {
-            assertTrue(isOverviewAgent(agent("""{"daemon_session":true,"remote_status":"$status","relay_ready":false}""")))
+    @Test fun retainedChatsSurvivePresenceChangesUntilTheServerRemovesThem() {
+        val chat = agent("""{"id":"chat","presence":"listening","relay_ready":true}""")
+        for (state in listOf("listening", "working", "idle", "offline", "ended", "listening")) {
+            chat.put("presence", state).put("relay_ready", state == "listening")
+            assertEquals(listOf(chat), retainedChats(listOf(chat)))
+            assertEquals(state == "listening", isReachable(chat))
         }
-        for (status in listOf("closed", "failed", "unknown")) {
-            val row = agent("""{"daemon_session":true,"remote_status":"$status","relay_ready":true}""")
-            assertFalse(isOverviewAgent(row))
-            assertFalse(isReachable(row))
+        assertTrue(retainedChats(emptyList()).isEmpty())
+    }
+    @Test fun retainedDaemonHistoryRemainsReadableWithoutAllowingSends() {
+        val rows = listOf("queued", "running", "stopping", "idle", "waiting", "closed", "failed", "unknown").map { status ->
+            agent("""{"id":"$status","daemon_session":true,"remote_status":"$status","relay_ready":false}""")
         }
-        assertFalse(isOverviewAgent(agent("""{"daemon_session":true,"presence":"ended"}""")))
-        assertFalse(isOverviewAgent(agent("""{"presence":"offline","relay_ready":false}""")))
-        assertTrue(isOverviewAgent(agent("""{"presence":"listening","relay_ready":true}""")))
+        assertEquals(rows, retainedChats(rows))
+        assertTrue(readyAgents(rows).isEmpty())
+        val recent = agent("""{"id":"recent","last_event_at":"2026-10-11T12:00:00Z"}""")
+        assertEquals(recent, retainedChats(rows + recent).first())
     }
     @Test fun launchNamesIdentifyChatsWithAndWithoutTaskTitles() {
         val named = agent("""{"id":"11111111-aaaa","launch_name":"Claudia","session_name":"Release review","task_title":"Release review"}""")

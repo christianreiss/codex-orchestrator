@@ -77,7 +77,12 @@ internal fun deliveryLabel(event: JSONObject, receipts: Map<String, String>, age
         "replied" -> "Replied"
         "canceled" -> "Not delivered — the agent never picked this up"
         "failed" -> "Not delivered"
-        else -> "Queued"
+        else -> when (event.optJSONObject("payload")?.optString("delivery_status")) {
+            "sending" -> "Sending…"
+            "unconfirmed" -> "Not confirmed"
+            "failed" -> "Not delivered"
+            else -> "Queued"
+        }
     }
 }
 

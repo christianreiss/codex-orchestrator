@@ -47,7 +47,7 @@
   });
   let search = $state("");
   let engine = $state<"all" | "codex" | "claude" | "grok">("all");
-  let filter = $state<ClientFilter>("active");
+  let filter = $state<ClientFilter>("all");
   let now = $state(Date.now());
   let detailHeading = $state<HTMLHeadingElement | null>(null);
   $effect(() => {
@@ -191,17 +191,17 @@
   }
   function onreply(option?: string) { if (option) void submit(option, true); else composerInput?.focus(); }
   function refresh() { void client.invalidateQueries({ queryKey: agentSessionKeys.all }); if (feedState === "reconnecting") feedRetry++; }
-  function resetFilters() { search = ""; engine = "all"; filter = "active"; }
+  function resetFilters() { search = ""; engine = "all"; filter = "all"; }
   function agentName(row: AgentSessionRow) { return row.launch_name || row.session_name || row.work.address_alias || `Session ${row.id.slice(0, 8)}`; }
   function age(value: string | null, clock = serverNow) { return value ? shortAge(value, clock) || "unknown" : "unknown"; }
   function exactTime(value: string | null) { const date = value ? new Date(value) : null; return date && Number.isFinite(date.getTime()) ? date.toLocaleString() : "Not reported"; }
   // Messages-style scope chips; the counts that used to live on four summary cards ride on them.
   const chips = $derived([
+    { key: "all" as ClientFilter, label: "All", count: null },
     { key: "active" as ClientFilter, label: "Current", count: null },
     { key: "attention" as ClientFilter, label: "Needs you", count: counts.attention },
     { key: "online" as ClientFilter, label: "Online", count: counts.online },
     { key: "ended" as ClientFilter, label: "Ended", count: counts.ended },
-    { key: "all" as ClientFilter, label: "All", count: null },
   ]);
   let detailsOpen = $state(false);
   function preview(row: AgentSessionRow, ended: boolean) {

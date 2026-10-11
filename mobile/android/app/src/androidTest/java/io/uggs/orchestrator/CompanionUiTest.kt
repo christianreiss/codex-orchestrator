@@ -96,6 +96,9 @@ class CompanionUiTest {
     private val holdMe = AtomicBoolean(false)
     private val meRequested = AtomicBoolean(false)
     private val holdTranscript = AtomicBoolean(false)
+    private val holdSend = AtomicBoolean(false)
+    private val failSend = AtomicBoolean(false)
+    private val sendIds = CopyOnWriteArrayList<String>()
     private val transcriptRequested = AtomicBoolean(false)
     private val invalidateDuringRead = AtomicBoolean(false)
     private val agentsRequested = AtomicLong(0)
@@ -228,11 +231,15 @@ class CompanionUiTest {
                     }
                     path == "/approvals" -> if (approved.get()) """{"requests":[],"default_duration_minutes":480}""" else """{"requests":[{"id":42,"fqdn":"waiting.uggs.io","request_ip":"192.0.2.42","live":true,"expires_at":"${expiresAt}"}],"default_duration_minutes":480}"""
                     path == "/approvals/42/approve" -> { approved.set(true); "{}" }
-                    path == "/agents/$session/prompts/question-1/answer" -> { answered.set(JSONObject(request.body.readUtf8()).getString("answer")); questionPending.set(false); "{}" }
+                    path == "/agents/$session/prompts/question-1/answer" -> { answered.set(JSONObject(request.body.readUtf8()).getString("answer")); questionPending.set(false); """{"message_id":"answer-1","status":"queued"}""" }
                     path == "/agents/$session/messages" -> {
                         val body = JSONObject(request.body.readUtf8()); val text = body.getString("content"); sent.set(text); sentMetadata.set(body.optJSONObject("metadata"))
-                        if (history.isNotEmpty()) history.add(JSONObject().put("cursor", cursor.incrementAndGet()).put("type", "user_message").put("created_at", Instant.now().toString()).put("payload", JSONObject().put("text", text).put("reply_to", body.optJSONObject("metadata")?.optLong("reply_to"))))
-                        "{}"
+                        sendIds.add(body.getString("client_message_id"))
+                        while (holdSend.get()) Thread.sleep(20)
+                        if (failSend.get()) return MockResponse().setResponseCode(503).setHeader("Content-Type", "application/json").setBody("""{"message":"Send unavailable"}""")
+                        val messageId = "sent-" + body.getString("client_message_id")
+                        if (history.isNotEmpty() || reply.get().isBlank()) history.add(JSONObject().put("cursor", cursor.incrementAndGet()).put("type", "user_message").put("created_at", Instant.now().toString()).put("payload", JSONObject().put("text", text).put("message_id", messageId).put("reply_to", body.optJSONObject("metadata")?.optLong("reply_to"))))
+                        JSONObject().put("message_id", messageId).put("status", "queued").toString()
                     }
                     else -> "{}"
                 }
@@ -251,6 +258,7 @@ class CompanionUiTest {
         invalidateDuringRead.set(false)
         holdMe.set(false)
         holdTranscript.set(false)
+        holdSend.set(false)
         scenario.close()
         heartbeat.shutdownNow()
         live.getAndSet(null)?.close(1001, "Test finished")
@@ -372,10 +380,10 @@ class CompanionUiTest {
         compose.waitUntil(10000) { approved.get() }
         compose.waitUntil(10000) { compose.onAllNodesWithText("waiting.uggs.io").fetchSemanticsNodes().isEmpty() }
     }
-    @Test fun onlyReachableAgentsAndDirectQuestionChoices() {
+    @Test fun retainedAgentsAndDirectQuestionChoices() {
         compose.waitUntil(15000) { compose.onAllNodesWithText("project").fetchSemanticsNodes().isNotEmpty() }
-        compose.onNodeWithText("offline-project").assertDoesNotExist()
-        compose.onNodeWithText("idle-project").assertDoesNotExist()
+        compose.onNodeWithTag("agent:offline").assertExists()
+        compose.onNodeWithTag("agent:idle").assertExists()
         questionPending.set(true)
         changed("agents")
         compose.waitUntil(3000) { compose.onAllNodesWithText("Choose a target.").fetchSemanticsNodes().isNotEmpty() }
@@ -541,6 +549,45 @@ class CompanionUiTest {
         Assert.assertEquals(setOf(session), unreadIds())
         screenshot("chat-home-dense-scrolled")
     }
+    @Test fun emptyChatShowsOutgoingMessageBeforeServerAcknowledgment() {
+        reply.set("")
+        waitForAgentRows(session)
+        compose.onNodeWithTag("agent:$session").performClick()
+        compose.waitUntil(10000) { compose.onAllNodesWithText("What do you need?").fetchSemanticsNodes().isNotEmpty() }
+        holdSend.set(true)
+        try {
+            compose.onNode(hasSetTextAction()).performTextInput("Show this immediately")
+            compose.onNodeWithContentDescription("Send").performClick()
+            compose.onNodeWithTag("bubble:-1").assertIsDisplayed()
+            compose.onNodeWithText("Sending…").assertIsDisplayed()
+            compose.onNodeWithText("What do you need?").assertDoesNotExist()
+            screenshot("chat-immediate-send")
+        } finally { holdSend.set(false) }
+        compose.waitUntil(10000) { compose.onAllNodesWithText("Queued").fetchSemanticsNodes().isNotEmpty() }
+        compose.waitUntil(10000) { compose.onAllNodesWithTag("bubble:-1").fetchSemanticsNodes().isEmpty() }
+        compose.onAllNodesWithText("Show this immediately").assertCountEquals(1)
+        compose.onNode(hasSetTextAction()).assertTextContains("")
+    }
+    @Test fun failedImmediateSendRetainsBubbleAndRetriesTheSameOperation() {
+        reply.set("")
+        waitForAgentRows(session)
+        compose.onNodeWithTag("agent:$session").performClick()
+        failSend.set(true)
+        compose.onNode(hasSetTextAction()).performTextInput("Retry this once")
+        compose.onNodeWithContentDescription("Send").performClick()
+        compose.waitUntil(10000) { compose.onAllNodesWithText("Not confirmed").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("bubble:-1").assertExists()
+        compose.onNode(hasSetTextAction()).assertTextContains("Retry this once")
+        failSend.set(false)
+        val retry = hasText("Retry") and hasAnyAncestor(hasTestTag("bubble:-1"))
+        compose.waitUntil(10000) { compose.onAllNodes(retry and isEnabled()).fetchSemanticsNodes().isNotEmpty() }
+        compose.onNode(retry).performClick()
+        compose.waitUntil(10000) { compose.onAllNodesWithText("Queued").fetchSemanticsNodes().isNotEmpty() }
+        compose.waitUntil(10000) { compose.onAllNodesWithTag("bubble:-1").fetchSemanticsNodes().isEmpty() }
+        Assert.assertEquals(2, sendIds.size)
+        Assert.assertEquals(1, sendIds.toSet().size)
+        compose.onAllNodesWithText("Retry this once").assertCountEquals(1)
+    }
     @Test fun unreachableAgentDisablesSendingAndKeepsDraft() {
         compose.waitUntil(15000) { compose.onAllNodesWithText("project").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithText("project").performClick()
@@ -552,7 +599,7 @@ class CompanionUiTest {
         compose.onNodeWithContentDescription("Send").assertIsNotEnabled()
         compose.onNode(hasSetTextAction()).assertTextContains("Keep this draft")
         compose.onNodeWithContentDescription("Back").performClick()
-        compose.onNodeWithText("project").assertDoesNotExist()
+        compose.onNodeWithTag("agent:$session").assertExists()
         Assert.assertNull(sent.get())
     }
     @Test fun expiredApprovalCannotBeTapped() {
@@ -627,7 +674,7 @@ class CompanionUiTest {
         compose.waitUntil(10000) { compose.onAllNodesWithText(reply.get()).fetchSemanticsNodes().isNotEmpty() }
         waitForUnread(emptySet())
     }
-    @Test fun unreadDoesNotResurrectEndedOrOfflineSessions() {
+    @Test fun retainedChatsSurviveOfflineAndEndedStatesWithoutRestoringClosedBadges() {
         compose.waitUntil(15000) { compose.onAllNodesWithTag("agent:$session").fetchSemanticsNodes().isNotEmpty() }
         waitForUnread(setOf(session))
         val context = InstrumentationRegistry.getInstrumentation().targetContext
@@ -635,9 +682,10 @@ class CompanionUiTest {
         val ledger = preferences.getString("state", null)
         for (state in listOf("offline", "ended")) {
             reachable.set(false); readOnly.set(true); presence.set(state)
+            summary.set("$state retained history")
             changed("agents")
-            compose.waitUntil(5000) { compose.onAllNodesWithTag("agent:$session").fetchSemanticsNodes().isEmpty() }
-            compose.onNodeWithText("Conversation history · read only").assertDoesNotExist()
+            compose.waitUntil(5000) { compose.onAllNodesWithText("$state retained history").fetchSemanticsNodes().isNotEmpty() }
+            compose.onNodeWithTag("agent:$session").assertExists()
             if (state == "offline") {
                 Assert.assertEquals("Temporary network loss preserves unread replies", setOf(session), unreadIds())
                 Assert.assertEquals(ledger, preferences.getString("state", null))
@@ -667,8 +715,8 @@ class CompanionUiTest {
         for (status in listOf("closed", "failed", "unknown")) {
             waiting.put("remote_status", status).put("presence", "ended").put("relay_ready", false)
             changed("agents")
-            compose.waitUntil(5000) { compose.onAllNodesWithTag("agent:$remoteId").fetchSemanticsNodes().isEmpty() }
             waitForUnread(setOf(session))
+            compose.onNodeWithTag("agent:$remoteId").assertExists()
             showCompanionNotification(context, push + ("notification_id" to java.util.UUID.randomUUID().toString()))
             Assert.assertEquals(setOf(session), unreadIds())
             compose.waitUntil(5000) { manager.activeNotifications.none { it.notification.extras.getString(NOTIFICATION_TARGET) == remoteId } }

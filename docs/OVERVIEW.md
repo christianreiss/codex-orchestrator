@@ -646,6 +646,9 @@ history; there is no automatic Agent Messaging purge.
 Active Clients is the desktop session directory and chat for Codex, Claude and
 Grok. It shows launch names, task summaries, current directories, derived presence,
 Needs you, questions and retained history, with receiver reconnect and close actions.
+Android Chats and the web's default All filter include offline and ended
+conversations throughout server retention (session lifetime plus 24 hours by
+default). History remains readable; fresh receiver readiness still gates sending.
 It also provides **Remote sessions** to start, continue and stop daemon work;
 remote history links select the native session in Active Clients.
 

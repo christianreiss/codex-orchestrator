@@ -10,7 +10,7 @@
  */
 import { randomUUID } from 'node:crypto';
 import { eq, sql } from 'drizzle-orm';
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { adminUsers, agentEvents, agentMessages, agentSessions, hosts } from '../../../src/db/schema.js';
 import type { Env } from '../../../src/env.js';
 import {
@@ -123,6 +123,36 @@ describe.skipIf(!handle)('agent portal lifecycle edges', { timeout: 120_000 }, (
   const eventTypes = async (sessionId: string) =>
     (await db.select({ type: agentEvents.eventType }).from(agentEvents).where(eq(agentEvents.sessionId, sessionId)))
       .map((row) => row.type);
+
+  it('keeps chat history for the full session lifetime and 24 hours after ending', async () => {
+    const world = await makeWorld();
+    const start = Math.floor(Date.now() / 1000) * 1000;
+    await world.service.addAgentEvent(world.sessionId, world.bridgeToken, {
+      clientEventId: randomUUID(), type: 'assistant_message', source: 'engine', payload: { text: 'Keep this history' },
+    }, host.id);
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      vi.setSystemTime(start + 48 * 3_600_000);
+      // A continuously running agent keeps renewing its bridge independently of chat age.
+      await db.update(agentSessions).set({ bridgeExpiresAt: new Date(Date.now() + 900_000).toISOString(), heartbeatAt: new Date().toISOString() }).where(eq(agentSessions.id, world.sessionId));
+      await world.service.purgeExpired();
+      expect(await agentOf(world)).toBeDefined();
+      await world.service.finishAgent(world.sessionId, world.bridgeToken, { status: 'completed' }, host.id);
+      const endedAt = Date.now();
+      vi.setSystemTime(endedAt + 24 * 3_600_000 - 1);
+      await world.service.purgeExpired();
+      expect(await agentOf(world)).toMatchObject({ presence: 'ended' });
+      expect((await world.service.listEvents(world.sessionId)).events).toEqual(expect.arrayContaining([
+        expect.objectContaining({ type: 'assistant_message', payload: expect.objectContaining({ text: 'Keep this history' }) }),
+      ]));
+      vi.setSystemTime(endedAt + 24 * 3_600_000);
+      await world.service.purgeExpired();
+      expect(await agentOf(world)).toBeUndefined();
+      await expect(world.service.listEvents(world.sessionId)).rejects.toMatchObject({ code: 'agent_session_not_found' });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 
   const raiseAttention = async (world: World, summary: string) =>
     await world.service.addAgentEvent(

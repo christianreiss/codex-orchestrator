@@ -57,6 +57,34 @@ async function stream(page: Page, type: string, data?: string) {
   }, { type, data });
 }
 
+test("retained chats stay visible through offline, end, reload and reconnect", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  const state = await fixtures(page);
+  state.events = [{ cursor: 1, session_id: CODEX, type: "assistant_message", source: "engine", payload: { text: "Retained conversation" }, created_at: new Date().toISOString() }];
+  await open(page);
+  await expect(page.getByRole("button", { name: "All", exact: true })).toHaveAttribute("aria-pressed", "true");
+  for (const presence of ["offline", "ended", "listening"]) {
+    Object.assign(state.sessions[0], {
+      presence, relay_ready: presence === "listening", read_only: presence === "ended",
+      ended_at: presence === "ended" ? new Date().toISOString() : null,
+      expires_at: presence === "ended" ? new Date(Date.now() + 86_400_000).toISOString() : null,
+    });
+    await page.reload();
+    await expect(page.locator(`#client-${CODEX}`)).toBeVisible();
+    await page.locator(`#client-${CODEX}`).click();
+    await expect(page.getByRole("region", { name: "Session timeline" })).toContainText("Retained conversation");
+    if (presence === "ended") await expect(page.getByLabel("Message this agent")).toHaveCount(0);
+    else {
+      await page.getByLabel("Message this agent").fill("Continue");
+      if (presence === "offline") await expect(page.getByRole("button", { name: "Send", exact: true })).toBeDisabled();
+      else await expect(page.getByRole("button", { name: "Send", exact: true })).toBeEnabled();
+    }
+  }
+  state.sessions = state.sessions.filter(row => row.id !== CODEX);
+  await page.getByRole("button", { name: "Refresh clients" }).click();
+  await expect(page.locator(`#client-${CODEX}`)).toHaveCount(0);
+});
+
 test("client directory exposes both engines, real presence, searchable work, and visible status dots", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 });
   await fixtures(page); await open(page);

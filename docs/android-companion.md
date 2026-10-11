@@ -70,19 +70,24 @@ push. No Analytics SDK is included.
 
 ## On-the-move interface
 
-Version 0.4.11 omits ended conversations, including daemon sessions whose
-`remote_status` is `closed`, `failed` or `unknown`. Queued, running, stopping,
-idle and waiting daemon conversations remain listed, including while their host
-is temporarily unavailable. Closure clears old unread counters and reply alerts;
-the local ledger retains the closed state so delayed pushes cannot recreate them.
-This APK-only fix uses the existing server projection; no API rollout is required.
+Version 0.4.15 keeps every server-retained conversation in **Chats**, including
+offline, ended, idle and read-only agents and closed/failed/unknown daemon sessions.
+Server history lasts for the session lifetime plus 24 hours by default. Closing
+the app or losing agent connectivity does not remove the conversation. Closure
+still clears unread counters and reply alerts; delayed pushes cannot recreate them.
+This uses the existing server projection and requires no API rollout.
 
-**Now** shows live host requests and reachable agents needing a reply first, then
-other agents whose server-reported `relay_ready` is true. Offline, ended, idle
-without a receiver, and read-only sessions are omitted. Unread replies do not bring
-old sessions back into the list; closed sessions also stop contributing to
-notifications and badge counts. A working agent appears
-only if its receiver can still accept a message. Session name, host, working
+Outgoing messages appear immediately with **Sending…**, including in an empty
+conversation. Server confirmation changes that to **Queued**; later receipts
+retain the existing delivered/read/working states. An unconfirmed request keeps
+its bubble and draft with **Retry**, which reuses the same operation ID. The
+server event replaces the local bubble by confirmed message ID, never by matching
+text. Pending bubbles survive conversation switches in the running app and do
+not advance server history or unread cursors.
+
+Live host requests and reachable agents needing a reply remain actionable through
+**Review next**. Sending requires fresh server-reported receiver readiness;
+offline and ended chats remain readable. Session name, host, working
 directory, and engine identify each conversation; **Review next** opens the next decision directly.
 Each row also shows the agent's latest short summary (one sentence, at most
 160 Unicode characters, displayed on up to two lines). An open question or active
@@ -286,8 +291,8 @@ Version 0.4.3 introduced one **Sessions** list below live decisions; 0.4.4 uses 
 chat rows, with a small unread reply number at the trailing edge
 (visually capped at `99+`, with the full count
 available to TalkBack). There is no separate unread section or repeated **New**
-label, and unread state does not promote ended/offline sessions into the list.
-Cached reachable sessions remain visible while reconnecting; sending still
+label. From 0.4.15, retained ended/offline sessions remain in the list regardless
+of unread state. Cached conversations remain visible while reconnecting; sending still
 requires a fresh connection and an available receiver.
 
 The authorized `/agents` snapshot exposes `reply_cursor`, the latest actual

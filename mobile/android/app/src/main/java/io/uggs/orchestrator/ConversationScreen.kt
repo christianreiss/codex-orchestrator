@@ -41,8 +41,9 @@ import org.json.JSONObject
 @Composable private fun Conversation(model: CompanionModel, agent: JSONObject?, fresh: Boolean) {
     val sessionId = remember { model.selected }
     val prompt = agent?.optJSONObject("pending_prompt")
-    val rows = remember(model.events) { chatRows(model.events) }
-    val receipts = remember(model.events) { deliveryIndex(model.events) }
+    val chatEvents = model.chatEvents
+    val rows = remember(chatEvents) { chatRows(chatEvents) }
+    val receipts = remember(chatEvents) { deliveryIndex(chatEvents) }
     val latestAssistant = rows.filterIsInstance<ChatRow.Message>().lastOrNull { it.event.optString("type") == "assistant_message" }
     val latestReplyCursor = latestAssistant?.event?.optLong("cursor") ?: 0
     val expectedReplyCursor = agent?.optLong("reply_cursor") ?: 0
@@ -219,7 +220,7 @@ import org.json.JSONObject
                 Surface(
                     modifier = Modifier.testTag("bubble:$cursor").combinedClickable(onClick = {}, onLongClickLabel = "Message actions", onLongClick = { actions = true })
                         .semantics { customActions = buildList {
-                            if (writable) add(CustomAccessibilityAction("Reply") { model.replyTo(cursor); true })
+                            if (writable && cursor > 0) add(CustomAccessibilityAction("Reply") { model.replyTo(cursor); true })
                             if (text.isNotBlank()) add(CustomAccessibilityAction("Copy") { copy(); true })
                         } },
                     shape = shape,
@@ -236,6 +237,9 @@ import org.json.JSONObject
                             if (!own) ChatMarkdown(text, Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
                             else Text(text, Modifier.padding(horizontal = 8.dp, vertical = 4.dp), style = MaterialTheme.typography.bodyLarge)
                         }
+                        if (payload.optString("delivery_status") == "unconfirmed" && cursor < 0) {
+                            TextButton(onClick = { model.retryChat(payload.getString("local_send_id")) }, enabled = writable && !model.busy) { Text("Retry") }
+                        }
                         Row(Modifier.align(Alignment.End).padding(horizontal = 5.dp, vertical = 2.dp),
                             horizontalArrangement = Arrangement.spacedBy(5.dp), verticalAlignment = Alignment.CenterVertically) {
                             eventTime(row.event)?.let { Text(timeLabel(it, use24Hour), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
@@ -246,7 +250,7 @@ import org.json.JSONObject
                     }
                 }
                 DropdownMenu(expanded = actions, onDismissRequest = { actions = false }) {
-                    DropdownMenuItem(text = { Text("Reply") }, leadingIcon = { CompanionIcon(CompanionSymbol.Reply) }, enabled = writable,
+                    DropdownMenuItem(text = { Text("Reply") }, leadingIcon = { CompanionIcon(CompanionSymbol.Reply) }, enabled = writable && cursor > 0,
                         onClick = { actions = false; model.replyTo(cursor) })
                     if (text.isNotBlank()) DropdownMenuItem(text = { Text("Copy") }, onClick = { actions = false; copy() })
                 }

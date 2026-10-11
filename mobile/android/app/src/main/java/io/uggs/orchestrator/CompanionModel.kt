@@ -39,6 +39,9 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
     var pendingStart by mutableStateOf(connection?.let { store.loadPendingStart(it.deviceId) }); private set
     var approvals by mutableStateOf<List<JSONObject>>(emptyList()); private set
     var events by mutableStateOf<List<JSONObject>>(emptyList()); private set
+    private var pendingChats by mutableStateOf<Map<String, List<PendingChat>>>(emptyMap())
+    val chatEvents: List<JSONObject> get() = events + (pendingChats[selected] ?: emptyList()).map { it.event() }
+    private var localChatCursor = 0L
     var follows by mutableStateOf<Set<String>>(emptySet()); private set
     var capabilities by mutableStateOf<Set<String>>(emptySet()); private set
     var notifications by mutableStateOf(true); private set
@@ -57,7 +60,7 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
     var chatUploads by mutableStateOf<Map<String,List<ChatUpload>>>(emptyMap()); private set
     var replyTargets by mutableStateOf<Map<String,Long>>(emptyMap()); private set
     private val uploadJobs = mutableMapOf<String,Job>()
-    private data class ChatSend(val target:String,val text:String,val metadata:String,val uuid:String,val version:Int?)
+    private data class ChatSend(val session:String,val target:String,val text:String,val metadata:String,val uuid:String,val version:Int?)
     private val chatSends = mutableMapOf<String,ChatSend>()
     private val noticeOperations = mutableMapOf<String,String>()
     var defaultMinutes by mutableStateOf(480); private set
@@ -75,7 +78,6 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
     private var eventsLoaded = false
     private val presenceMutex = Mutex()
     private var reconnect: Job? = null
-    private var pendingSend: Triple<String, String, String>? = null
     private var pendingOpen: String? = null
     private var permissionsKnown = false
     private var portalAvailable = true
@@ -96,7 +98,7 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
     fun canReadSession(id: String) = connection != null && portalAvailable &&
         can("agent_portal.read") && can("agent_portal.reveal_transcript") && agents.any { it.optString("id") == id }
     fun overviewAgents(): List<JSONObject> = if (!can("agent_portal.read") || !can("agent_portal.reveal_transcript") || !portalAvailable) emptyList() else
-        agents.filter { isOverviewAgent(it) && (it.optBoolean("daemon_session") || can("agent_portal.manage") || it.optString("id") in unreadSessions) }.sortedByDescending { it.optString("last_event_at") }
+        retainedChats(agents)
     fun canSpawn() = fresh() && portalAvailable && can("agent_messaging.manage") && can("agent_portal.manage") && can("agent_portal.read") && can("agent_portal.reveal_transcript")
     fun canSendSession(id: String?) = id != null && reachable().any { it.optString("id") == id }
     private fun refreshUnreadState() {
@@ -261,8 +263,11 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
         if (loadAgents && snapshot != null && "agent_portal.reveal_transcript" in caps && !portalDisabled) {
             if (!unreadStore.observeReplies(agents, unreadRevision)) pendingScopes.add("agents")
         }
-        if (!transcriptAllowed) { selected = null; events = emptyList(); eventsLoaded = false; VisibleConversation.session = null }
-        else if (nextEvents != null && selected == id) { events = nextEvents; eventsLoaded = true }
+        if (!transcriptAllowed) { selected = null; events = emptyList(); pendingChats = emptyMap(); chatSends.clear(); eventsLoaded = false; VisibleConversation.session = null }
+        else if (nextEvents != null && selected == id) {
+            events = nextEvents; eventsLoaded = true
+            if (id != null) pendingChats = pendingChats + (id to pendingChatsAfterRefresh(pendingChats[id] ?: emptyList(), nextEvents))
+        }
         val reconnected = !online
         if (reconnected) error = null
         status = if (!portalAvailable) "Agent portal is disabled" else "Live"
@@ -303,7 +308,7 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
     fun openSession(id: String) {
         if (!canReadSession(id)) { notice = "Conversation is no longer available"; return }
         revision++
-        selected = id; events = emptyList(); eventsLoaded = false; pendingSend = null
+        selected = id; events = emptyList(); eventsLoaded = false
         invalidate(setOf("agents"))
         viewModelScope.launch {
             try { updatePresence() } catch (e: Exception) { failure(e) }
@@ -375,6 +380,7 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
         mutate { api().request("/agents/$session/notices/resolve","POST",JSONObject().put("notice_id",id).put("client_event_id",operation)); notice="Marked resolved" }
     }
     fun send(prompt: JSONObject? = null, choiceValue:String? = null) {
+        if (busy) return
         val id = selected ?: return
         if (!canSendSession(id)) { error = "Agent is no longer reachable"; return }
         val text = draft.trim(); val items=chatUploads[id] ?: emptyList()
@@ -382,18 +388,54 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
         if(items.any { it.state != "ready" }) { error="Finish or remove pending uploads"; return }
         val metadata=JSONObject().put("attachments",JSONArray(items.map { it.id }))
         replyTargets[id]?.let { metadata.put("reply_to",it) }; choiceValue?.let { metadata.put("choice_value",it) }
-        val previous=chatSends[id]
+        val previous=chatSends.values.lastOrNull { it.session == id && it.text == text && it.metadata == metadata.toString() }
         val intent=if(previous != null && (prompt == null || previous.target.contains("/${prompt.optString("id")}/")) && previous.text == text && previous.metadata == metadata.toString()) previous else ChatSend(
-            if(prompt != null) "/agents/$id/prompts/${prompt.getString("id")}/answer" else "/agents/$id/messages", text,metadata.toString(),UUID.randomUUID().toString(),prompt?.optInt("version",1))
-        chatSends[id]=intent
+            id, if(prompt != null) "/agents/$id/prompts/${prompt.getString("id")}/answer" else "/agents/$id/messages", text,metadata.toString(),UUID.randomUUID().toString(),prompt?.optInt("version",1))
+        submitChat(intent)
+    }
+    fun retryChat(clientId: String) {
+        val intent = chatSends[clientId] ?: return
+        if (busy || selected != intent.session || !canSendSession(intent.session)) return
+        submitChat(intent)
+    }
+    private fun submitChat(intent: ChatSend) {
+        val id = intent.session
+        val items = chatUploads[id] ?: emptyList()
+        val previous = pendingChats[id] ?: emptyList()
+        val bubble = previous.firstOrNull { it.clientId == intent.uuid }?.copy(status = "sending")
+            ?: PendingChat(intent.uuid, --localChatCursor, intent.text, intent.metadata, java.time.Instant.now().toString())
+        pendingChats = pendingChats + (id to (previous.filterNot { it.clientId == intent.uuid } + bubble))
+        chatSends[intent.uuid] = intent
+        val owner = connection
         mutate {
-            val body=JSONObject().put("client_message_id",intent.uuid).put(if(intent.version != null) "answer" else "content",intent.text).put("metadata",JSONObject(intent.metadata))
-            intent.version?.let { body.put("version",it) }
-            api().request(intent.target,"POST",body)
-            if(selected == id && draft.trim() == intent.text) draft=""
-            chatSends.remove(id); chatUploads=chatUploads - id; replyTargets=replyTargets - id
-            items.forEach { it.file.delete() }; follows=follows + id
+            try {
+                val body=JSONObject().put("client_message_id",intent.uuid).put(if(intent.version != null) "answer" else "content",intent.text).put("metadata",JSONObject(intent.metadata))
+                intent.version?.let { body.put("version",it) }
+                val result = api().request(intent.target,"POST",body)
+                if (connection != owner) return@mutate
+                val messageId = (result.opt("message_id") as? String) ?: (result.opt("operation_id") as? String)
+                    ?: error("Delivery was not confirmed. Retry this message.")
+                val failed = result.optString("status") in setOf("canceled", "dead")
+                updatePendingChat(id, intent.uuid, if (failed) "failed" else "queued", messageId)
+                chatSends.remove(intent.uuid)
+                if (!failed) {
+                    if(chatDrafts[id]?.trim() == intent.text) chatDrafts = chatDrafts + (id to "")
+                    val sentIds = JSONObject(intent.metadata).optJSONArray("attachments")?.strings() ?: emptySet()
+                    chatUploads = chatUploads + (id to (chatUploads[id] ?: emptyList()).filterNot { it.id in sentIds })
+                    replyTargets=replyTargets - id
+                    items.filter { it.id in sentIds }.forEach { it.file.delete() }; follows=follows + id
+                }
+            } catch (e: Exception) {
+                if (connection == owner) updatePendingChat(id, intent.uuid, "unconfirmed")
+                throw e
+            }
         }
+    }
+    private fun updatePendingChat(session: String, clientId: String, status: String, messageId: String? = null) {
+        val pending = (pendingChats[session] ?: emptyList()).map {
+            if (it.clientId == clientId) it.copy(status = status, messageId = messageId ?: it.messageId) else it
+        }
+        pendingChats = pendingChats + (session to if (selected == session) pendingChatsAfterRefresh(pending, events) else pending)
     }
     fun startHost(hostId: Long, engine: String, task: String, title: String, cwd: String, onSuccess: () -> Unit) {
         if (pendingStart != null || busy || !canSpawn() || hosts.none { it.optLong("host_id") == hostId && it.optBoolean("startable") && engine in (it.optJSONArray("engines")?.strings() ?: emptySet()) }) return
@@ -442,7 +484,7 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
         uploadJobs.values.forEach { it.cancel() }; uploadJobs.clear()
         chatUploads.values.flatten().forEach { it.file.delete() }; chatUploads=emptyMap(); chatDrafts=emptyMap(); replyTargets=emptyMap(); chatSends.clear(); noticeOperations.clear()
         java.io.File(getApplication<Application>().cacheDir,"chat-downloads").deleteRecursively()
-        store.clear(); connection = null; selected = null; events = emptyList(); agents = emptyList(); hosts = emptyList(); pendingStart = null; approvals = emptyList(); capabilities = emptySet()
+        store.clear(); connection = null; selected = null; events = emptyList(); pendingChats = emptyMap(); agents = emptyList(); hosts = emptyList(); pendingStart = null; approvals = emptyList(); capabilities = emptySet()
         unreadStore.clear(); unreadSessions = emptySet(); unreadReplyCounts = emptyMap(); permissionsKnown = false
         syncUnreadNotifications(getApplication(), null, emptySet())
         online = false; lastSync = 0; reconnectAttempt = 0; pendingOpen = null; highlightApproval = null
