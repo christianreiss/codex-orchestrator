@@ -1,3 +1,4 @@
+import { ChatAttachments } from '../services/agent-chat/attachments.js';
 import type { FastifyInstance } from 'fastify';
 import type { Database } from '../db/client.js';
 import type { Env } from '../env.js';
@@ -25,6 +26,7 @@ export function startAgentPortalWorker(
     running = true;
     try {
       const purged = await portal.purgeExpired();
+      await new ChatAttachments(db, keyring, env.DATA_ROOT ?? 'storage').purge();
       if (purged.sessions || purged.browser_sessions || purged.abandoned_sessions) {
         app.log.info({ purged }, 'agent portal retention purge');
       }

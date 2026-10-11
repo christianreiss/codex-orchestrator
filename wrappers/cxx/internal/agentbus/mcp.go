@@ -407,7 +407,11 @@ func toolCatalogJSON() []byte {
 		}, []string{"message_id", "status"}),
 		tool("agent_receiver_reply", "Reply only to an operator Portal delivery. For peer messages use agent_reply. Include summary: one plain sentence in the response language, at most 160 characters, giving the latest result or decision needed for mobile tiles and push notifications.", map[string]any{
 			"message_id": map[string]any{"type": "string"}, "content": map[string]any{"type": "string", "maxLength": maxBodyBytes},
-			"summary": map[string]any{"type": "string", "maxLength": 160},
+			"summary":     map[string]any{"type": "string", "maxLength": 160},
+			"attachments": map[string]any{"type": "array", "maxItems": 10, "items": map[string]any{"type": "string", "format": "uuid"}},
+			"reply_to":    map[string]any{"type": "integer"},
+			"severity":    map[string]any{"type": "string", "enum": []string{"important", "critical", "blocker"}},
+			"notice_id":   map[string]any{"type": "string", "format": "uuid"},
 		}, []string{"message_id", "content"}),
 		tool("agent_reply", "Answer a peer delivery when an answer is needed. The receipt includes recipient_presence, observed_at and delivery_hint. Never reply to presence_notice deliveries; finish them with agent_listen once. For operator Portal messages use agent_receiver_reply. For an informational reply or closing acknowledgement, call agent_listen once to complete delivery without sending another message.", map[string]any{
 			"task_result": taskResultProperties(),
@@ -465,6 +469,7 @@ func toolCatalogJSON() []byte {
 			"force":         map[string]any{"type": "boolean"},
 		}, []string{"conference_id"}),
 	}
+	tools = append(tools, chatTools()...)
 	raw, _ := json.Marshal(tools)
 	return raw
 }
@@ -782,6 +787,8 @@ func callMCPTool(ctx context.Context, client *sessionClient, channelState *chann
 	case "agent_reboot_status":
 		err := client.post(ctx, "reboot/status", args, &out)
 		return out, err
+	case "agent_portal_ask", "agent_portal_notify", "agent_portal_resolve", "agent_attachment_upload", "agent_attachment_get":
+		return callChatTool(ctx, client, name, args)
 	case "agent_self":
 		err := client.post(ctx, "self", map[string]any{}, &out)
 		return out, err

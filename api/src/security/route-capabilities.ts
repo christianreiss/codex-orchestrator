@@ -431,6 +431,14 @@ export const ROUTE_CAPABILITIES: Readonly<Record<string, RouteGuard>> = {
   // only one of them would gate neither. Force-close ends someone else's
   // running agent and sits with manage.
   'GET /admin/agent-sessions': cap('agent_portal.read'),
+  'GET /admin/agent-chat/limits': cap('agent_portal.read'),
+  'POST /admin/agent-sessions/:id/attachments': cap('agent_portal.manage'),
+  'POST /admin/agent-sessions/:id/attachments/:attachmentId/chunks': cap('agent_portal.manage'),
+  'POST /admin/agent-sessions/:id/attachments/:attachmentId/seal': cap('agent_portal.manage'),
+  'GET /admin/agent-sessions/:id/attachments/:attachmentId': cap('agent_portal.reveal_transcript'),
+  'GET /admin/agent-sessions/:id/attachments/:attachmentId/content': cap('agent_portal.reveal_transcript'),
+  'DELETE /admin/agent-sessions/:id/attachments/:attachmentId': cap('agent_portal.manage'),
+  'POST /admin/agent-sessions/:id/notices/resolve': cap('agent_portal.manage'),
   'GET /admin/agent-sessions/events': cap('agent_portal.reveal_transcript'),
   'GET /admin/agent-sessions/:id/events': cap('agent_portal.reveal_transcript'),
   'POST /admin/agent-sessions/:id/messages': cap('agent_portal.manage'),

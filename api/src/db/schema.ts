@@ -1573,6 +1573,8 @@ export const agentPrompts = mysqlTable(
     eventId: bigint('event_id', { mode: 'number', unsigned: true }),
     questionEnc: longtext('question_enc').notNull(),
     optionsEnc: longtext('options_enc'),
+    answerMode: varchar('answer_mode', { length: 16 }).notNull().default('both'),
+    choicesEnc: longtext('choices_enc'),
     status: varchar('status', { length: 16 }).notNull().default('open'),
     answeredByUserId: bigint('answered_by_user_id', { mode: 'number', unsigned: true }),
     answerMessageId: char('answer_message_id', { length: 36 }),
@@ -1601,6 +1603,7 @@ export const agentMessages = mysqlTable(
     promptId: char('prompt_id', { length: 36 }),
     clientMessageId: char('client_message_id', { length: 36 }).notNull(),
     contentEnc: longtext('content_enc').notNull(),
+    metadataEnc: longtext('metadata_enc'),
     status: varchar('status', { length: 16 }).notNull().default('queued'),
     attempts: int('attempts', { unsigned: true }).notNull().default(0),
     nextAttemptAt: varchar('next_attempt_at', { length: 100 }).notNull(),
@@ -2431,3 +2434,27 @@ export const agentRebootHandoffs = mysqlTable('agent_reboot_handoffs', {
   createdAt: varchar('created_at', { length: 100 }).notNull(),
   updatedAt: varchar('updated_at', { length: 100 }).notNull(),
 }, t => [uniqueIndex('uq_reboot_active_host').on(t.activeHostId), index('idx_reboot_native').on(t.hostId, t.engine, t.nativeSessionId), index('idx_reboot_old_session').on(t.oldSessionId), index('idx_reboot_new_session').on(t.newSessionId)]);
+
+// Durable attachments and explicit urgency belong to existing operator/agent chats.
+export const agentChatAttachments = mysqlTable('agent_chat_attachments', {
+  id: char('id', { length: 36 }).primaryKey(),
+  sessionId: char('session_id', { length: 36 }).notNull(),
+  owner: varchar('owner', { length: 80 }).notNull(),
+  metadataEnc: longtext('metadata_enc').notNull(),
+  sizeBytes: bigint('size_bytes', { mode: 'number', unsigned: true }).notNull(),
+  uploadedBytes: bigint('uploaded_bytes', { mode: 'number', unsigned: true }).notNull().default(0),
+  sha256: char('sha256', { length: 64 }),
+  status: varchar('status', { length: 16 }).notNull().default('uploading'),
+  createdAt: varchar('created_at', { length: 100 }).notNull(),
+  updatedAt: varchar('updated_at', { length: 100 }).notNull(),
+}, (t) => ({ sessionIdx: index('idx_agent_chat_attachments_session').on(t.sessionId, t.status) }));
+
+export const agentChatNotices = mysqlTable('agent_chat_notices', {
+  id: char('id', { length: 36 }).primaryKey(),
+  sessionId: char('session_id', { length: 36 }).notNull(),
+  severity: varchar('severity', { length: 16 }).notNull(),
+  payloadEnc: longtext('payload_enc').notNull(),
+  eventId: bigint('event_id', { mode: 'number', unsigned: true }).notNull(),
+  resolvedAt: varchar('resolved_at', { length: 100 }),
+  createdAt: varchar('created_at', { length: 100 }).notNull(),
+}, (t) => ({ sessionIdx: index('idx_agent_chat_notices_session').on(t.sessionId, t.resolvedAt) }));

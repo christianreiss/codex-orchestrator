@@ -1,3 +1,5 @@
+import { ChatAttachments } from './agent-chat/attachments.js';
+import { chatMetadataSchema, promptChoices, severitySchema, validAnswer, type ChatMetadata } from './agent-chat/contracts.js';
 import { plannedRebootForSession } from './reboot-handoffs.js';
 import { assertHousekeepingAvailable } from './session-housekeeping.js';
 import { namedSessionTitle } from './agent-messaging/names.js';
@@ -14,6 +16,7 @@ import {
   inArray,
   isNotNull,
   isNull,
+  lt,
   lte,
   not,
   or,
@@ -21,6 +24,7 @@ import {
 } from 'drizzle-orm';
 import type { Database } from '../db/client.js';
 import {
+  agentChatNotices,
   agentRebootHandoffs,
   agentEvents,
   agentMessages,
@@ -193,6 +197,7 @@ export interface ClaimedMessage {
   kind: 'message' | 'answer' | 'close';
   prompt_id: string | null;
   content: string;
+  metadata?: ChatMetadata;
   attempts: number;
   lease_owner: string;
   created_at: string;
@@ -204,6 +209,8 @@ interface NormalizedEvent {
     id: string;
     question: string;
     options: string[];
+    answerMode: string;
+    choices: Array<{ label: string; value: string }>;
     expiresAt: string | null;
   };
 }
@@ -502,7 +509,7 @@ export class AgentPortalService {
       .select({ session: agentSessions, host: hosts })
       .from(agentSessions)
       .innerJoin(hosts, eq(hosts.id, agentSessions.hostId))
-      .where(or(isNull(agentSessions.endedAt), gt(agentSessions.expiresAt, now)))
+      .where(or(isNull(agentSessions.endedAt), gt(agentSessions.expiresAt, now), sql`EXISTS (SELECT 1 FROM agent_chat_notices n WHERE n.session_id = ${agentSessions.id} AND n.resolved_at IS NULL)`))
       .orderBy(desc(agentSessions.startedAt));
     const sessionIds = rows.map((row) => row.session.id);
     const reboots = sessionIds.length ? await this.db.select().from(agentRebootHandoffs).where(or(inArray(agentRebootHandoffs.oldSessionId, sessionIds), inArray(agentRebootHandoffs.newSessionId, sessionIds))) : [];
@@ -515,11 +522,13 @@ export class AgentPortalService {
 
     const prompts = sessionIds.length
       ? await this.db
-          .select({ id: agentPrompts.id, sessionId: agentPrompts.sessionId, questionEnc: agentPrompts.questionEnc, optionsEnc: agentPrompts.optionsEnc, version: agentPrompts.version, createdAt: agentPrompts.createdAt })
+          .select({ id: agentPrompts.id, sessionId: agentPrompts.sessionId, questionEnc: agentPrompts.questionEnc, optionsEnc: agentPrompts.optionsEnc, eventId: agentPrompts.eventId, answerMode: agentPrompts.answerMode, choicesEnc: agentPrompts.choicesEnc, version: agentPrompts.version, createdAt: agentPrompts.createdAt })
           .from(agentPrompts)
           .where(and(inArray(agentPrompts.sessionId, sessionIds), eq(agentPrompts.status, 'open')))
           .orderBy(desc(agentPrompts.createdAt))
       : [];
+    const promptEvents = prompts.length ? await this.db.select({id:agentEvents.id,payload:agentEvents.payloadEnc}).from(agentEvents).where(inArray(agentEvents.id,prompts.flatMap(p => p.eventId ? [p.eventId] : []))) : [];
+    const promptAttachments = new Map(promptEvents.map(e => [e.id, this.decodeJson<Record<string, unknown>>(e.payload, {}).attachments ?? []]));
     const promptBySession = new Map<string, Record<string, unknown>>();
     for (const prompt of prompts) {
       if (promptBySession.has(prompt.sessionId)) continue;
@@ -527,6 +536,9 @@ export class AgentPortalService {
         id: prompt.id,
         question: this.decodeText(prompt.questionEnc),
         options: prompt.optionsEnc ? this.decodeJson<string[]>(prompt.optionsEnc, []) : [],
+        attachments: prompt.eventId ? promptAttachments.get(prompt.eventId) ?? [] : [],
+        answer_mode: prompt.answerMode ?? 'both',
+        choices: prompt.choicesEnc ? this.decodeJson(prompt.choicesEnc, []) : [],
         version: prompt.version,
         created_at: prompt.createdAt,
       });
@@ -613,6 +625,9 @@ export class AgentPortalService {
     const relayBefore = snapshotTime - this.env.AGENT_PORTAL_RELAY_FRESH_SECONDS * 1000;
     const workingBefore = snapshotTime - this.workingMaxSeconds() * 1000;
     const fleet = await readFleetEngineState(this.db);
+    const notices = sessionIds.length ? await this.db.select().from(agentChatNotices).where(and(inArray(agentChatNotices.sessionId, sessionIds), isNull(agentChatNotices.resolvedAt))).orderBy(desc(agentChatNotices.eventId)) : [];
+    const severityRank: Record<string,number> = {important:1,critical:2,blocker:3};
+    notices.sort((a,b) => (severityRank[b.severity] ?? 0) - (severityRank[a.severity] ?? 0));
     const sessions = rows.map(({ session, host }) => {
       const heartbeatFresh = bridgeHostAvailable(session, host, snapshotTime, fleet) &&
         isFreshPresenceTimestamp(session.heartbeatAt, offlineBefore, snapshotTime);
@@ -694,7 +709,10 @@ export class AgentPortalService {
         started_at: session.startedAt,
         heartbeat_at: session.heartbeatAt,
         last_event_at: lastEvent?.createdAt ?? null,
-        attention: attentionRow
+        notices: notices.filter(n => n.sessionId === session.id).map(n => ({ summary: this.decodeJson<Record<string, unknown>>(n.payloadEnc, {}).summary ?? null, id: n.id, severity: n.severity, since: n.createdAt })),
+        attention: notices.some(n => n.sessionId === session.id)
+          ? (() => { const n = notices.find(n => n.sessionId === session.id)!; return { summary: this.decodeJson<Record<string, unknown>>(n.payloadEnc, {}).summary ?? null, id: n.id, severity: n.severity, since: n.createdAt }; })()
+          : attentionRow
           ? {
               since: attentionRow.createdAt,
               summary:
@@ -781,8 +799,9 @@ export class AgentPortalService {
     return rows[0]?.id ?? 0;
   }
 
-  async enqueueMessage(actor: PortalActor, input: { sessionId: string; clientMessageId: string; content: string }): Promise<Record<string, unknown>> {
-    const content = normalizeMessage(input.content);
+  async enqueueMessage(actor: PortalActor, input: { sessionId: string; clientMessageId: string; content: string; metadata?: ChatMetadata }): Promise<Record<string, unknown>> {
+    const metadata = chatMetadataSchema.parse(input.metadata ?? {});
+    const content = metadata.attachments?.length && !input.content.trim() ? '' : normalizeMessage(input.content);
     const clientMessageId = normalizeUuid(input.clientMessageId, 'client_message_id');
     const messageId = randomUUID();
     const now = nowIso();
@@ -793,10 +812,12 @@ export class AgentPortalService {
       const raced = await this.findMessageByClientId(input.sessionId, clientMessageId, tx, true);
       if (raced) {
         this.assertMessageIdempotency(raced, user, 'message', null, content);
+        this.assertMetadata(raced, metadata);
         return raced;
       }
       this.assertLiveSession(session);
       await this.assertRelayReady(session, tx);
+      await new ChatAttachments(this.db, this.keyring, this.env.DATA_ROOT ?? 'storage').link(tx, input.sessionId, metadata, `admin:${user.id}`);
       await tx.insert(agentMessages).values({
         messageId,
         sessionId: input.sessionId,
@@ -805,6 +826,7 @@ export class AgentPortalService {
         promptId: null,
         clientMessageId,
         contentEnc: this.encodeText(content),
+        metadataEnc: this.encodeJson(metadata),
         status: 'queued',
         attempts: 0,
         nextAttemptAt: now,
@@ -820,6 +842,7 @@ export class AgentPortalService {
       await this.insertPortalMessageEvent(tx, input.sessionId, messageId, {
         message_id: messageId,
         text: content,
+        ...metadata,
         author: user.displayName,
         delivery_status: 'queued',
       }, now);
@@ -831,8 +854,9 @@ export class AgentPortalService {
     return messageView(inserted);
   }
 
-  async answerPrompt(actor: PortalActor, input: { sessionId: string; promptId: string; clientMessageId: string; answer: string; version?: number }): Promise<Record<string, unknown>> {
-    const answer = normalizeMessage(input.answer);
+  async answerPrompt(actor: PortalActor, input: { sessionId: string; promptId: string; clientMessageId: string; answer: string; version?: number; metadata?: ChatMetadata }): Promise<Record<string, unknown>> {
+    const metadata = chatMetadataSchema.parse(input.metadata ?? {});
+    const answer = metadata.attachments?.length && !input.answer.trim() ? '' : normalizeMessage(input.answer);
     const clientMessageId = normalizeUuid(input.clientMessageId, 'client_message_id');
     const messageId = randomUUID();
     const now = nowIso();
@@ -843,6 +867,7 @@ export class AgentPortalService {
       const raced = await this.findMessageByClientId(input.sessionId, clientMessageId, tx, true);
       if (raced) {
         this.assertMessageIdempotency(raced, user, 'answer', input.promptId, answer);
+        this.assertMetadata(raced, metadata);
         return raced;
       }
       this.assertLiveSession(session);
@@ -864,6 +889,10 @@ export class AgentPortalService {
       if (input.version !== undefined && input.version !== prompt.version) {
         throw new ConflictError('Prompt version changed', 'prompt_version_conflict', { current_version: prompt.version });
       }
+      const choices = prompt.choicesEnc ? this.decodeJson<Array<{ label: string; value: string }>>(prompt.choicesEnc, []) : (prompt.optionsEnc ? this.decodeJson<string[]>(prompt.optionsEnc, []) : []).map(value => ({ label: value, value }));
+      if (!validAnswer(prompt.answerMode ?? 'both', choices, answer, metadata.choice_value)) throw new ValidationError('Answer is not allowed for this question');
+      if (prompt.expiresAt && prompt.expiresAt <= now) throw new ConflictError('Question expired');
+      await new ChatAttachments(this.db, this.keyring, this.env.DATA_ROOT ?? 'storage').link(tx, input.sessionId, metadata, `admin:${user.id}`);
       await tx.insert(agentMessages).values({
         messageId,
         sessionId: input.sessionId,
@@ -872,6 +901,7 @@ export class AgentPortalService {
         promptId: input.promptId,
         clientMessageId,
         contentEnc: this.encodeText(answer),
+        metadataEnc: this.encodeJson(metadata),
         status: 'queued',
         attempts: 0,
         nextAttemptAt: now,
@@ -898,6 +928,7 @@ export class AgentPortalService {
         message_id: messageId,
         prompt_id: input.promptId,
         text: answer,
+        ...metadata,
         author: user.displayName,
         delivery_status: 'queued',
       }, now);
@@ -1104,6 +1135,7 @@ export class AgentPortalService {
             kind: normalizeClaimKind(row.kind),
             prompt_id: row.promptId,
             content: this.decodeText(row.contentEnc),
+            metadata: row.metadataEnc ? this.decodeJson<ChatMetadata>(row.metadataEnc, {}) : {},
             attempts: row.attempts,
             lease_owner: leaseClaimId,
             created_at: row.createdAt,
@@ -1131,6 +1163,7 @@ export class AgentPortalService {
           kind: normalizeClaimKind(row.kind),
           prompt_id: row.promptId,
           content: this.decodeText(row.contentEnc),
+            metadata: row.metadataEnc ? this.decodeJson<ChatMetadata>(row.metadataEnc, {}) : {},
           attempts: row.attempts + 1,
           lease_owner: leaseClaimId,
           created_at: row.createdAt,
@@ -1234,13 +1267,15 @@ export class AgentPortalService {
       .select({ id: agentSessions.id })
       .from(agentSessions)
       .where(and(lte(agentSessions.expiresAt, now), or(eq(agentSessions.status, 'completed'), eq(agentSessions.status, 'failed'))));
-    const ids = expired.map((row) => row.id);
+    const outstanding = expired.length ? await this.db.select({ sessionId: agentChatNotices.sessionId }).from(agentChatNotices).where(and(inArray(agentChatNotices.sessionId, expired.map(r => r.id)), isNull(agentChatNotices.resolvedAt))) : [];
+    const ids = expired.map((row) => row.id).filter(id => !outstanding.some(n => n.sessionId === id));
     if (ids.length > 0) {
       await this.db.transaction(async (tx) => {
         await releaseAgentMessagingBindingsLocked(tx, ids, now);
         await tx.delete(agentMessages).where(inArray(agentMessages.sessionId, ids));
         await tx.delete(agentPrompts).where(inArray(agentPrompts.sessionId, ids));
         await tx.delete(agentEvents).where(inArray(agentEvents.sessionId, ids));
+        await tx.delete(agentChatNotices).where(inArray(agentChatNotices.sessionId, ids));
         await tx.delete(agentSessions).where(inArray(agentSessions.id, ids));
       });
     }
@@ -1345,6 +1380,8 @@ export class AgentPortalService {
           eventId: null,
           questionEnc: this.encodeText(normalized.prompt.question),
           optionsEnc: normalized.prompt.options.length ? this.encodeJson(normalized.prompt.options) : null,
+          answerMode: normalized.prompt.answerMode,
+          choicesEnc: this.encodeJson(normalized.prompt.choices),
           status: 'open',
           answeredByUserId: null,
           answerMessageId: null,
@@ -1354,6 +1391,7 @@ export class AgentPortalService {
           expiresAt: normalized.prompt.expiresAt,
         });
       }
+      if (input.type === 'assistant_message' || input.type === 'waiting_input') await new ChatAttachments(this.db, this.keyring, this.env.DATA_ROOT ?? 'storage').link(tx, sessionId, chatMetadataSchema.parse({ attachments: normalized.payload.attachments, reply_to: normalized.payload.reply_to }), `agent:${sessionId}`);
       await tx.insert(agentEvents).values({
         sessionId,
         clientEventId,
@@ -1369,6 +1407,24 @@ export class AgentPortalService {
         .limit(1);
       const row = inserted[0];
       if (!row) throw new ServiceUnavailableError('Agent event insert was not readable', 'agent_event_write_failed');
+      if (normalized.payload.severity && normalized.payload.notice_id) {
+        const id = String(normalized.payload.notice_id);
+        const [old] = await tx.select().from(agentChatNotices).where(eq(agentChatNotices.id, id)).for('update');
+        if (old && old.sessionId !== sessionId) throw new ConflictError('Notice belongs to another conversation');
+        const values = { severity: String(normalized.payload.severity), payloadEnc: this.encodeJson(normalized.payload), eventId: row.id, resolvedAt: null };
+        if (old) await tx.update(agentChatNotices).set(values).where(eq(agentChatNotices.id, id));
+        else await tx.insert(agentChatNotices).values({ id, sessionId, ...values, createdAt: now });
+      }
+      if (input.type === 'attention_resolved' && normalized.payload.notice_id) {
+        const [target] = await tx.select().from(agentChatNotices).where(eq(agentChatNotices.id, String(normalized.payload.notice_id))).for('update');
+        const files = new ChatAttachments(this.db, this.keyring, this.env.DATA_ROOT ?? 'storage');
+        if (!target || await files.conversationKey(target.sessionId, tx) !== await files.conversationKey(sessionId, tx)) throw new NotFoundError('Notice not found');
+        await tx.update(agentChatNotices).set({ resolvedAt: now }).where(eq(agentChatNotices.id,target.id));
+        await tx.update(agentSessions).set({ expiresAt: isoOffsetSeconds(this.env.AGENT_PORTAL_RETENTION_HOURS * 3600, new Date(now)) }).where(and(eq(agentSessions.id,target.sessionId),lt(agentSessions.expiresAt,now)));
+        // Start the existing retention window after resolving a retained notice.
+        // This also keeps an acknowledgement retry visible after the last notice closes.
+        if (session.expiresAt && session.expiresAt <= now) await tx.update(agentSessions).set({ expiresAt: isoOffsetSeconds(this.env.AGENT_PORTAL_RETENTION_HOURS * 3600, new Date(now)) }).where(eq(agentSessions.id, sessionId));
+      }
       if (normalized.prompt) {
         await tx.update(agentPrompts).set({ eventId: row.id }).where(eq(agentPrompts.id, normalized.prompt.id));
       }
@@ -1540,10 +1596,15 @@ export class AgentPortalService {
     }
   }
 
+  private async hasOpenNotice(db: AgentPortalDb, id: string) {
+    return (await db.select({ id: agentChatNotices.id }).from(agentChatNotices).where(and(eq(agentChatNotices.sessionId, id), isNull(agentChatNotices.resolvedAt))).limit(1)).length > 0;
+  }
+
   private async requireVisibleSession(id: string): Promise<AgentSession> {
     const rows = await this.db.select().from(agentSessions).where(eq(agentSessions.id, id)).limit(1);
     const session = rows[0];
-    if (!session || (session.expiresAt && session.expiresAt <= nowIso())) throw new NotFoundError('Agent session not found', 'agent_session_not_found');
+    if (!session) throw new NotFoundError('Agent session not found', 'agent_session_not_found');
+    if (session.expiresAt && session.expiresAt <= nowIso() && !(await this.hasOpenNotice(this.db, id))) throw new NotFoundError('Agent session not found', 'agent_session_not_found');
     return session;
   }
 
@@ -1599,7 +1660,7 @@ export class AgentPortalService {
       .limit(1)
       .for('update');
     const session = rows[0];
-    if (!session || (session.expiresAt && session.expiresAt <= now)) {
+    if (!session || (session.expiresAt && session.expiresAt <= now && !(await this.hasOpenNotice(db, id)))) {
       throw new NotFoundError('Agent session not found', 'agent_session_not_found');
     }
     return session;
@@ -1743,6 +1804,21 @@ export class AgentPortalService {
   }
 
   /** A retry must match the authenticated author, operation and content. */
+  private assertMetadata(message: AgentMessage, requested: ChatMetadata) {
+    const stored = message.metadataEnc ? this.decodeJson(message.metadataEnc, {}) : {};
+    if (JSON.stringify(stored) !== JSON.stringify(requested)) throw new ConflictError('Message retry metadata differs', 'agent_message_idempotency_conflict');
+  }
+
+  async resolveNotice(actor: PortalActor, sessionId: string, noticeId: string, clientEventId: string) {
+    const now = nowIso();
+    const [notice] = await this.db.select().from(agentChatNotices).where(eq(agentChatNotices.id, noticeId));
+    const files = new ChatAttachments(this.db, this.keyring, this.env.DATA_ROOT ?? 'storage');
+    if (!notice || await files.conversationKey(notice.sessionId) !== await files.conversationKey(sessionId)) throw new NotFoundError('Notice not found');
+    sessionId = notice.sessionId;
+    await this.db.transaction(tx => this.requireActorLocked(tx, actor, now));
+    return this.addEventInternal(sessionId, { clientEventId, type: 'attention_resolved', source: 'portal', payload: { notice_id: noticeId, summary: 'Marked resolved by the operator.' } });
+  }
+
   private assertMessageIdempotency(
     row: AgentMessage,
     actor: ResolvedActor,
@@ -2104,7 +2180,7 @@ function normalizeEvent(type: AgentEventType, input: Record<string, unknown>): N
     return { payload };
   }
   if (type === 'user_message' || type === 'assistant_message') {
-    const text = normalizeRequiredText(input.text, 'text', AGENT_PORTAL_EVENT_TEXT_MAX_BYTES);
+    const text = Array.isArray(input.attachments) && input.attachments.length && input.text === '' ? '' : normalizeRequiredText(input.text, 'text', AGENT_PORTAL_EVENT_TEXT_MAX_BYTES);
     payload.text = text;
   }
   const summary = normalizeOptionalText(input.summary, 1000);
@@ -2112,7 +2188,14 @@ function normalizeEvent(type: AgentEventType, input: Record<string, unknown>): N
   if ((type === 'completed' || type === 'failed') && WATCHDOG_FAILURES.includes(input.watchdog_failure as WatchdogFailure)) payload.watchdog_failure = input.watchdog_failure;
   // Resolution is self-authored timeline evidence, never a prompt answer or
   // an operator message. Ignore unrelated payload fields on this event.
+  if (input.notice_id !== undefined) payload.notice_id = normalizeUuid(input.notice_id, 'notice_id');
   if (type === 'attention_resolved') return { payload };
+  if (input.severity !== undefined && (type === 'attention' || type === 'waiting_input' || type === 'assistant_message')) {
+    payload.severity = severitySchema.parse(input.severity);
+    payload.notice_id = normalizeUuid(input.notice_id, 'notice_id');
+    if (!summary) throw new ValidationError('Urgent notices require a summary');
+  }
+  if (type === 'user_message' || type === 'assistant_message' || type === 'waiting_input') Object.assign(payload, chatMetadataSchema.parse({ attachments: input.attachments, reply_to: input.reply_to, choice_value: input.choice_value }));
   const messageId = normalizeOptionalText(input.message_id, 64);
   if (messageId) payload.message_id = messageId;
   const promptId = normalizeOptionalText(input.prompt_id, 36);
@@ -2129,10 +2212,11 @@ function normalizeEvent(type: AgentEventType, input: Record<string, unknown>): N
     payload.question = question;
     const allowAnswer = input.allow_answer !== false;
     payload.allow_answer = allowAnswer;
-    const options = Array.isArray(input.options)
-      ? input.options.slice(0, 20).map((value) => normalizeRequiredText(String(value), 'options', 500))
-      : [];
+    let config: ReturnType<typeof promptChoices>;
+    try { config = promptChoices(input); } catch { throw new ValidationError('Invalid question choices or answer mode'); }
+    const options = config.choices.map(c => c.label);
     if (options.length) payload.options = options;
+    if (input.answer_mode !== undefined || input.choices !== undefined) { payload.answer_mode = config.mode; payload.choices = config.choices; }
     if (allowAnswer) {
       const promptId = normalizeUuid(input.prompt_id, 'prompt_id');
       return {
@@ -2141,6 +2225,8 @@ function normalizeEvent(type: AgentEventType, input: Record<string, unknown>): N
           id: promptId,
           question,
           options,
+          answerMode: config.mode,
+          choices: config.choices,
           expiresAt: typeof input.expires_at === 'string' && parseIso(input.expires_at) ? input.expires_at : null,
         },
       };

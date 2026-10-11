@@ -50,7 +50,16 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
     var status by mutableStateOf("Connecting…"); private set
     val connecting get() = connection != null && !online && status == "Connecting…" && error == null
     var busy by mutableStateOf(false); private set
-    var draft by mutableStateOf("")
+    private var chatDrafts by mutableStateOf<Map<String,String>>(emptyMap())
+    var draft: String
+        get() = chatDrafts[selected] ?: ""
+        set(value) { selected?.let { chatDrafts = chatDrafts + (it to value) } }
+    var chatUploads by mutableStateOf<Map<String,List<ChatUpload>>>(emptyMap()); private set
+    var replyTargets by mutableStateOf<Map<String,Long>>(emptyMap()); private set
+    private val uploadJobs = mutableMapOf<String,Job>()
+    private data class ChatSend(val target:String,val text:String,val metadata:String,val uuid:String,val version:Int?)
+    private val chatSends = mutableMapOf<String,ChatSend>()
+    private val noticeOperations = mutableMapOf<String,String>()
     var defaultMinutes by mutableStateOf(480); private set
     var highlightApproval by mutableStateOf<String?>(null); private set
     private var foreground = false
@@ -294,7 +303,7 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
     fun openSession(id: String) {
         if (!canReadSession(id)) { notice = "Conversation is no longer available"; return }
         revision++
-        selected = id; events = emptyList(); eventsLoaded = false; draft = ""; pendingSend = null
+        selected = id; events = emptyList(); eventsLoaded = false; pendingSend = null
         invalidate(setOf("agents"))
         viewModelScope.launch {
             try { updatePresence() } catch (e: Exception) { failure(e) }
@@ -307,20 +316,83 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
         if (foreground && connection != null) viewModelScope.launch { runCatching { updatePresence() } }
     }
     fun follow(id: String, value: Boolean) { mutate { api().request("/agents/$id/follow", "PUT", JSONObject().put("followed", value)); follows = if (value) follows + id else follows - id } }
-    fun send(prompt: JSONObject? = null) {
+    fun replyTo(cursor: Long?) { val id=selected ?: return; replyTargets = if(cursor == null) replyTargets - id else replyTargets + (id to cursor) }
+    fun chatError(message:String) { error=message }
+    fun addChatFile(session:String, uri:android.net.Uri) {
+        viewModelScope.launch { try { val (file,name,mime) = copyChatFile(getApplication(),uri); addCapturedFile(session,file,name,mime) } catch(e:Exception) { chatError(e.message ?: "Cannot read file") } }
+    }
+    fun addCapturedFile(session:String,file:java.io.File,name:String,mime:String) {
+        val current=chatUploads[session] ?: emptyList()
+        if(current.size >= 10 || file.length() !in 1..CHAT_FILE_LIMIT || current.sumOf { it.file.length() } + file.length() > CHAT_TOTAL_LIMIT) { file.delete(); chatError("Attachment limit exceeded"); return }
+        val item=ChatUpload(UUID.randomUUID().toString(),file,name,mime)
+        chatUploads=chatUploads + (session to (current + item)); retryChatUpload(session,item)
+    }
+    fun retryChatUpload(session:String,item:ChatUpload) {
+        if(uploadJobs[item.id]?.isActive == true) return
+        val client=api()
+        fun update(progress:Float,state:String,error:String?=null) { chatUploads=chatUploads + (session to (chatUploads[session] ?: emptyList()).map { if(it.id == item.id) it.copy(progress=progress,state=state,error=error) else it }) }
+        uploadJobs[item.id]=viewModelScope.launch {
+            update(item.progress,"uploading")
+            try {
+                val base="/agents/$session/attachments"
+                val digest=kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { val hash=java.security.MessageDigest.getInstance("SHA-256"); item.file.inputStream().use { input -> val buffer=ByteArray(65536); while(true) { val count=input.read(buffer); if(count<0) break; hash.update(buffer,0,count) } }; hash.digest().joinToString("") { "%02x".format(it) } }
+                val created=client.request(base,"POST",JSONObject().put("id",item.id).put("name",item.name).put("mime_type",item.mime).put("size_bytes",item.file.length()).put("sha256",digest))
+                var offset=created.optLong("uploaded_bytes")
+                while(offset < item.file.length()) {
+                    val bytes=kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { java.io.RandomAccessFile(item.file,"r").use { input -> input.seek(offset); ByteArray(minOf(4*1024*1024L,item.file.length()-offset).toInt()).also { input.readFully(it) } } }
+                    val next=client.request("$base/${item.id}/chunks","POST",JSONObject().put("offset",offset).put("content_b64",android.util.Base64.encodeToString(bytes,android.util.Base64.NO_WRAP)))
+                    offset=next.getLong("uploaded_bytes"); update(offset.toFloat()/item.file.length(),"uploading")
+                }
+                client.request("$base/${item.id}/seal","POST"); update(1f,"ready")
+            } catch(e:CancellationException) { throw e }
+            catch(e:Exception) { update(item.progress,"failed",e.message ?: "Upload failed") }
+        }
+    }
+    fun removeChatUpload(session:String,id:String) {
+        uploadJobs.remove(id)?.cancel()
+        val item=chatUploads[session]?.find { it.id == id }
+        chatUploads=chatUploads + (session to (chatUploads[session] ?: emptyList()).filter { it.id != id })
+        viewModelScope.launch { runCatching { api().request("/agents/$session/attachments/$id","DELETE") }; item?.file?.delete() }
+    }
+    suspend fun chatAttachmentInfo(session:String,id:String) = api().request("/agents/$session/attachments/$id")
+    suspend fun downloadChatAttachment(session:String,id:String):java.io.File {
+        val dir=java.io.File(getApplication<Application>().cacheDir,"chat-downloads").apply { mkdirs() }
+        val file=java.io.File(dir,"${connection!!.deviceId}-$id")
+        if(file.exists()) return file
+        val info=chatAttachmentInfo(session,id)
+        api().download("/agents/$session/attachments/$id/content",file)
+        val actual=kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { val hash=java.security.MessageDigest.getInstance("SHA-256"); file.inputStream().use { input -> val buf=ByteArray(65536);while(true){val n=input.read(buf);if(n<0)break;hash.update(buf,0,n)} }; hash.digest().joinToString("") { "%02x".format(it) } }
+        if(actual != info.optString("sha256")) { file.delete(); error("Attachment checksum mismatch") }
+        return file
+    }
+    fun saveChatAttachment(file:java.io.File,uri:android.net.Uri) {
+        mutate { kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            getApplication<Application>().contentResolver.openOutputStream(uri)?.use { output -> file.inputStream().use { it.copyTo(output) } } ?: error("Cannot save file")
+        };notice="File saved" }
+    }
+    fun resolveChatNotice(session:String,id:String) {
+        val operation=noticeOperations.getOrPut(id) { UUID.randomUUID().toString() }
+        mutate { api().request("/agents/$session/notices/resolve","POST",JSONObject().put("notice_id",id).put("client_event_id",operation)); notice="Marked resolved" }
+    }
+    fun send(prompt: JSONObject? = null, choiceValue:String? = null) {
         val id = selected ?: return
-        if (reachable().none { it.optString("id") == id }) { error = "Agent is no longer reachable"; return }
-        val text = draft.trim(); if (text.isEmpty()) return
-        val target = if (prompt != null) "/agents/$id/prompts/${prompt.getString("id")}/answer" else "/agents/$id/messages"
-        val prior = pendingSend
-        val uuid = if (prior?.first == target && prior.second == text) prior.third else UUID.randomUUID().toString()
-        pendingSend = Triple(target, text, uuid)
+        if (!canSendSession(id)) { error = "Agent is no longer reachable"; return }
+        val text = draft.trim(); val items=chatUploads[id] ?: emptyList()
+        if(text.isEmpty() && items.isEmpty()) return
+        if(items.any { it.state != "ready" }) { error="Finish or remove pending uploads"; return }
+        val metadata=JSONObject().put("attachments",JSONArray(items.map { it.id }))
+        replyTargets[id]?.let { metadata.put("reply_to",it) }; choiceValue?.let { metadata.put("choice_value",it) }
+        val previous=chatSends[id]
+        val intent=if(previous != null && (prompt == null || previous.target.contains("/${prompt.optString("id")}/")) && previous.text == text && previous.metadata == metadata.toString()) previous else ChatSend(
+            if(prompt != null) "/agents/$id/prompts/${prompt.getString("id")}/answer" else "/agents/$id/messages", text,metadata.toString(),UUID.randomUUID().toString(),prompt?.optInt("version",1))
+        chatSends[id]=intent
         mutate {
-            val body = JSONObject().put("client_message_id", uuid).put(if (prompt == null) "content" else "answer", text)
-            if (prompt != null) body.put("version", prompt.optInt("version", 1))
-            api().request(target, "POST", body)
-            if (selected == id) { draft = ""; pendingSend = null }
-            follows = follows + id; notice = "Sent"
+            val body=JSONObject().put("client_message_id",intent.uuid).put(if(intent.version != null) "answer" else "content",intent.text).put("metadata",JSONObject(intent.metadata))
+            intent.version?.let { body.put("version",it) }
+            api().request(intent.target,"POST",body)
+            if(selected == id && draft.trim() == intent.text) draft=""
+            chatSends.remove(id); chatUploads=chatUploads - id; replyTargets=replyTargets - id
+            items.forEach { it.file.delete() }; follows=follows + id; notice="Sent"
         }
     }
     fun startHost(hostId: Long, engine: String, task: String, title: String, cwd: String, onSuccess: () -> Unit) {
@@ -367,6 +439,9 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
     } }
     fun logout() { mutate { api().request("/device", "DELETE"); clearConnection() } }
     private fun clearConnection() {
+        uploadJobs.values.forEach { it.cancel() }; uploadJobs.clear()
+        chatUploads.values.flatten().forEach { it.file.delete() }; chatUploads=emptyMap(); chatDrafts=emptyMap(); replyTargets=emptyMap(); chatSends.clear(); noticeOperations.clear()
+        java.io.File(getApplication<Application>().cacheDir,"chat-downloads").deleteRecursively()
         store.clear(); connection = null; selected = null; events = emptyList(); agents = emptyList(); hosts = emptyList(); pendingStart = null; approvals = emptyList(); capabilities = emptySet()
         unreadStore.clear(); unreadSessions = emptySet(); unreadReplyCounts = emptyMap(); permissionsKnown = false
         syncUnreadNotifications(getApplication(), null, emptySet())

@@ -171,8 +171,9 @@ export function groupFor(agent: Agent, now: number): GroupKey {
   // the whole retention window. The server stops reporting attention for a
   // terminal session and this is the same rule applied locally, which also
   // covers the poll interval during which the client still holds the old row.
+  if (agent.attention?.severity) return "attention";
   if (presence === "ended") return "ended";
-  if (agent.attention || agent.pending_prompt) return "attention";
+  if (agent.attention || (agent.pending_prompt && !agent.pending_prompt.answer_mode)) return "attention";
   return presence;
 }
 

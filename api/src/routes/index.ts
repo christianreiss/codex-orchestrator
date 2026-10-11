@@ -1,3 +1,4 @@
+import { registerAgentChatRoutes } from './agent-chat.js';
 import { registerHostSpawnRoutes } from './host-spawn.js';
 import { registerHousekeepingRoutes } from './session-housekeeping.js';
 import { registerAdminChattyRoutes } from './admin/chatty/index.js';
@@ -57,6 +58,7 @@ export async function registerAllRoutes(app: FastifyInstance, ctx: RouteContext)
   await registerHostDaemonRoutes(app, ctx);
   await registerHostSpawnRoutes(app, ctx);
   await registerCompanionRoutes(app, ctx);
+  await registerAgentChatRoutes(app, ctx);
 
   // Host-facing wrapper + auth surface
   await registerHostApiRoutes(app, ctx);

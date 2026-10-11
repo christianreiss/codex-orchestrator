@@ -44,6 +44,13 @@ class ChatPresentationTest {
         assertFalse(messages[1].joinsNext); assertFalse(messages[2].joinsPrevious)
     }
 
+    @Test fun attachmentOnlyMessagesRemainVisibleWithoutTurningTransportEventsIntoMessages() {
+        val attachment=JSONObject().put("cursor",9).put("type","assistant_message").put("payload",JSONObject().put("text","").put("attachments",org.json.JSONArray().put("file-id")))
+        assertEquals(1,chatRows(listOf(attachment)).filterIsInstance<ChatRow.Message>().size)
+        attachment.put("type","message_accepted")
+        assertTrue(chatRows(listOf(attachment)).isEmpty())
+    }
+
     @Test fun changingClockDoesNotCreateDuplicateListKeys() {
         val rows = chatRows(listOf(
             message(1, "assistant_message", "2026-10-07T21:59:00Z"),

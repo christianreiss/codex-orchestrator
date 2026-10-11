@@ -1,3 +1,5 @@
+import { ChatAttachments } from '../agent-chat/attachments.js';
+import { validAnswer, type ChatMetadata } from '../agent-chat/contracts.js';
 import { randomUUID, createHash } from 'node:crypto';
 import { and, eq, inArray, asc, desc, sql } from 'drizzle-orm';
 import type { RouteContext } from '../../routes/index.js';
@@ -32,6 +34,7 @@ export interface PortalDaemonInput {
   deviceId: string;
   content: string;
   author: string;
+  metadata?: ChatMetadata;
   promptId?: string;
   version?: number;
 }
@@ -184,6 +187,7 @@ export class HostDaemonService {
         payloadEnc: encrypt(
           JSON.stringify({
             text: input.content,
+            ...(input.metadata ?? {}),
             author: input.author,
             message_id: operationId,
             delivery_status: 'queued',
@@ -468,11 +472,14 @@ export class HostDaemonService {
             throw new ConflictError('Prompt was already answered', 'already_answered');
           if (portalInput.version !== undefined && question.version !== portalInput.version)
             throw new ConflictError('Prompt version changed', 'prompt_version_conflict');
+          const choices = question.choicesEnc ? JSON.parse(decrypt(question.choicesEnc, this.ctx.keyring)) : (question.optionsEnc ? JSON.parse(decrypt(question.optionsEnc, this.ctx.keyring)).map((value: string) => ({ label: value, value })) : []);
+          if (!validAnswer(question.answerMode ?? 'both', choices, portalInput.content, portalInput.metadata?.choice_value)) throw new ValidationError('Invalid question answer');
           await tx
             .update(agentPrompts)
             .set({ status: 'answered', answeredAt: now(), version: question.version + 1 })
             .where(eq(agentPrompts.id, question.id));
         }
+        await new ChatAttachments(this.ctx.db, this.ctx.keyring, this.ctx.env.DATA_ROOT ?? 'storage').link(tx, locked.sessionId, portalInput.metadata ?? {}, owner);
         await this.portalInputEvent(tx, locked.sessionId, opId, portalInput);
         await tx
           .insert(companionDaemonFollows)

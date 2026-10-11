@@ -269,6 +269,14 @@ describe('the exceptions are exceptions, not holes', () => {
     // is the fleet's conversations, and for the writes it is instructing, or
     // ending, someone else's running agent.
     expect([...ALWAYS_ENFORCED_ROUTES].sort()).toEqual([
+      'POST /admin/agent-sessions/:id/attachments',
+      'POST /admin/agent-sessions/:id/attachments/:attachmentId/chunks',
+      'POST /admin/agent-sessions/:id/attachments/:attachmentId/seal',
+      'GET /admin/agent-sessions/:id/attachments/:attachmentId',
+      'GET /admin/agent-sessions/:id/attachments/:attachmentId/content',
+      'DELETE /admin/agent-sessions/:id/attachments/:attachmentId',
+      'POST /admin/agent-sessions/:id/notices/resolve',
+
       'DELETE /admin/chatty/session',
       'GET /admin/chatty/events',
       'GET /admin/chatty/session',

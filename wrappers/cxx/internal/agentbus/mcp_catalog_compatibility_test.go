@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -30,7 +31,7 @@ func TestMCPCatalogCompatibility(t *testing.T) {
 	if err := json.Unmarshal(toolCatalogJSON(), &catalog); err != nil {
 		t.Fatal(err)
 	}
-	if len(catalog) != 40 {
+	if len(catalog) != 45 {
 		t.Fatalf("review new tools: got %d", len(catalog))
 	}
 	// Optional export lets the real Grok MCP doctor load exactly this catalogue
@@ -57,6 +58,17 @@ func TestMCPCatalogCompatibility(t *testing.T) {
 				args["to"] = []any{"agent:fixture"}
 			case "agent_receiver_status":
 				args["status"] = "working"
+			case "agent_attachment_upload":
+				path := t.TempDir() + "/fixture.txt"
+				if err := os.WriteFile(path, []byte("fixture"), 0600); err != nil {
+					t.Fatal(err)
+				}
+				args["path"] = path
+				args["upload_id"] = "11111111-1111-4111-8111-111111111111"
+				args["mime_type"] = "text/plain"
+			case "agent_attachment_get":
+				args["attachment_id"] = "11111111-1111-4111-8111-111111111111"
+				args["variant"] = "transcript.json"
 			case "agent_task_result":
 				args["task_result"] = map[string]any{"status": "succeeded", "summary": "fixture"}
 			}
@@ -67,6 +79,9 @@ func TestMCPCatalogCompatibility(t *testing.T) {
 				client := &sessionClient{id: "fixture", http: &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
 					requests++
 					code, body := 200, `{}`
+					if tool.Name == "agent_attachment_get" {
+						body = `{"done":true,"content_b64":"Zml4dHVyZQ=="}`
+					}
 					if fail {
 						code, body = 400, `{"error":"fixture service failure"}`
 					}
@@ -103,6 +118,19 @@ func TestMCPCatalogCompatibility(t *testing.T) {
 				}
 				if len(wire.Result.Content) != 1 || wire.Result.Content[0].Type != "text" {
 					t.Fatalf("invalid content: %s", raw)
+				}
+				if tool.Name == "agent_attachment_get" && !fail {
+					var downloaded struct {
+						Result struct {
+							StructuredContent struct {
+								Path string `json:"local_path"`
+							} `json:"structuredContent"`
+						} `json:"result"`
+					}
+					_ = json.Unmarshal(raw, &downloaded)
+					if downloaded.Result.StructuredContent.Path != "" {
+						t.Cleanup(func() { _ = os.RemoveAll(filepath.Dir(downloaded.Result.StructuredContent.Path)) })
+					}
 				}
 				if requests == 0 {
 					t.Fatalf("handler never reached fake broker: %s", raw)

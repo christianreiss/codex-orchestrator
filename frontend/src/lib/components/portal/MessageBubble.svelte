@@ -3,6 +3,7 @@
   import { eventText } from "$lib/portal/grouping";
   import { deliveryFor, DELIVERY_LABEL, type Delivery, type DeliveryActivity } from "$lib/portal/delivery";
   import { clockTime } from "$lib/portal/browser";
+  import AttachmentList from "./AttachmentList.svelte";
   import MarkdownBody from "./MarkdownBody.svelte";
 
   let {
@@ -14,6 +15,8 @@
     showDelivery,
     activity,
     now,
+    session,
+    onreply,
   }: {
     event: EventRow;
     role: "you" | "agent";
@@ -23,6 +26,8 @@
     showDelivery: boolean;
     activity?: DeliveryActivity;
     now?: number;
+    session?: string;
+    onreply?: (cursor:number)=>void;
   } = $props();
 
   const delivery = $derived(showDelivery ? deliveryFor(event, deliveryIndex, activity, now) : null);
@@ -35,12 +40,15 @@
            {role === 'you' ? 'bubble-you' : 'bubble-agent'} {endsGroup ? 'bubble-tail' : ''}"
     title={time}
   >
+    {#if event.payload.reply_to}<p class="mb-1 border-l-2 pl-2 text-xs opacity-70">Reply to message #{String(event.payload.reply_to)}</p>{/if}
     {#if role === "agent"}
       <MarkdownBody text={eventText(event)} />
     {:else}
       <!-- Operator text is never markdown: people type * and _ literally. -->
       <p class="whitespace-pre-wrap break-words text-body">{eventText(event)}</p>
     {/if}
+    {#if session && Array.isArray(event.payload.attachments)}<AttachmentList {session} ids={event.payload.attachments as string[]} />{/if}
+    <div class="mt-1 flex gap-2 text-xs opacity-60"><button type="button" onclick={() => navigator.clipboard.writeText(eventText(event))}>Copy</button>{#if onreply}<button type="button" onclick={() => onreply?.(event.cursor)}>Reply</button>{/if}</div>
     <time class="sr-only" datetime={event.created_at}>{time}</time>
   </div>
 

@@ -295,8 +295,10 @@ internal fun showCompanionNotification(context: Context, data: Map<String, Strin
     if (!notificationsAllowed(context) || !channelAllowed(context.getSystemService(NotificationManager::class.java), channel)) return
     if (seen.contains(id)) return
     val summary = if (approval) "Open to review and approve or deny." else compactSummary(data["summary"]) ?: "Agent attention requested."
+    val severity = data["severity"]?.takeIf { it in setOf("important","critical","blocker") }
+    val title = if(approval) "Host access requested" else if(severity != null) "Needs you · $severity" else "Agent update"
     val notification = NotificationCompat.Builder(context, channel)
-        .setSmallIcon(R.drawable.ic_companion).setContentTitle(if (approval) "Host access requested" else "Agent update")
+        .setSmallIcon(R.drawable.ic_companion).setContentTitle(title)
         .setContentText(summary).setStyle(NotificationCompat.BigTextStyle().bigText(summary))
         .setContentIntent(notificationIntent(context, scope, if (approval) "approval" else "agent", target))
         .setAutoCancel(true).setVisibility(NotificationCompat.VISIBILITY_PRIVATE).build()

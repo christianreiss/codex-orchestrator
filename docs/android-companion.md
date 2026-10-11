@@ -422,3 +422,9 @@ delivery to the agent bridge. Working also requires a fresh snapshot and matchin
 active turn; offline or newer turns retain the historical read receipt. Replies must
 name that message ID. Older hosts remain at delivered until a correlated reply arrives.
 Receipt events do not generate push notifications or release the operator instruction.
+
+## Agent chat in Android 0.4.13
+
+Chats use the existing paired operator/daemon identity and history. Questions support buttons, text or both; button labels may differ from stable answer values. Needs you means explicitly important, critical or blocker, with one Resolve action per notice. An unresolved notice stays visible for offline/ended agents; viewing or answering never clears it.
+
+Attach files/photos through Android's document picker, capture a photo/video, or record audio after microphone permission. Uploads show progress and support cancel/retry with the same upload ID. Defaults are ten files, 100 MiB/file, 250 MiB total and 15 minutes per recording. Incoming pictures have a full-image viewer; audio/video play locally and files can open in another installed app. Automatic local ASR and video frames are prepared by the server worker for agent inspection. Failures retain the original. Drafts and upload intent survive switching conversations; confirmed sends clear their own draft and attachments. Agent replies render native Markdown text/code and offer Copy/Reply with an event reference. No Pixel installation was performed for this release.

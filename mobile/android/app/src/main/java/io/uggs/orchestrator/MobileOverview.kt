@@ -10,10 +10,11 @@ fun isReachable(agent: JSONObject): Boolean = agent.optBoolean("relay_ready", fa
 fun isClosedAgent(agent: JSONObject): Boolean = agent.optString("presence") == "ended" ||
     (agent.optBoolean("daemon_session") && agent.optString("remote_status") in setOf("closed", "failed", "unknown"))
 
-fun isOverviewAgent(agent: JSONObject): Boolean = !isClosedAgent(agent) &&
+fun isOverviewAgent(agent: JSONObject): Boolean = hasUrgentNotice(agent) || !isClosedAgent(agent) &&
     (agent.optBoolean("daemon_session") || isReachable(agent))
 
-fun needsReply(agent: JSONObject) = agent.optJSONObject("pending_prompt") != null || agent.optJSONObject("attention") != null
+fun hasUrgentNotice(agent: JSONObject) = agent.optJSONObject("attention")?.optString("severity") in listOf("important","critical","blocker")
+fun needsReply(agent: JSONObject) = agent.optJSONObject("attention") != null || (agent.optJSONObject("pending_prompt")?.let { !it.has("answer_mode") } ?: false)
 
 fun readyAgents(agents: List<JSONObject>) = agents.filter(::isReachable)
     .sortedWith(compareByDescending<JSONObject> { it.optJSONObject("pending_prompt") != null }
@@ -62,5 +63,5 @@ fun durationLabel(minutes: Int) = if (minutes >= 60 && minutes % 60 == 0) "${min
 
 fun conversationEvents(events: List<JSONObject>) = events.filter {
     it.optString("type") in setOf("user_message", "assistant_message") &&
-        !it.optJSONObject("payload")?.optString("text").isNullOrBlank()
+        (!it.optJSONObject("payload")?.optString("text").isNullOrBlank() || (it.optJSONObject("payload")?.optJSONArray("attachments")?.length() ?: 0) > 0)
 }

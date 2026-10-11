@@ -2069,3 +2069,35 @@ with its own host API key. The callback follows cxx's IPv4-first transport polic
 existing source-IP binding. This endpoint remains available for already installed
 targets when the spawn switch is turned off. Audit events contain source/target
 IDs and operation UUIDs, never installer tokens or host API keys.
+
+
+## Agent chat: attachments and explicit attention
+
+Existing operator-to-agent chat accepts optional `metadata` with `attachments` (up to ten UUIDs), `reply_to` (a conversation event cursor) and `choice_value` (a stable question choice value). Agent events accept attachments and reply references directly. `waiting_input` supplies `answer_mode: buttons|text|both` plus `choices: [{label,value}]`; legacy `options` remain supported. Buttons send the stable value. The first queued answer wins and exact retries are idempotent.
+
+`severity: important|critical|blocker` plus a stable `notice_id` classifies a message as Needs you. Ordinary questions do not imply urgency. Unresolved notices remain visible for offline/ended sessions and retain their existing conversation context until explicitly resolved. Opening a chat, answering a question or receiving another reply does not resolve these notices. Resolution names one notice. Push deduplicates per notice and severity; repeated identical notices do not create repeated alarms.
+
+Attachment uploads use a caller-generated UUID, declared filename/MIME/size and optional SHA-256. Create, upload base64 chunks of at most 4 MiB at the returned offset, then seal. Exact chunk retries are accepted; different bytes/metadata under an existing ID are rejected. Only sealed attachments from the authenticated author and same conversation may be attached to an event. Defaults: ten files, 100 MiB/file, 250 MiB/message, 15 minutes/media. Limits endpoints report effective file/message limits. Original bytes and names are preserved; downloads require the conversation's existing authorization and support HTTP byte ranges. Pending uploads expire after 24 hours; linked files follow conversation retention.
+
+- `GET /admin/agent-chat/limits` — Effective upload limits (admin session).
+- `GET /companion/v1/agent-chat/limits` — Effective upload limits (paired device).
+- `POST /admin/agent-sessions/:id/attachments` — Create/resume upload: {id,name,mime_type,size_bytes,sha256?}.
+- `POST /admin/agent-sessions/:id/attachments/:attachmentId/chunks` — Upload {offset,content_b64}; returns persisted uploaded_bytes.
+- `POST /admin/agent-sessions/:id/attachments/:attachmentId/seal` — Seal completed bytes after SHA-256 verification.
+- `GET /admin/agent-sessions/:id/attachments/:attachmentId` — Return name, MIME, size, SHA-256, upload offset and processing status.
+- `GET /admin/agent-sessions/:id/attachments/:attachmentId/content` — Stream original or ?variant=transcript.json|frame-NN.jpg; optional inline=1 for safe media.
+- `DELETE /admin/agent-sessions/:id/attachments/:attachmentId` — Discard the authenticated author's unlinked upload.
+- `POST /admin/agent-sessions/:id/notices/resolve` — Resolve {notice_id,client_event_id} explicitly; admin/device authorization.
+- `POST /companion/v1/agents/:id/attachments` — Create/resume upload: {id,name,mime_type,size_bytes,sha256?}.
+- `POST /companion/v1/agents/:id/attachments/:attachmentId/chunks` — Upload {offset,content_b64}; returns persisted uploaded_bytes.
+- `POST /companion/v1/agents/:id/attachments/:attachmentId/seal` — Seal completed bytes after SHA-256 verification.
+- `GET /companion/v1/agents/:id/attachments/:attachmentId` — Return name, MIME, size, SHA-256, upload offset and processing status.
+- `GET /companion/v1/agents/:id/attachments/:attachmentId/content` — Stream original or ?variant=transcript.json|frame-NN.jpg; optional inline=1 for safe media.
+- `DELETE /companion/v1/agents/:id/attachments/:attachmentId` — Discard the authenticated author's unlinked upload.
+- `POST /companion/v1/agents/:id/notices/resolve` — Resolve {notice_id,client_event_id} explicitly; admin/device authorization.
+- `POST /host/agent-sessions/:id/attachments` — Create/resume upload: {id,name,mime_type,size_bytes,sha256?}.
+- `POST /host/agent-sessions/:id/attachments/:attachmentId/chunks` — Upload {offset,content_b64}; returns persisted uploaded_bytes.
+- `POST /host/agent-sessions/:id/attachments/:attachmentId/seal` — Seal completed bytes after SHA-256 verification.
+- `POST /host/agent-sessions/:id/attachments/get` — Host bridge chunk download: {attachment_id,variant?,offset?}; base64 bytes, next_offset, done.
+
+Audio and video preparation runs locally in the isolated `media-worker` service with no network. The baked Whisper small model produces timestamped transcript JSON; video also produces up to twenty timestamped JPEG frames. Preparation failure leaves the original downloadable. Host bridge routes require the scoped bridge token, while admin and companion routes enforce transcript/manage capabilities even under compatible authorization.

@@ -655,7 +655,14 @@ func doJSON(ctx context.Context, client *http.Client, baseURL, method, path stri
 		return fmt.Errorf("agent portal %s %s: %w", method, path, err)
 	}
 	defer resp.Body.Close()
-	raw, readErr := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	limit := int64(1 << 20)
+	if strings.HasSuffix(path, "/attachments/get") {
+		limit = 6 << 20
+	}
+	raw, readErr := io.ReadAll(io.LimitReader(resp.Body, limit+1))
+	if int64(len(raw)) > limit {
+		return errors.New("agent portal response too large")
+	}
 	if readErr != nil {
 		return readErr
 	}

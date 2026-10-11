@@ -1,3 +1,7 @@
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { registerAgentChatRoutes } from '../../src/routes/agent-chat.js';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
@@ -8,6 +12,8 @@ import { runMigrations } from '../../src/db/migrator.js';
 import {
   adminUsers,
   agentEvents,
+  agentChatNotices,
+  agentChatAttachments,
   agentSessions,
   companionDevices,
   companionFollows,
@@ -44,6 +50,7 @@ describe.skipIf(!handle)('Android companion with real MySQL', { timeout: 120_000
   let userId: number;
   let hostId: number;
   let connection: Awaited<ReturnType<CompanionDevices['exchange']>>;
+  let chatRoot: string;
   let sessionId: string;
   let bridge: string;
   const portal = createAgentPortalService(db, env, ctx.keyring);
@@ -73,12 +80,14 @@ describe.skipIf(!handle)('Android companion with real MySQL', { timeout: 120_000
       updatedAt: nowIso(),
     });
     hostId = h.insertId;
+    chatRoot = await mkdtemp(join(tmpdir(),'companion-chat-')); ctx.env.DATA_ROOT = chatRoot;
     app.decorate('requireAdmin', async () => {});
     await app.register(envelopePlugin);
     await registerCompanionRoutes(app, {
       ...ctx,
       env: { ...env, COMPANION_FIREBASE_CREDENTIAL_FILE: undefined },
     });
+    await registerAgentChatRoutes(app,ctx);
     await app.ready();
     await portal.setEnabled(true);
     const [host] = await db.select().from(hosts).where(eq(hosts.id, hostId));
@@ -95,6 +104,9 @@ describe.skipIf(!handle)('Android companion with real MySQL', { timeout: 120_000
   });
   afterAll(async () => {
     await app.close();
+    await db.delete(agentChatNotices).where(eq(agentChatNotices.sessionId,sessionId));
+    await db.delete(agentChatAttachments).where(eq(agentChatAttachments.sessionId,sessionId));
+    await rm(chatRoot,{recursive:true,force:true});
     await portal.setEnabled(false);
     // Isolated test DB; keep source events for the other canonical integration suites.
     if (connection) {
@@ -170,6 +182,19 @@ describe.skipIf(!handle)('Android companion with real MySQL', { timeout: 120_000
     expect(
       await db.select().from(companionFollows).where(eq(companionFollows.deviceId, connection.device_id)),
     ).toHaveLength(1);
+  });
+  it('uploads attachment-only messages and authorizes byte-range media downloads', async () => {
+    const attachment = randomUUID(); const base = `/companion/v1/agents/${sessionId}/attachments`;
+    const post = (url:string,payload:unknown) => app.inject({method:'POST',url,headers:{authorization:authorization()},payload:payload as Record<string,unknown>});
+    expect((await post(base,{id:attachment,name:'sample.txt',mime_type:'text/plain',size_bytes:6})).statusCode).toBe(200);
+    expect((await post(`${base}/${attachment}/chunks`,{offset:0,content_b64:Buffer.from('abcdef').toString('base64')})).statusCode).toBe(200);
+    expect((await post(`${base}/${attachment}/seal`,{})).statusCode).toBe(200);
+    const message=await post(`/companion/v1/agents/${sessionId}/messages`,{client_message_id:randomUUID(),content:'',metadata:{attachments:[attachment]}});
+    expect(message.statusCode,message.body).toBe(202);
+    const partial=await app.inject({url:`${base}/${attachment}/content`,headers:{authorization:authorization(),range:'bytes=2-4'}});
+    expect(partial.statusCode,partial.body).toBe(206); expect(partial.body).toBe('cde'); expect(partial.headers['content-range']).toBe('bytes 2-4/6');
+    expect((await app.inject({url:`${base}/${attachment}/content`})).statusCode).toBe(401);
+    expect((await app.inject({url:`${base}/${attachment}/content`,headers:{authorization:authorization(),range:'bytes=99-100'}})).statusCode).toBe(416);
   });
   it('serializes competing desktop and mobile decisions', async () => {
     const [r] = await db
@@ -256,6 +281,32 @@ describe.skipIf(!handle)('Android companion with real MySQL', { timeout: 120_000
       (await db.select().from(companionDevices).where(eq(companionDevices.id, connection.device_id)))[0]!
         .fcmTokenEnc,
     ).toBeNull();
+  });
+  it('deduplicates urgency pushes by notice and severity and cancels resolved notices', async () => {
+    await db.update(companionDevices).set({fcmTokenEnc:encrypt('test-token',ctx.keyring)}).where(eq(companionDevices.id,connection.device_id));
+    const worker=new CompanionPush(ctx);const send=vi.spyOn(worker.transport,'send').mockResolvedValue('sent');
+    const notice=randomUUID();
+    const notify=(severity:string,summary:string) => portal.addAgentEvent(sessionId,bridge,{clientEventId:randomUUID(),type:'attention',source:'engine',payload:{notice_id:notice,severity,summary}});
+    await notify('important','Review this result.');await worker.tick();
+    await notify('important','Review this result.');await worker.tick();
+    expect(send.mock.calls.filter(c=>c[1].notice_id===notice)).toHaveLength(1);
+    expect(send.mock.calls.find(c=>c[1].notice_id===notice)?.[1].summary).toBe('Review this result.');
+    await notify('critical','The result is critical.');await worker.tick();
+    expect(send.mock.calls.filter(c=>c[1].notice_id===notice)).toHaveLength(2);
+    await notify('blocker','Blocked pending review.');
+    await portal.resolveNotice({kind:'admin',user:{id:userId,displayName:'Test'}},sessionId,notice,randomUUID());await worker.tick();
+    expect(send.mock.calls.filter(c=>c[1].notice_id===notice)).toHaveLength(2);
+  });
+  it('does not reveal classified notice content after transcript access is revoked', async () => {
+    const notice=randomUUID();await portal.addAgentEvent(sessionId,bridge,{clientEventId:randomUUID(),type:'attention',source:'engine',payload:{notice_id:notice,severity:'critical',summary:'Private classified summary'}});
+    await db.update(adminUsers).set({accessLevel:'viewer'}).where(eq(adminUsers.id,userId));
+    try {
+      const response=await app.inject({url:'/companion/v1/agents',headers:{authorization:authorization()}});
+      expect(response.statusCode,response.body).toBe(200);expect(response.body).not.toContain('Private classified summary');
+      expect(response.json().data.agents.find((a:{id:string})=>a.id===sessionId).notices).toEqual([]);
+    } finally {
+      await db.update(adminUsers).set({accessLevel:'owner'}).where(eq(adminUsers.id,userId));await portal.resolveNotice({kind:'admin',user:{id:userId,displayName:'Test'}},sessionId,notice,randomUUID());
+    }
   });
   it('projects renamed native sessions only with transcript permission without changing unread replies', async () => {
     const snapshot = async () => {

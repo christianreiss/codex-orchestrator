@@ -141,7 +141,11 @@ export class CompanionRemote {
     const projected: Array<Record<string, unknown>> = sessions.filter((s) => !aliases.has(String(s.id)));
     for (const row of rows) {
       // Established launches follow Portal's visibility/retention rules.
-      const bound = row.sessionId ? byId.get(row.sessionId) : undefined;
+      const related = bindings.filter(b => b.daemonSessionId === row.id).map(b => byId.get(b.portalSessionId)).filter((s): s is Record<string, unknown> => !!s);
+      const notices = related.flatMap(s => (s.notices ?? []) as Array<Record<string, unknown>>);
+      const rank: Record<string,number> = {important:1,critical:2,blocker:3};
+      notices.sort((a,b) => (rank[String(b.severity)] ?? 0) - (rank[String(a.severity)] ?? 0));
+      const bound = (row.sessionId ? byId.get(row.sessionId) : undefined) ?? (notices.length ? related[0] : undefined);
       if (row.sessionId && !bound) continue;
       const host = hosts.find((h) => h.host_id === row.hostId);
       if (!host?.engines.includes(row.engine) && !bound) continue;
@@ -179,6 +183,8 @@ export class CompanionRemote {
           (['idle', 'waiting'].includes(row.status) && !bound?.upstream_session_id),
         remote_status:
           ['idle', 'waiting'].includes(row.status) && !bound?.upstream_session_id ? 'unknown' : row.status,
+        notices,
+        attention: notices[0] ?? bound?.attention ?? null,
         pending_prompt: bound?.pending_prompt ?? null,
         last_event_at: bound?.last_event_at ?? row.createdAt,
         preview: null,

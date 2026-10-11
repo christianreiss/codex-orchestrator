@@ -38,7 +38,7 @@ import java.time.Instant
     var filter by rememberSaveable { mutableStateOf("all") }
     val keyboard = LocalSoftwareKeyboardController.current
     val search = query.trim()
-    fun attention(agent: JSONObject) = fresh && model.can("agent_portal.manage") && isReachable(agent) && needsReply(agent)
+    fun attention(agent: JSONObject) = fresh && model.can("agent_portal.manage") && needsReply(agent) && (hasUrgentNotice(agent) || isReachable(agent))
     // Filter only the already-authorized overview. Searching never fetches a
     // transcript or changes a read marker, and host approvals stay pinned.
     val visible = agents.filter { agent ->
@@ -159,7 +159,7 @@ import java.time.Instant
                     }
                     if (summary != null) Text(summary, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     if (agent.optBoolean("daemon_session") && summary == null) Text(remoteStatus(agent.optString("remote_status")), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    if (attention) Text("Reply needed", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                    if (attention) Text(agent.optJSONObject("attention")?.optString("severity")?.takeIf { it.isNotBlank() } ?: "Reply needed", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
                 }
                 Column(Modifier.align(Alignment.Top).padding(top = 2.dp), horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(5.dp)) {
                     Box(Modifier.heightIn(min = 18.dp)) {

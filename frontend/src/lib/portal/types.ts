@@ -34,6 +34,9 @@ export interface PendingPrompt {
   id: string;
   question: string;
   options: string[];
+  attachments?: string[];
+  answer_mode?: "buttons" | "text" | "both";
+  choices?: Array<{label:string;value:string}>;
   version: number;
   created_at: string;
 }
@@ -78,7 +81,8 @@ export interface Agent {
   ended_at: string | null;
   expires_at: string | null;
   read_only: boolean;
-  attention: { since: string; summary: string | null } | null;
+  notices?: Array<{id:string;severity:"important"|"critical"|"blocker";summary?:string;since:string}>;
+  attention: { id?:string; severity?:"important"|"critical"|"blocker"; since: string; summary: string | null } | null;
   close_requested_at: string | null;
   close: { requested_at: string; state: CloseState } | null;
   pending_prompt: PendingPrompt | null;

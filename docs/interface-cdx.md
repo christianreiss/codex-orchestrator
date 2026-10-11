@@ -1382,3 +1382,11 @@ See [the full reboot contract](reboot-resume.md) for state, failures and recover
 Server MCP exposes `host_spawn_prepare` / `host_spawn_status` to provision new systems from active VIP hosts when the fleet System Spawn switch is on. See [System Spawn](interface-api.md#system-spawn-new-system-provisioning) for setup and retry contracts. All engines use the same installer and optional system daemon. Wrapper 0.9.53 records timed daemon deadlines locally, fences new work after expiry and drains accepted work/results before exiting; reconnects and reboots do not renew the deadline. Provisioning itself never launches an agent task.
 
 Wrapper 0.9.55 renders the optional Linux daemon service with `WorkingDirectory=~`, so systemd resolves the configured service user's home directly (including homes containing spaces).
+
+## Rich operator agent chat (cxx 0.9.56)
+
+All three engines share five local MCP tools in managed lifecycles: `agent_portal_ask`, `agent_portal_notify`, `agent_portal_resolve`, `agent_attachment_upload` and `agent_attachment_get`. Reply tools also accept `attachments`, `reply_to`, `severity` and `notice_id`. The scope is the existing operator agent conversation; see [Agent chat](agent-chat.md).
+
+`cxx portal ask --question "Deploy this release?" --summary "Choose the release" --answer-mode buttons --choices '[{"label":"Approve","value":"approve"},{"label":"Cancel","value":"cancel"}]'` creates a normal question. Use `--answer-mode text` or `both` for free text. `--attachments '["UUID"]'` accepts already sealed attachments. `cxx portal notify --severity blocker --notice-id UUID --summary "Waiting for the release decision"` creates explicit Needs you. `cxx portal resolve --notice-id UUID --summary "Release reviewed"` clears only that notice. MCP operations require stable caller-generated event/prompt/notice/upload UUIDs retained on retries. The CLI retains its existing invocation behavior.
+
+`agent_attachment_get` returns a protected local path plus metadata/processing state. Read original images with native image tools; fetch `transcript.json` for local ASR and `frame-NN.jpg` for video inspection. Originals survive preparation failure. Update the wrapper and start/resume a managed lifecycle to load the new tool catalog; existing running older wrappers continue with their old catalog.

@@ -1,7 +1,12 @@
+import { ChatAttachments } from '../../../src/services/agent-chat/attachments.js';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { and, eq, sql } from 'drizzle-orm';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import {
+  agentChatNotices,
   agentEvents,
   agentMessages,
   adminUsers,
@@ -40,6 +45,8 @@ describe.skipIf(!handle)('agent portal durability against a real database', { ti
   const exec = async (query: string) => await db.execute(sql.raw(query));
 
   const cleanup = async (): Promise<void> => {
+    await exec(`DELETE FROM agent_chat_notices WHERE session_id IN (SELECT id FROM agent_sessions WHERE host_id = ${host?.id ?? 0})`);
+    await exec(`DELETE FROM agent_chat_attachments WHERE session_id IN (SELECT id FROM agent_sessions WHERE host_id = ${host?.id ?? 0})`);
     await exec(`DELETE FROM agent_messages WHERE admin_user_id IN (
       SELECT id FROM admin_users WHERE username LIKE '${PREFIX}%'
     )`);
@@ -120,6 +127,62 @@ describe.skipIf(!handle)('agent portal durability against a real database', { ti
       bridgeToken: registered.bridge_token,
     };
   }
+
+  describe('rich operator chat', () => {
+    it('keeps explicit urgency through answers and terminal state until targeted resolution', async () => {
+      const world = await makeWorld(); const noticeId = randomUUID();
+      await world.service.addAgentEvent(world.sessionId, world.bridgeToken, { clientEventId: randomUUID(), type: 'attention', source: 'engine', payload: { notice_id: noticeId, severity: 'blocker', summary: 'Deployment approval required' } });
+      await world.service.enqueueMessage(world.actor, { sessionId: world.sessionId, clientMessageId: randomUUID(), content: 'A different instruction' });
+      expect((await world.service.listAgents()).find(a => a.id === world.sessionId)?.attention).toMatchObject({ id: noticeId, severity: 'blocker' });
+      await world.service.finishAgent(world.sessionId, world.bridgeToken, { status: 'completed' });
+      expect((await world.service.listAgents()).find(a => a.id === world.sessionId)?.attention).toMatchObject({ id: noticeId });
+      await db.update(agentSessions).set({ expiresAt: '2000-01-01T00:00:00Z' }).where(eq(agentSessions.id, world.sessionId));
+      await world.service.purgeExpired();
+      expect((await world.service.listAgents()).find(a => a.id === world.sessionId)?.attention).toMatchObject({ id: noticeId });
+      const resolution=randomUUID(); await world.service.resolveNotice(world.actor,world.sessionId,noticeId,resolution);
+      // A lost response can retry the exact resolution before retention sweeps.
+      await world.service.resolveNotice(world.actor,world.sessionId,noticeId,resolution);
+      expect((await db.select().from(agentChatNotices).where(eq(agentChatNotices.id,noticeId)))[0]?.resolvedAt).toBeTruthy();
+    });
+    it.each(['buttons','text','both'])('enforces %s answers and preserves stable choice values', async mode => {
+      const world=await makeWorld(); const promptId=randomUUID();
+      await world.service.addAgentEvent(world.sessionId,world.bridgeToken,{ clientEventId:randomUUID(),type:'waiting_input',source:'engine',payload:{question:'Proceed?',prompt_id:promptId,answer_mode:mode,choices:[{label:'Proceed now',value:'proceed'}]} });
+      const snapshot=(await world.service.listAgents()).find(a=>a.id===world.sessionId)!;
+      expect(snapshot.pending_prompt).toMatchObject({answer_mode:mode,choices:[{label:'Proceed now',value:'proceed'}]});
+      expect(snapshot.attention).toBeNull();
+      if(mode==='buttons') await expect(world.service.answerPrompt(world.actor,{sessionId:world.sessionId,promptId,clientMessageId:randomUUID(),answer:'arbitrary'})).rejects.toThrow();
+      if(mode==='text') await expect(world.service.answerPrompt(world.actor,{sessionId:world.sessionId,promptId,clientMessageId:randomUUID(),answer:'proceed',metadata:{choice_value:'proceed'}})).rejects.toThrow();
+      const id=randomUUID(); const answer=mode==='text'?'Free form':'proceed'; const metadata=mode==='text'?{}:{choice_value:'proceed'};
+      const first=await world.service.answerPrompt(world.actor,{sessionId:world.sessionId,promptId,clientMessageId:id,answer,metadata});
+      const retry=await world.service.answerPrompt(world.actor,{sessionId:world.sessionId,promptId,clientMessageId:id,answer,metadata});
+      expect(retry.message_id).toBe(first.message_id);
+      await expect(world.service.answerPrompt(world.actor,{sessionId:world.sessionId,promptId,clientMessageId:randomUUID(),answer,metadata})).rejects.toThrow('already answered');
+    });
+    it('resumes upload, rejects conflicting bytes and sends attachment-only content once',async()=>{
+      const world=await makeWorld();const directory=await mkdtemp(join(tmpdir(),'chat-attachments-'));
+      const originalRoot=env.DATA_ROOT;env.DATA_ROOT=directory;
+      try {
+        const store=new ChatAttachments(db,testKeyring(),directory);const id=randomUUID();const owner=`admin:${world.userId}`;
+        await store.create(world.sessionId,owner,{id,name:'sample.txt',mime_type:'text/plain',size_bytes:6});
+        await store.put(world.sessionId,owner,id,0,Buffer.from('abc').toString('base64'));
+        const resumed=new ChatAttachments(db,testKeyring(),directory);
+        await resumed.put(world.sessionId,owner,id,0,Buffer.from('abc').toString('base64'));
+        await expect(resumed.put(world.sessionId,owner,id,0,Buffer.from('xyz').toString('base64'))).rejects.toThrow('differ');
+        // Simulate an fs write succeeding partially before its DB transaction commits.
+        await writeFile(resumed.path(id),'d',{flag:'a'});
+        await resumed.put(world.sessionId,owner,id,3,Buffer.from('def').toString('base64'));await resumed.seal(world.sessionId,owner,id);
+        const sendId=randomUUID(); const result=await world.service.enqueueMessage(world.actor,{sessionId:world.sessionId,clientMessageId:sendId,content:'',metadata:{attachments:[id]}});
+        const retry=await world.service.enqueueMessage(world.actor,{sessionId:world.sessionId,clientMessageId:sendId,content:'',metadata:{attachments:[id]}});expect(retry.message_id).toBe(result.message_id);
+        await expect(world.service.addAgentEvent(world.sessionId,world.bridgeToken,{clientEventId:randomUUID(),source:'engine',type:'assistant_message',payload:{text:'',attachments:[id]}})).rejects.toThrow('another sender');
+        const agentFile=randomUUID();await resumed.create(world.sessionId,`agent:${world.sessionId}`,{id:agentFile,name:'result.txt',mime_type:'text/plain',size_bytes:2});await resumed.put(world.sessionId,`agent:${world.sessionId}`,agentFile,0,Buffer.from('OK').toString('base64'));await resumed.seal(world.sessionId,`agent:${world.sessionId}`,agentFile);
+        await world.service.addAgentEvent(world.sessionId,world.bridgeToken,{clientEventId:randomUUID(),source:'engine',type:'assistant_message',payload:{text:'',attachments:[agentFile]}});
+        const claimed=await world.service.claimMessage(world.sessionId,world.bridgeToken,randomUUID());expect(claimed?.metadata?.attachments).toEqual([id]);
+        await expect(resumed.info(randomUUID(),id)).rejects.toThrow();
+        const events=await world.service.listEvents(world.sessionId,0,250);expect(events.events.filter(e=>e.type==='user_message')).toHaveLength(1);
+        await expect(world.service.enqueueMessage(world.actor,{sessionId:world.sessionId,clientMessageId:sendId,content:'',metadata:{attachments:[id],reply_to:1}})).rejects.toThrow('metadata differs');
+      } finally {env.DATA_ROOT=originalRoot;await rm(directory,{recursive:true,force:true});}
+    });
+  });
 
   async function openPromptAndAnswer(world: World): Promise<{ promptId: string; messageId: string }> {
     const promptId = randomUUID();

@@ -121,10 +121,10 @@ describe('served document byte invariance', () => {
 
     expect(base.sha256).toBe('30abaea24c8809d8634670f0eceb3004aabb4eafb5416c78333c719e8b67e14b');
     expect(out.policy_sha256).toBe('3d8a8c754d80369c46a16c3350db8461520d3ae14b1de7ac03ad9454925ad5e5');
-    // 2026-10-11: add planned one-use reboot/resume guidance for all engines.
-    expect(out.features_sha256).toBe('f59b1ee229aac226b81b7fdbc8fbf9ea6999c66c29a836167649c4d5eae2a5da');
-    expect(out.managed_sha256).toBe('bfd8b6f2979cff1233076a49e381ed68707dca802ba6daf693cf772b76a09e75');
-    expect(sha256(out.body)).toBe('a4938afb7040cb1bc2c7339416f53afa9bb92b25a833f73a92791ca3f99b8b6a');
+    // 2026-10-11: add operator chat questions, urgency and local media tools for all engines.
+    expect(out.features_sha256).toBe('e7ab5f4dc33b8a60da6f2323e6fa60d10b1d9ee2fafc9215813f298bee47e535');
+    expect(out.managed_sha256).toBe('3f6bf7c0ac47f33417af9d74635ff085d60454f440c5302a1b8efc3a478ac8c3');
+    expect(sha256(out.body)).toBe('f3cf57256fdaa1b0d8f1dff1698f5dd13e58afd91cca5599bbd8fd2f95790fbb');
   });
 });
 

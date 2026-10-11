@@ -113,11 +113,12 @@ import org.json.JSONObject
                         is ChatRow.Day -> Box(Modifier.fillMaxWidth().padding(vertical = 18.dp), contentAlignment = Alignment.Center) {
                             Text(dayLabel(row.date), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
-                        is ChatRow.Message -> MessageBubble(row, deliveryLabel(row.event, receipts, agent, fresh))
+                        is ChatRow.Message -> MessageBubble(model, sessionId ?: "", row, deliveryLabel(row.event, receipts, agent, fresh))
                     }
                 }
                 if (prompt != null) item(key = "question:" + prompt.optString("id")) {
-                    DecisionCard(prompt, writable && !model.busy) { option -> model.draft = option; followLatest = true; model.send(prompt) }
+                    prompt.optJSONArray("attachments")?.strings()?.forEach { id -> if(sessionId != null) ChatAttachment(model,sessionId,id) }
+                    DecisionCard(prompt, writable && !model.busy) { option -> model.draft = option; followLatest = true; model.send(prompt, option) }
                 }
                 if (rows.isEmpty() && prompt == null) item(key = "empty") {
                     Column(Modifier.fillMaxWidth().padding(vertical = 40.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -144,14 +145,22 @@ import org.json.JSONObject
             Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        MessageComposer(model.draft, { model.draft = it }, prompt != null, writable, model.busy) {
+        agent?.optJSONArray("notices")?.objects()?.forEach { notice ->
+            Row(Modifier.fillMaxWidth().padding(horizontal=12.dp), verticalAlignment=Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) { Text("Needs you · ${notice.optString("severity")}",style=MaterialTheme.typography.labelMedium); Text(notice.optString("summary"),style=MaterialTheme.typography.bodySmall) }
+                TextButton(onClick={ model.resolveChatNotice(sessionId ?: "",notice.getString("id")) },enabled=fresh && model.can("agent_portal.manage") && !model.busy) { Text("Resolve") }
+            }
+        }
+        model.replyTargets[sessionId]?.let { cursor -> Row(Modifier.padding(horizontal=12.dp)) { Text("Reply to message #$cursor",style=MaterialTheme.typography.bodySmall); TextButton(onClick={model.replyTo(null)}) {Text("Cancel")} } }
+        if(sessionId != null && model.can("agent_portal.manage")) ChatUploadControls(model,sessionId,writable && !model.busy)
+        if(prompt?.optString("answer_mode") != "buttons") MessageComposer(model.draft, { model.draft = it }, prompt != null, writable, model.busy, !(model.chatUploads[sessionId].isNullOrEmpty())) {
             followLatest = true; newMessages = false
             scope.launch { latest(true) }; model.send(prompt)
         }
     }
 }
 
-@Composable private fun MessageBubble(row: ChatRow.Message, delivery: String?) {
+@Composable private fun MessageBubble(model: CompanionModel, session: String, row: ChatRow.Message, delivery: String?) {
     val own = row.event.optString("type") == "user_message"
     val shape = RoundedCornerShape(
         topStart = if (!own && row.joinsPrevious) 6.dp else 22.dp,
@@ -166,9 +175,13 @@ import org.json.JSONObject
             Column(Modifier.widthIn(max = bubbleWidth), horizontalAlignment = if (own) Alignment.End else Alignment.Start) {
                 Surface(shape = shape, color = if (own) MessageBlue else MaterialTheme.colorScheme.surfaceContainerHigh, contentColor = if (own) Color.White else MaterialTheme.colorScheme.onSurface) {
                     SelectionContainer {
-                        Text(row.event.getJSONObject("payload").optString("text"), Modifier.padding(horizontal = 15.dp, vertical = 10.dp), style = MaterialTheme.typography.bodyLarge)
+                        if(row.event.optString("type") == "assistant_message") ChatMarkdown(row.event.getJSONObject("payload").optString("text"),Modifier.padding(horizontal=15.dp,vertical=10.dp))
+                        else Text(row.event.getJSONObject("payload").optString("text"), Modifier.padding(horizontal = 15.dp, vertical = 10.dp), style = MaterialTheme.typography.bodyLarge)
                     }
                 }
+                row.event.getJSONObject("payload").optLong("reply_to").takeIf { it > 0 }?.let { Text("Reply to message #$it",style=MaterialTheme.typography.bodySmall) }
+                row.event.getJSONObject("payload").optJSONArray("attachments")?.strings()?.forEach { id -> ChatAttachment(model,session,id) }
+                Row { TextButton(onClick={model.replyTo(row.event.optLong("cursor"))}) {Text("Reply")}; val clipboard=androidx.compose.ui.platform.LocalClipboardManager.current; TextButton(onClick={clipboard.setText(androidx.compose.ui.text.AnnotatedString(row.event.getJSONObject("payload").optString("text")))}) {Text("Copy")} }
                 if (delivery != null) Text(delivery,
                     Modifier.padding(horizontal = 9.dp, vertical = 3.dp).testTag("delivery:" + row.event.optJSONObject("payload")?.optString("message_id")),
                     style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -185,14 +198,15 @@ import org.json.JSONObject
         Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text("Your decision", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
             Text(prompt.optString("question"), style = MaterialTheme.typography.titleMedium)
-            prompt.optJSONArray("options")?.strings()?.forEach { option ->
-                OutlinedButton(onClick = { answer(option) }, enabled = enabled, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text(option) }
+            val choices = prompt.optJSONArray("choices")?.objects()?.takeIf { it.isNotEmpty() } ?: (prompt.optJSONArray("options")?.strings() ?: emptySet()).map { JSONObject().put("label",it).put("value",it) }
+            if(prompt.optString("answer_mode") != "text") choices.forEach { choice ->
+                OutlinedButton(onClick = { answer(choice.getString("value")) }, enabled = enabled, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text(choice.getString("label")) }
             }
         }
     }
 }
 
-@Composable private fun MessageComposer(draft: String, change: (String) -> Unit, answering: Boolean, writable: Boolean, sending: Boolean, send: () -> Unit) {
+@Composable private fun MessageComposer(draft: String, change: (String) -> Unit, answering: Boolean, writable: Boolean, sending: Boolean, hasAttachments:Boolean = false, send: () -> Unit) {
     Surface(color = MaterialTheme.colorScheme.background) {
         Surface(
             modifier = Modifier.fillMaxWidth().imePadding().padding(horizontal = 12.dp, vertical = 8.dp),
@@ -212,7 +226,7 @@ import org.json.JSONObject
                     },
                 )
                 FilledIconButton(
-                    onClick = send, enabled = writable && !sending && draft.isNotBlank(), modifier = Modifier.size(48.dp).semantics { contentDescription = "Send" },
+                    onClick = send, enabled = writable && !sending && (draft.isNotBlank() || hasAttachments), modifier = Modifier.size(48.dp).semantics { contentDescription = "Send" },
                     colors = IconButtonDefaults.filledIconButtonColors(containerColor = MessageBlue, contentColor = Color.White),
                 ) {
                     if (sending) CircularProgressIndicator(Modifier.size(20.dp).semantics { contentDescription = "Sending" }, strokeWidth = 2.dp)

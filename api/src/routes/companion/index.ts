@@ -1,3 +1,4 @@
+import { chatMetadataSchema } from '../../services/agent-chat/contracts.js';
 import { setTimeout as delay } from 'node:timers/promises';
 import { and, eq } from 'drizzle-orm';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
@@ -27,7 +28,8 @@ import { createSseLifecycle } from '../../http/sse-lifecycle.js';
 import { isoOffsetSeconds, nowIso } from '../../util/timestamp.js';
 
 const id = (req: FastifyRequest) => z.object({ id: z.string().uuid() }).parse(req.params).id;
-const message = z.object({ client_message_id: z.string().uuid(), content: z.string().min(1).max(32768) });
+const message = z.object({ client_message_id: z.string().uuid(), metadata: chatMetadataSchema.optional(),
+  content: z.string().max(32768) });
 const safeReadCursor = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
 const sessionUuid = z.string().uuid();
 const readSnapshot = z
@@ -246,6 +248,7 @@ export async function registerCompanionRoutes(app: FastifyInstance, ctx: RouteCo
               reply_cursor: null,
               unread_reply_count: null,
               pending_prompt: null,
+              notices: [],
               attention: session.attention ? { since: (session.attention as { since: string }).since } : null,
             },
       );
@@ -300,16 +303,17 @@ export async function registerCompanionRoutes(app: FastifyInstance, ctx: RouteCo
         await auth(req, 'agent_portal.reveal_transcript');
         result = await remote.daemon.turn(
           linked.id,
-          body.content + '\n\nReply to the operator through cxx portal say or cxx portal ask with --summary.',
+          body.content + (body.metadata ? '\n\nChat metadata: ' + JSON.stringify(body.metadata) + '. Fetch attached files with agent_attachment_get; reply_to identifies the referenced conversation event.' : '') + '\n\nReply to the operator through cxx portal say or cxx portal ask with --summary.',
           body.client_message_id,
           `admin:${user.id}`,
-          { deviceId: device.id, content: body.content, author: user.name },
+          { deviceId: device.id, content: body.content, metadata: body.metadata, author: user.name },
         );
       } else {
         result = await portal.enqueueMessage(actor(user), {
           sessionId: linked?.sessionId ?? id(req),
           clientMessageId: body.client_message_id,
           content: body.content,
+          metadata: body.metadata,
         });
         if (linked) await remote.follow(device.id, linked.id, true);
         else await follow(device.id, id(req));
@@ -324,6 +328,7 @@ export async function registerCompanionRoutes(app: FastifyInstance, ctx: RouteCo
         .object({
           client_message_id: z.string().uuid(),
           answer: z.string().max(32768),
+          metadata: chatMetadataSchema.optional(),
           version: z.number().int().positive().optional(),
         })
         .parse(req.body);
@@ -339,13 +344,14 @@ export async function registerCompanionRoutes(app: FastifyInstance, ctx: RouteCo
         await auth(req, 'agent_portal.reveal_transcript');
         result = await remote.daemon.turn(
           linked.id,
-          body.answer +
+          body.answer + (body.metadata ? '\n\nChat metadata: ' + JSON.stringify(body.metadata) + '. Fetch attached files with agent_attachment_get; reply_to identifies the referenced conversation event.' : '') +
             '\n\nThis answers your open Portal question. Continue the same task and report through cxx portal say or cxx portal ask with --summary.',
           body.client_message_id,
           `admin:${user.id}`,
           {
             deviceId: device.id,
             content: body.answer,
+            metadata: body.metadata,
             author: user.name,
             promptId: params.promptId,
             version: body.version,
@@ -357,6 +363,7 @@ export async function registerCompanionRoutes(app: FastifyInstance, ctx: RouteCo
           promptId: params.promptId,
           clientMessageId: body.client_message_id,
           answer: body.answer,
+          metadata: body.metadata,
           version: body.version,
         });
         if (linked) await remote.follow(device.id, linked.id, true);

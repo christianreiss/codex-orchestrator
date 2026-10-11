@@ -43,10 +43,11 @@ describe.skipIf(!handle)('companion remote conversations with MySQL', () => {
   let logical: string, firstPortal: string, address: string;
   const headers = () => ({ authorization: `Bearer ${token}` });
   const request = () => ({ host_id: hostId, engine: 'codex', client_message_id: randomUUID() });
-  const snapshot = async () =>
-    (await app.inject({ url: '/companion/v1/agents', headers: headers() })).json().data.agents as Array<
-      Record<string, unknown>
-    >;
+  const snapshot = async () => {
+    const response = await app.inject({ url: '/companion/v1/agents', headers: headers() });
+    expect(response.statusCode,response.body).toBe(200);
+    return response.json().data.agents as Array<Record<string, unknown>>;
+  };
   beforeAll(async () => {
     await runMigrations(handle!.pool, { appliedBy: 'companion-remote-test' });
     const unique = randomUUID();

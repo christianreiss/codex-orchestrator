@@ -59,7 +59,7 @@ class MainActivity : ComponentActivity() {
     val fresh = model.fresh()
     val agents = model.overviewAgents()
     val requests = if (fresh) model.approvals.filter { liveApproval(it, clock) } else emptyList()
-    val needsYou = if (fresh && model.can("agent_portal.manage")) agents.filter { isReachable(it) && needsReply(it) } else emptyList()
+    val needsYou = if (fresh && model.can("agent_portal.manage")) agents.filter { needsReply(it) && (hasUrgentNotice(it) || isReachable(it)) } else emptyList()
     val total = requests.size + needsYou.size
     val current = model.agents.firstOrNull { it.optString("id") == model.selected }
     val snackbar = remember { SnackbarHostState() }

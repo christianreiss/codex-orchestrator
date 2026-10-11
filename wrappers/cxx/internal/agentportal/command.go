@@ -61,6 +61,8 @@ func runNotify(args []string, stdout, stderr io.Writer) int {
 	flags := flag.NewFlagSet("cxx portal notify", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	summary := flags.String("summary", "", "safe attention summary")
+	severity := flags.String("severity", "", "important, critical or blocker")
+	noticeID := flags.String("notice-id", "", "stable notice UUID")
 	if err := flags.Parse(args); err != nil {
 		return 2
 	}
@@ -92,7 +94,12 @@ func runNotify(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	eventCtx, eventCancel := context.WithTimeout(context.Background(), 14*time.Second)
-	err = session.Event(eventCtx, newUUID(), "attention", map[string]any{"summary": strings.TrimSpace(*summary)})
+	payload := map[string]any{"summary": strings.TrimSpace(*summary)}
+	if *severity != "" {
+		payload["severity"] = *severity
+		payload["notice_id"] = *noticeID
+	}
+	err = session.Event(eventCtx, newUUID(), "attention", payload)
 	eventCancel()
 	if err != nil {
 		fmt.Fprintln(stderr, "cxx portal:", err)
@@ -106,14 +113,24 @@ func runSay(args []string, stdout, stderr io.Writer) int {
 	flags.SetOutput(stderr)
 	text := flags.String("text", "", "safe assistant response")
 	summary := flags.String("summary", "", "one sentence with the latest result or decision needed (max 160 characters)")
+	attachments := flags.String("attachments", "", "JSON array of attachment UUIDs")
 	if err := flags.Parse(args); err != nil {
 		return 2
 	}
-	if strings.TrimSpace(*text) == "" {
+	if strings.TrimSpace(*text) == "" && *attachments == "" {
 		fmt.Fprintln(stderr, "cxx portal say: --text is required")
 		return 2
 	}
-	return sendEvent("assistant_message", map[string]any{"text": strings.TrimSpace(*text), "summary": CompactSummary(*summary)}, stdout, stderr)
+	payload := map[string]any{"text": strings.TrimSpace(*text), "summary": CompactSummary(*summary)}
+	if *attachments != "" {
+		var ids []string
+		if err := json.Unmarshal([]byte(*attachments), &ids); err != nil {
+			fmt.Fprintln(stderr, err)
+			return 2
+		}
+		payload["attachments"] = ids
+	}
+	return sendEvent("assistant_message", payload, stdout, stderr)
 }
 
 // Resolving a notice retracts its request for human attention. It neither
@@ -122,6 +139,7 @@ func runResolve(args []string, stdout, stderr io.Writer) int {
 	flags := flag.NewFlagSet("cxx portal resolve", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	summary := flags.String("summary", "", "why the attention notice is resolved")
+	noticeID := flags.String("notice-id", "", "specific classified notice UUID")
 	if err := flags.Parse(args); err != nil {
 		return 2
 	}
@@ -137,7 +155,11 @@ func runResolve(args []string, stdout, stderr io.Writer) int {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 14*time.Second)
 	defer cancel()
-	if err := session.Event(ctx, newUUID(), "attention_resolved", map[string]any{"summary": text}); err != nil {
+	payload := map[string]any{"summary": text}
+	if *noticeID != "" {
+		payload["notice_id"] = *noticeID
+	}
+	if err := session.Event(ctx, newUUID(), "attention_resolved", payload); err != nil {
 		fmt.Fprintln(stderr, "cxx portal:", err)
 		return 1
 	}
@@ -150,6 +172,11 @@ func runAsk(args []string, stdout, stderr io.Writer) int {
 	question := flags.String("question", "", "question shown in the portal")
 	summary := flags.String("summary", "", "one sentence with the decision needed (max 160 characters)")
 	optionsRaw := flags.String("options", "", "optional | separated choices")
+	answerMode := flags.String("answer-mode", "both", "buttons, text or both")
+	choicesRaw := flags.String("choices", "", "JSON array of label/value objects")
+	attachmentsRaw := flags.String("attachments", "", "JSON array of attachment UUIDs")
+	severity := flags.String("severity", "", "important, critical or blocker")
+	noticeID := flags.String("notice-id", "", "stable UUID for Needs you notice")
 	if err := flags.Parse(args); err != nil {
 		return 2
 	}
@@ -161,11 +188,32 @@ func runAsk(args []string, stdout, stderr io.Writer) int {
 	payload := map[string]any{
 		"question":     strings.TrimSpace(*question),
 		"allow_answer": true,
+		"answer_mode":  *answerMode,
 		"prompt_id":    promptID,
 		"summary":      CompactSummary(*summary),
 	}
 	if choices := splitOptions(*optionsRaw); len(choices) > 0 {
 		payload["options"] = choices
+	}
+	if *choicesRaw != "" {
+		var choices []map[string]string
+		if err := json.Unmarshal([]byte(*choicesRaw), &choices); err != nil {
+			fmt.Fprintln(stderr, err)
+			return 2
+		}
+		payload["choices"] = choices
+	}
+	if *attachmentsRaw != "" {
+		var ids []string
+		if err := json.Unmarshal([]byte(*attachmentsRaw), &ids); err != nil {
+			fmt.Fprintln(stderr, err)
+			return 2
+		}
+		payload["attachments"] = ids
+	}
+	if *severity != "" {
+		payload["severity"] = *severity
+		payload["notice_id"] = *noticeID
 	}
 	return sendEvent("waiting_input", payload, stdout, stderr)
 }

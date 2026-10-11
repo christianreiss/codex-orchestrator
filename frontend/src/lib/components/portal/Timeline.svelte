@@ -14,9 +14,10 @@
   import StatusRun from "./StatusRun.svelte";
   import CloseNotice from "./CloseNotice.svelte";
 
-  let { portal, agent }: {
+  let { portal, agent, onreply }: {
     portal: TimelineSource;
     agent: Agent;
+    onreply?: (cursor:number)=>void;
   } = $props();
 
   let scroller = $state<HTMLElement | null>(null);
@@ -80,6 +81,8 @@
           showDelivery={true}
           activity={agent}
           now={portal.now}
+          session={agent.id}
+          {onreply}
         />
       {:else}
         <StatusLine event={item.event} />

@@ -121,12 +121,16 @@ func (b *Broker) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeBrokerError(w, http.StatusForbidden, "broker_operation_forbidden", "Operation is not available through the agent portal broker")
 		return
 	}
-	raw, err := io.ReadAll(io.LimitReader(r.Body, brokerBodyLimit+1))
+	limit := int64(brokerBodyLimit)
+	if strings.Contains(r.URL.Path, "/attachments/") {
+		limit = 6 * 1024 * 1024
+	}
+	raw, err := io.ReadAll(io.LimitReader(r.Body, limit+1))
 	if err != nil {
 		writeBrokerError(w, http.StatusBadRequest, "broker_body_invalid", "Could not read broker request")
 		return
 	}
-	if len(raw) > brokerBodyLimit {
+	if int64(len(raw)) > limit {
 		writeBrokerError(w, http.StatusRequestEntityTooLarge, "broker_body_too_large", "Broker request is too large")
 		return
 	}
@@ -277,6 +281,15 @@ func (b *Broker) requiresReceivePlanePolicy(path string, body json.RawMessage) b
 
 func (b *Broker) allowedPath(path string) bool {
 	sessionBase := "/host/agent-sessions/" + url.PathEscape(b.session.ID)
+	if path == sessionBase+"/attachments" || path == sessionBase+"/attachments/get" {
+		return true
+	}
+	if rest := strings.TrimPrefix(path, sessionBase+"/attachments/"); rest != path {
+		id, op, ok := strings.Cut(rest, "/")
+		if ok && safeID(id) && (op == "chunks" || op == "seal") {
+			return true
+		}
+	}
 	if path == sessionBase+"/watchdog/activity" || path == sessionBase+"/heartbeat" || path == sessionBase+"/events" || path == sessionBase+"/commands/claim" {
 		return true
 	}

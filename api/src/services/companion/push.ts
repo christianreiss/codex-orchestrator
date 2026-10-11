@@ -5,6 +5,7 @@ import type { RouteContext } from '../../routes/index.js';
 import {
   adminUsers,
   agentEvents,
+  agentChatNotices,
   companionDevices,
   companionFollows,
   companionDaemonFollows,
@@ -24,7 +25,9 @@ import { isEngine } from '../../util/engine.js';
 import { FcmTransport } from './fcm.js';
 import { decodeSummaryPayload, eventSummary } from './summary.js';
 
-export function notificationKind(type: string, followed: boolean): 'attention' | 'reply' | null {
+export function notificationKind(type: string, followed: boolean, payload: Record<string, unknown> = {}): 'attention' | 'reply' | null {
+  if (payload.severity && ['assistant_message', 'waiting_input', 'attention'].includes(type)) return 'attention';
+  if (type === 'waiting_input' && payload.answer_mode) return followed ? 'reply' : null;
   if (type === 'waiting_input' || type === 'attention') return 'attention';
   return type === 'assistant_message' && followed ? 'reply' : null;
 }
@@ -130,11 +133,12 @@ export class CompanionPush {
             continue;
           const binding = remoteByPortal.get(event.sessionId);
           const targetId = binding?.owner === `admin:${user.id}` ? binding.remote : event.sessionId;
-          const kind = notificationKind(event.eventType, follows.has(targetId));
+          const payload = decodeSummaryPayload(event.payloadEnc, this.ctx);
+          const kind = notificationKind(event.eventType, follows.has(targetId), payload);
           if (!kind || Date.parse(event.createdAt) < Date.now() - 3600_000) continue;
           if (fresh.visibleSessionId === targetId && (fresh.visibleUntil ?? '') > nowIso()) continue;
           await enqueue(
-            `event:${event.id}`,
+            payload.notice_id && payload.severity ? `notice:${String(payload.notice_id)}:${String(payload.severity)}` : `event:${event.id}`,
             kind,
             targetId,
             isoOffsetSeconds(3600, new Date(event.createdAt)),
@@ -223,6 +227,9 @@ export class CompanionPush {
           }
         }
       }
+      const noticeSource = /^notice:([0-9a-f-]{36}):(important|critical|blocker)$/.exec(job.sourceKey);
+      const [sourceNotice] = noticeSource ? await db.select().from(agentChatNotices).where(eq(agentChatNotices.id, noticeSource[1]!)) : [];
+      if (noticeSource && (!sourceNotice || sourceNotice.resolvedAt || sourceNotice.severity !== noticeSource[2])) eligible = false;
       if (!eligible || !row) {
         await db
           .update(companionNotifications)
@@ -240,7 +247,7 @@ export class CompanionPush {
         if (job.kind !== 'approval') {
           // Resolve the outbox's source event, never the session's latest preview:
           // another reply may have arrived while this delivery was retrying.
-          const eventId = /^event:(\d+)$/.exec(job.sourceKey)?.[1];
+          const eventId = sourceNotice?.eventId ?? /^event:(\d+)$/.exec(job.sourceKey)?.[1];
           const [event] = eventId
             ? await db
                 .select()
@@ -258,6 +265,7 @@ export class CompanionPush {
             event ? decodeSummaryPayload(event.payloadEnc, this.ctx) : {},
           );
           if (event) data.event_cursor = String(event.id);
+          if (sourceNotice) { data.notice_id = sourceNotice.id; data.severity = sourceNotice.severity; }
         }
         const outcome = await this.transport.send(
           decrypt(row.device.fcmTokenEnc!, keyring),

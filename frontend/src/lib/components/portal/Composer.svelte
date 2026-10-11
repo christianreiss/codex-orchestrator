@@ -13,6 +13,7 @@
     input = $bindable(null),
     disabledReason = "",
     timings,
+    hasAttachments = false,
   }: {
     agent: Agent;
     now: number;
@@ -25,6 +26,7 @@
     /** A stale admin snapshot must not authorize replies using old relay state. */
     disabledReason?: string;
     timings?: PresenceTimings;
+    hasAttachments?: boolean;
   } = $props();
 
   const view = $derived(presenceView(agent, now, timings));
@@ -43,7 +45,7 @@
    */
   function submit() {
     const value = draft.trim();
-    if (!value || sending || !view.canSend || disabledReason) return;
+    if ((!value && !hasAttachments) || sending || !view.canSend || disabledReason) return;
     void onsend(value);
   }
 
@@ -98,7 +100,7 @@
         class="absolute bottom-1 right-1 grid h-7 w-7 place-items-center rounded-full bg-primary text-primary-foreground
                transition hover:bg-primary-hover disabled:bg-muted-foreground/30 disabled:text-background
                focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        disabled={sending || !draft.trim() || !view.canSend || Boolean(disabledReason)}
+        disabled={sending || (!draft.trim() && !hasAttachments) || !view.canSend || Boolean(disabledReason)}
         aria-label="Send"
       ><SendIcon class="h-4 w-4" strokeWidth={2.75} /></button>
     </form>

@@ -1,5 +1,7 @@
 # 2026-10-11
 
+- Agent chat gains stable reply buttons and text/both answer modes, explicit important/critical/blocker Needs you notices with targeted resolution, and resumable images/files/audio/video in both directions. Android 0.4.13 and Active Clients add drafts, upload progress/retry/cancel, capture/playback, reply references and copy/formatting. cxx 0.9.56 exposes the shared chat/media MCP tools for all three engines; managed agent guidance explains their use. A local isolated media worker prepares timestamped Whisper transcripts and video frames; originals remain available on processing failure. Pixel installation is deferred.
+
 - Android 0.4.12 prevents frequent live metadata updates from discarding every in-flight refresh, which left chats empty, replies unseen, sending unavailable and host cards stale. Completed snapshots are displayed before queued updates; permission changes, reconnects and conversation switches still reject superseded responses.
 - Wrapper 0.9.55 fixes optional Linux host daemon startup: systemd now resolves the service user's home using `WorkingDirectory=~`, avoiding rejection of a quoted absolute path. Verified against Debian 13 systemd during the real System Spawn SSH test.
 - System Spawn installer completion now uses the wrapper's IPv4-first connection policy, with a dual-stack fallback, avoiding rejected completion callbacks on secure hosts bound over IPv4. The callback also honours the installer's TLS policy.

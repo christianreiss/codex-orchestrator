@@ -968,3 +968,5 @@ journal prevent reboot loops. Accepted Peer, Wake and Portal instructions retain
 their identities through the handoff. Agents receive the usage contract through
 managed guidance; Active Clients links both launches. See [reboot/resume](reboot-resume.md).
 System Spawn is optional new-host provisioning through server MCP, restricted to active VIP source hosts. Agents receive setup material and install it over SSH; optional Linux/systemd daemons may be permanent or timed. Configure under Policies → Agent behavior; see [the API contract](interface-api.md#system-spawn-new-system-provisioning).
+
+Agent chat supports explicit Needs you severity, reply buttons/text, and files/media in both directions; see [Agent chat](agent-chat.md). The isolated local media worker is part of the Compose stack.

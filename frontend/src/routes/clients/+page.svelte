@@ -13,6 +13,8 @@
   import RemoteSessions from "$lib/components/portal/RemoteSessions.svelte";
   import SessionControls from "$lib/components/portal/SessionControls.svelte";
   import PageHeader from "$lib/components/layout/PageHeader.svelte";
+  import ChatUploads from "$lib/components/portal/ChatUploads.svelte";
+  import type { UploadItem } from "$lib/portal/chat-files";
   import Composer from "$lib/components/portal/Composer.svelte";
   import AttentionCard from "$lib/components/portal/AttentionCard.svelte";
   import ConversationRow from "$lib/components/portal/ConversationRow.svelte";
@@ -143,8 +145,10 @@
     onSuccess: (result) => deliveryFailed(result) ? toast.warning("The close request was not delivered. Try again if it is still needed.") : toast.success("Close request recorded"),
     onError: (error) => toast.error(error.message),
   });
+  let uploads = $state<Record<string, UploadItem[]>>({});
+  let replyTargets = $state<Record<string, number | undefined>>({});
   let drafts = $state<Record<string, string>>({});
-  let failedSends = $state<Record<string, { content: string; prompt: { id: string; version: number } | null; actor: string }>>({});
+  let failedSends = $state<Record<string, { content: string; prompt: { id: string; version: number } | null; metadata: {attachments?:string[];reply_to?:number;choice_value?:string}; actor: string }>>({});
   let composerInput = $state<HTMLTextAreaElement | null>(null);
   const draft = $derived(selectedId ? (drafts[selectedId] ?? "") : "");
   const retryingDraft = $derived(selectedId && failedSends[selectedId]?.content === draft.trim() && failedSends[selectedId]?.actor === String($authStore.user?.id ?? ""));
@@ -158,13 +162,17 @@
     if (!target || !canManage || !canReadTranscript || actionsUnavailable || $send.isPending || !presenceView(target, serverNow, timings).canSend) return false;
     const { id, pending_prompt: prompt } = target;
     const actor = String($authStore.user?.id ?? "");
+    const items = uploads[id] ?? [];
+    if (items.some(i => i.state !== 'ready')) { toast.warning('Finish or remove pending uploads before sending.'); return false; }
+    if (!text.trim() && !items.length) return false;
+    const metadata = {attachments: items.map(i => i.id), reply_to: replyTargets[id], choice_value: currentQuestion ? text : undefined};
     const previous = failedSends[id];
     // A lost answer response may be followed by pending_prompt=null. Retrying
     // unchanged composer text must not turn the original answer into a message.
-    const intent = !currentQuestion && previous?.actor === actor && previous.content === text.trim()
-      ? previous : { content: text.trim(), prompt: prompt ? { id: prompt.id, version: prompt.version } : null, actor };
+    const intent = (!prompt || prompt.id === previous?.prompt?.id) && previous?.actor === actor && previous.content === text.trim() && JSON.stringify({...metadata,choice_value:undefined}) === JSON.stringify({...previous.metadata,choice_value:undefined})
+      ? previous : { content: text.trim(), prompt: prompt ? { id: prompt.id, version: prompt.version } : null, metadata, actor };
     try {
-      const result = await $send.mutateAsync({ id, content: intent.content, prompt: intent.prompt });
+      const result = await $send.mutateAsync({ id, content: intent.content, prompt: intent.prompt, metadata: intent.metadata });
       const retained = { ...failedSends }; delete retained[id]; failedSends = retained;
       if (deliveryFailed(result)) {
         toast.warning("This instruction was not delivered. Your draft is kept.");
@@ -172,6 +180,7 @@
       }
       // Preserve any edits made while this request was in flight.
       if ((drafts[id] ?? "").trim() === text.trim()) drafts = { ...drafts, [id]: "" };
+      uploads = {...uploads, [id]: []}; replyTargets = {...replyTargets,[id]:undefined};
       return true;
     } catch {
       // A later denial cannot prove an earlier ambiguous attempt was rejected.
@@ -350,10 +359,12 @@
             {:else}
               {#if $events.isError}<div role="status" class="flex items-center justify-between gap-2 border-b border-warning/20 bg-warning-muted px-4 py-1.5 text-xs"><span>{$events.data ? "Timeline refresh failed. Showing saved messages." : "Timeline could not be loaded."}</span><Button variant="ghost" size="sm" onclick={() => $events.refetch()} disabled={$events.isFetching}>Retry timeline</Button></div>{/if}
               {#if $events.isPending && !$events.data}<div class="flex-1 space-y-2 p-4" role="status" aria-label="Loading timeline">{#each Array(4) as _, i (i)}<Skeleton class="h-10 w-2/3 rounded-2xl {i % 2 ? 'ml-auto' : ''}" />{/each}</div>
-              {:else if $events.data}{#key selected.id}<Timeline portal={timelineSource} agent={selected} />{/key}
+              {:else if $events.data}{#key selected.id}<Timeline portal={timelineSource} agent={selected} onreply={cursor => { replyTargets = {...replyTargets,[selected.id]:cursor}; composerInput?.focus(); }} />{/key}
               {:else}<div class="flex-1"></div>{/if}
-              <AttentionCard agent={selected} now={serverNow} {timings} {onreply} busy={$send.isPending} readonly={!canManage || actionsUnavailable} />
-              {#if canManage}{#if retryingDraft}<p class="border-t bg-warning-muted px-4 py-1.5 text-xs text-muted-foreground">A previous send was not confirmed. Sending this draft again retries the same request.</p>{/if}<Composer agent={selected} now={serverNow} {timings} sending={$send.isPending} {draft} {disabledReason} ondraft={(text) => (drafts = { ...drafts, [selected.id]: text })} onsend={submit} bind:input={composerInput} />{/if}
+              <AttentionCard agent={selected} now={serverNow} {timings} {onreply} onresolved={refresh} busy={$send.isPending} readonly={!canManage || actionsUnavailable} />
+              {#if canManage}{#if retryingDraft}<p class="border-t bg-warning-muted px-4 py-1.5 text-xs text-muted-foreground">A previous send was not confirmed. Sending this draft again retries the same request.</p>{/if}{#if replyTargets[selected.id]}<p class="px-4 py-1 text-xs">Reply to message #{replyTargets[selected.id]} <button type="button" onclick={() => replyTargets = {...replyTargets,[selected.id]:undefined}}>Cancel</button></p>{/if}
+                {#key selected.id}<ChatUploads session={selected.id} items={uploads[selected.id] ?? []} onitems={items => uploads = {...uploads,[selected.id]:items}} disabled={$send.isPending} />{/key}
+                {#if selected.pending_prompt?.answer_mode !== 'buttons'}<Composer hasAttachments={Boolean(uploads[selected.id]?.length)} agent={selected} now={serverNow} {timings} sending={$send.isPending} {draft} {disabledReason} ondraft={(text) => (drafts = { ...drafts, [selected.id]: text })} onsend={submit} bind:input={composerInput} />{/if}{/if}
             {/if}
           </div>
         {/if}
@@ -376,7 +387,7 @@
     time={listTime(row.last_event_at ?? row.started_at, new Date(serverNow))}
     preview={preview(row, ended)}
     selected={row.id === selectedId}
-    needsYou={Boolean(row.attention || row.pending_prompt) && !ended}
+    needsYou={Boolean(row.attention?.severity) || (Boolean(row.attention || row.pending_prompt) && !ended)}
     badge={(row.attention || row.pending_prompt) && !ended ? { kind: "attention" } : null}
     aria-pressed={row.id === selectedId}
     aria-controls={selected ? "client-detail" : undefined}

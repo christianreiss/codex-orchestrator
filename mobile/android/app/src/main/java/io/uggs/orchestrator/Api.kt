@@ -28,6 +28,20 @@ class Api(private val server: String, private val token: String? = null) {
             json.optJSONObject("data") ?: json
         }
     }
+    suspend fun download(path: String, output: java.io.File): java.io.File = withContext(Dispatchers.IO) {
+        val request = Request.Builder().url("$server/companion/v1$path").header("Authorization", "Bearer $token").build()
+        client.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) throw ApiException(response.code, "Attachment download failed (${response.code})")
+            val temp = java.io.File(output.parentFile, output.name + ".part")
+            try {
+                response.body!!.byteStream().use { input -> temp.outputStream().use { out ->
+                    val buffer = ByteArray(64 * 1024); var bytes = 0L
+                    while(true) { val count = input.read(buffer); if(count < 0) break; bytes+=count; require(bytes <= CHAT_FILE_LIMIT) { "Attachment exceeds size limit" }; out.write(buffer,0,count) }
+                } }
+                check(temp.renameTo(output)) { "Cannot save attachment" }; output
+            } catch(e:Exception) { temp.delete(); throw e }
+        }
+    }
     fun live(listener: WebSocketListener): WebSocket {
         val request = Request.Builder().url("$server/companion/v1/ws")
             .header("Authorization", "Bearer $token").build()

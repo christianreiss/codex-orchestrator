@@ -411,3 +411,35 @@ test("session settings and remote work remain available without the old portal",
   await page.getByRole("button", { name: "Open previous session" }).click();
   await expect(page.getByRole("heading", { name: "codex-review", exact: true })).toBeVisible();
 });
+
+test("rich buttons send stable values and ordinary questions remain separate from Needs you",async({page})=>{
+  const state=await fixtures(page);state.sessions[0].pending_prompt={id:CODEX,version:1,question:'Deploy this change?',answer_mode:'buttons',choices:[{label:'Approve deployment',value:'approve'}],options:[],created_at:new Date().toISOString()};
+  await open(page);await page.locator(`#client-${CODEX}`).click();
+  await expect(page.getByRole('region',{name:'Your answer',exact:true})).toBeVisible();await expect(page.getByLabel('Message this agent')).toHaveCount(0);
+  await page.getByRole('button',{name:'Approve deployment',exact:true}).click();
+  await expect.poll(()=>state.bodies.some(b=>b.body.answer==='approve' && (b.body.metadata as Record<string,unknown>).choice_value==='approve')).toBe(true);
+});
+
+test("explicit offline urgency survives browsing and resolves only the targeted notice",async({page})=>{
+  const state=await fixtures(page);const notice='44444444-4444-4444-8444-444444444444';const raised=new Date().toISOString();
+  state.sessions[0].presence='ended';state.sessions[0].ended_at=raised;state.sessions[0].read_only=true;
+  state.sessions[0].attention={id:notice,severity:'blocker',summary:'Review the failed rollout',since:raised};state.sessions[0].notices=[{id:notice,severity:'blocker',summary:'Review the failed rollout',since:raised}];
+  await open(page);await page.locator(`#client-${CODEX}`).click();
+  await expect(page.getByRole('region',{name:'Needs you',exact:true})).toContainText('blocker');
+  expect(state.bodies.filter(b=>b.path.endsWith('/notices/resolve'))).toHaveLength(0);
+  await page.getByRole('button',{name:'Mark resolved',exact:true}).click();
+  await expect.poll(()=>state.bodies.some(b=>b.path.endsWith('/notices/resolve') && b.body.notice_id===notice)).toBe(true);
+});
+
+test("attachment-only upload retains an ID through chunking and sends once sealed",async({page})=>{
+  const state=await fixtures(page);let attachment='';
+  await page.route('**/admin/agent-sessions/*/attachments**',async route=>{
+    const path=new URL(route.request().url()).pathname;const body=route.request().postDataJSON();
+    if(path.endsWith('/attachments')) attachment=body.id;
+    await route.fulfill({contentType:'application/json',body:JSON.stringify({id:attachment,uploaded_bytes:path.endsWith('/chunks')?5:0,status:path.endsWith('/seal')?'ready':'uploading'})});
+  });
+  await open(page);await page.locator(`#client-${CODEX}`).click();
+  await page.locator('input[type=file]').first().setInputFiles({name:'test.txt',mimeType:'text/plain',buffer:Buffer.from('hello')});
+  await expect(page.getByText('test.txt · ready',{exact:false})).toBeVisible();await page.getByRole('button',{name:'Send',exact:true}).click();
+  await expect.poll(()=>state.bodies.some(b=>b.path.endsWith('/messages') && b.body.content==='' && (b.body.metadata as {attachments:string[]}).attachments[0]===attachment)).toBe(true);
+});

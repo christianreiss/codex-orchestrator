@@ -127,7 +127,14 @@ func doJSON(
 		return fmt.Errorf("agent messaging %s %s: %w", method, messagingOperation(path), err)
 	}
 	defer resp.Body.Close()
-	raw, err := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
+	limit := int64(2 << 20)
+	if strings.HasSuffix(path, "/attachments/get") {
+		limit = 6 << 20
+	}
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, limit+1))
+	if int64(len(raw)) > limit {
+		return errors.New("agent messaging response too large")
+	}
 	if err != nil {
 		return err
 	}

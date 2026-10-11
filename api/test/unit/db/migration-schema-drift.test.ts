@@ -228,6 +228,8 @@ describe('migrations against the test baseline', () => {
       'session_housekeeping_reservations',
       'agent_reboot_handoffs',
       'host_spawns',
+      'agent_chat_attachments',
+      'agent_chat_notices',
     ]);
     expect(additions.filter((a) => a.column !== undefined).map((a) => `${a.table}.${a.column}`)).toEqual([
       'auth_payloads.generation',
@@ -300,6 +302,9 @@ describe('migrations against the test baseline', () => {
       'agent_bus_messages.awaiting_presence',
       'host_daemon_operations.portal_content_enc',
       'hosts.insecure_session_renewal_blocked',
+      'agent_prompts.answer_mode',
+      'agent_prompts.choices_enc',
+      'agent_messages.metadata_enc',
     ]);
   });
 

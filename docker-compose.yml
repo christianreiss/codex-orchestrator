@@ -67,6 +67,23 @@ services:
       - no-new-privileges:true
     restart: unless-stopped
 
+  media-worker:
+    build: ./media-worker
+    environment:
+      DATA_ROOT: /app/storage
+    volumes:
+      - ${DATA_ROOT:-/var/docker_data/codex-auth.example.com}/store:/app/storage
+    cpus: 2
+    mem_limit: 4g
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    network_mode: none
+    restart: unless-stopped
+
   mysql:
     image: mysql:8.4
     command: ["--mysql-native-password=ON"]

@@ -1,3 +1,4 @@
+import { chatMetadataSchema } from '../../../services/agent-chat/contracts.js';
 import { createSseLifecycle } from '../../../http/sse-lifecycle.js';
 import { setTimeout as delay } from 'node:timers/promises';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
@@ -71,11 +72,13 @@ const forceSchema = z.object({
 const messageSchema = z.object({
   client_message_id: z.string(),
   content: z.string(),
+  metadata: chatMetadataSchema.optional(),
 });
 
 const answerSchema = z.object({
   client_message_id: z.string(),
   answer: z.string(),
+  metadata: chatMetadataSchema.optional(),
   version: z.number().int().positive().optional(),
 });
 
@@ -214,6 +217,7 @@ export async function registerAdminAgentSessionsRoutes(
       sessionId: stringParam(req.params, 'id'),
       clientMessageId: parsed.data.client_message_id,
       content: parsed.data.content,
+      metadata: parsed.data.metadata,
     });
   });
 
@@ -229,6 +233,7 @@ export async function registerAdminAgentSessionsRoutes(
         promptId: stringParam(req.params, 'promptId'),
         clientMessageId: parsed.data.client_message_id,
         answer: parsed.data.answer,
+        metadata: parsed.data.metadata,
         version: parsed.data.version,
       });
     },

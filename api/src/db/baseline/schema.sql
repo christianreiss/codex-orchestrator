@@ -307,6 +307,7 @@ CREATE TABLE `agent_messages` (
 	`canceled_at` varchar(100),
 	`created_at` varchar(100) NOT NULL,
 	`updated_at` varchar(100) NOT NULL,
+	`metadata_enc` longtext,
 	CONSTRAINT `agent_messages_id` PRIMARY KEY(`id`),
 	CONSTRAINT `uq_agent_messages_message_id` UNIQUE(`message_id`),
 	CONSTRAINT `uq_agent_messages_session_client` UNIQUE(`session_id`,`client_message_id`)
@@ -348,6 +349,8 @@ CREATE TABLE `agent_prompts` (
 	`created_at` varchar(100) NOT NULL,
 	`answered_at` varchar(100),
 	`expires_at` varchar(100),
+	`answer_mode` varchar(16) NOT NULL DEFAULT 'both',
+	`choices_enc` longtext,
 	CONSTRAINT `agent_prompts_id` PRIMARY KEY(`id`)
 );
 
@@ -1852,3 +1855,32 @@ CREATE TABLE `host_spawns` (
 	CONSTRAINT `uq_host_spawn_target` UNIQUE(`target_host_id`)
 );
 ALTER TABLE `host_spawns` ADD CONSTRAINT `host_spawns_target_host_id_hosts_id_fk` FOREIGN KEY (`target_host_id`) REFERENCES `hosts`(`id`) ON DELETE cascade ON UPDATE no action;
+
+
+CREATE TABLE `agent_chat_attachments` (
+	`id` char(36) NOT NULL,
+	`session_id` char(36) NOT NULL,
+	`owner` varchar(80) NOT NULL,
+	`metadata_enc` longtext NOT NULL,
+	`size_bytes` bigint unsigned NOT NULL,
+	`uploaded_bytes` bigint unsigned NOT NULL DEFAULT 0,
+	`sha256` char(64),
+	`status` varchar(16) NOT NULL DEFAULT 'uploading',
+	`created_at` varchar(100) NOT NULL,
+	`updated_at` varchar(100) NOT NULL,
+	CONSTRAINT `agent_chat_attachments_id` PRIMARY KEY(`id`)
+);
+CREATE INDEX `idx_agent_chat_attachments_session` ON `agent_chat_attachments` (`session_id`,`status`);
+
+
+CREATE TABLE `agent_chat_notices` (
+	`id` char(36) NOT NULL,
+	`session_id` char(36) NOT NULL,
+	`severity` varchar(16) NOT NULL,
+	`payload_enc` longtext NOT NULL,
+	`event_id` bigint unsigned NOT NULL,
+	`resolved_at` varchar(100),
+	`created_at` varchar(100) NOT NULL,
+	CONSTRAINT `agent_chat_notices_id` PRIMARY KEY(`id`)
+);
+CREATE INDEX `idx_agent_chat_notices_session` ON `agent_chat_notices` (`session_id`,`resolved_at`);

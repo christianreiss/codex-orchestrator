@@ -138,23 +138,24 @@ function sessionWriter() {
  * a question it had already been given the reply to.
  */
 export function sendMutation(
-  opts: MutationOpts<unknown, { id: string; content: string; prompt?: { id: string; version: number } | null }> = {},
+  opts: MutationOpts<unknown, { id: string; content: string; prompt?: { id: string; version: number } | null; metadata?: {attachments?:string[];reply_to?:number;choice_value?:string} }> = {},
 ) {
   const client = useQueryClient();
   const write = sessionWriter();
-  return createMutation<unknown, Error, { id: string; content: string; prompt?: { id: string; version: number } | null }>({
-    mutationFn: ({ id, content, prompt }) => {
+  return createMutation<unknown, Error, { id: string; content: string; prompt?: { id: string; version: number } | null; metadata?: {attachments?:string[];reply_to?:number;choice_value?:string} }>({
+    mutationFn: ({ id, content, prompt, metadata }) => {
       const session = encodeURIComponent(id);
-      return write(JSON.stringify(["send", id, content, prompt ?? null]), (clientMessageId, signal) => prompt
+      return write(JSON.stringify(["send", id, content, prompt ?? null, metadata ?? {}]), (clientMessageId, signal) => prompt
         ? api.post(`/admin/agent-sessions/${session}/prompts/${encodeURIComponent(prompt.id)}/answer`, {
             client_message_id: clientMessageId,
             answer: content,
+            metadata,
             version: prompt.version,
           }, { signal })
         : api.post(`/admin/agent-sessions/${session}/messages`, {
             client_message_id: clientMessageId,
             content,
-          }, { signal }));
+            metadata,          }, { signal }));
     },
     ...opts,
     onSettled: (...args) => {
