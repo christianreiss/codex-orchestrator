@@ -88,3 +88,6 @@ manually. Automatic recovery never deletes its loop guard.
 The boot journal contains no old bridge token or provider auth copy. It saves only
 identity, checkpoint, user/workdir and selected nonsecret path/locale settings.
 Normal signed fleet credentials are loaded again as the original user.
+Grok saves the managed runtime's durable base home, not its disposable access-only
+auth projection. A pre-0.9.56 Grok launch must be restarted through an updated
+wrapper before it can prepare this handoff.

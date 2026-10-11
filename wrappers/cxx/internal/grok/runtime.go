@@ -601,6 +601,9 @@ func (r *Runtime) Environment(env []string) []string {
 		out = append(out, item)
 	}
 	out = SetEnv(out, "GROK_HOME", r.Home)
+	// Planned reboot checkpoints need the durable transcript/config root, never
+	// this launch's disposable auth projection directory.
+	out = SetEnv(out, "CXX_GROK_BASE_HOME", r.BaseHome)
 	out = SetEnv(out, "GROK_AUTH_PATH", r.AuthPath)
 	out = SetEnv(out, AuthSocketEnv, r.Socket)
 	if r.effective != "" {

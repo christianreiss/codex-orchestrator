@@ -119,19 +119,16 @@ func requestReboot(ctx context.Context, client *sessionClient, args map[string]a
 	}
 	r.UID, r.GID, r.Home = uint32(os.Getuid()), uint32(os.Getgid()), home
 	r.Executable = rebootExecutable(r.ID)
-	// Deliberately exclude bridge tokens, provider credentials and old receiver
-	// sockets. Normal signed-config/auth setup runs anew after the reboot.
-	for _, key := range []string{"PATH", "LANG", "CODEX_HOME", "CLAUDE_CONFIG_DIR", "GROK_HOME", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "CDX_CONFIG_PATH", "CLX_CONFIG_PATH", "CGX_CONFIG_PATH"} {
-		if v, ok := os.LookupEnv(key); ok {
-			r.Environment = append(r.Environment, key+"="+v)
-		}
-	}
 	cleanup := func(cause error) error {
 		cleanupCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
 		_, localErr := rebootRoot(cleanupCtx, "_disarm", r.ID, nil, io.Discard, stderr)
 		remoteErr := client.post(cleanupCtx, "reboot/disarm", map[string]any{"request_id": r.ID}, nil)
 		return errors.Join(cause, localErr, remoteErr)
+	}
+	r.Environment, err = rebootEnvironment(r.Engine)
+	if err != nil {
+		return nil, cleanup(err)
 	}
 	raw, err := json.Marshal(r)
 	if err != nil {
@@ -148,6 +145,25 @@ func requestReboot(ctx context.Context, client *sessionClient, args map[string]a
 		return nil, err
 	}
 	return out, nil
+}
+
+func rebootEnvironment(engine string) ([]string, error) {
+	var env []string
+	// Exclude bridge tokens, provider credentials and old receiver sockets.
+	// Normal signed-config/auth setup runs anew after the reboot.
+	for _, key := range []string{"PATH", "LANG", "CODEX_HOME", "CLAUDE_CONFIG_DIR", "GROK_HOME", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "CDX_CONFIG_PATH", "CLX_CONFIG_PATH", "CGX_CONFIG_PATH"} {
+		v, ok := os.LookupEnv(key)
+		if key == "GROK_HOME" && engine == "grok" {
+			v, ok = os.LookupEnv("CXX_GROK_BASE_HOME")
+			if !ok || !filepath.IsAbs(v) {
+				return nil, errors.New("durable Grok home unavailable; start a current managed wrapper before requesting reboot")
+			}
+		}
+		if ok {
+			env = append(env, key+"="+v)
+		}
+	}
+	return env, nil
 }
 
 func rebootRoot(ctx context.Context, action, id string, body []byte, stdout, stderr io.Writer) ([]byte, error) {

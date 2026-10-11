@@ -756,6 +756,10 @@ Removal uses an exclusive native-home guard and a host/engine reservation. A jou
 
 ## Planned reboot resume (cxx 0.9.54)
 
+From 0.9.56 the private Grok runtime exports `CXX_GROK_BASE_HOME` so reboot
+checkpoints restore the durable native home. Disposable auth projections and
+sockets are recreated normally, never restored from the previous launch.
+
 `cxx reboot --request-id UUID --reason TEXT --stdin` and `agent_reboot` prepare
 one Linux host reboot and resume the exact Grok native transcript once.
 `agent_reboot_status`, `cxx reboot status [--id UUID]` and

@@ -146,14 +146,21 @@ func TestRuntimePreservesUserOverlayAndPinsBrokerScope(t *testing.T) {
 		t.Fatal(err)
 	}
 	var effective map[string]any
+	baseHome := ""
 	for _, entry := range r.Environment([]string{"XAI_API_KEY=discard", "GROK_OIDC_ISSUER=discard", "GROK_AUTH=discard", "GROK_AUTH_EXPIRED=1", "USER=fixture"}) {
 		key, value, _ := strings.Cut(entry, "=")
+		if key == "CXX_GROK_BASE_HOME" {
+			baseHome = value
+		}
 		if key == "XAI_API_KEY" || key == "GROK_OIDC_ISSUER" || key == "GROK_AUTH" || key == "GROK_AUTH_EXPIRED" {
 			t.Fatal("native auth fallback inherited")
 		}
 		if key == "GROK_CONFIG" {
 			_ = json.Unmarshal([]byte(value), &effective)
 		}
+	}
+	if baseHome != r.BaseHome {
+		t.Fatal("durable Grok home was not exported")
 	}
 	if effective["models"].(map[string]any)["default"] != "grok-user" {
 		t.Fatal("user overlay lost")

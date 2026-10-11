@@ -12,6 +12,25 @@ import (
 	"time"
 )
 
+func TestGrokRebootPreservesDurableHomeWithoutAuthProjection(t *testing.T) {
+	base := t.TempDir()
+	t.Setenv("GROK_HOME", filepath.Join(t.TempDir(), "disposable", "home"))
+	t.Setenv("CXX_GROK_BASE_HOME", base)
+	t.Setenv("GROK_AUTH_PATH", "/disposable/auth.json")
+	t.Setenv("CXX_GROK_AUTH_SOCKET", "/disposable/auth.sock")
+	env, err := rebootEnvironment("grok")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(strings.Join(env, "\n"), "GROK_HOME="+base) || strings.Contains(strings.Join(env, "\n"), "disposable") {
+		t.Fatalf("wrong reboot environment: %v", env)
+	}
+	t.Setenv("CXX_GROK_BASE_HOME", "")
+	if _, err := rebootEnvironment("grok"); err == nil {
+		t.Fatal("old runtime without durable home allowed")
+	}
+}
+
 func TestRebootReadinessWaitsForBoundNetworkWithoutRetryingDeniedCredentials(t *testing.T) {
 	for _, tc := range []struct {
 		code  string
