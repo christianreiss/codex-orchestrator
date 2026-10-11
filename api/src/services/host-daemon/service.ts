@@ -186,10 +186,17 @@ export class HostDaemonService {
       .onDuplicateKeyUpdate({ set: { clientEventId: `daemon:${operationId}` } });
   }
   async configure(id: number, settings: DaemonSettings) {
+    return this.configureSettings(id, () => settings);
+  }
+  async configureEnabled(id: number, enabled: boolean) {
+    return this.configureSettings(id, (settings) => ({ ...settings, enabled }));
+  }
+  private async configureSettings(id: number, resolve: (settings: DaemonSettings) => DaemonSettings) {
     await this.host(id);
     await this.db.transaction(async (tx) => {
       await tx.select().from(hosts).where(eq(hosts.id, id)).for('update');
       const [old] = await tx.select().from(hostDaemons).where(eq(hostDaemons.hostId, id)).for('update');
+      const settings = resolve(old?.settings ?? daemonSettingsSchema.parse({}));
       const active = await tx
         .select()
         .from(sessions)
@@ -273,6 +280,7 @@ export class HostDaemonService {
     await this.sweep(id);
     let renewed = false;
     await this.db.transaction(async (tx) => {
+      await tx.select().from(hosts).where(eq(hosts.id, id)).for('update');
       const [row] = await tx.select().from(hostDaemons).where(eq(hostDaemons.hostId, id)).for('update');
       if (!row?.runtime || row.runtime.generation !== generation) throw new ConflictError('Daemon generation changed');
       if (!error) renewed = await renewDaemonWindow(tx, id, row.runtime, row.settings, activeSessions);
@@ -320,13 +328,13 @@ export class HostDaemonService {
     const clientKey = `${owner}:${input.client_message_id}`,
       requestHash = hash(input);
     return this.db.transaction(async (tx) => {
+      await this.assertWorkAccess(tx, input.host_id, input.engine);
       const [locked] = await tx
         .select()
         .from(hostDaemons)
         .where(eq(hostDaemons.hostId, input.host_id))
         .for('update');
       if (!locked?.settings.enabled) throw new ForbiddenError('Host daemon disabled');
-      await this.assertWorkAccess(tx, input.host_id, input.engine);
       const [existing] = await tx.select().from(operations).where(eq(operations.clientKey, clientKey));
       if (existing) {
         if (existing.requestHash !== requestHash)
@@ -403,13 +411,13 @@ export class HostDaemonService {
     await this.eligible(row.hostId, row.engine as Engine);
     const key = `${owner ?? 'admin'}:${clientId}`;
     return this.db.transaction(async (tx) => {
+      await this.assertWorkAccess(tx, row.hostId, row.engine as Engine);
       const [config] = await tx
         .select()
         .from(hostDaemons)
         .where(eq(hostDaemons.hostId, row.hostId))
         .for('update');
       if (!config?.settings.enabled) throw new ForbiddenError('Host daemon disabled');
-      await this.assertWorkAccess(tx, row.hostId, row.engine as Engine);
       const [locked] = await tx.select().from(sessions).where(eq(sessions.id, id)).for('update');
       const [prior] = await tx.select().from(operations).where(eq(operations.clientKey, key));
       if (prior) {
@@ -515,10 +523,10 @@ export class HostDaemonService {
     const config = await this.eligible(id);
     if (config.runtime?.generation !== generation) throw new ConflictError('Daemon generation changed');
     return this.db.transaction(async (tx) => {
+      const host = await this.assertWorkAccess(tx, id);
       const [current] = await tx.select().from(hostDaemons).where(eq(hostDaemons.hostId, id)).for('update');
       if (!current?.settings.enabled || current.runtime?.generation !== generation)
         throw new ConflictError('Daemon generation changed');
-      const host = await this.assertWorkAccess(tx, id);
       const work = await tx.select().from(sessions).where(eq(sessions.hostId, id));
       const [op] = await tx
         .select()
@@ -568,6 +576,7 @@ export class HostDaemonService {
   async accept(hostId: number, id: string, claim: string) {
     await this.eligible(hostId, undefined, true);
     return this.db.transaction(async (tx) => {
+      await tx.select().from(hosts).where(eq(hosts.id, hostId)).for('update');
       const [config] = await tx
         .select()
         .from(hostDaemons)

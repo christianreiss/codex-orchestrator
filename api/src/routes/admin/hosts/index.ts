@@ -20,6 +20,7 @@ import {
   MIN_INSECURE_WINDOW_MINUTES,
   MAX_INSECURE_WINDOW_MINUTES,
 } from '../../../services/host-management.js';
+import { HostDaemonService } from '../../../services/host-daemon/service.js';
 import { InsecureWindowAdminService } from '../../../services/insecure-window-admin.js';
 import {
   DEFAULT_FLEET_WINDOW_MINUTES,
@@ -107,6 +108,7 @@ const enginesSchema = z
 
 const registerSchema = z.object({
   fqdn: z.string().min(1, 'fqdn is required'),
+  daemon_enabled: z.boolean().optional(),
   secure: booleanish.optional(),
   vip: booleanish.optional(),
   temporary: booleanish.optional(),
@@ -252,6 +254,7 @@ export interface AdminHostAuthView {
 }
 
 export interface AdminHostRoutesOverrides {
+  daemonService?: Pick<HostDaemonService, 'configureEnabled'>;
   hostService?: HostManagementService;
   insecure?: InsecureWindowAdminService;
   authView?: (host: Host, engine: Engine, includeBody: boolean) => Promise<AdminHostAuthView>;
@@ -263,6 +266,7 @@ export async function registerAdminHostsRoutes(
   overrides: AdminHostRoutesOverrides = {},
 ): Promise<void> {
   const events = makeAdminEventsWriter(ctx.db);
+  const daemonService = overrides.daemonService ?? new HostDaemonService(ctx);
   const hostService =
     overrides.hostService ??
     new HostManagementService({
@@ -331,6 +335,21 @@ export async function registerAdminHostsRoutes(
         duration_minutes: body.duration_minutes ?? null,
         engines: body.engines,
       });
+      if (body.daemon_enabled !== undefined) {
+        const daemon = await daemonService.configureEnabled(host.id, body.daemon_enabled);
+        await events.append('host.daemon.configured', {
+          host_id: host.id,
+          settings: {
+            enabled: daemon.enabled,
+            username: daemon.username,
+            default_cwd: daemon.default_cwd,
+            max_parallel: daemon.max_parallel,
+            idle_minutes: daemon.idle_minutes,
+            question_minutes: daemon.question_minutes,
+          },
+          admin_user_id: req.admin!.user.id,
+        }, host.id);
+      }
       return {
         host: { ...hostToWire(host), api_key: apiKeyPlain },
         installer,

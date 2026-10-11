@@ -2,7 +2,9 @@
 
 - Fresh-install Portal/daemon foreign keys use the canonical short migration names, avoiding MySQL identifier-length failures during baseline setup.
 
-- Persistent daemons remain online with closed insecure access windows. WebUI and agents on active secure hosts can open windows; accepted running and retained waiting sessions renew them without resetting session timeouts. Manual Disable fences renewal, while stop/result receipts remain available. Wrapper 0.9.48 reports active processes and exposes `host_insecure_enable` for all three engines.
+- Persistent daemons remain online with closed insecure access windows. WebUI and agents on active secure hosts can open windows; accepted running and retained waiting sessions renew them without resetting session timeouts. Manual Disable fences renewal, while stop/result receipts remain available. Wrapper 0.9.49 reports active processes and exposes `host_insecure_enable` for all three engines.
+- New Host and setup registration offer an optional persistent daemon (default off, New Host shortcut 8), saving enablement before returning the installer while preserving existing daemon settings.
+- Wrapper 0.9.48 uses the relay's IPv4 preference and CA trust for the host daemon WebSocket, fixing `401 ip_mismatch` on dual-stack hosts whose HTTP API calls succeed. TLS and WebSocket handshakes honor cancellation and a 35-second timeout. Enabled service installation/start now prints a confirmation during `cxx update`; remote connection health remains visible in `cxx daemon status` and the WebUI.
 
 - Portal and Messaging preserve the same `peer_delivery` invocation kind during daemon resumes, preventing registration conflicts before native continuation.
 
