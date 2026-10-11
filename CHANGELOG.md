@@ -1,5 +1,7 @@
 # 2026-10-11
 
+- README features and the three-engine matrix now reflect current code, including Accounts, remote sessions, System Spawn, rich chat, recovery and housekeeping. Corrected API key namespaces, CLI examples and transport/security limits. Refreshed 16 documentation screenshots with a fictional fleet; capture now rejects unknown shots, missing API fixtures and page errors, and a helper regenerates all three terminal previews.
+
 - Agent chat gains stable reply buttons and text/both answer modes, explicit important/critical/blocker Needs you notices with targeted resolution, and resumable images/files/audio/video in both directions. Android 0.4.13 and Active Clients add drafts, upload progress/retry/cancel, capture/playback, reply references and copy/formatting. cxx 0.9.57 exposes the shared chat/media MCP tools for all three engines; managed agent guidance explains their use. Installer and deploy prepare a private chat directory for the API/worker user. A local isolated media worker prepares timestamped Whisper transcripts and video frames; originals remain available on processing failure. Pixel installation is deferred.
 
 - System Spawn installer retries after a timed daemon deadline repair all installed engines and report the expiry without attempting to reactivate the disabled daemon.

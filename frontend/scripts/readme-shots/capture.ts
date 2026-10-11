@@ -2,16 +2,17 @@
  * Regenerates the README screenshots in docs/img/.
  *
  *   npm run shots:readme                 # every shot
- *   npm run shots:readme -- hosts clients  # only the named shots
+ *   npm run shots:readme -- hosts active-clients  # only the named shots
  *
  * The console runs from its Vite dev server (started
  * here unless already listening on 4173) against the demo fleet in
  * fixtures.ts, so no orchestrator, database or real data is involved. Each
  * page is captured, then composited into a window frame.
  *
- * The terminal shots render cdx.ansi / clx.ansi: the real
+ * The terminal shots render cdx.ansi / clx.ansi / cgx.ansi: the real
  * terminalui.PrintBootScreen output for a demo ScreenInput, captured under a
- * truecolor PTY. Regenerate those when the wrapper's boot screen changes.
+ * truecolor PTY. Regenerate those when the wrapper's boot screen changes:
+ *   python3 scripts/readme-shots/terminals.py
  */
 import { spawn, type ChildProcess } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
@@ -36,79 +37,56 @@ interface Shot {
   scheme?: Scheme;
   viewport?: { width: number; height: number };
   /** Terminal persona instead of a browser page. */
-  terminal?: "cdx" | "clx";
+  terminal?: "cdx" | "clx" | "cgx";
   prepare?: (page: Page) => Promise<void>;
 }
 
-/** Scroll the first element showing `text` to just under the sticky header. */
-function scrollTo(text: string) {
-  return async (page: Page) => {
-    await page.getByText(text, { exact: true }).first().evaluate((el) => el.scrollIntoView({ block: "start" }));
-    await page.evaluate(() => {
-      const scroller = document.querySelector("main")?.closest("[class*='overflow']") ?? document.scrollingElement;
-      scroller?.scrollBy(0, -96);
-      window.scrollBy(0, -96);
-    });
-    // The dev server's origin leaks into copyable URLs; show the demo one.
-    await page.evaluate(() => {
-      const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
-      for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-        node.textContent = node.textContent!.replaceAll("http://127.0.0.1:4173", "https://orchestrator.example.net");
-      }
-    });
-    await page.waitForTimeout(300);
-  };
-}
-
-/** Bring the relationship map to the top and zoom in to a readable level. */
+/** Fit the selected project's relationships into the visible map. */
 async function focusAtlas(page: Page) {
   await page.getByText("Relationship map").scrollIntoViewIfNeeded();
-  await page.evaluate(() => {
-    const heading = [...document.querySelectorAll("h2, h3")].find((el) => el.textContent?.includes("Relationship map"));
-    const main = heading?.closest("main") ?? document.scrollingElement;
-    const top = heading!.getBoundingClientRect().top;
-    (main as Element).scrollBy(0, top - 24);
-    window.scrollBy(0, top - 24);
-  });
-  await page.getByRole("button", { name: "Tags" }).click();
-  await page.waitForTimeout(600);
-  for (let i = 0; i < 4; i++) await page.locator(".svelte-flow__controls-zoomin").click();
-  // Drag the pane so the project and shared clusters sit in view.
-  const pane = await page.locator(".svelte-flow__pane").boundingBox();
-  if (pane) {
-    const x = pane.x + pane.width / 2;
-    const y = pane.y + pane.height / 2;
-    await page.mouse.move(x, y);
-    await page.mouse.down();
-    await page.mouse.move(x, y - 120, { steps: 8 });
-    await page.mouse.up();
-  }
+  await page.locator(".svelte-flow__controls-fitview").click();
   await page.waitForTimeout(600);
 }
 
 const SHOTS: Shot[] = [
-  { name: "overview", title: "Overview", path: "/dashboard", scheme: "dark" },
-  { name: "overview-light", title: "Overview", path: "/dashboard" },
+  { name: "overview", title: "Overview", path: "/dashboard", scheme: "dark", viewport: { width: 1440, height: 1200 } },
+  { name: "overview-light", title: "Overview", path: "/dashboard", viewport: { width: 1440, height: 1200 } },
   { name: "cdx-launch", title: "~ — cdx", terminal: "cdx" },
   { name: "clx-launch", title: "~ — clx", terminal: "clx" },
+  { name: "cgx-launch", title: "~ — cgx", terminal: "cgx" },
   { name: "hosts", title: "Hosts", path: "/hosts" },
-  { name: "active-clients", title: "Active Clients", path: "/clients", prepare: openForge },
-  { name: "memory-atlas", title: "Memories", path: "/memories", scheme: "dark", prepare: focusAtlas },
-  { name: "project-board", title: "Projects / checkout-v2", path: "/projects/checkout-v2/board" },
-  { name: "git-director", title: "Git Director", path: "/git-director", prepare: scrollTo("git@git.example.net:shop/checkout.git") },
+  { name: "active-clients", title: "Active Clients", path: "/clients?session=33333333-3333-4333-8333-333333333333", viewport: { width: 1440, height: 1050 } },
+  { name: "accounts", title: "Accounts", path: "/accounts", viewport: { width: 1440, height: 1080 } },
+  { name: "wake-cron", title: "Wake / Cron", path: "/schedules" },
+  { name: "remote-sessions", title: "Remote sessions", path: "/clients", prepare: async (page) => {
+    await page.getByText("Remote sessions", { exact: true }).click();
+    await page.getByRole("button", { name: "Refund contract checks · grok · idle" }).click();
+  } },
+  { name: "memory-atlas", title: "Memories · Checkout v2", path: "/memories?project=checkout-v2&layers=tags", scheme: "dark", viewport: { width: 1440, height: 1160 }, prepare: focusAtlas },
+  { name: "project-board", title: "Projects / checkout-v2", path: "/projects/checkout-v2/board", viewport: { width: 1680, height: 900 } },
+  { name: "git-director", title: "Git Director · Activity", path: "/git-director?tab=activity" },
+  { name: "git-director-merges", title: "Git Director · Merge requests", path: "/git-director?tab=merges", prepare: async (page) => {
+    await page.getByRole("button", { name: /wait main Both touch/ }).click();
+  } },
   { name: "fleet-instructions", title: "Fleet Instructions", path: "/instructions" },
-  { name: "api-access", title: "API Access", path: "/api-keys", prepare: scrollTo("Proxy endpoints") },
+  { name: "api-access", title: "API Access", path: "/api-keys" },
 ];
 
 /* ---------- dev servers ---------- */
 
 async function reachable(url: string): Promise<boolean> {
   try {
-    const res = await fetch(url);
+    const res = await fetch(url, { signal: AbortSignal.timeout(2000) });
     return res.status < 500;
   } catch {
     return false;
   }
+}
+
+function stopServer(child: ChildProcess | null) {
+  if (!child?.pid) return;
+  try { process.kill(-child.pid); }
+  catch (error) { if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error; }
 }
 
 async function ensureServer(url: string, args: string[]): Promise<ChildProcess | null> {
@@ -118,6 +96,7 @@ async function ensureServer(url: string, args: string[]): Promise<ChildProcess |
     if (await reachable(url)) return child;
     await new Promise((r) => setTimeout(r, 500));
   }
+  stopServer(child);
   throw new Error(`dev server did not come up at ${url}`);
 }
 
@@ -126,8 +105,24 @@ async function ensureServer(url: string, args: string[]): Promise<ChildProcess |
 const unmocked = new Set<string>();
 
 async function stub(page: Page) {
+  // Keep the synthetic event feed open like the real SSE endpoint; a finite
+  // route.fulfill stream would immediately display a reconnection warning.
+  await page.addInitScript(() => {
+    class DemoEventSource extends EventTarget {
+      readyState = 1;
+      constructor(_url: string) {
+        super();
+        setTimeout(() => this.dispatchEvent(new Event("open")), 0);
+      }
+      close() { this.readyState = 2; }
+    }
+    Object.defineProperty(window, "EventSource", { value: DemoEventSource });
+  });
   await page.route("**/admin/**", async (route) => {
     const request = route.request();
+    if (new URL(request.url()).pathname === "/admin/agent-sessions/events") {
+      return route.fulfill({ contentType: "text/event-stream", body: "retry: 60000\nevent: heartbeat\ndata: {}\n\n" });
+    }
     if (!request.headers().accept?.includes("application/json")) return route.continue();
     const url = new URL(request.url());
     const body = adminFixture(url.pathname, url.searchParams);
@@ -142,7 +137,7 @@ async function stub(page: Page) {
 
 async function capturePage(browser: Browser, shot: Shot): Promise<Buffer> {
   const viewport = shot.viewport ?? { width: 1440, height: 900 };
-  const context = await browser.newContext({ viewport, deviceScaleFactor: SCALE, colorScheme: shot.scheme ?? "light", reducedMotion: "reduce" });
+  const context = await browser.newContext({ viewport, deviceScaleFactor: SCALE, colorScheme: shot.scheme ?? "light", reducedMotion: "reduce", locale: "en-GB", timezoneId: "Europe/Berlin" });
   const page = await context.newPage();
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
@@ -153,10 +148,17 @@ async function capturePage(browser: Browser, shot: Shot): Promise<Buffer> {
   await page.locator("h1, h2").first().waitFor({ timeout: 15_000 });
   await page.waitForTimeout(1500);
   await shot.prepare?.(page);
+  if (unmocked.size) throw new Error(`Unmocked API calls:\n  ${[...unmocked].sort().join("\n  ")}`);
+  await page.evaluate(() => {
+    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      node.textContent = node.textContent!.replaceAll("http://127.0.0.1:4173", "https://orchestrator.example.net");
+    }
+  });
   // Toasts and the dev-server overlay are noise in a product shot.
   await page.addStyleTag({ content: "[data-sonner-toaster], vite-error-overlay { display: none !important; }" });
   const png = await page.screenshot();
-  if (errors.length) console.warn(`  ${shot.name}: page errors\n    ${errors.join("\n    ")}`);
+  if (errors.length) throw new Error(`${shot.name}: page errors\n    ${errors.join("\n    ")}`);
   await context.close();
   return png;
 }
@@ -208,9 +210,9 @@ function ansiToHtml(ansi: string): string {
   return html;
 }
 
-function terminalHtml(persona: "cdx" | "clx"): string {
+function terminalHtml(persona: "cdx" | "clx" | "cgx"): string {
   const ansi = readFileSync(resolve(HERE, `${persona}.ansi`), "utf8");
-  const engine = persona === "cdx" ? "codex" : "claude";
+  const engine = persona === "cdx" ? "codex" : persona === "clx" ? "claude" : "grok";
   return `<div class="terminal"><pre><span class="prompt">ada@atlas</span> <span class="path">~/src/checkout</span> <span class="dollar">$</span> ${persona}
 ${ansiToHtml(ansi)}
 <span class="dim">Launching ${engine}…</span></pre></div>`;
@@ -268,6 +270,8 @@ async function compose(browser: Browser, shot: Shot, raw: Buffer | null): Promis
     inner = terminalHtml(shot.terminal);
   } else {
     const viewport = shot.viewport ?? { width: 1440, height: 900 };
+    width = viewport.width + 160;
+    height = viewport.height + 140;
     inner = `<img src="data:image/png;base64,${raw!.toString("base64")}" width="${viewport.width}" height="${viewport.height}">`;
   }
   const context = await browser.newContext({ viewport: { width, height }, deviceScaleFactor: SCALE });
@@ -284,18 +288,20 @@ async function compose(browser: Browser, shot: Shot, raw: Buffer | null): Promis
 
 const only = new Set(process.argv.slice(2));
 const selected = SHOTS.filter((shot) => only.size === 0 || only.has(shot.name));
+const unknown = [...only].filter((name) => !SHOTS.some((shot) => shot.name === name));
+if (unknown.length) throw new Error(`Unknown screenshots: ${unknown.join(", ")}`);
 const needsAdmin = selected.some((s) => s.path);
 
 const servers: (ChildProcess | null)[] = [];
+let browser: Browser | null = null;
 try {
   if (needsAdmin) servers.push(await ensureServer(`${ADMIN}/admin/dashboard`, ["vite", "dev", "--host", "127.0.0.1", "--port", "4173"]));
-  const browser = await chromium.launch();
+  browser = await chromium.launch();
   for (const shot of selected) {
     const raw = shot.terminal ? null : await capturePage(browser, shot);
     await compose(browser, shot, raw);
   }
-  await browser.close();
-  if (unmocked.size) console.warn(`unmocked API calls (answered {status:"ok"}):\n  ${[...unmocked].sort().join("\n  ")}`);
 } finally {
-  for (const child of servers) if (child?.pid) process.kill(-child.pid);
+  await browser?.close();
+  for (const child of servers) stopServer(child);
 }

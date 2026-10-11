@@ -4,8 +4,8 @@
  * Every hostname lives under example.net, every address is in a
  * documentation range, and every key is a visibly fake prefix. Response
  * shapes follow the e2e fixtures in ../../e2e and the types in
- * ../../src/lib/api; a path this file does not know answers
- * `{ status: "ok" }` and is reported by capture.ts so gaps are visible.
+ * ../../src/lib/api; unknown API requests fail the capture so a missing
+ * fixture cannot silently produce an empty product screenshot.
  */
 
 import { CAPABILITIES } from "../../src/lib/auth/capabilities.ts";
@@ -18,7 +18,8 @@ const user = { id: 1, username: "ada", name: "Ada Operator", access_level: "owne
 
 const CODEX = "0.158.0";
 const CLAUDE = "2.1.184";
-const WRAPPER = "0.9.12";
+const GROK = "1.0.46";
+const WRAPPER = "0.9.57";
 
 interface DemoHost {
   id: number;
@@ -34,10 +35,10 @@ interface DemoHost {
 }
 
 const HOSTS: DemoHost[] = [
-  { id: 1, fqdn: "atlas.example.net", engines: "codex,claude", vip: true, seen: 40, ip4: "192.0.2.10" },
-  { id: 2, fqdn: "crane.example.net", engines: "codex,claude", seen: 95, ip4: "192.0.2.11" },
+  { id: 1, fqdn: "atlas.example.net", engines: "codex,claude,grok", vip: true, seen: 40, ip4: "192.0.2.10" },
+  { id: 2, fqdn: "crane.example.net", engines: "codex,claude,grok", seen: 95, ip4: "192.0.2.11" },
   { id: 3, fqdn: "forge.example.net", engines: "codex", seen: 300, ip4: "192.0.2.12" },
-  { id: 4, fqdn: "harbor.example.net", engines: "claude", seen: 620, ip4: "192.0.2.13" },
+  { id: 4, fqdn: "harbor.example.net", engines: "claude,grok", seen: 620, ip4: "192.0.2.13" },
   { id: 5, fqdn: "build-02.example.net", engines: "codex,claude", seen: 1800, codex: "0.156.0", ip4: "198.51.100.4" },
   { id: 6, fqdn: "nova.example.net", engines: "codex", seen: 5400, ip4: "198.51.100.7" },
   { id: 7, fqdn: "kiosk.example.net", engines: "claude", secure: false, seen: 7200, outdated: true, ip4: "203.0.113.21" },
@@ -47,20 +48,24 @@ const HOSTS: DemoHost[] = [
 function hostRow(h: DemoHost) {
   const hasCodex = h.engines.includes("codex");
   const hasClaude = h.engines.includes("claude");
+  const hasGrok = h.engines.includes("grok");
   return {
     id: h.id,
     fqdn: h.fqdn,
     status: h.seen < 3600 ? "online" : "active",
     last_refresh: ago(h.seen),
     claude_last_refresh: hasClaude ? ago(h.seen + 30) : null,
+    grok_last_refresh: hasGrok ? ago(h.seen + 15) : null,
     updated_at: ago(h.seen),
     created_at: ago(86400 * 40 + h.id * 3600),
     client_version: hasCodex ? (h.codex ?? CODEX) : null,
     claude_client_version: hasClaude ? (h.claude ?? CLAUDE) : null,
+    grok_client_version: hasGrok ? GROK : null,
     client_version_override: null,
     claude_client_version_override: null,
     wrapper_version: hasCodex ? WRAPPER : null,
     claude_wrapper_version: hasClaude ? WRAPPER : null,
+    grok_wrapper_version: hasGrok ? WRAPPER : null,
     ip4: h.ip4,
     ip6: null,
     allow_roaming_ips: false,
@@ -69,7 +74,18 @@ function hostRow(h: DemoHost) {
     insecure_enabled_until: h.secure === false && h.id === 7 ? ahead(3600 * 5) : null,
     canonical_digest: hasCodex ? "5f2c9a1e7b3d4c60" : null,
     claude_canonical_digest: hasClaude ? "a81d0e44c2b9f713" : null,
+    grok_canonical_digest: hasGrok ? "d42a28d062338ca1" : null,
     engines: h.engines,
+    engine_readiness: Object.fromEntries(["codex", "claude", "grok"].map((engine) => {
+      const assigned = h.engines.includes(engine);
+      const target = engine === "codex" ? CODEX : engine === "claude" ? CLAUDE : GROK;
+      const installed = engine === "codex" ? (h.codex ?? CODEX) : engine === "claude" ? (h.claude ?? CLAUDE) : GROK;
+      const outdated = installed !== target;
+      return [engine, { state: !assigned ? "inactive" : outdated ? "attention" : "ready",
+        reasons: !assigned ? ["not_assigned"] : outdated ? ["cli_outdated"] : [],
+        cli_version: assigned ? installed : null, cli_target: target,
+        wrapper_version: assigned ? WRAPPER : null, wrapper_target: WRAPPER }];
+    })),
     authed: true,
     auth_outdated: h.outdated ?? false,
     api_calls: 12842 - h.id * 1300,
@@ -90,12 +106,12 @@ const SESSIONS = [
   {
     id: "33333333-3333-4333-8333-333333333333", engine: "codex", host: "forge.example.net", host_id: 3,
     username: "grace", cwd: "/srv/infra", presence: "listening", started: 9000, turn: null,
-    attention: { since: ago(240), summary: "Waiting for your go-ahead on production." },
+    attention: { id: "notice-staging", severity: "important", since: ago(240), summary: "Waiting for your go-ahead on production." },
     work: { task: "Roll the Postgres 17 migration through staging", branch: "ops/pg17", target_branch: "main", address_alias: "amber-fox" },
   },
   {
-    id: "44444444-4444-4444-8444-444444444444", engine: "claude", host: "harbor.example.net", host_id: 4,
-    username: "grace", cwd: "/srv/docs", presence: "listening", started: 1300, turn: null,
+    id: "44444444-4444-4444-8444-444444444444", engine: "grok", host: "harbor.example.net", host_id: 4,
+    username: "grace", cwd: "/srv/checkout", presence: "listening", started: 1300, turn: null,
     work: { task: "Review the refunds PR and leave notes on the board", branch: null, target_branch: null, address_alias: "calm-otter" },
   },
   {
@@ -106,10 +122,12 @@ const SESSIONS = [
 ];
 
 function session(s: (typeof SESSIONS)[number]) {
+  const names = ["Claudia", "Beate", "Greta", "Marlene", "Helena"];
   return {
     id: s.id, engine: s.engine, host: s.host, host_id: s.host_id, username: s.username, cwd: s.cwd,
+    launch_name: names[SESSIONS.indexOf(s)], session_name: s.work.task, task_title: s.work.task,
     invocation_kind: (s as { invocation?: string }).invocation ?? "interactive",
-    upstream_session_id: null, status: "active", presence: s.presence, relay_ready: s.presence !== "working" || true,
+    upstream_session_id: null, status: "active", presence: s.presence, relay_ready: true, relay_enabled: true, relay_heartbeat_at: ago(4),
     active_turn_id: s.turn ? `turn-${s.id.slice(0, 4)}` : null,
     active_turn_started_at: s.turn ? ago(s.turn) : null,
     started_at: ago(s.started), heartbeat_at: ago(5), last_event_at: ago(12),
@@ -146,7 +164,7 @@ function timeline() {
 
 /* ---------- memory atlas ---------- */
 
-function memoryGraph() {
+function memoryGraph(search: URLSearchParams) {
   const nodes: Record<string, unknown>[] = [];
   const edges: Record<string, unknown>[] = [];
   const add = (n: Record<string, unknown>) => nodes.push(n);
@@ -159,6 +177,7 @@ function memoryGraph() {
   for (const t of ["deploy", "runbook", "postgres", "payments", "convention"]) add({ id: `tag:${t}`, kind: "tag", label: t });
   add({ id: "engine:codex", kind: "engine", label: "codex" });
   add({ id: "engine:claude", kind: "engine", label: "claude" });
+  add({ id: "engine:grok", kind: "engine", label: "grok" });
 
   const memories: Array<[string, string, string, number | null, string | null, string[], string]> = [
     ["deploy.crane", "shared", "Deploy runbook: crane", 2, null, ["deploy", "runbook"], "codex"],
@@ -167,14 +186,15 @@ function memoryGraph() {
     ["incident.2026-09-12", "shared", "Webhook retry storm post-mortem", 1, null, ["payments"], "claude"],
     ["api.contract", "project", "Refund API contract decisions", 2, "checkout-v2", ["payments"], "codex"],
     ["webhook.retries", "project", "Why webhooks retry 5x with jitter", 1, "checkout-v2", ["payments"], "claude"],
-    ["release.freeze", "project", "Release freeze until 2026-09-30", 4, "checkout-v2", ["deploy"], "claude"],
+    ["release.freeze", "project", "Release readiness checklist", 4, "checkout-v2", ["deploy"], "grok"],
     ["pg17.cutover", "project", "PG17 cutover checklist", 3, "infra-pg17", ["postgres", "deploy"], "codex"],
     ["pg17.extensions", "project", "Extensions to rebuild on PG17", 3, "infra-pg17", ["postgres"], "codex"],
     ["scratch.build-cache", "host", "Build cache lives on /srv/cache", 5, null, [], "claude"],
     ["scratch.node-version", "host", "Node 22 pinned via volta", 2, null, ["convention"], "codex"],
-    ["scratch.ports", "host", "Local dev ports", 1, null, [], "claude"],
+    ["scratch.ports", "host", "Local dev ports", 1, null, [], "grok"],
   ];
-  memories.forEach(([key, scope, title, hostId, project, tags, engine], index) => {
+  const filtered = memories.filter((memory) => !search.get("project_slug") || memory[4] === search.get("project_slug"));
+  filtered.forEach(([key, scope, title, hostId, project, tags, engine], index) => {
     const id = `memory:${scope}:${key}`;
     add({
       id, node_id: id, memory_id: key, key, kind: "memory", label: title, record_id: index + 1, scope, title,
@@ -196,7 +216,7 @@ function memoryGraph() {
     [...new Set(values)].map((value) => ({ value, count: values.filter((v) => v === value).length }));
   return {
     status: "ok",
-    nodes,
+    nodes: nodes.filter((node) => edges.some((edge) => edge.source === node.id || edge.target === node.id)),
     edges,
     facets: {
       scopes: count(memories.map((m) => m[1])),
@@ -210,7 +230,7 @@ function memoryGraph() {
     },
     facets_truncated: { hosts: false, projects: false, tags: false },
     totals: { all: 12, host: 3, project: 5, shared: 4 },
-    count: 12,
+    count: filtered.length,
     next_cursor: null,
     truncated: false,
   };
@@ -279,7 +299,7 @@ function gitClones() {
   const req = (id: string, worktree: string, verdict: string, by: string, reason: string, overlap: string[], minutes: number) => ({
     request_id: id, worktree_id: worktree, target_branch: "main", verdict, decided_by: by, reason, overlap,
     lease_expires_at: verdict === "allow" ? ahead(600) : null, requested_at: ago(minutes * 60), model: by === "llm" ? "claude-sonnet-5" : null,
-    completed_at: verdict === "allow" ? null : ago(minutes * 60 - 5),
+    completed_at: verdict === "allow" || verdict === "wait" ? null : ago(minutes * 60 - 5),
   });
   return {
     clones: [
@@ -287,11 +307,14 @@ function gitClones() {
         clone_id: "clone-1", host_id: 1, fqdn: "atlas.example.net", repo_root: "/srv/checkout",
         remote_url: "git@git.example.net:shop/checkout.git", remote_key: "git.example.net/shop/checkout", last_seen_at: ago(20),
         worktrees: [
-          wt("wt-1", "ada", "claude", "feat/webhook-idempotency", "Split the payment webhook handler into idempotent steps", ["api/src/payments/webhooks"]),
+          wt("wt-1", "ada", "claude", "feat/webhook-idempotency", "Split the payment webhook handler into idempotent steps", ["api/src/payments"]),
           wt("wt-2", "ada", "codex", "test/refund-contracts", "Add contract tests for the refunds API", ["api/test/contract", "api/src/payments/refunds"]),
           wt("wt-3", "ci", "claude", "chore/deps-2026-09-23", "Nightly dependency audit", ["package.json", "package-lock.json"]),
         ],
-        leases: [req("req-7", "wt-1", "allow", "policy", "No overlap with open leases.", [], 3)],
+        leases: [
+          req("req-7", "wt-1", "allow", "policy", "No overlap with open leases.", [], 3),
+          req("req-8", "wt-2", "wait", "policy", "Both touch api/src/payments; let feat/webhook-idempotency land first.", ["api/src/payments/refunds/index.ts"], 1),
+        ],
         stale: [],
         recent: [
           req("req-8", "wt-2", "wait", "llm", "Both touch api/src/payments; let feat/webhook-idempotency land first.", ["api/src/payments/refunds/index.ts"], 1),
@@ -369,25 +392,92 @@ function agentVersions() {
 
 /* ---------- router ---------- */
 
+const ACCOUNTS = [
+  { id: 1, engine: "codex", label: "ChatGPT · Engineering", short: 28, weekly: 61, hosts: [2, 3] },
+  { id: 2, engine: "claude", label: "Claude · Engineering", short: 34, weekly: 47, hosts: [1, 5] },
+  { id: 3, engine: "grok", label: "Grok · Reviews", short: null, weekly: null, hosts: [4] },
+  { id: 4, engine: "codex", label: "ChatGPT · Build pool", short: 9, weekly: 23, hosts: [] },
+].map((account) => ({
+  id: account.id, engine: account.engine, label: account.label, state: "enabled",
+  verification_state: "verified", verification_reason: null, verification_checked_at: ago(900), generation: 4, refresh_state: "idle",
+  usage: { supported: true, fetched_at: ago(180), checked_at: ago(180), stale: false,
+    short_used_percent: account.short, short_resets_at: account.short === null ? null : ahead(9120),
+    weekly_used_percent: account.weekly, weekly_resets_at: account.weekly === null ? null : ahead(3600 * 61),
+    current_window: account.engine === "grok" ? { used_percent: 38, period: "monthly", starts_at: ago(86400 * 10), resets_at: ahead(86400 * 20), shared: true } : null,
+  },
+  sessions: account.hosts.map((host_id) => ({ id: `lease-${account.id}-${host_id}`, host_id, expires_at: ahead(1800) })),
+}));
+
+const SCHEDULES = [
+  { id: "aaaaaaa1-1111-4111-8111-111111111111", name: "Morning release review", target: `agent:${SESSIONS[3].id}`, prompt: "Review open release blockers and report the remaining decisions.", kind: "cron", cron: "0 9 * * 1-5", interval_minutes: null, at: null, persistent: false, progress_timeout_seconds: null, max_recovery_attempts: null, enabled: true, next_due_at: ahead(3600 * 16) },
+  { id: "aaaaaaa2-2222-4222-8222-222222222222", name: "Continue refund contracts", target: `agent:${SESSIONS[1].id}`, prompt: "Continue the agreed refund contract test task. Report the result without deployment.", kind: "interval", cron: null, interval_minutes: 30, at: null, persistent: true, progress_timeout_seconds: 600, max_recovery_attempts: 3, enabled: true, next_due_at: ahead(1200) },
+  { id: "aaaaaaa3-3333-4333-8333-333333333333", name: "Staging handoff", target: `agent:${SESSIONS[2].id}`, prompt: "Prepare the staging handoff and list the operator decisions still needed.", kind: "once", cron: null, interval_minutes: null, at: ahead(3600 * 3), persistent: false, progress_timeout_seconds: null, max_recovery_attempts: null, enabled: true, next_due_at: ahead(3600 * 3) },
+  { id: "aaaaaaa4-4444-4444-8444-444444444444", name: "Dependency audit", target: `agent:${SESSIONS[4].id}`, prompt: "Inspect dependency changes and summarize relevant upgrade risks.", kind: "cron", cron: "0 7 * * 1", interval_minutes: null, at: null, persistent: false, progress_timeout_seconds: null, max_recovery_attempts: null, enabled: false, next_due_at: null },
+].map((schedule) => ({ ...schedule, version: 2, timezone: "Europe/Berlin", created_by: "admin:1", updated_by: "admin:1", pause_reason: null }));
+
+const REMOTE_SESSION = {
+  id: "bbbbbbb1-1111-4111-8111-111111111111", title: "Refund contract checks", engine: "grok", cwd: "/srv/checkout", status: "idle",
+  sessionId: SESSIONS[3].id, addressId: SESSIONS[3].id,
+  operations: [{ id: "operation-1", status: "completed", result: { reply: "Refund contract review complete.\n\n18 scenarios checked: duplicate delivery, expired keys, partial refunds and retry budgets. Two edge cases need tests; findings are attached to the project board.\n\nReady for the next instruction." } }],
+};
+
 export function adminFixture(pathname: string, search: URLSearchParams): unknown {
   if (/^\/admin\/hosts\/\d+\/detail$/.test(pathname)) return undefined;
+  const schedule = SCHEDULES.find((row) => pathname === `/admin/schedules/${row.id}`);
+  if (schedule) return { schedule, runs: [{ id: "run-1", due_at: ago(3600), status: "completed", task_result_status: "succeeded", recovery_count: 0, last_error: null, next_attempt_at: ago(3600) }] };
   switch (pathname) {
+    case "/admin/chatty/status":
+      return { visible: true, ready: true, enabled: true, knowledge_version: "demo", engines: ["codex", "claude", "grok"].map((engine) => ({ engine, ready: true, reason: null, default_model: null, models: [] })) };
+    case "/admin/response-verbosity":
+      return { level: 2, levels: [{ level: 1, label: "Concise" }, { level: 2, label: "Balanced" }, { level: 3, label: "Detailed" }] };
+    case "/admin/accounts":
+      return { accounts: ACCOUNTS };
+    case "/admin/schedules":
+      return { schedules: SCHEDULES, next_cursor: null };
+    case "/admin/agent-messaging/addresses":
+      return { addresses: SESSIONS.map((s) => ({ id: s.id, address: `agent:${s.id}`, name: session(s).launch_name, alias: s.work.task, engine: s.engine, username: s.username, fqdn: s.host, host_id: s.host_id })) };
+    case "/admin/agent-portal/state":
+      return { enabled: true };
+    case "/admin/host-daemons":
+      return { hosts: [{ host_id: 4, fqdn: "harbor.example.net", enabled: true, username: "grace", default_cwd: "/srv/checkout", max_parallel: 4, idle_minutes: 60, question_minutes: 1440,
+        access: { allowed: true, reason: null, secure: true, enabled_until: null },
+        health: { state: "green", reasons: [], heartbeat_at: new Date().toISOString(), evaluated_at: new Date().toISOString(), used_slots: 1, max_slots: 4 }, sessions: [REMOTE_SESSION] }] };
+    case `/admin/daemon-sessions/${REMOTE_SESSION.id}`:
+      return REMOTE_SESSION;
+    case "/admin/engines/state":
+      return { engines: ["codex", "claude", "grok"].map((engine) => ({ engine, label: engine[0].toUpperCase() + engine.slice(1), enabled: true, updated_at: ago(86400), updated_by: "ada", assigned_hosts: HOSTS.filter((h) => h.engines.includes(engine)).length })) };
+    case "/admin/api/surfaces":
+      return { surfaces: [
+        { surface: "openai", label: "OpenAI", base_path: "/v1", wire: "openai", backend: "codex", identity_backend: "codex", disabled: false, key_count: 3 },
+        { surface: "anthropic", label: "Anthropic", base_path: "/anthropic/v1", wire: "anthropic", backend: "claude", identity_backend: "claude", disabled: false, key_count: 1 },
+        { surface: "grok", label: "Grok", base_path: "/grok/v1", wire: "openai", backend: "grok", identity_backend: "grok", disabled: false, key_count: 1 },
+      ], backends: ["codex", "claude", "grok"].map((engine) => ({ engine, label: engine[0].toUpperCase() + engine.slice(1) })) };
+    case "/admin/grok/settings":
+      return { default_model: "grok-4.7", disabled: false };
+    case "/admin/grok/models":
+      return { models: [{ id: "grok-4.7", enabled: true, ownedBy: "xai" }] };
+    case "/admin/grok/keys":
+      return [{ id: 5, name: "Contract review helper", key_prefix: "sk-cgx-DEMO", is_active: true, use_count: 218, last_used_at: ago(480), expires_at: ahead(86400 * 45), created_at: ago(86400 * 20) }];
+    case "/admin/git-director/commit-settings":
+      return { message_style: "long", ai_attribution: true };
     case "/admin/auth/status":
       return { authenticated: true, enforced: true, user, roles: ["owner"], capabilities: [...CAPABILITIES] };
     case "/admin/setup/status":
       return setupStatus(true);
     case "/admin/ws/info":
-      return { enabled: false };
+      return { enabled: true, url: "ws://127.0.0.1:4173/admin/ws", heartbeat_seconds: 30 };
     case "/admin/theme":
       return { theme: "auto" };
     case "/admin/overview":
       return {
         totals: { hosts: HOSTS.length },
         last_refresh: ago(40),
-        versions: { cdx_version_available: CODEX, claude_version_available: CLAUDE, cdx_version_checked_at: ago(720), claude_version_checked_at: ago(720) },
+        versions: { cdx_version_available: CODEX, claude_version_available: CLAUDE, grok_version_available: GROK, cdx_version_checked_at: ago(720), claude_version_checked_at: ago(720), grok_version_checked_at: ago(720) },
         version_distribution: {
           codex: [{ version: CODEX, count: 5 }, { version: "0.156.0", count: 1 }],
           claude: [{ version: CLAUDE, count: 5 }, { version: "2.1.170", count: 1 }],
+          grok: [{ version: GROK, count: 3 }],
+          engine_counts: { codex: 6, claude: 6, grok: 3 },
           install: { both: 4, codex_only: 2, claude_only: 2, neither: 0 },
         },
       };
@@ -413,9 +503,10 @@ export function adminFixture(pathname: string, search: URLSearchParams): unknown
       };
     }
     case "/admin/runner":
-      return { runner: { configured: true, ready: true, detail: "Both verification engines are ready.", engines: {
+      return { runner: { configured: true, ready: true, detail: "All three verification engines are ready.", engines: {
         codex: { state: "ok", last_check: ago(900), last_ok: ago(900), login_expiry: { state: "not_applicable", expires_at: null, days_remaining: null } },
         claude: { state: "ok", last_check: ago(900), last_ok: ago(900), login_expiry: { state: "ok", expires_at: ahead(86400 * 24), days_remaining: 24 } },
+        grok: { state: "ok", last_check: ago(900), last_ok: ago(900), login_expiry: { state: "ok", expires_at: ahead(86400 * 24), days_remaining: 24 } },
       } } };
     case "/admin/insecure-approvals/pending":
       return { requests: [] };
@@ -430,11 +521,11 @@ export function adminFixture(pathname: string, search: URLSearchParams): unknown
     case "/admin/hosts":
       return { hosts: HOSTS.map(hostRow) };
     case "/admin/agent-sessions":
-      return { enabled: true, timings: { heartbeat_fresh_seconds: 45, relay_fresh_seconds: 60, retention_hours: 24 }, sessions: SESSIONS.map(session) };
+      return { enabled: true, generated_at: ago(0), timings: { heartbeat_fresh_seconds: 45, relay_fresh_seconds: 60, working_fresh_seconds: 3600, retention_hours: 24 }, sessions: SESSIONS.map(session) };
     case `/admin/agent-sessions/${FORGE_ID}/events`:
       return { events: timeline(), next_cursor: 5 };
     case "/admin/memories/graph":
-      return memoryGraph();
+      return memoryGraph(search);
     case "/admin/projects/state":
       return { enabled: true };
     case "/admin/project-board/state":
@@ -464,13 +555,13 @@ export function adminFixture(pathname: string, search: URLSearchParams): unknown
       return gitClones();
     case "/admin/openai/keys":
       return [
-        { id: 1, name: "IDE plugin (Ada)", key_prefix: "sk-coco-7Hq2", is_active: true, use_count: 1842, last_used_at: ago(300), expires_at: ahead(86400 * 60), created_at: ago(86400 * 30) },
-        { id: 2, name: "Docs search bot", key_prefix: "sk-coco-Lm9x", is_active: true, use_count: 311, last_used_at: ago(7200), expires_at: ahead(86400 * 14), created_at: ago(86400 * 9) },
-        { id: 3, name: "Old CI runner", key_prefix: "sk-coco-a01Z", is_active: false, use_count: 97, last_used_at: ago(86400 * 21), expires_at: null, created_at: ago(86400 * 80) },
+        { id: 1, name: "IDE plugin (Ada)", key_prefix: "sk-cdx-DEMO7Hq2", is_active: true, use_count: 1842, last_used_at: ago(300), expires_at: ahead(86400 * 60), created_at: ago(86400 * 30) },
+        { id: 2, name: "Docs search bot", key_prefix: "sk-cdx-DEMOLm9x", is_active: true, use_count: 311, last_used_at: ago(7200), expires_at: ahead(86400 * 14), created_at: ago(86400 * 9) },
+        { id: 3, name: "Old CI runner", key_prefix: "sk-cdx-DEMOa01Z", is_active: false, use_count: 97, last_used_at: ago(86400 * 21), expires_at: null, created_at: ago(86400 * 80) },
       ];
     case "/admin/claude/keys":
       return [
-        { id: 4, name: "Review bot", key_prefix: "sk-coco-Qe4r", is_active: true, use_count: 624, last_used_at: ago(900), expires_at: ahead(86400 * 45), created_at: ago(86400 * 20) },
+        { id: 4, name: "Review bot", key_prefix: "sk-ant-DEMOQe4r", is_active: true, use_count: 624, last_used_at: ago(900), expires_at: ahead(86400 * 45), created_at: ago(86400 * 20) },
       ];
     case "/admin/claude/settings":
       return { default_model: "claude-sonnet-5", max_tokens: 8192, disabled: false };
@@ -478,6 +569,7 @@ export function adminFixture(pathname: string, search: URLSearchParams): unknown
       return { disabled: false, api_disabled: false };
     case "/admin/openai/state":
     case "/admin/claude/state":
+    case "/admin/grok/state":
       return { disabled: false, api_disabled: false };
     case "/admin/agents":
       return {
@@ -506,6 +598,8 @@ export function adminFixture(pathname: string, search: URLSearchParams): unknown
       return { engine: "codex", model: "gpt-5.6-sol", reasoning_effort: "high", catalog: [{ model: "gpt-5.6-sol", persistent_efforts: ["medium", "high"], default_effort: "high" }] };
     case "/admin/model-defaults/claude":
       return { engine: "claude", model: "claude-opus-5-5", reasoning_effort: "high", catalog: [{ model: "claude-opus-5-5", persistent_efforts: ["medium", "high"], default_effort: "high" }] };
+    case "/admin/model-defaults/grok":
+      return { engine: "grok", model: "grok-4.7", reasoning_effort: null, catalog: [{ model: "grok-4.7", persistent_efforts: [], default_effort: null }] };
     case "/admin/versions/check":
       return {
         available_client: { version: CODEX, updated_at: ago(720), source: "github" },
@@ -532,8 +626,8 @@ export function setupStatus(done: boolean) {
   ].map(([id, label, detail]) => ({ id, label, ok: true, critical: true, detail }));
   return {
     critical_complete: true, owner_created: true, setup_complete: true, checks,
-    configured_engines: done ? ["codex", "claude"] : [],
-    canonical_auth: { codex: done, claude: done },
+    configured_engines: done ? ["codex", "claude", "grok"] : [],
+    canonical_auth: { codex: done, claude: done, grok: done },
     hosts: { total: done ? HOSTS.length : 0, synced: done ? 6 : 0 },
     public_base_url: "https://orchestrator.example.net",
     warnings: [],
