@@ -111,6 +111,7 @@ visible with a choice to load the latest values or discard the draft.
   - `sync-status.schema.json`
   - `sync-bootstrap.schema.json`
 - CI validates contract coverage by replaying the recorded fixtures under `api/test/contract/fixtures/` (one per schema above) through the host-api app on the in-memory db-fake (`api/test/contract/contract.test.ts`) and through the integration suites under `api/test/integration/`. The host-facing ones (`api/test/integration/host-api/`) run on the same fake, so a plain `npm test` covers them without a database.
+- API coverage is enforced by the complete serialized MySQL-backed suite (`npm run test:coverage` after test database setup and migrations), with the same coverage thresholds. The fast database-free job still runs `npm test`; it intentionally skips durable-storage tests. Admin browser tests build and serve the production SPA in their own preview process, so cold development-server compilation and another checkout's server cannot affect the result.
 
 ## Why teams use it
 

@@ -1,5 +1,7 @@
 # 2026-10-11
 
+- Restored the complete validation gates: API fixtures apply the current migration chain without resurrecting retired Portal tables, and unchanged coverage thresholds run against the full MySQL suite. Browser checks use a fresh production preview and current Accounts, navigation, policy, quota and model-setting contracts while preserving the existing scenarios.
+
 - Migration 0058 aligns rich-chat session IDs with existing Portal IDs on installations with mixed MySQL collations. This fixes failed chat snapshots and Android connections stuck on Reconnecting after the rich-chat upgrade, preserving chat data and device pairing.
 
 - README features and the three-engine matrix now reflect current code, including Accounts, remote sessions, System Spawn, rich chat, recovery and housekeeping. Corrected API key namespaces, CLI examples and transport/security limits. Refreshed 16 documentation screenshots with a fictional fleet; capture now rejects unknown shots, missing API fixtures and page errors, and a helper regenerates all three terminal previews.

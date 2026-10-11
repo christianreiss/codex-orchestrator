@@ -110,12 +110,15 @@ For every admin change run from `frontend/`:
 
 ```bash
 npm run check
-npm run test
 npm run test:e2e
-npm run build
 ```
 
-`npm run build` rebuilds the committed `public/admin/` SPA. Navigation tests
+`npm run check` includes the unit suite. `npm run test:e2e` rebuilds the
+committed `public/admin/` SPA and starts its own production preview on port
+4173. Keep that port free: the suite refuses to reuse a server from another
+checkout. Testing the built app avoids development-server compilation racing
+the first page's assertions. `npm run build` can also rebuild the SPA without
+running the browser suite. Navigation tests
 cover route registry completeness, direct route existence, titles, mobile
 partitioning, and legacy mapping. Contrast tests enforce light/dark text and
 control contrast. Playwright fixtures keep browser checks deterministic and Axe
