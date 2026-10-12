@@ -827,6 +827,9 @@ function renderClaudeSettings(settings: NormalizedSettings): string {
  * that asymmetry is the problem being fixed, not a pattern to extend.
  */
 const CURATION_TOOLS = [
+  'feedback_submit',
+  'feedback_claim',
+  'feedback_update',
   'shared_memory_write',
   'shared_memory_append',
   'shared_memory_delete',

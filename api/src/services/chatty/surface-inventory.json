@@ -272,7 +272,14 @@
       "POST /admin/transfers/state",
       "POST /admin/users",
       "POST /admin/users/wipe",
-      "POST /admin/versions/check"
+      "POST /admin/versions/check",
+      "GET /admin/feedback",
+      "GET /admin/feedback/state",
+      "GET /admin/feedback/:id",
+      "POST /admin/feedback/state",
+      "POST /admin/feedback",
+      "POST /admin/feedback/:id",
+      "POST /admin/feedback/:id/claim"
     ]
   },
   "excluded": {

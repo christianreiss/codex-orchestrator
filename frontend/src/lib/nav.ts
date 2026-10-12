@@ -76,6 +76,9 @@ function define(item: NavDefinition): NavItem {
 }
 
 const REGISTRY: NavDefinition[] = [
+  { id: 'feedback', group: 'Coordinate', route: '/feedback', label: 'Feedback',
+    description: 'Orchestrator bugs, feature requests and verified fixes',
+    keywords: ['bugs', 'features', 'reports', 'improvements', 'feedback'], icon: MessageSquareShare },
   { id: "provider-accounts", group: "Fleet", route: "/accounts", label: "Accounts",
     description: "ChatGPT, Claude, and Grok accounts, availability, and assignments", keywords: ["accounts", "chatgpt", "claude", "grok", "quota", "credentials", "balance"], icon: Users },
   {

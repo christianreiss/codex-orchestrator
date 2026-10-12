@@ -115,6 +115,37 @@ function clxAuthHeader(partial: Record<string, unknown>): string {
 }
 
 describe('HostAgentsService.retrieve', () => {
+  for (const engine of [ENGINE_CODEX, ENGINE_CLAUDE, ENGINE_GROK]) {
+    it(`${engine}: feedback instructions follow the live switch and MCP availability`, async () => {
+      const db = makeDb([
+        [agentsDocuments, [agentsRow(4, 'Keep authored rules\n', engine)]],
+        [clientConfigDocuments, [configRow(1, engine, { orchestrator_mcp_enabled: true })]],
+        [versions, [{ name: 'feedback_enabled', version: '1', updatedAt: '2026-10-12T00:00:00Z' }]],
+      ]);
+      const service = makeService(db);
+      const host = makeHost({ engines: engine, status: 'active' });
+      const enabled = await service.retrieve(null, host, engine);
+      expect(enabled['content']).toContain('## Orchestrator Feedback');
+      expect(enabled['sections']).toMatchObject({ feedback: { present: true, transport: 'mcp' } });
+      db.tables.set(versions, [{ name: 'feedback_enabled', version: '0', updatedAt: '2026-10-12T01:00:00Z' }]);
+      const disabled = await service.retrieve(null, host, engine);
+      expect(disabled['content']).not.toContain('## Orchestrator Feedback');
+      expect(disabled['content']).toContain('Keep authored rules');
+      expect(disabled['sha256']).not.toBe(enabled['sha256']);
+      db.tables.set(versions, [{ name: 'feedback_enabled', version: '1' }]);
+      db.tables.set(clientConfigDocuments, []);
+      const missingMcp = await service.retrieve(null, host, engine);
+      if (engine === ENGINE_CLAUDE) {
+        // Claude can render an empty settings partial with managed MCP defaults.
+        expect(missingMcp['sections']).toMatchObject({ feedback: { present: true } });
+      } else {
+        expect(missingMcp['sections']).toMatchObject({ feedback: { present: false, reason: 'config_missing' } });
+      }
+      db.tables.set(clientConfigDocuments, [configRow(1, engine, { orchestrator_mcp_enabled: false })]);
+      const disabledMcp = await service.retrieve(null, host, engine);
+      expect(disabledMcp['sections']).toMatchObject({ feedback: { present: false } });
+    });
+  }
   it.each([false, true])('serves Grok native skills independently of its MCP config (MCP=%s)', async mcp => {
     const db = makeDb([[agentsDocuments, [agentsRow(4, 'Grok policy\n', 'grok')]], [clientConfigDocuments, [configRow(1, 'grok', { orchestrator_mcp_enabled: mcp })]]]);
     const service = makeService(db);

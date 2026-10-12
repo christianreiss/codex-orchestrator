@@ -22,6 +22,7 @@ import { GitDirectorService, GIT_DIRECTOR_ENABLED_FLAG } from './git-director.js
 import { DEFAULT_GIT_COMMIT_SETTINGS, readGitCommitSettings } from './git-commit-settings.js';
 import { AgentTransfersService, TRANSFERS_ENABLED_FLAG } from './agent-transfers.js';
 import { REMOTE_EXEC_ENABLED_KEY } from './remote-exec.js';
+import { FEEDBACK_ENABLED_KEY } from './feedback-contract.js';
 import { AGENT_MESSAGING_ENABLED_KEY } from './agent-messaging.js';
 import { API_KEYS_IN_CHAT_ALLOWED_KEY } from './api-keys-in-chat.js';
 import {
@@ -396,6 +397,7 @@ export class HostAgentsService {
       transferCount,
       remoteExecEnabled,
       gitCommitSettings,
+      feedbackEnabled,
     ] = await Promise.all([
       this.db
         .select()
@@ -420,6 +422,7 @@ export class HostAgentsService {
       // Keep document sync available during a deployment with missing settings,
       // like the neighbouring policy readers; defaults never add attribution.
       readGitCommitSettings(this.settings).catch(() => ({ ...DEFAULT_GIT_COMMIT_SETTINGS })),
+      this.settings.getFlag(FEEDBACK_ENABLED_KEY, false).catch(() => null),
     ]);
     // db-fake ignores WHERE, so do not borrow another engine's row in tests.
     const configRow = configRows.find((candidate) => candidate.engine === engine) ?? null;
@@ -566,6 +569,10 @@ export class HostAgentsService {
         await this.settings.getFlag('host_spawn_enabled', false).catch(() => false), 'vip_and_fleet_switch'),
       gitDirector,
       fileTransfer,
+      feedback: feedbackEnabled === null ? state(false, 'service_unavailable')
+        : !mcp.enabled ? state(false, mcp.reason)
+        : !feedbackEnabled ? state(false, 'feedback_disabled')
+        : state(true, 'ok'),
       remoteExec,
       gitCommitSettings,
     };

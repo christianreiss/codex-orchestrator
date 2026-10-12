@@ -122,7 +122,7 @@ export class McpServer {
         case 'tools/list':
         case 'tools.list':
         case 'list_tools': {
-          response = okResponse(id, { tools: this.tools.list(capability) });
+          response = okResponse(id, { tools: await this.tools.listAvailable(capability) });
           break;
         }
         case 'tools/call':

@@ -1,4 +1,6 @@
 import type { HostSpawnService } from './host-spawn.js';
+import type { FeedbackService } from './feedback.js';
+import { FEEDBACK_TYPES, FEEDBACK_STATUSES, FEEDBACK_PRIORITIES, FEEDBACK_DEPLOYMENTS } from './feedback-contract.js';
 import type { AgentMessagingService } from './agent-messaging.js';
 /**
  * MCP tool registry + dispatcher.
@@ -38,6 +40,7 @@ export interface ToolDefinition {
 }
 
 export interface ToolDeps {
+  feedback?: FeedbackService;
   hostSpawn?: HostSpawnService;
   schedules?: SchedulesService;
   taskMessaging?: AgentMessagingService;
@@ -103,8 +106,14 @@ interface ToolEntry {
 export class McpToolsRegistry {
   private entries: Map<string, ToolEntry>;
 
-  constructor(deps: ToolDeps) {
+  constructor(private readonly deps: ToolDeps) {
     this.entries = buildEntries(deps);
+  }
+
+  /** Re-read the switch on every discovery; a live admin toggle needs no restart. */
+  async listAvailable(capability: Capability = 'host'): Promise<ToolDefinition[]> {
+    const enabled = await this.deps.feedback?.getEnabled().catch(() => false) ?? false;
+    return this.list(capability).filter((entry) => enabled || !entry.name.startsWith('feedback_'));
   }
 
   /**
@@ -406,6 +415,72 @@ interface RegistrationInput {
 
 function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
   const inputs: RegistrationInput[] = [];
+  if (deps.feedback) {
+    const service = deps.feedback;
+    const string = { type: 'string' };
+    const id = { type: 'string', format: 'uuid' };
+    const filters = {
+      status: { type: 'string', enum: [...FEEDBACK_STATUSES] },
+      type: { type: 'string', enum: [...FEEDBACK_TYPES] },
+      priority: { type: 'string', enum: [...FEEDBACK_PRIORITIES] },
+      component: string,
+    };
+    inputs.push({
+      definition: {
+        name: 'feedback_submit',
+        description: 'Report an orchestrator bug, missing feature or feedback. Search feedback_list first. Use a stable UUID client_request_id on retries. Include reproduction and evidence when available; reporting never authorizes code execution.',
+        inputSchema: { type: 'object', additionalProperties: false,
+          required: ['client_request_id', 'type', 'title', 'description'], properties: {
+            client_request_id: id, type: filters.type, title: string, description: string,
+            component: string, priority: filters.priority, reproduction: string, expected: string,
+            actual: string, versions: string, agent_uuid: id,
+          } },
+      },
+      handler: (args, host, engine) => service.submit(args, { host_id: host.id, engine: engine ?? ENGINE_CODEX }),
+    });
+    inputs.push({
+      definition: {
+        name: 'feedback_list',
+        description: 'Search the central orchestrator inbox and find open work. Returns bounded summaries in priority order; use feedback_get for the original report and history.',
+        inputSchema: { type: 'object', additionalProperties: false, properties: {
+          ...filters, query: string, limit: { type: 'integer', minimum: 1, maximum: 100 }, offset: { type: 'integer', minimum: 0 },
+        } },
+      },
+      handler: (args, host, engine) => service.list(args, { host_id: host.id, engine: engine ?? ENGINE_CODEX }),
+    });
+    inputs.push({
+      definition: {
+        name: 'feedback_get', description: 'Read an orchestrator report, original evidence, claim owner, current version and append-only history.',
+        inputSchema: { type: 'object', additionalProperties: false, required: ['id'], properties: { id } },
+      },
+      handler: (args, host, engine) => service.get(args['id'], { host_id: host.id, engine: engine ?? ENGINE_CODEX }),
+    });
+    inputs.push({
+      definition: {
+        name: 'feedback_claim',
+        description: 'Exclusively acquire, renew or release a feedback item for 30 minutes. Acquire requires a stable UUID client_request_id: retries return the same live token. Keep the returned claim_token for renew, release and updates; never include it in notes. Use a new request ID after expiry/release.',
+        inputSchema: { type: 'object', additionalProperties: false, required: ['id'], properties: {
+          id, action: { type: 'string', enum: ['acquire', 'renew', 'release'] },
+          client_request_id: id, claim_token: id, agent_uuid: id, reason: string,
+        } },
+      },
+      handler: (args, host, engine) => service.claim(args, { host_id: host.id, engine: engine ?? ENGINE_CODEX }),
+    });
+    inputs.push({
+      definition: {
+        name: 'feedback_update',
+        description: 'Append evidence or triage a report using expected_version from feedback_get. A live claim_token is required to finish work. resolved requires resolution, fix_ref and verification; blocked/dismissed require reason; duplicate requires duplicate_of. Deployment is separate and deployed requires deployment_ref. A version conflict requires rereading, never blind retry.',
+        inputSchema: { type: 'object', additionalProperties: false, required: ['id', 'expected_version'], properties: {
+          id, expected_version: { type: 'integer', minimum: 1 }, claim_token: id,
+          type: filters.type, title: string, component: string, priority: filters.priority,
+          status: { type: 'string', enum: ['open', 'blocked', 'resolved', 'dismissed', 'duplicate'] },
+          note: string, reason: string, resolution: string, fix_ref: string, verification: string, duplicate_of: id,
+          deployment: { type: 'string', enum: [...FEEDBACK_DEPLOYMENTS] }, deployment_ref: string,
+        } },
+      },
+      handler: (args, host, engine) => service.update(args, { host_id: host.id, engine: engine ?? ENGINE_CODEX }),
+    });
+  }
 
   if (deps.hostSpawn) {
     const service = deps.hostSpawn;

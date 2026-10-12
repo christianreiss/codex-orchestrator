@@ -1109,3 +1109,15 @@ Attachment uploads use a caller-generated UUID, declared filename/MIME/size and 
 - `POST /host/agent-sessions/:id/attachments/get` — Host bridge chunk download: {attachment_id,variant?,offset?}; base64 bytes, next_offset, done.
 
 Audio and video preparation runs locally in the isolated `media-worker` service with no network. The baked Whisper small model produces timestamped transcript JSON; video also produces up to twenty timestamped JPEG frames. Preparation failure leaves the original downloadable. Host bridge routes require the scoped bridge token, while admin and companion routes enforce transcript/manage capabilities even under compatible authorization.
+
+### Feedback admin endpoints
+
+- `GET /admin/feedback/state` — activation state (default off).
+- `POST /admin/feedback/state` — set `{enabled:boolean}`; dynamic agent guidance follows on sync.
+- `GET /admin/feedback` — filtered, paginated inbox; HTML navigation serves the SPA.
+- `POST /admin/feedback` — idempotent report submission.
+- `GET /admin/feedback/:id` — original report, current claim/outcome and history.
+- `POST /admin/feedback/:id` — version-checked triage/comment/outcome update.
+- `POST /admin/feedback/:id/claim` — acquire/renew/release; administrative force_release requires reason.
+
+Reads require `feedback.read`; writes require `feedback.manage`. Fields and lifecycle are documented in [MCP.md](MCP.md#orchestrator-feedback-workflow).

@@ -280,3 +280,11 @@ generation, native ID, sequence, source, wait reason, evidence age and server
 receipt/change/expiry timestamps. It is a projection input, never work ownership or
 liveness. Expired, disconnected or mismatched bindings read as Unknown. See the
 native conversation activity contract in `interface-api.md`.
+
+### Orchestrator feedback (migration 0061)
+
+`feedback_items` stores UUID IDs, unique SHA-256 request keys scoped to source host/engine or admin, request digest, type/title/component/priority/status, immutable JSON report/source, JSON result, separate deployment/reference, duplicate target, claim owner/request key, token hash plus secretbox envelope, expiry, integer version and ISO timestamps. Inbox, component and claim-expiry indexes support queue access. `feedback_events` stores append-only UUID events with FK to the item, unique `(feedback_id,version)`, action, actor/detail JSON and timestamp. Item changes and event insertion share a row-locked transaction. Original reports survive triage; reopening/expiry invalidates claim material. Flag `feedback_enabled` lives in `versions`, defaults off and does not delete retained data.
+
+- **feedback_items** — `id` CHAR(36), `request_key` CHAR(64), `request_digest` CHAR(64), `type` VARCHAR(16), `title` VARCHAR(255), `component` VARCHAR(100), `priority` VARCHAR(16), `status` VARCHAR(16), `report` JSON, `source` JSON, `result` JSON, `deployment` VARCHAR(16), `deployment_ref` VARCHAR(1000), `duplicate_of` CHAR(36), `claim_owner` JSON, `claim_request_key` CHAR(64), `claim_token_hash` CHAR(64), `claim_token_enc` LONGTEXT, `claim_expires_at` VARCHAR(100), `version` INT, `created_at` VARCHAR(100), `updated_at` VARCHAR(100).
+
+- **feedback_events** — `id` CHAR(36), `feedback_id` CHAR(36), `version` INT, `action` VARCHAR(32), `actor` JSON, `detail` JSON, `created_at` VARCHAR(100).

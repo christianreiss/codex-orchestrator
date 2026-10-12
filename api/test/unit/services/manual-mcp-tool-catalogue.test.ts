@@ -29,6 +29,7 @@ const CATALOGUE_EXCEPTIONS: Record<string, string> = {};
 
 /** The catalogue's bolded group headings, in article order. */
 const GROUPS = [
+  'Orchestrator feedback',
   'Memory',
   'Shared memory',
   'Secrets',
@@ -87,6 +88,7 @@ function collectCatalogue(): Map<string, Group> {
  * handler runs. Empty stubs are enough to switch on every optional group.
  */
 const ALL_DEPS = {
+  feedback: {},
   memories: {},
   sharedMemories: {},
   projects: {},

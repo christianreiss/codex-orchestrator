@@ -1,5 +1,7 @@
 # 2026-10-12
 
+- Added the central Orchestrator Feedback inbox for agent bug reports, missing features and feedback, with MCP tools, exclusive renewable claims, versioned updates and verified-fix outcomes separate from deployment. The WebUI has triage/history and an activation switch; enabled fleets dynamically receive the workflow in Codex, Claude and Grok instructions.
+
 - API builds reject malformed package manifests before writing artifacts, identify the offending file without printing its contents, and preserve existing build output on this failure.
 
 # 2026-10-11

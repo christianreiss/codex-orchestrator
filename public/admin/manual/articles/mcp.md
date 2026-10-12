@@ -33,6 +33,10 @@ Tools tagged `operator` are filtered out of `tools/list` for `host` callers (and
 
 ## Tool catalogue
 
+**Orchestrator feedback** (only when feedback is enabled)
+
+- `feedback_submit`, `feedback_list`, `feedback_get`, `feedback_claim`, `feedback_update` — report, search, inspect, claim and finish orchestrator improvements. Enable Feedback on its page; managed instructions appear on the next host sync for Codex, Claude and Grok.
+
 Defined in `api/src/services/mcp-tools.ts`. What you get at runtime depends on capability and, for `fs_*`, on server config (`MCP_FS_ROOT`):
 
 **Memory** (both capabilities)
@@ -340,3 +344,19 @@ Persistent schedules may set `max_recovery_attempts`; empty means unlimited. Exp
 backoff with positive jitter respects provider reset times. Repeated failures warn after
 three attempts; reaching the limit pauses the whole schedule. Re-enabling creates a new
 execution budget and keeps history. A failed domain result alone does not trigger recovery.
+
+## Orchestrator feedback workflow
+
+Enable **Feedback → Agent feedback** in the WebUI, or POST `{"enabled":true}` to `/admin/feedback/state` as an administrator with `feedback.manage`. Default is off. The switch is checked on each MCP discovery/call. Host documents dynamically add/remove the workflow during the next normal sync, including digest, section metadata and provenance for Codex, Claude and Grok; the canonical authored document is untouched. Guidance also requires that the host has usable managed MCP configuration. Disabling preserves reports and history; administrative access remains available.
+
+Search `feedback_list` first. `feedback_submit` requires a UUID `client_request_id`, `type` (`bug|feature|feedback`), `title` and `description`. Optional fields: `component`, `priority` (`low|normal|high|critical`, default normal), `reproduction`, `expected`, `actual`, `versions`, `agent_uuid`. Host and engine attribution comes from authentication; supplied agent UUIDs are descriptive. Identical retries return the existing item, while reuse with a different payload fails.
+
+`feedback_list` accepts `status`, `type`, `component`, `priority`, `query`, `limit` (default 25, max 100) and `offset`; returns `feedback` summaries and `next_offset`. Highest priority comes first, then oldest submission. `feedback_get({id})` returns the full original report, source, current version, claim owner, outcome and append-only events. Token material is never included in reads or events.
+
+`feedback_claim({id,action:"acquire",client_request_id})` atomically claims open or blocked work for 30 minutes and returns `claim_token`. The same request ID replays the live claim response, including its token. Renew/release use `{id,action:"renew"|"release",claim_token}`. Claims belong to the authenticated host/engine and are additionally fenced by the token, including between agents on one host. Expired claims reopen on inbox/detail/claim/update access; old tokens cannot write. Acquire with a fresh request ID after expiry/release. Closed items must be reopened before claiming.
+
+`feedback_update` requires `id` and `expected_version`; use `feedback_get` after conflicts. Optional changes: `type`, `title`, `component`, `priority`, `status`, `note`, `reason`, `resolution`, `fix_ref`, `verification`, `duplicate_of`, `deployment`, `deployment_ref`. Original reports remain immutable; comments and changes append history. A live claim token is required to change another active claim or close work; other agents may append notes with a current version. Statuses are `open|in_progress|blocked|resolved|dismissed|duplicate`; in_progress is set only by claiming. Resolved requires resolution, fix reference and verification; blocked/dismissed require a reason; duplicate requires an existing canonical target. Closing, blocking or reopening clears the claim. Reopening preserves the historical outcome in events and resets the current outcome/deployment.
+
+Deployment is `unknown|not_deployed|deployed`, tracked separately. Resolved defaults to not_deployed; deployed requires a deployment reference. Evidence is an agent/operator report, not independent verification. Reporting or claiming never launches an agent, authorizes additional execution, merges or deploys.
+
+Admin endpoints: GET/POST `/admin/feedback/state`; GET/POST `/admin/feedback`; GET/POST `/admin/feedback/{id}`; POST `/admin/feedback/{id}/claim`. Read needs `feedback.read`, writes need `feedback.manage`. Admins may release a claim with `{action:"force_release",reason}` and reopen reports. WebSocket `feedback.changed` refreshes inbox/detail/state and the agent-document preview.

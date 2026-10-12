@@ -230,6 +230,8 @@ describe('migrations against the test baseline', () => {
       'host_spawns',
       'agent_chat_attachments',
       'agent_chat_notices',
+      'feedback_items',
+      'feedback_events',
     ]);
     expect(additions.filter((a) => a.column !== undefined).map((a) => `${a.table}.${a.column}`)).toEqual([
       'auth_payloads.generation',

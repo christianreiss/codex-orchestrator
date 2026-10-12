@@ -710,6 +710,9 @@ describe('client-config: memory curation permissions', () => {
     const allow = (partial.permissions as Record<string, unknown>).allow as string[];
 
     expect(allow).toEqual(expect.arrayContaining([
+      'mcp__clx__feedback_submit',
+      'mcp__clx__feedback_claim',
+      'mcp__clx__feedback_update',
       'mcp__clx__shared_memory_write',
       'mcp__clx__shared_memory_append',
       'mcp__clx__shared_memory_delete',

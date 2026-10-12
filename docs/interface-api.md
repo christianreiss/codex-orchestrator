@@ -2268,3 +2268,21 @@ contracts. Offline/Ended take precedence visually; activity never grants send ac
 Roll out the additive API/migration before wrapper and UI updates. Older wrappers
 appear with Unknown activity; an older server retains the clients' legacy display.
 Rollback can restore older wrappers/clients/API while retaining the nullable column.
+
+## Orchestrator Feedback
+
+The independent central inbox provides `feedback_submit`, `feedback_list`, `feedback_get`, `feedback_claim` and `feedback_update` across Codex, Claude and Grok. The fleet switch `feedback_enabled` defaults off, hides tools during discovery and blocks calls while disabled. Enable it under Feedback in the WebUI (`/admin/feedback/state`); managed AGENTS.md/CLAUDE.md/Grok AGENTS.md dynamically gain the workflow on the next sync only when usable managed MCP configuration exists. Disabling removes that section on sync without changing canonical authored rules or deleting reports.
+
+Claims are exclusive, token-fenced and renewable for 30 minutes. Updates check the item version and append history. Resolved requires a fix reference and verification evidence; deployment is recorded separately. Host/engine attribution is authenticated; optional agent UUIDs are descriptive. Admin routes use `feedback.read`/`feedback.manage`. No agent is started and no merge or deployment is implied. See [MCP workflow](MCP.md#orchestrator-feedback-workflow) for request/response contracts.
+
+### Feedback admin endpoints
+
+- `GET /admin/feedback/state` — activation state (default off).
+- `POST /admin/feedback/state` — set `{enabled:boolean}`; dynamic agent guidance follows on sync.
+- `GET /admin/feedback` — filtered, paginated inbox; HTML navigation serves the SPA.
+- `POST /admin/feedback` — idempotent report submission.
+- `GET /admin/feedback/:id` — original report, current claim/outcome and history.
+- `POST /admin/feedback/:id` — version-checked triage/comment/outcome update.
+- `POST /admin/feedback/:id/claim` — acquire/renew/release; administrative force_release requires reason.
+
+Reads require `feedback.read`; writes require `feedback.manage`. Fields and lifecycle are documented in [MCP.md](MCP.md#orchestrator-feedback-workflow).

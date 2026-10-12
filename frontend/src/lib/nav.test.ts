@@ -27,7 +27,7 @@ describe("route registry", () => {
   it("has one stable direct destination for every planned operator task", () => {
     assert.deepEqual(NAV_SECTIONS.map((section) => section.label), ["Workspace", "Fleet", "Coordinate", "Knowledge", "Access", "Diagnostics"]);
     assert.deepEqual(NAV_SECTIONS.flatMap((section) => section.items).map((entry) => entry.id), [
-      "overview", "clients", "hosts", "projects", "provider-accounts", "quick-settings", "engines", "policies", "agent-messaging", "schedules", "git-director", "transfers",
+      "overview", "clients", "hosts", "projects", "provider-accounts", "quick-settings", "engines", "policies", "feedback", "agent-messaging", "schedules", "git-director", "transfers",
       "skills", "instructions", "memories", "subagents", "commands", "output-styles", "api-access", "secrets", "admin-users", "activity",
     ]);
     assert.deepEqual(NAV_FOOTER.map((entry) => entry.id), ["manual", "account"]);

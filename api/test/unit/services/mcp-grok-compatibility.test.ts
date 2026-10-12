@@ -8,7 +8,7 @@ import type { Host } from '../../../src/db/schema.js';
 // Exercise every registered handler through JSON-RPC without touching a fleet,
 // database, filesystem, credential, schedule or another agent. These service
 // doubles test the transport contract, not each service's business semantics.
-const groups = ['memories', 'sharedMemories', 'projects', 'skills', 'resources',
+const groups = ['feedback', 'memories', 'sharedMemories', 'projects', 'skills', 'resources',
   'fs', 'secrets', 'gitDirector', 'transfers', 'board', 'schedules', 'taskMessaging'];
 function harness(fail = false) {
   const calls: Array<{ group: string; method: string; args: unknown[] }> = [];
@@ -46,8 +46,8 @@ const context = { host: { id: 7 } as Host, engine: 'grok' as const,
 
 describe('Grok MCP full server catalogue', () => {
   it('includes all host tools and the optional operator filesystem tools', () => {
-    expect(harness().registry.list('host')).toHaveLength(78);
-    expect(all).toHaveLength(84);
+    expect(harness().registry.list('host')).toHaveLength(83);
+    expect(all).toHaveLength(89);
   });
 
   for (const tool of all) {

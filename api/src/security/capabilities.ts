@@ -132,6 +132,9 @@ export const CAPABILITIES = [
   'transfers.download',
   'transfers.manage',
 
+  'feedback.read',
+  'feedback.manage',
+
   'audit.read',
 ] as const;
 
@@ -169,6 +172,7 @@ const READ_ONLY: readonly Capability[] = [
   'git_director.read',
   'transfers.read',
   'audit.read',
+  'feedback.read',
 ];
 
 /**
@@ -193,6 +197,7 @@ const FLEET_OPERATOR: readonly Capability[] = [
   // come with it: a fleet operator may empty the pool without reading what was
   // in it, exactly as they may replace a credential without revealing one.
   'transfers.manage',
+  'feedback.manage',
 ];
 
 /**

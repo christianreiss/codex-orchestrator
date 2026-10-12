@@ -420,6 +420,15 @@ export const ROUTE_CAPABILITIES: Readonly<Record<string, RouteGuard>> = {
   'POST /admin/transfers/limits': cap('transfers.manage'),
   'DELETE /admin/transfers/:id': cap('transfers.manage'),
 
+  // Central orchestrator feedback
+  'GET /admin/feedback': cap('feedback.read'),
+  'GET /admin/feedback/state': cap('feedback.read'),
+  'GET /admin/feedback/:id': cap('feedback.read'),
+  'POST /admin/feedback/state': cap('feedback.manage'),
+  'POST /admin/feedback': cap('feedback.manage'),
+  'POST /admin/feedback/:id': cap('feedback.manage'),
+  'POST /admin/feedback/:id/claim': cap('feedback.manage'),
+
   // ── Agent portal ─────────────────────────────────────────────────────────
   'GET /admin/agent-portal/state': cap('agent_portal.read'),
   'POST /admin/agent-portal/state': cap('agent_portal.manage'),

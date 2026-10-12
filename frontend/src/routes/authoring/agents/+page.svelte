@@ -619,8 +619,8 @@
 <p class="mb-4 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-muted-foreground">
   <span>
     This editor stores only the canonical base document — Skills, Memory, Projects, BrowserOS,
-    Secrets, Agent Messaging, and fleet commit preferences are appended per engine and host when served as
-    AGENTS.md or CLAUDE.md.
+    Secrets, Agent Messaging, Feedback, and fleet commit preferences are appended per engine and host when served as
+    Codex AGENTS.md, CLAUDE.md or Grok AGENTS.md. Feedback guidance appears only while enabled.
   </span>
   <span class="inline-flex flex-wrap items-center gap-x-2 gap-y-1 whitespace-nowrap text-xs">
     <span>·</span>

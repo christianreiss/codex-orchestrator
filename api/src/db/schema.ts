@@ -2462,3 +2462,44 @@ export const agentChatNotices = mysqlTable('agent_chat_notices', {
   resolvedAt: varchar('resolved_at', { length: 100 }),
   createdAt: varchar('created_at', { length: 100 }).notNull(),
 }, (t) => ({ sessionIdx: index('idx_agent_chat_notices_session').on(t.sessionId, t.resolvedAt) }));
+
+// Central orchestrator feedback, independent of project coordination.
+export const feedbackItems = mysqlTable('feedback_items', {
+  id: char('id', { length: 36 }).primaryKey(),
+  requestKey: char('request_key', { length: 64 }).notNull(),
+  requestDigest: char('request_digest', { length: 64 }).notNull(),
+  type: varchar('type', { length: 16 }).notNull(),
+  title: varchar('title', { length: 255 }).notNull(),
+  component: varchar('component', { length: 100 }).notNull().default('other'),
+  priority: varchar('priority', { length: 16 }).notNull().default('normal'),
+  status: varchar('status', { length: 16 }).notNull().default('open'),
+  report: json('report').$type<Record<string, unknown>>().notNull(),
+  source: json('source').$type<Record<string, unknown>>().notNull(),
+  result: json('result').$type<Record<string, unknown>>(),
+  deployment: varchar('deployment', { length: 16 }).notNull().default('unknown'),
+  deploymentRef: varchar('deployment_ref', { length: 1000 }),
+  duplicateOf: char('duplicate_of', { length: 36 }),
+  claimOwner: json('claim_owner').$type<Record<string, unknown>>(),
+  claimRequestKey: char('claim_request_key', { length: 64 }),
+  claimTokenHash: char('claim_token_hash', { length: 64 }),
+  claimTokenEnc: longtext('claim_token_enc'),
+  claimExpiresAt: varchar('claim_expires_at', { length: 100 }),
+  version: int('version').notNull().default(1),
+  createdAt: varchar('created_at', { length: 100 }).notNull(),
+  updatedAt: varchar('updated_at', { length: 100 }).notNull(),
+}, (t) => ({
+  requestIdx: uniqueIndex('idx_feedback_request').on(t.requestKey),
+  inboxIdx: index('idx_feedback_inbox').on(t.status, t.priority, t.createdAt),
+  componentIdx: index('idx_feedback_component').on(t.component, t.type),
+  claimExpiryIdx: index('idx_feedback_claim_expiry').on(t.claimExpiresAt),
+}));
+
+export const feedbackEvents = mysqlTable('feedback_events', {
+  id: char('id', { length: 36 }).primaryKey(),
+  feedbackId: char('feedback_id', { length: 36 }).notNull().references(() => feedbackItems.id),
+  version: int('version').notNull(),
+  action: varchar('action', { length: 32 }).notNull(),
+  actor: json('actor').$type<Record<string, unknown>>().notNull(),
+  detail: json('detail').$type<Record<string, unknown>>().notNull(),
+  createdAt: varchar('created_at', { length: 100 }).notNull(),
+}, (t) => ({ versionIdx: uniqueIndex('idx_feedback_event_version').on(t.feedbackId, t.version) }));

@@ -1,0 +1,40 @@
+CREATE TABLE IF NOT EXISTS feedback_items (
+ id CHAR(36) NOT NULL PRIMARY KEY,
+ request_key CHAR(64) NOT NULL,
+ request_digest CHAR(64) NOT NULL,
+ type VARCHAR(16) NOT NULL,
+ title VARCHAR(255) NOT NULL,
+ component VARCHAR(100) NOT NULL DEFAULT 'other',
+ priority VARCHAR(16) NOT NULL DEFAULT 'normal',
+ status VARCHAR(16) NOT NULL DEFAULT 'open',
+ report JSON NOT NULL,
+ source JSON NOT NULL,
+ result JSON NULL,
+ deployment VARCHAR(16) NOT NULL DEFAULT 'unknown',
+ deployment_ref VARCHAR(1000) NULL,
+ duplicate_of CHAR(36) NULL,
+ claim_owner JSON NULL,
+ claim_request_key CHAR(64) NULL,
+ claim_token_hash CHAR(64) NULL,
+ claim_token_enc LONGTEXT NULL,
+ claim_expires_at VARCHAR(100) NULL,
+ version INT NOT NULL DEFAULT 1,
+ created_at VARCHAR(100) NOT NULL,
+ updated_at VARCHAR(100) NOT NULL,
+ UNIQUE INDEX idx_feedback_request (request_key),
+ INDEX idx_feedback_inbox (status, priority, created_at),
+ INDEX idx_feedback_component (component, type),
+ INDEX idx_feedback_claim_expiry (claim_expires_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS feedback_events (
+ id CHAR(36) NOT NULL PRIMARY KEY,
+ feedback_id CHAR(36) NOT NULL,
+ version INT NOT NULL,
+ action VARCHAR(32) NOT NULL,
+ actor JSON NOT NULL,
+ detail JSON NOT NULL,
+ created_at VARCHAR(100) NOT NULL,
+ UNIQUE INDEX idx_feedback_event_version (feedback_id, version),
+ CONSTRAINT fk_feedback_event_item FOREIGN KEY (feedback_id) REFERENCES feedback_items(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

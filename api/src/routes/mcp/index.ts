@@ -43,6 +43,7 @@ import { createRunnerClaudeAdapter } from '../../services/adapters/runner-claude
 import { createRunnerValidationService } from '../../services/runner-validation.js';
 import { createAuthTrafficVerifier } from '../../services/auth-traffic-verification.js';
 import { SettingsService } from '../../services/settings.js';
+import { FeedbackService } from '../../services/feedback.js';
 import { ProjectBoardService } from '../../services/project-board.js';
 import { ENGINE_CLAUDE } from '../../util/engine.js';
 import { assertHostEngineEnabled } from '../../services/host-engine-policy.js';
@@ -121,6 +122,7 @@ export async function registerMcpRoutes(app: FastifyInstance, ctx: RouteContext)
 
   const resources = new McpResourcesService({ memories, sharedMemories, projects, skills });
   const tools = new McpToolsRegistry({
+    feedback: new FeedbackService(ctx.db, ctx.keyring),
     hostSpawn: new HostSpawnService(ctx),
     schedules: new SchedulesService(ctx.db, ctx.keyring),
     taskMessaging: createAgentMessagingService(ctx.db, ctx.env, ctx.keyring),

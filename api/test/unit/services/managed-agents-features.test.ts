@@ -51,6 +51,26 @@ function context(
 
 const sha256 = (value: string): string => createHash('sha256').update(value).digest('hex');
 
+describe('dynamic orchestrator feedback guidance', () => {
+  for (const engine of [ENGINE_CODEX, ENGINE_CLAUDE, ENGINE_GROK]) {
+    it(`${engine}: toggle adds/removes guidance and updates served digest without altering authored rules`, () => {
+      const base = '# House rules\nPreserve this text.\n';
+      const off = renderManagedAgentFeatures(base, context(engine));
+      expect(off.body).not.toContain('## Orchestrator Feedback');
+      const on = renderManagedAgentFeatures(off.body, context(engine, { feedback: enabled() }));
+      expect(on.body).toContain('feedback_submit');
+      expect(on.body).toContain('feedback_claim');
+      expect(on.sections.feedback).toMatchObject({ present: true, transport: 'mcp' });
+      expect(on.managed_sha256).not.toBe(off.managed_sha256);
+      expect(renderManagedAgentFeatures(on.body, context(engine, { feedback: enabled() })).body).toBe(on.body);
+      const disabledAgain = renderManagedAgentFeatures(on.body, context(engine, { feedback: disabled('feedback_disabled') }));
+      expect(disabledAgain.body).toBe(off.body);
+      expect(disabledAgain.body).toContain('Preserve this text.');
+      expect(disabledAgain.sections.feedback).toMatchObject({ present: false, reason: 'feedback_disabled' });
+    });
+  }
+});
+
 describe('fleet commit guidance', () => {
   for (const engine of [ENGINE_CODEX, ENGINE_CLAUDE, ENGINE_GROK]) {
     for (const message_style of ['short', 'long'] as const) {

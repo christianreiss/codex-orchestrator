@@ -1002,3 +1002,9 @@ System Spawn is optional new-host provisioning through server MCP, restricted to
 Agent chat supports explicit Needs you severity, reply buttons/text, and files/media in both directions; see [Agent chat](agent-chat.md). The isolated local media worker is part of the Compose stack.
 
 Native chat activity: cxx 0.9.60 observes Codex/Grok native status and bounded Claude hook evidence. API migration 0060 persists the latest fenced observation; WebUI and Android 0.4.16 display Working, Idle, Waiting for you or Unknown independently of connection readiness. Unknown includes expired/unsupported evidence; see `interface-api.md` and the engine interfaces.
+
+## Orchestrator Feedback
+
+The independent central inbox provides `feedback_submit`, `feedback_list`, `feedback_get`, `feedback_claim` and `feedback_update` across Codex, Claude and Grok. The fleet switch `feedback_enabled` defaults off, hides tools during discovery and blocks calls while disabled. Enable it under Feedback in the WebUI (`/admin/feedback/state`); managed AGENTS.md/CLAUDE.md/Grok AGENTS.md dynamically gain the workflow on the next sync only when usable managed MCP configuration exists. Disabling removes that section on sync without changing canonical authored rules or deleting reports.
+
+Claims are exclusive, token-fenced and renewable for 30 minutes. Updates check the item version and append history. Resolved requires a fix reference and verification evidence; deployment is recorded separately. Host/engine attribution is authenticated; optional agent UUIDs are descriptive. Admin routes use `feedback.read`/`feedback.manage`. No agent is started and no merge or deployment is implied. See [MCP workflow](MCP.md#orchestrator-feedback-workflow) for request/response contracts.

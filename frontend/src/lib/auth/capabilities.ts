@@ -53,6 +53,8 @@ export const CAPABILITIES = [
   "transfers.read",
   "transfers.download",
   "transfers.manage",
+  "feedback.read",
+  "feedback.manage",
   "audit.read",
 ] as const;
 

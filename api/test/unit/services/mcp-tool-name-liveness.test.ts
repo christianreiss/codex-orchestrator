@@ -31,6 +31,7 @@ import { ENGINE_CLAUDE, ENGINE_CODEX } from '../../../src/util/engine.js';
  * switch on every optional group. Same shape as `manual-mcp-tool-catalogue.test.ts`.
  */
 const ALL_DEPS = {
+  feedback: {},
   memories: {},
   sharedMemories: {},
   projects: {},
@@ -144,6 +145,7 @@ const CONTENT: Array<{ source: string; text: string }> = [
       gitDirector: { ...enabled, count: 1 },
       fileTransfer: { ...enabled, count: 1 },
       remoteExec: enabled,
+      feedback: enabled,
     }).body,
   })),
   {

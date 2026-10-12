@@ -1886,3 +1886,50 @@ CREATE TABLE `agent_chat_notices` (
 	CONSTRAINT `agent_chat_notices_id` PRIMARY KEY(`id`)
 );
 CREATE INDEX `idx_agent_chat_notices_session` ON `agent_chat_notices` (`session_id`,`resolved_at`);
+
+CREATE TABLE `feedback_events` (
+	`id` char(36) NOT NULL,
+	`feedback_id` char(36) NOT NULL,
+	`version` int NOT NULL,
+	`action` varchar(32) NOT NULL,
+	`actor` json NOT NULL,
+	`detail` json NOT NULL,
+	`created_at` varchar(100) NOT NULL,
+	CONSTRAINT `feedback_events_id` PRIMARY KEY(`id`),
+	CONSTRAINT `idx_feedback_event_version` UNIQUE(`feedback_id`,`version`)
+);
+
+CREATE TABLE `feedback_items` (
+	`id` char(36) NOT NULL,
+	`request_key` char(64) NOT NULL,
+	`request_digest` char(64) NOT NULL,
+	`type` varchar(16) NOT NULL,
+	`title` varchar(255) NOT NULL,
+	`component` varchar(100) NOT NULL DEFAULT 'other',
+	`priority` varchar(16) NOT NULL DEFAULT 'normal',
+	`status` varchar(16) NOT NULL DEFAULT 'open',
+	`report` json NOT NULL,
+	`source` json NOT NULL,
+	`result` json,
+	`deployment` varchar(16) NOT NULL DEFAULT 'unknown',
+	`deployment_ref` varchar(1000),
+	`duplicate_of` char(36),
+	`claim_owner` json,
+	`claim_request_key` char(64),
+	`claim_token_hash` char(64),
+	`claim_token_enc` longtext,
+	`claim_expires_at` varchar(100),
+	`version` int NOT NULL DEFAULT 1,
+	`created_at` varchar(100) NOT NULL,
+	`updated_at` varchar(100) NOT NULL,
+	CONSTRAINT `feedback_items_id` PRIMARY KEY(`id`),
+	CONSTRAINT `idx_feedback_request` UNIQUE(`request_key`)
+);
+
+ALTER TABLE `feedback_events` ADD CONSTRAINT `feedback_events_feedback_id_feedback_items_id_fk` FOREIGN KEY (`feedback_id`) REFERENCES `feedback_items`(`id`) ON DELETE no action ON UPDATE no action;
+
+CREATE INDEX `idx_feedback_inbox` ON `feedback_items` (`status`,`priority`,`created_at`);
+
+CREATE INDEX `idx_feedback_component` ON `feedback_items` (`component`,`type`);
+
+CREATE INDEX `idx_feedback_claim_expiry` ON `feedback_items` (`claim_expires_at`);
