@@ -20,24 +20,27 @@ var uuid = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-
 const CronMarker = "# cxx-reboot-resume: one use\n"
 
 type Record struct {
-	ID           string    `json:"request_id"`
-	Engine       string    `json:"engine"`
-	NativeID     string    `json:"native_session_id"`
-	SessionID    string    `json:"session_id"`
-	Address      string    `json:"address"`
-	BootID       string    `json:"boot_id"`
-	ResumeBootID string    `json:"resume_boot_id,omitempty"`
-	Reason       string    `json:"reason"`
-	Continuation string    `json:"continuation"`
-	UID          uint32    `json:"uid"`
-	GID          uint32    `json:"gid"`
-	Home         string    `json:"home"`
-	Cwd          string    `json:"cwd"`
-	Executable   string    `json:"executable"`
-	Environment  []string  `json:"environment,omitempty"`
-	State        string    `json:"state"`
-	Error        string    `json:"error,omitempty"`
-	CreatedAt    time.Time `json:"created_at"`
+	ID            string    `json:"request_id"`
+	Engine        string    `json:"engine"`
+	NativeID      string    `json:"native_session_id"`
+	SessionID     string    `json:"session_id"`
+	Address       string    `json:"address"`
+	BootID        string    `json:"boot_id"`
+	ResumeBootID  string    `json:"resume_boot_id,omitempty"`
+	Reason        string    `json:"reason"`
+	Continuation  string    `json:"continuation"`
+	UID           uint32    `json:"uid"`
+	GID           uint32    `json:"gid"`
+	Home          string    `json:"home"`
+	Cwd           string    `json:"cwd"`
+	Executable    string    `json:"executable"`
+	Environment   []string  `json:"environment,omitempty"`
+	State         string    `json:"state"`
+	ExecutionMode string    `json:"execution_mode,omitempty"`
+	TmuxSession   string    `json:"tmux_session,omitempty"`
+	AttachCommand string    `json:"attach_command,omitempty"`
+	Error         string    `json:"error,omitempty"`
+	CreatedAt     time.Time `json:"created_at"`
 }
 
 func (r Record) Validate() error {

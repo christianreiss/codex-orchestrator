@@ -1,5 +1,7 @@
 # 2026-10-12
 
+- Wrapper 0.9.63 resumes a planned Linux reboot in a detached, interactive tmux session when tmux is available to the original user. Local reboot status includes the attach command; Codex, Claude and Grok retain their exact native session and checkpoint, remote stop remains supervised, and explicit work receipts remain authoritative. Without tmux the existing headless continuation remains; tmux startup failure never launches a second continuation.
+
 - Added the Docker-aware `bin/orchestrator` instance CLI: resumable setup, start, stop, readiness/status with JSON, and GitHub-main updates with private database/env backups, fast-forward checks, rebuilds, migrations and verified restarts. Setup and deployment share env-file/profile resolution and preserve the configured Caddy choice; stop retains containers and data.
 
 - Android 0.4.17 adds a third Authorizations tab for waiting host-access requests and active host/fleet windows. Close actions reuse existing window services, audit the paired administrator/device, disable individual close during fleet access, warn about domain reopening, and require confirmation for fleet-wide closure. Approval pushes and Review next open the new tab; live refresh and offline action guards cover window changes.

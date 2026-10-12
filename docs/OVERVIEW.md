@@ -1019,7 +1019,12 @@ cxx can checkpoint and reboot a Linux host, then resume the exact native Codex,
 Claude or Grok session once. One root-owned cron entry and a durable consumed
 journal prevent reboot loops. Accepted Peer, Wake and Portal instructions retain
 their identities through the handoff. Agents receive the usage contract through
-managed guidance; Active Clients links both launches. See [reboot/resume](reboot-resume.md).
+managed guidance; Active Clients links both launches. From cxx 0.9.63, when tmux
+is available to the original user, the same native session resumes in a detached
+interactive pane with one initial checkpoint. Local reboot status supplies the
+request-specific tmux attach command; without tmux the headless path remains.
+Explicit work receipts remain required, and tmux startup failure never retries the
+native launch. See [reboot/resume](reboot-resume.md).
 System Spawn is optional new-host provisioning through server MCP, restricted to active VIP source hosts. Agents receive setup material and install it over SSH; optional Linux/systemd daemons may be permanent or timed. Configure under Policies → Agent behavior; see [the API contract](interface-api.md#system-spawn-new-system-provisioning).
 
 Agent chat supports explicit Needs you severity, reply buttons/text, and files/media in both directions; see [Agent chat](agent-chat.md). The isolated local media worker is part of the Compose stack.

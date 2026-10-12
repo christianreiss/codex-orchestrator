@@ -66,6 +66,44 @@ The previous Portal history stays with the previous launch. The current accepted
 instruction and its reply live with the continuation. Native history stays in the
 same provider transcript.
 
+## Interactive continuation with tmux (cxx 0.9.63)
+
+After consuming the boot job, cxx checks for an executable `tmux` in the restored
+PATH **as the original user**. If available, the continuation runs interactively
+in a detached session named `cxx-reboot-<request-id>`. Each request uses its own
+config-free tmux server with the same name as its socket label, so existing tmux
+servers and their environment/settings do not influence the continuation.
+No tmux installation is attempted. Without tmux, the existing headless path runs.
+
+Read `cxx reboot status --id UUID` for `execution_mode` (`tmux` or `headless`),
+`tmux_session` and `attach_command`. Run the reported command as the original user:
+
+```sh
+tmux -L cxx-reboot-UUID attach -t cxx-reboot-UUID
+```
+
+Codex, Claude and Grok resume their exact saved native UUID with the checkpoint
+as one initial prompt. stdin/stdout/stderr remain connected to the pane's terminal.
+The checkpoint is handled automatically; the CLI then stays available for operator
+input. Detach with `Ctrl-b d`; detaching does not finish or stop the continuation.
+Exit the provider CLI normally when finished. The boot process keeps the journal
+running until the supervisor completes, and removes only its own session afterward.
+The supervisor observes remote stop and terminates its own native process group,
+including descendants, without stopping other tmux sessions.
+
+Terminal output is streamed to the existing private reboot log through tmux's
+pane logging. It is never parsed as a structured task report. Transferred Peer,
+Wake and Portal instructions still require their explicit receipts; unreported
+work remains unknown/ambiguous even if the CLI exits successfully. For a daemon
+continuation without a separate explicit report, the overall work outcome remains
+unknown. Local process completion and task success are different facts.
+
+A tmux setup failure, a killed pane/server or a missing supervisor result fails
+this continuation. It never falls back to a second native launch. Private handoff,
+gate and completion files exist only for this run and are removed afterward;
+the root-owned boot journal, frozen executable and diagnostic log remain.
+A pre-existing session with the same request name is never replaced or stopped.
+
 ## Failure and manual recovery
 
 Consumption is deliberately **at most once**. A crash after consumption and before

@@ -26,6 +26,7 @@ import (
 )
 
 var requestRebootAdapter = requestReboot
+var rebootContinuationCall = rebootHostCall
 
 func rebootExecutable(id string) string {
 	return filepath.Join("/usr/local/libexec/cxx-reboot-resume", id, "cxx")
@@ -189,7 +190,16 @@ func rebootRoot(ctx context.Context, action, id string, body []byte, stdout, std
 	return output.Bytes(), err
 }
 
-func rebootInternal(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
+func rebootInternal(args []string, stdin io.Reader, stdout, stderr io.Writer) (resultErr error) {
+	if args[0] == "_transport" {
+		return json.NewEncoder(stdout).Encode(rebootTransport())
+	}
+	if args[0] == "_interactive" {
+		if len(args) != 2 {
+			return errors.New("interactive resume requires a private handoff path")
+		}
+		return runRebootInteractive(args[1])
+	}
 	if args[0] == "_resume" {
 		var r rebootresume.Record
 		if err := json.NewDecoder(io.LimitReader(stdin, 65536)).Decode(&r); err != nil {
@@ -374,13 +384,21 @@ func rebootInternal(args []string, stdin io.Reader, stdout, stderr io.Writer) er
 		if err = lock.Release(); err != nil {
 			return err
 		}
-		raw, err := json.Marshal(r)
-		if err != nil {
-			return err
-		}
+		defer func() {
+			r.State = "finished"
+			if resultErr != nil {
+				r.State, r.Error = "failed", resultErr.Error()
+			}
+			lease, e := j.Lock()
+			if e != nil {
+				resultErr = errors.Join(resultErr, e)
+				return
+			}
+			defer lease.Release()
+			resultErr = errors.Join(resultErr, j.Save(r))
+		}()
 		cmd := exec.Command(r.Executable, "reboot", "_resume")
 		cmd.Dir = r.Cwd
-		cmd.Stdin = bytes.NewReader(raw)
 		cmd.Env = append([]string{"HOME=" + r.Home}, r.Environment...)
 		u, err := user.LookupId(strconv.FormatUint(uint64(r.UID), 10))
 		if err != nil {
@@ -400,33 +418,47 @@ func rebootInternal(args []string, stdin io.Reader, stdout, stderr io.Writer) er
 		}
 		cmd.Env = append(cmd.Env, "USER="+u.Username, "LOGNAME="+u.Username)
 		cmd.SysProcAttr = &syscall.SysProcAttr{Credential: &syscall.Credential{Uid: r.UID, Gid: r.GID, Groups: gids}}
+		// Probe as the original user, with the restored PATH, not root's PATH.
+		probe := exec.Command(r.Executable, "reboot", "_transport")
+		probe.Dir, probe.Env, probe.SysProcAttr = cmd.Dir, cmd.Env, cmd.SysProcAttr
+		transport, err := probe.Output()
+		if err != nil {
+			return err
+		}
+		if err = json.Unmarshal(transport, &r.ExecutionMode); err != nil {
+			return err
+		}
+		if r.ExecutionMode == "tmux" {
+			r.TmuxSession = rebootTmuxSession(*r)
+			r.AttachCommand = rebootTmuxAttach(*r)
+		}
+		lease, err := j.Lock()
+		if err != nil {
+			return err
+		}
+		err = j.Save(r)
+		_ = lease.Release()
+		if err != nil {
+			return err
+		}
+		raw, err := json.Marshal(r)
+		if err != nil {
+			return err
+		}
+		cmd.Stdin = bytes.NewReader(raw)
 		log, err := os.OpenFile(filepath.Join(j.Dir, r.ID+".log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
 		if err != nil {
 			return err
 		}
 		defer log.Close()
 		cmd.Stdout, cmd.Stderr = log, log
-		err = cmd.Run()
-		r.State = "finished"
-		if err != nil {
-			r.State = "failed"
-			r.Error = err.Error()
-		}
-		lease, e := j.Lock()
-		if e != nil {
-			return e
-		}
-		defer lease.Release()
-		if e = j.Save(r); e != nil {
-			return e
-		}
-		return err
+		return cmd.Run()
 	default:
 		return errors.New("unknown internal reboot operation")
 	}
 }
 
-func resumeAfterReboot(r rebootresume.Record, stdout, stderr io.Writer) error {
+func validateRebootResume(r rebootresume.Record) error {
 	if err := r.Validate(); err != nil {
 		return err
 	}
@@ -440,15 +472,28 @@ func resumeAfterReboot(r rebootresume.Record, stdout, stderr io.Writer) error {
 	if boot != r.ResumeBootID || boot == r.BootID {
 		return errors.New("resume boot mismatch")
 	}
+	return nil
+}
 
+func resumeAfterReboot(r rebootresume.Record, stdout, stderr io.Writer) error {
+	if err := validateRebootResume(r); err != nil {
+		return err
+	}
 	var readiness map[string]any
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
-	err = waitRebootReady(ctx, 5*time.Second, func(ctx context.Context) error {
+	err := waitRebootReady(ctx, 5*time.Second, func(ctx context.Context) error {
 		return rebootHostCall(ctx, r.Engine, "ready", map[string]any{"request_id": r.ID, "boot_id": r.ResumeBootID}, &readiness)
 	})
 	if err != nil {
 		return err
+	}
+	if r.ExecutionMode == "tmux" || r.ExecutionMode == "" && rebootTransport() == "tmux" {
+		tmux, err := exec.LookPath("tmux")
+		if err != nil {
+			return finishLostReboot(r, err)
+		}
+		return runRebootTmux(r, readiness, tmux, stdout, stderr)
 	}
 	return runRebootContinuation(r, readiness, stdout, stderr)
 }
@@ -474,7 +519,13 @@ func waitRebootReady(ctx context.Context, interval time.Duration, probe func(con
 	}
 }
 
-func runRebootContinuation(r rebootresume.Record, readiness map[string]any, stdout, stderr io.Writer) error {
+func runRebootContinuation(r rebootresume.Record, readiness map[string]any, stdout, stderr io.Writer) (resultErr error) {
+	finished := false
+	defer func() {
+		if !finished {
+			resultErr = finishLostReboot(r, resultErr)
+		}
+	}()
 	guard, err := sessionguard.Launch(r.Engine)
 	if err != nil {
 		return err
@@ -488,11 +539,19 @@ func runRebootContinuation(r rebootresume.Record, readiness map[string]any, stdo
 	if err = checkRebootTranscript(r.Engine, r.NativeID); err != nil {
 		return err
 	}
+	interactive := r.ExecutionMode == "tmux"
 	args := nativeArgs(r.Engine, r.NativeID)
 	prompt := "Planned host reboot completed. This one-use reboot request " + r.ID + " is consumed. Do not reboot or rearm again. Call agent_self to refresh your launch identity, then continue the SAME task from this checkpoint. Preserve original work message IDs and report their results explicitly.\n\n" + r.Continuation
 	ids, _ := json.Marshal(readiness["message_ids"])
-	prompt += "\nTransferred original work message IDs: " + string(ids) + "\n" + rebootOutputInstruction
-	if r.Engine == "grok" {
+	prompt += "\nTransferred original work message IDs: " + string(ids) + "\n"
+	if interactive {
+		prompt += rebootInteractiveOutputInstruction
+	} else {
+		prompt += rebootOutputInstruction
+	}
+	if interactive {
+		args = rebootInteractiveArgs(r.Engine, r.NativeID, prompt)
+	} else if r.Engine == "grok" {
 		f, err := os.CreateTemp("", "cxx-reboot-prompt-*.txt")
 		if err != nil {
 			return err
@@ -517,6 +576,11 @@ func runRebootContinuation(r rebootresume.Record, readiness map[string]any, stdo
 	output.limit = workerOutputLimit
 	cmd.Stdout, cmd.Stderr = io.MultiWriter(stdout, &output), stderr
 	prepareDaemonProcess(cmd)
+	if interactive {
+		// Pipes/tee hide the TTY from provider CLIs. tmux pipe-pane owns logging.
+		cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
+		cmd.SysProcAttr = &syscall.SysProcAttr{Foreground: true, Ctty: int(os.Stdin.Fd())}
+	}
 	cmd.Env = append(os.Environ(), "CXX_REBOOT_REQUEST_ID="+r.ID, "CXX_REBOOT_BOOT_ID="+r.ResumeBootID, "CXX_REBOOT_WRITER_ID="+r.NativeID, "CXX_AGENT_MESSAGING_UPSTREAM_SESSION_ID="+r.NativeID)
 
 	runErr := cmd.Start()
@@ -535,7 +599,7 @@ func runRebootContinuation(r rebootresume.Record, readiness map[string]any, stdo
 					Stop bool `json:"stop_requested"`
 				}
 				checkCtx, checkCancel := context.WithTimeout(context.Background(), 10*time.Second)
-				e := rebootHostCall(checkCtx, r.Engine, "observe", map[string]any{"request_id": r.ID}, &state)
+				e := rebootContinuationCall(checkCtx, r.Engine, "observe", map[string]any{"request_id": r.ID}, &state)
 				checkCancel()
 				if e == nil && state.Stop {
 					stopDaemonProcess(cmd, done)
@@ -547,15 +611,20 @@ func runRebootContinuation(r rebootresume.Record, readiness map[string]any, stdo
 	}
 	finishCtx, finishCancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer finishCancel()
-	reply, nativeID := parseNativeOutput(r.Engine, output.Bytes())
-	_, report := parseTaskOutput(reply)
 	body := map[string]any{"request_id": r.ID, "failed": runErr != nil}
-	if report != nil && runErr == nil && nativeID == r.NativeID {
-		body["task_result"] = report
+	if !interactive {
+		reply, nativeID := parseNativeOutput(r.Engine, output.Bytes())
+		_, report := parseTaskOutput(reply)
+		if report != nil && runErr == nil && nativeID == r.NativeID {
+			body["task_result"] = report
+		}
 	}
-	finishErr := rebootHostCall(finishCtx, r.Engine, "finish", body, nil)
+	finished = true
+	finishErr := rebootContinuationCall(finishCtx, r.Engine, "finish", body, nil)
 	return errors.Join(runErr, finishErr)
 }
+
+const rebootInteractiveOutputInstruction = "Call agent_reboot_status and verify the new boot before continuing. For each transferred Peer or Wake task, store its explicit result with agent_task_result or agent_reply using the original message ID. Answer a transferred Portal instruction with agent_receiver_reply and its original message ID. The reboot supervisor does not store these receipts for you. After the checkpoint is handled, remain available for interactive operator input; do not exit this session automatically. A successful reboot alone is not proof that the original task succeeded.\n"
 
 const rebootOutputInstruction = "For each transferred Peer or Wake task, store its explicit result with agent_task_result or agent_reply using the original message ID. Answer a transferred Portal instruction with agent_receiver_reply and its original message ID. The reboot supervisor does not store these receipts for you. Then report the overall continuation outcome as JSON: {\"content\":\"human response\",\"task_result\":{\"status\":\"succeeded|failed|blocked|unknown\",\"summary\":\"plain result (maximum 4096 UTF-8 bytes)\"}}. A successful reboot alone is not proof that the original task succeeded.\n"
 

@@ -39,6 +39,16 @@ func TestAtMostOnceAndSameBoot(t *testing.T) {
 	if _, err = os.Stat(j.Cron); !os.IsNotExist(err) {
 		t.Fatalf("cron retained: %v", err)
 	}
+	got.State, got.ExecutionMode = "running", "tmux"
+	got.TmuxSession = "cxx-reboot-" + got.ID
+	got.AttachCommand = "tmux -L " + got.TmuxSession + " attach -t " + got.TmuxSession
+	if err = j.Save(got); err != nil {
+		t.Fatal(err)
+	}
+	saved, err := j.Read(got.ID)
+	if err != nil || saved.ExecutionMode != "tmux" || saved.TmuxSession != got.TmuxSession || saved.AttachCommand != got.AttachCommand {
+		t.Fatalf("running transport status lost: %v %v", saved, err)
+	}
 	got, err = j.Consume(r.ID, newBoot)
 	if err != nil || got != nil {
 		t.Fatalf("duplicate: %v %v", got, err)
