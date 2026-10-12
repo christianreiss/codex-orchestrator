@@ -1783,3 +1783,8 @@ Read-only and explicit restrictions take precedence; push/deploy are separate.
 This is agent-executed guidance shared by all three engines, adopted on the next
 sync/launch, not wrapper-enforced automation. See
 [Automatic repository delivery](interface-api.md#automatic-repository-delivery).
+
+## Configuration scope and client compatibility
+
+See [native configuration scopes](NATIVE_CONFIG_SCOPES.md) for the exact central
+authoring boundary, native version requirements and the Codex profile editor.

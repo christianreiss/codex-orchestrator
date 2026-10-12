@@ -193,6 +193,31 @@ func TickWithOptions(ctx context.Context, cfg *config.Config, minimal bool) (Res
 		logger.Warn("cron: ensureShellAliases", "err", err)
 	}
 
+	newVer := strings.TrimSpace(claude.Version(ctx))
+	res.CodexVersion = newVer
+	report := orchestrator.CronReportRequest{
+		Engine:         "claude",
+		ClientVersion:  newVer,
+		WrapperVersion: WrapperVersion,
+	}
+	var reportErr error
+	for attempt := 1; attempt <= 2; attempt++ {
+		reportErr = client.CronReport(ctx, report)
+		if reportErr == nil {
+			res.Reported = true
+			break
+		}
+		logger.Warn("cron: /cron/report attempt failed", "attempt", attempt, "err", reportErr)
+		if attempt < 2 {
+			select {
+			case <-ctx.Done():
+				return res, ctx.Err()
+			case <-time.After(2 * time.Second):
+			}
+		}
+	}
+
+	// Report the observed installed CLI before serving version-gated config.
 	// Converge fleet-managed content. Without this an idle host — one where
 	// nobody ever starts a session — drifts from fleet config indefinitely,
 	// since bootstrap otherwise only runs on a launch. Placed after the
@@ -217,30 +242,10 @@ func TickWithOptions(ctx context.Context, cfg *config.Config, minimal bool) (Res
 		peer.EnsureForCron(ctx, cfg, minimal, logger)
 	}
 
-	newVer := strings.TrimSpace(claude.Version(ctx))
-	res.CodexVersion = newVer
-	report := orchestrator.CronReportRequest{
-		Engine:         "claude",
-		ClientVersion:  newVer,
-		WrapperVersion: WrapperVersion,
+	if reportErr != nil {
+		return res, errors.Join(syncErr, fmt.Errorf("cron: /cron/report failed after retry: %w", reportErr))
 	}
-	var reportErr error
-	for attempt := 1; attempt <= 2; attempt++ {
-		reportErr = client.CronReport(ctx, report)
-		if reportErr == nil {
-			res.Reported = true
-			return res, syncErr
-		}
-		logger.Warn("cron: /cron/report attempt failed", "attempt", attempt, "err", reportErr)
-		if attempt < 2 {
-			select {
-			case <-ctx.Done():
-				return res, ctx.Err()
-			case <-time.After(2 * time.Second):
-			}
-		}
-	}
-	return res, errors.Join(syncErr, fmt.Errorf("cron: /cron/report failed after retry: %w", reportErr))
+	return res, syncErr
 }
 
 // EnsureEngineCurrent brings the Claude CLI itself up to whatever version the

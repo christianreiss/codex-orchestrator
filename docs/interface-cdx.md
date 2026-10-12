@@ -1605,3 +1605,8 @@ Agent Security policy. Those admin-enforced requirements are separate from
 `config.toml`, with different precedence and platform/cloud applicability. Their
 allowlists, enforced hooks and app-only feature policies are not accepted as
 native user settings; consult the [official requirements reference](https://learn.chatgpt.com/docs/config-file/config-reference#requirementstoml).
+
+## Configuration scope and client compatibility
+
+See [native configuration scopes](NATIVE_CONFIG_SCOPES.md) for the exact central
+authoring boundary, native version requirements and the Codex profile editor.

@@ -199,29 +199,6 @@ func TickWithOptions(ctx context.Context, cfg *config.Config, minimal bool) (Res
 		logger.Warn("cron: ensureShellAliases", "err", err)
 	}
 
-	// Converge fleet-managed content. Without this an idle host — one where
-	// nobody ever starts a session — drifts from fleet config indefinitely,
-	// since bootstrap otherwise only runs on a launch. Placed after the
-	// wrapper-update branch above, which either returns or execs, so a sync
-	// never runs with pre-update code. A failed sync still reports installed
-	// versions, then returns an error so the maintenance scheduler can retry.
-	syncErr := protectPendingMaintenanceAuth(ctx, client, logger)
-	if syncErr == nil {
-		syncErr = syncManagedContent(ctx, cfg, minimal)
-	}
-	if syncErr != nil {
-		logger.Warn("cron: managed content sync failed", "err", syncErr)
-		res.SyncAction = "failed"
-	}
-
-	// Keep the peer wrapper + engine current too: a dual-engine host must have
-	// all four components (cdx, clx, codex, claude) updated by a single cron
-	// entry. EnsureForCron no-ops when this tick was itself spawned by the
-	// peer (CODEX_ORCH_PEER_SPAWN=1) or when the host has no peer engine.
-	if !hostcron.IsCoordinated() {
-		peer.EnsureForCron(ctx, cfg, minimal, logger)
-	}
-
 	// Re-read codex version (it may have changed) for the report.
 	newCodexVer := strings.TrimSpace(codex.Version(ctx))
 	res.CodexVersion = newCodexVer
@@ -236,10 +213,7 @@ func TickWithOptions(ctx context.Context, cfg *config.Config, minimal bool) (Res
 		reportErr = client.CronReport(ctx, report)
 		if reportErr == nil {
 			res.Reported = true
-			if syncErr != nil {
-				return res, fmt.Errorf("cron: managed content sync: %w", syncErr)
-			}
-			return res, nil
+			break
 		}
 		logger.Warn("cron: /cron/report attempt failed", "attempt", attempt, "err", reportErr)
 		if attempt < 2 {
@@ -250,7 +224,36 @@ func TickWithOptions(ctx context.Context, cfg *config.Config, minimal bool) (Res
 			}
 		}
 	}
-	return res, errors.Join(syncErr, fmt.Errorf("cron: /cron/report failed after retry: %w", reportErr))
+
+	// Report the observed installed CLI before serving version-gated config.
+	// Converge fleet-managed content. Without this an idle host — one where
+	// nobody ever starts a session — drifts from fleet config indefinitely,
+	// since bootstrap otherwise only runs on a launch. Placed after the
+	// wrapper-update branch above, which either returns or execs, so a sync
+	// never runs with pre-update code. A failed sync still reports installed
+	// versions, then returns an error so the maintenance scheduler can retry.
+	syncErr := protectPendingMaintenanceAuth(ctx, client, logger)
+	if syncErr == nil {
+		syncErr = syncManagedContent(ctx, cfg, minimal)
+	}
+	if syncErr != nil {
+		logger.Warn("cron: managed content sync failed", "err", syncErr)
+		res.SyncAction = "failed"
+		syncErr = fmt.Errorf("cron: managed content sync: %w", syncErr)
+	}
+
+	// Keep the peer wrapper + engine current too: a dual-engine host must have
+	// all four components (cdx, clx, codex, claude) updated by a single cron
+	// entry. EnsureForCron no-ops when this tick was itself spawned by the
+	// peer (CODEX_ORCH_PEER_SPAWN=1) or when the host has no peer engine.
+	if !hostcron.IsCoordinated() {
+		peer.EnsureForCron(ctx, cfg, minimal, logger)
+	}
+
+	if reportErr != nil {
+		return res, errors.Join(syncErr, fmt.Errorf("cron: /cron/report failed after retry: %w", reportErr))
+	}
+	return res, syncErr
 }
 
 // EnsureEngineCurrent brings the Codex CLI itself up to whatever version the

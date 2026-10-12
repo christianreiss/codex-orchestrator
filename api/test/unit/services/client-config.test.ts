@@ -646,7 +646,7 @@ describe('client-config: Claude effortLevel rendering', () => {
     };
     const opus = renderClaudeSettingsPartialForHost({
       settings,
-      host: { claudeModelOverride: 'claude-opus-5-5', claudeReasoningEffortOverride: null } as never,
+      host: { claudeClientVersion: '2.1.296', claudeModelOverride: 'claude-opus-5-5', claudeReasoningEffortOverride: null } as never,
       baseUrl: null, apiKey: null, engine: ENGINE_CLAUDE,
     });
     expect(opus.partial).toMatchObject({ model: 'claude-opus-5-5', modelSettings: { 'claude-opus-5-5': { effortLevel: 'medium' } } });
@@ -655,7 +655,7 @@ describe('client-config: Claude effortLevel rendering', () => {
     expect(opus.owned_paths).not.toContain('modelSettings.claude-sonnet-4-6.effortLevel');
     const haiku = renderClaudeSettingsPartialForHost({
       settings,
-      host: { claudeModelOverride: 'claude-haiku-4-5-20251001', claudeReasoningEffortOverride: 'high' } as never,
+      host: { claudeClientVersion: '2.1.296', claudeModelOverride: 'claude-haiku-4-5-20251001', claudeReasoningEffortOverride: 'high' } as never,
       baseUrl: null, apiKey: null, engine: ENGINE_CLAUDE,
     });
     expect(haiku.partial.model).toBe('claude-haiku-4-5-20251001');

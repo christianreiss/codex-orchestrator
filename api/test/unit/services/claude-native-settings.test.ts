@@ -223,13 +223,13 @@ describe('Claude native user settings', () => {
 
   it('requires an upgraded host only when literal-key ownership is needed', () => {
     const opts = {
-      host: { claudeWrapperVersion: '0.9.65' } as never,
+      host: { claudeClientVersion: '2.1.296', claudeWrapperVersion: '0.9.65' } as never,
       settings: { native_settings: { enabledPlugins: { 'review@fleet.example': true } } },
       baseUrl: null,
       apiKey: null,
     };
     expect(() => renderClaudeSettingsPartialForHost(opts)).toThrow('require cxx 0.9.66');
-    expect(() => renderClaudeSettingsPartialForHost({ ...opts, host: { claudeWrapperVersion: '0.9.66' } as never })).not.toThrow();
+    expect(() => renderClaudeSettingsPartialForHost({ ...opts, host: { claudeClientVersion: '2.1.296', claudeWrapperVersion: '0.9.66' } as never })).not.toThrow();
     expect(() => renderClaudeSettingsPartialForHost({ ...opts, settings: { native_settings: { language: 'german' } } })).not.toThrow();
   });
 });

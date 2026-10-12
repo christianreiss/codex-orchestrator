@@ -34,7 +34,7 @@ async function fixture(page: Page, shared: ReturnType<typeof state>, manage = tr
         shared.renders.push(engine);
         if (shared.fail === engine) return json({ status: "error", message: "native_settings.removed_option is deprecated" }, 422);
         if (shared.race) { shared.race = false; current.revision = "99"; }
-        return json({ settings: body.settings, content: `${engine} validated configuration`, sha256: "b".repeat(64) });
+        return json({ settings: body.settings, content: `${engine} validated configuration`, sha256: "b".repeat(64), profiles: (body.settings.profiles ?? []).map((p: { name: string }) => ({ name: p.name, content: `profile ${p.name}`, sha256: "c".repeat(64) })) });
       }
       if (body.expected_revision !== current.revision) return json({ status: "error", message: "Configuration changed; reload before saving" }, 409);
       shared.writes.push({ engine, body });
@@ -116,4 +116,20 @@ test("read-only operators can view native settings but cannot edit or save", asy
   }
   await expect(page.locator("#claude-client").getByRole("button", { name: "Save changes", exact: true })).toBeDisabled();
   expect(shared.writes).toEqual([]);
+});
+
+
+test("Codex profiles create, preview and remove sidecars separately from root settings", async ({ page }) => {
+  const shared = state(); await fixture(page, shared); await page.goto("/admin/engines");
+  const card = page.locator("#codex-profile-settings"), editor = card.getByRole("textbox");
+  await expect(editor).toHaveValue("[]");
+  await editor.fill('[{"name":"review","model":"gpt-6.1-sol","model_reasoning_effort":"high","native_settings":{"service_tier":"priority"}}]');
+  await card.getByRole("button", { name: "Validate and preview" }).click();
+  await expect(card).toContainText("review.config.toml");
+  await card.getByRole("button", { name: "Save profiles", exact: true }).click();
+  await expect.poll(() => shared.configs.codex.settings.profiles).toMatchObject([{ name: "review", model: "gpt-6.1-sol", native_settings: { service_tier: "priority" } }]);
+  expect(shared.configs.codex.settings.native_settings).toEqual({ language: "en" });
+  await editor.fill("[]");
+  await card.getByRole("button", { name: "Save profiles", exact: true }).click();
+  await expect.poll(() => shared.configs.codex.settings.profiles).toEqual([]);
 });

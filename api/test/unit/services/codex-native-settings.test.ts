@@ -68,13 +68,13 @@ describe('Codex native configuration', () => {
   });
 
   it('replaces conflicting managed MCP and keeps custom servers/skills', () => {
-    const result = renderTomlForHost({ settings: { native_settings: { mcp_servers: { ...native.mcp_servers, cdx: { url: 'https://wrong.test/' } }, skills: { config: [{ name: 'audit', enabled: true }] } } }, host: { id: 1, fqdn: 'test.example', secure: 1 } as never, baseUrl: 'https://fleet.test/', apiKey: 'test-key', home: '/home/test' });
+    const result = renderTomlForHost({ settings: { native_settings: { mcp_servers: { ...native.mcp_servers, cdx: { url: 'https://wrong.test/' } }, skills: { config: [{ name: 'audit', enabled: true }] } } }, host: { clientVersion: '0.162.1', id: 1, fqdn: 'test.example', secure: 1 } as never, baseUrl: 'https://fleet.test/', apiKey: 'test-key', home: '/home/test' });
     for (const text of ['url = "https://fleet.test/mcp"', '[mcp_servers.custom.env]', '[[skills.config]]', 'name = "skill-creator"', '[projects."/home/test"]']) expect(result.content).toContain(text);
     expect(result.content).not.toContain('wrong.test');
   });
 
   it.each([{ config: [] }, { config: [{ name: 'skill-creator', enabled: true }] }])('renders managed skill policy as one table for native config %j', ({ config }) => {
-    const result = renderTomlForHost({ settings: { native_settings: { skills: { config } } }, host: { id: 1, fqdn: 'test.example', secure: 1 } as never, baseUrl: 'https://fleet.test/', apiKey: 'test-key' });
+    const result = renderTomlForHost({ settings: { native_settings: { skills: { config } } }, host: { clientVersion: '0.162.1', id: 1, fqdn: 'test.example', secure: 1 } as never, baseUrl: 'https://fleet.test/', apiKey: 'test-key' });
     expect(result.content).not.toContain('config = []');
     expect(result.content.match(/name = "skill-creator"/g)).toHaveLength(1);
     expect(result.content).toContain('enabled = false');
@@ -89,7 +89,7 @@ describe('Codex native configuration', () => {
 
   it('keeps host-owned policy in native profile sidecars', () => {
     const result = renderTomlForHost({ settings: { profiles: [{ name: 'audit', native_settings: { approval_policy: 'never', default_permissions: 'wide', permissions: { wide: {} }, skills: { config: [] }, mcp_servers: { cdx: { url: 'https://wrong.test/' } } } }] },
-      host: { id: 1, fqdn: 'test.example', secure: 1 } as never, baseUrl: 'https://fleet.test/', apiKey: 'test-key', securityLevels: presetLevels('contained'), home: '/home/test' });
+      host: { clientVersion: '0.162.1', id: 1, fqdn: 'test.example', secure: 1 } as never, baseUrl: 'https://fleet.test/', apiKey: 'test-key', securityLevels: presetLevels('contained'), home: '/home/test' });
     const body = result.profiles?.[0]?.content;
     expect(body).toContain('approval_policy = "on-request"');
     expect(body).toContain('url = "https://fleet.test/mcp"');
