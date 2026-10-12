@@ -3,6 +3,7 @@ import { inArray } from 'drizzle-orm';
 import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
 import { clientConfigDocuments } from '../../../src/db/schema.js';
 import { ClientConfigService } from '../../../src/services/client-config.js';
+import { DEFAULT_CODEX_MODEL } from '../../../src/services/codex-model-upgrades.js';
 import { ModelDefaultsService } from '../../../src/services/model-defaults.js';
 import { ENGINE_CLAUDE, ENGINE_CODEX, ENGINE_GROK, type Engine } from '../../../src/util/engine.js';
 import { getTestDb } from '../../helpers/test-db.js';
@@ -48,14 +49,19 @@ describe.skipIf(!handle)('atomic configuration revisions against MySQL', () => {
     // A unique test-only engine key isolates the empty-range case without
     // deleting pre-existing canonical documents. Rendering follows Codex.
     const engine = `rev-${randomUUID().slice(0, 8)}` as Engine;
+    // The isolated key has no engine defaults. Supply a native field so the
+    // requests reach the insert race instead of rejecting an empty document.
+    const settings = { model: DEFAULT_CODEX_MODEL };
     expect(await service().adminFetch(engine)).toEqual({ status: 'missing', revision: null });
     const outcomes = await Promise.allSettled([
-      store(engine, { orchestrator_mcp_enabled: true }, null),
-      store(engine, { orchestrator_mcp_enabled: false }, null),
+      store(engine, { ...settings, orchestrator_mcp_enabled: true }, null),
+      store(engine, { ...settings, orchestrator_mcp_enabled: false }, null),
     ]);
     expect(outcomes.filter(result => result.status === 'fulfilled')).toHaveLength(1);
+    const winner = outcomes.find(result => result.status === 'fulfilled');
     const loser = outcomes.find(result => result.status === 'rejected');
     expect(loser && 'reason' in loser && loser.reason).toMatchObject({ status: 409, code: 'config_revision_conflict' });
+    expect((await service().adminFetch(engine)).revision).toBe(winner && 'value' in winner && winner.value.revision);
   });
 
   it.each(engines)('detects %s settings-only edits with an unchanged rendered hash', async engine => {
