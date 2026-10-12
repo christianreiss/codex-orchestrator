@@ -20,7 +20,7 @@ async function fixture(page: Page, manage = true) {
     }
     if (path === '/admin/log-retention') return json({ enabled: false, days_logs: 90, days_mcp: 90, days_events: 30, days_graph_stats: 180 });
     if (path === '/admin/authorization') return json({ mode: 'compatible', updated_at: null, would_deny: [] });
-    if (['auto-update', 'reverse-dns', 'api-keys-in-chat', 'remote-exec', 'insecure-approval'].includes(path.split('/').pop()!)) return json({ enabled: false });
+    if (['auto-update', 'reverse-dns', 'api-keys-in-chat', 'insecure-approval'].includes(path.split('/').pop()!)) return json({ enabled: false });
     if (path === '/admin/overview') return json({ inactivity_window_days: 30 });
     return json({});
   });

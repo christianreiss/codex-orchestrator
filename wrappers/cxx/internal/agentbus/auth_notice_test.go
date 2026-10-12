@@ -28,11 +28,11 @@ func TestFailedHookOutputLeavesAuthNoticePending(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv(envSessionID, "retry-session")
 	publishTestNotice(t, "claude")
-	if err := emitHook(failingAuthNoticeWriter{}, hookEventPrompt, &mailbox{}); err == nil {
+	if err := emitHook(failingAuthNoticeWriter{}, hookEventPrompt, &mailbox{}, nil); err == nil {
 		t.Fatal("expected output failure")
 	}
 	var retry bytes.Buffer
-	if err := emitHook(&retry, hookEventPrompt, &mailbox{}); err != nil {
+	if err := emitHook(&retry, hookEventPrompt, &mailbox{}, nil); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(retry.String(), "credentials were updated") {
@@ -70,13 +70,13 @@ func TestAuthOnlyNoticeNeverBlocksStopAndReachesPromptOnce(t *testing.T) {
 	t.Setenv(envSessionID, "active-claude")
 	publishTestNotice(t, "claude")
 	var out bytes.Buffer
-	if err := emitHook(&out, hookEventStop, &mailbox{}); err != nil {
+	if err := emitHook(&out, hookEventStop, &mailbox{}, nil); err != nil {
 		t.Fatal(err)
 	}
 	if out.Len() != 0 {
 		t.Fatalf("auth adoption blocked Stop: %s", out.String())
 	}
-	if err := emitHook(&out, hookEventPrompt, &mailbox{}); err != nil {
+	if err := emitHook(&out, hookEventPrompt, &mailbox{}, nil); err != nil {
 		t.Fatal(err)
 	}
 	var payload map[string]any
@@ -91,7 +91,7 @@ func TestAuthOnlyNoticeNeverBlocksStopAndReachesPromptOnce(t *testing.T) {
 		t.Fatalf("missing context: %+v", payload)
 	}
 	out.Reset()
-	if err := emitHook(&out, hookEventPrompt, &mailbox{}); err != nil {
+	if err := emitHook(&out, hookEventPrompt, &mailbox{}, nil); err != nil {
 		t.Fatal(err)
 	}
 	if out.Len() != 0 {
@@ -106,7 +106,7 @@ func TestAuthNoticeSharesDeliveryLedgerAcrossHookAndMCP(t *testing.T) {
 	result := map[string]any{"content": []map[string]any{{"type": "text", "text": "done"}}}
 	prepareAuthNotice(mcpSuccess(json.RawMessage("1"), result), "claude", "same-session").Commit()
 	var out bytes.Buffer
-	if err := emitHook(&out, hookEventPrompt, &mailbox{}); err != nil {
+	if err := emitHook(&out, hookEventPrompt, &mailbox{}, nil); err != nil {
 		t.Fatal(err)
 	}
 	if out.Len() != 0 {

@@ -43,7 +43,7 @@ func RunCommand(args []string, stdin io.Reader, stdout, stderr io.Writer, versio
 	case "listen":
 		err = runListen(args[1:], stdout, stderr)
 	case "poll":
-		err = runPoll(args[1:], stdout, stderr)
+		err = runPoll(args[1:], stdin, stdout, stderr)
 	case "activity-event":
 		// Observation is best effort and must never block a native hook.
 		_ = reportActivityHook(stdin)

@@ -20,7 +20,6 @@ import type {
   ApiSurfacesValue,
   ApiSurfaceUpdate,
   ApiKeysInChatValue,
-  RemoteExecValue,
   AutoUpdateValue,
   CdxSilentValue,
   ClaudeSettingsValue,
@@ -407,31 +406,6 @@ export function apiKeysInChatMutation(
     ...opts,
     onSettled: (...args) => {
       void qc.invalidateQueries({ queryKey: apiKeysInChatQueryKey });
-      opts.onSettled?.(...args);
-    },
-  });
-}
-
-/* ─────────────────────── 6b. Remote execution ──────────────────────── */
-
-export const remoteExecQueryKey = ["settings", "remote-exec"] as const;
-
-export function remoteExecQuery() {
-  return createQuery<RemoteExecValue>({
-    queryKey: remoteExecQueryKey,
-    queryFn: () => api.get<RemoteExecValue>("/admin/remote-exec"),
-  });
-}
-
-export function remoteExecMutation(
-  opts: MutationOpts<RemoteExecValue, boolean> = {},
-) {
-  const qc = useQueryClient();
-  return createMutation<RemoteExecValue, Error, boolean>({
-    mutationFn: makeToggle<RemoteExecValue>("/admin/remote-exec", "enabled"),
-    ...opts,
-    onSettled: (...args) => {
-      void qc.invalidateQueries({ queryKey: remoteExecQueryKey });
       opts.onSettled?.(...args);
     },
   });

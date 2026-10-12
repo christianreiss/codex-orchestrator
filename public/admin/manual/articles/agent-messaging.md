@@ -111,6 +111,13 @@ chosen, its error identifies the correct one: `agent_reply` for peers and
 `agent_receiver_reply` for operator Portal messages. Background workers retain
 their delivery lease while storing that result.
 
+From wrapper 0.9.63, a Claude session that forgets that `agent_listen` no
+longer goes deaf. When a turn ends, the `Stop`/`UserPromptSubmit` hooks
+release informational messages the conversation has actually shown, so the
+next message, wake or call is pushed in and wakes an idle session. Accepted
+work and Portal instructions still need their explicit answer; the hook
+reminds the agent once that nothing else can arrive until it gives one.
+
 Disabling peer messaging leaves an enabled operator Portal connection usable.
 Mailbox rings include Server publications and prioritize messages currently
 waiting over missed calls. To restore peer messaging after a shutdown, start a

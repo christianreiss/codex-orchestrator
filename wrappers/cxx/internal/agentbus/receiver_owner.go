@@ -35,7 +35,7 @@ func newReceiverOwner(client *sessionClient, tracker *channelTracker) *receiverO
 	if broker == "" || client.id != os.Getenv(envSessionID) { // In-process fixtures do not own the inherited launch broker.
 		return nil
 	}
-	return &receiverOwner{path: filepath.Join(filepath.Dir(broker), "receiver-owner.sock"), client: client, tracker: tracker}
+	return &receiverOwner{path: filepath.Join(filepath.Dir(broker), ownerSocketName), client: client, tracker: tracker}
 }
 
 func (o *receiverOwner) isOwner() bool {
@@ -84,6 +84,10 @@ func (o *receiverOwner) serve(ctx context.Context, stderr io.Writer) error {
 	o.mu.Unlock()
 	defer func() { o.mu.Lock(); o.owned = false; o.mu.Unlock() }()
 	server := &http.Server{ReadHeaderTimeout: 5 * time.Second, Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost && (r.URL.Path == ownerHeldPath || r.URL.Path == ownerReleasePath) {
+			o.serveTurn(w, r, ownerCtx)
+			return
+		}
 		if r.Method != http.MethodPost || r.URL.Path != "/tools" {
 			http.Error(w, "unknown receiver operation", http.StatusNotFound)
 			return

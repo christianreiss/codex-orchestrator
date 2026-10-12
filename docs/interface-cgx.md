@@ -805,7 +805,7 @@ native startup; no native retry or fresh session fallback. Accepted work retains
 its original IDs. Watchdog/persistent Wake recovery conflicts are rejected.
 From cxx 0.9.56, an early-boot IP-binding mismatch waits within the five-minute
 readiness deadline for the bound network route; native startup is still one-use.
-From cxx 0.9.63, an installed tmux in the original user's restored PATH runs the
+From cxx 0.9.64, an installed tmux in the original user's restored PATH runs the
 continuation as a detached interactive session. `cxx reboot status --id UUID`
 reports `execution_mode`, `tmux_session` and the `attach_command` (including its
 request-specific `-L` socket label). The initial checkpoint is submitted once;

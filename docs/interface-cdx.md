@@ -372,7 +372,6 @@ server bakes effective `CODEX_HOME/config.toml`.
 | `<profile-name>` | Shorthand for `cdx profile <name>` when the profile exists — as `$CODEX_HOME/<name>.config.toml` (codex-cli >= 0.156.1) or, for an older Codex, as a `[profiles.<name>]` section of `config.toml` — and the token is not a wrapper-owned or reserved-Codex subcommand |
 | `exec -- <cmd...>` | Bypass the startup sequence and run a single Codex command |
 | `cxx agent ...` | Shared Agent Messaging control surface: `list` (alias `peers`, `--engine codex\|claude\|grok`, `--online`), `send`, `request`, `wait`, `reply`, `message <id>`, `cancel`, `call-open`, `call-join --pin`, `listen`, `poll --hook Stop\|UserPromptSubmit` (the Claude ringer hook), `status`, `service install\|remove\|start\|stop\|restart\|status`, `worker --foreground`, and `mcp [--channel|--auto]` (the stdio MCP server the managed `cxx-agent` entry launches). Message and reply content is accepted only on stdin. |
-| `cxx remote ...` | Reserved, unavailable command family. The parser and signed `remote.enabled` gate exist, but all operational verbs return `E_NOT_IMPLEMENTED`. Enabling the switch provides no SSH transport, remote jobs or file transfer. Use ordinary SSH tools within existing task authorization. |
 | `--help` / `-h` / `help` | Passed straight through to a supervised upstream `codex` child without running auth/sync/boot — handles `cdx --help`, `cdx help`, and `cdx <reserved-subcommand> --help`; it skips the managed run lock but the child inherits effective-home session + active-child descriptors until Codex exits; wrapper-only `--minimal`/`--minimal-output` is consumed rather than forwarded as an unsupported Codex flag |
 | `--wrapper-help` | Render the wrapper-owned commands and flags without loading config; never intercepts tokens after `--` |
 | `resume [<session>] [<prompt>]` | Reopen a previous Codex session through the normal startup lifecycle. With no session id, the upstream picker is shown; `--last` continues the most recent |
@@ -1409,7 +1408,7 @@ native startup; no native retry or fresh session fallback. Accepted work retains
 its original IDs. Watchdog/persistent Wake recovery conflicts are rejected.
 From cxx 0.9.56, an early-boot IP-binding mismatch waits within the five-minute
 readiness deadline for the bound network route; native startup is still one-use.
-From cxx 0.9.63, an installed tmux in the original user's restored PATH runs the
+From cxx 0.9.64, an installed tmux in the original user's restored PATH runs the
 continuation as a detached interactive session. `cxx reboot status --id UUID`
 reports `execution_mode`, `tmux_session` and the `attach_command` (including its
 request-specific `-L` socket label). The initial checkpoint is submitted once;

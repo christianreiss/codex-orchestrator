@@ -74,14 +74,6 @@
         "listen_enabled": { "type": "boolean", "default": false }
       }
     },
-    "remote": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["enabled"],
-      "properties": {
-        "enabled": { "type": "boolean", "default": false }
-      }
-    },
     "wrapper": {
       "type": "object",
       "additionalProperties": false,

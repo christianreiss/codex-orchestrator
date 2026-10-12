@@ -66,7 +66,7 @@ The previous Portal history stays with the previous launch. The current accepted
 instruction and its reply live with the continuation. Native history stays in the
 same provider transcript.
 
-## Interactive continuation with tmux (cxx 0.9.63)
+## Interactive continuation with tmux (cxx 0.9.64)
 
 After consuming the boot job, cxx checks for an executable `tmux` in the restored
 PATH **as the original user**. If available, the continuation runs interactively

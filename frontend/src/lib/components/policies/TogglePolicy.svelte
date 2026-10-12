@@ -5,7 +5,7 @@
   import { Button } from "$lib/components/ui/button";
   import PolicyCard from "./PolicyCard.svelte";
   import { autoUpdateQuery, autoUpdateMutation, reverseDnsQuery, reverseDnsMutation,
-    apiKeysInChatQuery, apiKeysInChatMutation, remoteExecQuery, remoteExecMutation,
+    apiKeysInChatQuery, apiKeysInChatMutation,
     insecureApprovalQuery, insecureApprovalMutation, hostSpawnQuery, hostSpawnMutation } from "$lib/api/settings";
 
   const policies = {
@@ -25,10 +25,6 @@
       label: "Include API-key handling guidance", scope: "Agent instructions · Codex, Claude and Grok",
       description: "Tell agents how to handle API keys intentionally supplied by an operator.",
       details: "The instruction asks agents to use supplied keys for the requested task without generic security lectures, and to avoid unnecessary echoing or persistence. Managed documents update on the next sync or launch; this does not change API permissions." },
-    "remote-exec": { query: remoteExecQuery, mutation: remoteExecMutation, title: "Remote execution",
-      label: "Remote execution (unavailable)", scope: "Fleet feature · Codex, Claude and Grok",
-      description: "Reserved cxx remote configuration; remote jobs are not implemented.",
-      details: "Enabling this switch only opens the reserved parser. Every operational verb still returns E_NOT_IMPLEMENTED, and managed instructions state that the feature is unavailable. Ordinary SSH access is unaffected." },
     "insecure-approval": { query: insecureApprovalQuery, mutation: insecureApprovalMutation, title: "Insecure-host approvals",
       label: "Enable approval requests", scope: "Fleet access workflow · insecure hosts",
       description: "Let insecure hosts request administrator approval when their access window is closed.",

@@ -21,7 +21,6 @@ import { SettingsService } from './settings.js';
 import { GitDirectorService, GIT_DIRECTOR_ENABLED_FLAG } from './git-director.js';
 import { DEFAULT_GIT_COMMIT_SETTINGS, readGitCommitSettings } from './git-commit-settings.js';
 import { AgentTransfersService, TRANSFERS_ENABLED_FLAG } from './agent-transfers.js';
-import { REMOTE_EXEC_ENABLED_KEY } from './remote-exec.js';
 import { FEEDBACK_ENABLED_KEY } from './feedback-contract.js';
 import { AGENT_MESSAGING_ENABLED_KEY } from './agent-messaging.js';
 import { API_KEYS_IN_CHAT_ALLOWED_KEY } from './api-keys-in-chat.js';
@@ -395,7 +394,6 @@ export class HostAgentsService {
       gitDirectorCloneCount,
       transfersEnabled,
       transferCount,
-      remoteExecEnabled,
       gitCommitSettings,
       feedbackEnabled,
     ] = await Promise.all([
@@ -418,7 +416,6 @@ export class HostAgentsService {
       this.gitDirector.availableCount(host).catch(() => null),
       this.settings.getFlag(TRANSFERS_ENABLED_FLAG, false).catch(() => null),
       this.transfers.availableCount().catch(() => null),
-      this.settings.getFlag(REMOTE_EXEC_ENABLED_KEY, false).catch(() => null),
       // Keep document sync available during a deployment with missing settings,
       // like the neighbouring policy readers; defaults never add attribution.
       readGitCommitSettings(this.settings).catch(() => ({ ...DEFAULT_GIT_COMMIT_SETTINGS })),
@@ -544,18 +541,6 @@ export class HostAgentsService {
             ? state(false, 'transfers_disabled')
             : state(true, 'ok', transferCount);
 
-    // Deliberately not gated on `mcp.enabled`, unlike the Director and the
-    // transfer pool: `cxx remote` is a wrapper command, not an MCP tool, so a
-    // host whose managed MCP configuration never arrived can still use it. What
-    // it does need is a signed config carrying the same switch, and that rides
-    // the same sync — so guidance and capability turn on together.
-    const remoteExec =
-      remoteExecEnabled === null
-        ? state(false, 'service_unavailable')
-        : !remoteExecEnabled
-          ? state(false, 'remote_exec_disabled')
-          : state(true, 'ok');
-
     return {
       engine,
       skills,
@@ -573,7 +558,6 @@ export class HostAgentsService {
         : !mcp.enabled ? state(false, mcp.reason)
         : !feedbackEnabled ? state(false, 'feedback_disabled')
         : state(true, 'ok'),
-      remoteExec,
       gitCommitSettings,
     };
   }

@@ -96,7 +96,6 @@ Claude settings and MCP merges preserve unreadable or non-object user files and 
 | `auth ...` | Passed through to upstream Claude under the active-child/session leases. `auth login` uploads the resulting generation and applies guarded canonical writeback; `auth logout` journals durable intent before destructive native mutation; `auth status` remains read-only passthrough. The top-level `login`/`logout` aliases follow the same rules. |
 | `exec -- <cmd...>` | Bypass startup sync; run a single Claude command |
 | `cxx agent ...` | Shared Agent Messaging control surface: `list` (alias `peers`, `--engine codex\|claude\|grok`, `--online`), `send`, `request`, `wait`, `reply`, `message <id>`, `cancel`, `call-open`, `call-join --pin`, `listen`, `poll --hook Stop\|UserPromptSubmit` (the Claude ringer hook), `status`, `service install\|remove\|start\|stop\|restart\|status`, `worker --foreground`, and `mcp [--channel|--auto]` (the stdio MCP server the managed `cxx-agent` entry launches). Message and reply content is accepted only on stdin. |
-| `cxx remote ...` | Reserved, unavailable command family. The parser and signed `remote.enabled` gate exist, but all operational verbs return `E_NOT_IMPLEMENTED`. Enabling the switch provides no SSH transport, remote jobs or file transfer. Use ordinary SSH tools within existing task authorization. |
 | `--continue` / `-c` | Passed straight through to the upstream `claude` binary |
 | `resume [<session>] [<prompt>]` | Reopen a previous Claude session through the normal startup lifecycle. With no session id, the upstream picker is shown |
 | `--resume[=<session>]` / `-r` | Alias for the `resume` subcommand above — the session is optional, and a following option is never consumed as its value |
@@ -1139,7 +1138,26 @@ A peer delivery stays held, and blocks the next one, until the model is done wit
 claims). From cxx 0.9.27, `agent_conf_join` and `agent_conf_say` release only the
 matching room's informational delivery; they preserve held tasks and other rooms'
 messages. Report a work outcome through `agent_task_result` or `agent_reply` with
-`task_result`; a progress update does not finish it. Automatic listen requires a
+`task_result`; a progress update does not finish it.
+
+From cxx 0.9.63 the `Stop` and `UserPromptSubmit` ringer hooks also end the
+turn for the receiver. They read `transcript_path` from the hook payload, ask the
+launch's receiver owner (`receiver-owner.sock` beside the broker socket) what it
+holds, and complete every held **informational** delivery whose channel tag was
+dequeued into the conversation as a `user` entry; a notification Claude Code has
+only queued (`queue-operation`) is left for the next turn. Before this, a model
+that read a message, answered someone else with `agent_send` and ended its turn
+left reception closed: the server's one-in-flight-per-address rule queued every
+later message, schedule wakes included, until a human typed. Accepted work and an
+open Portal instruction are never released this way; the hook rings once
+(`decision: block` on Stop) naming them and the tool that finishes them. After a
+release on a ready receiver the hook does not ring pending mail, because the
+receiver now pushes it, waking an idle session. An owner from an older wrapper, a
+missing transcript, or any owner error leaves the hook's previous behaviour
+unchanged. A later `agent_reply` to a released message still works: the server
+accepts claim-less replies to completed informational messages.
+
+Automatic listen requires a
 peer source as well as healthy transport, and returns `receiver_unavailable`
 with `peer_source_unavailable` when only Portal is enabled.
 
@@ -1590,7 +1608,7 @@ native startup; no native retry or fresh session fallback. Accepted work retains
 its original IDs. Watchdog/persistent Wake recovery conflicts are rejected.
 From cxx 0.9.56, an early-boot IP-binding mismatch waits within the five-minute
 readiness deadline for the bound network route; native startup is still one-use.
-From cxx 0.9.63, an installed tmux in the original user's restored PATH runs the
+From cxx 0.9.64, an installed tmux in the original user's restored PATH runs the
 continuation as a detached interactive session. `cxx reboot status --id UUID`
 reports `execution_mode`, `tmux_session` and the `attach_command` (including its
 request-specific `-L` socket label). The initial checkpoint is submitted once;
