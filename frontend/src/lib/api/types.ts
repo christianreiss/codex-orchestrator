@@ -689,6 +689,7 @@ export interface ClaudeConfigSettings {
 /** Mirrors `AdminFetchResult` in api/src/services/client-config.ts. */
 export interface ClaudeConfigResponse {
   status: string;
+  revision: string | null;
   sha256?: string;
   updated_at?: string | null;
   size_bytes?: number;
@@ -703,6 +704,7 @@ export interface ClaudeConfigResponse {
  */
 export interface ClaudeConfigStoreResult {
   status: "ok";
+  revision: string;
   sha256: string;
   updated_at?: string | null;
   size_bytes?: number;

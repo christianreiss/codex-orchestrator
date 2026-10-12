@@ -571,3 +571,23 @@ Admin routes:
   trash, restore, revision-body diff, or rollback action; the confirmation
   dialog is the final safety boundary.
 - No in-process request-rate limiter is installed. Authentication and authorization failures are returned directly without a frequency bucket.
+
+### Native engine configuration
+
+Each engine on **Engines** has a native-settings JSON editor. Use it for current
+client settings that have no dedicated fleet control. **Validate and preview**
+checks the complete candidate through the engine renderer; **Save native settings**
+also validates before storing. Dedicated model/effort and other fleet controls
+remain authoritative where they own the same setting. Deprecated or unsupported
+values produce an actionable validation error instead of being silently dropped.
+
+The editor keeps dirty drafts when saved native settings change elsewhere. Copy a
+draft before **Discard draft and reload** if its changes are still needed. Changes
+to separate model/effort controls are preserved, and the store checks the fetched
+configuration revision to prevent races. Empty `{}` removes native overrides.
+Viewing/previewing requires `content.read`; saving requires `content.manage`.
+
+The Claude form updates only fields actually edited and preserves native settings,
+unknown siblings, and independent changes. Hooks containing extra types or options
+are shown read-only in the command form and retained on save; configure new rich
+hooks in native settings or edit existing structured hooks through the API.

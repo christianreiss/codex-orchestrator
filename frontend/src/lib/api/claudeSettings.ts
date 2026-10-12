@@ -15,7 +15,7 @@ export const claudeSettingsApi = {
   get(): Promise<ClaudeConfigResponse> {
     return api.get<ClaudeConfigResponse>("/admin/claude/config");
   },
-  store(payload: { settings: ClaudeConfigSettings; sha256?: string | null }): Promise<ClaudeConfigStoreResult> {
+  store(payload: { settings: ClaudeConfigSettings; sha256?: string | null; expected_revision?: string | null }): Promise<ClaudeConfigStoreResult> {
     return api.post<ClaudeConfigStoreResult>("/admin/claude/config/store", payload);
   },
 };

@@ -1,4 +1,8 @@
 <script lang="ts">
+  import { derived } from "svelte/store";
+  import { untrack } from "svelte";
+  import { authStore } from "$lib/stores/auth";
+  import { mergeFormSettings, sameSettings, hasAdvancedHooks } from "./config-edit";
   import { createQuery, createMutation, useQueryClient } from "@tanstack/svelte-query";
   import { toast } from "svelte-sonner";
   import { claudeSettingsApi, claudeSettingsKeys } from "$lib/api/claudeSettings";
@@ -26,10 +30,11 @@
 
   const qc = useQueryClient();
 
-  const query = createQuery<ClaudeConfigResponse>({
+  const query = createQuery<ClaudeConfigResponse>(derived(authStore, auth => ({
     queryKey: claudeSettingsKeys.config(),
     queryFn: () => claudeSettingsApi.get(),
-  });
+    enabled: auth.can("content.read"),
+  })));
 
   // ---- Local editor state ----
   let env = $state<KeyValueRow[]>([]);
@@ -45,6 +50,10 @@
   let serverSha = $state<string | null>(null);
   let savedAt = $state<Date | null>(null);
   let hydrated = $state(false);
+  let baseline = $state<ClaudeConfigSettings>({});
+  let initialForm = $state<ClaudeConfigSettings>({});
+  let advancedHooks = $state(false);
+  const canManage = $derived($authStore.can("content.manage"));
 
   function envFromRecord(record: Record<string, string> | undefined): KeyValueRow[] {
     if (!record) return [];
@@ -74,13 +83,10 @@
     return out;
   }
 
-  $effect(() => {
-    const data = $query.data;
-    if (!data) return;
+  function hydrate(data: ClaudeConfigResponse) {
     serverSha = data.sha256 ?? null;
-    if (hydrated) return;
-
     const s = data.settings ?? {};
+    baseline = structuredClone(s);
     env = envFromRecord(s.env);
     allow = [...(s.permissions?.allow ?? [])];
     ask = [...(s.permissions?.ask ?? [])];
@@ -90,12 +96,21 @@
     loadedStatusLine = s.statusLine ? { ...s.statusLine } : null;
     advisorModel = s.advisorModel || ADVISOR_OFF;
     hooks = hooksFromConfig(s.hooks);
+    advancedHooks = hasAdvancedHooks(s.hooks);
+    initialForm = buildSettings();
     hydrated = true;
+  }
+  $effect(() => {
+    const data = $query.data;
+    if (data && untrack(() => !hydrated || !dirty)) untrack(() => hydrate(data));
   });
-
+  async function refresh() {
+    const result = await $query.refetch();
+    if (result.data && !result.error) hydrate(result.data);
+  }
 
   // Build the canonical settings object from local state (omit empty blocks).
-  const builtSettings = $derived.by<ClaudeConfigSettings>(() => {
+  function buildSettings(): ClaudeConfigSettings {
     const out: ClaudeConfigSettings = {};
 
     const envObj: Record<string, string> = {};
@@ -141,26 +156,22 @@
     if (advisorModel && advisorModel !== ADVISOR_OFF) out.advisorModel = advisorModel;
 
     return out;
-  });
+  }
+  const builtSettings = $derived(buildSettings());
+  const dirty = $derived(hydrated && !sameSettings(initialForm, builtSettings));
 
   // ---- Save ----
   const saveMutation = createMutation({
     mutationFn: async () => {
-      const remainingSettings = { ...builtSettings };
+      const submitted = structuredClone($state.snapshot(builtSettings));
       const latest = await claudeSettingsApi.get();
-      const latestSettings = latest.settings ?? {};
-      const settings: ClaudeConfigSettings = { ...remainingSettings };
-
-      // Fleet model defaults are edited separately. Re-read them immediately
-      // before this store and use the matching SHA so a stale editor cannot
-      // overwrite a newer model or reasoning-effort selection.
-      if ("model" in latestSettings) settings.model = latestSettings.model;
-      if ("effortLevel" in latestSettings) settings.effortLevel = latestSettings.effortLevel;
-
-      return claudeSettingsApi.store({ settings, sha256: latest.sha256 ?? null });
+      const settings = mergeFormSettings(baseline, latest.settings ?? {}, initialForm, submitted);
+      return claudeSettingsApi.store({ settings, sha256: latest.sha256 ?? null, expected_revision: latest.revision });
     },
     onSuccess: (result) => {
-      serverSha = result.sha256 ?? serverSha;
+      hydrate(result);
+      qc.setQueryData(claudeSettingsKeys.config(), result);
+      void qc.invalidateQueries({ queryKey: ["settings"] });
       savedAt = new Date();
       toast.success(result.change === "unchanged" ? "No changes to save" : "Settings saved");
       void qc.invalidateQueries({ queryKey: claudeSettingsKeys.config() });
@@ -197,13 +208,13 @@
       <Button
         variant="outline"
         size="sm"
-        onclick={() => void qc.invalidateQueries({ queryKey: claudeSettingsKeys.config() })}
-        disabled={$query.isFetching}
+        onclick={() => void refresh()}
+        disabled={!$authStore.can("content.read") || $query.isFetching || $saveMutation.isPending}
       >
         <RefreshCw class={$query.isFetching ? "h-4 w-4 animate-spin" : "h-4 w-4"} />
-        Refresh
+        {dirty ? "Discard draft and refresh" : "Refresh"}
       </Button>
-      <Button size="sm" onclick={() => $saveMutation.mutate()} disabled={$saveMutation.isPending}>
+      <Button size="sm" onclick={() => $saveMutation.mutate()} disabled={!canManage || !dirty || !$query.isSuccess || $saveMutation.isPending}>
         <Save class="h-4 w-4" />
         {$saveMutation.isPending ? "Saving…" : "Save changes"}
       </Button>
@@ -218,14 +229,16 @@
   </div>
 </section>
 
-{#if $query.isLoading}
+{#if !$authStore.can("content.read")}
+  <p class="text-sm text-muted-foreground">Your role needs content.read to view Claude settings.</p>
+{:else if $query.isLoading}
   <p class="text-sm text-muted-foreground">Loading settings…</p>
 {:else if $query.isError}
   <p class="text-sm text-destructive">
     {$query.error instanceof Error ? $query.error.message : "Failed to load settings"}
   </p>
 {:else}
-  <div class="divide-y border-b border-border">
+  <fieldset disabled={!canManage || $saveMutation.isPending} class="min-w-0 divide-y border-b border-border">
     <section class="py-5" aria-labelledby="advisor-model-heading">
       <div class="mb-3 max-w-3xl">
         <h3 id="advisor-model-heading" class="text-sm font-semibold">
@@ -302,7 +315,12 @@
         <h3 id="hooks-heading" class="text-sm font-semibold">Hooks</h3>
         <p class="mt-1 text-sm text-muted-foreground">Run selected commands when matching Claude lifecycle events occur.</p>
       </div>
-      <HooksEditor bind:hooks />
+      {#if advancedHooks}
+        <p class="text-sm text-muted-foreground">These hooks contain additional types or options. They are preserved when saving this form; edit them through the configuration API.</p>
+        <MdPreview json={baseline.hooks} />
+      {:else}
+        <HooksEditor bind:hooks disabled={!canManage || $saveMutation.isPending} />
+      {/if}
     </section>
 
     <section class="py-5" aria-labelledby="settings-preview-heading">
@@ -313,7 +331,7 @@
         </div>
         <Badge variant="secondary">read-only</Badge>
       </div>
-      <MdPreview json={builtSettings} />
+      <MdPreview json={mergeFormSettings(baseline, baseline, initialForm, builtSettings)} />
     </section>
-  </div>
+  </fieldset>
 {/if}
