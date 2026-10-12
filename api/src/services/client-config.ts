@@ -328,29 +328,26 @@ export function normalizeGrokSettings(raw: unknown): NormalizedSettings {
   const input = asRecord(raw);
   const native = normalizeGrokNativeSettings(input.native_settings);
   const models = asRecord(input.models);
-  const nativeModels = asRecord(native?.models);
-  if (nativeModels.default !== undefined && !normalizeGrokModel(nativeModels.default)) {
-    throw new ValidationError('native_settings.models.default: unsupported subscription model', { param: 'settings.native_settings.models.default' });
-  }
-  const model = normalizeGrokModel(input.model ?? models.default ?? nativeModels.default) ?? GROK_DEFAULT_MODEL;
+  const model = normalizeGrokModel(input.model ?? models.default) ?? GROK_DEFAULT_MODEL;
   const out = normalizeSettings({ ...input, native_settings: undefined, model: null }, { applyCodexDefaults: false, engine: 'grok' });
   if (native !== undefined) out.native_settings = native;
   out.model = model;
-  const nativeEffort = nativeModels.default_reasoning_effort;
-  if (nativeEffort !== undefined && !normalizeGrokEffort(nativeEffort, normalizeGrokModel(nativeModels.default) ?? model)) {
-    throw new ValidationError('native_settings.models.default_reasoning_effort: unsupported effort for this model', { param: 'settings.native_settings.models.default_reasoning_effort' });
+  out.reasoning_effort = normalizeGrokEffort(input.reasoning_effort ?? models.default_reasoning_effort, model) ?? GROK_MODEL_DEFAULT_REASONING_EFFORTS[model];
+  for (const [name, settings] of Object.entries(asRecord(native?.model))) {
+    const nativeWindow = asRecord(settings).context_window;
+    if (nativeWindow !== undefined && !normalizeGrokContextWindow(nativeWindow)) {
+      throw new ValidationError('native_settings.model: unsupported subscription context window', { param: `settings.native_settings.model.${name}.context_window` });
+    }
   }
-  out.reasoning_effort = normalizeGrokEffort(input.reasoning_effort ?? models.default_reasoning_effort ?? nativeEffort, model) ?? GROK_MODEL_DEFAULT_REASONING_EFFORTS[model];
-  const nativeWindow = asRecord(asRecord(native?.model)[model]).context_window;
-  if (nativeWindow !== undefined && !normalizeGrokContextWindow(nativeWindow)) {
-    throw new ValidationError('native_settings.model: unsupported subscription context window', { param: `settings.native_settings.model.${model}.context_window` });
-  }
-  out.context_window = normalizeGrokContextWindow(input.context_window ?? nativeWindow) ?? GROK_DEFAULT_CONTEXT_WINDOW;
+  // Native values and fallback defaults stay in their original layer. Persisting
+  // a derived copy here would shadow later native edits and resurrect deletions.
+  const contextWindow = normalizeGrokContextWindow(input.context_window);
+  if (contextWindow !== null) out.context_window = contextWindow;
   out.model_reasoning_effort = null;
   out.profiles = [];
   // Grok's native `[ui].permission_mode`; posture writes it, an operator template may too.
   delete out.permissionMode;
-  const mode = normalizeName(input.permission_mode ?? asRecord(input.ui).permission_mode ?? asRecord(native?.ui).permission_mode ?? input.permissionMode);
+  const mode = normalizeName(input.permission_mode ?? asRecord(input.ui).permission_mode ?? input.permissionMode);
   if (mode !== null && (GROK_PERMISSION_MODES as readonly string[]).includes(mode)) out.permissionMode = mode;
   return out;
 }
@@ -370,7 +367,8 @@ function grokSettingsDocument(input: NormalizedSettings, includeNativeMcp = true
   const document = structuredClone(settings.native_settings ?? {});
   document.models = { ...asRecord(document.models), default: settings.model ?? GROK_DEFAULT_MODEL, default_reasoning_effort: settings.reasoning_effort };
   const model = settings.model ?? GROK_DEFAULT_MODEL;
-  document.model = { ...asRecord(document.model), [model]: { ...asRecord(asRecord(document.model)[model]), context_window: settings.context_window ?? GROK_DEFAULT_CONTEXT_WINDOW } };
+  const nativeModel = asRecord(asRecord(document.model)[model]);
+  document.model = { ...asRecord(document.model), [model]: { ...nativeModel, context_window: settings.context_window ?? nativeModel.context_window ?? GROK_DEFAULT_CONTEXT_WINDOW } };
   if (settings.permissionMode) {
     document.ui = { ...asRecord(document.ui), permission_mode: settings.permissionMode };
   }
@@ -621,10 +619,9 @@ function applyHostModelOverrides(
   if (!host) return settings;
   if (engine === ENGINE_GROK) {
     const out = { ...settings };
-    const nativeModels = asRecord(asRecord(out.native_settings).models);
-    const model = normalizeGrokModel(host.grokModelOverride) ?? normalizeGrokModel(out.model ?? nativeModels.default) ?? GROK_DEFAULT_MODEL;
+    const model = normalizeGrokModel(host.grokModelOverride) ?? normalizeGrokModel(out.model) ?? GROK_DEFAULT_MODEL;
     out.model = model;
-    out.reasoning_effort = normalizeGrokEffort(host.grokReasoningEffortOverride, model) ?? normalizeGrokEffort(out.reasoning_effort ?? nativeModels.default_reasoning_effort, model) ?? GROK_MODEL_DEFAULT_REASONING_EFFORTS[model];
+    out.reasoning_effort = normalizeGrokEffort(host.grokReasoningEffortOverride, model) ?? normalizeGrokEffort(out.reasoning_effort, model) ?? GROK_MODEL_DEFAULT_REASONING_EFFORTS[model];
     return out;
   }
   // Claude reads model/effort overrides from the claude_* columns. Unlike

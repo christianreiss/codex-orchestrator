@@ -25,6 +25,11 @@ function isRecord(value: unknown): value is RecordValue {
     && (Object.getPrototypeOf(value) === Object.prototype || Object.getPrototypeOf(value) === null);
 }
 
+function isControl(character: string): boolean {
+  const code = character.charCodeAt(0);
+  return code < 32 || code === 127;
+}
+
 function clone(value: unknown, path: string[], depth = 0): unknown {
   if (depth > 32) fail(path, 'configuration is nested too deeply');
   if (typeof value === 'string' || typeof value === 'boolean') return value;
@@ -33,7 +38,7 @@ function clone(value: unknown, path: string[], depth = 0): unknown {
   if (!isRecord(value)) fail(path, 'expected a TOML-compatible value (null is not supported)');
   const result: RecordValue = {};
   for (const [key, item] of Object.entries(value)) {
-    if (!key || unsafeKeys.has(key) || /[\x00-\x1f\x7f]/.test(key)) fail([...path, key], 'invalid key');
+    if (!key || unsafeKeys.has(key) || [...key].some(isControl)) fail([...path, key], 'invalid key');
     result[key] = clone(item, [...path, key], depth + 1);
   }
   return result;
@@ -83,6 +88,9 @@ export function normalizeGrokNativeSettings(raw: unknown, nestedOverride = false
   if (!isRecord(raw)) fail([], 'expected an object');
   const value = clone(raw, []) as RecordValue;
   for (const [key, item] of Object.entries(value)) validate(item, [key]);
+  for (const [key, control] of [['default', 'model'], ['default_reasoning_effort', 'reasoning_effort']]) {
+    if (key! in grokRecord(value.models)) fail(['models', key!], `use settings.${control}; the fleet model controls own this setting`);
+  }
   if (value.version_overrides !== undefined) {
     if (nestedOverride) fail(['version_overrides'], 'nested version overrides are not supported');
     for (const [index, entry] of (value.version_overrides as RecordValue[]).entries()) {
@@ -160,10 +168,10 @@ function key(value: string): string {
   return /^[A-Za-z0-9_-]+$/.test(value) ? value : quoted(value);
 }
 function quoted(value: string): string {
-  return '"' + value.replace(/["\\\x00-\x1f\x7f]/g, character => {
+  return '"' + Array.from(value, character => {
     if (character === '"' || character === '\\') return '\\' + character;
-    return '\\u' + character.charCodeAt(0).toString(16).padStart(4, '0');
-  }) + '"';
+    return isControl(character) ? '\\u' + character.charCodeAt(0).toString(16).padStart(4, '0') : character;
+  }).join('') + '"';
 }
 function literal(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(literal).join(', ')}]`;

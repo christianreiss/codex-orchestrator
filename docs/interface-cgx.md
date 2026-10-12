@@ -188,10 +188,14 @@ Unknown keys, wrong types/enums, deprecated per-model `reasoning_effort` and
 `ui.show_timestamps` produce a 422 with the offending setting path. The message
 names the current replacement. Omit absent values; TOML has no `null`.
 
-Structured model/effort/context controls take precedence over the matching
-native defaults. Native defaults are used when those controls are absent; host
-overrides and security posture are applied afterward. Other per-model fields
-survive. The subscription model catalog still validates the effective default.
+Model and effort belong to the structured controls: native `models.default` and
+`models.default_reasoning_effort` are rejected with the corresponding control
+path. An explicit structured context window takes precedence over the selected
+model's native window; otherwise that native value or the catalog default is
+used during rendering. Native windows and `ui.permission_mode` are never copied
+into persisted structured settings, so later native edits and deletions remain
+effective. Host overrides and security posture take precedence; other per-model
+fields survive. The subscription model catalog validates the effective default.
 Native MCP definitions join the normal managed injection path, including
 `bearer_token_file`, OAuth configuration and per-tool timeouts; fleet entries
 replace conflicting names. The runtime's subscription auth provider, private

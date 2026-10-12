@@ -3,9 +3,11 @@ import { ClientConfigService, normalizeGrokSettings, renderGrokSettings, renderT
 import { normalizeGrokNativeSettings, renderGrokNativeToml } from '../../../src/services/grok-native-settings.js';
 import { presetLevels } from '../../../src/services/agent-security-levels.js';
 import { createDbFake } from '../../helpers/db-fake.js';
+import { clientConfigDocuments } from '../../../src/db/schema.js';
+import { ModelDefaultsService } from '../../../src/services/model-defaults.js';
 
 const native = {
-  models: { default: 'grok-4.5', default_reasoning_effort: 'low', max_retries: 7 },
+  models: { max_retries: 7 },
   model: { 'grok-4.5': { context_window: 500000, temperature: 0.4, extra_headers: { 'X.Team': 'infra' } } },
   features: { lsp_tools: true, web_fetch: false },
   tools: { respect_gitignore: true },
@@ -28,12 +30,14 @@ const native = {
 describe('Grok native settings', () => {
   it('keeps native configuration through save, read, normalization and host rendering', async () => {
     const configs = new ClientConfigService(createDbFake() as never);
-    const saved = await configs.store({ settings: { native_settings: native } }, null, 'grok');
+    const saved = await configs.store({ settings: { model: 'grok-4.5', reasoning_effort: 'low', native_settings: native } }, null, 'grok');
     const fetched = await configs.adminFetch('grok');
     expect(saved.settings.native_settings).toEqual(native);
     expect(fetched.settings?.native_settings).toEqual(native);
     expect(normalizeGrokSettings(saved.settings)).toEqual(saved.settings);
-    expect(saved.settings).toMatchObject({ model: 'grok-4.5', reasoning_effort: 'low', context_window: 500000, permissionMode: 'ask' });
+    expect(saved.settings).toMatchObject({ model: 'grok-4.5', reasoning_effort: 'low' });
+    expect(saved.settings).not.toHaveProperty('context_window');
+    expect(saved.settings).not.toHaveProperty('permissionMode');
     const rendered = renderTomlForHost({ engine: 'grok', settings: fetched.settings, host: null, baseUrl: null, apiKey: null });
     expect(rendered.content).toBe(saved.content);
     expect(rendered.content).toContain('[toolset.bash]\ntimeout_secs = 30');
@@ -67,7 +71,8 @@ describe('Grok native settings', () => {
     const removed = normalizeGrokSettings({ ...saved, native_settings: { ...native, mcp_servers: {} } });
     expect(renderGrokSettings(removed)).not.toContain('docs.with.dot');
     const permissionEdit = normalizeGrokSettings({ ...saved, native_settings: { ...native, ui: { permission_mode: 'default' } } });
-    expect(permissionEdit.permissionMode).toBe('default');
+    expect(permissionEdit).not.toHaveProperty('permissionMode');
+    expect(renderGrokSettings(permissionEdit)).toContain('permission_mode = "default"');
   });
 
   it('empty native tables never claim a whole user table', () => {
@@ -90,8 +95,10 @@ describe('Grok native settings', () => {
   });
 
   it('uses native defaults for a host without overrides', () => {
-    const rendered = renderTomlForHost({ engine: 'grok', settings: { native_settings: native }, host: { grokWrapperVersion: '0.9.66', grokClientVersion: '1.0.50' } as never, baseUrl: null, apiKey: null });
-    expect(rendered.settings).toMatchObject({ model: 'grok-4.5', reasoning_effort: 'low', context_window: 500000 });
+    const rendered = renderTomlForHost({ engine: 'grok', settings: { model: 'grok-4.5', reasoning_effort: 'low', native_settings: native }, host: { grokWrapperVersion: '0.9.66', grokClientVersion: '1.0.50' } as never, baseUrl: null, apiKey: null });
+    expect(rendered.settings).toMatchObject({ model: 'grok-4.5', reasoning_effort: 'low' });
+    expect(rendered.settings).not.toHaveProperty('context_window');
+    expect(rendered.content).toContain('context_window = 500000');
   });
 
   it('gates ambiguous ownership until the wrapper supports exact path segments', () => {
@@ -120,7 +127,7 @@ describe('Grok native settings', () => {
     [{ mcp_servers: { broken: { url: 'https://x.invalid', tool_timeout_sec: -1 } } }, 'nonnegative integer'],
     [{ hooks: { Stop: [{ hooks: [{ type: 'http' }] }] } }, 'HTTP hooks require url'],
     [{ version_overrides: [{ minimum_version: '1.0.50', ui: { show_timestamps: true } }] }, 'deprecated'],
-    [{ version_overrides: [{ models: { default: 'grok-4.7' } }] }, 'fleet model and posture controls'],
+    [{ version_overrides: [{ models: { default: 'grok-4.7' } }] }, 'use settings.model'],
   ])('rejects invalid/deprecated/inert input %#', (value, error) => {
     expect(() => normalizeGrokNativeSettings(value)).toThrow(error);
   });
@@ -144,10 +151,68 @@ describe('Grok native settings', () => {
   });
 
   it.each([
-    { models: { default: 'missing-model' } },
-    { models: { default: 'grok-4.5', default_reasoning_effort: 'xhigh' } },
-    { model: { 'grok-4.7': { context_window: 123 } } },
-  ])('rejects native model controls that would otherwise silently fall back %#', native_settings => {
-    expect(() => normalizeGrokSettings({ native_settings })).toThrow('unsupported');
+    [{ models: { default: 'grok-4.5' } }, 'settings.model'],
+    [{ models: { default_reasoning_effort: 'low' } }, 'settings.reasoning_effort'],
+  ])('reserves model controls before normalization, rendering or storage %#', async (native_settings, control) => {
+    const db = createDbFake();
+    const configs = new ClientConfigService(db as never);
+    const settings = { native_settings };
+    expect(() => normalizeGrokSettings(settings)).toThrow(`use ${control}`);
+    expect(() => configs.render(settings, 'grok')).toThrow(`use ${control}`);
+    await expect(configs.store({ settings }, null, 'grok')).rejects.toThrow(`use ${control}`);
+    expect(db.tables.get(clientConfigDocuments)).toBeUndefined();
+  });
+
+  it.each(['grok-4.7', 'grok-4.5'])('rejects invalid windows for the selected or another model: %s', model => {
+    expect(() => normalizeGrokSettings({ native_settings: { model: { [model]: { context_window: 123 } } } })).toThrow('unsupported');
+  });
+
+  it.each([
+    { field: 'selected model context', first: { model: { 'grok-4.7': { context_window: 500000 } } }, next: { model: { 'grok-4.7': { context_window: 256000 } } }, initialText: 'context_window = 500000', editedText: 'context_window = 256000', absentText: 'context_window = 500000' },
+    { field: 'other model context', first: { model: { 'grok-4.5': { context_window: 500000 } } }, next: { model: { 'grok-4.5': { context_window: 256000 } } }, initialText: '[model."grok-4.5"]\ncontext_window = 500000', editedText: '[model."grok-4.5"]\ncontext_window = 256000', absentText: '[model."grok-4.5"]' },
+    { field: 'permission mode', first: { ui: { permission_mode: 'ask' } }, next: { ui: { permission_mode: 'default' } }, initialText: 'permission_mode = "ask"', editedText: 'permission_mode = "default"', absentText: 'permission_mode' },
+    { field: 'MCP transport', first: { mcp_servers: { docs: { url: 'https://old.invalid' } } }, next: { mcp_servers: { docs: { command: 'new-stdio' } } }, initialText: 'url = "https://old.invalid"', editedText: 'command = "new-stdio"', absentText: '[mcp_servers.docs]' },
+  ])('preserves add/edit/delete after store and adminFetch: $field', async ({ first, next, initialText, editedText, absentText }) => {
+    const db = createDbFake();
+    const configs = new ClientConfigService(db as never);
+    const saveAndFetch = async (settings: unknown) => {
+      const saved = await configs.store({ settings }, null, 'grok');
+      // The generic fake does not implement ORDER BY; mirror the real newest-first read.
+      db.tables.get(clientConfigDocuments)!.sort((a, b) => Number(b.id) - Number(a.id));
+      const fetched = await configs.adminFetch('grok');
+      expect(fetched.settings).toEqual(saved.settings);
+      expect(normalizeGrokSettings(fetched.settings)).toEqual(saved.settings);
+      expect(fetched.settings).not.toHaveProperty('context_window');
+      expect(fetched.settings).not.toHaveProperty('permissionMode');
+      expect(fetched.settings?.mcp_servers).toEqual([]);
+      const rendered = renderTomlForHost({ engine: 'grok', settings: fetched.settings, host: null, baseUrl: null, apiKey: null });
+      expect(rendered.content).toBe(saved.content);
+      return { settings: fetched.settings!, content: rendered.content };
+    };
+    const empty = await saveAndFetch({});
+    const added = await saveAndFetch({ ...empty.settings, native_settings: first });
+    expect(added.content).toContain(initialText);
+    const edited = await saveAndFetch({ ...added.settings, native_settings: next });
+    expect(edited.content).toContain(editedText);
+    expect(edited.content).not.toContain(initialText);
+    const removed = await saveAndFetch({ ...edited.settings, native_settings: {} });
+    expect(removed.content).not.toContain(absentText);
+    expect(removed.content).toContain('[model."grok-4.7"]\ncontext_window = 256000');
+  });
+
+  it('reports the effective native context without persisting it and honors explicit canonical overrides', async () => {
+    const db = createDbFake();
+    const configs = new ClientConfigService(db as never);
+    const native_settings = { model: { 'grok-4.7': { context_window: 500000, temperature: 0.4 } }, ui: { permission_mode: 'ask' } };
+    const saved = await configs.store({ settings: { native_settings } }, null, 'grok');
+    const defaults = new ModelDefaultsService(db as never);
+    expect(await defaults.get('grok')).toMatchObject({ context_window: 500000 });
+    expect((await configs.adminFetch('grok')).settings).not.toHaveProperty('context_window');
+    const override = configs.render({ ...saved.settings, context_window: 256000, permission_mode: 'auto' }, 'grok');
+    expect(override.content).toContain('context_window = 256000');
+    expect(override.content).toContain('permission_mode = "auto"');
+    expect(override.content).toContain('temperature = 0.4');
+    expect(override.settings).toMatchObject({ context_window: 256000, permissionMode: 'auto', native_settings });
+    expect(configs.render(override.settings, 'grok').content).toBe(override.content);
   });
 });

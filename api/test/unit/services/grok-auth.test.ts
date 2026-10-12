@@ -63,7 +63,7 @@ describe('Grok canonical and runtime contracts', () => {
     const rendered = service.render({ model: 'grok-4.5', reasoning_effort: 'medium', approval_policy: 'never', sandbox_mode: 'danger-full-access', mcp_servers: [{ name: 'cgx', url: 'https://fleet.example/mcp', http_headers: { 'X-Engine': 'grok' } }] }, 'grok');
     expect(rendered.content).toContain('[models]\ndefault = "grok-4.5"\ndefault_reasoning_effort = "medium"');
     expect(rendered.content).toContain('[mcp_servers.cgx]');
-    expect(rendered.content).toContain('headers = ');
+    expect(rendered.content).toContain('[mcp_servers.cgx.headers]\nX-Engine = "grok"');
     expect(rendered.content).not.toMatch(/http_headers|approval_policy|sandbox_mode|\[profiles/);
     const host = renderTomlForHost({ settings: { model: 'grok-4.6' }, host: null, baseUrl: 'https://fleet.example', apiKey: 'fixture-host-key', engine: 'grok' });
     expect(host.content).toContain('[mcp_servers.cgx]');
