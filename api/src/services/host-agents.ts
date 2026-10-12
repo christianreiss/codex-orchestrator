@@ -432,7 +432,7 @@ export class HostAgentsService {
     const mcp = rawSettings === null
       ? { enabled: false, reason: 'config_missing' as const }
       : managedMcpAvailability({
-          settings: normalizeSettings(rawSettings, { applyCodexDefaults: engine === ENGINE_CODEX }),
+          settings: normalizeSettings(rawSettings, { applyCodexDefaults: engine === ENGINE_CODEX, engine }),
           host,
           baseUrl: this.publicBaseUrl,
           apiKey: this.resolveApiKey(host),

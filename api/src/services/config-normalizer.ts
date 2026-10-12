@@ -28,6 +28,7 @@
 
 import { createHash } from 'node:crypto';
 import { CODEX_WEB_SEARCH_VALUES, type CodexWebSearch } from './agent-security-levels.js';
+import { normalizeClaudeNativeSettings } from './claude-native-settings.js';
 
 /** Fleet defaults for new Codex configs and OpenAI-compatible requests. */
 export const DEFAULT_CODEX_MODEL = 'gpt-6-astra';
@@ -274,6 +275,8 @@ export const DROPPED_FEATURE_KEYS: readonly string[] = [
 ];
 
 export interface NormalizedSettings {
+  /** Engine-native opt-in fields, validated by that engine's public schema. */
+  native_settings?: Record<string, unknown>;
   model: string | null;
   model_provider: string | null;
   local_provider: string | null;
@@ -497,7 +500,7 @@ function normalizeMcpServers(value: unknown): Array<Record<string, unknown>> {
  */
 export function normalizeSettings(
   raw: unknown,
-  opts: { applyCodexDefaults?: boolean } = {},
+  opts: { applyCodexDefaults?: boolean; engine?: 'codex' | 'claude' | 'grok' } = {},
 ): NormalizedSettings {
   const settings = asRecord(raw);
   const applyCodexDefaults = opts.applyCodexDefaults ?? true;
@@ -543,6 +546,11 @@ export function normalizeSettings(
     profiles: normalizeProfiles(settings.profiles),
     mcp_servers: normalizeMcpServers(settings.mcp_servers),
   };
+
+  if (opts.engine === 'claude') {
+    const native = normalizeClaudeNativeSettings(settings.native_settings);
+    if (Object.keys(native).length > 0) out.native_settings = native;
+  }
 
   // Claude-only sub-blocks: attach only when present so codex configs keep
   // their exact normalized shape (and settings hash).
@@ -754,6 +762,7 @@ export function normalizeClaudeStatusLine(value: unknown): Record<string, unknow
   if (typeof rec.refreshInterval === 'number' && Number.isFinite(rec.refreshInterval) && rec.refreshInterval >= 1) {
     out.refreshInterval = rec.refreshInterval;
   }
+  if (typeof rec.hideVimModeIndicator === 'boolean') out.hideVimModeIndicator = rec.hideVimModeIndicator;
   return out;
 }
 

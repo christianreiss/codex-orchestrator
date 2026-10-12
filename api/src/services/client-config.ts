@@ -41,6 +41,7 @@ import { clientConfigDocuments } from '../db/schema.js';
 import { ValidationError } from '../http/errors.js';
 import { nowIso } from '../util/timestamp.js';
 import { wsPublisher } from '../ws/publisher.js';
+import { claudeNativeOwnedPaths } from './claude-native-settings.js';
 import {
   FORCE_UPGRADE_REASONING_EFFORT,
   CLAUDE_MODEL_DEFAULT_REASONING_EFFORTS,
@@ -406,7 +407,7 @@ export function renderTomlForHost(opts: HostRenderOptions): RenderResult {
     opts.securityLevels,
     engine,
   );
-  const normalized = engine === ENGINE_GROK ? normalizeGrokSettings(settingsWithOverrides) : normalizeSettings(settingsWithOverrides, { applyCodexDefaults: engine === ENGINE_CODEX });
+  const normalized = engine === ENGINE_GROK ? normalizeGrokSettings(settingsWithOverrides) : normalizeSettings(settingsWithOverrides, { applyCodexDefaults: engine === ENGINE_CODEX, engine });
   const withManaged = injectManagedMcp(normalized, {
     host: opts.host,
     baseUrl: opts.baseUrl,
@@ -529,7 +530,8 @@ export function clampClaudePermissionModeForUser(
 ): { settings: Record<string, unknown>; clamped: ClaudePermissionClamp | null } {
   const user = normalizeName(username ?? null);
   if (user !== 'root') return { settings, clamped: null };
-  const mode = normalizeName(settings['permissionMode']);
+  const mode = normalizeName(settings['permissionMode'])
+    ?? normalizeName(asRecord(asRecord(settings['native_settings'])['permissions'])['defaultMode']);
   if (mode !== 'bypassPermissions') return { settings, clamped: null };
   return {
     settings: { ...settings, permissionMode: ROOT_CLAMPED_CLAUDE_PERMISSION_MODE },
@@ -791,15 +793,15 @@ function buildClaudeMcpServers(settings: NormalizedSettings): Record<string, unk
 
 // Legacy full-file render (wholesale overwrite path for old clx wrappers).
 function renderClaudeSettings(settings: NormalizedSettings): string {
-  const result: Record<string, unknown> = {};
+  const result: Record<string, unknown> = { ...settings.native_settings };
   if (settings.model) result['model'] = settings.model;
   if (settings.effortLevel) result['effortLevel'] = settings.effortLevel;
   const servers = buildClaudeMcpServers(settings);
   if (Object.keys(servers).length > 0) result['mcpServers'] = servers;
-  if (settings.env) result['env'] = settings.env;
-  if (settings.statusLine) result['statusLine'] = settings.statusLine;
-  if (settings.hooks) result['hooks'] = settings.hooks;
-  const perms: Record<string, unknown> = {};
+  if (settings.env) result['env'] = { ...asRecord(result['env']), ...settings.env };
+  if (settings.statusLine) result['statusLine'] = { ...asRecord(result['statusLine']), ...settings.statusLine };
+  if (settings.hooks) result['hooks'] = { ...asRecord(result['hooks']), ...settings.hooks };
+  const perms: Record<string, unknown> = { ...asRecord(result['permissions']) };
   if (settings.permissions) {
     for (const bucket of ['allow', 'ask', 'deny'] as const) {
       const arr = settings.permissions[bucket];
@@ -809,7 +811,7 @@ function renderClaudeSettings(settings: NormalizedSettings): string {
   // Claude Code reads the default permission mode from `permissions.defaultMode`
   // (a top-level `permissionMode` key is ignored). Always emit it so the fleet
   // default (`auto`) lands even when no rules are configured.
-  perms['defaultMode'] = settings.permissionMode ?? DEFAULT_CLAUDE_PERMISSION_MODE;
+  perms['defaultMode'] = settings.permissionMode ?? perms['defaultMode'] ?? DEFAULT_CLAUDE_PERMISSION_MODE;
   result['permissions'] = perms;
   return JSON.stringify(result, null, 2) + '\n';
 }
@@ -910,8 +912,8 @@ export function renderClaudeSettingsPartial(
   settings: NormalizedSettings,
   opts: { agentMessagingEnabled?: boolean; messagingServer?: string } = {},
 ): { partial: Record<string, unknown>; owned_paths: string[] } {
-  const partial: Record<string, unknown> = {};
-  const owned: string[] = [];
+  const partial: Record<string, unknown> = { ...settings.native_settings };
+  const owned: string[] = claudeNativeOwnedPaths(settings.native_settings ?? {});
   if (settings.model) {
     partial['model'] = settings.model;
     owned.push('model');
@@ -931,18 +933,18 @@ export function renderClaudeSettingsPartial(
     for (const name of Object.keys(servers)) owned.push(`mcpServers.${name}`);
   }
   if (settings.env) {
-    partial['env'] = settings.env;
+    partial['env'] = { ...asRecord(partial['env']), ...settings.env };
     for (const k of Object.keys(settings.env)) owned.push(`env.${k}`);
   }
   if (settings.statusLine) {
-    partial['statusLine'] = settings.statusLine;
+    partial['statusLine'] = { ...asRecord(partial['statusLine']), ...settings.statusLine };
     owned.push('statusLine');
   }
   if (settings.hooks) {
-    partial['hooks'] = settings.hooks;
+    partial['hooks'] = { ...asRecord(partial['hooks']), ...settings.hooks };
     for (const event of Object.keys(settings.hooks)) owned.push(`hooks.${event}`);
   }
-  const perms: Record<string, unknown> = {};
+  const perms: Record<string, unknown> = { ...asRecord(partial['permissions']) };
   if (settings.permissions) {
     for (const bucket of ['allow', 'ask', 'deny'] as const) {
       const arr = settings.permissions[bucket];
@@ -1009,14 +1011,14 @@ export function renderClaudeSettingsPartial(
   // merge in the wrapper (NOT the allow/ask/deny union special-case), so it is
   // written verbatim and removed via the stale-path pass when ownership drops.
   // Claude Code ignores a top-level `permissionMode`; this is the honored form.
-  perms['defaultMode'] = settings.permissionMode ?? DEFAULT_CLAUDE_PERMISSION_MODE;
+  perms['defaultMode'] = settings.permissionMode ?? perms['defaultMode'] ?? DEFAULT_CLAUDE_PERMISSION_MODE;
   owned.push('permissions.defaultMode');
   partial['permissions'] = perms;
   if (settings.advisorModel) {
     partial['advisorModel'] = settings.advisorModel;
     owned.push('advisorModel');
   }
-  return { partial, owned_paths: owned };
+  return { partial, owned_paths: [...new Set(owned)].filter(path => !owned.some(parent => path.startsWith(`${parent}.`))) };
 }
 
 // The first wrapper release whose `clx` carries the `cxx-agent` stdio server
@@ -1078,7 +1080,7 @@ export function renderClaudeSettingsPartialForHost(
     posture,
     opts.username,
   );
-  const normalized = normalizeSettings(settingsWithOverrides, { applyCodexDefaults: false });
+  const normalized = normalizeSettings(settingsWithOverrides, { applyCodexDefaults: false, engine: ENGINE_CLAUDE });
   const withManaged = injectManagedMcp(normalized, {
     host: opts.host,
     baseUrl: opts.baseUrl,
@@ -1091,6 +1093,14 @@ export function renderClaudeSettingsPartialForHost(
     agentMessagingEnabled: opts.agentMessagingEnabled,
     messagingServer: claudeMessagingServerFor(opts.host?.claudeWrapperVersion),
   });
+  // Older wrappers interpret dots as hierarchy, so a literal map key must not
+  // be served as an encoded path until the host can apply it correctly.
+  if (opts.host && owned_paths.some(path => path.startsWith('json:'))
+      && versionCompare(opts.host.claudeWrapperVersion ?? '0', '0.9.66') < 0) {
+    throw new ValidationError('Claude native settings with literal dots in map keys require cxx 0.9.66 or newer; update this host first', {
+      param: 'native_settings',
+    });
+  }
   // Component B of the response-verbosity dial: reinforce the CLAUDE.md policy
   // text with Claude Code's own output-style mechanism. Level 0 (or unset)
   // omits the key entirely so a host/user's manually chosen style is left
@@ -1197,7 +1207,7 @@ export class ClientConfigService {
     const body = row.body;
     const sha = row.sha256 ?? createHash('sha256').update(body).digest('hex');
     const settings = row.settings && typeof row.settings === 'object'
-      ? engine === ENGINE_GROK ? normalizeGrokSettings(row.settings) : normalizeSettings(row.settings, { applyCodexDefaults: engine === ENGINE_CODEX })
+      ? engine === ENGINE_GROK ? normalizeGrokSettings(row.settings) : normalizeSettings(row.settings, { applyCodexDefaults: engine === ENGINE_CODEX, engine })
       : null;
     return {
       status: 'ok',
@@ -1210,7 +1220,7 @@ export class ClientConfigService {
   }
 
   render(settingsInput: unknown, engine: Engine = ENGINE_CODEX): RenderResult {
-    const normalized = engine === ENGINE_GROK ? normalizeGrokSettings(settingsInput) : normalizeSettings(settingsInput, { applyCodexDefaults: engine === ENGINE_CODEX });
+    const normalized = engine === ENGINE_GROK ? normalizeGrokSettings(settingsInput) : normalizeSettings(settingsInput, { applyCodexDefaults: engine === ENGINE_CODEX, engine });
     const content = engine === ENGINE_GROK ? renderGrokSettings(normalized) : engine === ENGINE_CLAUDE ? renderClaudeSettings(normalized) : renderToml(normalized);
     return {
       content,

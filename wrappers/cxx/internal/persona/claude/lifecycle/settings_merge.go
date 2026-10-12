@@ -80,14 +80,30 @@ func saveManagedState(st managedState) error {
 
 // --- dot-path helpers over map[string]any -----------------------------------
 
-// splitPath splits a dot-path. NOTE: keys containing a literal '.' (an env var
-// or MCP server name with a dot) would split wrong — acceptable because managed
-// owned_paths only ever use UPPER_SNAKE env vars, the `clx` server name, and
-// fixed hook-event names, none of which contain dots.
-func splitPath(p string) []string { return strings.Split(p, ".") }
+// Native map keys may contain literal dots (plugin IDs and provider model IDs).
+// Keep legacy dot paths and accept json:["root","literal.key","leaf"].
+func splitPath(p string) []string {
+	var parts []string
+	if strings.HasPrefix(p, "json:") {
+		if err := json.Unmarshal([]byte(strings.TrimPrefix(p, "json:")), &parts); err != nil {
+			return nil
+		}
+	} else {
+		parts = strings.Split(p, ".")
+	}
+	for _, part := range parts {
+		if part == "" || part == "__proto__" || part == "prototype" || part == "constructor" {
+			return nil
+		}
+	}
+	return parts
+}
 
 func getAtPath(root map[string]any, path string) (any, bool) {
 	parts := splitPath(path)
+	if len(parts) == 0 {
+		return nil, false
+	}
 	var cur any = root
 	for _, part := range parts {
 		m, ok := cur.(map[string]any)
@@ -105,6 +121,9 @@ func getAtPath(root map[string]any, path string) (any, bool) {
 
 func setAtPath(root map[string]any, path string, value any) {
 	parts := splitPath(path)
+	if len(parts) == 0 {
+		return
+	}
 	cur := root
 	for i := 0; i < len(parts)-1; i++ {
 		next, ok := cur[parts[i]].(map[string]any)
@@ -120,6 +139,9 @@ func setAtPath(root map[string]any, path string, value any) {
 // deleteAtPath removes a leaf and prunes any parent objects it leaves empty.
 func deleteAtPath(root map[string]any, path string) {
 	parts := splitPath(path)
+	if len(parts) == 0 {
+		return
+	}
 	// Walk down collecting the chain of maps.
 	chain := []map[string]any{root}
 	cur := root
@@ -203,10 +225,25 @@ func MergeSettings(userRaw []byte, partial map[string]any, ownedPaths []string, 
 
 	ownedSet := map[string]bool{}
 	for _, p := range ownedPaths {
+		if len(splitPath(p)) == 0 {
+			return nil, prev, fmt.Errorf("invalid Claude owned path %q", p)
+		}
 		ownedSet[p] = true
 	}
 
-	// 1. Apply current owned (non-permission) paths from the partial.
+	// Remove stale paths first: an old whole-object owner must not delete
+	// freshly applied leaves when a config moves to leaf-granular ownership.
+	for _, p := range prev.KeyPaths {
+		if len(splitPath(p)) == 0 {
+			return nil, prev, fmt.Errorf("invalid previous Claude owned path %q", p)
+		}
+		if permissionPaths[p] || ownedSet[p] {
+			continue
+		}
+		deleteAtPath(merged, p)
+	}
+
+	// Apply current owned (non-permission) paths from the partial.
 	for _, p := range ownedPaths {
 		if permissionPaths[p] {
 			continue
@@ -216,14 +253,6 @@ func MergeSettings(userRaw []byte, partial map[string]any, ownedPaths []string, 
 		} else {
 			deleteAtPath(merged, p)
 		}
-	}
-
-	// 2. Remove stale fleet paths (previously owned, no longer owned).
-	for _, p := range prev.KeyPaths {
-		if permissionPaths[p] || ownedSet[p] {
-			continue
-		}
-		deleteAtPath(merged, p)
 	}
 
 	// 3. Permissions buckets: union(user − prevFleet, currentFleet), deduped.

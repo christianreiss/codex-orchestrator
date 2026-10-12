@@ -798,6 +798,49 @@ the fleet-managed keys (`model`, `effortLevel`, `mcpServers.<name>`, `env.<VAR>`
 `advisorModel`) and `owned_paths` are the leaf-granular dot-paths the fleet owns
 this run.
 
+### Additional native user settings
+
+The config API accepts `settings.native_settings`, an optional JSON object for
+current Claude user-scope settings outside the structured controls. It survives
+store/fetch and both settings renders. Examples include `modelSettings`,
+`maxEffortLevel`, `autoCompactWindow`, `fallbackModel`, `availableModels`,
+`ultracode`, `worktree`, `voice`, `attribution`, and plugin configuration. These
+are opt-in; an absent extension adds no native defaults or features.
+
+The registry follows the [official settings reference](https://code.claude.com/docs/en/settings-reference),
+checked against Claude Code 2.1.296 on 2026-10-12. Validation rejects unknown
+root keys, invalid root types/enums, malformed common nested controls, and
+unsafe JSON keys with HTTP 422 and a `native_settings.<key>` parameter. Vendor
+extensions inside complex objects are preserved; the registry does not replace
+the CLI's entire nested settings schema.
+
+Deprecated keys `includeCoAuthoredBy`, `disableArtifact`, `voiceEnabled`,
+`keybindingFlavor`, `taskOutputMaxChars`, `ignorePatterns`,
+`permissionExplainerEnabled`, and `teammateDefaultModel` are rejected with
+replacement/removal guidance. `model` and top-level `effortLevel` belong in the
+existing model controls. `apiKeyHelper` and `autoUpdatesChannel` cannot be set
+here because managed authentication and fleet version selection own them.
+Managed-only policy keys return an actionable scope error; putting them in user
+settings would not apply them. Global preferences that belong in `~/.claude.json`
+are also rejected by this user-settings field.
+
+Explicit structured values and host posture override the same native fields;
+native siblings survive. In particular, a native `permissions.defaultMode`
+applies when no structured/posture value is set, including the root-user bypass
+clamp. Native permission rules still use the wrapper's existing union/removal
+semantics, and managed receiver hooks are added to configured native hooks.
+
+The wrapper owns only configured native leaves, including per-model settings;
+it preserves user-authored siblings and removes only stale fleet paths. Arrays
+and explicit empty objects are single values. A literal dot in a map key uses the lossless ownership form
+`json:["modelSettings","vendor.model","effortLevel"]`. That form requires
+cxx **0.9.66**; older hosts receive an explicit upgrade requirement instead of
+silently writing the wrong property. Ordinary dotted ownership paths remain
+compatible. Migration from an old whole-object owner removes the stale object
+before applying its replacement leaves.
+
+### Structured settings
+
 - `/admin/engines` and `GET/POST /admin/model-defaults/claude` own the fleet
   `model` / `effortLevel` pair. POST accepts strict
   `{model, reasoning_effort?: string|null}` but translates that common API field
