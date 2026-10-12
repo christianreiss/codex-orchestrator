@@ -182,6 +182,9 @@ describe('ModelDefaultsService', () => {
         persistent_efforts: ['low', 'medium', 'high'],
         default_effort: 'high',
       },
+      { model: 'claude-haiku-5-5', persistent_efforts: ['low', 'medium', 'high', 'xhigh'], default_effort: 'medium' },
+      { model: 'claude-opus-4-6', persistent_efforts: ['low', 'medium', 'high'], default_effort: 'high' },
+      { model: 'claude-opus-4-5-20251101', persistent_efforts: [], default_effort: null },
       {
         model: 'claude-haiku-4-5-20251001',
         persistent_efforts: [],

@@ -1,4 +1,5 @@
 import { ValidationError } from '../http/errors.js';
+import { CLAUDE_MODEL_ENV_KEYS, normalizeClaudeModelReference } from './claude-models.js';
 import {
   CLAUDE_GLOBAL_ONLY_SETTINGS,
   CLAUDE_MANAGED_ONLY_SETTINGS,
@@ -161,6 +162,49 @@ function validateObject(key: string, value: Record<string, unknown>): void {
   }
 }
 
+/** Migrate model-bearing settings only; arbitrary strings and custom IDs stay intact. */
+function migrateModelReferences(out: Record<string, unknown>): void {
+  const migrate = (value: unknown): unknown => typeof value === 'string' ? normalizeClaudeModelReference(value) : value;
+  if ('advisorModel' in out) out.advisorModel = migrate(out.advisorModel);
+  for (const key of ['fallbackModel', 'availableModels']) {
+    if (Array.isArray(out[key])) out[key] = [...new Set(out[key].map(migrate))];
+  }
+  for (const key of ['modelSettings', 'modelOverrides']) {
+    const values = out[key];
+    if (!record(values)) continue;
+    const migrated: Record<string, unknown> = {};
+    // Explicit current entries win independently of the original property order.
+    const entries = Object.entries(values).sort(([a], [b]) => Number(normalizeClaudeModelReference(a) === a) - Number(normalizeClaudeModelReference(b) === b));
+    for (const [model, value] of entries) {
+      const target = normalizeClaudeModelReference(model);
+      const next = key === 'modelOverrides' ? migrate(value) : value;
+      migrated[target] = record(migrated[target]) && record(next) ? { ...migrated[target], ...next } : next;
+    }
+    out[key] = migrated;
+  }
+  if (record(out.modelPicker) && Array.isArray(out.modelPicker.options)) {
+    for (const option of out.modelPicker.options) {
+      if (!record(option)) continue;
+      option.model = migrate(option.model);
+      if ('behavesAs' in option) option.behavesAs = migrate(option.behavesAs);
+    }
+  }
+  if (record(out.env)) {
+    for (const key of CLAUDE_MODEL_ENV_KEYS) {
+      if (key in out.env) out.env[key] = migrate(out.env[key]);
+    }
+  }
+  if (record(out.hooks)) {
+    for (const groups of Object.values(out.hooks)) {
+      if (!Array.isArray(groups)) continue;
+      for (const group of groups) {
+        if (!record(group) || !Array.isArray(group.hooks)) continue;
+        for (const hook of group.hooks) if (record(hook) && 'model' in hook) hook.model = migrate(hook.model);
+      }
+    }
+  }
+}
+
 /** Preserve current user-scope keys; report settings that would be inert. */
 export function normalizeClaudeNativeSettings(value: unknown): Record<string, unknown> {
   if (value === undefined || value === null) return {};
@@ -199,6 +243,7 @@ export function normalizeClaudeNativeSettings(value: unknown): Record<string, un
     if (rule.values) choice(item, rule.values, path);
     if (rule.items === 'string') strings(item, path);
   }
+  migrateModelReferences(out);
   return out;
 }
 

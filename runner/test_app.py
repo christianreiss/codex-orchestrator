@@ -500,6 +500,22 @@ class RunnerAppTest(unittest.TestCase):
             self.assertEqual("unchanged", result["auth_readback"])
             self.assertNotIn("updated_auth", result)
 
+    def test_claude_api_probe_uses_active_inexpensive_model(self):
+        payload = runner_app.VerifyRequest(
+            auth_json={"api_key": "sk-ant-api03-test-key"}, timeout_seconds=2,
+        )
+        response = runner_app.httpx.Response(200, json={
+            "content": [{"type": "text", "text": "Banana"}],
+        })
+        with patch.object(runner_app.httpx, "post", return_value=response) as post, \
+             patch.object(runner_app, "_claude_version", return_value="2.1.296"):
+            result = runner_app._run_claude_probe(payload)
+        self.assertEqual("ok", result["status"])
+        self.assertTrue(result["definitive"])
+        self.assertEqual("claude-haiku-4-5-20251001", post.call_args.kwargs["json"]["model"])
+        self.assertEqual(16, post.call_args.kwargs["json"]["max_tokens"])
+        self.assertNotIn("thinking", post.call_args.kwargs["json"])
+
     def test_claude_probe_treats_rate_limit_as_valid_auth(self):
         class Payload:
             auth_json = {"api_key": "sk-ant-api03-test-token"}

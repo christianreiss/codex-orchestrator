@@ -71,7 +71,7 @@ RUN set -euo pipefail; \
 # No `|| true`. The previous form installed whatever npm served that minute and
 # swallowed the failure, so a registry hiccup produced an image that claimed
 # dual-engine readiness with no `claude` on PATH at all.
-ARG CLAUDE_CODE_VERSION=2.1.233
+ARG CLAUDE_CODE_VERSION=2.1.296
 RUN set -euo pipefail; \
     npm install -g --no-audit --no-fund "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}"; \
     command -v claude >/dev/null || { echo "claude not on PATH after install" >&2; exit 1; }; \

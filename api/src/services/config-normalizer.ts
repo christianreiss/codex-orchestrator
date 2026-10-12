@@ -29,6 +29,7 @@
 import { createHash } from 'node:crypto';
 import { CODEX_RETIRED_FEATURE_KEYS, normalizeCodexNativeSettings, type CodexApprovalPolicy } from './codex-native-settings.js';
 import { CODEX_WEB_SEARCH_VALUES, type CodexWebSearch } from './agent-security-levels.js';
+import { CLAUDE_LEGACY_MODEL_UPGRADES as CLAUDE_MODEL_UPGRADES, CLAUDE_MODEL_REASONING_EFFORTS, CLAUDE_MODEL_ENV_KEYS, normalizeClaudeModelReference } from './claude-models.js';
 import { normalizeClaudeNativeSettings } from './claude-native-settings.js';
 import { DEFAULT_CODEX_MODEL, DEFAULT_CODEX_REASONING_EFFORT, FORCE_UPGRADE_REASONING_EFFORT, LEGACY_MODEL_UPGRADES } from './codex-model-upgrades.js';
 export { DEFAULT_CODEX_MODEL, DEFAULT_CODEX_REASONING_EFFORT, FORCE_UPGRADE_MODEL, FORCE_UPGRADE_REASONING_EFFORT, LEGACY_MODEL_UPGRADES } from './codex-model-upgrades.js';
@@ -59,21 +60,9 @@ export const SUPPORTED_MODELS: readonly string[] = [
   'gpt-5.6-luna',
 ];
 
-// Legacy stored-override ids mapped onto the canonical gate ids defined in
-// api/src/services/claude-models.ts (CLAUDE_SUPPORTED_MODELS). Values MUST be
-// valid gate models so the rendered per-host config and the inference gate
-// agree — never downgrade to a gate-rejected id. This map is the stored-override
-// input domain and is deliberately separate from the gate's request-side map.
-export const CLAUDE_LEGACY_MODEL_UPGRADES: Readonly<Record<string, string>> = {
-  'claude-3-opus-20240229': 'claude-opus-4-8',
-  'claude-3-sonnet-20240229': 'claude-sonnet-5',
-  'claude-3-haiku-20240307': 'claude-haiku-4-5-20251001',
-  'claude-3-5-sonnet-20240620': 'claude-sonnet-5',
-  'claude-3-5-sonnet-20241022': 'claude-sonnet-5',
-  'claude-3-5-haiku-20241022': 'claude-haiku-4-5-20251001',
-  'claude-sonnet-4-20250514': 'claude-sonnet-5',
-  'claude-opus-4-20250514': 'claude-opus-4-8',
-};
+// Stored and request-side selections use one migration map so a deprecated ID
+// cannot survive one render path or migrate to a model the gateway rejects.
+export const CLAUDE_LEGACY_MODEL_UPGRADES: Readonly<Record<string, string>> = CLAUDE_MODEL_UPGRADES;
 
 /**
  * Own-property lookup into the upgrade maps above. Model ids arrive from clients
@@ -122,58 +111,7 @@ export const CODEX_MODEL_DEFAULT_REASONING_EFFORTS: Readonly<Record<string, stri
   'gpt-5.6-luna': 'medium',
 };
 
-/**
- * Claude Code effort levels that may be persisted in settings.json per model.
- *
- * The ceiling is `xhigh`, NOT `max`. Re-confirmed 2026-09-06 by reading the
- * settings schema out of the claude-cli 2.1.261 binary:
- *
- *   effortLevel: X(["low","medium","high","xhigh"]).optional().catch(void 0)
- *     .describe("Persisted effort level for supported models.")
- *
- * `max` is session-scoped only — the CLI's `--effort` flag accepts it (its
- * choices are `low, medium, high, xhigh, max`) and the model API's
- * `output_config.effort` accepts it, but the persisted key does not, and the
- * CLI says so itself: "<level> is session-scoped and won't reach the remote
- * process. Use low, medium, high, or xhigh instead."
- *
- * Do not "fix" this by adding `max` from the CLI flag's or the API's level set:
- * the `.catch(void 0)` above means an out-of-enum value is silently dropped
- * rather than rejected, so a live `claude --settings '{"effortLevel":"max"}'`
- * probe exits 0 and proves nothing. Sonnet 4.6 stops at `high` because `xhigh`
- * arrived with Opus 4.7; Haiku 4.5 has no effort control at all.
- */
-export const CLAUDE_MODEL_REASONING_EFFORTS: Readonly<Record<string, readonly string[]>> = {
-  'claude-fable-5-1': ['low', 'medium', 'high', 'xhigh'],
-  'claude-fable-5': ['low', 'medium', 'high', 'xhigh'],
-  'claude-opus-5-5': ['low', 'medium', 'high', 'xhigh'],
-  'claude-opus-5': ['low', 'medium', 'high', 'xhigh'],
-  'claude-opus-4-8': ['low', 'medium', 'high', 'xhigh'],
-  'claude-sonnet-5-5': ['low', 'medium', 'high', 'xhigh'],
-  'claude-sonnet-5': ['low', 'medium', 'high', 'xhigh'],
-  'claude-opus-4-7': ['low', 'medium', 'high', 'xhigh'],
-  'claude-sonnet-4-6': ['low', 'medium', 'high'],
-  'claude-haiku-4-5-20251001': [],
-};
-
-/**
- * Fleet defaults used when an operator selects a Claude model without an
- * effort. `claude-opus-5-5` and `claude-sonnet-5-5` default to `medium` (the
- * CLI catalog's `default_effort`) — one step below every other Opus/Fable/Sonnet
- * tier's `high`.
- */
-export const CLAUDE_MODEL_DEFAULT_REASONING_EFFORTS: Readonly<Record<string, string | null>> = {
-  'claude-fable-5-1': 'high',
-  'claude-fable-5': 'high',
-  'claude-opus-5-5': 'medium',
-  'claude-opus-5': 'high',
-  'claude-opus-4-8': 'high',
-  'claude-sonnet-5-5': 'medium',
-  'claude-sonnet-5': 'high',
-  'claude-opus-4-7': 'xhigh',
-  'claude-sonnet-4-6': 'high',
-  'claude-haiku-4-5-20251001': null,
-};
+export { CLAUDE_MODEL_REASONING_EFFORTS, CLAUDE_MODEL_DEFAULT_REASONING_EFFORTS } from './claude-models.js';
 
 export const PERSONALITIES: readonly string[] = ['friendly', 'pragmatic', 'none'];
 
@@ -282,7 +220,7 @@ export function normalizeClaudeModel(value: unknown): string | null {
   if (s === null) return null;
   // Upgrade known legacy ids; pass through anything else verbatim so wrappers
   // can self-test newer models (the inference gate is the real allowlist).
-  return legacyUpgrade(CLAUDE_LEGACY_MODEL_UPGRADES, s) ?? s;
+  return normalizeClaudeModelReference(s);
 }
 
 export function normalizeReasoningEffort(value: unknown): string | null {
@@ -430,11 +368,12 @@ export function normalizeSettings(
   opts: { applyCodexDefaults?: boolean; engine?: 'codex' | 'claude' | 'grok' } = {},
 ): NormalizedSettings {
   const applyCodexDefaults = opts.applyCodexDefaults ?? true;
-  const isCodex = (opts.engine ?? (applyCodexDefaults ? 'codex' : 'claude')) === 'codex';
+  const engine = opts.engine ?? (applyCodexDefaults ? 'codex' : 'claude');
+  const isCodex = engine === 'codex';
   const native = isCodex ? normalizeCodexNativeSettings(asRecord(raw).native_settings) : undefined;
   const settings = asRecord(raw);
   const rawModel = settings.model ?? (applyCodexDefaults ? DEFAULT_CODEX_MODEL : undefined);
-  const model = normalizeStoredModel(rawModel);
+  const model = engine === 'claude' ? normalizeClaudeModel(rawModel) : normalizeStoredModel(rawModel);
 
   const personality = normalizePersonality(settings.personality) ?? 'friendly';
   const reasoning = normalizeStoredCodexEffort(settings.model_reasoning_effort, rawModel)
@@ -476,7 +415,7 @@ export function normalizeSettings(
     mcp_servers: normalizeMcpServers(settings.mcp_servers),
   };
 
-  if (opts.engine === 'claude') {
+  if (engine === 'claude') {
     const native = normalizeClaudeNativeSettings(settings.native_settings);
     if (Object.keys(native).length > 0) out.native_settings = native;
   }
@@ -520,7 +459,7 @@ export const ADVISOR_MODEL_ALIASES = ['opus', 'sonnet', 'fable'] as const;
 
 /**
  * `advisor_rank` exactly as baked into the claude-cli model catalog (read out of
- * the 2.1.263 binary, 2026-09-06). The CLI uses it for two separate gates:
+ * the 2.1.296 binary, 2026-10-12). The CLI uses it for two separate gates:
  *
  *   var fZr = 2
  *   function Mtn(e){ ...; let t = HXe(e); return t !== void 0 && t >= fZr }
@@ -533,18 +472,19 @@ export const ADVISOR_MODEL_ALIASES = ['opus', 'sonnet', 'fable'] as const;
  * validates the pair here instead of shipping a setting that quietly does nothing.
  */
 export const CLAUDE_ADVISOR_RANKS: Readonly<Record<string, number>> = {
+  'claude-haiku-5-5': 4,
   'claude-haiku-4-5': 1,
   'claude-haiku-4-5-20251001': 1,
   'claude-sonnet-4-6': 2,
-  'claude-sonnet-5-5': 3,
-  'claude-sonnet-5': 3,
+  'claude-sonnet-5-5': 6,
+  'claude-sonnet-5': 4,
   'claude-opus-4-6': 3,
-  'claude-opus-4-7': 4,
-  'claude-opus-4-8': 4,
-  'claude-opus-5': 4,
-  'claude-opus-5-5': 4,
-  'claude-fable-5': 5,
-  'claude-fable-5-1': 5,
+  'claude-opus-4-7': 5,
+  'claude-opus-4-8': 5,
+  'claude-opus-5': 7,
+  'claude-opus-5-5': 7,
+  'claude-fable-5': 8,
+  'claude-fable-5-1': 9,
 };
 
 /** Minimum `advisor_rank` to be usable as an advisor at all (the CLI's `fZr`). */
@@ -553,10 +493,9 @@ export const CLAUDE_MIN_ADVISOR_RANK = 2;
 /**
  * Tier alias -> concrete model, as the CLI's own catalog resolves them
  * (`aliases:{opus:{default:"claude-opus-5-5"},sonnet:{default:"claude-sonnet-5-5"},
- * fable:{default:"claude-fable-5-1"}}`). `haiku` is deliberately absent from
- * ADVISOR_MODEL_ALIASES above: it resolves to claude-haiku-4-5, whose
- * advisor_rank is 1, so `Mtn` rejects it outright — and the CLI's own advisor
- * picker list is `["fable","opus","sonnet"]`, with no haiku either.
+ * fable:{default:"claude-fable-5-1"}}`). `haiku` remains absent from ADVISOR_MODEL_ALIASES: although Haiku 5.5
+ * now has rank 4, the native advisor picker still offers only
+ * `["fable","opus","sonnet"]` in Claude Code 2.1.296.
  */
 export const CLAUDE_ADVISOR_ALIAS_TARGETS: Readonly<Record<string, string>> = {
   opus: 'claude-opus-5-5',
@@ -607,7 +546,9 @@ export function normalizeClaudeEnv(value: unknown): Record<string, string> | nul
   const out: Record<string, string> = {};
   for (const [k, v] of Object.entries(rec)) {
     if (typeof k !== 'string' || k.trim() === '') continue;
-    if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean') out[k] = String(v);
+    if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean') {
+      out[k] = CLAUDE_MODEL_ENV_KEYS.includes(k) ? normalizeClaudeModelReference(String(v)) : String(v);
+    }
   }
   return Object.keys(out).length > 0 ? out : null;
 }

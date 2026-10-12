@@ -839,17 +839,41 @@ silently writing the wrong property. Ordinary dotted ownership paths remain
 compatible. Migration from an old whole-object owner removes the stale object
 before applying its replacement leaves.
 
+### Model catalog maintenance (2026-10-12)
+
+The public picker and inference gateway now include Haiku 5.5 and the still-active
+Opus 4.6 and Opus 4.5 (`claude-opus-4-5-20251101`). Selecting Opus 4.6 no longer
+silently upgrades it to 4.8. Haiku 5.5 has a 1M context window and 128k output
+limit; use Claude Code 2.1.293 or later. The runner image pins 2.1.296. Restricted
+Mythos models remain outside the public catalog; plan/provider entitlements are
+still checked upstream.
+
+Known retired or deprecated IDs migrate on store and render, including the now
+deprecated Sonnet 4.5 (replacement: Sonnet 5.5). This also covers native
+`modelSettings`, fallback/advisor/allowlist models, picker entries, model
+remappings, model environment variables, and hook models. Explicit current
+per-model settings win when an old entry migrates onto the same model. Unknown
+custom deployment IDs remain intact. The API-key auth probe uses active Haiku
+4.5 with a small output budget and no thinking, replacing the retired Sonnet 4
+probe; OAuth probes continue through the native CLI.
+
+Sources: [Claude Code models and effort](https://code.claude.com/docs/en/model-config),
+[model lifecycle](https://platform.claude.com/docs/en/about-claude/model-deprecations),
+and the installed Claude Code 2.1.296 first-party model catalog. API and CLI effort
+are separate contracts: Opus 4.5 has no CLI effort control, and Sonnet 5.5's CLI
+default is `medium` even though its API default is `high`.
+
 ### Structured settings
 
 - `/admin/engines` and `GET/POST /admin/model-defaults/claude` own the fleet
   `model` / `effortLevel` pair. POST accepts strict
   `{model, reasoning_effort?: string|null}` but translates that common API field
   to Claude Code's native `effortLevel` key on disk. Fable 5.1, Fable 5, Opus 5,
-  Opus 4.8, and Sonnet 5 persist `low|medium|high|xhigh` and default to `high`; Opus 5.5
-  and Sonnet 5.5 persist the same set and default to `medium`; Opus 4.7
-  persists the same set and defaults to `xhigh`; Sonnet 4.6 persists
-  `low|medium|high` and defaults to `high`; Haiku 4.5 has no effort control, so
-  selecting it removes `effortLevel`. This follows Claude Code's documented
+  Opus 4.8, and Sonnet 5 persist `low|medium|high|xhigh` and default to `high`; Opus 5.5,
+  Sonnet 5.5, and Haiku 5.5 persist the same set and default to `medium`; Opus 4.7
+  persists the same set and defaults to `xhigh`; Opus 4.6 and Sonnet 4.6 persist
+  `low|medium|high` and default to `high`; Opus 4.5 and Haiku 4.5 have no CLI effort control, so
+  selecting either removes `effortLevel`. This follows Claude Code's documented
   persistence model: `low`, `medium`, `high`, and `xhigh` can live in
   `settings.json`, while `max` is session-only and is deliberately excluded.
   These are Claude Code CLI defaults. The Anthropic-compatible proxy's
