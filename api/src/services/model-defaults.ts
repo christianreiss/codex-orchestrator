@@ -10,7 +10,7 @@ import {
 } from './config-normalizer.js';
 import { CLAUDE_DEFAULT_MODEL, CLAUDE_SUPPORTED_MODELS } from './claude-models.js';
 import { ClientConfigService } from './client-config.js';
-import { withGrokConfigWriteLock } from './grok-config-lock.js';
+import { withClientConfigWriteLock, type ConfigWriteContext } from './client-config-lock.js';
 import { ENGINE_CLAUDE, ENGINE_GROK, type Engine } from '../util/engine.js';
 import { GROK_CONTEXT_WINDOWS, GROK_DEFAULT_CONTEXT_WINDOW, GROK_DEFAULT_MODEL, GROK_MODEL_DEFAULT_REASONING_EFFORTS, GROK_MODEL_REASONING_EFFORTS, GROK_SUPPORTED_MODELS, normalizeGrokContextWindow } from './grok-models.js';
 
@@ -209,15 +209,15 @@ function parseUpdate(
 export class ModelDefaultsService {
   private readonly clientConfig: ClientConfigService;
 
-  constructor(private readonly db: Database, grokConfigLocked = false) {
-    this.clientConfig = new ClientConfigService(db, grokConfigLocked);
+  constructor(private readonly db: Database, private readonly configWrite?: ConfigWriteContext) {
+    this.clientConfig = new ClientConfigService(db, configWrite);
   }
 
   /** Explicit Grok provisioning initializes the fleet config; reads stay read-only. */
   async ensureGrokDefaults(): Promise<boolean> {
-    return withGrokConfigWriteLock(this.db, async (tx, existing) => {
+    return withClientConfigWriteLock(this.db, ENGINE_GROK, async (tx, existing, context) => {
       if (existing) return false;
-      await new ModelDefaultsService(tx, true).set(ENGINE_GROK, {
+      await new ModelDefaultsService(tx, context).set(ENGINE_GROK, {
         model: GROK_DEFAULT_MODEL,
         reasoning_effort: GROK_MODEL_DEFAULT_REASONING_EFFORTS[GROK_DEFAULT_MODEL],
       });
@@ -231,6 +231,10 @@ export class ModelDefaultsService {
   }
 
   async set(engine: Engine, input: unknown): Promise<ModelDefaultsResponse> {
+    if (!this.configWrite) {
+      return withClientConfigWriteLock(this.db, engine, (tx, _existing, context) =>
+        new ModelDefaultsService(tx, context).set(engine, input));
+    }
     const update = parseUpdate(engine, input);
     const current = await this.clientConfig.adminFetch(engine);
     const settings: Record<string, unknown> = {
@@ -257,7 +261,7 @@ export class ModelDefaultsService {
     const stored = await this.clientConfig.store(
       {
         settings,
-        sha256: current.status === 'ok' ? current.sha256 : undefined,
+        expected_revision: current.revision,
       },
       null,
       engine,

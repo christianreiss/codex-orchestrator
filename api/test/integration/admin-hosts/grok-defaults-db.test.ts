@@ -54,12 +54,12 @@ describe.skipIf(!handle)('Grok fleet defaults during explicit provisioning again
 
   it('keeps read-only defaults and config retrieval unpersisted', async () => {
     expect(await defaults.get(ENGINE_GROK)).toMatchObject({ model: 'grok-4.7', reasoning_effort: 'high' });
-    expect(await configs.adminFetch(ENGINE_GROK)).toEqual({ status: 'missing' });
+    expect(await configs.adminFetch(ENGINE_GROK)).toEqual({ status: 'missing', revision: null });
     const legacy = tracked((await management.register({ fqdn: `${randomUUID()}.grok-read.test`, secure: true, engines: ['codex'] })).host);
     const out = await new HostAgentsService(db, { publicBaseUrl: 'https://grok-defaults.test', keyring: testKeyring() })
       .retrieveConfig(null, legacy, ENGINE_GROK);
     expect(out).toEqual({ status: 'missing' });
-    expect(await configs.adminFetch(ENGINE_GROK)).toEqual({ status: 'missing' });
+    expect(await configs.adminFetch(ENGINE_GROK)).toEqual({ status: 'missing', revision: null });
   });
 
   it.each(['register', 'quick-register', 'engine-switch', 'installer-add', 'cli-register', 'cli-engine-add'] as const)('initializes Grok defaults and managed MCP through %s', async operation => {
@@ -71,7 +71,7 @@ describe.skipIf(!handle)('Grok fleet defaults during explicit provisioning again
         host = tracked((await management.quickRegister({ engines: ['codex', 'claude', 'grok'] })).host);
       } else if (operation === 'engine-switch' || operation === 'installer-add') {
         const current = tracked((await management.register({ fqdn, secure: true, engines: ['codex'] })).host);
-        expect(await configs.adminFetch(ENGINE_GROK)).toEqual({ status: 'missing' });
+        expect(await configs.adminFetch(ENGINE_GROK)).toEqual({ status: 'missing', revision: null });
         host = operation === 'engine-switch'
           ? await management.setEngines(current.id, ['codex', 'grok'])
           : (await management.mintInstaller(current.id, ['grok'])).host;
@@ -82,7 +82,7 @@ describe.skipIf(!handle)('Grok fleet defaults during explicit provisioning again
         });
         if (operation === 'cli-engine-add') {
           tracked((await registration.registerOrRotate({ fqdn, engines: 'codex' })).host);
-          expect(await configs.adminFetch(ENGINE_GROK)).toEqual({ status: 'missing' });
+          expect(await configs.adminFetch(ENGINE_GROK)).toEqual({ status: 'missing', revision: null });
         }
         host = tracked((await registration.registerOrRotate({ fqdn, engines: 'codex,grok' })).host);
       }
