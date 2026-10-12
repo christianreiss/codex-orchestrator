@@ -149,7 +149,9 @@ function responseFromSettings(engine: Engine, settings: Record<string, unknown>)
     engine,
     model: entry.model,
     reasoning_effort: reasoningEffort,
-    ...(engine === ENGINE_GROK && { context_window: normalizeGrokContextWindow(settings.context_window) ?? GROK_DEFAULT_CONTEXT_WINDOW }),
+    ...(engine === ENGINE_GROK && { context_window: normalizeGrokContextWindow(settings.context_window)
+      ?? normalizeGrokContextWindow(asRecord(asRecord(asRecord(settings.native_settings).model)[entry.model]).context_window)
+      ?? GROK_DEFAULT_CONTEXT_WINDOW }),
     catalog,
   };
 }
