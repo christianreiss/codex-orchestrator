@@ -225,3 +225,8 @@ longer emitted; use developer instructions for writing-style guidance.
 Legacy web-search feature switches migrate to the root `web_search` mode, with
 an explicit root value winning. `features.codex_hooks` migrates to `features.hooks`.
 Native authoring uses canonical keys and rejects these deprecated aliases.
+
+## Configuration scope and client compatibility
+
+See [native configuration scopes](NATIVE_CONFIG_SCOPES.md) for the exact central
+authoring boundary, native version requirements and the Codex profile editor.

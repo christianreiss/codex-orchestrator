@@ -1,7 +1,28 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 const modulePath = "./config-edit.ts";
-const { parseNativeSettings, mergeNativeSettings, mergeFormSettings, hasAdvancedHooks, sameSettings } = await import(modulePath) as typeof import("./config-edit");
+const { parseNativeSettings, mergeNativeSettings, mergeFormSettings, hasAdvancedHooks, sameSettings, editableProfilesOf, parseNativeProfiles, mergeNativeProfiles } = await import(modulePath) as typeof import("./config-edit");
+
+describe("Codex profile editing", () => {
+  it("creates, edits and removes profiles without touching root or unrelated legacy fields", () => {
+    const base = { model: "global", native_settings: { history: {} }, profiles: [{ name: "review", model: "old", native_settings: { service_tier: "priority" }, features: { hooks: true } }, { name: "remove" }] };
+    const latest = { ...base, model: "new-global" };
+    const draft = parseNativeProfiles('[{"name":"review","model":null,"native_settings":{}},{"name":"new","model_reasoning_effort":"high"}]');
+    assert.deepEqual(mergeNativeProfiles(base, latest, draft), { ...latest, profiles: [{ name: "review", model: null, native_settings: {}, features: { hooks: true } }, { name: "new", model_reasoning_effort: "high" }] });
+    assert.equal(editableProfilesOf(base)[0].features, undefined);
+  });
+  it("keeps independent edits and refuses conflicting edits or deletions", () => {
+    const base = { profiles: [{ name: "review", model: "a", native_settings: { service_tier: "default" } }] };
+    const draft = [{ name: "review", model: "a", native_settings: { service_tier: "priority" } }];
+    assert.deepEqual(mergeNativeProfiles(base, { profiles: [{ ...base.profiles[0], model: "b" }] }, draft).profiles, [{ ...draft[0], model: "b" }]);
+    assert.throws(() => mergeNativeProfiles(base, { profiles: [] }, draft), /removed elsewhere/);
+    assert.throws(() => mergeNativeProfiles(base, { profiles: [{ ...base.profiles[0], model: "b" }] }, []), /changed elsewhere/);
+    assert.deepEqual(mergeNativeProfiles(base, { profiles: [] }, editableProfilesOf(base)).profiles, []);
+  });
+  it("rejects invalid names, duplicate names and misplaced fields", () => {
+    for (const value of ['{}', '[{"name":"../bad"}]', '[{"name":"ok"},{"name":"ok"}]', '[{"name":"ok","hooks":{}}]', '[{"name":"ok","native_settings":[]}]']) assert.throws(() => parseNativeProfiles(value));
+  });
+});
 
 describe("native settings editing", () => {
   it("requires a JSON object without treating parse failures as an empty reset", () => {

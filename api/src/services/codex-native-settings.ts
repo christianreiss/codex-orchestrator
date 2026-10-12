@@ -100,6 +100,9 @@ export function normalizeCodexNativeSettings(value: unknown): NativeSettings | u
     throw new ValidationError('native_settings must be an object', { param: 'native_settings' });
   }
   const out = cloneJson(value, 'native_settings') as NativeSettings;
+  for (const key of ['requirements', 'allowed_approval_policies', 'allowed_sandbox_modes', 'allow_managed_hooks_only', 'managed_hooks', 'allow_remote_control']) {
+    if (Object.hasOwn(out, key)) throw new ValidationError(`native_settings.${key} belongs to admin-enforced requirements.toml, not user config.toml; configure it through your native device or enterprise policy deployment`, { param: `native_settings.${key}` });
+  }
   for (const key of Object.keys(out)) {
     if (retiredRootKeys.has(key)) throw new ValidationError(`native_settings.${key} is retired; use current native settings or profile sidecars`, { param: `native_settings.${key}` });
   }

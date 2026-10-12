@@ -10,6 +10,7 @@ export interface EngineConfig {
   content?: string;
 }
 export interface EngineConfigRender {
+  profiles?: { name: string; content: string; sha256: string }[];
   content: string;
   sha256: string;
   settings: EngineSettings;

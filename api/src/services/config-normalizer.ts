@@ -27,6 +27,7 @@
  */
 
 import { createHash } from 'node:crypto';
+import { ValidationError } from '../http/errors.js';
 import { CODEX_RETIRED_FEATURE_KEYS, normalizeCodexNativeSettings, type CodexApprovalPolicy } from './codex-native-settings.js';
 import { CODEX_WEB_SEARCH_VALUES, type CodexWebSearch } from './agent-security-levels.js';
 import { normalizeClaudeNativeSettings } from './claude-native-settings.js';
@@ -419,6 +420,9 @@ function normalizeProfiles(value: unknown): Array<Record<string, unknown>> {
     if (entry && typeof entry === 'object' && !Array.isArray(entry)) {
       const input = entry as Record<string, unknown>;
       const native = normalizeCodexNativeSettings(input.native_settings);
+      if (native && Object.keys(native).length > 0 && (typeof input.name !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(input.name))) {
+        throw new ValidationError('A native profile needs a file-safe name of 1–64 letters, digits, underscores or hyphens', { param: 'profiles.name' });
+      }
       const profile: Record<string, unknown> = { ...input, ...(native !== undefined && { native_settings: native }) };
       if (profile.approval_policy !== undefined) profile.approval_policy = normalizeApprovalPolicy(profile.approval_policy);
       if (profile.features !== undefined) profile.features = normalizeFeatures(profile.features);
@@ -428,7 +432,7 @@ function normalizeProfiles(value: unknown): Array<Record<string, unknown>> {
       const reasoning = forceUpgraded && model !== null
         ? FORCE_UPGRADE_REASONING_EFFORT
         : normalizeReasoningEffortForModel(profile.model_reasoning_effort, model)
-          ?? (profile.model !== undefined ? defaultCodexReasoningEffortForModel(model) : null);
+          ?? (profile.model_reasoning_effort != null && model !== null ? defaultCodexReasoningEffortForModel(model) : null);
       if (model !== null) profile.model = model;
       else delete profile.model;
       if (reasoning !== null) profile.model_reasoning_effort = reasoning;

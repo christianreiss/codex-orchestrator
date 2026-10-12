@@ -43,6 +43,7 @@ import { ConflictError, ValidationError } from '../http/errors.js';
 import { nowIso } from '../util/timestamp.js';
 import { wsPublisher } from '../ws/publisher.js';
 import { claudeNativeOwnedPaths } from './claude-native-settings.js';
+import { assertNativeConfigSupport } from './native-config-support.js';
 import {
   FORCE_UPGRADE_REASONING_EFFORT,
   CLAUDE_MODEL_DEFAULT_REASONING_EFFORTS,
@@ -488,6 +489,7 @@ export interface HostRenderOptions {
 
 export function renderTomlForHost(opts: HostRenderOptions): RenderResult {
   const engine = opts.engine ?? ENGINE_CODEX;
+  assertNativeConfigSupport(opts.settings, opts.host, engine);
   const settingsWithOverrides = applyPostureToSettings(
     applyHostModelOverrides(asRecord(opts.settings), opts.host, engine),
     opts.securityLevels,
@@ -1196,6 +1198,7 @@ function hostSupportsClaudeQuotaStatusline(wrapperVersion: string | null | undef
 export function renderClaudeSettingsPartialForHost(
   opts: HostRenderOptions,
 ): { partial: Record<string, unknown>; owned_paths: string[]; sha256: string; clamped: ClaudePermissionClamp | null } {
+  assertNativeConfigSupport(opts.settings, opts.host, ENGINE_CLAUDE);
   const posture = applyPostureToSettings(
     applyHostModelOverrides(asRecord(opts.settings), opts.host, ENGINE_CLAUDE),
     opts.securityLevels,
@@ -1357,6 +1360,12 @@ export class ClientConfigService {
       sha256: createHash('sha256').update(content).digest('hex'),
       size_bytes: Buffer.byteLength(content, 'utf8'),
       settings: normalized,
+      ...(engine === ENGINE_CODEX && { profiles: sortEntriesByName(normalized.profiles).flatMap(profile => {
+        const name = normalizeName(profile.name);
+        if (!name || !PROFILE_FILE_NAME.test(name)) return [];
+        const body = renderProfileToml(profile);
+        return [{ name, content: body, sha256: createHash('sha256').update(body).digest('hex') }];
+      }) }),
     };
   }
 

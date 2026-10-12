@@ -74,6 +74,7 @@
       <CodexVersionSection headingLevel={3} />
       <CdxSilentSection bordered={false} />
       <NativeSettingsEditor engine="codex" />
+      <NativeSettingsEditor engine="codex" profiles />
     </div>
   </section>
 

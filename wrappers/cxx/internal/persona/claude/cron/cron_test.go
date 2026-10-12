@@ -322,8 +322,12 @@ func TestTickSyncsManagedContentAfterEngineUpdate(t *testing.T) {
 	t.Setenv("PATH", "")
 	previous := syncManagedContent
 	calls := 0
+	reported := false
 	syncManagedContent = func(context.Context, *config.Config, bool) error {
 		calls++
+		if !reported {
+			t.Error("managed config sync ran before the installed native version was reported")
+		}
 		return nil
 	}
 	t.Cleanup(func() { syncManagedContent = previous })
@@ -336,6 +340,7 @@ func TestTickSyncsManagedContentAfterEngineUpdate(t *testing.T) {
 		})
 	})
 	mux.HandleFunc("/cron/report", func(w http.ResponseWriter, _ *http.Request) {
+		reported = true
 		_, _ = w.Write([]byte(`{"recorded":true}`))
 	})
 	srv := httptest.NewServer(mux)
