@@ -8,6 +8,7 @@ import {
   MODEL_REASONING_EFFORTS,
   SUPPORTED_MODELS,
 } from './config-normalizer.js';
+import { claudeSessionEfforts } from './claude-effort.js';
 import { CLAUDE_DEFAULT_MODEL, CLAUDE_SUPPORTED_MODELS } from './claude-models.js';
 import { ClientConfigService } from './client-config.js';
 import { withClientConfigWriteLock, type ConfigWriteContext } from './client-config-lock.js';
@@ -107,8 +108,8 @@ export interface LaunchCatalog {
 /**
  * The model/effort menu the bare-`cxx` launchpad offers, baked into the signed
  * host config so the picker needs no network call. It mirrors the model
- * defaults catalog; Claude models that reach `xhigh` additionally offer the
- * session-only `max`, which `effortLevel` deliberately cannot store.
+ * defaults catalog; session-only choices are separate capabilities, including
+ * Claude Opus 4.6 / Sonnet 4.6 `max` despite their persistent ceiling of `high`.
  */
 export function modelLaunchCatalog(engine: Engine): LaunchCatalog {
   return {
@@ -117,7 +118,7 @@ export function modelLaunchCatalog(engine: Engine): LaunchCatalog {
       model: entry.model,
       efforts: [...entry.persistent_efforts],
       session_efforts:
-        engine === ENGINE_CLAUDE && entry.persistent_efforts.includes('xhigh') ? ['max'] : [],
+        engine === ENGINE_CLAUDE ? claudeSessionEfforts(entry.model) : [],
       default_effort: entry.default_effort,
     })),
   };

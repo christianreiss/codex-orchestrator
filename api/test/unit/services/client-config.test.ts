@@ -599,55 +599,69 @@ describe('client-config: the Agent Messaging ringer hooks', () => {
 });
 
 describe('client-config: Claude effortLevel rendering', () => {
-  it('renders effortLevel in both the full file and deep-merge ownership contract', () => {
+  it('renders modern effort in canonical modelSettings in both output contracts', () => {
     const settings = normalizeSettings({
-      model: 'claude-opus-4-7',
+      model: 'claude-opus-5-5',
       effortLevel: 'xhigh',
-    }, { applyCodexDefaults: false });
+      native_settings: {
+        modelSettings: {
+          'claude-opus-5-5': { effortLevel: 'medium', autoCompactWindow: 300000 },
+          'claude-sonnet-4-6': { effortLevel: 'low' },
+        },
+        ultracode: true,
+      },
+    }, { applyCodexDefaults: false, engine: ENGINE_CLAUDE });
+    const before = structuredClone(settings);
     const { partial, owned_paths } = renderClaudeSettingsPartial(settings);
-    expect(partial.effortLevel).toBe('xhigh');
-    expect(owned_paths).toContain('effortLevel');
-
-    const rendered = renderTomlForHost({
-      settings,
-      host: null,
-      baseUrl: null,
-      apiKey: null,
-      engine: ENGINE_CLAUDE,
+    expect(partial).not.toHaveProperty('effortLevel');
+    expect(owned_paths).not.toContain('effortLevel');
+    expect(owned_paths).toContain('modelSettings.claude-opus-5-5.effortLevel');
+    expect(owned_paths).not.toContain('modelSettings');
+    expect(partial).toMatchObject({
+      model: 'claude-opus-5-5',
+      modelSettings: {
+        'claude-opus-5-5': { effortLevel: 'xhigh', autoCompactWindow: 300000 },
+        'claude-sonnet-4-6': { effortLevel: 'low' },
+      },
+      ultracode: true,
     });
-    expect(JSON.parse(rendered.content)).toMatchObject({
-      model: 'claude-opus-4-7',
-      effortLevel: 'xhigh',
-    });
+    const rendered = renderTomlForHost({ settings, host: null, baseUrl: null, apiKey: null, engine: ENGINE_CLAUDE });
+    expect(JSON.parse(rendered.content)).toMatchObject({ modelSettings: partial.modelSettings, ultracode: true });
+    expect(JSON.parse(rendered.content)).not.toHaveProperty('effortLevel');
+    expect(settings).toEqual(before);
   });
 
-  it('uses the overridden Claude model default and omits unsupported host effort', () => {
-    const opus = renderClaudeSettingsPartialForHost({
-      settings: { model: 'claude-sonnet-4-6', effortLevel: 'high' },
-      host: {
-        claudeModelOverride: 'claude-opus-4-7',
-        claudeReasoningEffortOverride: null,
-      } as never,
-      baseUrl: null,
-      apiKey: null,
-      engine: ENGINE_CLAUDE,
-    });
-    expect(opus.partial).toMatchObject({ model: 'claude-opus-4-7', effortLevel: 'xhigh' });
-    expect(opus.owned_paths).toContain('effortLevel');
+  it('retains the supported legacy user key for old native versions and models', () => {
+    const settings = normalizeSettings({ model: 'claude-opus-4-7', effortLevel: 'xhigh' }, { applyCodexDefaults: false });
+    const { partial, owned_paths } = renderClaudeSettingsPartial(settings);
+    expect(partial).toMatchObject({ effortLevel: 'xhigh', modelSettings: { 'claude-opus-4-7': { effortLevel: 'xhigh' } } });
+    expect(owned_paths).toContain('effortLevel');
+    expect(owned_paths).toContain('modelSettings.claude-opus-4-7.effortLevel');
+  });
 
+  it('uses the overridden model and omits unsupported host effort without disturbing native siblings', () => {
+    const settings = {
+      model: 'claude-sonnet-4-6', effortLevel: 'high',
+      native_settings: { modelSettings: { 'claude-sonnet-4-6': { autoCompactWindow: 300000 } } },
+    };
+    const opus = renderClaudeSettingsPartialForHost({
+      settings,
+      host: { claudeModelOverride: 'claude-opus-5-5', claudeReasoningEffortOverride: null } as never,
+      baseUrl: null, apiKey: null, engine: ENGINE_CLAUDE,
+    });
+    expect(opus.partial).toMatchObject({ model: 'claude-opus-5-5', modelSettings: { 'claude-opus-5-5': { effortLevel: 'medium' } } });
+    expect(opus.partial).not.toHaveProperty('effortLevel');
+    expect(opus.owned_paths).toContain('modelSettings.claude-opus-5-5.effortLevel');
+    expect(opus.owned_paths).not.toContain('modelSettings.claude-sonnet-4-6.effortLevel');
     const haiku = renderClaudeSettingsPartialForHost({
-      settings: { model: 'claude-sonnet-4-6', effortLevel: 'high' },
-      host: {
-        claudeModelOverride: 'claude-haiku-4-5-20251001',
-        claudeReasoningEffortOverride: 'high',
-      } as never,
-      baseUrl: null,
-      apiKey: null,
-      engine: ENGINE_CLAUDE,
+      settings,
+      host: { claudeModelOverride: 'claude-haiku-4-5-20251001', claudeReasoningEffortOverride: 'high' } as never,
+      baseUrl: null, apiKey: null, engine: ENGINE_CLAUDE,
     });
     expect(haiku.partial.model).toBe('claude-haiku-4-5-20251001');
     expect(haiku.partial).not.toHaveProperty('effortLevel');
-    expect(haiku.owned_paths).not.toContain('effortLevel');
+    expect(haiku.partial.modelSettings).toEqual({ 'claude-sonnet-4-6': { autoCompactWindow: 300000 } });
+    expect(haiku.owned_paths.some(path => path.endsWith('.effortLevel') || path === 'effortLevel')).toBe(false);
   });
 });
 

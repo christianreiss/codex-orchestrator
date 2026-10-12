@@ -1,5 +1,6 @@
+import { CLAUDE_MODEL_REASONING_EFFORTS, CLAUDE_MODEL_ENV_KEYS, normalizeClaudeModelReference } from './claude-models.js';
+import { claudeSessionEfforts } from './claude-effort.js';
 import { ValidationError } from '../http/errors.js';
-import { CLAUDE_MODEL_ENV_KEYS, normalizeClaudeModelReference } from './claude-models.js';
 import {
   CLAUDE_GLOBAL_ONLY_SETTINGS,
   CLAUDE_MANAGED_ONLY_SETTINGS,
@@ -110,8 +111,17 @@ function validateObject(key: string, value: Record<string, unknown>): void {
     for (const [model, settings] of Object.entries(value)) {
       assertType(settings, 'object', `${key}.${model}`);
       const entry = settings as Record<string, unknown>;
-      if ('effortLevel' in entry) choice(entry.effortLevel, efforts, `${key}.${model}.effortLevel`);
-      if ('maxEffortLevel' in entry) choice(entry.maxEffortLevel, [...efforts, 'max'], `${key}.${model}.maxEffortLevel`);
+      const canonical = normalizeClaudeModelReference(model).replace(/\[1m\]$/i, '');
+      const supported = Object.hasOwn(CLAUDE_MODEL_REASONING_EFFORTS, canonical) ? CLAUDE_MODEL_REASONING_EFFORTS[canonical]! : efforts;
+      if ('effortLevel' in entry) {
+        if (supported.length === 0) fail(`${key}.${model}.effortLevel`, 'this model does not support effort');
+        choice(entry.effortLevel, supported, `${key}.${model}.effortLevel`);
+      }
+      if ('maxEffortLevel' in entry) {
+        if (supported.length === 0) fail(`${key}.${model}.maxEffortLevel`, 'this model does not support effort');
+        const sessions = Object.hasOwn(CLAUDE_MODEL_REASONING_EFFORTS, canonical) ? claudeSessionEfforts(canonical) : ['max'];
+        choice(entry.maxEffortLevel, [...supported, ...sessions], `${key}.${model}.maxEffortLevel`);
+      }
       if ('autoCompactWindow' in entry && entry.autoCompactWindow !== 'auto') range(entry.autoCompactWindow, 100_000, 1_000_000, `${key}.${model}.autoCompactWindow`);
     }
   }

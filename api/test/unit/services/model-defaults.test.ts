@@ -310,9 +310,12 @@ describe('modelLaunchCatalog', () => {
     }
   });
 
-  it('offers session-only max on Claude models that reach xhigh, and nowhere else', () => {
+  it('offers session-only max independently of the persistent ceiling', () => {
     for (const entry of modelLaunchCatalog(ENGINE_CLAUDE).models) {
-      expect(entry.session_efforts).toEqual(entry.efforts.includes('xhigh') ? ['max'] : []);
+      expect(entry.session_efforts).toEqual(entry.efforts.length > 0 ? ['max'] : []);
+    }
+    for (const model of ['claude-opus-4-6', 'claude-sonnet-4-6']) {
+      expect(modelLaunchCatalog(ENGINE_CLAUDE).models.find(entry => entry.model === model)).toMatchObject({ efforts: ['low', 'medium', 'high'], session_efforts: ['max'] });
     }
     for (const engine of [ENGINE_CODEX, ENGINE_GROK] as Engine[]) {
       expect(modelLaunchCatalog(engine).models.every((entry) => entry.session_efforts.length === 0)).toBe(true);

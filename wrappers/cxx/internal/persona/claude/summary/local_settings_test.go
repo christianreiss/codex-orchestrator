@@ -18,7 +18,7 @@ func TestLocalClaudePreferences(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	model, effort := localClaudePreferences()
+	model, effort := localClaudePreferences("")
 	if model != "claude-sonnet-5" || effort != "high" {
 		t.Fatalf("localClaudePreferences() = %q, %q", model, effort)
 	}
@@ -28,7 +28,7 @@ func TestLocalClaudePreferencesIgnoresInvalidOrMissingSettings(t *testing.T) {
 	t.Setenv("ANTHROPIC_MODEL", "")
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	if model, effort := localClaudePreferences(); model != "" || effort != "" {
+	if model, effort := localClaudePreferences(""); model != "" || effort != "" {
 		t.Fatalf("missing settings = %q, %q", model, effort)
 	}
 
@@ -39,7 +39,7 @@ func TestLocalClaudePreferencesIgnoresInvalidOrMissingSettings(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "settings.json"), []byte(`{"model":`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if model, effort := localClaudePreferences(); model != "" || effort != "" {
+	if model, effort := localClaudePreferences(""); model != "" || effort != "" {
 		t.Fatalf("invalid settings = %q, %q", model, effort)
 	}
 }
@@ -48,5 +48,26 @@ func TestInheritedClaudeModelIsTrimmed(t *testing.T) {
 	t.Setenv("ANTHROPIC_MODEL", "  claude-opus-env  ")
 	if got := inheritedClaudeModel(); got != "claude-opus-env" {
 		t.Fatalf("inheritedClaudeModel() = %q", got)
+	}
+}
+
+func TestLocalClaudePreferencesSelectsModelSpecificEffort(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	dir := filepath.Join(home, ".claude")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	raw := []byte(`{"model":"claude-opus-5-5","effortLevel":"low","modelSettings":{"claude-opus-5-5":{"effortLevel":"xhigh"},"claude-sonnet-4-6":{"effortLevel":"medium"}}}`)
+	if err := os.WriteFile(filepath.Join(dir, "settings.json"), raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	model, effort := localClaudePreferences("")
+	if model != "claude-opus-5-5" || effort != "xhigh" {
+		t.Fatalf("saved defaults = %q / %q", model, effort)
+	}
+	_, effort = localClaudePreferences("claude-sonnet-4-6")
+	if effort != "medium" {
+		t.Fatalf("selected model effort = %q", effort)
 	}
 }

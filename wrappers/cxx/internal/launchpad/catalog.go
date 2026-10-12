@@ -5,13 +5,13 @@
 package launchpad
 
 import (
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/pelletier/go-toml"
 
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/claude"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/nativeentry"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/sessionguard"
@@ -238,14 +238,7 @@ func LocalPreferences(engine string) (model, effort string) {
 		if err != nil {
 			return "", ""
 		}
-		var settings struct {
-			Model       string `json:"model"`
-			EffortLevel string `json:"effortLevel"`
-		}
-		if json.Unmarshal(raw, &settings) != nil {
-			return "", ""
-		}
-		model, effort = settings.Model, settings.EffortLevel
+		model, effort = claude.UserSettingsPreferences(raw, "")
 	case config.EngineGrok:
 		tree, err := toml.LoadFile(filepath.Join(root, "config.toml"))
 		if err != nil {
