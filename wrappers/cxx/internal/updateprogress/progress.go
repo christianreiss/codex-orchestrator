@@ -8,20 +8,29 @@ import (
 )
 
 type Event struct {
-	Phase string
-	Bytes int64
-	Total int64 // <= 0 means unknown, never an estimated percentage
+	Phase    string
+	Bytes    int64
+	Total    int64  // <= 0 means unknown, never an estimated percentage
+	Artifact string // short transfer label, e.g. CLI or companion
 }
 
 type Observer func(Event)
 type observerKey struct{}
 type outputKey struct{}
+type artifactKey struct{}
+
+func WithArtifact(ctx context.Context, label string) context.Context {
+	return context.WithValue(ctx, artifactKey{}, label)
+}
 
 func WithObserver(ctx context.Context, observer Observer) context.Context {
 	return context.WithValue(ctx, observerKey{}, observer)
 }
 
 func Emit(ctx context.Context, event Event) {
+	if event.Artifact == "" {
+		event.Artifact, _ = ctx.Value(artifactKey{}).(string)
+	}
 	if observer, ok := ctx.Value(observerKey{}).(Observer); ok && observer != nil {
 		observer(event)
 	}

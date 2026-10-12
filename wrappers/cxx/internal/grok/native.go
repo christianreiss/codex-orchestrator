@@ -284,7 +284,7 @@ func installWithClient(ctx context.Context, version string, client *http.Client)
 	if err != nil {
 		return "", err
 	}
-	raw, err := download(ctx, client, "https://registry.npmjs.org/"+url.PathEscape(pkg)+"/"+url.PathEscape(version), 1<<20)
+	raw, err := download(updateprogress.WithArtifact(ctx, "metadata"), client, "https://registry.npmjs.org/"+url.PathEscape(pkg)+"/"+url.PathEscape(version), 1<<20)
 	if err != nil {
 		return "", err
 	}
@@ -299,7 +299,7 @@ func installWithClient(ctx context.Context, version string, client *http.Client)
 	if err != nil || u.Scheme != "https" || u.Host != "registry.npmjs.org" {
 		return "", errors.New("untrusted Grok tarball origin")
 	}
-	archive, err := download(ctx, client, u.String(), 300<<20)
+	archive, err := download(updateprogress.WithArtifact(ctx, "package"), client, u.String(), 300<<20)
 	if err != nil {
 		return "", err
 	}

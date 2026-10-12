@@ -22,6 +22,9 @@ type UpdateRow struct {
 	frame          int
 	live, closed   bool
 	stop, done     chan struct{}
+	run            *UpdateRun
+	tone           Tone
+	status         string
 }
 
 func StartUpdateRow(w io.Writer, caps Caps, label, version string) *UpdateRow {
@@ -70,17 +73,27 @@ func (r *UpdateRow) Observe(event updateprogress.Event) {
 func (r *UpdateRow) SetVersion(version string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.version = version
+	if !r.closed {
+		r.version = version
+	}
 }
 
 func (r *UpdateRow) draw() {
+	_, _ = io.WriteString(r.w, progressClearLine+r.content())
+}
+
+// content is called with the row lock held by its sole renderer.
+func (r *UpdateRow) content() string {
+	if r.closed {
+		return r.line(r.resultGlyph(r.tone), r.status)
+	}
 	frames := []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
 	if !r.caps.UTF8 {
 		frames = []string{"|", "/", "-", "\\"}
 	}
 	status := r.event.Phase
 	if status == "downloading" && r.event.Total > 0 {
-		percent := min(100, int(100*float64(r.event.Bytes)/float64(r.event.Total)))
+		percent := max(0, min(100, int(100*float64(r.event.Bytes)/float64(r.event.Total))))
 		width := 16
 		if r.caps.Columns < 75 {
 			width = 8
@@ -97,8 +110,17 @@ func (r *UpdateRow) draw() {
 	} else if status == "downloading" && r.event.Bytes > 0 {
 		status += " " + updateBytes(r.event.Bytes)
 	}
-	line := r.line(frames[r.frame%len(frames)], status)
-	_, _ = io.WriteString(r.w, progressClearLine+line)
+	if r.event.Artifact != "" {
+		status = r.event.Artifact + " " + status
+	}
+	glyph := frames[r.frame%len(frames)]
+	if r.event.Phase == "waiting for sync" {
+		glyph = "·"
+		if !r.caps.UTF8 {
+			glyph = "-"
+		}
+	}
+	return r.line(glyph, status)
 }
 
 func (r *UpdateRow) line(glyph, status string) string {
@@ -126,12 +148,23 @@ func (r *UpdateRow) Finish(tone Tone, version, status string) {
 		return
 	}
 	r.closed = true
+	r.tone, r.version, r.status = tone, version, status
+	if r.run != nil {
+		r.mu.Unlock()
+		return
+	}
 	close(r.stop)
 	r.mu.Unlock()
 	<-r.done
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.version = version
+	if r.live {
+		_, _ = io.WriteString(r.w, progressClearLine+"\x1b[?25h")
+	}
+	fmt.Fprintln(r.w, r.content())
+}
+
+func (r *UpdateRow) resultGlyph(tone Tone) string {
 	glyph := "✓"
 	if tone == ToneWarn {
 		glyph = "▲"
@@ -141,10 +174,7 @@ func (r *UpdateRow) Finish(tone Tone, version, status string) {
 	if !r.caps.UTF8 || r.caps.Dumb {
 		glyph = map[Tone]string{ToneOK: "OK", ToneWarn: "WARN", ToneFail: "FAIL"}[tone]
 	}
-	if r.live {
-		_, _ = io.WriteString(r.w, progressClearLine+"\x1b[?25h")
-	}
-	fmt.Fprintln(r.w, r.line(glyph, status))
+	return glyph
 }
 
 func updateBytes(n int64) string {

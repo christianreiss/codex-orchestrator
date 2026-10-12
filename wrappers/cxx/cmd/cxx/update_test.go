@@ -6,7 +6,9 @@ import (
 	"errors"
 	"io"
 	"os"
+	"sort"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
@@ -17,6 +19,7 @@ import (
 )
 
 type updateFixture struct {
+	mu                               sync.Mutex
 	deps                             hostUpdateDeps
 	checks, syncs, installs, reports []string
 	versions                         map[string]string
@@ -45,10 +48,16 @@ func newUpdateFixture(t *testing.T, installed ...string) *updateFixture {
 			return &config.Config{Engine: engine}, nil
 		},
 		check: func(_ context.Context, cfg *config.Config, _ string) (*orchestrator.CronCheckResponse, error) {
+			f.mu.Lock()
+			defer f.mu.Unlock()
 			f.checks = append(f.checks, cfg.Engine)
 			return &orchestrator.CronCheckResponse{Action: "no_update", Wrapper: &orchestrator.CronWrapperBlock{Action: "update", TargetVersion: Version}}, nil
 		},
-		version: func(_ context.Context, engine string) string { return f.versions[engine] },
+		version: func(_ context.Context, engine string) string {
+			f.mu.Lock()
+			defer f.mu.Unlock()
+			return f.versions[engine]
+		},
 		protect: func(context.Context, *config.Config) error { return nil },
 		installWrapper: func(context.Context, *config.Config, *orchestrator.CronWrapperBlock) (string, error) {
 			f.wrapperInstalls++
@@ -56,6 +65,8 @@ func newUpdateFixture(t *testing.T, installed ...string) *updateFixture {
 		},
 		reexec: func(string, string, []string) error { f.reexecs++; return nil },
 		install: func(ctx context.Context, engine, target string, _ bool) error {
+			f.mu.Lock()
+			defer f.mu.Unlock()
 			f.installs = append(f.installs, engine)
 			updateprogress.Emit(ctx, updateprogress.Event{Phase: "downloading", Bytes: 50, Total: 100})
 			f.versions[engine] = target
@@ -84,7 +95,9 @@ func TestHostUpdateEqualVersionChecksEveryEngineWithoutReplacingWrapper(t *testi
 	if f.wrapperInstalls != 0 || f.reexecs != 0 || len(f.installs) != 0 {
 		t.Fatal("no-op replaced a binary")
 	}
-	if strings.Join(f.checks, ",") != "codex,claude,grok" || strings.Join(f.syncs, ",") != "codex,claude,grok" {
+	checks := append([]string(nil), f.checks...)
+	sort.Strings(checks)
+	if strings.Join(checks, ",") != "claude,codex,grok" || strings.Join(f.syncs, ",") != "codex,claude,grok" {
 		t.Fatalf("checks=%v syncs=%v", f.checks, f.syncs)
 	}
 	if len(strings.Split(strings.TrimSpace(out.String()), "\n")) != 4 || !strings.Contains(out.String(), "Grok") || strings.Contains(out.String(), "\x1b") || strings.Contains(out.String(), "unwanted") {

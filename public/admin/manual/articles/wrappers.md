@@ -432,6 +432,14 @@ Fleet-wide suspension keeps the installation; failed assignment probes preserve
 the existing layout and return an error. A current wrapper is left in place; a newer one is verified and installed
 before the new binary continues the engine updates and managed-content sync.
 
+From wrapper 0.9.69, cxx updates and restarts first when needed; engine checks
+and installations then run concurrently, with one fixed progress row per engine.
+Credential protection and subsequent content/auth sync remain sequential.
+Completed installs show waiting for sync while other engines finish. One engine
+failure does not cancel its peers; cancellation stops and joins workers before
+restoring the terminal. Direct persona updates and scheduled maintenance keep
+their existing behavior.
+
 The compact update display uses engine colors, animated checks and download bars
 with measured bytes. Each component leaves one result line. Grok appears even
 when it needs no update. Use `cxx update --minimal` for plain output; redirected

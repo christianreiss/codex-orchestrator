@@ -367,6 +367,11 @@ func ensureCodexGitHub(ctx context.Context, target string, enforceExact bool, cu
 // installVerifiedReleaseAsset shares the verified release pipeline between
 // explicit installs and unpublished background destinations.
 func installVerifiedReleaseAsset(ctx context.Context, rel Release, asset Asset, name, dest string, logger *slog.Logger) error {
+	label := "CLI"
+	if name == codeModeHostBinName {
+		label = "companion"
+	}
+	ctx = updateprogress.WithArtifact(ctx, label)
 	if filepath.Base(asset.Name) != asset.Name {
 		return fmt.Errorf("invalid release asset name %q", asset.Name)
 	}
@@ -392,6 +397,7 @@ func installVerifiedReleaseAsset(ctx context.Context, rel Release, asset Asset, 
 	if err := downloadFile(ctx, asset.DownloadURL, dlPath); err != nil {
 		return err
 	}
+	updateprogress.Emit(ctx, updateprogress.Event{Phase: "verifying"})
 	gotSHA, err := sha256File(dlPath)
 	if err != nil {
 		return err
@@ -401,6 +407,7 @@ func installVerifiedReleaseAsset(ctx context.Context, rel Release, asset Asset, 
 	}
 
 	logger.Debug("EnsureCodex: installing", "version", rel.TagName, "asset", asset.Name, "dest", dest)
+	updateprogress.Emit(ctx, updateprogress.Event{Phase: "installing"})
 
 	var installErr error
 	if strings.HasSuffix(asset.Name, ".tar.gz") || strings.HasSuffix(asset.Name, ".tgz") {

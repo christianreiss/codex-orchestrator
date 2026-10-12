@@ -98,19 +98,52 @@ def verify(output, width, mode):
     return plain
 
 
+def settled_update_rows(plain):
+    """Replay the update renderer's CR/newline, erase-line and cursor-up grammar."""
+    screen = [""]
+    row = col = pos = 0
+    while pos < len(plain):
+        char = plain[pos]
+        if char == "\x1b":
+            up = re.match(r"\x1b\[(\d+)A", plain[pos:])
+            if up:
+                row = max(0, row - int(up.group(1)))
+                pos += len(up.group(0))
+                continue
+            assert plain.startswith("\x1b[2K", pos), "unexpected terminal control"
+            screen[row] = ""
+            pos += len("\x1b[2K")
+            continue
+        if char == "\r":
+            col = 0
+        elif char == "\n":
+            row += 1
+            col = 0
+            if row == len(screen):
+                screen.append("")
+        else:
+            assert ord(char) >= 32, "unexpected terminal control"
+            line = screen[row].ljust(col)
+            screen[row] = line[:col] + char + line[col + 1:]
+            col += 1
+        pos += 1
+    return [line for line in screen if line.strip()]
+
+
 def verify_host_update(output, width, mode):
     """Validate refresh-in-place rows as well as their four settled receipts."""
     plain = SGR.sub("", output)
     live = mode in ("rich", "ascii", "no-color")
     if live:
-        assert output.count("\x1b[?25l") == 4, "missing cursor hide"
-        assert output.count("\x1b[?25h") == 4, "cursor not restored"
-        plain = plain.replace("\x1b[?25l", "").replace("\x1b[?25h", "").replace("\x1b[2K", "")
+        assert output.count("\x1b[?25l") == 2, "wrapper and shared block must each own cursor hide"
+        assert output.count("\x1b[?25h") == 2, "cursor not restored"
+        assert "\x1b[3A" in output, "parallel engine block missing"
+        plain = plain.replace("\x1b[?25l", "").replace("\x1b[?25h", "")
         assert "50%" in plain and "100%" in plain, "measured progress missing"
-        assert not any(ord(char) < 32 and char not in "\r\n" for char in plain), "unexpected terminal control"
-        for frame in re.split(r"[\r\n]", plain):
+        frames = re.sub(r"\x1b\[\d+A|\x1b\[2K", "", plain)
+        for frame in re.split(r"[\r\n]", frames):
             assert visible_width(frame) < width, f"update row wraps: {frame!r}"
-        receipts = [line.split("\r")[-1] for line in plain.split("\n") if line]
+        receipts = settled_update_rows(plain)
     else:
         assert "\x1b" not in output and plain.isascii(), "non-portable update output"
         receipts = plain.splitlines()

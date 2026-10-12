@@ -22,7 +22,6 @@ import (
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
 	hostcron "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/cron"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/grok"
-	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/ipc"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/maintenance"
 	claudelifecycle "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/claude/lifecycle"
 	codexlifecycle "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/codex/lifecycle"
@@ -174,6 +173,9 @@ func updateHost(ctx context.Context, args []string, w io.Writer, caps ui.Caps, d
 			e := &engines[i]
 			if e.loadErr == nil && !e.cfg.EngineSuspended(e.name) {
 				e.check, e.checkErr = deps.check(wrapperCtx, e.cfg, deps.version(ctx, e.name))
+				if e.checkErr == nil && e.check == nil {
+					e.checkErr = errors.New("empty update check response")
+				}
 				if e.checkErr == nil {
 					seed = e
 					break
@@ -240,20 +242,12 @@ func updateHost(ctx context.Context, args []string, w io.Writer, caps ui.Caps, d
 			}
 		}
 	}
-	for _, e := range engines {
-		if ctx.Err() != nil {
-			row := ui.StartUpdateRow(w, caps, config.EngineLabel(e.name), "")
-			row.Finish(ui.ToneFail, "", "cancelled")
-			worst = 1
-			continue
-		}
-		if updateEngine(quietCtx, w, caps, e, deps) != 0 {
-			worst = 1
-		}
+	if updateEngines(quietCtx, w, caps, engines, deps) != 0 {
+		worst = 1
 	}
 	// Reconcile once with visible output even when the wrapper was already
 	// current. Per-engine sync uses quiet output for its compact update rows.
-	if deps.reconcile != nil {
+	if deps.reconcile != nil && ctx.Err() == nil {
 		for _, e := range engines {
 			if e.loadErr == nil && e.cfg.AgentMessaging.Enabled && !e.cfg.EngineSuspended(e.name) {
 				deps.reconcile(e.cfg, w)
@@ -284,100 +278,6 @@ func protectHostUpdate(ctx context.Context, engines []engineUpdate, deps hostUpd
 		}
 	}
 	return nil
-}
-
-func updateEngine(ctx context.Context, w io.Writer, caps ui.Caps, e engineUpdate, deps hostUpdateDeps) int {
-	row := ui.StartUpdateRow(w, caps, config.EngineLabel(e.name), "")
-	ctx = updateprogress.WithObserver(ctx, row.Observe)
-	if e.loadErr != nil {
-		row.Finish(ui.ToneFail, "", "config failed: "+e.loadErr.Error())
-		return 1
-	}
-	if e.cfg.EngineSuspended(e.name) {
-		row.Finish(ui.ToneWarn, "", "skipped: suspended fleet-wide")
-		return 0
-	}
-	before := deps.version(ctx, e.name)
-	version := before
-	row.SetVersion(before)
-	check, updateErr := e.check, e.checkErr
-	if check == nil && updateErr == nil {
-		check, updateErr = deps.check(ctx, e.cfg, before)
-	}
-	status, tone := "up to date", ui.ToneOK
-	syncAllowed := true
-	if updateErr == nil {
-		switch {
-		case check.Action == "disable":
-			status, tone = "skipped: binary updates disabled", ui.ToneWarn
-		case nativeOverride(e.name):
-			status, tone = "skipped: binary override", ui.ToneWarn
-		case before == "" && check.Action != "update":
-			updateErr = errors.New("native CLI missing; no installation authorized")
-			syncAllowed = false
-		case check.Action == "update":
-			target := check.TargetVersion
-			if target == "" {
-				target = check.ClientVersion
-			}
-			if target == "" {
-				updateErr = errors.New("update requested without target version")
-			} else if target != before {
-				row.SetVersion(before + " → " + target)
-				updateErr = deps.protect(ctx, e.cfg)
-				syncAllowed = updateErr == nil
-				if updateErr == nil {
-					updateErr = deps.install(ctx, e.name, target, check.EnforceExact)
-				}
-				version = deps.version(ctx, e.name)
-				if updateErr == nil && (version == "" || (check.EnforceExact && version != target)) {
-					updateErr = fmt.Errorf("installed version %q does not match target %s", version, target)
-				}
-				if updateErr == nil && version != before {
-					status = "updated"
-					if before == "" {
-						status = "installed"
-					}
-				} else if updateErr == nil && version != target {
-					status, tone = "kept newer installed version", ui.ToneWarn
-				}
-			}
-		}
-	}
-	code := 0
-	if updateErr != nil {
-		// Checks and credential guards must succeed before content/auth writes.
-		// A staged installer failure can still leave content sync useful and safe.
-		if !syncAllowed || check == nil {
-			row.Finish(ui.ToneFail, version, "update failed: "+updateErr.Error()+" · sync skipped")
-			return 1
-		}
-		status, tone, code = "update failed: "+updateErr.Error(), ui.ToneFail, 1
-	}
-	row.Observe(updateprogress.Event{Phase: "syncing"})
-	syncErr := deps.sync(ctx, e.cfg)
-	reportErr := deps.report(ctx, e.cfg, version)
-	if before != "" && version != before {
-		version = before + " → " + version
-	}
-	if syncErr == nil {
-		status += " · synced"
-	} else if errors.Is(syncErr, ipc.ErrHeld) || strings.Contains(syncErr.Error(), "managed sync paused by an active session") {
-		status += " · sync paused: active session"
-		if tone != ui.ToneFail {
-			tone = ui.ToneWarn
-		}
-		code = 1
-	} else {
-		status += " · sync failed: " + syncErr.Error()
-		tone, code = ui.ToneFail, 1
-	}
-	if reportErr != nil {
-		status += " · version report failed: " + reportErr.Error()
-		tone, code = ui.ToneFail, 1
-	}
-	row.Finish(tone, version, status)
-	return code
 }
 
 func nativeOverride(engine string) bool {

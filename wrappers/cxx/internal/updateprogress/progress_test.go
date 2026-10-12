@@ -21,3 +21,21 @@ func TestReaderReportsActualBytesAndUnknownLength(t *testing.T) {
 		}
 	}
 }
+
+func TestTransferLabelIsScopedAndChangesBetweenArtifacts(t *testing.T) {
+	var events []Event
+	base := WithObserver(context.Background(), func(event Event) { events = append(events, event) })
+	for _, label := range []string{"CLI", "companion"} {
+		_, _ = io.ReadAll(Reader(WithArtifact(base, label), strings.NewReader("abcdef"), 6))
+	}
+	Emit(base, Event{Phase: "syncing"})
+	var starts []string
+	for _, event := range events {
+		if event.Phase == "downloading" && event.Bytes == 0 {
+			starts = append(starts, event.Artifact)
+		}
+	}
+	if strings.Join(starts, ",") != "CLI,companion" || events[len(events)-1].Artifact != "" {
+		t.Fatalf("transfer state leaked: %+v", events)
+	}
+}

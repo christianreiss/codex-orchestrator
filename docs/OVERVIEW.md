@@ -930,7 +930,13 @@ lose managed configs and aliases while provider binaries and user sessions remai
 Fleet-suspended engines retain their installation. Uncertain assignment probes
 preserve the layout and fail the update. The command checks the common wrapper
 once, skips equal-version installation/restart, then updates and syncs every
-assigned native engine (Codex, Claude, Grok). A compact animated row per component replaces boot
+assigned native engine (Codex, Claude, Grok). From wrapper 0.9.69, cxx still
+updates and restarts first; engine checks and installations then run in parallel
+with a shared progress block. Credential guards and subsequent content/auth
+sync and version reports remain sequential. Transfer labels distinguish files,
+and completed installs show waiting for sync. One failed engine does not cancel
+its peers; cancellation joins workers before cursor/lock cleanup.
+A compact animated row per component replaces boot
 and quota dashboards; measured downloads show progress bars, other stages use
 spinners. Pipes and minimal mode receive plain completion lines on stderr.
 Existing update policy, suspensions, version targets, overrides and active-session

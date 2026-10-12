@@ -123,6 +123,7 @@ func fetchClaudeJSON(ctx context.Context, url string, out any) error {
 }
 
 func downloadClaudeTarball(ctx context.Context, url, dest string, digest []byte) error {
+	ctx = updateprogress.WithArtifact(ctx, "package")
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return err

@@ -1320,8 +1320,11 @@ The stream and progress supervisor remain wrapper-owned while the model is unava
 `cxx update [--minimal]` first refreshes the signed host engine assignments
 (wrapper 0.9.68), adding configs and aliases for newly assigned engines and
 removing them for engines explicitly unassigned by the server. It then checks
-the shared wrapper once, updates the native Codex, Claude and Grok CLIs, and
-syncs managed content in that order. Every assigned engine gets a result,
+the shared wrapper once, updating and restarting it first when needed. From
+wrapper 0.9.69, native Codex, Claude and Grok checks and installations run in
+parallel (at most three engine workers); credential guards remain sequential,
+and managed content/auth sync and version reports follow in Codex, Claude,
+Grok order after all installs finish. Every assigned engine gets a result,
 including newly added, unchanged or suspended engines. Fleet suspension keeps
 configs, aliases and installed CLIs; uncertain assignment probes preserve the
 existing layout and fail the update. Removal preserves provider binaries and
@@ -1334,8 +1337,13 @@ receipt. Downgrades and unverifiable wrapper versions are refused.
 Update runs use compact engine-colored rows instead of startup dashboards:
 animated checks and installation stages, plus download bars with actual byte
 counts and percentages when the server supplies a length. Unknown lengths and
-npm installation use indeterminate animation. Each live row becomes one final
-result. Narrow terminals fit the row; pipes, `TERM=dumb` and `--minimal` emit
+npm installation use indeterminate animation. Parallel engines share one
+fixed progress block: transfer labels distinguish the CLI and companion,
+finished installs show waiting for sync, and completed rows remain visible.
+Each component leaves one final result; only the shared renderer writes while
+the block is active. Cancellation stops and joins workers before restoring
+the cursor, and an engine failure leaves the other workers running. Narrow
+terminals fit the row; pipes, `TERM=dumb` and `--minimal` emit
 plain completion lines without cursor controls. Output goes to stderr.
 
 Fleet/host binary-update policy, fleet engine suspensions, version targets and

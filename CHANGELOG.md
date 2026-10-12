@@ -1,5 +1,7 @@
 # 2026-10-12
 
+- Wrapper 0.9.69 updates cxx first, then checks and installs Codex, Claude and Grok concurrently during manual `cxx update`. A shared terminal progress block keeps engine rows stable, shows measured download bars with transfer labels, and marks completed installs as waiting for sync. Credential guards, content/auth sync and version reports stay sequential; partial failures remain visible and cancellation joins workers before cursor/lock cleanup. Minimal, redirected and dumb-terminal output remains plain.
+
 - Wrapper 0.9.68 adds compact weekly usage notices to the bare-`cxx` quick-select compass (and single-engine picker), using observations cached during verified account sync without network calls or credential storage. Notices show used percent, mark readings older than 30 minutes as stale, hide expired/reset or unavailable readings, and highlight fresh usage at 85%/100%. Cache reads stay scoped to the engine, fleet, native home and last synced account; Grok shows no weekly reading.
 
 - Wrapper 0.9.68 makes the bare-`cxx` quick selector expand in the selected compass direction: the left engine opens a mirrored model/effort branch to the left, the bottom engine opens below a vertical stem, and the right branch keeps its existing layout. Animation, scrolling, Unicode/ASCII rendering and model/effort keys remain consistent.
