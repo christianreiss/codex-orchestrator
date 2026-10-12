@@ -94,7 +94,7 @@ func TestInstallerStagesChecksVersionAndPreservesPreviousOnFailure(t *testing.T)
 	if err := AtomicWrite(pointer, []byte("previous-selected-binary\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	archive, integrity := archiveFixture(t, []byte("#!/bin/sh\nprintf 'grok 1.0.46\\n'\n"), "package/bin/grok.br")
+	archive, integrity := archiveFixture(t, []byte("#!/bin/sh\nprintf 'grok "+PinnedVersion+"\\n'\n"), "package/bin/grok.br")
 	metadata := func(integrity string) []byte {
 		m := packageMetadata{Version: PinnedVersion}
 		m.Dist.Integrity = integrity
@@ -112,7 +112,8 @@ func TestInstallerStagesChecksVersionAndPreservesPreviousOnFailure(t *testing.T)
 		}
 		return &http.Response{StatusCode: 200, Body: io.NopCloser(bytes.NewReader(body)), Header: make(http.Header)}, nil
 	})}
-	path, err := installWithClient(context.Background(), PinnedVersion, client)
+	// An old server pin heals before fetching metadata or publishing the binary.
+	path, err := installWithClient(context.Background(), "1.0.46", client)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -144,7 +145,7 @@ func TestInstallerRejectsForeignOriginBeforeDownload(t *testing.T) {
 	calls := 0
 	client := &http.Client{Transport: fixtureTransport(func(req *http.Request) (*http.Response, error) {
 		calls++
-		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"version":"1.0.46","dist":{"tarball":"https://example.invalid/native.tgz","integrity":"sha512-invalid"}}`)), Header: make(http.Header)}, nil
+		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"version":"` + PinnedVersion + `","dist":{"tarball":"https://example.invalid/native.tgz","integrity":"sha512-invalid"}}`)), Header: make(http.Header)}, nil
 	})}
 	if _, err := installWithClient(context.Background(), PinnedVersion, client); err == nil {
 		t.Fatal("foreign package accepted")

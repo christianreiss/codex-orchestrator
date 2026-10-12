@@ -87,7 +87,7 @@ WORKDIR /app
 # Official Grok native npm artifact, pinned by version AND sha512 integrity.
 # Extract only package/bin/grok.br; Node's built-in Brotli avoids installers.
 COPY install-grok.mjs /tmp/install-grok.mjs
-ARG GROK_VERSION=1.0.46
+ARG GROK_VERSION=1.0.50
 RUN set -eu; GROK_VERSION="${GROK_VERSION}" node /tmp/install-grok.mjs "${TARGETARCH:-amd64}"; \
     grok --version | grep -F "grok ${GROK_VERSION} "; \
     rm /tmp/install-grok.mjs

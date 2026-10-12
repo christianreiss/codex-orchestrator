@@ -38,7 +38,7 @@
 
   const summary = $derived($query.data?.grok_versions ?? null);
   const reportedClient = $derived(summary?.reported_client_version ?? null);
-  const currentClient = $derived(summary?.client_version_lock ?? summary?.client_version ?? null);
+  const currentClient = $derived(summary?.client_version ?? summary?.client_version_lock ?? null);
   const enforceExact = $derived(Boolean(summary?.client_version_enforce_exact));
   const availableLatest = $derived(
     ($query.data?.grok_available_client?.version as string | null) ?? null,
@@ -62,7 +62,7 @@
     } else {
       const v = exactVersion.trim();
       if (!v) {
-        toast.error("Enter a version like 1.0.46");
+        toast.error("Enter a version like 1.0.50");
         return;
       }
       $setM.mutate(v);
@@ -121,10 +121,15 @@
     {#if selection === "exact"}
       <div class="grid gap-1.5">
         <Label for="grok-version-exact">Version</Label>
-        <Input id="grok-version-exact" bind:value={exactVersion} placeholder="1.0.46" />
+        <Input id="grok-version-exact" bind:value={exactVersion} placeholder="1.0.50" />
       </div>
     {/if}
   </div>
+
+  <p class="text-xs text-muted-foreground">
+    Minimum supported version: 1.0.50. Older saved pins resolve to this baseline;
+    installed older CLIs must be updated before their next session.
+  </p>
 
   <dl class="grid gap-2 rounded-md border bg-muted/20 px-4 py-3 text-xs sm:grid-cols-3">
     <div>

@@ -36,9 +36,9 @@ describe('per-engine host readiness', () => {
       }
     });
     it(`${engine}: host pin overrides fleet pin and compares installed rather than configured version`, () => {
-      const pinned = host({ [fields.clientVersionOverride]: '1.0.0', [fields.clientVersion]: 'v1.0.0' });
+      const pinned = host({ [fields.clientVersionOverride]: '1.0.50', [fields.clientVersion]: 'v1.0.50' });
       expect(hostEngineReadiness(pinned, targets({ client_version_override: '1.1.0', client_version_enforce_exact: true }))[engine])
-        .toMatchObject({ state: 'ready', cli_target: '1.0.0', cli_version: 'v1.0.0' });
+        .toMatchObject({ state: 'ready', cli_target: '1.0.50', cli_version: 'v1.0.50' });
       expect(hostEngineReadiness({ ...pinned, [fields.clientVersion]: '1.2.3' }, targets())[engine].reasons).toContain('cli_outdated');
     });
     it(`${engine}: fleet suspension and missing assignment are gray`, () => {
@@ -52,6 +52,12 @@ describe('per-engine host readiness', () => {
     const newer = host({ clientVersion: '2.0.0', wrapperVersion: '0.10.0' });
     expect(hostEngineReadiness(newer, targets()).codex.state).toBe('ready');
     expect(hostEngineReadiness(newer, targets({ client_version_enforce_exact: true })).codex.reasons).toEqual(['cli_outdated']);
+  });
+  it('shows an old Grok installation pinned below the native baseline as needing an update', () => {
+    const old = host({ grokClientVersion: '1.0.46', grokClientVersionOverride: '1.0.46' });
+    expect(hostEngineReadiness(old, targets()).grok).toMatchObject({
+      state: 'attention', cli_target: '1.0.50', cli_version: '1.0.46', reasons: ['cli_outdated'],
+    });
   });
   it('unknown targets never claim readiness', () => {
     expect(hostEngineReadiness(host(), targets({ client_version: null, wrapper_version: null })).codex)

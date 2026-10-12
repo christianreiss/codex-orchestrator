@@ -264,6 +264,11 @@ func grokLaunchHost(t *testing.T, handler http.HandlerFunc, suspended ...string)
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
 	t.Setenv("GROK_HOME", filepath.Join(t.TempDir(), "native"))
+	cli := filepath.Join(t.TempDir(), "grok")
+	if err := os.WriteFile(cli, []byte("#!/bin/sh\nprintf 'grok 1.0.50\\n'\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CGX_GROK_BIN", cli)
 	server := httptest.NewServer(handler)
 	if handler == nil {
 		server.Close()

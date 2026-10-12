@@ -170,7 +170,7 @@ describe('GET /admin/hosts', () => {
     const response = await local.inject({ method: 'GET', url: '/admin/hosts/3/detail' });
     expect(response.statusCode).toBe(200);
     expect(response.json().data.host).toMatchObject({ engines_list: ['grok'], grok_client_version: '1.0.46', grok_client_version_override: '1.0.46', grok_wrapper_version: '0.8.0', grok_model_override: 'grok-4.6', grok_reasoning_effort_override: 'xhigh' });
-    expect(response.json().data.overview.versions).toMatchObject({ grok_version: '1.0.46', grok_version_available: '1.0.47', grok_version_checked_at: fetchedAt, grok_version_stale: false });
+    expect(response.json().data.overview.versions).toMatchObject({ grok_version: '1.0.50', grok_version_available: '1.0.47', grok_version_checked_at: fetchedAt, grok_version_stale: false });
     await local.close();
   });
 });

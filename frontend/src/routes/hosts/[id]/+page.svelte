@@ -552,7 +552,7 @@
             <EnginePanel engine="grok" digest={host.grok_canonical_digest ? host.grok_canonical_digest.slice(0, 16) + "…" : "—"}>
               <OverridePopover label="Version" override={host.grok_client_version_override ?? null}
                 inheritedValue={host.grok_client_version} inheritedLabel="detected"
-                placeholder={overview?.versions.grok_version ?? "1.0.46"}
+                placeholder={overview?.versions.grok_version ?? "1.0.50"}
                 pending={$grokVersion.isPending} onSave={saveGrokVersion} />
               <OverridePopover label="Model" override={host.grok_model_override ?? null}
                 options={GROK_MODEL_OPTIONS} pending={$modelOverride.isPending} onSave={saveGrokModel} />

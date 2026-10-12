@@ -59,8 +59,8 @@ export function isClientVersionStale(fetchedAt: string | null | undefined, now =
  */
 export const CODEX_MIN_CLIENT_VERSION = '0.125.0';
 
-/** First verified native Grok Build release supported by the fleet. */
-export const GROK_MIN_CLIENT_VERSION = '1.0.46';
+/** Native config baseline, including `[ui].timestamps` introduced in 1.0.50. */
+export const GROK_MIN_CLIENT_VERSION = '1.0.50';
 
 export class ClientVersionsService {
   constructor(
@@ -80,7 +80,9 @@ export class ClientVersionsService {
       this.settings.getFlag(`client_version_enforce_exact${suffix}`, false),
     ]);
     return {
-      client_version: client ?? (engine === 'grok' ? GROK_MIN_CLIENT_VERSION : null),
+      client_version: engine === 'grok'
+        ? coerceGrokVersionToMinimum(lock.value ?? client ?? GROK_MIN_CLIENT_VERSION)
+        : client,
       wrapper_version: wrapper,
       client_version_checked_at: checkedAt,
       client_version_lock: lock.value,
@@ -257,7 +259,14 @@ export function isSupportedGrokVersion(version: string): boolean {
   if (!isSemanticVersion(version)) return false;
   const compared = comparableVersion(version);
   const minimum = comparableVersion(GROK_MIN_CLIENT_VERSION);
-  return compared > minimum || (compared === minimum && !version.includes('-'));
+  return compared > minimum || (compared === minimum && !version.split('+', 1)[0]!.includes('-'));
+}
+
+/** Resolve an older stored pin to the supported floor without rewriting its history. */
+export function coerceGrokVersionToMinimum(version: string): string {
+  return isSemanticVersion(version) && !isSupportedGrokVersion(version)
+    ? GROK_MIN_CLIENT_VERSION
+    : version;
 }
 
 export function isSemanticVersion(s: string): boolean {

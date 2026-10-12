@@ -32,7 +32,7 @@ import {
   REASONING_EFFORTS,
   SUPPORTED_MODELS,
 } from './config-normalizer.js';
-import { coerceCodexVersionToMinimum, isSemanticVersion, isSupportedGrokVersion } from './client-versions.js';
+import { coerceCodexVersionToMinimum, GROK_MIN_CLIENT_VERSION, isSemanticVersion, isSupportedGrokVersion } from './client-versions.js';
 import { suspendAgentMessagingRuntimeLocked } from './agent-messaging.js';
 import { PROVISIONING_WINDOW_MINUTES } from './insecure-window.js';
 import { ModelDefaultsService } from './model-defaults.js';
@@ -1010,8 +1010,8 @@ export class HostManagementService {
   async setGrokVersionOverride(id: number, selection: string | null): Promise<Host> {
     const host = await this.requireById(id);
     const stored = selection === null ? null : normalizeSemver(selection);
-    if (stored !== null && !isSemanticVersion(stored)) throw new ValidationError('selection must be a semantic version like 1.0.46', { param: 'selection' });
-    if (stored !== null && !isSupportedGrokVersion(stored)) throw new ValidationError('Grok requires version 1.0.46 or later', { param: 'selection' });
+    if (stored !== null && !isSemanticVersion(stored)) throw new ValidationError(`selection must be a semantic version like ${GROK_MIN_CLIENT_VERSION}`, { param: 'selection' });
+    if (stored !== null && !isSupportedGrokVersion(stored)) throw new ValidationError(`Grok requires version ${GROK_MIN_CLIENT_VERSION} or later`, { param: 'selection' });
     await this.db.update(hosts).set({ grokClientVersionOverride: stored, updatedAt: nowIso() }).where(eq(hosts.id, id));
     await this.writeLog(id, 'admin.host.grok_client_version_override', { fqdn: host.fqdn, grok_client_version_override: stored });
     return this.publishUpdate(id, host.fqdn, { grok_client_version_override: stored });

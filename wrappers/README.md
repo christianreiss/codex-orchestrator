@@ -36,13 +36,16 @@ cxx claude-quota-statusline   # Claude Code statusLine command that relays quota
 cxx grok-auth                # internal native token accessor; requires a live private broker
 ```
 
-Grok uses the official Grok Build CLI, pinned initially to `1.0.46`. `cgx update`
+Grok uses the official Grok Build CLI, pinned to the verified stable baseline `1.0.50`. `cgx update`
 downloads the exact npm platform package for Linux/macOS on amd64/arm64, verifies
 its SHA-512 integrity, decodes the sole `package/bin/grok.br` member, and checks the
 native version before publishing `~/.cgx/state/grok-bin`. The private copies live
 under `~/.cxx/engines/grok`; busy versions remain protected during pruning. No
 npm lifecycle scripts or global installation are needed. `CGX_GROK_BIN` can select
 an existing executable; the normal fallback is `$GROK_HOME/bin/grok` or `PATH`.
+Older stored targets resolve to the 1.0.50 floor. An already installed older CLI
+is refused before session config sync; `cgx update` converges it through the
+existing update policy, while an explicit `CGX_GROK_BIN` must be updated by its owner.
 
 The signed Grok config is `~/.config/codex-orchestrator/cgx.json` (or
 `CGX_CONFIG_PATH`). `GROK_HOME` defaults to `~/.grok`. Fleet configuration is a

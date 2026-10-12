@@ -110,13 +110,23 @@ takes the latest session, so `r` is not offered.
 
 ## Native CLI and installation
 
-The supported baseline is official Grok Build **1.0.46**. Linux and macOS on
+The supported baseline is official Grok Build **1.0.50** (verified 2026-10-12 against
+`https://x.ai/cli/stable` and `@xai-official/grok@1.0.50`). Linux and macOS on
 amd64 and arm64 use exact-version official npm native packages
 `@xai-official/grok-{linux-x64,linux-arm64,darwin-x64,darwin-arm64}`. The installer
 verifies sha512 `dist.integrity` before extracting only `package/bin/grok.br` and
 decoding Brotli. It does not run npm lifecycle scripts. A verified private CLI
 lives below `~/.cxx/engines/grok`; updates retain the previous installation.
 Grok's native self-updater is disabled for managed processes.
+
+Version 1.0.50 is the native settings floor (`ui.timestamps` requires it).
+Stored older fleet targets, global locks and host pins remain available as
+historical preferences, but API snapshots and the wrapper installer resolve
+their effective target to at least 1.0.50. The version settings page displays
+this minimum. A launch with an already installed older binary fails before
+config sync or account leasing and names `cgx update` (or a supported
+`CGX_GROK_BIN`) as the remedy. Update policy and explicit binary overrides
+remain respected; diagnostics such as native `--version` still work.
 
 On API startup, the verified four-platform `cxx` matrix publishes the same
 wrapper version, Linux checksum, and download URL for all three engines.

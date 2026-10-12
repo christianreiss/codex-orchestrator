@@ -526,6 +526,9 @@ func acquireContentLease(ctx context.Context) (*ipc.Lock, error) {
 }
 
 func run(ctx context.Context, cfg *config.Config, client *orchestrator.Client, o options, stdout, stderr io.Writer) (exitCode int, runErr error) {
+	if err := requireSupportedNativeCLI(ctx); err != nil {
+		return 1, err
+	}
 	headless := o.command == "execute" || nativeAnyFlag(o.args, "-p", "--single", "--print", "--prompt-file", "--prompt-json") || len(o.args) > 0 && o.args[0] == "agent"
 	// Like cdx: another lifecycle holding the sync lock pauses managed content
 	// writes for this launch; auth freshness and the lease remain active.
@@ -603,7 +606,7 @@ func run(ctx context.Context, cfg *config.Config, client *orchestrator.Client, o
 		if v := initial.Versions; v != nil {
 			for _, candidate := range []string{stringValue(v.ClientVersionOverride), stringValue(v.ClientVersion)} {
 				if candidate != "" && candidate != "latest" {
-					target = candidate
+					target = native.CoerceVersionToMinimum(candidate)
 					break
 				}
 			}
@@ -716,6 +719,9 @@ func run(ctx context.Context, cfg *config.Config, client *orchestrator.Client, o
 	}
 	path, err := native.FindCLI()
 	if err != nil {
+		return 1, err
+	}
+	if err := requireSupportedNativeVersion(ctx, path); err != nil {
 		return 1, err
 	}
 	env := rt.Environment(os.Environ())
@@ -954,17 +960,14 @@ func maintenance(ctx context.Context, cfg *config.Config, client *orchestrator.C
 			return syscall.Exec(installed, layout.ReexecArgv(installed, engine, args), append(os.Environ(), wrapperRestartedEnv+"=1"))
 		}
 	}
-	target := check.TargetVersion
-	if target == "" {
-		target = native.PinnedVersion
-	}
+	target := native.CoerceVersionToMinimum(check.TargetVersion)
 	version := before
 	cliUpdated := false
 	override := strings.TrimSpace(os.Getenv("CGX_GROK_BIN")) != ""
 	if path == "" && (check.Action == "disable" || override) {
 		return errors.New("Grok native CLI missing; no installation authorized")
 	}
-	if !override && check.Action != "disable" && (path == "" || check.Action == "update" || (force && before != target)) {
+	if !override && check.Action != "disable" && (path == "" || !native.SupportedVersion(before) || check.Action == "update" || (force && before != target)) {
 		path, err = native.Install(ctx, target)
 		if err != nil {
 			return err
