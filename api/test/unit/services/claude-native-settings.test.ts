@@ -12,6 +12,41 @@ const normalize = (native: Record<string, unknown>, structured: Record<string, u
   normalizeSettings({ native_settings: native, ...structured }, { applyCodexDefaults: false, engine: 'claude' });
 
 describe('Claude native user settings', () => {
+  it('migrates deprecated model references without changing custom IDs or current overrides', () => {
+    const native = {
+      modelSettings: {
+        'claude-sonnet-5-5': { effortLevel: 'medium' },
+        'claude-sonnet-4-5-20250929': { effortLevel: 'high', autoCompactWindow: 300000 },
+        'vendor.model': { effortLevel: 'high' },
+      },
+      fallbackModel: ['claude-sonnet-4-5', 'claude-sonnet-5-5', 'my-provider/deployment'],
+      advisorModel: 'claude-opus-4-1-20250805',
+      availableModels: ['claude-sonnet-4-5-20250929', 'opus'],
+      modelPicker: { options: [{ model: 'claude-3-7-sonnet-20250219', behavesAs: 'claude-sonnet-4-5' }] },
+      modelOverrides: { 'claude-sonnet-4-5': 'my-provider/deployment' },
+      env: { ANTHROPIC_MODEL: 'claude-sonnet-4-5[1m]', CUSTOM: 'claude-sonnet-4-5' },
+      hooks: { Stop: [{ hooks: [{ type: 'prompt', prompt: 'Check', model: 'claude-3-5-haiku-20241022' }] }] },
+    };
+    const result = normalizeClaudeNativeSettings(native);
+    expect(result).toMatchObject({
+      modelSettings: {
+        'claude-sonnet-5-5': { effortLevel: 'medium', autoCompactWindow: 300000 },
+        'vendor.model': { effortLevel: 'high' },
+      },
+      fallbackModel: ['claude-sonnet-5-5', 'my-provider/deployment'],
+      advisorModel: 'claude-opus-4-8',
+      availableModels: ['claude-sonnet-5-5', 'opus'],
+      modelPicker: { options: [{ model: 'claude-sonnet-5-5', behavesAs: 'claude-sonnet-5-5' }] },
+      modelOverrides: { 'claude-sonnet-5-5': 'my-provider/deployment' },
+      env: { ANTHROPIC_MODEL: 'claude-sonnet-5-5[1m]', CUSTOM: 'claude-sonnet-4-5' },
+      hooks: { Stop: [{ hooks: [{ model: 'claude-haiku-4-5-20251001' }] }] },
+    });
+    expect(result.modelSettings).not.toHaveProperty('claude-sonnet-4-5-20250929');
+    expect(native.modelSettings).toHaveProperty('claude-sonnet-4-5-20250929');
+    expect(normalizeClaudeNativeSettings(result)).toEqual(result);
+    expect(JSON.parse(new ClientConfigService({} as never).render({ native_settings: native }, 'claude').content)).toMatchObject(result);
+  });
+
   it('preserves opt-in features through normalization, stored settings and both renders', () => {
     const native = {
       modelSettings: { 'claude-opus-5-5': { effortLevel: 'high', maxEffortLevel: 'xhigh', autoCompactWindow: 300000 } },

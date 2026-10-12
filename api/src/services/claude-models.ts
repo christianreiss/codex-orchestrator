@@ -14,28 +14,10 @@ import { ApiError } from '../http/errors.js';
 export const CLAUDE_DEFAULT_MODEL = 'claude-sonnet-5';
 
 /**
- * Current models first, followed by supported pinned predecessors.
- *
- * `claude-fable-5-1` is Anthropic's most capable widely released model and was
- * missing here: this list predates it, so the gate 404'd an id the fleet's own
- * `claude` CLI resolves. Confirmed live on claude-cli 2.1.261, 2026-09-06
- * (`claude --model claude-fable-5-1 -p ...` answers) and present in the CLI
- * binary's own id table.
- *
- * `claude-mythos-5-1` is deliberately absent — it is a restricted-access model
- * (Project Glasswing), not something a general fleet picker should offer.
- *
- * `claude-opus-5-5` added 2026-09-23: it is now Anthropic's recommended
- * default for most workloads (successor to `claude-opus-5` in the Opus tier,
- * $4/$20 per MTok vs. $5/$25), confirmed GA via
- * platform.claude.com/docs/en/about-claude/models/overview. Every model
- * already in this list is still listed there too, under "Legacy models
- * (still available)" — nothing here is retired, so nothing was removed.
- *
- * `claude-sonnet-5-5` added 2026-09-29: present in the claude-cli 2.1.284 model
- * catalog (`first_party` id, 1M context, 128k max output) and now what the
- * CLI's `sonnet` alias resolves to. `CLAUDE_DEFAULT_MODEL` deliberately stays
- * on `claude-sonnet-5`: this change makes 5.5 supported, not the default.
+ * Public, non-deprecated Claude models verified 2026-10-12 against the vendor
+ * lifecycle table and Claude Code 2.1.296's first-party native catalog.
+ * Restricted-access Mythos models are not general fleet choices. Account and
+ * provider restrictions still apply; catalog membership does not grant access.
  */
 export const CLAUDE_SUPPORTED_MODELS = [
   'claude-fable-5-1',
@@ -47,6 +29,9 @@ export const CLAUDE_SUPPORTED_MODELS = [
   'claude-sonnet-5',
   'claude-opus-4-7',
   'claude-sonnet-4-6',
+  'claude-haiku-5-5',
+  'claude-opus-4-6',
+  'claude-opus-4-5-20251101',
   'claude-haiku-4-5-20251001',
 ] as const;
 
@@ -65,13 +50,47 @@ export const CLAUDE_LEGACY_MODEL_UPGRADES: Record<string, ClaudeModel> = {
   'claude-3-5-haiku-latest': 'claude-haiku-4-5-20251001',
   'claude-opus-4-20250514': 'claude-opus-4-8',
   'claude-sonnet-4-20250514': 'claude-sonnet-5',
-  'claude-sonnet-4-5': 'claude-sonnet-5',
-  // Heal ids issued by the pre-2026-06-15 admin picker, which offered the short
-  // `claude-opus-4-6` / `claude-haiku-4-5` ids that this gate never accepted.
-  // Upgrade already-stored overrides/requests instead of 400-ing them.
-  'claude-opus-4-6': 'claude-opus-4-8',
+  'claude-sonnet-4-5': 'claude-sonnet-5-5',
+  'claude-sonnet-4-5-20250929': 'claude-sonnet-5-5',
+  'claude-sonnet-4-5-latest': 'claude-sonnet-5-5',
+  'claude-opus-4-1-20250805': 'claude-opus-4-8',
+  'claude-opus-4-1': 'claude-opus-4-8',
+  'claude-opus-4-0': 'claude-opus-4-8',
+  'claude-sonnet-4-0': 'claude-sonnet-5-5',
+  'claude-3-7-sonnet-20250219': 'claude-sonnet-5-5',
+  'claude-3-7-sonnet': 'claude-sonnet-5-5',
+  'claude-3-5-sonnet': 'claude-sonnet-5',
+  'claude-3-5-haiku': 'claude-haiku-4-5-20251001',
+  'claude-3-7-sonnet-latest': 'claude-sonnet-5-5',
+  'claude-3-sonnet-20240229': 'claude-sonnet-5',
+  'claude-3-5-haiku-20241022': 'claude-haiku-4-5-20251001',
+  'claude-2.0': 'claude-opus-4-8',
+  'claude-2.1': 'claude-opus-4-8',
+  'claude-1.0': 'claude-haiku-4-5-20251001',
+  'claude-1.1': 'claude-haiku-4-5-20251001',
+  'claude-1.2': 'claude-haiku-4-5-20251001',
+  'claude-1.3': 'claude-haiku-4-5-20251001',
+  'claude-instant-1.0': 'claude-haiku-4-5-20251001',
+  'claude-instant-1.1': 'claude-haiku-4-5-20251001',
+  'claude-instant-1.2': 'claude-haiku-4-5-20251001',
+  // Active short aliases canonicalize without upgrading to a different model.
+  'claude-opus-4-5': 'claude-opus-4-5-20251101',
   'claude-haiku-4-5': 'claude-haiku-4-5-20251001',
 };
+
+export const CLAUDE_MODEL_ENV_KEYS: readonly string[] = ['ANTHROPIC_MODEL', 'ANTHROPIC_DEFAULT_MODEL', 'ANTHROPIC_DEFAULT_OPUS_MODEL', 'ANTHROPIC_DEFAULT_SONNET_MODEL', 'ANTHROPIC_DEFAULT_HAIKU_MODEL', 'ANTHROPIC_DEFAULT_FABLE_MODEL', 'ANTHROPIC_SMALL_FAST_MODEL', 'CLAUDE_CODE_SUBAGENT_MODEL'];
+
+/** Canonicalize known retired/deprecated IDs without rewriting custom providers. */
+export function normalizeClaudeModelReference(value: string): string {
+  const trimmed = value.trim();
+  const suffix = /\[1m\]$/i.test(trimmed) ? '[1m]' : '';
+  const base = suffix ? trimmed.slice(0, -4) : trimmed;
+  const key = base.toLowerCase();
+  const replacement = Object.hasOwn(CLAUDE_LEGACY_MODEL_UPGRADES, key)
+    ? CLAUDE_LEGACY_MODEL_UPGRADES[key]
+    : undefined;
+  return replacement ? replacement + suffix : trimmed;
+}
 
 /**
  * Per-model metadata surfaced by the Models API: human-readable name, context
@@ -92,7 +111,49 @@ export const CLAUDE_MODEL_METADATA: Record<
   'claude-sonnet-5': { displayName: 'Claude Sonnet 5', maxInputTokens: 1_000_000, maxTokens: 128_000 },
   'claude-opus-4-7': { displayName: 'Claude Opus 4.7', maxInputTokens: 1_000_000, maxTokens: 128_000 },
   'claude-sonnet-4-6': { displayName: 'Claude Sonnet 4.6', maxInputTokens: 1_000_000, maxTokens: 128_000 },
+  'claude-haiku-5-5': { displayName: 'Claude Haiku 5.5', maxInputTokens: 1_000_000, maxTokens: 128_000 },
+  'claude-opus-4-6': { displayName: 'Claude Opus 4.6', maxInputTokens: 1_000_000, maxTokens: 128_000 },
+  'claude-opus-4-5-20251101': { displayName: 'Claude Opus 4.5', maxInputTokens: 200_000, maxTokens: 64_000 },
   'claude-haiku-4-5-20251001': { displayName: 'Claude Haiku 4.5', maxInputTokens: 200_000, maxTokens: 64_000 },
+};
+
+/**
+ * Persisted native effort levels, verified against Claude Code 2.1.296 and
+ * code.claude.com/docs/en/model-config on 2026-10-12. `max` is session-only.
+ * API effort support is not a CLI capability: Opus 4.5 has no native effort
+ * control, and Opus/Sonnet 4.6 stop at `high` for persisted settings.
+ */
+export const CLAUDE_MODEL_REASONING_EFFORTS: Readonly<Record<string, readonly string[]>> = {
+  'claude-fable-5-1': ['low', 'medium', 'high', 'xhigh'],
+  'claude-fable-5': ['low', 'medium', 'high', 'xhigh'],
+  'claude-opus-5-5': ['low', 'medium', 'high', 'xhigh'],
+  'claude-opus-5': ['low', 'medium', 'high', 'xhigh'],
+  'claude-opus-4-8': ['low', 'medium', 'high', 'xhigh'],
+  'claude-sonnet-5-5': ['low', 'medium', 'high', 'xhigh'],
+  'claude-sonnet-5': ['low', 'medium', 'high', 'xhigh'],
+  'claude-opus-4-7': ['low', 'medium', 'high', 'xhigh'],
+  'claude-sonnet-4-6': ['low', 'medium', 'high'],
+  'claude-haiku-5-5': ['low', 'medium', 'high', 'xhigh'],
+  'claude-opus-4-6': ['low', 'medium', 'high'],
+  'claude-opus-4-5-20251101': [],
+  'claude-haiku-4-5-20251001': [],
+};
+
+/** Native CLI defaults, independent of API request defaults and account policy. */
+export const CLAUDE_MODEL_DEFAULT_REASONING_EFFORTS: Readonly<Record<string, string | null>> = {
+  'claude-fable-5-1': 'high',
+  'claude-fable-5': 'high',
+  'claude-opus-5-5': 'medium',
+  'claude-opus-5': 'high',
+  'claude-opus-4-8': 'high',
+  'claude-sonnet-5-5': 'medium',
+  'claude-sonnet-5': 'high',
+  'claude-opus-4-7': 'xhigh',
+  'claude-sonnet-4-6': 'high',
+  'claude-haiku-5-5': 'medium',
+  'claude-opus-4-6': 'high',
+  'claude-opus-4-5-20251101': null,
+  'claude-haiku-4-5-20251001': null,
 };
 
 export interface ClaudeModelInfo {

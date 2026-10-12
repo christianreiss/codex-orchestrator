@@ -116,6 +116,9 @@ describe('config-normalizer constants', () => {
       'claude-sonnet-5': ['low', 'medium', 'high', 'xhigh'],
       'claude-opus-4-7': ['low', 'medium', 'high', 'xhigh'],
       'claude-sonnet-4-6': ['low', 'medium', 'high'],
+      'claude-haiku-5-5': ['low', 'medium', 'high', 'xhigh'],
+      'claude-opus-4-6': ['low', 'medium', 'high'],
+      'claude-opus-4-5-20251101': [],
       'claude-haiku-4-5-20251001': [],
     });
     expect(CLAUDE_MODEL_DEFAULT_REASONING_EFFORTS).toEqual({
@@ -128,6 +131,9 @@ describe('config-normalizer constants', () => {
       'claude-sonnet-5': 'high',
       'claude-opus-4-7': 'xhigh',
       'claude-sonnet-4-6': 'high',
+      'claude-haiku-5-5': 'medium',
+      'claude-opus-4-6': 'high',
+      'claude-opus-4-5-20251101': null,
       'claude-haiku-4-5-20251001': null,
     });
   });
@@ -191,11 +197,21 @@ describe('normalizeClaudeModel', () => {
   });
 });
 
+describe('Claude stored model migration', () => {
+  it('heals deprecated top-level and environment selections and keeps active predecessors', () => {
+    const opts = { applyCodexDefaults: false, engine: 'claude' as const };
+    expect(normalizeSettings({ model: 'claude-sonnet-4-5-20250929', env: { ANTHROPIC_MODEL: 'claude-opus-4-1-20250805', CUSTOM: 'claude-opus-4-1-20250805' } }, opts)).toMatchObject({
+      model: 'claude-sonnet-5-5', env: { ANTHROPIC_MODEL: 'claude-opus-4-8', CUSTOM: 'claude-opus-4-1-20250805' },
+    });
+    expect(normalizeSettings({ model: 'claude-opus-4-6', effortLevel: 'high' }, opts)).toMatchObject({ model: 'claude-opus-4-6', effortLevel: 'high' });
+    expect(normalizeClaudeModel('my-provider/Custom.Model')).toBe('my-provider/Custom.Model');
+  });
+});
+
 describe('normalizeClaudeAdvisorModel', () => {
   it('exposes the tier alias allowlist', () => {
-    // `haiku` is deliberately absent: it resolves to claude-haiku-4-5, whose
-    // catalog advisor_rank is 1, and the CLI requires >= 2 (`fZr`) for a model
-    // to act as an advisor at all. Its own picker list is ["fable","opus","sonnet"].
+    // Haiku5.5 now has advisor rank4, but the native advisor picker still
+    // offers only ["fable","opus","sonnet"] in Claude Code2.1.296.
     expect(ADVISOR_MODEL_ALIASES).toEqual(['opus', 'sonnet', 'fable']);
   });
   it('accepts the tier aliases case-insensitively and trims', () => {
@@ -211,10 +227,12 @@ describe('normalizeClaudeAdvisorModel', () => {
     expect(claudeAdvisorPairIsValid('claude-sonnet-5', 'opus')).toBe(true);
     expect(claudeAdvisorPairIsValid('claude-sonnet-5', 'fable')).toBe(true);
     expect(claudeAdvisorPairIsValid('claude-sonnet-4-6', 'sonnet')).toBe(true);
-    // opus-5 (rank 4) cannot be advised by sonnet-5 (rank 3).
+    // Opus5 (rank7) cannot be advised by current Sonnet5.5 (rank6).
     expect(claudeAdvisorPairIsValid('claude-opus-5', 'sonnet')).toBe(false);
-    // fable-5-1 (rank 5) outranks opus-5 (rank 4).
+    // Fable5.1 (rank9) outranks current Opus5.5 (rank7).
     expect(claudeAdvisorPairIsValid('claude-fable-5-1', 'opus')).toBe(false);
+    expect(claudeAdvisorPairIsValid('claude-opus-4-8', 'sonnet')).toBe(true);
+    expect(claudeAdvisorPairIsValid('claude-haiku-5-5', 'claude-opus-4-6')).toBe(false);
     // Below the minimum advisor rank entirely.
     expect(claudeAdvisorPairIsValid('claude-sonnet-5', 'claude-haiku-4-5')).toBe(false);
     // Unknown on either side -> allowed, matching the CLI's open bail-out.

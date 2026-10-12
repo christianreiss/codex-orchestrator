@@ -569,7 +569,7 @@ def _run_claude_probe(payload) -> dict:
                 "content-type": "application/json",
             },
             json={
-                "model": "claude-sonnet-4-20250514",
+                "model": "claude-haiku-4-5-20251001",
                 "max_tokens": 16,
                 "messages": [{"role": "user", "content": "Reply Banana if this works."}],
             },

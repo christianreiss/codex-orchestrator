@@ -42,12 +42,15 @@ describe('claude-models', () => {
       'claude-sonnet-5',
       'claude-opus-4-7',
       'claude-sonnet-4-6',
+      'claude-haiku-5-5',
+      'claude-opus-4-6',
+      'claude-opus-4-5-20251101',
       'claude-haiku-4-5-20251001',
     ]);
   });
 
   it('maps legacy model ids onto the current generation', () => {
-    expect(CLAUDE_LEGACY_MODEL_UPGRADES['claude-sonnet-4-5']).toBe('claude-sonnet-5');
+    expect(CLAUDE_LEGACY_MODEL_UPGRADES['claude-sonnet-4-5']).toBe('claude-sonnet-5-5');
     expect(CLAUDE_LEGACY_MODEL_UPGRADES['claude-3-opus-20240229']).toBe('claude-opus-4-8');
   });
 
@@ -69,11 +72,13 @@ describe('claude-models', () => {
     expect(await svc.resolveRequestedModel('claude-3-5-sonnet-latest')).toBe('claude-sonnet-5');
   });
 
-  it('upgrades pre-reconciliation picker ids to the gate canon', async () => {
+  it('keeps active pinned predecessors and canonicalizes their short aliases', async () => {
     const svc = createClaudeModelsService(fakeDb());
-    expect(CLAUDE_LEGACY_MODEL_UPGRADES['claude-opus-4-6']).toBe('claude-opus-4-8');
+    expect(CLAUDE_LEGACY_MODEL_UPGRADES['claude-opus-4-6']).toBeUndefined();
+    expect(await svc.resolveRequestedModel('claude-opus-4-5')).toBe('claude-opus-4-5-20251101');
+    expect(await svc.resolveRequestedModel('claude-haiku-5-5')).toBe('claude-haiku-5-5');
     expect(CLAUDE_LEGACY_MODEL_UPGRADES['claude-haiku-4-5']).toBe('claude-haiku-4-5-20251001');
-    expect(await svc.resolveRequestedModel('claude-opus-4-6')).toBe('claude-opus-4-8');
+    expect(await svc.resolveRequestedModel('claude-opus-4-6')).toBe('claude-opus-4-6');
     expect(await svc.resolveRequestedModel('claude-haiku-4-5')).toBe('claude-haiku-4-5-20251001');
   });
 
@@ -144,8 +149,10 @@ describe('claude-models', () => {
       max_tokens: 128_000,
     });
     expect((await svc.modelResponse('claude-haiku-4-5-20251001')).max_input_tokens).toBe(200_000);
+    expect(await svc.modelResponse('claude-haiku-5-5')).toMatchObject({ max_input_tokens: 1_000_000, max_tokens: 128_000 });
+    expect(await svc.modelResponse('claude-opus-4-5-20251101')).toMatchObject({ max_input_tokens: 200_000, max_tokens: 64_000 });
     // Legacy aliases resolve to their canonical replacement.
-    expect((await svc.modelResponse('claude-sonnet-4-5')).id).toBe('claude-sonnet-5');
+    expect((await svc.modelResponse('claude-sonnet-4-5')).id).toBe('claude-sonnet-5-5');
 
     for (const bad of ['gpt-4o', '', '   ']) {
       await expect(svc.modelResponse(bad)).rejects.toMatchObject({

@@ -24,7 +24,7 @@ The image bundles:
 - Grok Build 1.0.46 from the official `@xai-official/grok-linux-{x64,arm64}` native package, installed by `install-grok.mjs` using Node's built-in Brotli decoder.
 
 - The Codex CLI (default `rust-v0.154.0`, musl builds; see `CODEX_TAG` in `runner/Dockerfile`). The pin has to stay in step with the fleet's codex target so the probe runs the same model catalog as real hosts — an older CLI without the default probe model fails every valid fresh login. Override via build args `CODEX_TAG`, `CODEX_VERSION`, `CODEX_ASSET_AMD64`, `CODEX_ASSET_ARM64`, `CODEX_SHA256_AMD64`, `CODEX_SHA256_ARM64`. Supported `TARGETARCH` values are `amd64` and `arm64`.
-- Node.js 22.14.0 plus `@anthropic-ai/claude-code@2.1.233` (installed globally), so `/verify-claude` and the Claude `exec` path work without extra setup.
+- Node.js 22.14.0 plus `@anthropic-ai/claude-code@2.1.296` (installed globally), so `/verify-claude` and the Claude `exec` path work without extra setup.
 
 Codex and Node archives are checked against pinned SHA256 digests. The official Grok native package is pinned to 1.0.46 with a sha512 integrity digest and only `package/bin/grok.br` is decoded; npm lifecycle scripts are never run. All three CLIs must report the expected version after installation; a missing, unreadable, or mismatched binary fails the build. There is no `|| true`. The base image is pinned by multi-arch index digest — `scripts/update-base-images.sh` refreshes that pin and the Node/Codex checksums together.
 
@@ -97,8 +97,8 @@ Returns what the image actually carries, probed once at import:
     "claude": {
       "available": true,
       "binary": "/usr/local/bin/claude",
-      "version": "2.1.233",
-      "expected_version": "2.1.233",
+      "version": "2.1.296",
+      "expected_version": "2.1.296",
       "version_matches": true,
       "detail": "ready"
     }
@@ -261,7 +261,7 @@ Response (failure):
 Behavior details:
 - API-key payloads POST to `${ANTHROPIC_API_BASE}/v1/messages` (default
   `https://api.anthropic.com/v1/messages`) with `model:
-  "claude-sonnet-4-20250514"`, `max_tokens: 16`, and a one-line "Reply Banana"
+  "claude-haiku-4-5-20251001"`, `max_tokens: 16`, and a one-line "Reply Banana"
   probe prompt.
 - Claude Code OAuth payloads create a temp `$HOME` under `RUNNER_HOME_PARENT`,
   project the canonical envelope onto the native `claudeAiOauth`-only
