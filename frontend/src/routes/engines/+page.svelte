@@ -8,6 +8,7 @@
   import CdxSilentSection from "$lib/components/settings/CdxSilentSection.svelte";
   import QuotasSection from "$lib/components/settings/QuotasSection.svelte";
   import ScalingSection from "$lib/components/settings/ScalingSection.svelte";
+  import NativeSettingsEditor from "$lib/components/settings/NativeSettingsEditor.svelte";
   import ClaudeFleetSettings from "$lib/components/settings/ClaudeFleetSettings.svelte";
   import EngineMasterSwitches from "$lib/components/settings/EngineMasterSwitches.svelte";
   import { Badge } from "$lib/components/ui/badge";
@@ -72,6 +73,7 @@
       <ModelDefaultsSection engine="codex" headingLevel={3} />
       <CodexVersionSection headingLevel={3} />
       <CdxSilentSection bordered={false} />
+      <NativeSettingsEditor engine="codex" />
     </div>
   </section>
 
@@ -84,6 +86,7 @@
     <div class:opacity-70={!$fleet.isEnabled("claude")}>
       <ModelDefaultsSection engine="claude" headingLevel={3} />
       <ClaudeVersionSection headingLevel={3} />
+      <NativeSettingsEditor engine="claude" />
     </div>
   </section>
 
@@ -96,6 +99,7 @@
     <div class:opacity-70={!$fleet.isEnabled("grok")}>
       <ModelDefaultsSection engine="grok" headingLevel={3} />
       <GrokVersionSection headingLevel={3} />
+      <NativeSettingsEditor engine="grok" />
     </div>
   </section>
 

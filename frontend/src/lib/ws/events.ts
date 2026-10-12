@@ -151,7 +151,7 @@ export const DEFAULT_INVALIDATIONS: WsInvalidationMap = {
   "companion.devices.changed": [["companion-devices"]],
   "accounts.updated": [["accounts"], ["overview"], ["hosts"]],
   "host.spawn.state_changed": [["settings", "host-spawn"], ["hosts"]],
-  "settings.changed": [["settings"], ["hosts"], ["skills", "source"], ["keys", "openai", "state"], ["keys", "claude", "state"], ["keys", "grok", "state"]],
+  "settings.changed": [["settings"], ["claude-settings"], ["hosts"], ["skills", "source"], ["keys", "openai", "state"], ["keys", "claude", "state"], ["keys", "grok", "state"]],
   // Fleet engine master switch. Settings covers the switch rows and the
   // exposed API surfaces; hosts, overview, accounts, setup, messaging and the
   // runner card all render per-engine state that the switch suspends.
