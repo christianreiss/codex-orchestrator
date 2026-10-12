@@ -14,6 +14,7 @@ import { describe, expect, it } from 'vitest';
 
 const root = resolve(import.meta.dirname, '../../../..');
 const install = readFileSync(resolve(root, 'bin/install.sh'), 'utf8');
+const instanceCompose = readFileSync(resolve(root, 'bin/lib/instance-compose.sh'), 'utf8');
 const shim = readFileSync(resolve(root, 'bin/setup.sh'), 'utf8');
 const makefile = readFileSync(resolve(root, 'wrappers/Makefile'), 'utf8');
 const compose = readFileSync(resolve(root, 'docker-compose.yml'), 'utf8');
@@ -141,8 +142,9 @@ describe('fresh-install setup contract', () => {
     // `${VAR:-default}` interpolates from compose's own environment. Naming
     // ENV_FILE alone resolves AUTH_RUNNER_SHARED_SECRET to empty and mounts the
     // default DATA_ROOT.
-    expect(install).toContain('ENV_FILE=$ENV_PATH');
-    expect(install).toContain('DATA_ROOT=$DATA_ROOT_RESOLVED');
+    expect(install).toContain('instance_compose "$@"');
+    expect(instanceCompose).toContain('ENV_FILE=$ENV_PATH');
+    expect(instanceCompose).toContain('DATA_ROOT=$DATA_ROOT_RESOLVED');
     expect(compose).toContain('AUTH_RUNNER_SHARED_SECRET: ${AUTH_RUNNER_SHARED_SECRET:-}');
   });
 

@@ -255,8 +255,79 @@ environment: the shell plus `./.env`, never `ENV_FILE`.
 So a raw `ENV_FILE=./.env.local docker compose up` silently resolves
 `AUTH_RUNNER_SHARED_SECRET` to empty and mounts the *default* `DATA_ROOT`, which
 fails the `wrappers` readiness check with nothing obviously wrong.
-`bin/install.sh` exports the whole file into Compose's environment so the two
+The installer, `bin/orchestrator`, and the deploy helper export the whole file
+into Compose's environment so the two
 agree. If you drive Compose by hand with a non-default env file, do the same.
+
+## Instance management
+
+Run `bin/orchestrator` on the Docker host. It resolves this checkout from its
+own location, so commands work from other directories too. Bash, Docker Compose
+v2 or newer and a reachable Docker daemon are required; start/status/update also
+use Python 3, and mutating commands use `flock`. Setup keeps the existing
+installer's prerequisites and flags.
+
+```bash
+bin/orchestrator setup                       # guided, resumable installation
+bin/orchestrator setup --help                # all installer flags
+bin/orchestrator start                       # start existing images; await readiness
+bin/orchestrator stop                        # retain containers, networks and data
+bin/orchestrator status                      # revision, services, health, readiness
+bin/orchestrator status --json               # one JSON object on stdout
+bin/orchestrator update                      # GitHub main, backup, rebuild and restart
+bin/orchestrator status --env-file .env.local
+bin/orchestrator start --profile caddy
+```
+
+The selected env file takes precedence over shell values for Compose
+interpolation and container configuration; its own `ENV_FILE` entry cannot
+override the selected path. Relative env-file paths resolve against this
+checkout. Env values are read as data without executing shell expressions.
+Setup records the bundled TLS proxy choice in `COMPOSE_PROFILES`, preserving
+other comma-separated profiles. Existing Caddy containers are detected even
+when an older setup did not record that choice. A recorded empty profile list
+keeps Caddy disabled even if an old container remains. Explicit `--profile NAME`
+enables additional profiles for the command; `stop` covers every instance
+profile. All commands use Compose project `codex-orchestrator`.
+
+Setup/start/stop/update share a checkout lock; concurrent mutations fail
+immediately. Status is read-only and remains usable while that lock is held.
+Status distinguishes `ready`, `stopped`, `partial` and `unhealthy`, with service
+states and critical API readiness checks. Retained containers for disabled
+profiles are reported separately from configured services and do not block
+readiness. A successful command or ready status
+exits 0, operational failures or non-ready status exit 1, and invalid arguments
+exit 2. Help does not require Docker. `start` does not build images or provision
+a database; an incomplete installation should resume `setup`.
+
+### Updating and recovery
+
+`update` fetches `main` from the checkout's `github` remote, falling back to
+`https://github.com/christianreiss/codex-orchestrator.git`. Override the source
+with `update --repo-url URL`; neither `origin` nor upstream configuration is
+changed. It requires a clean `main` branch and refuses local commits absent
+from the fetched branch, divergence and untracked files. It never stashes,
+resets or rebases local work.
+
+The command pins the fetched revision, starts MySQL if necessary, and creates
+a private directory under `DATA_ROOT/backups` with a completed transactional
+database dump, the env file (including the encryption key), and previous/target
+Git revisions. A failed dump stops the update before the checkout advances.
+It then fast-forwards, re-executes the updated CLI with the same lock, and runs
+the deploy helper with Git fetching and global Docker pruning disabled. The
+helper publishes new wrapper versions, builds the stack, runs migrations,
+restarts configured services, and checks health/logs; the CLI additionally
+checks critical readiness. Updating a stopped instance starts it. These backups
+cover the database and env file, not the entire storage tree.
+
+Failures name the stage, actual previous/target revisions and backup directory.
+After a failed deployment, fix the cause and rerun `update`: it redeploys even
+when the checkout already matches GitHub. Migrations are not reversed
+automatically. For a rollback, stop the instance, restore the matching database
+dump and env file, use a clean checkout of the recorded previous revision, and
+rebuild/start that revision. Preserve the storage tree; if wrapper publication
+already advanced, follow the manifest rollback procedure in
+[wrapper architecture](wrapper-v2-architecture.md).
 
 ## Build and Run
 
@@ -269,7 +340,8 @@ docker compose up -d --wait api
 docker compose up -d quota-cron
 ```
 
-For an existing checkout, use the deploy helper:
+For normal instance updates use `bin/orchestrator update` above. The lower-level
+deploy helper remains available for service-specific or upstream-based delivery:
 
 ```bash
 scripts/deploy.sh --backup
@@ -294,7 +366,7 @@ if wrapper sources changed since the served binary's commit without a
 `VERSION` bump it warns and continues. `--skip-wrappers` opts out, and the step
 refuses to run while a signing-key rotation leaves more than one active key.
 
-- Starts `api`, `auth-runner`, `mysql` and `quota-cron`. Add `--profile caddy`
+- Starts `api`, `auth-runner`, `mysql`, `media-worker` and `quota-cron`. Add `--profile caddy`
   for the TLS proxy.
 - API defaults to `http://localhost:8488`.
 - Setup wizard: `/admin/setup`. Nine steps from a bare console to a configured

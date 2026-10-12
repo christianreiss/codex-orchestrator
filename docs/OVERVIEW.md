@@ -452,6 +452,17 @@ policy defaults, endpoints or enforcement behavior.
   and shared revision metadata and therefore follows their configured retention;
   it is not an immutable compliance ledger or a restorable body-history store.
 
+### Local instance CLI
+
+`bin/orchestrator` manages the local Docker Compose instance through `setup`,
+`start`, `stop`, `status` (including `--json`) and `update`. Setup and deployment
+share env-file interpolation and configured profiles; setup persists its Caddy
+choice. Stop retains containers and data. Update fetches GitHub `main`, requires
+a clean fast-forwardable checkout, saves private database/env backups, then
+rebuilds, migrates, restarts and verifies readiness. It starts stopped instances
+and supports retries after deployment failure. Mutations share a checkout lock;
+status stays available. See [installation](INSTALL.md#instance-management).
+
 ## Fleet workflow at a glance
 
 - Bring up the stack with `bin/install.sh`, which generates `.env`, provisions the schema (`migrate.js --init-schema` applies the baseline only against an empty database, then migrates), builds the wrapper fleet and creates the first owner. Twelve re-runnable steps; `READY` is printed only when all six critical `/readyz` checks pass, and `bin/install.sh doctor` names the command that fixes each failure. Add `--tls acme|file|selfsigned` for the bundled Caddy frontend. Runner + quota cron sidecars are on by default in compose.

@@ -3,6 +3,11 @@ set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd "${script_dir}/.." && pwd)"
+INSTANCE_ROOT="$repo_root"
+# shellcheck source=bin/lib/instance-compose.sh
+source "$repo_root/bin/lib/instance-compose.sh"
+declare -a INSTANCE_PROFILES=()
+instance_env_path
 
 original_args=("$@")
 backup=0
@@ -113,10 +118,10 @@ if ! docker compose version >/dev/null 2>&1; then
   fail "docker compose v2 is required"
 fi
 
-compose=(docker compose)
-for profile in "${profiles[@]}"; do
-  compose+=(--profile "${profile}")
-done
+INSTANCE_PROFILES=("${profiles[@]}")
+instance_adopt_caddy || fail "could not discover existing Caddy containers"
+instance_compose_init
+compose=("${INSTANCE_COMPOSE[@]}")
 
 if [[ "${skip_git}" -eq 0 ]]; then
   [[ -d .git ]] || fail "not a git checkout: ${repo_root}"
@@ -450,7 +455,7 @@ log "checking api health endpoint"
 if ! curl -fsS --max-time 15 http://127.0.0.1:8488/healthz >/dev/null; then
   log "host port health failed; trying inside api container"
   "${compose[@]}" exec -T api sh -lc \
-    'curl -fsS --max-time 15 http://127.0.0.1:8080/healthz >/dev/null'
+    'wget -q -O - http://127.0.0.1:8080/healthz >/dev/null'
 fi
 
 log "recent critical log scan"

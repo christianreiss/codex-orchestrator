@@ -30,6 +30,7 @@ const NON_API_VARS: Record<string, string> = {
   CADDY_TLS_KEY_FILE: 'caddy/tls-custom.caddy',
   CODEX_DEBUG: 'wrappers/cxx/internal/app/codex/main.go',
   CODEX_DEPLOY_BACKUP_DIR: 'scripts/deploy.sh',
+  COMPOSE_PROFILES: 'bin/lib/instance-compose.sh and Docker Compose',
   GROK_HOME: 'wrappers/cxx/internal/grok/native.go (Home)',
   GROK_SEED_AUTH_PATH: 'api/src/services/install-token.ts (generated Grok seed script)',
   // Spec-standard OpenTelemetry knob, read by the SDK itself rather than by

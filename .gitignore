@@ -35,3 +35,6 @@ __pycache__/
 /frontend/playwright-report/
 /frontend/coverage/
 /wrappers/cxx/cxx
+
+# Local instance-management lock; retain its inode across commands.
+/.orchestrator.lock

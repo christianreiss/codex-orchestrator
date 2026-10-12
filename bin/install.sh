@@ -29,6 +29,10 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
+INSTANCE_ROOT="$ROOT_DIR"
+# shellcheck source=bin/lib/instance-compose.sh
+source "$ROOT_DIR/bin/lib/instance-compose.sh"
+declare -a INSTANCE_PROFILES=()
 
 # ─── presentation ────────────────────────────────────────────────────────────
 # Everything human goes to stderr so `--json` stdout stays parseable on its own.
@@ -371,17 +375,7 @@ mask() {
 
 ENV_PATH=""
 
-env_get() {
-  local key="$1" line
-  [[ -f "$ENV_PATH" ]] || return 1
-  line="$(LC_ALL=C grep -E "^[[:space:]]*${key}=" "$ENV_PATH" | tail -n 1 || true)"
-  [[ -z "$line" ]] && return 1
-  local value="${line#*=}"
-  # Values written by hand may be quoted; the API's own loader strips matching
-  # outer quotes, so this has to agree with it.
-  if [[ "$value" == \"*\" || "$value" == \'*\' ]]; then value="${value:1:${#value}-2}"; fi
-  printf '%s' "$value"
-}
+env_get() { instance_env_get "$1"; }
 
 env_set() {
   local key="$1" value="$2" tmp
@@ -448,58 +442,12 @@ step_is_done() {
 
 # ─── docker ──────────────────────────────────────────────────────────────────
 
-declare -a COMPOSE=()
 USE_CADDY=0
 
-# Runs compose with the chosen env file loaded into compose's *own* environment,
-# not merely named in `env_file:`.
-#
-# Two distinct things read that file, and only one of them honours ENV_FILE.
-# `env_file:` hands variables to the container — but every key also listed under
-# `environment:` shadows it, and those `${VAR:-default}` expressions interpolate
-# from compose's environment, which is the shell plus `./.env` and never
-# ENV_FILE. So does every `${VAR}` in a bind-mount source. Point ENV_FILE at
-# `.env.local` without this and `${AUTH_RUNNER_SHARED_SECRET:-}` resolves to
-# empty while the file plainly sets it, or the wrapper matrix publishes to the
-# custom DATA_ROOT while the container mounts the default one — a stack that
-# builds cleanly and fails verification for no visible reason.
-#
-# Exporting the whole file closes it for every key at once, which beats
-# maintaining a list that silently rots as compose gains variables.
-compose() {
-  local -a overrides=()
-
-  if [[ -f "${ENV_PATH:-}" ]]; then
-    local line key
-    while IFS= read -r line; do
-      [[ "$line" =~ ^[[:space:]]*# ]] && continue
-      [[ "$line" =~ ^[[:space:]]*$ ]] && continue
-      key="${line%%=*}"; key="${key//[[:space:]]/}"
-      [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
-      overrides+=("$key=$(env_get "$key")")
-    done < "$ENV_PATH"
-  fi
-
-  # `env` is last-wins, so these two go after the file's own keys. Both would
-  # otherwise be clobbered by it: `.env.example` ships a literal `ENV_FILE=./.env`
-  # that would send compose looking for a file this run is not using, and
-  # step_dataroot may have just changed DATA_ROOT to something the file predates.
-  [[ -n "${DATA_ROOT_RESOLVED:-}" ]] && overrides+=("DATA_ROOT=$DATA_ROOT_RESOLVED")
-  [[ -n "${ENV_PATH:-}" ]] && overrides+=("ENV_FILE=$ENV_PATH")
-
-  env "${overrides[@]}" "${COMPOSE[@]}" "$@"
-}
-
-compose_profiles() {
-  (( USE_CADDY )) && printf '%s' "--profile caddy"
-}
+compose() { instance_compose "$@"; }
 
 detect_compose() {
-  if docker compose version >/dev/null 2>&1; then
-    COMPOSE=(docker compose -p codex-orchestrator)
-    return 0
-  fi
-  return 1
+  docker compose version >/dev/null 2>&1
 }
 
 require_cmd() { command -v "$1" >/dev/null 2>&1; }
@@ -863,6 +811,22 @@ step_tls() {
     *) fatal "unknown TLS mode: $mode (expected acme, file, selfsigned or none)" ;;
   esac
 
+  # Persist the proxy choice so start/update and resumed setup agree. Keep
+  # unrelated profiles when TLS is changed to an external proxy.
+  local profile configured profiles_csv=""
+  local -a configured_profiles=() retained_profiles=()
+  configured="$(env_get COMPOSE_PROFILES || printf '%s' "${COMPOSE_PROFILES:-}")"
+  IFS=',' read -r -a configured_profiles <<< "$configured"
+  for profile in "${configured_profiles[@]}"; do
+    [[ -z "$profile" || "$profile" == caddy ]] || profiles_csv+="${profiles_csv:+,}$profile"
+  done
+  (( ! USE_CADDY )) || profiles_csv+="${profiles_csv:+,}caddy"
+  env_set COMPOSE_PROFILES "$profiles_csv"
+  for profile in "${INSTANCE_PROFILES[@]}"; do
+    [[ "$profile" == caddy ]] || retained_profiles+=("$profile")
+  done
+  INSTANCE_PROFILES=("${retained_profiles[@]}")
+
   configure_proxy_trust "$mode"
   step_done "TLS mode: $mode"
 }
@@ -1104,7 +1068,7 @@ step_datatier() {
   (( DRY_RUN )) && { step_skipped "would start mysql and auth-runner"; return 0; }
   if (( ! SKIP_BUILD )); then
     info "building images"
-    compose $(compose_profiles) build --pull >&2 || fatal "image build failed"
+    compose build --pull >&2 || fatal "image build failed"
   fi
   # MySQL and the runner come up before the API, because the API fails closed on
   # a pending migration and the schema does not exist yet. Starting all three at
@@ -1131,16 +1095,16 @@ step_schema() {
 }
 
 step_apptier() {
-  (( DRY_RUN )) && { step_skipped "would start api and caddy"; return 0; }
-  local services=(api) up=(up -d)
+  (( DRY_RUN )) && { step_skipped "would start api, media-worker and configured caddy"; return 0; }
+  local services=(api media-worker) up=(up -d)
   (( USE_CADDY )) && services+=(caddy)
   compose up --help 2>/dev/null | grep -q -- '--wait' && up+=(--wait --wait-timeout 180)
   info "starting ${services[*]}"
-  compose $(compose_profiles) "${up[@]}" "${services[@]}" >&2 ||
-    fatal "the API did not become healthy; check \`docker compose logs api\`"
+  compose "${up[@]}" "${services[@]}" >&2 ||
+    fatal "the API or media worker did not become healthy; check \`docker compose logs api media-worker\`"
   # A missing provider credential is onboarding state, not a broken stack, so
   # the quota worker is never waited on.
-  compose $(compose_profiles) up -d quota-cron >&2 || true
+  compose up -d quota-cron >&2 || true
   step_done "api healthy"
 }
 
@@ -1466,7 +1430,11 @@ main() {
   ENV_PATH="${ENV_FILE:-$ROOT_DIR/.env}"
   [[ "$ENV_PATH" != /* ]] && ENV_PATH="$ROOT_DIR/${ENV_PATH#./}"
 
-  detect_compose || true
+  if detect_compose; then instance_adopt_caddy 2>/dev/null || true; fi
+  case ",$(env_get COMPOSE_PROFILES || printf '%s' "${COMPOSE_PROFILES:-}")," in
+    *,caddy,*) USE_CADDY=1 ;;
+  esac
+  [[ " ${INSTANCE_PROFILES[*]} " != *" caddy "* ]] || USE_CADDY=1
   # `--only`/`--from` can skip step_dataroot entirely, so seed the resolved root
   # from the env file and fall back to the flag. Leaving it empty makes every
   # path below it resolve against `/`.
