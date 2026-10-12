@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/claude"
 	"github.com/pelletier/go-toml"
 )
 
@@ -53,6 +54,23 @@ func AppendIdentityArgs(engine string, args []string, identity Identity) ([]stri
 		if err != nil {
 			return nil, err
 		}
+		if engine == "claude" {
+			var files []string
+			clean, files, err = removeStringFlag(engine, clean, []string{"--append-system-prompt-file"}, "")
+			if err != nil {
+				return nil, err
+			}
+			if len(files) > 0 {
+				if len(additions) > 0 {
+					return nil, fmt.Errorf("agent identity: cannot combine --append-system-prompt and --append-system-prompt-file")
+				}
+				body, err := os.ReadFile(files[len(files)-1])
+				if err != nil {
+					return nil, fmt.Errorf("agent identity: read append system prompt file: %w", err)
+				}
+				additions = append(additions, string(body))
+			}
+		}
 		additions = append(additions, context)
 		prefix := []string{flag, strings.Join(additions, "\n\n")}
 		if engine == "claude" {
@@ -88,8 +106,8 @@ func codexIdentityOverridePosition(args []string) int {
 		if arg == "--" {
 			break
 		}
-		if arg == "exec" || arg == "resume" || arg == "review" {
-			if arg == "exec" && at+1 < len(args) && args[at+1] == "resume" {
+		if arg == "exec" || arg == "e" || arg == "resume" || arg == "review" {
+			if (arg == "exec" || arg == "e") && at+1 < len(args) && args[at+1] == "resume" {
 				return at + 2
 			}
 			return at + 1
@@ -102,13 +120,15 @@ func codexIdentityOverridePosition(args []string) int {
 }
 
 func hasClaudeResume(args []string) bool {
-	for _, arg := range args {
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
 		if arg == "--" {
 			break
 		}
 		if arg == "--resume" || arg == "-r" || arg == "--continue" || arg == "-c" || strings.HasPrefix(arg, "--resume=") {
 			return true
 		}
+		i = claude.NativeOptionValueEnd(args, i)
 	}
 	return false
 }
@@ -156,6 +176,12 @@ func removeStringFlag(engine string, args, flags []string, valuePrefix string) (
 			}
 		}
 		out = append(out, arg)
+		if options && engine == "claude" {
+			end := claude.NativeOptionValueEnd(args, at)
+			out = append(out, args[at+1:end+1]...)
+			at = end
+			continue
+		}
 		// Provider parsers accept options after positional values too. Consume
 		// option values so flag-like prompt text is never mistaken for an option.
 		if options && identityValueFlag(engine, arg) && at+1 < len(args) && !((arg == "--resume" || arg == "-r") && strings.HasPrefix(args[at+1], "-")) {
@@ -221,7 +247,7 @@ func codexDeveloperInstructions(args []string) (string, error) {
 			at++
 			continue
 		}
-		if !strings.HasPrefix(arg, "-") && arg != "exec" && arg != "resume" && arg != "review" {
+		if !strings.HasPrefix(arg, "-") && arg != "exec" && arg != "e" && arg != "resume" && arg != "review" {
 			break
 		}
 	}

@@ -145,7 +145,7 @@ type flags struct {
 // made `clx sessions` hang as a literal prompt. Failing fast with "unknown
 // subcommand" is the honest answer.
 //
-// Re-synced against `claude --help` on claude-cli 2.1.261, 2026-09-06. Every
+// Re-synced against `claude --help` on claude-cli 2.1.296, 2026-10-12. Every
 // name below is one the upstream binary really parses — `config`, `login` and
 // `logout` no longer appear in its Commands list but still resolve and exit 0,
 // so they stay for operators who type them.
@@ -172,6 +172,7 @@ var reservedClaudeSubcommands = map[string]bool{
 	"plugin":      true,
 	"plugins":     true,
 	"project":     true,
+	"purge":       true,
 	"respawn":     true,
 	"rm":          true,
 	"setup-token": true,
@@ -216,6 +217,10 @@ func isHelpPassthrough(args []string) bool {
 		if a == "--" {
 			break
 		}
+		if end := claude.NativeOptionValueEnd(args, i); end > i {
+			i = end
+			continue
+		}
 		if a == "--help" || a == "-h" {
 			if firstPositional == "" {
 				helpBeforePositional = true
@@ -247,7 +252,7 @@ func isHelpPassthrough(args []string) bool {
 	if helpBeforePositional {
 		return true
 	}
-	if firstPositional != "" && reservedClaudeSubcommands[firstPositional] {
+	if firstPositional != "" && (reservedClaudeSubcommands[firstPositional] || unsupportedNativeService([]string{firstPositional}) != "") {
 		for _, a := range args {
 			if a == "--" {
 				break
@@ -329,6 +334,10 @@ func runMode(args []string, stdout, stderr io.Writer, native bool, choices ...*q
 		ui.Say(stderr, "claude", ui.ToneFail, "update", "Claude installation is fleet-managed; use clx update to install the pinned version")
 		return 2
 	}
+	if command := unsupportedNativeService(args); native && command != "" {
+		ui.Say(stderr, "clx", ui.ToneFail, command, "this Claude service cannot inherit managed authentication/settings; service lifecycle integration is required. Native --help remains available")
+		return 2
+	}
 	f, positional, passthrough := invocationFlags(args, native)
 	terminalui.SetForceMinimal(f.minimal)
 	if actions := conflictingActions(f, positional); len(actions) > 1 {
@@ -395,6 +404,12 @@ func runMode(args []string, stdout, stderr io.Writer, native bool, choices ...*q
 	// is unavailable; every other command fails concisely without starting any
 	// lifecycle work.
 	sub, subArgs := resolveCommand(f, positional)
+	if !native && sub != "sync" {
+		if command := unsupportedNativeService(append([]string{sub}, subArgs...)); command != "" {
+			ui.Say(stderr, "clx", ui.ToneFail, command, "this Claude service cannot inherit managed authentication/settings; service lifecycle integration is required. Native --help remains available")
+			return 2
+		}
+	}
 
 	if f.configPath == "" {
 		p, err := config.DefaultPathForEngine(config.EngineClaude)
@@ -470,6 +485,14 @@ func runMode(args []string, stdout, stderr io.Writer, native bool, choices ...*q
 		}()
 	}
 
+	if native && sub == "native-command" {
+		// Native maintenance bypasses interactive identity/session injection.
+		exit, err := claude.RunWithAuthSession(ctx, cfg, passthrough, commandSession)
+		if err != nil {
+			ui.Say(stderr, "clx", ui.ToneFail, "native command", err.Error())
+		}
+		return exit
+	}
 	switch sub {
 	case "run":
 		exit, err := lifecycle.Run(ctx, lifecycle.Options{
@@ -551,6 +574,9 @@ func runMode(args []string, stdout, stderr io.Writer, native bool, choices ...*q
 		// caught `--help` variants.
 		if reservedClaudeSubcommands[sub] {
 			execArgs := append([]string{sub}, append(subArgs, passthrough...)...)
+			if native {
+				execArgs = args
+			}
 			if authMutationKind(execArgs) != "" {
 				return runClaudeAuthMutation(ctx, cfg, execArgs, stdout, stderr, native)
 			}
@@ -587,6 +613,11 @@ func commandOwnsAuthSession(sub string, subArgs []string) bool {
 }
 
 func authMutationKind(args []string) string {
+	at, ok := claude.NativeSubcommandIndex(args)
+	if !ok {
+		return ""
+	}
+	args = args[at:]
 	if len(args) == 0 {
 		return ""
 	}

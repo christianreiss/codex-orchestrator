@@ -4,6 +4,7 @@ import (
 	"io"
 	"strings"
 
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/claude"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/quotaadvice"
 )
 
@@ -18,9 +19,16 @@ func invocationFlags(args []string, native bool) (flags, []string, []string) {
 	if !native {
 		return parseFlags(args)
 	}
-	if len(args) > 0 && (args[0] == "auth" || args[0] == "login" || args[0] == "logout") {
-		return flags{helpPassthrough: nativeInformation(args)}, append([]string(nil), args...), nil
+	if at, ok := claude.NativeSubcommandIndex(args); ok {
+		switch args[at] {
+		case "auth", "login", "logout":
+			return flags{helpPassthrough: nativeInformation(args)}, append([]string(nil), args[at:]...), nil
+		default:
+			// Maintenance commands must not receive interactive identity/session flags.
+			return flags{helpPassthrough: nativeInformation(args)}, []string{"native-command"}, append([]string(nil), args...)
+		}
 	}
+
 	return flags{helpPassthrough: nativeInformation(args)}, nil, append([]string(nil), args...)
 }
 func nativeInformation(args []string) bool {
@@ -30,35 +38,41 @@ func nativeInformation(args []string) bool {
 	if len(args) > 0 && args[0] == "help" {
 		return true
 	}
-	for _, arg := range args {
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
 		if arg == "--" {
 			break
 		}
 		if arg == "--help" || arg == "-h" {
 			return true
 		}
+		i = claude.NativeOptionValueEnd(args, i)
 	}
 	return false
 }
 func nativeHeadless(args []string) bool {
-	for _, arg := range args {
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
 		if arg == "--" {
 			break
 		}
 		if arg == "-p" || arg == "--print" || strings.HasPrefix(arg, "--print=") {
 			return true
 		}
+		i = claude.NativeOptionValueEnd(args, i)
 	}
 	return false
 }
 func nativeResumed(args []string) bool {
-	for _, arg := range args {
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
 		if arg == "--" {
 			break
 		}
 		if arg == "--continue" || arg == "-c" || arg == "--resume" || arg == "-r" || strings.HasPrefix(arg, "--resume=") {
 			return true
 		}
+		i = claude.NativeOptionValueEnd(args, i)
 	}
 	return false
 }
@@ -67,5 +81,10 @@ func nativeInstallerCommand(args []string) bool {
 	if len(args) == 0 || nativeInformation(args) {
 		return false
 	}
-	return args[0] == "install" || args[0] == "update" || args[0] == "upgrade"
+	at, ok := claude.NativeSubcommandIndex(args)
+	return ok && (args[at] == "install" || args[at] == "update" || args[at] == "upgrade")
+}
+
+func unsupportedNativeService(args []string) string {
+	return claude.UnsupportedNativeService(args)
 }

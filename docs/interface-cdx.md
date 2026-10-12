@@ -63,6 +63,17 @@ Grok (`cgx`) is the third persona of the same `cxx` binary; its subscription
 refresh ownership and native isolation differ. See [Grok interface](interface-cgx.md).
 
 
+### Native command maintenance (cxx 0.9.66)
+
+The native command catalog was checked against Codex CLI **0.162.1** on
+2026-10-12 and the [official CLI reference](https://learn.chatgpt.com/docs/cli/reference).
+`e` (exec) and `a` (apply) are reserved native aliases, including help passthrough,
+so a matching fleet profile cannot shadow them. The removed `mcp-server` command
+is no longer advertised as supported. Native command detection consumes current
+root option values, including `--add-dir` and `--remote-auth-token-env`, before
+classifying an auth command or headless run.
+
+
 ## Session credential resilience
 
 cxx 0.8.1 checks native changes every two seconds, uploads new usable generations,

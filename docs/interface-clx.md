@@ -61,6 +61,35 @@ refresh ownership and native isolation differ. See [Grok interface](interface-cg
 Source-of-truth contract for the `clx` wrapper (Claude Code fleet wrapper).
 Mirrors `docs/interface-cdx.md` with engine-specific deltas called out explicitly.
 
+### Native command maintenance (cxx 0.9.66)
+
+The native dispatch and flag grammar were checked against Claude Code
+**2.1.296** on 2026-10-12 and the
+[official CLI reference](https://code.claude.com/docs/en/cli-reference).
+`purge` is forwarded as a native maintenance command; it retains its native
+confirmation and `--dry-run` behavior. Recognized native maintenance commands
+run under the existing auth leases and settings overlay without interactive
+session identity arguments. Login/logout still use the auth journal. Native
+install/update commands remain fleet-owned, including when preceded by options.
+
+Required values (including advisor, prompt-file, subagent-prompt and turn-limit
+flags), optional values, and variadic lists are parsed separately. A command name
+inside a prompt, channel list or resume value stays a value; auth settings are
+inserted before the actual native subcommand. Model/effort and help detection use
+the same consumption rules. A launch using `--append-system-prompt-file` reads
+that file and combines its text with the session identity in one native append
+argument, avoiding the native conflict between file and inline forms.
+
+**Service integration boundary:** managed starts explicitly refuse `daemon`,
+`remote-control` (including `rc`, `remote`, `bridge` and native `sync` aliases),
+and `self-hosted-runner`, while native `--help` remains available. Claude rejects
+`--settings` before Remote Control because it cannot carry those settings into
+its child sessions; daemon and self-hosted-runner use a separate early parser.
+Supporting these services therefore requires a separate persistent auth/session
+lifecycle, not just another forwarded command name. Fleet `clx sync` retains its
+existing managed-content behavior. No service is started by this maintenance run.
+
+
 ## At a glance
 
 | | `cdx` (Codex) | `clx` (Claude) |

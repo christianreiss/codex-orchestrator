@@ -36,6 +36,7 @@ var claudeTopLevelSubcommands = map[string]struct{}{
 	"plugin":      {},
 	"plugins":     {},
 	"project":     {},
+	"purge":       {},
 	"respawn":     {},
 	"rm":          {},
 	"setup-token": {},
@@ -45,59 +46,173 @@ var claudeTopLevelSubcommands = map[string]struct{}{
 	"upgrade":     {},
 }
 
-// claudeGlobalOptionsWithValue lists root flags that consume the NEXT argv token,
-// so claudeSubcommandIndex can skip that token instead of mistaking it for the
-// first positional. Miss one and the scan bails at its value and never finds the
-// subcommand that follows, which puts the `--settings` auth overlay after the
-// subcommand — where Claude reads it as one of that subcommand's operands rather
-// than as the highest-precedence auth source.
-//
-// Re-synced against `claude --help` on claude-cli 2.1.263, 2026-09-06.
-//
-// ONLY required-value flags (`--flag <value>`) belong here. Commander's
-// optional-value flags (`--flag [value]`) must NOT be added: `-d/--debug`,
-// `--from-pr`, `--teleport`, `--cloud`, `--remote-control`,
-// `--prompt-suggestions`. For those the next token is a value only sometimes, so
-// unconditionally skipping it would swallow a real subcommand — `clx --debug
-// agents` would lose `agents`. They are deliberately absent.
+// Native root parser flags verified against Claude Code 2.1.296 on 2026-10-12.
+// Required, optional and variadic values have different consumption rules: a
+// command-looking value must never become a subcommand or an auth operation.
 var claudeGlobalOptionsWithValue = map[string]struct{}{
 	"--add-dir":                            {},
+	"--advisor":                            {},
 	"--agent":                              {},
+	"--agent-color":                        {},
+	"--agent-id":                           {},
+	"--agent-name":                         {},
+	"--agent-type":                         {},
 	"--agents":                             {},
 	"--allowed-tools":                      {},
 	"--allowedTools":                       {},
+	"--append-subagent-system-prompt":      {},
+	"--append-subagent-system-prompt-file": {},
 	"--append-system-prompt":               {},
+	"--append-system-prompt-file":          {},
+	"--attach-serve":                       {},
 	"--autocompact":                        {},
 	"--betas":                              {},
+	"--channels":                           {},
+	"--client-data-url":                    {},
+	"--correlation-id":                     {},
+	"--dangerously-load-development-channels": {},
 	"--debug-file":                         {},
+	"--deep-link-cwd-b64":                  {},
+	"--deep-link-last-fetch":               {},
+	"--deep-link-repo":                     {},
 	"--disallowed-tools":                   {},
 	"--disallowedTools":                    {},
 	"--effort":                             {},
 	"--environment":                        {},
 	"--fallback-model":                     {},
 	"--file":                               {},
+	"--forward-home-settings":              {},
+	"--inherit-permission-mode":            {},
 	"--input-format":                       {},
 	"--json-schema":                        {},
+	"--managed-settings":                   {},
 	"--max-budget-usd":                     {},
+	"--max-thinking-tokens":                {},
+	"--max-turns":                          {},
 	"--mcp-config":                         {},
+	"--messaging-socket-path":              {},
 	"--model":                              {},
 	"--name":                               {},
+	"--on-branch":                          {},
 	"--output-format":                      {},
+	"--parent-session-id":                  {},
 	"--permission-mode":                    {},
+	"--permission-prompt-tool":             {},
 	"--permission-prompts":                 {},
+	"--plan-mode-instructions":             {},
 	"--plugin-dir":                         {},
+	"--plugin-dir-no-mcp":                  {},
 	"--plugin-url":                         {},
-	"--resume":                             {},
+	"--pool":                               {},
+	"--prefill":                            {},
+	"--prefill-b64":                        {},
+	"--proactivity":                        {},
+	"--project-config-root":                {},
+	"--ref":                                {},
 	"--remote-control-session-name-prefix": {},
+	"--resume-drops-turn":                  {},
+	"--resume-session-at":                  {},
+	"--rewind-files":                       {},
+	"--sdk-url":                            {},
 	"--session-id":                         {},
 	"--setting-sources":                    {},
 	"--settings":                           {},
 	"--system-prompt":                      {},
+	"--system-prompt-file":                 {},
 	"--system-prompt-snapshot":             {},
+	"--task-budget":                        {},
+	"--team-name":                          {},
+	"--teammate-mode":                      {},
+	"--thinking":                           {},
+	"--thinking-display":                   {},
 	"--tools":                              {},
-	"--worktree":                           {},
+	"--watch-artifact":                     {},
+	"--watch-artifact-no-autoreact":        {},
+	"--workload":                           {},
 	"-n":                                   {},
-	"-r":                                   {},
+}
+
+var claudeGlobalOptionsWithOptionalValue = map[string]struct{}{
+	"--cloud":              {},
+	"--debug":              {},
+	"--from-pr":            {},
+	"--prompt-suggestions": {},
+	"--rc":                 {},
+	"--remote":             {},
+	"--remote-control":     {},
+	"--resume":             {},
+	"--teleport":           {},
+	"--worktree":           {},
+	"-d":                   {},
+	"-r":                   {},
+	"-w":                   {},
+}
+
+var claudeGlobalVariadicOptions = map[string]struct{}{
+	"--add-dir":       {},
+	"--allowed-tools": {},
+	"--allowedTools":  {},
+	"--betas":         {},
+	"--channels":      {},
+	"--dangerously-load-development-channels": {},
+	"--disallowed-tools":                      {},
+	"--disallowedTools":                       {},
+	"--file":                                  {},
+	"--mcp-config":                            {},
+	"--tools":                                 {},
+}
+
+// NativeOptionValueEnd returns the last argv index consumed by an option.
+// An equals-form value is already part of the option. Only separate optional
+// and additional variadic values stop at a following option or literal separator.
+func NativeOptionValueEnd(args []string, at int) int {
+	arg := args[at]
+	name, _, inline := strings.Cut(arg, "=")
+	_, required := claudeGlobalOptionsWithValue[name]
+	_, optional := claudeGlobalOptionsWithOptionalValue[name]
+	if !inline && required && at+1 < len(args) && args[at+1] != "--" {
+		at++
+	} else if !inline && optional && at+1 < len(args) && !strings.HasPrefix(args[at+1], "-") {
+		at++
+	}
+	if _, variadic := claudeGlobalVariadicOptions[name]; variadic {
+		for at+1 < len(args) && !strings.HasPrefix(args[at+1], "-") {
+			at++
+		}
+	}
+	return at
+}
+
+// UnsupportedNativeService identifies service commands whose child launches
+// cannot inherit the managed settings/auth overlay. Native help remains usable.
+// Claude 2.1.296 rejects --settings before remote-control and handles daemon and
+// self-hosted-runner before root settings parsing. A separate service lifecycle
+// is required; pretending these are interactive sessions would lose auth scope.
+func UnsupportedNativeService(args []string) string {
+	for i := 0; i < len(args); i++ {
+		if args[i] == "--" {
+			break
+		}
+		if args[i] == "--help" || args[i] == "-h" {
+			return ""
+		}
+		i = NativeOptionValueEnd(args, i)
+	}
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		if arg == "--" {
+			break
+		}
+		if !strings.HasPrefix(arg, "-") {
+			switch arg {
+			case "daemon", "remote-control", "rc", "remote", "bridge", "sync", "self-hosted-runner":
+				return arg
+			}
+			break
+		}
+		i = NativeOptionValueEnd(args, i)
+	}
+	return ""
 }
 
 // prepareRuntimeAuthSettings adds a highest-precedence CLI settings overlay
@@ -105,6 +220,9 @@ var claudeGlobalOptionsWithValue = map[string]struct{}{
 // key, when native API-key mode is selected, lives only in a mode-0600 settings
 // file and never in argv. Named files keep this path portable to Windows.
 func prepareRuntimeAuthSettingsForCLI(args []string, cli string) ([]string, func(), error) {
+	if command := UnsupportedNativeService(args); command != "" {
+		return args, func() {}, fmt.Errorf("%s cannot inherit managed authentication/settings; service lifecycle integration is required (native --help remains available)", command)
+	}
 	raw, err := runtimeAuthSettingsJSONForCLI(args, cli)
 	if err != nil {
 		return args, func() {}, err
@@ -200,7 +318,7 @@ func cleanupStaleRuntimeAuthSettings(dir string, now time.Time) {
 
 func injectRuntimeAuthSettings(args []string, settingsPath string) []string {
 	insertAt := len(args)
-	if subcommandAt, ok := claudeSubcommandIndex(args); ok {
+	if subcommandAt, ok := NativeSubcommandIndex(args); ok {
 		insertAt = subcommandAt
 	} else if separatorAt := literalSeparatorIndex(args); separatorAt >= 0 {
 		insertAt = separatorAt
@@ -212,31 +330,20 @@ func injectRuntimeAuthSettings(args []string, settingsPath string) []string {
 	return out
 }
 
-func claudeSubcommandIndex(args []string) (int, bool) {
-	skipValue := false
-	for i, arg := range args {
-		if skipValue {
-			skipValue = false
-			continue
-		}
+// NativeSubcommandIndex identifies a real root command, respecting option values.
+func NativeSubcommandIndex(args []string) (int, bool) {
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
 		if arg == "--" {
 			return 0, false
 		}
 		if _, subcommand := claudeTopLevelSubcommands[arg]; subcommand {
 			return i, true
 		}
-		if strings.HasPrefix(arg, "--") && strings.Contains(arg, "=") {
-			continue
-		}
-		if _, takesValue := claudeGlobalOptionsWithValue[arg]; takesValue {
-			skipValue = true
-			continue
-		}
 		if !strings.HasPrefix(arg, "-") {
-			// The first non-option token is a root-command prompt, not a later
-			// subcommand. CLI settings can be appended after it.
 			return 0, false
 		}
+		i = NativeOptionValueEnd(args, i)
 	}
 	return 0, false
 }
@@ -251,7 +358,7 @@ func literalSeparatorIndex(args []string) int {
 }
 
 func isInteractiveAuthLogin(args []string) bool {
-	index, ok := claudeSubcommandIndex(args)
+	index, ok := NativeSubcommandIndex(args)
 	if !ok {
 		return false
 	}
@@ -278,12 +385,8 @@ func normalizeRuntimeAuthArgs(args []string) ([]string, bool) {
 	}
 	out := append([]string(nil), args...)
 	changed := false
-	skipValue := false
-	for i, arg := range out {
-		if skipValue {
-			skipValue = false
-			continue
-		}
+	for i := 0; i < len(out); i++ {
+		arg := out[i]
 		if arg == "--" {
 			break
 		}
@@ -292,12 +395,7 @@ func normalizeRuntimeAuthArgs(args []string) ([]string, bool) {
 			changed = true
 			continue
 		}
-		if strings.HasPrefix(arg, "--") && strings.Contains(arg, "=") {
-			continue
-		}
-		if _, takesValue := claudeGlobalOptionsWithValue[arg]; takesValue {
-			skipValue = true
-		}
+		i = NativeOptionValueEnd(out, i)
 	}
 	return out, changed
 }

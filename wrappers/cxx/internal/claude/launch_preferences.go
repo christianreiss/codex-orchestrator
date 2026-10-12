@@ -29,17 +29,7 @@ func LaunchPreferences(args []string) (model, effort string) {
 			}
 			continue
 		}
-		if inline {
-			continue
-		}
-		// These native options take optional values. A following option is
-		// still an option, including bare --resume --model MODEL.
-		if arg == "--resume" || arg == "-r" || arg == "--worktree" {
-			continue
-		}
-		if _, required := claudeGlobalOptionsWithValue[arg]; required && i+1 < len(args) {
-			i++
-		}
+		i = NativeOptionValueEnd(args, i)
 	}
 	return model, effort
 }

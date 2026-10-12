@@ -111,14 +111,16 @@ func RunNativeWithChoice(args []string, stdout, stderr io.Writer, choice *quotaa
 	return runMode(args, stdout, stderr, true, choice)
 }
 
+// Native root options from codex-cli 0.162.1 (2026-10-12).
+var codexGlobalOptionsWithValue = map[string]bool{"-c": true, "--config": true, "-m": true, "--model": true, "-p": true, "--profile": true, "-C": true, "--cd": true, "-a": true, "--ask-for-approval": true, "-s": true, "--sandbox": true, "--enable": true, "--disable": true, "-i": true, "--image": true, "--local-provider": true, "--remote": true, "--remote-auth-token-env": true, "--add-dir": true}
+
 func nativeSubcommand(args []string) string {
-	valueFlags := map[string]bool{"-c": true, "--config": true, "-m": true, "--model": true, "-p": true, "--profile": true, "-C": true, "--cd": true, "-a": true, "--ask-for-approval": true, "-s": true, "--sandbox": true, "--enable": true, "--disable": true, "-i": true, "--image": true, "--local-provider": true, "--remote": true}
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
 		if arg == "--" {
 			return ""
 		}
-		if valueFlags[arg] {
+		if codexGlobalOptionsWithValue[arg] {
 			i++
 			continue
 		}
@@ -230,21 +232,22 @@ func isProfileShorthand(sub string) bool {
 // interpret as profile shorthand and whose `--help` invocations are passed
 // straight through to the upstream codex CLI.
 //
-// Re-synced against `codex --help` on codex-cli 0.153.4, 2026-09-06. `update`
+// Re-synced against `codex --help` on codex-cli 0.162.1, 2026-10-12. `update`
 // and `doctor` are absent on purpose: both are wrapperOwnedSubcommands above,
 // because the fleet pins the Codex version and cdx runs its own doctor.
 var reservedCodexSubcommands = map[string]bool{
 	"exec":             true,
+	"e":                true,
 	"review":           true,
 	"login":            true,
 	"logout":           true,
 	"mcp":              true,
-	"mcp-server":       true,
 	"app-server":       true,
 	"completion":       true,
 	"sandbox":          true,
 	"debug":            true,
 	"apply":            true,
+	"a":                true,
 	"resume":           true,
 	"fork":             true,
 	"cloud":            true,
@@ -284,6 +287,10 @@ func isHelpPassthrough(args []string) bool {
 			if firstPositional == "" {
 				helpBeforePositional = true
 			}
+			continue
+		}
+		if codexGlobalOptionsWithValue[a] {
+			i++
 			continue
 		}
 		// Flags that consume the following token as a value (mirrors
