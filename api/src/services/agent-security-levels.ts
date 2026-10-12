@@ -957,7 +957,7 @@ function composeAskBullets(asked: readonly StancedOperation[]): string[] {
 export const CODEX_SANDBOX_MODES = ['read-only', 'workspace-write', 'danger-full-access'] as const;
 export type CodexSandboxMode = (typeof CODEX_SANDBOX_MODES)[number];
 
-export const CODEX_APPROVAL_POLICIES = ['on-request', 'on-failure', 'never'] as const;
+export const CODEX_APPROVAL_POLICIES = ['on-request', 'never'] as const;
 export type CodexApprovalPolicy = (typeof CODEX_APPROVAL_POLICIES)[number];
 
 /**
@@ -1057,7 +1057,7 @@ const APPROVAL_BY_LEVEL: readonly CodexApprovalPolicy[] = [
   'on-request',
   'on-request',
   'on-request',
-  'on-failure',
+  'on-request',
   'never',
 ];
 

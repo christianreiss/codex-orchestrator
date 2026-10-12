@@ -66,10 +66,9 @@ The config builder exposes current Codex feature flags under **Security & Featur
 - Feature values are coerced to booleans (`true`/`1`/`"yes"`/`"on"` and their negatives). A value that is not boolean-ish normalizes to `null` and that key is then omitted from the rendered `[features]` block.
 
 Legacy compatibility:
-- Dropped feature keys: `steer`, `collaboration_modes`, `elevated_windows_sandbox`, `experimental_windows_sandbox`, `enable_experimental_windows_sandbox`, `remote_models`, `request_permissions`, `request_rule`, `responses_websockets`, `responses_websockets_v2`, `search_tool`, `sqlite`, `use_linux_sandbox_bwrap`, `web_search_cached`, `web_search_request`, `js_repl`, `tui_app_server`, `voice_transcription`, `apply_patch_freeform`, `apps_mcp_path_override`, `code_mode_buffered_exec`, `codex_git_commit`, `enable_fanout`, `external_migration`, `image_detail_original`, `item_ids`, `js_repl_tools_only`, `local_thread_store_shared_compression`, `multi_agent_mode`, `plugin_hooks`, `remote_control`, `resize_all_images`, `send_async_message`, `skill_env_var_dependency_prompt`, `terminal_resize_reflow`, `tool_search`, `tool_search_always_defer_mcp_tools`, `unavailable_dummy_tools`, `undo`, `unified_exec_zsh_fork`, `workspace_owner_usage_nudge`, `guardian_ext`, `personality`, `remote_compaction_v2`.
-- Those keys are accepted for ingest compatibility but removed from normalized/rendered output — they are discarded, not migrated onto any other field. `features.web_search` is dropped the same way; root `web_search` is the only source for the web search toggle.
-- `apply_patch_freeform`, `apps_mcp_path_override`, `code_mode_buffered_exec`, `codex_git_commit`, `enable_fanout`, `external_migration`, `image_detail_original`, `item_ids`, `js_repl_tools_only`, `local_thread_store_shared_compression`, `multi_agent_mode`, `plugin_hooks`, `remote_control`, `resize_all_images`, `send_async_message`, `skill_env_var_dependency_prompt`, `terminal_resize_reflow`, `tool_search`, `tool_search_always_defer_mcp_tools`, `unavailable_dummy_tools`, `undo`, `unified_exec_zsh_fork`, `workspace_owner_usage_nudge` moved here 2026-09-06 (`guardian_ext`, `personality` and `remote_compaction_v2` followed 2026-09-29, `removed` on codex-cli 0.158.0; the top-level `personality` key is unaffected): `codex features list` on codex-cli 0.153.4 reports all of them at stage `removed`, so toggling any is a no-op. Only `removed` keys were taken — stage `deprecated` flags (`use_legacy_landlock`, and the `web_search_*` pair already listed above) still do something. Note `request_permissions` in this list has never matched an upstream flag; the real one is `request_permissions_tool`, which is `under development` and deliberately NOT dropped. The filter is exact-match, so the stale entry is inert rather than harmful.
-- `js_repl`, `tui_app_server`, `voice_transcription` moved here 2026-08-08: verified against `codex features list` on codex-cli 0.147.0 that `js_repl` and `tui_app_server` are stage `removed` (the latter permanently folded into stable behavior, default `true`, not optional) and `voice_transcription` no longer appears in the feature registry at all. All three were still being documented as live toggles and rendered into every host's `[features]` block; they now normalize away like the rest of this list.
+- Dropped feature keys: `apply_patch_freeform`, `apply_patch_preserve_line_endings`, `apps_mcp_path_override`, `code_mode_buffered_exec`, `codex_git_commit`, `collaboration_modes`, `elevated_windows_sandbox`, `enable_fanout`, `experimental_windows_sandbox`, `external_migration`, `guardian_ext`, `image_detail_original`, `item_ids`, `js_repl`, `js_repl_tools_only`, `local_thread_store_shared_compression`, `multi_agent_mode`, `personality`, `plugin_hooks`, `remote_compaction_v2`, `remote_control`, `remote_models`, `request_rule`, `resize_all_images`, `responses_websockets`, `responses_websockets_v2`, `search_tool`, `send_async_message`, `skill_env_var_dependency_prompt`, `sqlite`, `steer`, `terminal_resize_reflow`, `tool_search`, `tool_search_always_defer_mcp_tools`, `transcript_v2`, `tui_app_server`, `unavailable_dummy_tools`, `undo`, `unified_exec_zsh_fork`, `use_legacy_landlock`, `use_linux_sandbox_bwrap`, `web_search_cached`, `web_search_request`, `workspace_owner_usage_nudge`, `enable_experimental_windows_sandbox`, `request_permissions`, `voice_transcription`, `web_search`, `codex_hooks`.
+- Legacy structured input drops these retired keys. The web-search aliases migrate to the root mode and `codex_hooks` migrates to `hooks`; an explicit canonical setting wins.
+- The list was rechecked against Codex 0.162.1 on 2026-10-12 and includes both removed and deprecated switches. Structured feature tables remain intact. Strict `native_settings` authoring rejects retired switches instead of silently dropping them.
 
 ## Security toggles
 
@@ -101,7 +100,7 @@ For the keys posture claims — `approval_policy`, `sandbox_mode`,
 `sandbox_workspace_write.network_access`, `web_search`, `features.guardian_approval`, and Claude's
 `permissions.defaultMode` — the posture value **wins over** the same key in the template, exactly
 as a host model override already does. `sandbox_workspace_write` is merged rather than replaced, so
-operator `writable_roots` and exclusions survive. Everything else in the template is untouched.
+operator `writable_roots` and exclusions survive. Native permission-profile selectors and approval reviewers are also reconciled with the host posture; see Current native Codex settings below.
 
 One posture value is not served verbatim. **A host whose agent user is root is never sent
 `permissions.defaultMode: bypassPermissions`**, because Claude Code refuses to start in that mode
@@ -122,9 +121,9 @@ cannot take the fleet down.
 
 `approval_policy` is rendered at the root of `config.toml`.
 
-- Accepted values: `on-request`, `on-failure`, `never`.
+- Accepted values: `on-request`, `never`.
 - `untrusted` was removed upstream (codex-cli 0.158.0 refuses to load a config containing it), so a stored `untrusted` is healed to `on-request`.
-- Input is lowercased and otherwise kept verbatim — `on-failure` is stored and rendered as `on-failure`, not rewritten to `on-request`. Upstream Codex marks it deprecated, so prefer `on-request` for new configs.
+- Legacy `on-failure` and `untrusted` values migrate to `on-request`; neither is emitted. Native configuration also supports schema-validated granular approval objects.
 - Any other value normalizes to `null` and the `approval_policy` line is omitted from the rendered config, leaving the host on its own default.
 
 ## Web search toggle
@@ -139,7 +138,7 @@ cannot take the fleet down.
   documents still hold them: `true`/`1`/`"yes"`/`"on"` become `live`, and
   `false`/`0`/`"no"`/`"off"` become `disabled`.
 - Anything else, including an absent key, normalizes to `null`, and the root `web_search` line is then omitted from the rendered config.
-- `features.web_search`, `features.web_search_request` and `features.web_search_cached` are dropped on normalize; they do not set the root field. Configs still carrying them must set root `web_search` explicitly.
+- Legacy true `features.web_search_request` or `features.web_search` becomes root `live`; otherwise true `features.web_search_cached` becomes `cached`. An explicit root setting wins; retired feature keys are removed.
 
 ## OTEL wiring
 
@@ -193,13 +192,36 @@ The builder can also set:
 
 ## Communication style
 
-`personality` is rendered at the root of `config.toml` and controls the default Codex communication style exposed by `/personality`.
+`personality` is retained only as an old stored field. Codex 0.162.1 marks it deprecated and it is not emitted at the root or in profile sidecars.
 
 - Accepted values: `friendly`, `pragmatic`, `none`.
-- Input is lowercased; anything outside that set (including a blank or missing value) falls back to `friendly`, so the root key is always rendered.
-- Entries in the optional `profiles` API payload may override `personality`;
-  leaving the field blank inherits the root value.
-- On codex-cli 0.156.1+ a profile is rendered as its own `<name>.config.toml` layer (keys at the top level), not as a `[profiles.<name>]` table; see `docs/interface-cdx.md` § Profile files. Pre-0.156.1 hosts keep the tables.
-- The separate `features.personality` gate no longer exists: it reached stage
-  `removed` on codex-cli 0.158.0 and is dropped like the other removed flags (see
-  the dropped feature keys above). The root `personality` key is unaffected.
+- These values remain readable for compatibility, but no longer control writing style. Use `native_settings.developer_instructions` for active guidance.
+- Both root `personality` and `features.personality` are rejected in native authoring.
+
+## Current native Codex settings
+
+The API accepts `settings.native_settings` as a native JSON configuration object. It is
+validated against the vendored official Codex 0.162.1 schema (retrieved 2026-10-12),
+then rendered as TOML with nested tables and arrays intact. Unknown schema fields,
+invalid types and removed/deprecated keys return a validation error. This includes
+agents, hooks, apps, service tiers, permission profiles, TUI, history, providers,
+MCP transport/tool settings and structured feature options. Experimental features
+remain opt-in; omitting them does not enable them.
+
+Explicit structured settings win over native values; empty/null defaults do not
+erase native values. Native values stay in the native object
+when stored; editing or deleting them never competes with an older structured
+copy. `model` and `model_reasoning_effort` belong to the existing structured
+model controls and are rejected inside native settings with an actionable error. Host model overrides, resolved security posture and managed
+MCP take precedence at serve time. A posture clears native `default_permissions`
+so a permission-profile selector cannot supersede the host sandbox, and selects
+the appropriate approval reviewer.
+
+Profiles can carry their own `native_settings`, rendered into current native
+`<name>.config.toml` sidecars. Legacy `profile`/`profiles` TOML keys are rejected
+inside native settings. Root `personality` is deprecated in 0.162.1 and is no
+longer emitted; use developer instructions for writing-style guidance.
+
+Legacy web-search feature switches migrate to the root `web_search` mode, with
+an explicit root value winning. `features.codex_hooks` migrates to `features.hooks`.
+Native authoring uses canonical keys and rejects these deprecated aliases.

@@ -1555,3 +1555,48 @@ Read-only and explicit restrictions take precedence; push/deploy are separate.
 This is agent-executed guidance shared by all three engines, adopted on the next
 sync/launch, not wrapper-enforced automation. See
 [Automatic repository delivery](interface-api.md#automatic-repository-delivery).
+
+## Native configuration maintenance (Codex 0.162.1)
+
+`POST /admin/config/render` and `/admin/config/store` accept the optional
+`settings.native_settings` JSON object. It uses the official native config
+schema, vendored from <https://learn.chatgpt.com/docs/config-schema.json> on
+2026-10-12 (SHA-256 `7933a70506e753a6e98c16800d2a76770b2af2b7295491f8f0b8e713e952027e`).
+The JSON schema covers native root settings and nested settings including agents,
+apps, hooks, browser/desktop controls, history, service tiers, providers, MCP
+transport/tool configuration, and structured feature options. Schema-defined
+constraints apply; permissive upstream objects remain permissive. Experimental
+features remain opt-in and require a native version that supports them.
+
+The API rejects invalid types, unknown schema properties, unsafe object keys,
+and removed/deprecated native keys with HTTP 422 and a field path. It does not
+include setting values in errors. JSON null has no TOML representation: omit
+the affected native key. An absent/null `native_settings` clears the extension.
+The rendered TOML preserves arrays, nested tables and literal names. Settings
+persist with the existing config document and survive model-default updates.
+
+Structured controls override native values; empty defaults do not erase them.
+The merged render document is validated again. Native values stay in the native object
+when stored; editing or deleting them never competes with an older structured
+copy. `model` and `model_reasoning_effort` belong to the existing structured
+model controls and are rejected inside native settings with an actionable error.
+Host model overrides, security posture and managed MCP definitions win at serve
+time. Posture clears `default_permissions` so native permission-profile selection
+cannot replace the host sandbox, and derives the approval reviewer. Custom MCP
+servers keep fields such as `env`, `cwd`, OAuth and per-tool policy.
+
+Each entry in `settings.profiles` may carry `native_settings`, with the same
+validation, to populate its modern `<name>.config.toml` sidecar. Host-owned
+posture, model, managed MCP and skill policy overrides also apply to these layers. The retired
+`profile`/`profiles` keys cannot be reintroduced through native settings.
+
+Legacy structured `on-failure` migrates to `on-request`; posture also stops
+emitting `on-failure`. Root `personality` is no longer emitted. Removed and
+deprecated feature switches are dropped, while legacy web-search and hook
+aliases migrate to canonical settings. Native authoring requires canonical keys.
+
+This config surface does not manage `requirements.toml`, MDM settings or cloud
+Agent Security policy. Those admin-enforced requirements are separate from
+`config.toml`, with different precedence and platform/cloud applicability. Their
+allowlists, enforced hooks and app-only feature policies are not accepted as
+native user settings; consult the [official requirements reference](https://learn.chatgpt.com/docs/config-file/config-reference#requirementstoml).

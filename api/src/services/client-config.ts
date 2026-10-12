@@ -35,6 +35,7 @@
  *   …
  */
 import { createHash } from 'node:crypto';
+import { codexMcpServers, mergeNativeSettings, nativeRecord, validateCodexConfigDocument } from './codex-native-settings.js';
 import { desc, eq } from 'drizzle-orm';
 import type { Database } from '../db/client.js';
 import { clientConfigDocuments } from '../db/schema.js';
@@ -100,6 +101,7 @@ const SCALAR_KEYS: Array<keyof NormalizedSettings> = [
 const DROPPED_SCALAR_RENDER_KEYS = new Set<keyof NormalizedSettings>([
   'model_supports_reasoning_summaries',
   'model_max_output_tokens',
+  'personality',
 ]);
 
 /**
@@ -125,7 +127,9 @@ function tomlString(value: string): string {
     .split(BACKSPACE_CHAR).join('\\b')
     .replace(/\t/g, '\\t')
     .replace(/\n/g, '\\n')
-    .replace(/\r/g, '\\r');
+    .replace(/\r/g, '\\r')
+    // eslint-disable-next-line no-control-regex -- TOML requires escaping literal control characters.
+    .replace(/[\x00-\x07\x0b\x0c\x0e-\x1f\x7f]/g, (char) => `\\u${char.charCodeAt(0).toString(16).padStart(4, '0')}`);
   return `"${escaped}"`;
 }
 
@@ -194,6 +198,7 @@ export function codexUsesProfileFiles(clientVersion: string | null | undefined):
  * at the top level rather than under `[profiles.<name>]`.
  */
 export function renderProfileToml(profile: Record<string, unknown>): string {
+  if (profile.native_settings) return renderNativeToml(codexRenderDocument(profile));
   const lines: string[] = [];
   for (const key of SCALAR_KEYS) {
     if (key === 'profile' || key === 'local_provider') continue;
@@ -210,6 +215,15 @@ export function renderProfileToml(profile: Record<string, unknown>): string {
 }
 
 export function renderToml(normalized: NormalizedSettings, opts: { profileTables?: boolean } = {}): string {
+  if (normalized.native_settings) {
+    const document = codexRenderDocument(normalized as unknown as Record<string, unknown>);
+    if (opts.profileTables === true && normalized.profiles.length > 0) {
+      document.profiles = Object.fromEntries(sortEntriesByName(normalized.profiles)
+        .filter(profile => typeof profile.name === 'string')
+        .map(profile => [String(profile.name), codexRenderDocument(profile)]));
+    }
+    return renderNativeToml(document);
+  }
   const lines: string[] = [];
 
   for (const key of SCALAR_KEYS) {
@@ -266,13 +280,7 @@ export function renderToml(normalized: NormalizedSettings, opts: { profileTables
     if (lines.length > 0) lines.push('');
     lines.push('[shell_environment_policy]');
     const sep = normalized.shell_environment_policy;
-    addKeyValue(lines, 'inherit', sep.inherit);
-    if (sep.set && typeof sep.set === 'object' && !Array.isArray(sep.set) && Object.keys(sep.set as object).length > 0) {
-      addKeyValue(lines, 'set', sep.set);
-    }
-    addKeyValue(lines, 'ignore_default_excludes', sep.ignore_default_excludes);
-    addKeyValue(lines, 'exclude', sep.exclude);
-    addKeyValue(lines, 'include_only', sep.include_only);
+    for (const [key, value] of Object.entries(sep)) addKeyValue(lines, key, value);
   }
 
   if (opts.profileTables !== false) {
@@ -309,15 +317,9 @@ export function renderToml(normalized: NormalizedSettings, opts: { profileTables
     if (!name) continue;
     if (lines.length > 0) lines.push('');
     lines.push(`[mcp_servers.${tomlBareKey(name)}]`);
-    addKeyValue(lines, 'command', server['command']);
-    addKeyValue(lines, 'args', server['args']);
-    addKeyValue(lines, 'url', server['url']);
-    addKeyValue(lines, 'bearer_token_env_var', server['bearer_token_env_var']);
-    addKeyValue(lines, 'http_headers', server['http_headers']);
-    addKeyValue(lines, 'env_http_headers', server['env_http_headers']);
-    addKeyValue(lines, 'enabled', server['enabled']);
-    addKeyValue(lines, 'startup_timeout_sec', server['startup_timeout_sec']);
-    addKeyValue(lines, 'tool_timeout_sec', server['tool_timeout_sec']);
+    for (const [key, value] of Object.entries(server)) {
+      if (key !== 'name') addKeyValue(lines, key, value);
+    }
   }
 
   return lines.join('\n') + (lines.length > 0 ? '\n' : '');
@@ -364,6 +366,58 @@ export function renderGrokSettings(settings: NormalizedSettings): string {
   return lines.join('\n') + '\n';
 }
 
+/** Compose native settings with explicit structured controls taking precedence. */
+function codexRenderDocument(settings: Record<string, unknown>): Record<string, unknown> {
+  const native = nativeRecord(settings.native_settings);
+  const overlay: Record<string, unknown> = {};
+  for (const key of SCALAR_KEYS) {
+    if (key === 'profile' || DROPPED_SCALAR_RENDER_KEYS.has(key)) continue;
+    if (settings[key] !== null && settings[key] !== undefined) {
+      overlay[RENAMED_SCALAR_RENDER_KEYS[key] ?? key] = settings[key];
+    }
+  }
+  if (Array.isArray(settings.notify) && settings.notify.length > 0) overlay.notify = settings.notify;
+  for (const key of ['features', 'notice', 'sandbox_workspace_write', 'shell_environment_policy']) {
+    if (isPresentRecord(nativeRecord(settings[key]))) overlay[key] = settings[key];
+  }
+  const document = mergeNativeSettings(native, overlay);
+  document.mcp_servers = Object.fromEntries(codexMcpServers(settings).map(server => {
+    const { name, ...entry } = server;
+    return [String(name), entry];
+  }));
+  if (Object.keys(nativeRecord(document.mcp_servers)).length === 0) delete document.mcp_servers;
+  validateCodexConfigDocument(document);
+  return document;
+}
+
+/** Real tables/array tables keep later managed TOML appends valid. */
+function renderNativeToml(document: Record<string, unknown>): string {
+  const lines: string[] = [];
+  function table(value: Record<string, unknown>, path: string[]): void {
+    const entries = Object.entries(value);
+    for (const [key, entry] of entries) {
+      const object = entry !== null && typeof entry === 'object' && !Array.isArray(entry);
+      const objectArray = Array.isArray(entry) && entry.length > 0 && entry.every(item => item && typeof item === 'object' && !Array.isArray(item));
+      if (!object && !objectArray) addKeyValue(lines, key, entry);
+    }
+    for (const [key, entry] of entries) {
+      const nextPath = [...path, key];
+      const header = nextPath.map(tomlBareKey).join('.');
+      if (entry !== null && typeof entry === 'object' && !Array.isArray(entry)) {
+        lines.push('', `[${header}]`);
+        table(entry as Record<string, unknown>, nextPath);
+      } else if (Array.isArray(entry) && entry.length > 0 && entry.every(item => item && typeof item === 'object' && !Array.isArray(item))) {
+        for (const item of entry) {
+          lines.push('', `[[${header}]]`);
+          table(item as Record<string, unknown>, nextPath);
+        }
+      }
+    }
+  }
+  table(document, []);
+  return lines.join('\n').replace(/^\n/, '') + (lines.length > 0 ? '\n' : '');
+}
+
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
 }
@@ -407,7 +461,7 @@ export function renderTomlForHost(opts: HostRenderOptions): RenderResult {
     engine,
   );
   const normalized = engine === ENGINE_GROK ? normalizeGrokSettings(settingsWithOverrides) : normalizeSettings(settingsWithOverrides, { applyCodexDefaults: engine === ENGINE_CODEX });
-  const withManaged = injectManagedMcp(normalized, {
+  let withManaged = injectManagedMcp(normalized, {
     host: opts.host,
     baseUrl: opts.baseUrl,
     apiKey: opts.apiKey,
@@ -419,6 +473,7 @@ export function renderTomlForHost(opts: HostRenderOptions): RenderResult {
   const managedMcpInjected = withManaged.mcp_servers.some(
     (server) => normalizeName(server['name'])?.toLowerCase() === managedServerName,
   );
+  if (engine === ENGINE_CODEX && managedMcpInjected) withManaged = injectManagedCodexNativeSkillPolicy(withManaged);
   const profileFiles = engine === ENGINE_CODEX && codexUsesProfileFiles(opts.host?.clientVersion);
   let content = engine === ENGINE_GROK ? renderGrokSettings(withManaged) : engine === ENGINE_CLAUDE
     ? renderClaudeSettings(withManaged)
@@ -427,12 +482,22 @@ export function renderTomlForHost(opts: HostRenderOptions): RenderResult {
     ? sortEntriesByName(withManaged.profiles).flatMap((profile) => {
         const name = normalizeName(profile['name']);
         if (!name || !PROFILE_FILE_NAME.test(name)) return [];
-        const body = renderProfileToml(profile);
+        let body: string;
+        if (profile.native_settings) {
+          const profileInput = applyPostureToSettings(applyHostModelOverrides({ ...profile,
+            profiles: [], orchestrator_mcp_enabled: normalized.orchestrator_mcp_enabled,
+          }, opts.host, ENGINE_CODEX), opts.securityLevels, ENGINE_CODEX);
+          let profileSettings = injectManagedMcp(normalizeSettings(profileInput, { applyCodexDefaults: false, engine: ENGINE_CODEX }), { ...opts, engine: ENGINE_CODEX });
+          if (managedMcpInjected) profileSettings = injectManagedCodexNativeSkillPolicy(profileSettings);
+          body = injectTrustedProjectToml(renderToml(profileSettings), normalizeHomePath(opts.home, opts.username));
+        } else {
+          body = renderProfileToml(profile);
+        }
         return [{ name, sha256: createHash('sha256').update(body).digest('hex'), content: body }];
       })
     : undefined;
   if (engine === ENGINE_CODEX) {
-    if (managedMcpInjected) content = injectManagedCodexSkillPolicyToml(content);
+    if (managedMcpInjected && !withManaged.native_settings) content = injectManagedCodexSkillPolicyToml(content);
     content = injectTrustedProjectToml(content, normalizeHomePath(opts.home, opts.username));
   }
   return {
@@ -455,6 +520,16 @@ export function renderTomlForHost(opts: HostRenderOptions): RenderResult {
  * is supported by every Codex version admitted by the fleet floor and avoids
  * assuming the host's effective CODEX_HOME path.
  */
+function injectManagedCodexNativeSkillPolicy(settings: NormalizedSettings): NormalizedSettings {
+  const native = settings.native_settings;
+  if (!native) return settings;
+  const skills = nativeRecord(native.skills);
+  const configs = Array.isArray(skills.config) ? skills.config : [];
+  return { ...settings, native_settings: { ...native, skills: { ...skills,
+    config: [...configs.filter(config => nativeRecord(config).name !== 'skill-creator'), { name: 'skill-creator', enabled: false }],
+  } } };
+}
+
 export function injectManagedCodexSkillPolicyToml(content: string): string {
   const stanza = '[[skills.config]]\nname = "skill-creator"\nenabled = false\n';
   if (content.includes(stanza)) return content;
@@ -554,6 +629,15 @@ export function applyPostureToSettings(
   if (engine === ENGINE_CLAUDE) {
     out['permissionMode'] = derived.claude.permission_mode.value;
     return out;
+  }
+
+  if (settings.native_settings) {
+    const native = { ...nativeRecord(settings.native_settings) };
+    // A selected permission profile supersedes legacy sandbox_mode upstream.
+    // The host posture owns that decision, so leave declarations but clear the selector.
+    delete native.default_permissions;
+    native.approvals_reviewer = derived.codex.guardian_approval.value ? 'auto_review' : 'user';
+    out.native_settings = native;
   }
 
   out['approval_policy'] = derived.codex.approval_policy.value;
@@ -725,12 +809,20 @@ function injectManagedMcp(
       });
     }
   }
-  if (managedEntries.length === 0) return settings;
-  const filtered = settings.mcp_servers.filter((server) => {
+  let effective = settings;
+  if (opts.engine === ENGINE_CODEX && settings.native_settings) {
+    const native = { ...settings.native_settings };
+    delete native.mcp_servers;
+    // Keep the merged servers ephemeral and remove the native source before
+    // rendering, so a filtered managed name cannot be resurrected by a merge.
+    effective = { ...settings, native_settings: native, mcp_servers: codexMcpServers(settings as unknown as Record<string, unknown>) };
+  }
+  if (managedEntries.length === 0) return effective;
+  const filtered = effective.mcp_servers.filter((server) => {
     const name = normalizeName(server['name']);
     return !name || !managedNames.has(name.toLowerCase());
   });
-  return { ...settings, mcp_servers: [...managedEntries, ...filtered] };
+  return { ...effective, mcp_servers: [...managedEntries, ...filtered] };
 }
 
 export interface ManagedMcpAvailability {

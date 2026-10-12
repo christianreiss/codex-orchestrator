@@ -27,6 +27,7 @@
  */
 
 import { createHash } from 'node:crypto';
+import { CODEX_RETIRED_FEATURE_KEYS, normalizeCodexNativeSettings, type CodexApprovalPolicy } from './codex-native-settings.js';
 import { CODEX_WEB_SEARCH_VALUES, type CodexWebSearch } from './agent-security-levels.js';
 
 /** Fleet defaults for new Codex configs and OpenAI-compatible requests. */
@@ -211,75 +212,19 @@ export const PERSONALITIES: readonly string[] = ['friendly', 'pragmatic', 'none'
 // ("approval_policy = \"untrusted\" is no longer supported; remove this setting"),
 // which takes `codex mcp list` and every launch down with it. normalizeApprovalPolicy
 // heals a stored `untrusted` to the nearest remaining policy, `on-request`.
-export const APPROVAL_POLICIES: readonly string[] = ['on-request', 'on-failure', 'never'];
+export const APPROVAL_POLICIES: readonly string[] = ['on-request', 'never'];
 
-export const DROPPED_FEATURE_KEYS: readonly string[] = [
-  'steer',
-  'collaboration_modes',
-  'elevated_windows_sandbox',
-  'experimental_windows_sandbox',
-  'enable_experimental_windows_sandbox',
-  'remote_models',
-  'request_permissions',
-  'request_rule',
-  'responses_websockets',
-  'responses_websockets_v2',
-  'search_tool',
-  'sqlite',
-  'use_linux_sandbox_bwrap',
-  'web_search_cached',
-  'web_search_request',
-  // Confirmed `removed` (or entirely unrecognized) by `codex features list` on
-  // codex-cli 0.147.0, 2026-08-08. js_repl and tui_app_server are retired
-  // upstream feature stages; voice_transcription no longer appears in the
-  // feature registry at all. Toggling any of them is a no-op, so stop
-  // offering and rendering them.
-  'js_repl',
-  'tui_app_server',
-  'voice_transcription',
-  // Reached stage `removed` between 0.147.0 and codex-cli 0.153.4; re-read from
-  // `codex features list` on 2026-09-06. Only `removed` keys belong here —
-  // `deprecated` ones (use_legacy_landlock, web_search_cached,
-  // web_search_request) still do something and are left alone. Note the filter
-  // below is exact-match, so the long-standing `request_permissions` entry is
-  // inert: the real upstream flag is `request_permissions_tool`, which is
-  // `under development` and must NOT be dropped.
-  'apply_patch_freeform',
-  'apps_mcp_path_override',
-  'code_mode_buffered_exec',
-  'codex_git_commit',
-  'enable_fanout',
-  'external_migration',
-  'image_detail_original',
-  'item_ids',
-  'js_repl_tools_only',
-  'local_thread_store_shared_compression',
-  'multi_agent_mode',
-  'plugin_hooks',
-  'remote_control',
-  'resize_all_images',
-  'send_async_message',
-  'skill_env_var_dependency_prompt',
-  'terminal_resize_reflow',
-  'tool_search',
-  'tool_search_always_defer_mcp_tools',
-  'unavailable_dummy_tools',
-  'undo',
-  'unified_exec_zsh_fork',
-  'workspace_owner_usage_nudge',
-  // `removed` in `codex features list` on codex-cli 0.158.0, 2026-09-29.
-  'guardian_ext',
-  'personality',
-  'remote_compaction_v2',
-];
+export const DROPPED_FEATURE_KEYS = CODEX_RETIRED_FEATURE_KEYS;
 
 export interface NormalizedSettings {
+  /** Additional native engine configuration; validated by the engine-specific schema. */
+  native_settings?: Record<string, unknown>;
   model: string | null;
   model_provider: string | null;
   local_provider: string | null;
   profile: string | null;
   personality: string;
-  approval_policy: string | null;
+  approval_policy: CodexApprovalPolicy | null;
   sandbox_mode: string | null;
   web_search: CodexWebSearch | null;
   model_reasoning_effort: string | null;
@@ -407,11 +352,14 @@ export function normalizePersonality(value: unknown): string | null {
   return PERSONALITIES.includes(lower) ? lower : null;
 }
 
-export function normalizeApprovalPolicy(value: unknown): string | null {
+export function normalizeApprovalPolicy(value: unknown): CodexApprovalPolicy | null {
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    return normalizeCodexNativeSettings({ approval_policy: value })?.approval_policy as CodexApprovalPolicy;
+  }
   const s = normalizeString(value);
   if (s === null) return null;
   const lower = s.toLowerCase();
-  if (lower === 'untrusted') return 'on-request';
+  if (lower === 'untrusted' || lower === 'on-failure') return 'on-request';
   return APPROVAL_POLICIES.includes(lower) ? lower : null;
 }
 
@@ -448,13 +396,18 @@ function normalizeWebSearch(value: unknown): CodexWebSearch | null {
 }
 
 function normalizeFeatures(value: unknown): Record<string, unknown> {
-  const features = asRecord(value);
+  const features = { ...asRecord(value) };
+  if (features.hooks === undefined && features.codex_hooks !== undefined) features.hooks = features.codex_hooks;
   const cleaned: Record<string, unknown> = {};
   for (const [key, raw] of Object.entries(features)) {
-    if (DROPPED_FEATURE_KEYS.includes(key)) continue;
+    if (DROPPED_FEATURE_KEYS.includes(key) || key === 'guardianv2.thread_context') continue;
     if (key === 'web_search' || key === 'web_search_request' || key === 'web_search_cached') continue;
-    cleaned[key] = typeof raw === 'boolean' ? raw : normalizeBool(raw, null);
+    cleaned[key] = raw && typeof raw === 'object' && !Array.isArray(raw)
+      ? { ...raw as Record<string, unknown> }
+      : typeof raw === 'boolean' ? raw : normalizeBool(raw, null);
   }
+  const guardian = asRecord(cleaned.guardianv2);
+  if (Object.hasOwn(guardian, 'thread_context')) delete guardian.thread_context;
   return cleaned;
 }
 
@@ -463,7 +416,11 @@ function normalizeProfiles(value: unknown): Array<Record<string, unknown>> {
   const out: Array<Record<string, unknown>> = [];
   for (const entry of value) {
     if (entry && typeof entry === 'object' && !Array.isArray(entry)) {
-      const profile = { ...(entry as Record<string, unknown>) };
+      const input = entry as Record<string, unknown>;
+      const native = normalizeCodexNativeSettings(input.native_settings);
+      const profile: Record<string, unknown> = { ...input, ...(native !== undefined && { native_settings: native }) };
+      if (profile.approval_policy !== undefined) profile.approval_policy = normalizeApprovalPolicy(profile.approval_policy);
+      if (profile.features !== undefined) profile.features = normalizeFeatures(profile.features);
       const rawModel = profile.model;
       const model = normalizeStoredModel(rawModel);
       const forceUpgraded = isLegacyModelUpgrade(rawModel);
@@ -497,10 +454,12 @@ function normalizeMcpServers(value: unknown): Array<Record<string, unknown>> {
  */
 export function normalizeSettings(
   raw: unknown,
-  opts: { applyCodexDefaults?: boolean } = {},
+  opts: { applyCodexDefaults?: boolean; engine?: 'codex' | 'claude' | 'grok' } = {},
 ): NormalizedSettings {
-  const settings = asRecord(raw);
   const applyCodexDefaults = opts.applyCodexDefaults ?? true;
+  const isCodex = (opts.engine ?? (applyCodexDefaults ? 'codex' : 'claude')) === 'codex';
+  const native = isCodex ? normalizeCodexNativeSettings(asRecord(raw).native_settings) : undefined;
+  const settings = asRecord(raw);
   const rawModel = settings.model ?? (applyCodexDefaults ? DEFAULT_CODEX_MODEL : undefined);
   const model = normalizeStoredModel(rawModel);
   const forceUpgraded = isLegacyModelUpgrade(rawModel);
@@ -519,6 +478,7 @@ export function normalizeSettings(
   const securityBypass = normalizeBool(security.dangerously_bypass_approvals_and_sandbox);
 
   const out: NormalizedSettings = {
+    ...(native !== undefined && { native_settings: native }),
     model,
     model_provider: normalizeString(settings.model_provider),
     local_provider: normalizeString(settings.local_provider),
@@ -526,7 +486,11 @@ export function normalizeSettings(
     personality,
     approval_policy: normalizeApprovalPolicy(settings.approval_policy),
     sandbox_mode: normalizeString(settings.sandbox_mode),
-    web_search: normalizeWebSearch(settings.web_search),
+    web_search: normalizeWebSearch(settings.web_search ?? (
+      asRecord(settings.features).web_search_request === true ? 'live'
+        : asRecord(settings.features).web_search_cached === true ? 'cached'
+          : asRecord(settings.features).web_search === true ? 'live' : undefined
+    )),
     model_reasoning_effort: reasoning,
     model_reasoning_summary: normalizeString(settings.model_reasoning_summary),
     model_verbosity: normalizeString(settings.model_verbosity),

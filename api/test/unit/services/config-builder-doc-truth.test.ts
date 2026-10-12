@@ -70,7 +70,7 @@ describe('docs/CONFIG_BUILDER.md value sets', () => {
   it('documents the approval policies the normalizer accepts', () => {
     expect(approvalPolicies).toEqual([...APPROVAL_POLICIES]);
     // The doc used to promise a rewrite the normalizer never performed.
-    expect(normalizeSettings({ approval_policy: 'on-failure' }).approval_policy).toBe('on-failure');
+    expect(normalizeSettings({ approval_policy: 'on-failure' }).approval_policy).toBe('on-request');
   });
 
   it('documents the feature keys the normalizer drops', () => {
@@ -121,11 +121,11 @@ describe('docs/CONFIG_BUILDER.md web_search shape', () => {
     expect(normalizeSettings({}).web_search).toBeNull();
   });
 
-  it('drops the legacy feature keys instead of promoting them to the root', () => {
+  it('migrates the legacy web-search toggles to the supported root setting', () => {
     const s = normalizeSettings({
       features: { web_search: true, web_search_request: true, web_search_cached: true },
     });
-    expect(s.web_search).toBeNull();
+    expect(s.web_search).toBe('live');
     expect(s.features).toEqual({});
   });
 });
