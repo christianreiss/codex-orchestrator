@@ -170,6 +170,32 @@ function asRecord(value: unknown): Record<string, unknown> {
     : {};
 }
 
+/**
+ * `[shell_environment_policy]` as codex-cli parses it: `set` is a string map
+ * (`invalid type: sequence, expected a map in shell_environment_policy.set`
+ * otherwise, confirmed live 2026-10-12). Stored documents carry the legacy
+ * `set = []`, so an array is healed here: `KEY=VALUE` strings become map
+ * entries, anything else is dropped. Every other key passes through.
+ */
+function normalizeShellEnvironmentPolicy(value: unknown): Record<string, unknown> {
+  const policy = { ...asRecord(value) };
+  if (!('set' in policy)) return policy;
+  const set = policy.set;
+  if (Array.isArray(set)) {
+    const entries: Record<string, string> = {};
+    for (const item of set) {
+      if (typeof item !== 'string') continue;
+      const eq = item.indexOf('=');
+      if (eq > 0) entries[item.slice(0, eq)] = item.slice(eq + 1);
+    }
+    if (Object.keys(entries).length > 0) policy.set = entries;
+    else delete policy.set;
+  } else if (set === null || typeof set !== 'object') {
+    delete policy.set;
+  }
+  return policy;
+}
+
 export function normalizeString(value: unknown): string | null {
   if (typeof value !== 'string') return null;
   const trimmed = value.trim();
@@ -415,7 +441,7 @@ export function normalizeSettings(
     features: normalizeFeatures(settings.features),
     notice: asRecord(settings.notice),
     sandbox_workspace_write: asRecord(settings.sandbox_workspace_write),
-    shell_environment_policy: asRecord(settings.shell_environment_policy),
+    shell_environment_policy: normalizeShellEnvironmentPolicy(settings.shell_environment_policy),
     profiles: normalizeProfiles(settings.profiles),
     mcp_servers: normalizeMcpServers(settings.mcp_servers),
   };

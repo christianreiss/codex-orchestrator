@@ -978,3 +978,19 @@ describe('client-config: Codex profiles as sidecar files', () => {
     expect(out.profiles).toBeUndefined();
   });
 });
+
+describe('shell_environment_policy.set rendering', () => {
+  const renderPolicy = (policy: Record<string, unknown>) =>
+    renderToml(normalizeSettings({ model: 'gpt-6-luna', shell_environment_policy: policy }));
+
+  it('never renders `set` as an array (codex-cli: "invalid type: sequence, expected a map")', () => {
+    const out = renderPolicy({ set: [], exclude: [], include_only: [], ignore_default_excludes: false });
+    expect(out).not.toMatch(/^set = \[/m);
+    expect(out).toContain('ignore_default_excludes = false');
+  });
+
+  it('heals a KEY=VALUE array into a map and keeps a real map as is', () => {
+    expect(renderPolicy({ set: ['FOO=bar', 'BAZ=a=b', 'junk', 7] })).toContain('set = { FOO = "bar", BAZ = "a=b" }');
+    expect(renderPolicy({ set: { FOO: 'bar' }, exclude: [] })).toContain('set = { FOO = "bar" }');
+  });
+});

@@ -1,5 +1,7 @@
 # 2026-10-12
 
+- Fixed `cdx`/Codex refusing to start with `invalid type: sequence, expected a map in shell_environment_policy.set`. Stored configs carried the legacy `set = []`, which was rendered verbatim into `config.toml`, but Codex requires `set` to be a map. The server now converts `KEY=VALUE` arrays into a map and drops any other non-map `set` when rendering, so every host heals on its next config sync with no stored-config edit and no wrapper update.
+
 - Wrapper 0.9.66 and engine configuration now support validated native settings for Codex, Claude Code and Grok Build, with JSON editors, preview, granular ownership and atomic revision checks. Codex profiles expose native extensions; deprecated or wrong-scope settings fail visibly. Existing user-owned Claude/Grok settings survive synchronization. Native extensions require compatible CLI/wrapper versions.
 - Engine catalogs and effort behavior match the audited native releases: deprecated GPT-5.5 selections migrate to GPT-6.1 Sol; Claude adds Haiku 5.5 and active Opus 4.6/4.5, migrates obsolete IDs, and writes model-specific effort preferences while keeping session-only `max` separate. Grok stable advances to 1.0.50 with verified package pins. Native CLI routing follows current command grammar. The [maintenance report](docs/engine-maintenance-2026-10-12.md) records evidence, feature decisions and external configuration boundaries.
 
