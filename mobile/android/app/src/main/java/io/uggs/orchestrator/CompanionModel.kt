@@ -49,6 +49,8 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
     var hosts by mutableStateOf<List<JSONObject>>(emptyList()); private set
     var pendingStart by mutableStateOf(connection?.let { store.loadPendingStart(it.deviceId) }); private set
     var approvals by mutableStateOf<List<JSONObject>>(emptyList()); private set
+    var activeWindows by mutableStateOf<List<JSONObject>>(emptyList()); private set
+    var fleetWindow by mutableStateOf<JSONObject?>(null); private set
     var events by mutableStateOf<List<JSONObject>>(emptyList()); private set
     private var pendingChats by mutableStateOf<Map<String, List<PendingChat>>>(emptyMap())
     val chatEvents: List<JSONObject> get() = events + (pendingChats[selected] ?: emptyList()).map { it.event() }
@@ -314,6 +316,8 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
         }
         if (loadApprovals) {
             approvals = requests?.getJSONArray("requests")?.objects()?.filter { it.optBoolean("live") } ?: emptyList()
+            activeWindows = requests?.optJSONArray("active_windows")?.objects() ?: emptyList()
+            fleetWindow = requests?.optJSONObject("fleet_window")
             defaultMinutes = requests?.optInt("default_duration_minutes", 480) ?: 480
         }
         if (loadAgents) {
@@ -549,6 +553,27 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
             onSuccess()
         }
     }
+    fun closeWindow(hostId: Long) {
+        if (!can("hosts.activate_insecure") || !fresh() || liveFleetWindow(fleetWindow, System.currentTimeMillis()) ||
+            activeWindows.none { it.optLong("host_id") == hostId && liveWindow(it, System.currentTimeMillis()) }) {
+            error = "Window is no longer available to close"; refreshNow(); return
+        }
+        mutate {
+            api().request("/hosts/$hostId/insecure/disable", "POST", JSONObject())
+            activeWindows = activeWindows.filterNot { it.optLong("host_id") == hostId }
+            notice = "Host window closed"
+        }
+    }
+    fun closeFleetWindow(onSuccess: () -> Unit = {}) {
+        if (!can("hosts.activate_insecure") || !fresh() || !liveFleetWindow(fleetWindow, System.currentTimeMillis())) {
+            error = "Fleet window is no longer available to close"; refreshNow(); return
+        }
+        mutate {
+            val result = api().request("/insecure/window/close", "POST", JSONObject())
+            notice = if (result.optBoolean("closed")) "Fleet window closed" else "Window state changed — refreshing"
+            onSuccess()
+        }
+    }
     fun updateNotifications(value: Boolean) { mutate {
         api().request("/device", "PATCH", JSONObject().put("notifications", value))
         notifications = value; refreshUnreadState()
@@ -561,6 +586,7 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
         chatUploads.values.flatten().forEach { it.file.delete() }; chatUploads=emptyMap(); chatDrafts=emptyMap(); replyTargets=emptyMap(); chatSends.clear(); noticeOperations.clear()
         java.io.File(getApplication<Application>().cacheDir,"chat-downloads").deleteRecursively()
         store.clear(); connection = null; selected = null; events = emptyList(); pendingChats = emptyMap(); agents = emptyList(); hosts = emptyList(); pendingStart = null; approvals = emptyList(); capabilities = emptySet()
+        activeWindows = emptyList(); fleetWindow = null
         unreadStore.clear(); unreadSessions = emptySet(); unreadReplyCounts = emptyMap(); permissionsKnown = false
         syncUnreadNotifications(getApplication(), null, emptySet())
         online = false; lastSync = 0; reconnectAttempt = 0; pendingOpen = null; highlightApproval = null

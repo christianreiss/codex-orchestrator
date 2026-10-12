@@ -1,5 +1,7 @@
 # 2026-10-12
 
+- Android 0.4.17 adds a third Authorizations tab for waiting host-access requests and active host/fleet windows. Close actions reuse existing window services, audit the paired administrator/device, disable individual close during fleet access, warn about domain reopening, and require confirmation for fleet-wide closure. Approval pushes and Review next open the new tab; live refresh and offline action guards cover window changes.
+
 - Wrapper 0.9.62 adds checkout-scoped agent discovery, excluding self, offline peers, other worktrees and hosts. Enabled Git Director instructions across Codex, Claude and Grok now require automatic task-worktree isolation for occupied/unknown checkouts, verified task commits even when alone, lease-coordinated merge-back and ancestry-gated cleanup. Dashboard/help document the agent-executed workflow; explicit restrictions prevail and push/deploy remain separate.
 
 - Added the central Orchestrator Feedback inbox for agent bug reports, missing features and feedback, with MCP tools, exclusive renewable claims, versioned updates and verified-fix outcomes separate from deployment. The WebUI has triage/history and an activation switch; enabled fleets dynamically receive the workflow in Codex, Claude and Grok instructions.

@@ -69,6 +69,7 @@ class MainActivity : ComponentActivity() {
     LaunchedEffect(model.connection?.deviceId) { if (model.connection != null && Build.VERSION.SDK_INT >= 33) permission.launch(Manifest.permission.POST_NOTIFICATIONS) }
     LaunchedEffect(model.highlightApproval, requests) {
         model.highlightApproval?.let { id ->
+            if (model.can("hosts.activate_insecure")) homeTab = "authorizations"
             requests.firstOrNull { it.optString("id") == id }?.let { review = it; model.clearApprovalHighlight() }
             if (fresh && requests.none { it.optString("id") == id }) model.clearApprovalHighlight()
         }
@@ -102,10 +103,13 @@ class MainActivity : ComponentActivity() {
         if (model.connection != null && model.selected == null) NavigationBar {
             NavigationBarItem(selected = homeTab == "chats", onClick = { homeTab = "chats" }, icon = { CompanionIcon(CompanionSymbol.Chat) }, label = { Text("Chats") }, modifier = Modifier.testTag("tab-chats"))
             if (model.can("admin.read")) NavigationBarItem(selected = homeTab == "hosts", onClick = { homeTab = "hosts" }, icon = { CompanionIcon(CompanionSymbol.Computer) }, label = { Text("Hosts") }, modifier = Modifier.testTag("tab-hosts"))
+            if (model.can("hosts.activate_insecure")) NavigationBarItem(selected = homeTab == "authorizations", onClick = { homeTab = "authorizations" },
+                icon = { BadgedBox(badge = { if (requests.isNotEmpty()) Badge { Text(requests.size.toString()) } }) { CompanionIcon(CompanionSymbol.Shield) } },
+                label = { Text("Authorizations") }, modifier = Modifier.testTag("tab-authorizations"))
         }
     }, snackbarHost = { SnackbarHost(snackbar) }, floatingActionButton = {
-        if (model.connection != null && model.selected == null && total > 0) {
-            Button(onClick = { if (requests.isNotEmpty()) review = requests.first() else model.openSession(needsYou.first().getString("id")) },
+        if (model.connection != null && model.selected == null && homeTab != "authorizations" && total > 0) {
+            Button(onClick = { if (requests.isNotEmpty()) { homeTab = "authorizations"; review = requests.first() } else model.openSession(needsYou.first().getString("id")) },
                 modifier = Modifier.heightIn(min = 56.dp).testTag("review-next"), shape = RoundedCornerShape(18.dp), enabled = !model.busy,
                 elevation = ButtonDefaults.buttonElevation(defaultElevation = 3.dp)) {
                 CompanionIcon(CompanionSymbol.Shield)
@@ -121,8 +125,11 @@ class MainActivity : ComponentActivity() {
                 model.connection == null -> PairScreen(model)
                 model.selected != null -> ChatScreen(model, current, fresh)
                 else -> overviewState.SaveableStateProvider(model.connection!!.deviceId) {
-                    if (homeTab == "hosts" && model.can("admin.read")) HostsScreen(model, fresh)
-                    else NowScreen(model, agents, requests, fresh, activityClock, onReview = { review = it })
+                    when {
+                        homeTab == "authorizations" && model.can("hosts.activate_insecure") -> AuthorizationsScreen(model, fresh, clock, onReview = { review = it })
+                        homeTab == "hosts" && model.can("admin.read") -> HostsScreen(model, fresh)
+                        else -> NowScreen(model, agents, fresh, activityClock)
+                    }
                 }
             }
         }
@@ -146,7 +153,7 @@ class MainActivity : ComponentActivity() {
     val current = model.approvals.firstOrNull { it.optLong("id") == request.optLong("id") }
     val active = fresh && current?.let { liveApproval(it, now) } == true
     val remaining = current?.let { runCatching { (Instant.parse(it.optString("expires_at")).toEpochMilli() - now) / 1000 }.getOrDefault(0).coerceAtLeast(0) } ?: 0
-    ModalBottomSheet(onDismissRequest = onDismiss, shape = RoundedCornerShape(topStart = 30.dp, topEnd = 30.dp), dragHandle = { BottomSheetDefaults.DragHandle() }, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
+    ModalBottomSheet(onDismissRequest = onDismiss, modifier = Modifier.testTag("approval-sheet"), shape = RoundedCornerShape(topStart = 30.dp, topEnd = 30.dp), dragHandle = { BottomSheetDefaults.DragHandle() }, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
         Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp).padding(bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("Allow host access?", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Text(request.optString("fqdn"), style = MaterialTheme.typography.titleLarge)

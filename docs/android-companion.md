@@ -1,5 +1,37 @@
 # Android companion
 
+## Authorizations tab (0.4.17)
+
+Navigation is **Chats · Hosts · Authorizations**. The third tab requires
+`hosts.activate_insecure`; its badge counts live, unexpired requests. Pending
+host-access requests now appear here instead of in the chat list. Review retains
+the existing duration choices and Allow/Deny sheet. **Review next** and approval
+notification links select this tab before opening the request.
+
+**Active windows** lists every insecure host with an unexpired grant, including
+hosts without a daemon, alongside any open fleet window. Rows show the deadline
+and remaining time. **Close** uses the existing single-host disable operation,
+clears its grace tail and blocks automatic session renewal. While a fleet window
+is open, host Close is disabled because fleet access would immediately reopen it.
+Matching active domain grants are identified with a warning that they can reopen
+a disabled host on its next request; managing those rules remains in the WebUI.
+
+**Close fleet window** requires confirmation: this closes all host windows and
+active domain grants, including permanent domain allows. It preserves the
+existing fleet service's retry and concurrent-reopen semantics. If a concurrent
+reopen wins, the app refreshes instead of claiming the new window was closed.
+
+Actions require a fresh connection and are disabled while another mutation is
+pending. Offline rows are marked as possibly stale. Deadlines expire locally;
+WebSocket invalidations and five-second server reconciliation update grants,
+external decisions, closures and permission changes without opening chats or
+changing unread state. Errors retain the window and allow refresh/retry.
+
+Deploy the additive `/approvals` window projection and both Companion close
+routes before installing 0.4.17. No migration is required; previous APKs continue
+using the existing response fields. This feature does not add manual window
+opening or domain-grant management to Android.
+
 ## Reconnecting after the rich-chat server upgrade
 
 If the phone authenticates but stays on **Reconnecting…**, a server-side chat
@@ -276,8 +308,9 @@ the list leaves room so it does not cover the last chat.
 
 Search and filters operate only on the already-authorized overview; they never
 fetch a transcript, acknowledge a reply, or change notification follows. Live
-host approvals remain visible through chat filters. The redesign is Android-only
-and uses the existing 0.4.3 API. No server rollout is required.
+host approvals remained visible through chat filters in 0.4.4; 0.4.17 moves them
+to Authorizations. The 0.4.4 redesign used the existing 0.4.3 API without a server
+rollout.
 
 Version 0.4.0 follows the Android light/dark setting with blue accents, soft surfaces,
 rounded controls and a compact, top-aligned conversation list. Host reviews and

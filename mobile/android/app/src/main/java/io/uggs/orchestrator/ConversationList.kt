@@ -33,14 +33,14 @@ import androidx.compose.ui.unit.dp
 import org.json.JSONObject
 import java.time.Instant
 
-@Composable internal fun NowScreen(model: CompanionModel, agents: List<JSONObject>, requests: List<JSONObject>, fresh: Boolean, now: Long = System.currentTimeMillis(), onReview: (JSONObject) -> Unit) {
+@Composable internal fun NowScreen(model: CompanionModel, agents: List<JSONObject>, fresh: Boolean, now: Long = System.currentTimeMillis()) {
     var query by rememberSaveable { mutableStateOf("") }
     var filter by rememberSaveable { mutableStateOf("all") }
     val keyboard = LocalSoftwareKeyboardController.current
     val search = query.trim()
     fun attention(agent: JSONObject) = fresh && model.can("agent_portal.manage") && needsReply(agent) && (hasUrgentNotice(agent) || isReachable(agent))
     // Filter only the already-authorized overview. Searching never fetches a
-    // transcript or changes a read marker, and host approvals stay pinned.
+    // transcript or changes a read marker.
     val visible = agents.filter { agent ->
         val matchesFilter = when (filter) {
             "unread" -> model.unreadReplyCount(agent.getString("id")) > 0
@@ -94,13 +94,10 @@ import java.time.Instant
                     TextButton(onClick = model::refreshNow, modifier = Modifier.heightIn(min = 48.dp)) { Text("Retry connection") }
                 }
             }
-            itemsIndexed(requests, key = { _, request -> "approval:" + request.optString("id") }) { _, request ->
-                ApprovalRow(request) { onReview(request) }
-            }
             itemsIndexed(visible, key = { _, agent -> "agent:" + agent.getString("id") }) { index, agent ->
                 AgentRow(agent, now, attention(agent), model.unreadReplyCount(agent.getString("id")), index < visible.lastIndex) { model.openSession(agent.getString("id")) }
             }
-            if (visible.isEmpty() && (requests.isEmpty() || search.isNotEmpty() || filter != "all")) item(key = "empty") {
+            if (visible.isEmpty()) item(key = "empty") {
                 Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 40.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     val empty = when {
                         model.connecting -> "Loading your chats…"
@@ -116,21 +113,6 @@ import java.time.Instant
                     else if (fresh) Text("No active agents online.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
-        }
-    }
-}
-
-@Composable private fun ApprovalRow(request: JSONObject, onClick: () -> Unit) {
-    Surface(onClick = onClick, modifier = Modifier.fillMaxWidth().heightIn(min = 72.dp).testTag("approval:" + request.optString("id")), shape = RectangleShape, color = MaterialTheme.colorScheme.background) {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Surface(Modifier.size(52.dp), shape = CircleShape, color = MaterialTheme.colorScheme.primaryContainer) {
-                Box(contentAlignment = Alignment.Center) { CompanionIcon(CompanionSymbol.Shield, tint = MaterialTheme.colorScheme.primary) }
-            }
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                Text(request.optString("fqdn"), style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text("Review host access", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary)
-            }
-            CompanionIcon(CompanionSymbol.Forward, tint = MaterialTheme.colorScheme.outline)
         }
     }
 }

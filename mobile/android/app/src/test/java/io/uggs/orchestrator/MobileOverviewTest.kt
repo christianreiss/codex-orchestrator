@@ -5,6 +5,21 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class MobileOverviewTest {
+    @Test fun accessWindowsFailClosedAtExpiryAndOnMalformedDeadlines() {
+        val now = java.time.Instant.parse("2026-10-12T10:00:00Z").toEpochMilli()
+        val window = JSONObject().put("enabled_until", "2026-10-12T10:00:01Z").put("open", true)
+        assertTrue(liveWindow(window, now))
+        assertTrue(liveFleetWindow(window, now))
+        assertFalse(liveWindow(window, now + 1000))
+        assertFalse(liveFleetWindow(window, now + 1000))
+        assertFalse(liveFleetWindow(null, now))
+        window.put("open", false)
+        assertFalse(liveFleetWindow(window, now))
+        for (deadline in listOf("invalid", "", JSONObject.NULL)) {
+            window.put("enabled_until", deadline)
+            assertFalse(liveWindow(window, now))
+        }
+    }
     private fun agent(json: String) = JSONObject(json)
     @Test fun allShowsOnlineActiveAgentsAcrossEnginesWithoutRequiringAnOpenRelay() {
         for (engine in listOf("codex", "claude", "grok")) {

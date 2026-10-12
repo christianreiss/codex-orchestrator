@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { registerAgentChatRoutes } from '../../src/routes/agent-chat.js';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import { eq } from 'drizzle-orm';
+import { desc, eq } from 'drizzle-orm';
 import Fastify from 'fastify';
 import { getTestDb } from '../helpers/test-db.js';
 import { loadTestEnv, testKeyring } from '../helpers/test-keyring.js';
@@ -21,6 +21,8 @@ import {
   companionPairings,
   hosts,
   insecureAuthRequests,
+  insecureDomainAllows,
+  logs,
 } from '../../src/db/schema.js';
 import { CompanionDevices } from '../../src/services/companion/devices.js';
 import { CompanionPush } from '../../src/services/companion/push.js';
@@ -163,7 +165,74 @@ describe.skipIf(!handle)('Android companion with real MySQL', { timeout: 120_000
       (await app.inject({ url: '/companion/v1/approvals', headers: { authorization: authorization() } }))
         .statusCode,
     ).toBe(403);
+    for (const url of [`/companion/v1/hosts/${hostId}/insecure/disable`, '/companion/v1/insecure/window/close']) {
+      expect((await app.inject({ method: 'POST', url })).statusCode).toBe(401);
+      expect((await app.inject({ method: 'POST', url, headers: { authorization: authorization() } })).statusCode).toBe(403);
+    }
     await db.update(adminUsers).set({ accessLevel: 'owner' }).where(eq(adminUsers.id, userId));
+  });
+  it('projects only active insecure windows, independently of daemon availability, with domain reopening hints', async () => {
+    const fixtureIds: number[] = [];
+    const domain = `${unique}.window.test`;
+    const [allow] = await db.insert(insecureDomainAllows).values({ domain, windowMinutes: 60, enabledUntil: null, createdAt: nowIso(), updatedAt: nowIso() });
+    try {
+      for (const [name, secure, seconds] of [['active', 0, 3600], ['expired', 0, -1], ['secure', 1, 3600], ['closed', 0, 0]] as const) {
+        const [row] = await db.insert(hosts).values({ fqdn: `${name}.${domain}`, apiKey: randomBytes(32).toString('hex'), secure, status: 'active', insecureEnabledUntil: seconds ? new Date(Date.now() + seconds * 1000) : null, createdAt: nowIso(), updatedAt: nowIso() });
+        fixtureIds.push(row.insertId);
+      }
+      const response = await app.inject({ url: '/companion/v1/approvals', headers: { authorization: authorization() } });
+      expect(response.statusCode, response.body).toBe(200);
+      const data = response.json().data;
+      expect(data.default_duration_minutes).toBe(480);
+      expect(data.requests).toBeInstanceOf(Array);
+      expect(data.fleet_window).toEqual({ open: false, enabled_until: null });
+      const projected = data.active_windows.filter((w: { host_id: number }) => fixtureIds.includes(w.host_id));
+      expect(projected).toEqual([{ host_id: fixtureIds[0], fqdn: `active.${domain}`, enabled_until: expect.any(String), domain_allow: domain }]);
+      expect(response.body).not.toContain('apiKey');
+      await db.update(insecureDomainAllows).set({ enabledUntil: isoOffsetSeconds(-1) }).where(eq(insecureDomainAllows.id, allow.insertId));
+      expect((await insecure.accessWindows()).active_windows.find((w) => w.host_id === fixtureIds[0])?.domain_allow).toBeNull();
+      await db.update(insecureDomainAllows).set({ enabledUntil: null, revokedAt: nowIso() }).where(eq(insecureDomainAllows.id, allow.insertId));
+      expect((await insecure.accessWindows()).active_windows.find((w) => w.host_id === fixtureIds[0])?.domain_allow).toBeNull();
+    } finally {
+      for (const id of fixtureIds) await db.delete(hosts).where(eq(hosts.id, id));
+      await db.delete(insecureDomainAllows).where(eq(insecureDomainAllows.id, allow.insertId));
+    }
+  });
+  it('closes host access idempotently, blocks automatic session renewal and audits the paired actor', async () => {
+    await insecure.enable(hostId, 60);
+    const post = (id: number | string) => app.inject({ method: 'POST', url: `/companion/v1/hosts/${id}/insecure/disable`, headers: { authorization: authorization() } });
+    expect((await post('invalid')).statusCode).toBe(422);
+    expect((await post(2_000_000_000)).statusCode).toBe(404);
+    expect((await post(hostId)).json().data).toEqual({ host_id: hostId, enabled_until: null });
+    expect((await post(hostId)).statusCode).toBe(200);
+    const [host] = await db.select().from(hosts).where(eq(hosts.id, hostId));
+    expect(host).toMatchObject({ insecureEnabledUntil: null, insecureGraceUntil: null, insecureSessionRenewalBlocked: 1 });
+    const [log] = await db.select().from(logs).where(eq(logs.hostId, hostId)).orderBy(desc(logs.id)).limit(1);
+    expect(JSON.parse(log!.details!)).toMatchObject({ actor: { admin_user_id: userId, device_id: connection.device_id } });
+  });
+  it('exposes the fleet window, rejects per-host close and closes all standing grants with a device audit', async () => {
+    const [domain] = await db.insert(insecureDomainAllows).values({ domain: `${unique}.fleet.test`, windowMinutes: 60, enabledUntil: null, createdAt: nowIso(), updatedAt: nowIso() });
+    const close = () => app.inject({ method: 'POST', url: '/companion/v1/insecure/window/close', headers: { authorization: authorization() } });
+    try {
+      await insecure.openFleetWindow(60);
+      const overview = await app.inject({ url: '/companion/v1/approvals', headers: { authorization: authorization() } });
+      expect(overview.json().data.fleet_window).toEqual({ open: true, enabled_until: expect.any(String) });
+      const refused = await app.inject({ method: 'POST', url: `/companion/v1/hosts/${hostId}/insecure/disable`, headers: { authorization: authorization() } });
+      expect(refused.statusCode).toBe(409);
+      expect(refused.json().code).toBe('insecure_fleet_window_open');
+      const closed = await close();
+      expect(closed.statusCode, closed.body).toBe(200);
+      expect(closed.json().data).toMatchObject({ closed: true, hosts: expect.any(Number), domains: 1 });
+      expect(await insecure.accessWindows()).toEqual({ active_windows: [], fleet_window: { open: false, enabled_until: null } });
+      const [grant] = await db.select().from(insecureDomainAllows).where(eq(insecureDomainAllows.id, domain.insertId));
+      expect(new Date(grant!.enabledUntil!).getTime()).toBeLessThanOrEqual(Date.now());
+      const [log] = await db.select().from(logs).where(eq(logs.action, 'admin.insecure.fleet_window_close')).orderBy(desc(logs.id)).limit(1);
+      expect(JSON.parse(log!.details!)).toMatchObject({ actor: { admin_user_id: userId, device_id: connection.device_id } });
+      expect((await close()).json().data).toMatchObject({ closed: false, hosts: 0, domains: 0 });
+    } finally {
+      if ((await insecure.fleetWindowState()).open) await insecure.closeFleetWindow('manual');
+      await db.delete(insecureDomainAllows).where(eq(insecureDomainAllows.id, domain.insertId));
+    }
   });
   it('preserves message retry identity and follows the conversation', async () => {
     const payload = { client_message_id: randomUUID(), content: 'Companion hello' };

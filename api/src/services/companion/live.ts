@@ -50,7 +50,7 @@ export class CompanionLive {
     this.interval = setInterval(() => this.schedule(), 5000);
     this.interval.unref();
     this.unsubscribe = wsPublisher.subscribe(({ type }) => {
-      if (/^(host\.|engine\.)/.test(type)) this.schedule('agents', 'hosts');
+      if (/^(host\.|engine\.)/.test(type)) this.schedule('agents', 'hosts', 'approvals');
       else if (/^(agent_portal\.|agent_messaging\.)/.test(type)) this.schedule('agents');
       else if (/^insecure\./.test(type)) this.schedule('approvals');
       else if (/^(companion\.|user\.|admin\.user\.|settings\.)/.test(type))

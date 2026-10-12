@@ -116,6 +116,19 @@ export interface InsecureDomainAllowRow {
   updated_at: string;
 }
 
+export interface InsecureWindowActor {
+  admin_user_id: number;
+  device_id: string;
+}
+
+export interface ActiveInsecureWindow {
+  host_id: number;
+  fqdn: string;
+  enabled_until: string;
+  /** An independent domain grant may reopen this host after disabling it. */
+  domain_allow: string | null;
+}
+
 function parseDate(s: string | Date | null | undefined): Date | null {
   if (!s) return null;
   if (s instanceof Date) return Number.isNaN(s.getTime()) ? null : s;
@@ -319,6 +332,30 @@ export class InsecureWindowAdminService {
     return readFleetWindow(this.settings);
   }
 
+  /** Safe access projection; independent of daemon availability or engine. */
+  async accessWindows(): Promise<{
+    active_windows: ActiveInsecureWindow[];
+    fleet_window: { open: boolean; enabled_until: string | null };
+  }> {
+    const now = Date.now();
+    const [allHosts, domains, fleet] = await Promise.all([
+      this.db.select({ id: hosts.id, fqdn: hosts.fqdn, secure: hosts.secure, insecureEnabledUntil: hosts.insecureEnabledUntil }).from(hosts),
+      this.db.select().from(insecureDomainAllows),
+      this.fleetWindowState(),
+    ]);
+    const activeDomains = domains.filter((d) => d.revokedAt === null &&
+      (d.enabledUntil === null || (parseDate(d.enabledUntil)?.getTime() ?? 0) > now));
+    const active_windows = allHosts.flatMap((h) => {
+      const until = parseDate(h.insecureEnabledUntil);
+      if (h.secure === 1 || !until || until.getTime() <= now) return [];
+      return [{
+        host_id: Number(h.id), fqdn: h.fqdn, enabled_until: until.toISOString(),
+        domain_allow: activeDomains.find((d) => fqdnMatchesDomain(h.fqdn, d.domain))?.domain ?? null,
+      }];
+    }).sort((a, b) => a.fqdn.localeCompare(b.fqdn) || a.host_id - b.host_id);
+    return { active_windows, fleet_window: { open: fleet.open, enabled_until: fleet.until?.toISOString() ?? null } };
+  }
+
   /**
    * Open (or re-set) the fleet window for `durationMinutes`.
    *
@@ -400,7 +437,7 @@ export class InsecureWindowAdminService {
    * that new window's host stamps, so they are written back rather than left for
    * `enforce()` to repair one host at a time.
    */
-  async closeFleetWindow(reason: 'manual' | 'expired'): Promise<{
+  async closeFleetWindow(reason: 'manual' | 'expired', actor?: InsecureWindowActor): Promise<{
     closed: boolean;
     hosts: number;
     domains: number;
@@ -408,6 +445,7 @@ export class InsecureWindowAdminService {
     const state = await this.fleetWindowState();
     const counts = await closeAllInsecureAccess(this.db, async (host) => {
       await this.writeLog(host.id, 'admin.host.insecure_disable', {
+        ...(actor ? { actor } : {}),
         fqdn: host.fqdn,
         source: `fleet_window_${reason}`,
       });
@@ -421,6 +459,7 @@ export class InsecureWindowAdminService {
     }
 
     await this.writeLog(null, 'admin.insecure.fleet_window_close', {
+      ...(actor ? { actor } : {}),
       reason,
       hosts_disabled: counts.hosts,
       domains_expired: counts.domains,
@@ -438,6 +477,7 @@ export class InsecureWindowAdminService {
       'insecure.approval.changed',
       {
         action: 'fleet_window_closed',
+        ...(actor ? { actor } : {}),
         reason,
         hosts_disabled: counts.hosts,
         domains_expired: counts.domains,
@@ -515,7 +555,7 @@ export class InsecureWindowAdminService {
     return fresh;
   }
 
-  async disable(hostId: number): Promise<Host> {
+  async disable(hostId: number, actor?: InsecureWindowActor): Promise<Host> {
     const host = await this.findHost(hostId);
     // Refuse rather than lie. With the fleet window open, `enforce()` re-stamps
     // this host on its very next request, so clearing the columns here would
@@ -536,11 +576,11 @@ export class InsecureWindowAdminService {
         updatedAt: nowIso(),
       })
       .where(eq(hosts.id, hostId));
-    await this.writeLog(hostId, 'admin.host.insecure_disable', { fqdn: host.fqdn });
+    await this.writeLog(hostId, 'admin.host.insecure_disable', { fqdn: host.fqdn, ...(actor ? { actor } : {}) });
     const fresh = await this.findHost(hostId);
     await this.events.appendAndPublish(
       'insecure.approval.changed',
-      { host_id: hostId, fqdn: host.fqdn, action: 'disabled' },
+      { host_id: hostId, fqdn: host.fqdn, action: 'disabled', ...(actor ? { actor } : {}) },
       { hostId, wsType: 'insecure.approval.changed', wsPayload: { host_id: hostId } },
     );
     return fresh;

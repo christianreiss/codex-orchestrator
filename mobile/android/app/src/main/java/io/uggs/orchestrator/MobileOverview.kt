@@ -30,6 +30,12 @@ fun readyAgents(agents: List<JSONObject>) = agents.filter(::isReachable)
 fun liveApproval(request: JSONObject, now: Long) = request.optBoolean("live", false) &&
     runCatching { Instant.parse(request.getString("expires_at")).toEpochMilli() > now }.getOrDefault(false)
 
+fun liveWindow(window: JSONObject, now: Long) =
+    runCatching { Instant.parse(window.getString("enabled_until")).toEpochMilli() > now }.getOrDefault(false)
+
+fun liveFleetWindow(window: JSONObject?, now: Long) =
+    window?.let { it.optBoolean("open", false) && liveWindow(it, now) } ?: false
+
 fun agentTitle(agent: JSONObject): String {
     val name = compactSummary(agent.identityText("launch_name"))
     val title = compactSummary(agent.identityText("session_name"))

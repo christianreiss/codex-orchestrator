@@ -91,6 +91,25 @@ describe('companion live invalidations', () => {
     await vi.advanceTimersByTimeAsync(5000);
     expect(socket.code).toBe(4001);
   });
+  it('refreshes access windows on host changes even without admin.read', async () => {
+    vi.mocked(sources.authorize).mockResolvedValue(['hosts.activate_insecure']);
+    const socket = await connect();
+    socket.frames = [];
+    wsPublisher.publish('host.updated', { id: 42, api_key: 'private' });
+    await vi.advanceTimersByTimeAsync(60);
+    expect(socket.frames.at(-1)).toMatchObject({ type: 'changed', scopes: ['approvals'] });
+    expect(JSON.stringify(socket.frames)).not.toMatch(/private|api_key/);
+  });
+  it('refreshes closed or extended host and fleet windows within the existing approvals scope', async () => {
+    vi.mocked(sources.authorize).mockResolvedValue(['hosts.activate_insecure']);
+    const socket = await connect();
+    for (const revision of ['host-extended', 'host-expired', 'fleet-opened', 'fleet-closed']) {
+      socket.frames = [];
+      vi.mocked(sources.revisions).mockResolvedValue({ agents: 'initial', approvals: revision });
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(socket.frames.find((frame) => frame.type === 'changed')).toMatchObject({ type: 'changed', scopes: ['approvals'] });
+    }
+  });
   it('keeps an unchanged connection alive without reloading data', async () => {
     const socket = await connect();
     const changes = socket.frames.filter((f) => f.type === 'changed').length;

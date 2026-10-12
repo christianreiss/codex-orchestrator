@@ -64,6 +64,141 @@ class CompanionUiTest {
         compose.waitUntil(10_000) { compose.onAllNodesWithTag("conversation").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithText("Start queued — waiting for the host").assertIsDisplayed()
     }
+    private fun windowFixture() = JSONObject().put("host_id", 7).put("fqdn", "active.uggs.io")
+        .put("enabled_until", Instant.now().plusSeconds(3600).toString()).put("domain_allow", JSONObject.NULL)
+
+    @Test fun authorizationsTabContainsWaitingRequestsAndBadgeWithoutChatRows() {
+        waitForAgentRows(session)
+        compose.onNodeWithTag("approval:42").assertDoesNotExist()
+        compose.onNode(hasText("1") and hasAnyAncestor(hasTestTag("tab-authorizations")), useUnmergedTree = true).assertExists()
+        compose.onNodeWithTag("tab-authorizations").performClick()
+        compose.onNodeWithTag("approval:42").assertIsDisplayed()
+        compose.onNodeWithText("Requesting IP: 192.0.2.42").assertIsDisplayed()
+        compose.onNodeWithText("Review").performClick()
+        compose.onNodeWithText("Deny", useUnmergedTree = true).performClick()
+        compose.waitUntil(10000) { approved.get() && compose.onAllNodesWithTag("approval:42").fetchSemanticsNodes().isEmpty() }
+        compose.onNodeWithText("No waiting authorizations").assertIsDisplayed()
+        compose.onNodeWithText("No active windows").assertIsDisplayed()
+        screenshot("authorizations-empty")
+    }
+    @Test fun activeHostWindowShowsDomainHintAndCloses() {
+        waitForAgentRows(session)
+        activeWindows.add(windowFixture().put("domain_allow", "uggs.io"))
+        changed("approvals")
+        compose.onNodeWithTag("tab-authorizations").performClick()
+        compose.waitUntil(10000) { compose.onAllNodesWithTag("window:7").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("authorizations-list").performScrollToNode(hasTestTag("close-window:7"))
+        compose.onNodeWithText("Domain grant uggs.io may reopen this host on its next request.").assertIsDisplayed()
+        screenshot("authorizations-host")
+        compose.onNodeWithTag("close-window:7").assertIsEnabled().performClick()
+        compose.waitUntil(10000) { closedWindows.get() == 1L && compose.onAllNodesWithTag("window:7").fetchSemanticsNodes().isEmpty() }
+    }
+    @Test fun fleetWindowRequiresConfirmationAndPreventsIndividualClose() {
+        waitForAgentRows(session)
+        activeWindows.add(windowFixture())
+        fleetWindow.set(JSONObject().put("open", true).put("enabled_until", Instant.now().plusSeconds(3600).toString()))
+        changed("approvals")
+        compose.onNodeWithTag("tab-authorizations").performClick()
+        compose.waitUntil(10000) { compose.onAllNodesWithTag("fleet-window").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("authorizations-list").performScrollToNode(hasTestTag("close-window:7"))
+        compose.onNodeWithTag("close-window:7").assertIsNotEnabled()
+        compose.onNodeWithTag("authorizations-list").performScrollToNode(hasTestTag("close-fleet-window"))
+        screenshot("authorizations-fleet")
+        compose.onNodeWithTag("close-fleet-window").performClick()
+        Assert.assertEquals(0L, closedFleet.get())
+        compose.onNodeWithText("Cancel").performClick()
+        Assert.assertEquals(0L, closedFleet.get())
+        compose.onNodeWithTag("close-fleet-window").performClick()
+        compose.onNodeWithTag("confirm-close-fleet").performClick()
+        compose.waitUntil(10000) { closedFleet.get() == 1L && compose.onAllNodesWithTag("fleet-window").fetchSemanticsNodes().isEmpty() }
+        Assert.assertEquals(0L, closedWindows.get())
+    }
+    @Test fun failedFleetCloseKeepsTheGrantAndShowsTheErrorInTheDialog() {
+        waitForAgentRows(session)
+        fleetWindow.set(JSONObject().put("open", true).put("enabled_until", Instant.now().plusSeconds(3600).toString()))
+        failFleetClose.set(true)
+        changed("approvals")
+        compose.onNodeWithTag("tab-authorizations").performClick()
+        compose.waitUntil(10000) { compose.onAllNodesWithTag("fleet-window").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("close-fleet-window").performClick()
+        compose.onNodeWithTag("confirm-close-fleet").performClick()
+        compose.waitUntil(10000) { compose.onAllNodes(hasText("Fleet close unavailable") and hasAnyAncestor(hasTestTag("fleet-close-dialog"))).fetchSemanticsNodes().isNotEmpty() }
+        Assert.assertNotNull(fleetWindow.get())
+        failFleetClose.set(false)
+        compose.waitUntil(10000) { compose.onAllNodes(hasTestTag("confirm-close-fleet") and isEnabled()).fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("confirm-close-fleet").performClick()
+        compose.waitUntil(10000) { closedFleet.get() == 2L && compose.onAllNodesWithTag("fleet-close-dialog").fetchSemanticsNodes().isEmpty() }
+    }
+    @Test fun externalWindowExpiryAndPermissionRevocationUpdateTheTab() {
+        waitForAgentRows(session)
+        activeWindows.add(windowFixture().put("enabled_until", Instant.now().plusSeconds(5).toString()))
+        changed("approvals")
+        compose.onNodeWithTag("tab-authorizations").performClick()
+        compose.waitUntil(10000) { compose.onAllNodesWithTag("window:7").fetchSemanticsNodes().isNotEmpty() }
+        compose.waitUntil(10000) { compose.onAllNodesWithTag("window:7").fetchSemanticsNodes().isEmpty() }
+        Assert.assertEquals(0L, closedWindows.get())
+        authorizationAllowed.set(false)
+        changed("me")
+        compose.waitUntil(10000) { compose.onAllNodesWithTag("tab-authorizations").fetchSemanticsNodes().isEmpty() }
+        compose.onNodeWithTag("agent:$session").assertIsDisplayed()
+    }
+    @Test fun offlineWindowsRemainVisibleWithDisabledActions() {
+        waitForAgentRows(session)
+        activeWindows.add(windowFixture())
+        changed("approvals")
+        compose.onNodeWithTag("tab-authorizations").performClick()
+        compose.waitUntil(10000) { compose.onAllNodesWithTag("window:7").fetchSemanticsNodes().isNotEmpty() }
+        networkAvailable.set(false)
+        live.getAndSet(null)?.close(1012, "Fixture network loss")
+        compose.waitUntil(10000) { compose.onAllNodesWithText("Reconnecting…").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("authorizations-list").performScrollToNode(hasTestTag("close-window:7"))
+        compose.onNodeWithTag("close-window:7").assertIsNotEnabled()
+        Assert.assertEquals(0L, closedWindows.get())
+    }
+    @Test fun failedWindowCloseKeepsTheWindowAndAllowsRetry() {
+        waitForAgentRows(session)
+        activeWindows.add(windowFixture())
+        failWindowClose.set(true)
+        changed("approvals")
+        compose.onNodeWithTag("tab-authorizations").performClick()
+        compose.waitUntil(10000) { compose.onAllNodesWithTag("window:7").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("authorizations-list").performScrollToNode(hasTestTag("close-window:7"))
+        compose.onNodeWithTag("close-window:7").performClick()
+        compose.waitUntil(10000) { compose.onAllNodesWithText("Fleet insecure window is open; close it first").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("window:7").assertExists()
+        failWindowClose.set(false)
+        compose.onNodeWithTag("authorizations-list").performScrollToNode(hasTestTag("close-window:7"))
+        compose.waitUntil(10000) { compose.onAllNodes(hasTestTag("close-window:7") and isEnabled()).fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("close-window:7").performClick()
+        compose.waitUntil(10000) { closedWindows.get() == 2L && compose.onAllNodesWithTag("window:7").fetchSemanticsNodes().isEmpty() }
+    }
+    @Test fun pendingWindowCloseDisablesActionsAndPreventsDuplicateRequests() {
+        waitForAgentRows(session)
+        activeWindows.add(windowFixture())
+        changed("approvals")
+        compose.onNodeWithTag("tab-authorizations").performClick()
+        compose.waitUntil(10000) { compose.onAllNodesWithTag("window:7").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("authorizations-list").performScrollToNode(hasTestTag("close-window:7"))
+        holdWindowClose.set(true)
+        try {
+            compose.onNodeWithTag("close-window:7").performClick()
+            compose.waitUntil(10000) { closedWindows.get() == 1L }
+            compose.onNodeWithTag("close-window:7").assertIsNotEnabled().performClick()
+            Assert.assertEquals(1L, closedWindows.get())
+        } finally { holdWindowClose.set(false) }
+        compose.waitUntil(10000) { compose.onAllNodesWithTag("window:7").fetchSemanticsNodes().isEmpty() }
+    }
+    @Test fun approvalNotificationOpensTheAuthorizationsTabAndReview() {
+        waitForAgentRows(session)
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        context.startActivity(android.content.Intent(context, MainActivity::class.java)
+            .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            .putExtra("kind", "approval").putExtra("target_id", "42"))
+        compose.waitUntil(10000) { compose.onAllNodesWithText("Allow host access?").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("Deny", useUnmergedTree = true).performClick()
+        compose.waitUntil(10000) { compose.onAllNodesWithText("No waiting authorizations").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("tab-authorizations").assertIsSelected()
+    }
     @Test fun startsWithOptionalTaskAndPreservesHostSearch() {
         waitForAgentRows(session)
         compose.onNodeWithTag("tab-hosts").performClick()
@@ -85,6 +220,14 @@ class CompanionUiTest {
     private var firebase: JSONObject? = null
     private val registeredToken = AtomicReference<String?>(null)
     private val approved = AtomicBoolean(false)
+    private val authorizationAllowed = AtomicBoolean(true)
+    private val activeWindows = CopyOnWriteArrayList<JSONObject>()
+    private val fleetWindow = AtomicReference<JSONObject?>(null)
+    private val closedWindows = AtomicLong(0)
+    private val closedFleet = AtomicLong(0)
+    private val failWindowClose = AtomicBoolean(false)
+    private val holdWindowClose = AtomicBoolean(false)
+    private val failFleetClose = AtomicBoolean(false)
     private val questionPending = AtomicBoolean(false)
     private val questionAnswerMode = AtomicReference<String?>(null)
     private val reachable = AtomicBoolean(true)
@@ -173,6 +316,7 @@ class CompanionUiTest {
                         meRequested.set(true)
                         while (holdMe.get()) Thread.sleep(20)
                         val capabilities = mutableListOf("agent_portal.read", "agent_portal.manage", "hosts.activate_insecure", "admin.read", "agent_messaging.manage")
+                        if (!authorizationAllowed.get()) capabilities.remove("hosts.activate_insecure")
                         if (transcriptAllowed.get()) capabilities.add("agent_portal.reveal_transcript")
                         """{"device_id":"test-device","name":"Operator","capabilities":${org.json.JSONArray(capabilities)},"notifications":true,"follows":[],"firebase":${firebase ?: "null"}}"""
                     }
@@ -229,8 +373,23 @@ class CompanionUiTest {
                         val next = if (history.isNotEmpty()) page.lastOrNull()?.getLong("cursor") ?: after.coerceAtLeast(0) else cursor.get()
                         """{"events":[$rows],"next_cursor":$next}"""
                     }
-                    path == "/approvals" -> if (approved.get()) """{"requests":[],"default_duration_minutes":480}""" else """{"requests":[{"id":42,"fqdn":"waiting.uggs.io","request_ip":"192.0.2.42","live":true,"expires_at":"${expiresAt}"}],"default_duration_minutes":480}"""
-                    path == "/approvals/42/approve" -> { approved.set(true); "{}" }
+                    path == "/approvals" -> {
+                        val requests = if (approved.get()) "[]" else """[{"id":42,"fqdn":"waiting.uggs.io","request_ip":"192.0.2.42","live":true,"expires_at":"${expiresAt}"}]"""
+                        """{"requests":$requests,"default_duration_minutes":480,"active_windows":${org.json.JSONArray(activeWindows)},"fleet_window":${fleetWindow.get() ?: "null"}}"""
+                    }
+                    path == "/approvals/42/approve" || path == "/approvals/42/deny" -> { approved.set(true); "{}" }
+                    path == "/hosts/7/insecure/disable" -> {
+                        closedWindows.incrementAndGet()
+                        while (holdWindowClose.get()) Thread.sleep(20)
+                        if (failWindowClose.get()) return MockResponse().setResponseCode(409).setHeader("Content-Type", "application/json").setBody("""{"message":"Fleet insecure window is open; close it first","code":"insecure_fleet_window_open"}""")
+                        activeWindows.clear(); "{}"
+                    }
+                    path == "/insecure/window/close" -> {
+                        closedFleet.incrementAndGet()
+                        if (failFleetClose.get()) return MockResponse().setResponseCode(503).setHeader("Content-Type", "application/json").setBody("""{"message":"Fleet close unavailable"}""")
+                        activeWindows.clear(); fleetWindow.set(null)
+                        """{"closed":true,"hosts":1,"domains":0}"""
+                    }
                     path == "/agents/$session/prompts/question-1/answer" -> { answered.set(JSONObject(request.body.readUtf8()).getString("answer")); questionPending.set(false); """{"message_id":"answer-1","status":"queued"}""" }
                     path == "/agents/$session/messages" -> {
                         val body = JSONObject(request.body.readUtf8()); val text = body.getString("content"); sent.set(text); sentMetadata.set(body.optJSONObject("metadata"))
@@ -255,6 +414,7 @@ class CompanionUiTest {
         scenario = ActivityScenario.launch(MainActivity::class.java)
     }
     @After fun cleanup() {
+        holdWindowClose.set(false)
         invalidateDuringRead.set(false)
         holdMe.set(false)
         holdTranscript.set(false)
@@ -350,8 +510,8 @@ class CompanionUiTest {
         Assert.assertFalse("A notification must not approve a request", approved.get())
         scenario.moveToState(Lifecycle.State.RESUMED)
         notification.contentIntent.send()
-        compose.waitUntil(15000) { compose.onAllNodesWithText("Requesting IP: 192.0.2.42").fetchSemanticsNodes().isNotEmpty() }
-        compose.onNodeWithText("Requesting IP: 192.0.2.42").assertIsDisplayed()
+        compose.waitUntil(15000) { compose.onAllNodesWithTag("approval-sheet").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNode(hasText("Requesting IP: 192.0.2.42") and hasAnyAncestor(hasTestTag("approval-sheet"))).assertIsDisplayed()
         screenshot("live-push-review")
         Assert.assertFalse("Opening review must not approve a request", approved.get())
         compose.onNodeWithText("Allow 8h", useUnmergedTree = true).performClick()
@@ -374,7 +534,7 @@ class CompanionUiTest {
         compose.onNodeWithContentDescription("Back").performClick()
         compose.waitUntil(10000) { compose.onAllNodesWithText("Review next · 1").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithText("Review next · 1").performClick()
-        compose.onNodeWithText("Requesting IP: 192.0.2.42").assertIsDisplayed()
+        compose.onNode(hasText("Requesting IP: 192.0.2.42") and hasAnyAncestor(hasTestTag("approval-sheet"))).assertIsDisplayed()
         screenshot("approval")
         compose.onNodeWithText("Allow 8h", useUnmergedTree = true).performClick()
         compose.waitUntil(10000) { approved.get() }
@@ -414,7 +574,7 @@ class CompanionUiTest {
         compose.onNodeWithText("(Claudia) Release review").assertIsDisplayed()
         screenshot("launch-name-chat")
     }
-    @Test fun localChatSearchMatchesProjectFullHostAndSummaryWhileKeepingApprovalsPinned() {
+    @Test fun localChatSearchMatchesProjectFullHostAndSummaryWithoutMixingAuthorizations() {
         waitForAgentRows(session)
         extraAgents.add(agentFixture("search-payment", "payment-mobile", "edge-search.uggs.io", "Payment release reconciled.", "claude"))
         extraAgents.add(agentFixture("search-policy", "firewall-policy", "api-other.uggs.io", "Certificate chain verified.", "grok"))
@@ -427,7 +587,7 @@ class CompanionUiTest {
         compose.onNodeWithTag("agent:search-payment").assertIsDisplayed()
         compose.onNodeWithTag("agent:search-policy").assertDoesNotExist()
         compose.onNodeWithTag("agent:$session").assertDoesNotExist()
-        compose.onNodeWithText("waiting.uggs.io").assertIsDisplayed()
+        compose.onNodeWithText("waiting.uggs.io").assertDoesNotExist()
 
         compose.onNodeWithTag("chat-search").performTextReplacement("API-OTHER.UGGS.IO")
         compose.onNodeWithTag("agent:search-policy").assertIsDisplayed()
@@ -443,13 +603,13 @@ class CompanionUiTest {
         compose.onNodeWithTag("agent:search-payment").assertDoesNotExist()
         compose.onNodeWithTag("agent:search-policy").assertDoesNotExist()
         compose.onNodeWithTag("agent:$session").assertDoesNotExist()
-        compose.onNodeWithText("waiting.uggs.io").assertIsDisplayed()
+        compose.onNodeWithText("waiting.uggs.io").assertDoesNotExist()
         compose.onNodeWithTag("chat-search").performTextReplacement("")
         waitForAgentRows(session, "search-payment", "search-policy")
         Assert.assertEquals("Local search does not request another agent snapshot", requests, agentsRequested.get())
         Assert.assertFalse("Searching does not load a transcript", transcriptRequested.get())
         Assert.assertEquals("Searching does not acknowledge an unread reply", ledger, unreadLedger())
-        Assert.assertFalse("Pinned access requests remain undecided", approved.get())
+        Assert.assertFalse("Access requests in their own tab remain undecided", approved.get())
         screenshot("chat-home-search")
     }
     @Test fun chatHomeRestoresSearchAndFilterAfterReadingAConversation() {
@@ -481,7 +641,7 @@ class CompanionUiTest {
         compose.onNodeWithTag("agent:filter-unread").assertIsDisplayed()
         compose.onNodeWithTag("agent:filter-unread").assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "3 unread replies"))
         compose.onNodeWithTag("agent:filter-read").assertDoesNotExist()
-        compose.onNodeWithText("waiting.uggs.io").assertIsDisplayed()
+        compose.onNodeWithText("waiting.uggs.io").assertDoesNotExist()
         compose.onNodeWithTag("chat-search").performTextReplacement("release.uggs.io")
         compose.onNodeWithTag("agent:filter-unread").assertIsDisplayed()
         compose.onNodeWithTag("agent:$session").assertDoesNotExist()
@@ -489,7 +649,7 @@ class CompanionUiTest {
         compose.onNodeWithTag("chat-filter:needs-you").performClick()
         compose.onNodeWithTag("agent:$session").assertDoesNotExist()
         compose.onNodeWithTag("agent:filter-unread").assertDoesNotExist()
-        compose.onNodeWithText("waiting.uggs.io").assertIsDisplayed()
+        compose.onNodeWithText("waiting.uggs.io").assertDoesNotExist()
         Assert.assertEquals("Changing filters is local", requests, agentsRequested.get())
         Assert.assertFalse("Filtering does not load a transcript", transcriptRequested.get())
         Assert.assertEquals("Unread filters do not acknowledge replies", ledger, unreadLedger())
@@ -499,7 +659,7 @@ class CompanionUiTest {
         waitForAgentRows(session)
         compose.onNodeWithText("Choose a target.").assertIsDisplayed()
         compose.onNodeWithTag("agent:filter-unread").assertDoesNotExist()
-        compose.onNodeWithText("waiting.uggs.io").assertIsDisplayed()
+        compose.onNodeWithText("waiting.uggs.io").assertDoesNotExist()
         Assert.assertEquals("An incoming decision does not acknowledge its reply", ledger, unreadLedger())
         compose.onNodeWithTag("chat-filter:all").performClick()
         waitForAgentRows(session, "filter-unread", "filter-read")
@@ -524,7 +684,7 @@ class CompanionUiTest {
         compose.onNodeWithText("Orchestrator").assertIsDisplayed()
         compose.onNodeWithTag("chat-search").assertIsDisplayed()
         compose.onNodeWithTag("chat-filter:all").assertIsSelected()
-        compose.onNodeWithText("waiting.uggs.io").assertIsDisplayed()
+        compose.onNodeWithText("waiting.uggs.io").assertDoesNotExist()
         compose.onNodeWithTag("agent:$session").assertIsDisplayed()
         assertCompleteTitle(fixtureProject)
         compose.onNodeWithContentDescription("Host: $fixtureHost", useUnmergedTree = true).assertIsDisplayed()
@@ -537,7 +697,7 @@ class CompanionUiTest {
             }
         }
         screenshot("chat-home-dense")
-        compose.onNodeWithTag("chat-list").performScrollToIndex(projects.size + 1)
+        compose.onNodeWithTag("chat-list").performScrollToIndex(projects.size)
         compose.onNodeWithTag("agent:dense-5").assertIsDisplayed().assertHasClickAction()
         val lastRow = compose.onNodeWithTag("agent:dense-5").fetchSemanticsNode().boundsInRoot
         val reviewButton = compose.onNodeWithTag("review-next").fetchSemanticsNode().boundsInRoot

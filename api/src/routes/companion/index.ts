@@ -131,7 +131,7 @@ export async function registerCompanionRoutes(app: FastifyInstance, ctx: RouteCo
       );
       return {
         agents: JSON.stringify({ enabled, cursor, sessions, remoteSessions }),
-        approvals: JSON.stringify(approvals),
+        approvals: JSON.stringify({ requests: approvals, ...await insecure.accessWindows() }),
         hosts: JSON.stringify(hostCards),
       };
     },
@@ -426,6 +426,7 @@ export async function registerCompanionRoutes(app: FastifyInstance, ctx: RouteCo
       await auth(req, 'hosts.activate_insecure');
       return {
         requests: await insecure.listPending(),
+        ...await insecure.accessWindows(),
         default_duration_minutes: 480,
         max_duration_minutes: 480,
       };
@@ -447,6 +448,16 @@ export async function registerCompanionRoutes(app: FastifyInstance, ctx: RouteCo
     };
     app.post('/companion/v1/approvals/:requestId/approve', decide('approve'));
     app.post('/companion/v1/approvals/:requestId/deny', decide('deny'));
+    app.post('/companion/v1/hosts/:hostId/insecure/disable', async (req) => {
+      const { user, device } = await auth(req, 'hosts.activate_insecure');
+      const hostId = z.object({ hostId: z.coerce.number().int().positive() }).parse(req.params).hostId;
+      const host = await insecure.disable(hostId, { admin_user_id: user.id, device_id: device.id });
+      return { host_id: host.id, enabled_until: null };
+    });
+    app.post('/companion/v1/insecure/window/close', async (req) => {
+      const { user, device } = await auth(req, 'hosts.activate_insecure');
+      return insecure.closeFleetWindow('manual', { admin_user_id: user.id, device_id: device.id });
+    });
     app.get('/companion/v1/events', async (req, reply) => {
       await auth(req, 'agent_portal.reveal_transcript');
       await requirePortal();
