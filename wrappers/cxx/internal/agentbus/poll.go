@@ -80,7 +80,7 @@ func (p mailboxPeer) name() string {
 	return p.Address
 }
 
-func runPoll(args []string, stdout, stderr io.Writer) error {
+func runPoll(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 	flags := newFlagSet("cxx agent poll", stderr)
 	hook := flags.String("hook", "", "emit Claude Code hook JSON for an event: Stop or UserPromptSubmit")
 	if err := flags.Parse(args); err != nil {
@@ -94,13 +94,17 @@ func runPoll(args []string, stdout, stderr io.Writer) error {
 		return errorsUsage("cxx agent poll", "--hook must be "+hookEventStop+" or "+hookEventPrompt)
 	}
 
-	box, err := peekMailbox(5 * time.Second)
 	if event == "" {
+		box, err := peekMailbox(5 * time.Second)
 		if err != nil {
 			return err
 		}
 		return writeJSON(stdout, box)
 	}
+	// Release first, so the peek below already sees what the receiver will now
+	// deliver on its own (see turn_release.go).
+	end := releaseAtTurnEnd(readHookInput(stdin), 3*time.Second)
+	box, err := peekMailbox(5 * time.Second)
 	// Hook mode is silent on every failure. A host with messaging disabled, a
 	// session outside a managed lifecycle, an orchestrator that is down -- none
 	// of those are the user's problem mid-turn, and a hook that reports them
@@ -108,7 +112,7 @@ func runPoll(args []string, stdout, stderr io.Writer) error {
 	if err != nil || box == nil {
 		box = &mailbox{}
 	}
-	return emitHook(stdout, event, box)
+	return emitHook(stdout, event, box, end)
 }
 
 func peekMailbox(timeout time.Duration) (*mailbox, error) {
@@ -125,8 +129,19 @@ func peekMailbox(timeout time.Duration) (*mailbox, error) {
 	return &box, nil
 }
 
-func emitHook(stdout io.Writer, event string, box *mailbox) error {
+func emitHook(stdout io.Writer, event string, box *mailbox, end *turnEnd) error {
+	if end != nil && end.released > 0 && len(end.stillHeld) == 0 && end.receiverReady {
+		// Reception just reopened on a healthy receiver: what is pending will be
+		// pushed into the conversation, waking it if idle. Ringing it as well
+		// would send the model to agent_listen, which releases that next message
+		// before it has been read.
+		box = &mailbox{Missed: box.Missed}
+	}
 	fresh, ledger := unrung(event, box)
+	var heldText string
+	if end != nil {
+		heldText = ledger.heldSummary(event, end.stillHeld)
+	}
 	var authContext string
 	var authDelivery *authnotice.Delivery
 	if event == hookEventPrompt {
@@ -136,10 +151,19 @@ func emitHook(stdout io.Writer, event string, box *mailbox) error {
 		}
 	}
 	defer authDelivery.Abort()
-	if len(fresh) == 0 && authContext == "" {
+	if len(fresh) == 0 && authContext == "" && heldText == "" {
 		return nil
 	}
 	summary := ringSummary(fresh)
+	if heldText != "" {
+		if summary.context != "" {
+			summary.context += "\n"
+		}
+		summary.context += heldText
+		if summary.human == "" {
+			summary.human = "☎ answer still owed on the agent bus"
+		}
+	}
 	if authContext != "" {
 		if summary.context != "" {
 			summary.context += "\n\n"

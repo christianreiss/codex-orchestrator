@@ -81,7 +81,7 @@ func TestStopHookBlocksWithBothAudiences(t *testing.T) {
 	}}}
 
 	var out strings.Builder
-	if err := emitHook(&out, hookEventStop, box); err != nil {
+	if err := emitHook(&out, hookEventStop, box, nil); err != nil {
 		t.Fatalf("emitHook: %v", err)
 	}
 	var payload map[string]any
@@ -108,7 +108,7 @@ func TestPromptHookInjectsContextWithoutBlocking(t *testing.T) {
 	box := &mailbox{Pending: []mailboxEntry{{MessageID: "m-1", From: mailboxPeer{Alias: "db01"}}}}
 
 	var out strings.Builder
-	if err := emitHook(&out, hookEventPrompt, box); err != nil {
+	if err := emitHook(&out, hookEventPrompt, box, nil); err != nil {
 		t.Fatalf("emitHook: %v", err)
 	}
 	var payload map[string]any
@@ -132,7 +132,7 @@ func TestEmitHookStaysSilentOnAnEmptyMailbox(t *testing.T) {
 	t.Setenv(envSessionID, "55555555-5555-4555-8555-555555555555")
 
 	var out strings.Builder
-	if err := emitHook(&out, hookEventStop, &mailbox{}); err != nil {
+	if err := emitHook(&out, hookEventStop, &mailbox{}, nil); err != nil {
 		t.Fatalf("emitHook: %v", err)
 	}
 	// Empty stdout with exit 0 is "no decision" — the turn ends normally.

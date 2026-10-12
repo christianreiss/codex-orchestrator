@@ -43,6 +43,7 @@ type channelPending struct {
 	claimID        string
 	workKind       string
 	conferenceID   string
+	sender         string
 	replyClientID  string
 	cancel         context.CancelFunc
 }
@@ -121,6 +122,12 @@ func (t *channelTracker) track(parent context.Context, messageID, claimID string
 	pending := &channelPending{claimID: claimID, replyClientID: newUUID(), cancel: cancel}
 	if len(delivery) > 0 {
 		pending.workKind = stringArg(delivery[0], "work_kind")
+		if sender, ok := delivery[0]["sender"].(map[string]any); ok {
+			pending.sender = stringArg(sender, "name")
+			if pending.sender == "" {
+				pending.sender = stringArg(sender, "address")
+			}
+		}
 		if pending.workKind == "" {
 			// Accepted legacy work can lack v2 metadata; conference controls
 			// must not finish those tasks either.

@@ -1138,7 +1138,26 @@ A peer delivery stays held, and blocks the next one, until the model is done wit
 claims). From cxx 0.9.27, `agent_conf_join` and `agent_conf_say` release only the
 matching room's informational delivery; they preserve held tasks and other rooms'
 messages. Report a work outcome through `agent_task_result` or `agent_reply` with
-`task_result`; a progress update does not finish it. Automatic listen requires a
+`task_result`; a progress update does not finish it.
+
+From cxx 0.9.63 the `Stop` and `UserPromptSubmit` ringer hooks also end the
+turn for the receiver. They read `transcript_path` from the hook payload, ask the
+launch's receiver owner (`receiver-owner.sock` beside the broker socket) what it
+holds, and complete every held **informational** delivery whose channel tag was
+dequeued into the conversation as a `user` entry; a notification Claude Code has
+only queued (`queue-operation`) is left for the next turn. Before this, a model
+that read a message, answered someone else with `agent_send` and ended its turn
+left reception closed: the server's one-in-flight-per-address rule queued every
+later message, schedule wakes included, until a human typed. Accepted work and an
+open Portal instruction are never released this way; the hook rings once
+(`decision: block` on Stop) naming them and the tool that finishes them. After a
+release on a ready receiver the hook does not ring pending mail, because the
+receiver now pushes it, waking an idle session. An owner from an older wrapper, a
+missing transcript, or any owner error leaves the hook's previous behaviour
+unchanged. A later `agent_reply` to a released message still works: the server
+accepts claim-less replies to completed informational messages.
+
+Automatic listen requires a
 peer source as well as healthy transport, and returns `receiver_unavailable`
 with `peer_source_unavailable` when only Portal is enabled.
 
