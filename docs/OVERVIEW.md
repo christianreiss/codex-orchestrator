@@ -201,7 +201,8 @@ visible with a choice to load the latest values or discard the draft.
   view of the existing operational logs/events/revision metadata. It adds no
   memory schema and does not turn that retention-bound activity into immutable
   body history.
-- **`api/src/services/client-config.ts`** — renders/stores engine-scoped canonical client config from structured settings. Codex uses native `config.toml` `model` / `model_reasoning_effort`; Claude uses native `settings.json` `model` / `effortLevel` and deep-merges the fleet-owned paths. `/config/retrieve` bakes a per-host Codex copy using either the host API key (secure hosts) or a short-lived MCP bearer (insecure hosts) for the managed HTTP MCP entry, plus a Codex-only BrowserOS MCP entry when the host toggle is enabled. A successfully injected Codex MCP entry also adds a `[[skills.config]]` entry selecting `skill-creator` with `enabled = false`, removing the built-in local workflow that would otherwise outrank fleet discovery.
+- **`api/src/services/client-config.ts`** — renders/stores engine-scoped canonical client config from structured and validated native settings. Codex uses native `config.toml` `model` / `model_reasoning_effort`; Claude uses native `settings.json` `model` / `modelSettings[model].effortLevel` and deep-merges the fleet-owned paths. Older Claude models also receive the compatible top-level effort key. `/config/retrieve` bakes a per-host Codex copy using either the host API key (secure hosts) or a short-lived MCP bearer (insecure hosts) for the managed HTTP MCP entry, plus a Codex-only BrowserOS MCP entry when the host toggle is enabled. A successfully injected Codex MCP entry also adds a `[[skills.config]]` entry selecting `skill-creator` with `enabled = false`, removing the built-in local workflow that would otherwise outrank fleet discovery.
+- **Native engine configuration** — the Engines page exposes validated native JSON and separate Codex profile editing with server previews and exact revision conflict checks. [Scope and version requirements](NATIVE_CONFIG_SCOPES.md) distinguish managed user defaults from native enterprise policy and local state. The [2026-10-12 audit](engine-maintenance-2026-10-12.md) records model, effort and feature decisions.
 - **`api/src/services/chatgpt-usage.ts` + `api/src/ops/chatgpt-usage-worker.ts`** — uses canonical auth to poll ChatGPT quotas and capture normal plus Spark quota lanes. The `quota-cron` Compose sidecar polls immediately at startup and then on `CHATGPT_USAGE_CRON_INTERVAL` (default 15 minutes); its healthcheck follows a successful-refresh heartbeat rather than only process liveness.
 - Accounts displays all providers together for up to six accounts in total, including paused and removing accounts; above six, engine tabs filter the view. Each card names its provider. The combined Add account dialog lets operators select an engine; fleet suspension still blocks provider actions.
 - Engine coverage shows one independent bar per engine, using reported CLI-version counts divided by all hosts. Multi-engine hosts count towards each engine; hosts without any reported CLI version are listed separately. Older snapshots show unavailable engine counts as “No data”.
@@ -496,14 +497,16 @@ status stays available. See [installation](INSTALL.md#instance-management).
   and clients receive defaults on their next sync. The full `/admin/engines`
   workspace retains its explicit Save controls. Both
   engine sections call `GET/POST /admin/model-defaults/:engine` and constrain
-  effort to the selected model. Codex persists `model` /
-  `model_reasoning_effort` in canonical `config.toml`; Astra/GPT-6 Sol/GPT-6 Luna/
-  Terra/GPT-5.6 Luna/GPT-5.5 default to `medium`, GPT-5.6 Sol to `low`.
-  Claude persists `model` / `effortLevel` in the deep-merged `settings.json`
-  partial and defaults to Sonnet 5 at `high`. Fable 5, Opus 5, Opus 4.8, and
-  Sonnet 5 persist `low|medium|high|xhigh` with default `high`; Opus 4.7 uses
-  the same set with default `xhigh`; Sonnet 4.6 persists `low|medium|high`;
-  Haiku 4.5 omits effort. The nearby Claude API defaults (`default_model`,
+  effort to the selected model's native catalog. Codex persists `model` /
+  `model_reasoning_effort` in canonical `config.toml`; deprecated stored IDs
+  migrate to supported replacements. Claude's abstract fleet `effortLevel`
+  is rendered as `modelSettings[canonicalModel].effortLevel` in the deep-merged
+  `settings.json` partial. Only older models also receive the compatible
+  top-level key; models without effort support omit it. Claude's `max` is
+  session-only, while `ultracode` is a separate native toggle. Current
+  per-model levels and defaults are in the engine interface references and
+  the [maintenance report](engine-maintenance-2026-10-12.md).
+  The nearby Claude API defaults (`default_model`,
   `max_tokens`) also default to Sonnet 5 but configure only the
   Anthropic-compatible proxy and do not change managed Claude Code sessions.
 - The retained advanced `/admin/config*` API can render and persist a
