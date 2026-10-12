@@ -41,9 +41,9 @@ describe('Claude native user settings', () => {
     expect(owned_paths).not.toContain('permissions');
   });
 
-  it('leaves other engines and absent extensions unchanged', () => {
+  it('validates other engines separately and leaves absent extensions unchanged', () => {
     const raw = { native_settings: { language: 'german' } };
-    expect(normalizeSettings(raw).native_settings).toBeUndefined();
+    expect(() => normalizeSettings(raw)).toThrow('native_settings.language');
     expect(normalizeSettings(raw, { applyCodexDefaults: false, engine: 'grok' }).native_settings).toBeUndefined();
     expect(normalize({}).native_settings).toBeUndefined();
   });
