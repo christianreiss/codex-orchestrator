@@ -275,7 +275,7 @@ export const DROPPED_FEATURE_KEYS: readonly string[] = [
 ];
 
 export interface NormalizedSettings {
-  /** Engine-native opt-in fields, validated by that engine's public schema. */
+  /** Engine-native opt-in fields, validated by that engine's current schema or catalog. */
   native_settings?: Record<string, unknown>;
   model: string | null;
   model_provider: string | null;

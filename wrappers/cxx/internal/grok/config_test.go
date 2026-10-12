@@ -10,6 +10,53 @@ import (
 	"github.com/pelletier/go-toml"
 )
 
+func TestNativeNestedOwnershipKeepsLiteralKeysAndLocalSiblings(t *testing.T) {
+	r, _ := runtimeFixture(t)
+	path := filepath.Join(r.BaseHome, "config.toml")
+	if err := AtomicWrite(path, []byte("[model.\"grok-4.7\".extra_headers]\nuser='keep'\n[ui]\ntheme='local'\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	body := []byte("[model.\"grok-4.7\".extra_headers]\n\"X.Team\"='fleet'\n[ui]\ntimestamps='minimal'\n")
+	owned := []string{`json:["model","grok-4.7","extra_headers","X.Team"]`, "ui.timestamps"}
+	if err := SyncConfig(r.BaseHome, body, owned); err != nil {
+		t.Fatal(err)
+	}
+	if err := SyncConfig(r.BaseHome, nil, []string{}); err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := os.ReadFile(path)
+	tree, err := toml.LoadBytes(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tree.GetPath([]string{"model", "grok-4.7", "extra_headers", "X.Team"}) != nil || tree.GetPath([]string{"ui", "timestamps"}) != nil {
+		t.Fatal("ceased-owned native fields were not pruned")
+	}
+	if tree.GetPath([]string{"model", "grok-4.7", "extra_headers", "user"}) != "keep" || tree.GetPath([]string{"ui", "theme"}) != "local" {
+		t.Fatal("native pruning removed user-authored sibling values")
+	}
+}
+
+func TestInvalidNativeOwnershipEncodingDoesNotPublishConfig(t *testing.T) {
+	for _, owned := range []string{"json:broken", "json:null", "json:[]", "json:[1]", `json:["ui",""]`, `json:["ui","bad\nkey"]`} {
+		t.Run(owned, func(t *testing.T) {
+			r, _ := runtimeFixture(t)
+			path := filepath.Join(r.BaseHome, "config.toml")
+			before := "[ui]\ntheme='local'\n"
+			if err := AtomicWrite(path, []byte(before), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if err := SyncConfig(r.BaseHome, []byte("[ui]\ntheme='fleet'\n"), []string{owned}); err == nil {
+				t.Fatal("malformed ownership path accepted")
+			}
+			raw, _ := os.ReadFile(path)
+			if string(raw) != before {
+				t.Fatal("invalid ownership changed native config")
+			}
+		})
+	}
+}
+
 func TestConfigPartialPreservesUserValuesAndPrunesOnlyUnchangedFleetPaths(t *testing.T) {
 	r, _ := runtimeFixture(t)
 	path := filepath.Join(r.BaseHome, "config.toml")

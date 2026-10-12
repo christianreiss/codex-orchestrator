@@ -73,6 +73,7 @@ import {
 } from './agent-response-style.js';
 import type { Host } from '../db/schema.js';
 import { withGrokConfigWriteLock } from './grok-config-lock.js';
+import { grokNativeOwnedPaths, normalizeGrokNativeSettings, renderGrokNativeToml } from './grok-native-settings.js';
 
 const SCALAR_KEYS: Array<keyof NormalizedSettings> = [
   'model',
@@ -326,17 +327,31 @@ export function renderToml(normalized: NormalizedSettings, opts: { profileTables
 
 export function normalizeGrokSettings(raw: unknown): NormalizedSettings {
   const input = asRecord(raw);
+  const native = normalizeGrokNativeSettings(input.native_settings);
   const models = asRecord(input.models);
-  const model = normalizeGrokModel(input.model ?? models.default) ?? GROK_DEFAULT_MODEL;
-  const out = normalizeSettings({ ...input, model: null }, { applyCodexDefaults: false });
+  const nativeModels = asRecord(native?.models);
+  if (nativeModels.default !== undefined && !normalizeGrokModel(nativeModels.default)) {
+    throw new ValidationError('native_settings.models.default: unsupported subscription model', { param: 'settings.native_settings.models.default' });
+  }
+  const model = normalizeGrokModel(input.model ?? models.default ?? nativeModels.default) ?? GROK_DEFAULT_MODEL;
+  const out = normalizeSettings({ ...input, native_settings: undefined, model: null }, { applyCodexDefaults: false, engine: 'grok' });
+  if (native !== undefined) out.native_settings = native;
   out.model = model;
-  out.reasoning_effort = normalizeGrokEffort(input.reasoning_effort ?? models.default_reasoning_effort, model) ?? GROK_MODEL_DEFAULT_REASONING_EFFORTS[model];
-  out.context_window = normalizeGrokContextWindow(input.context_window) ?? GROK_DEFAULT_CONTEXT_WINDOW;
+  const nativeEffort = nativeModels.default_reasoning_effort;
+  if (nativeEffort !== undefined && !normalizeGrokEffort(nativeEffort, normalizeGrokModel(nativeModels.default) ?? model)) {
+    throw new ValidationError('native_settings.models.default_reasoning_effort: unsupported effort for this model', { param: 'settings.native_settings.models.default_reasoning_effort' });
+  }
+  out.reasoning_effort = normalizeGrokEffort(input.reasoning_effort ?? models.default_reasoning_effort ?? nativeEffort, model) ?? GROK_MODEL_DEFAULT_REASONING_EFFORTS[model];
+  const nativeWindow = asRecord(asRecord(native?.model)[model]).context_window;
+  if (nativeWindow !== undefined && !normalizeGrokContextWindow(nativeWindow)) {
+    throw new ValidationError('native_settings.model: unsupported subscription context window', { param: `settings.native_settings.model.${model}.context_window` });
+  }
+  out.context_window = normalizeGrokContextWindow(input.context_window ?? nativeWindow) ?? GROK_DEFAULT_CONTEXT_WINDOW;
   out.model_reasoning_effort = null;
   out.profiles = [];
   // Grok's native `[ui].permission_mode`; posture writes it, an operator template may too.
   delete out.permissionMode;
-  const mode = normalizeName(input.permission_mode ?? asRecord(input.ui).permission_mode);
+  const mode = normalizeName(input.permission_mode ?? asRecord(input.ui).permission_mode ?? asRecord(native?.ui).permission_mode ?? input.permissionMode);
   if (mode !== null && (GROK_PERMISSION_MODES as readonly string[]).includes(mode)) out.permissionMode = mode;
   return out;
 }
@@ -344,25 +359,44 @@ export function normalizeGrokSettings(raw: unknown): NormalizedSettings {
 /** Values Grok Build 1.0.46 accepts for `[ui].permission_mode`. */
 export const GROK_PERMISSION_MODES = ['default', 'ask', 'auto', 'always-approve'] as const;
 
-/** A native Grok allowlist; no Codex profile, policy, or sandbox keys enter this file. */
-export function renderGrokSettings(settings: NormalizedSettings): string {
-  const lines = ['[models]'];
-  addKeyValue(lines, 'default', settings.model ?? GROK_DEFAULT_MODEL);
-  addKeyValue(lines, 'default_reasoning_effort', settings.reasoning_effort);
-  lines.push('', `[model.${tomlBareKey(settings.model ?? GROK_DEFAULT_MODEL)}]`);
-  addKeyValue(lines, 'context_window', settings.context_window ?? GROK_DEFAULT_CONTEXT_WINDOW);
+/** Native settings first; structured controls, host posture and fleet MCP win. */
+function withGrokNativeMcp(settings: NormalizedSettings): NormalizedSettings {
+  const nativeServers = Object.entries(asRecord(settings.native_settings?.mcp_servers)).map(([name, server]) => ({ ...asRecord(server), name }));
+  const explicitNames = new Set(settings.mcp_servers.map(server => server.name));
+  return { ...settings, mcp_servers: [...nativeServers.filter(server => !explicitNames.has(server.name)), ...settings.mcp_servers] };
+}
+
+function grokSettingsDocument(input: NormalizedSettings, includeNativeMcp = true): Record<string, unknown> {
+  const settings = includeNativeMcp ? withGrokNativeMcp(input) : input;
+  const document = structuredClone(settings.native_settings ?? {});
+  document.models = { ...asRecord(document.models), default: settings.model ?? GROK_DEFAULT_MODEL, default_reasoning_effort: settings.reasoning_effort };
+  const model = settings.model ?? GROK_DEFAULT_MODEL;
+  document.model = { ...asRecord(document.model), [model]: { ...asRecord(asRecord(document.model)[model]), context_window: settings.context_window ?? GROK_DEFAULT_CONTEXT_WINDOW } };
   if (settings.permissionMode) {
-    lines.push('', '[ui]');
-    addKeyValue(lines, 'permission_mode', settings.permissionMode);
+    document.ui = { ...asRecord(document.ui), permission_mode: settings.permissionMode };
   }
+  // Rebuild after the ephemeral native/structured merge and managed injection.
+  // Never persist native definitions a second time in the structured list:
+  // a later JSON-editor change/removal must not resurrect that stale copy.
+  delete document.mcp_servers;
+  const servers: Record<string, unknown> = Object.create(null) as Record<string, unknown>;
   for (const server of sortEntriesByName(settings.mcp_servers)) {
     const name = normalizeName(server.name);
     if (!name) continue;
-    lines.push('', `[mcp_servers.${tomlBareKey(name)}]`);
-    for (const field of ['command', 'args', 'env', 'cwd', 'url', 'bearer_token_env_var', 'enabled', 'startup_timeout_sec', 'tool_timeout_sec']) addKeyValue(lines, field, server[field]);
-    addKeyValue(lines, 'headers', server.headers ?? server.http_headers);
+    const { name: _name, http_headers: headers, ...fields } = server;
+    if (headers !== undefined && fields.headers === undefined) fields.headers = headers;
+    servers[name] = fields;
   }
-  return lines.join('\n') + '\n';
+  if (Object.keys(servers).length) {
+    // The existing structured editor and managed entries use the same native
+    // contract as the JSON editor; neither may emit unknown provider fields.
+    document.mcp_servers = normalizeGrokNativeSettings({ mcp_servers: servers })!.mcp_servers;
+  }
+  return document;
+}
+
+export function renderGrokSettings(settings: NormalizedSettings): string {
+  return renderGrokNativeToml(grokSettingsDocument(settings));
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -408,7 +442,7 @@ export function renderTomlForHost(opts: HostRenderOptions): RenderResult {
     engine,
   );
   const normalized = engine === ENGINE_GROK ? normalizeGrokSettings(settingsWithOverrides) : normalizeSettings(settingsWithOverrides, { applyCodexDefaults: engine === ENGINE_CODEX, engine });
-  const withManaged = injectManagedMcp(normalized, {
+  const withManaged = injectManagedMcp(engine === ENGINE_GROK ? withGrokNativeMcp(normalized) : normalized, {
     host: opts.host,
     baseUrl: opts.baseUrl,
     apiKey: opts.apiKey,
@@ -421,7 +455,7 @@ export function renderTomlForHost(opts: HostRenderOptions): RenderResult {
     (server) => normalizeName(server['name'])?.toLowerCase() === managedServerName,
   );
   const profileFiles = engine === ENGINE_CODEX && codexUsesProfileFiles(opts.host?.clientVersion);
-  let content = engine === ENGINE_GROK ? renderGrokSettings(withManaged) : engine === ENGINE_CLAUDE
+  let content = engine === ENGINE_GROK ? renderGrokNativeToml(grokSettingsDocument(withManaged, false)) : engine === ENGINE_CLAUDE
     ? renderClaudeSettings(withManaged)
     : renderToml(withManaged, { profileTables: !profileFiles });
   const profiles: RenderedProfile[] | undefined = profileFiles
@@ -436,16 +470,18 @@ export function renderTomlForHost(opts: HostRenderOptions): RenderResult {
     if (managedMcpInjected) content = injectManagedCodexSkillPolicyToml(content);
     content = injectTrustedProjectToml(content, normalizeHomePath(opts.home, opts.username));
   }
+  const grokOwnedPaths = engine === ENGINE_GROK ? grokNativeOwnedPaths(grokSettingsDocument(withManaged, false)) : undefined;
+  if (grokOwnedPaths?.some(path => path.startsWith('json:')) && opts.host
+      && (!opts.host.grokWrapperVersion || versionCompare(opts.host.grokWrapperVersion, '0.9.66') < 0)) {
+    throw new ValidationError('These Grok native settings require cxx 0.9.66 or newer for exact config ownership; update the wrapper first', { param: 'settings.native_settings' });
+  }
   return {
     content,
     sha256: createHash('sha256').update(content).digest('hex'),
     size_bytes: Buffer.byteLength(content, 'utf8'),
     settings: normalized,
     ...(profiles !== undefined && { profiles }),
-    ...(engine === ENGINE_GROK && { owned_paths: ['models.default', 'models.default_reasoning_effort', `model.${withManaged.model}.context_window`, ...(withManaged.permissionMode ? ['ui.permission_mode'] : []), ...withManaged.mcp_servers.flatMap(server => {
-      const name = normalizeName(server['name']);
-      return name ? [`mcp_servers.${name}`] : [];
-    })] }),
+    ...(grokOwnedPaths !== undefined && { owned_paths: grokOwnedPaths }),
   };
 }
 
@@ -587,9 +623,10 @@ function applyHostModelOverrides(
   if (!host) return settings;
   if (engine === ENGINE_GROK) {
     const out = { ...settings };
-    const model = normalizeGrokModel(host.grokModelOverride) ?? normalizeGrokModel(out.model) ?? GROK_DEFAULT_MODEL;
+    const nativeModels = asRecord(asRecord(out.native_settings).models);
+    const model = normalizeGrokModel(host.grokModelOverride) ?? normalizeGrokModel(out.model ?? nativeModels.default) ?? GROK_DEFAULT_MODEL;
     out.model = model;
-    out.reasoning_effort = normalizeGrokEffort(host.grokReasoningEffortOverride, model) ?? normalizeGrokEffort(out.reasoning_effort, model) ?? GROK_MODEL_DEFAULT_REASONING_EFFORTS[model];
+    out.reasoning_effort = normalizeGrokEffort(host.grokReasoningEffortOverride, model) ?? normalizeGrokEffort(out.reasoning_effort ?? nativeModels.default_reasoning_effort, model) ?? GROK_MODEL_DEFAULT_REASONING_EFFORTS[model];
     return out;
   }
   // Claude reads model/effort overrides from the claude_* columns. Unlike
