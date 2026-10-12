@@ -511,6 +511,7 @@ policy defaults, endpoints or enforcement behavior.
 
 ## Operations
 
+- The API build (`cd api && npm run build`) parses `package.json` and `package-lock.json` before writing artifacts. Malformed JSON aborts with the manifest path and no manifest contents; fix the named file and rerun the build. Existing artifacts are preserved on this failure.
 - Logs are stored in MySQL (`logs` table). For a quick peek in a default Docker setup you can run:  
   `docker compose exec mysql mysql -u"$DB_USERNAME" -p"$DB_PASSWORD" "$DB_DATABASE" -e "SELECT * FROM logs ORDER BY created_at DESC LIMIT 10;"`
 - The legacy `host-status.txt` export has been removed; use the admin dashboard (`/admin/overview` and `/admin/hosts`) for current host status.

@@ -6,6 +6,24 @@ import { resolve } from 'node:path';
 const root = resolve(import.meta.dirname, '..');
 const dist = resolve(root, 'dist');
 
+// Validate source manifests before generating any artifacts. Invalid input
+// must abort the build, with the file named but no manifest contents in logs.
+const pkg = readBuildManifest(resolve(root, 'package.json')) as {
+  name: string;
+  version: string;
+  engines?: Record<string, string>;
+  dependencies: Record<string, string>;
+};
+const lockPath = resolve(root, 'package-lock.json');
+if (!existsSync(lockPath))
+  throw new Error(`package-lock.json is required to build a deterministic image (${lockPath})`);
+const lock = readBuildManifest(lockPath) as {
+  lockfileVersion: number;
+  packages: Record<string, LockEntry>;
+};
+if (lock.lockfileVersion < 3)
+  throw new Error(`unsupported lockfileVersion ${lock.lockfileVersion}; expected 3 or newer`);
+
 mkdirSync(dist, { recursive: true });
 writeChattyKnowledge(root, dist);
 
@@ -96,13 +114,6 @@ if (!existsSync(baselineSrc)) throw new Error(`baseline schema not found at ${ba
 mkdirSync(resolve(dist, 'baseline'), { recursive: true });
 copyFileSync(baselineSrc, resolve(dist, 'baseline', 'schema.sql'));
 
-const pkg = JSON.parse(readFileSync(resolve(root, 'package.json'), 'utf8')) as {
-  name: string;
-  version: string;
-  engines?: Record<string, string>;
-  dependencies: Record<string, string>;
-};
-
 // Every specifier that stays external either ships in the image or is proven
 // unreachable in production. `pino-pretty` is the only member of the second
 // group: `loggerOptions()` selects it exclusively when `NODE_ENV !== 'production'`,
@@ -125,16 +136,6 @@ if (missingFromDeps.length > 0) {
 // semver ranges to resolve again at build time — a different tree every
 // rebuild — carve the exact closure of the external packages out of the api
 // lockfile and ship that. Same integrity hashes, same versions, offline.
-const lockPath = resolve(root, 'package-lock.json');
-if (!existsSync(lockPath))
-  throw new Error(`package-lock.json is required to build a deterministic image (${lockPath})`);
-const lock = JSON.parse(readFileSync(lockPath, 'utf8')) as {
-  lockfileVersion: number;
-  packages: Record<string, LockEntry>;
-};
-if (lock.lockfileVersion < 3)
-  throw new Error(`unsupported lockfileVersion ${lock.lockfileVersion}; expected 3 or newer`);
-
 const { entries: runtimeLockEntries, versions: runtimeVersions } = pruneLockfile(
   lock.packages,
   runtimeExternals,
@@ -182,6 +183,17 @@ writeFileSync(
 console.log(
   `Build complete -> dist/server.js, dist/chatgpt-usage-worker.js, dist/migrate.js, dist/setup-signing-key.js, dist/rotate-signing-key.js, dist/migrations/ (${migrations.length} files), dist/baseline/schema.sql, dist/package-lock.json (${Object.keys(runtimeLockEntries).length} packages)`,
 );
+
+function readBuildManifest(path: string): unknown {
+  // Preserve filesystem errors (ENOENT, EACCES, etc.) as filesystem errors.
+  const contents = readFileSync(path, 'utf8');
+  try {
+    return JSON.parse(contents) as unknown;
+  } catch {
+    // V8's SyntaxError can quote input bytes; do not include it as a cause.
+    throw new Error(`Invalid JSON in build manifest ${path}; fix the file and rerun the build`);
+  }
+}
 
 interface LockEntry {
   version?: string;

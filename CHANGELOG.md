@@ -1,3 +1,7 @@
+# 2026-10-12
+
+- API builds reject malformed package manifests before writing artifacts, identify the offending file without printing its contents, and preserve existing build output on this failure.
+
 # 2026-10-11
 
 - Wrapper 0.9.61 and the API repair the independently verified Josefa audit findings. Native cancellation forwards INT/TERM/HUP with bounded cleanup; detached workers, gateway runner process groups, reboot receipts, failed-turn claims and expired receiver questions preserve their lifecycle contracts. SIGKILL recovery protects active transcripts, skill publication and Grok private runtime/auth material.
