@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   normalizeWorkspace,
   workspaceMatch,
+  workspaceCoverage,
   type WorkspaceInput,
 } from '../../../src/services/agent-messaging/workspace.js';
 import { pageAgentAddresses } from '../../../src/services/agent-messaging/discovery.js';
@@ -39,6 +40,35 @@ describe('workspace discovery', () => {
     expect(
       workspaceMatch(caller, location(1, normalizeWorkspace(input('/repo/api'))), 'directory'),
     ).toBeNull();
+  });
+  it('counts checkout peers by Git root across engines and subdirectories, excluding linked worktrees and hosts', () => {
+    const caller = location();
+    const sub = normalizeWorkspace({ ...input('/repo/api'), git_root: '/repo' });
+    expect(workspaceMatch(caller, location(1, sub), 'checkout')).toBe('same_checkout');
+    expect(workspaceMatch(caller, caller, 'checkout')).toBe('same_checkout');
+    expect(workspaceMatch(caller, location(1, normalizeWorkspace(input('/linked', '/repo/.git'))), 'checkout')).toBeNull();
+    expect(workspaceMatch(caller, location(2), 'checkout')).toBeNull();
+    expect(workspaceMatch(caller, location(1, null), 'checkout')).toBe('same_directory');
+    expect(workspaceMatch(caller, location(1, null, '/repo/api'), 'checkout')).toBeNull();
+  });
+  it('does not treat incomplete checkout coverage or a non-Git caller as free', () => {
+    const caller = location();
+    expect(workspaceCoverage(caller, [], 'checkout')).toEqual({
+      effective_scope: 'checkout', checkout_root: '/repo',
+      coverage: { limited: false, peers_without_workspace: 0 },
+    });
+    expect(workspaceCoverage(caller, [location(1, null, '/elsewhere')], 'checkout').coverage)
+      .toEqual({ limited: true, peers_without_workspace: 1 });
+    expect(workspaceCoverage(caller, [location(2, null)], 'checkout').coverage.limited).toBe(false);
+    const unavailable = normalizeWorkspace({ cwd: '/repo', git_status: 'unavailable', git_root: null, git_common_dir: null });
+    expect(workspaceCoverage(caller, [location(1, unavailable)], 'checkout').coverage.limited).toBe(true);
+    for (const workspace of [null, normalizeWorkspace({ cwd: '/repo', git_status: 'none', git_root: null, git_common_dir: null })]) {
+      expect(workspaceCoverage(location(1, workspace), [], 'checkout')).toMatchObject({
+        effective_scope: 'directory', checkout_root: null, coverage: { limited: true },
+      });
+    }
+    expect(workspaceCoverage(caller, [location(1, null)], 'directory').coverage.limited).toBe(false);
+    expect(workspaceCoverage(caller, [location(2, null)], 'project').coverage.limited).toBe(true);
   });
   it('matches equivalent network remotes across hosts without persisting secrets', () => {
     for (const remote of [

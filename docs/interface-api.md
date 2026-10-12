@@ -1,5 +1,28 @@
 # API Interface (Source of Truth)
 
+## Automatic repository delivery
+
+When Git Director is enabled, its managed instructions require agents to call
+`git_list` before registration and `agent_list(scope:"checkout", online:true)`
+before edits, without engine/name filters. Only complete coverage for the actual
+checkout root with zero peers means free. Occupied or unknown checkouts use a
+unique task branch and linked worktree outside the original checkout, based on
+its recorded HEAD. The Director's one registration per path is not an agent count.
+Registration uses the actual worktree; an occupied original registration is preserved.
+
+Agents verify and commit task-owned changes even when alone. Shared-branch commits
+and merge-back require a Director lease; direct commits report task-owned staged
+paths, isolated commits report `base...head` paths. Integration requires a clean
+original checkout still on its original branch. Conflicts are resolved and checked
+in the task worktree. Dirty/changed targets, denial or unresolved conflicts leave
+integration pending with the committed result retained. An ancestry check prevents
+duplicate merges on retry and gates cleanup of only the task's own worktree/branch.
+Detached HEAD always isolates and requires an operator-selected integration target.
+Read-only tasks do not mutate Git. Explicit restrictions override these defaults;
+push/deploy remain separately authorized. Agents execute this advisory workflow;
+neither the server nor wrapper enforces filesystem operations. Existing active
+sessions may retain older instructions; adopt with the next content sync/launch.
+
 ## Fleet commit preferences
 
 - `GET /admin/git-director/commit-settings` requires an admin session and `git_director.read`; returns `{ message_style: "short" | "long", ai_attribution: boolean }` in the standard envelope. Missing or invalid stored values yield `short` / `false` without writing.
@@ -1158,8 +1181,16 @@ metadata; omitted metadata preserves the existing value. Old sessions remain val
 
 - `POST /host/agent-sessions/{id}/agent-messaging/list` — discover eligible
   peer addresses, excluding the caller, optionally filtered by engine or host.
-  Optional `scope` is `fleet` (default), `directory` or `project`, always relative
+  Optional `scope` is `fleet` (default), `directory`, `checkout` or `project`, always relative
   to the authenticated caller. Directory matches canonical cwd on the same host.
+  From cxx 0.9.62, Checkout matches the same canonical `git_root` on the same
+  host, including subdirectories but excluding linked worktrees. It returns
+  `checkout_root` (nullable), falls back to directory matching without caller
+  Git-root metadata, and marks coverage limited if the caller has no Git root
+  or any eligible local peer has missing/unavailable workspace metadata.
+  Unknown peers on other hosts do not limit checkout coverage. Legacy peers
+  still match exact cwd, with limited coverage. Use `online:true` in MCP or
+  `include_offline:false` in HTTP to exclude offline sessions; all engines count.
   Project also matches the same common Git directory on that host or the same
   normalized network origin across hosts. Each session is independent, even
   when several agents use one directory; Git Director registration is unnecessary.
@@ -1172,7 +1203,7 @@ metadata; omitted metadata preserves the existing value. Old sessions remain val
   Legacy peers retain matching by reported cwd; no repository identity is guessed.
   Each address adds `task_title` (latest naming event for the bound native session,
   or null), canonical `cwd` when known, and `match_reason`
-  (`fleet|same_directory|same_clone|same_repository`). No conversation content is returned.
+  (`fleet|same_directory|same_checkout|same_clone|same_repository`). No conversation content is returned.
   `name` (1–96 characters) matches a literal, case-insensitive substring of launch
   name, alias or canonical address before paging. Each address carries a
   derived `presence` (`listening` | `online` | `resumable` | `offline` |

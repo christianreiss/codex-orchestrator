@@ -41,6 +41,19 @@ the exact directory on this host. Multiple agents sharing one directory appear
 separately, with their names, addresses, tasks and presence. Git Director
 registration is not required for discovery; its merge coordination still applies.
 
+From cxx 0.9.62, use `agent_list(scope:"checkout", online:true)` or
+`cxx agent list --scope checkout --online` to check occupancy before repository edits.
+This includes subdirectories sharing one Git root on this host and excludes other
+worktrees and hosts. Your own session is excluded; all engines count. Zero peers
+means free only with complete coverage and `checkout_root` matching your actual
+checkout. Missing metadata or failed discovery means unknown occupancy.
+When Git Director is enabled, agents isolate occupied/unknown checkouts in their
+own task worktree, verify and commit even when alone, and merge isolated work back
+under a lease. The original checkout must be clean and still on the target branch;
+pending integration retains the result. Cleanup follows ancestry proof. Explicit
+restrictions and read-only tasks take precedence; push/deploy remain separate.
+
+
 Follow `next_offset` to read remaining peers. Non-Git sessions use directory
 matching. Check `effective_scope` and `coverage.limited`: older clients can have
 incomplete project metadata. Startup lookup failures show unavailable, and do

@@ -243,7 +243,7 @@ export async function registerAgentMessagingRoutes(
     const token = requireToken(req, BRIDGE_TOKEN_HEADER, 'agent_bridge_token_required');
     const body = z
       .object({
-        scope: z.enum(['fleet', 'directory', 'project']).optional(),
+        scope: z.enum(['fleet', 'directory', 'checkout', 'project']).optional(),
         engine: z.enum(['codex', 'claude', 'grok']).optional(),
         host_id: z.number().int().positive().optional(),
         include_offline: z.boolean().optional(),

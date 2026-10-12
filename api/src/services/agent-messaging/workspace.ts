@@ -62,7 +62,35 @@ export interface WorkspaceLocation {
   cwd: string;
   workspace: unknown;
 }
-export type DiscoveryScope = 'fleet' | 'directory' | 'project';
+export type DiscoveryScope = 'fleet' | 'directory' | 'checkout' | 'project';
+
+/** Checkout occupancy is local; unknown local peers prevent a false empty result. */
+export function workspaceCoverage(
+  caller: WorkspaceLocation,
+  peers: WorkspaceLocation[],
+  scope: DiscoveryScope,
+) {
+  const workspace = readWorkspace(caller.workspace);
+  const population = scope === 'checkout' ? peers.filter((peer) => peer.hostId === caller.hostId) : peers;
+  const missing = population.filter((peer) => {
+    const value = readWorkspace(peer.workspace);
+    return (
+      !value || value.git_status === 'unavailable' ||
+      (scope === 'checkout' && value.git_status === 'repository' && !value.git_root)
+    );
+  }).length;
+  return {
+    effective_scope: (scope === 'project' && !workspace?.git_common_dir) ||
+      (scope === 'checkout' && !workspace?.git_root) ? 'directory' : scope,
+    ...(scope === 'checkout' ? { checkout_root: workspace?.git_root ?? null } : {}),
+    coverage: {
+      limited: scope === 'checkout'
+        ? !workspace?.git_root || missing > 0
+        : scope === 'project' && (!workspace || workspace.git_status === 'unavailable' || missing > 0),
+      peers_without_workspace: missing,
+    },
+  };
+}
 
 export function workspaceMatch(
   caller: WorkspaceLocation,
@@ -76,6 +104,11 @@ export function workspaceMatch(
   const sameDirectory =
     sameHost && cleanPath(a?.cwd ?? caller.cwd) === cleanPath(b?.cwd ?? peer.cwd);
   if (scope === 'directory') return sameDirectory ? 'same_directory' : null;
+  if (scope === 'checkout') {
+    if (!sameHost) return null;
+    if (a?.git_root && b?.git_root) return a.git_root === b.git_root ? 'same_checkout' : null;
+    return sameDirectory ? 'same_directory' : null;
+  }
   if (sameDirectory) return 'same_directory';
   if (a?.git_common_dir && b?.git_common_dir && sameHost && a.git_common_dir === b.git_common_dir)
     return 'same_clone';

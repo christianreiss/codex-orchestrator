@@ -71,6 +71,27 @@ describe('dynamic orchestrator feedback guidance', () => {
   }
 });
 
+describe('automatic Git delivery guidance', () => {
+  it.each([ENGINE_CODEX, ENGINE_CLAUDE, ENGINE_GROK])('%s isolates occupied checkouts and commits and merges back', (engine) => {
+    const ctx = context(engine, { gitDirector: enabled(), agentMessaging: enabled() });
+    const out = renderManagedAgentFeatures('# Base\n', ctx);
+    const block = out.body.split('## Git Director')[1]!.split('## File Transfer')[0]!;
+    for (const requirement of [
+      'scope: "checkout", online: true', 'checkout_root', 'coverage.limited',
+      'unknown occupancy, never free', 'outside the original checkout',
+      'Commit finished changes even when working alone', 'task-owned staged diff',
+      'git_merge_status', 'index and worktree are clean', 'resolve conflicts there',
+      'git merge-base --is-ancestor', 'already integrated result',
+      'Read-only tasks create no worktree', 'Push and deploy still require',
+    ]) expect(block).toContain(requirement);
+    expect(renderManagedAgentFeatures(out.body, ctx).body).toBe(out.body);
+    const disabledAgain = renderManagedAgentFeatures(out.body, context(engine));
+    expect(disabledAgain.body).not.toContain('Isolation is automatic');
+    const noMessaging = renderManagedAgentFeatures('# Base\n', context(engine, { gitDirector: enabled() }));
+    expect(noMessaging.body).toContain('Missing tools, unsupported scope');
+  });
+});
+
 describe('fleet commit guidance', () => {
   for (const engine of [ENGINE_CODEX, ENGINE_CLAUDE, ENGINE_GROK]) {
     for (const message_style of ['short', 'long'] as const) {

@@ -33,7 +33,7 @@
 <SectionCard
   id="git-director"
   title="Service state"
-  description="Enable fleet worktree registration and advisory merge coordination."
+  description="Enable checkout occupancy checks, automatic task worktrees, commits and merge-back guidance."
   {status}
   savedAt={lastSavedAt}
   error={$mutation.error?.message ?? $query.error?.message}
@@ -53,15 +53,17 @@
 
   <details class="text-xs text-muted-foreground"><summary class="cursor-pointer">Details</summary>
   <p class="mt-2">
-    Enabling adds a Git Director section to every active host's AGENTS.md / CLAUDE.md, replacing the
-    whole file on their next wrapper launch. Disabling stops the <code>git_*</code> tools from serving
+    Enabling updates the managed Git Director section in Codex, Claude and Grok instructions on
+    their next wrapper launch. Agents check independent live sessions in the same checkout,
+    isolate when occupied or unknown, then verify, commit and merge back under a lease.
+    Finished changes are committed even when working alone. Push and deploy require explicit instructions. Disabling stops the <code>git_*</code> tools from serving
     but keeps existing registrations, so turning it back on does not lose the picture.
   </p>
 
   <p class="text-xs text-muted-foreground">
-    Advisory only — the orchestrator has no filesystem access to any host, so every git fact is
+    Agents execute the workflow; the wrapper does not enforce it. The orchestrator has no filesystem access to any host, so every git fact is
     reported by the calling agent and nothing prevents a merge. Uncontended requests are answered
     deterministically without a model; contended ones fall back to a deterministic <em>wait</em>
-    whenever no arbiter is reachable, so an inference outage never blocks a merge.
+    whenever no arbiter is reachable, so an inference outage never grants a contended merge.
   </p></details>
 </SectionCard>

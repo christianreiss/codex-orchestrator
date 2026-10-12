@@ -36,7 +36,7 @@ const workspace = (
   origin_url: origin,
 });
 
-describe.skipIf(!handle)('directory and project discovery on MySQL', { timeout: 120_000 }, () => {
+describe.skipIf(!handle)('directory, checkout and project discovery on MySQL', { timeout: 120_000 }, () => {
   const db = handle?.db;
   const testHosts: (typeof hosts.$inferSelect)[] = [];
   let service: AgentMessagingService;
@@ -133,6 +133,7 @@ describe.skipIf(!handle)('directory and project discovery on MySQL', { timeout: 
       total: number;
       next_offset?: number;
       effective_scope: string;
+      checkout_root?: string | null;
       coverage: { limited: boolean; peers_without_workspace: number };
     };
   }
@@ -171,6 +172,26 @@ describe.skipIf(!handle)('directory and project discovery on MySQL', { timeout: 
       .from(agentSessions)
       .where(eq(agentSessions.id, remote.input.sessionId));
     expect(JSON.stringify(stored!.workspace)).not.toMatch(/secret|origin_url|example.org/);
+  });
+
+  it('checkout occupancy excludes self, other worktrees, hosts and offline sessions before paging', async () => {
+    const caller = await launch(workspace('/repo/api'));
+    const same = await launch();
+    const sub = await launch(workspace('/repo/frontend'), testHosts[0], 'claude');
+    const stale = await launch(workspace('/repo/docs'), testHosts[0], 'grok');
+    await launch(workspace('/linked', '/linked', '/repo/.git', ''), testHosts[0], 'grok');
+    await launch(workspace(), testHosts[1]);
+    await db!.update(agentSessions).set({ heartbeatAt: isoOffsetSeconds(-3600) })
+      .where(eq(agentSessions.id, stale.input.sessionId));
+    const first = await list(caller, { scope: 'checkout', includeOffline: false, limit: 1 });
+    expect(first).toMatchObject({ total: 2, checkout_root: '/repo', effective_scope: 'checkout', coverage: { limited: false } });
+    const last = await list(caller, { scope: 'checkout', includeOffline: false, limit: 1, offset: first.next_offset });
+    expect(new Set([...first.addresses, ...last.addresses].map((p) => p.address)))
+      .toEqual(new Set([same.address.address, sub.address.address]));
+    expect(first.addresses[0]?.match_reason).toBe('same_checkout');
+    const legacy = await launch(workspace('/unknown', '/unknown', '/unknown/.git'), testHosts[0], 'grok');
+    await db!.update(agentSessions).set({ workspace: null }).where(eq(agentSessions.id, legacy.input.sessionId));
+    expect((await list(caller, { scope: 'checkout', includeOffline: false })).coverage.limited).toBe(true);
   });
 
   it('returns native-bound task titles and drops stale, ended and disabled-engine peers from online discovery', async () => {
@@ -292,6 +313,10 @@ describe.skipIf(!handle)('directory and project discovery on MySQL', { timeout: 
         total: 1,
         addresses: [{ address: same.address.address }],
       });
+      const checkout = await app.inject({ method: 'POST', url, headers, payload: { scope: 'checkout', include_offline: false } });
+      expect(checkout.statusCode).toBe(200);
+      expect(checkout.json()).toMatchObject({ scope: 'checkout', checkout_root: '/repo', total: 1,
+        addresses: [{ address: same.address.address, match_reason: 'same_checkout' }] });
       expect((await app.inject({ method: 'POST', url, headers, payload: {} })).json()).toMatchObject({
         scope: 'fleet',
         total: 2,

@@ -12,6 +12,16 @@ remain bound to the same logical Android conversation.
 
 The Git Director page also holds fleet-wide **Commit messages** preferences for Codex, Claude and Grok: short (subject only) or long (subject, change/reason and relevant verification), plus optional AI attribution. Defaults are short and attribution off. These rules are always included in managed AGENTS.md / CLAUDE.md output even with Director or Skills disabled; hosts adopt them on their next sync/launch. Explicit operator instructions take precedence, and Git identities and commit/push authority are unchanged.
 
+From cxx 0.9.62, enabled Git Director guidance makes repository delivery automatic:
+check independent live sessions with `agent_list(scope:"checkout", online:true)`,
+isolate occupied or unknown checkouts in a task worktree, verify and commit even
+when alone, then merge back under a lease into the original clean branch.
+Checkout scope includes subdirectories, excludes other worktrees/hosts, and returns
+`checkout_root` plus coverage diagnostics. Read-only/explicit restrictions prevail;
+push/deploy remain separate. Agents execute this workflow on their next instruction
+sync/launch; the wrapper does not enforce Git mutations. See
+[the delivery contract](interface-api.md#automatic-repository-delivery).
+
 Git Director opens on Settings with compact service and commit controls and a selectable engine preview. Activity, Merge requests and History are separate searchable tabs (`?tab=settings|activity|merges|history`). Worktree and request details open in a side panel, full-screen on mobile; release and verdict overrides remain permission-gated in details.
 
 - Centralize `auth.json` instead of managing per-host logins.

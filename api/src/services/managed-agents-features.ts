@@ -585,7 +585,7 @@ task. A progress message does not finish work: report its outcome with \`agent_t
 
 /**
  * One text for all three engines. Nothing here is engine-specific: the `git_*` tools
- * are the same orchestrator MCP surface on both, and the block names no Skill.
+ * are the same orchestrator MCP surface on all three engines, and the block names no Skill.
  *
  * This section is the entire enforcement mechanism. The Director is advisory —
  * any agent with a shell can merge regardless — so a paragraph that merely
@@ -613,16 +613,65 @@ The Director is how they see each other: it keeps a registry of who is working i
 arbitrates merges into shared branches. It is reachable only through MCP and it never touches your
 worktree — you run every git command yourself and report what you did.
 
-**Before you start work in a repository.** Call \`git_list\` **first — before creating a worktree, and
-before picking up work in a directory you have not registered**. It names the other agents already in
-your clone and what each said it is doing. Then \`git_register\` with the facts from
-\`git rev-parse --path-format=absolute --show-toplevel --git-common-dir\`, \`git branch --show-current\`, \`git rev-parse HEAD\` and
-\`git remote get-url origin\`, and \`git_join\` to declare your task, the branch you mean to merge into,
-and the paths you expect to write. Every linked worktree of one clone registers against that one
-clone, so registering is what makes you visible to the peer three directories over.
-Directory facts must be absolute; a relative \`.git\` aliases unrelated repositories.
+**Before you start work in a repository.** Call \`git_list\` first, before registering or changing
+files. Record the original checkout root, branch and HEAD using
+\`git rev-parse --path-format=absolute --show-toplevel --git-common-dir\`,
+\`git branch --show-current\` and \`git rev-parse HEAD\`; read \`origin\` if present.
+Then call \`agent_list\` with \`scope: "checkout", online: true\` and no engine or name filter.
+It excludes you and counts independent active sessions in this checkout, including subdirectories,
+across Codex, Claude and Grok. Agents in other worktrees or on other hosts do not count.
+The Director has one registration per path, so its worktree count is not an agent count.
+A zero \`total\` means free only when \`effective_scope\` is "checkout", \`checkout_root\` equals your
+actual checkout root and \`coverage.limited\` is false. Missing tools, unsupported scope, failed
+queries, incomplete metadata or a different launch directory mean unknown occupancy, never free.
+Presence is a conservative occupancy signal, not proof of editing. This snapshot is advisory;
+recheck immediately before the first edit if work has not yet started.
+
+**Isolation is automatic for repository changes.** If at least one other active agent occupies
+this checkout, or occupancy is unknown, create a uniquely named task branch and linked worktree
+outside the original checkout from the recorded HEAD. Use a task slug plus your agent UUID
+(or a fresh task UUID when messaging is unavailable), with a fresh suffix if the name is taken.
+Move all task commands to that worktree, preserving the relative subdirectory.
+Do not copy, stash, reset or commit pre-existing changes from the original checkout.
+When free, work in the original checkout. For detached HEAD, always isolate and retain the result
+until the operator names a target branch; never guess one. Read-only tasks create no worktree,
+branch or commit. Explicit operator restrictions and higher-priority rules take precedence.
+This workflow supplies the default task delivery contract: create a task branch when isolation
+is needed, commit verified task-owned changes and merge them back without asking again.
+Push and deploy still require separate explicit instructions.
+
+**Register where you actually work.** Call \`git_register\` with the absolute checkout/common-dir
+facts, branch, HEAD, optional origin and your engine, then
+\`git_join\` with your task, original target branch and expected paths. Do not register the occupied
+original path and overwrite a peer. All linked worktrees register against the same clone.
+Keep the registration alive with \`git_list(worktree_path: ...)\` during long tasks.
 If \`git_director_worktree_ambiguous\` is returned, re-register with the correct clone facts.
-Registration supersedes old mappings only when they hold no live merge lease; never bypass that lease.
+Registration supersedes old mappings only when they hold no live merge lease; never bypass it.
+
+**Completion is automatic.** Run the repository's relevant checks, inspect the diff and index,
+and stage only task-owned paths. Commit finished changes even when working alone, following the
+fleet commit-message settings. Never commit unrelated staged changes or create an empty commit.
+A private task-branch commit needs no shared-branch lease. Before committing directly on the
+original shared branch, obtain a lease with \`changed_paths\` from the task-owned staged diff,
+recorded base SHA and current HEAD; release it after the commit.
+
+For isolated work, commit in the task worktree first, then request a merge lease for the original
+branch with \`changed_paths\` from \`git diff --name-only base...head\`. Poll \`wait\` using
+\`git_merge_status\` with the same request ID; a \`deny\` leaves the result pending, never bypassed.
+Under a valid lease, re-read the target branch and original checkout status. Merge back only when
+the original checkout is still on that branch and its index and worktree are clean. If it is dirty
+or its branch changed, release the lease and defer integration while preserving your result;
+never stash, switch or discard a peer's work. If the target advanced, merge it into your own task
+branch, resolve conflicts there and rerun affected checks. Release the lease while resolving
+conflicts; refresh the reported HEAD/paths and request a new lease before the final merge.
+Use a fast-forward when possible, otherwise a merge commit; honor the fleet commit-message settings.
+
+Verify \`git merge-base --is-ancestor <task-sha> <target-sha>\` after integration. On retries, check
+ancestry first: an already integrated result needs no duplicate commit or merge. Release the lease
+immediately after integration or a failed attempt. Remove only your own clean temporary worktree
+and fully merged task branch after proof, and deregister it. Retain branch and worktree on failed
+checks, unresolved conflicts or pending integration. Report commit/target SHAs, checks and any
+remaining blocker; never claim completion while the required merge is still pending.
 
 **Before you merge or push to a shared branch.** Call \`git_merge_request\` and honor the verdict —
 before \`git merge\`, before \`git push\`, before anything that moves a branch others share. Pass

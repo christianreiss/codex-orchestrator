@@ -79,7 +79,7 @@ func RunCommand(args []string, stdin io.Reader, stdout, stderr io.Writer, versio
 func runList(args []string, stdout, stderr io.Writer) error {
 	flags := newFlagSet("cxx agent list", stderr)
 	engine := flags.String("engine", "", "codex, claude or grok")
-	scope := flags.String("scope", "fleet", "fleet, directory or project")
+	scope := flags.String("scope", "fleet", "fleet, directory, checkout or project")
 	limit := flags.Int("limit", 50, "page size (1–50)")
 	offset := flags.Int("offset", 0, "page offset")
 	host := flags.Int64("host", 0, "host id")
@@ -464,7 +464,7 @@ func emptyToNil(value string) any {
 func printHelp(w io.Writer) {
 	fmt.Fprintln(w, "  cxx agent translate <name|uuid> [--json]  German launch name ↔ agent UUID")
 	fmt.Fprintln(w, "Usage:")
-	fmt.Fprintln(w, "  cxx agent list [--scope fleet|directory|project] [--engine codex|claude|grok] [--online] [--limit 50] [--offset 0]")
+	fmt.Fprintln(w, "  cxx agent list [--scope fleet|directory|checkout|project] [--engine codex|claude|grok] [--online] [--limit 50] [--offset 0]")
 	fmt.Fprintln(w, "  cxx agent send --to agent:<id> --stdin [--conversation <id>] [--client-message-id <uuid>]")
 	fmt.Fprintln(w, "  cxx agent request --to agent:<id> --stdin [--wait-seconds 25] [--client-message-id <uuid>]")
 	fmt.Fprintln(w, "  cxx agent wait --conversation <id> [--after <sequence>] [--seconds 25]")

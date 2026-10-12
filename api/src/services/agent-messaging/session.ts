@@ -2,7 +2,7 @@ import { beginRebootBinding, completeRebootBinding, plannedRebootForSession } fr
 import { assertHousekeepingAvailable } from '../session-housekeeping.js';
 import { markWaitingForPresence, discardPresenceNotices } from './presence-feedback.js';
 import { pageAgentAddresses, type AgentDiscoveryFilters } from './discovery.js';
-import { normalizeWorkspace, readWorkspace, workspaceMatch } from './workspace.js';
+import { normalizeWorkspace, readWorkspace, workspaceCoverage, workspaceMatch } from './workspace.js';
 import { sessionTaskTitles } from './task-titles.js';
 import type { Keyring } from '../../security/keyring.js';
 import { assignLaunchNameLocked, endLaunchNamesLocked } from './names.js';
@@ -488,7 +488,6 @@ export class SessionRegistry {
   async listAddresses(sessionId: string, bridgeToken: string, filters: AgentDiscoveryFilters = {}): Promise<Record<string, unknown>> {
     const authenticated = await this.core.authenticateBridge(sessionId, bridgeToken);
     const scope = filters.scope ?? 'fleet';
-    const callerWorkspace = readWorkspace(authenticated.session.workspace);
     const currentAddressId = authenticated.session.agentBusAddressId;
     if (!currentAddressId) throw new ConflictError('Agent session has no messaging address', 'agent_messaging_address_missing');
     const predicates = [
@@ -544,16 +543,14 @@ export class SessionRegistry {
       );
     const page = pageAgentAddresses(ranked, filters);
     const titles = await sessionTaskTitles(this.core.db, this.core.keyring, page.addresses.flatMap((row) => row.session ? [row.session] : []));
-    const missingWorkspace = eligible.filter((row) => !readWorkspace(row.session?.workspace) || readWorkspace(row.session?.workspace)?.git_status === 'unavailable').length;
+    const coverage = workspaceCoverage(authenticated.session, eligible.map((row) => ({
+      hostId: row.address.hostId, cwd: row.session?.cwd ?? row.address.cwd, workspace: row.session?.workspace,
+    })), scope);
     return {
       ...page,
       scope,
-      effective_scope: scope === 'project' && !callerWorkspace?.git_common_dir ? 'directory' : scope,
       observed_at: nowIso(),
-      coverage: {
-        limited: scope === 'project' && (!callerWorkspace || callerWorkspace.git_status === 'unavailable' || missingWorkspace > 0),
-        peers_without_workspace: missingWorkspace,
-      },
+      ...coverage,
       addresses: page.addresses.map((row) => ({
         ...publicAddress(row.address, row.fqdn, row.presence), receiver: row.receiver,
         cwd: readWorkspace(row.session?.workspace)?.cwd ?? row.session?.cwd ?? row.address.cwd,

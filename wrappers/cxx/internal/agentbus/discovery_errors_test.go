@@ -43,23 +43,53 @@ func TestMessagingSendRetryAdvice(t *testing.T) {
 }
 
 func TestMCPDiscoveryPassesPageAndName(t *testing.T) {
-	var body map[string]any
-	client := &sessionClient{id: "fixture", http: &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
-		if !strings.HasSuffix(req.URL.Path, "/list") {
-			t.Fatal(req.URL.Path)
-		}
-		if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
-			t.Fatal(err)
-		}
-		return &http.Response{StatusCode: 200, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"addresses":[],"total":51,"truncated":true,"next_offset":50}`))}, nil
-	})}}
-	result, err := callMCPTool(context.Background(), client, nil, "agent_list", map[string]any{"scope": "project", "online": true, "engine": "grok", "name": "Amelie", "limit": 25, "offset": 25})
-	if err != nil {
+	for _, scope := range []string{"project", "checkout"} {
+		t.Run(scope, func(t *testing.T) {
+			var body map[string]any
+			client := &sessionClient{id: "fixture", http: &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+				if !strings.HasSuffix(req.URL.Path, "/list") {
+					t.Fatal(req.URL.Path)
+				}
+				if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
+					t.Fatal(err)
+				}
+				return &http.Response{StatusCode: 200, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"addresses":[],"total":51,"truncated":true,"next_offset":50}`))}, nil
+			})}}
+			result, err := callMCPTool(context.Background(), client, nil, "agent_list", map[string]any{"scope": scope, "online": true, "engine": "grok", "name": "Amelie", "limit": 25, "offset": 25})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if body["scope"] != scope || body["include_offline"] != false || body["name"] != "Amelie" || body["engine"] != "grok" || body["limit"] != float64(25) || body["offset"] != float64(25) || result["next_offset"] != float64(50) {
+				t.Fatal(body, result)
+			}
+		})
+	}
+}
+
+func TestCheckoutScopeInToolCatalog(t *testing.T) {
+	var catalog []struct {
+		Name   string `json:"name"`
+		Schema struct {
+			Properties map[string]struct {
+				Enum []string `json:"enum"`
+			} `json:"properties"`
+		} `json:"inputSchema"`
+	}
+	if err := json.Unmarshal(toolCatalogJSON(), &catalog); err != nil {
 		t.Fatal(err)
 	}
-	if body["scope"] != "project" || body["include_offline"] != false || body["name"] != "Amelie" || body["engine"] != "grok" || body["limit"] != float64(25) || body["offset"] != float64(25) || result["next_offset"] != float64(50) {
-		t.Fatal(body, result)
+	for _, tool := range catalog {
+		if tool.Name != "agent_list" {
+			continue
+		}
+		for _, scope := range tool.Schema.Properties["scope"].Enum {
+			if scope == "checkout" {
+				return
+			}
+		}
+		t.Fatal("agent_list does not advertise checkout scope")
 	}
+	t.Fatal("agent_list missing")
 }
 
 func TestMessagingUUIDRequirementVisibleWithoutFormat(t *testing.T) {

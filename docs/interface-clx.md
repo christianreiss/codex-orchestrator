@@ -1647,3 +1647,18 @@ bundle can replace the pending intent.
 The independent central inbox provides `feedback_submit`, `feedback_list`, `feedback_get`, `feedback_claim` and `feedback_update` across Codex, Claude and Grok. The fleet switch `feedback_enabled` defaults off, hides tools during discovery and blocks calls while disabled. Enable it under Feedback in the WebUI (`/admin/feedback/state`); managed AGENTS.md/CLAUDE.md/Grok AGENTS.md dynamically gain the workflow on the next sync only when usable managed MCP configuration exists. Disabling removes that section on sync without changing canonical authored rules or deleting reports.
 
 Claims are exclusive, token-fenced and renewable for 30 minutes. Updates check the item version and append history. Resolved requires a fix reference and verification evidence; deployment is recorded separately. Host/engine attribution is authenticated; optional agent UUIDs are descriptive. Admin routes use `feedback.read`/`feedback.manage`. No agent is started and no merge or deployment is implied. See [MCP workflow](MCP.md#orchestrator-feedback-workflow) for request/response contracts.
+
+## Automatic repository delivery (cxx 0.9.62)
+
+With Git Director enabled, agents check `git_list` then
+`agent_list(scope:"checkout", online:true)` before edits. Checkout scope counts
+other active sessions sharing the same host and Git root, including subdirectories
+but excluding linked worktrees. Incomplete coverage or a mismatched `checkout_root`
+is unknown occupancy. Occupied/unknown checkouts use a private task worktree;
+verified task changes are always committed, then merged back under a Director
+lease into the original clean branch. Failed or deferred integration retains the
+result; ancestry proof gates cleanup and prevents duplicate merges on retry.
+Read-only and explicit restrictions take precedence; push/deploy are separate.
+This is agent-executed guidance shared by all three engines, adopted on the next
+sync/launch, not wrapper-enforced automation. See
+[Automatic repository delivery](interface-api.md#automatic-repository-delivery).
