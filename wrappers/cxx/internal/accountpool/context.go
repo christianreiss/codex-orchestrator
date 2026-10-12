@@ -103,6 +103,7 @@ func (c *Context) Observe(path string, raw []byte) {
 	}
 	c.AccountID = id
 	_ = c.saveLocked()
+	c.cacheWeeklyLocked(doc)
 }
 
 func (c *Context) saveLocked() error {

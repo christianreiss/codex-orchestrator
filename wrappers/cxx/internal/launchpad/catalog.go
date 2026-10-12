@@ -1,7 +1,7 @@
 // Package launchpad is the bare-`cxx` picker: one keyboard-driven screen that
 // chooses an engine, a model and a reasoning effort, then hands the native
 // argv to the managed launch path. It never touches the network; everything it
-// offers comes from the signed host configs and the local native settings.
+// offers comes from signed host configs, local native settings and cached usage.
 package launchpad
 
 import (
@@ -11,6 +11,7 @@ import (
 
 	"github.com/pelletier/go-toml"
 
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/accountpool"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/claude"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/nativeentry"
@@ -45,6 +46,7 @@ type Engine struct {
 	Effort string
 	// Disabled explains why the engine is shown but cannot launch.
 	Disabled string
+	Weekly   *accountpool.WeeklyUsage
 }
 
 // Label is the product name shown on screen.
@@ -63,6 +65,8 @@ type Sources struct {
 	Installed func(engine string) bool
 	// Local returns the model and effort the native settings already select.
 	Local func(engine string) (model, effort string)
+	// Quota reads the last verified weekly observation, without provider probes.
+	Quota func(engine string, cfg *config.Config) *accountpool.WeeklyUsage
 	// Last is the previous launchpad selection, if any.
 	Last *Selection
 }
@@ -84,6 +88,9 @@ func Discover(src Sources) []Engine {
 			e.Disabled = "not installed"
 		}
 		e.Model, e.Effort = start(name, cfg, e.Models, src)
+		if src.Quota != nil {
+			e.Weekly = src.Quota(name, cfg)
+		}
 		out = append(out, e)
 	}
 	return out

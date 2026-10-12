@@ -409,10 +409,27 @@ keeping the timeline, relay, and any open question), `say --text`,
 `ask --question [--options 'one|two']`, `wait [--seconds]`, `accept`, and
 `leave`. See [Active Clients and agent sessions](/admin/manual/agent-portal).
 
-### Updating the host
+### Quick selection
 
-Run `cxx update` to check the shared wrapper and all installed Codex, Claude and
-Grok CLIs. A current wrapper is left in place; a newer one is verified and installed
+On a terminal, run `cxx` without arguments to choose an engine, model and effort.
+From wrapper 0.9.68, the model grid opens outward in the chosen compass direction:
+left expands left, right expands right, and down opens beneath a vertical stem.
+Use up/down for the model, left/right for effort, Enter for a new chat, `c` to
+continue, or `r` for the native session picker where supported. Escape returns
+to the compass. With one engine, the model grid opens directly.
+Small weekly usage notices show the last synced local account observation:
+`week 42% used`, `week 42% used (stale)` after 30 minutes, or `week --` when
+unavailable or reset. Grok currently has no weekly reading. Fresh usage is amber
+at 85% and red at 100%. Opening the picker makes no network call.
+
+## Updating the host
+
+Run `cxx update` to refresh host engine assignments and check the shared wrapper
+and all assigned Codex, Claude and Grok CLIs. From wrapper 0.9.68, newly enabled
+host engines are installed during this run; engines removed from the host lose
+their managed config and wrapper alias. Provider binaries and user sessions remain.
+Fleet-wide suspension keeps the installation; failed assignment probes preserve
+the existing layout and return an error. A current wrapper is left in place; a newer one is verified and installed
 before the new binary continues the engine updates and managed-content sync.
 
 The compact update display uses engine colors, animated checks and download bars

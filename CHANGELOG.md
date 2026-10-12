@@ -1,5 +1,11 @@
 # 2026-10-12
 
+- Wrapper 0.9.68 adds compact weekly usage notices to the bare-`cxx` quick-select compass (and single-engine picker), using observations cached during verified account sync without network calls or credential storage. Notices show used percent, mark readings older than 30 minutes as stale, hide expired/reset or unavailable readings, and highlight fresh usage at 85%/100%. Cache reads stay scoped to the engine, fleet, native home and last synced account; Grok shows no weekly reading.
+
+- Wrapper 0.9.68 makes the bare-`cxx` quick selector expand in the selected compass direction: the left engine opens a mirrored model/effort branch to the left, the bottom engine opens below a vertical stem, and the right branch keeps its existing layout. Animation, scrolling, Unicode/ASCII rendering and model/effort keys remain consistent.
+
+- Wrapper 0.9.68 makes `cxx update` reconcile current signed host engine assignments before updating: enabling Grok (or Codex/Claude) after installation now adds its config and alias and installs/syncs its native CLI in the same run. Explicit host removal deletes managed configs and aliases while preserving provider binaries and user session data. Fleet-wide suspension retains installations; uncertain assignment probes preserve the existing layout, and cleanup failures return nonzero.
+
 - Wrapper 0.9.67 stops printing `host daemon: daemon enabled: run 'sudo cxx daemon install' to install the system service` on every engine launch of a host that already has the service. An unprivileged launch now names the install step only while `/etc/systemd/system/cxx-daemon.service` is absent; an installed unit stays silent (refreshing its binary still needs `sudo cxx daemon install`, and root-run sync/cron does it automatically).
 
 - Fixed `cdx`/Codex refusing to start with `invalid type: sequence, expected a map in shell_environment_policy.set`. Stored configs carried the legacy `set = []`, which was rendered verbatim into `config.toml`, but Codex requires `set` to be a map. The server now converts `KEY=VALUE` arrays into a map and drops any other non-map `set` when rendering, so every host heals on its next config sync with no stored-config edit and no wrapper update.

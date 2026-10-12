@@ -45,6 +45,7 @@ func runLaunchpad(stdout, stderr io.Writer) (code int, ok bool) {
 		},
 		Installed: engineInstalled,
 		Local:     launchpad.LocalPreferences,
+		Quota:     launchpad.LocalWeekly,
 		Last:      last,
 	})
 	if len(engines) == 0 {

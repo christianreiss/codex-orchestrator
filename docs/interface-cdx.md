@@ -403,7 +403,7 @@ server bakes effective `CODEX_HOME/config.toml`.
 | `execute` / `--execute "<prompt>"` | Headless one-shot via `codex exec`; the boot screen is suppressed but auth + resource sync still run. `--execute` is the spelling that carries the prompt; the bare `execute` token dispatches the same path with an empty prompt and its own trailing arguments appended |
 | `cron [install\|remove\|run]` / `--cron [install\|remove\|run]` | Forward to the host-wide `cxx cron` coordinator. It owns one optional schedule (`# cxx-managed-cron`, system fallback `/etc/cron.d/cxx-managed`), removes both historical persona schedules, validates each signed config's host/engine membership, and runs each enabled engine tick exactly once. Config wrapper metadata may legitimately differ during rolling refresh and is not a coordinator gate. The first upgraded legacy cron tick migrates itself to the one shared schedule. Privileged system install/remove discovers every actual owner represented in the standard cron spools. A strictly validated spool filename remains authoritative when the static wrapper's Go `os/user` lookup cannot resolve an NSS/SSSD-only account; config-owner/sudo/current/root safeguards remain lookup-validated. The coordinator snapshots each crontab, removes only lines ending in an exact cxx/cdx/clx managed marker, and restores every changed crontab if cross-user or legacy-system cleanup fails; install also removes its new system entry. The Codex tick reports the upstream CLI as a normalized semantic version even when `codex --version` prints a label such as `codex-cli 0.130.0`. Explicit minimal mode stays ASCII throughout. The tick's managed sync is content-only: it converges AGENTS.md, config.toml and the skills fingerprint and never requests, receives, writes or uploads credentials, so an unattended host can never open an insecure-approval request nobody is there to answer (an unsent local login is still preserved through the ungated `/auth` store call before each update). |
 | `--version` / `-V` / `--wrapper-version` / `-W` | Print version + commit + embedded pubkey status |
-| `update` / `--update` | Self-update now (verifies SHA256 before swapping), then re-exec the freshly installed binary into `sync` so managed content is written by the new code rather than the one being replaced. `cdx update` re-execs into `cdx sync`; `cxx update` uses the host update coordinator described below; after a newer wrapper is installed, it resumes the native update and content-sync phases for every installed engine. The restart uses one unit of restart depth and the second pass never re-enters `update`. If the exec itself fails, the new binary is installed but content is unsynced and the wrapper says so and exits 1 |
+| `update` / `--update` | Self-update now (verifies SHA256 before swapping), then re-exec the freshly installed binary into `sync` so managed content is written by the new code rather than the one being replaced. `cdx update` re-execs into `cdx sync`; `cxx update` uses the host update coordinator described below; after a newer wrapper is installed, it resumes the native update and content-sync phases for every currently assigned engine. The restart uses one unit of restart depth and the second pass never re-enters `update`. If the exec itself fails, the new binary is installed but content is unsynced and the wrapper says so and exits 1 |
 | `sync` | Write fleet-managed `AGENTS.md`, `config.toml`, and the skills fingerprint without launching Codex and without touching the binary. Runs the same lock, FQDN guard, `POST /sync/bootstrap`, decision matrix, skills probe, and peer reconciliation an interactive run performs, then stops before the quota gate and the launch. Always headless: a host with no usable credential fails closed with the reason instead of opening a `codex login` wizard. Exit 0 only after online managed sync succeeds; exit 1 on a refused host, failed managed-file write/probe, offline fallback, or a concurrent-run pause (with the reason printed). Normal interactive cached-auth fallback is unchanged. Self-update is deliberately suppressed here, so a sync can never install and re-exec from inside itself. On an insecure host the run's own auth session still purges credentials on exit, exactly as `run` does |
 | `uninstall` / `--uninstall` | Take the effective-`CODEX_HOME` exclusive auth-maintenance lease, remove Codex-local credentials/state, and request engine-scoped server deletion. An authoritative response with Claude remaining removes only `cdx` and retains `cxx`, `clx`, and the shared cron; confirmed last-engine removal deletes both aliases, `cxx`, and the cron. Offline, non-2xx, or malformed responses preserve every shared artifact. Refuses while another cdx auth session is active and on multi-user hosts without sudo. |
 
@@ -814,8 +814,24 @@ behaviour: usage on stderr, exit 2.
   right. With one engine the compass is skipped. A fleet-suspended engine, or a
   Codex/Claude engine whose native CLI is missing, is shown greyed out with the
   reason and cannot be launched.
+- **Weekly usage (cxx 0.9.68).** The main compass shows a compact `week N% used`
+  notice under each engine; the single-engine grid shows it below the title.
+  It reads observations cached during verified `/auth` or `/sync/bootstrap`
+  account sync. Codex selects the weekly window by duration, not primary/secondary
+  position; Claude uses its reported seven-day window. Readings retain the
+  provider timestamp, show `stale` after 30 minutes, and become `week --` after
+  reset, on invalid/missing data, or for Grok. Fresh usage turns amber at 85% and
+  red at 100%. Zero is a measured value. The cache is scoped to the engine,
+  fleet, native home and last synced account, beside the account binding as
+  `.cxx-account-<fleet-hash>.json.weekly.json` (0600). It stores usage and
+  timestamps only. A new account lease may select a different account at launch;
+  this notice is advisory and leaves existing quota enforcement unchanged.
 - **Model and effort.** Picking an engine animates a path into that engine's
-  grid: `↑`/`↓` (or `k`/`j`) choose the model, `←`/`→` (or `h`/`l`) the effort.
+  grid. From wrapper 0.9.68, it grows outward in the selected compass direction:
+  the left grid and its effort branch extend left, the right grid extends right,
+  and the bottom grid opens below a vertical stem. Labels remain readable and
+  the centre stays anchored where space permits. `↑`/`↓` (or `k`/`j`) choose the
+  model, `←`/`→` (or `h`/`l`) the effort.
   The effort strip shows only the efforts the highlighted model accepts, and it
   snaps to the model's default when the previous effort is not valid there.
   `esc`/`backspace` returns to the compass; `q` or `ctrl+c` quits (exit 130).
@@ -1301,9 +1317,15 @@ The stream and progress supervisor remain wrapper-owned while the model is unava
 
 ### Host update output (cxx 0.9.40)
 
-`cxx update [--minimal]` checks the shared wrapper once, then updates the native
-Codex, Claude and Grok CLIs and syncs managed content in that order. Every
-installed engine gets a result, including unchanged or suspended engines.
+`cxx update [--minimal]` first refreshes the signed host engine assignments
+(wrapper 0.9.68), adding configs and aliases for newly assigned engines and
+removing them for engines explicitly unassigned by the server. It then checks
+the shared wrapper once, updates the native Codex, Claude and Grok CLIs, and
+syncs managed content in that order. Every assigned engine gets a result,
+including newly added, unchanged or suspended engines. Fleet suspension keeps
+configs, aliases and installed CLIs; uncertain assignment probes preserve the
+existing layout and fail the update. Removal preserves provider binaries and
+user session data.
 Equal wrapper versions mean up to date: no artifact download, replacement or
 restart. New wrapper releases are SHA256-verified and atomically installed,
 then the new binary continues the engine phases without repeating the wrapper

@@ -135,7 +135,7 @@ Claude settings and MCP merges preserve unreadable or non-object user files and 
 | `cron [install\|remove\|run]` / `--cron [install\|remove\|run]` | Forward to the host-wide `cxx cron` coordinator. It owns one schedule (`# cxx-managed-cron`, system fallback `/etc/cron.d/cxx-managed`), removes historical persona schedules, validates each signed config's host/engine membership, and runs each enabled engine tick exactly once. Config wrapper metadata may differ during rolling refresh and is not a coordinator gate. The first upgraded legacy cron tick migrates itself to the shared schedule. Privileged system install/remove discovers every actual owner represented in the standard cron spools. A strictly validated spool filename remains authoritative when the static wrapper's Go `os/user` lookup cannot resolve an NSS/SSSD-only account; config-owner/sudo/current/root safeguards remain lookup-validated. The coordinator snapshots each crontab, removes only lines ending in an exact cxx/cdx/clx managed marker, and restores every changed crontab if cross-user or legacy-system cleanup fails; install also removes its new system entry. Explicit minimal mode stays ASCII throughout. The tick's managed sync is content-only: it converges CLAUDE.md, settings, MCP servers, collections and native skills and never requests, receives, writes or uploads credentials, so an unattended host can never open an insecure-approval request nobody is there to answer, and a credential-scoped refusal can no longer strip managed content on a tick (an unsent local login is still preserved through the ungated `/auth` store call before each update). |
 | `--version` / `-V` / `--wrapper-version` / `-W` | Print version + commit + embedded pubkey status |
 | `cxx claude-quota-statusline` | The fleet-owned Claude Code `statusLine` command. Claude Code runs it on every statusline render with its status JSON on stdin; it prints a usable statusline and, throttled, reports the payload's own `rate_limits` utilization for the 5-hour and 7-day windows to the orchestrator. This is the only way the fleet obtains Claude quota data — the server never holds or uses a Claude OAuth token. Managed settings inject it by default (see the `statusLine` note under Settings.json sub-blocks). |
-| `update` / `--update` | Self-update now (verifies SHA256 before swapping), then re-exec the freshly installed binary into `sync` so managed content is written by the new code rather than the one being replaced. This command's auth session is finalized before the exec, because the claude re-exec carries no session handoff. `clx update` re-execs into `clx sync`; `cxx update` uses the host update coordinator described below; after a newer wrapper is installed, it resumes the native update and content-sync phases for every installed engine. If the exec itself fails, the new binary is installed but content is unsynced and the wrapper says so and exits 1 |
+| `update` / `--update` | Self-update now (verifies SHA256 before swapping), then re-exec the freshly installed binary into `sync` so managed content is written by the new code rather than the one being replaced. This command's auth session is finalized before the exec, because the claude re-exec carries no session handoff. `clx update` re-execs into `clx sync`; `cxx update` uses the host update coordinator described below; after a newer wrapper is installed, it resumes the native update and content-sync phases for every currently assigned engine. If the exec itself fails, the new binary is installed but content is unsynced and the wrapper says so and exits 1 |
 | `sync` | Write fleet-managed `CLAUDE.md`, `settings.json` (deep merge), `~/.claude.json` MCP servers, `~/.claude/{agents,commands,output-styles}/`, and `~/.claude/skills/<slug>/SKILL.md` without launching Claude and without touching the binary. Runs the same lock, FQDN guard, `POST /sync/bootstrap`, decision matrix, collections, and skills work an interactive run performs, then stops before the portal session and the launch. Always headless. Exit 0 only after online managed sync succeeds; exit 1 for failed managed-file writes/probes, offline fallback, concurrent-run pauses, or a refused host — including a host with no usable Claude credential, which exits 1 even though `bootstrap` already wrote the managed content, keeping parity with `run`. Trust-loss teardown (`stripManagedSettings`/`stripClaudeCollections`/`stripClaudeSkills`) still runs on an explicit server refusal. Self-update is deliberately suppressed here |
 | `uninstall` / `--uninstall` | Take the native-auth exclusive maintenance lease, remove Claude-local credentials/state, and request engine-scoped server deletion. An authoritative response with Codex remaining removes only `clx` and retains `cxx`, `cdx`, and the shared cron; confirmed last-engine removal deletes both aliases, `cxx`, and the cron. Offline, non-2xx, or malformed responses preserve every shared artifact. Refuses while another clx auth session is active, on a known multi-user host without sudo, or when user lookup fails without root/passwordless-sudo fallback. |
 
@@ -309,12 +309,16 @@ and inherited values are scrubbed at startup.
 ## Bare `cxx` launchpad (cxx 0.9.65)
 
 On an attended terminal, `cxx` with no arguments opens the engine/model/effort
-picker described in `docs/interface-cdx.md` ("Bare `cxx` launchpad"). For Claude
+picker described in `docs/interface-cdx.md` ("Bare `cxx` launchpad"). From
+wrapper 0.9.68, its grid expands in the chosen compass direction; Claude normally
+occupies the right slot. For Claude
 it launches `--model M --effort E`, and for `c`/`r` it adds `--continue` or
 `--resume` (the native picker). `max` is offered as a session-only effort on
 all Claude models with adaptive effort, including Opus 4.6 and Sonnet 4.6. It
 is never persisted as `effortLevel` in `settings.json`. The launch uses the managed native path, so the boot, sync,
 auth and receiver lifecycle is the same as for `clx`.
+The main picker also shows cached seven-day usage for the last synced Claude
+account (cxx 0.9.68), with stale/missing readings identified and no provider call.
 
 ## Per-host config (typed, signed)
 
@@ -1534,9 +1538,15 @@ Hook payload contract: [Claude hooks reference](https://code.claude.com/docs/en/
 
 ### Host update output (cxx 0.9.40)
 
-`cxx update [--minimal]` checks the shared wrapper once, then updates the native
-Codex, Claude and Grok CLIs and syncs managed content in that order. Every
-installed engine gets a result, including unchanged or suspended engines.
+`cxx update [--minimal]` first refreshes the signed host engine assignments
+(wrapper 0.9.68), adding configs and aliases for newly assigned engines and
+removing them for engines explicitly unassigned by the server. It then checks
+the shared wrapper once, updates the native Codex, Claude and Grok CLIs, and
+syncs managed content in that order. Every assigned engine gets a result,
+including newly added, unchanged or suspended engines. Fleet suspension keeps
+configs, aliases and installed CLIs; uncertain assignment probes preserve the
+existing layout and fail the update. Removal preserves provider binaries and
+user session data.
 Equal wrapper versions mean up to date: no artifact download, replacement or
 restart. New wrapper releases are SHA256-verified and atomically installed,
 then the new binary continues the engine phases without repeating the wrapper

@@ -92,6 +92,73 @@ func TestHostUpdateEqualVersionChecksEveryEngineWithoutReplacingWrapper(t *testi
 	}
 }
 
+func TestHostUpdateRefreshesAssignmentsBeforeUpdatingEngines(t *testing.T) {
+	for _, added := range []string{"codex", "claude", "grok"} {
+		t.Run(added, func(t *testing.T) {
+			installed := []string{}
+			for _, name := range []string{"codex", "claude", "grok"} {
+				if name != added {
+					installed = append(installed, name)
+				}
+			}
+			f := newUpdateFixture(t, installed...)
+			f.versions[added] = ""
+			f.deps.assignments = func(_ context.Context, seed *config.Config, _ io.Writer) ([]*config.Config, error) {
+				if seed.Engine != installed[0] || len(f.checks) != 0 {
+					t.Fatal("assignment refresh did not use the installed seed before update checks")
+				}
+				return []*config.Config{{Engine: "codex"}, {Engine: "claude"}, {Engine: "grok"}}, nil
+			}
+			check := f.deps.check
+			f.deps.check = func(ctx context.Context, cfg *config.Config, version string) (*orchestrator.CronCheckResponse, error) {
+				r, err := check(ctx, cfg, version)
+				if cfg.Engine == added {
+					r.Action, r.TargetVersion = "update", "4.0.0"
+				}
+				return r, err
+			}
+			var out bytes.Buffer
+			if code := updateHost(context.Background(), nil, &out, ui.Caps{}, f.deps, false); code != 0 {
+				t.Fatalf("code=%d: %s", code, &out)
+			}
+			if strings.Join(f.installs, ",") != added || strings.Join(f.syncs, ",") != "codex,claude,grok" || !strings.Contains(out.String(), "installed | synced") {
+				t.Fatalf("installs=%v syncs=%v output=%s", f.installs, f.syncs, &out)
+			}
+		})
+	}
+}
+
+func TestHostUpdateUnassignedSeedAndSuspension(t *testing.T) {
+	f := newUpdateFixture(t, "codex", "claude")
+	f.deps.assignments = func(_ context.Context, seed *config.Config, _ io.Writer) ([]*config.Config, error) {
+		if seed.Engine != "codex" {
+			t.Fatal("unexpected seed", seed.Engine)
+		}
+		return []*config.Config{{Engine: "claude"}, {Engine: "grok", Host: config.Host{FleetDisabledEngines: []string{"grok"}}}}, nil
+	}
+	var out bytes.Buffer
+	if code := updateHost(context.Background(), nil, &out, ui.Caps{}, f.deps, true); code != 0 {
+		t.Fatal(code, &out)
+	}
+	if strings.Join(f.checks, ",") != "claude" || strings.Join(f.syncs, ",") != "claude" || len(f.installs) != 0 || !strings.Contains(out.String(), "suspended fleet-wide") {
+		t.Fatalf("checks=%v syncs=%v installs=%v output=%s", f.checks, f.syncs, f.installs, &out)
+	}
+}
+
+func TestHostUpdateAssignmentFailureStopsMutation(t *testing.T) {
+	f := newUpdateFixture(t, "codex", "claude")
+	f.deps.assignments = func(context.Context, *config.Config, io.Writer) ([]*config.Config, error) {
+		return nil, errors.New("signature invalid")
+	}
+	var out bytes.Buffer
+	if code := updateHost(context.Background(), nil, &out, ui.Caps{}, f.deps, false); code != 1 {
+		t.Fatal(code, &out)
+	}
+	if len(f.checks)+len(f.installs)+len(f.syncs)+f.wrapperInstalls != 0 || !strings.Contains(out.String(), "engine assignment refresh failed: signature invalid") {
+		t.Fatalf("unsafe work after uncertain assignment: %s", &out)
+	}
+}
+
 func TestHostUpdateNativeUpdatesAndKeepsPartialFailureVisible(t *testing.T) {
 	f := newUpdateFixture(t, "codex", "claude", "grok")
 	check := f.deps.check

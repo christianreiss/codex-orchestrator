@@ -351,6 +351,10 @@ func IsEngineOnly() bool { return os.Getenv(EngineOnlyEnv) == "1" }
 // A fleet-suspended engine still answers 200: its config and alias are
 // persisted like any other, and run() skips only its tick.
 func refreshAuthoritative(ctx context.Context, seed *config.Config, executable string, warn io.Writer) ([]*config.Config, []string, string, error) {
+	return refreshAssignments(ctx, seed, executable, warn, false)
+}
+
+func refreshAssignments(ctx context.Context, seed *config.Config, executable string, warn io.Writer, strictCleanup bool) ([]*config.Config, []string, string, error) {
 	if seed == nil {
 		var err error
 		seed, err = loadAnySeedConfig()
@@ -417,16 +421,30 @@ func refreshAuthoritative(ctx context.Context, seed *config.Config, executable s
 	// A cleanup failure for one disabled engine must not block the other,
 	// still-enabled engine's maintenance (runEnabledTicks runs after this
 	// function returns) — warn and retry on a later tick instead of aborting.
+	var cleanupErrors []error
 	for _, engine := range disabled {
 		if err := layout.RemoveAlias(ctx, filepath.Dir(canonical), engine); err != nil {
 			fmt.Fprintf(warnWriter(warn), "remove disabled %s alias: %v\n", engine, err)
+			cleanupErrors = append(cleanupErrors, fmt.Errorf("remove disabled %s alias: %w", engine, err))
 			continue
 		}
 		if err := removeEngineConfig(ctx, engine); err != nil {
 			fmt.Fprintf(warnWriter(warn), "remove disabled %s config: %v\n", engine, err)
+			cleanupErrors = append(cleanupErrors, fmt.Errorf("remove disabled %s config: %w", engine, err))
 		}
 	}
+	if strictCleanup {
+		return configs, engines, canonical, errors.Join(cleanupErrors...)
+	}
 	return configs, engines, canonical, nil
+}
+
+// RefreshForUpdate shares cron's authoritative assignment reconciliation with
+// explicit host updates. Cleanup failures make the explicit update incomplete;
+// cron retains its best-effort cleanup so healthy engines still get their tick.
+func RefreshForUpdate(ctx context.Context, seed *config.Config, executable string, output io.Writer) ([]*config.Config, error) {
+	configs, _, _, err := refreshAssignments(ctx, seed, executable, output, true)
+	return configs, err
 }
 
 func grokConfigPresent() bool {

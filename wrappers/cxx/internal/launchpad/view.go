@@ -9,15 +9,19 @@ import (
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
 )
 
-const pathWidth = 12
+const (
+	pathWidth      = 12
+	downPathHeight = 3
+)
 
 type glyphs struct {
 	node, path, pathDim, vertical, down, tee, teeOn, elbow, elbowOn, left, right, sel, selEnd, dot string
+	teeLeft, teeLeftOn, elbowLeft, elbowLeftOn                                                     string
 }
 
 var (
-	unicodeGlyphs = glyphs{node: "●", path: "━", pathDim: "─", vertical: "│", down: "▼", tee: "├─", teeOn: "┣━", elbow: "└─", elbowOn: "┗━", left: "◀", right: "▶", sel: "❰", selEnd: "❱", dot: "·"}
-	asciiGlyphs   = glyphs{node: "o", path: "=", pathDim: "-", vertical: "|", down: "v", tee: "+-", teeOn: "+=", elbow: "`-", elbowOn: "`=", left: "<", right: ">", sel: "[", selEnd: "]", dot: "-"}
+	unicodeGlyphs = glyphs{node: "●", path: "━", pathDim: "─", vertical: "│", down: "▼", tee: "├─", teeOn: "┣━", elbow: "└─", elbowOn: "┗━", left: "◀", right: "▶", sel: "❰", selEnd: "❱", dot: "·", teeLeft: "─┤", teeLeftOn: "━┫", elbowLeft: "─┘", elbowLeftOn: "━┛"}
+	asciiGlyphs   = glyphs{node: "o", path: "=", pathDim: "-", vertical: "|", down: "v", tee: "+-", teeOn: "+=", elbow: "`-", elbowOn: "`=", left: "<", right: ">", sel: "[", selEnd: "]", dot: "-", teeLeft: "-+", teeLeftOn: "=+", elbowLeft: "-'", elbowLeftOn: "='"}
 )
 
 func (p *picker) glyphs() glyphs {
@@ -73,7 +77,7 @@ func (p *picker) render() string {
 		indent := p.centre(width)
 		top := p.top(4 + p.visibleRows() + len(footer))
 		add(indent, p.title())
-		add(0, "")
+		add(indent, p.weeklyNotice(0))
 		for _, line := range p.grid() {
 			add(indent, line)
 		}
@@ -95,7 +99,7 @@ func (p *picker) render() string {
 		// centre node's row downwards.
 		add(indent, hub[0])
 		add(0, "")
-		anchor := indent + nodeCol
+		anchor := max(2, indent+nodeCol-p.gridNodeCol())
 		if p.width > 0 && anchor+p.gridWidth() >= p.width {
 			anchor = max(2, p.width-1-p.gridWidth())
 		}
@@ -134,7 +138,24 @@ func (p *picker) gridWidth() int {
 		strip = max(strip, ansi.StringWidth(p.efforts(m, 0)))
 	}
 	header := 2 + pathWidth + 1 + ansi.StringWidth(p.label(e))
+	if p.downward() {
+		return max(ansi.StringWidth(p.label(e)), p.gridNodeCol()+4+p.nameWidth(e)+2+strip)
+	}
 	return max(header, pathWidth+3+4+p.nameWidth(e)+2+strip)
+}
+
+func (p *picker) leftward() bool { return len(p.engines) > 1 && p.focus == 0 }
+func (p *picker) downward() bool { return len(p.engines) > 1 && p.focus == 2 }
+
+// gridNodeCol places the chosen direction's origin at the compass centre.
+func (p *picker) gridNodeCol() int {
+	if p.leftward() {
+		return p.gridWidth() - 1
+	}
+	if p.downward() {
+		return ansi.StringWidth(p.label(p.current())) / 2
+	}
+	return 0
 }
 
 func (p *picker) nameWidth(e Engine) int {
@@ -203,11 +224,13 @@ func (p *picker) hub() ([]string, int, int) {
 	)
 	if len(p.engines) > 2 {
 		lines = append(lines, padLeft(leftSub, side)+"  "+padRight("", mid)+p.dim(g.vertical)+padRight("", centreWidth-mid-1)+"  "+rightSub)
+		lines = append(lines, padLeft(p.weeklyNotice(0), side)+"  "+padRight("", mid)+p.dim(g.vertical)+padRight("", centreWidth-mid-1)+"  "+p.weeklyNotice(1))
 		lines = append(lines, stem(g.vertical), stem(g.down))
 		downLabel, downSub := cells(2)
-		lines = append(lines, centerIn(downLabel, total), centerIn(downSub, total))
+		lines = append(lines, centerIn(downLabel, total), centerIn(downSub, total), centerIn(p.weeklyNotice(2), total))
 	} else {
 		lines = append(lines, padLeft(leftSub, side)+"  "+padRight("", centreWidth)+"  "+rightSub)
+		lines = append(lines, padLeft(p.weeklyNotice(0), side)+"  "+padRight("", centreWidth)+"  "+p.weeklyNotice(1))
 	}
 	return lines, side + 2 + mid, total
 }
@@ -219,7 +242,7 @@ func (p *picker) sideWidth(i int) int {
 		return 0
 	}
 	e := p.engines[i]
-	width := ansi.StringWidth(p.label(e))
+	width := max(ansi.StringWidth(p.label(e)), ansi.StringWidth(p.weeklyNotice(i)))
 	for _, m := range e.Models {
 		effort := 0
 		for _, name := range m.Efforts {
@@ -239,14 +262,58 @@ func (p *picker) sideWidth(i int) int {
 func (p *picker) grid() []string {
 	g := p.glyphs()
 	e := p.current()
-	c := &p.cursors[p.focus]
 	color := p.accent(e.Name)
+	node := p.bold(p.paint(color, g.node))
+	if p.downward() {
+		col := p.gridNodeCol()
+		indent := strings.Repeat(" ", col)
+		lines := []string{indent + node}
+		grown := min(p.frame, pathFrames) * downPathHeight / pathFrames
+		for i := 0; i < downPathHeight; i++ {
+			stem := g.vertical
+			if i == downPathHeight-1 {
+				stem = g.down
+			}
+			if i < grown {
+				lines = append(lines, indent+p.paint(color, stem))
+			} else {
+				lines = append(lines, indent+p.dim(stem))
+			}
+		}
+		lines = append(lines, p.label(e))
+		for _, row := range p.modelRows(false) {
+			lines = append(lines, indent+row)
+		}
+		return lines
+	}
 
 	grown := min(p.frame, pathFrames) * pathWidth / pathFrames
 	path := p.paint(color, strings.Repeat(g.path, grown)) + p.dim(strings.Repeat(g.pathDim, pathWidth-grown))
-	lines := []string{p.bold(p.paint(color, g.node)) + " " + path + " " + p.label(e)}
+	if p.leftward() {
+		// Colour grows from the node to the left; labels remain readable.
+		path = p.dim(strings.Repeat(g.pathDim, pathWidth-grown)) + p.paint(color, strings.Repeat(g.path, grown))
+		width := p.gridWidth()
+		lines := []string{padLeft(p.label(e)+" "+path+" "+node, width)}
+		for _, row := range p.modelRows(true) {
+			lines = append(lines, padLeft(row, width-pathWidth-3))
+		}
+		return lines
+	}
+	lines := []string{node + " " + path + " " + p.label(e)}
 	indent := strings.Repeat(" ", pathWidth+3)
+	for _, row := range p.modelRows(false) {
+		lines = append(lines, indent+row)
+	}
+	return lines
+}
 
+// modelRows shares scrolling, reveal timing and selection across directions.
+func (p *picker) modelRows(left bool) []string {
+	g := p.glyphs()
+	e := p.current()
+	c := &p.cursors[p.focus]
+	color := p.accent(e.Name)
+	var lines []string
 	rows := p.visibleRows()
 	if c.model < c.offset {
 		c.offset = c.model
@@ -256,7 +323,11 @@ func (p *picker) grid() []string {
 	}
 	nameWidth := p.nameWidth(e)
 	if c.offset > 0 {
-		lines = append(lines, indent+p.dim(g.vertical+"  "+g.left+" more"))
+		marker := g.vertical + "  " + g.left + " more"
+		if left {
+			marker = "more " + g.right + "  " + g.vertical
+		}
+		lines = append(lines, p.dim(marker))
 	}
 	for i := c.offset; i < min(len(e.Models), c.offset+rows); i++ {
 		if p.frame < pathFrames+(i-c.offset) {
@@ -264,22 +335,49 @@ func (p *picker) grid() []string {
 		}
 		last := i == len(e.Models)-1
 		name := padRight(modelName(e.Models[i].ID), nameWidth)
+		if left {
+			name = padLeft(modelName(e.Models[i].ID), nameWidth)
+		}
 		if i != c.model {
 			branch := g.tee
+			if left {
+				branch = g.teeLeft
+			}
 			if last {
 				branch = g.elbow
+				if left {
+					branch = g.elbowLeft
+				}
 			}
-			lines = append(lines, indent+p.dim(branch)+"  "+p.dim(name))
+			if left {
+				lines = append(lines, p.dim(name)+"  "+p.dim(branch))
+			} else {
+				lines = append(lines, p.dim(branch)+"  "+p.dim(name))
+			}
 			continue
 		}
 		branch := g.teeOn
+		if left {
+			branch = g.teeLeftOn
+		}
 		if last {
 			branch = g.elbowOn
+			if left {
+				branch = g.elbowLeftOn
+			}
 		}
-		lines = append(lines, indent+p.paint(color, branch+g.right)+" "+p.bold(p.paint(color, name))+"  "+p.efforts(e.Models[i], c.effort))
+		if left {
+			lines = append(lines, p.efforts(e.Models[i], c.effort)+"  "+p.bold(p.paint(color, name))+" "+p.paint(color, g.left+branch))
+		} else {
+			lines = append(lines, p.paint(color, branch+g.right)+" "+p.bold(p.paint(color, name))+"  "+p.efforts(e.Models[i], c.effort))
+		}
 	}
 	if end := c.offset + rows; end < len(e.Models) {
-		lines = append(lines, indent+p.dim(g.vertical+"  "+g.down+" more"))
+		marker := g.vertical + "  " + g.down + " more"
+		if left {
+			marker = "more " + g.down + "  " + g.vertical
+		}
+		lines = append(lines, p.dim(marker))
 	}
 	return lines
 }
@@ -288,7 +386,11 @@ func (p *picker) visibleRows() int {
 	rows := 12
 	if p.height > 0 {
 		// title, blank, path, two "more" markers, blank, footer, notice, margins
-		rows = max(3, min(rows, p.height-10))
+		overhead := 10
+		if p.downward() {
+			overhead += downPathHeight + 1
+		}
+		rows = max(3, min(rows, p.height-overhead))
 	}
 	return rows
 }

@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/accountpool"
 	grokapp "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/app/grok"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/launchpad"
 	clx "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/claude/ui"
@@ -65,6 +66,10 @@ func previewLaunchpad(list string, minimal bool) {
 	var chosen []launchpad.Engine
 	for _, name := range strings.Split(list, ",") {
 		if e, ok := samples[strings.TrimSpace(name)]; ok {
+			if e.Name != "grok" {
+				used := map[string]int{"codex": 42, "claude": 88}[e.Name]
+				e.Weekly = &accountpool.WeeklyUsage{Used: &used, FetchedAt: time.Now().Format(time.RFC3339), ResetAt: time.Now().Add(24 * time.Hour).Format(time.RFC3339)}
+			}
 			chosen = append(chosen, e)
 		}
 	}

@@ -103,10 +103,14 @@ existing `~/.bashrc`/`~/.zshrc`, as cdx and clx do for their engines.
 
 On an attended terminal, `cxx` with no arguments opens the engine/model/effort
 picker described in `docs/interface-cdx.md` ("Bare `cxx` launchpad"). Grok sits
-below the centre when three engines are present. Its launch is
+below the centre when three engines are present. From wrapper 0.9.68, selecting
+that slot opens its model grid below a downward stem; with two engines it uses
+the direction of its assigned compass slot. Its launch is
 `cgx run --model M --reasoning-effort E`, so the boot card stays, and `c` adds
 `--continue`. Grok has no interactive session picker, because its bare `--resume`
 takes the latest session, so `r` is not offered.
+The weekly usage notice shows `week --` for Grok: the wrapper has no weekly
+quota observation (cxx 0.9.68). This does not change server-side subscription usage.
 
 ## Native CLI and installation
 
@@ -675,9 +679,15 @@ Hook payload contract: [Grok hooks guide](https://raw.githubusercontent.com/xai-
 
 ### Host update output (cxx 0.9.40)
 
-`cxx update [--minimal]` checks the shared wrapper once, then updates the native
-Codex, Claude and Grok CLIs and syncs managed content in that order. Every
-installed engine gets a result, including unchanged or suspended engines.
+`cxx update [--minimal]` first refreshes the signed host engine assignments
+(wrapper 0.9.68), adding configs and aliases for newly assigned engines and
+removing them for engines explicitly unassigned by the server. It then checks
+the shared wrapper once, updates the native Codex, Claude and Grok CLIs, and
+syncs managed content in that order. Every assigned engine gets a result,
+including newly added, unchanged or suspended engines. Fleet suspension keeps
+configs, aliases and installed CLIs; uncertain assignment probes preserve the
+existing layout and fail the update. Removal preserves provider binaries and
+user session data.
 Equal wrapper versions mean up to date: no artifact download, replacement or
 restart. New wrapper releases are SHA256-verified and atomically installed,
 then the new binary continues the engine phases without repeating the wrapper

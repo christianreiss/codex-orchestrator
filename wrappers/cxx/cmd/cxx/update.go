@@ -20,7 +20,7 @@ import (
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/claude"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/codex"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
-	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/fleetconfig"
+	hostcron "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/cron"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/grok"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/ipc"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/maintenance"
@@ -40,6 +40,7 @@ const updateHandoffEnv = "CXX_UPDATE_WRAPPER_DONE"
 type hostUpdateDeps struct {
 	resolve        func(string) (string, error)
 	load           func(context.Context, string, string) (*config.Config, error)
+	assignments    func(context.Context, *config.Config, io.Writer) ([]*config.Config, error)
 	check          func(context.Context, *config.Config, string) (*orchestrator.CronCheckResponse, error)
 	version        func(context.Context, string) string
 	protect        func(context.Context, *config.Config) error
@@ -132,6 +133,36 @@ func updateHost(ctx context.Context, args []string, w io.Writer, caps ui.Caps, d
 			fmt.Fprintln(w, "cxx update: no installed engine config found")
 		}
 		return 1
+	}
+	if deps.assignments != nil {
+		var seed *config.Config
+		for _, e := range engines {
+			if e.loadErr == nil {
+				seed = e.cfg
+				break
+			}
+		}
+		var configs []*config.Config
+		err := errors.New("no usable signed engine config found")
+		if seed != nil {
+			configs, err = deps.assignments(quietCtx, seed, io.Discard)
+		}
+		if err == nil && len(configs) == 0 {
+			err = errors.New("no assigned engine config found")
+		}
+		if err != nil {
+			status := "engine assignment refresh failed: " + err.Error()
+			if wrapperRow != nil {
+				wrapperRow.Finish(ui.ToneFail, Version, status)
+			} else {
+				fmt.Fprintln(w, "cxx update:", status)
+			}
+			return 1
+		}
+		engines = nil
+		for _, cfg := range configs {
+			engines = append(engines, engineUpdate{name: cfg.Engine, cfg: cfg})
+		}
 	}
 
 	worst := 0
@@ -366,32 +397,33 @@ func defaultHostUpdateDeps() hostUpdateDeps {
 	logger := slog.New(slog.DiscardHandler)
 	return hostUpdateDeps{
 		reconcile: agentbus.ReconcileConfiguredHostDaemon,
-		resolve:   configPathFor,
+		assignments: func(ctx context.Context, seed *config.Config, output io.Writer) ([]*config.Config, error) {
+			exe, err := os.Executable()
+			if err != nil {
+				return nil, err
+			}
+			return hostcron.RefreshForUpdate(ctx, seed, exe, output)
+		},
+		resolve: configPathFor,
 		load: func(ctx context.Context, path, engine string) (*config.Config, error) {
 			key, err := signing.PublicKey()
 			if err != nil {
 				return nil, err
 			}
-			cfg, _, err := fleetconfig.LoadOrRecover(ctx, path, key, engine)
+			cfg, err := config.LoadForEngine(path, key, false, engine)
+			var expired *config.ExpiredError
+			if errors.As(err, &expired) && expired.Config != nil {
+				// An expired but verified config may seed the shared refresh,
+				// including when its own engine has since been unassigned.
+				cfg, err = expired.Config, nil
+			}
 			if err != nil {
 				return nil, err
 			}
 			if err := guardUpdateHost(cfg); err != nil {
 				return nil, err
 			}
-			fetched, err := fleetconfig.Fetch(ctx, cfg, engine)
-			if err != nil {
-				return nil, err
-			}
-			if err := fleetconfig.PersistTo(ctx, path, fetched); err != nil {
-				return nil, err
-			}
-			cfg, err = config.LoadForEngine(path, key, false, engine)
-			if err != nil {
-				return nil, err
-			}
-			err = guardUpdateHost(cfg)
-			return cfg, err
+			return cfg, nil
 		},
 		check: func(ctx context.Context, cfg *config.Config, version string) (*orchestrator.CronCheckResponse, error) {
 			client, err := updateClient(cfg)

@@ -37,7 +37,13 @@ The header Appearance menu applies light, dark, or system mode immediately and s
 
 On an attended terminal, `cxx` with no arguments opens a keyboard picker:
 - **Engines** sit on a compass: Codex left, Claude right, Grok below. With one
-  engine the compass is skipped.
+  engine the compass is skipped. From wrapper 0.9.68, each selection expands
+  outward in its compass direction: left stays left, right stays right, and
+  down opens below the centre.
+- **Weekly usage** appears as a tiny `week 42% used` notice under each engine.
+  It uses the last synced local account observation, without a network call;
+  readings older than 30 minutes say `stale`, and missing/reset readings show
+  `week --`. Grok currently has no weekly reading.
 - **Model and effort**: `↑`/`↓` pick the model and `←`/`→` the reasoning effort.
 - **Start**: `enter` starts a new chat, `c` continues the latest session in this
   directory, and `r` opens the native resume picker.
@@ -271,7 +277,7 @@ visible with a choice to load the latest values or discard the draft.
    - `cdx --update` stays a recovery path: it pares prerequisite checks down to `curl` before the forced wrapper/Codex update flow, so stale wrappers can still heal themselves and then continue into the Codex check even when `unzip`, `bwrap`, or local package mappings are broken. Normal startup still ensures a compatible Python 3 interpreter before sync/update work when the wrapper can manage prerequisites.
    - `update` installs the wrapper binary and then re-execs the freshly installed binary into `sync`, so
      fleet-managed content is written by the new code rather than by the one being replaced. `cdx update`
-     re-execs into `cdx sync`; `cxx update` re-execs into `cxx sync`, which converges every installed
+     re-execs into `cdx sync`; `cxx update` resumes its host update coordinator, which converges every assigned
      engine rather than only the one that authenticated the artifact request. On a legacy pre-`cxx`
      layout, where the canonical executable is still a regular `cdx`/`clx` binary, that host form
      degrades to the single matching persona; `layout.EnsureAliases` normally converts such a host on
@@ -917,9 +923,14 @@ repeat effects. Portal shows status only. See `docs/interface-api.md` and engine
 
 ### Interactive host updates
 
-`cxx update [--minimal]` (wrapper 0.9.40) checks the common wrapper once, skips
-equal-version installation/restart, then updates and syncs every installed native
-engine (Codex, Claude, Grok). A compact animated row per component replaces boot
+`cxx update [--minimal]` refreshes signed host engine assignments first
+(wrapper 0.9.68): newly assigned engines receive configs and aliases and join
+the native installation/update and sync phases; explicitly unassigned engines
+lose managed configs and aliases while provider binaries and user sessions remain.
+Fleet-suspended engines retain their installation. Uncertain assignment probes
+preserve the layout and fail the update. The command checks the common wrapper
+once, skips equal-version installation/restart, then updates and syncs every
+assigned native engine (Codex, Claude, Grok). A compact animated row per component replaces boot
 and quota dashboards; measured downloads show progress bars, other stages use
 spinners. Pipes and minimal mode receive plain completion lines on stderr.
 Existing update policy, suspensions, version targets, overrides and active-session
