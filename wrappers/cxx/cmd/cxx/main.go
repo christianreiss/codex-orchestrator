@@ -25,7 +25,6 @@ import (
 	hostcron "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/cron"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/grok"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/quotaadvice"
-	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/remote"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/signing"
 )
 
@@ -111,8 +110,6 @@ func runExplicit(args []string, stdout, stderr io.Writer) int {
 		return agentbus.RunDaemonCommand(args[1:], stdout, stderr, Version)
 	case "agent":
 		return agentbus.RunCommand(args[1:], os.Stdin, stdout, stderr, Version)
-	case "remote":
-		return remote.RunCommand(args[1:], os.Stdin, stdout, stderr, Version)
 	case "claude-quota-statusline":
 		return claudequota.RunCommand(os.Stdin, stdout, stderr)
 	case "update":
@@ -358,7 +355,6 @@ func printSelectorHelp(w io.Writer) {
 	fmt.Fprintln(w, "  cxx agent [list|send|request|wait|reply|message|cancel|status|service]")
 	fmt.Fprintln(w, "  cxx daemon [install|status|start|stop|uninstall|run]")
 	fmt.Fprintln(w, "  cxx reboot [--request-id UUID --reason TEXT --stdin|status|disarm]")
-	fmt.Fprintln(w, "  cxx remote [info|exec|read|write|wait|signal|ps|rm|get|put|push|pull|down]")
 	fmt.Fprintln(w, "  cxx --version")
 	fmt.Fprintln(w, "")
 	fmt.Fprintln(w, "The cdx, clx and cgx aliases select their matching engine automatically.")

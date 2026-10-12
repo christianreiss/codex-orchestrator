@@ -3,7 +3,7 @@ import AxeBuilder from '@axe-core/playwright';
 function state() {
   return { values: {
     'auto-update': { enabled: false }, 'reverse-dns': { enabled: true },
-    'api-keys-in-chat': { enabled: true }, 'remote-exec': { enabled: false }, 'insecure-approval': { enabled: false },
+    'api-keys-in-chat': { enabled: true }, 'insecure-approval': { enabled: false },
     authorization: { mode: 'compatible', updated_at: null, would_deny: [{ role: 'operator', capability: 'security.manage_authorization', route: 'POST /admin/authorization', first_seen: '2026-10-09T08:00:00Z', last_seen: '2026-10-09T08:00:00Z' }] },
     'prune-policy': { inactivity_window_days: 30 },
     'log-retention': { enabled: false, days_logs: 90, days_mcp: 90, days_events: 30, days_graph_stats: 180 },
@@ -46,7 +46,7 @@ test('categories preserve drafts and old anchors without duplicate IDs', async (
   await expect(days).toHaveValue('30'); await days.fill('12');
   await category(page, 'Agent behavior'); await category(page, 'Cleanup'); await expect(days).toHaveValue('12');
   await page.locator('#prune-policy').getByRole('button', { name: 'Reset', exact: true }).click(); await expect(days).toHaveValue('30');
-  for (const [anchor, name] of [['authorization', 'Access control'], ['insecure-approval', 'Access control'], ['host-lifecycle', 'Cleanup'], ['prune-policy', 'Cleanup'], ['log-retention', 'Cleanup'], ['remote-exec', 'Agent behavior'], ['auto-update', 'Host behavior']]) {
+  for (const [anchor, name] of [['authorization', 'Access control'], ['insecure-approval', 'Access control'], ['host-lifecycle', 'Cleanup'], ['prune-policy', 'Cleanup'], ['log-retention', 'Cleanup'], ['api-keys-in-chat', 'Agent behavior'], ['auto-update', 'Host behavior']]) {
     await page.goto(`/admin/policies#${anchor}`); await expect(page.getByRole('heading', { name, exact: true })).toBeVisible(); await expect(page.locator(`#${anchor}`)).toBeVisible();
   }
   expect(shared.writes).toEqual([]);
@@ -58,9 +58,8 @@ test('immediate controls save, reload and recover after failure', async ({ page 
   await expect(toggle).toBeEnabled(); shared.fail = 'auto-update'; await toggle.click();
   await expect(page.locator('#auto-update')).toContainText('Save failed'); await expect(toggle).not.toBeChecked(); await expect(toggle).toBeEnabled();
   shared.fail = ''; await toggle.click(); await expect(toggle).toBeChecked(); await expect(toggle).toBeEnabled();
-  await category(page, 'Agent behavior'); await page.getByRole('switch', { name: 'Remote execution (unavailable)', exact: true }).click();
-  await expect(page.getByRole('switch', { name: 'Remote execution (unavailable)', exact: true })).toBeChecked();
-  await expect(page.locator('#remote-exec')).toContainText('remote jobs are not implemented');
+  await category(page, 'Agent behavior'); await page.getByRole('switch', { name: 'Include API-key handling guidance', exact: true }).click();
+  await expect(page.getByRole('switch', { name: 'Include API-key handling guidance', exact: true })).not.toBeChecked();
   await category(page, 'Access control'); const mode = page.getByLabel('Authorization mode');
   shared.fail = 'authorization'; await mode.selectOption('strict'); await expect(page.locator('#authorization')).toContainText('Save failed'); await expect(mode).toHaveValue('compatible'); await expect(mode).toBeEnabled();
   shared.fail = ''; await mode.selectOption('strict'); await expect(mode).toHaveValue('strict'); await expect(mode).toBeEnabled();

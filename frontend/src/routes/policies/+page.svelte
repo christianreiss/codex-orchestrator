@@ -15,13 +15,13 @@
   import Archive from "@lucide/svelte/icons/archive";
   const categories = [
     { id: "fleet-behavior", title: "Host behavior", description: "Updates and connection metadata", icon: Server },
-    { id: "agent-behavior", title: "Agent behavior", description: "Instructions and remote jobs", icon: Bot },
+    { id: "agent-behavior", title: "Agent behavior", description: "Instructions, sessions and system spawn", icon: Bot },
     { id: "access-control", title: "Access control", description: "Roles and host approvals", icon: ShieldCheck },
     { id: "cleanup", title: "Cleanup", description: "Sessions, inactive hosts and log retention", icon: Archive },
   ];
   const anchors: Record<string, string> = {
     "auto-update": "fleet-behavior", "reverse-dns": "fleet-behavior",
-    "agent-sessions": "agent-behavior", "host-spawn": "agent-behavior", "api-keys-in-chat": "agent-behavior", "remote-exec": "agent-behavior",
+    "agent-sessions": "agent-behavior", "host-spawn": "agent-behavior", "api-keys-in-chat": "agent-behavior",
     authorization: "access-control", "insecure-approval": "access-control",
     "session-housekeeping": "cleanup", "host-lifecycle": "cleanup", "prune-policy": "cleanup", "log-retention": "cleanup",
   };
@@ -55,7 +55,7 @@
       <section id={category.id} hidden={active !== category.id} aria-labelledby={`${category.id}-heading`} class="space-y-4">
         <div class="mb-5"><h2 id={`${category.id}-heading`} class="text-lg font-semibold">{category.title}</h2><p class="mt-1 text-sm text-muted-foreground">{category.description}</p></div>
         {#if category.id === "fleet-behavior"}<TogglePolicy id="auto-update" /><TogglePolicy id="reverse-dns" />
-        {:else if category.id === "agent-behavior"}{#if $authStore.can("agent_portal.manage")}<SessionControls />{/if}<TogglePolicy id="api-keys-in-chat" /><TogglePolicy id="remote-exec" /><TogglePolicy id="host-spawn" />
+        {:else if category.id === "agent-behavior"}{#if $authStore.can("agent_portal.manage")}<SessionControls />{/if}<TogglePolicy id="api-keys-in-chat" /><TogglePolicy id="host-spawn" />
         {:else if category.id === "access-control"}<AuthorizationPolicy /><TogglePolicy id="insecure-approval" />
         {:else}<div id="host-lifecycle" class="scroll-mt-24"><CleanupPolicy kind="prune-policy" /></div><CleanupPolicy kind="log-retention" /><SessionHousekeeping />{/if}
       </section>

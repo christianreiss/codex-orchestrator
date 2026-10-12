@@ -23,7 +23,6 @@ import type { WrapperSigningKeyService } from './wrapper-signing-key.js';
 import { activeHostEngines, disabledEngines, hostEnginesList } from './host-engine-policy.js';
 import { readFleetEngineState } from './engine-switch.js';
 import { effectiveSkillDigest } from './skill-provenance.js';
-import { REMOTE_EXEC_ENABLED_KEY } from './remote-exec.js';
 import { isTruthyFlagValue } from './settings.js';
 import { withSpan, type TraceSpan } from '../observability/tracing.js';
 
@@ -103,9 +102,6 @@ export interface WrapperConfigPayload {
   };
   engine_options: Record<string, unknown>;
   session_housekeeping?: HousekeepingPolicy;
-  remote: {
-    enabled: boolean;
-  };
   agent_messaging: {
     enabled: boolean;
     relay_poll_seconds: number;
@@ -311,15 +307,6 @@ export function createWrapperConfigService(deps: WrapperConfigDeps): WrapperConf
     return isTruthyFlagValue(rows[0]?.version, false);
   }
 
-  async function remoteExecGloballyEnabled(): Promise<boolean> {
-    const rows = await deps.db
-      .select({ version: versions.version })
-      .from(versions)
-      .where(eq(versions.name, REMOTE_EXEC_ENABLED_KEY))
-      .limit(1);
-    return isTruthyFlagValue(rows[0]?.version, false);
-  }
-
   function resolveApiKey(host: Host): string {
     const dec = decryptOrNull(host.apiKeyEnc, deps.keyring);
     if (dec) return dec;
@@ -417,7 +404,7 @@ export function createWrapperConfigService(deps: WrapperConfigDeps): WrapperConf
     // inside the array would serialize seven independent lookups. This is also
     // where `wrapperBlock` raises WrapperBinaryUnavailableError, so that exit
     // marks this span ERROR as well as the root.
-    const [agents, clientCfg, skills, silent, adminTheme, wrapper, messagingEnabled, remoteExecEnabled, portalEnabled, fleet] =
+    const [agents, clientCfg, skills, silent, adminTheme, wrapper, messagingEnabled, portalEnabled, fleet] =
       await withSpan('wrapper.config.collect', { 'wrapper.engine': engine }, () =>
         Promise.all([
           activeAgentsDocSha(engine, host.agentsDocumentIdOverride ?? null),
@@ -427,14 +414,13 @@ export function createWrapperConfigService(deps: WrapperConfigDeps): WrapperConf
           settings.adminThemeHint(),
           wrapperBlock(engine, publicBaseUrl, platform),
           agentMessagingGloballyEnabled(),
-          remoteExecGloballyEnabled(),
           portalGloballyEnabled(),
           readFleetEngineState(deps.db),
         ]),
       );
     // Assigned *and* not switched off fleet-wide. A suspended engine still
     // gets a config (see routes/wrapper-v2), but nothing that would let it run:
-    // no bus, no remote exec, no receiver.
+    // no bus, no receiver.
     const engineActive = host.status === 'active' && activeHostEngines(host.engines, fleet).includes(engine);
     const fleetDisabled = disabledEngines(fleet);
 
@@ -488,14 +474,7 @@ export function createWrapperConfigService(deps: WrapperConfigDeps): WrapperConf
         ...(fleetDisabled.length > 0 ? { fleet_disabled_engines: fleetDisabled } : {}),
       },
       engine_options: engineOptions(host, engine, { silent, adminTheme }),
-      // Gated on the host being active for this engine, the same provisioning
-      // gate the bus uses. Deliberately not gated on `host.secure`: the switch
-      // decides whether the fleet works this way, and an insecure host's
-      // operator already holds the ssh keys this would use.
       session_housekeeping: (({ enabled, retention_days, max_bytes, min_age_days }) => ({ enabled, retention_days, max_bytes, min_age_days }))(await housekeepingPolicy(deps.db, engine, host.id)),
-      remote: {
-        enabled: remoteExecEnabled && engineActive,
-      },
       agent_messaging: {
         enabled: messagingBaked,
         relay_poll_seconds: 25,

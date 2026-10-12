@@ -80,16 +80,6 @@ We acknowledge within 3 business days and share an assessment/fix ETA shortly af
 - The `store` directory under `DATA_ROOT` (mounted as `/app/storage` in the API container) holds the published wrapper binaries, the wrapper public key (the plaintext private key is deleted once the `signer` step has imported it into `wrapper_signing_keys`) and every file-transfer payload (`transfers/`). None of that is in the database dump; transfers are expiring scratch by design, but the wrapper matrix has to be rebuilt (`bin/install.sh --only wrappers --force wrappers`) if it is lost.
 - Wrapper signing key (stored in the `wrapper_signing_keys` table and loaded by `api/src/services/wrapper-signing-key.ts`) must be included in your backup set. Losing it means every host has to be re-keyed (operator provisions a new key, rebuilds the Go binaries with the new public key embedded, and the hosts self-update). Wrapper binaries under `storage/wrapper/v2/bin/` can be reproduced from a `wrappers/` checkout and CI tag.
 
-## Remote execution (`cxx remote`)
-
-The command family is reserved and unavailable: its parser and signed
-`remote.enabled` gate exist, but every operational verb returns
-`E_NOT_IMPLEMENTED`. There is no SSH transport, job execution or file transfer
-implementation behind this switch. Enabling it grants no new capability.
-
-Ordinary SSH tools remain subject to the operator's task scope and existing
-host permissions. The configuration switch does not restrict those tools.
-
 ## Operational Notes
 
 - In production (`APP_ENV=production`), set `PUBLIC_BASE_URL` and keep `PUBLIC_BASE_URL_REQUIRED=1` so startup/health fails fast on misconfiguration.

@@ -45,7 +45,7 @@ func shouldReconcileNativeEntries(args []string) bool {
 			break
 		}
 		switch arg {
-		case "--help", "-h", "help", "--version", "-v", "-V", "--wrapper-version", "-W", "status", "doctor", "--status", "--doctor", "agent", "portal", "remote", "grok-auth", "claude-quota-statusline", "uninstall", "--uninstall":
+		case "--help", "-h", "help", "--version", "-v", "-V", "--wrapper-version", "-W", "status", "doctor", "--status", "--doctor", "agent", "portal", "grok-auth", "claude-quota-statusline", "uninstall", "--uninstall":
 			return false
 		}
 	}

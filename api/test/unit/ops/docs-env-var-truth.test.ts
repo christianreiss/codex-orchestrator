@@ -57,7 +57,6 @@ const NON_API_VARS: Record<string, string> = {
   BIN_DIR: 'api/src/services/wrapper-transition.ts (generated installer)',
   CODEX_HOME: 'wrappers/cxx/internal/codex/auth_writer.go',
   CODEX_INSTALL_CURL_INSECURE: 'api/src/services/wrapper-transition.ts (generated installer)',
-  E_NOT_IMPLEMENTED: 'wrappers/cxx/internal/remote/output.go (command error code, not an env var)',
   GROK_HOME: 'wrappers/cxx/internal/grok/native.go (Home)',
   GROK_SEED_AUTH_PATH: 'api/src/services/install-token.ts (generated Grok seed script)',
   NO_COLOR: 'wrappers/cxx/internal/terminalui/ansi.go (wrapper colour opt-out)',

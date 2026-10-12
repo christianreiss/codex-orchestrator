@@ -1,5 +1,7 @@
 # 2026-10-12
 
+- Removed the reserved `cxx remote` command family, which was never implemented. Wrapper 0.9.63 no longer has the `remote` verb, and signed host configs no longer carry `remote.enabled`. The `remote_exec_enabled` fleet switch, `GET`/`POST /admin/remote-exec`, the Policies toggle and the "Remote execution" section of served AGENTS.md/CLAUDE.md are gone too. Migration `0062` deletes the stored switch. Agents use ordinary SSH within their task authorization. Older wrappers ignore the absent field, and the new wrapper ignores it in configs that are still cached.
+
 - Added the Docker-aware `bin/orchestrator` instance CLI: resumable setup, start, stop, readiness/status with JSON, and GitHub-main updates with private database/env backups, fast-forward checks, rebuilds, migrations and verified restarts. Setup and deployment share env-file/profile resolution and preserve the configured Caddy choice; stop retains containers and data.
 
 - Android 0.4.17 adds a third Authorizations tab for waiting host-access requests and active host/fleet windows. Close actions reuse existing window services, audit the paired administrator/device, disable individual close during fleet access, warn about domain reopening, and require confirmation for fleet-wide closure. Approval pushes and Review next open the new tab; live refresh and offline action guards cover window changes.

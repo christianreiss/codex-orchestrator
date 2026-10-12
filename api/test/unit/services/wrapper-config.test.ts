@@ -712,7 +712,7 @@ describe('wrapper-config', () => {
     /**
      * The shared fake ignores `versions`; this wrapper answers every versions
      * read with the given flag rows (by name), so the bake sees a fleet switch
-     * and the messaging/remote/portal switches it consults alongside it.
+     * and the messaging/portal switches it consults alongside it.
      */
     /** Every string reachable from a drizzle predicate: its bound parameters. */
     function paramStrings(node: unknown, seen = new Set<unknown>(), out = new Set<string>()): Set<string> {
@@ -771,7 +771,7 @@ describe('wrapper-config', () => {
       return (await svc.bakeForHost(host, engine, 'https://api.example.com')).payload;
     }
 
-    const ON = { agent_messaging_enabled: '1', remote_exec_enabled: '1', agent_portal_enabled: '1' };
+    const ON = { agent_messaging_enabled: '1', agent_portal_enabled: '1' };
 
     it('still bakes a suspended engine, carrying the switch and no way to run', async () => {
       const payload = await bakeWith('claude', { ...ON, claude_engine_disabled: '1' });

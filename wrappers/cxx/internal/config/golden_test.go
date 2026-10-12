@@ -116,9 +116,6 @@ func goldenFixtures() []goldenFixture {
 					ChannelPreviewEnabled: false,
 					ListenEnabled:         true,
 				},
-				// The fixture's fleet flags are all on, so `cxx remote` is on
-				// with them. host-claude.json is the off case for both.
-				Remote: Remote{Enabled: true},
 				Wrapper: Wrapper{
 					Version:      "2.4.0",
 					Track:        "stable",
@@ -174,9 +171,6 @@ func goldenFixtures() []goldenFixture {
 					ChannelPreviewEnabled: false,
 					ListenEnabled:         true,
 				},
-				// The fixture's fleet flags are all on, so `cxx remote` is on
-				// with them. host-claude.json is the off case for both.
-				Remote: Remote{Enabled: true},
 				Wrapper: Wrapper{
 					Version:      "2.4.0",
 					Track:        "beta",
@@ -258,7 +252,6 @@ func goldenFixtures() []goldenFixture {
 				AgentMessaging: AgentMessaging{
 					ReceiverEnabled: true, Enabled: true, ListenEnabled: true, RelayPollSeconds: 25, QueuedTTLSeconds: 86400,
 				},
-				Remote: Remote{Enabled: true},
 				Wrapper: Wrapper{
 					Version: "2.4.0", Track: "stable", AutoUpdate: true,
 					BinaryURL:    "https://orchestrator.example.com/wrapper/v2/bin/cxx/linux-amd64/v2.4.0/cxx",
