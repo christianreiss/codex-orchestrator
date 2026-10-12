@@ -23,6 +23,7 @@ import type { WrapperSigningKeyService } from './wrapper-signing-key.js';
 import { activeHostEngines, disabledEngines, hostEnginesList } from './host-engine-policy.js';
 import { readFleetEngineState } from './engine-switch.js';
 import { effectiveSkillDigest } from './skill-provenance.js';
+import { modelLaunchCatalog } from './model-defaults.js';
 import { isTruthyFlagValue } from './settings.js';
 import { withSpan, type TraceSpan } from '../observability/tracing.js';
 
@@ -326,12 +327,13 @@ export function createWrapperConfigService(deps: WrapperConfigDeps): WrapperConf
     engine: Engine,
     opts: { silent: boolean; adminTheme: string | null },
   ): Record<string, unknown> {
-    if (engine === 'grok') return { silent: opts.silent, model_override: host.grokModelOverride ?? null, reasoning_effort_override: host.grokReasoningEffortOverride ?? null, grok_model_override: host.grokModelOverride ?? null, grok_reasoning_effort_override: host.grokReasoningEffortOverride ?? null, admin_theme_hint: opts.adminTheme };
+    if (engine === 'grok') return { silent: opts.silent, model_override: host.grokModelOverride ?? null, reasoning_effort_override: host.grokReasoningEffortOverride ?? null, grok_model_override: host.grokModelOverride ?? null, grok_reasoning_effort_override: host.grokReasoningEffortOverride ?? null, admin_theme_hint: opts.adminTheme, model_catalog: modelLaunchCatalog(engine) };
     if (engine === 'claude') {
       return {
         silent: opts.silent,
         claude_model_override: host.claudeModelOverride ?? null,
         admin_theme_hint: opts.adminTheme,
+        model_catalog: modelLaunchCatalog(engine),
       };
     }
     return {
@@ -339,6 +341,7 @@ export function createWrapperConfigService(deps: WrapperConfigDeps): WrapperConf
       model_override: host.modelOverride ?? null,
       reasoning_effort_override: host.reasoningEffortOverride ?? null,
       admin_theme_hint: opts.adminTheme,
+      model_catalog: modelLaunchCatalog(engine),
     };
   }
 

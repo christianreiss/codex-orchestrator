@@ -272,13 +272,17 @@ const CLOSED = [
   'documents.agents',
   'documents.client_config',
   'skills[0]',
+  'engine_options.model_catalog',
+  'engine_options.model_catalog.models[]',
 ];
 
 describe('baked wrapper config against host-config-v1.json', () => {
   for (const engine of ['codex', 'claude', 'grok'] as const) {
     it(`emits only declared keys for engine=${engine}`, async () => {
       const diff = diffAgainstSchema(await bake(engine));
-      expect(diff.visited.sort()).toEqual([...CLOSED].sort());
+      // Every catalog entry is one closed object; count the shape once.
+      const visited = [...new Set(diff.visited.map((path) => path.replace(/^(engine_options\.model_catalog\.models)\[\d+\]$/, '$1[]')))];
+      expect(visited.sort()).toEqual([...CLOSED].sort());
       expect(diff.undeclared).toEqual([]);
       expect(diff.missing).toEqual([]);
     });

@@ -146,7 +146,15 @@ The config:
     "silent": false,
     "model_override": "gpt-6-astra",
     "reasoning_effort_override": "high",
-    "admin_theme_hint": "auto"
+    "admin_theme_hint": "auto",
+    // the bare-cxx launchpad menu; absent in configs signed before 0.9.65
+    "model_catalog": {
+      "default_model": "gpt-6-astra",
+      "models": [
+        { "model": "gpt-6-astra", "efforts": ["low", "medium", "high", "xhigh", "max", "ultra"],
+          "session_efforts": [], "default_effort": "medium" }
+      ]
+    }
   },
   "agent_messaging": {
     "enabled": false,
@@ -776,6 +784,60 @@ participate in these leases and is the explicit coordination boundary.
 - Hostname mismatch with baked FQDN and no override env → "hostname X does not match baked FQDN Y (set CODEX_ALLOW_FQDN_MISMATCH=1 to override)"; exit 1.
 - `quota_hard_fail` + ChatGPT quota over limit → "Quota blocked; refusing to launch unless QUOTA_HARD_FAIL=0."; exit 1.
 - Headless callers (`--skip-boot`, `--execute`) get the `QuotaWarn` text on stderr even when the boot screen is suppressed.
+
+## Bare `cxx` launchpad (cxx 0.9.65)
+
+`cxx` with no arguments on an attended terminal (stdin, stdout and stderr are
+TTYs, `TERM` is not `dumb`) opens a full-screen picker instead of printing usage.
+Everywhere else (pipes, scripts, CI, no installed engine config) it keeps the old
+behaviour: usage on stderr, exit 2.
+
+- **Engines.** An engine appears when its own signed config verifies and assigns
+  it. They sit on a compass in fixed order: Codex left (`←`), Claude right (`→`),
+  Grok below (`↓`), filtered to the engines present, so two engines use left and
+  right. With one engine the compass is skipped. A fleet-suspended engine, or a
+  Codex/Claude engine whose native CLI is missing, is shown greyed out with the
+  reason and cannot be launched.
+- **Model and effort.** Picking an engine animates a path into that engine's
+  grid: `↑`/`↓` (or `k`/`j`) choose the model, `←`/`→` (or `h`/`l`) the effort.
+  The effort strip shows only the efforts the highlighted model accepts, and it
+  snaps to the model's default when the previous effort is not valid there.
+  `esc`/`backspace` returns to the compass; `q` or `ctrl+c` quits (exit 130).
+- **Start.** `enter` starts a new chat, `c` continues the most recent session in
+  this directory, and `r` opens the native resume picker. Grok has no picker,
+  because its bare `--resume` takes the latest session, so `r` is not offered for
+  Grok. On the compass, `enter`/`c`/`r` start the engine highlighted last.
+- **Cursor.** The cursor starts on the previous launchpad choice for that engine
+  (`~/.cxx/launchpad.json`, a per-user convenience file), then the per-host
+  override, then the native settings (`config.toml`, `settings.json`, Grok
+  `config.toml`), then the catalog default. So `cxx` followed by `enter` relaunches
+  the last combination.
+- **Menu source.** The menu comes from `engine_options.model_catalog` in the
+  signed config. It mirrors `GET /admin/model-defaults/:engine` `catalog`, plus
+  Claude's session-only `max` (`session_efforts`) on models that reach `xhigh`.
+  A config signed before the field existed offers only the configured model
+  with that engine's generic efforts. The launchpad makes no network call.
+- **Launch.** The launch goes through the managed native path
+  (`cxx native <engine> -- …`; Grok through `cgx run …` to keep its boot card).
+  Auth, sync, skills, receiver and hard quota enforcement all still apply. The
+  launchpad choice wins over `model_override` the same way an explicit
+  `--model` does, and the quota engine-switch prompt is skipped because the
+  operator just chose the engine. Native argv:
+
+| Engine | New | `c` | `r` |
+|---|---|---|---|
+| Codex | `-m M --config model_reasoning_effort=E` | `… resume --last` | `… resume` |
+| Claude | `--model M --effort E` | `… --continue` | `… --resume` |
+| Grok | `--model M --reasoning-effort E` | `… --continue` | — |
+
+  Codex gets `-m` at the root because `codex resume` has no `-m` of its own; root
+  options apply to the resume subcommand too.
+
+After the picker closes, one receipt line stays in scrollback (for example
+`Claude → claude-opus-5-5 · high · new`), and then the engine takes over the
+terminal. `go run ./cmd/terminal-preview -scene launchpad [-engines codex,claude]
+[-minimal]` runs the same picker over sample menus and prints the argv instead of
+launching anything.
 
 ## Adding a new config field
 

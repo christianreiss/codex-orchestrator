@@ -48,7 +48,29 @@
         "claude_model_override": { "type": ["string", "null"] },
         "grok_model_override": { "type": ["string", "null"] },
         "grok_reasoning_effort_override": { "type": ["string", "null"], "enum": [null, "low", "medium", "high", "xhigh"] },
-        "dangerously_bypass_approvals_and_sandbox": { "type": "boolean", "default": false }
+        "dangerously_bypass_approvals_and_sandbox": { "type": "boolean", "default": false },
+        "model_catalog": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["default_model", "models"],
+          "properties": {
+            "default_model": { "type": "string", "minLength": 1 },
+            "models": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["model", "efforts", "session_efforts", "default_effort"],
+                "properties": {
+                  "model": { "type": "string", "minLength": 1 },
+                  "efforts": { "type": "array", "items": { "type": "string" } },
+                  "session_efforts": { "type": "array", "items": { "type": "string" } },
+                  "default_effort": { "type": ["string", "null"] }
+                }
+              }
+            }
+          }
+        }
       }
     },
     "session_housekeeping": {

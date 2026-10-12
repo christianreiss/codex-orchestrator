@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { clientConfigDocuments } from '../../../src/db/schema.js';
-import { ModelDefaultsService } from '../../../src/services/model-defaults.js';
+import { ModelDefaultsService, modelDefaultsCatalog, modelLaunchCatalog } from '../../../src/services/model-defaults.js';
 import { ENGINE_CLAUDE, ENGINE_CODEX, ENGINE_GROK, type Engine } from '../../../src/util/engine.js';
 import { createDbFake } from '../../helpers/db-fake.js';
 
@@ -297,5 +297,27 @@ describe('ModelDefaultsService', () => {
         extra: true,
       }),
     ).rejects.toMatchObject({ status: 422, param: 'extra' });
+  });
+});
+
+describe('modelLaunchCatalog', () => {
+  it.each([ENGINE_CODEX, ENGINE_CLAUDE, ENGINE_GROK] as Engine[])('mirrors the %s defaults catalog', (engine) => {
+    const launch = modelLaunchCatalog(engine);
+    const catalog = modelDefaultsCatalog(engine);
+    expect(launch.models.map((entry) => entry.model)).toEqual(catalog.map((entry) => entry.model));
+    expect(launch.models.map((entry) => entry.model)).toContain(launch.default_model);
+    for (const [index, entry] of launch.models.entries()) {
+      expect(entry.efforts).toEqual(catalog[index]!.persistent_efforts);
+      expect(entry.default_effort).toBe(catalog[index]!.default_effort);
+    }
+  });
+
+  it('offers session-only max on Claude models that reach xhigh, and nowhere else', () => {
+    for (const entry of modelLaunchCatalog(ENGINE_CLAUDE).models) {
+      expect(entry.session_efforts).toEqual(entry.efforts.includes('xhigh') ? ['max'] : []);
+    }
+    for (const engine of [ENGINE_CODEX, ENGINE_GROK] as Engine[]) {
+      expect(modelLaunchCatalog(engine).models.every((entry) => entry.session_efforts.length === 0)).toBe(true);
+    }
   });
 });

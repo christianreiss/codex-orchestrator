@@ -82,6 +82,9 @@ func run(invokedAs string, args []string, stdout, stderr io.Writer) (code int) {
 
 func runExplicit(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
+		if code, ok := runLaunchpad(stdout, stderr); ok {
+			return code
+		}
 		printSelectorHelp(stderr)
 		return 2
 	}
@@ -342,6 +345,7 @@ func printVersion(w io.Writer) {
 
 func printSelectorHelp(w io.Writer) {
 	fmt.Fprintln(w, "Usage:")
+	fmt.Fprintln(w, "  cxx                      (on a terminal: pick engine, model and effort)")
 	fmt.Fprintln(w, "  cxx codex [cdx arguments]")
 	fmt.Fprintln(w, "  cxx claude [clx arguments]")
 	fmt.Fprintln(w, "  cxx grok [cgx arguments]")

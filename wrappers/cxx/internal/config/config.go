@@ -173,6 +173,23 @@ type EngineOptions struct {
 	GrokModelOverride                    *string `json:"grok_model_override,omitempty"`
 	GrokReasoningEffortOverride          *string `json:"grok_reasoning_effort_override,omitempty"`
 	DangerouslyBypassApprovalsAndSandbox bool    `json:"dangerously_bypass_approvals_and_sandbox,omitempty"`
+	// ModelCatalog is the model/effort menu offered by the bare-cxx launchpad.
+	// Configs signed before it existed decode it as nil.
+	ModelCatalog *ModelCatalog `json:"model_catalog,omitempty"`
+}
+
+// ModelCatalog lists the models an engine may launch with and the efforts
+// each accepts. SessionEfforts are valid for one launch but never persisted.
+type ModelCatalog struct {
+	DefaultModel string              `json:"default_model"`
+	Models       []ModelCatalogEntry `json:"models"`
+}
+
+type ModelCatalogEntry struct {
+	Model          string   `json:"model"`
+	Efforts        []string `json:"efforts"`
+	SessionEfforts []string `json:"session_efforts"`
+	DefaultEffort  *string  `json:"default_effort"`
 }
 
 // AgentMessaging is optional for backward compatibility. A missing block

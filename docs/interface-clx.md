@@ -275,6 +275,16 @@ variables are set by the wrapper for its own portal broker, relay worker, and
 native child — the child receives only the socket path, session id, and engine —
 and inherited values are scrubbed at startup.
 
+## Bare `cxx` launchpad (cxx 0.9.65)
+
+On an attended terminal, `cxx` with no arguments opens the engine/model/effort
+picker described in `docs/interface-cdx.md` ("Bare `cxx` launchpad"). For Claude
+it launches `--model M --effort E`, and for `c`/`r` it adds `--continue` or
+`--resume` (the native picker). `max` is offered as a session-only effort on
+models whose persistent efforts reach `xhigh`, and it is never written to
+`settings.json`. The launch uses the managed native path, so the boot, sync,
+auth and receiver lifecycle is the same as for `clx`.
+
 ## Per-host config (typed, signed)
 
 Same schema as cdx (`wrappers/schemas/host-config-v1.json`), with
@@ -287,7 +297,10 @@ Same schema as cdx (`wrappers/schemas/host-config-v1.json`), with
   "engine_options": {
     "silent": false,
     "claude_model_override": "claude-sonnet-5",
-    "admin_theme_hint": "auto"
+    "admin_theme_hint": "auto",
+    // bare-cxx launchpad menu (cxx 0.9.65); session_efforts carries the
+    // session-only "max" on models that reach xhigh
+    "model_catalog": { "default_model": "claude-sonnet-5", "models": [ /* … */ ] }
   },
   "agent_messaging": {
     "enabled": false,
@@ -789,7 +802,8 @@ this run.
   `model` / `effortLevel` pair. POST accepts strict
   `{model, reasoning_effort?: string|null}` but translates that common API field
   to Claude Code's native `effortLevel` key on disk. Fable 5.1, Fable 5, Opus 5,
-  Opus 4.8, and Sonnet 5 persist `low|medium|high|xhigh` and default to `high`; Opus 4.7
+  Opus 4.8, and Sonnet 5 persist `low|medium|high|xhigh` and default to `high`; Opus 5.5
+  and Sonnet 5.5 persist the same set and default to `medium`; Opus 4.7
   persists the same set and defaults to `xhigh`; Sonnet 4.6 persists
   `low|medium|high` and defaults to `high`; Haiku 4.5 has no effort control, so
   selecting it removes `effortLevel`. This follows Claude Code's documented

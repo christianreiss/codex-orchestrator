@@ -91,6 +91,38 @@ function defaultModel(engine: Engine): string {
   return engine === ENGINE_CLAUDE ? CLAUDE_DEFAULT_MODEL : DEFAULT_CODEX_MODEL;
 }
 
+export interface LaunchCatalogModel {
+  model: string;
+  efforts: string[];
+  /** Efforts valid for one session that the fleet never persists (Claude `max`). */
+  session_efforts: string[];
+  default_effort: string | null;
+}
+
+export interface LaunchCatalog {
+  default_model: string;
+  models: LaunchCatalogModel[];
+}
+
+/**
+ * The model/effort menu the bare-`cxx` launchpad offers, baked into the signed
+ * host config so the picker needs no network call. It mirrors the model
+ * defaults catalog; Claude models that reach `xhigh` additionally offer the
+ * session-only `max`, which `effortLevel` deliberately cannot store.
+ */
+export function modelLaunchCatalog(engine: Engine): LaunchCatalog {
+  return {
+    default_model: defaultModel(engine),
+    models: modelDefaultsCatalog(engine).map((entry) => ({
+      model: entry.model,
+      efforts: [...entry.persistent_efforts],
+      session_efforts:
+        engine === ENGINE_CLAUDE && entry.persistent_efforts.includes('xhigh') ? ['max'] : [],
+      default_effort: entry.default_effort,
+    })),
+  };
+}
+
 function selectedCatalogEntry(
   engine: Engine,
   model: unknown,

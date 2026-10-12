@@ -12,6 +12,7 @@ import (
 	"time"
 
 	grokapp "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/app/grok"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/launchpad"
 	clx "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/claude/ui"
 	cdx "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/codex/ui"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/terminalui"
@@ -20,19 +21,64 @@ import (
 
 func main() {
 	engine := flag.String("engine", "codex", "codex, claude, or grok")
-	scene := flag.String("scene", "startup", "startup, attention, blocked, concurrent, stale, forecast, security, doctor, help, session, updates, notices, progress, host-update, or prompt")
+	scene := flag.String("scene", "startup", "startup, attention, blocked, concurrent, stale, forecast, security, doctor, help, session, updates, notices, progress, host-update, prompt, or launchpad")
 	minimal := flag.Bool("minimal", false, "portable ASCII output")
+	engines := flag.String("engines", "codex,claude,grok", "launchpad scene: comma-separated engines on the compass")
 	flag.Parse()
 	if (*engine != "codex" && *engine != "claude" && *engine != "grok") || flag.NArg() != 0 {
 		fmt.Fprintln(os.Stderr, "terminal-preview: use -engine codex, -engine claude, or -engine grok")
 		os.Exit(2)
 	}
-	valid := map[string]bool{"startup": true, "attention": true, "blocked": true, "concurrent": true, "stale": true, "forecast": true, "security": true, "doctor": true, "help": true, "session": true, "updates": true, "notices": true, "progress": true, "prompt": true, "host-update": true}
+	valid := map[string]bool{"startup": true, "attention": true, "blocked": true, "concurrent": true, "stale": true, "forecast": true, "security": true, "doctor": true, "help": true, "session": true, "updates": true, "notices": true, "progress": true, "prompt": true, "host-update": true, "launchpad": true}
 	if !valid[*scene] || (*scene == "security" && *engine != "claude") {
 		fmt.Fprintln(os.Stderr, "terminal-preview: unknown scene; security requires Claude")
 		os.Exit(2)
 	}
+	if *scene == "launchpad" {
+		previewLaunchpad(*engines, *minimal)
+		return
+	}
 	preview(*engine, *scene, *minimal)
+}
+
+// previewLaunchpad runs the real picker over sample menus and prints the
+// selection instead of launching anything.
+func previewLaunchpad(list string, minimal bool) {
+	efforts := []string{"low", "medium", "high", "xhigh"}
+	samples := map[string]launchpad.Engine{
+		"codex": {Name: "codex", Model: "gpt-6-astra", Effort: "medium", Models: []launchpad.Model{
+			{ID: "gpt-6.1-sol", Efforts: append(efforts, "max", "ultra"), DefaultEffort: "low"},
+			{ID: "gpt-6-astra", Efforts: append(efforts, "max", "ultra"), DefaultEffort: "medium"},
+			{ID: "gpt-6-luna", Efforts: append(efforts, "max"), DefaultEffort: "medium"},
+			{ID: "gpt-5.5", Efforts: efforts, DefaultEffort: "medium"},
+		}},
+		"claude": {Name: "claude", Model: "claude-opus-5-5", Effort: "medium", Models: []launchpad.Model{
+			{ID: "claude-fable-5-1", Efforts: append(efforts, "max"), DefaultEffort: "high"},
+			{ID: "claude-opus-5-5", Efforts: append(efforts, "max"), DefaultEffort: "medium"},
+			{ID: "claude-sonnet-5-5", Efforts: append(efforts, "max"), DefaultEffort: "medium"},
+			{ID: "claude-haiku-4-5-20251001"},
+		}},
+		"grok": {Name: "grok", Model: "grok-4.7", Effort: "high", Models: []launchpad.Model{
+			{ID: "grok-4.7", Efforts: efforts, DefaultEffort: "high"},
+			{ID: "grok-4.7-build-fast", Efforts: efforts, DefaultEffort: "high"},
+		}},
+	}
+	var chosen []launchpad.Engine
+	for _, name := range strings.Split(list, ",") {
+		if e, ok := samples[strings.TrimSpace(name)]; ok {
+			chosen = append(chosen, e)
+		}
+	}
+	caps := terminalui.DetectCapsFor(os.Stderr, "auto")
+	if minimal {
+		caps = terminalui.MinimalCaps(caps)
+	}
+	selection, err := launchpad.Run(context.Background(), os.Stdin, os.Stderr, chosen, nil, caps)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "terminal-preview:", err)
+		os.Exit(1)
+	}
+	fmt.Printf("would launch %s native args: %q\n", selection.Engine, launchpad.NativeArgs(selection))
 }
 
 func preview(engine, scene string, minimal bool) {

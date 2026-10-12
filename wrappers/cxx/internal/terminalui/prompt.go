@@ -418,6 +418,8 @@ func promptTheme(caps Caps, prefix string) huh.Theme {
 	switch {
 	case caps.Theme == ThemeViolet || strings.EqualFold(prefix, "clx"):
 		accentHex = hexViolet
+	case caps.Theme == ThemeGreen || strings.EqualFold(prefix, "cgx"):
+		accentHex = hexGreen
 	case caps.Theme == ThemePink:
 		accentHex = hexPink
 	}

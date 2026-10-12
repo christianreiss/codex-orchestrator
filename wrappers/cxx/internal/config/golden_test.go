@@ -304,6 +304,10 @@ func TestGoldenDecodesToExpectedFields(t *testing.T) {
 			// sourcePath is loader metadata, never part of the signed document.
 			got.sourcePath = ""
 			fixture.want.SessionHousekeeping = &SessionHousekeepingPolicy{Enabled: true, RetentionDays: 30, MaxBytes: 5 << 30, MinAgeDays: 7}
+			// The catalog mirrors the server's model list, which changes with
+			// every model release; pin its shape here instead of every entry.
+			assertGoldenCatalog(t, fixture.engine, got.EngineOptions.ModelCatalog)
+			got.EngineOptions.ModelCatalog = nil
 
 			if !reflect.DeepEqual(*got, fixture.want) {
 				t.Fatalf("decoded config mismatch\n got: %+v\nwant: %+v", *got, fixture.want)
@@ -424,4 +428,36 @@ func loadGolden(t *testing.T, path string, pub ed25519.PublicKey, engine string)
 		t.Fatal("LoadForEngine must not return a config alongside an error")
 	}
 	return expired.Config
+}
+
+func assertGoldenCatalog(t *testing.T, engine string, catalog *ModelCatalog) {
+	t.Helper()
+	if catalog == nil || len(catalog.Models) == 0 {
+		t.Fatalf("%s model_catalog missing or empty", engine)
+	}
+	defaults := map[string]bool{}
+	for _, entry := range catalog.Models {
+		if entry.Model == "" {
+			t.Fatalf("%s catalog entry without a model: %+v", engine, entry)
+		}
+		defaults[entry.Model] = true
+		if entry.DefaultEffort != nil && !contains(entry.Efforts, *entry.DefaultEffort) {
+			t.Fatalf("%s %s default effort %q not among %v", engine, entry.Model, *entry.DefaultEffort, entry.Efforts)
+		}
+		if engine != EngineClaude && len(entry.SessionEfforts) != 0 {
+			t.Fatalf("%s %s offers session efforts %v; only Claude has them", engine, entry.Model, entry.SessionEfforts)
+		}
+	}
+	if !defaults[catalog.DefaultModel] {
+		t.Fatalf("%s default model %q is not in the catalog", engine, catalog.DefaultModel)
+	}
+}
+
+func contains(list []string, value string) bool {
+	for _, item := range list {
+		if item == value {
+			return true
+		}
+	}
+	return false
 }

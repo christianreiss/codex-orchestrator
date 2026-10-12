@@ -33,6 +33,20 @@ API Access opens with compact, copyable endpoints and per-API keys. Configuratio
 
 The header Appearance menu applies light, dark, or system mode immediately and saves it through `/admin/theme`, matching Appearance settings. Failed header saves restore the previous choice and report the error; startup hydration cannot overwrite a newer user choice.
 
+## Bare `cxx` launchpad (cxx 0.9.65)
+
+On an attended terminal, `cxx` with no arguments opens a keyboard picker:
+- **Engines** sit on a compass: Codex left, Claude right, Grok below. With one
+  engine the compass is skipped.
+- **Model and effort**: `↑`/`↓` pick the model and `←`/`→` the reasoning effort.
+- **Start**: `enter` starts a new chat, `c` continues the latest session in this
+  directory, and `r` opens the native resume picker.
+
+The cursor remembers the last choice, so `cxx` followed by `enter` relaunches it.
+The menu comes from `engine_options.model_catalog` in the signed host config,
+and the launch uses the managed native path. Pipes and scripts still get the
+usage text with exit 2. Details are in `docs/interface-cdx.md`.
+
 ## Managed native starts (cxx 0.9.24)
 
 Fleet installation, update/sync and successful managed launches prepare the native

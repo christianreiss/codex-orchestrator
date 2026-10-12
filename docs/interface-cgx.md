@@ -99,6 +99,15 @@ baked one requests background maintenance immediately, so an engine an operator
 enabled or disabled is provisioned on this launch (cdx parity). Maintenance appends `alias grok='cgx'` to
 existing `~/.bashrc`/`~/.zshrc`, as cdx and clx do for their engines.
 
+## Bare `cxx` launchpad (cxx 0.9.65)
+
+On an attended terminal, `cxx` with no arguments opens the engine/model/effort
+picker described in `docs/interface-cdx.md` ("Bare `cxx` launchpad"). Grok sits
+below the centre when three engines are present. Its launch is
+`cgx run --model M --reasoning-effort E`, so the boot card stays, and `c` adds
+`--continue`. Grok has no interactive session picker, because its bare `--resume`
+takes the latest session, so `r` is not offered.
+
 ## Native CLI and installation
 
 The supported baseline is official Grok Build **1.0.46**. Linux and macOS on
