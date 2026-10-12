@@ -180,10 +180,24 @@ func ReconcileHostDaemon(stdout, stderr io.Writer) error {
 		return nil
 	} // the connected service drains itself
 	if os.Geteuid() != 0 {
-		return errors.New("daemon enabled: run 'sudo cxx daemon install' to install the system service")
+		return unprivilegedDaemonPending(daemonUnitPath)
 	}
 	return daemonService("install", stdout, stderr)
 }
+
+const daemonUnitPath = "/etc/systemd/system/cxx-daemon.service"
+
+// unprivilegedDaemonPending names the install step only while the system unit
+// is absent. An installed unit is root-owned and already running the daemon, so
+// a refresh is not worth a notice on every native launch. The unit is 0600, but
+// stat needs only its readable parent directory.
+func unprivilegedDaemonPending(unitPath string) error {
+	if _, err := os.Stat(unitPath); err == nil {
+		return nil
+	}
+	return errors.New("daemon enabled: run 'sudo cxx daemon install' to install the system service")
+}
+
 func daemonService(action string, stdout, stderr io.Writer) error {
 	if action == "status" {
 		return runServiceProcess(stdout, stderr, "systemctl", "status", "cxx-daemon.service")
@@ -198,7 +212,7 @@ func daemonService(action string, stdout, stderr io.Writer) error {
 		if err := runServiceProcess(stdout, stderr, "systemctl", "disable", "--now", "cxx-daemon.service"); err != nil {
 			return err
 		}
-		if err := os.Remove("/etc/systemd/system/cxx-daemon.service"); err != nil && !os.IsNotExist(err) {
+		if err := os.Remove(daemonUnitPath); err != nil && !os.IsNotExist(err) {
 			return err
 		}
 		return runServiceProcess(stdout, stderr, "systemctl", "daemon-reload")
@@ -246,7 +260,7 @@ func daemonService(action string, stdout, stderr io.Writer) error {
 			fmt.Fprintf(&env, "Environment=%s\n", systemdQuote(key+"="+cfg.SourcePath()))
 		}
 		unit := hostDaemonUnit(settings.Username, account.HomeDir, env.String(), installed)
-		unitChanged, err := writeProtectedFileIfChanged("/etc/systemd/system/cxx-daemon.service", []byte(unit))
+		unitChanged, err := writeProtectedFileIfChanged(daemonUnitPath, []byte(unit))
 		if err != nil {
 			return err
 		}

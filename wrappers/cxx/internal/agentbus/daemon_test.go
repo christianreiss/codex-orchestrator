@@ -190,3 +190,16 @@ func TestConfiguredDaemonReconciliation(t *testing.T) {
 		})
 	}
 }
+
+func TestUnprivilegedDaemonPendingOnlyWhenUnitMissing(t *testing.T) {
+	unit := filepath.Join(t.TempDir(), "cxx-daemon.service")
+	if err := unprivilegedDaemonPending(unit); err == nil || !strings.Contains(err.Error(), "sudo cxx daemon install") {
+		t.Fatal("a missing unit must name the install step", err)
+	}
+	if err := os.WriteFile(unit, []byte("[Unit]\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := unprivilegedDaemonPending(unit); err != nil {
+		t.Fatal("an installed unit must not nag on every launch", err)
+	}
+}

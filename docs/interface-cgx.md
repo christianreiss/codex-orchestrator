@@ -751,7 +751,8 @@ required. `cxx daemon install|status|start|stop|uninstall|run` manages a separat
 `cxx-daemon.service`; its account defaults to root and may be an existing user.
 Installation requires root. `cxx update`, wrapper sync/cron and managed
 Codex/Claude/Grok launches reconcile an enabled service before native execution;
-unprivileged runs report `sudo cxx daemon install` as the pending step. Accepted
+unprivileged runs report `sudo cxx daemon install` as the pending step only while the
+system unit is absent (from cxx 0.9.67; an installed unit stays silent). Accepted
 daemon operations and peer deliveries do not reconcile their parent service.
 From cxx 0.9.48, successful service reconciliation prints an enabled/start
 confirmation; this confirms systemd startup, while connection health is shown

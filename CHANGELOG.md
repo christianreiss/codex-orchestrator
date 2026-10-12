@@ -1,5 +1,7 @@
 # 2026-10-12
 
+- Wrapper 0.9.67 stops printing `host daemon: daemon enabled: run 'sudo cxx daemon install' to install the system service` on every engine launch of a host that already has the service. An unprivileged launch now names the install step only while `/etc/systemd/system/cxx-daemon.service` is absent; an installed unit stays silent (refreshing its binary still needs `sudo cxx daemon install`, and root-run sync/cron does it automatically).
+
 - Fixed `cdx`/Codex refusing to start with `invalid type: sequence, expected a map in shell_environment_policy.set`. Stored configs carried the legacy `set = []`, which was rendered verbatim into `config.toml`, but Codex requires `set` to be a map. The server now converts `KEY=VALUE` arrays into a map and drops any other non-map `set` when rendering, so every host heals on its next config sync with no stored-config edit and no wrapper update.
 
 - Wrapper 0.9.66 and engine configuration now support validated native settings for Codex, Claude Code and Grok Build, with JSON editors, preview, granular ownership and atomic revision checks. Codex profiles expose native extensions; deprecated or wrong-scope settings fail visibly. Existing user-owned Claude/Grok settings survive synchronization. Native extensions require compatible CLI/wrapper versions.
