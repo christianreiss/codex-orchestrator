@@ -227,7 +227,19 @@ cdx status --minimal
 ```
 
 Passing flags through to Codex works the same way you’d pass them to `codex`; `cdx` forwards your args to the Codex CLI.
-Known Codex subcommands (`exec`, `review`, `login`, `logout`, `mcp`, `mcp-server`, `app-server`, `completion`, `sandbox`, `debug`, `apply`, `resume`, `fork`, `cloud`, `features`, `help`, `agents`, `archive`, `unarchive`, `delete`, `queue`, `plugin`, `remote-control`, `exec-server`, `migrate-rollouts`) are reserved by the wrapper and always treated as commands. If a profile uses one of those names, run it explicitly with `cdx --profile <name> ...`.
+Known Codex subcommands (`exec`, `e`, `review`, `login`, `logout`, `mcp`, `app-server`, `completion`, `sandbox`, `debug`, `apply`, `a`, `resume`, `fork`, `cloud`, `features`, `help`, `agents`, `archive`, `unarchive`, `delete`, `queue`, `plugin`, `remote-control`, `exec-server`, `migrate-rollouts`) are reserved by the wrapper and always treated as commands. If a profile uses one of those names, run it explicitly with `cdx --profile <name> ...`.
+
+`e` is the native alias for `exec`, and `a` is the alias for `apply`.
+The removed native `mcp-server` command is no longer reserved or supported.
+
+Claude maintenance commands, including `clx purge --dry-run`, preserve native
+arguments and use managed auth without creating an interactive fleet session.
+Managed Claude starts currently refuse `daemon`, `remote-control` (and its
+`rc`, `remote`, `bridge` and native `sync` aliases), and `self-hosted-runner`:
+these services require their own auth and child-session lifecycle integration.
+Their native `--help` remains available, and fleet `clx sync` still synchronizes
+managed content. See [the Claude interface](interface-clx.md#native-command-maintenance-cxx-0966)
+for the verified compatibility boundary.
 
 `resume` is additionally wrapper-owned: `cdx resume` runs through the full startup lifecycle (auth sync, boot screen, lane model) rather than bypassing it, and `cdx --resume <session>` is an alias for it — upstream `codex` has no `--resume` flag of its own.
 
