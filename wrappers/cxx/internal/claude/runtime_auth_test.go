@@ -171,3 +171,41 @@ func TestCleanupStaleRuntimeAuthSettingsRemovesOnlyStaleOverlays(t *testing.T) {
 		}
 	}
 }
+
+func TestRuntimeAuthOverlayRespectsCurrentNativeFlagArity(t *testing.T) {
+	for _, flag := range []string{"--advisor", "--max-turns", "--permission-prompt-tool", "--system-prompt-file", "--append-system-prompt-file", "--append-subagent-system-prompt", "--append-subagent-system-prompt-file"} {
+		args := []string{flag, "auth", "purge", "--dry-run"}
+		want := []string{flag, "auth", "--settings", "managed.json", "purge", "--dry-run"}
+		if got := injectRuntimeAuthSettings(args, "managed.json"); !reflect.DeepEqual(got, want) {
+			t.Fatalf("overlay for %s: %v", flag, got)
+		}
+	}
+	for _, args := range [][]string{{"--channels", "first", "auth", "logout"}, {"--allowedTools", "Read", "purge"}, {"--resume", "purge"}, {"--worktree", "auth"}, {"--debug", "auth"}, {"--", "purge"}} {
+		if at, ok := NativeSubcommandIndex(args); ok {
+			t.Fatalf("literal value treated as subcommand: %v at %d", args, at)
+		}
+	}
+	for _, args := range [][]string{{"--resume", "--verbose", "purge"}, {"--worktree", "--verbose", "purge"}, {"--channels", "first", "second", "--verbose", "purge"}, {"--channels=first", "second", "--verbose", "purge"}} {
+		if at, ok := NativeSubcommandIndex(args); !ok || args[at] != "purge" {
+			t.Fatalf("real command lost: %v", args)
+		}
+	}
+}
+
+func TestCurrentPromptFlagValueKeepsBareLiteral(t *testing.T) {
+	runtimeAuthHome(t, `{"claudeAiOauth":{"accessToken":"test","refreshToken":"test","expiresAt":9999999999999}}`)
+	args := []string{"--append-subagent-system-prompt", "--bare"}
+	if got, changed := normalizeRuntimeAuthArgs(args); changed || !reflect.DeepEqual(got, args) {
+		t.Fatalf("literal prompt rewritten: %v", got)
+	}
+}
+
+func TestDirectExecCannotBypassUnsupportedServiceBoundary(t *testing.T) {
+	for _, command := range []string{"daemon", "remote-control", "sync", "self-hosted-runner"} {
+		_, cleanup, err := prepareRuntimeAuthSettingsForCLI([]string{command}, "")
+		cleanup()
+		if err == nil || !strings.Contains(err.Error(), "cannot inherit managed authentication/settings") {
+			t.Fatalf("service %s incorrectly supported: %v", command, err)
+		}
+	}
+}

@@ -74,3 +74,22 @@ func TestNativeAuthCommandsKeepManagedBoundaryAndGlobalArgs(t *testing.T) {
 		t.Fatalf("flag value routed as auth command: %s", got)
 	}
 }
+
+func TestNativeCommandAliasesAndCurrentOptionValues(t *testing.T) {
+	for _, command := range []string{"e", "a"} {
+		if isProfileShorthand(command) || !isHelpPassthrough([]string{command, "--help"}) {
+			t.Fatalf("native alias treated as profile: %s", command)
+		}
+	}
+	for _, flag := range []string{"--add-dir", "--remote-auth-token-env"} {
+		if got := nativeSubcommand([]string{flag, "login", "e", "prompt"}); got != "e" {
+			t.Fatalf("value became auth command: %s => %s", flag, got)
+		}
+	}
+	if !nativeHeadless([]string{"e", "prompt"}) {
+		t.Fatal("exec alias not headless")
+	}
+	if reservedCodexSubcommands["mcp-server"] {
+		t.Fatal("removed MCP server command still advertised")
+	}
+}

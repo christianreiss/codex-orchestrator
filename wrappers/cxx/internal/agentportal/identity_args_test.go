@@ -3,6 +3,7 @@ package agentportal
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -95,5 +96,58 @@ func TestIdentityPreservesSelectedProfileAndDoesNotWriteSharedFiles(t *testing.T
 	raw, err := os.ReadFile(filepath.Join(home, "review.config.toml"))
 	if err != nil || strings.Contains(string(raw), "Tanja") || strings.Contains(string(raw), "Jessica") {
 		t.Fatal("identity leaked into shared profile")
+	}
+}
+
+func TestClaudeIdentityPreservesCurrentOptionValues(t *testing.T) {
+	for _, flag := range []string{"--append-subagent-system-prompt", "--append-subagent-system-prompt-file", "--advisor", "--system-prompt-file"} {
+		args := []string{flag, "--append-system-prompt", "--system-prompt", "--resume", "--model", "opus"}
+		got, err := AppendIdentityArgs("claude", args, Identity{Name: "Heide"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(got) < len(args) || !reflect.DeepEqual(got[len(got)-len(args):], args) {
+			t.Fatalf("literal value changed: %v", got)
+		}
+		if hasClaudeResume(args) {
+			t.Fatal("literal resume value suppressed launch title")
+		}
+	}
+}
+
+func TestClaudeIdentityCombinesAppendPromptFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "prompt.txt")
+	if err := os.WriteFile(path, []byte("Keep file instructions"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	args := []string{"--append-system-prompt-file", path, "-p", "Task"}
+	got, err := AppendIdentityArgs("claude", args, Identity{Name: "Heide"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got[0] != "--append-system-prompt" || !strings.Contains(got[1], "Keep file instructions") || !strings.Contains(got[1], "Heide") {
+		t.Fatalf("file/context lost: %v", got)
+	}
+	for _, arg := range got {
+		if arg == "--append-system-prompt-file" {
+			t.Fatal("conflicting file flag retained")
+		}
+	}
+	if _, err := AppendIdentityArgs("claude", append(args, "--append-system-prompt", "other"), Identity{Name: "Heide"}); err == nil {
+		t.Fatal("invalid original flag combination accepted")
+	}
+	if _, err := AppendIdentityArgs("claude", []string{"--append-system-prompt-file", path + ".missing"}, Identity{Name: "Heide"}); err == nil {
+		t.Fatal("missing prompt file ignored")
+	}
+}
+
+func TestCodexExecAliasKeepsIdentityAfterResumeVerb(t *testing.T) {
+	t.Setenv("CODEX_HOME", t.TempDir())
+	got, err := AppendIdentityArgs("codex", []string{"e", "resume", "native-id"}, Identity{Name: "Heide"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) < 4 || got[0] != "e" || got[1] != "resume" || got[2] != "-c" {
+		t.Fatalf("identity override inserted at wrong alias position: %v", got)
 	}
 }
