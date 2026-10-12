@@ -25,7 +25,8 @@ import {
   type ReverseDnsModeInput,
 } from './reverse-dns.js';
 import {
-  FORCE_UPGRADE_REASONING_EFFORT,
+  normalizeStoredCodexEffort,
+  defaultCodexReasoningEffortForModel,
   isLegacyModelUpgrade,
   normalizeReasoningEffortForModel,
   normalizeSupportedModel,
@@ -926,7 +927,8 @@ export class HostManagementService {
         patch.reasoningEffortOverride = normalizedEffort;
       }
     } else if (modelWasLegacy && patch.modelOverride !== null) {
-      patch.reasoningEffortOverride = FORCE_UPGRADE_REASONING_EFFORT;
+      patch.reasoningEffortOverride = normalizeStoredCodexEffort(host.reasoningEffortOverride, rawModelOverride)
+        ?? defaultCodexReasoningEffortForModel(patch.modelOverride ?? null);
     }
     if (payload.includeClaudeOverride) {
       patch.claudeModelOverride = payload.claude_model_override

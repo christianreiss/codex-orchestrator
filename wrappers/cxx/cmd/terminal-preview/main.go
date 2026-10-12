@@ -50,7 +50,6 @@ func previewLaunchpad(list string, minimal bool) {
 			{ID: "gpt-6.1-sol", Efforts: append(efforts, "max", "ultra"), DefaultEffort: "low"},
 			{ID: "gpt-6-astra", Efforts: append(efforts, "max", "ultra"), DefaultEffort: "medium"},
 			{ID: "gpt-6-luna", Efforts: append(efforts, "max"), DefaultEffort: "medium"},
-			{ID: "gpt-5.5", Efforts: efforts, DefaultEffort: "medium"},
 		}},
 		"claude": {Name: "claude", Model: "claude-opus-5-5", Effort: "medium", Models: []launchpad.Model{
 			{ID: "claude-fable-5-1", Efforts: append(efforts, "max"), DefaultEffort: "high"},

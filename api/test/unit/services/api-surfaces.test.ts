@@ -92,9 +92,9 @@ describe('gateway backends', () => {
 
   it('maps a native-family model id of the surface to the backend default', async () => {
     const claude = backend('claude', ['claude-sonnet-5', 'claude-opus-5']);
-    expect(await resolveGenerationModel(claude, 'codex', 'gpt-5.5')).toBe('claude-sonnet-5');
+    expect(await resolveGenerationModel(claude, 'codex', 'gpt-6-sol')).toBe('claude-sonnet-5');
     expect(await resolveGenerationModel(claude, 'codex', 'claude-opus-5')).toBe('claude-opus-5');
-    expect(await resolveGenerationModel(backend('codex', ['gpt-5.5']), 'claude', 'claude-sonnet-5')).toBe('gpt-5.5');
+    expect(await resolveGenerationModel(backend('codex', ['gpt-6-sol']), 'claude', 'claude-sonnet-5')).toBe('gpt-6-sol');
     expect(await resolveGenerationModel(backend('grok', ['grok-4.7']), 'claude', 'claude-3-5-haiku-latest')).toBe('grok-4.7');
   });
 
@@ -102,6 +102,6 @@ describe('gateway backends', () => {
     const claude = backend('claude', ['claude-sonnet-5']);
     await expect(resolveGenerationModel(claude, 'codex', 'llama-3')).rejects.toMatchObject({ status: 404 });
     await expect(resolveGenerationModel(claude, 'claude', 'claude-nope')).rejects.toMatchObject({ status: 404 });
-    await expect(resolveGenerationModel(claude, 'grok', 'gpt-5.5')).rejects.toMatchObject({ status: 404 });
+    await expect(resolveGenerationModel(claude, 'grok', 'gpt-6-sol')).rejects.toMatchObject({ status: 404 });
   });
 });

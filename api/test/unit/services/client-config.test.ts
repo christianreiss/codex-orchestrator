@@ -17,7 +17,7 @@ import { presetLevels } from '../../../src/services/agent-security-levels.js';
 describe('client-config: renderToml', () => {
   it('renders root scalars in the legacy order', () => {
     const s = normalizeSettings({
-      model: 'gpt-5.5',
+      model: 'gpt-6-sol',
       profile: 'workhorse',
       personality: 'friendly',
       approval_policy: 'on-request',
@@ -26,7 +26,7 @@ describe('client-config: renderToml', () => {
     });
     const toml = renderToml(s);
     const lines = toml.split('\n');
-    expect(lines[0]).toBe('model = "gpt-5.5"');
+    expect(lines[0]).toBe('model = "gpt-6-sol"');
     expect(toml).not.toContain('personality =');
     expect(toml).toContain('approval_policy = "on-request"');
     expect(toml).toContain('sandbox_mode = "workspace-write"');
@@ -39,14 +39,14 @@ describe('client-config: renderToml', () => {
     // `settings.profile` is still normalized (applyHostModelOverrides in
     // client-config.ts routes host model overrides onto profiles by name), it
     // must just never reach the rendered TOML.
-    const s = normalizeSettings({ model: 'gpt-5.5', profile: 'workhorse' });
+    const s = normalizeSettings({ model: 'gpt-6-sol', profile: 'workhorse' });
     expect(s.profile).toBe('workhorse');
     const toml = renderToml(s);
     expect(toml).not.toMatch(/^profile\s*=/m);
   });
 
   it('renders `local_provider` under its codex-cli 0.156.1 name `oss_provider`', () => {
-    const s = normalizeSettings({ model: 'gpt-5.5', local_provider: 'ollama' });
+    const s = normalizeSettings({ model: 'gpt-6-sol', local_provider: 'ollama' });
     const toml = renderToml(s);
     expect(toml).toContain('oss_provider = "ollama"');
     expect(toml).not.toMatch(/^local_provider\s*=/m);
@@ -54,7 +54,7 @@ describe('client-config: renderToml', () => {
 
   it('drops model_supports_reasoning_summaries and model_max_output_tokens: codex-cli ignores both everywhere', () => {
     const s = normalizeSettings({
-      model: 'gpt-5.5',
+      model: 'gpt-6-sol',
       model_supports_reasoning_summaries: true,
       model_max_output_tokens: 4096,
       model_context_window: 128000,
@@ -68,7 +68,7 @@ describe('client-config: renderToml', () => {
 
   it('drops the dead [security] table entirely', () => {
     const s = normalizeSettings({
-      model: 'gpt-5.5',
+      model: 'gpt-6-sol',
       security: { dangerously_bypass_approvals_and_sandbox: true },
     });
     const toml = renderToml(s);
@@ -78,7 +78,7 @@ describe('client-config: renderToml', () => {
 
   it('per-profile: drops model_context_window and the sandbox_workspace_write table', () => {
     const s = normalizeSettings({
-      model: 'gpt-5.5',
+      model: 'gpt-6-sol',
       profiles: [
         {
           name: 'code',
@@ -125,7 +125,7 @@ describe('client-config: renderToml', () => {
   it('emits named profile tables sorted by name', () => {
     const s = normalizeSettings({
       profiles: [
-        { name: 'workhorse', model: 'gpt-5.5', model_reasoning_effort: 'high' },
+        { name: 'workhorse', model: 'gpt-6-sol', model_reasoning_effort: 'high' },
         { name: 'fast', model: 'gpt-5.4-mini' },
       ],
     });
@@ -341,20 +341,20 @@ describe('client-config: renderToml', () => {
         ],
       },
       host: {
-        modelOverride: 'gpt-5.5',
+        modelOverride: 'gpt-6-sol',
         reasoningEffortOverride: null,
       } as never,
       baseUrl: null,
       apiKey: null,
     });
-    expect(switched.content).toContain('model = "gpt-5.5"');
+    expect(switched.content).toContain('model = "gpt-6-sol"');
     expect(switched.content).toContain('model_reasoning_effort = "medium"');
     expect(switched.content).not.toContain('model_reasoning_effort = "ultra"');
     // Current Codex takes profiles as sidecar files, so config.toml carries no tables
     // and the overridden model reaches the profile through its own document.
     expect(switched.content).not.toContain('[profiles.');
     expect(switched.profiles).toEqual([
-      expect.objectContaining({ name: 'workhorse', content: expect.stringContaining('model = "gpt-5.5"') }),
+      expect.objectContaining({ name: 'workhorse', content: expect.stringContaining('model = "gpt-6-sol"') }),
     ]);
 
     const inherited = renderTomlForHost({
@@ -374,7 +374,7 @@ describe('client-config: renderToml', () => {
 
     const inheritedProfileModel = renderTomlForHost({
       settings: {
-        model: 'gpt-5.5',
+        model: 'gpt-6-luna',
         model_reasoning_effort: 'high',
         profile: 'work',
         profiles: [{ name: 'work' }],
@@ -934,7 +934,7 @@ describe('client-config: Codex profiles as sidecar files', () => {
     model: 'gpt-6-astra',
     profiles: [
       { name: 'fast', model: 'gpt-6-luna', model_reasoning_effort: 'low', features: { apps: false } },
-      { name: 'bad name', model: 'gpt-5.5' },
+      { name: 'bad name', model: 'gpt-6-sol' },
     ],
   };
   const render = (clientVersion: string | null) =>

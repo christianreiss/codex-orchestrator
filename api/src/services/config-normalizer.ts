@@ -30,35 +30,24 @@ import { createHash } from 'node:crypto';
 import { CODEX_RETIRED_FEATURE_KEYS, normalizeCodexNativeSettings, type CodexApprovalPolicy } from './codex-native-settings.js';
 import { CODEX_WEB_SEARCH_VALUES, type CodexWebSearch } from './agent-security-levels.js';
 import { normalizeClaudeNativeSettings } from './claude-native-settings.js';
-
-/** Fleet defaults for new Codex configs and OpenAI-compatible requests. */
-export const DEFAULT_CODEX_MODEL = 'gpt-6-astra';
-export const DEFAULT_CODEX_REASONING_EFFORT = 'medium';
-
-export const FORCE_UPGRADE_MODEL = DEFAULT_CODEX_MODEL;
-export const FORCE_UPGRADE_REASONING_EFFORT = 'high';
+import { DEFAULT_CODEX_MODEL, DEFAULT_CODEX_REASONING_EFFORT, FORCE_UPGRADE_REASONING_EFFORT, LEGACY_MODEL_UPGRADES } from './codex-model-upgrades.js';
+export { DEFAULT_CODEX_MODEL, DEFAULT_CODEX_REASONING_EFFORT, FORCE_UPGRADE_MODEL, FORCE_UPGRADE_REASONING_EFFORT, LEGACY_MODEL_UPGRADES } from './codex-model-upgrades.js';
 
 /**
  * Codex model ids the fleet offers. Derived from the CLI's own catalog
- * (`codex debug models`): an entry belongs here iff `visibility == "list"` and
+ * (`models_cache.json`): an entry belongs here iff `visibility == "list"` and
  * `upgrade == null`. `gpt-reserve` and `codex-auto-review` are `visibility:
- * hide` and stay out; a model that grows an `upgrade` block has been retired
- * upstream and moves to LEGACY_MODEL_UPGRADES below.
+ * hide` and stay out; a model that grows an `upgrade` block is deprecated
+ * upstream and moves to LEGACY_MODEL_UPGRADES.
  *
  * Deliberately NOT filtered on the catalog's `supported_in_api` flag: that
  * describes OpenAI's platform API, and this list also feeds `/v1/models`, which
  * is served by the codex runner shelling out to `codex exec` under ChatGPT
  * auth, so an entry with `supported_in_api: false` would still be servable.
  *
- * `gpt-5.5` has grown an `upgrade` block (→ `gpt-5.6-sol`, retiring
- * 2026-10-14) but stays selectable here until that date; move it to
- * LEGACY_MODEL_UPGRADES once retired.
- *
- * GPT-6.1 Sol verified against the active session models_cache.json, 2026-09-29.
- * Other entries verified against codex-cli 0.158.0, 2026-09-29. `gpt-5.3-codex-spark` was
- * removed the same day: gone from the catalog and binary, rejected by a live
- * `codex exec -m`, and its rate-limit bucket is no longer reported. It now heals
- * through LEGACY_MODEL_UPGRADES, and the `spark` lane went with it.
+ * Verified against models_cache.json from codex-cli 0.162.1, 2026-10-12.
+ * GPT-5.5 is already hidden and deprecated, before its October 14 retirement;
+ * the fleet migrates it now to the catalog replacement, GPT-6.1 Sol.
  */
 export const SUPPORTED_MODELS: readonly string[] = [
   'gpt-6.1-sol',
@@ -68,26 +57,7 @@ export const SUPPORTED_MODELS: readonly string[] = [
   'gpt-5.6-sol',
   'gpt-5.6-terra',
   'gpt-5.6-luna',
-  'gpt-5.5',
 ];
-
-export const LEGACY_MODEL_UPGRADES: Readonly<Record<string, string>> = {
-  // Retired upstream 2026-08-31 (`retirement_at` on its catalog `upgrade`
-  // block). Unlike the rows below it does NOT go to FORCE_UPGRADE_MODEL: the
-  // catalog names `gpt-5.6-luna` as the replacement, so honour that. The forced
-  // `high` effort isLegacyModelUpgrade applies is valid on Luna.
-  'gpt-5.4-mini': 'gpt-5.6-luna',
-  'gpt-5.4': FORCE_UPGRADE_MODEL,
-  'gpt-5.3-codex': FORCE_UPGRADE_MODEL,
-  'gpt-5.2': FORCE_UPGRADE_MODEL,
-  'gpt-5.2-codex': FORCE_UPGRADE_MODEL,
-  'gpt-5.1-codex-max': FORCE_UPGRADE_MODEL,
-  'gpt-5.1-codex-mini': FORCE_UPGRADE_MODEL,
-  // Retired upstream (codex-cli 0.158.0: gone from the catalog and binary, a live
-  // call is rejected "not supported when using Codex with a ChatGPT account").
-  // The catalog names no replacement, so it takes the forced upgrade.
-  'gpt-5.3-codex-spark': FORCE_UPGRADE_MODEL,
-};
 
 // Legacy stored-override ids mapped onto the canonical gate ids defined in
 // api/src/services/claude-models.ts (CLAUDE_SUPPORTED_MODELS). Values MUST be
@@ -136,12 +106,11 @@ export const MODEL_REASONING_EFFORTS: Readonly<Record<string, readonly string[]>
   'gpt-5.6-sol': ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
   'gpt-5.6-terra': ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
   'gpt-5.6-luna': ['low', 'medium', 'high', 'xhigh', 'max'],
-  'gpt-5.5': ['low', 'medium', 'high', 'xhigh'],
 };
 
 /**
  * `default_reasoning_level` as reported by the Codex CLI model catalog.
- * Verified against `codex debug models` on codex-cli 0.158.0, 2026-09-29.
+ * Verified against codex-cli 0.162.1 models_cache.json, 2026-10-12.
  */
 export const CODEX_MODEL_DEFAULT_REASONING_EFFORTS: Readonly<Record<string, string>> = {
   'gpt-6.1-sol': 'low',
@@ -151,7 +120,6 @@ export const CODEX_MODEL_DEFAULT_REASONING_EFFORTS: Readonly<Record<string, stri
   'gpt-5.6-sol': 'low',
   'gpt-5.6-terra': 'medium',
   'gpt-5.6-luna': 'medium',
-  'gpt-5.5': 'medium',
 };
 
 /**
@@ -338,6 +306,13 @@ export function defaultCodexReasoningEffortForModel(model: string | null): strin
   return modelEntry(CODEX_MODEL_DEFAULT_REASONING_EFFORTS, model) ?? null;
 }
 
+/** Keep valid GPT-5.5 effort on its replacement; retain older migration policy. */
+export function normalizeStoredCodexEffort(value: unknown, rawModel: unknown): string | null {
+  const model = normalizeStoredModel(rawModel);
+  if (isLegacyModelUpgrade(rawModel) && normalizeString(rawModel) !== 'gpt-5.5') return FORCE_UPGRADE_REASONING_EFFORT;
+  return normalizeReasoningEffortForModel(value, model);
+}
+
 /** Claude settings.json `effortLevel`, constrained by the selected Claude model. */
 export function normalizeClaudeEffortLevel(value: unknown, model: string | null): string | null {
   const effort = normalizeString(value)?.toLowerCase() ?? null;
@@ -424,11 +399,8 @@ function normalizeProfiles(value: unknown): Array<Record<string, unknown>> {
       if (profile.features !== undefined) profile.features = normalizeFeatures(profile.features);
       const rawModel = profile.model;
       const model = normalizeStoredModel(rawModel);
-      const forceUpgraded = isLegacyModelUpgrade(rawModel);
-      const reasoning = forceUpgraded && model !== null
-        ? FORCE_UPGRADE_REASONING_EFFORT
-        : normalizeReasoningEffortForModel(profile.model_reasoning_effort, model)
-          ?? (profile.model !== undefined ? defaultCodexReasoningEffortForModel(model) : null);
+      const reasoning = normalizeStoredCodexEffort(profile.model_reasoning_effort, rawModel)
+        ?? (profile.model !== undefined ? defaultCodexReasoningEffortForModel(model) : null);
       if (model !== null) profile.model = model;
       else delete profile.model;
       if (reasoning !== null) profile.model_reasoning_effort = reasoning;
@@ -463,15 +435,10 @@ export function normalizeSettings(
   const settings = asRecord(raw);
   const rawModel = settings.model ?? (applyCodexDefaults ? DEFAULT_CODEX_MODEL : undefined);
   const model = normalizeStoredModel(rawModel);
-  const forceUpgraded = isLegacyModelUpgrade(rawModel);
 
   const personality = normalizePersonality(settings.personality) ?? 'friendly';
-  const reasoning = forceUpgraded && model !== null
-    ? FORCE_UPGRADE_REASONING_EFFORT
-    : normalizeReasoningEffortForModel(
-      settings.model_reasoning_effort,
-      model,
-    ) ?? (applyCodexDefaults
+  const reasoning = normalizeStoredCodexEffort(settings.model_reasoning_effort, rawModel)
+    ?? (applyCodexDefaults
       ? defaultCodexReasoningEffortForModel(model) ?? DEFAULT_CODEX_REASONING_EFFORT
       : null);
 

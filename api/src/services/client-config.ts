@@ -44,7 +44,6 @@ import { nowIso } from '../util/timestamp.js';
 import { wsPublisher } from '../ws/publisher.js';
 import { claudeNativeOwnedPaths } from './claude-native-settings.js';
 import {
-  FORCE_UPGRADE_REASONING_EFFORT,
   CLAUDE_MODEL_DEFAULT_REASONING_EFFORTS,
   type NormalizedSettings,
   defaultCodexReasoningEffortForModel,
@@ -54,7 +53,7 @@ import {
   normalizeStoredModel,
   normalizeClaudeModel,
   normalizeClaudeEffortLevel,
-  isLegacyModelUpgrade,
+  normalizeStoredCodexEffort,
   modelEntry,
   settingsHash,
   DEFAULT_CLAUDE_PERMISSION_MODE,
@@ -735,14 +734,11 @@ function applyHostModelOverrides(
   const out = { ...settings };
   const rawModelOverride = host.modelOverride ?? null;
   const modelOverride = normalizeStoredModel(rawModelOverride);
-  const forceUpgradedOverride = isLegacyModelUpgrade(rawModelOverride);
   const effectiveModel = modelOverride ?? normalizeStoredModel(out['model']);
   const effortOverrideRaw = normalizeReasoningEffort(host.reasoningEffortOverride ?? null);
   const effortOverride = modelOverride !== null
-    ? forceUpgradedOverride
-      ? FORCE_UPGRADE_REASONING_EFFORT
-      : normalizeReasoningEffortForModel(effortOverrideRaw, modelOverride)
-        ?? defaultCodexReasoningEffortForModel(modelOverride)
+    ? normalizeStoredCodexEffort(effortOverrideRaw, rawModelOverride)
+      ?? defaultCodexReasoningEffortForModel(modelOverride)
     : normalizeReasoningEffortForModel(effortOverrideRaw, effectiveModel);
 
   if (modelOverride !== null) out['model'] = modelOverride;

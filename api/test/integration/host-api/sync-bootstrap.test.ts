@@ -1254,7 +1254,7 @@ describe('POST /sync/bootstrap inlines agents + config', () => {
   it('omits content when digests match', async () => {
     const apiKey = 'sk-bootstrap-unchanged';
     const agentsBody = '# AGENTS.md\n';
-    const configBody = 'model = "gpt-5.5"\n';
+    const configBody = 'model = "gpt-6-sol"\n';
     const agentsSha = createHash('sha256').update(agentsBody).digest('hex');
     const configSha = createHash('sha256').update(configBody).digest('hex');
 

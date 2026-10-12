@@ -45,7 +45,6 @@ describe('config-normalizer constants', () => {
       'gpt-5.6-sol',
       'gpt-5.6-terra',
       'gpt-5.6-luna',
-      'gpt-5.5',
     ]);
   });
 
@@ -54,7 +53,7 @@ describe('config-normalizer constants', () => {
   });
 
   it('matches the current Codex CLI model effort catalog and defaults', () => {
-    // Mirrors `codex debug models` on codex-cli 0.158.0, 2026-09-29.
+    // Mirrors codex-cli 0.162.1 models_cache.json, 2026-10-12.
     expect(MODEL_REASONING_EFFORTS).toEqual({
       'gpt-6.1-sol': ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
       'gpt-6-astra': ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
@@ -63,7 +62,6 @@ describe('config-normalizer constants', () => {
       'gpt-5.6-sol': ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
       'gpt-5.6-terra': ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
       'gpt-5.6-luna': ['low', 'medium', 'high', 'xhigh', 'max'],
-      'gpt-5.5': ['low', 'medium', 'high', 'xhigh'],
     });
     expect(CODEX_MODEL_DEFAULT_REASONING_EFFORTS).toEqual({
       'gpt-6.1-sol': 'low',
@@ -74,7 +72,6 @@ describe('config-normalizer constants', () => {
       'gpt-5.6-sol': 'low',
       'gpt-5.6-terra': 'medium',
       'gpt-5.6-luna': 'medium',
-      'gpt-5.5': 'medium',
     });
   });
 
@@ -293,11 +290,11 @@ describe('normalizeReasoningEffort', () => {
     expect(normalizeReasoningEffortForModel('max', 'gpt-6-astra')).toBe('max');
     // Astra gained `ultra` in the CLI catalog.
     expect(normalizeReasoningEffortForModel('ultra', 'gpt-6-astra')).toBe('ultra');
-    expect(normalizeReasoningEffortForModel('high', 'gpt-5.5')).toBe('high');
+    expect(normalizeReasoningEffortForModel('high', 'gpt-6-luna')).toBe('high');
     expect(normalizeReasoningEffortForModel('ultra', 'gpt-5.6-terra')).toBe('ultra');
     expect(normalizeReasoningEffortForModel('ultra', 'gpt-5.6-luna')).toBeNull();
-    expect(normalizeReasoningEffortForModel('minimal', 'gpt-5.5')).toBeNull();
-    expect(normalizeReasoningEffortForModel('ultra', 'gpt-5.5')).toBeNull();
+    expect(normalizeReasoningEffortForModel('minimal', 'gpt-6-luna')).toBeNull();
+    expect(normalizeReasoningEffortForModel('ultra', 'gpt-6-luna')).toBeNull();
   });
 
   it('returns each model native Codex default effort', () => {
@@ -336,7 +333,7 @@ describe('normalizeSettings()', () => {
     expect(normalizeSettings({
       model: 'gpt-5.5',
       model_reasoning_effort: 'minimal',
-    }).model_reasoning_effort).toBe('medium');
+    }).model_reasoning_effort).toBe('low');
     expect(normalizeSettings({
       profiles: [{ name: 'luna', model: 'gpt-5.6-luna', model_reasoning_effort: 'ultra' }],
     }).profiles).toEqual([

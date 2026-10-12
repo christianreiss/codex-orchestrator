@@ -154,11 +154,11 @@ describe('POST /sync/bootstrap claude_artifacts bundle', () => {
     const apiKey = 'sk-claude-nocfg';
     const db = baseTables(apiKey, 'claude');
     // Only a CODEX config row exists (it carries a codex model). Before the fix
-    // retrieveClaudeSettings fell back to this row and leaked `gpt-5.5` into
+    // retrieveClaudeSettings fell back to this row and leaked `gpt-6-sol` into
     // Claude's settings.json. Now there is no fallback: render from an empty
     // base so no codex key is borrowed, but still inject the managed clx MCP.
     db.tables.set(clientConfigDocuments, [
-      { id: 7, engine: 'codex', slug: 'main', body: '', sha256: 'x', settings: { model: 'gpt-5.5' }, createdAt: 't', updatedAt: 't' },
+      { id: 7, engine: 'codex', slug: 'main', body: '', sha256: 'x', settings: { model: 'gpt-6-sol' }, createdAt: 't', updatedAt: 't' },
     ]);
     const app = await buildHostApiTestApp({ db: db as any, env, keyring: makeKeyring() });
     const r = await app.inject({

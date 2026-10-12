@@ -9,6 +9,7 @@
 import { Ajv } from 'ajv';
 import schema from './codex-config-schema.json' with { type: 'json' };
 import { ValidationError } from '../http/errors.js';
+import { upgradeCodexModelId } from './codex-model-upgrades.js';
 
 export const CODEX_RETIRED_FEATURE_KEYS: readonly string[] = [
   "apply_patch_freeform",
@@ -112,6 +113,15 @@ export function normalizeCodexNativeSettings(value: unknown): NativeSettings | u
   }
   if (Object.hasOwn(nativeRecord(features.guardianv2), 'thread_context')) {
     throw new ValidationError('native_settings.features.guardianv2.thread_context is removed', { param: 'native_settings.features.guardianv2.thread_context' });
+  }
+  // Model ids live in several native scopes, including profile sidecars. Migrate
+  // known deprecated choices only; provider-specific and future ids pass through.
+  for (const [record, keys] of [
+    [out, ['review_model', 'experimental_realtime_ws_model']],
+    [nativeRecord(out.agents), ['default_subagent_model']],
+    [nativeRecord(out.memories), ['extract_model', 'consolidation_model']],
+  ] as const) {
+    for (const key of keys) if (typeof record[key] === 'string') record[key] = upgradeCodexModelId(record[key]);
   }
   validateCodexConfigDocument(out);
   return out;
