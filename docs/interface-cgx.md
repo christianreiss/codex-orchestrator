@@ -354,6 +354,17 @@ background workers retain their accepted lease through result storage. See
 [delivery reliability](interface-api.md#delivery-reliability-cxx-0926) and the
 [2026-10-08 lifecycle audit](agent-messaging-audit-2026-10-08.md).
 
+From cxx 0.9.64 the automatic receiver also releases a read informational
+delivery when the model ends its turn without `agent_reply` or `agent_listen`.
+Codex and Grok submit only while the thread is idle, so the next busy spell is the
+turn that consumes the message; once the thread has then stayed idle for ten
+seconds, the receiver completes held informational deliveries submitted before
+that spell, exactly as `agent_listen` would, and claims the next message.
+Without this, a model that answered with `agent_send` and stopped left every
+later message and schedule wake queued until a human typed. Accepted work and
+open Portal instructions are never released this way. Claude uses its
+`Stop`/`UserPromptSubmit` hooks for the same release (see `interface-clx.md`).
+
 From cxx 0.9.20, Grok exposes the same seven group/subscription MCP tools as
 Codex and Claude: `agent_group_list`, `agent_group_create`, `agent_group_members`,
 `agent_subscribe`, `agent_unsubscribe`, `agent_subscriptions` and `agent_publish`.

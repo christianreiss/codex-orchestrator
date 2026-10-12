@@ -43,6 +43,11 @@ type autoReceiver struct {
 	gateSince  time.Time
 	// stall is the dead-air watch for messages this process sent (see stall.go).
 	stall *stallWatcher
+	// turnBusyAt and turnIdleSince follow a Codex/Grok thread through the turn
+	// that consumes a native delivery (see releaseAfterNativeTurn). Only the
+	// connection goroutine touches them.
+	turnBusyAt    time.Time
+	turnIdleSince time.Time
 }
 
 // A native delivery transport proves identity and admission without granting
@@ -395,13 +400,16 @@ func (r *autoReceiver) connection(parent context.Context) error {
 			gate = "held_delivery"
 		}
 		r.tracker.mu.Unlock()
-		if gate == "open" && r.queue != nil {
+		if (gate == "open" || gate == "held_delivery") && r.queue != nil {
 			status, err := r.queue.status()
 			if err != nil {
 				return err
 			}
-			if status != "idle" {
+			if gate == "open" && status != "idle" {
 				gate = "thread_" + status
+			}
+			if gate == "held_delivery" {
+				r.releaseAfterNativeTurn(ctx, status, time.Now())
 			}
 		}
 		r.setGate(gate)
@@ -439,6 +447,10 @@ func (r *autoReceiver) connection(parent context.Context) error {
 					_ = r.tracker.acknowledge(ctx, id, pending, "ambiguous", "native_submission_uncertain")
 					r.tracker.drop(id, pending)
 					return err
+				}
+				if r.queue != nil {
+					r.tracker.markNativeDelivered(pending, time.Now())
+					r.turnBusyAt, r.turnIdleSince = time.Time{}, time.Time{}
 				}
 			} else if claimed.Message != nil {
 				d := claimed.Message

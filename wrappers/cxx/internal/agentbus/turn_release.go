@@ -328,3 +328,62 @@ func (l *ringLedger) heldSummary(event string, held []heldDelivery) string {
 	text.WriteString("\nNo other message, wake or call can be delivered to this session until you do. If the work is genuinely still running, carry on; this will not ring again.\n")
 	return text.String()
 }
+
+// nativeTurnSettle is how long a Codex or Grok thread must stay idle after a
+// busy spell before its queue counts as drained. The native TUI starts a queued
+// submission at its next safe boundary, so an idle thread that still had our
+// message queued would turn busy again well within this window.
+const nativeTurnSettle = 10 * time.Second
+
+func (t *channelTracker) markNativeDelivered(p *channelPending, at time.Time) {
+	t.mu.Lock()
+	p.nativeAt = at
+	t.mu.Unlock()
+}
+
+// releaseAfterNativeTurn is the Codex/Grok counterpart of the Claude Stop hook.
+// Those adapters submit only while the thread is idle, so the next busy spell is
+// the turn that consumes the delivery; once the thread has settled idle after
+// it, the model has read the message and ended its turn. Held informational
+// deliveries submitted before that spell are then released exactly as
+// agent_listen would. Work and Portal ownership are untouched.
+func (r *autoReceiver) releaseAfterNativeTurn(ctx context.Context, status string, now time.Time) {
+	if status != "idle" {
+		if r.turnBusyAt.IsZero() {
+			r.turnBusyAt = now
+		}
+		r.turnIdleSince = time.Time{}
+		return
+	}
+	if r.turnBusyAt.IsZero() {
+		return
+	}
+	if r.turnIdleSince.IsZero() {
+		r.turnIdleSince = now
+		return
+	}
+	if now.Sub(r.turnIdleSince) < nativeTurnSettle {
+		return
+	}
+	busyAt := r.turnBusyAt
+	if err := r.tracker.releaseNativeTurn(ctx, busyAt); err != nil {
+		return // keep the observation; the next tick retries
+	}
+	r.turnBusyAt, r.turnIdleSince = time.Time{}, time.Time{}
+}
+
+func (t *channelTracker) releaseNativeTurn(ctx context.Context, busyAt time.Time) error {
+	t.mu.Lock()
+	var seen []string
+	for id, p := range t.items {
+		if p.workKind == "" && !p.nativeAt.IsZero() && p.nativeAt.Before(busyAt) {
+			seen = append(seen, id)
+		}
+	}
+	t.mu.Unlock()
+	if len(seen) == 0 {
+		return nil
+	}
+	_, err := t.releaseSeen(ctx, seen)
+	return err
+}

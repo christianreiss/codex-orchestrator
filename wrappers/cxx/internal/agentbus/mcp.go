@@ -44,6 +44,7 @@ type channelPending struct {
 	workKind       string
 	conferenceID   string
 	sender         string
+	nativeAt       time.Time // submitted to a Codex/Grok native queue
 	replyClientID  string
 	cancel         context.CancelFunc
 }

@@ -231,3 +231,61 @@ func TestReceiverDeliversNextMessageAfterTurnEndRelease(t *testing.T) {
 	cancel()
 	<-done
 }
+
+// Codex and Grok have no hooks, so the receiver watches the native thread
+// instead: a busy spell after the submission, then a settled idle, means the
+// model consumed the message and ended its turn. Seen live on 2026-10-12: a
+// Codex and a Grok target that answered with agent_send and skipped
+// agent_listen left the next message queued for good.
+func TestNativeTurnEndReleasesConsumedInformationalDelivery(t *testing.T) {
+	var calls []string
+	client := heldDeliveryServer(t, &calls)
+	tracker := newChannelTracker(client)
+	r := &autoReceiver{client: client, tracker: tracker, connected: true, sources: []string{"peer"}, lastBeatOK: time.Now()}
+	tracker.receiver = r
+	delivered := time.Now()
+	tracker.items["held"] = &channelPending{claimID: "claim", cancel: func() {}, nativeAt: delivered}
+	tracker.items["work"] = &channelPending{claimID: "claim-work", workKind: "request", cancel: func() {}, nativeAt: delivered}
+	ctx := context.Background()
+	at := func(d time.Duration) time.Time { return delivered.Add(d) }
+
+	// Still idle right after submission: the TUI has not picked it up yet.
+	r.releaseAfterNativeTurn(ctx, "idle", at(time.Second))
+	r.releaseAfterNativeTurn(ctx, "idle", at(30*time.Second))
+	if len(calls) != 0 {
+		t.Fatalf("released before the thread ever ran the delivery: %v", calls)
+	}
+	r.releaseAfterNativeTurn(ctx, "active", at(31*time.Second))
+	r.releaseAfterNativeTurn(ctx, "idle", at(40*time.Second))
+	r.releaseAfterNativeTurn(ctx, "idle", at(45*time.Second))
+	if len(calls) != 0 {
+		t.Fatalf("released before the idle thread settled: %v", calls)
+	}
+	// A queued follow-up turned the thread busy again: start over.
+	r.releaseAfterNativeTurn(ctx, "working", at(46*time.Second))
+	r.releaseAfterNativeTurn(ctx, "idle", at(50*time.Second))
+	r.releaseAfterNativeTurn(ctx, "idle", at(61*time.Second))
+	if strings.Join(calls, ",") != "deliveries/held/ack" {
+		t.Fatalf("calls = %v; want only the informational completion", calls)
+	}
+	if tracker.get("held") != nil || tracker.get("work") == nil {
+		t.Fatal("wrong delivery released: work must stay held until its result")
+	}
+}
+
+func TestNativeTurnEndKeepsDeliveriesSubmittedDuringTheTurn(t *testing.T) {
+	var calls []string
+	client := heldDeliveryServer(t, &calls)
+	tracker := newChannelTracker(client)
+	r := &autoReceiver{client: client, tracker: tracker}
+	tracker.receiver = r
+	start := time.Now()
+	r.releaseAfterNativeTurn(context.Background(), "active", start)
+	// Submitted after the busy spell began: this turn cannot have read it.
+	tracker.items["held"] = &channelPending{claimID: "claim", cancel: func() {}, nativeAt: start.Add(time.Second)}
+	r.releaseAfterNativeTurn(context.Background(), "idle", start.Add(2*time.Second))
+	r.releaseAfterNativeTurn(context.Background(), "idle", start.Add(20*time.Second))
+	if len(calls) != 0 || tracker.get("held") == nil {
+		t.Fatalf("released a delivery the finished turn never saw: %v", calls)
+	}
+}

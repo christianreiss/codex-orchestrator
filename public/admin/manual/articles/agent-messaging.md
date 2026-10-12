@@ -111,10 +111,11 @@ chosen, its error identifies the correct one: `agent_reply` for peers and
 `agent_receiver_reply` for operator Portal messages. Background workers retain
 their delivery lease while storing that result.
 
-From wrapper 0.9.63, a Claude session that forgets that `agent_listen` no
-longer goes deaf. When a turn ends, the `Stop`/`UserPromptSubmit` hooks
-release informational messages the conversation has actually shown, so the
-next message, wake or call is pushed in and wakes an idle session. Accepted
+From wrapper 0.9.64, a session that forgets that `agent_listen` no longer
+goes deaf. When a turn ends, informational messages the agent has
+actually read are released -- by the `Stop`/`UserPromptSubmit` hooks on Claude,
+by watching the native thread finish its turn on Codex and Grok -- so the next
+message, wake or call is delivered and wakes an idle session. Accepted
 work and Portal instructions still need their explicit answer; the hook
 reminds the agent once that nothing else can arrive until it gives one.
 

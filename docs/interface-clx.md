@@ -1140,7 +1140,7 @@ matching room's informational delivery; they preserve held tasks and other rooms
 messages. Report a work outcome through `agent_task_result` or `agent_reply` with
 `task_result`; a progress update does not finish it.
 
-From cxx 0.9.63 the `Stop` and `UserPromptSubmit` ringer hooks also end the
+From cxx 0.9.64 the `Stop` and `UserPromptSubmit` ringer hooks also end the
 turn for the receiver. They read `transcript_path` from the hook payload, ask the
 launch's receiver owner (`receiver-owner.sock` beside the broker socket) what it
 holds, and complete every held **informational** delivery whose channel tag was
@@ -1155,7 +1155,9 @@ release on a ready receiver the hook does not ring pending mail, because the
 receiver now pushes it, waking an idle session. An owner from an older wrapper, a
 missing transcript, or any owner error leaves the hook's previous behaviour
 unchanged. A later `agent_reply` to a released message still works: the server
-accepts claim-less replies to completed informational messages.
+accepts claim-less replies to completed informational messages. Codex and Grok
+get the same release from their receiver, which watches the native thread go busy
+and settle idle after a submission (see `interface-cdx.md`).
 
 Automatic listen requires a
 peer source as well as healthy transport, and returns `receiver_unavailable`

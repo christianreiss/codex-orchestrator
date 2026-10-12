@@ -1006,6 +1006,17 @@ messages. Report a work outcome through `agent_task_result` or `agent_reply` wit
 peer source as well as healthy transport, and returns `receiver_unavailable`
 with `peer_source_unavailable` when only Portal is enabled.
 
+From cxx 0.9.64 the automatic receiver also releases a read informational
+delivery when the model ends its turn without `agent_reply` or `agent_listen`.
+Codex and Grok submit only while the thread is idle, so the next busy spell is the
+turn that consumes the message; once the thread has then stayed idle for ten
+seconds, the receiver completes held informational deliveries submitted before
+that spell, exactly as `agent_listen` would, and claims the next message.
+Without this, a model that answered with `agent_send` and stopped left every
+later message and schedule wake queued until a human typed. Accepted work and
+open Portal instructions are never released this way. Claude uses its
+`Stop`/`UserPromptSubmit` hooks for the same release (see `interface-clx.md`).
+
 From cxx 0.9.8 the automatic `agent_listen` reports the receiver's real state
 instead of a fixed string: `status: "automatic"` with `receiver.state: "ready"` and
 the current `claim_gate` (`open`, `held_delivery`, `portal_pending`, or
