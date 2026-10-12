@@ -62,7 +62,7 @@ func TestSyncBootstrap_UnwrapsResourceObjects(t *testing.T) {
 		_, _ = w.Write([]byte(`{
 			"status":"ok",
 			"agents":{"status":"updated","version_id":1,"content":"# AGENTS.md\n"},
-			"config":{"status":"updated","version_id":2,"content":"model = \"gpt-5.5\"\n"}
+			"config":{"status":"updated","version_id":2,"content":"model = \"gpt-6-sol\"\n"}
 		}`))
 	})
 	resp, err := c.SyncBootstrap(context.Background(), BundleRequest{Engine: "codex"})
@@ -72,7 +72,7 @@ func TestSyncBootstrap_UnwrapsResourceObjects(t *testing.T) {
 	if string(resp.Agents) != "# AGENTS.md\n" {
 		t.Errorf("agents: %q", string(resp.Agents))
 	}
-	if string(resp.Config) != "model = \"gpt-5.5\"\n" {
+	if string(resp.Config) != "model = \"gpt-6-sol\"\n" {
 		t.Errorf("config: %q", string(resp.Config))
 	}
 }

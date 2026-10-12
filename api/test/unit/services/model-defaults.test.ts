@@ -128,11 +128,6 @@ describe('ModelDefaultsService', () => {
         persistent_efforts: ['low', 'medium', 'high', 'xhigh', 'max'],
         default_effort: 'medium',
       },
-      {
-        model: 'gpt-5.5',
-        persistent_efforts: ['low', 'medium', 'high', 'xhigh'],
-        default_effort: 'medium',
-      },
     ]);
 
     const claude = await service.get(ENGINE_CLAUDE);
@@ -267,7 +262,7 @@ describe('ModelDefaultsService', () => {
         model: 'gpt-5.5',
         reasoning_effort: 'max',
       }),
-    ).rejects.toMatchObject({ status: 422, param: 'reasoning_effort' });
+    ).rejects.toMatchObject({ status: 422, param: 'model' });
     await expect(
       service.set(ENGINE_CODEX, {
         model: 'gpt-5.6-luna',
@@ -276,7 +271,7 @@ describe('ModelDefaultsService', () => {
     ).rejects.toMatchObject({ status: 422, param: 'reasoning_effort' });
     await expect(
       service.set(ENGINE_CODEX, {
-        model: 'gpt-5.5',
+        model: 'gpt-6-sol',
         reasoning_effort: 'minimal',
       }),
     ).rejects.toMatchObject({ status: 422, param: 'reasoning_effort' });

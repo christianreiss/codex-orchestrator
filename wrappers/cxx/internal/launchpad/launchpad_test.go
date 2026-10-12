@@ -19,7 +19,7 @@ func codexEngine() Engine {
 	return Engine{Name: "codex", Model: "gpt-6-astra", Effort: "medium", Models: []Model{
 		{ID: "gpt-6.1-sol", Efforts: []string{"low", "medium", "high", "xhigh", "max", "ultra"}, DefaultEffort: "low"},
 		{ID: "gpt-6-astra", Efforts: []string{"low", "medium", "high", "xhigh", "max", "ultra"}, DefaultEffort: "medium"},
-		{ID: "gpt-5.5", Efforts: []string{"low", "medium", "high", "xhigh"}, DefaultEffort: "medium"},
+		{ID: "gpt-6-luna", Efforts: []string{"low", "medium", "high", "xhigh", "max"}, DefaultEffort: "medium"},
 	}}
 }
 
@@ -108,16 +108,16 @@ func TestSingleEngineStartsInGrid(t *testing.T) {
 
 func TestModelChangeKeepsOrSnapsEffort(t *testing.T) {
 	p := newPicker([]Engine{codexEngine()}, nil, terminalui.Caps{})
-	// medium survives a move to gpt-5.5.
+	// medium survives a move to gpt-6-luna.
 	press(t, p, "down", "enter")
 	if p.result.Effort != "medium" {
 		t.Fatalf("effort = %q, want medium kept", p.result.Effort)
 	}
-	// ultra does not exist on gpt-5.5: snap to its default.
+	// ultra does not exist on gpt-6-luna: snap to its default.
 	p = newPicker([]Engine{codexEngine()}, nil, terminalui.Caps{})
 	press(t, p, "right", "right", "right", "right", "down", "enter")
-	if p.result.Model != "gpt-5.5" || p.result.Effort != "medium" {
-		t.Fatalf("result = %+v, want gpt-5.5 snapped to medium", p.result)
+	if p.result.Model != "gpt-6-luna" || p.result.Effort != "medium" {
+		t.Fatalf("result = %+v, want gpt-6-luna snapped to medium", p.result)
 	}
 }
 

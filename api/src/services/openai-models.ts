@@ -8,6 +8,7 @@ import {
   DEFAULT_CODEX_MODEL,
   LEGACY_MODEL_UPGRADES,
   SUPPORTED_MODELS,
+  normalizeStoredModel,
 } from './config-normalizer.js';
 
 export const OPENAI_MODELS = SUPPORTED_MODELS;
@@ -87,7 +88,9 @@ export function buildModelObject(id: string): OpenAiModelObject {
 export function buildModelList(extra: readonly string[] = []): OpenAiModelList {
   const seen = new Set<string>();
   const ids: string[] = [];
-  for (const id of [...OPENAI_MODELS, ...extra]) {
+  for (const requested of [...OPENAI_MODELS, ...extra]) {
+    const id = normalizeStoredModel(requested);
+    if (id === null) continue;
     if (!seen.has(id)) {
       seen.add(id);
       ids.push(id);

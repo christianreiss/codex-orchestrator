@@ -74,6 +74,10 @@ describe('buildModelList', () => {
     expect(list.data.map((m) => m.id)).toEqual([...OPENAI_MODELS]);
   });
 
+  it('does not let curated extras reintroduce deprecated models', () => {
+    expect(buildModelList(['gpt-5.5', 'gpt-5.3-codex-spark']).data.map((m) => m.id)).toEqual([...OPENAI_MODELS]);
+  });
+
   it('appends extras and dedupes on id', () => {
     const list = buildModelList(['gpt-5.6-terra', 'gpt-7.0', 'gpt-7.0']);
     expect(list.data.map((m) => m.id)).toEqual([...OPENAI_MODELS, 'gpt-7.0']);

@@ -343,14 +343,19 @@ The fleet starts on `gpt-6-astra` at its native `medium` effort.
 | `gpt-5.6-sol` | `low`, `medium`, `high`, `xhigh`, `max`, `ultra` | `low` |
 | `gpt-5.6-terra` | `low`, `medium`, `high`, `xhigh`, `max`, `ultra` | `medium` |
 | `gpt-5.6-luna` | `low`, `medium`, `high`, `xhigh`, `max` | `medium` |
-| `gpt-5.5` | `low`, `medium`, `high`, `xhigh` | `medium` |
 
 `gpt-5.4-mini` was retired upstream on 2026-08-31 and is no longer offered; a
 stored override naming it heals to `gpt-5.6-luna`, the replacement the Codex
-model catalog names, at the retained `high` migration effort. `gpt-5.5` carries an
-upstream `upgrade` block (→ `gpt-5.6-sol`, retiring 2026-10-14) and stays offered
-until then. GPT-6.1 Sol was verified from the active session model cache on 2026-09-29. The other rows mirror `codex debug models` on codex-cli 0.158.0
-(verified 2026-09-29). `gpt-5.3-codex-spark` is retired: it left the catalog and
+model catalog names, at the retained `high` migration effort. `gpt-5.5` is
+already deprecated and hidden in the native catalog: it is no longer offered,
+before its 2026-10-14T19:00:00Z retirement. Stored selections heal to the catalog
+replacement `gpt-6.1-sol`, preserving a valid effort (otherwise using `low`).
+This covers fleet settings, host overrides, profile sidecars, review/subagent
+models, and memory extraction/consolidation models; unknown custom provider IDs
+remain untouched. The seven current rows and their efforts were verified against
+codex-cli 0.162.1's model cache on 2026-10-12 and the
+[official model guidance](https://learn.chatgpt.com/docs/models).
+`gpt-5.3-codex-spark` is retired: it left the catalog and
 binary, a live `codex exec -m gpt-5.3-codex-spark` is rejected ("not supported
 when using Codex with a ChatGPT account"), and its quota bucket is gone. A stored
 override naming it heals to `gpt-6-astra` at the retained `high` migration

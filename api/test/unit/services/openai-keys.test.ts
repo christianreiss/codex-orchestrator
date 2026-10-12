@@ -122,7 +122,7 @@ describe('openai-models', () => {
     expect(resolveRequestedModel('gpt-5.6-sol')).toBe('gpt-5.6-sol');
     expect(resolveRequestedModel('gpt-5.6-terra')).toBe('gpt-5.6-terra');
     expect(resolveRequestedModel('gpt-5.6-luna')).toBe('gpt-5.6-luna');
-    expect(resolveRequestedModel('gpt-5.5')).toBe('gpt-5.5');
+    expect(resolveRequestedModel('gpt-5.5')).toBe('gpt-6.1-sol');
     // Retired upstream 2026-08-31: heals to the replacement the catalog names.
     expect(resolveRequestedModel('gpt-5.4-mini')).toBe('gpt-5.6-luna');
     // Retired upstream 2026-09-29: heals to the forced-upgrade model.
@@ -144,7 +144,6 @@ describe('openai-models', () => {
       'gpt-5.6-sol',
       'gpt-5.6-terra',
       'gpt-5.6-luna',
-      'gpt-5.5',
     ]);
     for (const m of list.data) {
       expect(m).toMatchObject({ object: 'model', owned_by: 'codex-orchestrator' });
