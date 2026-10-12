@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { beforeAll, describe, it, expect, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -52,6 +52,7 @@ const NON_ROUTE_ENDPOINTS: Record<string, string> = {};
 
 /** Files that call a path built at runtime, and what feeds that path. */
 const RUNTIME_PATH_CALLERS: Record<string, string> = {
+  'frontend/src/lib/api/nativeSettings.ts': 'Engine selects /admin/config, /admin/claude/config or /admin/grok/config; the table below executes GET plus POST /render and /store for every engine and checks registered routes.',
   'frontend/src/lib/components/policies/SessionHousekeeping.svelte': 'endpoint chooses fleet or host session-housekeeping routes; engine completes the POST path',
   'frontend/src/lib/api/watchdogs.ts': 'Reactive target queries and versioned disable IDs use Watchdog routes; API and browser tests cover activation and disable.',
   'frontend/src/lib/api/schedules.ts': 'Schedule list pagination and detail IDs derive from reactive stores; schedule API and route tests cover methods, versions and target paths.',
@@ -333,6 +334,46 @@ describe('frontend API path coverage', () => {
     for (const reason of [...Object.values(NON_ROUTE_ENDPOINTS), ...Object.values(RUNTIME_PATH_CALLERS)]) {
       expect(reason.trim()).not.toBe('');
       expect(reason).not.toContain('\n');
+    }
+  });
+});
+
+describe('native settings runtime endpoint coverage', () => {
+  const calls: Array<{ method: string; path: string; body?: unknown }> = [];
+  let nativeSettingsApi: {
+    get(engine: string): Promise<unknown>;
+    render(engine: string, settings: Record<string, unknown>): Promise<unknown>;
+    store(engine: string, settings: Record<string, unknown>, sha: string | null, revision: string | null): Promise<unknown>;
+  };
+  beforeAll(async () => {
+    vi.doMock(join(REPO, 'frontend/src/lib/api/client.ts'), () => ({
+      api: {
+        get: async (path: string) => { calls.push({ method: 'GET', path }); },
+        post: async (path: string, body: unknown) => { calls.push({ method: 'POST', path, body }); },
+      },
+    }));
+    // Dynamic loading executes the actual frontend helper without pulling its
+    // browser client (or the frontend TypeScript project) into the API build.
+    ({ nativeSettingsApi } = await import(join(REPO, 'frontend/src/lib/api/nativeSettings.ts')));
+  });
+
+  it.each([
+    ['codex', '/admin/config'],
+    ['claude', '/admin/claude/config'],
+    ['grok', '/admin/grok/config'],
+  ])('serves every %s config fetch, render and store request', async (engine, path) => {
+    calls.length = 0;
+    const settings = { native_settings: {} };
+    await nativeSettingsApi.get(engine!);
+    await nativeSettingsApi.render(engine!, settings);
+    await nativeSettingsApi.store(engine!, settings, 'digest', 'revision');
+    expect(calls).toEqual([
+      { method: 'GET', path },
+      { method: 'POST', path: `${path}/render`, body: { settings } },
+      { method: 'POST', path: `${path}/store`, body: { settings, sha256: 'digest', expected_revision: 'revision' } },
+    ]);
+    for (const call of calls) {
+      expect(routes.some(route => servedBy(call.method, call.path, route)), endpointOf(call.method, call.path)).toBe(true);
     }
   });
 });
