@@ -165,6 +165,49 @@ is deliberately not derived: its interplay with the isolated managed runtime is
 unverified and Grok runs unsandboxed when a profile cannot be applied; the
 enforcement report lists it under `not_enforced`.
 
+## Native configuration maintenance (2026-10-12)
+
+The config API accepts `settings.native_settings`, a JSON object with the native
+`config.toml` table shape. The Grok validator preserves documented fields through
+save, read, host rendering and wrapper sync. This includes tool settings,
+subagents, plugins, goals, memory, native command/HTTP hooks, notification hooks,
+and built-in or command status lines. Features are configured only when an
+operator supplies them; support does not turn experimental features on.
+
+The field/type registry is audited against Grok Build **1.0.50 stable** and the
+[official complete reference](https://github.com/xai-org/grok-build/blob/2bdd1d6a6369de0e8c68132ea4539e9abd9e14a8/crates/codegen/xai-grok-pager/docs/user-guide/26-config-reference.md),
+supplemented by the matching configuration, hooks and status-line guides and
+[current settings reference](https://docs.x.ai/build/settings/reference).
+The complete field set requires Grok Build 1.0.50, including the new
+`ui.timestamps` setting. `pager.toml`, custom
+`sandbox.toml` profiles and enterprise `requirements.toml` are separate files;
+this interface edits the user `config.toml` partial only.
+
+Unknown keys, wrong types/enums, deprecated per-model `reasoning_effort` and
+`supports_reasoning_effort`, `ui.approval_mode`, `ui.ui_theme`, and
+`ui.show_timestamps` produce a 422 with the offending setting path. The message
+names the current replacement. Omit absent values; TOML has no `null`.
+
+Structured model/effort/context controls take precedence over the matching
+native defaults. Native defaults are used when those controls are absent; host
+overrides and security posture are applied afterward. Other per-model fields
+survive. The subscription model catalog still validates the effective default.
+Native MCP definitions join the normal managed injection path, including
+`bearer_token_file`, OAuth configuration and per-tool timeouts; fleet entries
+replace conflicting names. The runtime's subscription auth provider, private
+leader, update policy and disabled cross-engine MCP imports remain owned by the
+fleet; incompatible native settings are rejected instead of silently ignored.
+
+Native `version_overrides` accept validated version bounds and ordinary native
+patches. Conditional model, posture and MCP changes are rejected because those
+layers would bypass the corresponding fleet controls.
+
+`owned_paths` remains a string array. Existing paths keep their dotted encoding;
+ambiguous nested paths use `json:["model","grok-4.7","extra_headers","X.Team"]`.
+This encoding requires **cxx 0.9.66**; host rendering rejects it for older or
+unreported wrapper versions with an update-first message. Sync prunes only an
+unchanged previously owned value and preserves user-authored siblings.
+
 ## Skills
 
 Grok Build loads `~/.grok/skills/<name>/SKILL.md` natively, with the same

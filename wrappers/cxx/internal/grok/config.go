@@ -24,6 +24,13 @@ type configJournal struct {
 }
 
 func configPathParts(path string) []string {
+	if strings.HasPrefix(path, "json:") {
+		var parts []string
+		if json.Unmarshal([]byte(strings.TrimPrefix(path, "json:")), &parts) != nil || len(parts) == 0 {
+			return []string{""} // rejected by SyncConfig's owned-path validation
+		}
+		return parts
+	}
 	if strings.HasPrefix(path, "mcp_servers.") {
 		return []string{"mcp_servers", strings.TrimPrefix(path, "mcp_servers.")}
 	}

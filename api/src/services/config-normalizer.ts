@@ -309,6 +309,8 @@ export interface NormalizedSettings {
   reasoning_effort?: string;
   // Grok's native per-model default context window, in tokens.
   context_window?: number;
+  /** Validated engine-native settings; never interpreted using another engine's schema. */
+  native_settings?: Record<string, unknown>;
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -497,7 +499,7 @@ function normalizeMcpServers(value: unknown): Array<Record<string, unknown>> {
  */
 export function normalizeSettings(
   raw: unknown,
-  opts: { applyCodexDefaults?: boolean } = {},
+  opts: { applyCodexDefaults?: boolean; engine?: 'codex' | 'claude' | 'grok' } = {},
 ): NormalizedSettings {
   const settings = asRecord(raw);
   const applyCodexDefaults = opts.applyCodexDefaults ?? true;
