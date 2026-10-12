@@ -93,5 +93,5 @@ export async function registerAdminGrokRoutes(app: FastifyInstance, ctx: RouteCo
   app.get('/admin/grok/config', { preHandler: app.requireAdmin }, () => config.adminFetch('grok'));
   app.get('/admin/grok/config/retrieve', { preHandler: app.requireAdmin }, () => config.adminFetch('grok'));
   app.post('/admin/grok/config/render', { preHandler: app.requireAdmin }, async req => config.render((req.body as { settings?: unknown })?.settings, 'grok'));
-  app.post('/admin/grok/config/store', { preHandler: app.requireAdmin }, async req => config.store((req.body ?? {}) as { settings?: unknown; sha256?: unknown }, null, 'grok'));
+  app.post('/admin/grok/config/store', { preHandler: app.requireAdmin }, async req => config.store((req.body ?? {}) as { settings?: unknown; sha256?: unknown; expected_revision?: unknown }, null, 'grok'));
 }

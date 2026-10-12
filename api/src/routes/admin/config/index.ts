@@ -130,11 +130,11 @@ export async function registerAdminConfigRoutes(app: FastifyInstance, ctx: Route
     },
   );
 
-  app.post<{ Body: { settings?: unknown; sha256?: unknown } }>(
+  app.post<{ Body: { settings?: unknown; sha256?: unknown; expected_revision?: unknown } }>(
     '/admin/config/store',
     { preHandler: app.requireAdmin },
     async (req) => {
-      const body = (req.body && typeof req.body === 'object') ? req.body as { settings?: unknown; sha256?: unknown } : {};
+      const body = (req.body && typeof req.body === 'object') ? req.body as { settings?: unknown; sha256?: unknown; expected_revision?: unknown } : {};
       return await clientConfig.store(body, null);
     },
   );
@@ -484,11 +484,11 @@ export async function registerAdminConfigRoutes(app: FastifyInstance, ctx: Route
     },
   );
 
-  app.post<{ Body: { settings?: unknown; sha256?: unknown } }>(
+  app.post<{ Body: { settings?: unknown; sha256?: unknown; expected_revision?: unknown } }>(
     '/admin/claude/config/store',
     { preHandler: app.requireAdmin },
     async (req) => {
-      const body = req.body && typeof req.body === 'object' ? (req.body as { settings?: unknown; sha256?: unknown }) : {};
+      const body = req.body && typeof req.body === 'object' ? (req.body as { settings?: unknown; sha256?: unknown; expected_revision?: unknown }) : {};
       return await clientConfig.store(body, null, ENGINE_CLAUDE);
     },
   );

@@ -50,15 +50,23 @@ describe('Claude native user settings', () => {
 
   it('keeps native edits and removal authoritative across store/fetch cycles', async () => {
     let row: Record<string, unknown> | undefined;
+    let id = 0;
     const query = {
       from: () => query,
       where: () => query,
       orderBy: () => query,
-      limit: async () => row ? [structuredClone(row)] : [],
+      limit: () => {
+        const result = Promise.resolve(row ? [structuredClone(row)] : []);
+        return Object.assign(result, { for: () => result });
+      },
     };
     const db = {
       select: () => query,
-      insert: () => ({ values: async (value: Record<string, unknown>) => { row = structuredClone(value); } }),
+      transaction: async <T>(write: (tx: unknown) => Promise<T>) => write(db),
+      insert: () => ({ values: async (value: Record<string, unknown>) => {
+        row = { ...structuredClone(value), id: ++id };
+        return [{ insertId: id }];
+      } }),
     };
     const service = new ClientConfigService(db as never);
     await service.store({ settings: { native_settings: { env: { CUSTOM: 'first' }, permissions: { defaultMode: 'plan' } } } }, null, 'claude');

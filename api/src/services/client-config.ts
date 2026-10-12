@@ -38,7 +38,7 @@ import { createHash } from 'node:crypto';
 import { desc, eq } from 'drizzle-orm';
 import type { Database } from '../db/client.js';
 import { clientConfigDocuments } from '../db/schema.js';
-import { ValidationError } from '../http/errors.js';
+import { ConflictError, ValidationError } from '../http/errors.js';
 import { nowIso } from '../util/timestamp.js';
 import { wsPublisher } from '../ws/publisher.js';
 import { claudeNativeOwnedPaths } from './claude-native-settings.js';
@@ -72,7 +72,7 @@ import {
   type ResponseVerbosityLevel,
 } from './agent-response-style.js';
 import type { Host } from '../db/schema.js';
-import { withGrokConfigWriteLock } from './grok-config-lock.js';
+import { withClientConfigWriteLock, type ConfigWriteContext } from './client-config-lock.js';
 import { grokNativeOwnedPaths, normalizeGrokNativeSettings, renderGrokNativeToml } from './grok-native-settings.js';
 
 const SCALAR_KEYS: Array<keyof NormalizedSettings> = [
@@ -1212,6 +1212,8 @@ export interface RenderResult {
 
 export interface AdminFetchResult {
   status: 'missing' | 'ok';
+  /** Canonical document id; unlike sha256, also changes for settings-only edits. */
+  revision: string | null;
   sha256?: string;
   updated_at?: string | null;
   size_bytes?: number;
@@ -1221,6 +1223,7 @@ export interface AdminFetchResult {
 
 export interface StoreResult extends AdminFetchResult {
   status: 'ok';
+  revision: string;
   sha256: string;
   updated_at: string | null;
   size_bytes: number;
@@ -1230,7 +1233,7 @@ export interface StoreResult extends AdminFetchResult {
 }
 
 export class ClientConfigService {
-  constructor(private readonly db: Database, private readonly grokConfigLocked = false) {}
+  constructor(private readonly db: Database, private readonly configWrite?: ConfigWriteContext) {}
 
   async adminFetch(engine: Engine = ENGINE_CODEX): Promise<AdminFetchResult> {
     const rows = await this.db
@@ -1240,7 +1243,7 @@ export class ClientConfigService {
       .orderBy(desc(clientConfigDocuments.id))
       .limit(1);
     const row = rows.find((r) => r.engine === engine) ?? rows[0];
-    if (!row) return { status: 'missing' };
+    if (!row) return { status: 'missing', revision: null };
     const body = row.body;
     const sha = row.sha256 ?? createHash('sha256').update(body).digest('hex');
     const settings = row.settings && typeof row.settings === 'object'
@@ -1248,6 +1251,7 @@ export class ClientConfigService {
       : null;
     return {
       status: 'ok',
+      revision: String(row.id),
       sha256: sha,
       updated_at: row.updatedAt,
       size_bytes: Buffer.byteLength(body, 'utf8'),
@@ -1268,13 +1272,13 @@ export class ClientConfigService {
   }
 
   async store(
-    payload: { settings?: unknown; sha256?: unknown },
+    payload: { settings?: unknown; sha256?: unknown; expected_revision?: unknown },
     sourceHostId: number | null = null,
     engine: Engine = ENGINE_CODEX,
   ): Promise<StoreResult> {
-    if (engine === ENGINE_GROK && !this.grokConfigLocked) {
-      return withGrokConfigWriteLock(this.db, tx =>
-        new ClientConfigService(tx, true).store(payload, sourceHostId, engine));
+    if (!this.configWrite) {
+      return withClientConfigWriteLock(this.db, engine, (tx, _existing, context) =>
+        new ClientConfigService(tx, context).store(payload, sourceHostId, engine));
     }
     const rendered = this.render(payload.settings, engine);
 
@@ -1285,6 +1289,20 @@ export class ClientConfigService {
       .orderBy(desc(clientConfigDocuments.id))
       .limit(1);
     const existing = existingRows.find((r) => r.engine === engine) ?? existingRows[0];
+
+    if (payload.expected_revision !== undefined) {
+      const expected = payload.expected_revision;
+      if (expected !== null && (typeof expected !== 'string' || !/^[1-9]\d*$/.test(expected))) {
+        throw new ValidationError('expected_revision must be a saved revision string or null for a missing config', {
+          param: 'expected_revision',
+        });
+      }
+      const current = existing ? String(existing.id) : null;
+      if (expected !== current) {
+        throw new ConflictError('Configuration changed since it was loaded; reload and review your changes before saving',
+          'config_revision_conflict', { expected_revision: expected, current_revision: current });
+      }
+    }
 
     if (payload.sha256 !== undefined && payload.sha256 !== null && payload.sha256 !== '') {
       if (typeof payload.sha256 !== 'string') {
@@ -1316,14 +1334,16 @@ export class ClientConfigService {
     let savedSha: string;
     let savedBody: string;
     let savedUpdatedAt: string;
+    let savedRevision: string;
 
     if (change === 'unchanged' && existing) {
       savedSha = existing.sha256;
       savedBody = existing.body;
       savedUpdatedAt = existing.updatedAt;
+      savedRevision = String(existing.id);
     } else {
       const nowTs = nowIso();
-      await this.db.insert(clientConfigDocuments).values({
+      const [inserted] = await this.db.insert(clientConfigDocuments).values({
         sha256: rendered.sha256,
         body: rendered.content,
         settings: rendered.settings as unknown as Record<string, unknown>,
@@ -1335,11 +1355,13 @@ export class ClientConfigService {
       savedSha = rendered.sha256;
       savedBody = rendered.content;
       savedUpdatedAt = nowTs;
-      wsPublisher.publish('settings.changed', { kind: 'client_config', change, engine });
+      savedRevision = String(inserted.insertId);
+      this.configWrite.afterCommit(() => wsPublisher.publish('settings.changed', { kind: 'client_config', change, engine }));
     }
 
     return {
       status: 'ok',
+      revision: savedRevision,
       sha256: savedSha,
       updated_at: savedUpdatedAt,
       size_bytes: Buffer.byteLength(savedBody, 'utf8'),
