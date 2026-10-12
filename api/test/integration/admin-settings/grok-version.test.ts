@@ -24,7 +24,7 @@ describe('Grok admin version controls', () => {
     const response = await app.inject({ method: 'GET', url: '/admin/grok/version' });
     expect(response.statusCode).toBe(200);
     expect(response.json()).toMatchObject({
-      client_version: '1.0.46',
+      client_version: '1.0.50',
       client_version_lock: null,
       client_version_enforce_exact: false,
     });
@@ -46,21 +46,21 @@ describe('Grok admin version controls', () => {
     const response = await app.inject({
       method: 'POST',
       url: '/admin/grok/version',
-      payload: { selection: '1.0.47' },
+      payload: { selection: '1.0.51' },
     });
     expect(response.statusCode).toBe(200);
-    expect(response.json()).toMatchObject({ locked_version: '1.0.47' });
+    expect(response.json()).toMatchObject({ locked_version: '1.0.51' });
     expect((await app.inject({ method: 'GET', url: '/admin/grok/version/lock' })).json()).toMatchObject({
-      locked_version: '1.0.47',
+      locked_version: '1.0.51',
     });
     expect(
-      (await app.inject({ method: 'POST', url: '/admin/grok/version', payload: { selection: '1.0.45' } }))
+      (await app.inject({ method: 'POST', url: '/admin/grok/version', payload: { selection: '1.0.49' } }))
         .statusCode,
     ).toBe(422);
     const rows = db.tables.get(versions) ?? [];
     expect(rows.find((row) => row.name === 'client_version_lock')?.version).toBe('0.137.0');
     expect(rows.find((row) => row.name === 'client_version_lock_claude')?.version).toBe('2.1.170');
-    expect(rows.find((row) => row.name === 'client_version_lock_grok')?.version).toBe('1.0.47');
+    expect(rows.find((row) => row.name === 'client_version_lock_grok')?.version).toBe('1.0.51');
     await app.close();
   });
   it('refreshes all three release sources and returns engine-specific summaries', async () => {
@@ -73,7 +73,7 @@ describe('Grok admin version controls', () => {
             ok: true,
             json: async () =>
               String(url).includes('xai-official')
-                ? { version: '1.0.46' }
+                ? { version: '1.0.50' }
                 : String(url).includes('anthropic-ai')
                   ? { version: '2.1.170' }
                   : { tag_name: 'rust-v0.137.0' },
@@ -84,8 +84,8 @@ describe('Grok admin version controls', () => {
     expect(response.json()).toMatchObject({
       available_client: { name: 'codex-cli', version: '0.137.0' },
       claude_available_client: { name: 'claude-cli', version: '2.1.170' },
-      grok_available_client: { name: 'grok-cli', version: '1.0.46' },
-      grok_versions: { client_version: '1.0.46', client_version_lock: null },
+      grok_available_client: { name: 'grok-cli', version: '1.0.50' },
+      grok_versions: { client_version: '1.0.50', client_version_lock: null },
     });
     expect(upstream).toHaveBeenCalledTimes(3);
     await app.close();

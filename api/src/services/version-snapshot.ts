@@ -4,7 +4,7 @@ import type { Database } from '../db/client.js';
 import type { Engine } from '../util/engine.js';
 import { ENGINE_CLAUDE, ENGINE_CODEX, ENGINE_GROK, ENGINES } from '../util/engine.js';
 import { ENGINE_DISABLED_FLAGS } from './engine-switch.js';
-import { GROK_MIN_CLIENT_VERSION, isSemanticVersion, normalizeVersion } from './client-versions.js';
+import { coerceGrokVersionToMinimum, GROK_MIN_CLIENT_VERSION, isSemanticVersion, normalizeVersion } from './client-versions.js';
 
 /**
  * Port of AuthService::versionSummary + availableClientVersion. The PHP
@@ -118,7 +118,11 @@ export function applyHostClientVersionPin<T extends VersionSnapshot>(
         : host?.clientVersionOverride;
   const pin = semanticOrNull(raw);
   if (!pin) return snapshot;
-  return { ...snapshot, client_version_override: pin, client_version_enforce_exact: true };
+  return {
+    ...snapshot,
+    client_version_override: engine === ENGINE_GROK ? coerceGrokVersionToMinimum(pin) : pin,
+    client_version_enforce_exact: true,
+  };
 }
 
 /** Apply the host's shared update policy and engine-specific version pin. */
@@ -206,9 +210,11 @@ export function createVersionSnapshotService(deps: VersionSnapshotDeps): Version
           ? semanticOrNull(get('client_version_lock'))
           : semanticOrNull(get(`client_version_lock_${engine}`));
       const explicitOverride = semanticOrNull(get(`client_version_override${suffix}`));
-      const clientOverride = exactLock ?? explicitOverride;
+      const effectiveVersion = (value: string | null) =>
+        engine === ENGINE_GROK && value !== null ? coerceGrokVersionToMinimum(value) : value;
+      const clientOverride = effectiveVersion(exactLock ?? explicitOverride);
       return {
-        client_version: resolveClientVersion(rawClient, map, engine),
+        client_version: effectiveVersion(resolveClientVersion(rawClient, map, engine)),
         client_version_override: clientOverride,
         client_version_enforce_exact:
           exactLock !== null || flagValue(get(`client_version_enforce_exact${suffix}`), false),

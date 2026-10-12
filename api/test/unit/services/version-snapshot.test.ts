@@ -257,7 +257,7 @@ describe('Grok snapshot isolation', () => {
     });
     expect(await service.summary('grok')).toMatchObject({
       engine: 'grok',
-      client_version: '1.0.46',
+      client_version: '1.0.50',
       client_version_override: null,
       client_version_enforce_exact: false,
       runner_state: null,
@@ -275,7 +275,7 @@ describe('Grok snapshot isolation', () => {
         { name: 'client_version_grok', version: 'latest' },
         {
           name: 'github_release_grok-cli',
-          version: JSON.stringify({ name: 'grok-cli', version: '1.0.47', fetched_at: fetched }),
+          version: JSON.stringify({ name: 'grok-cli', version: '1.0.51', fetched_at: fetched }),
         },
         { name: 'github_release_codex-cli', version: JSON.stringify({ version: '0.137.0' }) },
         { name: 'runner_state_grok', version: 'fail' },
@@ -286,7 +286,7 @@ describe('Grok snapshot isolation', () => {
       refreshLatestClientVersion: refresh,
     });
     expect(await service.summary('grok')).toMatchObject({
-      client_version: '1.0.47',
+      client_version: '1.0.51',
       client_version_fetched_at: fetched,
       runner_state: 'fail',
       cgx_silent: true,
@@ -296,11 +296,40 @@ describe('Grok snapshot isolation', () => {
     const snapshot = await createVersionSnapshotService({ db: makeDb([]), installationId: null }).summary(
       'grok',
     );
-    const host = { clientVersionOverride: '0.137.0', grokClientVersionOverride: '1.0.47' };
+    const host = { clientVersionOverride: '0.137.0', grokClientVersionOverride: '1.0.51' };
     expect(applyHostClientVersionPin(snapshot, host, 'grok')).toMatchObject({
-      client_version_override: '1.0.47',
+      client_version_override: '1.0.51',
       client_version_enforce_exact: true,
     });
     expect(applyHostClientVersionPin(snapshot, { clientVersionOverride: '0.137.0' }, 'grok')).toBe(snapshot);
+  });
+  it.each(['client_version_lock_grok', 'client_version_override_grok'])(
+    'heals old fleet targets and %s on the wire without rewriting persisted pins',
+    async (overrideKey) => {
+      const rows = [
+        { name: 'client_version_grok', version: '1.0.46' },
+        { name: overrideKey, version: '1.0.47' },
+      ];
+      const snapshot = await createVersionSnapshotService({ db: makeDb(rows), installationId: null }).summary('grok');
+      expect(snapshot).toMatchObject({ client_version: '1.0.50', client_version_override: '1.0.50' });
+      const host = { grokClientVersionOverride: '1.0.49', clientVersionOverride: '0.137.0' };
+      expect(applyHostClientVersionPin(snapshot, host, 'grok')).toMatchObject({
+        client_version_override: '1.0.50', client_version_enforce_exact: true,
+      });
+      expect(host.grokClientVersionOverride).toBe('1.0.49');
+      expect(rows[0]!.version).toBe('1.0.46');
+      expect(rows[1]!.version).toBe('1.0.47');
+    },
+  );
+  it('raises an outdated latest cache to the baseline and retains its freshness timestamp', async () => {
+    const fetched = '2026-10-01T09:00:00Z';
+    const snapshot = await createVersionSnapshotService({
+      db: makeDb([
+        { name: 'client_version_grok', version: 'latest' },
+        { name: 'github_release_grok-cli', version: JSON.stringify({ version: '1.0.46', fetched_at: fetched }) },
+      ]),
+      installationId: null,
+    }).summary('grok');
+    expect(snapshot).toMatchObject({ client_version: '1.0.50', client_version_fetched_at: fetched });
   });
 });

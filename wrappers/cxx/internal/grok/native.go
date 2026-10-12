@@ -20,6 +20,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
@@ -30,7 +31,37 @@ import (
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/skillstore"
 )
 
-const PinnedVersion = "1.0.46"
+const PinnedVersion = "1.0.50"
+
+// SupportedVersion enforces the same native config baseline as the API.
+// A prerelease of the baseline itself does not yet satisfy that release.
+func SupportedVersion(version string) bool {
+	if versionPattern.FindString(version) != version || version == "" {
+		return false
+	}
+	base := strings.SplitN(version, "+", 2)[0]
+	numeric := strings.SplitN(base, "-", 2)[0]
+	parts, minimum := strings.Split(numeric, "."), strings.Split(PinnedVersion, ".")
+	for i := range minimum {
+		value, err := strconv.Atoi(parts[i])
+		floor, _ := strconv.Atoi(minimum[i])
+		if err != nil {
+			return false
+		}
+		if value != floor {
+			return value > floor
+		}
+	}
+	return !strings.Contains(base, "-")
+}
+
+// CoerceVersionToMinimum heals older server pins while preserving newer pins.
+func CoerceVersionToMinimum(version string) string {
+	if version == "" || (versionPattern.FindString(version) == version && !SupportedVersion(version)) {
+		return PinnedVersion
+	}
+	return version
+}
 
 func Home() (string, error) {
 	if value := strings.TrimSpace(os.Getenv("GROK_HOME")); value != "" {
@@ -233,9 +264,7 @@ func Install(ctx context.Context, version string) (string, error) {
 }
 
 func installWithClient(ctx context.Context, version string, client *http.Client) (string, error) {
-	if version == "" {
-		version = PinnedVersion
-	}
+	version = CoerceVersionToMinimum(version)
 	if !versionPattern.MatchString(version) || versionPattern.FindString(version) != version {
 		return "", errors.New("invalid Grok version")
 	}
