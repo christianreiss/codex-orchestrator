@@ -42,6 +42,7 @@ import { clientConfigDocuments } from '../db/schema.js';
 import { ValidationError } from '../http/errors.js';
 import { nowIso } from '../util/timestamp.js';
 import { wsPublisher } from '../ws/publisher.js';
+import { claudeSupportsLegacyUserEffort } from './claude-effort.js';
 import { claudeNativeOwnedPaths } from './claude-native-settings.js';
 import {
   FORCE_UPGRADE_REASONING_EFFORT,
@@ -920,11 +921,25 @@ function buildClaudeMcpServers(settings: NormalizedSettings): Record<string, unk
   return servers;
 }
 
+/** Project the fleet's abstract effort onto Claude's canonical per-model key.
+ * Top-level user effortLevel is ignored by Opus 5.5 and newer releases.
+ * Copy both object levels so rendering never mutates the persisted native sidecar.
+ */
+function withClaudeModelEffort(settings: NormalizedSettings): Record<string, unknown> {
+  const result: Record<string, unknown> = { ...settings.native_settings };
+  if (settings.model && settings.effortLevel) {
+    const models = { ...asRecord(result['modelSettings']) };
+    models[settings.model] = { ...asRecord(models[settings.model]), effortLevel: settings.effortLevel };
+    result['modelSettings'] = models;
+    if (claudeSupportsLegacyUserEffort(settings.model)) result['effortLevel'] = settings.effortLevel;
+  }
+  return result;
+}
+
 // Legacy full-file render (wholesale overwrite path for old clx wrappers).
 function renderClaudeSettings(settings: NormalizedSettings): string {
-  const result: Record<string, unknown> = { ...settings.native_settings };
+  const result = withClaudeModelEffort(settings);
   if (settings.model) result['model'] = settings.model;
-  if (settings.effortLevel) result['effortLevel'] = settings.effortLevel;
   const servers = buildClaudeMcpServers(settings);
   if (Object.keys(servers).length > 0) result['mcpServers'] = servers;
   if (settings.env) result['env'] = { ...asRecord(result['env']), ...settings.env };
@@ -1041,15 +1056,11 @@ export function renderClaudeSettingsPartial(
   settings: NormalizedSettings,
   opts: { agentMessagingEnabled?: boolean; messagingServer?: string } = {},
 ): { partial: Record<string, unknown>; owned_paths: string[] } {
-  const partial: Record<string, unknown> = { ...settings.native_settings };
-  const owned: string[] = claudeNativeOwnedPaths(settings.native_settings ?? {});
+  const partial = withClaudeModelEffort(settings);
+  const owned = claudeNativeOwnedPaths(partial);
   if (settings.model) {
     partial['model'] = settings.model;
     owned.push('model');
-  }
-  if (settings.effortLevel) {
-    partial['effortLevel'] = settings.effortLevel;
-    owned.push('effortLevel');
   }
   // NOTE: Claude Code does NOT read mcpServers from settings.json — the wrapper
   // (clx >= 0.6.21) splits the mcpServers.* owned paths out of this partial and

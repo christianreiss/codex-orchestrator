@@ -1,7 +1,6 @@
 package summary
 
 import (
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -37,7 +36,7 @@ func inheritedClaudeEffort() (string, bool) {
 // Claude Code will consume when neither the wrapper config nor the host API
 // supplies an override. Invalid or absent settings are already surfaced by
 // `clx doctor`; the at-a-glance screen simply omits unknown values.
-func localClaudePreferences() (model, effort string) {
+func localClaudePreferences(selectedModel string) (model, effort string) {
 	home, err := os.UserHomeDir()
 	if err != nil || strings.TrimSpace(home) == "" {
 		return "", ""
@@ -46,12 +45,5 @@ func localClaudePreferences() (model, effort string) {
 	if err != nil {
 		return "", ""
 	}
-	var settings struct {
-		Model       string `json:"model"`
-		EffortLevel string `json:"effortLevel"`
-	}
-	if err := json.Unmarshal(raw, &settings); err != nil {
-		return "", ""
-	}
-	return strings.TrimSpace(settings.Model), strings.TrimSpace(settings.EffortLevel)
+	return claude.UserSettingsPreferences(raw, selectedModel)
 }

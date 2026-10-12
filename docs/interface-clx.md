@@ -191,8 +191,10 @@ follows the native CLI's higher priority; `auto`/`unset` removes the explicit
 effort hint. A native `--` protects subsequent prompt text from flag parsing.
 These are launch selections; provider or organization limits may adjust them
 after native startup.
-Any missing field falls back independently to `model` or `effortLevel` in
-`~/.claude/settings.json`, and an effort-only value is still shown. When
+Any missing field falls back independently to `model` and the selected canonical
+model’s `modelSettings[model].effortLevel` in `~/.claude/settings.json`. Older
+models may fall back to the legacy top-level `effortLevel`; Opus 5.5, Sonnet 5.5,
+and Haiku 5.5 ignore that user key. An effort-only value is still shown. When
 `/sync/bootstrap` supplies its compatibility `sessions` object, the `ACTIVITY`
 section matches cdx: `local procs` is the same-UID `clx` wrapper process count,
 `hosts 30m` is distinct hosts with an `agents.retrieve` event in the prior 30
@@ -281,8 +283,8 @@ On an attended terminal, `cxx` with no arguments opens the engine/model/effort
 picker described in `docs/interface-cdx.md` ("Bare `cxx` launchpad"). For Claude
 it launches `--model M --effort E`, and for `c`/`r` it adds `--continue` or
 `--resume` (the native picker). `max` is offered as a session-only effort on
-models whose persistent efforts reach `xhigh`, and it is never written to
-`settings.json`. The launch uses the managed native path, so the boot, sync,
+all Claude models with adaptive effort, including Opus 4.6 and Sonnet 4.6. It
+is never persisted as `effortLevel` in `settings.json`. The launch uses the managed native path, so the boot, sync,
 auth and receiver lifecycle is the same as for `clx`.
 
 ## Per-host config (typed, signed)
@@ -299,7 +301,7 @@ Same schema as cdx (`wrappers/schemas/host-config-v1.json`), with
     "claude_model_override": "claude-sonnet-5",
     "admin_theme_hint": "auto",
     // bare-cxx launchpad menu (cxx 0.9.65); session_efforts carries the
-    // session-only "max" on models that reach xhigh
+    // session-only "max" on effort-capable models, including Opus/Sonnet 4.6
     "model_catalog": { "default_model": "claude-sonnet-5", "models": [ /* … */ ] }
   },
   "agent_messaging": {
@@ -793,7 +795,8 @@ analogue for. The orchestrator manages them as first-class fleet artifacts
 
 `~/.claude/settings.json` is **deep-merged**, not overwritten. The bundle returns
 `claude_settings: { sha256, partial, owned_paths }` where `partial` holds only
-the fleet-managed keys (`model`, `effortLevel`, `mcpServers.<name>`, `env.<VAR>`, `statusLine`,
+the fleet-managed keys (`model`, `modelSettings.<model>.effortLevel`, the compatible
+legacy `effortLevel`, `mcpServers.<name>`, `env.<VAR>`, `statusLine`,
 `hooks.<Event>`, `permissions.{allow,ask,deny}`, `permissions.defaultMode`,
 `advisorModel`) and `owned_paths` are the leaf-granular dot-paths the fleet owns
 this run.
@@ -868,14 +871,23 @@ default is `medium` even though its API default is `high`.
 - `/admin/engines` and `GET/POST /admin/model-defaults/claude` own the fleet
   `model` / `effortLevel` pair. POST accepts strict
   `{model, reasoning_effort?: string|null}` but translates that common API field
-  to Claude Code's native `effortLevel` key on disk. Fable 5.1, Fable 5, Opus 5,
+  to Claude Code's native `modelSettings[canonicalModel].effortLevel` on disk.
+  The top-level user key is ignored by Opus 5.5 and later models. For older
+  models that still honor it, the renderer also emits the legacy key to preserve
+  compatibility with pinned older native CLIs. The wrapper removes obsolete
+  fleet-owned effort paths when the selected model changes, retaining other
+  model settings and user-authored siblings. Fable 5.1, Fable 5, Opus 5,
   Opus 4.8, and Sonnet 5 persist `low|medium|high|xhigh` and default to `high`; Opus 5.5,
   Sonnet 5.5, and Haiku 5.5 persist the same set and default to `medium`; Opus 4.7
   persists the same set and defaults to `xhigh`; Opus 4.6 and Sonnet 4.6 persist
-  `low|medium|high` and default to `high`; Opus 4.5 and Haiku 4.5 have no CLI effort control, so
-  selecting either removes `effortLevel`. This follows Claude Code's documented
+  `low|medium|high` and default to `high`; Opus 4.5 and Haiku 4.5 have no CLI effort
+  control, so selecting either omits managed effort. This follows Claude Code's documented
   persistence model: `low`, `medium`, `high`, and `xhigh` can live in
   `settings.json`, while `max` is session-only and is deliberately excluded.
+  `max` remains a supported session-only choice on Opus 4.6 and Sonnet 4.6 even
+  though their persistent ceiling is `high`. Native `modelSettings` validates
+  each known model against that same persistent catalog; `ultracode` remains
+  a separate boolean setting, never a persisted effort string.
   These are Claude Code CLI defaults. The Anthropic-compatible proxy's
   `/admin/claude/settings` `default_model` / `max_tokens` are separate.
 

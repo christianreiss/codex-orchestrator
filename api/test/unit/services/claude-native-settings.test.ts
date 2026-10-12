@@ -76,6 +76,25 @@ describe('Claude native user settings', () => {
     expect(owned_paths).not.toContain('permissions');
   });
 
+
+  it.each([
+    ['claude-sonnet-4-6', 'xhigh'], ['claude-opus-4-6', 'xhigh'], ['claude-sonnet-4-6[1m]', 'xhigh'],
+    ['claude-haiku-4-5-20251001', 'low'], ['claude-opus-4-5-20251101', 'high'],
+    ['claude-opus-5-5', 'max'], ['claude-opus-5-5', 'ultracode'],
+  ])('rejects incompatible persisted effort for %s: %s', (model, effortLevel) => {
+    expect(() => normalizeClaudeNativeSettings({ modelSettings: { [model]: { effortLevel } } })).toThrow(`native_settings.modelSettings.${model}.effortLevel`);
+  });
+
+  it('allows per-model persistent levels and separate session caps', () => {
+    const native = { ultracode: true, modelSettings: {
+      'claude-haiku-5-5': { effortLevel: 'xhigh', maxEffortLevel: 'max' },
+      'claude-opus-4-6': { effortLevel: 'high', maxEffortLevel: 'max' },
+      'claude-sonnet-4-6': { effortLevel: 'medium', maxEffortLevel: 'max' },
+    } };
+    expect(normalizeClaudeNativeSettings(native)).toEqual(native);
+    expect(() => normalizeClaudeNativeSettings({ modelSettings: { 'claude-sonnet-4-6': { maxEffortLevel: 'xhigh' } } })).toThrow('maxEffortLevel');
+  });
+
   it('validates other engines separately and leaves absent extensions unchanged', () => {
     const raw = { native_settings: { language: 'german' } };
     expect(() => normalizeSettings(raw)).toThrow('native_settings.language');

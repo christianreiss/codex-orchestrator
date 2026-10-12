@@ -146,8 +146,13 @@ func Build(ctx context.Context, in Inputs) ui.ScreenInput {
 		result = "API unreachable; run `clx doctor`."
 		resultTone = ui.ToneFail
 	}
+	launchModel, launchEffort := claude.LaunchPreferences(in.LaunchArgs)
 	if strings.TrimSpace(model) == "" || strings.TrimSpace(effort) == "" {
-		localModel, localEffort := localClaudePreferences()
+		selectedModel := model
+		if launchModel != "" {
+			selectedModel = launchModel
+		}
+		localModel, localEffort := localClaudePreferences(selectedModel)
 		if strings.TrimSpace(model) == "" {
 			model = localModel
 		}
@@ -155,7 +160,7 @@ func Build(ctx context.Context, in Inputs) ui.ScreenInput {
 			effort = localEffort
 		}
 	}
-	if launchModel, launchEffort := claude.LaunchPreferences(in.LaunchArgs); launchModel != "" || launchEffort != "" {
+	if launchModel != "" || launchEffort != "" {
 		if launchModel != "" {
 			model = launchModel
 		}
