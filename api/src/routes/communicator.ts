@@ -11,7 +11,14 @@ import { createHostAuthService } from '../services/host-auth.js';
 import { registerWebsocketTransport } from '../ws/transport.js';
 import { wsPublisher } from '../ws/publisher.js';
 import { ForbiddenError } from '../http/errors.js';
+import {
+  communicatorRegistry,
+  connections,
+  type CommunicatorView,
+} from '../services/topology/communicator-registry.js';
 import type { RouteContext } from './index.js';
+
+export type { CommunicatorView };
 
 // HTTP envelopes retain the existing route authorization, validation, audit and
 // response contracts. Neither arbitrary URLs nor admin/provider routes are tunnelled.
@@ -93,18 +100,6 @@ const allowedHeaders = new Set([
   'mcp-protocol-version',
   'last-event-id',
 ]);
-
-export interface CommunicatorView {
-  host_id: number;
-  username: string;
-  version: string;
-  connected_at: string;
-  sessions: number;
-  requests: number;
-  synced_at: string | null;
-  sync_scopes?: unknown[];
-}
-const connections = new Map<string, CommunicatorView>();
 
 export async function registerCommunicatorRoutes(app: FastifyInstance, ctx: RouteContext) {
   await registerWebsocketTransport(app);
@@ -247,25 +242,35 @@ export async function registerCommunicatorRoutes(app: FastifyInstance, ctx: Rout
               .parse(parsed);
             const host = await authorize(req);
             hostId = host.id;
-            connections.set(connectionID, {
-              host_id: host.id,
-              username: hello.username,
-              version: hello.version,
-              connected_at: new Date().toISOString(),
-              sessions: 0,
-              requests: 0,
-              synced_at: null,
-            });
+            communicatorRegistry.register(
+              {
+                id: connectionID,
+                host_id: host.id,
+                username: hello.username,
+                version: hello.version,
+                connected_at: new Date().toISOString(),
+                sessions: 0,
+                requests: 0,
+                synced_at: null,
+              },
+              {
+                close: (code, reason) => socket.close(code, reason),
+                terminate: () => socket.terminate(),
+                remoteAddress: req.clientIp || req.socket.remoteAddress || null,
+              },
+            );
             wsPublisher.publish('communicator.updated', { host_id: host.id });
             greeted = true;
             send({ type: 'ready', protocol: 1 });
             return;
           }
           if (!greeted) throw new Error('Handshake required');
+          communicatorRegistry.touch(connectionID);
           if (parsed.type === 'daemon_disconnect') {
             daemonEvents.emit('close');
             daemonEvents.removeAllListeners();
             daemonAttached = false;
+            communicatorRegistry.setDaemonAttached(connectionID, false);
             return;
           }
           if (parsed.type === 'daemon') {
@@ -273,6 +278,7 @@ export async function registerCommunicatorRoutes(app: FastifyInstance, ctx: Rout
             if (!daemonAttached) {
               attachHostDaemonSocket(daemonSocket, req, ctx);
               daemonAttached = true;
+              communicatorRegistry.setDaemonAttached(connectionID, true);
             }
             const data = JSON.stringify(parsed.payload);
             if (data.length > 256_000) throw new Error('Daemon frame too large');
@@ -321,6 +327,7 @@ export async function registerCommunicatorRoutes(app: FastifyInstance, ctx: Rout
             view.sessions = heartbeat.sessions;
             view.synced_at = heartbeat.synced_at;
             view.sync_scopes = heartbeat.sync_scopes;
+            communicatorRegistry.heartbeat(connectionID);
             wsPublisher.publish('communicator.updated', { host_id: view.host_id });
             send({ type: 'heartbeat' });
             return;
@@ -398,6 +405,13 @@ export async function registerCommunicatorRoutes(app: FastifyInstance, ctx: Rout
             }
             const view = connections.get(connectionID);
             if (view) view.requests++;
+            communicatorRegistry.observeDispatch(
+              connectionID,
+              frame.method,
+              communicatorPathname(frame.path),
+              response.statusCode,
+              response.rawPayload,
+            );
             if ((response.rawPayload?.length ?? 0) > MAX_RESPONSE_BYTES) {
               const mayRepeat = communicatorResponseMayRepeat(frame);
               send({
@@ -453,7 +467,7 @@ export async function registerCommunicatorRoutes(app: FastifyInstance, ctx: Rout
         clearInterval(invalidationTimer);
         unsubscribe();
         daemonEvents.emit('close');
-        connections.delete(connectionID);
+        communicatorRegistry.unregister(connectionID);
         wsPublisher.publish('communicator.updated', {});
       });
       socket.on('error', () => socket.close());

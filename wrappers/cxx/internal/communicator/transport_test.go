@@ -237,7 +237,7 @@ func TestSyncScopesKeepEngineAndEnvironmentBoundaries(t *testing.T) {
 	s := &server{jobs: map[string]syncJob{}, jobRefs: map[string]int{}}
 	for _, engine := range []string{"codex", "claude", "grok"} {
 		req := httptest.NewRequest("POST", "/_comm/lease", strings.NewReader(`[{"engine":"`+engine+`","config":"/signed","env":{"HOME":"/one"}}]`))
-		ids, err := s.registerJobs(req)
+		ids, _, err := s.registerJobs(req)
 		if err != nil || len(ids) != 1 {
 			t.Fatal(ids, err)
 		}
@@ -246,7 +246,7 @@ func TestSyncScopesKeepEngineAndEnvironmentBoundaries(t *testing.T) {
 		t.Fatal("engine scopes collapsed")
 	}
 	bad := httptest.NewRequest("POST", "/_comm/lease", strings.NewReader(`[{"engine":"codex","env":{"LD_PRELOAD":"/bad"}}]`))
-	if _, err := s.registerJobs(bad); err == nil {
+	if _, _, err := s.registerJobs(bad); err == nil {
 		t.Fatal("arbitrary subprocess environment accepted")
 	}
 }
@@ -602,5 +602,122 @@ func TestStalledDaemonReaderIsDisconnectedPromptly(t *testing.T) {
 	defer cancel()
 	if result, _, err := c.request(ctx, frame{Method: "GET", Path: "/versions"}); err != nil || result.Status != 200 {
 		t.Fatal("control connection lost with the stalled daemon", result, err)
+	}
+}
+
+// A relay blocked on a reader that stopped, with the queue NOT overflowed,
+// must still end when the control connection drops or the server closes the
+// daemon, so the daemon notices and reconnects.
+func TestBlockedDaemonRelayEndsOnTerminalEvents(t *testing.T) {
+	previous := daemonCloseGrace
+	daemonCloseGrace = 200 * time.Millisecond
+	t.Cleanup(func() { daemonCloseGrace = previous })
+	payload := json.RawMessage(`{"blob":"` + strings.Repeat("x", 512*1024) + `"}`)
+	for _, terminal := range []string{"control_lost", "daemon_closed"} {
+		t.Run(terminal, func(t *testing.T) {
+			registered := make(chan struct{})
+			var once sync.Once
+			c := testConnection(t, func(ws *websocket.Conn, f frame) {
+				if f.Type != "daemon" {
+					return
+				}
+				once.Do(func() { close(registered) })
+				go func() {
+					// ~30 MB in 60 events blocks the local Send on loopback buffers
+					// without filling the 64-slot queue.
+					for i := 0; i < 60; i++ {
+						if websocket.JSON.Send(ws, frame{Type: "daemon_event", Payload: payload}) != nil {
+							return
+						}
+					}
+					time.Sleep(500 * time.Millisecond)
+					if terminal == "daemon_closed" {
+						_ = websocket.JSON.Send(ws, frame{Type: "daemon_closed"})
+					} else {
+						ws.Close()
+					}
+				}()
+			})
+			s := &server{conn: c, calls: map[string]*sharedCall{}}
+			local := httptest.NewServer(s)
+			defer local.Close()
+			ws, err := websocket.Dial(strings.Replace(local.URL, "http://", "ws://", 1)+"/_comm/daemon", "", local.URL)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer ws.Close()
+			if err := websocket.JSON.Send(ws, map[string]any{"type": "heartbeat"}); err != nil {
+				t.Fatal(err)
+			}
+			// The stream is attached once its first frame reached the server;
+			// only then can "released" mean the terminal event ended it.
+			select {
+			case <-registered:
+			case <-time.After(5 * time.Second):
+				t.Fatal("daemon stream never registered")
+			}
+			// Stay a stalled reader until the stream has had to end.
+			deadline := time.Now().Add(5 * time.Second)
+			for {
+				c.mu.Lock()
+				released := c.daemon == nil && c.daemonClosing == nil
+				c.mu.Unlock()
+				if released {
+					break
+				}
+				if time.Now().After(deadline) {
+					t.Fatal("blocked daemon relay outlived", terminal)
+				}
+				time.Sleep(20 * time.Millisecond)
+			}
+			ws.SetReadDeadline(time.Now().Add(5 * time.Second))
+			for {
+				var discard json.RawMessage
+				if err := websocket.JSON.Receive(ws, &discard); err != nil {
+					if ne, ok := err.(interface{ Timeout() bool }); ok && ne.Timeout() {
+						t.Fatal("local daemon socket left open after", terminal)
+					}
+					break
+				}
+			}
+		})
+	}
+}
+
+// The daemon_closed timer closes the channel from another goroutine; frames
+// arriving at the same time must never send on it (a panic would kill the
+// owner), and the shared connection must keep serving requests.
+func TestDaemonCloseTimerRacesLateFrames(t *testing.T) {
+	previous := daemonCloseGrace
+	daemonCloseGrace = 0
+	t.Cleanup(func() { daemonCloseGrace = previous })
+	c := testConnection(t, func(ws *websocket.Conn, f frame) {
+		if f.Type != "request" {
+			return
+		}
+		switch f.Path {
+		default:
+			_ = websocket.JSON.Send(ws, frame{ID: f.ID, Status: 200})
+		case "/race":
+			_ = websocket.JSON.Send(ws, frame{Type: "daemon_closed"})
+			for i := 0; i < 50; i++ {
+				_ = websocket.JSON.Send(ws, frame{Type: "daemon_event", Payload: json.RawMessage(`{}`)})
+			}
+			_ = websocket.JSON.Send(ws, frame{ID: f.ID, Status: 200})
+		}
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	for i := 0; i < 200; i++ {
+		ch := make(chan json.RawMessage, 64)
+		c.mu.Lock()
+		c.daemon, c.daemonClosing = ch, nil
+		c.mu.Unlock()
+		if _, _, err := c.request(ctx, frame{Method: "GET", Path: "/race"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if result, _, err := c.request(ctx, frame{Method: "GET", Path: "/after"}); err != nil || result.Status != 200 {
+		t.Fatal("control connection unusable after close/frame race", result, err)
 	}
 }

@@ -170,30 +170,38 @@ func validateJob(job syncJob) error {
 	}
 	return nil
 }
-func (s *server) registerJobs(r *http.Request) ([]string, error) {
+
+// registerJobs records a lease's scopes. fresh reports whether any of them is
+// new to this owner: only a new scope needs an initial pass. An extra lease on
+// a scope that is already current must not force every scope's auth and
+// content work in front of the launching session's own bootstrap.
+func (s *server) registerJobs(r *http.Request) (ids []string, fresh bool, err error) {
 	var jobs []syncJob
 	if err := json.NewDecoder(io.LimitReader(r.Body, 65536)).Decode(&jobs); err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	if len(jobs) > 3 {
-		return nil, errors.New("too many sync scopes")
+		return nil, false, errors.New("too many sync scopes")
 	}
 	for _, job := range jobs {
 		if err := validateJob(job); err != nil {
-			return nil, err
+			return nil, false, err
 		}
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	ids := make([]string, 0, len(jobs))
+	ids = make([]string, 0, len(jobs))
 	for _, job := range jobs {
 		id := jobID(job)
 		ids = append(ids, id)
 		s.jobs[id] = job
 		s.jobRefs[id]++
+		if s.scopes == nil || s.scopes[stateID(job)] == nil {
+			fresh = true
+		}
 		s.stateLocked(job)
 	}
-	return ids, nil
+	return ids, fresh, nil
 }
 func (s *server) stateLocked(job syncJob) *scopeState {
 	if s.scopes == nil {
@@ -573,6 +581,17 @@ func stateID(job syncJob) string {
 		id += "/" + hex.EncodeToString(sum[:8])
 	}
 	return id
+}
+
+// wake runs the scheduler now without forcing any scope. A newly registered
+// scope starts with zero deadlines and is due on its own; unrelated scopes keep
+// their schedules (a fresh per-session Grok runtime scope must not resync the
+// warm Codex/Claude scopes in front of a launch).
+func (s *server) wake() {
+	select {
+	case s.authDirty <- struct{}{}:
+	default:
+	}
 }
 
 func (s *server) invalidateAuth(engine string, account int64) {

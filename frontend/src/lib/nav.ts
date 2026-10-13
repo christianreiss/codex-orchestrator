@@ -20,6 +20,7 @@ import {
   Link,
   MessageSquareShare,
   Palette,
+  Network,
   RadioTower,
   Server,
   Settings,
@@ -95,6 +96,11 @@ const REGISTRY: NavDefinition[] = [
     id: "activity", group: "Diagnostics", route: "/logs/events", label: "Logs",
     description: "Audit trail and MCP requests", keywords: ["activity", "audit", "logs", "mcp", "events", "diagnostics", "troubleshooting"], icon: Activity,
     match: /^\/logs(?:\/|$)/,
+  },
+  {
+    id: "topology", group: "Workspace", route: "/topology", label: "Live Topology",
+    description: "Server, communicators and agents as a live connection map, with disconnect and stop controls",
+    keywords: ["topology", "connections", "communicator", "graph", "radial", "map", "disconnect", "kill", "stop", "agents", "sockets"], icon: Network,
   },
   {
     id: "hosts", group: "Workspace", route: "/hosts", label: "Hosts",

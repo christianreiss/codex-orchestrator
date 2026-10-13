@@ -73,7 +73,7 @@ func TestRegistrationIsAtomicAndRejectsWrongAuthSource(t *testing.T) {
 	bad := valid
 	bad.AuthPath = filepath.Join(valid.Env["HOME"], "other-auth")
 	body, _ := json.Marshal([]syncJob{valid, bad})
-	_, err := s.registerJobs(httptest.NewRequest("POST", "/_comm/lease", strings.NewReader(string(body))))
+	_, _, err := s.registerJobs(httptest.NewRequest("POST", "/_comm/lease", strings.NewReader(string(body))))
 	if err == nil || len(s.jobs) > 0 {
 		t.Fatalf("partial registration: %v, %d", err, len(s.jobs))
 	}
@@ -183,5 +183,74 @@ func TestLateConfigBindingAndOlderOwnerCompatibility(t *testing.T) {
 	}
 	if ep.jobs["codex"].Owner {
 		t.Fatal("old owner registered as auth owner")
+	}
+}
+
+// A lease must never force a resync of other scopes. A genuinely new scope
+// (including a fresh per-session Grok runtime) is woken and due on its own,
+// while warm scopes keep their auth and content deadlines.
+func TestLeaseOnCurrentScopeDoesNotForceBackgroundSync(t *testing.T) {
+	s := &server{jobs: map[string]syncJob{}, jobRefs: map[string]int{}, dirty: make(chan struct{}, 1), authDirty: make(chan struct{}, 1), calls: map[string]*sharedCall{}}
+	lease := func(job syncJob) {
+		body, _ := json.Marshal([]syncJob{job})
+		ctx, cancel := context.WithCancel(context.Background())
+		req := httptest.NewRequest("POST", "/_comm/lease", strings.NewReader(string(body))).WithContext(ctx)
+		done := make(chan struct{})
+		go func() { defer close(done); s.ServeHTTP(httptest.NewRecorder(), req) }()
+		time.Sleep(50 * time.Millisecond)
+		cancel()
+		<-done
+	}
+	signalled := func(ch chan struct{}) bool {
+		select {
+		case <-ch:
+			return true
+		default:
+			return false
+		}
+	}
+	codex, claude := fixtureJob(t, "codex"), fixtureJob(t, "claude")
+	lease(codex)
+	lease(claude)
+	if signalled(s.dirty) || !signalled(s.authDirty) {
+		t.Fatal("new scopes must wake the scheduler without forcing")
+	}
+	// Both scopes are now warm.
+	future := time.Now().Add(time.Hour)
+	s.mu.Lock()
+	for _, job := range []syncJob{codex, claude} {
+		st := s.stateLocked(job)
+		st.nextAuth, st.nextContent = future, future
+	}
+	s.mu.Unlock()
+	warm := func() bool {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		for _, job := range []syncJob{codex, claude} {
+			st := s.stateLocked(job)
+			if !st.nextAuth.Equal(future) || !st.nextContent.Equal(future) {
+				return false
+			}
+		}
+		return true
+	}
+	again := codex
+	again.SessionID, again.AccountID = "another-session", 9
+	lease(again)
+	if signalled(s.dirty) || signalled(s.authDirty) || !warm() {
+		t.Fatal("an extra lease on a current scope disturbed the schedules")
+	}
+	grok := fixtureJob(t, "grok")
+	grok.Auth, grok.Broker = true, filepath.Join(t.TempDir(), "runtime.sock")
+	lease(grok)
+	s.mu.Lock()
+	fresh := s.stateLocked(grok)
+	initial := fresh.nextAuth.IsZero() && fresh.nextContent.IsZero()
+	s.mu.Unlock()
+	if signalled(s.dirty) || !signalled(s.authDirty) || !initial {
+		t.Fatal("a fresh Grok runtime scope was not scheduled on its own")
+	}
+	if !warm() {
+		t.Fatal("a fresh Grok runtime scope resynced the warm Codex/Claude scopes")
 	}
 }
