@@ -53,6 +53,11 @@ describe.skipIf(!handle)('messaging admission linearizability on real MySQL', { 
   const hostIds: number[] = [];
   const exec = async (query: string) => db.execute(sql.raw(query));
   const events: string[] = [];
+  const pending: Promise<unknown>[] = [];
+  function track<T>(operation: Promise<T>): Promise<T> {
+    pending.push(operation.catch(() => undefined));
+    return operation;
+  }
   let unsubscribe: () => void;
 
   async function cleanup() {
@@ -119,6 +124,7 @@ describe.skipIf(!handle)('messaging admission linearizability on real MySQL', { 
     events.length = 0;
   });
   afterEach(async () => {
+    await Promise.all(pending.splice(0));
     vi.restoreAllMocks();
     await cleanup();
   });
@@ -143,23 +149,38 @@ describe.skipIf(!handle)('messaging admission linearizability on real MySQL', { 
 
   function send(from: number, to: number, key = randomUUID()) {
     const actor = identities[from]!;
-    return service.sendMessage(actor.sessionId, actor.token, {
-      to: identities[to]!.address,
-      content: 'one durable effect',
-      clientMessageId: key,
-    });
+    return track(
+      service.sendMessage(actor.sessionId, actor.token, {
+        to: identities[to]!.address,
+        content: 'one durable effect',
+        clientMessageId: key,
+      }),
+    );
   }
 
   async function waitForFlagWaiter(minimum = 1) {
+    const [[database]] =
+      await pool.query<Array<import('mysql2').RowDataPacket & { name: string }>>('SELECT DATABASE() AS name');
     const deadline = Date.now() + 3000;
     while (Date.now() < deadline) {
-      const [rows] = await pool.query(
-        `SELECT COUNT(*) AS n FROM performance_schema.data_lock_waits w JOIN performance_schema.data_locks l ON w.REQUESTING_ENGINE_LOCK_ID=l.ENGINE_LOCK_ID WHERE l.OBJECT_SCHEMA=DATABASE() AND l.OBJECT_NAME='versions'`,
+      // We already hold the flag X lock; another active locking query proves
+      // arrival at MySQL. This shows our user's connections without requiring
+      // global PROCESS or performance_schema privileges.
+      const [rows] =
+        await pool.query<Array<import('mysql2').RowDataPacket & { db: string; Info: string | null }>>(
+          'SHOW FULL PROCESSLIST',
+        );
+      const waiters = rows.filter(
+        (row) =>
+          row.db === database!.name &&
+          row.Info &&
+          /`?versions`?/i.test(row.Info) &&
+          /for update/i.test(row.Info),
       );
-      if (Number((rows as Array<{ n: number }>)[0]!.n) >= minimum) return;
+      if (waiters.length >= minimum) return;
       await delay(10);
     }
-    throw new Error('No real InnoDB flag lock waiter appeared');
+    throw new Error('No real MySQL flag lock waiter appeared');
   }
 
   async function relayFor(index: number) {
@@ -224,7 +245,7 @@ describe.skipIf(!handle)('messaging admission linearizability on real MySQL', { 
     await connection.query('SELECT version FROM versions WHERE name=? FOR UPDATE', [
       AGENT_MESSAGING_ENABLED_KEY,
     ]);
-    const disabling = service.setEnabled(false);
+    const disabling = track(service.setEnabled(false));
     let polling!: ReturnType<typeof service.claimForRelay>;
     let settled!: Promise<{ value: unknown } | { error: unknown }>;
     try {
@@ -272,6 +293,98 @@ describe.skipIf(!handle)('messaging admission linearizability on real MySQL', { 
     expect(events.filter((e) => e === 'agent_messaging.message.changed')).toHaveLength(1);
   });
 
+  it.each(['queued', 'leased'] as const)(
+    'expired %s work still enters the locked cleanup path',
+    async (status) => {
+      const relay = await relayFor(1);
+      const sent = await send(0, 1);
+      const message = sent.message as { id: string };
+      await db
+        .update(agentBusMessages)
+        .set({ status, expiresAt: '2000-01-01T00:00:00.000Z' })
+        .where(eq(agentBusMessages.id, message.id));
+      const admission = vi.spyOn(service as unknown as Admission, 'requireEnabledLocked');
+      expect(await service.claimForRelay(relay.id, relay.token, randomUUID())).toBeNull();
+      expect(admission).toHaveBeenCalledTimes(1);
+      expect((await currentMessages())[0]).toMatchObject({
+        status: 'expired',
+        attempts: 0,
+        leaseOwner: null,
+      });
+    },
+  );
+
+  it.each(['queued', 'leased', 'accepted'] as const)(
+    'stale %s presence notices still enter locked session-bound cleanup',
+    async (status) => {
+      const relay = await relayFor(1);
+      const sent = await send(0, 1);
+      const message = sent.message as { id: string };
+      // Model a persisted notice for the ended launch. Regular finish normally
+      // cancels notices immediately; polling must also repair stale persisted rows.
+      await db
+        .update(agentBusMessages)
+        .set({ status, kind: 'presence_notice', targetSessionId: identities[1]!.sessionId })
+        .where(eq(agentBusMessages.id, message.id));
+      const admission = vi.spyOn(service as unknown as Admission, 'requireEnabledLocked');
+      expect(await service.claimForRelay(relay.id, relay.token, randomUUID())).toBeNull();
+      expect(admission).toHaveBeenCalledTimes(1);
+      expect((await currentMessages())[0]).toMatchObject({
+        status: 'canceled',
+        attempts: 0,
+        leaseOwner: null,
+        lastErrorCode: 'presence_notice_session_ended',
+      });
+    },
+  );
+
+  it('expired lease recovery increments one attempt and fences the old delivery', async () => {
+    const relay = await relayFor(1);
+    await send(0, 1);
+    const first = await service.claimForRelay(relay.id, relay.token, randomUUID());
+    expect(first).not.toBeNull();
+    if (!first) throw new Error('Initial delivery was not leased');
+    await db
+      .update(agentBusMessages)
+      .set({ leaseUntil: '2000-01-01T00:00:00.000Z' })
+      .where(eq(agentBusMessages.id, first.message_id));
+    const second = await service.claimForRelay(relay.id, relay.token, randomUUID());
+    expect(second).toMatchObject({ message_id: first.message_id, attempts: 2 });
+    expect(second?.claim_id).not.toBe(first.claim_id);
+    await expect(
+      service.acknowledgeRelayDelivery(relay.id, relay.token, first.message_id, {
+        claimId: first.claim_id,
+        outcome: 'accepted',
+      }),
+    ).rejects.toMatchObject({ code: 'agent_messaging_lease_lost' });
+    expect(await currentMessages()).toHaveLength(1);
+    expect((await currentMessages())[0]).toMatchObject({
+      status: 'leased',
+      attempts: 2,
+      claimId: second?.claim_id,
+    });
+  });
+
+  it('accepted work keeps the locked path and is never automatically replayed', async () => {
+    const relay = await relayFor(1);
+    await send(0, 1);
+    const delivery = await service.claimForRelay(relay.id, relay.token, randomUUID());
+    if (!delivery) throw new Error('Initial delivery was not leased');
+    await service.acknowledgeRelayDelivery(relay.id, relay.token, delivery.message_id, {
+      claimId: delivery.claim_id,
+      outcome: 'accepted',
+      deliverySessionId: identities[1]!.sessionId,
+    });
+    const admission = vi.spyOn(service as unknown as Admission, 'requireEnabledLocked');
+    expect(await service.claimForRelay(relay.id, relay.token, randomUUID())).toBeNull();
+    expect(admission).toHaveBeenCalledTimes(1);
+    expect((await currentMessages())[0]).toMatchObject({
+      status: 'accepted',
+      attempts: 1,
+      claimId: delivery.claim_id,
+    });
+  });
+
   it('writers retain the exclusive admission mutex while another writer is admitted', async () => {
     const held = holdOneAdmission(service);
     const first = send(0, 1);
@@ -280,9 +393,12 @@ describe.skipIf(!handle)('messaging admission linearizability on real MySQL', { 
     let completedBeforeRelease = false;
     let finished = false;
     try {
-      void second.then(() => {
-        finished = true;
-      });
+      void second.then(
+        () => {
+          finished = true;
+        },
+        () => undefined,
+      );
       await waitForFlagWaiter();
       completedBeforeRelease = finished;
     } finally {
@@ -297,10 +413,12 @@ describe.skipIf(!handle)('messaging admission linearizability on real MySQL', { 
     const sent = send(0, 1);
     await held.admitted.promise;
     let disabled = false;
-    const off = service.setEnabled(false).then((r) => {
-      disabled = true;
-      return r;
-    });
+    const off = track(
+      service.setEnabled(false).then((r) => {
+        disabled = true;
+        return r;
+      }),
+    );
     try {
       await waitForFlagWaiter();
       expect(disabled).toBe(false);
@@ -385,7 +503,9 @@ describe.skipIf(!handle)('messaging admission linearizability on real MySQL', { 
     await connection.query('UPDATE versions SET version=? WHERE name=?', ['1', AGENT_MESSAGING_ENABLED_KEY]);
     const topic = 'agent:00000000-0000-4000-8000-000000000001';
     const key = randomUUID();
-    const publishing = service.publishAdmin({ topic, content: 'enabled and admitted', clientMessageId: key });
+    const publishing = track(
+      service.publishAdmin({ topic, content: 'enabled and admitted', clientMessageId: key }),
+    );
     try {
       await waitForFlagWaiter();
       await connection.commit();
