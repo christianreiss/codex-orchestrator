@@ -276,6 +276,9 @@ export async function registerCommunicatorRoutes(app: FastifyInstance, ctx: Rout
                 terminate: z.boolean(),
                 pid: z.number().int().positive().max(2 ** 31),
                 started_at: z.string().max(40),
+                // Optional: an owner that predates identity sends neither.
+                instance_id: z.string().max(64).optional(),
+                runtime_id: z.string().max(64).optional(),
               })
               .strict()
               .parse(parsed);
@@ -283,6 +286,8 @@ export async function registerCommunicatorRoutes(app: FastifyInstance, ctx: Rout
               terminate: caps.terminate,
               pid: caps.pid,
               started_at: caps.started_at,
+              instance_id: caps.instance_id ?? null,
+              runtime_id: caps.runtime_id ?? null,
             });
             wsPublisher.publish('communicator.updated', { host_id: hostId });
             return;

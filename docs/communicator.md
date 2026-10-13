@@ -99,11 +99,16 @@ trailing slashes the same way the API router does.
 Remote control of the owner process is negotiated, so old servers and old owners
 never meet a frame they do not know. A server that can stop an owner lists
 `control: ["terminate"]` in its `ready` frame. Only then does the owner send one
-`capabilities` frame (`terminate`, `pid`, `started_at`), and only then does it honour
+`capabilities` frame (`terminate`, `pid`, `started_at`, `instance_id`, `runtime_id`), and only then does it honour
 `{type: "terminate", request_id, reason}`: it answers `terminate_ack` (`accepted`,
 `pid`) first, lets in-flight local requests drain for up to three seconds, and then
 ends through the same path as an idle exit (HTTP server, lock and socket closed). The
 `pid` and start time are the owner's own account; the server cannot observe them.
+`instance_id` is a UUID the owner generates at start, so the same value on a later
+connection proves the same process dialled again. `runtime_id` is a hash of the owner's
+local socket path, so the same value means the same local namespace is served: a
+different process announcing the runtime of a disconnected owner is its replacement,
+while owners in separate runtime roots (which can coexist for one OS user) differ.
 Heartbeats report local client count and last successful synchronization every
 15 seconds. Server content invalidations contain only an event ID, never admin
 payloads or credentials. A multiplexed `daemon` channel reuses the existing
@@ -206,7 +211,14 @@ daemon launched, a daemon stop (`POST /admin/daemon-sessions/{id}/stop`).
 announced the capability above, and reports `terminated` only after the owner's own
 acknowledgement followed by the closing of its connection (`acknowledged` while that
 connection is still open, `unacknowledged` when nothing answered); a surviving client
-restarts a new owner, which describes itself with a different pid. Every
+restarts a new owner, which describes itself with a different pid.
+
+The page links a disconnected connection to a later one only on that identity: `same_process`
+(the same `instance_id` dialled again) or `same_runtime` (a different process announcing the
+same `runtime_id`, with the same host and OS user). A connection from the same host and user
+without a matching identity is listed as an unverified candidate, never as a successor,
+because separate runtime roots can host distinct owners for one user; an owner that predates
+the identity fields can only ever produce candidates. Every
 control requires `agent_portal.manage` (or `agent_messaging.manage` for the daemon
 stop), which stay enforced under `compatible` authorization.
 

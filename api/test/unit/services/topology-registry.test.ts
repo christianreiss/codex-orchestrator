@@ -158,43 +158,98 @@ describe('admin disconnect', () => {
 });
 
 describe('reconnect correlation', () => {
-  it('links a disconnect to the next connection from the same host and OS user', () => {
+  const caps = (instance: string | null, runtime: string | null) => ({ terminate: true, pid: 100, started_at: null, instance_id: instance, runtime_id: runtime });
+  function ended(registry: CommunicatorRegistry, id: string, instance: string | null, runtime: string | null, at = 1000) {
+    registry.register(view(id), handle(registry, id), at);
+    registry.setCapabilities(id, caps(instance, runtime), at);
+    registry.unregister(id, at + 1000);
+  }
+
+  it('calls the same process dialling again a reconnect', () => {
     const registry = new CommunicatorRegistry();
-    registry.register(view('c1'), handle(registry, 'c1'), 1000);
-    registry.unregister('c1', 2000);
+    ended(registry, 'c1', 'inst-1', 'rt-A');
     registry.register(view('c2'), handle(registry, 'c2'), 3000);
-    expect(registry.tombstones(3001)[0]).toMatchObject({ id: 'c1', reason: 'peer_closed', successor_id: 'c2' });
+    registry.setCapabilities('c2', caps('inst-1', 'rt-A'), 3000);
+    expect(registry.tombstones(3001)[0]).toMatchObject({ id: 'c1', successor_id: 'c2', successor_basis: 'same_process', candidate_ids: [] });
   });
 
-  it('does not link a different user, a different host, or a late return', () => {
+  it('calls a different process in the same runtime namespace the replacement', () => {
     const registry = new CommunicatorRegistry();
-    registry.register(view('c1'), handle(registry, 'c1'), 1000);
-    registry.unregister('c1', 2000);
+    ended(registry, 'c1', 'inst-1', 'rt-A');
+    registry.register(view('c2'), handle(registry, 'c2'), 3000);
+    registry.setCapabilities('c2', caps('inst-2', 'rt-A'), 3000);
+    expect(registry.tombstones(3001)[0]).toMatchObject({ successor_id: 'c2', successor_basis: 'same_runtime' });
+  });
+
+  it('never calls same host and user a successor: distinct owners in separate runtime roots are distinct', () => {
+    const registry = new CommunicatorRegistry();
+    ended(registry, 'c1', 'inst-1', 'rt-A');
+    registry.register(view('c2'), handle(registry, 'c2'), 3000);
+    registry.setCapabilities('c2', caps('inst-9', 'rt-B'), 3000);
+    const [t] = registry.tombstones(3001);
+    expect(t).toMatchObject({ successor_id: null, successor_basis: null });
+    // It is still worth showing, labelled for what it is.
+    expect(t!.candidate_ids).toEqual(['c2']);
+  });
+
+  it('gives an owner that never identified itself no factual link, only a candidate', () => {
+    const registry = new CommunicatorRegistry();
+    ended(registry, 'c1', null, null);
+    registry.register(view('c2'), handle(registry, 'c2'), 3000);
+    expect(registry.tombstones(3001)[0]).toMatchObject({ successor_id: null, candidate_ids: ['c2'] });
+    // An identified newcomer cannot be matched against an unidentified predecessor either.
+    registry.setCapabilities('c2', caps('inst-2', 'rt-A'), 3000);
+    expect(registry.tombstones(3001)[0]).toMatchObject({ successor_id: null, candidate_ids: ['c2'] });
+  });
+
+  it('removes a proven successor from every candidate list', () => {
+    const registry = new CommunicatorRegistry();
+    ended(registry, 'c1', 'inst-1', 'rt-A');
+    ended(registry, 'x1', 'inst-x', 'rt-X', 2100);
+    registry.register(view('c2'), handle(registry, 'c2'), 3500);
+    expect(registry.tombstones(3600).filter((t) => t.candidate_ids.includes('c2'))).toHaveLength(2);
+    registry.setCapabilities('c2', caps('inst-1', 'rt-A'), 3500);
+    const byId = Object.fromEntries(registry.tombstones(3600).map((t) => [t.id, t]));
+    expect(byId.c1).toMatchObject({ successor_id: 'c2' });
+    expect(byId.x1!.candidate_ids).not.toContain('c2');
+    expect(byId.c1!.candidate_ids).not.toContain('c2');
+  });
+
+  it('requires the same host and the same OS user even when the identity matches', () => {
+    const registry = new CommunicatorRegistry();
+    ended(registry, 'c1', 'inst-1', 'rt-A');
     registry.register(view('c2', { username: 'bob' }), handle(registry, 'c2'), 3000);
+    registry.setCapabilities('c2', caps('inst-1', 'rt-A'), 3000);
     registry.register(view('c3', { host_id: 9 }), handle(registry, 'c3'), 3000);
-    registry.register(view('c4'), handle(registry, 'c4'), 2000 + 3 * 60_000);
-    expect(registry.tombstones(2000 + 3 * 60_000)[0]!.successor_id).toBeNull();
+    registry.setCapabilities('c3', caps('inst-1', 'rt-A'), 3000);
+    expect(registry.tombstones(3001)[0]).toMatchObject({ successor_id: null, candidate_ids: [] });
   });
 
-  it('claims each tombstone at most once', () => {
+  it('does not link a late return, and claims each predecessor at most once', () => {
     const registry = new CommunicatorRegistry();
-    registry.register(view('c1'), handle(registry, 'c1'), 1000);
-    registry.unregister('c1', 2000);
-    registry.register(view('c2'), handle(registry, 'c2'), 3000);
-    registry.register(view('c3'), handle(registry, 'c3'), 3500);
-    expect(registry.tombstones(3600)[0]!.successor_id).toBe('c2');
+    ended(registry, 'c1', 'inst-1', 'rt-A');
+    registry.register(view('late'), handle(registry, 'late'), 2000 + 3 * 60_000);
+    registry.setCapabilities('late', caps('inst-1', 'rt-A'), 2000 + 3 * 60_000);
+    expect(registry.tombstones(2000 + 3 * 60_000)[0]!.successor_id).toBeNull();
+
+    const again = new CommunicatorRegistry();
+    ended(again, 'c1', 'inst-1', 'rt-A');
+    again.register(view('c2'), handle(again, 'c2'), 3000);
+    again.setCapabilities('c2', caps('inst-1', 'rt-A'), 3000);
+    again.register(view('c3'), handle(again, 'c3'), 3500);
+    again.setCapabilities('c3', caps('inst-1', 'rt-A'), 3500);
+    expect(again.tombstones(3600)[0]!.successor_id).toBe('c2');
   });
 
   it('forgets old tombstones', () => {
     const registry = new CommunicatorRegistry();
-    registry.register(view('c1'), handle(registry, 'c1'), 1000);
-    registry.unregister('c1', 2000);
+    ended(registry, 'c1', 'inst-1', 'rt-A');
     expect(registry.tombstones(2000 + 16 * 60_000)).toEqual([]);
   });
 });
 
 describe('acknowledged owner termination', () => {
-  const capable = { terminate: true, pid: 4242, started_at: '2026-10-13T17:00:00Z' };
+  const capable = { terminate: true, pid: 4242, started_at: '2026-10-13T17:00:00Z', instance_id: 'inst-4242', runtime_id: 'rt-A' };
   function owner(registry: CommunicatorRegistry, id: string, answer: (frame: { request_id: string }) => void) {
     const send = vi.fn((frame: unknown) => queueMicrotask(() => answer(frame as { request_id: string })));
     registry.register(view(id), { close: vi.fn(), send, remoteAddress: null });
@@ -211,7 +266,7 @@ describe('acknowledged owner termination', () => {
     const result = await registry.terminate('c1', 'ops', { ackMs: 500, closeMs: 500 });
     expect(result).toMatchObject({ outcome: 'terminated', pid: 4242 });
     expect(send).toHaveBeenCalledWith(expect.objectContaining({ type: 'terminate', reason: 'admin' }));
-    expect(registry.tombstones()[0]).toMatchObject({ reason: 'admin_terminate', actor: 'ops', pid: 4242, process_started_at: '2026-10-13T17:00:00Z' });
+    expect(registry.tombstones()[0]).toMatchObject({ reason: 'admin_terminate', actor: 'ops', pid: 4242, process_started_at: '2026-10-13T17:00:00Z', instance_id: 'inst-4242', runtime_id: 'rt-A' });
   });
 
   it('says only "acknowledged" while the connection is still open', async () => {
