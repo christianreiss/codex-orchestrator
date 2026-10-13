@@ -369,6 +369,9 @@ Startup, `status` and `doctor` use `/auth` with `metadata_only: true` to inspect
 local canonical metadata without refreshing provider credentials or allocating an
 account lease. A missing/default account cannot block the subsequent account-pool
 selection; the actual runtime grant is obtained through `/auth/sessions`.
+`status` and `doctor` treat `status:"available"` with `verification_state:"verified"` as
+healthy auth; `missing` or any other verification state fails. They inspect the
+engine's account-less canonical head, not the account a launch would lease.
 
 Ordinary credential retrieval through `/auth` returns the access-only envelope with `canonical_generation`,
 `access_token_digest`, `expires_at`, and refresh-state metadata.

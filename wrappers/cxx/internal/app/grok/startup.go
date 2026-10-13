@@ -123,8 +123,10 @@ func startupScreen(in startupInput) terminalui.ScreenInput {
 	if !answered && (in.Auth == nil || in.AuthErr != nil || in.Auth.Status == "") {
 		apiTone = terminalui.ToneFail
 	}
+	// "available" is the metadata_only answer status/doctor read: a stored,
+	// verified login. A launch replaces it with its leased grant before this.
 	if in.Auth == nil || in.AuthErr != nil || in.Auth.VerificationState != "verified" ||
-		!hasArg([]string{in.Auth.Status}, "valid", "outdated", "updated", "ok", "unchanged") {
+		!hasArg([]string{in.Auth.Status}, "valid", "outdated", "updated", "ok", "unchanged", "available") {
 		authTone = terminalui.ToneFail
 		ui.ResultLabel, ui.ResultTone = "Subscription auth unavailable; run `cgx login`.", terminalui.ToneFail
 		if status := orchestrator.InsecureStatusFromError(in.AuthErr); status == "insecure" {
