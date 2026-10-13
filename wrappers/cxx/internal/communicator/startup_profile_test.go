@@ -77,6 +77,7 @@ type profAPI struct {
 	byPath   map[string]time.Duration
 	connect  time.Duration // delay before the communicator WebSocket upgrade completes
 	conns    []*websocket.Conn
+	arrived  map[string]int // requests that reached a route, counted before any injected delay
 	skills   []profSkill
 	agents   string
 	root     string
@@ -178,6 +179,10 @@ func (a *profAPI) record(path, transport string, req, resp int, begin time.Time)
 func (a *profAPI) handle(method, path string, body []byte) (int, []byte) {
 	route := strings.Split(path, "?")[0]
 	a.mu.Lock()
+	if a.arrived == nil {
+		a.arrived = map[string]int{}
+	}
+	a.arrived[route]++
 	delay, ok := a.byPath[route]
 	if !ok {
 		delay = a.latency
@@ -242,6 +247,13 @@ func (a *profAPI) handle(method, path string, body []byte) (int, []byte) {
 		return 200, out
 	}
 	return 200, []byte(`{"status":"ok","data":{}}`)
+}
+
+// arrivals counts requests that reached route, including ones still being served.
+func (a *profAPI) arrivals(route string) int {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.arrived[route]
 }
 
 // configure changes the stub's behavior while it serves.
@@ -847,6 +859,40 @@ func TestReconnectAfterLaunchStillRefreshesContent(t *testing.T) {
 	for rig.frames("/sync/bootstrap") <= before {
 		if time.Now().After(deadline) {
 			t.Fatalf("reconnect produced no content exchange (bootstraps stayed at %d)", before)
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+}
+
+// A server push that arrives while the cold launch's bootstrap is still in flight
+// is newer than the state that bootstrap is reading, so the scheduler's pass for
+// the scope must still run after it.
+func TestPushDuringColdBootstrapStillRefreshesContent(t *testing.T) {
+	if testing.Short() {
+		t.Skip("builds a signed real binary")
+	}
+	rig := newProfRig(t, true)
+	rig.api.configure(func(a *profAPI) {
+		a.byPath = map[string]time.Duration{"/sync/bootstrap": 1200 * time.Millisecond}
+		a.connect = 200 * time.Millisecond
+	})
+	done := make(chan profRun, 1)
+	go func() { done <- rig.run("cold launch with a push mid-bootstrap", "claude", "run", "--minimal") }()
+	deadline := time.Now().Add(15 * time.Second)
+	for rig.api.arrivals("/sync/bootstrap") == 0 {
+		if time.Now().After(deadline) {
+			t.Fatal("the cold launch never reached /sync/bootstrap")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	rig.api.push(frame{Type: "invalidate"})
+	launch := <-done
+	if launch.ExitCode != 0 {
+		t.Fatalf("launch failed: %s", launch.Stdout)
+	}
+	for rig.frames("/sync/bootstrap") < 2 {
+		if time.Now().After(deadline.Add(15 * time.Second)) {
+			t.Fatalf("a push during the cold bootstrap produced no second exchange (bootstraps: %d)\n%s", rig.frames("/sync/bootstrap"), launch.timeline())
 		}
 		time.Sleep(25 * time.Millisecond)
 	}
