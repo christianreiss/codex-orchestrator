@@ -83,7 +83,14 @@ individual operations where their authorization requires it.
 Managed content sync runs once per registered engine/home scope after push
 invalidation, after reconnect, when a lease registers a scope that is new to
 the owner, and every five minutes while clients are attached. An additional
-lease on an already-registered scope does not force a pass.
+lease on an already-registered scope does not force a pass. A scheduled pass is
+skipped when a complete bootstrap or content worker for that scope started after
+the newest server invalidation (a pushed `invalidate` frame or a reconnect,
+stamped on arrival) and less than five minutes ago, so a launch's own bootstrap
+satisfies the scope's initial pass instead of being followed by an identical
+exchange. A first connection is not an invalidation, a new scope's first
+scheduled pass waits 1.5 s so the session that opened it runs first, and explicit
+syncs, `auth` operations and bootstraps that carry auth always run.
 It invokes the existing headless sync machinery with concurrent sync explicitly
 enabled, preserving each scope's environment and signed config path. Scope
 registrations are removed when their last client lease closes. Files update

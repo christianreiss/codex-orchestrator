@@ -77,6 +77,9 @@ type SyncRequest struct {
 	IncludeAuth   bool     `json:"include_auth,omitempty"`
 	Concurrent    bool     `json:"concurrent,omitempty"`
 	Args          []string `json:"args,omitempty"`
+	// Scheduled marks a content pass started by the owner's own scheduler. It is
+	// never sent over the wire: an explicit caller always gets a real exchange.
+	Scheduled bool `json:"-"`
 }
 
 // SyncManaged is false inside the dedicated worker, avoiding recursive dispatch.
