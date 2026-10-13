@@ -112,15 +112,26 @@ func (s *server) daemon(w http.ResponseWriter, r *http.Request) {
 	}).ServeHTTP(w, r)
 }
 
-// connectWait caps how long a request waits for the shared connection. The first
-// connection is worth the full budget. Once it has failed, the connect loop sleeps
+// connectWaitFirst caps how long a request waits for the shared connection. It must
+// end well inside the shortest deadline of any caller that can be waiting here, the
+// 15 s auth worker (authWorkerTimeout): a worker killed while its request still waits
+// never learns that nothing was sent, so it cannot take its documented offline path
+// and reports a failed sync instead. Waiting is bounded per connection attempt, not
+// per request: every request shares the budget of the attempt in flight, so the second
+// and third call of a command against a hung API fail at once instead of each
+// sitting out the whole budget. Once an attempt has failed, the connect loop sleeps
 // in a backoff of up to 30 s, so a waiting request must neither sit through that
 // sleep nor fail while the server is already back: it asks the loop to redial now
 // and learns the outcome of that one attempt, which for a refused connection takes
 // milliseconds, like direct HTTPS. A failure from the last second is reported at once
 // instead of redialling for every call of a command.
+//
+// A redial after the connection was lost is expected within moments (TCP, TLS and the
+// upgrade of a server that is back take well under a second), so it gets a much
+// shorter budget, redialWait, than the very first connection of a cold owner.
 const (
-	connectWaitFirst = 20 * time.Second
+	connectWaitFirst = authWorkerTimeout - 5*time.Second
+	redialWait       = 3 * time.Second
 	reconnectSpacing = time.Second
 )
 
@@ -132,8 +143,18 @@ func (s *server) waitConnection(ctx context.Context) *connection {
 	var kickedAt uint64
 	for {
 		s.mu.Lock()
-		c, failures, attempting, attempts, ended := s.conn, s.failures, s.attempting, s.attempts, s.lastAttemptEnd
+		c, failures, attempting, attempts, ended, began := s.conn, s.failures, s.attempting, s.attempts, s.lastAttemptEnd, s.attemptStarted
 		s.mu.Unlock()
+		if attempting && !began.IsZero() {
+			// Waiters share the attempt's budget rather than starting their own.
+			budget := connectWaitFirst
+			if failures > 0 {
+				budget = redialWait
+			}
+			if shared := began.Add(budget); shared.Before(deadline) {
+				deadline = shared
+			}
+		}
 		switch {
 		case c != nil:
 			return c

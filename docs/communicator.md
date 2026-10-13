@@ -199,7 +199,13 @@ refused upgrade as "bad status" whatever the code, and the daemon retries with b
 
 The reconnect delay grows from one to thirty seconds with jitter. A request that finds the
 connection down never sits through that backoff: it asks the connect loop to redial at
-once and waits for that one attempt, up to 20 s for the very first connect. A refused
+once and waits for that one attempt: at most 10 s for the very first connect of a cold owner
+and 3 s for a redial after the connection was lost. Both end inside the 15 s deadline of the
+credential sync worker (a worker killed while its request still waits would never learn that
+nothing was sent) and are shared by all requests during one attempt, so against a hung API
+only the first call of a command pays the budget and the next ones fail at once. A request
+whose connection already ended before it was written is also answered `503` (provably
+not sent); a frame that was written and then lost stays `409` outcome unknown. A refused
 connection fails in milliseconds, so during an outage the request gets
 `503 communicator_unavailable` promptly (a definitive "not sent", never "outcome
 unknown"), exactly as direct HTTPS would refuse, and the first request after the server

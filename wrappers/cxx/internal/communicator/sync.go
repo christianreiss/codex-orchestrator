@@ -290,6 +290,11 @@ func (s *server) runSync(ctx context.Context, in SyncRequest) SyncResult {
 		return call.result
 	}
 }
+
+// authWorkerTimeout bounds a credential sync worker. Anything it waits on, notably the
+// control connection (connectWaitFirst), must give an answer well before this.
+const authWorkerTimeout = 15 * time.Second
+
 func (s *server) executeSync(ctx context.Context, in SyncRequest) (out SyncResult) {
 	s.mu.Lock()
 	state := s.stateLocked(in.Job)
@@ -335,7 +340,7 @@ func (s *server) executeSync(ctx context.Context, in SyncRequest) (out SyncResul
 	}
 	timeout := 90 * time.Second
 	if in.Operation == "auth" {
-		timeout = 15 * time.Second
+		timeout = authWorkerTimeout
 	}
 	work, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
