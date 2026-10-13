@@ -2,6 +2,8 @@
 
 - cxx 0.9.75 marks oversized completed MCP replies as unknown outcomes and asks callers to verify the result before retrying, preserving the original request ID and work identifiers.
 
+- cxx 0.9.75 also ends a host-daemon stream whose relay is blocked on a stalled local reader when the shared control connection drops or the server closes the daemon (not only on queue overflow), so the daemon notices and reconnects instead of hanging on a dead stream.
+
 - cxx 0.9.75 also stops a host-daemon stream whose local reader has stalled: detaching it expires that stream's socket deadlines, so a relay blocked writing to it no longer keeps the stream (and its 64 queued events) alive.
 
 - Managed MCP renders `cxx communicator mcp` only when that engine's wrapper version is a bakery cxx release at or above 0.9.71. Date-versioned shell wrappers (`2025.11.03`, `2025.11.3`), `dev`, and other non-releases stay on the HTTPS MCP endpoint. `v0.1.0` is a real version and stays on HTTPS because it is older than 0.9.71.

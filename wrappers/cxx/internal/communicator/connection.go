@@ -152,6 +152,11 @@ func (c *connection) receive() {
 					// the daemon reconnects under its durable work semantics.
 					c.detachDaemon(ch)
 				}
+				if f.Type == "daemon_closed" {
+					// Queued events still drain to a reading daemon first; a
+					// relay blocked on a stalled reader is stopped after a bound.
+					time.AfterFunc(daemonCloseGrace, func() { c.detachDaemon(ch) })
+				}
 			}
 		case "auth_changed":
 			if c.authChanged != nil {
@@ -174,6 +179,11 @@ func (c *connection) receive() {
 		}
 	}
 }
+
+// daemonCloseGrace bounds how long a remotely closed daemon stream may keep
+// draining queued events before it is stopped.
+var daemonCloseGrace = 2 * time.Second
+
 func (c *connection) detachDaemon(ch chan json.RawMessage) {
 	c.mu.Lock()
 	var stop func()

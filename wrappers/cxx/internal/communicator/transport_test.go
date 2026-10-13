@@ -604,3 +604,72 @@ func TestStalledDaemonReaderIsDisconnectedPromptly(t *testing.T) {
 		t.Fatal("control connection lost with the stalled daemon", result, err)
 	}
 }
+
+// A relay blocked on a reader that stopped, with the queue NOT overflowed,
+// must still end when the control connection drops or the server closes the
+// daemon, so the daemon notices and reconnects.
+func TestBlockedDaemonRelayEndsOnTerminalEvents(t *testing.T) {
+	previous := daemonCloseGrace
+	daemonCloseGrace = 200 * time.Millisecond
+	t.Cleanup(func() { daemonCloseGrace = previous })
+	payload := json.RawMessage(`{"blob":"` + strings.Repeat("x", 512*1024) + `"}`)
+	for _, terminal := range []string{"control_lost", "daemon_closed"} {
+		t.Run(terminal, func(t *testing.T) {
+			c := testConnection(t, func(ws *websocket.Conn, f frame) {
+				if f.Type != "daemon" {
+					return
+				}
+				go func() {
+					// ~30 MB in 60 events blocks the local Send on loopback buffers
+					// without filling the 64-slot queue.
+					for i := 0; i < 60; i++ {
+						if websocket.JSON.Send(ws, frame{Type: "daemon_event", Payload: payload}) != nil {
+							return
+						}
+					}
+					time.Sleep(500 * time.Millisecond)
+					if terminal == "daemon_closed" {
+						_ = websocket.JSON.Send(ws, frame{Type: "daemon_closed"})
+					} else {
+						ws.Close()
+					}
+				}()
+			})
+			s := &server{conn: c, calls: map[string]*sharedCall{}}
+			local := httptest.NewServer(s)
+			defer local.Close()
+			ws, err := websocket.Dial(strings.Replace(local.URL, "http://", "ws://", 1)+"/_comm/daemon", "", local.URL)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer ws.Close()
+			if err := websocket.JSON.Send(ws, map[string]any{"type": "heartbeat"}); err != nil {
+				t.Fatal(err)
+			}
+			// Stay a stalled reader until the stream has had to end.
+			deadline := time.Now().Add(5 * time.Second)
+			for {
+				c.mu.Lock()
+				released := c.daemon == nil && c.daemonClosing == nil
+				c.mu.Unlock()
+				if released {
+					break
+				}
+				if time.Now().After(deadline) {
+					t.Fatal("blocked daemon relay outlived", terminal)
+				}
+				time.Sleep(20 * time.Millisecond)
+			}
+			ws.SetReadDeadline(time.Now().Add(5 * time.Second))
+			for {
+				var discard json.RawMessage
+				if err := websocket.JSON.Receive(ws, &discard); err != nil {
+					if ne, ok := err.(interface{ Timeout() bool }); ok && ne.Timeout() {
+						t.Fatal("local daemon socket left open after", terminal)
+					}
+					break
+				}
+			}
+		})
+	}
+}

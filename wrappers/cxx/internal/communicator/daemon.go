@@ -57,18 +57,30 @@ func (s *server) daemon(w http.ResponseWriter, r *http.Request) {
 		c.daemon = channel
 		// Expired deadlines unblock a stalled Send and the Receive loop without
 		// taking the websocket write lock that a blocked Send holds (Close does).
-		c.daemonStop = func() {
+		stop := func() {
 			now := time.Now()
 			_ = ws.SetWriteDeadline(now)
 			_ = ws.SetReadDeadline(now)
 		}
+		c.daemonStop = stop
 		c.mu.Unlock()
 		defer c.finishDaemon(channel)
 		ctx, cancel := context.WithCancel(r.Context())
 		defer cancel()
+		// A lost control connection must end this stream even while the relay
+		// is blocked writing to a reader that stopped, or the daemon would never
+		// notice and reconnect.
+		go func() {
+			select {
+			case <-c.done:
+				stop()
+			case <-ctx.Done():
+			}
+		}()
 		go func() {
 			defer cancel()
-			defer ws.Close()
+			// Close writes a close frame; never let it block on a stalled reader.
+			defer func() { stop(); ws.Close() }()
 			for {
 				select {
 				case <-ctx.Done():
