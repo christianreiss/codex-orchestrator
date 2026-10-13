@@ -39,12 +39,14 @@ extend it. A connected persistent host daemon holds a lease too.
 
 A symlinked, missing or non-0700 logind directory is never trusted. An explicit
 custom `XDG_RUNTIME_DIR` is a deliberately separate namespace (isolated tests,
-containers) with its own owner and fences. Upgrading from 0.9.72/0.9.73 does not
-move an existing owner: a `/tmp/cxx-<uid>` owner started by an older Codex MCP
-adapter keeps serving the processes already attached to it until its last lease
-closes and the idle period ends. After installing 0.9.74, end or restart the
-Codex sessions started before the update, then confirm convergence with
-`ss -xlp | grep cxx-comm`: only the `/run/user/<uid>` socket should remain.
+containers) with its own owner and fences. Upgrading from a release before 0.9.75 does
+not move an existing owner: a `/tmp/cxx-<uid>` owner started by an older Codex
+MCP adapter keeps serving the processes already attached to it. Owners before
+0.9.75 also never exit when idle, so that stray owner outlives its last client.
+After installing 0.9.75, end or restart the Codex sessions started before the
+update, then stop the leftover owner: `ss -xlp | grep "/tmp/cxx-$(id -u)/cxx-comm"`
+names its PID, and with no clients attached it holds no work. Afterwards only the
+`/run/user/<uid>` socket should remain listening.
 
 ## Data and auth ownership
 
