@@ -206,6 +206,9 @@ func authUsable(auth *startupAuth, err error) bool {
 func leasedStartupAuth(initial startupAuth, lease *accountpool.LeaseResponse) startupAuth {
 	if lease != nil {
 		initial.Projection = native.Projection{Status: "valid", Auth: lease.Auth, AccountID: lease.AccountID, VerificationState: lease.VerificationState, AccountPool: true}
+		// The concrete grant now decides; pool availability must not paper over
+		// an unexpected unverified lease.
+		initial.PoolVerifiedAccounts = 0
 	}
 	return initial
 }

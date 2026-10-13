@@ -386,3 +386,22 @@ func TestStatusAcceptsServerMetadataShape(t *testing.T) {
 		})
 	}
 }
+
+func TestLeasedGrantSupersedesPoolAvailability(t *testing.T) {
+	in := startupFixture(t)
+	initial := *in.Auth
+	initial.Status, initial.VerificationState, initial.PoolVerifiedAccounts = "missing", "unknown", 3
+	for _, tc := range []struct {
+		verification string
+		ok           bool
+	}{{"verified", true}, {"pending", false}, {"failed", false}} {
+		leased := leasedStartupAuth(initial, &accountpool.LeaseResponse{AccountID: 7, VerificationState: tc.verification})
+		if leased.PoolVerifiedAccounts != 0 {
+			t.Fatalf("lease kept metadata pool count: %+v", leased)
+		}
+		in.Auth = &leased
+		if ok := startupScreen(in).Dots[1].Tone != terminalui.ToneFail; ok != tc.ok {
+			t.Fatalf("%s lease rendered auth ok=%v, want %v", tc.verification, ok, tc.ok)
+		}
+	}
+}
