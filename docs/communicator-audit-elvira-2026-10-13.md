@@ -166,3 +166,49 @@ scoped lease-wakeup, host-scoped reply and topology fixes. The full combined Go
 race suite, API typecheck/build/lint and frontend checks passed. Task commits
 made after the signing agent timed out used an explicit per-command unsigned
 override; the existing repository signing configuration was not changed.
+
+## Final 0.9.76 repeat
+
+The final transport snapshot `57173c6662abce48c502a23a8f64b000f226242c`
+passed a fresh full Go race/build/vet run and API typecheck. The affected API
+communicator and MCP credential tests passed 49/49. Each VM again passed all
+four communicator/Codex/Claude/Grok suites against this snapshot. The subsequent
+`f89fc864a6a7a33fdfc4fc6578a297c74767ba1f` change only improves the refusal
+diagnostic for an unresolved auth upload; both engines' lifecycle and
+orchestrator race suites passed after independently reviewing that change.
+
+The identical private cxx 0.9.76 binary installed on all three VMs has SHA256
+`70d49a28164919d6b01fd62fc6dfcfba2cb697680c020ce8e199a56795a35259`.
+All nine native launches completed with their requested `COMM_076_TEST` marker
+and a fleet `agent_self` call. Server `agent_translate` readback confirmed each
+returned name and UUID:
+
+| VM | Engine | Name | Canonical agent UUID |
+| --- | --- | --- | --- |
+| test1 | Codex | Brunhilda | e1014956-c7e3-49d1-b526-18ae14d13634 |
+| test1 | Claude | Annabella | 9c12bd02-f895-4d2b-a483-5d98dc8a535a |
+| test1 | Grok | Cassandra | 0158c665-87de-42d7-bfb2-633a973be0e5 |
+| test2 | Codex | Anne-Kathrin | 4a995705-32fe-41b2-8e8a-ca6699b11e2b |
+| test2 | Claude | Antonie | f72e5a2c-467c-431c-a815-1e6eb77f676f |
+| test2 | Grok | Margarete | 8a562bd9-900d-492f-9dbb-0fda93bf91f6 |
+| test3 | Codex | Vivien | b1ecb062-ccaa-43e2-acfc-583d04a41300 |
+| test3 | Claude | Irma | 62aa8b1c-1e74-49a4-bf1c-be81aa880382 |
+| test3 | Grok | Heidrun | 4d3d6ead-d93a-4b6a-b8c8-52e327b196c2 |
+
+Final doctors exited zero: `connected: true`, `https_fallback: false`, empty
+transport/local errors, with 140/137/136 requests on test1/test2/test3.
+Logs remain under `/opt/coco-comm-audit-elvira/` on each VM:
+`final-076-tests.log`, `native-076-{codex,claude,grok}.log` and the preparation
+logs. The first interrupted Codex/Grok attempt is preserved separately.
+
+Two test-environment issues were resolved before accepting this repeat.
+test1 rebooted onto DHCP address 10.2.0.215 instead of 10.2.0.213; releasing only
+test host 257's IP binding through the admin endpoint allowed the next real
+sync to bind the new address while retaining secure mode. Also, my manual
+private binary upgrade started the service without refreshing its deployment
+hash. The first native launches then triggered the normal service update,
+interrupting accepted sync and correctly producing unknown outcomes and auth
+markers. The supported `cxx agent service install` completed preparation;
+`cxx codex sync` reconciled and cleared the markers against verified matching
+server credentials. No credential file was discarded, and no auth upload was
+blindly replayed. The affected Codex/Grok launches then passed on every VM.
