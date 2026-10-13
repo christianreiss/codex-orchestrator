@@ -1358,6 +1358,7 @@ export const logs = mysqlTable(
   (t) => ({
     hostIdx: index('idx_logs_host').on(t.hostId),
     createdAtIdx: index('idx_logs_created_at').on(t.createdAt),
+    actionCreatedHostIdx: index('idx_logs_action_created_host').on(t.action, t.createdAt, t.hostId),
   }),
 );
 

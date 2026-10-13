@@ -8,7 +8,7 @@
  *
  * Read-only and idempotent — safe to call on every bootstrap request.
  */
-import { and, gte, sql } from 'drizzle-orm';
+import { sql } from 'drizzle-orm';
 import { logs } from '../db/schema.js';
 import type { Database } from '../db/client.js';
 import { isoOffsetSeconds } from '../util/timestamp.js';
@@ -26,34 +26,36 @@ export interface FleetSessionCounts {
 }
 
 export class HostSessionsService {
-  constructor(private readonly db: Database) {}
+  constructor(private readonly db: Pick<Database, 'execute'>) {}
 
   async fleetCounts(now: Date = new Date()): Promise<FleetSessionCounts> {
     const nowCutoff = isoFloor(new Date(now.getTime() - NOW_WINDOW_MINUTES * 60 * 1000));
     const todayCutoff = isoFloor(startOfUtcDay(now));
     const monthCutoff = isoFloor(startOfUtcMonth(now));
 
-    const [nowRows, todayRows, monthRows] = await Promise.all([
-      // Count distinct hosts in the 30-minute window so retries from one host
-      // do not inflate the recent-host signal.
-      this.db
-        .select({ c: sql<number>`count(distinct ${logs.hostId})` })
-        .from(logs)
-        .where(and(sql`${logs.action} = ${SESSION_ACTION}`, gte(logs.createdAt, nowCutoff))),
-      this.db
-        .select({ c: sql<number>`count(*)` })
-        .from(logs)
-        .where(and(sql`${logs.action} = ${SESSION_ACTION}`, gte(logs.createdAt, todayCutoff))),
-      this.db
-        .select({ c: sql<number>`count(*)` })
-        .from(logs)
-        .where(and(sql`${logs.action} = ${SESSION_ACTION}`, gte(logs.createdAt, monthCutoff))),
-    ]);
-
+    // One round trip/connection, with separate covering-index ranges. A single
+    // conditional aggregate would feed the whole month's rows into DISTINCT;
+    // this keeps that work bounded to recent hosts and preserves the previous
+    // month's part of the recent window just after UTC midnight on the 1st.
+    const [result] = await this.db.execute(sql`
+      SELECT
+        (SELECT count(distinct ${logs.hostId}) FROM ${logs}
+          WHERE ${logs.action} = ${SESSION_ACTION} AND ${logs.createdAt} >= ${nowCutoff}) AS recent,
+        (SELECT count(*) FROM ${logs}
+          WHERE ${logs.action} = ${SESSION_ACTION} AND ${logs.createdAt} >= ${todayCutoff}) AS today,
+        (SELECT count(*) FROM ${logs}
+          WHERE ${logs.action} = ${SESSION_ACTION} AND ${logs.createdAt} >= ${monthCutoff}) AS month
+    `);
+    // Drizzle's mysql2 raw executor types every result as a write header.
+    const rows = result as unknown as Array<{
+      recent: number | string;
+      today: number | string;
+      month: number | string;
+    }>;
     return {
-      now: Number(nowRows[0]?.c ?? 0),
-      today: Number(todayRows[0]?.c ?? 0),
-      month: Number(monthRows[0]?.c ?? 0),
+      now: Number(rows[0]?.recent ?? 0),
+      today: Number(rows[0]?.today ?? 0),
+      month: Number(rows[0]?.month ?? 0),
     };
   }
 }
