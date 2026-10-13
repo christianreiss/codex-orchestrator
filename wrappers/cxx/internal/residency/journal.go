@@ -23,6 +23,12 @@ type Journal struct {
 	SourceOwner  string `json:"source_owner"`
 	TargetOwner  string `json:"target_owner,omitempty"`
 	Phase        Phase  `json:"phase"`
+	SourcePID    int    `json:"source_pid,omitempty"`
+	SourceStart  string `json:"source_start,omitempty"`
+	SourceBoot   string `json:"source_boot,omitempty"`
+	Namespace    string `json:"namespace,omitempty"`
+	SourceUnit   string `json:"source_unit_sha256,omitempty"`
+	TargetUnit   string `json:"target_unit_sha256,omitempty"`
 }
 
 var digestPattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
@@ -46,6 +52,12 @@ func (j Journal) Validate() error {
 		if _, err := uuid.Parse(j.TargetOwner); err != nil {
 			return errors.New("invalid target owner UUID")
 		}
+	}
+	if j.SourcePID != 0 && (j.SourcePID < 0 || j.SourceStart == "" || j.SourceBoot == "" || j.Namespace == "") {
+		return errors.New("incomplete source process identity")
+	}
+	if (j.SourceUnit != "" || j.TargetUnit != "") && (!digestPattern.MatchString(j.SourceUnit) || !digestPattern.MatchString(j.TargetUnit)) {
+		return errors.New("invalid unit artifact digests")
 	}
 	switch j.Phase {
 	case Observed, Staged, Fenced, Draining, HandoffReady, Replaced, Verified, Reopened:
@@ -138,6 +150,7 @@ func saveJournal(path string, next Journal, expected *Journal) error {
 		}
 	} else if err != nil || current != *expected || current.TransitionID != next.TransitionID ||
 		current.Source != next.Source || current.Target != next.Target || current.SourceOwner != next.SourceOwner ||
+		current.SourcePID != next.SourcePID || current.SourceStart != next.SourceStart || current.SourceBoot != next.SourceBoot || current.Namespace != next.Namespace || current.SourceUnit != next.SourceUnit || current.TargetUnit != next.TargetUnit ||
 		(current.TargetOwner != "" && current.TargetOwner != next.TargetOwner) {
 		return errors.New("migration journal changed")
 	}

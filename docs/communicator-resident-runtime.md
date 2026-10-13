@@ -1,8 +1,9 @@
 # Resident communicator implementation
 
-The unified runtime is being prepared behind an independent signed capability.
-This document describes the implemented preparation and the remaining integration
-gate; it is not a fleet deployment receipt.
+The unified runtime is implemented in the private unification workstream behind
+an independent, default-off signed capability. It has no allocated release or
+production rollout. Fleet integration and remaining acceptance checks remain
+release gates.
 
 ## Settings and compatibility
 
@@ -15,52 +16,81 @@ remote-execution switch. Residence alone never admits a remote session.
 `CXX_COMMUNICATOR_RUNTIME_ENABLED=false` is the default. Enabling it includes
 `orchestrator.communicator_runtime_protocol: 1` in signed wrapper configurations,
 independently of the transport and sync capabilities. Do not enable the flag
-until the unified runtime and migration acceptance are complete. Existing
-wrappers ignore the additional optional field.
+before migration acceptance. Older wrappers ignore this optional field.
 
-The Operations panel stores residence separately from remote starts. A request
-for residence with runtime support disabled is displayed as pending, rather than
-as a running service. Timed execution expiry preserves explicit residence and
-does not renew the existing execution deadline.
+The Operations panel saves residence separately from remote starts. A request
+with runtime support disabled is pending, rather than proof of a running service.
+Timed execution expiry preserves explicit residence without renewing the deadline.
 
-## Execution-controller preparation
+## Runtime and commands
 
-The daemon loop accepts an injected framed stream and HTTP transport through
-`ResidentController`; its legacy entrypoint uses the existing transport adapter.
-Native launch grammar, journal/claim identifiers, receipt retry, per-session
-writer locks and engine readiness remain in the existing execution machinery.
-Fencing prevents new admission permits without cancelling existing work.
-Peer claim requests count as outstanding work until processing finishes. Status
-includes local operations and peer receipts; unreadable state is unverified,
-never an empty queue. Transport injection does not confer account admission or
-provider-refresh ownership.
+`cxx communicator run` hosts the local socket, control connection, sync scheduler
+and an injected remote execution controller in one process. `install`, `start`,
+`stop` and `uninstall` retain the existing `cxx-daemon.service` and protected
+`/usr/local/lib/cxx-daemon/cxx` copy. The `cxx daemon` commands remain compatible;
+`daemon run` selects the unified service only with the signed runtime capability.
+`communicator status` and `doctor` report actual local mode, owner UUID, binary
+SHA256, draining state, residence/execution policy and controller workload.
 
-## Migration primitives
+On-demand owners still idle out after five minutes without clients or finite
+work. Managed residence keeps content-only scopes for configured, enabled Codex,
+Claude and Grok engines. Account/session authentication is registered only by
+existing native session lifecycles; residence never acquires provider leases,
+logs in, refreshes canonical auth or changes Grok's server-owned refresh.
+Transport-disabled residence uses direct HTTPS and the existing daemon WebSocket;
+turning off transport does not enable it through the residency flag.
 
-The residency package distinguishes default logind/XDG-unset clients from
-explicit custom roots. Namespace keys include UID, orchestrator URL and runtime
-namespace. This is an identity primitive, not a change to canonical socket paths.
+The execution controller uses the existing native launch grammar, durable claims,
+operation journals, receipt retry, engine readiness and per-session writer locks.
+Its fence blocks new permits without canceling accepted work. An unreadable local
+receipt directory is unverified, never an empty queue. Remote owner termination
+is refused while execution, receipts, finite sync/write work or dependent legacy
+clients remain. The unified systemd unit uses `KillMode=process`; remote stop
+preflight still requires accepted remote work to drain. Explicit systemd or legacy
+daemon stop retains its existing interruption semantics.
 
-Migration proceeds through observed, staged, fenced, draining, handoff_ready,
-replaced, verified and reopened. Readiness needs a verified workload with no
-accepted execution, claims, children, receipts, writes, active requests or
-dependent legacy clients. Replacement additionally needs proven source exit and
-exclusive target ownership. Verification must precede admission reopening.
+## Namespace and adoption
 
-Protected journals retain a transition UUID, executable hashes, owner identities
-and phase. Atomic compare-and-write preserves identity on lost acknowledgement
-retries and refuses another transition. Immutable staging verifies source bytes
-and uses digest-named artifacts without overwriting the running service binary.
+Namespace identity includes UID, orchestrator URL and runtime root. Default logind
+and XDG-unset clients share a coordination lock and a verified owner record;
+explicit custom roots remain independent, including hashed long-path fallbacks.
+Discovery checks directory/file ownership and modes, rejects symlinks and validates
+the live socket's kernel UID/PID against its owner response. Records never authorize
+signalling a PID or removing a socket. Stale discovery needs an existing safe,
+unheld namespace lock; unavailable occupied namespaces defer.
 
-## Remaining integration and acceptance
+A resident service can adopt a compatible idle on-demand owner. It stages the
+actual source and candidate executable bytes, persists the transition identity,
+asks the exact owner to prepare, records confirmed quiet/fenced readiness, and
+commits that same request. Linux pidfds prove actual exit before exclusive new
+ownership. A lost preparation response defers; a lost commit response is resolved
+only by kernel exit evidence. Incompatible owners and pre-fix idle zombies cannot
+receive this protocol and remain untouched.
 
-Dorothea controls the verified integration base, owner-control dependencies and
-release allocation. Existing owner-control, topology, MCP and startup audit
-changes must converge before runtime wiring. An acknowledgement or WebSocket
-closure is not process-exit proof. Pre-fix zombies without a connect loop cannot
-receive new termination control and defer automatic migration.
+## Service migration
 
-Still required: resident owner/service composition, cross-path exclusion and
-rendezvous, persistent content scopes, admission fencing across server paths,
-safe service handoff/recovery/rollback, actual owner status, all-engine systemd
-acceptance, and canonical repository checks. Production rollout is separate.
+The host-authenticated `POST /host/daemon/migration` accepts a UUID `request_id`
+and `command: fence|status|release`. A migration fence serializes with durable
+operation acceptance and peer admission. It preserves enablement, queues, accepted
+results, resumable sessions and legacy settings updates. Another ID cannot remove
+it. Readiness counts running sessions, accepted operations and leased/accepted peer
+messages; local preparation independently checks receipts, workers and clients.
+
+Compatible systemd updates retain immutable binary and unit artifacts and a root
+journal. They verify the actual systemd MainPID, OS user, boot/start identity and
+running executable hash, rather than assuming the installed path names the running
+bytes. Migration proceeds through observed, staged, fenced, draining, handoff_ready,
+replaced, verified and reopened. New owner identity, executable bytes and unit are
+verified before admission release. Failures retain the same journal and fence;
+retrying install reconciles a previously started target before any further start.
+No fresh native work is replayed to repair an uncertain handoff.
+
+The automatic service path defers incompatible/unresponsive predecessors and
+custom systemd runtime namespaces instead of guessing their identity or rewriting
+the namespace. `cxx communicator rollback` reverses a completed compatible transition with a separate durable ID, using the retained source binary and unit. Repeating rollback verifies the same restored target; it does not toggle versions. Keep the compatible runtime capability signed until that reverse handoff is verified. Incompatible legacy rollback targets and custom namespace changes remain deferred.
+Do not treat a successful unit install or WebSocket close as a verified migration.
+
+## Acceptance and integration
+
+The private branch is based on Dorothea's verified audit source `dc92e547`.
+Dorothea coordinates shared integration and release allocation. The isolated rootless systemd lab verified fresh installation, two compatible updates, reverse rollback, repeated rollback and recovery from a failed admission-release response without restarting the target. It used three signed engine configurations with remote execution disabled and a stub migration API; it does not prove database concurrency or provider execution. Required remaining checks include all-engine execution and receipt recovery through the combined runtime, negotiated dashboard owner metadata, and independent migration/rollback review. Production rollout is a separate action.

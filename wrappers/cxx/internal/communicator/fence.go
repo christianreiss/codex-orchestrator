@@ -30,7 +30,7 @@ func Fence(ctx context.Context, base, engine, authPath string) (func(), error) {
 		return nil, setupErr
 	}
 	for {
-		lock, err := ipc.TryAcquireExclusivePath(filepath.Join(filepath.Dir(ep.socket), "sync-"+scopeID(job)+".lock"))
+		lock, err := ipc.TryAcquireExclusivePath(filepath.Join(filepath.Dir(ep.localSocket()), "sync-"+scopeID(job)+".lock"))
 		if err == nil {
 			return func() { _ = lock.Release() }, nil
 		}

@@ -1704,3 +1704,11 @@ Equal, older or unverified heads remain unresolved. Successful recovery reports
 adoption and then clears the matching pending marker, never an upload acknowledgement.
 
 See [Communicator ownership and rollout](communicator.md#central-sync-ownership-cxx-0973).
+
+## Resident communicator workstream
+
+The independent, default-off signed `communicator_runtime_protocol: 1` prepares
+`cxx communicator run` as the persistent owner for transport, content sync and
+the existing remote execution controller. Residence and remote starts have
+separate settings; native auth/account locks and engine-specific refresh ownership
+remain in their existing lifecycles. See [runtime, migration and acceptance](communicator-resident-runtime.md).

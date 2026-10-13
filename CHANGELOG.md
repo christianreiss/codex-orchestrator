@@ -1,6 +1,10 @@
+# 2026-10-14
+
+- The private resident communicator composes transport, content sync and remote execution in one owner, with verified namespace discovery, durable idle adoption, migration admission fencing and local mode/hash diagnostics. Compatible systemd upgrades and rollback retain immutable binaries and units, prove process exit and verify the successor before reopening admission. Fleet integration and combined execution acceptance remain gated; the signed runtime capability defaults off.
+
 # 2026-10-13
 
-- Host Operations can save communicator residence separately from remote starts. Legacy settings clients preserve an omitted residence value, and residence alone does not admit remote execution. Activation is prepared behind an independent, default-off signed runtime capability; pending service support is shown explicitly.
+- Host Operations can save communicator residence separately from remote starts. Legacy settings clients preserve an omitted residence value, and residence alone does not admit remote execution. Activation remains behind an independent, default-off signed runtime capability; pending service support is shown explicitly.
 
 - Communicator frame limits count UTF-8 wire bytes, including non-ASCII headers, so an oversized encoded reply returns a correlated failure instead of exceeding the receiver limit and dropping the shared connection.
 

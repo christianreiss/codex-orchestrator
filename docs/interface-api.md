@@ -2372,3 +2372,5 @@ invalidations converge through the existing validated writers. Local materializa
 is reported separately from native adoption. Signed rollback drains auth work and
 hands polling back to the existing wrapper without restarting the native CLI.
 See [Communicator ownership and rollout](communicator.md#central-sync-ownership-cxx-0973).
+
+Host-authenticated `POST /host/daemon/migration` accepts `{request_id: UUID, command: "fence"|"status"|"release"}`. It preserves requested enablement and queued/accepted work, holds admission for that UUID, and returns `fenced`, `ready`, `running`, `accepted` and `peer_claims`. Readiness requires all three counts to be zero. Local work/receipt checks and actual process-exit proof are additionally required before service replacement. Another UUID cannot release the fence. While fenced, host daemon config/heartbeat project effective execution enablement false; config also reports `execution_requested` independently so the resident owner remains available for migration.

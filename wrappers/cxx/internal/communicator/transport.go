@@ -26,6 +26,7 @@ import (
 	"unicode"
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/residency"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/signing"
 )
 
@@ -39,6 +40,7 @@ type endpoint struct {
 	mu                 sync.Mutex
 	jobs               map[string]syncJob
 	syncProtocol       int
+	runtimeOnly        bool
 	base, path, socket string
 	once               sync.Once
 	leaseCancel        context.CancelFunc
@@ -175,14 +177,19 @@ func Configure(ctx context.Context) {
 			continue
 		}
 		cfg, err := config.LoadForEngine(path, key, false, engine)
-		if err != nil || cfg.Orchestrator.CommunicatorProtocol != Protocol {
+		if err != nil || cfg.Orchestrator.CommunicatorProtocol != Protocol && cfg.Orchestrator.CommunicatorRuntimeProtocol != 1 {
 			continue
 		}
 		socket, err := socketPath(cfg.Orchestrator.BaseURL)
+		if err == nil {
+			if owned, lookupErr := discoverResidentOwner(ctx, cfg.Orchestrator.BaseURL); lookupErr == nil && owned != "" {
+				socket = owned
+			}
+		}
 		base := strings.TrimRight(cfg.Orchestrator.BaseURL, "/")
 		// A signed enabled capability remains registered even if local socket
 		// setup fails. Otherwise Wrap would silently send the request directly.
-		registry.LoadOrStore(base, &endpoint{base: base, path: path, socket: socket, setupErr: err, syncProtocol: cfg.Orchestrator.CommunicatorSyncProtocol, anchor: cfg})
+		registry.LoadOrStore(base, &endpoint{base: base, path: path, socket: socket, setupErr: err, syncProtocol: cfg.Orchestrator.CommunicatorSyncProtocol, anchor: cfg, runtimeOnly: cfg.Orchestrator.CommunicatorProtocol != Protocol})
 	}
 }
 
@@ -213,7 +220,7 @@ type Transport struct{ Direct http.RoundTripper }
 
 func (t *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 	ep := endpointFor(req.URL.String())
-	if ep == nil {
+	if ep == nil || ep.transportDisabled() {
 		return t.Direct.RoundTrip(req)
 	}
 	if err := ep.ensure(req.Context()); err != nil {
@@ -229,7 +236,7 @@ func (t *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 	local.URL.Host = "communicator.local"
 	local.URL.Path = strings.TrimPrefix(req.URL.Path, strings.TrimRight(original.Path, "/"))
 	local.Host = "communicator.local"
-	res, err := unixClient(ep.socket, 0).Do(local)
+	res, err := unixClient(ep.localSocket(), 0).Do(local)
 	if err != nil && selfHealRequest(req, ep.base) {
 		return t.Direct.RoundTrip(req)
 	}
@@ -272,14 +279,32 @@ func unixClient(socket string, timeout time.Duration) *http.Client {
 	}, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 }
 
+func (ep *endpoint) transportDisabled() bool {
+	ep.mu.Lock()
+	defer ep.mu.Unlock()
+	return ep.runtimeOnly
+}
+
+func (ep *endpoint) localSocket() string { ep.mu.Lock(); defer ep.mu.Unlock(); return ep.socket }
+
 func (ep *endpoint) ensure(ctx context.Context) error {
 	ep.mu.Lock()
 	setupErr := ep.setupErr
+	runtime := ep.anchor != nil && ep.anchor.Orchestrator.CommunicatorRuntimeProtocol == residency.Protocol
 	ep.mu.Unlock()
 	if setupErr != nil {
 		return setupErr
 	}
-	conn, err := (&net.Dialer{}).DialContext(ctx, "unix", ep.socket)
+	if runtime {
+		socket, err := resolvedRuntimeSocket(ctx, ep.base)
+		if err != nil {
+			return err
+		}
+		ep.mu.Lock()
+		ep.socket = socket
+		ep.mu.Unlock()
+	}
+	conn, err := (&net.Dialer{}).DialContext(ctx, "unix", ep.localSocket())
 	if err == nil {
 		conn.Close()
 		return nil
@@ -320,7 +345,7 @@ func (ep *endpoint) ensure(ctx context.Context) error {
 	// the user needs to see, so the owner's stderr lands in a private log beside
 	// the socket instead of /dev/null. A file descriptor, not a pipe: the owner
 	// outlives this process and must never take SIGPIPE for logging.
-	logPath := filepath.Join(filepath.Dir(ep.socket), "serve.log")
+	logPath := filepath.Join(filepath.Dir(ep.localSocket()), "serve.log")
 	logFile, offset := openServeLog(logPath)
 	if logFile != nil {
 		defer logFile.Close()
@@ -356,7 +381,7 @@ func (ep *endpoint) ensure(ctx context.Context) error {
 		case <-deadline.C:
 			return failure("communicator failed to start; run cxx communicator doctor")
 		case <-tick.C:
-			conn, err := (&net.Dialer{}).DialContext(ctx, "unix", ep.socket)
+			conn, err := (&net.Dialer{}).DialContext(ctx, "unix", ep.localSocket())
 			if err == nil {
 				conn.Close()
 				return nil
@@ -426,7 +451,8 @@ func (ep *endpoint) lease(ctx context.Context) {
 			ep.mu.Unlock()
 			body, _ := json.Marshal(jobs)
 			req, _ := http.NewRequestWithContext(leaseCtx, "POST", "http://communicator.local/_comm/lease", bytes.NewReader(body))
-			res, err := unixClient(ep.socket, 0).Do(req)
+			req.Header.Set("X-CXX-Runtime-Protocol", "1")
+			res, err := unixClient(ep.localSocket(), 0).Do(req)
 			if err == nil {
 				io.Copy(io.Discard, res.Body)
 				res.Body.Close()

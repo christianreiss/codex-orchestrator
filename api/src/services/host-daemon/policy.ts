@@ -22,7 +22,10 @@ export const daemonSettingsSchema = z
     question_minutes: z.number().int().min(1).max(10080).default(1440),
   })
   .strict();
-export type DaemonSettings = z.infer<typeof daemonSettingsSchema>;
+export type DaemonSettings = z.infer<typeof daemonSettingsSchema> & {
+  // Host-authenticated migration control; never accepted by the admin settings parser.
+  migration?: { request_id: string; fenced: true };
+};
 export interface DaemonRuntime {
   instance_id: string;
   generation: string;
@@ -95,9 +98,13 @@ export function daemonExpired(settings: Pick<DaemonSettings, 'expires_at'>, now 
   return !Number.isFinite(deadline) || deadline <= now;
 }
 export function daemonAccepting(settings: DaemonSettings): boolean {
+  return daemonExecutionEnabled(settings) && !settings.migration?.fenced;
+}
+
+export function daemonExecutionEnabled(settings: DaemonSettings): boolean {
   return settings.enabled && !daemonExpired(settings);
 }
 
 export function daemonResident(settings: DaemonSettings): boolean {
-  return settings.resident_enabled === true || daemonAccepting(settings);
+  return settings.resident_enabled === true || daemonExecutionEnabled(settings);
 }

@@ -14,14 +14,14 @@ import (
 // remote frames share the communicator's one control connection.
 func DialDaemon(ctx context.Context, base string) (*websocket.Conn, bool, error) {
 	ep := endpointFor(base)
-	if ep == nil {
+	if ep == nil || ep.transportDisabled() {
 		return nil, false, nil
 	}
 	if err := ep.ensure(ctx); err != nil {
 		return nil, true, err
 	}
 	ep.once.Do(func() { go ep.lease(processContext) })
-	raw, err := (&net.Dialer{}).DialContext(ctx, "unix", ep.socket)
+	raw, err := (&net.Dialer{}).DialContext(ctx, "unix", ep.localSocket())
 	if err != nil {
 		return nil, true, err
 	}

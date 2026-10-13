@@ -34,7 +34,7 @@ func WorkerCommand(ctx context.Context, in io.Reader, out io.Writer, dispatch fu
 	if err != nil {
 		return 1
 	}
-	socket, err := socketPath(cfg.Orchestrator.BaseURL)
+	socket, err := resolvedRuntimeSocket(ctx, cfg.Orchestrator.BaseURL)
 	if err != nil {
 		return 1
 	}

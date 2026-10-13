@@ -51,6 +51,12 @@ func run(invokedAs string, args []string, stdout, stderr io.Writer) (code int) {
 		return communicator.WorkerCommand(ctx, os.Stdin, stdout, communicatorWork)
 	}
 	if len(args) > 0 && args[0] == "communicator" {
+		if len(args) > 1 {
+			switch args[1] {
+			case "run", "install", "start", "stop", "uninstall", "rollback":
+				return agentbus.RunResidentServiceCommand(args[1:], stdout, stderr, Version, runResidentCommunicator)
+			}
+		}
 		return communicator.Command(args[1:], os.Stdin, stdout, stderr, Version)
 	}
 	commCtx, commCancel := context.WithCancel(context.Background())
@@ -123,6 +129,9 @@ func runExplicit(args []string, stdout, stderr io.Writer) int {
 	case "watchdog":
 		return agentbus.RunWatchdogCommand(args[1:], os.Stdin, stdout, stderr)
 	case "daemon":
+		if len(args) > 1 && args[1] == "run" {
+			return agentbus.RunResidentServiceCommand(args[1:], stdout, stderr, Version, runResidentCommunicator)
+		}
 		return agentbus.RunDaemonCommand(args[1:], stdout, stderr, Version)
 	case "agent":
 		return agentbus.RunCommand(args[1:], os.Stdin, stdout, stderr, Version)
@@ -370,7 +379,7 @@ func printSelectorHelp(w io.Writer) {
 	fmt.Fprintln(w, "  cxx cron [install|remove|run [--due]]")
 	fmt.Fprintln(w, "  cxx portal [status|notify|resolve|say|ask|wait|accept|leave]")
 	fmt.Fprintln(w, "  cxx agent [list|send|request|wait|reply|message|cancel|status|service]")
-	fmt.Fprintln(w, "  cxx communicator [status|doctor]")
+	fmt.Fprintln(w, "  cxx communicator [status|doctor|install|start|stop|uninstall|run|rollback]")
 	fmt.Fprintln(w, "  cxx daemon [install|status|start|stop|uninstall|run]")
 	fmt.Fprintln(w, "  cxx reboot [--request-id UUID --reason TEXT --stdin|status|disarm]")
 	fmt.Fprintln(w, "  cxx --version")

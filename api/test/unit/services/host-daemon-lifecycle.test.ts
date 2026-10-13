@@ -127,6 +127,36 @@ describe('host daemon service decisions', () => {
     const explicit = await service.start({ ...request(), engine, cwd: '/opt/project' }, 'owner');
     expect((await service.session(explicit.session_id)).cwd).toBe('/opt/project');
   });
+  it('migration fences admission while preserving queued work and the enable setting', async () => {
+    const pending = await service.start(request(), 'owner');
+    const requestId = randomUUID();
+    expect(await service.migration(1, requestId, 'fence')).toMatchObject({ fenced: true, ready: true });
+    expect((await service.settings(1)).settings.enabled).toBe(true);
+    expect((await service.session(pending.session_id)).status).toBe('queued');
+    await expect(service.offer(1, generation)).rejects.toThrow('Host daemon is not available');
+    await expect(service.start(request(), 'owner')).rejects.toThrow('Host daemon is not available');
+    await expect(service.migration(1, randomUUID(), 'release')).rejects.toThrow('Another migration holds admission');
+    expect(await service.migration(1, requestId, 'fence')).toMatchObject({ fenced: true });
+    expect(await service.migration(1, requestId, 'release')).toMatchObject({ fenced: false });
+    expect((await service.offer(1, generation))?.session_id).toBe(pending.session_id);
+  });
+  it('accepted work blocks migration readiness and its result retains the session', async () => {
+    const pending = await service.start(request(), 'owner');
+    const operation = (await service.offer(1, generation))!;
+    await service.accept(1, operation.operation_id, operation.claim_id);
+    const requestId = randomUUID();
+    expect(await service.migration(1, requestId, 'fence')).toMatchObject({ ready: false, running: 1, accepted: 1 });
+    await service.complete(1, operation.operation_id, operation.claim_id, { status: 'completed', reply: 'completed before handoff' });
+    expect((await service.session(pending.session_id)).status).toBe('idle');
+    expect(await service.migration(1, requestId, 'status')).toMatchObject({ ready: true });
+  });
+  it('legacy settings updates cannot remove the internal migration fence', async () => {
+    const requestId = randomUUID();
+    await service.migration(1, requestId, 'fence');
+    await service.configure(1, daemonSettingsSchema.parse({ enabled: true }));
+    const write = fake.inserts.filter((entry) => entry.table === hostDaemons).at(-1)!;
+    expect(write.values).toMatchObject({ settings: { migration: { request_id: requestId, fenced: true } } });
+  });
   it('retains the registered native home for continuation without replacing explicit cwd', async () => {
     fake.tables.set(agentSessions, [{ id: 'native', hostId: 1, cwd: '/home/worker' }]);
     for (const cwd of ['', '/opt/project']) {

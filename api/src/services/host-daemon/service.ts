@@ -25,7 +25,7 @@ import { encrypt, decrypt } from '../../security/secret-box.js';
 import { activeHostEngines, assertHostEngineEnabled } from '../host-engine-policy.js';
 import { readFleetEngineState } from '../engine-switch.js';
 import { wsPublisher } from '../../ws/publisher.js';
-import { daemonSettingsSchema, daemonHealth, daemonExpired, daemonAccepting, daemonResident, type DaemonRuntime, type DaemonSettings } from './policy.js';
+import { daemonSettingsSchema, daemonHealth, daemonExpired, daemonAccepting, daemonExecutionEnabled, daemonResident, type DaemonRuntime, type DaemonSettings } from './policy.js';
 import { ENGINE_HOST_FIELDS, type Engine } from '../../util/engine.js';
 import { messagingHostEligible } from '../agent-messaging.js';
 
@@ -92,6 +92,10 @@ export class HostDaemonService {
       engines,
     );
     const access = daemonAccess(host);
+    if (row.settings.migration?.fenced && row.settings.enabled) {
+      if (health.state === 'green') health.state = 'yellow';
+      health.reasons.unshift('migration_pending');
+    }
     if (row.settings.enabled && !access.allowed) {
       if (access.reason === 'host_access_blocked') health.state = 'red';
       else if (health.state === 'green') health.state = 'yellow';
@@ -209,6 +213,54 @@ export class HostDaemonService {
   async configureEnabled(id: number, enabled: boolean) {
     return this.configureSettings(id, (settings) => ({ ...settings, enabled }));
   }
+  async migration(id: number, requestId: string, command: 'fence' | 'status' | 'release') {
+    if (command !== 'status') {
+      await this.db.transaction(async (tx) => {
+        await tx.select().from(hosts).where(eq(hosts.id, id)).for('update');
+        const [row] = await tx.select().from(hostDaemons).where(eq(hostDaemons.hostId, id)).for('update');
+        if (!row) throw new ConflictError('Resident settings are missing');
+        const current = row.settings.migration;
+        if (current && current.request_id !== requestId)
+          throw new ConflictError('Another migration holds admission', 'daemon_migration_conflict');
+        const settings = { ...row.settings };
+        if (command === 'fence') settings.migration = { request_id: requestId, fenced: true };
+        else delete settings.migration;
+        await tx.update(hostDaemons).set({ settings, updatedAt: now() }).where(eq(hostDaemons.hostId, id));
+      });
+      this.changed(id);
+    }
+    const row = await this.settings(id);
+    const work = await this.db.select().from(sessions).where(eq(sessions.hostId, id));
+    const active = await this.db
+      .select()
+      .from(operations)
+      .where(and(eq(operations.hostId, id), eq(operations.status, 'accepted')));
+    const addresses = work.map((s) => s.addressId).filter((address): address is string => Boolean(address));
+    const claims = addresses.length
+      ? await this.db
+          .select()
+          .from(agentBusMessages)
+          .where(
+            and(
+              inArray(agentBusMessages.targetAddressId, addresses),
+              inArray(agentBusMessages.status, ['leased', 'accepted']),
+            ),
+          )
+      : [];
+    const running = work.filter((s) => ['running', 'stopping'].includes(s.status)).length;
+    return {
+      request_id: requestId,
+      fenced: row.settings.migration?.request_id === requestId,
+      ready:
+        row.settings.migration?.request_id === requestId &&
+        running === 0 &&
+        active.length === 0 &&
+        claims.length === 0,
+      running,
+      accepted: active.length,
+      peer_claims: claims.length,
+    };
+  }
   private async configureSettings(id: number, resolve: (settings: DaemonSettings) => DaemonSettings) {
     await this.host(id);
     await this.db.transaction(async (tx) => {
@@ -216,6 +268,7 @@ export class HostDaemonService {
       const [old] = await tx.select().from(hostDaemons).where(eq(hostDaemons.hostId, id)).for('update');
       const requested = resolve(old?.settings ?? daemonSettingsSchema.parse({}));
       const settings = { ...requested,
+        migration: old?.settings.migration,
         resident_enabled: requested.resident_enabled ?? old?.settings.resident_enabled ?? false,
         lifetime_minutes: requested.lifetime_minutes ?? old?.settings.lifetime_minutes,
         expires_at: old?.settings.expires_at ?? requested.expires_at,
@@ -318,7 +371,7 @@ export class HostDaemonService {
     const row = await this.settings(id);
     const work = await this.db.select().from(sessions).where(eq(sessions.hostId, id));
     this.changed(id);
-    return { settings: row.settings, stop: work.filter((s) => s.status === 'stopping').map((s) => s.id) };
+    return { settings: {...row.settings,enabled:daemonAccepting(row.settings)}, stop: work.filter((s) => s.status === 'stopping').map((s) => s.id) };
   }
   async disconnect(id: number, generation: string) {
     const row = await this.settings(id);
@@ -443,7 +496,7 @@ export class HostDaemonService {
         .from(hostDaemons)
         .where(eq(hostDaemons.hostId, row.hostId))
         .for('update');
-      if (!config || !daemonAccepting(config.settings)) throw new ForbiddenError('Host daemon disabled');
+      if (!config || !daemonExecutionEnabled(config.settings)) throw new ForbiddenError('Host daemon disabled');
       const [locked] = await tx.select().from(sessions).where(eq(sessions.id, id)).for('update');
       const [prior] = await tx.select().from(operations).where(eq(operations.clientKey, key));
       if (prior) {
@@ -624,7 +677,7 @@ export class HostDaemonService {
         .select()
         .from(sessions)
         .where(and(eq(sessions.hostId, hostId), inArray(sessions.status, ['running', 'stopping'])));
-      if ((!config || !daemonAccepting(config.settings)) || running.length >= config.settings.max_parallel)
+      if ((!config || !daemonExecutionEnabled(config.settings)) || running.length >= config.settings.max_parallel)
         throw new ConflictError('No work slot available');
       await tx.update(operations).set({ status: 'accepted', updatedAt: now() }).where(eq(operations.id, id));
       await tx
@@ -838,7 +891,7 @@ export class HostDaemonService {
             .limit(1)
         : [];
       const status =
-        session?.status === 'stopping' || result.status === 'stopped' || (!config || !daemonAccepting(config.settings))
+        session?.status === 'stopping' || result.status === 'stopped' || (!config || !daemonExecutionEnabled(config.settings))
           ? 'closed'
           : result.status === 'completed'
             ? prompts.length
@@ -868,7 +921,7 @@ export class HostDaemonService {
         .update(sessions)
         .set({
           status:
-            session.status === 'stopping' || (!config || !daemonAccepting(config.settings))
+            session.status === 'stopping' || (!config || !daemonExecutionEnabled(config.settings))
               ? 'closed'
               : message.status === 'ambiguous'
                 ? 'unknown'

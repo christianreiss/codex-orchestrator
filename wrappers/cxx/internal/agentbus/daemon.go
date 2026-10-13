@@ -35,7 +35,7 @@ var reconcileHostDaemon = ReconcileHostDaemon
 // launch. Disabled messaging and non-Linux hosts have no daemon to manage.
 // Optional service failures remain visible without blocking a native session.
 func ReconcileConfiguredHostDaemon(cfg *config.Config, output io.Writer) {
-	if runtime.GOOS != "linux" || cfg == nil || !cfg.AgentMessaging.Enabled || cfg.EngineSuspended(cfg.Engine) || cfg.SourcePath() == "" || os.Getenv("CXX_DAEMON_OPERATION_ID") != "" || os.Getenv("CXX_AGENT_MESSAGING_MESSAGE_ID") != "" {
+	if runtime.GOOS != "linux" || cfg == nil || (!cfg.AgentMessaging.Enabled && cfg.Orchestrator.CommunicatorRuntimeProtocol != residency.Protocol) || cfg.EngineSuspended(cfg.Engine) || cfg.SourcePath() == "" || os.Getenv("CXX_DAEMON_OPERATION_ID") != "" || os.Getenv("CXX_AGENT_MESSAGING_MESSAGE_ID") != "" {
 		return
 	}
 	if err := reconcileHostDaemon(output, output); err != nil {
@@ -151,6 +151,9 @@ func daemonConfig(ctx context.Context) (map[string]*config.Config, *relayClient,
 
 func daemonConfigWithController(ctx context.Context, controller *ResidentController) (map[string]*config.Config, *relayClient, daemonSettings, error) {
 	configs, seed, err := loadMessagingConfigs()
+	if controller == nil && seed == nil && err == nil && residentConfigurationEnabled() {
+		configs, seed, err = loadResidentConfigs()
+	}
 	if err != nil {
 		return nil, nil, daemonSettings{}, err
 	}
@@ -182,7 +185,7 @@ func ReconcileHostDaemon(stdout, stderr io.Writer) error {
 	if err != nil {
 		return err
 	}
-	if !settings.Enabled || daemonLocalExpired() {
+	if !residentRequested(settings) {
 		return nil
 	} // the connected service drains itself
 	if os.Geteuid() != 0 {
@@ -223,11 +226,11 @@ func daemonService(action string, stdout, stderr io.Writer) error {
 		}
 		return runServiceProcess(stdout, stderr, "systemctl", "daemon-reload")
 	case "install":
-		configs, _, settings, err := daemonConfig(context.Background())
+		configs, client, settings, err := daemonConfig(context.Background())
 		if err != nil {
 			return err
 		}
-		if !settings.Enabled || daemonLocalExpired() {
+		if !residentRequested(settings) {
 			return errors.New("enable the host daemon in the WebUI first")
 		}
 		account, err := user.Lookup(settings.Username)
@@ -248,14 +251,6 @@ func daemonService(action string, stdout, stderr io.Writer) error {
 		}
 		old, _ := os.ReadFile(installed)
 		changed := string(old) != string(body)
-		if changed {
-			if err := os.WriteFile(installed+".new", body, 0755); err != nil {
-				return err
-			}
-			if err := os.Rename(installed+".new", installed); err != nil {
-				return err
-			}
-		}
 		var env strings.Builder
 		for _, engine := range []string{"codex", "claude", "grok"} {
 			cfg := configs[engine]
@@ -266,6 +261,77 @@ func daemonService(action string, stdout, stderr io.Writer) error {
 			fmt.Fprintf(&env, "Environment=%s\n", systemdQuote(key+"="+cfg.SourcePath()))
 		}
 		unit := hostDaemonUnit(settings.Username, account.HomeDir, env.String(), installed)
+		if residentConfigurationEnabled() {
+			unit = strings.Replace(unit, " daemon run\n", " communicator run\n", 1)
+			unit = strings.Replace(unit, "KillMode=control-group\n", "KillMode=process\n", 1)
+		}
+		oldUnit, _ := os.ReadFile(daemonUnitPath)
+		runtimeTransition := residentConfigurationEnabled() || strings.Contains(string(oldUnit), " communicator run\n")
+		if runtimeTransition && strings.Contains(string(oldUnit), "XDG_RUNTIME_DIR=") {
+			return errors.New("resident migration pending: preserve the explicit systemd runtime namespace before changing this unit")
+		}
+		if runtimeTransition {
+			pid, err := serviceMainPID()
+			if err != nil {
+				return err
+			}
+			if pid > 0 {
+				actual, err := residency.DigestFile(fmt.Sprintf("/proc/%d/exe", pid))
+				if err != nil {
+					return err
+				}
+				candidate, err := residency.DigestFile(exe)
+				if err != nil {
+					return err
+				}
+				changed = changed || actual != candidate
+			}
+		}
+
+		journal, journalErr := residency.ReadJournal(filepath.Join(filepath.Dir(installed), "migration", "transition.json"))
+		pending := journalErr == nil && journal.Phase != residency.Reopened
+		if runtimeTransition && journalErr != nil && !errors.Is(journalErr, os.ErrNotExist) {
+			return journalErr
+		}
+		if runtimeTransition && (changed || string(oldUnit) != unit || pending) {
+			pid, err := serviceMainPID()
+			if err != nil {
+				return err
+			}
+			if pid != 0 || pending {
+				return migrateResidentService(configs, client, settings, account, installed, unit, stdout, stderr)
+			}
+			if err := guardResidentReplacement(); err != nil {
+				return err
+			}
+			digest, err := residency.DigestFile(exe)
+			if err != nil {
+				return err
+			}
+			stageDir := filepath.Join(filepath.Dir(installed), "staged")
+			staged, err := residency.StageBinary(exe, stageDir, digest)
+			if err != nil {
+				return err
+			}
+			body, err = os.ReadFile(staged)
+			if err != nil {
+				return err
+			}
+			if len(old) > 0 {
+				previous, err := residency.DigestFile(installed)
+				if err != nil {
+					return err
+				}
+				if _, err := residency.StageBinary(installed, stageDir, previous); err != nil {
+					return err
+				}
+			}
+		}
+		if changed {
+			if err := replaceServiceBinary(installed, body); err != nil {
+				return err
+			}
+		}
 		unitChanged, err := writeProtectedFileIfChanged(daemonUnitPath, []byte(unit))
 		if err != nil {
 			return err

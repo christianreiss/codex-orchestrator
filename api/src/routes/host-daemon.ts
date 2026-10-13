@@ -5,7 +5,7 @@ import { z } from 'zod';
 import type { RouteContext } from './index.js';
 import { hosts, hostDaemons, versions } from '../db/schema.js';
 import { HostDaemonService } from '../services/host-daemon/service.js';
-import { daemonSettingsSchema, daemonStartSchema } from '../services/host-daemon/policy.js';
+import { daemonSettingsSchema, daemonStartSchema, daemonAccepting, daemonExecutionEnabled } from '../services/host-daemon/policy.js';
 import { createHostAuthService } from '../services/host-auth.js';
 import { createAgentMessagingService } from '../services/agent-messaging.js';
 import { createAdminEventsService } from '../services/admin-events.js';
@@ -132,7 +132,20 @@ export async function registerHostDaemonRoutes(app: FastifyInstance, ctx: RouteC
   });
   app.get('/host/daemon/config', async (req) => {
     const host = await auth.authenticate(req);
-    return (await service.settings(host.id)).settings;
+    const settings = (await service.settings(host.id)).settings;
+    return {
+      ...settings,
+      enabled: daemonAccepting(settings),
+      execution_requested: daemonExecutionEnabled(settings),
+    };
+  });
+  app.post('/host/daemon/migration', async (req) => {
+    const host = await auth.authenticate(req);
+    const body = z
+      .object({ request_id: z.string().uuid(), command: z.enum(['fence', 'status', 'release']) })
+      .strict()
+      .parse(req.body);
+    return service.migration(host.id, body.request_id, body.command);
   });
   app.get(
     '/host/daemon/connect',

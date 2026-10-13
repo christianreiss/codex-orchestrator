@@ -132,6 +132,12 @@ func (c *connection) handleTerminate(f frame) {
 		reply(false, "unsupported")
 		return
 	}
+	if c.preTerminate != nil {
+		if reason := c.preTerminate(); reason != "" {
+			reply(false, reason)
+			return
+		}
+	}
 	c.mu.Lock()
 	first := !c.terminateSeen[f.RequestID]
 	if c.terminateSeen == nil {

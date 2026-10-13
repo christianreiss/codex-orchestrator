@@ -21,6 +21,7 @@ import (
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/ipc"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/residency"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/signing"
 )
 
@@ -74,8 +75,10 @@ type server struct {
 	stop        context.CancelFunc
 	terminating atomic.Bool
 	// draining is set once a remote stop is accepted: no new application work is admitted.
-	draining  atomic.Bool
-	runtimeID string
+	draining      atomic.Bool
+	runtimeID     string
+	resident      atomic.Bool
+	residentState *residentState
 }
 
 func (s *server) configSnapshot() *config.Config {
@@ -85,6 +88,10 @@ func (s *server) configSnapshot() *config.Config {
 }
 
 func serve(ctx context.Context, path, version string) error {
+	return serveWithResident(ctx, path, version, nil)
+}
+
+func serveWithResident(ctx context.Context, path, version string, options *ResidentOptions) error {
 	key, err := signing.PublicKey()
 	if err != nil {
 		return err
@@ -93,12 +100,19 @@ func serve(ctx context.Context, path, version string) error {
 	if err != nil {
 		return err
 	}
-	if cfg.Orchestrator.CommunicatorProtocol != Protocol {
+	if cfg.Orchestrator.CommunicatorProtocol != Protocol && cfg.Orchestrator.CommunicatorRuntimeProtocol != residency.Protocol {
 		return fmt.Errorf("communicator not enabled in signed config")
 	}
 	socket, err := socketPath(cfg.Orchestrator.BaseURL)
 	if err != nil {
 		return err
+	}
+	if cfg.Orchestrator.CommunicatorRuntimeProtocol == residency.Protocol {
+		release, err := claimResidentNamespace(cfg.Orchestrator.BaseURL, socket)
+		if err != nil {
+			return fmt.Errorf("resident owner election: %w", err)
+		}
+		defer release()
 	}
 	lock, err := ipc.TryAcquireExclusivePath(filepath.Join(filepath.Dir(socket), "owner.lock"))
 	if err == ipc.ErrHeld {
@@ -121,10 +135,30 @@ func serve(ctx context.Context, path, version string) error {
 	if err := os.Chmod(socket, 0600); err != nil {
 		return err
 	}
+	if options != nil {
+		if err := options.adoption.acquired(); err != nil {
+			return err
+		}
+	}
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	s := &server{stop: cancel, runtimeID: runtimeIdentity(socket), kick: make(chan struct{}, 1), cfg: cfg, version: version, lastUsed: time.Now(), calls: map[string]*sharedCall{}, dirty: make(chan struct{}, 1), authDirty: make(chan struct{}, 1), jobs: map[string]syncJob{}, jobRefs: map[string]int{}}
 	httpServer := &http.Server{Handler: s, ReadHeaderTimeout: 5 * time.Second, IdleTimeout: 30 * time.Second}
+	if cfg.Orchestrator.CommunicatorRuntimeProtocol == residency.Protocol {
+		s.residentState = &residentState{socket: socket}
+		httpServer.Handler = residentHandler{s}
+	}
+	if options != nil {
+		if cfg.Orchestrator.CommunicatorRuntimeProtocol != residency.Protocol {
+			return fmt.Errorf("resident runtime not enabled in signed config")
+		}
+		s.residentState = &residentState{options: *options, socket: socket, managed: true}
+		s.resident.Store(true)
+		httpServer.Handler = residentHandler{s}
+		s.residentState.work.Add(1)
+		go func() { defer s.residentState.work.Done(); s.residentLoop(ctx) }()
+		defer func() { cancel(); s.residentState.work.Wait() }()
+	}
 	defer httpServer.Close()
 	go s.connectLoop(ctx)
 	go s.syncLoop(ctx)
@@ -154,7 +188,15 @@ func (s *server) supervise(ctx context.Context, cancel context.CancelFunc, httpS
 				return
 			case <-timer.C:
 				s.mu.Lock()
-				idle := s.leases == 0 && s.active == 0 && len(s.calls) == 0 && time.Since(s.lastUsed) >= idleAfter
+				idle := !s.resident.Load() && s.leases == 0 && s.active == 0 && len(s.calls) == 0 && time.Since(s.lastUsed) >= idleAfter
+				if s.residentState != nil {
+					for _, scope := range s.scopes {
+						if scope.running {
+							idle = false
+						}
+					}
+					idle = idle && len(s.syncCalls) == 0
+				}
 				s.mu.Unlock()
 				if idle {
 					cancel()
@@ -244,7 +286,7 @@ func (s *server) connectLoop(ctx context.Context) {
 				cancel()
 				err = e
 				if err == nil {
-					c = &connection{ws: ws, pending: map[string]chan frame{}, done: make(chan struct{}), ready: make(chan struct{}), invalidated: s.invalidate, authChanged: s.invalidateAuth, onTerminate: s.terminate, runtimeID: s.runtimeID}
+					c = &connection{ws: ws, pending: map[string]chan frame{}, done: make(chan struct{}), ready: make(chan struct{}), invalidated: s.invalidate, authChanged: s.invalidateAuth, onTerminate: s.terminate, runtimeID: s.runtimeID, preTerminate: s.preflightStop}
 					go c.receive()
 					err = c.send(map[string]any{"type": "hello", "protocol": Protocol, "username": communicatorUsername(), "version": s.version})
 					if err == nil {
@@ -344,16 +386,19 @@ func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// A stopping owner admits nothing new (status excepted, and the leases and
 	// streams already open run down with the process). This is a definitive
 	// "not sent": callers retry against the owner that replaces this one.
-	if s.draining.Load() && r.URL.Path != "/_comm/status" {
+	if s.draining.Load() && r.URL.Path != "/_comm/status" && r.URL.Path != "/_comm/handoff" {
 		writeUnavailableCause(w, false, "communicator is stopping at the server's request")
 		return
 	}
 	s.mu.Lock()
-	if r.URL.Path != "/_comm/status" {
+	if r.URL.Path != "/_comm/status" && r.Context().Value(residentRequestKey{}) != true {
 		s.lastUsed = time.Now()
 	}
 	s.mu.Unlock()
 	switch r.URL.Path {
+	case "/_comm/handoff":
+		s.handoff(w, r)
+		return
 	case "/_comm/daemon":
 		s.daemon(w, r)
 		return
@@ -361,9 +406,13 @@ func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.syncHTTP(w, r)
 		return
 	case "/_comm/status":
+		residentView := s.residentView()
 		s.mu.Lock()
 		status := map[string]any{"protocol": Protocol, "version": s.version, "pid": os.Getpid(), "connected": s.conn != nil, "https_fallback": s.fallback, "sessions": s.leases, "requests": s.requests, "coalesced": s.shared, "last_error": s.lastError, "synced_at": s.lastSync, "sync_protocol": SyncProtocol, "sync_scopes": s.scopeViewsLocked(), "local_errors": s.localErrorsLocked()}
 		s.mu.Unlock()
+		for key, value := range residentView {
+			status[key] = value
+		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(status)
 		return
@@ -466,7 +515,14 @@ func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	s.requests++
 	s.active++
-	defer func() { s.mu.Lock(); s.active--; s.lastUsed = time.Now(); s.mu.Unlock() }()
+	defer func() {
+		s.mu.Lock()
+		s.active--
+		if r.Context().Value(residentRequestKey{}) != true {
+			s.lastUsed = time.Now()
+		}
+		s.mu.Unlock()
+	}()
 	fallback := s.fallback
 	connected := s.conn != nil
 	s.mu.Unlock()

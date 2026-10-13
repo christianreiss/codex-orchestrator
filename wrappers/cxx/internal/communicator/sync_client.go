@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/residency"
 )
 
 const SyncProtocol = 1
@@ -107,10 +108,10 @@ func WithSyncConfig(ctx context.Context, cfg *config.Config) context.Context {
 // Binding happens after option parsing and signed-config recovery, so custom
 // paths and a newly enabled capability replace the early default discovery.
 func bindSyncConfig(ctx context.Context, cfg *config.Config) {
-	if cfg.Orchestrator.CommunicatorProtocol != Protocol {
+	if cfg.Orchestrator.CommunicatorProtocol != Protocol && cfg.Orchestrator.CommunicatorRuntimeProtocol != residency.Protocol {
 		return
 	}
-	socket, err := socketPath(cfg.Orchestrator.BaseURL)
+	socket, err := resolvedRuntimeSocket(ctx, cfg.Orchestrator.BaseURL)
 	base := strings.TrimRight(cfg.Orchestrator.BaseURL, "/")
 	value, _ := registry.LoadOrStore(base, &endpoint{base: base, socket: socket, setupErr: err})
 	ep := value.(*endpoint)
@@ -142,6 +143,7 @@ func bindSyncConfig(ctx context.Context, cfg *config.Config) {
 	}
 	ep.mu.Lock()
 	ep.path, ep.setupErr, ep.syncProtocol = cfg.SourcePath(), nil, syncProtocol
+	ep.socket, ep.anchor, ep.runtimeOnly = socket, cfg, cfg.Orchestrator.CommunicatorProtocol != Protocol
 	ep.mu.Unlock()
 	job, err := newSyncJob(ctx, base, cfg.Engine, "")
 	if err != nil {
@@ -207,7 +209,7 @@ func submitSync(ctx context.Context, base string, request SyncRequest) (SyncResu
 	if err != nil {
 		return SyncResult{}, err
 	}
-	res, err := unixClient(ep.socket, 0).Do(req)
+	res, err := unixClient(ep.localSocket(), 0).Do(req)
 	if err != nil {
 		return SyncResult{}, errors.New("communicator sync response lost; outcome unknown")
 	}
@@ -243,7 +245,7 @@ func WatchAuth(ctx context.Context, base, engine, authPath string, account int64
 			if ep.ensure(child) == nil {
 				raw, _ := json.Marshal([]syncJob{job})
 				req, _ := http.NewRequestWithContext(child, "POST", "http://communicator.local/_comm/lease", bytes.NewReader(raw))
-				res, err := unixClient(ep.socket, 0).Do(req)
+				res, err := unixClient(ep.localSocket(), 0).Do(req)
 				if err == nil {
 					if res.StatusCode == http.StatusOK {
 						scanner := bufio.NewScanner(res.Body)

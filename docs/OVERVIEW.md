@@ -1136,3 +1136,11 @@ cxx 0.9.74 applies communicator route and host isolation to HTTPS transfers and
 signed fallback too, including large MCP uploads. Reconnect updates transfer
 credentials and TLS policy from the verified signed configuration without
 restarting native clients.
+
+## Resident communicator workstream
+
+The independent, default-off signed `communicator_runtime_protocol: 1` prepares
+`cxx communicator run` as the persistent owner for transport, content sync and
+the existing remote execution controller. Residence and remote starts have
+separate settings; native auth/account locks and engine-specific refresh ownership
+remain in their existing lifecycles. See [runtime, migration and acceptance](communicator-resident-runtime.md).

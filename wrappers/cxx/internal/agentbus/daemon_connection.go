@@ -19,6 +19,10 @@ func dialDaemonConnection(parent context.Context, client *relayClient) (*websock
 	if ws, enabled, err := communicator.DialDaemon(parent, client.baseURL); enabled {
 		return ws, err
 	}
+	return dialDirectDaemonConnection(parent, client)
+}
+
+func dialDirectDaemonConnection(parent context.Context, client *relayClient) (*websocket.Conn, error) {
 	ctx, cancel := context.WithTimeout(parent, 35*time.Second)
 	defer cancel()
 	address := strings.Replace(strings.Replace(client.baseURL, "https://", "wss://", 1), "http://", "ws://", 1) + "/host/daemon/connect"

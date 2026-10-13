@@ -22,6 +22,13 @@ import (
 func Command(args []string, in io.Reader, out, stderr io.Writer, version string) int {
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGTERM, os.Interrupt)
 	defer cancel()
+	if len(args) > 0 && args[0] == "migration" {
+		if err := residentManagement(ctx, args[1:], out); err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+		return 0
+	}
 	if len(args) == 3 && args[0] == "serve" && args[1] == "--config" {
 		if err := serve(ctx, args[2], version); err != nil {
 			fmt.Fprintln(stderr, err)
@@ -44,16 +51,19 @@ func Command(args []string, in io.Reader, out, stderr io.Writer, version string)
 		registry.Range(func(_, v any) bool {
 			count++
 			ep := v.(*endpoint)
-			res, err := unixClient(ep.socket, 2*time.Second).Get("http://communicator.local/_comm/status")
+			res, err := unixClient(ep.localSocket(), 2*time.Second).Get("http://communicator.local/_comm/status")
 			if err != nil {
 				failed = true
-				json.NewEncoder(out).Encode(map[string]any{"server": ep.base, "running": false, "socket": ep.socket})
+				json.NewEncoder(out).Encode(map[string]any{"server": ep.base, "running": false, "socket": ep.localSocket()})
 			} else {
 				var status map[string]any
 				if err := json.NewDecoder(res.Body).Decode(&status); err != nil {
 					failed = true
 				} else {
 					json.NewEncoder(out).Encode(status)
+					if status["resident_error"] != "" && status["resident_error"] != nil {
+						failed = true
+					}
 					if status["connected"] != true && status["https_fallback"] != true {
 						failed = true
 					}

@@ -1682,7 +1682,7 @@ export class AgentMessagingService {
         const [remote] = await tx.select().from(hostDaemonSessions)
           .where(eq(hostDaemonSessions.addressId, message.targetAddressId));
         if (remote?.activeMessageId === message.id) {
-          const [daemon] = await tx.select().from(hostDaemons).where(eq(hostDaemons.hostId, remote.hostId));
+          const [daemon] = await tx.select().from(hostDaemons).where(eq(hostDaemons.hostId, remote.hostId)).for('update');
           if (!daemon || !daemonAccepting(daemon.settings))
             throw new ConflictError('Host daemon deadline expired or disabled', 'daemon_disabled');
         }

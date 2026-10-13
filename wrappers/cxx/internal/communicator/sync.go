@@ -515,6 +515,9 @@ func (s *server) syncLoop(ctx context.Context) {
 		case <-events:
 		case <-watchErrors:
 		}
+		if s.draining.Load() {
+			continue
+		}
 		s.mu.Lock()
 		jobs := map[string]syncJob{}
 		// Choose a stable live session for a shared native source. A private Grok
@@ -565,6 +568,10 @@ func (s *server) syncLoop(ctx context.Context) {
 			}
 			s.mu.Lock()
 			state := s.stateLocked(job)
+			if s.draining.Load() {
+				s.mu.Unlock()
+				continue
+			}
 			if force {
 				state.nextAuth = time.Time{}
 				state.nextContent = time.Time{}

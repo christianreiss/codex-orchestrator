@@ -411,3 +411,11 @@ content callers, ten auth consumers per source, native atomic rotation, server
 push, signed handoff, lost-acknowledgement readback, logout/CAS preservation and
 Grok readiness without token issuance or refresh ownership changes. All process
 fixtures use isolated HOME and runtime directories.
+
+## Resident communicator workstream
+
+The independent, default-off signed `communicator_runtime_protocol: 1` prepares
+`cxx communicator run` as the persistent owner for transport, content sync and
+the existing remote execution controller. Residence and remote starts have
+separate settings; native auth/account locks and engine-specific refresh ownership
+remain in their existing lifecycles. See [runtime, migration and acceptance](communicator-resident-runtime.md).

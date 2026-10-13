@@ -59,8 +59,9 @@ type connection struct {
 	authChanged   func(string, int64)
 	// onTerminate is set when this owner can be stopped remotely; control is
 	// true once the server announced that it may ask.
-	onTerminate func(reason string, acked <-chan struct{})
-	control     bool
+	onTerminate  func(reason string, acked <-chan struct{})
+	preTerminate func() string
+	control      bool
 	// terminateSeen remembers request ids already answered, so a repeated
 	// `terminate` is answered again but stops nothing twice.
 	terminateSeen map[string]bool

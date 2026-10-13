@@ -55,6 +55,8 @@ func (c *ResidentController) Run(ctx context.Context, transport residency.Execut
 // Fence stops new permits without cancelling existing permits or children.
 func (c *ResidentController) Fence() { c.mu.Lock(); c.fenced = true; c.mu.Unlock() }
 
+func (c *ResidentController) ResumeAdmission() { c.mu.Lock(); c.fenced = false; c.mu.Unlock() }
+
 func (c *ResidentController) permit() (func(), bool) {
 	if c == nil {
 		return func() {}, true
