@@ -101,6 +101,11 @@ existing `~/.bashrc`/`~/.zshrc`, as cdx and clx do for their engines.
 
 ## Bare `cxx` launchpad (cxx 0.9.65)
 
+From cxx 0.9.70 the shared picker uses the Obsidian compass with dark cards,
+segmented effort controls and responsive small-terminal layouts. The same
+`CXX_REDUCED_MOTION=1`, `NO_COLOR` and minimal-output behavior applies to all
+engines; see the presentation contract in `docs/interface-cdx.md`.
+
 On an attended terminal, `cxx` with no arguments opens the engine/model/effort
 picker described in `docs/interface-cdx.md` ("Bare `cxx` launchpad"). Grok sits
 below the centre when three engines are present. From wrapper 0.9.68, selecting

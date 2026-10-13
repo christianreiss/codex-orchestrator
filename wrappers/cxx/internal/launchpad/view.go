@@ -63,6 +63,9 @@ func (p *picker) View() tea.View {
 // (all models, full effort strips), so nothing drifts while keys are pressed
 // or the reveal animation runs.
 func (p *picker) render() string {
+	if p.width > 0 && p.height > 0 {
+		return p.renderObsidian()
+	}
 	var lines []string
 	add := func(indent int, line string) {
 		lines = append(lines, strings.Repeat(" ", max(0, indent))+line)

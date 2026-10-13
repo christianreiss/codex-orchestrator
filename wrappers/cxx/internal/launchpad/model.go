@@ -1,6 +1,7 @@
 package launchpad
 
 import (
+	"os"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -18,7 +19,8 @@ const (
 )
 
 const (
-	frameInterval = 16 * time.Millisecond
+	frameInterval = time.Second / 30
+	idleInterval  = time.Second / 12
 	pathFrames    = 8
 	branchFrames  = 4
 )
@@ -40,10 +42,12 @@ type picker struct {
 	stage   stage
 	focus   int
 
-	animate bool
-	gen     int
-	frame   int // path and row reveal after entering the grid
-	branch  int // effort strip reveal after a model change
+	animate    bool
+	gen        int
+	frame      int // path and row reveal after entering the grid
+	branch     int // effort strip reveal after a model change
+	transition int // six frames, independent of catalog length
+	glow       int
 
 	width, height int
 	caps          terminalui.Caps
@@ -54,7 +58,7 @@ type picker struct {
 }
 
 func newPicker(engines []Engine, last *Selection, caps terminalui.Caps) *picker {
-	p := &picker{engines: engines, cursors: make([]cursor, len(engines)), caps: caps, animate: caps.IsTTY && !caps.Dumb}
+	p := &picker{engines: engines, cursors: make([]cursor, len(engines)), caps: caps, animate: caps.IsTTY && !caps.Dumb && caps.UTF8 && !caps.NoColor && os.Getenv("CXX_REDUCED_MOTION") != "1"}
 	for i, e := range engines {
 		p.cursors[i] = cursorFor(e)
 		if last != nil && last.Engine == e.Name {
@@ -65,6 +69,7 @@ func newPicker(engines []Engine, last *Selection, caps terminalui.Caps) *picker 
 		p.stage = stageGrid
 	}
 	p.frame, p.branch = p.doneFrames(), branchFrames
+	p.transition = 6
 	return p
 }
 
@@ -93,25 +98,34 @@ func (p *picker) Init() tea.Cmd {
 	if p.stage == stageGrid {
 		return p.restart(true)
 	}
+	if p.animate {
+		return p.tick()
+	}
 	return nil
 }
 
 // restart replays the reveal animation; path=false replays only the branch.
 func (p *picker) restart(path bool) tea.Cmd {
 	if !p.animate {
+		p.frame, p.branch = p.doneFrames(), branchFrames
 		return nil
 	}
 	if path {
 		p.frame = 0
 	}
 	p.branch = 0
+	p.transition = 0
 	p.gen++
 	return p.tick()
 }
 
 func (p *picker) tick() tea.Cmd {
 	gen := p.gen
-	return tea.Tick(frameInterval, func(time.Time) tea.Msg { return frameMsg{gen: gen} })
+	interval := idleInterval
+	if p.transition < 6 {
+		interval = frameInterval
+	}
+	return tea.Tick(interval, func(time.Time) tea.Msg { return frameMsg{gen: gen} })
 }
 
 func (p *picker) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -120,19 +134,16 @@ func (p *picker) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		p.width, p.height = msg.Width, msg.Height
 		return p, nil
 	case frameMsg:
-		if msg.gen != p.gen {
+		if msg.gen != p.gen || !p.animate || p.result != nil || p.cancelled {
 			return p, nil
 		}
-		if p.frame < p.doneFrames() {
-			p.frame++
+		p.glow = (p.glow + 1) % 720
+		if p.transition < 6 {
+			p.transition++
+			p.frame = min(p.doneFrames(), p.transition*p.doneFrames()/6)
+			p.branch = min(branchFrames, p.transition*branchFrames/6)
 		}
-		if p.branch < branchFrames {
-			p.branch++
-		}
-		if p.frame < p.doneFrames() || p.branch < branchFrames {
-			return p, p.tick()
-		}
-		return p, nil
+		return p, p.tick()
 	case tea.KeyPressMsg:
 		return p.key(msg.String())
 	}
@@ -170,7 +181,7 @@ func (p *picker) key(k string) (tea.Model, tea.Cmd) {
 			return p.cancel()
 		}
 		p.stage = stageHub
-		return p, nil
+		return p, p.restart(false)
 	case "up", "k":
 		return p, p.moveModel(c, models, -1)
 	case "down", "j":
@@ -178,10 +189,12 @@ func (p *picker) key(k string) (tea.Model, tea.Cmd) {
 	case "left", "h":
 		if c.effort > 0 {
 			c.effort--
+			return p, p.restart(false)
 		}
 	case "right", "l":
 		if c.effort < len(models[c.model].Efforts)-1 {
 			c.effort++
+			return p, p.restart(false)
 		}
 	}
 	return p, nil

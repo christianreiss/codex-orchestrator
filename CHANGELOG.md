@@ -2,6 +2,8 @@
 
 - Dashboard provider accounts now share card spacing, quota meters, status badges and update footers, with three desktop columns and responsive tablet/mobile layouts. ChatGPT window labels follow the reported duration; a supplied 5-hour reading (including 0%) appears, while weekly-only snapshots no longer show an empty short-window placeholder.
 
+- Wrapper 0.9.70 gives the bare-`cxx` launchpad an Obsidian compass: dark engine cards, fine animated light edges, directional paths, segmented effort selection and cached weekly usage bars. Responsive viewports keep selection visible during resize and long catalogs; input never waits for animation. Set `CXX_REDUCED_MOTION=1` for a still interface. ASCII, minimal and no-color output remain supported; launch/auth behavior is unchanged.
+
 - Host details now use Overview, Settings and Operations tabs with compact status facts and grouped switches. Model/version overrides expand when set; remote-session settings and per-engine housekeeping use compact editors that retain drafts across tabs.
 
 - Android 0.4.18 removes the separate Needs you filter and shows important, critical and blocker notices as highlighted messages in the regular chat timeline, with inline Resolve actions and retained resolved history. Unread reply counters are red for unresolved important notices and green otherwise. Chats with unresolved notices remain in All even when offline or ended; older notices outside the loaded tail appear once from the existing overview.
