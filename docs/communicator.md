@@ -39,12 +39,14 @@ extend it. A connected persistent host daemon holds a lease too.
 
 A symlinked, missing or non-0700 logind directory is never trusted. An explicit
 custom `XDG_RUNTIME_DIR` is a deliberately separate namespace (isolated tests,
-containers) with its own owner and fences. Upgrading from 0.9.72/0.9.73 does not
-move an existing owner: a `/tmp/cxx-<uid>` owner started by an older Codex MCP
-adapter keeps serving the processes already attached to it until its last lease
-closes and the idle period ends. After installing 0.9.74, end or restart the
-Codex sessions started before the update, then confirm convergence with
-`ss -xlp | grep cxx-comm`: only the `/run/user/<uid>` socket should remain.
+containers) with its own owner and fences. Upgrading from a release before 0.9.75 does
+not move an existing owner: a `/tmp/cxx-<uid>` owner started by an older Codex
+MCP adapter keeps serving the processes already attached to it. Owners before
+0.9.75 also never exit when idle, so that stray owner outlives its last client.
+After installing 0.9.75, end or restart the Codex sessions started before the
+update, then stop the leftover owner: `ss -xlp | grep "/tmp/cxx-$(id -u)/cxx-comm"`
+names its PID, and with no clients attached it holds no work. Afterwards only the
+`/run/user/<uid>` socket should remain listening.
 
 ## Data and auth ownership
 
@@ -60,7 +62,9 @@ replays auth uploads. Account/session admission and freshness checks remain
 individual operations where their authorization requires it.
 
 Managed content sync runs once per registered engine/home scope after push
-invalidation, after reconnect, and every five minutes while clients are attached.
+invalidation, after reconnect, when a lease registers a scope that is new to
+the owner, and every five minutes while clients are attached. An additional
+lease on an already-registered scope does not force a pass.
 It invokes the existing headless sync machinery with concurrent sync explicitly
 enabled, preserving each scope's environment and signed config path. Scope
 registrations are removed when their last client lease closes. Files update
@@ -112,10 +116,18 @@ signed head, so rotated host keys and TLS policy apply to HTTPS transfers.
 An enabled signed capability also fails closed when local socket setup is
 unsafe or unavailable; a runtime-directory error never enables direct HTTPS.
 The only exception is the self-repair path: when no local owner can be started
-or reached, `GET` of the signed `/wrapper/v2/config` (signature-verified) and of
-wrapper metadata/downloads (digest-verified) use direct HTTPS, so a broken owner
+or reached, `GET` of the signed `/wrapper/v2/config` (signature-verified) and of wrapper
+binary downloads, including the bakery's `/wrapper/v2/bin/...` URLs
+(digest-verified), use direct HTTPS, so a broken owner
 can still learn a capability rollback and install a fixed release. HTTPS
 transfers never wait for the control connection to reconnect.
+
+When the server refuses the WebSocket upgrade, the owner asks once more outside the
+WebSocket library and records the server's own verdict in `last_error` (for example
+`communicator handshake rejected: HTTP 401 ip_mismatch (API key not allowed from this
+IP)`), and local `503 communicator_unavailable` replies carry that text in `message`, so a
+wrapper prints the same actionable diagnosis it would over direct HTTPS (an IP binding
+to release, a revoked key, the capability switched off) instead of "API offline".
 
 The reconnect delay grows from one to thirty seconds with jitter. A request that finds the
 connection down never sits through that backoff: it asks the connect loop to redial at
