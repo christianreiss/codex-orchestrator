@@ -67,6 +67,12 @@ type connection struct {
 	terminateSeen map[string]bool
 	// runtimeID names the local namespace this owner serves (see control.go).
 	runtimeID string
+	// Reporting starts only after the negotiated identity frame was written.
+	residentSendMu    sync.Mutex
+	residentSequence  uint64
+	residentAnnounced bool
+	residentReporting bool
+	residentReport    func() *residentReport
 }
 
 func directTransport(cfg *config.Config) (*http.Transport, error) {
@@ -165,6 +171,9 @@ func (c *connection) receive() {
 					// one that only knows "terminate" is told nothing it cannot parse.
 					identity := announces(f.Control, controlOwnerIdentity)
 					c.control = identity
+					c.mu.Lock()
+					c.residentAnnounced = announces(f.Control, controlResidentRuntime)
+					c.mu.Unlock()
 					go c.announceCapabilities(identity)
 				}
 			}

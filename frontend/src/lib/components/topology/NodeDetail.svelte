@@ -268,6 +268,25 @@
       </dl>
     </section>
 
+    {#if communicator.resident}
+      {@const report = communicator.resident}
+      <section class="space-y-2 rounded-md border p-3" aria-label="Resident owner report">
+        <h3 class="section-label">Owner runtime <Badge variant="outline">{report.stale || ghost ? "Latest report · stale" : "Latest report"}</Badge></h3>
+        <p class="text-xs text-muted-foreground">Reported by the owner at {when(report.received_at)} (received by the server). This is not a confirmed exit.</p>
+        <dl class="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1.5 text-sm">
+          <dt class="text-muted-foreground">Mode</dt><dd>{report.mode === "resident" ? "Resident" : "On demand"}{report.draining ? " · draining" : ""}</dd>
+          <dt class="text-muted-foreground">Keep running</dt><dd>{report.resident_enabled ? "requested" : "not requested"}</dd>
+          <dt class="text-muted-foreground">Remote starts</dt><dd>{report.execution_enabled ? "enabled" : "disabled"}</dd>
+          <dt class="text-muted-foreground">Execution</dt><dd>{report.execution ? `${report.execution.running ? "running" : "stopped"}${report.execution.fenced ? " · admission fenced" : ""}${report.execution.verified ? "" : " · state unverified"}` : "no controller"}</dd>
+          {#if report.execution}
+            <dt class="text-muted-foreground">Work retained</dt><dd>{report.execution.workload.accepted} accepted · {report.execution.workload.children} children · {report.execution.workload.receipts} receipts · {report.execution.workload.peer_claims} claims</dd>
+          {/if}
+          <dt class="text-muted-foreground">Local callers</dt><dd>{report.local_requests} requests · {report.legacy_clients} legacy clients</dd>
+          <dt class="text-muted-foreground">Binary SHA-256</dt><dd class="break-all font-mono text-xs">{report.binary_sha256}</dd>
+        </dl>
+      </section>
+    {/if}
+
     <section class="space-y-2">
       <h3 class="section-label">Agents on this connection ({children.length})</h3>
       {#if children.length === 0}

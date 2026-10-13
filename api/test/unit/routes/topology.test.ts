@@ -246,11 +246,31 @@ describe('owner control negotiation and POST /admin/communicators/:id/terminate'
   it('offers control in `ready` and shows what the owner says about its own process', async () => {
     const app = await build('owner', true);
     const { ws, frames } = await owner(app, 'acks-and-exits');
-    expect(frames[0]).toEqual({ type: 'ready', protocol: 1, control: ['terminate', 'owner_identity'] });
+    expect(frames[0]).toEqual({ type: 'ready', protocol: 1, control: ['terminate', 'owner_identity', 'resident_runtime'] });
     const { body } = await topology(app);
     expect(body.communicators[0]).toMatchObject({ can_terminate: true, process: { pid: 4242, started_at: '2026-10-13T17:00:00Z', runtime_id: null } });
     expect(body.communicators[0]!.process).toMatchObject({ instance_id: expect.stringMatching(/^proc-/) });
     ws.close();
+  });
+
+  it('projects a negotiated exact-instance runtime report into the admin snapshot', async () => {
+    const app = await build('owner', true);
+    const instance = randomUUID();
+    const { ws, id } = await owner(app, 'silent', { instance });
+    ws.send(JSON.stringify({
+      type: 'resident_status', sequence: 1, owner_instance_id: instance, runtime_protocol: 1,
+      mode: 'resident', managed: true, resident_enabled: true, execution_enabled: false,
+      binary_sha256: 'a'.repeat(64), draining: true, local_requests: 0, legacy_clients: 0,
+      execution: null,
+    }));
+    await vi.waitFor(() => expect(communicatorRegistry.get(id)?.resident?.owner_instance_id).toBe(instance));
+    const { status, body } = await topology(app);
+    expect(status).toBe(200);
+    expect(body.communicators[0]!.resident).toMatchObject({
+      owner_instance_id: instance, sequence: 1, mode: 'resident', execution_enabled: false,
+      draining: true, stale: false, age_s: 0, received_at: expect.any(String),
+    });
+    ws.terminate();
   });
 
   it('reports the owner\'s acknowledgement and its closed connection — and that the server cannot see the exit', async () => {

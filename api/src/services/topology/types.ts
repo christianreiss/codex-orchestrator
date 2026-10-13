@@ -3,6 +3,8 @@
  * `frontend/src/lib/api/topology.ts`; `docs/interface-api.md` documents it.
  */
 
+import type { ResidentRuntimeReport } from './communicator-registry.js';
+
 export type CommunicatorHealth = 'live' | 'stale' | 'closing';
 
 export interface TopologyServerNode {
@@ -55,6 +57,8 @@ export interface TopologyCommunicatorNode {
   process: { pid: number; started_at: string | null; instance_id: string | null; runtime_id: string | null } | null;
   /** True only when that owner said it can be stopped remotely. */
   can_terminate: boolean;
+  /** Latest exact-instance report; freshness is independent of other traffic. */
+  resident: (ResidentRuntimeReport & { received_at: string; age_s: number; stale: boolean }) | null;
 }
 
 export type AssociationState = 'attributed' | 'stale' | 'unattributed';

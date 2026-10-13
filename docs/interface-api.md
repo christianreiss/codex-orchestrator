@@ -2346,6 +2346,24 @@ contracts. See [communicator protocol, lifecycle and rollout](communicator.md).
 - `POST /admin/communicators/{id}/disconnect`: requires `agent_portal.manage`; body `{client_message_id (uuid), expect?: {host_id, username}, note?}`. Closes that one communicator socket (close code 4001) and answers `{outcome: "closed"|"requested", reconnect_expected: true, affected: {agent_ids, leases_reported}}`. It does not stop the communicator process: the owner redials within 1-30 s. `404 communicator_not_connected` means it is already gone; `409 communicator_target_changed` means the selection no longer matches. A repeat with the same `client_message_id` replays the first answer. Audited as `communicator.disconnected`.
 - `POST /admin/communicators/{id}/terminate`: requires `agent_portal.manage`; same body as disconnect. Asks the communicator owner *process* to stop, addressing the command to the `instance_id` that owner announced, and only for an owner that announced the capability and that identity (`409 communicator_terminate_unsupported` otherwise; `409 communicator_terminate_in_progress` while another stop for the same connection is running, and for 15 s after the owner accepted one, so a second key cannot send a second command to an owner that is draining). Answers what was observed, never what was sent and never a process exit, which the server cannot see: `acknowledged_closed` (the addressed process acknowledged, then its connection closed), `acknowledged` (acknowledged, connection still open when the wait ended), `refused` (declined, or acknowledged by a different process), or `unacknowledged` (nothing answered within 5 s; the connection is left alone). `process.pid` is the owner's own report. A `client_message_id` is reserved before the first await, so concurrent duplicate clicks dispatch once and share the outcome (`replayed: true`); a reserved key is never evicted while its operation is running, whatever else is in flight. Native sessions are not signalled; a surviving client starts a new owner on its next managed call. Audited as `communicator.terminated` (including `owner_instance_id`).
 
+The private resident-runtime candidate adds nullable `communicators[].resident`
+to `GET /admin/topology`: `owner_instance_id`, `sequence`, `runtime_protocol:1`,
+`mode:"on_demand"|"resident"`, `managed`, `resident_enabled`, `execution_enabled`,
+`binary_sha256`, `draining`, `local_requests`, `legacy_clients`, and nullable
+`execution:{running,fenced,verified,workload:{accepted,peer_claims,children,receipts,writes,requests,legacy_clients}}`.
+The server adds `received_at`, `age_s`, and `stale` (older than 45 seconds).
+These are self-reported diagnostics, never admission or process-exit evidence.
+
+The server advertises `resident_runtime` in `ready.control`; a signed-runtime
+owner sends a strict `resident_status` frame with those report fields only after
+negotiated `owner_identity` capabilities. Counters are integers from 0 to
+1,000,000, sequences are positive safe integers, and executable hashes are
+64 lowercase hexadecimal characters. Host authorization is rechecked. Missing
+or mismatched process identity and invalid fields close the connection with
+1008. Late/duplicate sequences leave the newest report untouched. Every report
+belongs to one connection and one instance; disconnect or identity change
+clears it. Old owners continue sending their existing frames unchanged.
+
 ### Communicator transport endpoints
 
 - `GET /host/communicator/connect`: host-key/IP-authenticated WebSocket protocol 1, enabled by the signed communicator capability. Multiplexes existing host routes, MCP and daemon frames with UUID-correlated replies and content invalidations. A rejected request frame (disallowed path, including a trailing-slash variant, or invalid fields) receives `{id, status: 400}` with code `communicator_invalid_request`; failed host authorization closes the socket with 1008. A reply above 11 MiB leaves the connection open: known reads receive `{id, status: 502}` with code `communicator_response_too_large`, while completed operations that cannot safely be repeated receive `{id, status: 409}` with code `communicator_outcome_unknown`. Bootstrap qualifies as a read only with explicit `include_auth:false` and no auth candidate or session admission. `host.*` invalidations that carry a numeric `id` or `host_id` reach only that host's connection.

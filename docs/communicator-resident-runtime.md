@@ -108,6 +108,19 @@ exclusion, busy stop refusal, receipt recovery without replay and actual quiet
 exit for every engine, using provider executables as fixtures. Isolated MySQL
 regressions verify real migration/acceptance ordering and peer lease fencing.
 See [verification evidence](verification/communicator-residency-2026-10-14.md).
-Negotiated dashboard owner metadata, any required real-provider acceptance,
-independent review and Director integration remain pending. Production rollout
+Negotiated dashboard owner metadata is implemented in the private candidate.
+Any required real-provider acceptance, independent review and Director integration
+remain pending. Production rollout
 is a separate action.
+
+## Actual owner diagnostics
+
+The negotiated `resident_runtime` control extension publishes a bounded
+`resident_status` report after identity capabilities and on the existing
+15-second heartbeat. The registry binds the report to the exact connection and
+process UUID, orders it by per-connection sequence, and clears it on identity
+change or unregister. The live topology panel displays mode, running binary
+SHA-256, residence/execution policy, draining/fenced controller state and retained
+work, with independent 45-second freshness and explicit self-report wording.
+Older servers receive no additional fields or frames. This projection never
+participates in migration readiness, successor linking or exit proof.

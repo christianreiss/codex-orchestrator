@@ -1,4 +1,6 @@
 import { randomUUID } from 'node:crypto';
+import { createRequire } from 'node:module';
+import { communicatorRegistry } from '../../../src/services/topology/communicator-registry.js';
 import { wsPublisher } from '../../../src/ws/publisher.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { FastifyInstance } from 'fastify';
@@ -62,13 +64,24 @@ async function setup(enabled = true) {
   await app.ready();
   return app;
 }
-async function open() {
-  const ws = await app.injectWS('/host/communicator/connect', { headers: { 'x-api-key': 'host-one' } });
+// Real loopback sockets exercise close/unregister; injectWS's paired streams
+// can report the client close before the server half has finished closing.
+async function openTcpSocket() {
+  if (!app.server.listening) await app.listen({ host: '127.0.0.1', port: 0 });
+  const address = app.server.address();
+  if (!address || typeof address === 'string') throw new Error('No test listener');
+  const WebSocket = createRequire(import.meta.url)('ws') as new (url: string, options: { headers: Record<string, string> }) => Awaited<ReturnType<FastifyInstance['injectWS']>>;
+  const ws = new WebSocket(`ws://127.0.0.1:${address.port}/host/communicator/connect`, { headers: { 'x-api-key': 'host-one' } });
+  await new Promise<void>((resolve, reject) => { ws.once('open', resolve); ws.once('error', reject); });
+  return ws;
+}
+async function open(realSocket = false) {
+  const ws = realSocket ? await openTcpSocket() : await app.injectWS('/host/communicator/connect', { headers: { 'x-api-key': 'host-one' } });
   const ready = new Promise<string>((resolve) =>
     ws.once('message', (data: unknown) => resolve(String(data))),
   );
   ws.send(JSON.stringify({ type: 'hello', protocol: 1, username: 'tester', version: '0.9.71' }));
-  expect(JSON.parse(await ready)).toEqual({ type: 'ready', protocol: 1, control: ['terminate', 'owner_identity'] });
+  expect(JSON.parse(await ready)).toEqual({ type: 'ready', protocol: 1, control: ['terminate', 'owner_identity', 'resident_runtime'] });
   return ws;
 }
 describe('communicator transport', () => {
@@ -576,4 +589,57 @@ describe('communicator transfer routes stay off the control socket', () => {
     expect(closed).not.toHaveBeenCalled();
     ws.close();
   });
+});
+
+const ownerReport = (owner: string) => ({
+  type: 'resident_status', sequence: 1, owner_instance_id: owner, runtime_protocol: 1,
+  mode: 'resident', managed: true, resident_enabled: true, execution_enabled: false,
+  binary_sha256: 'a'.repeat(64), draining: true, local_requests: 2, legacy_clients: 1,
+  execution: { running: true, fenced: true, verified: false, workload: {
+    accepted: 1, peer_claims: 2, children: 3, receipts: 4, writes: 5, requests: 6, legacy_clients: 7,
+  } },
+});
+
+describe('negotiated resident owner reports', () => {
+  it('stores exact-instance reports, updates them and forgets them on reconnect', async () => {
+    await setup();
+    const before = new Set(communicatorRegistry.snapshot().map(c => c.view.id));
+    const ws = await open(true);
+    const id = communicatorRegistry.snapshot().find(c => !before.has(c.view.id))!.view.id;
+    const owner = randomUUID();
+    ws.send(JSON.stringify({ type: 'capabilities', terminate: true, pid: 1234, started_at: '2026-10-14T00:00:00Z', instance_id: owner, runtime_id: 'fixture-runtime' }));
+    ws.send(JSON.stringify(ownerReport(owner)));
+    await vi.waitFor(() => expect(communicatorRegistry.get(id)?.resident).toMatchObject({ owner_instance_id: owner, mode: 'resident', draining: true, execution: { verified: false } }));
+    ws.send(JSON.stringify({ ...ownerReport(owner), sequence: 2, mode: 'on_demand', draining: false }));
+    await vi.waitFor(() => expect(communicatorRegistry.get(id)?.resident?.mode).toBe('on_demand'));
+    const closed = new Promise(resolve => ws.once('close', resolve));
+    ws.close(); await closed;
+    await vi.waitFor(() => expect(communicatorRegistry.get(id)).toBeNull());
+    const again = await open(true);
+    const replacement = communicatorRegistry.snapshot().find(c => c.view.host_id === 1)!;
+    expect(replacement.resident).toBeNull();
+    again.close();
+  });
+
+  it.each(['no_identity', 'wrong_owner', 'unknown_field', 'bad_count', 'bad_hash', 'revoked'])(
+    'rejects %s without recording an untrusted report', async (fault) => {
+      await setup();
+      const ws = await open(true);
+      const owner = randomUUID();
+      if (fault !== 'no_identity') {
+        ws.send(JSON.stringify({ type: 'capabilities', terminate: true, pid: 1234, started_at: '2026-10-14T00:00:00Z', instance_id: owner, runtime_id: 'fixture-runtime' }));
+        await vi.waitFor(() => expect(communicatorRegistry.snapshot().some(c => c.capabilities.instance_id === owner)).toBe(true));
+      }
+      const report: Record<string, unknown> = ownerReport(owner);
+      if (fault === 'wrong_owner') report.owner_instance_id = randomUUID();
+      if (fault === 'unknown_field') report.account_token = 'must-not-be-accepted';
+      if (fault === 'bad_count') report.local_requests = -1;
+      if (fault === 'bad_hash') report.binary_sha256 = 'arbitrary';
+      if (fault === 'revoked') auth.allowed = false;
+      const closed = new Promise<number>(resolve => ws.once('close', resolve));
+      ws.send(JSON.stringify(report));
+      expect(await closed).toBe(1008);
+      expect(communicatorRegistry.snapshot().some(c => c.resident?.owner_instance_id === owner)).toBe(false);
+    },
+  );
 });

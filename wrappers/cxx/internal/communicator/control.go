@@ -34,8 +34,9 @@ import (
 // from an owner that did not see its announcement. A server is never sent a field
 // it did not announce it understands.
 const (
-	controlTerminate     = "terminate"
-	controlOwnerIdentity = "owner_identity"
+	controlTerminate       = "terminate"
+	controlOwnerIdentity   = "owner_identity"
+	controlResidentRuntime = "resident_runtime"
 )
 
 // terminateDrain bounds how long a terminating owner keeps serving local
@@ -89,7 +90,13 @@ func (c *connection) announceCapabilities(identity bool) {
 		frame["instance_id"] = processInstance
 		frame["runtime_id"] = c.runtimeID
 	}
-	_ = c.send(frame)
+	if c.send(frame) != nil {
+		return
+	}
+	c.mu.Lock()
+	c.residentReporting = identity && c.residentAnnounced
+	c.mu.Unlock()
+	_ = c.sendResidentReport()
 }
 
 // sendWithin writes one frame, giving up after bound whether the write is slow or

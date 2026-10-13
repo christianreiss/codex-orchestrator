@@ -362,3 +362,31 @@ describe('acknowledged owner termination', () => {
     expect(send).toHaveBeenCalledTimes(2);
   });
 });
+
+
+describe('resident report identity boundaries', () => {
+  it('does not share reports between sockets, new identities or reconnects', () => {
+    const registry = new CommunicatorRegistry();
+    registry.register(view('c1'), handle(registry, 'c1'));
+    registry.register(view('c2'), handle(registry, 'c2'));
+    const caps = { terminate: true, pid: 42, started_at: null, instance_id: SESSION, runtime_id: 'runtime' };
+    const report = { sequence: 2, owner_instance_id: SESSION, runtime_protocol: 1 as const, mode: 'resident' as const, managed: true, resident_enabled: true, execution_enabled: false, binary_sha256: 'a'.repeat(64), draining: true, local_requests: 0, legacy_clients: 0, execution: null };
+    expect(registry.setResidentReport('c1', report, 1000)).toBe(false);
+    registry.setCapabilities('c1', caps);
+    expect(registry.setResidentReport('c2', report, 1000)).toBe(false);
+    expect(registry.setResidentReport('c1', { ...report, owner_instance_id: OTHER }, 1000)).toBe(false);
+    expect(registry.setResidentReport('c1', report, 1000)).toBe(true);
+    registry.setResidentReport('c1', { ...report, sequence: 1, draining: false }, 2000);
+    expect(registry.get('c1')!.resident!.draining).toBe(true);
+    registry.heartbeat('c1', 10_000);
+    expect(registry.get('c1')!.resident!.received_ms).toBe(1000);
+    registry.setCapabilities('c1', { ...caps, instance_id: OTHER });
+    expect(registry.get('c1')!.resident).toBeNull();
+    registry.setCapabilities('c1', caps);
+    registry.setResidentReport('c1', report, 1000);
+    registry.unregister('c1');
+    registry.register(view('c1'), handle(registry, 'c1'));
+    registry.setCapabilities('c1', caps);
+    expect(registry.get('c1')!.resident).toBeNull();
+  });
+});

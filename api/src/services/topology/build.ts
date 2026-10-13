@@ -229,6 +229,16 @@ export function buildTopology(input: TopologyInputs): TopologySnapshot {
     }).length;
     const idle = now - comm.last_frame_ms;
     const children = (childrenOf.get(view.id) ?? []).sort((a, b) => b.lastSeenMs - a.lastSeenMs);
+    let resident: TopologyCommunicatorNode['resident'] = null;
+    if (comm.resident && comm.resident.owner_instance_id === comm.capabilities.instance_id) {
+      const { received_ms, ...report } = comm.resident;
+      resident = {
+        ...report,
+        received_at: iso(received_ms),
+        age_s: ageSeconds(now, received_ms) ?? 0,
+        stale: now - received_ms > COMMUNICATOR_STALE_AFTER_MS,
+      };
+    }
     return {
       kind: 'communicator',
       id: view.id,
@@ -260,6 +270,7 @@ export function buildTopology(input: TopologyInputs): TopologySnapshot {
               runtime_id: comm.capabilities.runtime_id,
             },
       can_terminate: comm.capabilities.terminate,
+      resident,
     };
   });
   communicators.sort(

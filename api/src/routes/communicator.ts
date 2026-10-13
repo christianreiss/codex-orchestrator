@@ -309,7 +309,7 @@ export async function registerCommunicatorRoutes(app: FastifyInstance, ctx: Rout
             // `owner_identity` says this server accepts the owner's process identity
             // in `capabilities` and aims a stop at exactly one process: an owner that
             // sees `terminate` without it sends only the legacy fields.
-            send({ type: 'ready', protocol: 1, control: ['terminate', 'owner_identity'] });
+            send({ type: 'ready', protocol: 1, control: ['terminate', 'owner_identity', 'resident_runtime'] });
             return;
           }
           if (!greeted) throw new Error('Handshake required');
@@ -334,6 +334,34 @@ export async function registerCommunicatorRoutes(app: FastifyInstance, ctx: Rout
               instance_id: caps.instance_id ?? null,
               runtime_id: caps.runtime_id ?? null,
             });
+            wsPublisher.publish('communicator.updated', { host_id: hostId });
+            return;
+          }
+          if (parsed.type === 'resident_status') {
+            const count = z.number().int().min(0).max(1_000_000);
+            const { type: _type, ...report } = z.object({
+              type: z.literal('resident_status'),
+              sequence: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+              owner_instance_id: z.string().uuid(),
+              runtime_protocol: z.literal(1),
+              mode: z.enum(['on_demand', 'resident']),
+              managed: z.boolean(),
+              resident_enabled: z.boolean(),
+              execution_enabled: z.boolean(),
+              binary_sha256: z.string().regex(/^[a-f0-9]{64}$/),
+              draining: z.boolean(),
+              local_requests: count,
+              legacy_clients: count,
+              execution: z.object({
+                running: z.boolean(), fenced: z.boolean(), verified: z.boolean(),
+                workload: z.object({
+                  accepted: count, peer_claims: count, children: count, receipts: count,
+                  writes: count, requests: count, legacy_clients: count,
+                }).strict(),
+              }).strict().nullable(),
+            }).strict().parse(parsed);
+            await authorize(req);
+            if (!communicatorRegistry.setResidentReport(connectionID, report)) throw new Error('Resident owner mismatch');
             wsPublisher.publish('communicator.updated', { host_id: hostId });
             return;
           }

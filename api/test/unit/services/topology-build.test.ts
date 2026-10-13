@@ -353,3 +353,17 @@ describe('what an owner process says about itself', () => {
     expect(topology.communicators[0]!.can_terminate).toBe(false);
   });
 });
+
+
+describe('resident report freshness', () => {
+  it('marks an old report stale even when the connection still sends traffic', () => {
+    const c = communicator('c1');
+    c.capabilities.instance_id = S1;
+    c.resident = { sequence: 1, owner_instance_id: S1, runtime_protocol: 1, mode: 'resident', managed: true, resident_enabled: true, execution_enabled: false, binary_sha256: 'a'.repeat(64), draining: true, local_requests: 1, legacy_clients: 2, execution: null, received_ms: NOW - 46_000 };
+    const node = buildTopology(inputs({ communicators: [c] })).communicators[0]!;
+    expect(node.health).toBe('live');
+    expect(node.resident).toMatchObject({ stale: true, age_s: 46, received_at: new Date(NOW - 46_000).toISOString(), draining: true });
+    c.capabilities.instance_id = S2;
+    expect(buildTopology(inputs({ communicators: [c] })).communicators[0]!.resident).toBeNull();
+  });
+});

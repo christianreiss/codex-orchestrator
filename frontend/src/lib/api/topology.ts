@@ -18,6 +18,29 @@ import { createSessionWriter } from "./session-write";
 export type CommunicatorHealth = "live" | "stale" | "closing";
 export type AssociationState = "attributed" | "stale" | "unattributed";
 
+export interface ResidentRuntimeReport {
+  sequence: number;
+  owner_instance_id: string;
+  runtime_protocol: 1;
+  mode: "on_demand" | "resident";
+  managed: boolean;
+  resident_enabled: boolean;
+  execution_enabled: boolean;
+  binary_sha256: string;
+  draining: boolean;
+  local_requests: number;
+  legacy_clients: number;
+  execution: {
+    running: boolean;
+    fenced: boolean;
+    verified: boolean;
+    workload: { accepted: number; peer_claims: number; children: number; receipts: number; writes: number; requests: number; legacy_clients: number };
+  } | null;
+  received_at: string;
+  age_s: number;
+  stale: boolean;
+}
+
 export interface TopologyServer {
   id: "server";
   label: string;
@@ -54,6 +77,8 @@ export interface TopologyCommunicator {
   process: { pid: number; started_at: string | null; instance_id: string | null; runtime_id: string | null } | null;
   /** True only when the owner said it can be stopped remotely. */
   can_terminate: boolean;
+  /** Optional for compatibility with API versions before owner reports. */
+  resident?: ResidentRuntimeReport | null;
 }
 
 export interface ActionAvailability {

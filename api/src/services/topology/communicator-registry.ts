@@ -89,6 +89,31 @@ export interface TerminateAck {
   instance_id: string | null;
 }
 
+/** Bounded owner diagnostics tied to one process on one connection. */
+export interface ResidentRuntimeReport {
+  sequence: number;
+  owner_instance_id: string;
+  runtime_protocol: 1;
+  mode: 'on_demand' | 'resident';
+  managed: boolean;
+  resident_enabled: boolean;
+  execution_enabled: boolean;
+  binary_sha256: string;
+  draining: boolean;
+  local_requests: number;
+  legacy_clients: number;
+  execution: {
+    running: boolean;
+    fenced: boolean;
+    verified: boolean;
+    workload: { accepted: number; peer_claims: number; children: number; receipts: number; writes: number; requests: number; legacy_clients: number };
+  } | null;
+}
+
+export interface ResidentRuntimeSnapshot extends ResidentRuntimeReport {
+  received_ms: number;
+}
+
 export type TerminateOutcome =
   /**
    * The owner acknowledged and its connection then closed. That is all the server
@@ -150,6 +175,7 @@ interface Entry {
   evidence: Map<string, SessionEvidence>;
   closing: { reason: DisconnectReason; actor: string | null } | null;
   capabilities: OwnerCapabilities;
+  resident: ResidentRuntimeSnapshot | null;
   terminateRequest: { id: string; instance_id: string; resolve: (ack: TerminateAck | null) => void } | null;
   /**
    * Set once the owner has accepted a stop, until its connection closes or the fence
@@ -168,6 +194,7 @@ export interface CommunicatorSnapshot {
   daemon_attached: boolean;
   closing: boolean;
   capabilities: OwnerCapabilities;
+  resident: ResidentRuntimeSnapshot | null;
   evidence: ReadonlyMap<string, SessionEvidence>;
 }
 
@@ -220,6 +247,7 @@ export class CommunicatorRegistry {
       evidence: new Map(),
       closing: null,
       capabilities: { terminate: false, pid: null, started_at: null, instance_id: null, runtime_id: null },
+      resident: null,
       terminateRequest: null,
       stopping: null,
     });
@@ -252,8 +280,17 @@ export class CommunicatorRegistry {
   setCapabilities(id: string, capabilities: OwnerCapabilities, now = Date.now()): void {
     const entry = this.entries.get(id);
     if (!entry) return;
+    if (entry.capabilities.instance_id !== capabilities.instance_id) entry.resident = null;
     entry.capabilities = capabilities;
     this.linkSuccessor(entry, now);
+  }
+
+  setResidentReport(id: string, report: ResidentRuntimeReport, now = Date.now()): boolean {
+    const entry = this.entries.get(id);
+    if (!entry?.capabilities.instance_id || entry.capabilities.instance_id !== report.owner_instance_id) return false;
+    if (entry.resident && report.sequence <= entry.resident.sequence) return true; // Authorization can finish out of wire order.
+    entry.resident = { ...structuredClone(report), received_ms: now };
+    return true;
   }
 
   /**
@@ -478,6 +515,7 @@ export class CommunicatorRegistry {
         daemon_attached: entry.daemonAttached,
         closing: entry.closing !== null,
         capabilities: entry.capabilities,
+        resident: entry.resident ? structuredClone(entry.resident) : null,
         evidence: entry.evidence,
       };
     });

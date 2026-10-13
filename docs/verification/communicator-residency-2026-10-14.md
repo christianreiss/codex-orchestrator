@@ -83,10 +83,40 @@ fenced, expired execution, explicit residence after expiry, unsigned residence
 deferment and unchanged legacy execution support. Runtime-unaware lease clients
 remain a handoff blocker instead of advertising unsupported reconnection.
 
+## Negotiated owner reporting
+
+After Raffaela released the topology paths, the private candidate adds exact
+instance-bound `resident_status` frames without changing legacy capabilities.
+Five live Go WebSocket combinations cover old/no-control, terminate-only,
+identity-only, unsigned runtime and negotiated reporting. Reports update mode,
+sequence on the wire, omit sensitive errors and remain bounded; existing local
+status/stop-refusal regressions still apply. Focused normal and traced race
+checks pass (`/tmp/christel-owner-report-go-final.log` and
+`/tmp/christel-owner-report-go-traced.log`).
+
+The API validates exact-instance reports over real loopback WebSockets, rejects
+missing/wrong identity, unknown fields, invalid counters/hashes and revoked
+credentials, and forgets reports on reconnect. Registry/projection tests cover
+identity changes, late sequences and report age independent of other traffic;
+a composed route test projects the frame into `GET /admin/topology`. Across
+eight targeted suites, 146 distinct tests pass. API typecheck/build pass.
+Frontend check reports zero errors/warnings and 928 tests pass. The build and
+all 12 topology Playwright tests pass, including stale report wording, retained
+work, legacy owners and existing termination/successor evidence. Generated SPA
+assets are included.
+
+One initial full Go run failed the unchanged Claude post-run offline-auth
+request-count assertion (seven instead of six). Five isolated reruns passed;
+no auth source or test has been edited for this reporting slice. The final
+canonical `go test ./...`, `go build ./...` and `go vet ./...` rerun passed
+(`/tmp/christel-owner-report-go-all-final.log`, `-go-build-final.log`, and
+`-go-vet-final.log`). The first failure is retained as a non-reproduced observation,
+not silently classified as fixed or unrelated.
+
 ## Remaining acceptance
 
-Negotiated actual dashboard owner metadata, real provider acceptance where needed,
-independent migration review, updated audit dependencies and Director integration
+Real provider acceptance where needed, independent migration/reporting review,
+updated audit dependencies and Director integration
 remain outstanding. Incompatible/unresponsive legacy owners and custom systemd
 namespace changes intentionally defer. None of these results is a production
 rollout receipt.

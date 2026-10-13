@@ -4,6 +4,36 @@ cxx 0.9.72 introduces one local communicator per OS user and orchestrator base U
 It is started lazily by a managed request and shared by Codex, Claude and Grok.
 Provider inference still uses each native client's original network path.
 
+## Resident owner reporting (private candidate)
+
+With the default-off signed `orchestrator.communicator_runtime_protocol: 1`,
+the owner sends diagnostics only to a server advertising `resident_runtime`
+alongside `terminate` and `owner_identity` in `ready.control`. Its existing
+`capabilities` frame stays unchanged and precedes the new `resident_status`
+frame. Old servers receive their exact legacy frames. Reports repeat on the
+15-second heartbeat cadence and recheck host authorization on the server.
+
+Reports carry the exact `owner_instance_id`, a per-connection increasing
+`sequence`, mode (`on_demand` or `resident`), service management, requested
+residence, effective execution policy, the running executable's SHA-256,
+draining, local request/legacy-client counts and bounded controller workload.
+They omit errors, credentials, paths and native session contents. An unreadable
+executable digest suppresses reporting; it never changes execution policy.
+
+The registry accepts a report only after that connection announced the same
+process instance. Earlier sequences cannot replace a newer report even if
+async authorization completes out of order. Identity changes and unregister
+clear the report; reconnect requires a new report and never inherits one by
+host, username or runtime namespace. These fields do not link successors or
+prove safe handoff, account admission, native-child survival or process exit.
+`/_comm/status` remains available during draining.
+
+Live topology shows the latest report with its server receipt time, marks it
+stale after 45 seconds independently of unrelated connection traffic, and keeps
+termination evidence explicitly separate. Residence can be requested while
+remote starts are disabled, or execution can remain running/fenced to drain
+accepted work after policy disables new starts.
+
 ## Operation
 
 Enable `CXX_COMMUNICATOR_ENABLED=true` in the API environment and recreate the API.

@@ -286,7 +286,7 @@ func (s *server) connectLoop(ctx context.Context) {
 				cancel()
 				err = e
 				if err == nil {
-					c = &connection{ws: ws, pending: map[string]chan frame{}, done: make(chan struct{}), ready: make(chan struct{}), invalidated: s.invalidate, authChanged: s.invalidateAuth, onTerminate: s.terminate, runtimeID: s.runtimeID, preTerminate: s.preflightStop}
+					c = &connection{ws: ws, pending: map[string]chan frame{}, done: make(chan struct{}), ready: make(chan struct{}), invalidated: s.invalidate, authChanged: s.invalidateAuth, onTerminate: s.terminate, runtimeID: s.runtimeID, preTerminate: s.preflightStop, residentReport: s.residentReport}
 					go c.receive()
 					err = c.send(map[string]any{"type": "hello", "protocol": Protocol, "username": communicatorUsername(), "version": s.version})
 					if err == nil {
@@ -342,6 +342,9 @@ func (s *server) connectLoop(ctx context.Context) {
 						synced = last
 					}
 					if c.send(map[string]any{"type": "heartbeat", "sessions": leases, "synced_at": synced, "sync_scopes": syncScopes}) != nil {
+						break live
+					}
+					if c.sendResidentReport() != nil {
 						break live
 					}
 				}

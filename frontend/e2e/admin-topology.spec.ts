@@ -248,3 +248,28 @@ test("a reconnect is stated only when the owner's identity proves it", async ({ 
   await expect(dialog.getByText(/The same process reconnected as/)).toBeVisible();
   await expect(dialog.getByText("Unverified:")).toHaveCount(0);
 });
+
+
+test("owner runtime is a stale report with retained work, never exit proof", async ({ page }) => {
+  const state = await fixtures(page);
+  state.topology.communicators[0]!.resident = {
+    sequence: 1, owner_instance_id: state.topology.communicators[0]!.process!.instance_id!, runtime_protocol: 1,
+    mode: "resident", managed: true, resident_enabled: true, execution_enabled: false,
+    binary_sha256: "a".repeat(64), draining: true, local_requests: 1, legacy_clients: 2,
+    execution: { running: true, fenced: true, verified: false, workload: { accepted: 3, peer_claims: 4, children: 5, receipts: 6, writes: 0, requests: 0, legacy_clients: 0 } },
+    received_at: new Date(Date.now() - 60_000).toISOString(), age_s: 60, stale: true,
+  };
+  await open(page);
+  await page.locator(`[data-node="${C1}"] .hit`).click();
+  const report = page.getByRole("region", { name: "Resident owner report" });
+  await expect(report).toBeVisible();
+  await expect(report).toContainText("Latest report · stale");
+  await expect(report).toContainText("Resident · draining");
+  await expect(report).toContainText("Remote startsdisabled");
+  await expect(report).toContainText("3 accepted · 5 children · 6 receipts · 4 claims");
+  await expect(report).toContainText("admission fenced · state unverified");
+  await expect(report).toContainText("not a confirmed exit");
+  await expect(report).toContainText("a".repeat(64));
+  await page.locator(`[data-node="${C2}"] .hit`).click();
+  await expect(report).toHaveCount(0); // An older owner never fabricated this report.
+});
