@@ -1,5 +1,7 @@
 # 2026-10-13
 
+- `cxx communicator status` / `doctor` now say why a server has no usable local socket. A runtime directory the wrapper refuses (for instance `XDG_RUNTIME_DIR=/run/user/0` leaked through `su`, which is not private to the user) used to print `{"running":false,"socket":""}` with no reason; the line now carries `"error"` with the refusal, and `doctor` fails for it.
+
 - cxx 0.9.78 preserves numeric MCP IDs and result values when writing stdio replies, including integers beyond the exact `float64` range. Single and batch replies no longer round IDs after validating their correlation.
 
 - Communicator frame limits count UTF-8 wire bytes, including non-ASCII headers, so an oversized encoded reply returns a correlated failure instead of exceeding the receiver limit and dropping the shared connection.
