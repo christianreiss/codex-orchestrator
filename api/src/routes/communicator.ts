@@ -256,16 +256,55 @@ export async function registerCommunicatorRoutes(app: FastifyInstance, ctx: Rout
               {
                 close: (code, reason) => socket.close(code, reason),
                 terminate: () => socket.terminate(),
+                send,
                 remoteAddress: req.clientIp || req.socket.remoteAddress || null,
               },
             );
             wsPublisher.publish('communicator.updated', { host_id: host.id });
             greeted = true;
-            send({ type: 'ready', protocol: 1 });
+            // `control` offers the owner remote termination (see services/topology);
+            // an owner that does not know the field ignores it and is never asked.
+            send({ type: 'ready', protocol: 1, control: ['terminate'] });
             return;
           }
           if (!greeted) throw new Error('Handshake required');
           communicatorRegistry.touch(connectionID);
+          if (parsed.type === 'capabilities') {
+            const caps = z
+              .object({
+                type: z.literal('capabilities'),
+                terminate: z.boolean(),
+                pid: z.number().int().positive().max(2 ** 31),
+                started_at: z.string().max(40),
+              })
+              .strict()
+              .parse(parsed);
+            communicatorRegistry.setCapabilities(connectionID, {
+              terminate: caps.terminate,
+              pid: caps.pid,
+              started_at: caps.started_at,
+            });
+            wsPublisher.publish('communicator.updated', { host_id: hostId });
+            return;
+          }
+          if (parsed.type === 'terminate_ack') {
+            const ack = z
+              .object({
+                type: z.literal('terminate_ack'),
+                request_id: z.string().uuid(),
+                accepted: z.boolean(),
+                pid: z.number().int().positive().max(2 ** 31).optional(),
+                reason: z.string().max(64).optional(),
+              })
+              .strict()
+              .parse(parsed);
+            communicatorRegistry.acknowledgeTerminate(connectionID, ack.request_id, {
+              accepted: ack.accepted,
+              pid: ack.pid ?? null,
+              reason: ack.reason ?? null,
+            });
+            return;
+          }
           if (parsed.type === 'daemon_disconnect') {
             daemonEvents.emit('close');
             daemonEvents.removeAllListeners();

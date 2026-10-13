@@ -1,5 +1,7 @@
 # 2026-10-13
 
+- cxx's communicator owner can now be stopped from the console as a real process, with the proof the server actually has. The server offers `control: ["terminate"]` in `ready`; an owner that sees it describes itself once (`capabilities`: pid, start time) and then honours a `terminate` frame by acknowledging it, draining in-flight local requests for up to three seconds and exiting through the idle-exit path. `POST /admin/communicators/{id}/terminate` (`agent_portal.manage`, audited as `communicator.terminated`) reports `terminated` only after that acknowledgement and the closing of the connection, `acknowledged`/`unacknowledged`/`refused` otherwise, and never from a frame that was merely sent. Old owners and old servers are unaffected, and an owner that did not announce the capability is not offered the control. A surviving client starts a new owner, which the page shows as a different process.
+
 - cxx 0.9.76 compares MCP request IDs by their JSON value, including escaped strings and equivalent decimal/exponent spellings, while keeping distinct large integer IDs separate. Grok now treats `409 communicator_outcome_unknown` as a transport interruption and retains its native session; actual auth revocation remains fatal.
 
 - Oversized communicator replies preserve unknown write outcomes: auth-bearing bootstrap and session admission are never repeated over HTTPS, and completed mutations return `409 communicator_outcome_unknown` instead of a retryable 502. Content-only bootstrap and known reads retain their large-reply transfer path.
@@ -240,7 +242,6 @@
 - Agent work execution now confirms durable acceptance before starting; explicit encrypted task outcomes are separate from delivery status, with one-use operator grants for missing ordinary transcripts.
 - Wake recovery adds exponential backoff, jitter, repeated-failure warnings and optional limits that pause the entire schedule; fleet AGENTS guidance covers management and result reporting for all three engines.
 - Wrapper 0.9.22 advertises execution contract v2; older running sessions continue, while new work waits for compatible receivers.
-
 
 - Added fleet Wake / Cron management via MCP, shared Skill and admin UI, with durable one-shot, Cron and interval schedules. Persistent crash/hang/capacity recovery is explicit opt-in; wrapper 0.9.21 resumes native sessions without fresh fallback and checks live policy before Linux hang termination.
 

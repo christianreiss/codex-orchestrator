@@ -24,6 +24,8 @@
     phase: Phase;
     /** Shown in the done and error phases. */
     resultTitle?: string;
+    /** `warning` for an outcome that is not the one that was asked for. */
+    resultTone?: "success" | "warning";
     errorMessage?: string;
     /** Offer a free-text note that goes into the audit record. */
     withNote?: boolean;
@@ -45,6 +47,7 @@
     tone = "destructive",
     phase,
     resultTitle = "Done",
+    resultTone = "success",
     errorMessage = "",
     withNote = false,
     note = $bindable(""),
@@ -97,8 +100,8 @@
       {#if phase === "pending"}
         <p class="flex items-center gap-2 text-sm text-muted-foreground"><LoaderIcon class="h-4 w-4 animate-spin motion-reduce:animate-none" /> {pendingLabel}</p>
       {:else if phase === "done"}
-        <div class="rounded-md border border-success/30 bg-success-muted p-3 text-sm text-success-muted-foreground">
-          <p class="flex items-center gap-2 font-medium"><CheckIcon class="h-4 w-4" /> {resultTitle}</p>
+        <div class="rounded-md border p-3 text-sm {resultTone === 'warning' ? 'border-warning/30 bg-warning-muted text-warning-muted-foreground' : 'border-success/30 bg-success-muted text-success-muted-foreground'}">
+          <p class="flex items-center gap-2 font-medium">{#if resultTone === "warning"}<AlertIcon class="h-4 w-4" />{:else}<CheckIcon class="h-4 w-4" />{/if} {resultTitle}</p>
           {@render result?.()}
         </div>
       {:else if phase === "error"}

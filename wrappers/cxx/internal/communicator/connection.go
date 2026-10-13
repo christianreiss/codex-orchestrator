@@ -36,6 +36,11 @@ type frame struct {
 	Error      string            `json:"error,omitempty"`
 	Protocol   int               `json:"protocol,omitempty"`
 	Revision   string            `json:"revision,omitempty"`
+	// Control, RequestID and Reason carry the optional remote-control frames in
+	// control.go; an old server never sets them.
+	Control   []string `json:"control,omitempty"`
+	RequestID string   `json:"request_id,omitempty"`
+	Reason    string   `json:"reason,omitempty"`
 }
 
 type connection struct {
@@ -50,6 +55,10 @@ type connection struct {
 	ready         chan struct{}
 	invalidated   func()
 	authChanged   func(string, int64)
+	// onTerminate is set when this owner can be stopped remotely; control is
+	// true once the server announced that it may ask.
+	onTerminate func(string)
+	control     bool
 }
 
 func directTransport(cfg *config.Config) (*http.Transport, error) {
@@ -143,6 +152,10 @@ func (c *connection) receive() {
 			if !ready {
 				close(c.ready)
 				ready = true
+				if announces(f.Control, controlTerminate) {
+					c.control = true
+					go c.announceCapabilities()
+				}
 			}
 		case "daemon_event", "daemon_closed":
 			// Enqueue under c.mu: detachDaemon closes the channel under the same
@@ -171,6 +184,12 @@ func (c *connection) receive() {
 					// relay blocked on a stalled reader is stopped after a bound.
 					time.AfterFunc(daemonCloseGrace, func() { c.detachDaemon(ch) })
 				}
+			}
+		case "terminate":
+			// Only after the server announced control: a frame this owner never
+			// agreed to receive is not an instruction.
+			if c.control {
+				go c.handleTerminate(f)
 			}
 		case "auth_changed":
 			if c.authChanged != nil {

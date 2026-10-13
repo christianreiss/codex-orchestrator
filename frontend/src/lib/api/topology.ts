@@ -48,6 +48,9 @@ export interface TopologyCommunicator {
   remote_address: string | null;
   daemon_attached: boolean;
   agent_ids: string[];
+  /** The owner process's own account of itself; null if it never gave one. */
+  process: { pid: number; started_at: string | null } | null;
+  /** True only when the owner said it can be stopped remotely. */
   can_terminate: boolean;
 }
 
@@ -102,8 +105,9 @@ export interface TopologyDisconnect {
   version: string;
   connected_at: string;
   ended_at: string;
-  reason: "admin_disconnect" | "peer_closed";
+  reason: "admin_disconnect" | "admin_terminate" | "peer_closed";
   actor: string | null;
+  pid: number | null;
   affected_agent_ids: string[];
   successor_id: string | null;
 }
@@ -128,6 +132,20 @@ export interface DisconnectResult {
   replayed: boolean;
 }
 
+export interface TerminateResult {
+  /** What was observed. `terminated` needs the owner's acknowledgement AND its connection closing. */
+  outcome: "terminated" | "acknowledged" | "refused" | "unacknowledged";
+  connection_id: string;
+  host_id: number;
+  username: string;
+  version: string;
+  process: { pid: number | null; started_at: string | null };
+  acknowledged: boolean;
+  connection_closed: boolean;
+  affected: { agent_ids: string[]; leases_reported: number };
+  replayed: boolean;
+}
+
 export const topologyKeys = {
   all: ["topology"] as const,
 };
@@ -145,8 +163,9 @@ export function topologyQuery() {
   });
 }
 
-function writer() {
+function writer(timeoutMs?: number) {
   return createSessionWriter({
+    timeoutMs,
     actor: () => {
       const auth = get(authStore);
       return auth.authenticated && auth.user ? String(auth.user.id) : null;
@@ -172,6 +191,30 @@ export function disconnectCommunicatorMutation() {
             expect: { host_id: target.host_id, username: target.username },
             note: note || undefined,
           },
+          { signal },
+        ),
+      ),
+    onSettled: () => {
+      void client.invalidateQueries({ queryKey: topologyKeys.all });
+      void client.invalidateQueries({ queryKey: ["communicators"] });
+    },
+  });
+}
+
+/**
+ * Asks the communicator owner process to stop. The server waits for the owner's
+ * acknowledgement and then for its connection to close (up to ~13 s), so the
+ * write is given longer than the 10 s default before it counts as uncertain.
+ */
+export function terminateCommunicatorMutation() {
+  const client = useQueryClient();
+  const write = writer(25_000);
+  return createMutation<TerminateResult, Error, { target: TopologyCommunicator; note?: string }>({
+    mutationFn: ({ target, note }) =>
+      write(JSON.stringify(["terminate", target.id, note ?? null]), (clientMessageId, signal) =>
+        api.post<TerminateResult>(
+          `/admin/communicators/${encodeURIComponent(target.id)}/terminate`,
+          { client_message_id: clientMessageId, expect: { host_id: target.host_id, username: target.username }, note: note || undefined },
           { signal },
         ),
       ),

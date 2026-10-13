@@ -58,6 +58,10 @@ type server struct {
 	lastAttemptEnd time.Time
 	kick           chan struct{}
 	policyBusy     atomic.Bool
+	// stop ends the owner (set by serve); terminating makes a remote terminate
+	// request single-shot.
+	stop        context.CancelFunc
+	terminating atomic.Bool
 }
 
 func (s *server) configSnapshot() *config.Config {
@@ -105,7 +109,7 @@ func serve(ctx context.Context, path, version string) error {
 	}
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	s := &server{kick: make(chan struct{}, 1), cfg: cfg, version: version, lastUsed: time.Now(), calls: map[string]*sharedCall{}, dirty: make(chan struct{}, 1), authDirty: make(chan struct{}, 1), jobs: map[string]syncJob{}, jobRefs: map[string]int{}}
+	s := &server{stop: cancel, kick: make(chan struct{}, 1), cfg: cfg, version: version, lastUsed: time.Now(), calls: map[string]*sharedCall{}, dirty: make(chan struct{}, 1), authDirty: make(chan struct{}, 1), jobs: map[string]syncJob{}, jobRefs: map[string]int{}}
 	httpServer := &http.Server{Handler: s, ReadHeaderTimeout: 5 * time.Second, IdleTimeout: 30 * time.Second}
 	defer httpServer.Close()
 	go s.connectLoop(ctx)
@@ -205,7 +209,7 @@ func (s *server) connectLoop(ctx context.Context) {
 				cancel()
 				err = e
 				if err == nil {
-					c = &connection{ws: ws, pending: map[string]chan frame{}, done: make(chan struct{}), ready: make(chan struct{}), invalidated: s.invalidate, authChanged: s.invalidateAuth}
+					c = &connection{ws: ws, pending: map[string]chan frame{}, done: make(chan struct{}), ready: make(chan struct{}), invalidated: s.invalidate, authChanged: s.invalidateAuth, onTerminate: s.terminate}
 					go c.receive()
 					err = c.send(map[string]any{"type": "hello", "protocol": Protocol, "username": communicatorUsername(), "version": s.version})
 					if err == nil {

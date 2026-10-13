@@ -65,6 +65,8 @@ export const ROUTE_CAPABILITIES: Readonly<Record<string, RouteGuard>> = {
   // it. Same blast radius as closing those sessions, so the same (always-enforced)
   // capability; `hosts.manage` would be relaxed by `compatible` authorization.
   'POST /admin/communicators/:id/disconnect': cap('agent_portal.manage'),
+  // Stops the owner process itself (acknowledged by the process); same blast radius as disconnect, same capability.
+  'POST /admin/communicators/:id/terminate': cap('agent_portal.manage'),
   'GET /admin/host-daemons': cap('admin.read'),
   'GET /admin/host-spawn/state': cap('admin.read'),
   'POST /admin/host-spawn/state': cap('settings.manage'),

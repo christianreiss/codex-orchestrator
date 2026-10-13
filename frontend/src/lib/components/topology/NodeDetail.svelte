@@ -9,6 +9,7 @@
   import {
     disconnectCommunicatorMutation,
     stopDaemonSessionMutation,
+    terminateCommunicatorMutation,
     type Topology,
     type TopologyAgent,
     type TopologyCommunicator,
@@ -39,7 +40,7 @@
   const canRemote = $derived($authStore.can("agent_messaging.manage"));
 
   // ── actions ────────────────────────────────────────────────────────────────
-  type ActionKind = "disconnect" | "request_close" | "stop_process" | "end_record";
+  type ActionKind = "disconnect" | "terminate" | "request_close" | "stop_process" | "end_record";
   // The target is captured when the dialog opens: after a disconnect the live
   // tree no longer has it, and the dialog must keep saying who it was about.
   type Frozen = { kind: ActionKind; id: string; communicator: TopologyCommunicator | null; agent: TopologyAgent | null; affected: string[] };
@@ -48,16 +49,18 @@
   let errorMessage = $state("");
   let note = $state("");
   let dialogOpen = $state(false);
-  let outcome = $state<{ title: string; lines: string[] } | null>(null);
+  let outcome = $state<{ title: string; lines: string[]; tone?: "success" | "warning" } | null>(null);
 
   const disconnect = disconnectCommunicatorMutation();
+  const terminate = terminateCommunicatorMutation();
   const requestClose = requestCloseMutation();
   const forceClose = forceCloseMutation();
   const stopDaemon = stopDaemonSessionMutation();
 
   function begin(kind: ActionKind, id: string) {
-    const frozenCommunicator = kind === "disconnect" ? $state.snapshot(communicatorsById.get(id) ?? communicator) : null;
-    const frozenAgent = kind === "disconnect" ? null : $state.snapshot(agentsById.get(id) ?? agent);
+    const onCommunicator = kind === "disconnect" || kind === "terminate";
+    const frozenCommunicator = onCommunicator ? $state.snapshot(communicatorsById.get(id) ?? communicator) : null;
+    const frozenAgent = onCommunicator ? null : $state.snapshot(agentsById.get(id) ?? agent);
     action = {
       kind,
       id,
@@ -79,7 +82,8 @@
   const targetCommunicator = $derived(action?.communicator ?? null);
   const targetAgent = $derived(action?.agent ?? null);
   // What the live tree says now about the target, for the follow-up lines.
-  const departure = $derived(action?.kind === "disconnect" ? (snapshot?.recent_disconnects.find((d) => d.id === action!.id) ?? null) : null);
+  const departure = $derived(action && (action.kind === "disconnect" || action.kind === "terminate") ? (snapshot?.recent_disconnects.find((d) => d.id === action!.id) ?? null) : null);
+  const successor = $derived(departure?.successor_id ? (communicatorsById.get(departure.successor_id) ?? null) : null);
   const liveAgent = $derived(action?.agent ? (agentsById.get(action.id) ?? action.agent) : null);
 
   async function confirm() {
@@ -98,6 +102,17 @@
             `${result.affected.agent_ids.length} agent session${result.affected.agent_ids.length === 1 ? "" : "s"} were carried by it. They reappear under the new connection as each next speaks to the server (about 15 s).`,
           ],
         };
+      } else if (action.kind === "terminate" && targetCommunicator) {
+        const result = await $terminate.mutateAsync({ target: targetCommunicator, note: note.trim() || undefined });
+        const pid = result.process.pid ? ` (pid ${result.process.pid})` : "";
+        outcome =
+          result.outcome === "terminated"
+            ? { title: "Process stopped", lines: [`The process${pid} acknowledged the request, and its connection to the server then closed.`] }
+            : result.outcome === "acknowledged"
+              ? { title: "Acknowledged, still connected", tone: "warning", lines: [`The process${pid} said it is stopping, but its connection is still open. Check the live view; nothing is assumed.`] }
+              : result.outcome === "refused"
+                ? { title: "The process declined", tone: "warning", lines: ["It reported that it cannot stop itself on request. Nothing was stopped."] }
+                : { title: "No acknowledgement", tone: "warning", lines: ["The request was sent, but the process did not answer in time. As far as the server can tell it is still running."] };
       } else if (action.kind === "request_close" && targetAgent) {
         await $requestClose.mutateAsync({ id: targetAgent.id, note: note.trim() || undefined });
         outcome = { title: "Close request queued", lines: ["The agent picks it up the next time it listens; the live view shows when it does."] };
@@ -117,7 +132,9 @@
     } catch (error) {
       const failure = error as { status?: number; code?: string; message?: string };
       errorMessage =
-        failure.code === "communicator_not_connected" || failure.status === 404
+        failure.code === "communicator_terminate_unsupported"
+          ? "This communicator never announced that it can be stopped remotely, so it was not asked."
+          : failure.code === "communicator_not_connected" || failure.status === 404
           ? "That target is already gone, so there was nothing to act on."
           : failure.code === "communicator_target_changed"
             ? "The connection changed since you selected it. Select it again."
@@ -163,7 +180,7 @@
             <li class="rounded-md border p-2">
               <p class="font-medium">{communicatorLabel(d)} <span class="font-normal text-muted-foreground">· {ageLabel(Math.round((Date.now() - Date.parse(d.ended_at)) / 1000))}</span></p>
               <p class="text-xs text-muted-foreground">
-                {d.reason === "admin_disconnect" ? `Closed by ${d.actor ?? "an administrator"}` : "Connection ended"}
+                {d.reason === "admin_disconnect" ? `Closed by ${d.actor ?? "an administrator"}` : d.reason === "admin_terminate" ? `Process stopped by ${d.actor ?? "an administrator"}` : "Connection ended"}
                 {#if d.successor_id}
                   · <button type="button" class="underline underline-offset-2" onclick={() => onselect(d.successor_id)}>reconnected as {shortId(d.successor_id)}</button>
                 {:else}
@@ -198,7 +215,11 @@
       {#if ghost}
         <div class="rounded-md border bg-muted/40 p-3 text-sm">
           <p>
-            {ghost.departure?.reason === "admin_disconnect" ? `Closed by ${ghost.departure.actor ?? "an administrator"}.` : "The connection ended."}
+            {ghost.departure?.reason === "admin_disconnect"
+              ? `Closed by ${ghost.departure.actor ?? "an administrator"}.`
+              : ghost.departure?.reason === "admin_terminate"
+                ? `Stopped by ${ghost.departure.actor ?? "an administrator"}; the process acknowledged${ghost.departure.pid ? ` (pid ${ghost.departure.pid})` : ""}.`
+                : "The connection ended."}
             {#if ghost.departure?.successor_id}
               It came back as
               <button type="button" class="underline underline-offset-2" onclick={() => onselect(ghost.departure!.successor_id)}>{shortId(ghost.departure.successor_id)}</button>.
@@ -216,6 +237,8 @@
         <dd class="flex items-center gap-1 font-mono text-xs"><span title={communicator.id}>{shortId(communicator.id)}</span><CopyButton value={communicator.id} variant="ghost" size="icon" class="h-6 w-6" aria-label="Copy connection id" /></dd>
         <dt class="text-muted-foreground">Connected</dt><dd>{when(communicator.connected_at)}</dd>
         <dt class="text-muted-foreground">Last heartbeat</dt><dd>{communicator.last_heartbeat_at ? `${ageLabel(Math.round((Date.now() - Date.parse(communicator.last_heartbeat_at)) / 1000))}` : "none yet"}</dd>
+        <dt class="text-muted-foreground">Process</dt>
+        <dd>{communicator.process ? `pid ${communicator.process.pid}` : "not reported"}{#if communicator.process} <span class="text-muted-foreground">self-reported{communicator.process.started_at ? `, started ${new Date(communicator.process.started_at).toLocaleTimeString()}` : ""}</span>{/if}</dd>
         <dt class="text-muted-foreground">Local leases</dt><dd>{communicator.leases_reported} <span class="text-muted-foreground">reported by the communicator</span></dd>
         <dt class="text-muted-foreground">Requests</dt><dd>{communicator.requests}</dd>
         <dt class="text-muted-foreground">Last sync</dt><dd>{when(communicator.synced_at)}{#if communicator.sync_errors > 0} · <span class="text-destructive">{communicator.sync_errors} scope{communicator.sync_errors === 1 ? "" : "s"} failing</span>{/if}</dd>
@@ -255,6 +278,14 @@
           {#if !canPortal}Requires the agent-sessions management permission.
           {:else}Closes this one server connection. The communicator process keeps running and redials within 1–30 s; its agents keep running.{/if}
         </p>
+        {#if communicator.can_terminate}
+          <Button variant="outline" class="w-full justify-start text-destructive" disabled={!canPortal || communicator.health === "closing"} onclick={() => begin("terminate", communicator.id)}>
+            Stop the communicator process…
+          </Button>
+          <p class="text-xs text-muted-foreground">Asks the process (pid {communicator.process?.pid ?? "?"}) to exit. Reported stopped only once it acknowledges and its connection closes. A client starts a new one when needed.</p>
+        {:else}
+          <p class="text-xs text-muted-foreground">This communicator did not announce that it can be stopped remotely, so only its connection can be closed from here.</p>
+        {/if}
       </section>
     {/if}
   {:else if agent}
@@ -356,6 +387,53 @@
             Watching for it to reconnect…
           {/if}
         </p>
+      {/snippet}
+    </ConfirmAction>
+  {:else if action.kind === "terminate"}
+    <ConfirmAction
+      bind:open={dialogOpen}
+      bind:note
+      withNote
+      title="Stop this communicator's process?"
+      description="Asks the communicator owner process itself to exit. It is reported stopped only when the process acknowledges and its connection closes."
+      target={[
+        { label: "Communicator", value: targetCommunicator ? communicatorLabel(targetCommunicator) : "—" },
+        { label: "Host", value: targetCommunicator?.host ?? "—" },
+        { label: "Process", value: targetCommunicator?.process ? `pid ${targetCommunicator.process.pid} (self-reported)` : "not reported" },
+        { label: "Connection", value: action.id },
+      ]}
+      affected={{
+        heading: `Agents carried by this connection (${action.affected.length})`,
+        items: action.affected,
+        empty: "No session traffic has been seen on this connection.",
+      }}
+      effects={[
+        "Only this communicator process is asked to stop. Native agent sessions are not signalled and keep running.",
+        "In-flight local requests get up to 3 s to finish; the rest come back as “outcome unknown” and are never replayed.",
+        "A surviving client (or an attached host daemon) starts a new communicator on its next managed call.",
+        "If the process does not answer, nothing is claimed: it is reported as unacknowledged.",
+      ]}
+      confirmLabel="Stop process"
+      pendingLabel="Waiting for the process to acknowledge…"
+      {phase}
+      resultTitle={outcome?.title}
+      resultTone={outcome?.tone}
+      {errorMessage}
+      onconfirm={confirm}
+      onclose={close}
+    >
+      {#snippet result()}
+        {#each outcome?.lines ?? [] as line (line)}<p class="mt-1">{line}</p>{/each}
+        {#if outcome?.title === "Process stopped"}
+          <p class="mt-1">
+            {#if successor}
+              A new communicator process connected as
+              <button type="button" class="underline underline-offset-2" onclick={() => { const id = successor?.id; close(); onselect(id ?? null); }}>{shortId(successor.id)}</button>{successor.process ? ` (pid ${successor.process.pid})` : ""}.
+            {:else}
+              No new process has connected yet; a client starts one on its next managed call.
+            {/if}
+          </p>
+        {/if}
       {/snippet}
     </ConfirmAction>
   {:else}

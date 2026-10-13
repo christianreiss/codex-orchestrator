@@ -43,7 +43,12 @@ export interface TopologyCommunicatorNode {
   daemon_attached: boolean;
   /** Agent sessions whose requests were last seen on this socket, newest first. */
   agent_ids: string[];
-  /** Whether this version of the owner can be told to exit remotely. */
+  /**
+   * The owner process's own account of itself (pid, start time), sent once to a
+   * server that announced control. Null for an owner that never sent one.
+   */
+  process: { pid: number; started_at: string | null } | null;
+  /** True only when that owner said it can be stopped remotely. */
   can_terminate: boolean;
 }
 
@@ -107,8 +112,10 @@ export interface TopologyDisconnect {
   version: string;
   connected_at: string;
   ended_at: string;
-  reason: 'admin_disconnect' | 'peer_closed';
+  reason: 'admin_disconnect' | 'admin_terminate' | 'peer_closed';
   actor: string | null;
+  /** The owner's self-reported pid at the time, when it reported one. */
+  pid: number | null;
   affected_agent_ids: string[];
   /** Id of the connection that took its place, once one has connected. */
   successor_id: string | null;
