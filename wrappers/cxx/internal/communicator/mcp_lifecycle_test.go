@@ -592,39 +592,67 @@ func TestMCPAdapterInvalidWithoutIDParity(t *testing.T) {
 }
 
 // A native client that stops reading stdout must not keep the adapter alive
-// after SIGTERM: blocked reply writes cannot hold shutdown forever.
+// after SIGTERM: blocked reply writes cannot hold shutdown forever, including
+// after the client has already closed stdin.
 func TestMCPAdapterSIGTERMWithStalledStdout(t *testing.T) {
+	for _, closeStdin := range []bool{false, true} {
+		t.Run(fmt.Sprintf("stdin closed=%v", closeStdin), func(t *testing.T) {
+			f := newMCPFixture(t)
+			cmd := exec.Command(f.binary, "communicator", "mcp", "codex")
+			cmd.Env = f.env
+			in, _ := cmd.StdinPipe()
+			stdout, _ := cmd.StdoutPipe()
+			stderr := &bytes.Buffer{}
+			f.stderr = append(f.stderr, stderr)
+			cmd.Stderr = stderr
+			if err := cmd.Start(); err != nil {
+				t.Fatal(err)
+			}
+			done := make(chan struct{})
+			go func() { cmd.Wait(); close(done) }()
+			t.Cleanup(func() { in.Close(); cmd.Process.Kill(); <-done })
+			// Warm up with one read so the signal handler and lease exist.
+			fmt.Fprintln(in, `{"jsonrpc":"2.0","id":0,"method":"tools/list"}`)
+			first, err := bufio.NewReader(stdout).ReadString('\n')
+			if err != nil || !strings.Contains(first, "tools/list") {
+				t.Fatalf("warm-up: %q %v", first, err)
+			}
+			// Then stop reading: 16 x 256 KiB replies overrun any pipe buffer.
+			for i := 1; i <= 16; i++ {
+				fmt.Fprintf(in, "{\"jsonrpc\":\"2.0\",\"id\":%d,\"method\":\"big\"}\n", i)
+			}
+			time.Sleep(2 * time.Second)
+			if closeStdin {
+				in.Close()
+				time.Sleep(500 * time.Millisecond)
+			}
+			cmd.Process.Signal(syscall.SIGTERM)
+			start := time.Now()
+			select {
+			case <-done:
+				t.Logf("exited %s after SIGTERM with stdout unread", time.Since(start).Round(time.Millisecond))
+			case <-time.After(15 * time.Second):
+				t.Errorf("adapter still alive 15s after SIGTERM while stdout is not read")
+			}
+		})
+	}
+}
+
+// Replies are relayed byte-exact: an id beyond float64 precision must reach
+// stdout unchanged, single and batched, as sameMCPID already compares it.
+func TestMCPAdapterPreservesLargeIDsOnTheWire(t *testing.T) {
 	f := newMCPFixture(t)
-	cmd := exec.Command(f.binary, "communicator", "mcp", "codex")
-	cmd.Env = f.env
-	in, _ := cmd.StdinPipe()
-	stdout, _ := cmd.StdoutPipe()
-	stderr := &bytes.Buffer{}
-	f.stderr = append(f.stderr, stderr)
-	cmd.Stderr = stderr
-	if err := cmd.Start(); err != nil {
-		t.Fatal(err)
-	}
-	done := make(chan struct{})
-	go func() { cmd.Wait(); close(done) }()
-	t.Cleanup(func() { in.Close(); cmd.Process.Kill(); <-done })
-	// Warm up with one read so the signal handler and lease exist.
-	fmt.Fprintln(in, `{"jsonrpc":"2.0","id":0,"method":"tools/list"}`)
-	first, err := bufio.NewReader(stdout).ReadString('\n')
-	if err != nil || !strings.Contains(first, "tools/list") {
-		t.Fatalf("warm-up: %q %v", first, err)
-	}
-	// Then stop reading: 16 x 256 KiB replies overrun any pipe buffer.
-	for i := 1; i <= 16; i++ {
-		fmt.Fprintf(in, "{\"jsonrpc\":\"2.0\",\"id\":%d,\"method\":\"big\"}\n", i)
-	}
-	time.Sleep(2 * time.Second)
-	cmd.Process.Signal(syscall.SIGTERM)
-	start := time.Now()
-	select {
-	case <-done:
-		t.Logf("exited %s after SIGTERM with stdout unread", time.Since(start).Round(time.Millisecond))
-	case <-time.After(15 * time.Second):
-		t.Errorf("adapter still alive 15s after SIGTERM while stdout is not read")
+	c := f.start("claude")
+	const id = "9007199254740993"
+	for _, line := range []string{
+		`{"jsonrpc":"2.0","id":` + id + `,"method":"ping"}`,
+		`[{"jsonrpc":"2.0","id":` + id + `,"method":"ping"}]`,
+		`{"jsonrpc":"2.0","id":` + id + `,"method":"drop"}`,
+	} {
+		c.send(line)
+		reply, ok := c.next(t, 25*time.Second)
+		if !ok || !strings.Contains(reply, `"id":`+id) {
+			t.Errorf("%s: id not preserved on stdout: %q", line, reply)
+		}
 	}
 }

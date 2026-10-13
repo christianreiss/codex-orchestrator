@@ -333,4 +333,32 @@ describe('acknowledged owner termination', () => {
     expect((await registry.terminate('c2', 'ops', { ackMs: 150 })).outcome).toBe('in_progress');
     expect((await first).outcome).toBe('unacknowledged');
   });
+
+  it('keeps an accepted stop fenced until the connection closes: a second stop is "in progress", never a second command', async () => {
+    const registry = new CommunicatorRegistry();
+    const send = owner(registry, 'c1', (frame) =>
+      registry.acknowledgeTerminate('c1', frame.request_id, { accepted: true, pid: 4242, reason: null, instance_id: 'inst-4242' }),
+    );
+    // The owner acknowledges but its connection stays open while it drains.
+    const first = registry.terminate('c1', 'ops', { ackMs: 200, closeMs: 120 });
+    await vi.waitFor(() => expect(registry.get('c1')?.closing).toBe(true), { timeout: 1000, interval: 2 });
+    expect((await registry.terminate('c1', 'ops', { ackMs: 200, closeMs: 30 })).outcome).toBe('in_progress');
+    expect((await first).outcome).toBe('acknowledged');
+    // Still open after the wait, still inside the fence: another stop is still not sent.
+    expect((await registry.terminate('c1', 'ops', { ackMs: 200, closeMs: 30 })).outcome).toBe('in_progress');
+    expect(send).toHaveBeenCalledTimes(1);
+  });
+
+  it('lets the operator ask again once the fence has lapsed and the connection is still open', async () => {
+    const registry = new CommunicatorRegistry();
+    const send = owner(registry, 'c1', (frame) =>
+      registry.acknowledgeTerminate('c1', frame.request_id, { accepted: true, pid: 4242, reason: null, instance_id: 'inst-4242' }),
+    );
+    const first = await registry.terminate('c1', 'ops', { ackMs: 200, closeMs: 20, fenceMs: 40 });
+    expect(first.outcome).toBe('acknowledged');
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    const again = await registry.terminate('c1', 'ops', { ackMs: 200, closeMs: 20, fenceMs: 40 });
+    expect(again.outcome).toBe('acknowledged');
+    expect(send).toHaveBeenCalledTimes(2);
+  });
 });

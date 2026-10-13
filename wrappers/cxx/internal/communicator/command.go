@@ -110,11 +110,14 @@ func mcp(ctx context.Context, engine string, in io.Reader, out io.Writer) error 
 	}
 	client := &http.Client{Transport: Wrap(direct), Timeout: 120 * time.Second}
 	var writes sync.Mutex
+	// Relay replies byte-exact on one line: decoding into any would round
+	// integer IDs beyond float64 precision that sameMCPID compares exactly.
 	write := func(raw []byte) {
-		var value any
-		if json.Unmarshal(raw, &value) == nil {
+		var line bytes.Buffer
+		if json.Compact(&line, raw) == nil {
+			line.WriteByte('\n')
 			writes.Lock()
-			json.NewEncoder(out).Encode(value)
+			out.Write(line.Bytes())
 			writes.Unlock()
 		}
 	}
@@ -159,23 +162,30 @@ func mcp(ctx context.Context, engine string, in io.Reader, out io.Writer) error 
 		work.Add(1)
 		go func() { defer work.Done(); write(raw) }()
 	}
+	// Cancelled requests fail at once, so writable unknown-outcome replies
+	// land well within the grace; a stalled stdout cannot hold the process
+	// past it. At EOF every reply is awaited unless a signal arrives first.
+	drain := func(err error) error {
+		drained := make(chan struct{})
+		go func() { work.Wait(); close(drained) }()
+		select {
+		case <-drained:
+			return err
+		case <-ctx.Done():
+		}
+		select {
+		case <-drained:
+		case <-time.After(mcpShutdownGrace):
+		}
+		return err
+	}
 	for {
 		var raw []byte
 		select {
 		case <-ctx.Done():
-			// Cancelled requests fail at once, so writable unknown-outcome
-			// replies land well within the grace; a stalled stdout cannot
-			// hold the process past it.
-			drained := make(chan struct{})
-			go func() { work.Wait(); close(drained) }()
-			select {
-			case <-drained:
-			case <-time.After(mcpShutdownGrace):
-			}
-			return nil
+			return drain(nil)
 		case err := <-scanErr:
-			work.Wait()
-			return err
+			return drain(err)
 		case raw = <-lines:
 		}
 		raw = bytes.TrimSpace(raw)
