@@ -376,6 +376,10 @@ func newProfRig(t *testing.T, comm bool) *profRig {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { os.RemoveAll(runtime) })
+	// socketPath derives the owner socket from the process environment; keep that
+	// pointing at this rig for the test and restore it afterwards, so a later call
+	// cannot recreate the directory after cleanup.
+	t.Setenv("XDG_RUNTIME_DIR", runtime)
 	pub, priv, _ := ed25519.GenerateKey(cryptorand.Reader)
 	der, _ := x509.MarshalPKIXPublicKey(pub)
 	key := base64.StdEncoding.EncodeToString(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: der}))
@@ -426,30 +430,57 @@ func newProfRig(t *testing.T, comm bool) *profRig {
 	return rig
 }
 
-func (p *profRig) stopOwner() {
-	pid := p.ownerPID()
-	if pid <= 0 {
-		return
-	}
-	tasks, _ := os.ReadDir(fmt.Sprintf("/proc/%d/task", pid))
-	for _, task := range tasks {
-		raw, _ := os.ReadFile(fmt.Sprintf("/proc/%d/task/%s/children", pid, task.Name()))
-		for _, field := range strings.Fields(string(raw)) {
-			if child, err := strconv.Atoi(field); err == nil {
-				_ = syscall.Kill(child, syscall.SIGKILL)
+// ownersOf lists the processes started with this rig's private runtime root. The
+// root is unique per rig, so matching on it identifies exactly the rig's own
+// owner and workers even when the owner is too busy to answer a status request.
+func (p *profRig) ownersOf() []int {
+	var pids []int
+	entries, _ := os.ReadDir("/proc")
+	want := "XDG_RUNTIME_DIR=" + p.runtime
+	for _, entry := range entries {
+		pid, err := strconv.Atoi(entry.Name())
+		if err != nil {
+			continue
+		}
+		env, err := os.ReadFile(fmt.Sprintf("/proc/%d/environ", pid))
+		if err != nil {
+			continue
+		}
+		for _, kv := range bytes.Split(env, []byte{0}) {
+			if string(kv) == want {
+				pids = append(pids, pid)
+				break
 			}
 		}
 	}
-	_ = syscall.Kill(pid, syscall.SIGTERM)
+	return pids
+}
+
+func (p *profRig) stopOwner() {
 	deadline := time.Now().Add(3 * time.Second)
-	for time.Now().Before(deadline) {
-		if _, err := os.Stat(fmt.Sprintf("/proc/%d", pid)); os.IsNotExist(err) {
-			return
+	for {
+		pids := p.ownersOf()
+		if len(pids) == 0 {
+			break
 		}
-		time.Sleep(10 * time.Millisecond)
+		signal := syscall.SIGTERM
+		if time.Now().After(deadline) {
+			signal = syscall.SIGKILL
+		}
+		for _, pid := range pids {
+			_ = syscall.Kill(pid, signal)
+		}
+		time.Sleep(20 * time.Millisecond)
 	}
-	_ = syscall.Kill(pid, syscall.SIGKILL)
-	time.Sleep(50 * time.Millisecond)
+	// An owner that is shutting down can still be creating its socket directory.
+	for i := 0; i < 5; i++ {
+		if os.RemoveAll(p.runtime) == nil {
+			if _, err := os.Stat(p.runtime); os.IsNotExist(err) {
+				return
+			}
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
 }
 
 type profRun struct {
@@ -474,7 +505,6 @@ func (p *profRig) ownerPID() int {
 	if err != nil {
 		return 0
 	}
-	_ = os.Setenv("XDG_RUNTIME_DIR", p.runtime)
 	res, err := unixClient(socket, 500*time.Millisecond).Get("http://communicator.local/_comm/status")
 	if err != nil {
 		return 0
@@ -631,7 +661,6 @@ func ms(d time.Duration) float64 { return float64(d) / float64(time.Millisecond)
 // sessions sharing one HOME (biest: 24 leases over a handful of scopes).
 func (p *profRig) standingLeases(n int) func() {
 	p.t.Helper()
-	_ = os.Setenv("XDG_RUNTIME_DIR", p.runtime)
 	socket, err := socketPath(p.srv.URL)
 	if err != nil {
 		p.t.Fatal(err)
