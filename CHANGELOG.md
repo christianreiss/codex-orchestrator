@@ -1,5 +1,7 @@
 # 2026-10-13
 
+- Communicator daemon reattachment waits until the previous stream's remote disconnect has been sent, so delayed cleanup cannot disconnect a replacement daemon. Other engines keep using the shared control connection during this handoff.
+
 - cxx 0.9.74 keeps large communicator transfers and signed HTTPS fallback bound to the same host as control traffic: managed routes only, no cookies or forwarding headers, and same-host MCP credentials. Reconnect adopts rotated signed host keys and TLS configuration for independent transfers while native sessions stay running. Unsafe local socket setup now fails closed instead of bypassing the communicator.
 
 - cxx 0.9.74 preserves unknown call outcomes through the managed MCP adapter, including the original request ID, HTTP status and bounded machine code. Lost or invalid replies instruct callers to verify the result before retrying with the original work identifiers; malformed replies produce a correlated error instead of leaving the client waiting.

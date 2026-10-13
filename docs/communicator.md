@@ -64,7 +64,11 @@ transports, forwarding headers, cookies and replacement host credentials.
 Heartbeats report local client count and last successful synchronization every
 15 seconds. Server content invalidations contain only an event ID, never admin
 payloads or credentials. A multiplexed `daemon` channel reuses the existing
-host-daemon protocol and durable work semantics. Downloads, large attachments and long-lived watchdog streams
+host-daemon protocol and durable work semantics. A stalled daemon stream detaches
+independently; admission of its replacement waits until the previous remote
+disconnect has been sent. Delayed cleanup cannot detach a replacement, and other
+engines continue using the control connection during the handoff.
+Downloads, large attachments and long-lived watchdog streams
 use separate HTTPS transfers owned by the communicator. Cron checks and sync
 status use the shared control connection. Signed wrapper config
 refresh also remains available over HTTPS for capability rollback.

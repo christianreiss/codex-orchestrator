@@ -50,21 +50,13 @@ func (s *server) daemon(w http.ResponseWriter, r *http.Request) {
 		defer ws.Close()
 		channel := make(chan json.RawMessage, 64)
 		c.mu.Lock()
-		if c.daemon != nil {
+		if c.daemon != nil || c.daemonClosing != nil {
 			c.mu.Unlock()
 			return
 		}
 		c.daemon = channel
 		c.mu.Unlock()
-		defer func() {
-			c.mu.Lock()
-			owned := c.daemon == channel
-			if owned {
-				c.daemon = nil
-			}
-			c.mu.Unlock()
-			_ = c.send(map[string]any{"type": "daemon_disconnect"})
-		}()
+		defer c.finishDaemon(channel)
 		ctx, cancel := context.WithCancel(r.Context())
 		defer cancel()
 		go func() {
