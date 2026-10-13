@@ -575,6 +575,17 @@ func stateID(job syncJob) string {
 	return id
 }
 
+// wake runs the scheduler now without forcing any scope. A newly registered
+// scope starts with zero deadlines and is due on its own; unrelated scopes keep
+// their schedules (a fresh per-session Grok runtime scope must not resync the
+// warm Codex/Claude scopes in front of a launch).
+func (s *server) wake() {
+	select {
+	case s.authDirty <- struct{}{}:
+	default:
+	}
+}
+
 func (s *server) invalidateAuth(engine string, account int64) {
 	s.mu.Lock()
 	for _, state := range s.scopes {
