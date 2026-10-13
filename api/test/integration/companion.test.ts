@@ -742,7 +742,9 @@ describe.skipIf(!handle)('Android companion with real MySQL', { timeout: 120_000
       onInit: (ws) => ws.on('message', (raw: Buffer) => frames.push(JSON.parse(raw.toString()))),
     });
     try {
-      await vi.waitFor(() => expect(frames.some((f) => f.type === 'changed')).toBe(true));
+      // The initial subscription performs real database work too; use the same
+      // bounded delivery budget as the subsequent activity notification.
+      await vi.waitFor(() => expect(frames.some((f) => f.type === 'changed')).toBe(true), { timeout: 10_000 });
       frames.length = 0;
       const publish = vi.spyOn(wsPublisher, 'publish');
       try {
