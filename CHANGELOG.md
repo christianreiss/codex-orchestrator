@@ -1,5 +1,7 @@
 # 2026-10-13
 
+- cxx 0.9.74 preserves unknown call outcomes through the managed MCP adapter, including the original request ID, HTTP status and bounded machine code. Lost or invalid replies instruct callers to verify the result before retrying with the original work identifiers; malformed replies produce a correlated error instead of leaving the client waiting.
+
 - Communicator forwarding now includes provider-account lease acquisition, heartbeat and release, preserving native launches for all three engines over the shared connection.
 
 - cxx 0.9.73 adds opt-in communicator sync ownership: finite engine workers, concurrent content coalescing, native credential watches, post-commit auth invalidations and per-scope status. Existing Codex/Claude auth arbitration and Grok server-owned refresh remain intact. Running sessions no longer pause managed content sync; signed rollback hands auth polling back without restarting native sessions. Unknown uploads retain digest-only recovery state and require readback before replay.

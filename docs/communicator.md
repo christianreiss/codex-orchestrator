@@ -74,6 +74,13 @@ work outcomes keep their existing retry contracts. A failed connection alone
 never enables transport downgrade: HTTPS fallback requires a verified signed
 config disabling the capability. Native clients survive connection/owner loss.
 
+From cxx 0.9.74, the MCP stdio adapter retains this distinction in JSON-RPC
+error data (`code`, `http_status`, `outcome_unknown`) and keeps the original request
+ID. Unknown outcomes instruct the caller to verify the result before retrying with
+the original idempotency or claim identifiers. Incomplete or miscorrelated replies
+also return a correlated unknown-outcome error. Error conversion never forwards
+upstream bodies or credentials, and the adapter never replays a failed call.
+
 `GET /admin/communicators` is admin-session gated and returns the live connections
 for the API process. This deployment uses one API instance; its connection view
 and invalidation bus are process-local. Restart recovery re-fetches authoritative

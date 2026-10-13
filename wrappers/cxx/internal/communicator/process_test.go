@@ -52,6 +52,7 @@ func TestProcessesShareConnectionAndRecover(t *testing.T) {
 	var connected atomic.Int32
 	var total atomic.Int32
 	var peak atomic.Int32
+	var ambiguousWrites atomic.Int32
 	var activeMu sync.Mutex
 	var active *websocket.Conn
 	upstream := httptest.NewServer(websocket.Handler(func(ws *websocket.Conn) {
@@ -79,11 +80,18 @@ func TestProcessesShareConnectionAndRecover(t *testing.T) {
 				websocket.JSON.Send(ws, frame{Type: "heartbeat"})
 			case "request":
 				var req struct {
-					ID json.RawMessage `json:"id"`
+					ID     json.RawMessage `json:"id"`
+					Method string          `json:"method"`
 				}
 				json.Unmarshal(f.Body, &req)
 				body, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": req.ID, "result": map[string]any{"engine": f.Headers["x-engine"]}})
-				if err := websocket.JSON.Send(ws, frame{ID: f.ID, Status: 200, Body: body, Headers: map[string]string{"content-type": "application/json"}}); err != nil {
+				status := 200
+				if req.Method == "tools/call" {
+					ambiguousWrites.Add(1)
+					status = 409
+					body = []byte(`{"error":{"code":"communicator_outcome_unknown","message":"private upstream detail"}}`)
+				}
+				if err := websocket.JSON.Send(ws, frame{ID: f.ID, Status: status, Body: body, Headers: map[string]string{"content-type": "application/json"}}); err != nil {
 					return
 				}
 			}
@@ -216,6 +224,32 @@ func TestProcessesShareConnectionAndRecover(t *testing.T) {
 	}
 	for i, c := range children {
 		request(c, 30+i)
+	}
+	// Each native engine must see that a potentially committed tool call cannot
+	// safely be repeated, and the adapter must never retry it itself.
+	for i, c := range children {
+		id := 100 + i
+		fmt.Fprintf(c.in, "{\"jsonrpc\":\"2.0\",\"id\":%d,\"method\":\"tools/call\"}\n", id)
+		line, err := c.out.ReadString('\n')
+		if err != nil {
+			t.Fatal(err)
+		}
+		var reply struct {
+			ID    int
+			Error struct {
+				Message string
+				Data    struct {
+					Code    string
+					Unknown bool `json:"outcome_unknown"`
+				}
+			}
+		}
+		if json.Unmarshal([]byte(line), &reply) != nil || reply.ID != id || reply.Error.Data.Code != "communicator_outcome_unknown" || !reply.Error.Data.Unknown || !strings.Contains(reply.Error.Message, "before retrying") || strings.Contains(line, "private upstream") {
+			t.Errorf("%s lost unknown outcome: %s", c.engine, line)
+		}
+	}
+	if ambiguousWrites.Load() != int32(len(children)) {
+		t.Fatalf("ambiguous calls replayed: %d", ambiguousWrites.Load())
 	}
 	t.Logf("six clients, three engines: initial connections=1, after reconnect/crash=%d", total.Load())
 }
