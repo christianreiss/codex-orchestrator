@@ -2,7 +2,7 @@
 
 - cxx 0.9.75 recognises the bakery's canonical wrapper binary URL (`/wrapper/v2/bin/<artifact>/<os>-<arch>/v<version>/<name>`) as a wrapper download: it streams over direct HTTPS instead of control frames, and stays reachable when no communicator owner can start, so `cxx update` can install a fix. The unused `/wrapper/v2/meta` no longer bypasses a broken owner.
 
-- cxx 0.9.75 no longer makes every new session wait behind a forced resync of all engines: a communicator lease now schedules an initial pass only for a scope it newly registers. Previously each launch (and each session auth watcher) reset auth and content deadlines for every scope, so on a busy host the launch's own startup bootstrap queued behind several 4–8 s background workers (measured 8.7–16 s `clx sync` on a host with 24 sessions).
+- cxx 0.9.75 no longer makes every new session wait behind a forced resync of all engines: a communicator lease now schedules an initial pass only for a scope it newly registers, and never resyncs other scopes (a fresh per-session Grok runtime scope no longer resyncs warm Codex/Claude scopes). Previously each launch (and each session auth watcher) reset auth and content deadlines for every scope, so on a busy host the launch's own startup bootstrap queued behind several 4–8 s background workers (measured 8.7–16 s `clx sync` on a host with 24 sessions).
 
 - cxx 0.9.75 also ends a host-daemon stream whose relay is blocked on a stalled local reader when the shared control connection drops or the server closes the daemon (not only on queue overflow), so the daemon notices and reconnects instead of hanging on a dead stream.
 

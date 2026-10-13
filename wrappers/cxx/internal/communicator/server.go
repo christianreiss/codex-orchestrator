@@ -337,7 +337,7 @@ func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(200)
 		w.(http.Flusher).Flush()
 		if fresh {
-			s.invalidate()
+			s.wake()
 		}
 		lastStates := map[string]string{}
 		ticker := time.NewTicker(time.Second)
