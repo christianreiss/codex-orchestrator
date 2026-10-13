@@ -39,6 +39,29 @@ type endpoint struct {
 	base, path, socket string
 	once               sync.Once
 	leaseCancel        context.CancelFunc
+	setupErr           error
+}
+
+// sessionRuntimeRoot is the logind runtime directory that XDG_RUNTIME_DIR
+// normally names. Tests replace it.
+var sessionRuntimeRoot = func() string { return fmt.Sprintf("/run/user/%d", os.Getuid()) }
+
+// runtimeRoot must resolve identically for every process of one user. Some
+// launchers (Codex MCP servers, cron, non-login shells) drop XDG_RUNTIME_DIR;
+// falling straight to /tmp there would elect a second owner and split the
+// sync fences, so the logind directory is preferred whenever it exists.
+func runtimeRoot() string {
+	if root := os.Getenv("XDG_RUNTIME_DIR"); root != "" {
+		return root
+	}
+	if root := sessionRuntimeRoot(); root != "" {
+		if info, err := os.Lstat(root); err == nil && info.IsDir() && info.Mode().Perm() == 0700 {
+			if stat, ok := info.Sys().(*syscall.Stat_t); ok && int(stat.Uid) == os.Getuid() {
+				return root
+			}
+		}
+	}
+	return filepath.Join(os.TempDir(), fmt.Sprintf("cxx-%d", os.Getuid()))
 }
 
 // sun_path holds 108 bytes on Linux and 104 on the BSDs, terminator included.
@@ -53,11 +76,7 @@ var executable = os.Executable
 // private directory under /tmp. Every process derives the same answer from the
 // same environment, so clients and the owner still meet at one path.
 func socketPath(base string) (string, error) {
-	root := os.Getenv("XDG_RUNTIME_DIR")
-	if root == "" {
-		root = filepath.Join(os.TempDir(), fmt.Sprintf("cxx-%d", os.Getuid()))
-	}
-	path, err := socketPathUnder(root, base)
+	path, err := socketPathUnder(runtimeRoot(), base)
 	if err != nil {
 		// An unsafe or unusable root is a refusal, never a reason to look elsewhere.
 		return "", err
@@ -121,11 +140,10 @@ func Configure(ctx context.Context) {
 			continue
 		}
 		socket, err := socketPath(cfg.Orchestrator.BaseURL)
-		if err != nil {
-			continue
-		}
 		base := strings.TrimRight(cfg.Orchestrator.BaseURL, "/")
-		registry.LoadOrStore(base, &endpoint{base: base, path: path, socket: socket, syncProtocol: cfg.Orchestrator.CommunicatorSyncProtocol})
+		// A signed enabled capability remains registered even if local socket
+		// setup fails. Otherwise Wrap would silently send the request directly.
+		registry.LoadOrStore(base, &endpoint{base: base, path: path, socket: socket, setupErr: err, syncProtocol: cfg.Orchestrator.CommunicatorSyncProtocol})
 	}
 }
 
@@ -160,6 +178,9 @@ func (t *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 		return t.Direct.RoundTrip(req)
 	}
 	if err := ep.ensure(req.Context()); err != nil {
+		if selfHealRequest(req, ep.base) {
+			return t.Direct.RoundTrip(req)
+		}
 		return nil, err
 	}
 	ep.once.Do(func() { go ep.lease(processContext) })
@@ -170,10 +191,31 @@ func (t *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 	local.URL.Path = strings.TrimPrefix(req.URL.Path, strings.TrimRight(original.Path, "/"))
 	local.Host = "communicator.local"
 	res, err := unixClient(ep.socket, 0).Do(local)
+	if err != nil && selfHealRequest(req, ep.base) {
+		return t.Direct.RoundTrip(req)
+	}
 	if err != nil && req.Method != "GET" && req.Method != "HEAD" {
 		return &http.Response{StatusCode: 409, Header: http.Header{"Content-Type": []string{"application/json"}}, Body: responseBody([]byte(`{"error":{"code":"communicator_outcome_unknown","message":"Local communicator disconnected; request outcome unknown"}}`)), Request: req}, nil
 	}
 	return res, err
+}
+
+// selfHealRequest names the reads that repair a broken communicator: the
+// signed config (verified by signature, and the only way to learn the
+// capability was rolled back) and wrapper metadata/downloads (verified by
+// digest). They may use the original transport when no local owner can be
+// started or reached; every other managed request stays fail-closed.
+func selfHealRequest(req *http.Request, base string) bool {
+	if req.Method != "GET" && req.Method != "HEAD" {
+		return false
+	}
+	original, err := url.Parse(base)
+	if err != nil {
+		return false
+	}
+	path := strings.TrimPrefix(req.URL.Path, strings.TrimRight(original.Path, "/"))
+	return path == "/wrapper/v2/config" || path == "/wrapper/v2/meta" ||
+		strings.HasPrefix(path, "/wrapper/v2/download") || strings.HasPrefix(path, "/wrapper/download")
 }
 
 func unixClient(socket string, timeout time.Duration) *http.Client {
@@ -185,6 +227,12 @@ func unixClient(socket string, timeout time.Duration) *http.Client {
 }
 
 func (ep *endpoint) ensure(ctx context.Context) error {
+	ep.mu.Lock()
+	setupErr := ep.setupErr
+	ep.mu.Unlock()
+	if setupErr != nil {
+		return setupErr
+	}
 	conn, err := (&net.Dialer{}).DialContext(ctx, "unix", ep.socket)
 	if err == nil {
 		conn.Close()

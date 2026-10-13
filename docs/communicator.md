@@ -19,11 +19,14 @@ forwarded/coalesced requests, last sync and connection error. `doctor` returns
 nonzero when an enabled communicator is absent. The host's Operations tab shows
 live server connections and their users, versions and sync timestamps.
 
-The Unix socket lives in a mode-0700 directory below `XDG_RUNTIME_DIR` (or a
-private `/tmp/cxx-<uid>` directory); a runtime root deep enough to exceed the
-platform's socket-path limit (kept under 100 bytes) falls back to `/tmp/cxx-<uid>`,
-while an unsafe root is refused. The owner's startup errors go to `serve.log` in that
-directory and are included in the error a managed command prints. Socket mode is 0600. A filesystem lock elects
+The Unix socket lives in a mode-0700 directory below `XDG_RUNTIME_DIR`. When a
+launcher drops that variable (Codex MCP servers, cron), the user's logind
+`/run/user/<uid>` directory is used if present, otherwise a private
+`/tmp/cxx-<uid>` directory, so every process elects the same owner. A runtime root
+deep enough to exceed the platform's socket-path limit (kept under 100 bytes) falls
+back to `/tmp/cxx-<uid>`, while an unsafe root is refused. The owner's startup errors
+go to `serve.log` in that directory and are included in the error a managed command
+prints. Socket mode is 0600. A filesystem lock elects
 one owner; only that owner removes a stale socket. No TCP listener is exposed.
 Each process holds a local streaming lease; a surviving client restarts a crashed
 owner. The last lease starts a five-minute idle period. Status checks do not
@@ -61,17 +64,41 @@ use the same transport and retain their engine/session identities. The dispatche
 runs requests through the existing Fastify routes and hooks with the verified
 remote address. It rejects admin/provider routes, path traversal, recursive
 transports, forwarding headers, cookies and replacement host credentials.
+Path checks use the pathname the router dispatches, so a trailing slash cannot
+reach a denied stream or skip MCP credential pinning. A malformed or disallowed
+request frame gets its own `400 communicator_invalid_request` reply; only an
+authorization failure closes the shared connection.
 
 Heartbeats report local client count and last successful synchronization every
 15 seconds. Server content invalidations contain only an event ID, never admin
 payloads or credentials. A multiplexed `daemon` channel reuses the existing
-host-daemon protocol and durable work semantics. Downloads, large attachments and long-lived watchdog streams
+host-daemon protocol and durable work semantics. A stalled daemon stream detaches
+independently; admission of its replacement waits until the previous remote
+disconnect has been sent. Delayed cleanup cannot detach a replacement, and other
+engines continue using the control connection during the handoff.
+Downloads, large attachments and long-lived watchdog streams
 use separate HTTPS transfers owned by the communicator. Cron checks and sync
 status use the shared control connection. Signed wrapper config
 refresh also remains available over HTTPS for capability rollback.
 
-A request frame that names itself but is rejected (path outside the allowlist: 403
-`communicator_path_forbidden`; body over the frame limit: 413
+From cxx 0.9.74, independent HTTPS transfers and signed fallback enforce the
+same managed route inventory and host-key binding as control frames. Watchdog
+streams remain supported. Cookies, forwarding headers and caller replacement
+host keys are removed; engine and session credentials are retained. Large MCP
+uploads carry `X-Cxx-Communicator: 1`; the MCP endpoint checks the bearer against
+the accompanying host key and rejects foreign hosts or operator credentials.
+Reconnect also replaces the owner's transfer configuration with the verified
+signed head, so rotated host keys and TLS policy apply to HTTPS transfers.
+An enabled signed capability also fails closed when local socket setup is
+unsafe or unavailable; a runtime-directory error never enables direct HTTPS.
+The only exception is the self-repair path: when no local owner can be started
+or reached, `GET` of the signed `/wrapper/v2/config` (signature-verified) and of
+wrapper metadata/downloads (digest-verified) use direct HTTPS, so a broken owner
+can still learn a capability rollback and install a fixed release. HTTPS
+transfers never wait for the control connection to reconnect.
+
+A request frame that names itself but is rejected (path outside the allowlist: 400
+`communicator_path_forbidden`, never 403, which wrappers read as a credential verdict; body over the frame limit: 413
 `communicator_body_too_large`; malformed fields: 400 `communicator_invalid_request`) or
 whose reply exceeds 11 MiB (502 `communicator_response_too_large`; the wrapper reads
 frames up to 16 MiB of base64) gets a standard error frame and the connection stays up.
@@ -89,6 +116,13 @@ existing retry loops do not repeat them. Durable message claim IDs and explicit
 work outcomes keep their existing retry contracts. A failed connection alone
 never enables transport downgrade: HTTPS fallback requires a verified signed
 config disabling the capability. Native clients survive connection/owner loss.
+
+From cxx 0.9.74, the MCP stdio adapter retains this distinction in JSON-RPC
+error data (`code`, `http_status`, `outcome_unknown`) and keeps the original request
+ID. Unknown outcomes instruct the caller to verify the result before retrying with
+the original idempotency or claim identifiers. Incomplete or miscorrelated replies
+also return a correlated unknown-outcome error. Error conversion never forwards
+upstream bodies or credentials, and the adapter never replays a failed call.
 
 `GET /admin/communicators` is admin-session gated and returns the live connections
 for the API process. This deployment uses one API instance; its connection view

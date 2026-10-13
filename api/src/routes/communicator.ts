@@ -15,9 +15,15 @@ import type { RouteContext } from './index.js';
 
 // HTTP envelopes retain the existing route authorization, validation, audit and
 // response contracts. Neither arbitrary URLs nor admin/provider routes are tunnelled.
+// The API router ignores trailing slashes, so every check (and the MCP
+// credential pinning) must see the pathname the router will dispatch.
+export function communicatorPathname(path: string): string {
+  return path.split('?')[0]!.replace(/(.)\/+$/, '$1');
+}
+
 export function communicatorPathAllowed(path: string): boolean {
   if (!path.startsWith('/') || path.startsWith('//') || /[%\\#\r\n]/.test(path.split('?')[0]!)) return false;
-  const pathname = path.split('?')[0]!;
+  const pathname = communicatorPathname(path);
   if (pathname.split('/').some((p) => p === '.' || p === '..')) return false;
   if (
     pathname.startsWith('/host/communicator') ||
@@ -208,6 +214,10 @@ export async function registerCommunicatorRoutes(app: FastifyInstance, ctx: Rout
           .catch(() => socket.close(1008, 'Authorization changed'));
       }, 15000);
       socket.on('message', (raw: { toString(): string }) => {
+        // Set once a greeted request frame names a valid id: its own malformed
+        // contents then fail only that request, never the shared connection.
+        let rejectable: string | undefined;
+        let rejectStatus = 400;
         void (async () => {
           const parsed = JSON.parse(raw.toString());
           if (parsed.type === 'hello') {
@@ -303,13 +313,15 @@ export async function registerCommunicatorRoutes(app: FastifyInstance, ctx: Rout
           const checked = requestSchema.safeParse(parsed);
           if (!checked.success) {
             // A request that still names itself is answered, not punished: closing
-            // would fail every other session sharing this connection.
+            // would fail every other session sharing this connection. A forbidden
+            // path is a 400, not a 403: wrappers read 401/403 as a credential or
+            // policy verdict and must never see one invented by the transport.
             const id = z.string().uuid().safeParse(parsed?.id);
             if (!id.success) throw new Error('Invalid communicator frame');
             const issue = checked.error.issues[0];
             const field = issue?.path[0];
             if (field === 'path')
-              send(errorFrame(id.data, 403, 'communicator_path_forbidden', 'Path is not available through the communicator'));
+              send(errorFrame(id.data, 400, 'communicator_path_forbidden', 'Path is not available through the communicator'));
             else if (field === 'body' && issue?.code === 'too_big')
               send(errorFrame(id.data, 413, 'communicator_body_too_large', 'Request body exceeds the communicator frame limit'));
             else send(errorFrame(id.data, 400, 'communicator_invalid_request', 'Malformed communicator request'));
@@ -322,19 +334,22 @@ export async function registerCommunicatorRoutes(app: FastifyInstance, ctx: Rout
           }
           inFlight++;
           try {
+            rejectable = undefined;
             await authorize(req);
+            rejectable = frame.id;
+            rejectStatus = 500;
             const headers: Record<string, string> = {};
             for (const [name, value] of Object.entries(frame.headers)) {
               if (
                 allowedHeaders.has(name.toLowerCase()) &&
-                (name.toLowerCase() !== 'authorization' || frame.path.split('?')[0] === '/mcp')
+                (name.toLowerCase() !== 'authorization' || communicatorPathname(frame.path) === '/mcp')
               )
                 headers[name.toLowerCase()] = value;
             }
             // Host key and remote IP are bound to the authenticated connection.
             // Never accept forwarding headers, cookies or another host key in a frame.
             headers['x-api-key'] = String(req.headers['x-api-key'] ?? '');
-            if (frame.path.split('?')[0] === '/mcp') {
+            if (communicatorPathname(frame.path) === '/mcp') {
               const bearer = parseBearer(headers.authorization);
               if (bearer !== headers['x-api-key']) {
                 const tokenHost = bearer ? await mcpSessions.verify(bearer) : null;
@@ -364,12 +379,12 @@ export async function registerCommunicatorRoutes(app: FastifyInstance, ctx: Rout
             });
             if (
               response.statusCode < 400 &&
-              ['/auth', '/sync/bootstrap'].includes(frame.path.split('?')[0]!)
+              ['/auth', '/sync/bootstrap'].includes(communicatorPathname(frame.path))
             ) {
               try {
                 let result = JSON.parse(response.rawPayload.toString());
                 result = result.data ?? result;
-                if (frame.path.split('?')[0] === '/sync/bootstrap') result = result.auth;
+                if (communicatorPathname(frame.path) === '/sync/bootstrap') result = result.auth;
                 if (
                   result?.verification_state === 'verified' &&
                   typeof result.account_id === 'number' &&
@@ -406,7 +421,20 @@ export async function registerCommunicatorRoutes(app: FastifyInstance, ctx: Rout
           } finally {
             inFlight--;
           }
-        })().catch(() => socket.close(1008, 'Invalid or unauthorized communicator request'));
+        })().catch(() => {
+          if (rejectable && !closed) {
+            send({
+              id: rejectable,
+              status: rejectStatus,
+              headers: { 'content-type': 'application/json' },
+              body: Buffer.from(
+                JSON.stringify({ code: 'communicator_invalid_request', message: 'Request frame rejected' }),
+              ).toString('base64'),
+            });
+            return;
+          }
+          socket.close(1008, 'Invalid or unauthorized communicator request');
+        });
       });
       socket.on('close', () => {
         closed = true;

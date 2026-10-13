@@ -315,7 +315,8 @@ func (s *server) executeSync(ctx context.Context, in SyncRequest) (out SyncResul
 	if err != nil {
 		return syncFailure(err)
 	}
-	if strings.TrimRight(cfg.Orchestrator.BaseURL, "/") != strings.TrimRight(s.cfg.Orchestrator.BaseURL, "/") || cfg.Host.ID != s.cfg.Host.ID {
+	seed := s.configSnapshot()
+	if strings.TrimRight(cfg.Orchestrator.BaseURL, "/") != strings.TrimRight(seed.Orchestrator.BaseURL, "/") || cfg.Host.ID != seed.Host.ID {
 		return syncFailure(errors.New("sync scope belongs to another host or server"))
 	}
 	// A signed capability rollback is applied only between finite operations.

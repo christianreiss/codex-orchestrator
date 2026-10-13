@@ -1098,6 +1098,11 @@ CoCo traffic through a per-user Unix socket and one multiplexed server WebSocket
 Provider traffic, session identities and account/refresh ownership retain their existing
 contracts. See [communicator protocol, lifecycle and rollout](communicator.md).
 
+From cxx 0.9.74, managed MCP errors preserve the original request ID and bounded
+`code`, `http_status` and `outcome_unknown` data. Unknown or invalid replies require
+result verification before retrying with the original work identifiers. The stdio
+adapter never replays a call.
+
 
 ### Communicator sync ownership
 
@@ -1111,3 +1116,8 @@ invalidations converge through the existing validated writers. Local materializa
 is reported separately from native adoption. Signed rollback drains auth work and
 hands polling back to the existing wrapper without restarting the native CLI.
 See [Communicator ownership and rollout](communicator.md#central-sync-ownership-cxx-0973).
+
+cxx 0.9.74 applies communicator route and host isolation to HTTPS transfers and
+signed fallback too, including large MCP uploads. Reconnect updates transfer
+credentials and TLS policy from the verified signed configuration without
+restarting native clients.

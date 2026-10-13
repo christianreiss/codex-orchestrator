@@ -137,6 +137,48 @@ describe('POST /mcp credential resolution', () => {
     vi.restoreAllMocks();
   });
 
+  it.each(['codex', 'claude', 'grok'])(
+    'binds communicator HTTPS MCP credentials to the same host for %s',
+    async (engine) => {
+      const foreign = { ...makeHost('foreign.example'), id: 8 };
+      const h = await buildHarness({ sessions: { [SESSION_TOKEN]: foreign } });
+      const r = await post(h.app, {
+        authorization: `Bearer ${SESSION_TOKEN}`,
+        'x-api-key': HOST_KEY,
+        'x-cxx-communicator': '1',
+        'x-engine': engine,
+      });
+      expect(r.statusCode).toBe(401);
+      expect(JSON.parse(r.payload).code).toBe('communicator_mcp_host_mismatch');
+      expect(h.contexts).toEqual([]);
+      await h.app.close();
+    },
+  );
+
+  it('preserves same-host MCP credentials through communicator HTTPS transfers', async () => {
+    const h = await buildHarness({ sessions: { [SESSION_TOKEN]: makeHost('own.example') } });
+    const r = await post(h.app, {
+      authorization: `Bearer ${SESSION_TOKEN}`,
+      'x-api-key': HOST_KEY,
+      'x-cxx-communicator': '1',
+    });
+    expect(r.statusCode).toBe(200);
+    expect(h.contexts[0]?.host.fqdn).toBe('own.example');
+    await h.app.close();
+  });
+
+  it('denies operator credentials on the communicator host transport', async () => {
+    const h = await buildHarness({ operatorToken: OPERATOR_TOKEN });
+    const r = await post(h.app, {
+      authorization: `Bearer ${OPERATOR_TOKEN}`,
+      'x-api-key': HOST_KEY,
+      'x-cxx-communicator': '1',
+    });
+    expect(r.statusCode).toBe(401);
+    expect(h.contexts).toEqual([]);
+    await h.app.close();
+  });
+
   it('takes host identity from X-Api-Key alone when the bearer is the operator token', async () => {
     const h = await buildHarness({ operatorToken: OPERATOR_TOKEN });
     const r = await post(h.app, { authorization: `Bearer ${OPERATOR_TOKEN}`, 'x-api-key': HOST_KEY });

@@ -4,7 +4,21 @@
 
 - Communicator startup (cxx): the local socket path is kept within the 108-byte `sun_path` limit by falling back to a private `/tmp/cxx-<uid>` directory when a long `XDG_RUNTIME_DIR`/`TMPDIR` would make the bind fail, and the owner's startup error is written to `serve.log` beside the socket and shown by the failing command. A communicator that dies while starting is reported at once instead of after ten seconds as "failed to start".
 
-- Communicator hardening (API): a request frame the server rejects (path outside the allowlist, oversized body, malformed fields) or whose reply would exceed the wrapper's 16 MiB frame cap is now answered with a typed error frame (403/413/400/502) instead of closing the shared WebSocket, so one bad call no longer drops every multiplexed session or turns its in-flight writes into "outcome unknown". Closing stays reserved for protocol violations and revoked authorization. Host events (`host.*`) now invalidate only the connection of the host they name, so one host's admin edit no longer makes every host resynchronize.
+- Communicator hardening (API): a request frame the server rejects (path outside the allowlist, oversized body, malformed fields) or whose reply would exceed the wrapper's 16 MiB frame cap is now answered with a typed error frame (400/413/502) instead of closing the shared WebSocket, so one bad call no longer drops every multiplexed session or turns its in-flight writes into "outcome unknown". Closing stays reserved for protocol violations and revoked authorization. Host events (`host.*`) now invalidate only the connection of the host they name, so one host's admin edit no longer makes every host resynchronize.
+
+- Communicator daemon reattachment waits until the previous stream's remote disconnect has been sent, so delayed cleanup cannot disconnect a replacement daemon. Other engines keep using the shared control connection during this handoff.
+
+- cxx 0.9.74 keeps large communicator transfers and signed HTTPS fallback bound to the same host as control traffic: managed routes only, no cookies or forwarding headers, and same-host MCP credentials. Reconnect adopts rotated signed host keys and TLS configuration for independent transfers while native sessions stay running. Unsafe local socket setup now fails closed instead of bypassing the communicator.
+
+- cxx 0.9.74 preserves unknown call outcomes through the managed MCP adapter, including the original request ID, HTTP status and bounded machine code. Lost or invalid replies instruct callers to verify the result before retrying with the original work identifiers; malformed replies produce a correlated error instead of leaving the client waiting.
+
+- cxx 0.9.74 keeps the communicator self-repairable: when no local owner can start or be reached, the signed config refresh and wrapper update downloads fall back to direct HTTPS (both are signature/digest verified), so a broken owner no longer blocks capability rollback or `cxx update`. Downloads and attachments no longer wait up to 20 seconds for a reconnecting control connection.
+
+- The communicator dispatcher applies its route deny-list and MCP credential pinning to the pathname the router dispatches, so a trailing slash can no longer reach a watchdog stream through the shared connection. A malformed or disallowed request frame now gets its own 400 reply instead of closing the connection for every engine.
+
+- cxx 0.9.74 detaches only a stalled host-daemon stream when its event buffer fills, instead of closing the shared communicator connection and turning every engine's in-flight requests into unknown outcomes.
+
+- cxx 0.9.74 keeps one communicator per user when a launcher drops `XDG_RUNTIME_DIR` (Codex MCP servers, cron, non-login shells): the socket and sync fences fall back to `/run/user/<uid>` before `/tmp`, so a second owner no longer splits connections, status and auth fences.
 
 - Communicator forwarding now includes provider-account lease acquisition, heartbeat and release, preserving native launches for all three engines over the shared connection.
 

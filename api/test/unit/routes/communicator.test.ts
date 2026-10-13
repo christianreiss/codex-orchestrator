@@ -70,6 +70,12 @@ describe('communicator transport', () => {
       '/host/%2e%2e/admin',
       '/host/daemon/connect',
       '/host/communicator/connect',
+      // The router ignores trailing slashes; the deny-list must too.
+      '/host/agent-sessions/abc/watchdog/stream/',
+      '/host/agent-sessions/abc/watchdog/stream//',
+      '/host/daemon/connect/',
+      '/host/communicator/connect/',
+      '/admin/users/',
     ])
       expect(communicatorPathAllowed(path)).toBe(false);
     for (const path of [
@@ -146,6 +152,67 @@ describe('communicator transport', () => {
       expect(JSON.parse(await reply).status).toBe(status);
     }
     ws.close();
+  });
+  it('pins MCP credentials on a trailing-slash path too', async () => {
+    await setup();
+    const ws = await open();
+    const reply = new Promise<string>((resolve) =>
+      ws.once('message', (data: unknown) => resolve(String(data))),
+    );
+    ws.send(
+      JSON.stringify({
+        id: randomUUID(),
+        type: 'request',
+        method: 'POST',
+        path: '/mcp/',
+        headers: { authorization: 'Bearer foreign-session' },
+        body: '',
+      }),
+    );
+    expect(JSON.parse(await reply).status).toBe(401);
+    ws.close();
+  });
+  it('rejects one invalid request frame without closing the shared connection', async () => {
+    await setup();
+    const ws = await open();
+    let closed = false;
+    ws.once('close', () => {
+      closed = true;
+    });
+    const next = () =>
+      new Promise<{ id: string; status: number }>((resolve) =>
+        ws.once('message', (data: unknown) => resolve(JSON.parse(String(data)))),
+      );
+    for (const frame of [
+      { method: 'GET', path: '/admin/users' },
+      { method: 'GET', path: '/host/agent-sessions/abc/watchdog/stream/' },
+      { method: 'TRACE', path: '/host/echo' },
+    ]) {
+      const id = randomUUID();
+      const reply = next();
+      ws.send(JSON.stringify({ id, type: 'request', headers: {}, body: '', ...frame }));
+      expect(await reply).toMatchObject({ id, status: 400 });
+    }
+    const id = randomUUID();
+    const reply = next();
+    ws.send(
+      JSON.stringify({ id, type: 'request', method: 'POST', path: '/host/echo', headers: {}, body: '' }),
+    );
+    expect(await reply).toMatchObject({ id, status: 200 });
+    expect(closed).toBe(false);
+    auth.allowed = false;
+    const revoked = new Promise<number>((resolve) => ws.once('close', resolve));
+    ws.send(
+      JSON.stringify({
+        id: randomUUID(),
+        type: 'request',
+        method: 'POST',
+        path: '/host/echo',
+        headers: {},
+        body: '',
+      }),
+    );
+    expect(await revoked).toBe(1008);
   });
   it('pushes content invalidations without admin payloads or sync feedback', async () => {
     await setup();
@@ -261,7 +328,7 @@ describe('communicator per-frame failure isolation', () => {
     const closed = vi.fn();
     ws.on('close', closed);
     const forbidden = await call(ws, { path: '/admin/users' });
-    expect(forbidden.status).toBe(403);
+    expect(forbidden.status).toBe(400);
     expect(decode(forbidden)).toMatchObject({ status: 'error', code: 'communicator_path_forbidden' });
     const oversized = await call(ws, { path: '/host/echo', body: 'a'.repeat(900_001) });
     expect(oversized.status).toBe(413);

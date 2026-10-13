@@ -37,15 +37,16 @@ type frame struct {
 }
 
 type connection struct {
-	daemon      chan json.RawMessage
-	ws          *websocket.Conn
-	mu          sync.Mutex
-	sendMu      sync.Mutex
-	pending     map[string]chan frame
-	done        chan struct{}
-	ready       chan struct{}
-	invalidated func()
-	authChanged func(string, int64)
+	daemon        chan json.RawMessage
+	daemonClosing chan json.RawMessage
+	ws            *websocket.Conn
+	mu            sync.Mutex
+	sendMu        sync.Mutex
+	pending       map[string]chan frame
+	done          chan struct{}
+	ready         chan struct{}
+	invalidated   func()
+	authChanged   func(string, int64)
 }
 
 func directTransport(cfg *config.Config) (*http.Transport, error) {
@@ -145,8 +146,10 @@ func (c *connection) receive() {
 				select {
 				case ch <- f.Payload:
 				default:
-					c.ws.Close()
-					return
+					// A stalled daemon consumer must not tear down the control
+					// connection other engines share. Detach only that stream;
+					// the daemon reconnects under its durable work semantics.
+					c.detachDaemon(ch)
 				}
 			}
 		case "auth_changed":
@@ -169,6 +172,34 @@ func (c *connection) receive() {
 			}
 		}
 	}
+}
+func (c *connection) detachDaemon(ch chan json.RawMessage) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.daemon == ch {
+		c.daemon = nil
+		c.daemonClosing = ch
+		close(ch)
+	}
+}
+
+// Reserve the previous stream until its remote disconnect is serialized onto
+// the control connection. A replacement must never inherit that disconnect.
+func (c *connection) finishDaemon(ch chan json.RawMessage) {
+	c.mu.Lock()
+	if c.daemon != ch && c.daemonClosing != ch {
+		c.mu.Unlock()
+		return
+	}
+	c.daemon = nil
+	c.daemonClosing = ch
+	c.mu.Unlock()
+	_ = c.send(map[string]any{"type": "daemon_disconnect"})
+	c.mu.Lock()
+	if c.daemonClosing == ch {
+		c.daemonClosing = nil
+	}
+	c.mu.Unlock()
 }
 func (c *connection) request(ctx context.Context, f frame) (frame, bool, error) {
 	f.Type = "request"

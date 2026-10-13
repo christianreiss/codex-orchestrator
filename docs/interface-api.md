@@ -2342,10 +2342,16 @@ contracts. See [communicator protocol, lifecycle and rollout](communicator.md).
 
 ### Communicator transport endpoints
 
-- `GET /host/communicator/connect`: host-key/IP-authenticated WebSocket protocol 1, enabled by the signed communicator capability. Multiplexes existing host routes, MCP and daemon frames with UUID-correlated replies and content invalidations.
+- `GET /host/communicator/connect`: host-key/IP-authenticated WebSocket protocol 1, enabled by the signed communicator capability. Multiplexes existing host routes, MCP and daemon frames with UUID-correlated replies and content invalidations. A rejected request frame (disallowed path, including a trailing-slash variant, or invalid fields) receives `{id, status: 400}` with code `communicator_invalid_request`; failed host authorization closes the socket with 1008.
 - `GET /admin/communicators`: requires `hosts.read`; reports the API process's live communicator connections, users, versions, client counts and last sync.
 
 See [CoCo Communicator](communicator.md) for the local socket, reconnect and rollout contract.
+
+From cxx 0.9.74, communicator HTTPS transfers use the signed host key and remove
+cookies and forwarding headers. Large `POST /mcp` requests additionally carry
+`X-Cxx-Communicator: 1`: their bearer must resolve to the accompanying host key's
+host and cannot grant operator capability; mismatches return HTTP 401 with
+`communicator_mcp_host_mismatch`. Ordinary MCP credential resolution is unchanged.
 
 
 ### Communicator sync ownership

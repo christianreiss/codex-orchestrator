@@ -23,6 +23,12 @@ func Fence(ctx context.Context, base, engine, authPath string) (func(), error) {
 		return nil, err
 	}
 	ep := endpointFor(base)
+	ep.mu.Lock()
+	setupErr := ep.setupErr
+	ep.mu.Unlock()
+	if setupErr != nil {
+		return nil, setupErr
+	}
 	for {
 		lock, err := ipc.TryAcquireExclusivePath(filepath.Join(filepath.Dir(ep.socket), "sync-"+scopeID(job)+".lock"))
 		if err == nil {
