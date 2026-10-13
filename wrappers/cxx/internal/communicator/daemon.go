@@ -58,7 +58,10 @@ func (s *server) daemon(w http.ResponseWriter, r *http.Request) {
 		c.mu.Unlock()
 		defer func() {
 			c.mu.Lock()
-			c.daemon = nil
+			owned := c.daemon == channel
+			if owned {
+				c.daemon = nil
+			}
 			c.mu.Unlock()
 			_ = c.send(map[string]any{"type": "daemon_disconnect"})
 		}()
