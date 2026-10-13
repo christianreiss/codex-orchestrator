@@ -424,3 +424,14 @@ func TestCommunicatorReadinessPreservesNativeAuthOwnership(t *testing.T) {
 		t.Fatal("readiness changed native issued generation/cache")
 	}
 }
+
+func TestCommunicatorUnknownOutcomeDoesNotEndGrokSession(t *testing.T) {
+	if FatalAuthError(&orchestrator.HTTPError{StatusCode: 409, Code: "communicator_outcome_unknown"}) {
+		t.Fatal("transport loss was mistaken for revoked Grok auth")
+	}
+	for _, status := range []int{401, 404, 409} {
+		if !FatalAuthError(&orchestrator.HTTPError{StatusCode: status, Code: "account_session_invalid"}) {
+			t.Fatalf("authoritative auth failure %d was ignored", status)
+		}
+	}
+}

@@ -449,8 +449,14 @@ func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	// The handler already finished. Retrying a write would repeat it. Idempotent
 	// reads can move to the unbounded HTTPS transfer and still return one body.
-	if result.Status == http.StatusBadGateway && oversizedResponse(result.Body) && retryOversizedRead(r) {
-		s.download(w, r, body)
+	if result.Status == http.StatusBadGateway && oversizedResponse(result.Body) {
+		if retryOversizedRead(r, body) {
+			s.download(w, r, body)
+		} else {
+			// The operation completed but its result could not be delivered.
+			// A 502 would invite the existing clients to retry the mutation.
+			writeUnavailable(w, true)
+		}
 		return
 	}
 	for k, v := range result.Headers {
@@ -471,15 +477,14 @@ func oversizedResponse(body []byte) bool {
 	return json.Unmarshal(body, &payload) == nil && payload.Code == "communicator_response_too_large"
 }
 
-func retryOversizedRead(r *http.Request) bool {
+func retryOversizedRead(r *http.Request, body []byte) bool {
 	switch r.Method {
 	case http.MethodGet, http.MethodHead:
 		return true
 	case http.MethodPost:
-		switch requestPath(r) {
-		case "/agents/retrieve", "/config/retrieve", "/sync/bootstrap", "/sync/status", "/cron/check":
-			return true
-		}
+		// Bootstrap can exchange auth or admit a session. Reuse the existing
+		// byte-identical content-read contract instead of trusting its name.
+		return coalescible(frame{Method: r.Method, Path: requestPath(r), Body: body})
 	}
 	return false
 }

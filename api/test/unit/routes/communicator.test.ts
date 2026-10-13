@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { wsPublisher } from '../../../src/ws/publisher.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { FastifyInstance } from 'fastify';
-import { registerCommunicatorRoutes, communicatorPathAllowed } from '../../../src/routes/communicator.js';
+import { registerCommunicatorRoutes, communicatorPathAllowed, communicatorResponseMayRepeat } from '../../../src/routes/communicator.js';
 import { buildRouteApp } from '../../helpers/build-route-app.js';
 import { createMockDb } from '../../helpers/in-memory-db.js';
 
@@ -47,6 +47,7 @@ async function setup(enabled = true) {
   }
   app.post('/auth', () => ({ verification_state: 'verified', engine: 'claude', account_id: 7 }));
   app.get('/host/big', () => ({ blob: 'x'.repeat(12 * 1024 * 1024) }));
+  app.post('/host/big', () => ({ blob: 'x'.repeat(12 * 1024 * 1024) }));
   await app.ready();
   return app;
 }
@@ -60,6 +61,33 @@ async function open() {
   return ws;
 }
 describe('communicator transport', () => {
+  it('restricts oversized reply retries to known content reads', () => {
+    const request = (path: string, body: string) => ({method:'POST', path, body:Buffer.from(body).toString('base64')});
+    expect(communicatorResponseMayRepeat(request('/sync/bootstrap/', '{"include_auth":false}'))).toBe(true);
+    expect(communicatorResponseMayRepeat(request('/agents/retrieve', '{}'))).toBe(true);
+    expect(communicatorResponseMayRepeat(request('/config/retrieve', '{}'))).toBe(true);
+    expect(communicatorResponseMayRepeat({method:'GET',path:'/skills',body:''})).toBe(true);
+    for (const body of ['{}', '{"include_auth":true}', '{"include_auth":false,"auth_candidate":{}}', '{"include_auth":false,"session_id":"session"}', '{"include_auth":false,"auth_candidate":null}', 'invalid JSON']) {
+      expect(communicatorResponseMayRepeat(request('/sync/bootstrap',body))).toBe(false);
+    }
+    for (const path of ['/auth','/mcp','/sync/status','/cron/check']) {
+      expect(communicatorResponseMayRepeat(request(path, '{}'))).toBe(false);
+    }
+  });
+  it('reports a completed oversized write as unknown without inviting a retry', async () => {
+    await setup();
+    const ws = await open();
+    const id = randomUUID();
+    const reply = new Promise<string>((resolve) => ws.once('message', (data: unknown) => resolve(String(data))));
+    ws.send(JSON.stringify({id, type:'request', method:'POST', path:'/host/big', headers:{}, body:''}));
+    const response = JSON.parse(await reply);
+    expect(response).toMatchObject({id, status:409});
+    expect(JSON.parse(Buffer.from(response.body, 'base64').toString())).toMatchObject({code:'communicator_outcome_unknown'});
+    const next = new Promise<string>((resolve) => ws.once('message', (data: unknown) => resolve(String(data))));
+    ws.send(JSON.stringify({id:randomUUID(),type:'request',method:'POST',path:'/host/echo',headers:{},body:''}));
+    expect(JSON.parse(await next).status).toBe(200);
+    ws.close();
+  });
   it('rejects admin/provider URLs, traversal and recursive connections', () => {
     for (const path of [
       '/admin/users',

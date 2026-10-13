@@ -1103,6 +1103,12 @@ From cxx 0.9.74, managed MCP errors preserve the original request ID and bounded
 result verification before retrying with the original work identifiers. The stdio
 adapter never replays a call.
 
+Oversized replies preserve the same unknown-outcome contract. Only known reads
+may repeat over HTTPS; bootstrap must explicitly exclude auth, candidates and
+session admission. Completed writes return `409 communicator_outcome_unknown`
+even to older communicator clients, so ordinary transient-error retries cannot
+repeat them.
+
 
 ### Communicator sync ownership
 

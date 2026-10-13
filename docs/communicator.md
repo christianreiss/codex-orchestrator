@@ -89,8 +89,11 @@ authorization failure closes the shared connection. A `host.*` event that
 names a numeric `id` or `host_id` invalidates only that host's connection.
 Events with no host id still reach every connection. A reply above 11 MiB
 returns `502 communicator_response_too_large` for that request. From cxx
-0.9.75 the local owner retries an idempotent read once on its HTTPS transfer
-and leaves writes such as `POST /auth` on the 502. The local allow-list strips
+0.9.75 the local owner retries an idempotent read once on its HTTPS transfer.
+POST bootstrap qualifies only with explicit `include_auth:false`, no auth candidate
+and no session admission. Completed operations that cannot safely be repeated,
+including auth stores and MCP calls, return `409 communicator_outcome_unknown`
+to prevent existing client retry loops from replaying them. The local allow-list strips
 trailing slashes the same way the API router does.
 
 Heartbeats report local client count and last successful synchronization every
@@ -154,6 +157,12 @@ An oversized reply rejected after dispatch also carries `outcome_unknown: true`:
 the route may already have committed its effects before the frame limit was
 checked. The bounded `communicator_response_too_large` code remains available
 for diagnosis.
+
+Request correlation compares JSON ID values rather than serialized spellings,
+including escaped strings and equivalent numbers. Distinct large integer IDs
+remain separate. Grok readiness treats a transport's unknown-outcome 409 as
+retryable uncertainty, preserving the native process; authoritative auth and
+account-session revocations retain their existing termination behavior.
 
 `GET /admin/communicators` is admin-session gated and returns the live connections
 for the API process. This deployment uses one API instance; its connection view
