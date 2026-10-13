@@ -19,8 +19,10 @@ forwarded/coalesced requests, last sync and connection error. `doctor` returns
 nonzero when an enabled communicator is absent. The host's Operations tab shows
 live server connections and their users, versions and sync timestamps.
 
-The Unix socket lives in a mode-0700 directory below `XDG_RUNTIME_DIR` (or a
-private `/tmp/cxx-<uid>` directory). Socket mode is 0600. A filesystem lock elects
+The Unix socket lives in a mode-0700 directory below `XDG_RUNTIME_DIR`. When a
+launcher drops that variable (Codex MCP servers, cron), the user's logind
+`/run/user/<uid>` directory is used if present, otherwise a private
+`/tmp/cxx-<uid>` directory, so every process elects the same owner. Socket mode is 0600. A filesystem lock elects
 one owner; only that owner removes a stale socket. No TCP listener is exposed.
 Each process holds a local streaming lease; a surviving client restarts a crashed
 owner. The last lease starts a five-minute idle period. Status checks do not

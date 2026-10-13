@@ -144,6 +144,31 @@ func TestSocketDirectoryIsolation(t *testing.T) {
 		t.Fatal("unsafe directory accepted")
 	}
 }
+
+// A launcher that scrubs XDG_RUNTIME_DIR must reach the same owner socket.
+func TestSocketPathIgnoresMissingRuntimeEnvironment(t *testing.T) {
+	session := t.TempDir()
+	os.Chmod(session, 0700)
+	previous := sessionRuntimeRoot
+	sessionRuntimeRoot = func() string { return session }
+	t.Cleanup(func() { sessionRuntimeRoot = previous })
+	t.Setenv("XDG_RUNTIME_DIR", session)
+	withEnv, err := socketPath("https://one.example")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("XDG_RUNTIME_DIR", "")
+	withoutEnv, err := socketPath("https://one.example")
+	if err != nil || withEnv != withoutEnv {
+		t.Fatal(withEnv, withoutEnv, err)
+	}
+	os.Chmod(session, 0755)
+	fallback, err := socketPath("https://one.example")
+	if err != nil || fallback == withEnv {
+		t.Fatal("unsafe session runtime directory used", fallback, err)
+	}
+	os.Chmod(session, 0700)
+}
 func TestProviderRequestsUseOriginalTransport(t *testing.T) {
 	var called bool
 	direct := roundTripFunc(func(r *http.Request) (*http.Response, error) {
