@@ -43,6 +43,7 @@ const ICON_NAMES = [
   "MessageSquareShare",
   "Monitor",
   "Moon",
+  "Network",
   "Plug",
   "Plus",
   "Palette",

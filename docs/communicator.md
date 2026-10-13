@@ -144,6 +144,34 @@ for the API process. This deployment uses one API instance; its connection view
 and invalidation bus are process-local. Restart recovery re-fetches authoritative
 content and reuses the existing durable message queues.
 
+## Live topology and control
+
+The console's **Live Topology** page (`GET /admin/topology`) draws the server, the
+communicators connected to it and the agent sessions each one carries. The view is
+the connection set of the API process that answers, never a fleet-wide inference.
+
+A session is shown under a communicator only on evidence: the API answered a
+`/host/agent-sessions/<id>/…` request for it (or its registration) below status 400
+over that socket, which proves the session's bridge token authenticated on that
+host's key through that connection. Evidence older than the presence window (45 s by
+default) marks the link quiet, and a session with none hangs off the server as
+direct. Host, OS user and engine are never used to pick a parent, because one user
+may run several communicators in separate runtime roots and a session may talk to the
+server directly. After a communicator reconnects, its sessions are re-attributed as
+each next speaks to the server (their heartbeats run every 15 s).
+
+`POST /admin/communicators/{id}/disconnect` closes exactly one connection (WebSocket
+close code 4001) and answers `closed` once the socket's close handler has run, or
+`requested` when nothing has confirmed it. It is a transport reset, not a process
+kill: the owner keeps running and redials within 1–30 s, requests in flight on that
+socket finish as `communicator_outcome_unknown`, and no session is stopped or
+replayed. Sessions are stopped through their own contracts: cooperative close
+(`POST /admin/agent-sessions/{id}/close`), ending the server-side record
+(`…/close/force`, which does not signal the process) and, only for sessions a host
+daemon launched, a daemon stop (`POST /admin/daemon-sessions/{id}/stop`). Every
+control requires `agent_portal.manage` (or `agent_messaging.manage` for the daemon
+stop), which stay enforced under `compatible` authorization.
+
 ## Rollout and checks
 
 Keep the server capability off while deploying the compatible server and wrapper.

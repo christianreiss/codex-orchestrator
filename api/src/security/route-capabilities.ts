@@ -60,6 +60,11 @@ export const ROUTE_CAPABILITIES: Readonly<Record<string, RouteGuard>> = {
   'PUT /admin/chatty/settings': cap('chatty.manage'),
 
   'GET /admin/communicators': cap('hosts.read'),
+  'GET /admin/topology': cap('hosts.read'),
+  // Ends one communicator socket and so interrupts every agent session riding on
+  // it. Same blast radius as closing those sessions, so the same (always-enforced)
+  // capability; `hosts.manage` would be relaxed by `compatible` authorization.
+  'POST /admin/communicators/:id/disconnect': cap('agent_portal.manage'),
   'GET /admin/host-daemons': cap('admin.read'),
   'GET /admin/host-spawn/state': cap('admin.read'),
   'POST /admin/host-spawn/state': cap('settings.manage'),

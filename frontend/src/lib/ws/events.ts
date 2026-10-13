@@ -20,16 +20,17 @@ export type WsInvalidationMap = Record<string, QueryKey[]>;
 export const DEFAULT_INVALIDATIONS: WsInvalidationMap = {
   "auth.canonical": [["accounts"]],
   "auth.invalidated": [["accounts"]],
-  "communicator.updated": [["communicators"]],
+  "communicator.updated": [["communicators"], ["topology"]],
+  "communicator.disconnected": [["communicators"], ["topology"]],
   'feedback.changed': [['feedback'], ['agents']],
   "chatty.settings": [["chatty"]],
- "host.daemon.changed": [["host-daemons"], ["daemon-sessions"]],
+ "host.daemon.changed": [["host-daemons"], ["daemon-sessions"], ["topology"]],
  "host.daemon.configured": [["host-daemons"]],
  "host.daemon.start_requested": [["host-daemons"], ["daemon-sessions"]],
- "host.daemon.stop_requested": [["host-daemons"], ["daemon-sessions"]],
+ "host.daemon.stop_requested": [["host-daemons"], ["daemon-sessions"], ["topology"]],
   // A reconnect has no durable WS replay; resample retained client snapshots.
-  "transport.connected": [["agent-sessions"], ["agent-messaging"], ["host-daemons"], ["daemon-sessions"]],
-  "agent_portal.sessions.changed": [["agent-sessions"]],
+  "transport.connected": [["agent-sessions"], ["agent-messaging"], ["host-daemons"], ["daemon-sessions"], ["topology"]],
+  "agent_portal.sessions.changed": [["agent-sessions"], ["topology"]],
   // Logs
   "log.created": [["logs"], ["logs", "api"], ["logs", "events"]],
   "log.updated": [["logs"], ["logs", "events"]],
@@ -38,7 +39,7 @@ export const DEFAULT_INVALIDATIONS: WsInvalidationMap = {
   // Hosts + overview dashboard counters
   // `setup` too: the checklist counts registered and synced hosts, and the
   // installer-progress view in the wizard reads both.
-  "host.updated": [["hosts"], ["overview"], ["agent-messaging"], ["setup"], ["host-daemons"]],
+  "host.updated": [["hosts"], ["overview"], ["agent-messaging"], ["setup"], ["host-daemons"], ["topology"]],
   "host.created": [["hosts"], ["overview"], ["setup"]],
   "host.deleted": [["hosts"], ["overview"], ["agent-messaging"]],
   "host.pruned": [["hosts"], ["overview"], ["agent-messaging"]],
