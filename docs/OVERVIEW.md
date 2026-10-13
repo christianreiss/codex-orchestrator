@@ -1093,6 +1093,11 @@ Claims are exclusive, token-fenced and renewable for 30 minutes. Updates check t
 
 ## Shared CoCo communicator (cxx 0.9.72)
 
+Config-backed commands bind the verified selected config before creating control
+clients. cxx 0.9.78 closes a Codex/Claude gap after expiry recovery or custom
+`--config` selection, including `status` and auth helpers; all three engines use
+the communicator after that boundary when the signed capability is enabled.
+
 The optional signed `orchestrator.communicator_protocol: 1` capability routes managed
 CoCo traffic through a per-user Unix socket and one multiplexed server WebSocket.
 Provider traffic, session identities and account/refresh ownership retain their existing

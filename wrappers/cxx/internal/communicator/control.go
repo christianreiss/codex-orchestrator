@@ -3,11 +3,13 @@ package communicator
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"os"
 	"time"
 
 	"github.com/google/uuid"
+	"golang.org/x/net/websocket"
 )
 
 // Remote control of the owner process by the server it is connected to.
@@ -15,16 +17,26 @@ import (
 // It is negotiated rather than assumed, so old servers and old owners are never
 // confronted with a frame they do not know:
 //
-//  1. a server that can terminate an owner lists "terminate" in `ready.control`;
+//  1. a server that can terminate an owner lists "terminate" in `ready.control`,
+//     and one that can also tell owner processes apart and aim a command at
+//     exactly one of them adds "owner_identity";
 //  2. only then does the owner describe itself once, with a `capabilities`
-//     frame (its pid and start time, which let the server tell a restarted owner
-//     from the one it asked to stop);
-//  3. only then does the owner honour a `terminate` frame, answering with
-//     `terminate_ack` before it acts.
+//     frame. With both tokens it carries the pid, start time, a per-process
+//     `instance_id` and its `runtime_id` (which let the server tell a restarted
+//     owner from the one it asked to stop). With "terminate" alone (a server
+//     that predates owner identity, and whose frame schema is strict) it carries
+//     only the fields that server knows, and says it cannot be stopped remotely;
+//  3. only with both tokens does the owner honour a `terminate` frame, and only
+//     one that names this process (`owner_instance_id`), answering with
+//     `terminate_ack`.
 //
 // An owner that never saw step 1 ignores `terminate`, and a server never hears
-// from an owner that did not see its announcement.
-const controlTerminate = "terminate"
+// from an owner that did not see its announcement. A server is never sent a field
+// it did not announce it understands.
+const (
+	controlTerminate     = "terminate"
+	controlOwnerIdentity = "owner_identity"
+)
 
 // terminateDrain bounds how long a terminating owner keeps serving local
 // requests that are already in flight before it exits regardless. After the
@@ -57,38 +69,98 @@ func announces(control []string, name string) bool {
 	return false
 }
 
+// ackWriteBound bounds writing an acknowledgement: an owner that has accepted a
+// stop must not stay up because the server stopped reading.
+var ackWriteBound = 2 * time.Second
+
 // announceCapabilities tells the server what this owner can be asked to do.
-func (c *connection) announceCapabilities() {
-	_ = c.send(map[string]any{
-		"type":        "capabilities",
-		"terminate":   c.onTerminate != nil,
-		"pid":         os.Getpid(),
-		"started_at":  processStarted.Format(time.RFC3339),
-		"instance_id": processInstance,
-		"runtime_id":  c.runtimeID,
-	})
+// `identity` says whether the server announced that it understands owner
+// identity; if it did not, the frame has only the fields an older server accepts
+// and claims no remote stop, because that server could not aim one at this
+// process.
+func (c *connection) announceCapabilities(identity bool) {
+	frame := map[string]any{
+		"type":       "capabilities",
+		"terminate":  identity && c.onTerminate != nil,
+		"pid":        os.Getpid(),
+		"started_at": processStarted.Format(time.RFC3339),
+	}
+	if identity {
+		frame["instance_id"] = processInstance
+		frame["runtime_id"] = c.runtimeID
+	}
+	_ = c.send(frame)
 }
 
-// handleTerminate acknowledges and then performs a server-requested exit. The
-// acknowledgement is the owner's own statement that it will stop; whether the
-// process is gone is something the server learns when the socket closes.
+// sendWithin writes one frame, giving up after bound whether the write is slow or
+// the writer lock is held by a send that is.
+func (c *connection) sendWithin(value any, bound time.Duration) error {
+	done := make(chan error, 1)
+	go func() {
+		c.sendMu.Lock()
+		defer c.sendMu.Unlock()
+		c.ws.SetWriteDeadline(time.Now().Add(bound))
+		done <- websocket.JSON.Send(c.ws, value)
+	}()
+	select {
+	case err := <-done:
+		return err
+	case <-time.After(bound):
+		return errors.New("communicator: acknowledgement not written in time")
+	}
+}
+
+// handleTerminate answers a server-requested exit and starts it. A command is
+// honoured only when it names THIS process (`owner_instance_id`), so one aimed at
+// an owner that has since been replaced, or that arrives on a socket that now
+// belongs to another process, stops nothing. The reply echoes the request and the
+// owner's identity. A repeated request id is answered again and stops nothing a
+// second time. The stop begins without waiting for the reply to be written: the
+// reply is bounded, and so is everything after it.
 func (c *connection) handleTerminate(f frame) {
-	if c.onTerminate == nil {
-		_ = c.send(map[string]any{"type": "terminate_ack", "request_id": f.RequestID, "accepted": false, "reason": "unsupported"})
+	reply := func(accepted bool, reason string) {
+		_ = c.sendWithin(map[string]any{
+			"type": "terminate_ack", "request_id": f.RequestID, "instance_id": processInstance,
+			"accepted": accepted, "reason": reason, "pid": os.Getpid(),
+		}, ackWriteBound)
+	}
+	if f.OwnerInstanceID != processInstance {
+		reply(false, "owner_mismatch")
 		return
 	}
-	_ = c.send(map[string]any{"type": "terminate_ack", "request_id": f.RequestID, "accepted": true, "pid": os.Getpid()})
-	c.onTerminate(f.Reason)
+	if c.onTerminate == nil {
+		reply(false, "unsupported")
+		return
+	}
+	c.mu.Lock()
+	first := !c.terminateSeen[f.RequestID]
+	if c.terminateSeen == nil {
+		c.terminateSeen = map[string]bool{}
+	}
+	c.terminateSeen[f.RequestID] = true
+	c.mu.Unlock()
+	acked := make(chan struct{})
+	go func() {
+		defer close(acked)
+		reply(true, "")
+	}()
+	if first {
+		c.onTerminate(f.Reason, acked)
+	}
 }
 
 // terminate ends the owner the way an idle exit does (cancelling its context
-// closes the HTTP server, the lock and the socket), after letting in-flight
-// local requests finish for a bounded time. Native sessions are not signalled; a
-// surviving client restarts a fresh owner on its next managed call.
-func (s *server) terminate(reason string) {
+// closes the HTTP server, the lock and the socket). From the moment it is
+// accepted no new application work is admitted; work already in flight gets up
+// to terminateDrain to finish, leases and streams are not waited for, and the
+// acknowledgement gets only what remains of that bound to leave. Native sessions
+// are not signalled; a surviving client starts a fresh owner on its next managed
+// call.
+func (s *server) terminate(reason string, acked <-chan struct{}) {
 	if s.stop == nil || !s.terminating.CompareAndSwap(false, true) {
 		return
 	}
+	s.draining.Store(true)
 	go func() {
 		deadline := time.Now().Add(terminateDrain)
 		for time.Now().Before(deadline) {
@@ -99,6 +171,16 @@ func (s *server) terminate(reason string) {
 				break
 			}
 			time.Sleep(50 * time.Millisecond)
+		}
+		if acked != nil {
+			wait := time.Until(deadline)
+			if wait < 200*time.Millisecond {
+				wait = 200 * time.Millisecond
+			}
+			select {
+			case <-acked:
+			case <-time.After(wait):
+			}
 		}
 		fmt.Fprintf(os.Stderr, "communicator: stopping at the server's request (%s)\n", reason)
 		s.stop()

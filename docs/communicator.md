@@ -18,6 +18,13 @@ because it is older than 0.9.71. Existing tool names, arguments, results and eng
 remain intact. With the capability off, the stdio adapter uses the ordinary HTTPS
 MCP endpoint.
 
+Every config-backed engine command binds its verified selected config before
+creating control clients, including commands outside the native lifecycle.
+From cxx 0.9.78 this also covers Codex and Claude after expired-config recovery
+or custom `--config` selection; Grok already binds at that boundary. The one
+signed-config repair read can run before an owner exists, but subsequent auth
+and control requests use the communicator whenever the recovered config enables it.
+
 `cxx communicator status` reports protocol, version, PID, connected clients,
 forwarded/coalesced requests, last sync and connection error. `doctor` returns
 nonzero when an enabled communicator is absent. The host's Operations tab shows
@@ -27,9 +34,13 @@ The Unix socket lives in a mode-0700 directory below `XDG_RUNTIME_DIR`. When a
 launcher drops that variable (Codex MCP servers, cron), the user's logind
 `/run/user/<uid>` directory is used if present, otherwise a private
 `/tmp/cxx-<uid>` directory, so every process elects the same owner. A runtime root
-deep enough to exceed the platform's socket-path limit (kept under 100 bytes) falls
-back to `/tmp/cxx-<uid>`, while an unsafe root is refused. The owner's startup errors
-go to `serve.log` in that directory and are included in the error a managed command
+deep enough that the socket would exceed the platform's own `sun_path` limit (107 bytes on
+Linux, 103 on macOS and the BSDs) falls back to `/tmp/cxx-<uid>`, independent of `TMPDIR`;
+that fallback directory is keyed by the resolved scope as well as the server, so two
+distinct deep scopes (isolated runs, harnesses) never share an owner, fence or credentials,
+and one scope always maps to one path. An unsafe root is refused. The owner's startup
+errors go to `serve.log` in that directory; the part written during the failed attempt is
+shown, bounded to 400 printable characters on one line, in the error a managed command
 prints. Socket mode is 0600. A filesystem lock elects
 one owner; only that owner removes a stale socket. No TCP listener is exposed.
 Each process holds a local streaming lease; a surviving client restarts a crashed
@@ -72,7 +83,14 @@ individual operations where their authorization requires it.
 Managed content sync runs once per registered engine/home scope after push
 invalidation, after reconnect, when a lease registers a scope that is new to
 the owner, and every five minutes while clients are attached. An additional
-lease on an already-registered scope does not force a pass.
+lease on an already-registered scope does not force a pass. A scheduled pass is
+skipped when a complete bootstrap or content worker for that scope started after
+the newest server invalidation (a pushed `invalidate` frame or a reconnect,
+stamped on arrival) and less than five minutes ago, so a launch's own bootstrap
+satisfies the scope's initial pass instead of being followed by an identical
+exchange. A first connection is not an invalidation, a new scope's first
+scheduled pass waits 1.5 s so the session that opened it runs first, and explicit
+syncs, `auth` operations and bootstraps that carry auth always run.
 It invokes the existing headless sync machinery with concurrent sync explicitly
 enabled, preserving each scope's environment and signed config path. Scope
 registrations are removed when their last client lease closes. Files update
@@ -100,7 +118,7 @@ request frame gets its own `400 communicator_invalid_request` reply; only an
 authorization failure closes the shared connection. A `host.*` event that
 names a numeric `id` or `host_id` invalidates only that host's connection.
 Events with no host id still reach every connection. A reply above 11 MiB, or
-whose whole encoded frame (base64 body, headers, JSON) exceeds 15 MiB, is answered for
+whose whole encoded frame (base64 body, headers, JSON) exceeds 15 MiB in UTF-8 wire bytes, is answered for
 that request only and the socket stays open: `502 communicator_response_too_large` for a
 repeatable read, `409 communicator_outcome_unknown` for anything that may have changed
 state, since the operation has already run. The same rule covers a fault after the
@@ -113,13 +131,35 @@ including auth stores and MCP calls, return `409 communicator_outcome_unknown`
 to prevent existing client retry loops from replaying them. The local allow-list strips
 trailing slashes the same way the API router does.
 
+From cxx 0.9.78, the MCP stdio adapter accepts a correlated response only when
+exactly one of `result` and `error` is present. A lone `result: null` is valid.
+An error must be an object with an integer `code` and a string `message`;
+null errors, missing fields, and contradictory envelopes return the existing unknown-outcome error with the
+original request ID instead of forwarding an ambiguous result.
+
 Remote control of the owner process is negotiated, so old servers and old owners
-never meet a frame they do not know. A server that can stop an owner lists
-`control: ["terminate"]` in its `ready` frame. Only then does the owner send one
+never meet a frame or a field they do not know. A server that can stop an owner
+lists `control: ["terminate", "owner_identity"]` in its `ready` frame:
+`terminate` offers the stop, `owner_identity` says the server accepts the owner's
+process identity and aims a stop at exactly one process. An owner that sees
+`terminate` alone (a server that predates owner identity, whose `capabilities`
+schema rejects unknown fields) sends only the legacy fields (`type`, `terminate`,
+`pid`, `started_at`), says `terminate: false`, and ignores `terminate` frames from
+that server, so the console offers no stop for it and disconnect keeps working. An
+owner that sees neither token sends nothing. Only with both tokens does the owner send one
 `capabilities` frame (`terminate`, `pid`, `started_at`, `instance_id`, `runtime_id`), and only then does it honour
-`{type: "terminate", request_id, reason}`: it answers `terminate_ack` (`accepted`,
-`pid`) first, lets in-flight local requests drain for up to three seconds, and then
-ends through the same path as an idle exit (HTTP server, lock and socket closed). The
+`{type: "terminate", request_id, reason, owner_instance_id}`. The command is aimed at
+one process: `owner_instance_id` must equal the `instance_id` that owner announced, and
+a command for any other process is answered `terminate_ack` with `accepted: false,
+reason: "owner_mismatch"` and acted on by no one. The server likewise refuses an
+acknowledgement whose `instance_id` is not the process it addressed, and does not offer
+the control to an owner that announced no `instance_id`. An accepted command is answered
+`terminate_ack` (`request_id`, `instance_id`, `accepted`, `reason`, `pid`) within a
+bounded write (two seconds), a repeat of the same `request_id` is answered again but
+acted on once, and from that moment the owner admits no new local work (new requests
+get `503`; `/_comm/status` keeps answering). In-flight local requests are given up to
+three seconds to finish, the acknowledgement is allowed to leave the socket, and the
+owner ends through the same path as an idle exit (HTTP server, lock and socket closed). The
 `pid` and start time are the owner's own account; the server cannot observe them.
 `instance_id` is a UUID the owner generates at start, so the same value on a later
 connection proves the same process dialled again. `runtime_id` is a hash of the owner's
@@ -162,9 +202,31 @@ IP)`), and local `503 communicator_unavailable` replies carry that text in `mess
 wrapper prints the same actionable diagnosis it would over direct HTTPS (an IP binding
 to release, a revoked key, the capability switched off) instead of "API offline".
 
+A refusal that is a verdict on the host's own credentials keeps its status: `401`
+(`missing_api_key`, `invalid_api_key`, `ip_mismatch`, `reverse_dns_failed`, `host_expired`) and
+`403 host_<status>` are returned for a request that never reached the control channel with the
+server's own status and body, as direct HTTPS answered every route. The wrappers' clients return a
+4xx at once (no retry) and classify it as a verdict (a Grok session whose refresh gets a `401`
+ends, exactly as before the communicator); a `503` they retry for about a second and bridge with
+cached auth. Everything that is the channel being unavailable stays the retryable
+`503 communicator_unavailable`: `403 communicator_disabled`, the `api_disabled` kill switch, 5xx,
+a timeout, a dropped connection. The verdict describes only the last connection attempt; the next
+attempt that succeeds or fails for another reason clears it, and an unknown outcome (`409`) is
+never rewritten into a credential verdict. The local reply carries `X-Cxx-Communicator-Refusal:
+handshake`. The host-daemon channel is unaffected in behaviour: its WebSocket client reports every
+refused upgrade as "bad status" whatever the code, and the daemon retries with backoff either way
+(as it did over direct HTTPS), so there the verdict only reaches diagnostics.
+
 The reconnect delay grows from one to thirty seconds with jitter. A request that finds the
 connection down never sits through that backoff: it asks the connect loop to redial at
-once and waits for that one attempt, up to 20 s for the very first connect. A refused
+once and waits for that one attempt: at most 10 s for the very first connect of a cold owner
+and 3 s for a redial after the connection was lost. Both end inside the 15 s deadline of the
+credential sync worker (a worker killed while its request still waits would never learn that
+nothing was sent) and are shared by all requests during one attempt, so against a hung API
+only the first call of a command pays the budget and the next ones fail at once. A request
+whose connection already ended before it was written is also answered `503` (provably
+not sent), and a worker whose request never left cleans up its write-ahead credential marker
+(only a delivered, unanswered upload keeps it); a frame that was written and then lost stays `409` outcome unknown. A refused
 connection fails in milliseconds, so during an outage the request gets
 `503 communicator_unavailable` promptly (a definitive "not sent", never "outcome
 unknown"), exactly as direct HTTPS would refuse, and the first request after the server
@@ -187,6 +249,21 @@ An oversized reply rejected after dispatch also carries `outcome_unknown: true`:
 the route may already have committed its effects before the frame limit was
 checked. The bounded `communicator_response_too_large` code remains available
 for diagnosis.
+
+The adapter forwards JSON-RPC batches (MCP 2025-03-26, which the API advertises)
+as one request and writes the server's array reply. Notifications in a batch get
+no reply, and an all-notification batch writes nothing. If the reply is lost,
+malformed or misses a request, each request gets its own unknown-outcome error.
+An unparsable line gets `-32700` with id null, and a JSON value that is neither
+an object nor a non-empty array gets `-32600`; neither ends the session. Input
+the API answers with an id null `-32600` (invalid batch members, objects without
+`jsonrpc` or `method`) gets that answer even when nothing else in the line
+expects a reply; valid notifications stay silent. On SIGTERM or interrupt the adapter stops reading stdin even if the
+native client keeps it open, reports any in-flight request as an unknown
+outcome, releases its owner lease and exits. It waits at most three seconds for
+those replies, so a client that has stopped reading stdout cannot keep it alive;
+a signal after stdin has closed gets the same bound. Replies are relayed as
+compacted raw JSON, never re-encoded, so request IDs keep their exact value.
 
 Request correlation compares JSON ID values rather than serialized spellings,
 including escaped strings and equivalent numbers. Distinct large integer IDs
@@ -224,11 +301,16 @@ replayed. Sessions are stopped through their own contracts: cooperative close
 (`POST /admin/agent-sessions/{id}/close`), ending the server-side record
 (`…/close/force`, which does not signal the process) and, only for sessions a host
 daemon launched, a daemon stop (`POST /admin/daemon-sessions/{id}/stop`).
-`POST /admin/communicators/{id}/terminate` stops the owner *process* for an owner that
-announced the capability above, and reports `terminated` only after the owner's own
-acknowledgement followed by the closing of its connection (`acknowledged` while that
-connection is still open, `unacknowledged` when nothing answered); a surviving client
-restarts a new owner, which describes itself with a different pid.
+`POST /admin/communicators/{id}/terminate` asks the owner *process* to stop, for an owner that
+announced the capability above, and says only what the server observed: `acknowledged_closed`
+(the addressed process acknowledged, then its connection closed), `acknowledged` (acknowledged,
+connection still open when the wait ended), `refused` (declined, or the acknowledgement came from
+another process) and `unacknowledged` (nothing answered; the connection is left alone). None of
+these is a process exit: the server has no way to observe the process, and the console says so.
+Exit is verified where the process runs (the owner's lock and socket are released and its pid is
+gone). One `client_message_id` runs once even when two requests arrive together; the second
+receives the first's outcome with `replayed: true`. A surviving client restarts a new owner, which
+describes itself with a different pid and `instance_id`.
 
 The page links a disconnected connection to a later one only on that identity: `same_process`
 (the same `instance_id` dialled again) or `same_runtime` (a different process announcing the
@@ -298,13 +380,17 @@ Worker auth transactions keep a mode-0600 digest-only pending marker in the nati
 home. A crashed worker or unknown write outcome requires verified readback before
 reoffering that generation. An exact verified credential pair can be acknowledged
 without replay; unresolved outcomes remain visible and preserve local credentials.
-The marker contains no credential bytes. A new native generation is independent. While a marker exists and the
-server's head differs from the local pair, the readback cannot decide which side is
-current: the launch is refused (nothing is replayed or overwritten blindly) with an
-explicit reason naming `.cxx-communicator-pending-auth.json` in the native credential
-directory. After comparing the host's credential with the server's, deleting the marker
-resumes normal arbitration at once (the next sync adopts a newer server head or
-re-offers a newer local credential through the compare-and-swap store).
+The marker contains no credential bytes. A new native generation is independent.
+A verified readback of the exact credential pair acknowledges the interrupted upload.
+If that readback instead supplies a strictly newer verified head for the same account
+and engine, Codex and Claude adopt it through their existing exact-generation session
+writer. A concurrent native change, logout or deletion wins; recovery never retries the
+upload. The result is reported as adoption, not upload acknowledgement. The pending
+marker is removed only after successful reconciliation and only while it still names
+the interrupted generation. A crash before marker cleanup can be reconciled again.
+An older or equal-but-different head, missing verification, or a changed account/session
+remains unresolved and refuses launch with the marker's explicit diagnostic. Timestamp
+comparison alone never authorizes re-offering a local credential or deleting its marker.
 
 Local `status`/`doctor` and the host Operations panel show content failures and
 per-scope auth progress. Server confirmation, local writes and native adoption are

@@ -68,7 +68,7 @@ async function open() {
     ws.once('message', (data: unknown) => resolve(String(data))),
   );
   ws.send(JSON.stringify({ type: 'hello', protocol: 1, username: 'tester', version: '0.9.71' }));
-  expect(JSON.parse(await ready)).toEqual({ type: 'ready', protocol: 1, control: ['terminate'] });
+  expect(JSON.parse(await ready)).toEqual({ type: 'ready', protocol: 1, control: ['terminate', 'owner_identity'] });
   return ws;
 }
 describe('communicator transport', () => {
@@ -458,6 +458,24 @@ describe('communicator effects that may already have happened', () => {
     const read = await frameReply(ws, { method: 'GET', path: '/host/wide' });
     expect(read.status).toBe(502);
     expect(code(read)).toBe('communicator_response_too_large');
+    ws.close();
+  });
+
+  it('measures UTF-8 wire bytes for a frame with non-ASCII headers', async () => {
+    await setup();
+    const ws = await open();
+    const real = app.inject.bind(app) as (...args: unknown[]) => Promise<unknown>;
+    const spy = vi.spyOn(app, 'inject').mockImplementation(((...args: unknown[]) => {
+      if ((args[0] as { url?: string }).url === '/host/utf8-wide') {
+        return Promise.resolve({ statusCode: 200, headers: { 'x-wide': 'é'.repeat(8 * 1024 * 1024) }, rawPayload: Buffer.from('ok') });
+      }
+      return real(...args);
+    }) as never);
+    const read = await frameReply(ws, { method: 'GET', path: '/host/utf8-wide' });
+    expect(read.status).toBe(502);
+    expect(code(read)).toBe('communicator_response_too_large');
+    spy.mockRestore();
+    expect((await frameReply(ws, { method: 'POST', path: '/auth/sessions' })).status).toBe(200);
     ws.close();
   });
 

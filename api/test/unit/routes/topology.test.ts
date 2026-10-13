@@ -207,7 +207,8 @@ describe('GET /admin/topology', () => {
 
 describe('owner control negotiation and POST /admin/communicators/:id/terminate', () => {
   /** An owner the way cxx behaves: announces itself only to a server that offered control. */
-  async function owner(app: FastifyInstance, behaviour: 'acks-and-exits' | 'silent' | 'refuses' | 'old', identity: { instance?: string; runtime?: string } = {}) {
+  async function owner(app: FastifyInstance, behaviour: 'acks-and-exits' | 'silent' | 'refuses' | 'old' | 'legacy' | 'wrong-process', identity: { instance?: string; runtime?: string } = {}) {
+    const instance = identity.instance ?? `proc-${randomUUID().slice(0, 8)}`;
     const ws = await app.injectWS('/host/communicator/connect', { headers: { 'x-api-key': 'host-one' } });
     const frames: Array<Record<string, unknown>> = [];
     const ready = new Promise<void>((resolve) => ws.once('message', (data: unknown) => {
@@ -221,14 +222,20 @@ describe('owner control negotiation and POST /admin/communicators/:id/terminate'
       frames.push(frame);
       if (frame.type !== 'terminate') return;
       if (behaviour === 'acks-and-exits') {
-        ws.send(JSON.stringify({ type: 'terminate_ack', request_id: frame.request_id, accepted: true, pid: 4242 }));
+        ws.send(JSON.stringify({ type: 'terminate_ack', request_id: frame.request_id, accepted: true, pid: 4242, instance_id: frame.owner_instance_id }));
         setTimeout(() => ws.terminate(), 30);
       } else if (behaviour === 'refuses') {
-        ws.send(JSON.stringify({ type: 'terminate_ack', request_id: frame.request_id, accepted: false, reason: 'unsupported' }));
+        ws.send(JSON.stringify({ type: 'terminate_ack', request_id: frame.request_id, accepted: false, reason: 'unsupported', instance_id: frame.owner_instance_id }));
+      } else if (behaviour === 'wrong-process') {
+        ws.send(JSON.stringify({ type: 'terminate_ack', request_id: frame.request_id, accepted: true, pid: 1, instance_id: 'a-different-process' }));
       }
     });
-    if (behaviour !== 'old' && (frames[0]?.control as string[] | undefined)?.includes('terminate')) {
-      ws.send(JSON.stringify({ type: 'capabilities', terminate: true, pid: 4242, started_at: '2026-10-13T17:00:00Z', ...(identity.instance ? { instance_id: identity.instance } : {}), ...(identity.runtime ? { runtime_id: identity.runtime } : {}) }));
+    if (behaviour === 'legacy' && (frames[0]?.control as string[] | undefined)?.includes('terminate')) {
+      // What a new owner sends when the server only offered `terminate`: the legacy
+      // fields, no identity, and no claim that it can be stopped remotely.
+      ws.send(JSON.stringify({ type: 'capabilities', terminate: false, pid: 4242, started_at: '2026-10-13T17:00:00Z' }));
+    } else if (behaviour !== 'old' && behaviour !== 'legacy' && (frames[0]?.control as string[] | undefined)?.includes('terminate')) {
+      ws.send(JSON.stringify({ type: 'capabilities', terminate: true, pid: 4242, started_at: '2026-10-13T17:00:00Z', instance_id: instance, ...(identity.runtime ? { runtime_id: identity.runtime } : {}) }));
     }
     await new Promise((resolve) => setTimeout(resolve, 100));
     return { ws, frames, id: communicatorRegistry.snapshot().at(-1)!.view.id };
@@ -239,24 +246,51 @@ describe('owner control negotiation and POST /admin/communicators/:id/terminate'
   it('offers control in `ready` and shows what the owner says about its own process', async () => {
     const app = await build('owner', true);
     const { ws, frames } = await owner(app, 'acks-and-exits');
-    expect(frames[0]).toEqual({ type: 'ready', protocol: 1, control: ['terminate'] });
+    expect(frames[0]).toEqual({ type: 'ready', protocol: 1, control: ['terminate', 'owner_identity'] });
     const { body } = await topology(app);
-    expect(body.communicators[0]).toMatchObject({ can_terminate: true, process: { pid: 4242, started_at: '2026-10-13T17:00:00Z', instance_id: null, runtime_id: null } });
+    expect(body.communicators[0]).toMatchObject({ can_terminate: true, process: { pid: 4242, started_at: '2026-10-13T17:00:00Z', runtime_id: null } });
+    expect(body.communicators[0]!.process).toMatchObject({ instance_id: expect.stringMatching(/^proc-/) });
     ws.close();
   });
 
-  it('terminates only on the owner\'s acknowledgement, then reports the closed connection and the pid', async () => {
+  it('reports the owner\'s acknowledgement and its closed connection — and that the server cannot see the exit', async () => {
     const app = await build('owner', true);
     const { ws, id, frames } = await owner(app, 'acks-and-exits');
     const res = await post(app, id, { client_message_id: randomUUID(), expect: { host_id: 1, username: 'tester' }, note: 'wedged' });
     const body = res.json().data ?? res.json();
     expect(res.statusCode).toBe(200);
-    expect(body).toMatchObject({ outcome: 'terminated', acknowledged: true, connection_closed: true, process: { pid: 4242 }, replayed: false });
+    expect(body).toMatchObject({ outcome: 'acknowledged_closed', acknowledged: true, connection_closed: true, process: { pid: 4242 }, replayed: false });
+    // The frame names the owner process it is for.
+    expect(frames.find((f) => f.type === 'terminate')).toMatchObject({ owner_instance_id: expect.stringMatching(/^proc-/) });
     expect(frames.find((f) => f.type === 'terminate')).toMatchObject({ reason: 'admin' });
     expect(communicatorRegistry.has(id)).toBe(false);
     const audit = inserted.find((row) => row.type === 'communicator.terminated') as { payload: Record<string, unknown> } | undefined;
-    expect(audit!.payload).toMatchObject({ connection_id: id, outcome: 'terminated', reported_pid: 4242, note: 'wedged', admin_user_id: 7 });
+    expect(audit!.payload).toMatchObject({ connection_id: id, outcome: 'acknowledged_closed', reported_pid: 4242, owner_instance_id: expect.stringMatching(/^proc-/), note: 'wedged', admin_user_id: 7 });
     expect((await topology(app)).body.recent_disconnects[0]).toMatchObject({ id, reason: 'admin_terminate', pid: 4242 });
+    ws.close();
+  });
+
+  it('does not believe an acknowledgement from a different process on the socket', async () => {
+    const app = await build('owner', true);
+    const { ws, id } = await owner(app, 'wrong-process');
+    const res = await post(app, id, { client_message_id: randomUUID() });
+    expect((res.json().data ?? res.json())).toMatchObject({ outcome: 'refused', acknowledged: false, connection_closed: false });
+    expect(communicatorRegistry.get(id)!.closing).toBe(false);
+    ws.close();
+  });
+
+  it('dispatches once when two clicks with the same key arrive together', async () => {
+    const app = await build('owner', true);
+    const { ws, id, frames } = await owner(app, 'acks-and-exits');
+    const key = randomUUID();
+    const [first, second] = await Promise.all([post(app, id, { client_message_id: key }), post(app, id, { client_message_id: key })]);
+    expect(first.statusCode).toBe(200);
+    expect(second.statusCode).toBe(200);
+    expect(frames.filter((f) => f.type === 'terminate')).toHaveLength(1);
+    const results = [first, second].map((r) => r.json().data ?? r.json());
+    expect(results.map((r) => r.replayed).sort()).toEqual([false, true]);
+    expect(results[0].outcome).toBe(results[1].outcome);
+    expect(inserted.filter((row) => row.type === 'communicator.terminated')).toHaveLength(1);
     ws.close();
   });
 
@@ -285,6 +319,18 @@ describe('owner control negotiation and POST /admin/communicators/:id/terminate'
     const res = await post(app, id, { client_message_id: randomUUID() });
     expect(res.statusCode).toBe(409);
     expect(frames.some((f) => f.type === 'terminate')).toBe(false);
+    ws.close();
+  });
+
+  it('accepts the legacy capabilities an owner sends without identity, and offers no stop for it', async () => {
+    const app = await build('owner', true);
+    const { ws, id, frames } = await owner(app, 'legacy');
+    const { body } = await topology(app);
+    expect(body.communicators[0]).toMatchObject({ can_terminate: false, process: { pid: 4242, instance_id: null, runtime_id: null } });
+    const res = await post(app, id, { client_message_id: randomUUID() });
+    expect(res.statusCode).toBe(409);
+    expect(frames.some((f) => f.type === 'terminate')).toBe(false);
+    expect(communicatorRegistry.has(id)).toBe(true);
     ws.close();
   });
 

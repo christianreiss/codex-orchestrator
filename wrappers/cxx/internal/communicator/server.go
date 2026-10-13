@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math/rand"
@@ -43,11 +44,14 @@ type server struct {
 	lastUsed         time.Time
 	requests, shared uint64
 	lastError        string
-	lastSync         string
-	calls            map[string]*sharedCall
-	dirty            chan struct{}
-	authDirty        chan struct{}
-	jobs             map[string]syncJob
+	// refusal is the server's host-credential verdict (401 / 403 host_*) on the last
+	// refused handshake; nil once a connection succeeds or fails for another reason.
+	refusal   *handshakeRefusal
+	lastSync  string
+	calls     map[string]*sharedCall
+	dirty     chan struct{}
+	authDirty chan struct{}
+	jobs      map[string]syncJob
 	// failures counts consecutive failed connection attempts; zero means the
 	// control connection is either up or still being established for the first time.
 	failures int
@@ -55,14 +59,23 @@ type server struct {
 	// flight from an idle backoff, and kick wakes the backoff for an on-demand redial.
 	attempting     bool
 	attempts       uint64
+	attemptStarted time.Time
 	lastAttemptEnd time.Time
 	kick           chan struct{}
 	policyBusy     atomic.Bool
+	// invalidatedAt is when the newest server invalidation arrived (a pushed
+	// frame or a reconnect). A content exchange that started earlier cannot
+	// satisfy a scheduled pass; everConnected tells a first connection, which has
+	// missed nothing, from a reconnect.
+	invalidatedAt time.Time
+	everConnected bool
 	// stop ends the owner (set by serve); terminating makes a remote terminate
 	// request single-shot.
 	stop        context.CancelFunc
 	terminating atomic.Bool
-	runtimeID   string
+	// draining is set once a remote stop is accepted: no new application work is admitted.
+	draining  atomic.Bool
+	runtimeID string
 }
 
 func (s *server) configSnapshot() *config.Config {
@@ -153,9 +166,32 @@ func (s *server) supervise(ctx context.Context, cancel context.CancelFunc, httpS
 }
 
 func (s *server) invalidate() {
+	s.mu.Lock()
+	s.invalidatedAt = time.Now()
+	s.mu.Unlock()
+	s.signalDirty()
+}
+
+// signalDirty asks the scheduler for a forced pass without recording that the
+// server's state changed.
+func (s *server) signalDirty() {
 	select {
 	case s.dirty <- struct{}{}:
 	default:
+	}
+}
+
+// noteFailureLocked records why the last attempt ended. A host-credential verdict
+// from the server is kept only until the next attempt ends, so a stale one is never
+// replayed to a request after the cause is gone. s.mu must be held.
+func (s *server) noteFailureLocked(err error) {
+	if err != nil {
+		s.lastError = err.Error()
+	}
+	s.refusal = nil
+	var refused *handshakeRefusal
+	if errors.As(err, &refused) && refused.hostVerdict() {
+		s.refusal = refused
 	}
 }
 
@@ -164,6 +200,7 @@ func (s *server) beginAttempt() {
 	s.mu.Lock()
 	s.attempting = true
 	s.attempts++
+	s.attemptStarted = time.Now()
 	s.mu.Unlock()
 	select {
 	case <-s.kick:
@@ -229,12 +266,22 @@ func (s *server) connectLoop(ctx context.Context) {
 			s.conn = c
 			s.fallback = false
 			s.lastError = ""
+			s.refusal = nil
 			s.failures = 0
 			s.attempting = false
 			s.lastAttemptEnd = time.Now()
+			firstConnect := !s.everConnected
+			s.everConnected = true
 			s.mu.Unlock()
 			delay = time.Second
-			s.invalidate()
+			if firstConnect {
+				// Nothing was missed by an owner that never had a connection, and a
+				// launch's bootstrap that started while this connection was still
+				// being made reads server state only after it: it stays fresh.
+				s.signalDirty()
+			} else {
+				s.invalidate()
+			}
 			timer := time.NewTicker(15 * time.Second)
 		live:
 			for {
@@ -268,9 +315,7 @@ func (s *server) connectLoop(ctx context.Context) {
 		s.failures++
 		s.attempting = false
 		s.lastAttemptEnd = time.Now()
-		if err != nil {
-			s.lastError = err.Error()
-		}
+		s.noteFailureLocked(err)
 		s.mu.Unlock()
 		// The policy read may block on a dead network for its whole timeout; it must
 		// not hold back the next (possibly requested) connection attempt.
@@ -296,6 +341,13 @@ func (s *server) connectLoop(ctx context.Context) {
 }
 
 func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	// A stopping owner admits nothing new (status excepted, and the leases and
+	// streams already open run down with the process). This is a definitive
+	// "not sent": callers retry against the owner that replaces this one.
+	if s.draining.Load() && r.URL.Path != "/_comm/status" {
+		writeUnavailableCause(w, false, "communicator is stopping at the server's request")
+		return
+	}
 	s.mu.Lock()
 	if r.URL.Path != "/_comm/status" {
 		s.lastUsed = time.Now()
@@ -434,7 +486,7 @@ func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	c := s.waitConnection(r.Context())
 	if c == nil {
-		s.writeUnavailable(w, false)
+		s.writeControlUnavailable(w)
 		return
 	}
 	f := frame{Method: r.Method, Path: r.URL.RequestURI(), Headers: headers(r.Header), Body: body}

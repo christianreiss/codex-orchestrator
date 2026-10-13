@@ -55,8 +55,9 @@ func TestIndependentRemoteTerminateExitLockAndSurvivingClients(t *testing.T) {
 	}
 
 	type owner struct {
-		ws  *websocket.Conn
-		pid int
+		ws       *websocket.Conn
+		pid      int
+		instance string
 	}
 	var mu sync.Mutex
 	var current *owner
@@ -73,7 +74,7 @@ func TestIndependentRemoteTerminateExitLockAndSurvivingClients(t *testing.T) {
 			switch f["type"] {
 			case "hello":
 				// The server announces that it may ask this owner to stop.
-				websocket.JSON.Send(ws, map[string]any{"type": "ready", "protocol": 1, "control": []string{"terminate"}})
+				websocket.JSON.Send(ws, map[string]any{"type": "ready", "protocol": 1, "control": []string{"terminate", "owner_identity"}})
 			case "heartbeat":
 				websocket.JSON.Send(ws, map[string]any{"type": "heartbeat"})
 			case "capabilities":
@@ -82,6 +83,7 @@ func TestIndependentRemoteTerminateExitLockAndSurvivingClients(t *testing.T) {
 					t.Errorf("incomplete capabilities frame: %v", f)
 				}
 				me.pid = int(pid)
+				me.instance, _ = f["instance_id"].(string)
 				mu.Lock()
 				current = me
 				mu.Unlock()
@@ -198,7 +200,7 @@ func TestIndependentRemoteTerminateExitLockAndSurvivingClients(t *testing.T) {
 	mu.Lock()
 	target := current
 	mu.Unlock()
-	if err := websocket.JSON.Send(target.ws, frame{Type: "terminate", RequestID: "t-1", Reason: "admin"}); err != nil {
+	if err := websocket.JSON.Send(target.ws, frame{Type: "terminate", RequestID: "t-1", Reason: "admin", OwnerInstanceID: target.instance}); err != nil {
 		t.Fatal(err)
 	}
 	select {

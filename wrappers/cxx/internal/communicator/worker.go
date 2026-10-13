@@ -76,7 +76,7 @@ func WorkerCommand(ctx context.Context, in io.Reader, out io.Writer, dispatch fu
 		}
 	}
 	result := dispatch(ctx, cfg, req)
-	if authWork && generation != "" && !ambiguous(result) && (!req.ReconcileOnly || !result.Deferred && result.Error == nil) {
+	if authWork && generation != "" && pendingGeneration(req.Job) == generation && !ambiguous(result) && (!req.ReconcileOnly || !result.Deferred && result.Error == nil) {
 		_ = os.Remove(pendingPath(req.Job))
 	}
 	if json.NewEncoder(out).Encode(result) != nil {

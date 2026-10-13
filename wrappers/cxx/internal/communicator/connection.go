@@ -41,6 +41,8 @@ type frame struct {
 	Control   []string `json:"control,omitempty"`
 	RequestID string   `json:"request_id,omitempty"`
 	Reason    string   `json:"reason,omitempty"`
+	// OwnerInstanceID names the owner process a `terminate` is meant for.
+	OwnerInstanceID string `json:"owner_instance_id,omitempty"`
 }
 
 type connection struct {
@@ -57,8 +59,11 @@ type connection struct {
 	authChanged   func(string, int64)
 	// onTerminate is set when this owner can be stopped remotely; control is
 	// true once the server announced that it may ask.
-	onTerminate func(string)
+	onTerminate func(reason string, acked <-chan struct{})
 	control     bool
+	// terminateSeen remembers request ids already answered, so a repeated
+	// `terminate` is answered again but stops nothing twice.
+	terminateSeen map[string]bool
 	// runtimeID names the local namespace this owner serves (see control.go).
 	runtimeID string
 }
@@ -155,8 +160,11 @@ func (c *connection) receive() {
 				close(c.ready)
 				ready = true
 				if announces(f.Control, controlTerminate) {
-					c.control = true
-					go c.announceCapabilities()
+					// Remote stop needs a server that can aim it at this process;
+					// one that only knows "terminate" is told nothing it cannot parse.
+					identity := announces(f.Control, controlOwnerIdentity)
+					c.control = identity
+					go c.announceCapabilities(identity)
 				}
 			}
 		case "daemon_event", "daemon_closed":
@@ -256,6 +264,14 @@ func (c *connection) finishDaemon(ch chan json.RawMessage) {
 	c.mu.Unlock()
 }
 func (c *connection) request(ctx context.Context, f frame) (frame, bool, error) {
+	// A connection that already ended cannot have carried this request: say so
+	// (definitively not sent, so the caller may retry) instead of attempting a write
+	// whose failure would have to be reported as an unknown outcome.
+	select {
+	case <-c.done:
+		return frame{}, false, errors.New("communicator connection lost")
+	default:
+	}
 	f.Type = "request"
 	f.ID = uuid.NewString()
 	ch := make(chan frame, 1)
@@ -337,5 +353,30 @@ func handshakeRejection(ctx context.Context, cfg *config.Config, transport *http
 	if detail == "" {
 		detail = oneLine(string(raw), 120)
 	}
-	return fmt.Errorf("communicator handshake rejected: HTTP %d %s", res.StatusCode, oneLine(detail, 200))
+	return &handshakeRefusal{Status: res.StatusCode, Code: strings.TrimSpace(verdict.Code), Body: raw, detail: oneLine(detail, 200)}
+}
+
+// handshakeRefusal is the server's own verdict on a refused upgrade. Its text is
+// what operators read in status and 503 bodies; the structured fields let the owner
+// answer a request that never left this machine exactly as direct HTTPS would have.
+type handshakeRefusal struct {
+	Status int
+	Code   string
+	Body   []byte
+	detail string
+}
+
+func (e *handshakeRefusal) Error() string {
+	return fmt.Sprintf("communicator handshake rejected: HTTP %d %s", e.Status, e.detail)
+}
+
+// hostVerdict reports whether the refusal says something about this host's
+// credentials rather than about the control channel: 401 (missing or invalid key,
+// IP binding, reverse DNS, expired temporary host) and 403 host_<status>. Direct
+// HTTPS gives every route that same answer, and wrappers classify it by status
+// (a credential verdict is terminal, an outage is retried and falls back to cached
+// auth). Anything else, such as a switched-off communicator or the API kill switch,
+// is the channel being unavailable and stays a retryable 503.
+func (e *handshakeRefusal) hostVerdict() bool {
+	return e.Status == http.StatusUnauthorized || e.Status == http.StatusForbidden && strings.HasPrefix(e.Code, "host_")
 }

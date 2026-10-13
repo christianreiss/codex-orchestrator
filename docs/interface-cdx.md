@@ -1676,6 +1676,10 @@ CoCo traffic through a per-user Unix socket and one multiplexed server WebSocket
 Provider traffic, session identities and account/refresh ownership retain their existing
 contracts. See [communicator protocol, lifecycle and rollout](communicator.md).
 
+From cxx 0.9.78, the verified config is bound before command dispatch, including
+after expiry recovery or custom `--config` selection. Commands outside the native
+lifecycle, such as `status` and auth helpers, therefore also use the communicator.
+
 From cxx 0.9.74, managed MCP errors preserve the original request ID and bounded
 `code`, `http_status` and `outcome_unknown` data. Unknown or invalid replies require
 result verification before retrying with the original work identifiers. The stdio
@@ -1693,4 +1697,10 @@ replaced by short native-home fences; local credential changes and server auth
 invalidations converge through the existing validated writers. Local materialization
 is reported separately from native adoption. Signed rollback drains auth work and
 hands polling back to the existing wrapper without restarting the native CLI.
+An interrupted auth upload is reconciled by readback without replay. A strictly newer
+verified canonical for the same account may replace only the exact observed native
+generation through the session writer; concurrent login, rotation and logout win.
+Equal, older or unverified heads remain unresolved. Successful recovery reports
+adoption and then clears the matching pending marker, never an upload acknowledgement.
+
 See [Communicator ownership and rollout](communicator.md#central-sync-ownership-cxx-0973).

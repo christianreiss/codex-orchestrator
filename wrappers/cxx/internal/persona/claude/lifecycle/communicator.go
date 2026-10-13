@@ -6,8 +6,10 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"time"
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/accountpool"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/authnotice"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/claude"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/communicator"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
@@ -128,6 +130,8 @@ func CommunicatorWork(ctx context.Context, cfg *config.Config, req communicator.
 		out.Auth = reconciled.Auth
 		out.AuthSynced = reconciled.Adopted
 		out.Uploaded = reconciled.Uploaded
+		out.Adopted = reconciled.Adopted
+		out.Generation = reconciled.Generation
 		out.HostSecure = reconciled.HostSecure
 	}
 	return out
@@ -145,19 +149,59 @@ func reconcileUnknownAuth(ctx context.Context, client *orchestrator.Client, path
 		out.Error = syncError(err)
 		return out
 	}
+	if client.Pool == nil {
+		client.Pool = accountpool.Load("claude", path, client.BaseURL)
+	}
+	account, session := client.Pool.Binding()
 	resp, err := client.AuthRetrieve(ctx, "")
 	if err != nil {
 		out.Error = syncError(err)
 		return out
 	}
-	if resp == nil || (resp.Engine != "" && resp.Engine != "claude") || resp.VerificationState != "verified" || !same(resp.Auth) {
-		out.Error = &communicator.SyncError{Message: "Previous auth upload outcome remains unknown; local credentials retained"}
+	out.Error = &communicator.SyncError{Message: "Previous auth upload outcome remains unknown; local credentials retained"}
+	currentAccount, currentSession := client.Pool.Binding()
+	if resp == nil || (resp.Engine != "" && resp.Engine != "claude") || resp.VerificationState != "verified" {
 		return out
 	}
-	acknowledged, err := acknowledge(resp.CanonicalDigest)
-	out.Error = syncError(err)
-	out.Deferred = !acknowledged
-	out.Uploaded = acknowledged
+	if same(resp.Auth) {
+		acknowledged, err := acknowledge(resp.CanonicalDigest)
+		out.Error = syncError(err)
+		out.Deferred = !acknowledged
+		out.Uploaded = acknowledged
+	} else {
+		// Identical verified credentials retain the existing acknowledgement
+		// behavior even for legacy/unbound jobs. Replacing credentials needs
+		// an unchanged explicit binding; a newly selected account is not proof.
+		if resp.AccountID != account || currentAccount != account || currentSession != session {
+			return out
+		}
+		// Readback is never permission to retry the interrupted store. A verified,
+		// strictly newer canonical can replace only the exact local generation we
+		// observed, through the existing writer that preserves logout/native races.
+		serverStamp, serverErr := claude.LastRefreshFromRaw(resp.Auth)
+		if serverErr != nil {
+			serverStamp, serverErr = time.Parse(time.RFC3339Nano, resp.CanonicalLastRefresh)
+		}
+		if !snapshot.Usable || snapshot.LastRefresh.IsZero() || serverErr != nil || !serverStamp.After(snapshot.LastRefresh) ||
+			serverStamp.Before(time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC)) || serverStamp.After(time.Now().Add(5*time.Minute)) ||
+			!claude.ServerAuthMayReplace(snapshot, resp.Auth, resp.CanonicalLastRefresh, resp.VerificationState, false) {
+			return out
+		}
+		adopted, applied, applyErr := claude.WriteSessionAuthIfCurrentWithDigest(ctx, resp.Auth, resp.CanonicalDigest, resp.VerificationState, generation)
+		if applyErr != nil {
+			out.Error = syncError(applyErr)
+			return out
+		}
+		if !applied {
+			return out
+		}
+		out.Generation = adopted.Digest
+		out.Adopted = true
+		out.AuthSynced = true
+		out.Deferred = false
+		out.Error = nil
+		_ = authnotice.Publish("claude", out.Generation)
+	}
 	out.Auth, _ = json.Marshal(resp)
 	if secure, known := resp.HostSecurity(); known {
 		out.HostSecure = &secure

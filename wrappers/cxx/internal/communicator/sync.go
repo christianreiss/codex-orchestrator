@@ -60,7 +60,23 @@ type scopeState struct {
 	running      bool
 	contentError string
 	localError   string
+	// contentFresh is when the newest completed bootstrap/content worker for this
+	// scope STARTED. A worker that started after the server's last invalidation
+	// (server.invalidatedAt) read state no older than anything the scheduler could
+	// still be waiting to learn.
+	contentFresh time.Time
+	born         time.Time
 }
+
+// contentPeriod is the periodic reconciliation interval of a scope's content.
+const contentPeriod = 5 * time.Minute
+
+// initialContentGrace holds back a new scope's first scheduled content pass. The
+// session that registered the scope runs its own bootstrap within milliseconds;
+// scheduling the pass first would make that bootstrap repeat it behind the gate.
+// An invalidation, or a scope nobody bootstraps, is never held longer than this
+// plus one scheduler tick.
+const initialContentGrace = 1500 * time.Millisecond
 
 var syncEnvKeys = []string{"HOME", "CODEX_HOME", "CLAUDE_CONFIG_DIR", "GROK_HOME", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME", "CDX_CONFIG_PATH", "CLX_CONFIG_PATH", "CGX_CONFIG_PATH"}
 
@@ -210,7 +226,7 @@ func (s *server) stateLocked(job syncJob) *scopeState {
 	id := stateID(job)
 	state := s.scopes[id]
 	if state == nil {
-		state = &scopeState{gate: make(chan struct{}, 1), auth: AuthStatus{Type: "auth_state", Scope: id, Engine: job.Engine, State: "pending", NativeAdoption: "unknown"}}
+		state = &scopeState{gate: make(chan struct{}, 1), born: time.Now(), auth: AuthStatus{Type: "auth_state", Scope: id, Engine: job.Engine, State: "pending", NativeAdoption: "unknown"}}
 		s.scopes[id] = state
 	}
 	state.lastUsed = time.Now()
@@ -245,10 +261,11 @@ type syncCall struct {
 	result SyncResult
 }
 
-func (s *server) runSync(ctx context.Context, in SyncRequest) SyncResult {
-	if in.Operation == "auth" || in.IncludeAuth {
-		return s.executeSync(ctx, in)
-	}
+// coalesceKey names the exchange a content request would perform. Scheduler
+// passes are keyed apart from explicit callers: a scheduled pass can be
+// satisfied without any exchange, and an explicit caller that joined it would
+// be handed that empty result instead of the resources it asked for.
+func coalesceKey(in SyncRequest) string {
 	keyRequest := in
 	keyRequest.Job.Auth = false
 	keyRequest.Job.AuthPath = ""
@@ -256,7 +273,17 @@ func (s *server) runSync(ctx context.Context, in SyncRequest) SyncResult {
 	keyRequest.Job.SessionID = ""
 	keyRequest.Job.Broker = ""
 	raw, _ := json.Marshal(keyRequest)
-	key := string(raw)
+	if in.Scheduled {
+		return "scheduled\x00" + string(raw)
+	}
+	return string(raw)
+}
+
+func (s *server) runSync(ctx context.Context, in SyncRequest) SyncResult {
+	if in.Operation == "auth" || in.IncludeAuth {
+		return s.executeSync(ctx, in)
+	}
+	key := coalesceKey(in)
 	s.mu.Lock()
 	if s.syncCalls == nil {
 		s.syncCalls = map[string]*syncCall{}
@@ -290,6 +317,11 @@ func (s *server) runSync(ctx context.Context, in SyncRequest) SyncResult {
 		return call.result
 	}
 }
+
+// authWorkerTimeout bounds a credential sync worker. Anything it waits on, notably the
+// control connection (connectWaitFirst), must give an answer well before this.
+const authWorkerTimeout = 15 * time.Second
+
 func (s *server) executeSync(ctx context.Context, in SyncRequest) (out SyncResult) {
 	s.mu.Lock()
 	state := s.stateLocked(in.Job)
@@ -302,6 +334,23 @@ func (s *server) executeSync(ctx context.Context, in SyncRequest) (out SyncResul
 		return syncFailure(ctx.Err())
 	}
 	defer func() { <-state.gate }()
+	if in.Scheduled && in.Operation == "content" {
+		// A launch's own bootstrap normally completes the scope's initial pass while
+		// the scheduler's pass for the same new scope waits on this gate. Running the
+		// identical exchange again only delays every operation queued behind it.
+		s.mu.Lock()
+		satisfied := !state.contentFresh.IsZero() && state.contentFresh.After(s.invalidatedAt) && time.Since(state.contentFresh) < contentPeriod
+		if satisfied {
+			// Reconcile again one period after the exchange that satisfied this pass.
+			if due := state.contentFresh.Add(contentPeriod); state.nextContent.Before(due) {
+				state.nextContent = due
+			}
+			s.mu.Unlock()
+			return SyncResult{}
+		}
+		s.mu.Unlock()
+	}
+	workerStart := time.Now()
 	defer func() {
 		if out.Error != nil {
 			s.mu.Lock()
@@ -335,7 +384,7 @@ func (s *server) executeSync(ctx context.Context, in SyncRequest) (out SyncResul
 	}
 	timeout := 90 * time.Second
 	if in.Operation == "auth" {
-		timeout = 15 * time.Second
+		timeout = authWorkerTimeout
 	}
 	work, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
@@ -404,6 +453,9 @@ func (s *server) executeSync(ctx context.Context, in SyncRequest) (out SyncResul
 		}
 		if state.contentError == "" {
 			s.lastSync = time.Now().UTC().Format(time.RFC3339)
+			if (in.Operation == "bootstrap" || in.Operation == "content") && !in.ReconcileOnly && len(out.Resources) > 0 && !out.Deferred {
+				state.contentFresh = workerStart
+			}
 		}
 	}
 	s.mu.Unlock()
@@ -519,6 +571,9 @@ func (s *server) syncLoop(ctx context.Context) {
 			}
 			authDue := job.Auth && (time.Now().After(state.nextAuth) || digest != state.lastFile)
 			contentDue := time.Now().After(state.nextContent)
+			if contentDue && !force && state.nextContent.IsZero() && state.contentFresh.IsZero() && time.Since(state.born) < initialContentGrace {
+				contentDue = false
+			}
 			if state.running || (!authDue && !contentDue) {
 				s.mu.Unlock()
 				continue
@@ -559,7 +614,7 @@ func (s *server) syncLoop(ctx context.Context) {
 					s.mu.Unlock()
 				}
 				if contentDue && !(job.Owner && signedSyncDisabled(job)) {
-					s.runSync(ctx, SyncRequest{Job: job, Operation: "content"})
+					s.runSync(ctx, SyncRequest{Job: job, Operation: "content", Scheduled: true})
 				}
 			}(job, state, authDue, contentDue)
 		}

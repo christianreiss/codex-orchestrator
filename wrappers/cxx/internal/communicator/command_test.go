@@ -65,6 +65,18 @@ func TestMCPResponsesRequireOriginalCorrelation(t *testing.T) {
 	}
 }
 
+func TestMCPResponsesCannotReportBothResultAndError(t *testing.T) {
+	for _, body := range []string{
+		`{"jsonrpc":"2.0","id":1,"result":{},"error":{"code":-32603,"message":"failed"}}`,
+		`{"jsonrpc":"2.0","id":1,"result":null,"error":{"code":-32603,"message":"failed"}}`,
+		`{"jsonrpc":"2.0","id":1,"result":{},"error":null}`,
+	} {
+		if mcpResponseValid(json.RawMessage(`1`), []byte(body)) {
+			t.Fatalf("accepted contradictory MCP response: %s", body)
+		}
+	}
+}
+
 func TestMCPCorrelationUsesJSONIDValues(t *testing.T) {
 	for _, test := range []struct {
 		request, reply string
@@ -83,6 +95,21 @@ func TestMCPCorrelationUsesJSONIDValues(t *testing.T) {
 		body := []byte(`{"jsonrpc":"2.0","id":` + test.reply + `,"result":null}`)
 		if got := mcpResponseValid(json.RawMessage(test.request), body); got != test.equal {
 			t.Errorf("request ID %s, reply ID %s: matched=%v, want %v", test.request, test.reply, got, test.equal)
+		}
+	}
+}
+
+func TestMCPErrorEnvelopeRequiresIntegerCodeAndStringMessage(t *testing.T) {
+	for _, invalid := range []string{`null`, `[]`, `{}`, `{"code":-32603}`, `{"message":"failed"}`, `{"code":"-32603","message":"failed"}`, `{"code":1.5,"message":"failed"}`, `{"code":-32603,"message":null}`, `{"code":null,"message":"failed"}`} {
+		body := []byte(`{"jsonrpc":"2.0","id":1,"error":` + invalid + `}`)
+		if mcpResponseValid(json.RawMessage(`1`), body) {
+			t.Errorf("accepted malformed error envelope: %s", body)
+		}
+	}
+	for _, valid := range []string{`{"code":0,"message":""}`, `{"code":-32603,"message":"failed","data":null}`} {
+		body := []byte(`{"jsonrpc":"2.0","id":1,"error":` + valid + `}`)
+		if !mcpResponseValid(json.RawMessage(`1`), body) {
+			t.Errorf("rejected valid error: %s", body)
 		}
 	}
 }
