@@ -15,6 +15,7 @@ import { registerAdminOverviewSettingsRoutes } from '../../src/routes/admin-over
 import { registerAdminContentRoutes } from '../../src/routes/admin-content/index.js';
 import { registerAdminMemoriesRoutes } from '../../src/routes/admin/memories/index.js';
 import { registerAdminManualRoutes } from '../../src/routes/admin/manual/index.js';
+import { registerAdminTopologyRoutes } from '../../src/routes/admin/topology/index.js';
 import { loadTestEnv, testKeyring } from '../helpers/test-keyring.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -81,6 +82,7 @@ async function buildAdminSpaApp(root: string): Promise<FastifyInstance> {
   await registerAdminContentRoutes(app, ctx);
   await registerAdminMemoriesRoutes(app, ctx);
   await registerAdminManualRoutes(app, ctx);
+  await registerAdminTopologyRoutes(app, ctx);
   await registerStaticAdminRoutes(app, ctx);
 
   await app.ready();
@@ -110,6 +112,8 @@ describe('admin SPA navigation collisions', () => {
     expect(urls.length).toBeGreaterThan(20);
     expect(urls).toContain('/admin');
     expect(urls).toContain('/admin/hosts');
+    // The topology page shares its path with `GET /admin/topology`.
+    expect(urls).toContain('/admin/topology');
   });
 
   it.each(urls)('serves the SPA shell for browser navigation to %s', async (url) => {

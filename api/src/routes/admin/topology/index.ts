@@ -4,6 +4,7 @@ import type { RouteContext } from '../../index.js';
 import { ConflictError, NotFoundError } from '../../../http/errors.js';
 import { roleHasCapability } from '../../../security/capabilities.js';
 import { createAdminEventsService } from '../../../services/admin-events.js';
+import { adminSpaHtmlPreHandler } from '../pages/static.js';
 import { communicatorRegistry } from '../../../services/topology/communicator-registry.js';
 import { TopologyService } from '../../../services/topology/service.js';
 
@@ -52,9 +53,12 @@ const IDEMPOTENCY_MAX = 256;
 export async function registerAdminTopologyRoutes(app: FastifyInstance, ctx: RouteContext): Promise<void> {
   const topology = new TopologyService(ctx);
   const events = createAdminEventsService(ctx.db);
+  // `/admin/topology` is both this JSON snapshot and the console's own page: a
+  // browser navigation (text/html) gets the SPA shell, the client's JSON call the data.
+  const adminSpa = adminSpaHtmlPreHandler(ctx);
   const recent = new Map<string, { at: number; connectionId: string; result: DisconnectResult }>();
 
-  app.get('/admin/topology', { preHandler: app.requireAdmin }, async (req) => {
+  app.get('/admin/topology', { preHandler: [adminSpa, app.requireAdmin] }, async (req) => {
     const snapshot = await topology.snapshot();
     // Sessions are agent-portal data. `hosts.read` opens this route; a role that
     // may read hosts but not the portal sees the communicators without them.
