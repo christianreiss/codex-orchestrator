@@ -303,7 +303,7 @@
           <Button variant="outline" class="w-full justify-start text-destructive" disabled={!canPortal || communicator.health === "closing"} onclick={() => begin("terminate", communicator.id)}>
             Stop the communicator process…
           </Button>
-          <p class="text-xs text-muted-foreground">Asks the process (pid {communicator.process?.pid ?? "?"}) to exit. Reported stopped only once it acknowledges and its connection closes. A client starts a new one when needed.</p>
+          <p class="text-xs text-muted-foreground">Asks the process (pid {communicator.process?.pid ?? "?"}, its own report) to exit. The result says what the server observed: its acknowledgement and whether its connection closed, not a confirmed exit. A client starts a new one when needed.</p>
         {:else}
           <p class="text-xs text-muted-foreground">This communicator did not announce that it can be stopped remotely, so only its connection can be closed from here.</p>
         {/if}
