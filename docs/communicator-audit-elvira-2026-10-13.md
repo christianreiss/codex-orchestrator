@@ -176,6 +176,9 @@ four communicator/Codex/Claude/Grok suites against this snapshot. The subsequent
 `f89fc864a6a7a33fdfc4fc6578a297c74767ba1f` change only improves the refusal
 diagnostic for an unresolved auth upload; both engines' lifecycle and
 orchestrator race suites passed after independently reviewing that change.
+The final caller-retry regressions from `0aa3810b` were also reviewed and
+passed independently with `go test -race -p 1 ./internal/communicator
+-run '^TestCallerRetry' -count=1 -timeout=90s`.
 
 The identical private cxx 0.9.76 binary installed on all three VMs has SHA256
 `70d49a28164919d6b01fd62fc6dfcfba2cb697680c020ce8e199a56795a35259`.
