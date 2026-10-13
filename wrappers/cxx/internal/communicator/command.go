@@ -82,6 +82,11 @@ func Command(args []string, in io.Reader, out, stderr io.Writer, version string)
 	fmt.Fprintln(stderr, "usage: cxx communicator [status|doctor|mcp ENGINE]")
 	return 2
 }
+
+// mcpShutdownGrace bounds how long a cancelled adapter waits for in-flight
+// replies, matching the owner's terminate drain.
+const mcpShutdownGrace = 3 * time.Second
+
 func mcp(ctx context.Context, engine string, in io.Reader, out io.Writer) error {
 	path, err := config.DefaultPathForEngine(engine)
 	if err != nil {
@@ -148,13 +153,28 @@ func mcp(ctx context.Context, engine string, in io.Reader, out io.Writer) error 
 		scanErr <- scanner.Err()
 	}()
 	var work sync.WaitGroup
-	defer work.Wait()
+	// Replies go out on their own goroutines, so a native client that stops
+	// reading stdout can block only them, never the loop watching ctx.
+	reply := func(raw []byte) {
+		work.Add(1)
+		go func() { defer work.Done(); write(raw) }()
+	}
 	for {
 		var raw []byte
 		select {
 		case <-ctx.Done():
+			// Cancelled requests fail at once, so writable unknown-outcome
+			// replies land well within the grace; a stalled stdout cannot
+			// hold the process past it.
+			drained := make(chan struct{})
+			go func() { work.Wait(); close(drained) }()
+			select {
+			case <-drained:
+			case <-time.After(mcpShutdownGrace):
+			}
 			return nil
 		case err := <-scanErr:
+			work.Wait()
 			return err
 		case raw = <-lines:
 		}
@@ -163,12 +183,12 @@ func mcp(ctx context.Context, engine string, in io.Reader, out io.Writer) error 
 			continue
 		}
 		if !json.Valid(raw) {
-			write([]byte(`{"jsonrpc":"2.0","id":null,"error":{"code":-32700,"message":"Parse error"}}`))
+			reply([]byte(`{"jsonrpc":"2.0","id":null,"error":{"code":-32700,"message":"Parse error"}}`))
 			continue
 		}
 		ids, batch, ok := mcpRequestIDs(raw)
 		if !ok {
-			write([]byte(`{"jsonrpc":"2.0","id":null,"error":{"code":-32600,"message":"Invalid Request"}}`))
+			reply([]byte(`{"jsonrpc":"2.0","id":null,"error":{"code":-32600,"message":"Invalid Request"}}`))
 			continue
 		}
 		work.Add(1)
@@ -176,6 +196,20 @@ func mcp(ctx context.Context, engine string, in io.Reader, out io.Writer) error 
 			defer work.Done()
 			status, body, err := forward(raw)
 			if len(ids) == 0 {
+				// Nothing awaits a reply, but the API still answers invalid
+				// members and malformed objects with id null. Pass only
+				// those through; never synthesize one for a notification.
+				if err != nil || len(bytes.TrimSpace(body)) == 0 {
+					return
+				}
+				if batch {
+					if kept := mcpBatchReplies(nil, status, body); len(kept) > 0 {
+						raw, _ := json.Marshal(kept)
+						write(raw)
+					}
+				} else if mcpResponseValid(json.RawMessage("null"), body) {
+					write(body)
+				}
 				return
 			}
 			if !batch {
@@ -194,7 +228,7 @@ func mcp(ctx context.Context, engine string, in io.Reader, out io.Writer) error 
 				}
 				body, _ = json.Marshal(failures)
 			} else {
-				body = mcpBatchReplies(ids, status, body)
+				body, _ = json.Marshal(mcpBatchReplies(ids, status, body))
 			}
 			write(body)
 		}()
@@ -240,7 +274,7 @@ func mcpRequestIDs(raw []byte) (ids []json.RawMessage, batch, ok bool) {
 // server's id null Invalid Request answers. Any request left unanswered by a
 // lost, malformed or partial reply gets its own unknown-outcome error; nothing
 // is ever resent.
-func mcpBatchReplies(ids []json.RawMessage, status int, body []byte) []byte {
+func mcpBatchReplies(ids []json.RawMessage, status int, body []byte) []json.RawMessage {
 	var replies []json.RawMessage
 	_ = json.Unmarshal(body, &replies)
 	answered := make([]bool, len(ids))
@@ -271,8 +305,7 @@ func mcpBatchReplies(ids []json.RawMessage, status int, body []byte) []byte {
 			kept = append(kept, mcpFailure(id, status, nil))
 		}
 	}
-	raw, _ := json.Marshal(kept)
-	return raw
+	return kept
 }
 
 // Preserve an ambiguous write's meaning at the model-facing boundary. A generic

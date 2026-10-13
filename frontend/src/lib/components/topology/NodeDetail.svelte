@@ -106,12 +106,17 @@
         const result = await $terminate.mutateAsync({ target: targetCommunicator, note: note.trim() || undefined });
         const pid = result.process.pid ? ` (pid ${result.process.pid})` : "";
         outcome =
-          result.outcome === "terminated"
-            ? { title: "Process stopped", lines: [`The process${pid} acknowledged the request, and its connection to the server then closed.`] }
+          result.outcome === "acknowledged_closed"
+            ? {
+                title: "Stop accepted, connection closed",
+                lines: [
+                  `The process${pid} acknowledged the request and its connection to the server then closed. It was told to stop; the server cannot observe the process itself, so this is not a confirmed exit.`,
+                ],
+              }
             : result.outcome === "acknowledged"
               ? { title: "Acknowledged, still connected", tone: "warning", lines: [`The process${pid} said it is stopping, but its connection is still open. Check the live view; nothing is assumed.`] }
               : result.outcome === "refused"
-                ? { title: "The process declined", tone: "warning", lines: ["It reported that it cannot stop itself on request. Nothing was stopped."] }
+                ? { title: "The process declined", tone: "warning", lines: ["It reported that it cannot stop itself on request, or that the request was not meant for it. Nothing was stopped."] }
                 : { title: "No acknowledgement", tone: "warning", lines: ["The request was sent, but the process did not answer in time. As far as the server can tell it is still running."] };
       } else if (action.kind === "request_close" && targetAgent) {
         await $requestClose.mutateAsync({ id: targetAgent.id, note: note.trim() || undefined });
@@ -407,7 +412,7 @@
       bind:note
       withNote
       title="Stop this communicator's process?"
-      description="Asks the communicator owner process itself to exit. It is reported stopped only when the process acknowledges and its connection closes."
+      description="Asks this communicator owner process, and only it, to exit. The result says what the server observed: an acknowledgement and a closed connection — not a process exit, which it cannot see."
       target={[
         { label: "Communicator", value: targetCommunicator ? communicatorLabel(targetCommunicator) : "—" },
         { label: "Host", value: targetCommunicator?.host ?? "—" },
@@ -421,7 +426,7 @@
       }}
       effects={[
         "Only this communicator process is asked to stop. Native agent sessions are not signalled and keep running.",
-        "In-flight local requests get up to 3 s to finish; the rest come back as “outcome unknown” and are never replayed.",
+        "The process stops admitting new work, then lets in-flight local requests finish for up to 3 s; the rest come back as “outcome unknown” and are never replayed.",
         "A surviving client (or an attached host daemon) starts a new communicator on its next managed call.",
         "If the process does not answer, nothing is claimed: it is reported as unacknowledged.",
       ]}
@@ -436,7 +441,7 @@
     >
       {#snippet result()}
         {#each outcome?.lines ?? [] as line (line)}<p class="mt-1">{line}</p>{/each}
-        {#if outcome?.title === "Process stopped"}
+        {#if outcome?.title === "Stop accepted, connection closed"}
           <p class="mt-1">
             {@render successorNote(departure, true)}
           </p>

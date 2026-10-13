@@ -257,21 +257,21 @@ describe('acknowledged owner termination', () => {
     return send;
   }
 
-  it('reports terminated only after the owner acknowledged and its connection closed', async () => {
+  it('reports acknowledged_closed (not an exit) only after the owner acknowledged and its connection closed', async () => {
     const registry = new CommunicatorRegistry();
     const send = owner(registry, 'c1', (frame) => {
-      registry.acknowledgeTerminate('c1', frame.request_id, { accepted: true, pid: 4242, reason: null });
+      registry.acknowledgeTerminate('c1', frame.request_id, { accepted: true, pid: 4242, reason: null, instance_id: 'inst-4242' });
       setTimeout(() => registry.unregister('c1'), 20);
     });
     const result = await registry.terminate('c1', 'ops', { ackMs: 500, closeMs: 500 });
-    expect(result).toMatchObject({ outcome: 'terminated', pid: 4242 });
+    expect(result).toMatchObject({ outcome: 'acknowledged_closed', pid: 4242 });
     expect(send).toHaveBeenCalledWith(expect.objectContaining({ type: 'terminate', reason: 'admin' }));
     expect(registry.tombstones()[0]).toMatchObject({ reason: 'admin_terminate', actor: 'ops', pid: 4242, process_started_at: '2026-10-13T17:00:00Z', instance_id: 'inst-4242', runtime_id: 'rt-A' });
   });
 
   it('says only "acknowledged" while the connection is still open', async () => {
     const registry = new CommunicatorRegistry();
-    owner(registry, 'c1', (frame) => registry.acknowledgeTerminate('c1', frame.request_id, { accepted: true, pid: 4242, reason: null }));
+    owner(registry, 'c1', (frame) => registry.acknowledgeTerminate('c1', frame.request_id, { accepted: true, pid: 4242, reason: null, instance_id: 'inst-4242' }));
     const result = await registry.terminate('c1', 'ops', { ackMs: 500, closeMs: 60 });
     expect(result.outcome).toBe('acknowledged');
     expect(registry.has('c1')).toBe(true);
@@ -288,13 +288,37 @@ describe('acknowledged owner termination', () => {
 
   it('reports a refusal with the owner\'s reason', async () => {
     const registry = new CommunicatorRegistry();
-    owner(registry, 'c1', (frame) => registry.acknowledgeTerminate('c1', frame.request_id, { accepted: false, pid: null, reason: 'unsupported' }));
+    owner(registry, 'c1', (frame) => registry.acknowledgeTerminate('c1', frame.request_id, { accepted: false, pid: null, reason: 'unsupported', instance_id: 'inst-4242' }));
     expect(await registry.terminate('c1', 'ops', { ackMs: 500 })).toMatchObject({ outcome: 'refused', reason: 'unsupported' });
+  });
+
+  it('addresses the command to the owner process it identified, and only that one', async () => {
+    const registry = new CommunicatorRegistry();
+    const send = owner(registry, 'c1', (frame) => registry.acknowledgeTerminate('c1', frame.request_id, { accepted: true, pid: 4242, reason: null, instance_id: 'inst-4242' }));
+    await registry.terminate('c1', 'ops', { ackMs: 200, closeMs: 30 });
+    expect(send).toHaveBeenCalledWith(expect.objectContaining({ type: 'terminate', owner_instance_id: 'inst-4242' }));
+  });
+
+  it('does not take an acknowledgement from a different process for the one it asked', async () => {
+    const registry = new CommunicatorRegistry();
+    owner(registry, 'c1', (frame) => registry.acknowledgeTerminate('c1', frame.request_id, { accepted: true, pid: 9999, reason: null, instance_id: 'someone-else' }));
+    const result = await registry.terminate('c1', 'ops', { ackMs: 500, closeMs: 30 });
+    expect(result).toMatchObject({ outcome: 'refused', reason: 'owner_mismatch' });
+    expect(registry.get('c1')!.closing).toBe(false);
+  });
+
+  it('refuses to address an owner that never named its process', async () => {
+    const registry = new CommunicatorRegistry();
+    const send = vi.fn();
+    registry.register(view('c1'), { close: vi.fn(), send, remoteAddress: null });
+    registry.setCapabilities('c1', { terminate: true, pid: 5, started_at: null, instance_id: null, runtime_id: null });
+    expect((await registry.terminate('c1', 'ops')).outcome).toBe('unsupported');
+    expect(send).not.toHaveBeenCalled();
   });
 
   it('ignores an acknowledgement for another request', async () => {
     const registry = new CommunicatorRegistry();
-    owner(registry, 'c1', () => registry.acknowledgeTerminate('c1', 'someone-elses-request', { accepted: true, pid: 1, reason: null }));
+    owner(registry, 'c1', () => registry.acknowledgeTerminate('c1', 'someone-elses-request', { accepted: true, pid: 1, reason: null, instance_id: 'inst-4242' }));
     expect((await registry.terminate('c1', 'ops', { ackMs: 60 })).outcome).toBe('unacknowledged');
   });
 

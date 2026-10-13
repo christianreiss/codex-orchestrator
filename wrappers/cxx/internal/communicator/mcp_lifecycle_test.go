@@ -164,24 +164,36 @@ func (f *mcpFixture) dispatch(body []byte) (int, []byte) {
 
 func (f *mcpFixture) one(raw []byte) json.RawMessage {
 	var req struct {
-		ID     json.RawMessage `json:"id"`
-		Method string          `json:"method"`
+		JSONRPC string          `json:"jsonrpc"`
+		ID      json.RawMessage `json:"id"`
+		Method  *string         `json:"method"`
 	}
-	if json.Unmarshal(raw, &req) != nil {
+	if json.Unmarshal(raw, &req) != nil || !bytes.HasPrefix(bytes.TrimSpace(raw), []byte("{")) {
 		return json.RawMessage(`{"jsonrpc":"2.0","id":null,"error":{"code":-32600,"message":"Invalid Request"}}`)
+	}
+	// mcp-server.ts handleOne: a bad envelope is answered with raw.id ?? null.
+	if req.JSONRPC != "2.0" || req.Method == nil {
+		id := "null"
+		if len(req.ID) > 0 {
+			id = string(req.ID)
+		}
+		return json.RawMessage(`{"jsonrpc":"2.0","id":` + id + `,"error":{"code":-32600,"message":"Invalid Request"}}`)
 	}
 	if len(req.ID) == 0 || string(req.ID) == "null" {
 		return nil
 	}
 	id := string(req.ID)
-	switch req.Method {
+	method := *req.Method
+	switch method {
 	case "slow":
 		<-f.release
 	case "drop":
 		// A server fault that loses one member's reply after dispatch.
 		return nil
+	case "big":
+		return json.RawMessage(`{"jsonrpc":"2.0","id":` + id + `,"result":{"pad":"` + strings.Repeat("x", 256*1024) + `"}}`)
 	}
-	return json.RawMessage(`{"jsonrpc":"2.0","id":` + id + `,"result":{"method":"` + req.Method + `"}}`)
+	return json.RawMessage(`{"jsonrpc":"2.0","id":` + id + `,"result":{"method":"` + method + `"}}`)
 }
 
 func (f *mcpFixture) status() map[string]any {
@@ -523,5 +535,96 @@ func TestMCPAdapterMixedBatch(t *testing.T) {
 	time.Sleep(500 * time.Millisecond)
 	if got := f.dispatched.Load() - before; got != 1 {
 		t.Errorf("partial batch dispatched %d times, want exactly 1", got)
+	}
+}
+
+// The API answers invalid members and malformed objects with id null -32600
+// even when nothing in the line carries an id; only valid notifications are
+// silent. The adapter must pass those answers through, never synthesize any.
+func TestMCPAdapterInvalidWithoutIDParity(t *testing.T) {
+	f := newMCPFixture(t)
+	c := f.start("claude")
+	invalid := func(t *testing.T, line string, count int) {
+		t.Helper()
+		var replies []struct {
+			ID    any
+			Error struct{ Code int }
+		}
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "{") {
+			trimmed = "[" + trimmed + "]"
+		}
+		if json.Unmarshal([]byte(trimmed), &replies) != nil || len(replies) != count {
+			t.Errorf("want %d id-null -32600 answers, got %q", count, line)
+			return
+		}
+		for _, reply := range replies {
+			if reply.ID != nil || reply.Error.Code != -32600 {
+				t.Errorf("not an id-null Invalid Request: %q", line)
+			}
+		}
+	}
+	for _, test := range []struct {
+		name, line string
+		count      int
+	}{
+		{"invalid-only batch", `[5]`, 1},
+		{"invalid and notification batch", `[5,{"jsonrpc":"2.0","method":"notifications/initialized"},"x"]`, 2},
+		{"object without method", `{"jsonrpc":"2.0"}`, 1},
+		{"object without jsonrpc", `{"method":"ping"}`, 1},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			c.send(test.line)
+			line, ok := c.next(t, 10*time.Second)
+			if !ok {
+				t.Fatalf("server answer dropped")
+			}
+			invalid(t, line, test.count)
+		})
+	}
+	// Valid notifications stay silent; the next line answers the ping.
+	c.send(`[{"jsonrpc":"2.0","method":"notifications/initialized"}]`)
+	c.send(`{"jsonrpc":"2.0","method":"notifications/initialized"}`)
+	c.send(`{"jsonrpc":"2.0","id":9,"method":"ping"}`)
+	if line, ok := c.next(t, 25*time.Second); !ok || !strings.Contains(line, `"id":9`) {
+		t.Errorf("notification answered or session lost: %q", line)
+	}
+}
+
+// A native client that stops reading stdout must not keep the adapter alive
+// after SIGTERM: blocked reply writes cannot hold shutdown forever.
+func TestMCPAdapterSIGTERMWithStalledStdout(t *testing.T) {
+	f := newMCPFixture(t)
+	cmd := exec.Command(f.binary, "communicator", "mcp", "codex")
+	cmd.Env = f.env
+	in, _ := cmd.StdinPipe()
+	stdout, _ := cmd.StdoutPipe()
+	stderr := &bytes.Buffer{}
+	f.stderr = append(f.stderr, stderr)
+	cmd.Stderr = stderr
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan struct{})
+	go func() { cmd.Wait(); close(done) }()
+	t.Cleanup(func() { in.Close(); cmd.Process.Kill(); <-done })
+	// Warm up with one read so the signal handler and lease exist.
+	fmt.Fprintln(in, `{"jsonrpc":"2.0","id":0,"method":"tools/list"}`)
+	first, err := bufio.NewReader(stdout).ReadString('\n')
+	if err != nil || !strings.Contains(first, "tools/list") {
+		t.Fatalf("warm-up: %q %v", first, err)
+	}
+	// Then stop reading: 16 x 256 KiB replies overrun any pipe buffer.
+	for i := 1; i <= 16; i++ {
+		fmt.Fprintf(in, "{\"jsonrpc\":\"2.0\",\"id\":%d,\"method\":\"big\"}\n", i)
+	}
+	time.Sleep(2 * time.Second)
+	cmd.Process.Signal(syscall.SIGTERM)
+	start := time.Now()
+	select {
+	case <-done:
+		t.Logf("exited %s after SIGTERM with stdout unread", time.Since(start).Round(time.Millisecond))
+	case <-time.After(15 * time.Second):
+		t.Errorf("adapter still alive 15s after SIGTERM while stdout is not read")
 	}
 }
