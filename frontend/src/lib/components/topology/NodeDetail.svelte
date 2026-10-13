@@ -13,6 +13,7 @@
     type Topology,
     type TopologyAgent,
     type TopologyCommunicator,
+    type TopologyDisconnect,
   } from "$lib/api/topology";
   import { actionReason, ageLabel, communicatorLabel, shortId, type ActionPhase, type GraphItem } from "$lib/topology/model";
   import ConfirmAction from "./ConfirmAction.svelte";
@@ -83,7 +84,6 @@
   const targetAgent = $derived(action?.agent ?? null);
   // What the live tree says now about the target, for the follow-up lines.
   const departure = $derived(action && (action.kind === "disconnect" || action.kind === "terminate") ? (snapshot?.recent_disconnects.find((d) => d.id === action!.id) ?? null) : null);
-  const successor = $derived(departure?.successor_id ? (communicatorsById.get(departure.successor_id) ?? null) : null);
   const liveAgent = $derived(action?.agent ? (agentsById.get(action.id) ?? action.agent) : null);
 
   async function confirm() {
@@ -150,6 +150,27 @@
   const agentLine = (a: TopologyAgent) => `${a.name} · ${isEngine(a.engine) ? engineLabel(a.engine) : a.engine} · ${a.presence}`;
 </script>
 
+{#snippet idLink(id: string, closeFirst: boolean)}
+  <button type="button" class="underline underline-offset-2" onclick={() => { if (closeFirst) close(); onselect(id); }}>{shortId(id)}</button>{#if communicatorsById.get(id)?.process}{` (pid ${communicatorsById.get(id)!.process!.pid})`}{/if}
+{/snippet}
+
+<!-- What followed a departed connection. A successor is shown only when its owner
+     identity proves it; a connection from the same host and user is a candidate,
+     because separate runtime roots can host distinct owners for one user. -->
+{#snippet successorNote(d: TopologyDisconnect | null, closeFirst: boolean)}
+  {#if d?.successor_id}
+    {d.successor_basis === "same_process" ? "The same process reconnected as" : "A replacement process serving the same runtime connected as"}
+    {@render idLink(d.successor_id, closeFirst)}.
+  {:else if d && d.candidate_ids.length > 0}
+    <span class="text-warning">Unverified:</span>
+    {d.candidate_ids.length === 1 ? "a connection" : `${d.candidate_ids.length} connections`} from the same host and user
+    appeared since ({#each d.candidate_ids as candidate, index (candidate)}{#if index > 0}, {/if}{@render idLink(candidate, closeFirst)}{/each}),
+    but nothing proves {d.candidate_ids.length === 1 ? "it is" : "any is"} this owner coming back.
+  {:else}
+    No new connection has appeared yet.
+  {/if}
+{/snippet}
+
 <div class="flex h-full flex-col gap-4 overflow-y-auto" aria-live="polite">
   {#if !node}
     <!-- ── nothing selected: the server and the story so far ─────────────── -->
@@ -181,11 +202,7 @@
               <p class="font-medium">{communicatorLabel(d)} <span class="font-normal text-muted-foreground">· {ageLabel(Math.round((Date.now() - Date.parse(d.ended_at)) / 1000))}</span></p>
               <p class="text-xs text-muted-foreground">
                 {d.reason === "admin_disconnect" ? `Closed by ${d.actor ?? "an administrator"}` : d.reason === "admin_terminate" ? `Process stopped by ${d.actor ?? "an administrator"}` : "Connection ended"}
-                {#if d.successor_id}
-                  · <button type="button" class="underline underline-offset-2" onclick={() => onselect(d.successor_id)}>reconnected as {shortId(d.successor_id)}</button>
-                {:else}
-                  · not back yet
-                {/if}
+                · {@render successorNote(d, false)}
               </p>
             </li>
           {/each}
@@ -220,12 +237,7 @@
               : ghost.departure?.reason === "admin_terminate"
                 ? `Stopped by ${ghost.departure.actor ?? "an administrator"}; the process acknowledged${ghost.departure.pid ? ` (pid ${ghost.departure.pid})` : ""}.`
                 : "The connection ended."}
-            {#if ghost.departure?.successor_id}
-              It came back as
-              <button type="button" class="underline underline-offset-2" onclick={() => onselect(ghost.departure!.successor_id)}>{shortId(ghost.departure.successor_id)}</button>.
-            {:else}
-              No new connection from {communicator.username}@{communicator.host} yet.
-            {/if}
+            {@render successorNote(ghost.departure ?? null, false)}
           </p>
         </div>
       {/if}
@@ -239,6 +251,10 @@
         <dt class="text-muted-foreground">Last heartbeat</dt><dd>{communicator.last_heartbeat_at ? `${ageLabel(Math.round((Date.now() - Date.parse(communicator.last_heartbeat_at)) / 1000))}` : "none yet"}</dd>
         <dt class="text-muted-foreground">Process</dt>
         <dd>{communicator.process ? `pid ${communicator.process.pid}` : "not reported"}{#if communicator.process} <span class="text-muted-foreground">self-reported{communicator.process.started_at ? `, started ${new Date(communicator.process.started_at).toLocaleTimeString()}` : ""}</span>{/if}</dd>
+        {#if communicator.process?.runtime_id}
+          <dt class="text-muted-foreground">Runtime</dt>
+          <dd class="font-mono text-xs" title="Hash of the owner's local socket path: the same value means the same local clients are served">{communicator.process.runtime_id.slice(0, 8)}{#if communicator.process.instance_id} <span class="text-muted-foreground">· instance {communicator.process.instance_id.slice(0, 8)}</span>{/if}</dd>
+        {/if}
         <dt class="text-muted-foreground">Local leases</dt><dd>{communicator.leases_reported} <span class="text-muted-foreground">reported by the communicator</span></dd>
         <dt class="text-muted-foreground">Requests</dt><dd>{communicator.requests}</dd>
         <dt class="text-muted-foreground">Last sync</dt><dd>{when(communicator.synced_at)}{#if communicator.sync_errors > 0} · <span class="text-destructive">{communicator.sync_errors} scope{communicator.sync_errors === 1 ? "" : "s"} failing</span>{/if}</dd>
@@ -381,11 +397,7 @@
       {#snippet result()}
         {#each outcome?.lines ?? [] as line (line)}<p class="mt-1">{line}</p>{/each}
         <p class="mt-1">
-          {#if departure?.successor_id}
-            It reconnected as <button type="button" class="underline underline-offset-2" onclick={() => { const id = departure?.successor_id; close(); onselect(id ?? null); }}>{shortId(departure.successor_id)}</button>.
-          {:else}
-            Watching for it to reconnect…
-          {/if}
+          {@render successorNote(departure, true)}
         </p>
       {/snippet}
     </ConfirmAction>
@@ -426,12 +438,7 @@
         {#each outcome?.lines ?? [] as line (line)}<p class="mt-1">{line}</p>{/each}
         {#if outcome?.title === "Process stopped"}
           <p class="mt-1">
-            {#if successor}
-              A new communicator process connected as
-              <button type="button" class="underline underline-offset-2" onclick={() => { const id = successor?.id; close(); onselect(id ?? null); }}>{shortId(successor.id)}</button>{successor.process ? ` (pid ${successor.process.pid})` : ""}.
-            {:else}
-              No new process has connected yet; a client starts one on its next managed call.
-            {/if}
+            {@render successorNote(departure, true)}
           </p>
         {/if}
       {/snippet}

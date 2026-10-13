@@ -17,8 +17,8 @@ export function shortHost(fqdn: string): string {
   return first && first.length > 0 ? first : fqdn;
 }
 
-export function communicatorLabel(c: Pick<TopologyCommunicator, "username" | "host">): string {
-  return `${c.username}@${shortHost(c.host)}`;
+export function communicatorLabel(c: Pick<TopologyCommunicator, "username" | "host"> & { label?: string }): string {
+  return c.label ?? `${c.username}@${shortHost(c.host)}`;
 }
 
 export function shortId(id: string): string {
