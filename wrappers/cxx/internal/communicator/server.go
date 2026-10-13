@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
@@ -50,6 +51,13 @@ type server struct {
 	// failures counts consecutive failed connection attempts; zero means the
 	// control connection is either up or still being established for the first time.
 	failures int
+	// attempting/attempts/lastAttemptEnd let a waiting request tell an attempt in
+	// flight from an idle backoff, and kick wakes the backoff for an on-demand redial.
+	attempting     bool
+	attempts       uint64
+	lastAttemptEnd time.Time
+	kick           chan struct{}
+	policyBusy     atomic.Bool
 }
 
 func (s *server) configSnapshot() *config.Config {
@@ -97,22 +105,38 @@ func serve(ctx context.Context, path, version string) error {
 	}
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	s := &server{cfg: cfg, version: version, lastUsed: time.Now(), calls: map[string]*sharedCall{}, dirty: make(chan struct{}, 1), authDirty: make(chan struct{}, 1), jobs: map[string]syncJob{}, jobRefs: map[string]int{}}
+	s := &server{kick: make(chan struct{}, 1), cfg: cfg, version: version, lastUsed: time.Now(), calls: map[string]*sharedCall{}, dirty: make(chan struct{}, 1), authDirty: make(chan struct{}, 1), jobs: map[string]syncJob{}, jobRefs: map[string]int{}}
 	httpServer := &http.Server{Handler: s, ReadHeaderTimeout: 5 * time.Second, IdleTimeout: 30 * time.Second}
 	defer httpServer.Close()
 	go s.connectLoop(ctx)
 	go s.syncLoop(ctx)
+	s.supervise(ctx, cancel, httpServer, 5*time.Second, 5*time.Minute)
+	err = httpServer.Serve(listener)
+	if err == http.ErrServerClosed {
+		return nil
+	}
+	return err
+}
+
+// supervise ends the process when it is told to stop or has been idle for idleAfter.
+// Both paths must close the HTTP server: that is what ends serve(). Cancelling the
+// context alone stops the connection and sync loops but leaves the socket
+// accepting, so a zombie owner would hold the lock and answer 503 to every client.
+func (s *server) supervise(ctx context.Context, cancel context.CancelFunc, httpServer *http.Server, interval, idleAfter time.Duration) {
 	go func() {
-		timer := time.NewTicker(5 * time.Second)
+		<-ctx.Done()
+		httpServer.Close()
+	}()
+	go func() {
+		timer := time.NewTicker(interval)
 		defer timer.Stop()
 		for {
 			select {
 			case <-ctx.Done():
-				httpServer.Close()
 				return
 			case <-timer.C:
 				s.mu.Lock()
-				idle := s.leases == 0 && s.active == 0 && len(s.calls) == 0 && time.Since(s.lastUsed) >= 5*time.Minute
+				idle := s.leases == 0 && s.active == 0 && len(s.calls) == 0 && time.Since(s.lastUsed) >= idleAfter
 				s.mu.Unlock()
 				if idle {
 					cancel()
@@ -121,11 +145,6 @@ func serve(ctx context.Context, path, version string) error {
 			}
 		}
 	}()
-	err = httpServer.Serve(listener)
-	if err == http.ErrServerClosed {
-		return nil
-	}
-	return err
 }
 
 func (s *server) invalidate() {
@@ -134,9 +153,31 @@ func (s *server) invalidate() {
 	default:
 	}
 }
+
+// beginAttempt marks a connection attempt in flight and consumes any stale kick.
+func (s *server) beginAttempt() {
+	s.mu.Lock()
+	s.attempting = true
+	s.attempts++
+	s.mu.Unlock()
+	select {
+	case <-s.kick:
+	default:
+	}
+}
+
+// requestReconnect cuts the reconnect backoff short on behalf of a waiting request.
+func (s *server) requestReconnect() {
+	select {
+	case s.kick <- struct{}{}:
+	default:
+	}
+}
+
 func (s *server) connectLoop(ctx context.Context) {
 	delay := time.Second
 	for ctx.Err() == nil {
+		s.beginAttempt()
 		// Reload the signed file on reconnect so a credential rotation is observed.
 		key, _ := signing.PublicKey()
 		seed := s.configSnapshot()
@@ -187,6 +228,8 @@ func (s *server) connectLoop(ctx context.Context) {
 			s.fallback = false
 			s.lastError = ""
 			s.failures = 0
+			s.attempting = false
+			s.lastAttemptEnd = time.Now()
 			s.mu.Unlock()
 			delay = time.Second
 			s.invalidate()
@@ -221,14 +264,24 @@ func (s *server) connectLoop(ctx context.Context) {
 		s.mu.Lock()
 		s.conn = nil
 		s.failures++
+		s.attempting = false
+		s.lastAttemptEnd = time.Now()
 		if err != nil {
 			s.lastError = err.Error()
 		}
 		s.mu.Unlock()
-		s.refreshPolicy(ctx)
+		// The policy read may block on a dead network for its whole timeout; it must
+		// not hold back the next (possibly requested) connection attempt.
+		if s.policyBusy.CompareAndSwap(false, true) {
+			go func() {
+				defer s.policyBusy.Store(false)
+				s.refreshPolicy(ctx)
+			}()
+		}
 		select {
 		case <-ctx.Done():
 			return
+		case <-s.kick:
 		case <-time.After(delay + time.Duration(rand.Int63n(int64(delay/2)))):
 		}
 		if delay < 30*time.Second {

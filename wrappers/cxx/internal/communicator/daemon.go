@@ -93,37 +93,42 @@ func (s *server) daemon(w http.ResponseWriter, r *http.Request) {
 	}).ServeHTTP(w, r)
 }
 
-// connectWait is how long a request may wait for the shared connection. The very
-// first connection is worth the full budget. After one failed attempt the retry is
-// about a second away, so wait just long enough to ride out a blip. From the second
-// consecutive failure the outage is established and, like direct HTTPS refusing in
-// milliseconds, the server is reported unavailable at once; otherwise every call of
-// a command pays the wait again.
+// connectWait caps how long a request waits for the shared connection. The first
+// connection is worth the full budget. Once it has failed, the connect loop sleeps
+// in a backoff of up to 30 s, so a waiting request must neither sit through that
+// sleep nor fail while the server is already back: it asks the loop to redial now
+// and learns the outcome of that one attempt, which for a refused connection takes
+// milliseconds, like direct HTTPS. A failure from the last second is reported at once
+// instead of redialling for every call of a command.
 const (
 	connectWaitFirst = 20 * time.Second
-	connectWaitBlip  = 1500 * time.Millisecond
+	reconnectSpacing = time.Second
 )
 
 func (s *server) waitConnection(ctx context.Context) *connection {
-	start := time.Now()
-	tick := time.NewTicker(25 * time.Millisecond)
+	deadline := time.Now().Add(connectWaitFirst)
+	tick := time.NewTicker(10 * time.Millisecond)
 	defer tick.Stop()
+	kicked := false
+	var kickedAt uint64
 	for {
 		s.mu.Lock()
-		c, failures := s.conn, s.failures
+		c, failures, attempting, attempts, ended := s.conn, s.failures, s.attempting, s.attempts, s.lastAttemptEnd
 		s.mu.Unlock()
-		if c != nil {
-			return c
-		}
-		limit := connectWaitFirst
 		switch {
-		case failures == 1:
-			limit = connectWaitBlip
-		case failures > 1:
-			limit = 0
-		}
-		if time.Since(start) >= limit {
+		case c != nil:
+			return c
+		case time.Now().After(deadline):
 			return nil
+		case attempting, failures == 0:
+			// The first connect, or an attempt already in flight, will say.
+		case kicked && attempts > kickedAt:
+			return nil // the attempt requested above failed: the outage is real
+		case !kicked && failures >= 2 && time.Since(ended) < reconnectSpacing:
+			return nil
+		case !kicked:
+			kicked, kickedAt = true, attempts
+			s.requestReconnect()
 		}
 		select {
 		case <-ctx.Done():

@@ -33,7 +33,8 @@ go to `serve.log` in that directory and are included in the error a managed comm
 prints. Socket mode is 0600. A filesystem lock elects
 one owner; only that owner removes a stale socket. No TCP listener is exposed.
 Each process holds a local streaming lease; a surviving client restarts a crashed
-owner. The last lease starts a five-minute idle period. Status checks do not
+owner. The last lease starts a five-minute idle period, after which the owner
+closes its socket and exits (the next managed call starts a new one). Status checks do not
 extend it. A connected persistent host daemon holds a lease too.
 
 ## Data and auth ownership
@@ -107,12 +108,15 @@ wrapper metadata/downloads (digest-verified) use direct HTTPS, so a broken owner
 can still learn a capability rollback and install a fixed release. HTTPS
 transfers never wait for the control connection to reconnect.
 
-The reconnect delay grows from one to thirty seconds with jitter. While the connection
-is down, local requests wait for it only as long as is useful: up to 20 s for the first
-connect, 1.5 s after one failed attempt, and not at all from the second consecutive
-failure, when they receive `503 communicator_unavailable` immediately (a definitive
-"not sent", never "outcome unknown"). That keeps an outage as cheap as direct HTTPS and
-leaves no pending-auth marker behind. Pending writes
+The reconnect delay grows from one to thirty seconds with jitter. A request that finds the
+connection down never sits through that backoff: it asks the connect loop to redial at
+once and waits for that one attempt, up to 20 s for the very first connect. A refused
+connection fails in milliseconds, so during an outage the request gets
+`503 communicator_unavailable` promptly (a definitive "not sent", never "outcome
+unknown"), exactly as direct HTTPS would refuse, and the first request after the server
+returns reconnects immediately instead of failing out the rest of the backoff. A failure
+from the last second is reported without redialling, so a command's many calls do not each
+dial. No pending-auth marker is left behind. Pending writes
 whose replies are lost return `communicator_outcome_unknown` with HTTP 409 so
 existing retry loops do not repeat them. Durable message claim IDs and explicit
 work outcomes keep their existing retry contracts. A failed connection alone
