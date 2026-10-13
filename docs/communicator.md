@@ -75,8 +75,11 @@ authorization failure closes the shared connection. A `host.*` event that
 names a numeric `id` or `host_id` invalidates only that host's connection.
 Events with no host id still reach every connection. A reply above 11 MiB
 returns `502 communicator_response_too_large` for that request. From cxx
-0.9.75 the local owner retries an idempotent read once on its HTTPS transfer
-and leaves writes such as `POST /auth` on the 502. The local allow-list strips
+0.9.75 the local owner retries an idempotent read once on its HTTPS transfer.
+POST bootstrap qualifies only with explicit `include_auth:false`, no auth candidate
+and no session admission. Completed operations that cannot safely be repeated,
+including auth stores and MCP calls, return `409 communicator_outcome_unknown`
+to prevent existing client retry loops from replaying them. The local allow-list strips
 trailing slashes the same way the API router does.
 
 Heartbeats report local client count and last successful synchronization every

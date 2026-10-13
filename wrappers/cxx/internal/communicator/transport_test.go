@@ -442,7 +442,7 @@ func TestOversizedReadRetriesOverHTTPS(t *testing.T) {
 	}
 	posted := httptest.NewRecorder()
 	s.ServeHTTP(posted, httptest.NewRequest("POST", "/auth", strings.NewReader("candidate")))
-	if posted.Code != http.StatusBadGateway || direct.Load() != 1 {
+	if posted.Code != http.StatusConflict || !strings.Contains(posted.Body.String(), "communicator_outcome_unknown") || direct.Load() != 1 {
 		t.Fatalf("auth write retried: status=%d direct=%d", posted.Code, direct.Load())
 	}
 	bootstrap := httptest.NewRecorder()

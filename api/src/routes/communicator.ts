@@ -47,8 +47,35 @@ const requestSchema = z
   })
   .strict();
 // Base64 of a body above this size would exceed the wrapper's 16 MiB frame cap.
-// That one request gets 502 communicator_response_too_large and the socket stays up.
+// That request gets a small correlated failure and the socket stays up.
 const MAX_RESPONSE_BYTES = 11 * 1024 * 1024;
+
+// A lost result is retryable only when the operation itself was a known read.
+// In particular, bootstrap may carry auth or admit a native session. Keep this
+// aligned with the wrapper's byte-identical content-read contract.
+export function communicatorResponseMayRepeat(frame: {
+  method: string;
+  path: string;
+  body: string;
+}): boolean {
+  if (frame.method === 'GET' || frame.method === 'HEAD') return true;
+  if (frame.method !== 'POST') return false;
+  const pathname = communicatorPathname(frame.path);
+  if (pathname === '/agents/retrieve' || pathname === '/config/retrieve') return true;
+  if (pathname !== '/sync/bootstrap') return false;
+  try {
+    const parsed: unknown = JSON.parse(Buffer.from(frame.body, 'base64').toString());
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return false;
+    const fields = parsed as Record<string, unknown>;
+    return (
+      fields.include_auth === false &&
+      !Object.hasOwn(fields, 'auth_candidate') &&
+      !Object.hasOwn(fields, 'session_id')
+    );
+  } catch {
+    return false;
+  }
+}
 
 const allowedHeaders = new Set([
   'authorization',
@@ -372,14 +399,17 @@ export async function registerCommunicatorRoutes(app: FastifyInstance, ctx: Rout
             const view = connections.get(connectionID);
             if (view) view.requests++;
             if ((response.rawPayload?.length ?? 0) > MAX_RESPONSE_BYTES) {
+              const mayRepeat = communicatorResponseMayRepeat(frame);
               send({
                 id: frame.id,
-                status: 502,
+                status: mayRepeat ? 502 : 409,
                 headers: { 'content-type': 'application/json' },
                 body: Buffer.from(
                   JSON.stringify({
-                    code: 'communicator_response_too_large',
-                    message: 'Response exceeds the communicator frame limit',
+                    code: mayRepeat ? 'communicator_response_too_large' : 'communicator_outcome_unknown',
+                    message: mayRepeat
+                      ? 'Response exceeds the communicator frame limit'
+                      : 'Operation completed but its reply exceeds the frame limit; verify the result before retrying',
                   }),
                 ).toString('base64'),
               });
