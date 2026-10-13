@@ -25,6 +25,7 @@ import (
 // An owner that never saw step 1 ignores `terminate`, and a server never hears
 // from an owner that did not see its announcement.
 const controlTerminate = "terminate"
+const controlIdentity = "identity"
 
 // terminateDrain bounds how long a terminating owner keeps serving local
 // requests that are already in flight before it exits regardless. After the
@@ -59,14 +60,17 @@ func announces(control []string, name string) bool {
 
 // announceCapabilities tells the server what this owner can be asked to do.
 func (c *connection) announceCapabilities() {
-	_ = c.send(map[string]any{
-		"type":        "capabilities",
-		"terminate":   c.onTerminate != nil,
-		"pid":         os.Getpid(),
-		"started_at":  processStarted.Format(time.RFC3339),
-		"instance_id": processInstance,
-		"runtime_id":  c.runtimeID,
-	})
+	caps := map[string]any{
+		"type":       "capabilities",
+		"terminate":  c.onTerminate != nil,
+		"pid":        os.Getpid(),
+		"started_at": processStarted.Format(time.RFC3339),
+	}
+	if c.identity {
+		caps["instance_id"] = processInstance
+		caps["runtime_id"] = c.runtimeID
+	}
+	_ = c.send(caps)
 }
 
 // handleTerminate acknowledges and then performs a server-requested exit. The

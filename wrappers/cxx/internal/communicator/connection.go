@@ -59,6 +59,7 @@ type connection struct {
 	// true once the server announced that it may ask.
 	onTerminate func(string)
 	control     bool
+	identity    bool
 	// runtimeID names the local namespace this owner serves (see control.go).
 	runtimeID string
 }
@@ -156,6 +157,7 @@ func (c *connection) receive() {
 				ready = true
 				if announces(f.Control, controlTerminate) {
 					c.control = true
+					c.identity = announces(f.Control, controlIdentity)
 					go c.announceCapabilities()
 				}
 			}

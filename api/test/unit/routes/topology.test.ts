@@ -239,7 +239,7 @@ describe('owner control negotiation and POST /admin/communicators/:id/terminate'
   it('offers control in `ready` and shows what the owner says about its own process', async () => {
     const app = await build('owner', true);
     const { ws, frames } = await owner(app, 'acks-and-exits');
-    expect(frames[0]).toEqual({ type: 'ready', protocol: 1, control: ['terminate'] });
+    expect(frames[0]).toEqual({ type: 'ready', protocol: 1, control: ['terminate', 'identity'] });
     const { body } = await topology(app);
     expect(body.communicators[0]).toMatchObject({ can_terminate: true, process: { pid: 4242, started_at: '2026-10-13T17:00:00Z', instance_id: null, runtime_id: null } });
     ws.close();

@@ -1,12 +1,59 @@
 package communicator
 
 import (
+	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"golang.org/x/net/websocket"
 )
+
+func TestOwnerIdentityRequiresServerAnnouncement(t *testing.T) {
+	for _, modern := range []bool{false, true} {
+		name := "legacy-terminate-only"
+		if modern {
+			name = "identity-enabled"
+		}
+		t.Run(name, func(t *testing.T) {
+			got := make(chan map[string]any, 1)
+			upstream := httptest.NewServer(websocket.Handler(func(ws *websocket.Conn) {
+				defer ws.Close()
+				controls := []string{"terminate"}
+				if modern {
+					controls = append(controls, "identity")
+				}
+				websocket.JSON.Send(ws, map[string]any{"type": "ready", "protocol": 1, "control": controls})
+				var caps map[string]any
+				if websocket.JSON.Receive(ws, &caps) == nil {
+					got <- caps
+				}
+			}))
+			defer upstream.Close()
+			ws, err := websocket.Dial("ws"+strings.TrimPrefix(upstream.URL, "http"), "", "http://fixture")
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer ws.Close()
+			c := &connection{ws: ws, ready: make(chan struct{}), done: make(chan struct{}), onTerminate: func(string) {}, runtimeID: "fixture-runtime"}
+			go c.receive()
+			select {
+			case caps := <-got:
+				_, instance := caps["instance_id"]
+				_, runtime := caps["runtime_id"]
+				if instance != modern || runtime != modern {
+					t.Fatalf("identity fields violate negotiated shape: %v", caps)
+				}
+				if !modern && len(caps) != 4 {
+					t.Fatalf("legacy strict capabilities schema would reject: %v", caps)
+				}
+			case <-time.After(3 * time.Second):
+				t.Fatal("owner did not describe its negotiated capabilities")
+			}
+		})
+	}
+}
 
 // controlServer is a stand-in for the orchestrator: it answers `hello` with a
 // `ready` that does or does not announce remote control, and reports every other

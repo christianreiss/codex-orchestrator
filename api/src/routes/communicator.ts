@@ -306,7 +306,7 @@ export async function registerCommunicatorRoutes(app: FastifyInstance, ctx: Rout
             greeted = true;
             // `control` offers the owner remote termination (see services/topology);
             // an owner that does not know the field ignores it and is never asked.
-            send({ type: 'ready', protocol: 1, control: ['terminate'] });
+            send({ type: 'ready', protocol: 1, control: ['terminate', 'identity'] });
             return;
           }
           if (!greeted) throw new Error('Handshake required');
@@ -521,7 +521,7 @@ export async function registerCommunicatorRoutes(app: FastifyInstance, ctx: Rout
               headers: replyHeaders,
               body: response.rawPayload.toString('base64'),
             });
-            if (encoded.length > MAX_FRAME_BYTES) {
+            if (Buffer.byteLength(encoded) > MAX_FRAME_BYTES) {
               send(uncertainReply(frame.id, frame, 'oversize'));
               return;
             }

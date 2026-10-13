@@ -100,7 +100,7 @@ request frame gets its own `400 communicator_invalid_request` reply; only an
 authorization failure closes the shared connection. A `host.*` event that
 names a numeric `id` or `host_id` invalidates only that host's connection.
 Events with no host id still reach every connection. A reply above 11 MiB, or
-whose whole encoded frame (base64 body, headers, JSON) exceeds 15 MiB, is answered for
+whose whole encoded frame (base64 body, headers, JSON) exceeds 15 MiB in UTF-8 wire bytes, is answered for
 that request only and the socket stays open: `502 communicator_response_too_large` for a
 repeatable read, `409 communicator_outcome_unknown` for anything that may have changed
 state, since the operation has already run. The same rule covers a fault after the
@@ -121,11 +121,14 @@ original request ID instead of forwarding an ambiguous result.
 Remote control of the owner process is negotiated, so old servers and old owners
 never meet a frame they do not know. A server that can stop an owner lists
 `control: ["terminate"]` in its `ready` frame. Only then does the owner send one
-`capabilities` frame (`terminate`, `pid`, `started_at`, `instance_id`, `runtime_id`), and only then does it honour
+`capabilities` frame (`terminate`, `pid`, `started_at`), and only then does it honour
 `{type: "terminate", request_id, reason}`: it answers `terminate_ack` (`accepted`,
 `pid`) first, lets in-flight local requests drain for up to three seconds, and then
 ends through the same path as an idle exit (HTTP server, lock and socket closed). The
 `pid` and start time are the owner's own account; the server cannot observe them.
+From cxx 0.9.78, the additional `instance_id` and `runtime_id` fields are sent only
+when `ready.control` also advertises `identity`. A terminate-only server keeps
+receiving the classic frame accepted by its older strict schema.
 `instance_id` is a UUID the owner generates at start, so the same value on a later
 connection proves the same process dialled again. `runtime_id` is a hash of the owner's
 local socket path, so the same value means the same local namespace is served: a

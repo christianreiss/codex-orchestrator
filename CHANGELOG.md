@@ -1,5 +1,9 @@
 # 2026-10-13
 
+- Communicator frame limits count UTF-8 wire bytes, including non-ASCII headers, so an oversized encoded reply returns a correlated failure instead of exceeding the receiver limit and dropping the shared connection.
+
+- cxx 0.9.78 sends owner identity fields only when the server explicitly advertises `identity` support. Older control servers keep receiving the classic capability frame, so their strict schemas no longer reject a newer owner.
+
 - cxx 0.9.78 rejects contradictory MCP replies containing both `result` and `error`, returning the existing correlated unknown-outcome error instead of forwarding an ambiguous result. A lone `result: null` remains valid.
 
 - The Live Topology page no longer infers that a connection from the same host and OS user is a communicator coming back, because separate runtime roots can host distinct owners for one user. The owner now names itself in its negotiated `capabilities` frame (`instance_id`: a per-process UUID; `runtime_id`: a hash of its local socket path), and a disconnected connection is linked to a later one only when the same process dialled again (`same_process`) or a different process announced the same runtime (`same_runtime`). Otherwise the page lists an unverified candidate, and an owner that predates the identity fields can only produce candidates. Mixed versions are unaffected: old servers never announce control, so a new owner never sends the frame.
