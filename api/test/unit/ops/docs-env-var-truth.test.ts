@@ -55,6 +55,7 @@ const RUNNER = resolve(ROOT, 'runner/app.py');
 const NON_API_VARS: Record<string, string> = {
   ANTHROPIC_MODEL: 'wrappers/cxx/internal/persona/claude/summary/local_settings.go',
   BIN_DIR: 'api/src/services/wrapper-transition.ts (generated installer)',
+  CXX_REDUCED_MOTION: 'wrappers/cxx/internal/launchpad/model.go (wrapper animation opt-out)',
   CODEX_HOME: 'wrappers/cxx/internal/codex/auth_writer.go',
   CODEX_INSTALL_CURL_INSECURE: 'api/src/services/wrapper-transition.ts (generated installer)',
   GROK_HOME: 'wrappers/cxx/internal/grok/native.go (Home)',

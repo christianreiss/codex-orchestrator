@@ -1122,3 +1122,10 @@ Audio and video preparation runs locally in the isolated `media-worker` service 
 - `POST /admin/feedback/:id/claim` — acquire/renew/release; administrative force_release requires reason.
 
 Reads require `feedback.read`; writes require `feedback.manage`. Fields and lifecycle are documented in [MCP.md](MCP.md#orchestrator-feedback-workflow).
+
+### Communicator transport endpoints
+
+- `GET /host/communicator/connect`: host-key/IP-authenticated WebSocket protocol 1, enabled by the signed communicator capability. Multiplexes existing host routes, MCP and daemon frames with UUID-correlated replies and content invalidations.
+- `GET /admin/communicators`: requires `hosts.read`; reports the API process's live communicator connections, users, versions, client counts and last sync.
+
+See [CoCo Communicator](communicator.md) for the local socket, reconnect and rollout contract.

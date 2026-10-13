@@ -309,6 +309,7 @@
       "GET /admin/chatty/sources/:id",
       "GET /admin/chatty/status",
       "GET /admin/daemon-sessions/:id",
+      "GET /admin/communicators",
       "GET /admin/host-daemons",
       "GET /admin/setup/status",
       "GET /admin/setup/wizard",

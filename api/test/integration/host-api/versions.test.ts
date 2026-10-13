@@ -699,7 +699,7 @@ describe('cron engine routing', () => {
         clientVersion: '0.132.0', wrapperVersion: '1.0.0',
         claudeClientVersion: '2.1.200', claudeWrapperVersion: '2.0.0',
       });
-      expect(publish).toHaveBeenCalledWith('host.updated', { id: 11, fqdn: 'cron.example' });
+      expect(publish).toHaveBeenCalledWith('host.updated', { id: 11, fqdn: 'cron.example', source: 'cron_report' });
     } finally {
       publish.mockRestore();
       await app.close();

@@ -1091,7 +1091,7 @@ The independent central inbox provides `feedback_submit`, `feedback_list`, `feed
 Claims are exclusive, token-fenced and renewable for 30 minutes. Updates check the item version and append history. Resolved requires a fix reference and verification evidence; deployment is recorded separately. Host/engine attribution is authenticated; optional agent UUIDs are descriptive. Admin routes use `feedback.read`/`feedback.manage`. No agent is started and no merge or deployment is implied. See [MCP workflow](MCP.md#orchestrator-feedback-workflow) for request/response contracts.
 
 
-## Shared CoCo communicator (cxx 0.9.71)
+## Shared CoCo communicator (cxx 0.9.72)
 
 The optional signed `orchestrator.communicator_protocol: 1` capability routes managed
 CoCo traffic through a per-user Unix socket and one multiplexed server WebSocket.
