@@ -362,18 +362,19 @@ func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.download(w, r, body)
 		return
 	}
+	// Downloads/large attachments remain inside this process but use independent
+	// HTTP streams, keeping interactive control frames bounded. They never need
+	// the control connection, so they must not wait for it to reconnect.
+	if len(body) > maxFrameBody || strings.Contains(r.URL.Path, "/download") || strings.Contains(r.URL.Path, "/attachments/") || strings.HasSuffix(r.URL.Path, "/stream") {
+		s.download(w, r, body)
+		return
+	}
 	c := s.waitConnection(r.Context())
 	if c == nil {
 		writeUnavailable(w, false)
 		return
 	}
 	f := frame{Method: r.Method, Path: r.URL.RequestURI(), Headers: headers(r.Header), Body: body}
-	// Downloads/large attachments remain inside this process but use independent
-	// HTTP streams, keeping interactive control frames bounded.
-	if len(body) > maxFrameBody || strings.Contains(r.URL.Path, "/download") || strings.Contains(r.URL.Path, "/attachments/") || strings.HasSuffix(r.URL.Path, "/stream") {
-		s.download(w, r, body)
-		return
-	}
 	var result frame
 	var unknown bool
 	if coalescible(f) {

@@ -4,6 +4,8 @@
 
 - cxx 0.9.74 preserves unknown call outcomes through the managed MCP adapter, including the original request ID, HTTP status and bounded machine code. Lost or invalid replies instruct callers to verify the result before retrying with the original work identifiers; malformed replies produce a correlated error instead of leaving the client waiting.
 
+- cxx 0.9.74 keeps the communicator self-repairable: when no local owner can start or be reached, the signed config refresh and wrapper update downloads fall back to direct HTTPS (both are signature/digest verified), so a broken owner no longer blocks capability rollback or `cxx update`. Downloads and attachments no longer wait up to 20 seconds for a reconnecting control connection.
+
 - The communicator dispatcher applies its route deny-list and MCP credential pinning to the pathname the router dispatches, so a trailing slash can no longer reach a watchdog stream through the shared connection. A malformed or disallowed request frame now gets its own 400 reply instead of closing the connection for every engine.
 
 - cxx 0.9.74 detaches only a stalled host-daemon stream when its event buffer fills, instead of closing the shared communicator connection and turning every engine's in-flight requests into unknown outcomes.

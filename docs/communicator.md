@@ -83,6 +83,11 @@ Reconnect also replaces the owner's transfer configuration with the verified
 signed head, so rotated host keys and TLS policy apply to HTTPS transfers.
 An enabled signed capability also fails closed when local socket setup is
 unsafe or unavailable; a runtime-directory error never enables direct HTTPS.
+The only exception is the self-repair path: when no local owner can be started
+or reached, `GET` of the signed `/wrapper/v2/config` (signature-verified) and of
+wrapper metadata/downloads (digest-verified) use direct HTTPS, so a broken owner
+can still learn a capability rollback and install a fixed release. HTTPS
+transfers never wait for the control connection to reconnect.
 
 The reconnect delay grows from one to thirty seconds with jitter. Pending writes
 whose replies are lost return `communicator_outcome_unknown` with HTTP 409 so
