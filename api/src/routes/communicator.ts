@@ -306,7 +306,10 @@ export async function registerCommunicatorRoutes(app: FastifyInstance, ctx: Rout
             greeted = true;
             // `control` offers the owner remote termination (see services/topology);
             // an owner that does not know the field ignores it and is never asked.
-            send({ type: 'ready', protocol: 1, control: ['terminate'] });
+            // `owner_identity` says this server accepts the owner's process identity
+            // in `capabilities` and aims a stop at exactly one process: an owner that
+            // sees `terminate` without it sends only the legacy fields.
+            send({ type: 'ready', protocol: 1, control: ['terminate', 'owner_identity'] });
             return;
           }
           if (!greeted) throw new Error('Handshake required');

@@ -59,6 +59,7 @@ type server struct {
 	// flight from an idle backoff, and kick wakes the backoff for an on-demand redial.
 	attempting     bool
 	attempts       uint64
+	attemptStarted time.Time
 	lastAttemptEnd time.Time
 	kick           chan struct{}
 	policyBusy     atomic.Bool
@@ -184,6 +185,7 @@ func (s *server) beginAttempt() {
 	s.mu.Lock()
 	s.attempting = true
 	s.attempts++
+	s.attemptStarted = time.Now()
 	s.mu.Unlock()
 	select {
 	case <-s.kick:

@@ -1,13 +1,18 @@
 package communicator
 
 import (
+	"bytes"
+	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
 	"golang.org/x/net/websocket"
 )
 
@@ -22,7 +27,7 @@ func controlServer(t *testing.T, announce bool, target func() string) (*connecti
 		if f.Type == "hello" {
 			ready := frame{Type: "ready", Protocol: Protocol}
 			if announce {
-				ready.Control = []string{controlTerminate}
+				ready.Control = []string{controlTerminate, controlOwnerIdentity}
 			}
 			_ = websocket.JSON.Send(ws, ready)
 			return
@@ -296,5 +301,81 @@ func TestRuntimeIdentityIsStablePerSocketAndDistinctAcrossRoots(t *testing.T) {
 	}
 	if processInstance == "" || len(processInstance) != 36 {
 		t.Fatalf("instance id %q", processInstance)
+	}
+}
+
+// A server that announces "terminate" but not "owner_identity" predates owner
+// identity. Its capabilities schema rejects fields it does not know, and it cannot
+// aim a stop at one process, so the owner sends it only the legacy fields, says it
+// cannot be stopped remotely, and ignores a terminate frame from it.
+func TestOwnerNeverSendsIdentityToAServerThatDidNotAnnounceIt(t *testing.T) {
+	type legacyCapabilities struct {
+		Type      string `json:"type"`
+		Terminate bool   `json:"terminate"`
+		PID       int    `json:"pid"`
+		StartedAt string `json:"started_at"`
+	}
+	checked := make(chan error, 1)
+	legacy := make(chan legacyCapabilities, 1)
+	remote := httptest.NewServer(websocket.Handler(func(ws *websocket.Conn) {
+		defer ws.Close()
+		var hello map[string]any
+		if err := websocket.JSON.Receive(ws, &hello); err != nil {
+			checked <- err
+			return
+		}
+		_ = websocket.JSON.Send(ws, map[string]any{"type": "ready", "protocol": 1, "control": []string{"terminate"}})
+		var raw json.RawMessage
+		if err := websocket.JSON.Receive(ws, &raw); err != nil {
+			checked <- err
+			return
+		}
+		var strict legacyCapabilities
+		decoder := json.NewDecoder(bytes.NewReader(raw))
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(&strict); err != nil {
+			checked <- err
+			return
+		}
+		legacy <- strict
+		// Even a well-formed command from this server is not an instruction.
+		_ = websocket.JSON.Send(ws, map[string]any{"type": "terminate", "request_id": "legacy-1", "owner_instance_id": processInstance, "reason": "admin"})
+		checked <- nil
+		time.Sleep(300 * time.Millisecond)
+	}))
+	t.Cleanup(remote.Close)
+	cfg := &config.Config{Orchestrator: config.Orchestrator{BaseURL: remote.URL, APIKey: "fixture"}}
+	transport, err := directTransport(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer transport.CloseIdleConnections()
+	ws, err := dial(context.Background(), cfg, transport)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stopped := make(chan struct{}, 1)
+	c := &connection{ws: ws, ready: make(chan struct{}), done: make(chan struct{}), pending: map[string]chan frame{}, runtimeID: "aaaaaaaaaaaaaaaa"}
+	c.onTerminate = func(string, <-chan struct{}) { stopped <- struct{}{} }
+	go c.receive()
+	t.Cleanup(func() { ws.Close(); <-c.done })
+	if err := c.send(map[string]any{"type": "hello", "protocol": 1, "username": "fixture", "version": "0.9.77"}); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-checked:
+		if err != nil {
+			t.Fatalf("the owner sent a field the older server does not know: %v", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("the handshake with the older server did not complete")
+	}
+	if got := <-legacy; got.Type != "capabilities" || got.Terminate || got.PID != os.Getpid() {
+		t.Fatalf("legacy capabilities must describe the process and claim no remote stop: %+v", got)
+	}
+	select {
+	case <-stopped:
+		t.Fatal("the owner obeyed a terminate frame from a server that cannot aim it")
+	case <-time.After(500 * time.Millisecond):
 	}
 }

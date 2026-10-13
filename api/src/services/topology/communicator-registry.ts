@@ -151,6 +151,12 @@ interface Entry {
   closing: { reason: DisconnectReason; actor: string | null } | null;
   capabilities: OwnerCapabilities;
   terminateRequest: { id: string; instance_id: string; resolve: (ack: TerminateAck | null) => void } | null;
+  /**
+   * Set once the owner has accepted a stop, until its connection closes or the fence
+   * lapses: a second stop for the same connection is "in progress", not a second
+   * command (the owner is draining; it would only be told twice).
+   */
+  stopping: { until: number } | null;
 }
 
 export interface CommunicatorSnapshot {
@@ -165,6 +171,12 @@ export interface CommunicatorSnapshot {
   evidence: ReadonlyMap<string, SessionEvidence>;
 }
 
+/**
+ * How long an accepted stop keeps the connection fenced. An accepted owner drains
+ * for at most 3 s and then writes its acknowledgement; this leaves a wide margin
+ * while still letting an operator ask again if the connection never closes.
+ */
+const STOP_FENCE_MS = 15_000;
 const MAX_EVIDENCE_PER_CONNECTION = 2048;
 /** Evidence older than this proves nothing about the present and is dropped. */
 const EVIDENCE_RETENTION_MS = 10 * 60_000;
@@ -209,6 +221,7 @@ export class CommunicatorRegistry {
       closing: null,
       capabilities: { terminate: false, pid: null, started_at: null, instance_id: null, runtime_id: null },
       terminateRequest: null,
+      stopping: null,
     });
     // Same host and OS user soon after a disconnect is a hint, not a fact: one user
     // can run several owners in separate runtime roots. Record it as a candidate
@@ -406,7 +419,7 @@ export class CommunicatorRegistry {
   async terminate(
     id: string,
     actor: string,
-    options: { ackMs?: number; closeMs?: number } = {},
+    options: { ackMs?: number; closeMs?: number; fenceMs?: number } = {},
   ): Promise<{ outcome: TerminateOutcome; pid: number | null; started_at: string | null; reason: string | null }> {
     const entry = this.entries.get(id);
     if (!entry) return { outcome: 'not_connected', pid: null, started_at: null, reason: null };
@@ -415,7 +428,9 @@ export class CommunicatorRegistry {
     // go to "whatever answers on this socket".
     const instance = entry.capabilities.instance_id;
     if (!entry.capabilities.terminate || !entry.handle.send || !instance) return { outcome: 'unsupported', pid, started_at, reason: null };
-    if (entry.terminateRequest) return { outcome: 'in_progress', pid, started_at, reason: null };
+    if (entry.terminateRequest || (entry.stopping && Date.now() < entry.stopping.until)) {
+      return { outcome: 'in_progress', pid, started_at, reason: null };
+    }
 
     const requestId = randomUUID();
     const answered = new Promise<TerminateAck | null>((resolve) => {
@@ -438,8 +453,10 @@ export class CommunicatorRegistry {
     entry.terminateRequest = null;
     if (!ack) return { outcome: 'unacknowledged', pid, started_at, reason: null };
     if (!ack.accepted) return { outcome: 'refused', pid: ack.pid ?? pid, started_at, reason: ack.reason };
-    // From here the owner has said it is going: the eventual close is its doing.
+    // From here the owner has said it is going: the eventual close is its doing, and
+    // another stop for this connection waits for it instead of being sent.
     entry.closing = { reason: 'admin_terminate', actor };
+    entry.stopping = { until: Date.now() + (options.fenceMs ?? STOP_FENCE_MS) };
     const didClose = await Promise.race([
       closed.then(() => true),
       new Promise<boolean>((resolve) => setTimeout(() => resolve(false), options.closeMs ?? 10_000).unref()),

@@ -160,8 +160,11 @@ func (c *connection) receive() {
 				close(c.ready)
 				ready = true
 				if announces(f.Control, controlTerminate) {
-					c.control = true
-					go c.announceCapabilities()
+					// Remote stop needs a server that can aim it at this process;
+					// one that only knows "terminate" is told nothing it cannot parse.
+					identity := announces(f.Control, controlOwnerIdentity)
+					c.control = identity
+					go c.announceCapabilities(identity)
 				}
 			}
 		case "daemon_event", "daemon_closed":
@@ -261,6 +264,14 @@ func (c *connection) finishDaemon(ch chan json.RawMessage) {
 	c.mu.Unlock()
 }
 func (c *connection) request(ctx context.Context, f frame) (frame, bool, error) {
+	// A connection that already ended cannot have carried this request: say so
+	// (definitively not sent, so the caller may retry) instead of attempting a write
+	// whose failure would have to be reported as an unknown outcome.
+	select {
+	case <-c.done:
+		return frame{}, false, errors.New("communicator connection lost")
+	default:
+	}
 	f.Type = "request"
 	f.ID = uuid.NewString()
 	ch := make(chan frame, 1)
