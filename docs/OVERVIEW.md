@@ -1098,6 +1098,10 @@ CoCo traffic through a per-user Unix socket and one multiplexed server WebSocket
 Provider traffic, session identities and account/refresh ownership retain their existing
 contracts. See [communicator protocol, lifecycle and rollout](communicator.md).
 
+From cxx 0.9.77, removing or disabling the original engine config does not strand
+other engines: reconnect and owner replacement select another verified config for
+the same host and server, preserving fail-closed behavior and signed rollback.
+
 From cxx 0.9.74, managed MCP errors preserve the original request ID and bounded
 `code`, `http_status` and `outcome_unknown` data. Unknown or invalid replies require
 result verification before retrying with the original work identifiers. The stdio
