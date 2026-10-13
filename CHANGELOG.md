@@ -4,6 +4,8 @@
 
 - `cgx status` and `cgx doctor` no longer report "Subscription auth unavailable; run `cgx login`" and exit 1 for a healthy Grok host. Both read the server's metadata-only `/auth` answer, whose `status` is `available` for a stored verified login, and the status screen accepted only the full-retrieve values (`valid`, `outdated`, ...). Launches were never affected because they display the leased grant. A missing or unverified login still fails.
 
+- cxx no longer writes native entries into another user's home when run with root privileges. A privileged maintenance command such as `sudo env HOME=/home/user cxx daemon install` used to finish by recreating `~/.cxx/native-bin/{codex,claude,grok}` (and any changed shell startup files) as root with mode 0700, so the next normal launch failed with "refusing to overwrite unmanaged native entry". The automatic reconciliation now skips a home owned by another user; `cxx native-entry install|remove` and uninstall refuse it with an explanation instead.
+
 - cxx 0.9.78 preserves numeric MCP IDs and result values when writing stdio replies, including integers beyond the exact `float64` range. Single and batch replies no longer round IDs after validating their correlation.
 
 - Communicator frame limits count UTF-8 wire bytes, including non-ASCII headers, so an oversized encoded reply returns a correlated failure instead of exceeding the receiver limit and dropping the shared connection.

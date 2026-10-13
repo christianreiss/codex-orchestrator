@@ -89,6 +89,11 @@ remain authoritative; queue admission and successful work results are separate.
 
 `cxx native-entry install` repairs entries from locally verified signed configs;
 `cxx native-entry remove` removes managed entries and shell blocks for rollback.
+Both refuse, and the automatic post-command reconciliation skips, a home
+directory owned by another user (for example `sudo env HOME=/home/user cxx
+daemon install`), so privileged maintenance never leaves root-owned entries or
+shell files there. Uninstall run that way stops with the same error; run it as
+the owning user.
 Normal later sync/update prepares them again. Uninstall removes only the selected
 engine's entry after confirmed server removal, preserving other engines. No new
 server endpoint or database migration is required.

@@ -59,7 +59,7 @@ func run(invokedAs string, args []string, stdout, stderr io.Writer) (code int) {
 	communicator.Configure(commCtx)
 	defer func() {
 		if code == 0 && shouldReconcileNativeEntries(args) {
-			if err := reconcileNativeEntries(); err != nil {
+			if err := implicitNativeEntryError(reconcileNativeEntries()); err != nil {
 				fmt.Fprintln(stderr, "cxx native entry integration:", err)
 				code = 1
 			}
