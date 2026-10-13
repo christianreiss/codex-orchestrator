@@ -6,6 +6,8 @@ import (
 	"crypto/x509"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os"
@@ -107,6 +109,9 @@ func dial(ctx context.Context, cfg *config.Config, transport *http.Transport) (*
 	}
 	ws, err := websocket.NewClient(wc, wire)
 	if err != nil {
+		if errors.Is(err, websocket.ErrBadStatus) {
+			return nil, handshakeRejection(ctx, cfg, transport)
+		}
 		return nil, err
 	}
 	raw.SetDeadline(time.Time{})
@@ -248,3 +253,59 @@ func headers(h http.Header) map[string]string {
 	return out
 }
 func rawJSON(value any) json.RawMessage { raw, _ := json.Marshal(value); return raw }
+
+// handshakeRejection asks the server again, outside the WebSocket library, why it
+// refused the upgrade. The library reports only "bad status" and discards the
+// server's JSON verdict (ip_mismatch, invalid_api_key, communicator_disabled...),
+// which is the one thing an operator needs when a host cannot connect. The host key
+// is sent exactly as in the handshake and never appears in the returned error.
+func handshakeRejection(ctx context.Context, cfg *config.Config, transport *http.Transport) error {
+	generic := errors.New("communicator handshake rejected")
+	probeCtx, cancel := context.WithTimeout(ctx, 8*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(probeCtx, http.MethodGet, strings.TrimRight(cfg.Orchestrator.BaseURL, "/")+"/host/communicator/connect", nil)
+	if err != nil {
+		return generic
+	}
+	req.Header.Set("X-API-Key", cfg.Orchestrator.APIKey)
+	req.Header.Set("Connection", "Upgrade")
+	req.Header.Set("Upgrade", "websocket")
+	req.Header.Set("Sec-WebSocket-Version", "13")
+	req.Header.Set("Sec-WebSocket-Key", "dGhlIHNhbXBsZSBub25jZQ==")
+	res, err := (&http.Client{Transport: transport, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}).Do(req)
+	if err != nil {
+		return generic
+	}
+	defer res.Body.Close()
+	if res.StatusCode == http.StatusSwitchingProtocols {
+		return generic
+	}
+	raw, _ := io.ReadAll(io.LimitReader(res.Body, 4096))
+	var verdict struct {
+		Message string `json:"message"`
+		Code    string `json:"code"`
+		Error   *struct {
+			Message string `json:"message"`
+			Code    string `json:"code"`
+		} `json:"error"`
+	}
+	detail := ""
+	if json.Unmarshal(raw, &verdict) == nil {
+		if verdict.Error != nil {
+			if verdict.Code == "" {
+				verdict.Code = verdict.Error.Code
+			}
+			if verdict.Message == "" {
+				verdict.Message = verdict.Error.Message
+			}
+		}
+		detail = strings.TrimSpace(verdict.Code)
+		if verdict.Message != "" {
+			detail = strings.TrimSpace(detail + " (" + verdict.Message + ")")
+		}
+	}
+	if detail == "" {
+		detail = oneLine(string(raw), 120)
+	}
+	return fmt.Errorf("communicator handshake rejected: HTTP %d %s", res.StatusCode, oneLine(detail, 200))
+}

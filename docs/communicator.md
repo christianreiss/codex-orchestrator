@@ -121,6 +121,13 @@ wrapper metadata/downloads (digest-verified) use direct HTTPS, so a broken owner
 can still learn a capability rollback and install a fixed release. HTTPS
 transfers never wait for the control connection to reconnect.
 
+When the server refuses the WebSocket upgrade, the owner asks once more outside the
+WebSocket library and records the server's own verdict in `last_error` (for example
+`communicator handshake rejected: HTTP 401 ip_mismatch (API key not allowed from this
+IP)`), and local `503 communicator_unavailable` replies carry that text in `message`, so a
+wrapper prints the same actionable diagnosis it would over direct HTTPS (an IP binding
+to release, a revoked key, the capability switched off) instead of "API offline".
+
 The reconnect delay grows from one to thirty seconds with jitter. A request that finds the
 connection down never sits through that backoff: it asks the connect loop to redial at
 once and waits for that one attempt, up to 20 s for the very first connect. A refused

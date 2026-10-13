@@ -432,7 +432,7 @@ func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	c := s.waitConnection(r.Context())
 	if c == nil {
-		writeUnavailable(w, false)
+		s.writeUnavailable(w, false)
 		return
 	}
 	f := frame{Method: r.Method, Path: r.URL.RequestURI(), Headers: headers(r.Header), Body: body}
@@ -444,7 +444,7 @@ func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		result, unknown, err = c.request(r.Context(), f)
 	}
 	if err != nil {
-		writeUnavailable(w, unknown)
+		s.writeUnavailable(w, unknown)
 		return
 	}
 	// The handler already finished. Retrying a write would repeat it. Idempotent
@@ -457,7 +457,7 @@ func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set(k, v)
 	}
 	if result.Status < 100 {
-		writeUnavailable(w, true)
+		s.writeUnavailable(w, true)
 		return
 	}
 	w.WriteHeader(result.Status)
@@ -548,19 +548,19 @@ func (s *server) download(w http.ResponseWriter, r *http.Request, body []byte) {
 	cfg := s.configSnapshot()
 	transport, err := directTransport(cfg)
 	if err != nil {
-		writeUnavailable(w, false)
+		s.writeUnavailable(w, false)
 		return
 	}
 	defer transport.CloseIdleConnections()
 	req, err := http.NewRequestWithContext(r.Context(), r.Method, strings.TrimRight(cfg.Orchestrator.BaseURL, "/")+r.URL.RequestURI(), responseBody(body))
 	if err != nil {
-		writeUnavailable(w, false)
+		s.writeUnavailable(w, false)
 		return
 	}
 	req.Header = transferHeaders(r, cfg.Orchestrator.APIKey)
 	res, err := (&http.Client{Transport: transport, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}).Do(req)
 	if err != nil {
-		writeUnavailable(w, r.Method != "GET" && r.Method != "HEAD")
+		s.writeUnavailable(w, r.Method != "GET" && r.Method != "HEAD")
 		return
 	}
 	defer res.Body.Close()
