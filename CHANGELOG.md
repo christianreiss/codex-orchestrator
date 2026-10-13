@@ -1,5 +1,7 @@
 # 2026-10-13
 
+- Codex and Claude can recover an interrupted credential upload when a readback supplies a strictly newer verified canonical head for the same account. Recovery uses the existing generation-guarded session writer, preserves concurrent native rotation/logout, and reports adoption without replaying the upload. Equal, older, unverified or wrong-account heads remain unresolved.
+
 - The cxx MCP stdio adapter (`cxx communicator mcp`) now exits on SIGTERM even when the native client keeps stdin open; in-flight requests still report an unknown outcome first. It forwards JSON-RPC batches and returns the server's array reply, instead of exiting with "invalid MCP JSON" and dropping replies still in flight. Notifications in a batch get no reply, an unparsable line now gets a `-32700` parse error while the session continues, and the API's `-32600` answers to invalid input without an id (such as `[5]` or an object missing `method`) are passed through instead of dropped. After SIGTERM the adapter waits at most three seconds for pending replies, so a client that stopped reading stdout cannot keep it alive.
 
 - cxx 0.9.78 routes Codex and Claude commands through the communicator immediately after signed config recovery or custom `--config` selection. Previously commands outside the native lifecycle, including `status` and auth helpers, could send control requests directly because early discovery had skipped the expired or non-default file. Grok already binds before dispatch; real-process regressions cover both startup paths for all three engines.

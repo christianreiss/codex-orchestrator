@@ -2,11 +2,14 @@ package lifecycle
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/authnotice"
 	"io"
 	"log/slog"
+	"time"
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/accountpool"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/codex"
@@ -138,6 +141,8 @@ func CommunicatorWork(ctx context.Context, cfg *config.Config, req communicator.
 		out.Auth = reconciled.Auth
 		out.AuthSynced = reconciled.Adopted
 		out.Uploaded = reconciled.Uploaded
+		out.Adopted = reconciled.Adopted
+		out.Generation = reconciled.Generation
 		out.HostSecure = reconciled.HostSecure
 	}
 	return out
@@ -149,6 +154,10 @@ func reconcileUnknownAuth(ctx context.Context, client *orchestrator.Client, path
 	raw, err := codex.ReadAuth()
 	generation, genErr := codex.CurrentAuthGeneration()
 	err = errors.Join(err, genErr)
+	sum := sha256.Sum256(raw)
+	if err == nil && (!generation.Exists || hex.EncodeToString(sum[:]) != generation.Digest) {
+		err = errors.New("Auth changed during upload reconciliation")
+	}
 	same := func(payload json.RawMessage) bool { return codex.SameAuthCredentials(raw, payload) }
 	acknowledge := func(digest string) (bool, error) { return codex.AcknowledgeCanonicalAuthGeneration(ctx, generation) }
 	out := communicator.SyncResult{Generation: generation.Digest, Deferred: true}
@@ -156,21 +165,58 @@ func reconcileUnknownAuth(ctx context.Context, client *orchestrator.Client, path
 		out.Error = syncError(err)
 		return out
 	}
+	if client.Pool == nil {
+		client.Pool = accountpool.Load("codex", path, client.BaseURL)
+	}
+	account, session := client.Pool.Binding()
 	resp, err := client.AuthRetrieve(ctx, "")
 	if err != nil {
 		out.Error = syncError(err)
 		return out
 	}
-	if resp == nil || (resp.Engine != "" && resp.Engine != "codex") || resp.VerificationState != "verified" || !same(resp.Auth) {
-		out.Error = &communicator.SyncError{Message: "Previous auth upload outcome remains unknown; local credentials retained"}
+	out.Error = &communicator.SyncError{Message: "Previous auth upload outcome remains unknown; local credentials retained"}
+	currentAccount, currentSession := client.Pool.Binding()
+	if resp == nil || (resp.Engine != "" && resp.Engine != "codex") || resp.VerificationState != "verified" {
 		return out
 	}
-	acknowledged, err := acknowledge(resp.CanonicalDigest)
-	out.Error = syncError(err)
-	out.Deferred = !acknowledged
-	out.Uploaded = acknowledged
+	if same(resp.Auth) {
+		acknowledged, err := acknowledge(resp.CanonicalDigest)
+		out.Error = syncError(err)
+		out.Deferred = !acknowledged
+		out.Uploaded = acknowledged
+	} else {
+		// Identical verified credentials retain the existing acknowledgement
+		// behavior even for legacy/unbound jobs. Replacing credentials needs
+		// an unchanged explicit binding; a newly selected account is not proof.
+		if resp.AccountID != account || currentAccount != account || currentSession != session {
+			return out
+		}
+		// Readback is never permission to retry the interrupted store. A verified,
+		// strictly newer canonical can replace only the exact local generation we
+		// observed, through the existing writer that preserves logout/native races.
+		localStamp, localErr := codex.LastRefreshFromRaw(raw)
+		serverStamp, serverErr := codex.LastRefreshFromRaw(resp.Auth)
+		if !codex.IsValidAuthPayload(raw) || localErr != nil || serverErr != nil || !serverStamp.After(localStamp) ||
+			serverStamp.Before(time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC)) || serverStamp.After(time.Now().Add(5*time.Minute)) {
+			return out
+		}
+		result, applyErr := applySessionAuthResponse(ctx, path, resp, SessionAuthSyncResult{Generation: generation})
+		if applyErr != nil {
+			out.Error = syncError(applyErr)
+			return out
+		}
+		if !result.Adopted || result.Deferred {
+			return out
+		}
+		out.Generation = result.Generation.Digest
+		out.Adopted = true
+		out.AuthSynced = true
+		out.Deferred = false
+		out.Error = nil
+		_ = authnotice.Publish("codex", out.Generation)
+	}
 	out.Auth, _ = json.Marshal(resp)
-	if resp != nil && resp.Host != nil {
+	if resp.Host != nil {
 		secure := resp.Host.Secure
 		out.HostSecure = &secure
 	}

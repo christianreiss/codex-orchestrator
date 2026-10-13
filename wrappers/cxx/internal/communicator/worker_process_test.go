@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/ipc"
 	"golang.org/x/net/websocket"
 )
 
@@ -285,15 +286,33 @@ func TestDedicatedWorkersConvergeAllEnginesWithoutMaintenance(t *testing.T) {
 			return strings.Contains(string(heads[engine]), "native-rotated")
 		})
 		waitFor("rotation acknowledgement", func() bool { _, err := os.Stat(pendingPath(job)); return os.IsNotExist(err) })
+		// Reproduce a worker whose previous upload reply was lost. Keep its
+		// digest marker while a verified, newer head arrives; the real finite
+		// worker must adopt through the guarded writer and clear the marker
+		// without another upstream store.
+		var fence *ipc.Lock
+		waitFor("reconciliation fixture fence", func() bool {
+			fence, _ = ipc.TryAcquireExclusivePath(filepath.Join(filepath.Dir(socket), "sync-"+scopeID(job)+".lock"))
+			return fence != nil
+		})
+		if err := writePending(job, fileGeneration(job.AuthPath)); err != nil {
+			t.Fatal(err)
+		}
 		authMu.Lock()
 		count := stores[engine]
-		heads[engine] = json.RawMessage(payload("remote-pushed"))
+		newer := payload("remote-pushed")
+		var canonical map[string]any
+		_ = json.Unmarshal(newer, &canonical)
+		canonical["last_refresh"] = time.Now().Add(-time.Minute).UTC().Format(time.RFC3339Nano)
+		heads[engine], _ = json.Marshal(canonical)
 		conn := upstream
 		authMu.Unlock()
+		_ = fence.Release()
 		writes.Lock()
 		_ = websocket.JSON.Send(conn, frame{Type: "auth_changed", Engine: engine, AccountID: 1, Generation: 2})
 		writes.Unlock()
-		waitFor("server push adoption", func() bool { raw, _ := os.ReadFile(job.AuthPath); return bytes.Contains(raw, []byte("remote-pushed")) })
+		waitFor("server push adoption after unknown upload", func() bool { raw, _ := os.ReadFile(job.AuthPath); return bytes.Contains(raw, []byte("remote-pushed")) })
+		waitFor("reconciled upload marker removed", func() bool { _, err := os.Stat(pendingPath(job)); return os.IsNotExist(err) })
 		authMu.Lock()
 		if stores[engine] != count {
 			t.Errorf("%s server write echoed as upload", engine)

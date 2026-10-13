@@ -358,13 +358,17 @@ Worker auth transactions keep a mode-0600 digest-only pending marker in the nati
 home. A crashed worker or unknown write outcome requires verified readback before
 reoffering that generation. An exact verified credential pair can be acknowledged
 without replay; unresolved outcomes remain visible and preserve local credentials.
-The marker contains no credential bytes. A new native generation is independent. While a marker exists and the
-server's head differs from the local pair, the readback cannot decide which side is
-current: the launch is refused (nothing is replayed or overwritten blindly) with an
-explicit reason naming `.cxx-communicator-pending-auth.json` in the native credential
-directory. After comparing the host's credential with the server's, deleting the marker
-resumes normal arbitration at once (the next sync adopts a newer server head or
-re-offers a newer local credential through the compare-and-swap store).
+The marker contains no credential bytes. A new native generation is independent.
+A verified readback of the exact credential pair acknowledges the interrupted upload.
+If that readback instead supplies a strictly newer verified head for the same account
+and engine, Codex and Claude adopt it through their existing exact-generation session
+writer. A concurrent native change, logout or deletion wins; recovery never retries the
+upload. The result is reported as adoption, not upload acknowledgement. The pending
+marker is removed only after successful reconciliation and only while it still names
+the interrupted generation. A crash before marker cleanup can be reconciled again.
+An older or equal-but-different head, missing verification, or a changed account/session
+remains unresolved and refuses launch with the marker's explicit diagnostic. Timestamp
+comparison alone never authorizes re-offering a local credential or deleting its marker.
 
 Local `status`/`doctor` and the host Operations panel show content failures and
 per-scope auth progress. Server confirmation, local writes and native adoption are

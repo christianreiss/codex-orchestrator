@@ -1697,4 +1697,10 @@ replaced by short native-home fences; local credential changes and server auth
 invalidations converge through the existing validated writers. Local materialization
 is reported separately from native adoption. Signed rollback drains auth work and
 hands polling back to the existing wrapper without restarting the native CLI.
+An interrupted auth upload is reconciled by readback without replay. A strictly newer
+verified canonical for the same account may replace only the exact observed native
+generation through the session writer; concurrent login, rotation and logout win.
+Equal, older or unverified heads remain unresolved. Successful recovery reports
+adoption and then clears the matching pending marker, never an upload acknowledgement.
+
 See [Communicator ownership and rollout](communicator.md#central-sync-ownership-cxx-0973).
