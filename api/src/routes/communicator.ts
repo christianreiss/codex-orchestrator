@@ -526,7 +526,7 @@ export async function registerCommunicatorRoutes(app: FastifyInstance, ctx: Rout
               headers: replyHeaders,
               body: response.rawPayload.toString('base64'),
             });
-            if (encoded.length > MAX_FRAME_BYTES) {
+            if (Buffer.byteLength(encoded) > MAX_FRAME_BYTES) {
               send(uncertainReply(frame.id, frame, 'oversize'));
               return;
             }

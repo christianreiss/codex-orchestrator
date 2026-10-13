@@ -1,5 +1,9 @@
 # 2026-10-13
 
+- Communicator frame limits count UTF-8 wire bytes, including non-ASCII headers, so an oversized encoded reply returns a correlated failure instead of exceeding the receiver limit and dropping the shared connection.
+
+- cxx 0.9.78 rejects contradictory MCP replies containing both `result` and `error`, returning the existing correlated unknown-outcome error instead of forwarding an ambiguous result. A lone `result: null` remains valid.
+
 - Codex and Claude can recover an interrupted credential upload when a readback supplies a strictly newer verified canonical head for the same account. Recovery uses the existing generation-guarded session writer, preserves concurrent native rotation/logout, and reports adoption without replaying the upload. Equal, older, unverified or wrong-account heads remain unresolved.
 
 - The cxx MCP stdio adapter (`cxx communicator mcp`) now exits on SIGTERM even when the native client keeps stdin open; in-flight requests still report an unknown outcome first. It forwards JSON-RPC batches and returns the server's array reply, instead of exiting with "invalid MCP JSON" and dropping replies still in flight. Notifications in a batch get no reply, an unparsable line now gets a `-32700` parse error while the session continues, and the API's `-32600` answers to invalid input without an id (such as `[5]` or an object missing `method`) are passed through instead of dropped. After SIGTERM, including one that arrives after stdin has closed, the adapter waits at most three seconds for pending replies, so a client that stopped reading stdout cannot keep it alive. Replies are relayed byte-exact, so integer request IDs beyond 2^53 are no longer rounded on stdout.

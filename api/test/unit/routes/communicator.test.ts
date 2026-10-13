@@ -461,6 +461,24 @@ describe('communicator effects that may already have happened', () => {
     ws.close();
   });
 
+  it('measures UTF-8 wire bytes for a frame with non-ASCII headers', async () => {
+    await setup();
+    const ws = await open();
+    const real = app.inject.bind(app) as (...args: unknown[]) => Promise<unknown>;
+    const spy = vi.spyOn(app, 'inject').mockImplementation(((...args: unknown[]) => {
+      if ((args[0] as { url?: string }).url === '/host/utf8-wide') {
+        return Promise.resolve({ statusCode: 200, headers: { 'x-wide': 'é'.repeat(8 * 1024 * 1024) }, rawPayload: Buffer.from('ok') });
+      }
+      return real(...args);
+    }) as never);
+    const read = await frameReply(ws, { method: 'GET', path: '/host/utf8-wide' });
+    expect(read.status).toBe(502);
+    expect(code(read)).toBe('communicator_response_too_large');
+    spy.mockRestore();
+    expect((await frameReply(ws, { method: 'POST', path: '/auth/sessions' })).status).toBe(200);
+    ws.close();
+  });
+
   it('scopes host events for two distinct hosts and still broadcasts a fleet-wide one', async () => {
     await setup();
     const open2 = async (key: string) => {

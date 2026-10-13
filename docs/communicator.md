@@ -111,7 +111,7 @@ request frame gets its own `400 communicator_invalid_request` reply; only an
 authorization failure closes the shared connection. A `host.*` event that
 names a numeric `id` or `host_id` invalidates only that host's connection.
 Events with no host id still reach every connection. A reply above 11 MiB, or
-whose whole encoded frame (base64 body, headers, JSON) exceeds 15 MiB, is answered for
+whose whole encoded frame (base64 body, headers, JSON) exceeds 15 MiB in UTF-8 wire bytes, is answered for
 that request only and the socket stays open: `502 communicator_response_too_large` for a
 repeatable read, `409 communicator_outcome_unknown` for anything that may have changed
 state, since the operation has already run. The same rule covers a fault after the
@@ -123,6 +123,11 @@ and no session admission. Completed operations that cannot safely be repeated,
 including auth stores and MCP calls, return `409 communicator_outcome_unknown`
 to prevent existing client retry loops from replaying them. The local allow-list strips
 trailing slashes the same way the API router does.
+
+From cxx 0.9.78, the MCP stdio adapter accepts a correlated response only when
+exactly one of `result` and `error` is present. A lone `result: null` is valid;
+contradictory envelopes return the existing unknown-outcome error with the
+original request ID instead of forwarding an ambiguous result.
 
 Remote control of the owner process is negotiated, so old servers and old owners
 never meet a frame or a field they do not know. A server that can stop an owner
