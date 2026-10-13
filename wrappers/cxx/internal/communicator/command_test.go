@@ -98,3 +98,18 @@ func TestMCPCorrelationUsesJSONIDValues(t *testing.T) {
 		}
 	}
 }
+
+func TestMCPErrorEnvelopeRequiresIntegerCodeAndStringMessage(t *testing.T) {
+	for _, invalid := range []string{`null`, `[]`, `{}`, `{"code":-32603}`, `{"message":"failed"}`, `{"code":"-32603","message":"failed"}`, `{"code":1.5,"message":"failed"}`, `{"code":-32603,"message":null}`, `{"code":null,"message":"failed"}`} {
+		body := []byte(`{"jsonrpc":"2.0","id":1,"error":` + invalid + `}`)
+		if mcpResponseValid(json.RawMessage(`1`), body) {
+			t.Errorf("accepted malformed error envelope: %s", body)
+		}
+	}
+	for _, valid := range []string{`{"code":0,"message":""}`, `{"code":-32603,"message":"failed","data":null}`} {
+		body := []byte(`{"jsonrpc":"2.0","id":1,"error":` + valid + `}`)
+		if !mcpResponseValid(json.RawMessage(`1`), body) {
+			t.Errorf("rejected valid error: %s", body)
+		}
+	}
+}

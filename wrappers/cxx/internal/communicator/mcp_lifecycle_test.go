@@ -185,6 +185,8 @@ func (f *mcpFixture) one(raw []byte) json.RawMessage {
 	id := string(req.ID)
 	method := *req.Method
 	switch method {
+	case "bad-error":
+		return json.RawMessage(`{"jsonrpc":"2.0","id":` + id + `,"error":null}`)
 	case "slow":
 		<-f.release
 	case "drop":
@@ -680,6 +682,24 @@ func TestMCPAdapterPreservesLargeIDsOnTheWire(t *testing.T) {
 		reply, ok := c.next(t, 25*time.Second)
 		if !ok || !strings.Contains(reply, `"id":`+id) {
 			t.Errorf("%s: id not preserved on stdout: %q", line, reply)
+		}
+	}
+}
+
+func TestMCPAdapterRejectsMalformedErrorWithoutReplay(t *testing.T) {
+	f := newMCPFixture(t)
+	for _, engine := range []string{"codex", "claude", "grok"} {
+		c := f.start(engine)
+		for _, request := range []string{`{"jsonrpc":"2.0","id":1,"method":"bad-error"}`, `[{"jsonrpc":"2.0","id":1,"method":"bad-error"}]`} {
+			before := f.dispatched.Load()
+			c.send(request)
+			reply, ok := c.next(t, 25*time.Second)
+			if !ok || !strings.Contains(reply, `"id":1`) || !strings.Contains(reply, `"outcome_unknown":true`) {
+				t.Fatalf("%s: malformed error was forwarded: %s", engine, reply)
+			}
+			if f.dispatched.Load() != before+1 {
+				t.Fatal("malformed response replayed the operation")
+			}
 		}
 	}
 }

@@ -364,9 +364,20 @@ func mcpResponseValid(id json.RawMessage, body []byte) bool {
 		Result  json.RawMessage `json:"result"`
 		Error   json.RawMessage `json:"error"`
 	}
-	return json.Unmarshal(body, &response) == nil && response.JSONRPC == "2.0" &&
-		sameMCPID(response.ID, id) &&
-		((len(response.Result) > 0) != (len(response.Error) > 0))
+	if json.Unmarshal(body, &response) != nil || response.JSONRPC != "2.0" ||
+		!sameMCPID(response.ID, id) || ((len(response.Result) > 0) == (len(response.Error) > 0)) {
+		return false
+	}
+	if len(response.Result) > 0 {
+		return true
+	}
+	// An error must be an object with both required typed fields. In particular
+	// null, missing fields and fractional codes are not a completed RPC reply.
+	var rpcError struct {
+		Code    *int64  `json:"code"`
+		Message *string `json:"message"`
+	}
+	return json.Unmarshal(response.Error, &rpcError) == nil && rpcError.Code != nil && rpcError.Message != nil
 }
 
 func sameMCPID(a, b json.RawMessage) bool {

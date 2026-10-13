@@ -83,7 +83,14 @@ individual operations where their authorization requires it.
 Managed content sync runs once per registered engine/home scope after push
 invalidation, after reconnect, when a lease registers a scope that is new to
 the owner, and every five minutes while clients are attached. An additional
-lease on an already-registered scope does not force a pass.
+lease on an already-registered scope does not force a pass. A scheduled pass is
+skipped when a complete bootstrap or content worker for that scope started after
+the newest server invalidation (a pushed `invalidate` frame or a reconnect,
+stamped on arrival) and less than five minutes ago, so a launch's own bootstrap
+satisfies the scope's initial pass instead of being followed by an identical
+exchange. A first connection is not an invalidation, a new scope's first
+scheduled pass waits 1.5 s so the session that opened it runs first, and explicit
+syncs, `auth` operations and bootstraps that carry auth always run.
 It invokes the existing headless sync machinery with concurrent sync explicitly
 enabled, preserving each scope's environment and signed config path. Scope
 registrations are removed when their last client lease closes. Files update
@@ -125,8 +132,9 @@ to prevent existing client retry loops from replaying them. The local allow-list
 trailing slashes the same way the API router does.
 
 From cxx 0.9.78, the MCP stdio adapter accepts a correlated response only when
-exactly one of `result` and `error` is present. A lone `result: null` is valid;
-contradictory envelopes return the existing unknown-outcome error with the
+exactly one of `result` and `error` is present. A lone `result: null` is valid.
+An error must be an object with an integer `code` and a string `message`;
+null errors, missing fields, and contradictory envelopes return the existing unknown-outcome error with the
 original request ID instead of forwarding an ambiguous result.
 The stdio writer also preserves JSON numbers without passing them through
 `float64`, so large integer IDs stay correlated in single and batch replies.
@@ -219,7 +227,8 @@ credential sync worker (a worker killed while its request still waits would neve
 nothing was sent) and are shared by all requests during one attempt, so against a hung API
 only the first call of a command pays the budget and the next ones fail at once. A request
 whose connection already ended before it was written is also answered `503` (provably
-not sent); a frame that was written and then lost stays `409` outcome unknown. A refused
+not sent), and a worker whose request never left cleans up its write-ahead credential marker
+(only a delivered, unanswered upload keeps it); a frame that was written and then lost stays `409` outcome unknown. A refused
 connection fails in milliseconds, so during an outage the request gets
 `503 communicator_unavailable` promptly (a definitive "not sent", never "outcome
 unknown"), exactly as direct HTTPS would refuse, and the first request after the server
@@ -373,13 +382,17 @@ Worker auth transactions keep a mode-0600 digest-only pending marker in the nati
 home. A crashed worker or unknown write outcome requires verified readback before
 reoffering that generation. An exact verified credential pair can be acknowledged
 without replay; unresolved outcomes remain visible and preserve local credentials.
-The marker contains no credential bytes. A new native generation is independent. While a marker exists and the
-server's head differs from the local pair, the readback cannot decide which side is
-current: the launch is refused (nothing is replayed or overwritten blindly) with an
-explicit reason naming `.cxx-communicator-pending-auth.json` in the native credential
-directory. After comparing the host's credential with the server's, deleting the marker
-resumes normal arbitration at once (the next sync adopts a newer server head or
-re-offers a newer local credential through the compare-and-swap store).
+The marker contains no credential bytes. A new native generation is independent.
+A verified readback of the exact credential pair acknowledges the interrupted upload.
+If that readback instead supplies a strictly newer verified head for the same account
+and engine, Codex and Claude adopt it through their existing exact-generation session
+writer. A concurrent native change, logout or deletion wins; recovery never retries the
+upload. The result is reported as adoption, not upload acknowledgement. The pending
+marker is removed only after successful reconciliation and only while it still names
+the interrupted generation. A crash before marker cleanup can be reconciled again.
+An older or equal-but-different head, missing verification, or a changed account/session
+remains unresolved and refuses launch with the marker's explicit diagnostic. Timestamp
+comparison alone never authorizes re-offering a local credential or deleting its marker.
 
 Local `status`/`doctor` and the host Operations panel show content failures and
 per-scope auth progress. Server confirmation, local writes and native adoption are
