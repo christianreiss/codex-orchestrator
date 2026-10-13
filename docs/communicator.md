@@ -60,6 +60,10 @@ use the same transport and retain their engine/session identities. The dispatche
 runs requests through the existing Fastify routes and hooks with the verified
 remote address. It rejects admin/provider routes, path traversal, recursive
 transports, forwarding headers, cookies and replacement host credentials.
+Path checks use the pathname the router dispatches, so a trailing slash cannot
+reach a denied stream or skip MCP credential pinning. A malformed or disallowed
+request frame gets its own `400 communicator_invalid_request` reply; only an
+authorization failure closes the shared connection.
 
 Heartbeats report local client count and last successful synchronization every
 15 seconds. Server content invalidations contain only an event ID, never admin

@@ -2,6 +2,8 @@
 
 - cxx 0.9.74 preserves unknown call outcomes through the managed MCP adapter, including the original request ID, HTTP status and bounded machine code. Lost or invalid replies instruct callers to verify the result before retrying with the original work identifiers; malformed replies produce a correlated error instead of leaving the client waiting.
 
+- The communicator dispatcher applies its route deny-list and MCP credential pinning to the pathname the router dispatches, so a trailing slash can no longer reach a watchdog stream through the shared connection. A malformed or disallowed request frame now gets its own 400 reply instead of closing the connection for every engine.
+
 - cxx 0.9.74 detaches only a stalled host-daemon stream when its event buffer fills, instead of closing the shared communicator connection and turning every engine's in-flight requests into unknown outcomes.
 
 - cxx 0.9.74 keeps one communicator per user when a launcher drops `XDG_RUNTIME_DIR` (Codex MCP servers, cron, non-login shells): the socket and sync fences fall back to `/run/user/<uid>` before `/tmp`, so a second owner no longer splits connections, status and auth fences.
