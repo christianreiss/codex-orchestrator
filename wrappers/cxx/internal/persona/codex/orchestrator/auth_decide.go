@@ -53,6 +53,17 @@ const MaxLocalAuthAge = 24 * time.Hour
 // (secure-host stretch window).
 const MaxLocalAuthRecent = 7 * 24 * time.Hour
 
+// UnresolvedUploadMessage is the lifecycle's marker error text for a credential
+// upload whose outcome is unknown; Decide recognizes it to explain the refusal.
+const UnresolvedUploadMessage = "previous auth upload outcome unresolved; reconcile before restarting sync"
+
+// IsUnresolvedUpload recognizes both spellings of that state: the fence's marker
+// error and the communicator worker's readback verdict ("outcome remains unknown").
+func IsUnresolvedUpload(message string) bool {
+	lower := strings.ToLower(message)
+	return strings.Contains(lower, "upload outcome unresolved") || strings.Contains(lower, "upload outcome remains unknown")
+}
+
 // Decide returns the launch decision for a given auth-retrieve response. If
 // the caller had a network/timeout error from AuthRetrieve and wants to
 // attempt the offline fallback, it should synthesise a response with
@@ -98,6 +109,14 @@ func Decide(resp *AuthRetrieveResponse, localAuthPath string, hostSecure bool, p
 	// never fall back to cached credentials, even when they are still fresh.
 	if strings.Contains(strings.ToLower(resp.Message), "ip_mismatch") {
 		d.Reason = "IP binding mismatch (ip_mismatch; API is reachable): this host's current IP is not bound. In Admin → Host Detail, use Release IP binding for a controlled IP change, then retry."
+		return d
+	}
+	// An earlier credential upload through the communicator has no confirmed
+	// outcome. The launch stays refused (nothing may be replayed or overwritten
+	// blindly) but the operator is told exactly why and how to resolve it; this must
+	// never reach the offline cached-auth fallback below.
+	if IsUnresolvedUpload(resp.Message) {
+		d.Reason = "A previous credential upload has no confirmed outcome (marker .cxx-communicator-pending-auth.json in the native credential directory); refusing to start so nothing is replayed or overwritten blindly. Compare this host's credential with the server's, then delete the marker to resume."
 		return d
 	}
 	// Engine disabled, by the fleet-wide master switch ("suspended") or by

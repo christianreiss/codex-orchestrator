@@ -25,6 +25,22 @@ func fixtureJob(t *testing.T, engine string) syncJob {
 	}
 	return job
 }
+
+func TestGrokAuthMetadataDistinguishesTransportLossFromRevocation(t *testing.T) {
+	if revokedGrokAuth(json.RawMessage(`{"StatusCode":409,"Code":"communicator_outcome_unknown"}`)) {
+		t.Fatal("transport uncertainty would terminate the native Grok session")
+	}
+	for _, raw := range []string{`{"StatusCode":401}`, `{"StatusCode":404}`, `{"StatusCode":409,"Code":"account_session_invalid"}`} {
+		if !revokedGrokAuth(json.RawMessage(raw)) {
+			t.Fatalf("revocation ignored: %s", raw)
+		}
+	}
+	for _, raw := range []string{`{"StatusCode":503}`, `{}`, `invalid JSON`} {
+		if revokedGrokAuth(json.RawMessage(raw)) {
+			t.Fatalf("non-revocation became fatal: %s", raw)
+		}
+	}
+}
 func TestScopesShareWritersButNeverCrossHomesOrEngines(t *testing.T) {
 	job := fixtureJob(t, "codex")
 	peer := job

@@ -835,6 +835,11 @@ func bootstrapWithProgress(
 				err = errors.Join(err, decodeErr)
 			}
 		}
+		// The launch gate explains an unconfirmed upload only from a response that
+		// carries the reason; without one it can say nothing but "unavailable".
+		if includeAuth && auth == nil && err != nil && orchestrator.IsUnresolvedUpload(err.Error()) {
+			auth = &orchestrator.AuthRetrieveResponse{Status: "offline", Message: err.Error()}
+		}
 		return auth, err, out.AuthSynced, resourceFromWire(out.Resources["agents"]), resourceFromWire(out.Resources["config"]), resourceFromWire(out.Resources["skills"]), sessions
 	}
 
@@ -844,7 +849,8 @@ func bootstrapWithProgress(
 	}
 	defer release()
 	if includeAuth && communicator.PendingAuth(client.BaseURL, "claude", authPath) {
-		return nil, errors.New("previous auth upload outcome unresolved; reconcile before restarting sync"), false, summary.ResourceSync{}, summary.ResourceSync{}, summary.ResourceSync{}, nil
+		unresolved := errors.New(orchestrator.UnresolvedUploadMessage)
+		return &orchestrator.AuthRetrieveResponse{Status: "offline", Message: unresolved.Error()}, unresolved, false, summary.ResourceSync{}, summary.ResourceSync{}, summary.ResourceSync{}, nil
 	}
 
 	ctx, bootSpan := tracing.Start(ctx, "cxx.lifecycle.bootstrap",

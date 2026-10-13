@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -206,6 +207,72 @@ func mcpResponseValid(id json.RawMessage, body []byte) bool {
 		Error   json.RawMessage `json:"error"`
 	}
 	return json.Unmarshal(body, &response) == nil && response.JSONRPC == "2.0" &&
-		bytes.Equal(bytes.TrimSpace(response.ID), bytes.TrimSpace(id)) &&
+		sameMCPID(response.ID, id) &&
 		(len(response.Result) > 0 || len(response.Error) > 0)
+}
+
+func sameMCPID(a, b json.RawMessage) bool {
+	decode := func(raw json.RawMessage) (any, error) {
+		decoder := json.NewDecoder(bytes.NewReader(raw))
+		decoder.UseNumber()
+		var value any
+		err := decoder.Decode(&value)
+		return value, err
+	}
+	left, err := decode(a)
+	if err != nil {
+		return false
+	}
+	right, err := decode(b)
+	if err != nil {
+		return false
+	}
+	switch value := left.(type) {
+	case string:
+		other, ok := right.(string)
+		return ok && value == other
+	case json.Number:
+		other, ok := right.(json.Number)
+		if !ok {
+			return false
+		}
+		x, validX := canonicalRPCNumber(value.String())
+		y, validY := canonicalRPCNumber(other.String())
+		return validX && validY && x == y
+	case nil:
+		return right == nil
+	}
+	return false
+}
+
+// Compare decimal values exactly: float64 would collapse distinct large IDs.
+// Normalization is linear in the bounded JSON input and never expands an exponent.
+func canonicalRPCNumber(raw string) (string, bool) {
+	mantissa, exponent := raw, "0"
+	if i := strings.IndexAny(raw, "eE"); i >= 0 {
+		mantissa, exponent = raw[:i], raw[i+1:]
+	}
+	negative := strings.HasPrefix(mantissa, "-")
+	mantissa = strings.TrimPrefix(mantissa, "-")
+	var offset int64
+	if i := strings.IndexByte(mantissa, '.'); i >= 0 {
+		offset = -int64(len(mantissa) - i - 1)
+		mantissa = mantissa[:i] + mantissa[i+1:]
+	}
+	mantissa = strings.TrimLeft(mantissa, "0")
+	if mantissa == "" {
+		return "0", true
+	}
+	digits := strings.TrimRight(mantissa, "0")
+	offset += int64(len(mantissa) - len(digits))
+	exp, err := strconv.ParseInt(exponent, 10, 64)
+	const maxInt64 = int64((1 << 63) - 1)
+	const minInt64 = -maxInt64 - 1
+	if err != nil || offset > 0 && exp > maxInt64-offset || offset < 0 && exp < minInt64-offset {
+		return "", false
+	}
+	if negative {
+		digits = "-" + digits
+	}
+	return digits + "e" + strconv.FormatInt(exp+offset, 10), true
 }

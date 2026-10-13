@@ -64,3 +64,25 @@ func TestMCPResponsesRequireOriginalCorrelation(t *testing.T) {
 		}
 	}
 }
+
+func TestMCPCorrelationUsesJSONIDValues(t *testing.T) {
+	for _, test := range []struct {
+		request, reply string
+		equal          bool
+	}{
+		{`"\u0061"`, `"a"`, true},
+		{`"\u003ctest\u003e"`, `"<test>"`, true},
+		{`1.0`, `1`, true},
+		{`1e1`, `10`, true},
+		{`-0`, `0`, true},
+		{`0.0030`, `3e-3`, true},
+		{`9007199254740993`, `9007199254740992`, false},
+		{`"1"`, `1`, false},
+		{`"a"`, `"b"`, false},
+	} {
+		body := []byte(`{"jsonrpc":"2.0","id":` + test.reply + `,"result":null}`)
+		if got := mcpResponseValid(json.RawMessage(test.request), body); got != test.equal {
+			t.Errorf("request ID %s, reply ID %s: matched=%v, want %v", test.request, test.reply, got, test.equal)
+		}
+	}
+}
