@@ -125,8 +125,15 @@ to prevent existing client retry loops from replaying them. The local allow-list
 trailing slashes the same way the API router does.
 
 Remote control of the owner process is negotiated, so old servers and old owners
-never meet a frame they do not know. A server that can stop an owner lists
-`control: ["terminate"]` in its `ready` frame. Only then does the owner send one
+never meet a frame or a field they do not know. A server that can stop an owner
+lists `control: ["terminate", "owner_identity"]` in its `ready` frame:
+`terminate` offers the stop, `owner_identity` says the server accepts the owner's
+process identity and aims a stop at exactly one process. An owner that sees
+`terminate` alone (a server that predates owner identity, whose `capabilities`
+schema rejects unknown fields) sends only the legacy fields (`type`, `terminate`,
+`pid`, `started_at`), says `terminate: false`, and ignores `terminate` frames from
+that server, so the console offers no stop for it and disconnect keeps working. An
+owner that sees neither token sends nothing. Only with both tokens does the owner send one
 `capabilities` frame (`terminate`, `pid`, `started_at`, `instance_id`, `runtime_id`), and only then does it honour
 `{type: "terminate", request_id, reason, owner_instance_id}`. The command is aimed at
 one process: `owner_instance_id` must equal the `instance_id` that owner announced, and
@@ -234,9 +241,15 @@ as one request and writes the server's array reply. Notifications in a batch get
 no reply, and an all-notification batch writes nothing. If the reply is lost,
 malformed or misses a request, each request gets its own unknown-outcome error.
 An unparsable line gets `-32700` with id null, and a JSON value that is neither
-an object nor a non-empty array gets `-32600`; neither ends the session. On SIGTERM or interrupt the adapter stops reading stdin even if the
+an object nor a non-empty array gets `-32600`; neither ends the session. Input
+the API answers with an id null `-32600` (invalid batch members, objects without
+`jsonrpc` or `method`) gets that answer even when nothing else in the line
+expects a reply; valid notifications stay silent. On SIGTERM or interrupt the adapter stops reading stdin even if the
 native client keeps it open, reports any in-flight request as an unknown
-outcome, releases its owner lease and exits.
+outcome, releases its owner lease and exits. It waits at most three seconds for
+those replies, so a client that has stopped reading stdout cannot keep it alive;
+a signal after stdin has closed gets the same bound. Replies are relayed as
+compacted raw JSON, never re-encoded, so request IDs keep their exact value.
 
 Request correlation compares JSON ID values rather than serialized spellings,
 including escaped strings and equivalent numbers. Distinct large integer IDs
