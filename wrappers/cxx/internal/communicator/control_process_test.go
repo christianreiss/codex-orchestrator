@@ -91,7 +91,7 @@ func TestRemoteTerminateStopsTheRealOwnerAndClientsRestartIt(t *testing.T) {
 			switch f["type"] {
 			case "hello":
 				// The server announces that it may ask this owner to stop.
-				websocket.JSON.Send(ws, map[string]any{"type": "ready", "protocol": 1, "control": []string{"terminate"}})
+				websocket.JSON.Send(ws, map[string]any{"type": "ready", "protocol": 1, "control": []string{"terminate", "owner_identity"}})
 			case "heartbeat":
 				websocket.JSON.Send(ws, map[string]any{"type": "heartbeat"})
 			case "capabilities":

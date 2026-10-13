@@ -160,8 +160,11 @@ func (c *connection) receive() {
 				close(c.ready)
 				ready = true
 				if announces(f.Control, controlTerminate) {
-					c.control = true
-					go c.announceCapabilities()
+					// Remote stop needs a server that can aim it at this process;
+					// one that only knows "terminate" is told nothing it cannot parse.
+					identity := announces(f.Control, controlOwnerIdentity)
+					c.control = identity
+					go c.announceCapabilities(identity)
 				}
 			}
 		case "daemon_event", "daemon_closed":

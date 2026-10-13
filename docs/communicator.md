@@ -125,8 +125,15 @@ to prevent existing client retry loops from replaying them. The local allow-list
 trailing slashes the same way the API router does.
 
 Remote control of the owner process is negotiated, so old servers and old owners
-never meet a frame they do not know. A server that can stop an owner lists
-`control: ["terminate"]` in its `ready` frame. Only then does the owner send one
+never meet a frame or a field they do not know. A server that can stop an owner
+lists `control: ["terminate", "owner_identity"]` in its `ready` frame:
+`terminate` offers the stop, `owner_identity` says the server accepts the owner's
+process identity and aims a stop at exactly one process. An owner that sees
+`terminate` alone (a server that predates owner identity, whose `capabilities`
+schema rejects unknown fields) sends only the legacy fields (`type`, `terminate`,
+`pid`, `started_at`), says `terminate: false`, and ignores `terminate` frames from
+that server, so the console offers no stop for it and disconnect keeps working. An
+owner that sees neither token sends nothing. Only with both tokens does the owner send one
 `capabilities` frame (`terminate`, `pid`, `started_at`, `instance_id`, `runtime_id`), and only then does it honour
 `{type: "terminate", request_id, reason, owner_instance_id}`. The command is aimed at
 one process: `owner_instance_id` must equal the `instance_id` that owner announced, and

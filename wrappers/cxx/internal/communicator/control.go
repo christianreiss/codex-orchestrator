@@ -17,16 +17,26 @@ import (
 // It is negotiated rather than assumed, so old servers and old owners are never
 // confronted with a frame they do not know:
 //
-//  1. a server that can terminate an owner lists "terminate" in `ready.control`;
+//  1. a server that can terminate an owner lists "terminate" in `ready.control`,
+//     and one that can also tell owner processes apart and aim a command at
+//     exactly one of them adds "owner_identity";
 //  2. only then does the owner describe itself once, with a `capabilities`
-//     frame (pid, start time, a per-process `instance_id` and its `runtime_id`,
-//     which let the server tell a restarted owner from the one it asked to stop);
-//  3. only then does the owner honour a `terminate` frame, and only one that
-//     names this process (`owner_instance_id`), answering with `terminate_ack`.
+//     frame. With both tokens it carries the pid, start time, a per-process
+//     `instance_id` and its `runtime_id` (which let the server tell a restarted
+//     owner from the one it asked to stop). With "terminate" alone (a server
+//     that predates owner identity, and whose frame schema is strict) it carries
+//     only the fields that server knows, and says it cannot be stopped remotely;
+//  3. only with both tokens does the owner honour a `terminate` frame, and only
+//     one that names this process (`owner_instance_id`), answering with
+//     `terminate_ack`.
 //
 // An owner that never saw step 1 ignores `terminate`, and a server never hears
-// from an owner that did not see its announcement.
-const controlTerminate = "terminate"
+// from an owner that did not see its announcement. A server is never sent a field
+// it did not announce it understands.
+const (
+	controlTerminate     = "terminate"
+	controlOwnerIdentity = "owner_identity"
+)
 
 // terminateDrain bounds how long a terminating owner keeps serving local
 // requests that are already in flight before it exits regardless. After the
@@ -64,15 +74,22 @@ func announces(control []string, name string) bool {
 var ackWriteBound = 2 * time.Second
 
 // announceCapabilities tells the server what this owner can be asked to do.
-func (c *connection) announceCapabilities() {
-	_ = c.send(map[string]any{
-		"type":        "capabilities",
-		"terminate":   c.onTerminate != nil,
-		"pid":         os.Getpid(),
-		"started_at":  processStarted.Format(time.RFC3339),
-		"instance_id": processInstance,
-		"runtime_id":  c.runtimeID,
-	})
+// `identity` says whether the server announced that it understands owner
+// identity; if it did not, the frame has only the fields an older server accepts
+// and claims no remote stop, because that server could not aim one at this
+// process.
+func (c *connection) announceCapabilities(identity bool) {
+	frame := map[string]any{
+		"type":       "capabilities",
+		"terminate":  identity && c.onTerminate != nil,
+		"pid":        os.Getpid(),
+		"started_at": processStarted.Format(time.RFC3339),
+	}
+	if identity {
+		frame["instance_id"] = processInstance
+		frame["runtime_id"] = c.runtimeID
+	}
+	_ = c.send(frame)
 }
 
 // sendWithin writes one frame, giving up after bound whether the write is slow or
