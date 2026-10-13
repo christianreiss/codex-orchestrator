@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/buildinfo"
 	"io"
 	"os"
 	"path/filepath"
@@ -31,6 +32,9 @@ func TestGlobalVersionUsesCommonIdentity(t *testing.T) {
 	}
 	if !strings.Contains(stdout.String(), "cxx 1.2.3 (commit abc123") {
 		t.Fatalf("version output = %q", stdout.String())
+	}
+	if buildinfo.Version != Version {
+		t.Fatalf("HTTP capability version = %q, running binary = %q", buildinfo.Version, Version)
 	}
 }
 

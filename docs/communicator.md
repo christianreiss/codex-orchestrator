@@ -396,7 +396,10 @@ comparison alone never authorizes re-offering a local credential or deleting its
 
 Local `status`/`doctor` and the host Operations panel show content failures and
 per-scope auth progress. Server confirmation, local writes and native adoption are
-separate: a local write reports native adoption as pending. Model-facing notices
+separate: a local write reports native adoption as unconfirmed. Native processes
+do not provide an adoption acknowledgement, so this is an observation limit,
+not a pending job or a failed sync. Older owners' `pending` reports are displayed
+with the same explanation. Model-facing notices
 are informational and never count as technical adoption acknowledgements. Detailed
 worker errors remain on the protected local socket; heartbeats carry bounded
 metadata only. `doctor` fails for a disconnected owner or failed synchronization.
@@ -413,3 +416,13 @@ content callers, ten auth consumers per source, native atomic rotation, server
 push, signed handoff, lost-acknowledgement readback, logout/CAS preservation and
 Grok readiness without token issuance or refresh ownership changes. All process
 fixtures use isolated HOME and runtime directories.
+
+### First-sync capabilities
+
+Starting with cxx 0.9.79, Codex, Claude and Grok HTTP clients send
+`X-Wrapper-Version` from the running binary, including finite workers. The API
+uses it only for the selected engine's config-rendering capabilities, so a fresh
+installation can receive the stdio MCP adapter before its first version report.
+The signed config's target version does not stand in for the running version.
+Older clients without the header retain the stored-version behavior; old and
+non-release callers still fail the existing communicator version gate.

@@ -38,6 +38,22 @@ async function buildApp(engines = 'codex,claude') {
 }
 
 describe('host engine routing for synced resources', () => {
+  it.each(['codex', 'claude'])('uses current %s wrapper capabilities on direct config retrieval', async engine => {
+    const { app, db } = await buildApp();
+    db.tables.set(clientConfigDocuments, [{ id: 1, engine, body: '{}', sha256: digest('{}'),
+      settings: { orchestrator_mcp_enabled: true }, updatedAt: stamp }]);
+    try {
+      const current = await app.inject({ method: 'POST', url: '/config/retrieve',
+        headers: { 'x-engine': engine, 'x-wrapper-version': '0.9.79' }, payload: {} });
+      expect(current.statusCode).toBe(200);
+      expect(current.json().content).toContain('communicator');
+      const legacy = await app.inject({ method: 'POST', url: '/config/retrieve',
+        headers: { 'x-engine': engine }, payload: {} });
+      expect(legacy.statusCode).toBe(200);
+      expect(legacy.json().content).not.toContain('communicator');
+    } finally { await app.close(); }
+  });
+
   it.each([
     { headers: { 'x-engine': 'claude' }, query: '' },
     { headers: { 'user-agent': 'clx/2.0.0' }, query: '' },

@@ -21,6 +21,7 @@ import (
 	claudeapp "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/app/claude"
 	codexapp "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/app/codex"
 	grokapp "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/app/grok"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/buildinfo"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/claude"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/claudequota"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/codex"
@@ -150,6 +151,7 @@ func runExplicit(args []string, stdout, stderr io.Writer) int {
 }
 
 func setPersonaBuildInfo() {
+	buildinfo.Version = Version
 	codexapp.Version, codexapp.Commit, codexapp.BuildDate = Version, Commit, BuildDate
 	claudeapp.Version, claudeapp.Commit, claudeapp.BuildDate = Version, Commit, BuildDate
 	grokapp.Version, grokapp.Commit, grokapp.BuildDate = Version, Commit, BuildDate
