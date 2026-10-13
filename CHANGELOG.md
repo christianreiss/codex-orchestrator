@@ -1,5 +1,7 @@
 # 2026-10-13
 
+- Explicit auth recovery rejects oversized readback responses rather than trusting a truncated JSON prefix; credential material stays out of its diagnostic.
+
 - Automatic Codex/Claude idle uploads respect pending-auth markers and the explicit recovery transaction fence even after transport rollback; an unresolved interrupted candidate cannot be reoffered by `auth-upload-auto`.
 
 - Codex and Claude can inspect an interrupted credential upload with `auth-reconcile` and explicitly adopt verified same-account server credentials with `--accept-server`, preserving a private local backup and native/logout races. The command does not replay uploads or reserve a provider account; persistent adoption is limited to secure hosts. Pending digest fences now survive malformed markers and legacy-transport rollback, and identical verified Claude readback accepts an older API's `digest` field.

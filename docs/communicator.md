@@ -406,6 +406,8 @@ provider refresh or account-lease acquisition. Without an active native child,
 an inherited session ID is omitted, so an expired lease does not prevent the
 same account's readback. An active invalid session binding is reported precisely;
 no replacement account is silently reserved.
+Readback and local native files are limited to 1 MiB. An oversized response is
+rejected in full; a valid JSON prefix cannot be accepted by truncating its tail.
 
 `auth-reconcile --accept-server` is an explicit choice to adopt that account's
 verified server credentials, including an older or equal-but-different head.

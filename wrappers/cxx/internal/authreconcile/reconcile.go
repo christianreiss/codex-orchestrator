@@ -359,9 +359,12 @@ func readback(ctx context.Context, c *orchestrator.Client, engine string, accoun
 		return out, errors.New("verified account readback unavailable; no store or lease attempted")
 	}
 	defer res.Body.Close()
-	raw, err = io.ReadAll(io.LimitReader(res.Body, 1<<20))
+	raw, err = io.ReadAll(io.LimitReader(res.Body, (1<<20)+1))
 	if err != nil {
 		return out, errors.New("readback response unavailable")
+	}
+	if len(raw) > 1<<20 {
+		return out, errors.New("credential readback exceeds recovery read limit")
 	}
 	if res.StatusCode >= 400 {
 		var failure struct {
