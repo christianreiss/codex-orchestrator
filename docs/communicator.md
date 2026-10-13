@@ -95,9 +95,14 @@ reach a denied stream or skip MCP credential pinning. A malformed or disallowed
 request frame gets its own `400 communicator_invalid_request` reply; only an
 authorization failure closes the shared connection. A `host.*` event that
 names a numeric `id` or `host_id` invalidates only that host's connection.
-Events with no host id still reach every connection. A reply above 11 MiB
-returns `502 communicator_response_too_large` for that request. From cxx
-0.9.75 the local owner retries an idempotent read once on its HTTPS transfer.
+Events with no host id still reach every connection. A reply above 11 MiB, or
+whose whole encoded frame (base64 body, headers, JSON) exceeds 15 MiB, is answered for
+that request only and the socket stays open: `502 communicator_response_too_large` for a
+repeatable read, `409 communicator_outcome_unknown` for anything that may have changed
+state, since the operation has already run. The same rule covers a fault after the
+request was handed to the router (a write is reported as unknown, never as a retryable
+5xx) and topology bookkeeping can no longer replace the reply of a request that already
+ran. From cxx 0.9.75 the local owner retries an idempotent read once on its HTTPS transfer.
 POST bootstrap qualifies only with explicit `include_auth:false`, no auth candidate
 and no session admission. Completed operations that cannot safely be repeated,
 including auth stores and MCP calls, return `409 communicator_outcome_unknown`

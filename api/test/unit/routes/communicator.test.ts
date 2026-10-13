@@ -20,8 +20,9 @@ vi.mock('../../../src/services/host-auth.js', () => ({
       headers: Record<string, string>;
       authHost?: { id: number; secure: number };
     }) => {
-      if (!auth.allowed || req.headers['x-api-key'] !== 'host-one') throw new Error('denied');
-      req.authHost = { id: 1, secure: 1 };
+      const key = req.headers['x-api-key'];
+      if (!auth.allowed || (key !== 'host-one' && key !== 'host-two')) throw new Error('denied');
+      req.authHost = { id: key === 'host-two' ? 2 : 1, secure: 1 };
       return req.authHost;
     },
   }),
@@ -48,6 +49,7 @@ async function setup(enabled = true) {
   app.post('/auth', () => ({ verification_state: 'verified', engine: 'claude', account_id: 7 }));
   app.get('/host/big', () => ({ blob: 'x'.repeat(12 * 1024 * 1024) }));
   app.post('/host/big', () => ({ blob: 'x'.repeat(12 * 1024 * 1024) }));
+  app.get('/host/wide', (_req, reply) => reply.header('x-wide', 'h'.repeat(15.5 * 1024 * 1024)).send({ ok: true }));
   await app.ready();
   return app;
 }
@@ -372,4 +374,115 @@ it('preserves account acquisition, heartbeat and release for all native engines'
     }
   }
   ws.close();
+});
+
+describe('communicator effects that may already have happened', () => {
+  async function frameReply(ws: Awaited<ReturnType<typeof open>>, frame: Record<string, unknown>) {
+    const id = randomUUID();
+    const reply = new Promise<{ id: string; status: number; body: string }>((resolve) => {
+      const on = (data: unknown) => {
+        const parsed = JSON.parse(String(data));
+        if (parsed.id !== id) return;
+        ws.off('message', on);
+        resolve(parsed);
+      };
+      ws.on('message', on);
+    });
+    ws.send(JSON.stringify({ id, type: 'request', headers: {}, body: '', ...frame }));
+    return reply;
+  }
+  const code = (reply: { body: string }) => JSON.parse(Buffer.from(reply.body, 'base64').toString()).code;
+
+  it('never answers a throw after dispatch with a retryable status for a write', async () => {
+    await setup();
+    const ws = await open();
+    let dispatched = 0;
+    const real = app.inject.bind(app) as (...args: unknown[]) => Promise<unknown>;
+    const spy = vi.spyOn(app, 'inject').mockImplementation(((...args: unknown[]) => {
+      const options = args[0] as { url?: string };
+      if (options.url === '/host/echo') {
+        dispatched++;
+        return new Promise((_, reject) => setTimeout(() => reject(new Error('transport fault after the handler ran')), 120));
+      }
+      return real(...args);
+    }) as never);
+    // A concurrent unrelated request must be served while the write is in doubt.
+    const doubtful = frameReply(ws, { method: 'POST', path: '/host/echo' });
+    const unrelated = await frameReply(ws, { method: 'POST', path: '/auth/sessions' });
+    expect(unrelated.status).toBe(200);
+    const write = await doubtful;
+    expect(write.status).toBe(409);
+    expect(code(write)).toBe('communicator_outcome_unknown');
+    expect(dispatched).toBe(1);
+    spy.mockRestore();
+    expect((await frameReply(ws, { method: 'POST', path: '/host/echo' })).status).toBe(200);
+    ws.close();
+  });
+
+  it('keeps a repeatable read retryable when the same fault hits it', async () => {
+    await setup();
+    const ws = await open();
+    const spy = vi.spyOn(app, 'inject').mockImplementation((() => Promise.reject(new Error('fault'))) as never);
+    const read = await frameReply(ws, { method: 'GET', path: '/versions' });
+    expect(read.status).toBeGreaterThanOrEqual(500);
+    expect(code(read)).not.toBe('communicator_outcome_unknown');
+    spy.mockRestore();
+    ws.close();
+  });
+
+  it('keeps a committed write\'s reply when only the topology bookkeeping fails', async () => {
+    await setup();
+    const { communicatorRegistry } = await import('../../../src/services/topology/communicator-registry.js');
+    const ws = await open();
+    const spy = vi.spyOn(communicatorRegistry, 'observeDispatch').mockImplementation(() => {
+      throw new Error('bookkeeping failure');
+    });
+    const reply = await frameReply(ws, { method: 'POST', path: '/auth/sessions' });
+    expect(reply.status).toBe(200);
+    spy.mockRestore();
+    ws.close();
+  });
+
+  it('measures the whole encoded frame, not only the payload', async () => {
+    await setup();
+    const ws = await open();
+    const read = await frameReply(ws, { method: 'GET', path: '/host/wide' });
+    expect(read.status).toBe(502);
+    expect(code(read)).toBe('communicator_response_too_large');
+    ws.close();
+  });
+
+  it('scopes host events for two distinct hosts and still broadcasts a fleet-wide one', async () => {
+    await setup();
+    const open2 = async (key: string) => {
+      const ws = await app.injectWS('/host/communicator/connect', { headers: { 'x-api-key': key } });
+      const ready = new Promise((resolve) => ws.once('message', resolve));
+      ws.send(JSON.stringify({ type: 'hello', protocol: 1, username: key, version: '0.9.76' }));
+      await ready;
+      const frames: Record<string, unknown>[] = [];
+      ws.on('message', (data: unknown) => frames.push(JSON.parse(String(data))));
+      return { ws, frames };
+    };
+    const one = await open2('host-one');
+    const two = await open2('host-two');
+    for (const [type, payload] of [
+      ['host.updated', { id: 1 }],
+      ['host.deleted', { id: 2, fqdn: 'two' }],
+      ['host.pruned', { id: 2, fqdn: 'two', reason: 'inactive' }],
+      ['host.created', { id: 1, fqdn: 'one' }],
+      ['host.force_delete_ip_mismatch', { id: 2, fqdn: 'two', ip: '192.0.2.9' }],
+    ] as const)
+      wsPublisher.publish(type, payload);
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    expect(one.frames.filter((f) => f.type === 'invalidate')).toHaveLength(1);
+    expect(two.frames.filter((f) => f.type === 'invalidate')).toHaveLength(1);
+    one.frames.length = 0;
+    two.frames.length = 0;
+    wsPublisher.publish('host.updated', { fqdn: 'fleet-wide, names no host' });
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    expect(one.frames.filter((f) => f.type === 'invalidate')).toHaveLength(1);
+    expect(two.frames.filter((f) => f.type === 'invalidate')).toHaveLength(1);
+    one.ws.close();
+    two.ws.close();
+  });
 });
