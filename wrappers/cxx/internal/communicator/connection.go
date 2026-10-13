@@ -39,6 +39,7 @@ type frame struct {
 type connection struct {
 	daemon        chan json.RawMessage
 	daemonClosing chan json.RawMessage
+	daemonStop    func()
 	ws            *websocket.Conn
 	mu            sync.Mutex
 	sendMu        sync.Mutex
@@ -175,11 +176,18 @@ func (c *connection) receive() {
 }
 func (c *connection) detachDaemon(ch chan json.RawMessage) {
 	c.mu.Lock()
-	defer c.mu.Unlock()
+	var stop func()
 	if c.daemon == ch {
 		c.daemon = nil
 		c.daemonClosing = ch
+		stop, c.daemonStop = c.daemonStop, nil
 		close(ch)
+	}
+	c.mu.Unlock()
+	// A relay already blocked writing to the stalled consumer never sees the
+	// closed channel, so the local stream itself is stopped as well.
+	if stop != nil {
+		stop()
 	}
 }
 
@@ -193,6 +201,7 @@ func (c *connection) finishDaemon(ch chan json.RawMessage) {
 	}
 	c.daemon = nil
 	c.daemonClosing = ch
+	c.daemonStop = nil
 	c.mu.Unlock()
 	_ = c.send(map[string]any{"type": "daemon_disconnect"})
 	c.mu.Lock()

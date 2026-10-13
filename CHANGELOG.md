@@ -1,5 +1,7 @@
 # 2026-10-13
 
+- cxx 0.9.75 also stops a host-daemon stream whose local reader has stalled: detaching it expires that stream's socket deadlines, so a relay blocked writing to it no longer keeps the stream (and its 64 queued events) alive.
+
 - Managed MCP renders `cxx communicator mcp` only when that engine's wrapper version is a bakery cxx release at or above 0.9.71. Date-versioned shell wrappers (`2025.11.03`, `2025.11.3`), `dev`, and other non-releases stay on the HTTPS MCP endpoint. `v0.1.0` is a real version and stays on HTTPS because it is older than 0.9.71.
 
 - cxx 0.9.76 fixes an idle-shutdown deadlock: after five idle minutes the communicator owner cancelled its loops but kept its Unix socket open and its lock held, so every later managed call got `503 communicator_unavailable` from a zombie that no client would replace (SIGTERM was ignored, only SIGKILL helped, and cron runs failed until then). The owner now closes its server on idle as well as on termination and the next call starts a fresh one.

@@ -55,6 +55,13 @@ func (s *server) daemon(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		c.daemon = channel
+		// Expired deadlines unblock a stalled Send and the Receive loop without
+		// taking the websocket write lock that a blocked Send holds (Close does).
+		c.daemonStop = func() {
+			now := time.Now()
+			_ = ws.SetWriteDeadline(now)
+			_ = ws.SetReadDeadline(now)
+		}
 		c.mu.Unlock()
 		defer c.finishDaemon(channel)
 		ctx, cancel := context.WithCancel(r.Context())
