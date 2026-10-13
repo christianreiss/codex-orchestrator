@@ -17,11 +17,13 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
 	"syscall"
 	"time"
+	"unicode"
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/signing"
@@ -66,50 +68,85 @@ func runtimeRoot() string {
 	return filepath.Join(os.TempDir(), fmt.Sprintf("cxx-%d", os.Getuid()))
 }
 
-// sun_path holds 108 bytes on Linux and 104 on the BSDs, terminator included.
-// Stay well under both so the same path binds everywhere.
-const maxSocketPath = 100
+// sun_path is 108 bytes on Linux and 104 on the BSDs and macOS, terminator included,
+// so a bindable path is at most 107 / 103 bytes. Using each platform's own limit (not a
+// shared conservative one) keeps every path that binds in its preferred place, where an
+// owner of an older build may already be listening.
+func socketPathLimit() int {
+	switch runtime.GOOS {
+	case "linux", "android":
+		return 107
+	default:
+		return 103
+	}
+}
 
 // executable is a seam for tests; production always re-executes itself.
 var executable = os.Executable
 
-// socketPath prefers the per-user runtime root. A root so deep that the socket
-// would not bind (a long XDG_RUNTIME_DIR or TMPDIR) falls back to a short
-// private directory under /tmp. Every process derives the same answer from the
-// same environment, so clients and the owner still meet at one path.
+const socketDirPrefix = "cxx-comm-"
+
+// socketLength is the byte length of the socket under root.
+func socketLength(root string) int {
+	return len(filepath.Join(root, socketDirPrefix+"0123456789abcdef", "control.sock"))
+}
+
+// socketPath prefers the per-user runtime root. A root so deep that the socket would
+// not bind (a long XDG_RUNTIME_DIR or TMPDIR) falls back to a short private directory
+// under /tmp, keyed by that root as well as by the server so two distinct deep scopes
+// (isolated test runs, harnesses) never share an owner, fence or credentials. The same
+// scope and server always resolve to the same path in every process, and the fences and
+// workers derive their locks from this path, so they stay with their owner.
 func socketPath(base string) (string, error) {
-	path, err := socketPathUnder(runtimeRoot(), base)
-	if err != nil {
+	root := filepath.Clean(runtimeRoot())
+	if err := checkPrivateDir(root, true); err != nil {
 		// An unsafe or unusable root is a refusal, never a reason to look elsewhere.
 		return "", err
 	}
-	if len(path) <= maxSocketPath {
-		return path, nil
+	if socketLength(root) <= socketPathLimit() {
+		return socketPathIn(root, base, "")
 	}
-	short, err := socketPathUnder(filepath.Join("/tmp", fmt.Sprintf("cxx-%d", os.Getuid())), base)
-	if err != nil {
+	short := filepath.Join("/tmp", fmt.Sprintf("cxx-%d", os.Getuid()))
+	if err := checkPrivateDir(short, true); err != nil {
 		return "", err
 	}
-	if len(short) > maxSocketPath {
+	if socketLength(short) > socketPathLimit() {
 		return "", errors.New("communicator socket path is too long for this platform")
 	}
-	return short, nil
+	return socketPathIn(short, base, root)
 }
 
-func socketPathUnder(root, base string) (string, error) {
-	if err := os.MkdirAll(root, 0700); err != nil {
-		return "", err
+// checkPrivateDir verifies that dir (created 0700 if absent when create is set) is a
+// real directory owned by this user with mode 0700.
+func checkPrivateDir(dir string, create bool) error {
+	if create {
+		if err := os.MkdirAll(dir, 0700); err != nil {
+			return err
+		}
 	}
-	rootInfo, err := os.Lstat(root)
+	info, err := os.Lstat(dir)
 	if err != nil {
+		return err
+	}
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !ok || int(stat.Uid) != os.Getuid() || !info.IsDir() || info.Mode().Perm() != 0700 {
+		return errors.New("unsafe communicator runtime root")
+	}
+	return nil
+}
+
+// socketPathIn places the per-server directory under an already verified root. scope is
+// empty for the preferred root and names the original root for the short fallback.
+func socketPathIn(root, base, scope string) (string, error) {
+	if err := checkPrivateDir(root, false); err != nil {
 		return "", err
 	}
-	rootStat, ok := rootInfo.Sys().(*syscall.Stat_t)
-	if !ok || int(rootStat.Uid) != os.Getuid() || !rootInfo.IsDir() || rootInfo.Mode().Perm() != 0700 {
-		return "", errors.New("unsafe communicator runtime root")
+	key := strings.TrimRight(base, "/")
+	if scope != "" {
+		key = scope + "\x00" + key
 	}
-	sum := sha256.Sum256([]byte(strings.TrimRight(base, "/")))
-	dir := filepath.Join(root, "cxx-comm-"+hex.EncodeToString(sum[:8]))
+	sum := sha256.Sum256([]byte(key))
+	dir := filepath.Join(root, socketDirPrefix+hex.EncodeToString(sum[:8]))
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return "", err
 	}
@@ -353,11 +390,27 @@ func serveLogTail(path string, offset int64) string {
 	if err != nil || int64(len(raw)) <= offset {
 		return ""
 	}
+	// Bounded to the end of what was written, one line, printable text only: the child
+	// is our own binary, but the text is shown on a terminal and must not be able to
+	// move the cursor or recolour the screen.
 	text := strings.TrimSpace(string(raw[offset:]))
+	if len(text) > 4000 {
+		text = text[len(text)-4000:]
+	}
+	text = strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) && !unicode.IsSpace(r) {
+			return ' '
+		}
+		if r == unicode.ReplacementChar || !unicode.IsPrint(r) && !unicode.IsSpace(r) {
+			return '?'
+		}
+		return r
+	}, text)
+	text = strings.Join(strings.Fields(text), " ")
 	if len(text) > 400 {
 		text = text[len(text)-400:]
 	}
-	return strings.Join(strings.Fields(text), " ")
+	return text
 }
 
 func (ep *endpoint) lease(ctx context.Context) {

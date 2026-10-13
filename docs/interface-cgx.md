@@ -1015,6 +1015,10 @@ CoCo traffic through a per-user Unix socket and one multiplexed server WebSocket
 Provider traffic, session identities and account/refresh ownership retain their existing
 contracts. See [communicator protocol, lifecycle and rollout](communicator.md).
 
+Grok binds its verified selected config before creating control clients, including
+after expiry recovery or custom `--config` selection. The cxx 0.9.78 startup
+regressions verify this boundary alongside the matching Codex/Claude behavior.
+
 From cxx 0.9.74, managed MCP errors preserve the original request ID and bounded
 `code`, `http_status` and `outcome_unknown` data. Unknown or invalid replies require
 result verification before retrying with the original work identifiers. The stdio
