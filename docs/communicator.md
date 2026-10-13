@@ -78,7 +78,12 @@ frames up to 16 MiB of base64) gets a standard error frame and the connection st
 Only frames with no usable identity, a missing handshake and revoked authorization close
 it. `host.*` invalidations are delivered only to the host they name.
 
-The reconnect delay grows from one to thirty seconds with jitter. Pending writes
+The reconnect delay grows from one to thirty seconds with jitter. While the connection
+is down, local requests wait for it only as long as is useful: up to 20 s for the first
+connect, 1.5 s after one failed attempt, and not at all from the second consecutive
+failure, when they receive `503 communicator_unavailable` immediately (a definitive
+"not sent", never "outcome unknown"). That keeps an outage as cheap as direct HTTPS and
+leaves no pending-auth marker behind. Pending writes
 whose replies are lost return `communicator_outcome_unknown` with HTTP 409 so
 existing retry loops do not repeat them. Durable message claim IDs and explicit
 work outcomes keep their existing retry contracts. A failed connection alone

@@ -47,6 +47,9 @@ type server struct {
 	dirty            chan struct{}
 	authDirty        chan struct{}
 	jobs             map[string]syncJob
+	// failures counts consecutive failed connection attempts; zero means the
+	// control connection is either up or still being established for the first time.
+	failures int
 }
 
 func serve(ctx context.Context, path, version string) error {
@@ -168,6 +171,7 @@ func (s *server) connectLoop(ctx context.Context) {
 			s.conn = c
 			s.fallback = false
 			s.lastError = ""
+			s.failures = 0
 			s.mu.Unlock()
 			delay = time.Second
 			s.invalidate()
@@ -201,6 +205,7 @@ func (s *server) connectLoop(ctx context.Context) {
 		}
 		s.mu.Lock()
 		s.conn = nil
+		s.failures++
 		if err != nil {
 			s.lastError = err.Error()
 		}

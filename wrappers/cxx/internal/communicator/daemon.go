@@ -98,22 +98,40 @@ func (s *server) daemon(w http.ResponseWriter, r *http.Request) {
 	}).ServeHTTP(w, r)
 }
 
+// connectWait is how long a request may wait for the shared connection. The very
+// first connection is worth the full budget. After one failed attempt the retry is
+// about a second away, so wait just long enough to ride out a blip. From the second
+// consecutive failure the outage is established and, like direct HTTPS refusing in
+// milliseconds, the server is reported unavailable at once; otherwise every call of
+// a command pays the wait again.
+const (
+	connectWaitFirst = 20 * time.Second
+	connectWaitBlip  = 1500 * time.Millisecond
+)
+
 func (s *server) waitConnection(ctx context.Context) *connection {
-	timer := time.NewTimer(20 * time.Second)
-	defer timer.Stop()
+	start := time.Now()
 	tick := time.NewTicker(25 * time.Millisecond)
 	defer tick.Stop()
 	for {
 		s.mu.Lock()
-		c := s.conn
+		c, failures := s.conn, s.failures
 		s.mu.Unlock()
 		if c != nil {
 			return c
 		}
+		limit := connectWaitFirst
+		switch {
+		case failures == 1:
+			limit = connectWaitBlip
+		case failures > 1:
+			limit = 0
+		}
+		if time.Since(start) >= limit {
+			return nil
+		}
 		select {
 		case <-ctx.Done():
-			return nil
-		case <-timer.C:
 			return nil
 		case <-tick.C:
 		}
