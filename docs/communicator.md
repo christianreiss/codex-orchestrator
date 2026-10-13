@@ -225,7 +225,8 @@ credential sync worker (a worker killed while its request still waits would neve
 nothing was sent) and are shared by all requests during one attempt, so against a hung API
 only the first call of a command pays the budget and the next ones fail at once. A request
 whose connection already ended before it was written is also answered `503` (provably
-not sent); a frame that was written and then lost stays `409` outcome unknown. A refused
+not sent), and a worker whose request never left cleans up its write-ahead credential marker
+(only a delivered, unanswered upload keeps it); a frame that was written and then lost stays `409` outcome unknown. A refused
 connection fails in milliseconds, so during an outage the request gets
 `503 communicator_unavailable` promptly (a definitive "not sent", never "outcome
 unknown"), exactly as direct HTTPS would refuse, and the first request after the server
