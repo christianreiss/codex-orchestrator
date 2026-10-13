@@ -309,7 +309,7 @@ export class HostDaemonService {
         runtime: { ...row.runtime, engines, error, connected: true, heartbeat_at: now() },
       }).where(eq(hostDaemons.hostId, id));
     });
-    if (renewed) wsPublisher.publish('host.updated', { id });
+    if (renewed) wsPublisher.publish('host.updated', { id, source: 'daemon_window' });
     const row = await this.settings(id);
     const work = await this.db.select().from(sessions).where(eq(sessions.hostId, id));
     this.changed(id);

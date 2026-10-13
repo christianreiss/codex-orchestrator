@@ -239,7 +239,7 @@ export async function registerHostRoutes(app: FastifyInstance, ctx: RouteContext
       details: JSON.stringify({ engine, client: { reported: clientVersion }, wrapper: { reported: wrapperVersion } }),
       createdAt: nowIso(),
     });
-    wsPublisher.publish('host.updated', { id: host.id, fqdn: host.fqdn });
+    wsPublisher.publish('host.updated', { id: host.id, fqdn: host.fqdn, source: 'cron_report' });
     return { recorded: true };
   });
 

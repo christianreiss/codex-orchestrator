@@ -1,6 +1,6 @@
 # CoCo Communicator
 
-cxx 0.9.71 introduces one local communicator per OS user and orchestrator base URL.
+cxx 0.9.72 introduces one local communicator per OS user and orchestrator base URL.
 It is started lazily by a managed request and shared by Codex, Claude and Grok.
 Provider inference still uses each native client's original network path.
 
@@ -60,8 +60,9 @@ transports, forwarding headers, cookies and replacement host credentials.
 Heartbeats report local client count and last successful synchronization every
 15 seconds. Server content invalidations contain only an event ID, never admin
 payloads or credentials. A multiplexed `daemon` channel reuses the existing
-host-daemon protocol and durable work semantics. Downloads and large attachments
-use separate HTTPS transfers owned by the communicator. Signed wrapper config
+host-daemon protocol and durable work semantics. Downloads, large attachments and long-lived watchdog streams
+use separate HTTPS transfers owned by the communicator. Cron checks and sync
+status use the shared control connection. Signed wrapper config
 refresh also remains available over HTTPS for capability rollback.
 
 The reconnect delay grows from one to thirty seconds with jitter. Pending writes

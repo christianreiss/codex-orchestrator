@@ -25,7 +25,7 @@ export function communicatorPathAllowed(path: string): boolean {
     pathname.endsWith('/stream')
   )
     return false;
-  return /^(?:\/auth|\/versions|\/skills(?:\/[^?]*)?|\/agents\/retrieve|\/config\/retrieve|\/sync\/bootstrap|\/mcp(?:\/[^?]*)?|\/host\/[^?]+|\/wrapper\/(?:v2\/)?[^?]+|\/claude\/usage\/report)$/.test(
+  return /^(?:\/auth|\/versions|\/skills(?:\/[^?]*)?|\/agents\/retrieve|\/config\/retrieve|\/sync\/(?:bootstrap|status)|\/cron\/(?:check|report)|\/mcp(?:\/[^?]*)?|\/host\/[^?]+|\/wrapper\/(?:v2\/)?[^?]+|\/claude\/usage\/report)$/.test(
     pathname,
   );
 }
@@ -122,7 +122,13 @@ export async function registerCommunicatorRoutes(app: FastifyInstance, ctx: Rout
         const payload = event.payload as Record<string, unknown> | null;
         // Config retrieval and daemon liveness also emit host events. They must
         // not trigger another sync and create an invalidation feedback loop.
-        if (event.type === 'host.updated' && payload?.config_version !== undefined) return;
+        if (
+          event.type === 'host.updated' &&
+          (payload?.config_version !== undefined ||
+            payload?.source === 'cron_report' ||
+            payload?.source === 'daemon_window')
+        )
+          return;
         if (/^host\.daemon\.(?:changed|start_requested|stop_requested)$/.test(event.type)) return;
         if (
           /^(skill\.|agents\.|config\.|auth\.|accounts\.|host\.|engine\.|version|settings\.|claude_artifact\.)/.test(

@@ -69,6 +69,9 @@ describe('communicator transport', () => {
     for (const path of [
       '/auth',
       '/sync/bootstrap',
+      '/sync/status',
+      '/cron/check',
+      '/cron/report',
       '/mcp',
       '/host/agent-sessions/abc/receiver/claim',
       '/wrapper/v2/config?engine=grok',
@@ -141,6 +144,8 @@ describe('communicator transport', () => {
     const messages: string[] = [];
     ws.on('message', (data: unknown) => messages.push(String(data)));
     wsPublisher.publish('host.updated', { config_version: '123', host_id: 1 });
+    wsPublisher.publish('host.updated', { source: 'cron_report', id: 1 });
+    wsPublisher.publish('host.updated', { source: 'daemon_window', id: 1 });
     await new Promise((resolve) => setTimeout(resolve, 300));
     expect(messages).toEqual([]);
     wsPublisher.publish('skill.updated', { slug: 'private-test', secret: 'never-forward' });

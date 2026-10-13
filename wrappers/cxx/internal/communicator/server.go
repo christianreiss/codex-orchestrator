@@ -297,7 +297,7 @@ func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	f := frame{Method: r.Method, Path: r.URL.RequestURI(), Headers: headers(r.Header), Body: body}
 	// Downloads/large attachments remain inside this process but use independent
 	// HTTP streams, keeping interactive control frames bounded.
-	if len(body) > maxFrameBody || strings.Contains(r.URL.Path, "/download") || strings.Contains(r.URL.Path, "/attachments/") {
+	if len(body) > maxFrameBody || strings.Contains(r.URL.Path, "/download") || strings.Contains(r.URL.Path, "/attachments/") || strings.HasSuffix(r.URL.Path, "/stream") {
 		s.download(w, r, body)
 		return
 	}
@@ -403,7 +403,12 @@ func (s *server) download(w http.ResponseWriter, r *http.Request, body []byte) {
 		w.Header()[k] = v
 	}
 	w.WriteHeader(res.StatusCode)
-	io.Copy(w, res.Body)
+	if strings.HasPrefix(res.Header.Get("Content-Type"), "text/event-stream") {
+		w.(http.Flusher).Flush()
+		io.Copy(flushWriter{w}, res.Body)
+	} else {
+		io.Copy(w, res.Body)
+	}
 }
 
 func communicatorUsername() string {
@@ -414,4 +419,13 @@ func communicatorUsername() string {
 		return name
 	}
 	return fmt.Sprint(os.Getuid())
+}
+
+// Keep watchdog heartbeats visible immediately through the local HTTP bridge.
+type flushWriter struct{ http.ResponseWriter }
+
+func (w flushWriter) Write(p []byte) (int, error) {
+	n, err := w.ResponseWriter.Write(p)
+	w.ResponseWriter.(http.Flusher).Flush()
+	return n, err
 }

@@ -242,3 +242,29 @@ func TestLeaseRemovesScopeWhenClientDisconnects(t *testing.T) {
 		t.Fatal("disconnected scope retained", s.leases, s.jobs, s.jobRefs)
 	}
 }
+
+func TestWatchdogStreamFlushesBeforeUpstreamCloses(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		io.WriteString(w, "data: heartbeat\n\n")
+		w.(http.Flusher).Flush()
+		<-r.Context().Done()
+	}))
+	defer upstream.Close()
+	s := &server{cfg: &config.Config{Orchestrator: config.Orchestrator{BaseURL: upstream.URL}}}
+	local := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { s.download(w, r, nil) }))
+	defer local.Close()
+	client := &http.Client{Timeout: time.Second}
+	response, err := client.Get(local.URL + "/host/agent-sessions/test/watchdog/stream")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	line := make([]byte, len("data: heartbeat\n\n"))
+	if _, err := io.ReadFull(response.Body, line); err != nil {
+		t.Fatal(err)
+	}
+	if string(line) != "data: heartbeat\n\n" {
+		t.Fatalf("unexpected frame: %q", line)
+	}
+}
