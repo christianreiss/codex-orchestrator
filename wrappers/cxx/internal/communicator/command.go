@@ -128,7 +128,9 @@ func mcp(ctx context.Context, engine string, in io.Reader, out io.Writer) error 
 			req.Header.Set("Accept", "application/json")
 			res, err := client.Do(req)
 			var body []byte
+			status := 0
 			if err == nil {
+				status = res.StatusCode
 				body, err = io.ReadAll(io.LimitReader(res.Body, 16*1024*1024))
 				res.Body.Close()
 				if res.StatusCode >= 400 {
@@ -139,7 +141,9 @@ func mcp(ctx context.Context, engine string, in io.Reader, out io.Writer) error 
 				return
 			}
 			if err != nil {
-				body, _ = json.Marshal(map[string]any{"jsonrpc": "2.0", "id": request.ID, "error": map[string]any{"code": -32000, "message": "CoCo communicator unavailable or request rejected"}})
+				body = mcpFailure(request.ID, status, body)
+			} else if !mcpResponseValid(request.ID, body) {
+				body = mcpFailure(request.ID, status, nil)
 			}
 			if len(body) > 0 {
 				var value any
@@ -153,4 +157,53 @@ func mcp(ctx context.Context, engine string, in io.Reader, out io.Writer) error 
 	}
 	work.Wait()
 	return scanner.Err()
+}
+
+// Preserve an ambiguous write's meaning at the model-facing boundary. A generic
+// tool failure invites a fresh retry even when the server already committed it.
+// Forward only a bounded machine code, never an upstream body or credentials.
+func mcpFailure(id json.RawMessage, status int, body []byte) []byte {
+	var failure struct {
+		Code  string `json:"code"`
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	_ = json.Unmarshal(body, &failure)
+	code := failure.Code
+	if code == "" {
+		code = failure.Error.Code
+	}
+	if len(code) > 128 || strings.IndexFunc(code, func(r rune) bool {
+		return r != '_' && r != '-' && r != '.' && (r < 'a' || r > 'z') && (r < '0' || r > '9')
+	}) >= 0 {
+		code = ""
+	}
+	if status < 400 {
+		code = "communicator_outcome_unknown"
+	} else if code == "" {
+		code = "communicator_request_failed"
+	}
+	message := "CoCo communicator unavailable or request rejected"
+	unknown := code == "communicator_outcome_unknown"
+	if unknown {
+		message = "Request outcome unknown; it may already have completed. Verify its result before retrying and retain the original idempotency or claim identifiers."
+	}
+	raw, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": id, "error": map[string]any{
+		"code": -32000, "message": message,
+		"data": map[string]any{"code": code, "http_status": status, "outcome_unknown": unknown},
+	}})
+	return raw
+}
+
+func mcpResponseValid(id json.RawMessage, body []byte) bool {
+	var response struct {
+		JSONRPC string          `json:"jsonrpc"`
+		ID      json.RawMessage `json:"id"`
+		Result  json.RawMessage `json:"result"`
+		Error   json.RawMessage `json:"error"`
+	}
+	return json.Unmarshal(body, &response) == nil && response.JSONRPC == "2.0" &&
+		bytes.Equal(bytes.TrimSpace(response.ID), bytes.TrimSpace(id)) &&
+		(len(response.Result) > 0 || len(response.Error) > 0)
 }

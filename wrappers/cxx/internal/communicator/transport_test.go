@@ -144,6 +144,31 @@ func TestSocketDirectoryIsolation(t *testing.T) {
 		t.Fatal("unsafe directory accepted")
 	}
 }
+
+// A launcher that scrubs XDG_RUNTIME_DIR must reach the same owner socket.
+func TestSocketPathIgnoresMissingRuntimeEnvironment(t *testing.T) {
+	session := t.TempDir()
+	os.Chmod(session, 0700)
+	previous := sessionRuntimeRoot
+	sessionRuntimeRoot = func() string { return session }
+	t.Cleanup(func() { sessionRuntimeRoot = previous })
+	t.Setenv("XDG_RUNTIME_DIR", session)
+	withEnv, err := socketPath("https://one.example")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("XDG_RUNTIME_DIR", "")
+	withoutEnv, err := socketPath("https://one.example")
+	if err != nil || withEnv != withoutEnv {
+		t.Fatal(withEnv, withoutEnv, err)
+	}
+	os.Chmod(session, 0755)
+	fallback, err := socketPath("https://one.example")
+	if err != nil || fallback == withEnv {
+		t.Fatal("unsafe session runtime directory used", fallback, err)
+	}
+	os.Chmod(session, 0700)
+}
 func TestProviderRequestsUseOriginalTransport(t *testing.T) {
 	var called bool
 	direct := roundTripFunc(func(r *http.Request) (*http.Response, error) {
@@ -266,6 +291,48 @@ func TestWatchdogStreamFlushesBeforeUpstreamCloses(t *testing.T) {
 	}
 	if string(line) != "data: heartbeat\n\n" {
 		t.Fatalf("unexpected frame: %q", line)
+	}
+}
+
+// A stalled daemon consumer loses only its own stream, never the shared
+// control connection that other engines' requests are using.
+func TestDaemonOverflowKeepsControlConnection(t *testing.T) {
+	c := testConnection(t, func(ws *websocket.Conn, f frame) {
+		if f.Type == "request" && f.Path == "/flood" {
+			for i := 0; i < 100; i++ {
+				_ = websocket.JSON.Send(ws, frame{Type: "daemon_event", Payload: json.RawMessage(`{}`)})
+			}
+		}
+		if f.Type == "request" {
+			_ = websocket.JSON.Send(ws, frame{ID: f.ID, Status: 200})
+		}
+	})
+	stalled := make(chan json.RawMessage, 64)
+	c.mu.Lock()
+	c.daemon = stalled
+	c.mu.Unlock()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if _, _, err := c.request(ctx, frame{Method: "GET", Path: "/flood"}); err != nil {
+		t.Fatal(err)
+	}
+	if result, _, err := c.request(ctx, frame{Method: "GET", Path: "/after"}); err != nil || result.Status != 200 {
+		t.Fatal("control connection lost after daemon overflow", result, err)
+	}
+	select {
+	case <-c.done:
+		t.Fatal("control connection closed")
+	default:
+	}
+	c.mu.Lock()
+	detached := c.daemon == nil
+	c.mu.Unlock()
+	drained := 0
+	for range stalled {
+		drained++
+	}
+	if !detached || drained != 64 {
+		t.Fatal("stalled daemon stream not detached", detached, drained)
 	}
 }
 

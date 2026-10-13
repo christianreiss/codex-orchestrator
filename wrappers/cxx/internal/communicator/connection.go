@@ -145,8 +145,10 @@ func (c *connection) receive() {
 				select {
 				case ch <- f.Payload:
 				default:
-					c.ws.Close()
-					return
+					// A stalled daemon consumer must not tear down the control
+					// connection other engines share. Detach only that stream;
+					// the daemon reconnects under its durable work semantics.
+					c.detachDaemon(ch)
 				}
 			}
 		case "auth_changed":
@@ -168,6 +170,14 @@ func (c *connection) receive() {
 				}
 			}
 		}
+	}
+}
+func (c *connection) detachDaemon(ch chan json.RawMessage) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.daemon == ch {
+		c.daemon = nil
+		close(ch)
 	}
 }
 func (c *connection) request(ctx context.Context, f frame) (frame, bool, error) {

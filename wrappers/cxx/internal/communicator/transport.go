@@ -42,11 +42,30 @@ type endpoint struct {
 	setupErr           error
 }
 
-func socketPath(base string) (string, error) {
-	root := os.Getenv("XDG_RUNTIME_DIR")
-	if root == "" {
-		root = filepath.Join(os.TempDir(), fmt.Sprintf("cxx-%d", os.Getuid()))
+// sessionRuntimeRoot is the logind runtime directory that XDG_RUNTIME_DIR
+// normally names. Tests replace it.
+var sessionRuntimeRoot = func() string { return fmt.Sprintf("/run/user/%d", os.Getuid()) }
+
+// runtimeRoot must resolve identically for every process of one user. Some
+// launchers (Codex MCP servers, cron, non-login shells) drop XDG_RUNTIME_DIR;
+// falling straight to /tmp there would elect a second owner and split the
+// sync fences, so the logind directory is preferred whenever it exists.
+func runtimeRoot() string {
+	if root := os.Getenv("XDG_RUNTIME_DIR"); root != "" {
+		return root
 	}
+	if root := sessionRuntimeRoot(); root != "" {
+		if info, err := os.Lstat(root); err == nil && info.IsDir() && info.Mode().Perm() == 0700 {
+			if stat, ok := info.Sys().(*syscall.Stat_t); ok && int(stat.Uid) == os.Getuid() {
+				return root
+			}
+		}
+	}
+	return filepath.Join(os.TempDir(), fmt.Sprintf("cxx-%d", os.Getuid()))
+}
+
+func socketPath(base string) (string, error) {
+	root := runtimeRoot()
 	if err := os.MkdirAll(root, 0700); err != nil {
 		return "", err
 	}

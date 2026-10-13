@@ -19,8 +19,10 @@ forwarded/coalesced requests, last sync and connection error. `doctor` returns
 nonzero when an enabled communicator is absent. The host's Operations tab shows
 live server connections and their users, versions and sync timestamps.
 
-The Unix socket lives in a mode-0700 directory below `XDG_RUNTIME_DIR` (or a
-private `/tmp/cxx-<uid>` directory). Socket mode is 0600. A filesystem lock elects
+The Unix socket lives in a mode-0700 directory below `XDG_RUNTIME_DIR`. When a
+launcher drops that variable (Codex MCP servers, cron), the user's logind
+`/run/user/<uid>` directory is used if present, otherwise a private
+`/tmp/cxx-<uid>` directory, so every process elects the same owner. Socket mode is 0600. A filesystem lock elects
 one owner; only that owner removes a stale socket. No TCP listener is exposed.
 Each process holds a local streaming lease; a surviving client restarts a crashed
 owner. The last lease starts a five-minute idle period. Status checks do not
@@ -84,6 +86,13 @@ existing retry loops do not repeat them. Durable message claim IDs and explicit
 work outcomes keep their existing retry contracts. A failed connection alone
 never enables transport downgrade: HTTPS fallback requires a verified signed
 config disabling the capability. Native clients survive connection/owner loss.
+
+From cxx 0.9.74, the MCP stdio adapter retains this distinction in JSON-RPC
+error data (`code`, `http_status`, `outcome_unknown`) and keeps the original request
+ID. Unknown outcomes instruct the caller to verify the result before retrying with
+the original idempotency or claim identifiers. Incomplete or miscorrelated replies
+also return a correlated unknown-outcome error. Error conversion never forwards
+upstream bodies or credentials, and the adapter never replays a failed call.
 
 `GET /admin/communicators` is admin-session gated and returns the live connections
 for the API process. This deployment uses one API instance; its connection view
