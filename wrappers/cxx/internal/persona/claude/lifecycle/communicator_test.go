@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -43,8 +44,11 @@ func TestLostUploadAcknowledgementReadsVerifiedPairWithoutReplay(t *testing.T) {
 }
 
 func TestUnknownUploadAdoptsOnlyVerifiedNewerHead(t *testing.T) {
-	for _, scenario := range []string{"newer", "equal", "older", "unverified", "wrong_engine", "wrong_account", "unbound_account", "rotated", "deleted", "logout"} {
+	for _, scenario := range []string{"newer", "equal", "older", "unverified", "wrong_engine", "wrong_account", "unbound_account", "rotated", "deleted", "logout", "interrupted"} {
 		t.Run(scenario, func(t *testing.T) {
+			if scenario == "interrupted" && os.Geteuid() == 0 {
+				t.Skip("directory permissions do not bind root")
+			}
 			path, remote := sessionFixture(t)
 			before, err := claude.ReadAuthSnapshot(false)
 			if err != nil {
@@ -75,6 +79,13 @@ func TestUnknownUploadAdoptsOnlyVerifiedNewerHead(t *testing.T) {
 					_ = os.WriteFile(path, sessionPayload("native", time.Now()), 0600)
 				case "deleted":
 					_ = os.Remove(path)
+				case "interrupted":
+					// The adoption itself cannot finish: the credential directory stops
+					// accepting the atomic replacement. Nothing is lost, nothing is
+					// uploaded, and the result stays unresolved so the marker is kept.
+					dir := filepath.Dir(path)
+					_ = os.Chmod(dir, 0o500)
+					t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
 				case "logout":
 					_, err := claude.RecordDeferredExplicitLogout(before.Generation)
 					if err != nil {

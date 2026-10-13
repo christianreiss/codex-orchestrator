@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -45,8 +46,11 @@ func TestLostUploadAcknowledgementUsesReadbackWithoutReplay(t *testing.T) {
 }
 
 func TestUnknownUploadAdoptsOnlyVerifiedNewerHead(t *testing.T) {
-	for _, scenario := range []string{"newer", "equal", "older", "unverified", "wrong_engine", "wrong_account", "unbound_account", "rotated", "deleted", "logout"} {
+	for _, scenario := range []string{"newer", "equal", "older", "unverified", "wrong_engine", "wrong_account", "unbound_account", "rotated", "deleted", "logout", "interrupted"} {
 		t.Run(scenario, func(t *testing.T) {
+			if scenario == "interrupted" && os.Geteuid() == 0 {
+				t.Skip("directory permissions do not bind root")
+			}
 			calls := 0
 			var path string
 			var expected []byte
@@ -73,6 +77,13 @@ func TestUnknownUploadAdoptsOnlyVerifiedNewerHead(t *testing.T) {
 					_ = os.WriteFile(path, []byte(sessionAuthNative), 0600)
 				case "deleted":
 					_ = os.Remove(path)
+				case "interrupted":
+					// The adoption itself cannot finish: the credential directory stops
+					// accepting the atomic replacement. Nothing is lost, nothing is
+					// uploaded, and the result stays unresolved so the marker is kept.
+					dir := filepath.Dir(path)
+					_ = os.Chmod(dir, 0o500)
+					t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
 				case "logout":
 					generation, _ := codex.CurrentAuthGeneration()
 					_, err := codex.MarkLogoutIntent(generation)
