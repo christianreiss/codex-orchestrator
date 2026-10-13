@@ -24,7 +24,9 @@ type ResidentController struct {
 	transport                residency.ExecutionTransport
 	running, fenced, started bool
 	permits                  int
+	permitRevision           uint64
 	snapshot                 func() (residency.Workload, error)
+	snapshotRevision         uint64
 	lastError                error
 }
 
@@ -44,6 +46,8 @@ func (c *ResidentController) Run(ctx context.Context, transport residency.Execut
 		return errors.New("resident execution controller is already running")
 	}
 	c.running, c.started, c.transport, c.lastError = true, true, transport, nil
+	c.snapshot = nil
+	c.snapshotRevision++
 	c.mu.Unlock()
 	err := runHostExecution(ctx, c.version, c.stdout, c.stderr, c)
 	c.mu.Lock()
@@ -67,9 +71,10 @@ func (c *ResidentController) permit() (func(), bool) {
 		return nil, false
 	}
 	c.permits++
+	c.permitRevision++
 	c.mu.Unlock()
 	var once sync.Once
-	return func() { once.Do(func() { c.mu.Lock(); c.permits--; c.mu.Unlock() }) }, true
+	return func() { once.Do(func() { c.mu.Lock(); c.permits--; c.permitRevision++; c.mu.Unlock() }) }, true
 }
 
 func (c *ResidentController) bindSnapshot(snapshot func() (residency.Workload, error)) {
@@ -78,22 +83,33 @@ func (c *ResidentController) bindSnapshot(snapshot func() (residency.Workload, e
 	}
 	c.mu.Lock()
 	c.snapshot = snapshot
+	c.snapshotRevision++
 	c.mu.Unlock()
 }
 
 func (c *ResidentController) Status() residency.ExecutionStatus {
 	c.mu.Lock()
-	defer c.mu.Unlock()
-	status := residency.ExecutionStatus{Running: c.running, Fenced: c.fenced, Verified: c.started && c.snapshot != nil && c.lastError == nil}
-	if c.snapshot != nil {
-		work, err := c.snapshot()
-		status.Workload = work
-		if err != nil {
-			status.Verified = false
-			status.Error = err.Error()
-		}
+	snapshot, revision := c.snapshot, c.snapshotRevision
+	permits, permitRevision := c.permits, c.permitRevision
+	c.mu.Unlock()
+	// Receipt directory I/O can be slow. It must never hold the admission
+	// mutex or delay fencing/permit release. A rebind invalidates this sample.
+	var work residency.Workload
+	var err error
+	if snapshot != nil {
+		work, err = snapshot()
 	}
-	status.Workload.PeerClaims += c.permits
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	status := residency.ExecutionStatus{Running: c.running, Fenced: c.fenced,
+		Verified: c.started && snapshot != nil && revision == c.snapshotRevision && permitRevision == c.permitRevision && c.lastError == nil && err == nil,
+		Workload: work}
+	if err != nil {
+		status.Error = err.Error()
+	}
+	// A permit may finish and persist a receipt after the directory was read.
+	// Keep that sample conservative; the next stable snapshot can prove idle.
+	status.Workload.PeerClaims += max(permits, c.permits)
 	if c.lastError != nil {
 		status.Error = c.lastError.Error()
 	}

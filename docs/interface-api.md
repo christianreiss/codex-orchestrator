@@ -2358,9 +2358,11 @@ The server advertises `resident_runtime` in `ready.control`; a signed-runtime
 owner sends a strict `resident_status` frame with those report fields only after
 negotiated `owner_identity` capabilities. Counters are integers from 0 to
 1,000,000, sequences are positive safe integers, and executable hashes are
-64 lowercase hexadecimal characters. Host authorization is rechecked. Missing
-or mismatched process identity and invalid fields close the connection with
-1008. Late/duplicate sequences leave the newest report untouched. Every report
+64 lowercase hexadecimal characters. Invalid/unknown diagnostic fields and
+missing/mismatched process identity are ignored without publishing or closing
+the shared control connection. Diagnostics add no separate authorization read:
+existing heartbeats recheck host authorization every 15 seconds and close a
+revoked connection with 1008. Late/duplicate sequences leave the newest report untouched. Every report
 belongs to one connection and one instance; disconnect or identity change
 clears it. Old owners continue sending their existing frames unchanged.
 

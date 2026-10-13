@@ -75,10 +75,11 @@ type server struct {
 	stop        context.CancelFunc
 	terminating atomic.Bool
 	// draining is set once a remote stop is accepted: no new application work is admitted.
-	draining      atomic.Bool
-	runtimeID     string
-	resident      atomic.Bool
-	residentState *residentState
+	draining           atomic.Bool
+	runtimeID          string
+	resident           atomic.Bool
+	residentReportBusy atomic.Bool
+	residentState      *residentState
 }
 
 func (s *server) configSnapshot() *config.Config {
@@ -286,7 +287,7 @@ func (s *server) connectLoop(ctx context.Context) {
 				cancel()
 				err = e
 				if err == nil {
-					c = &connection{ws: ws, pending: map[string]chan frame{}, done: make(chan struct{}), ready: make(chan struct{}), invalidated: s.invalidate, authChanged: s.invalidateAuth, onTerminate: s.terminate, runtimeID: s.runtimeID, preTerminate: s.preflightStop, residentReport: s.residentReport}
+					c = &connection{ws: ws, pending: map[string]chan frame{}, done: make(chan struct{}), ready: make(chan struct{}), invalidated: s.invalidate, authChanged: s.invalidateAuth, onTerminate: s.terminate, runtimeID: s.runtimeID, preTerminate: s.preflightStop, residentReport: s.sampleResidentReport}
 					go c.receive()
 					err = c.send(map[string]any{"type": "hello", "protocol": Protocol, "username": communicatorUsername(), "version": s.version})
 					if err == nil {
@@ -344,9 +345,7 @@ func (s *server) connectLoop(ctx context.Context) {
 					if c.send(map[string]any{"type": "heartbeat", "sessions": leases, "synced_at": synced, "sync_scopes": syncScopes}) != nil {
 						break live
 					}
-					if c.sendResidentReport() != nil {
-						break live
-					}
+					c.queueResidentReport()
 				}
 			}
 			timer.Stop()

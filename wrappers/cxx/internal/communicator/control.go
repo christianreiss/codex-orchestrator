@@ -96,7 +96,7 @@ func (c *connection) announceCapabilities(identity bool) {
 	c.mu.Lock()
 	c.residentReporting = identity && c.residentAnnounced
 	c.mu.Unlock()
-	_ = c.sendResidentReport()
+	c.queueResidentReport()
 }
 
 // sendWithin writes one frame, giving up after bound whether the write is slow or

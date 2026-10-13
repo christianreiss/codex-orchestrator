@@ -85,6 +85,8 @@ remain a handoff blocker instead of advertising unsupported reconnection.
 
 ## Negotiated owner reporting
 
+Initial reporting candidate: `ac12f566`.
+
 After Raffaela released the topology paths, the private candidate adds exact
 instance-bound `resident_status` frames without changing legacy capabilities.
 Five live Go WebSocket combinations cover old/no-control, terminate-only,
@@ -112,6 +114,39 @@ canonical `go test ./...`, `go build ./...` and `go vet ./...` rerun passed
 (`/tmp/christel-owner-report-go-all-final.log`, `-go-build-final.log`, and
 `-go-vet-final.log`). The first failure is retained as a non-reproduced observation,
 not silently classified as fixed or unrelated.
+
+## Reporting review corrections
+
+Raffaela reviewed the reporting/topology slice read-only and identified the
+control-loss behavior on invalid diagnostics. The follow-up uses strict
+`safeParse` and ignores invalid, future-version and wrong-instance reports
+without publishing. Real loopback tests prove heartbeat, request relay and
+exact-instance terminate remain available after every invalid report. A future
+frame also leaves a previously accepted report and its freshness unchanged.
+Reports no longer perform a separate authorization read; the existing
+15-second heartbeat still closes revoked connections. The full targeted API
+set now contains 149 passing tests, with typecheck/build passing.
+
+Diagnostic sampling runs outside the heartbeat loop, with one outstanding
+sample per owner across reconnects, omitted samples after two seconds and a
+two-second report write deadline. Tests explicitly block a sample and prove
+heartbeats and targeted control still work, repeated requests coalesce, late
+samples do not freshen old state, and a token-only server never gets a report.
+Receipt I/O also releases the admission mutex. Snapshot rebind and permit
+revision checks plus conservative observed permit counts prevent a finishing
+operation from producing a late receipt and being misreported as verified idle.
+Blocked-I/O race tests cover admission, fence, permit release, rebind and the
+receipt-producing completion interval. Focused normal/traced race checks and
+traced composed native-adapter race fixtures pass for all three engines.
+Frontend and generated SPA artifacts are unchanged from `ac12f566`; its 12
+browser checks remain applicable. The final full `go test ./...`,
+`go build ./...` and `go vet ./...` pass for this follow-up
+(`/tmp/christel-report-review-go-all.log`, `-go-build.log`, and `-go-vet.log`).
+Focused normal race checks and traced all-engine process checks are recorded in
+`/tmp/christel-report-review-go-race-epochs.log` and
+`/tmp/christel-report-review-go-traced-process.log`; the 149-test API result is
+`/tmp/christel-report-review-api-all.log` with final diagnostic/no-publish
+regressions in `/tmp/christel-report-review-api-diagnostic-final.log`.
 
 ## Remaining acceptance
 

@@ -612,6 +612,17 @@ describe('negotiated resident owner reports', () => {
     await vi.waitFor(() => expect(communicatorRegistry.get(id)?.resident).toMatchObject({ owner_instance_id: owner, mode: 'resident', draining: true, execution: { verified: false } }));
     ws.send(JSON.stringify({ ...ownerReport(owner), sequence: 2, mode: 'on_demand', draining: false }));
     await vi.waitFor(() => expect(communicatorRegistry.get(id)?.resident?.mode).toBe('on_demand'));
+    // A future diagnostic cannot erase a previously accepted report or publish
+    // misleading freshness. A request reply supplies a wire-processing barrier.
+    const published = vi.spyOn(wsPublisher, 'publish');
+    const requestID = randomUUID();
+    const barrier = new Promise<Record<string, unknown>>(resolve => ws.once('message', (data: unknown) => resolve(JSON.parse(String(data)))));
+    ws.send(JSON.stringify({ ...ownerReport(owner), sequence: 3, mode: 'future' }));
+    ws.send(JSON.stringify({ type: 'request', id: requestID, method: 'POST', path: '/host/echo', headers: {}, body: '' }));
+    expect(await barrier).toMatchObject({ id: requestID, status: 200 });
+    expect(communicatorRegistry.get(id)?.resident).toMatchObject({ sequence: 2, mode: 'on_demand' });
+    expect(published).not.toHaveBeenCalled();
+    published.mockRestore();
     const closed = new Promise(resolve => ws.once('close', resolve));
     ws.close(); await closed;
     await vi.waitFor(() => expect(communicatorRegistry.get(id)).toBeNull());
@@ -621,25 +632,65 @@ describe('negotiated resident owner reports', () => {
     again.close();
   });
 
-  it.each(['no_identity', 'wrong_owner', 'unknown_field', 'bad_count', 'bad_hash', 'revoked'])(
-    'rejects %s without recording an untrusted report', async (fault) => {
+  it.each(['no_identity', 'wrong_owner', 'unknown_field', 'bad_count', 'bad_hash', 'future_protocol', 'future_mode', 'future_workload'])(
+    'ignores %s while preserving capabilities, heartbeat, request relay and targeted control', async (fault) => {
       await setup();
+      const before = new Set(communicatorRegistry.snapshot().map(c => c.view.id));
       const ws = await open(true);
+      const id = communicatorRegistry.snapshot().find(c => !before.has(c.view.id))!.view.id;
       const owner = randomUUID();
+      const caps = { type: 'capabilities', terminate: true, pid: 1234, started_at: '2026-10-14T00:00:00Z', instance_id: owner, runtime_id: 'fixture-runtime' };
       if (fault !== 'no_identity') {
-        ws.send(JSON.stringify({ type: 'capabilities', terminate: true, pid: 1234, started_at: '2026-10-14T00:00:00Z', instance_id: owner, runtime_id: 'fixture-runtime' }));
-        await vi.waitFor(() => expect(communicatorRegistry.snapshot().some(c => c.capabilities.instance_id === owner)).toBe(true));
+        ws.send(JSON.stringify(caps));
+        await vi.waitFor(() => expect(communicatorRegistry.get(id)?.capabilities.instance_id).toBe(owner));
       }
       const report: Record<string, unknown> = ownerReport(owner);
       if (fault === 'wrong_owner') report.owner_instance_id = randomUUID();
       if (fault === 'unknown_field') report.account_token = 'must-not-be-accepted';
       if (fault === 'bad_count') report.local_requests = -1;
       if (fault === 'bad_hash') report.binary_sha256 = 'arbitrary';
-      if (fault === 'revoked') auth.allowed = false;
-      const closed = new Promise<number>(resolve => ws.once('close', resolve));
+      if (fault === 'future_protocol') report.runtime_protocol = 2;
+      if (fault === 'future_mode') report.mode = 'future';
+      if (fault === 'future_workload') report.execution = { ...ownerReport(owner).execution, workload: { ...ownerReport(owner).execution.workload, extra_counter: 1 } };
+      let closed = false;
+      ws.on('close', () => { closed = true; });
+      const next = () => new Promise<Record<string, unknown>>((resolve) => ws.once('message', (data: unknown) => resolve(JSON.parse(String(data)))));
       ws.send(JSON.stringify(report));
-      expect(await closed).toBe(1008);
-      expect(communicatorRegistry.snapshot().some(c => c.resident?.owner_instance_id === owner)).toBe(false);
+      if (fault === 'no_identity') ws.send(JSON.stringify(caps));
+      let response = next();
+      ws.send(JSON.stringify({ type: 'heartbeat', sessions: 0 }));
+      expect(await response).toEqual({ type: 'heartbeat' });
+      expect(communicatorRegistry.get(id)?.resident).toBeNull();
+      expect(communicatorRegistry.get(id)?.capabilities.instance_id).toBe(owner);
+      response = next();
+      const requestID = randomUUID();
+      ws.send(JSON.stringify({ type: 'request', id: requestID, method: 'POST', path: '/host/echo', headers: {}, body: '' }));
+      expect(await response).toMatchObject({ id: requestID, status: 200 });
+      response = next();
+      const terminate = communicatorRegistry.terminate(id, 'diagnostic-regression', { ackMs: 1000, closeMs: 0 });
+      const command = await response;
+      expect(command).toMatchObject({ type: 'terminate', owner_instance_id: owner });
+      ws.send(JSON.stringify({ type: 'terminate_ack', request_id: command.request_id, instance_id: owner, accepted: false, reason: 'busy' }));
+      expect((await terminate).outcome).toBe('refused');
+      expect(closed).toBe(false);
+      ws.close();
     },
   );
+
+  it('uses the existing heartbeat authorization after diagnostic reports', async () => {
+    await setup();
+    const ws = await open(true);
+    const owner = randomUUID();
+    ws.send(JSON.stringify({ type: 'capabilities', terminate: true, pid: 1234, started_at: '2026-10-14T00:00:00Z', instance_id: owner, runtime_id: 'fixture-runtime' }));
+    await vi.waitFor(() => expect(communicatorRegistry.snapshot().some(c => c.capabilities.instance_id === owner)).toBe(true));
+    auth.allowed = false;
+    let closed = false;
+    ws.on('close', () => { closed = true; });
+    ws.send(JSON.stringify(ownerReport(owner)));
+    await vi.waitFor(() => expect(communicatorRegistry.snapshot().some(c => c.resident?.owner_instance_id === owner)).toBe(true));
+    expect(closed).toBe(false);
+    const revoked = new Promise<number>(resolve => ws.once('close', resolve));
+    ws.send(JSON.stringify({ type: 'heartbeat', sessions: 0 }));
+    expect(await revoked).toBe(1008);
+  });
 });

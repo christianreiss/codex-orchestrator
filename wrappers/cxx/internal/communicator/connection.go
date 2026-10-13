@@ -72,6 +72,7 @@ type connection struct {
 	residentSequence  uint64
 	residentAnnounced bool
 	residentReporting bool
+	residentSending   bool
 	residentReport    func() *residentReport
 }
 

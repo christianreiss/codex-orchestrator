@@ -1,5 +1,7 @@
 # 2026-10-14
 
+- Resident diagnostics now ignore malformed and future report frames while preserving the shared control connection. Sampling runs outside heartbeats, omits slow snapshots and avoids holding admission locks during receipt I/O; permit and snapshot changes invalidate stale idle evidence. Existing heartbeat authorization remains in force.
+
 - Private resident communicators report their actual owner mode, executable digest, admission fence and retained work in live topology. Reports require explicit server negotiation and exact process identity, age independently from other traffic, and disappear on reconnect; the dashboard labels them as reports rather than process-exit proof.
 
 - Private resident-runtime admission now rejects already-offered launches after a migration fence commits, while retaining accepted results and resumable sessions. New MySQL regressions cover racing acceptance/fencing and peer leases; composed process tests cover all three native adapters, writer exclusion and lost completion acknowledgements without replay. Owner executable diagnostics are computed lazily, avoiding binary hashing on ordinary CLI launches.

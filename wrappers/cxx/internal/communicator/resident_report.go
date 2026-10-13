@@ -1,6 +1,13 @@
 package communicator
 
-import "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/residency"
+import (
+	"time"
+
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/residency"
+	"golang.org/x/net/websocket"
+)
+
+const residentReportBudget = 2 * time.Second
 
 // A bounded diagnostic report, never admission or exit evidence. Deliberately
 // omits errors, paths, account identities and native session contents.
@@ -62,6 +69,36 @@ func (s *server) residentReport() *residentReport {
 	return r
 }
 
+// One owner-wide sample may be outstanding, even across WS reconnects. Slow
+// filesystem I/O cannot accumulate workers or refresh the age of stale data.
+func (s *server) sampleResidentReport() *residentReport {
+	if !s.residentReportBusy.CompareAndSwap(false, true) {
+		return nil
+	}
+	defer s.residentReportBusy.Store(false)
+	start := time.Now()
+	value := s.residentReport()
+	if time.Since(start) > residentReportBudget {
+		return nil
+	}
+	return value
+}
+
+// Reporting is coalesced and never awaited by the heartbeat/control loop.
+func (c *connection) queueResidentReport() {
+	c.mu.Lock()
+	if !c.residentReporting || c.residentReport == nil || c.residentSending {
+		c.mu.Unlock()
+		return
+	}
+	c.residentSending = true
+	c.mu.Unlock()
+	go func() {
+		defer func() { c.mu.Lock(); c.residentSending = false; c.mu.Unlock() }()
+		_ = c.sendResidentReport()
+	}()
+}
+
 func (c *connection) sendResidentReport() error {
 	c.residentSendMu.Lock()
 	defer c.residentSendMu.Unlock()
@@ -74,7 +111,15 @@ func (c *connection) sendResidentReport() error {
 	if value := report(); value != nil {
 		c.residentSequence++
 		value.Sequence = c.residentSequence
-		return c.send(value)
+		c.sendMu.Lock()
+		defer c.sendMu.Unlock()
+		select {
+		case <-c.done:
+			return nil
+		default:
+		}
+		c.ws.SetWriteDeadline(time.Now().Add(residentReportBudget))
+		return websocket.JSON.Send(c.ws, value)
 	}
 	return nil
 }

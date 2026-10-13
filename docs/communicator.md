@@ -10,8 +10,9 @@ With the default-off signed `orchestrator.communicator_runtime_protocol: 1`,
 the owner sends diagnostics only to a server advertising `resident_runtime`
 alongside `terminate` and `owner_identity` in `ready.control`. Its existing
 `capabilities` frame stays unchanged and precedes the new `resident_status`
-frame. Old servers receive their exact legacy frames. Reports repeat on the
-15-second heartbeat cadence and recheck host authorization on the server.
+frame. Old servers receive their exact legacy frames. Reports are scheduled
+after the existing 15-second heartbeat, which continues rechecking host
+authorization. Reports add no separate authorization/database read.
 
 Reports carry the exact `owner_instance_id`, a per-connection increasing
 `sequence`, mode (`on_demand` or `resident`), service management, requested
@@ -20,13 +21,23 @@ draining, local request/legacy-client counts and bounded controller workload.
 They omit errors, credentials, paths and native session contents. An unreadable
 executable digest suppresses reporting; it never changes execution policy.
 
-The registry accepts a report only after that connection announced the same
-process instance. Earlier sequences cannot replace a newer report even if
-async authorization completes out of order. Identity changes and unregister
+Malformed, unknown-version or mismatched diagnostic reports are ignored
+without publishing or closing the shared control connection. Heartbeats,
+request relay and targeted terminate remain available. The registry accepts a
+report only after that connection announced the same process instance. Earlier sequences cannot replace a newer report even if
+processing or future asynchronous work completes out of order. Identity changes and unregister
 clear the report; reconnect requires a new report and never inherits one by
 host, username or runtime namespace. These fields do not link successors or
 prove safe handoff, account admission, native-child survival or process exit.
 `/_comm/status` remains available during draining.
+
+Diagnostic collection runs outside the heartbeat loop, coalesced to one
+outstanding sample per owner even across reconnects. Samples taking longer
+than two seconds are omitted, so stalled I/O cannot continually refresh old
+state. Report writes have a two-second deadline. Receipt scanning releases the
+controller admission mutex; snapshot rebinds or permit changes invalidate an
+in-flight sample, and observed permits remain conservative until the next
+stable scan. Migration readiness still requires fresh verified quiet state.
 
 Live topology shows the latest report with its server receipt time, marks it
 stale after 45 seconds independently of unrelated connection traffic, and keeps

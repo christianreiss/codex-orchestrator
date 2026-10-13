@@ -339,7 +339,7 @@ export async function registerCommunicatorRoutes(app: FastifyInstance, ctx: Rout
           }
           if (parsed.type === 'resident_status') {
             const count = z.number().int().min(0).max(1_000_000);
-            const { type: _type, ...report } = z.object({
+            const result = z.object({
               type: z.literal('resident_status'),
               sequence: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
               owner_instance_id: z.string().uuid(),
@@ -359,9 +359,13 @@ export async function registerCommunicatorRoutes(app: FastifyInstance, ctx: Rout
                   writes: count, requests: count, legacy_clients: count,
                 }).strict(),
               }).strict().nullable(),
-            }).strict().parse(parsed);
-            await authorize(req);
-            if (!communicatorRegistry.setResidentReport(connectionID, report)) throw new Error('Resident owner mismatch');
+            }).strict().safeParse(parsed);
+            // Diagnostics grant nothing. Unknown versions/fields and wrong
+            // identities must not drop request relay or remote control. The
+            // existing heartbeat rechecks host authorization every 15 seconds.
+            if (!result.success) return;
+            const { type: _type, ...report } = result.data;
+            if (!communicatorRegistry.setResidentReport(connectionID, report)) return;
             wsPublisher.publish('communicator.updated', { host_id: hostId });
             return;
           }

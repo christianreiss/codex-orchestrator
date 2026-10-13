@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"net/http/httptest"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -19,6 +21,7 @@ func TestResidentReportRequiresNegotiatedIdentityAndSignedRuntime(t *testing.T) 
 		want    bool
 	}{
 		{"old-server", nil, true, false},
+		{"runtime-token-without-identity", []string{controlResidentRuntime}, true, false},
 		{"terminate-only", []string{controlTerminate, controlResidentRuntime}, true, false},
 		{"identity-only", []string{controlTerminate, controlOwnerIdentity}, true, false},
 		{"runtime-disabled", []string{controlTerminate, controlOwnerIdentity, controlResidentRuntime}, false, false},
@@ -143,5 +146,108 @@ func TestResidentReportBoundsCountsAndOmitsSensitiveErrors(t *testing.T) {
 	}
 	if s.preflightStop() == "" {
 		t.Fatal("an unverified active controller must still refuse stop")
+	}
+}
+
+func TestBlockedResidentReportDoesNotBlockHeartbeatOrControl(t *testing.T) {
+	got := make(chan frame, 8)
+	c := testConnection(t, func(ws *websocket.Conn, f frame) {
+		if f.Type == "hello" {
+			_ = websocket.JSON.Send(ws, frame{Type: "ready", Protocol: Protocol, Control: []string{controlTerminate, controlOwnerIdentity, controlResidentRuntime}})
+			return
+		}
+		got <- f
+		if f.Type == "probe_control" {
+			_ = websocket.JSON.Send(ws, frame{Type: "terminate", RequestID: "sample-busy", OwnerInstanceID: other()})
+		}
+	})
+	entered, release := make(chan struct{}), make(chan struct{})
+	var once sync.Once
+	unblock := func() { once.Do(func() { close(release) }) }
+	defer unblock()
+	var samples atomic.Int32
+	c.residentReport = func() *residentReport {
+		if samples.Add(1) == 1 {
+			close(entered)
+		}
+		<-release
+		return &residentReport{Type: "resident_status", OwnerInstanceID: processInstance}
+	}
+	handshake(t, c, got, true)
+	select {
+	case <-entered:
+	case <-time.After(time.Second):
+		t.Fatal("sampler did not start")
+	}
+	for i := 0; i < 100; i++ {
+		c.queueResidentReport()
+	}
+	c.send(map[string]any{"type": "heartbeat"})
+	if f, ok := next(t, got, time.Second); !ok || f.Type != "heartbeat" {
+		t.Fatalf("sampling held heartbeat: %+v", f)
+	}
+	c.send(map[string]any{"type": "probe_control"})
+	if f, ok := next(t, got, time.Second); !ok || f.Type != "probe_control" {
+		t.Fatalf("probe missing: %+v", f)
+	}
+	if f, ok := next(t, got, time.Second); !ok || f.Type != "terminate_ack" {
+		t.Fatalf("sampling held targeted control: %+v", f)
+	}
+	if n := samples.Load(); n != 1 {
+		t.Fatalf("unbounded sampler count: %d", n)
+	}
+	unblock()
+	if f, ok := next(t, got, time.Second); !ok || f.Type != "resident_status" {
+		t.Fatalf("sampler did not finish: %+v", f)
+	}
+}
+
+type blockedReportController struct {
+	*fakeResidentController
+	entered, release chan struct{}
+	once             sync.Once
+}
+
+func (c *blockedReportController) Status() residency.ExecutionStatus {
+	c.once.Do(func() { close(c.entered) })
+	<-c.release
+	return c.fakeResidentController.Status()
+}
+
+func TestResidentSamplingCoalescesAcrossConnectionsAndOmitsLateSnapshots(t *testing.T) {
+	controller := &blockedReportController{fakeResidentController: &fakeResidentController{}, entered: make(chan struct{}), release: make(chan struct{})}
+	var once sync.Once
+	unblock := func() { once.Do(func() { close(controller.release) }) }
+	defer unblock()
+	s := &server{residentState: &residentState{controller: controller}}
+	result := make(chan *residentReport, 1)
+	go func() { result <- s.sampleResidentReport() }()
+	select {
+	case <-controller.entered:
+	case <-time.After(time.Second):
+		t.Fatal("snapshot did not start")
+	}
+	nextResult := make(chan *residentReport, 1)
+	go func() { nextResult <- s.sampleResidentReport() }()
+	select {
+	case r := <-nextResult:
+		if r != nil {
+			t.Fatal("a second connection sampled a busy owner")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("a second connection waited on blocked filesystem I/O")
+	}
+	time.Sleep(residentReportBudget + 20*time.Millisecond)
+	unblock()
+	select {
+	case r := <-result:
+		if r != nil {
+			t.Fatal("late snapshot could falsely freshen the report")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("snapshot did not return")
+	}
+	if s.sampleResidentReport() == nil {
+		t.Fatal("a completed late snapshot kept subsequent diagnostics blocked")
 	}
 }

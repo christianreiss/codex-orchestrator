@@ -288,7 +288,7 @@ export class CommunicatorRegistry {
   setResidentReport(id: string, report: ResidentRuntimeReport, now = Date.now()): boolean {
     const entry = this.entries.get(id);
     if (!entry?.capabilities.instance_id || entry.capabilities.instance_id !== report.owner_instance_id) return false;
-    if (entry.resident && report.sequence <= entry.resident.sequence) return true; // Authorization can finish out of wire order.
+    if (entry.resident && report.sequence <= entry.resident.sequence) return true; // Late diagnostics must not replace a newer report.
     entry.resident = { ...structuredClone(report), received_ms: now };
     return true;
   }

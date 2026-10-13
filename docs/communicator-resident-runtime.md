@@ -119,7 +119,12 @@ The negotiated `resident_runtime` control extension publishes a bounded
 `resident_status` report after identity capabilities and on the existing
 15-second heartbeat. The registry binds the report to the exact connection and
 process UUID, orders it by per-connection sequence, and clears it on identity
-change or unregister. The live topology panel displays mode, running binary
+change or unregister. Invalid and future diagnostic frames are ignored while
+the existing heartbeat authorization, request relay and targeted stop remain
+intact. Owner-wide sampling is coalesced outside the heartbeat loop; late
+samples are omitted, and report writes are bounded to two seconds. Receipt
+scanning runs outside the admission mutex with snapshot/permit revisions
+preventing stale work from being declared verified idle. The live topology panel displays mode, running binary
 SHA-256, residence/execution policy, draining/fenced controller state and retained
 work, with independent 45-second freshness and explicit self-report wording.
 Older servers receive no additional fields or frames. This projection never

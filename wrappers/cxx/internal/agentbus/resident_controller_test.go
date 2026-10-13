@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -169,5 +170,109 @@ func TestInjectedDaemonStreamKeepsClaimEnvelopeAndRejectionSemantics(t *testing.
 				t.Fatalf("accept failed: %+v %v", result, err)
 			}
 		})
+	}
+}
+
+func TestResidentStatusIOCannotDelayAdmissionFenceOrVerifyReboundSnapshot(t *testing.T) {
+	c := NewResidentController("test", io.Discard, io.Discard)
+	c.started = true
+	entered, release := make(chan struct{}), make(chan struct{})
+	var once sync.Once
+	unblock := func() { once.Do(func() { close(release) }) }
+	defer unblock()
+	c.bindSnapshot(func() (residency.Workload, error) {
+		close(entered)
+		<-release
+		return residency.Workload{Receipts: 2}, nil
+	})
+	result := make(chan residency.ExecutionStatus, 1)
+	go func() { result <- c.Status() }()
+	select {
+	case <-entered:
+	case <-time.After(time.Second):
+		t.Fatal("snapshot did not start")
+	}
+	progressed := make(chan error, 1)
+	go func() {
+		finish, ok := c.permit()
+		if !ok {
+			progressed <- errors.New("unfenced admission refused")
+			return
+		}
+		c.Fence()
+		if _, ok := c.permit(); ok {
+			progressed <- errors.New("fenced admission allowed")
+			return
+		}
+		finish()
+		c.bindSnapshot(func() (residency.Workload, error) { return residency.Workload{Receipts: 4}, nil })
+		progressed <- nil
+	}()
+	select {
+	case err := <-progressed:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("receipt I/O blocked admission, fencing or snapshot rebind")
+	}
+	unblock()
+	select {
+	case status := <-result:
+		if status.Verified || !status.Fenced || status.Workload.PeerClaims != 0 {
+			t.Fatalf("stale sample trusted: %+v", status)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("snapshot did not return")
+	}
+	if status := c.Status(); !status.Verified || status.Workload.Receipts != 4 || !status.Fenced {
+		t.Fatalf("fresh snapshot missing: %+v", status)
+	}
+}
+
+func TestResidentStatusCannotProveIdleWhenAPermitFinishesAfterReceiptRead(t *testing.T) {
+	c := NewResidentController("test", io.Discard, io.Discard)
+	c.started = true
+	finish, ok := c.permit()
+	if !ok {
+		t.Fatal("initial permit refused")
+	}
+	c.Fence()
+	entered, release := make(chan struct{}), make(chan struct{})
+	var signal, unblockOnce sync.Once
+	unblock := func() { unblockOnce.Do(func() { close(release) }) }
+	defer unblock()
+	var receipts atomic.Int32
+	c.bindSnapshot(func() (residency.Workload, error) {
+		observed := int(receipts.Load())
+		signal.Do(func() { close(entered) })
+		<-release
+		return residency.Workload{Receipts: observed}, nil
+	})
+	result := make(chan residency.ExecutionStatus, 1)
+	go func() { result <- c.Status() }()
+	select {
+	case <-entered:
+	case <-time.After(time.Second):
+		t.Fatal("snapshot did not start")
+	}
+	completed := make(chan struct{})
+	go func() { receipts.Store(1); finish(); close(completed) }()
+	select {
+	case <-completed:
+	case <-time.After(time.Second):
+		t.Fatal("I/O prevented accepted work from finishing")
+	}
+	unblock()
+	select {
+	case status := <-result:
+		if status.Verified || status.Workload.Quiet() {
+			t.Fatalf("receipt-producing completion was declared idle: %+v", status)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("status did not finish")
+	}
+	if status := c.Status(); !status.Verified || status.Workload.Receipts != 1 || status.Workload.Quiet() {
+		t.Fatalf("stable receipt snapshot lost: %+v", status)
 	}
 }
