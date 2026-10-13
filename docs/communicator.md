@@ -116,8 +116,9 @@ signed head, so rotated host keys and TLS policy apply to HTTPS transfers.
 An enabled signed capability also fails closed when local socket setup is
 unsafe or unavailable; a runtime-directory error never enables direct HTTPS.
 The only exception is the self-repair path: when no local owner can be started
-or reached, `GET` of the signed `/wrapper/v2/config` (signature-verified) and of
-wrapper metadata/downloads (digest-verified) use direct HTTPS, so a broken owner
+or reached, `GET` of the signed `/wrapper/v2/config` (signature-verified) and of wrapper
+binary downloads, including the bakery's `/wrapper/v2/bin/...` URLs
+(digest-verified), use direct HTTPS, so a broken owner
 can still learn a capability rollback and install a fixed release. HTTPS
 transfers never wait for the control connection to reconnect.
 

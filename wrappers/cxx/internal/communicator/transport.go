@@ -202,8 +202,8 @@ func (t *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 
 // selfHealRequest names the reads that repair a broken communicator: the
 // signed config (verified by signature, and the only way to learn the
-// capability was rolled back) and wrapper metadata/downloads (verified by
-// digest). They may use the original transport when no local owner can be
+// capability was rolled back) and wrapper binary downloads (verified by the
+// signed digest). They may use the original transport when no local owner can be
 // started or reached; every other managed request stays fail-closed.
 func selfHealRequest(req *http.Request, base string) bool {
 	if req.Method != "GET" && req.Method != "HEAD" {
@@ -214,7 +214,14 @@ func selfHealRequest(req *http.Request, base string) bool {
 		return false
 	}
 	path := strings.TrimPrefix(req.URL.Path, strings.TrimRight(original.Path, "/"))
-	return path == "/wrapper/v2/config" || path == "/wrapper/v2/meta" ||
+	return path == "/wrapper/v2/config" || wrapperArtifactPath(path)
+}
+
+// wrapperArtifactPath names wrapper binary downloads, including the bakery's
+// canonical /wrapper/v2/bin/<artifact>/<os>-<arch>/v<version>/<name> URL that
+// signed configs carry. They are digest-verified and always large.
+func wrapperArtifactPath(path string) bool {
+	return strings.HasPrefix(path, "/wrapper/v2/bin/") ||
 		strings.HasPrefix(path, "/wrapper/v2/download") || strings.HasPrefix(path, "/wrapper/download")
 }
 

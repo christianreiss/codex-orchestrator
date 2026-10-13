@@ -426,7 +426,7 @@ func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// path is the one the router dispatches, so a trailing slash still selects
 	// the stream.
 	routed := requestPath(r)
-	if len(body) > maxFrameBody || strings.Contains(routed, "/download") || strings.Contains(routed, "/attachments/") || strings.HasSuffix(routed, "/stream") {
+	if len(body) > maxFrameBody || wrapperArtifactPath(routed) || strings.Contains(routed, "/download") || strings.Contains(routed, "/attachments/") || strings.HasSuffix(routed, "/stream") {
 		s.download(w, r, body)
 		return
 	}
