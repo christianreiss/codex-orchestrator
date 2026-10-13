@@ -1,10 +1,44 @@
 package communicator
 
 import (
+	"bytes"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 )
+
+// An operator who sees {"running":false,"socket":""} cannot tell a stopped owner from a
+// runtime directory the wrapper refused to use. The refusal is the answer.
+func TestStatusExplainsAnUnusableSocket(t *testing.T) {
+	base := "https://status-refusal.example"
+	registry.Store(base, &endpoint{base: base, setupErr: errors.New("runtime directory /run/user/0 is not private to uid 1000")})
+	t.Cleanup(func() { registry.Delete(base) })
+	for _, arg := range []string{"status", "doctor"} {
+		var out, errOut bytes.Buffer
+		code := Command([]string{arg}, strings.NewReader(""), &out, &errOut, "test")
+		var line map[string]any
+		found := false
+		for _, l := range strings.Split(strings.TrimSpace(out.String()), "\n") {
+			if json.Unmarshal([]byte(l), &line) == nil && line["server"] == base {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("%s: no line for the refused endpoint in %q", arg, out.String())
+		}
+		if line["running"] != false || !strings.Contains(line["error"].(string), "not private to uid 1000") {
+			t.Fatalf("%s: the refusal reason is missing: %v", arg, line)
+		}
+		if arg == "doctor" && code != 1 {
+			t.Fatalf("doctor must fail for an unusable socket, exit %d", code)
+		}
+		if arg == "status" && code != 0 {
+			t.Fatalf("status reports, it does not fail: exit %d", code)
+		}
+	}
+}
 
 func TestMCPFailuresPreserveUnknownWriteOutcomes(t *testing.T) {
 	for _, test := range []struct {

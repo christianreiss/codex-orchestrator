@@ -44,6 +44,13 @@ func Command(args []string, in io.Reader, out, stderr io.Writer, version string)
 		registry.Range(func(_, v any) bool {
 			count++
 			ep := v.(*endpoint)
+			if ep.setupErr != nil {
+				// The local socket was refused (an unsafe or unusable runtime directory):
+				// say why instead of an empty socket and no explanation.
+				failed = true
+				json.NewEncoder(out).Encode(map[string]any{"server": ep.base, "running": false, "socket": ep.socket, "error": oneLine(ep.setupErr.Error(), 240)})
+				return true
+			}
 			res, err := unixClient(ep.socket, 2*time.Second).Get("http://communicator.local/_comm/status")
 			if err != nil {
 				failed = true

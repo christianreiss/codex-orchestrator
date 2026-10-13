@@ -1,5 +1,9 @@
 # 2026-10-13
 
+- `cxx communicator status` / `doctor` now say why a server has no usable local socket. A runtime directory the wrapper refuses (for instance `XDG_RUNTIME_DIR=/run/user/0` leaked through `su`, which is not private to the user) used to print `{"running":false,"socket":""}` with no reason; the line now carries `"error"` with the refusal, and `doctor` fails for it.
+
+- A relay's claim poll that finds nothing no longer takes the exclusive Agent Messaging enable-flag row lock. Every bus transaction opens with `SELECT … FOR UPDATE` on that row; in production, relay polls were about 93 % of its 100 M acquisitions in 20 days (≈ 50 a second, against roughly 18 K messages ever), so real writers and every request waiting for one of the API's ten pooled connections queued behind polls that changed nothing. `claimForRelay` now looks, without locks, for a queued, leased or accepted message addressed to the relay's eligible targets and answers an empty claim when there is none. Any pending row, including expiry, lease recovery, dead-lettering and presence-notice cleanup, still runs the unchanged locked path, and a disabled service is still refused, so disable ordering and lease fencing are as before. On a real MySQL replay at production's poll rate the flag acquisitions fell from 63 to 16 a second, InnoDB row-lock waits by 89 %, and an unrelated ten-statement request's p99 from 220–290 ms to 18–23 ms.
+
 - cxx 0.9.78 preserves numeric MCP IDs and result values when writing stdio replies, including integers beyond the exact `float64` range. Single and batch replies no longer round IDs after validating their correlation.
 
 - Communicator frame limits count UTF-8 wire bytes, including non-ASCII headers, so an oversized encoded reply returns a correlated failure instead of exceeding the receiver limit and dropping the shared connection.
