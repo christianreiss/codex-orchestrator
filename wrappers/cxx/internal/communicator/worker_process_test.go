@@ -45,7 +45,7 @@ func TestDedicatedWorkersConvergeAllEnginesWithoutMaintenance(t *testing.T) {
 	der, _ := x509.MarshalPKIXPublicKey(pub)
 	key := base64.StdEncoding.EncodeToString(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: der}))
 	binary := filepath.Join(root, "cxx")
-	build := exec.Command("go", "build", "-o", binary, "-ldflags", "-X github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/signing.buildPublicKeyB64="+key, "./cmd/cxx")
+	build := exec.Command("go", "build", "-o", binary, "-ldflags", "-X main.Version=0.9.79 -X github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/signing.buildPublicKeyB64="+key, "./cmd/cxx")
 	build.Dir = "../.."
 	if out, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("build: %v %s", err, out)
@@ -90,6 +90,9 @@ func TestDedicatedWorkersConvergeAllEnginesWithoutMaintenance(t *testing.T) {
 						}
 						body, _ = json.Marshal(map[string]any{"payload": json.RawMessage(raw), "signature": map[string]string{"value": base64.StdEncoding.EncodeToString(ed25519.Sign(priv, raw))}})
 					case "/sync/bootstrap":
+						if f.Headers["x-wrapper-version"] != "0.9.79" {
+							t.Errorf("running artifact header = %q, expected 0.9.79 despite signed config 0.9.73", f.Headers["x-wrapper-version"])
+						}
 						requests.Add(1)
 						time.Sleep(100 * time.Millisecond)
 						var req struct {
@@ -313,6 +316,27 @@ func TestDedicatedWorkersConvergeAllEnginesWithoutMaintenance(t *testing.T) {
 		writes.Unlock()
 		waitFor("server push adoption after unknown upload", func() bool { raw, _ := os.ReadFile(job.AuthPath); return bytes.Contains(raw, []byte("remote-pushed")) })
 		waitFor("reconciled upload marker removed", func() bool { _, err := os.Stat(pendingPath(job)); return os.IsNotExist(err) })
+		waitFor("native adoption remains unconfirmed on the wire", func() bool {
+			res, err := client.Get("http://communicator.local/_comm/status")
+			if err != nil {
+				return false
+			}
+			defer res.Body.Close()
+			var status struct {
+				Scopes []struct {
+					Auth AuthStatus `json:"auth"`
+				} `json:"sync_scopes"`
+			}
+			if json.NewDecoder(res.Body).Decode(&status) != nil {
+				return false
+			}
+			for _, scope := range status.Scopes {
+				if scope.Auth.Engine == engine && scope.Auth.NativeAdoption == "unconfirmed" {
+					return true
+				}
+			}
+			return false
+		})
 		authMu.Lock()
 		if stores[engine] != count {
 			t.Errorf("%s server write echoed as upload", engine)
