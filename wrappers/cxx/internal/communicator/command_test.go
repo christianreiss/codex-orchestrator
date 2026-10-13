@@ -17,6 +17,7 @@ func TestMCPFailuresPreserveUnknownWriteOutcomes(t *testing.T) {
 		{"lost write reply", 409, `{"error":{"code":"communicator_outcome_unknown","message":"secret upstream body"}}`, "communicator_outcome_unknown", true},
 		{"local transport loss", 0, "", "communicator_outcome_unknown", true},
 		{"incomplete successful reply", 200, "partial secret", "communicator_outcome_unknown", true},
+		{"oversized completed reply", 502, `{"code":"communicator_response_too_large"}`, "communicator_response_too_large", true},
 		{"known unavailable", 503, `{"error":{"code":"communicator_unavailable"}}`, "communicator_unavailable", false},
 		{"host mismatch", 401, `{"code":"communicator_mcp_host_mismatch"}`, "communicator_mcp_host_mismatch", false},
 		{"untrusted message", 403, `{"code":"secret upstream body"}`, "communicator_request_failed", false},

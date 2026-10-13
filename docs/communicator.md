@@ -153,6 +153,10 @@ ID. Unknown outcomes instruct the caller to verify the result before retrying wi
 the original idempotency or claim identifiers. Incomplete or miscorrelated replies
 also return a correlated unknown-outcome error. Error conversion never forwards
 upstream bodies or credentials, and the adapter never replays a failed call.
+An oversized reply rejected after dispatch also carries `outcome_unknown: true`:
+the route may already have committed its effects before the frame limit was
+checked. The bounded `communicator_response_too_large` code remains available
+for diagnosis.
 
 Request correlation compares JSON ID values rather than serialized spellings,
 including escaped strings and equivalent numbers. Distinct large integer IDs
