@@ -185,7 +185,9 @@ func mcpFailure(id json.RawMessage, status int, body []byte) []byte {
 		code = "communicator_request_failed"
 	}
 	message := "CoCo communicator unavailable or request rejected"
-	unknown := code == "communicator_outcome_unknown"
+	// The dispatcher applies this limit after the route has returned. Its
+	// effects may already be committed even though no usable reply fits.
+	unknown := code == "communicator_outcome_unknown" || code == "communicator_response_too_large"
 	if unknown {
 		message = "Request outcome unknown; it may already have completed. Verify its result before retrying and retain the original idempotency or claim identifiers."
 	}
