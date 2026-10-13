@@ -1461,6 +1461,7 @@ CREATE INDEX `idx_install_tokens_host` ON `install_tokens` (`host_id`);
 CREATE INDEX `idx_install_tokens_expires_at` ON `install_tokens` (`expires_at`);
 CREATE INDEX `idx_logs_host` ON `logs` (`host_id`);
 CREATE INDEX `idx_logs_created_at` ON `logs` (`created_at`);
+CREATE INDEX `idx_logs_action_created_host` ON `logs` (`action`,`created_at`,`host_id`);
 CREATE INDEX `idx_mcp_logs_host` ON `mcp_access_logs` (`host_id`);
 CREATE INDEX `idx_mcp_logs_method` ON `mcp_access_logs` (`method`);
 CREATE INDEX `idx_mcp_logs_created_at` ON `mcp_access_logs` (`created_at`);

@@ -1,5 +1,7 @@
 # 2026-10-13
 
+- Fleet sync counters no longer scan the full audit log on every bootstrap. A covering action/time/host index and one database statement preserve exact recent-host and UTC day/month counts while reducing database work and pool usage. Migration 0063 adds the index online and can be reapplied safely.
+
 - cxx reports its running build version with config requests, so a fresh host receives the supported local MCP adapter on its first sync. Rendering uses this request's version for the selected engine; older callers remain compatible and this does not change the stored host version or access policy. Credential updates now say that native-process adoption is unconfirmed, rather than implying that an acknowledgement is still pending.
 
 - `cgx status` and `cgx doctor` no longer report "Subscription auth unavailable; run `cgx login`" and exit 1 for a healthy Grok host. Both read the server's metadata-only `/auth` answer, whose `status` is `available` for a stored verified login, and the status screen accepted only the full-retrieve values (`valid`, `outdated`, ...). Launches were never affected because they display the leased grant. A missing or unverified login still fails.
