@@ -3,6 +3,8 @@ import { z } from 'zod';
 export const daemonSettingsSchema = z
   .object({
     enabled: z.boolean().default(false),
+    // Optional on input: legacy PUT clients must not clear stored residence.
+    resident_enabled: z.boolean().optional(),
     lifetime_minutes: z.number().int().min(1).max(10080).nullable().optional(),
     expires_at: z.string().datetime().nullable().optional(),
     username: z
@@ -94,4 +96,8 @@ export function daemonExpired(settings: Pick<DaemonSettings, 'expires_at'>, now 
 }
 export function daemonAccepting(settings: DaemonSettings): boolean {
   return settings.enabled && !daemonExpired(settings);
+}
+
+export function daemonResident(settings: DaemonSettings): boolean {
+  return settings.resident_enabled === true || daemonAccepting(settings);
 }

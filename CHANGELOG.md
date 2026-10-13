@@ -1,5 +1,7 @@
 # 2026-10-13
 
+- Host Operations can save communicator residence separately from remote starts. Legacy settings clients preserve an omitted residence value, and residence alone does not admit remote execution. Activation is prepared behind an independent, default-off signed runtime capability; pending service support is shown explicitly.
+
 - The Live Topology page no longer infers that a connection from the same host and OS user is a communicator coming back, because separate runtime roots can host distinct owners for one user. The owner now names itself in its negotiated `capabilities` frame (`instance_id`: a per-process UUID; `runtime_id`: a hash of its local socket path), and a disconnected connection is linked to a later one only when the same process dialled again (`same_process`) or a different process announced the same runtime (`same_runtime`). Otherwise the page lists an unverified candidate, and an owner that predates the identity fields can only produce candidates. Mixed versions are unaffected: old servers never announce control, so a new owner never sends the frame.
 
 - cxx 0.9.77 keeps the shared communicator available when its original engine config is removed, suspended or disables the transport. Reconnect and owner replacement select another verified engine config for the same host and server, including active sync scopes, and HTTPS transfers adopt that policy. Missing or foreign configs never permit a downgrade; an explicit signed rollback still does.

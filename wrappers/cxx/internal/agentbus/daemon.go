@@ -25,7 +25,7 @@ import (
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/grok"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/ipc"
-	"golang.org/x/net/websocket"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/residency"
 )
 
 var daemonExecutable = os.Executable
@@ -44,10 +44,11 @@ func ReconcileConfiguredHostDaemon(cfg *config.Config, output io.Writer) {
 }
 
 type daemonSettings struct {
-	Enabled     bool   `json:"enabled"`
-	ExpiresAt   string `json:"expires_at"`
-	Username    string `json:"username"`
-	MaxParallel int    `json:"max_parallel"`
+	Enabled         bool   `json:"enabled"`
+	ResidentEnabled bool   `json:"resident_enabled"`
+	ExpiresAt       string `json:"expires_at"`
+	Username        string `json:"username"`
+	MaxParallel     int    `json:"max_parallel"`
 }
 type daemonOperation struct {
 	ID         string `json:"operation_id"`
@@ -85,7 +86,7 @@ type daemonRejection struct{ message string }
 func (e *daemonRejection) Error() string { return e.message }
 
 type daemonConnection struct {
-	ws      *websocket.Conn
+	ws      residency.DaemonStream
 	mu      sync.Mutex
 	pending map[string]chan daemonFrame
 	done    chan struct{}
@@ -98,7 +99,7 @@ func (c *daemonConnection) rpc(ctx context.Context, kind string, payload any, ou
 	c.pending[id] = ch
 	c.mu.Unlock()
 	defer func() { c.mu.Lock(); delete(c.pending, id); c.mu.Unlock() }()
-	if err := websocket.JSON.Send(c.ws, map[string]any{"id": id, "type": kind, "payload": payload}); err != nil {
+	if err := c.ws.Send(map[string]any{"id": id, "type": kind, "payload": payload}); err != nil {
 		return err
 	}
 	select {
@@ -145,6 +146,10 @@ func RunDaemonCommand(args []string, stdout, stderr io.Writer, version string) i
 }
 
 func daemonConfig(ctx context.Context) (map[string]*config.Config, *relayClient, daemonSettings, error) {
+	return daemonConfigWithController(ctx, nil)
+}
+
+func daemonConfigWithController(ctx context.Context, controller *ResidentController) (map[string]*config.Config, *relayClient, daemonSettings, error) {
 	configs, seed, err := loadMessagingConfigs()
 	if err != nil {
 		return nil, nil, daemonSettings{}, err
@@ -156,6 +161,7 @@ func daemonConfig(ctx context.Context) (map[string]*config.Config, *relayClient,
 	if err != nil {
 		return nil, nil, daemonSettings{}, err
 	}
+	controller.wrapClient(client)
 	var settings daemonSettings
 	err = doJSON(ctx, client.http, client.baseURL, http.MethodGet, "/host/daemon/config", nil, map[string]string{"X-API-Key": client.apiKey}, &settings)
 	if err == nil {
@@ -315,6 +321,10 @@ func saveDaemonJournal(dir string, j daemonJournal) error {
 }
 
 func runHostDaemon(parent context.Context, version string, stdout, stderr io.Writer) error {
+	return runHostExecution(parent, version, stdout, stderr, nil)
+}
+
+func runHostExecution(parent context.Context, version string, stdout, stderr io.Writer, controller *ResidentController) error {
 	ctx, cancel := signal.NotifyContext(parent, os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 	dir, err := daemonStateDir()
@@ -339,6 +349,13 @@ func runHostDaemon(parent context.Context, version string, stdout, stderr io.Wri
 	active := map[string]context.CancelFunc{}
 	var activeMu sync.Mutex
 	var workers sync.WaitGroup
+	controller.bindSnapshot(func() (residency.Workload, error) {
+		activeMu.Lock()
+		count := len(active)
+		activeMu.Unlock()
+		receipts, err := verifiedPendingReceipts(dir)
+		return residency.Workload{Accepted: count, Children: count, Receipts: receipts}, err
+	})
 	defer func() {
 		cancel()
 		activeMu.Lock()
@@ -349,7 +366,10 @@ func runHostDaemon(parent context.Context, version string, stdout, stderr io.Wri
 		workers.Wait()
 	}()
 	workers.Add(1)
-	go func() { defer workers.Done(); runDaemonPeers(ctx, version, &activeMu, active, stderr) }()
+	go func() {
+		defer workers.Done()
+		runDaemonPeersControlled(ctx, version, &activeMu, active, stderr, controller)
+	}()
 	var connectionMu sync.Mutex
 	var connection *daemonConnection
 	complete := func(j daemonJournal) {
@@ -376,7 +396,7 @@ func runHostDaemon(parent context.Context, version string, stdout, stderr io.Wri
 		if daemonLocalExpired() && noActiveWork && len(pendingDaemonReceipts(dir)) == 0 {
 			return nil
 		}
-		configs, client, settings, err := daemonConfig(ctx)
+		configs, client, settings, err := daemonConfigWithController(ctx, controller)
 		if err != nil {
 			fmt.Fprintln(stderr, "daemon configuration unavailable:", err)
 			if !retry() {
@@ -394,7 +414,7 @@ func runHostDaemon(parent context.Context, version string, stdout, stderr io.Wri
 		if settings.Username != currentUserName() {
 			return errors.New("configured daemon user differs from current user")
 		}
-		ws, err := dialDaemonConnection(ctx, client)
+		ws, err := controller.openDaemon(ctx, client)
 		if err != nil {
 			fmt.Fprintln(stderr, "daemon connection unavailable:", err)
 			if !retry() {
@@ -402,7 +422,6 @@ func runHostDaemon(parent context.Context, version string, stdout, stderr io.Wri
 			}
 			continue
 		}
-		ws.MaxPayloadBytes = 2 * 1024 * 1024
 		c := &daemonConnection{ws: ws, pending: map[string]chan daemonFrame{}, done: make(chan struct{})}
 		connectionMu.Lock()
 		connection = c
@@ -412,7 +431,7 @@ func runHostDaemon(parent context.Context, version string, stdout, stderr io.Wri
 			defer close(c.done)
 			for {
 				var frame daemonFrame
-				if websocket.JSON.Receive(ws, &frame) != nil {
+				if ws.Receive(&frame) != nil {
 					return
 				}
 				if frame.Type == "operation" {
@@ -492,18 +511,25 @@ func runHostDaemon(parent context.Context, version string, stdout, stderr io.Wri
 				if daemonLocalExpired() || !settings.Enabled {
 					continue
 				}
+				finish, allowed := controller.permit()
+				if !allowed {
+					continue
+				}
 				activeMu.Lock()
 				_, running := active[op.Session]
 				activeMu.Unlock()
 				if running {
+					finish()
 					continue
 				}
 				if _, err := os.Stat(filepath.Join(dir, op.ID+".json")); err == nil {
+					finish()
 					continue
 				}
 				j := daemonJournal{Operation: op}
 				if err := saveDaemonJournal(dir, j); err != nil {
 					fmt.Fprintln(stderr, "daemon journal:", err)
+					finish()
 					continue
 				}
 				if err := c.rpc(ctx, "accept", map[string]any{"operation_id": op.ID, "claim_id": op.Claim}, nil); err != nil {
@@ -513,6 +539,7 @@ func runHostDaemon(parent context.Context, version string, stdout, stderr io.Wri
 					} else {
 						_ = ws.Close()
 					}
+					finish()
 					continue
 				}
 				runCtx, stop := context.WithCancel(ctx)
@@ -522,6 +549,7 @@ func runHostDaemon(parent context.Context, version string, stdout, stderr io.Wri
 				workers.Add(1)
 				go func() {
 					defer workers.Done()
+					defer finish()
 					result := runDaemonOperation(runCtx, op)
 					j.Result = &result
 					if err := saveDaemonJournal(dir, j); err != nil {
@@ -539,7 +567,7 @@ func runHostDaemon(parent context.Context, version string, stdout, stderr io.Wri
 				if daemonLocalExpired() {
 					settings.Enabled = false
 				}
-				if refreshed, _, _, e := daemonConfig(ctx); e == nil {
+				if refreshed, _, _, e := daemonConfigWithController(ctx, controller); e == nil {
 					configs = refreshed
 					engines = daemonReadyEngines(configs)
 				}

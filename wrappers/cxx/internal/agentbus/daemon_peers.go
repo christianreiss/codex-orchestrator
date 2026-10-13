@@ -12,8 +12,12 @@ import (
 )
 
 func runDaemonPeers(ctx context.Context, version string, mu *sync.Mutex, active map[string]context.CancelFunc, stderr io.Writer) {
+	runDaemonPeersControlled(ctx, version, mu, active, stderr, nil)
+}
+
+func runDaemonPeersControlled(ctx context.Context, version string, mu *sync.Mutex, active map[string]context.CancelFunc, stderr io.Writer, controller *ResidentController) {
 	for ctx.Err() == nil {
-		configs, client, settings, err := daemonConfig(ctx)
+		configs, client, settings, err := daemonConfigWithController(ctx, controller)
 		if err != nil || !settings.Enabled || daemonLocalExpired() {
 			if !waitContext(ctx, 5*time.Second) {
 				return
@@ -21,6 +25,9 @@ func runDaemonPeers(ctx context.Context, version string, mu *sync.Mutex, active 
 			continue
 		}
 		client.daemon = true
+		if controller != nil {
+			client.claimPermit = controller.permit
+		}
 		registration, err := client.register(ctx, settings.Username+":daemon", newUUID(), version)
 		if err != nil {
 			if !waitContext(ctx, 5*time.Second) {

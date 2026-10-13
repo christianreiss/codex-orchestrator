@@ -69,6 +69,7 @@ type relayDelivery struct {
 
 type relayClient struct {
 	daemon               bool
+	claimPermit          func() (func(), bool)
 	beforeDelivery       func(context.Context, *relayDelivery) (context.Context, func())
 	baseURL              string
 	apiKey               string
@@ -298,17 +299,31 @@ func (c *relayClient) poll(ctx context.Context, configs map[string]*config.Confi
 	}()
 
 	for pollCtx.Err() == nil {
+		finish := func() {}
+		if c.claimPermit != nil {
+			var allowed bool
+			finish, allowed = c.claimPermit()
+			if !allowed {
+				if !waitContext(pollCtx, time.Second) {
+					return pollCtx.Err()
+				}
+				continue
+			}
+		}
 		claimID := newUUID()
 		var claim relayClaim
 		if err := c.relayPost(pollCtx, "/deliveries/claim", map[string]any{"claim_id": claimID, "wait_seconds": 25}, &claim); err != nil {
+			finish()
 			return err
 		}
 		if claim.Delivery == nil {
+			finish()
 			continue
 		}
 		if err := c.processDelivery(pollCtx, configs, claim.Delivery); err != nil {
 			fmt.Fprintln(stderr, "agent messaging delivery", opaqueID(claim.Delivery.MessageID)+":", sanitizedError(err))
 		}
+		finish()
 	}
 	return pollCtx.Err()
 }

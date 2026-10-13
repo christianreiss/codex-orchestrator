@@ -91,6 +91,7 @@ export interface WrapperConfigPayload {
     installation_id: string;
     communicator_protocol?: number;
     communicator_sync_protocol?: number;
+    communicator_runtime_protocol?: number;
   };
   host: {
     id: number;
@@ -163,6 +164,7 @@ export interface WrapperConfigService {
 export interface WrapperConfigDeps {
   communicatorEnabled?: boolean;
   communicatorSyncEnabled?: boolean;
+  communicatorRuntimeEnabled?: boolean;
   db: Database;
   keyring: Keyring;
   binaries: WrapperBinRegistry;
@@ -467,6 +469,7 @@ export function createWrapperConfigService(deps: WrapperConfigDeps): WrapperConf
         installation_id: deps.installationId,
         ...(deps.communicatorEnabled ? { communicator_protocol: 1 } : {}),
         ...(deps.communicatorEnabled && deps.communicatorSyncEnabled ? { communicator_sync_protocol: 1 } : {}),
+        ...(deps.communicatorRuntimeEnabled ? { communicator_runtime_protocol: 1 } : {}),
       },
       host: {
         id: host.id,

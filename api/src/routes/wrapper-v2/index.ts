@@ -96,6 +96,7 @@ export async function registerWrapperV2Routes(
     installationId,
     communicatorEnabled: ctx.env.CXX_COMMUNICATOR_ENABLED,
     communicatorSyncEnabled: ctx.env.CXX_COMMUNICATOR_SYNC_ENABLED,
+    communicatorRuntimeEnabled: ctx.env.CXX_COMMUNICATOR_RUNTIME_ENABLED,
   });
   const meta = createWrapperMetaService({ binaries, schemaVersion: WRAPPER_CONFIG_SCHEMA_VERSION });
   const download = createWrapperDownloadService({ binaries });

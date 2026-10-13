@@ -25,7 +25,7 @@ import { encrypt, decrypt } from '../../security/secret-box.js';
 import { activeHostEngines, assertHostEngineEnabled } from '../host-engine-policy.js';
 import { readFleetEngineState } from '../engine-switch.js';
 import { wsPublisher } from '../../ws/publisher.js';
-import { daemonSettingsSchema, daemonHealth, daemonExpired, daemonAccepting, type DaemonRuntime, type DaemonSettings } from './policy.js';
+import { daemonSettingsSchema, daemonHealth, daemonExpired, daemonAccepting, daemonResident, type DaemonRuntime, type DaemonSettings } from './policy.js';
 import { ENGINE_HOST_FIELDS, type Engine } from '../../util/engine.js';
 import { messagingHostEligible } from '../agent-messaging.js';
 
@@ -55,12 +55,12 @@ export class HostDaemonService {
     const [row] = await this.db.select().from(hostDaemons).where(eq(hostDaemons.hostId, id));
     if (row && daemonExpired(row.settings)) {
       await this.expirePending(id);
-      return { ...row, settings: { ...row.settings, enabled: false } };
+      return { ...row, settings: { ...row.settings, enabled: false, resident_enabled: row.settings.resident_enabled ?? false } };
     }
     return (
-      row ?? {
+      row ? { ...row, settings: { ...row.settings, resident_enabled: row.settings.resident_enabled ?? false } } : {
         hostId: id,
-        settings: daemonSettingsSchema.parse({}),
+        settings: { ...daemonSettingsSchema.parse({}), resident_enabled: false },
         runtime: null,
         enabledAt: null,
         updatedAt: now(),
@@ -118,6 +118,10 @@ export class HostDaemonService {
       host_id: id,
       fqdn: host.fqdn,
       ...row.settings,
+      residence: {
+        requested: daemonResident(row.settings),
+        runtime_enabled: this.ctx.env.CXX_COMMUNICATOR_RUNTIME_ENABLED,
+      },
       health,
       access,
       engines: runtime?.engines ?? [],
@@ -212,6 +216,7 @@ export class HostDaemonService {
       const [old] = await tx.select().from(hostDaemons).where(eq(hostDaemons.hostId, id)).for('update');
       const requested = resolve(old?.settings ?? daemonSettingsSchema.parse({}));
       const settings = { ...requested,
+        resident_enabled: requested.resident_enabled ?? old?.settings.resident_enabled ?? false,
         lifetime_minutes: requested.lifetime_minutes ?? old?.settings.lifetime_minutes,
         expires_at: old?.settings.expires_at ?? requested.expires_at,
       };

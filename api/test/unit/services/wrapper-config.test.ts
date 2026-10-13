@@ -275,6 +275,22 @@ beforeAll(async () => {
 });
 
 describe('wrapper-config', () => {
+  it.each(['codex', 'claude', 'grok'] as const)('signs the independent resident capability for %s only when enabled', async (engine) => {
+    const { privateKey } = generateKeyPairSync('ed25519');
+    const signer: WrapperSigner = { kid:'1', fingerprint:FAKE_FINGERPRINT, publicKey:'pk', sign:payload => cryptoSign(null,Buffer.from(payload),privateKey) };
+    const host = fakeHost({engines:'codex,claude,grok'});
+    for (const enabled of [undefined,false,true]) {
+      const svc = createWrapperConfigService({
+        db: makeFakeDb({hosts:[host],agents:[],agentsState:[],clientConfigs:[],skills:[],updates:[]}),
+        keyring:makeKeyring(), binaries:fakeBinaries(), signing:makeSigningService(signer), installationId:'resident-test',
+        communicatorRuntimeEnabled:enabled,
+      });
+      const {payload} = await svc.bakeForHost(host,engine,'https://co.example');
+      expect(payload.orchestrator.communicator_runtime_protocol).toBe(enabled ? 1 : undefined);
+      expect(payload.orchestrator.communicator_protocol).toBeUndefined();
+      expect(payload.orchestrator.communicator_sync_protocol).toBeUndefined();
+    }
+  });
   it('throws WrapperSigningUnavailableError when no signer is loaded', async () => {
     const svc = createWrapperConfigService({
       db: makeFakeDb({

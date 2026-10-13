@@ -86,8 +86,34 @@ describe('host daemon service decisions', () => {
   it('uses canonical daemon defaults for a newly registered host', async () => {
     fake.tables.set(hostDaemons, []);
     await service.configureEnabled(1, true);
-    expect((await service.settings(1)).settings).toEqual(daemonSettingsSchema.parse({ enabled: true }));
+    expect((await service.settings(1)).settings).toEqual({ ...daemonSettingsSchema.parse({ enabled: true }), resident_enabled: false });
     expect((await service.view(1)).health.reasons).toContain('installation_pending');
+  });
+  it('preserves residence under a legacy settings PUT, including execution disable', async () => {
+    row(hostDaemons).settings = { ...daemonSettingsSchema.parse({ enabled: true }), resident_enabled: true };
+    const legacy = daemonSettingsSchema.parse({ enabled: false });
+    expect(Object.hasOwn(legacy, 'resident_enabled')).toBe(false);
+    await service.configure(1, legacy);
+    const write = fake.inserts.filter((entry) => entry.table === hostDaemons).at(-1)!;
+    expect(write.values).toMatchObject({settings:{enabled:false,resident_enabled:true}});
+  });
+  it('allows explicit residence disable without changing remote execution', async () => {
+    row(hostDaemons).settings = { ...daemonSettingsSchema.parse({ enabled: true }), resident_enabled: true };
+    await service.configure(1, daemonSettingsSchema.parse({ enabled:true, resident_enabled:false }));
+    const write = fake.inserts.filter((entry) => entry.table === hostDaemons).at(-1)!;
+    expect(write.values).toMatchObject({settings:{enabled:true,resident_enabled:false}});
+  });
+  it('residence alone never admits remote execution or renews an execution deadline', async () => {
+    row(hostDaemons).settings = daemonSettingsSchema.parse({enabled:false,resident_enabled:true});
+    const view = await service.view(1);
+    expect(view.residence).toEqual({requested:true,runtime_enabled:false});
+    expect(view.health.state).toBe('disabled');
+    await expect(service.start(request(),'owner')).rejects.toThrow('Host daemon is not available');
+    row(hostDaemons).settings = daemonSettingsSchema.parse({enabled:true,resident_enabled:true,expires_at:'2026-01-01T00:00:00Z'});
+    const expired = await service.settings(1);
+    expect(expired.settings.enabled).toBe(false);
+    expect(expired.settings.resident_enabled).toBe(true);
+    expect(expired.settings.expires_at).toBe('2026-01-01T00:00:00Z');
   });
   it.each(['codex', 'claude', 'grok'] as const)('preserves cwd precedence and resolves omitted %s cwd on the host', async (engine) => {
     const settings = row(hostDaemons).settings as Record<string, unknown>;

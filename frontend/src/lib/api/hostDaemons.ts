@@ -8,6 +8,7 @@ import type { Engine } from "$lib/portal/types";
 import { api } from "./client";
 export interface DaemonSettings {
   enabled: boolean;
+  resident_enabled?: boolean;
   lifetime_minutes?: number | null;
   expires_at?: string | null;
   username: string;
@@ -34,6 +35,7 @@ export interface RemoteSession {
   }[];
 }
 export interface DaemonHost extends DaemonSettings {
+  residence?: { requested: boolean; runtime_enabled: boolean };
   spawn?: { sourceHostId: number; operationId: string } | null;
   deadline_expired?: boolean;
   host_id: number;
@@ -52,6 +54,7 @@ export interface DaemonHost extends DaemonSettings {
 }
 export const daemonDefaults: DaemonSettings = {
   enabled: false,
+  resident_enabled: false,
   username: "root",
   default_cwd: "",
   max_parallel: 8,
