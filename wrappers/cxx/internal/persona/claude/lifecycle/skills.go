@@ -30,6 +30,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/communicator"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/observability/tracing"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/claude/orchestrator"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/claude/summary"
@@ -55,6 +56,12 @@ func legacyCleanupSentinel(version string) string {
 }
 
 func syncSkills(ctx context.Context, client *orchestrator.Client, logger *slog.Logger) (state summary.ResourceSync) {
+	if client != nil && communicator.SyncManaged(client.BaseURL) {
+		out, err := sharedSync(ctx, client, "", "skills", false, false, nil)
+		state = resourceFromWire(out.Resources["skills"])
+		state.Err = errors.Join(state.Err, err)
+		return state
+	}
 	ctx, span := tracing.Start(ctx, "cxx.sync.skills", tracing.String("wrapper.engine", "claude"))
 	defer func() {
 		span.SetBool("wrapper.skills_changed", state.Updated)

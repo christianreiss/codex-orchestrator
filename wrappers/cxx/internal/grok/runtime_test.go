@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -376,5 +378,49 @@ func TestHeartbeatFetchedHeadDoesNotBecomeNativeIssuedGeneration(t *testing.T) {
 	}
 	if observed != 17 || !strings.Contains(out.String(), "canonical-generation18") {
 		t.Fatalf("reactive refresh used fetched head: generation=%d", observed)
+	}
+}
+
+func TestCommunicatorReadinessPreservesNativeAuthOwnership(t *testing.T) {
+	r, pool := runtimeFixture(t)
+	expires := time.Now().UTC().Add(time.Hour)
+	if err := r.Apply(projectedFixture("native-issued-17", expires), 17); err != nil {
+		t.Fatal(err)
+	}
+	before, _ := os.ReadFile(r.AuthPath)
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		var body map[string]any
+		_ = json.NewDecoder(req.Body).Decode(&body)
+		if body["command"] != "retrieve" || body["refresh_if_generation"] != nil {
+			t.Errorf("readiness spent/uploaded credentials: %v", body)
+		}
+		_ = json.NewEncoder(w).Encode(Projection{Auth: projectedFixture("server-ready-18", expires), AccountID: 7001, VerificationState: "verified", CanonicalGeneration: 18, AccessTokenDigest: tokenDigest("server-ready-18"), ExpiresAt: expires.Format(time.RFC3339Nano)})
+	}))
+	defer api.Close()
+	client, _ := orchestrator.New(orchestrator.Options{BaseURL: api.URL})
+	client.Pool = pool
+	r.Client = client
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	if err := r.StartAuthBroker(ctx); err != nil {
+		t.Fatal(err)
+	}
+	transport := &http.Transport{DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+		return (&net.Dialer{}).DialContext(ctx, "unix", r.Socket)
+	}}
+	defer transport.CloseIdleConnections()
+	local := &http.Client{Transport: transport}
+	response, err := local.Post("http://grok-auth/readiness", "application/json", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	raw, _ := io.ReadAll(response.Body)
+	if response.StatusCode != 200 || bytes.Contains(raw, []byte("server-ready-18")) || bytes.Contains(raw, []byte("refresh_token")) {
+		t.Fatalf("readiness leaked credentials: %s", raw)
+	}
+	after, _ := os.ReadFile(r.AuthPath)
+	if !bytes.Equal(before, after) || len(r.issued) != 1 || r.issued[0].Generation != 17 {
+		t.Fatal("readiness changed native issued generation/cache")
 	}
 }

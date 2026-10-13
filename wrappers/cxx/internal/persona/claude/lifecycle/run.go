@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/accountpool"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/communicator"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/updateprogress"
 	"io"
 	"log/slog"
@@ -139,6 +140,7 @@ func Run(ctx context.Context, opts Options) (exitCode int, retErr error) {
 	}
 
 	cfg := opts.Config
+	ctx = communicator.WithSyncConfig(ctx, cfg)
 	if opts.QuotaChoiceReset && !opts.SyncOnly {
 		if err := quotaadvice.Reset(cfg.Orchestrator.BaseURL); err != nil {
 			return 1, fmt.Errorf("reset daily quota choice: %w", err)
@@ -218,7 +220,9 @@ func Run(ctx context.Context, opts Options) (exitCode int, retErr error) {
 		if !errors.Is(err, ipc.ErrHeld) {
 			return 1, err
 		}
-		if opts.AllowConcurrentSync {
+		if communicator.SyncManaged(cfg.Orchestrator.BaseURL) {
+			// The communicator serializes finite sync work while native sessions continue.
+		} else if opts.AllowConcurrentSync {
 			ui.Say(updateprogress.Output(ctx, os.Stderr), "clx", ui.ToneWarn, "session", "another session is active; concurrent sync explicitly enabled")
 		} else {
 			concurrent = true
@@ -411,7 +415,7 @@ func Run(ctx context.Context, opts Options) (exitCode int, retErr error) {
 		// A content-only tick is the only thing that visits an idle host, and
 		// onboarding state is a local flag with no credential traffic — keep it
 		// converging there. HasUsableAuth() is what makes that honest.
-		if (dec.Allowed || opts.SkipCredentialExchange) && !concurrent && claude.HasUsableAuth() {
+		if (dec.Allowed || opts.SkipCredentialExchange) && !concurrent && !communicator.SyncManaged(client.BaseURL) && claude.HasUsableAuth() {
 			ensureOnboardingState(logger)
 		}
 
@@ -423,7 +427,9 @@ func Run(ctx context.Context, opts Options) (exitCode int, retErr error) {
 			if !nativeSkillsSync.Checked {
 				skillsSync = combineOptionalResourceSync(syncSkills(ctx, client, logger), nativeSkillsSync)
 			}
-			skillsSync = combineResourceSync(skillsSync, pruneLegacySkillDirs(wrapperVersion(cfg), logger))
+			if !communicator.SyncManaged(client.BaseURL) {
+				skillsSync = combineResourceSync(skillsSync, pruneLegacySkillDirs(wrapperVersion(cfg), logger))
+			}
 		}
 	}
 
@@ -811,6 +817,36 @@ func bootstrapWithProgress(
 	ctx context.Context, client *orchestrator.Client, logger *slog.Logger,
 	concurrent bool, authPath string, includeAuth bool, progress *ui.Progress, launchArgs ...[]string,
 ) (*orchestrator.AuthRetrieveResponse, error, bool, summary.ResourceSync, summary.ResourceSync, summary.ResourceSync, *orchestrator.FleetSessions) {
+	if communicator.SyncManaged(client.BaseURL) {
+		var args []string
+		if len(launchArgs) > 0 {
+			args = launchArgs[0]
+		}
+		out, err := sharedSync(ctx, client, authPath, "bootstrap", includeAuth, false, args)
+		var auth *orchestrator.AuthRetrieveResponse
+		var sessions *orchestrator.FleetSessions
+		if len(out.Auth) > 0 {
+			if decodeErr := json.Unmarshal(out.Auth, &auth); decodeErr != nil {
+				err = errors.Join(err, decodeErr)
+			}
+		}
+		if len(out.Sessions) > 0 {
+			if decodeErr := json.Unmarshal(out.Sessions, &sessions); decodeErr != nil {
+				err = errors.Join(err, decodeErr)
+			}
+		}
+		return auth, err, out.AuthSynced, resourceFromWire(out.Resources["agents"]), resourceFromWire(out.Resources["config"]), resourceFromWire(out.Resources["skills"]), sessions
+	}
+
+	release, err := communicator.Fence(ctx, client.BaseURL, "claude", authPath)
+	if err != nil {
+		return nil, err, false, summary.ResourceSync{}, summary.ResourceSync{}, summary.ResourceSync{}, nil
+	}
+	defer release()
+	if includeAuth && communicator.PendingAuth(client.BaseURL, "claude", authPath) {
+		return nil, errors.New("previous auth upload outcome unresolved; reconcile before restarting sync"), false, summary.ResourceSync{}, summary.ResourceSync{}, summary.ResourceSync{}, nil
+	}
+
 	ctx, bootSpan := tracing.Start(ctx, "cxx.lifecycle.bootstrap",
 		tracing.String("wrapper.engine", "claude"),
 		tracing.Bool("wrapper.concurrent", concurrent),
@@ -1739,6 +1775,17 @@ func snapshotAuthGeneration() claude.AuthGeneration {
 func maybePostRunAuthUpload(client *orchestrator.Client, logger *slog.Logger, before claude.AuthGeneration, session *claude.AuthSession) (string, ui.Tone) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
+	path, _ := claude.AuthPath()
+
+	release, err := communicator.Fence(ctx, client.BaseURL, "claude", path)
+	if err != nil {
+		return "final sync unavailable", ui.ToneFail
+	}
+	defer release()
+	if communicator.PendingAuth(client.BaseURL, "claude", path) {
+		return "upload outcome unknown", ui.ToneFail
+	}
+
 	status, tone := "upload failed", ui.ToneFail
 	for attempt := 0; attempt < 3; attempt++ {
 		if attempt > 0 {

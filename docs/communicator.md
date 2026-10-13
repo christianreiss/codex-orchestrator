@@ -90,3 +90,70 @@ Tests cover route/header isolation and policy revocation, concurrent request
 routing, identical-read coalescing, unknown write outcomes, signed engine
 selection, and six real MCP processes across all three engines reconnecting after
 both remote disconnect and local owner crash.
+
+## Central sync ownership (cxx 0.9.73)
+
+`CXX_COMMUNICATOR_SYNC_ENABLED=true`, together with the transport flag, adds the
+signed `orchestrator.communicator_sync_protocol: 1` capability. Roll out the
+compatible API and wrapper before enabling it. An older owner keeps new clients on the legacy sync lifecycle until it is
+replaced with the new communicator; native sessions are not restarted. Older wrappers retain their existing lifecycle.
+
+Startup bootstrap, explicit sync, skill probes and pushed content converge through
+finite `communicator-worker` operations. These reuse the existing per-engine
+writers without entering persona startup, installers, cron or service setup.
+Content refresh also fetches and verifies the signed wrapper configuration over
+the shared transport and persists it under the existing config lock. The
+worker holds a short native-home fence; identical concurrent content operations
+share their result, while different homes and engines can progress independently.
+The broad session-lifetime content gate no longer applies to managed sync.
+`--allow-concurrent-sync` remains accepted for legacy compatibility.
+
+Each active auth scope registers its existing account and session identifiers.
+The communicator watches native credential directories (including atomic rename),
+with a two-second rescan and a thirty-second server reconciliation backstop. One
+live session supplies the account binding for a shared credential source. Native
+changes use existing upload/runner validation and generation arbitration; verified
+server changes use existing compare-and-write guards. Missing files, partial
+writes, explicit logout, account binding and insecure-host cleanup retain their
+previous meaning. Finalization and legacy fallback take the same short worker
+fence. No automatic login, provider refresh owner transfer or native restart is
+introduced.
+
+Grok keeps its private runtime and request-time external auth accessor. The
+communicator schedules the existing broker's readiness check; fetching a newer
+head does not rewrite the native access cache or claim that the native process
+has used it. Canonical refresh remains server-owned, and native runtime credentials
+are never uploaded as a new login.
+
+Canonical head changes emit metadata after commit. Connections learn account
+subscriptions from successful authorized auth responses; otherwise an opaque auth
+invalidation requests reconciliation. Credentials still travel through the existing
+authorized auth routes. Auth events do not schedule unrelated content synchronization.
+The event bus remains process-local; reconnect and periodic reconciliation repair
+missed events.
+
+Worker auth transactions keep a mode-0600 digest-only pending marker in the native
+home. A crashed worker or unknown write outcome requires verified readback before
+reoffering that generation. An exact verified credential pair can be acknowledged
+without replay; unresolved outcomes remain visible and preserve local credentials.
+The marker contains no credential bytes. A new native generation is independent.
+
+Local `status`/`doctor` and the host Operations panel show content failures and
+per-scope auth progress. Server confirmation, local writes and native adoption are
+separate: a local write reports native adoption as pending. Model-facing notices
+are informational and never count as technical adoption acknowledgements. Detailed
+worker errors remain on the protected local socket; heartbeats carry bounded
+metadata only. `doctor` fails for a disconnected owner or failed synchronization.
+
+For rollback, disable the sync capability and refresh the signed engine configs.
+The communicator stops scheduling that auth scope, drains accepted work and sends
+an explicit local handoff. Its supervising wrapper resumes the existing auth
+watcher without restarting the native process. Short file fences also protect a
+new legacy invocation during the transition. Content workers remain side-effect
+limited, and transport rollback keeps its independent signed-capability rule.
+
+Regression coverage includes real daemon/worker processes, thirty concurrent
+content callers, ten auth consumers per source, native atomic rotation, server
+push, signed handoff, lost-acknowledgement readback, logout/CAS preservation and
+Grok readiness without token issuance or refresh ownership changes. All process
+fixtures use isolated HOME and runtime directories.

@@ -133,7 +133,7 @@ Conversely, some features are **Claude-only** (`clx`) because Codex has no on-di
 
 - Source: `wrappers/cxx/`. One static Go binary is compiled per platform; invocation as the `cdx`, `clx`, or `cgx` relative symlink selects that persona, while direct invocation requires `cxx codex ...` or `cxx claude ...` or `cxx grok ...`.
 - Boot flow:
-  - Acquires a run lock (unless `--allow-concurrent-sync`), reads and verifies its signed per-host JSON config (Ed25519 detached signature), syncs auth via `/auth`, prunes legacy prompt state, then syncs skills / `AGENTS.md` / config before launch.
+  - Reads and verifies signed per-host JSON config (Ed25519). With `orchestrator.communicator_sync_protocol: 1`, the communicator serializes finite bootstrap/content operations and active-session auth convergence using existing engine writers; running sessions do not pause sync. Legacy mode retains the run lock and `--allow-concurrent-sync`. Native login, account assignment and refresh ownership stay engine-specific; see `docs/communicator.md`.
   - Treats `cdx`/MCP as the Skill interface: read Skills through MCP `resource_read` on `skill://{slug}`.
   - Uses local-auth freshness windows of 24h and secure-host fallback up to 7 days during API outages.
   - Reports host users and handles lane preference sync via `/host/lane` (Codex only).

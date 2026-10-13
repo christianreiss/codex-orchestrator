@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/housekeeping"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/terminalui"
@@ -44,6 +45,11 @@ func run(invokedAs string, args []string, stdout, stderr io.Writer) (code int) {
 		return grok.RunPrivateReaper(args[1:])
 	}
 	setPersonaBuildInfo()
+	if len(args) > 0 && args[0] == "communicator-worker" {
+		ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+		defer cancel()
+		return communicator.WorkerCommand(ctx, os.Stdin, stdout, communicatorWork)
+	}
 	if len(args) > 0 && args[0] == "communicator" {
 		return communicator.Command(args[1:], os.Stdin, stdout, stderr, Version)
 	}

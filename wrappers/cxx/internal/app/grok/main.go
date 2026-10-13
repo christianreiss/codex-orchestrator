@@ -207,6 +207,7 @@ func runOptions(o options, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "cgx:", err)
 		return 1
 	}
+	ctx = communicator.WithSyncConfig(ctx, cfg)
 	if cfg.EngineOptions.GrokModelOverride != nil {
 		cfg.EngineOptions.ModelOverride = cfg.EngineOptions.GrokModelOverride
 	}
@@ -353,6 +354,26 @@ func syncMeasuredManaged(ctx context.Context, cfg *config.Config, client *orches
 // peer engines. unlocked mirrors cdx --allow-concurrent-sync: the operator
 // explicitly accepts writing while another cgx lifecycle holds the lock.
 func syncMeasuredManagedWith(ctx context.Context, cfg *config.Config, client *orchestrator.Client, unlocked bool) (summary managedSyncSummary, syncErr error) {
+	if communicator.SyncManaged(client.BaseURL) {
+		ctx = communicator.WithSyncConfig(ctx, cfg)
+		out, err := communicator.Sync(ctx, client.BaseURL, "grok", "", "content", false, false, nil, 0, "")
+		if err == nil {
+			err = out.Err()
+		}
+		if len(out.Sessions) > 0 {
+			_ = json.Unmarshal(out.Sessions, &summary.Sessions)
+		}
+		skills, settings := out.Resources["skills"], out.Resources["config"]
+		summary.Skills = resourceSync{Checked: skills.Checked, Updated: skills.Updated, Failed: skills.Error != ""}
+		summary.Config = resourceSync{Checked: settings.Checked, Updated: settings.Updated, Failed: settings.Error != ""}
+		return summary, err
+	}
+
+	release, err := communicator.Fence(ctx, client.BaseURL, "grok", "")
+	if err != nil {
+		return summary, err
+	}
+	defer release()
 	if !unlocked {
 		lock, err := ipc.TryAcquireExclusive("cgx-sync")
 		if err != nil {
@@ -444,8 +465,10 @@ func syncMeasuredManagedWith(ctx context.Context, cfg *config.Config, client *or
 	if username != "" {
 		_ = client.JSON(ctx, http.MethodPost, "/host/users", map[string]any{"username": username, "hostname": hostname}, nil, 0)
 	}
-	if err := reconcilePeers(ctx, cfg); err != nil {
-		warn(client, "peer engine reconcile incomplete", err)
+	if os.Getenv("CXX_COMMUNICATOR_SYNC") != "1" {
+		if err := reconcilePeers(ctx, cfg); err != nil {
+			warn(client, "peer engine reconcile incomplete", err)
+		}
 	}
 	return summary, nil
 }
@@ -536,7 +559,7 @@ func run(ctx context.Context, cfg *config.Config, client *orchestrator.Client, o
 	var sync managedSyncSummary
 	var syncErr error
 	var contentLock *ipc.Lock
-	if !o.concurrent {
+	if !o.concurrent && !communicator.SyncManaged(client.BaseURL) {
 		lock, err := ipc.TryAcquireExclusive("cgx-sync")
 		if err != nil {
 			syncErr = err
@@ -569,7 +592,7 @@ func run(ctx context.Context, cfg *config.Config, client *orchestrator.Client, o
 			contentLock = nil
 		}
 	}
-	if contentLock == nil {
+	if contentLock == nil && !communicator.SyncManaged(client.BaseURL) {
 		var err error
 		contentLock, err = acquireContentLease(ctx)
 		if err != nil {
@@ -731,16 +754,15 @@ func run(ctx context.Context, cfg *config.Config, client *orchestrator.Client, o
 	refreshDone := make(chan struct{})
 	authFailure := make(chan error, 1)
 	defer func() { stop(); <-refreshDone }()
-	go func() {
-		defer close(refreshDone)
+	runReadiness := func(refreshCtx context.Context) {
 		ticker := time.NewTicker(30 * time.Second)
 		defer ticker.Stop()
 		for {
 			select {
-			case <-sessionCtx.Done():
+			case <-refreshCtx.Done():
 				return
 			case <-ticker.C:
-				callCtx, cancel := context.WithTimeout(sessionCtx, 6*time.Second)
+				callCtx, cancel := context.WithTimeout(refreshCtx, 6*time.Second)
 				err := rt.Refresh(callCtx)
 				cancel()
 				if native.FatalAuthError(err) {
@@ -753,6 +775,32 @@ func run(ctx context.Context, cfg *config.Config, client *orchestrator.Client, o
 				}
 			}
 		}
+	}
+	go func() {
+		defer close(refreshDone)
+		if communicator.SyncManaged(client.BaseURL) {
+			account, session := pool.Binding()
+			stopWatch, err := communicator.WatchAuth(communicator.WithSyncConfig(sessionCtx, cfg), client.BaseURL, "grok", "", account, session, rt.Socket, func(status communicator.AuthStatus) {
+				if status.Fatal {
+					select {
+					case authFailure <- errors.New("Grok account lease or subscription auth ended; resume through cgx after login"):
+					default:
+					}
+					stop()
+				}
+			}, func(c context.Context) func() {
+				refreshCtx, cancel := context.WithCancel(c)
+				done := make(chan struct{})
+				go func() { defer close(done); runReadiness(refreshCtx) }()
+				return func() { cancel(); <-done }
+			})
+			if err == nil {
+				defer stopWatch()
+				<-sessionCtx.Done()
+				return
+			}
+		}
+		runReadiness(sessionCtx)
 	}()
 	if !headless && !nativeAnyFlag(args, "--no-leader", "--leader-socket") {
 		socket := filepath.Join(rt.Dir, "grok.sock")

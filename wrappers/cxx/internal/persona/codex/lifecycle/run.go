@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/accountpool"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/communicator"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/updateprogress"
 	"io"
 	"log/slog"
@@ -200,6 +201,7 @@ func Run(ctx context.Context, opts Options) (exitCode int, runErr error) {
 	}
 
 	cfg := opts.Config
+	ctx = communicator.WithSyncConfig(ctx, cfg)
 	if opts.QuotaChoiceReset && !opts.SyncOnly {
 		if err := quotaadvice.Reset(cfg.Orchestrator.BaseURL); err != nil {
 			return 1, fmt.Errorf("reset daily quota choice: %w", err)
@@ -242,7 +244,9 @@ func Run(ctx context.Context, opts Options) (exitCode int, runErr error) {
 		if !errors.Is(err, ipc.ErrHeld) {
 			return 1, err
 		}
-		if opts.AllowConcurrentSync {
+		if communicator.SyncManaged(cfg.Orchestrator.BaseURL) {
+			// The communicator serializes finite sync work while native sessions continue.
+		} else if opts.AllowConcurrentSync {
 			ui.Say(updateprogress.Output(ctx, os.Stderr), "cdx", ui.ToneWarn, "session", "another session is active; concurrent sync explicitly enabled")
 		} else {
 			concurrent = true
@@ -484,7 +488,9 @@ func Run(ctx context.Context, opts Options) (exitCode int, runErr error) {
 				}
 			}
 			skillsSync = syncSkillsListed(ctx, client, logger, listed)
-			skillsSync = combineResourceSync(skillsSync, pruneLegacySkillDirs(wrapperVersion(cfg), logger))
+			if !communicator.SyncManaged(client.BaseURL) {
+				skillsSync = combineResourceSync(skillsSync, pruneLegacySkillDirs(wrapperVersion(cfg), logger))
+			}
 		}
 	}
 
@@ -774,6 +780,36 @@ func bootstrapWithProgress(
 	ctx context.Context, client *orchestrator.Client, logger *slog.Logger,
 	concurrent bool, authPath string, includeAuth bool, progress *ui.Progress, launchArgs ...[]string,
 ) (*orchestrator.AuthRetrieveResponse, error, bool, summary.ResourceSync, summary.ResourceSync, *orchestrator.FleetSessions) {
+	if communicator.SyncManaged(client.BaseURL) {
+		var args []string
+		if len(launchArgs) > 0 {
+			args = launchArgs[0]
+		}
+		out, err := sharedSync(ctx, client, authPath, "bootstrap", includeAuth, false, args)
+		var auth *orchestrator.AuthRetrieveResponse
+		var sessions *orchestrator.FleetSessions
+		if len(out.Auth) > 0 {
+			if decodeErr := json.Unmarshal(out.Auth, &auth); decodeErr != nil {
+				err = errors.Join(err, decodeErr)
+			}
+		}
+		if len(out.Sessions) > 0 {
+			if decodeErr := json.Unmarshal(out.Sessions, &sessions); decodeErr != nil {
+				err = errors.Join(err, decodeErr)
+			}
+		}
+		return auth, err, out.AuthSynced, resourceFromWire(out.Resources["agents"]), resourceFromWire(out.Resources["config"]), sessions
+	}
+
+	release, err := communicator.Fence(ctx, client.BaseURL, "codex", authPath)
+	if err != nil {
+		return nil, err, false, summary.ResourceSync{}, summary.ResourceSync{}, nil
+	}
+	defer release()
+	if includeAuth && communicator.PendingAuth(client.BaseURL, "codex", authPath) {
+		return nil, errors.New("previous auth upload outcome unresolved; reconcile before restarting sync"), false, summary.ResourceSync{}, summary.ResourceSync{}, nil
+	}
+
 	ctx, bootSpan := tracing.Start(ctx, "cxx.lifecycle.bootstrap",
 		tracing.String("wrapper.engine", "codex"),
 		tracing.Bool("wrapper.concurrent", concurrent),
@@ -1714,9 +1750,19 @@ func extractLastRefresh(raw []byte) string {
 func maybePostRunAuthUpload(client *orchestrator.Client, logger *slog.Logger, path, beforeHash, beforeRefresh string) (string, ui.Tone, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
+
+	release, err := communicator.Fence(ctx, client.BaseURL, "codex", path)
+	if err != nil {
+		return "final sync unavailable", ui.ToneFail, err
+	}
+	defer release()
+	if communicator.PendingAuth(client.BaseURL, "codex", path) {
+		return "upload outcome unknown", ui.ToneFail, errors.New("previous auth upload outcome unresolved; refusing to replay")
+	}
+
 	var status string
 	var tone ui.Tone
-	var err error
+	err = nil
 	for attempt := 0; attempt < 3; attempt++ {
 		if attempt > 0 {
 			timer := time.NewTimer(time.Duration(attempt) * 200 * time.Millisecond)

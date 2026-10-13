@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/communicator"
 	"log/slog"
 	"os"
 	"strings"
@@ -29,6 +30,16 @@ type SessionAuthSyncResult struct {
 // for arbitration before any remote generation can replace them. The caller
 // supplies a deadline and decides whether an active session permits polling.
 func SyncSessionAuth(ctx context.Context, client *orchestrator.Client, logger *slog.Logger) (SessionAuthSyncResult, error) {
+	fencePath, _ := claude.AuthPath()
+	release, fenceErr := communicator.Fence(ctx, client.BaseURL, "claude", fencePath)
+	if fenceErr != nil {
+		return SessionAuthSyncResult{}, fenceErr
+	}
+	defer release()
+	if communicator.PendingAuth(client.BaseURL, "claude", fencePath) {
+		return SessionAuthSyncResult{Deferred: true}, errors.New("previous auth upload outcome unresolved; refusing to replay after handoff")
+	}
+
 	if logger == nil {
 		logger = slog.Default()
 	}

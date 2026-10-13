@@ -17,6 +17,8 @@ export const WS_EVENT_TYPES = [
   'host.daemon.start_requested',
   'host.daemon.stop_requested',
   'accounts.updated',
+  'auth.canonical',
+  'auth.invalidated',
   'companion.devices.changed',
   // Logs
   'log.created',

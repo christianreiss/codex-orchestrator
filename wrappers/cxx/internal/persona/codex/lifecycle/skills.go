@@ -21,6 +21,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/communicator"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -84,6 +85,14 @@ func prefetchSkills(ctx context.Context, client *orchestrator.Client) func() ski
 // listing fetches inline. Only the network read is ever overlapped; the digest
 // compare and write still happen here, after the bundle has been applied.
 func syncSkillsListed(ctx context.Context, client *orchestrator.Client, logger *slog.Logger, prefetched *skillsListing) (state summary.ResourceSync) {
+	if communicator.SyncManaged(client.BaseURL) {
+		path, _ := codex.AuthPath()
+		out, err := sharedSync(ctx, client, path, "skills", false, false, nil)
+		result := resourceFromWire(out.Resources["skills"])
+		result.Err = errors.Join(result.Err, err)
+		return result
+	}
+
 	ctx, span := tracing.Start(ctx, "cxx.sync.skills", tracing.String("wrapper.engine", "codex"))
 	defer func() {
 		span.SetBool("wrapper.skills_changed", state.Updated)

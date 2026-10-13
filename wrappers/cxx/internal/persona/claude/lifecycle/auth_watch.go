@@ -12,6 +12,7 @@ package lifecycle
 import (
 	"context"
 	"errors"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/communicator"
 	"log/slog"
 	"sync"
 	"time"
@@ -58,6 +59,20 @@ func startMidSessionAuthUpload(
 	before claude.AuthGeneration,
 	session *claude.AuthSession,
 ) (stop func()) {
+	if communicator.SyncManaged(client.BaseURL) {
+		path, _ := claude.AuthPath()
+		account, sessionID := client.Pool.Binding()
+		stop, err := communicator.WatchAuth(ctx, client.BaseURL, "claude", path, account, sessionID, "", func(status communicator.AuthStatus) {
+			if status.HostSecure != nil && session != nil {
+				_ = session.SetPurgeOnLastExitContext(ctx, !*status.HostSecure)
+			}
+		}, func(c context.Context) func() { return startMidSessionAuthUpload(c, client, logger, before, session) })
+		if err == nil {
+			return stop
+		}
+		logger.Error("communicator auth registration failed", "err", err)
+		return func() {}
+	}
 	syncAuth := func(sctx context.Context) (claude.AuthSnapshot, error) {
 		result, err := SyncSessionAuth(sctx, client, logger)
 		if result.HostSecure != nil && session != nil {

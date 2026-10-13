@@ -65,6 +65,7 @@ export interface CommunicatorView {
   sessions: number;
   requests: number;
   synced_at: string | null;
+  sync_scopes?: unknown[];
 }
 const connections = new Map<string, CommunicatorView>();
 
@@ -118,8 +119,32 @@ export async function registerCommunicatorRoutes(app: FastifyInstance, ctx: Rout
       }) as DaemonSocket;
       // Only an invalidation is broadcast, never administrative event payloads.
       let dirty = false;
+      let authDirty = false;
+      const knownAccounts = new Map<string, number>();
+      const authChanges = new Map<string, { engine: string; account_id: number; generation: number }>();
       const unsubscribe = wsPublisher.subscribe((event) => {
         const payload = event.payload as Record<string, unknown> | null;
+        if (event.type === 'auth.canonical') {
+          const engine = payload?.engine;
+          const account = payload?.account_id;
+          const generation = payload?.generation;
+          const key = `${engine}:${account}`;
+          if (
+            typeof engine === 'string' &&
+            typeof account === 'number' &&
+            typeof generation === 'number' &&
+            (knownAccounts.get(key) ?? 0) > Date.now()
+          ) {
+            authChanges.set(key, { engine, account_id: account, generation });
+          } else {
+            authDirty = true;
+          }
+          return;
+        }
+        if (/^(auth\.|accounts\.)/.test(event.type)) {
+          authDirty = true;
+          return;
+        }
         // Config retrieval and daemon liveness also emit host events. They must
         // not trigger another sync and create an invalidation feedback loop.
         if (
@@ -138,6 +163,14 @@ export async function registerCommunicatorRoutes(app: FastifyInstance, ctx: Rout
           dirty = true;
       });
       const invalidationTimer = setInterval(() => {
+        if (greeted && authChanges.size > 0) {
+          for (const change of authChanges.values()) send({ type: 'auth_changed', ...change });
+          authChanges.clear();
+        }
+        if (authDirty && greeted) {
+          authDirty = false;
+          send({ type: 'auth_changed' });
+        }
         if (dirty && greeted) {
           dirty = false;
           send({ type: 'invalidate', revision: randomUUID() });
@@ -202,6 +235,34 @@ export async function registerCommunicatorRoutes(app: FastifyInstance, ctx: Rout
                 type: z.literal('heartbeat'),
                 sessions: z.number().int().min(0).max(10000),
                 synced_at: z.string().datetime().nullable().default(null),
+                sync_scopes: z
+                  .array(
+                    z
+                      .object({
+                        scope: z.string().max(100),
+                        running: z.boolean(),
+                        content_error: z.string().max(128),
+                        auth: z
+                          .object({
+                            type: z.literal('auth_state'),
+                            scope: z.string().max(100),
+                            engine: z.enum(['codex', 'claude', 'grok']),
+                            account_id: z.number().int().positive().optional(),
+                            generation: z.string().max(128).optional(),
+                            state: z.string().max(32),
+                            native_adoption: z.string().max(32),
+                            updated_at: z.string().max(40).optional(),
+                            host_status: z.string().max(40).optional(),
+                            error: z.string().max(160).optional(),
+                            host_secure: z.boolean().optional(),
+                            fatal: z.boolean().optional(),
+                          })
+                          .strict(),
+                      })
+                      .strict(),
+                  )
+                  .max(1000)
+                  .optional(),
               })
               .strict()
               .parse(parsed);
@@ -209,6 +270,7 @@ export async function registerCommunicatorRoutes(app: FastifyInstance, ctx: Rout
             const view = connections.get(connectionID)!;
             view.sessions = heartbeat.sessions;
             view.synced_at = heartbeat.synced_at;
+            view.sync_scopes = heartbeat.sync_scopes;
             wsPublisher.publish('communicator.updated', { host_id: view.host_id });
             send({ type: 'heartbeat' });
             return;
@@ -260,6 +322,25 @@ export async function registerCommunicatorRoutes(app: FastifyInstance, ctx: Rout
               remoteAddress: req.clientIp || req.socket.remoteAddress,
               ...(frame.body ? { payload: Buffer.from(frame.body, 'base64') } : {}),
             });
+            if (
+              response.statusCode < 400 &&
+              ['/auth', '/sync/bootstrap'].includes(frame.path.split('?')[0]!)
+            ) {
+              try {
+                let result = JSON.parse(response.rawPayload.toString());
+                result = result.data ?? result;
+                if (frame.path.split('?')[0] === '/sync/bootstrap') result = result.auth;
+                if (
+                  result?.verification_state === 'verified' &&
+                  typeof result.account_id === 'number' &&
+                  ['codex', 'claude', 'grok'].includes(result.engine)
+                ) {
+                  knownAccounts.set(`${result.engine}:${result.account_id}`, Date.now() + 60_000);
+                }
+              } catch {
+                /* A non-JSON/error response grants no subscription. */
+              }
+            }
             const view = connections.get(connectionID);
             if (view) view.requests++;
             const replyHeaders: Record<string, string> = {};

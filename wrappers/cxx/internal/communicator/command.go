@@ -48,7 +48,24 @@ func Command(args []string, in io.Reader, out, stderr io.Writer, version string)
 				failed = true
 				json.NewEncoder(out).Encode(map[string]any{"server": ep.base, "running": false, "socket": ep.socket})
 			} else {
-				io.Copy(out, res.Body)
+				var status map[string]any
+				if err := json.NewDecoder(res.Body).Decode(&status); err != nil {
+					failed = true
+				} else {
+					json.NewEncoder(out).Encode(status)
+					if status["connected"] != true && status["https_fallback"] != true {
+						failed = true
+					}
+					if scopes, ok := status["sync_scopes"].([]any); ok {
+						for _, raw := range scopes {
+							scope, _ := raw.(map[string]any)
+							auth, _ := scope["auth"].(map[string]any)
+							if scope["content_error"] != "" || auth["state"] == "error" {
+								failed = true
+							}
+						}
+					}
+				}
 				res.Body.Close()
 			}
 			return true

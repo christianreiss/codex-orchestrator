@@ -20,17 +20,20 @@ import (
 )
 
 type frame struct {
-	Payload  json.RawMessage   `json:"payload,omitempty"`
-	ID       string            `json:"id,omitempty"`
-	Type     string            `json:"type,omitempty"`
-	Method   string            `json:"method,omitempty"`
-	Path     string            `json:"path,omitempty"`
-	Headers  map[string]string `json:"headers,omitempty"`
-	Body     []byte            `json:"body,omitempty"`
-	Status   int               `json:"status,omitempty"`
-	Error    string            `json:"error,omitempty"`
-	Protocol int               `json:"protocol,omitempty"`
-	Revision string            `json:"revision,omitempty"`
+	Engine     string            `json:"engine,omitempty"`
+	AccountID  int64             `json:"account_id,omitempty"`
+	Generation int64             `json:"generation,omitempty"`
+	Payload    json.RawMessage   `json:"payload,omitempty"`
+	ID         string            `json:"id,omitempty"`
+	Type       string            `json:"type,omitempty"`
+	Method     string            `json:"method,omitempty"`
+	Path       string            `json:"path,omitempty"`
+	Headers    map[string]string `json:"headers,omitempty"`
+	Body       []byte            `json:"body,omitempty"`
+	Status     int               `json:"status,omitempty"`
+	Error      string            `json:"error,omitempty"`
+	Protocol   int               `json:"protocol,omitempty"`
+	Revision   string            `json:"revision,omitempty"`
 }
 
 type connection struct {
@@ -42,6 +45,7 @@ type connection struct {
 	done        chan struct{}
 	ready       chan struct{}
 	invalidated func()
+	authChanged func(string, int64)
 }
 
 func directTransport(cfg *config.Config) (*http.Transport, error) {
@@ -144,6 +148,10 @@ func (c *connection) receive() {
 					c.ws.Close()
 					return
 				}
+			}
+		case "auth_changed":
+			if c.authChanged != nil {
+				c.authChanged(f.Engine, f.AccountID)
 			}
 		case "invalidate":
 			if c.invalidated != nil {

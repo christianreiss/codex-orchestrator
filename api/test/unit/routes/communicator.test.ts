@@ -42,6 +42,7 @@ async function setup(enabled = true) {
   });
   app.post('/host/echo', (req) => ({ headers: req.headers, body: req.body, ip: req.socket.remoteAddress }));
   app.post('/mcp', () => ({ accepted: true }));
+  app.post('/auth', () => ({ verification_state: 'verified', engine: 'claude', account_id: 7 }));
   await app.ready();
   return app;
 }
@@ -171,4 +172,41 @@ describe('communicator transport', () => {
     ).rejects.toThrow();
     expect((await app.inject({ method: 'POST', url: '/host/echo', payload: {} })).statusCode).toBe(200);
   });
+});
+
+it('separates credential invalidations from content and never broadcasts credential metadata', async () => {
+  await setup();
+  const ws = await open();
+  const frames: Record<string, unknown>[] = [];
+  ws.on('message', (data: unknown) => frames.push(JSON.parse(String(data))));
+  wsPublisher.publish('auth.canonical', {
+    engine: 'codex',
+    account_id: 99,
+    generation: 7,
+    auth: 'must-not-leak',
+  });
+  await new Promise((resolve) => setTimeout(resolve, 350));
+  expect(frames).toContainEqual({ type: 'auth_changed' });
+  expect(frames.some((frame) => frame.type === 'invalidate')).toBe(false);
+  expect(JSON.stringify(frames)).not.toContain('must-not-leak');
+  expect(JSON.stringify(frames)).not.toContain('account_id');
+  ws.close();
+});
+
+it('targets only previously authorized account metadata', async () => {
+  await setup();
+  const ws = await open();
+  const response = new Promise(resolve => ws.once('message', resolve));
+  ws.send(JSON.stringify({ id: randomUUID(), type: 'request', method: 'POST', path: '/auth', headers: {}, body: '' }));
+  await response;
+  const frames: unknown[] = [];
+  ws.on('message', (data: unknown) => frames.push(JSON.parse(String(data))));
+  wsPublisher.publish('auth.canonical', { engine: 'claude', account_id: 7, generation: 9, auth: 'never-forward' });
+  wsPublisher.publish('auth.canonical', { engine: 'claude', account_id: 8, generation: 10, auth: 'never-forward' });
+  await new Promise(resolve => setTimeout(resolve, 350));
+  expect(frames).toContainEqual({ type: 'auth_changed', engine: 'claude', account_id: 7, generation: 9 });
+  expect(frames).toContainEqual({ type: 'auth_changed' });
+  expect(frames).toHaveLength(2);
+  expect(JSON.stringify(frames)).not.toContain('never-forward');
+  ws.close();
 });

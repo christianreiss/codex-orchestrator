@@ -35,8 +35,10 @@ var processContext = context.Background()
 type endpoint struct {
 	mu                 sync.Mutex
 	jobs               map[string]syncJob
+	syncProtocol       int
 	base, path, socket string
 	once               sync.Once
+	leaseCancel        context.CancelFunc
 }
 
 func socketPath(base string) (string, error) {
@@ -93,7 +95,7 @@ func Configure(ctx context.Context) {
 			continue
 		}
 		base := strings.TrimRight(cfg.Orchestrator.BaseURL, "/")
-		registry.LoadOrStore(base, &endpoint{base: base, path: path, socket: socket})
+		registry.LoadOrStore(base, &endpoint{base: base, path: path, socket: socket, syncProtocol: cfg.Orchestrator.CommunicatorSyncProtocol})
 	}
 }
 
@@ -162,7 +164,10 @@ func (ep *endpoint) ensure(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	cmd := exec.Command(exe, "communicator", "serve", "--config", ep.path)
+	ep.mu.Lock()
+	path := ep.path
+	ep.mu.Unlock()
+	cmd := exec.Command(exe, "communicator", "serve", "--config", path)
 	cmd.Env = communicatorEnvironment(os.Environ())
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	null, err := os.OpenFile(os.DevNull, os.O_RDWR, 0)
@@ -199,18 +204,21 @@ func (ep *endpoint) lease(ctx context.Context) {
 	for ctx.Err() == nil {
 		if ep.ensure(ctx) == nil {
 			ep.mu.Lock()
+			leaseCtx, cancel := context.WithCancel(ctx)
+			ep.leaseCancel = cancel
 			jobs := make([]syncJob, 0, len(ep.jobs))
 			for _, job := range ep.jobs {
 				jobs = append(jobs, job)
 			}
 			ep.mu.Unlock()
 			body, _ := json.Marshal(jobs)
-			req, _ := http.NewRequestWithContext(ctx, "POST", "http://communicator.local/_comm/lease", bytes.NewReader(body))
+			req, _ := http.NewRequestWithContext(leaseCtx, "POST", "http://communicator.local/_comm/lease", bytes.NewReader(body))
 			res, err := unixClient(ep.socket, 0).Do(req)
 			if err == nil {
 				io.Copy(io.Discard, res.Body)
 				res.Body.Close()
 			}
+			cancel()
 		}
 		select {
 		case <-ctx.Done():
@@ -264,7 +272,7 @@ func communicatorEnvironment(env []string) []string {
 	out := make([]string, 0, len(env))
 	for _, entry := range env {
 		blocked := false
-		for _, prefix := range []string{"CXX_AGENT_", "CXX_DAEMON_", "CXX_REBOOT_", "CXX_WATCHDOG_", "CXX_NATIVE_"} {
+		for _, prefix := range []string{"CXX_AGENT_", "CXX_DAEMON_", "CXX_REBOOT_", "CXX_WATCHDOG_", "CXX_NATIVE_", "CXX_PROVIDER_", "CXX_GROK_"} {
 			if strings.HasPrefix(entry, prefix) {
 				blocked = true
 				break

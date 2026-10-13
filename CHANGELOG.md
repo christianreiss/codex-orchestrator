@@ -1,5 +1,7 @@
 # 2026-10-13
 
+- cxx 0.9.73 adds opt-in communicator sync ownership: finite engine workers, concurrent content coalescing, native credential watches, post-commit auth invalidations and per-scope status. Existing Codex/Claude auth arbitration and Grok server-owned refresh remain intact. Running sessions no longer pause managed content sync; signed rollback hands auth polling back without restarting native sessions. Unknown uploads retain digest-only recovery state and require readback before replay.
+
 - cxx 0.9.72 adds a shared per-user CoCo communicator for Codex, Claude and Grok: a protected local socket, one multiplexed WebSocket, managed MCP stdio adapters, push-triggered content sync, reconnect/crash recovery and host connection status. The server capability is opt-in through `CXX_COMMUNICATOR_ENABLED`; existing account leases, native auth ownership and durable work acknowledgements remain authoritative.
 
 - Dashboard provider accounts now share card spacing, quota meters, status badges and update footers, with three desktop columns and responsive tablet/mobile layouts. ChatGPT window labels follow the reported duration; a supplied 5-hour reading (including 0%) appears, while weekly-only snapshots no longer show an empty short-window placeholder.

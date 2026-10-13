@@ -303,3 +303,13 @@ func AddEnvironmentBinding(body map[string]any) {
 		body["session_id"] = session
 	}
 }
+
+// Binding returns a coherent identifier-only snapshot for the local communicator.
+func (c *Context) Binding() (int64, string) {
+	if c == nil {
+		return 0, ""
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.AccountID, c.SessionID
+}

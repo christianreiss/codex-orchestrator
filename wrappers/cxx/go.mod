@@ -10,6 +10,7 @@ require (
 	github.com/andybalholm/brotli v1.2.6
 	github.com/charmbracelet/colorprofile v0.4.3
 	github.com/charmbracelet/x/ansi v0.11.8
+	github.com/fsnotify/fsnotify v1.9.0
 	github.com/google/uuid v1.6.0
 	github.com/pelletier/go-toml v1.9.5
 	go.opentelemetry.io/otel v1.44.0

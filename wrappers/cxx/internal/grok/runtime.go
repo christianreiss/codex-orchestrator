@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/communicator"
 	"io"
 	"net"
 	"net/http"
@@ -421,6 +422,25 @@ func (r *Runtime) StartAuthBroker(ctx context.Context) error {
 	}
 	r.listener = listener
 	mux := http.NewServeMux()
+	mux.HandleFunc("/readiness", func(w http.ResponseWriter, req *http.Request) {
+		if req.Method != "POST" {
+			w.WriteHeader(405)
+			return
+		}
+		ctx, cancel := context.WithTimeout(req.Context(), 5500*time.Millisecond)
+		defer cancel()
+		err := r.Refresh(ctx)
+		result := communicator.SyncResult{}
+		if err != nil {
+			result.Error = &communicator.SyncError{Message: err.Error()}
+			var h *orchestrator.HTTPError
+			if errors.As(err, &h) {
+				result.Error.HTTP, _ = json.Marshal(h)
+			}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(result)
+	})
 	mux.HandleFunc("/token", func(w http.ResponseWriter, req *http.Request) {
 		if req.Method != http.MethodPost {
 			w.WriteHeader(http.StatusMethodNotAllowed)

@@ -30,6 +30,8 @@ type sharedCall struct {
 }
 type server struct {
 	jobRefs          map[string]int
+	scopes           map[string]*scopeState
+	syncCalls        map[string]*syncCall
 	active           int
 	fallback         bool
 	cfg              *config.Config
@@ -43,6 +45,7 @@ type server struct {
 	lastSync         string
 	calls            map[string]*sharedCall
 	dirty            chan struct{}
+	authDirty        chan struct{}
 	jobs             map[string]syncJob
 }
 
@@ -85,7 +88,7 @@ func serve(ctx context.Context, path, version string) error {
 	}
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	s := &server{cfg: cfg, version: version, lastUsed: time.Now(), calls: map[string]*sharedCall{}, dirty: make(chan struct{}, 1), jobs: map[string]syncJob{}, jobRefs: map[string]int{}}
+	s := &server{cfg: cfg, version: version, lastUsed: time.Now(), calls: map[string]*sharedCall{}, dirty: make(chan struct{}, 1), authDirty: make(chan struct{}, 1), jobs: map[string]syncJob{}, jobRefs: map[string]int{}}
 	httpServer := &http.Server{Handler: s, ReadHeaderTimeout: 5 * time.Second, IdleTimeout: 30 * time.Second}
 	defer httpServer.Close()
 	go s.connectLoop(ctx)
@@ -143,7 +146,7 @@ func (s *server) connectLoop(ctx context.Context) {
 				cancel()
 				err = e
 				if err == nil {
-					c = &connection{ws: ws, pending: map[string]chan frame{}, done: make(chan struct{}), ready: make(chan struct{}), invalidated: s.invalidate}
+					c = &connection{ws: ws, pending: map[string]chan frame{}, done: make(chan struct{}), ready: make(chan struct{}), invalidated: s.invalidate, authChanged: s.invalidateAuth}
 					go c.receive()
 					err = c.send(map[string]any{"type": "hello", "protocol": Protocol, "username": communicatorUsername(), "version": s.version})
 					if err == nil {
@@ -179,12 +182,13 @@ func (s *server) connectLoop(ctx context.Context) {
 				case <-timer.C:
 					s.mu.Lock()
 					leases, last := s.leases, s.lastSync
+					syncScopes := s.scopeViewsLocked()
 					s.mu.Unlock()
 					var synced any
 					if last != "" {
 						synced = last
 					}
-					if c.send(map[string]any{"type": "heartbeat", "sessions": leases, "synced_at": synced}) != nil {
+					if c.send(map[string]any{"type": "heartbeat", "sessions": leases, "synced_at": synced, "sync_scopes": syncScopes}) != nil {
 						break live
 					}
 				}
@@ -226,9 +230,12 @@ func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case "/_comm/daemon":
 		s.daemon(w, r)
 		return
+	case "/_comm/sync":
+		s.syncHTTP(w, r)
+		return
 	case "/_comm/status":
 		s.mu.Lock()
-		status := map[string]any{"protocol": Protocol, "version": s.version, "pid": os.Getpid(), "connected": s.conn != nil, "https_fallback": s.fallback, "sessions": s.leases, "requests": s.requests, "coalesced": s.shared, "last_error": s.lastError, "synced_at": s.lastSync}
+		status := map[string]any{"protocol": Protocol, "version": s.version, "pid": os.Getpid(), "connected": s.conn != nil, "https_fallback": s.fallback, "sessions": s.leases, "requests": s.requests, "coalesced": s.shared, "last_error": s.lastError, "synced_at": s.lastSync, "sync_protocol": SyncProtocol, "sync_scopes": s.scopeViewsLocked(), "local_errors": s.localErrorsLocked()}
 		s.mu.Unlock()
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(status)
@@ -256,13 +263,59 @@ func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		defer func() { s.mu.Lock(); s.leases--; s.lastUsed = time.Now(); s.mu.Unlock() }()
 		w.WriteHeader(200)
 		w.(http.Flusher).Flush()
-		ticker := time.NewTicker(15 * time.Second)
+		if len(ids) > 0 {
+			s.invalidate()
+		}
+		lastStates := map[string]string{}
+		ticker := time.NewTicker(time.Second)
 		defer ticker.Stop()
 		for {
 			select {
 			case <-r.Context().Done():
 				return
 			case <-ticker.C:
+				s.mu.Lock()
+				attached := []syncJob{}
+				for _, id := range ids {
+					if job, ok := s.jobs[id]; ok && job.Owner && job.Auth {
+						attached = append(attached, job)
+					}
+				}
+				s.mu.Unlock()
+				for _, job := range attached {
+					if signedSyncDisabled(job) {
+						s.mu.Lock()
+						state := s.stateLocked(job)
+						s.mu.Unlock()
+						select {
+						case state.gate <- struct{}{}:
+							<-state.gate
+						case <-r.Context().Done():
+							return
+						}
+						_ = json.NewEncoder(w).Encode(AuthStatus{Type: "auth_handoff"})
+						w.(http.Flusher).Flush()
+						return
+					}
+				}
+				s.mu.Lock()
+				states := []AuthStatus{}
+				for _, id := range ids {
+					if job, ok := s.jobs[id]; ok && job.Auth {
+						states = append(states, s.stateLocked(job).auth)
+					}
+				}
+				s.mu.Unlock()
+				for _, status := range states {
+					raw, _ := json.Marshal(status)
+					if lastStates[status.Scope] == string(raw) {
+						continue
+					}
+					lastStates[status.Scope] = string(raw)
+					if json.NewEncoder(w).Encode(status) != nil {
+						return
+					}
+				}
 				if _, err := io.WriteString(w, "\n"); err != nil {
 					return
 				}
@@ -284,8 +337,9 @@ func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.active++
 	defer func() { s.mu.Lock(); s.active--; s.lastUsed = time.Now(); s.mu.Unlock() }()
 	fallback := s.fallback
+	connected := s.conn != nil
 	s.mu.Unlock()
-	if fallback || r.URL.Path == "/wrapper/v2/config" {
+	if fallback || r.URL.Path == "/wrapper/v2/config" && !connected {
 		s.download(w, r, body)
 		return
 	}

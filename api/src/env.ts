@@ -62,6 +62,7 @@ const schema = z
     APP_ENV: z.string().default('production'),
 
     CXX_COMMUNICATOR_ENABLED: boolish.default(false),
+    CXX_COMMUNICATOR_SYNC_ENABLED: boolish.default(false),
 
     LISTEN_HOST: z.string().default('0.0.0.0'),
     LISTEN_PORT: intish(8080),

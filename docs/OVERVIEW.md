@@ -1097,3 +1097,17 @@ The optional signed `orchestrator.communicator_protocol: 1` capability routes ma
 CoCo traffic through a per-user Unix socket and one multiplexed server WebSocket.
 Provider traffic, session identities and account/refresh ownership retain their existing
 contracts. See [communicator protocol, lifecycle and rollout](communicator.md).
+
+
+### Communicator sync ownership
+
+From cxx 0.9.73, signed `orchestrator.communicator_sync_protocol: 1` enables
+central scheduling of finite startup/content operations and active-session auth
+convergence. Enable `CXX_COMMUNICATOR_SYNC_ENABLED` alongside the existing transport
+flag. Native login, account assignment, refresh ownership and session lifetimes
+retain their engine-specific contracts. Broad session-lifetime sync pauses are
+replaced by short native-home fences; local credential changes and server auth
+invalidations converge through the existing validated writers. Local materialization
+is reported separately from native adoption. Signed rollback drains auth work and
+hands polling back to the existing wrapper without restarting the native CLI.
+See [Communicator ownership and rollout](communicator.md#central-sync-ownership-cxx-0973).

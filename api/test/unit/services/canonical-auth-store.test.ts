@@ -3212,3 +3212,45 @@ describe('codex expired-access probe gates', () => {
 function nowMinus(seconds: number): string {
   return new Date(Date.now() - seconds * 1000).toISOString();
 }
+
+it('publishes canonical generation metadata only after its head is committed', async () => {
+  const { wsPublisher } = await import('../../../src/ws/publisher.js');
+  const db = createDbFake();
+  db.tables.set(authPayloads, []);
+  db.tables.set(authEntries, []);
+  const keyring = makeKeyring();
+  const svc = createCanonicalAuthStoreService({
+    db: db as never,
+    keyring,
+    runnerValidation: createRunnerValidationService({ db: db as never, keyring }),
+    runner: runner({ ok: true, status: 'ok', reachable: true }),
+  });
+  const events: unknown[] = [];
+  const headsAtEvent: unknown[] = [];
+  const unsubscribe = wsPublisher.subscribe((event) => {
+    if (event.type !== 'auth.canonical') return;
+    events.push(event.payload);
+    headsAtEvent.push(JSON.parse(JSON.stringify(db.tables.get(authCanonicalHeads))));
+  });
+  try {
+    const result = await svc.storeCandidate({
+      auth: CODEX_AUTH,
+      engine: 'codex',
+      sourceHostId: null,
+      requireLastRefresh: true,
+      logAction: 'auth.store',
+    });
+    expect(events).toEqual([{ engine: 'codex', account_id: null, generation: result.canonical_generation }]);
+    expect(headsAtEvent[0]).toMatchObject([{ generation: result.canonical_generation }]);
+    await svc.storeCandidate({
+      auth: CODEX_AUTH,
+      engine: 'codex',
+      sourceHostId: null,
+      requireLastRefresh: true,
+      logAction: 'auth.store',
+    });
+    expect(events).toHaveLength(1);
+  } finally {
+    unsubscribe();
+  }
+});

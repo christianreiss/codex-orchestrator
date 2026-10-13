@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/communicator"
 	"log/slog"
 	"os"
 	"strings"
@@ -18,6 +19,8 @@ import (
 // SessionAuthSyncResult identifies only the generation actually submitted or
 // adopted, never a newer native write observed after the request completed.
 type SessionAuthSyncResult struct {
+	HostSecure *bool
+	HostStatus string
 	Generation codex.AuthGeneration
 	Uploaded   bool
 	Adopted    bool
@@ -28,6 +31,16 @@ type SessionAuthSyncResult struct {
 // or restoring credentials after logout/purge. Unacknowledged native bytes are
 // offered before any pull; a transient rejection leaves that candidate intact.
 func SyncSessionAuth(ctx context.Context, client *orchestrator.Client, logger *slog.Logger) (SessionAuthSyncResult, error) {
+	fencePath, _ := codex.AuthPath()
+	release, fenceErr := communicator.Fence(ctx, client.BaseURL, "codex", fencePath)
+	if fenceErr != nil {
+		return SessionAuthSyncResult{}, fenceErr
+	}
+	defer release()
+	if communicator.PendingAuth(client.BaseURL, "codex", fencePath) {
+		return SessionAuthSyncResult{Deferred: true}, errors.New("previous auth upload outcome unresolved; refusing to replay after handoff")
+	}
+
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -140,6 +153,13 @@ func UploadAutomaticAuth(ctx context.Context, client *orchestrator.Client, logge
 	if errors.Is(storeErr, codex.ErrLogoutIntentActive) || errors.Is(storeErr, os.ErrNotExist) {
 		result.Deferred = true
 		return result, nil
+	}
+	if resp != nil {
+		result.HostStatus = resp.Status
+		if resp.Host != nil {
+			secure := resp.Host.Secure
+			result.HostSecure = &secure
+		}
 	}
 	if resp == nil || !strings.EqualFold(strings.TrimSpace(resp.VerificationState), "verified") {
 		return result, errors.Join(storeErr, errors.New("automatic upload is not verified"))

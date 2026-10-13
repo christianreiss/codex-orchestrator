@@ -90,6 +90,7 @@ export interface WrapperConfigPayload {
     allow_insecure: boolean;
     installation_id: string;
     communicator_protocol?: number;
+    communicator_sync_protocol?: number;
   };
   host: {
     id: number;
@@ -161,6 +162,7 @@ export interface WrapperConfigService {
 
 export interface WrapperConfigDeps {
   communicatorEnabled?: boolean;
+  communicatorSyncEnabled?: boolean;
   db: Database;
   keyring: Keyring;
   binaries: WrapperBinRegistry;
@@ -464,6 +466,7 @@ export function createWrapperConfigService(deps: WrapperConfigDeps): WrapperConf
         allow_insecure: Boolean(host.curlInsecure),
         installation_id: deps.installationId,
         ...(deps.communicatorEnabled ? { communicator_protocol: 1 } : {}),
+        ...(deps.communicatorEnabled && deps.communicatorSyncEnabled ? { communicator_sync_protocol: 1 } : {}),
       },
       host: {
         id: host.id,

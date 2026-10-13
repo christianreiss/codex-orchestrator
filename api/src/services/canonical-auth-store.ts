@@ -1,3 +1,4 @@
+import { wsPublisher } from '../ws/publisher.js';
 import { and, eq, gt } from 'drizzle-orm';
 import {
   authCanonicalHeads,
@@ -696,6 +697,11 @@ export function createCanonicalAuthStoreService(deps: CanonicalAuthStoreDeps, ow
       );
     });
 
+    if (promotesCanonical) {
+      wsPublisher.publish('auth.canonical', { engine, account_id: accountId ?? null, generation: nextGeneration });
+    } else if (invalidateSelectedReason) {
+      wsPublisher.publish('auth.invalidated', { engine, account_id: accountId ?? null });
+    }
     const result: StoreAuthCandidateResult = {
       status: promotesCanonical ? 'updated' : 'outdated',
       ...(promotesCanonical ? { auth: engine === ENGINE_GROK ? projectGrokAuth(canonicalToStore) : canonicalToStore } : {}),
@@ -1081,6 +1087,7 @@ export function createCanonicalAuthStoreService(deps: CanonicalAuthStoreDeps, ow
             verificationReason: (verdict.reason ?? 'runner verification failed').slice(0, 500),
           })
           .where(eq(authPayloads.id, row.id));
+        wsPublisher.publish('auth.invalidated', { engine, account_id: accountId ?? null });
         return { ...unchanged, state: 'failed', reason: verdict.reason };
       }
 
@@ -1225,6 +1232,7 @@ export function createCanonicalAuthStoreService(deps: CanonicalAuthStoreDeps, ow
     accountId?: number,
   ): Promise<boolean> {
     let promoted = false;
+    let promotedGeneration = 0;
     await db.transaction(async (tx) => {
       await lockAccount(tx, engine, accountId);
       const pendingRows = await tx.select().from(authPayloads).where(eq(authPayloads.id, payloadId));
@@ -1262,7 +1270,9 @@ export function createCanonicalAuthStoreService(deps: CanonicalAuthStoreDeps, ow
       const generation = pending.generation ?? Math.max(expectedHead?.generation ?? 0, 0) + 1;
       await writeHead(tx, engine, accountId, payloadId, generation, now);
       promoted = true;
+      promotedGeneration = generation;
     });
+    if (promoted) wsPublisher.publish('auth.canonical', { engine, account_id: accountId ?? null, generation: promotedGeneration });
     return promoted;
   }
 
@@ -1555,6 +1565,7 @@ async function markPayloadFailed(
       verificationReason: reason.slice(0, 500),
     })
     .where(eq(authPayloads.id, payloadId));
+  wsPublisher.publish('auth.invalidated', {});
 }
 
 function normalizeVerificationState(value: string): 'pending' | 'verified' | 'failed' {

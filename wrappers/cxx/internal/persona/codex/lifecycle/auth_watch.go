@@ -6,6 +6,7 @@ package lifecycle
 import (
 	"context"
 	"errors"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/communicator"
 	"log/slog"
 	"sync"
 	"time"
@@ -50,6 +51,20 @@ func startMidSessionAuthUpload(
 	authPath string,
 	beforeHash, beforeRefresh string,
 ) (stop func()) {
+	if communicator.SyncManaged(client.BaseURL) {
+
+		account, sessionID := client.Pool.Binding()
+		stop, err := communicator.WatchAuth(ctx, client.BaseURL, "codex", authPath, account, sessionID, "", func(status communicator.AuthStatus) {
+			_ = codex.UpdateActiveAuthSessionSecurityContext(ctx, status.HostStatus, status.HostSecure)
+		}, func(c context.Context) func() {
+			return startMidSessionAuthUpload(c, client, logger, authPath, beforeHash, beforeRefresh)
+		})
+		if err == nil {
+			return stop
+		}
+		logger.Error("communicator auth registration failed", "err", err)
+		return func() {}
+	}
 	deps := authWatchDeps{
 		snapshot: func() (string, string) { return snapshotAuth(authPath) },
 		syncAuth: func(uctx context.Context) (SessionAuthSyncResult, error) {

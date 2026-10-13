@@ -2346,3 +2346,17 @@ contracts. See [communicator protocol, lifecycle and rollout](communicator.md).
 - `GET /admin/communicators`: requires `hosts.read`; reports the API process's live communicator connections, users, versions, client counts and last sync.
 
 See [CoCo Communicator](communicator.md) for the local socket, reconnect and rollout contract.
+
+
+### Communicator sync ownership
+
+From cxx 0.9.73, signed `orchestrator.communicator_sync_protocol: 1` enables
+central scheduling of finite startup/content operations and active-session auth
+convergence. Enable `CXX_COMMUNICATOR_SYNC_ENABLED` alongside the existing transport
+flag. Native login, account assignment, refresh ownership and session lifetimes
+retain their engine-specific contracts. Broad session-lifetime sync pauses are
+replaced by short native-home fences; local credential changes and server auth
+invalidations converge through the existing validated writers. Local materialization
+is reported separately from native adoption. Signed rollback drains auth work and
+hands polling back to the existing wrapper without restarting the native CLI.
+See [Communicator ownership and rollout](communicator.md#central-sync-ownership-cxx-0973).
