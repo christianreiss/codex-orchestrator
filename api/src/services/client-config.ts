@@ -794,9 +794,14 @@ function injectManagedMcp(
     const bearerToken = secure ? key : normalizeName(opts.managedMcpToken ?? null);
     if (bearerToken) {
       const name = ENGINE_COMMANDS[opts.engine];
-      managedEntries.push({
-        name,
-        url: `${base}/mcp`,
+      const wrapperVersion = opts.engine === ENGINE_CLAUDE ? opts.host?.claudeWrapperVersion
+        : opts.engine === ENGINE_GROK ? opts.host?.grokWrapperVersion : opts.host?.wrapperVersion;
+      const communicator = Boolean(wrapperVersion && versionCompare(wrapperVersion, '0.9.71') >= 0);
+      managedEntries.push(communicator ? {
+        name, command: 'cxx', args: ['communicator', 'mcp', opts.engine],
+        env: { CXX_MCP_BEARER: bearerToken }, startup_timeout_sec: 30,
+      } : {
+        name, url: `${base}/mcp`,
         http_headers: { Authorization: `Bearer ${bearerToken}`, 'X-Engine': opts.engine },
         startup_timeout_sec: 30,
       });

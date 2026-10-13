@@ -4,8 +4,8 @@ import (
 	"context"
 	"crypto/tls"
 	"errors"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/communicator"
 	"net"
-	"net/http"
 	"strings"
 	"time"
 
@@ -16,6 +16,9 @@ import (
 // traffic. A default WebSocket dialer can pick an IPv6 source that the host's
 // IP binding rejects, even while its HTTP configuration request succeeds.
 func dialDaemonConnection(parent context.Context, client *relayClient) (*websocket.Conn, error) {
+	if ws, enabled, err := communicator.DialDaemon(parent, client.baseURL); enabled {
+		return ws, err
+	}
 	ctx, cancel := context.WithTimeout(parent, 35*time.Second)
 	defer cancel()
 	address := strings.Replace(strings.Replace(client.baseURL, "https://", "wss://", 1), "http://", "ws://", 1) + "/host/daemon/connect"
@@ -24,7 +27,7 @@ func dialDaemonConnection(parent context.Context, client *relayClient) (*websock
 		return nil, err
 	}
 	wc.Header.Set("X-API-Key", client.apiKey)
-	transport, ok := client.http.Transport.(*http.Transport)
+	transport, ok := communicator.Direct(client.http.Transport)
 	if !ok || transport.DialContext == nil {
 		return nil, errors.New("daemon relay transport has no dialer")
 	}

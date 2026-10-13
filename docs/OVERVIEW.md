@@ -1089,3 +1089,11 @@ Native chat activity: cxx 0.9.60 observes Codex/Grok native status and bounded C
 The independent central inbox provides `feedback_submit`, `feedback_list`, `feedback_get`, `feedback_claim` and `feedback_update` across Codex, Claude and Grok. The fleet switch `feedback_enabled` defaults off, hides tools during discovery and blocks calls while disabled. Enable it under Feedback in the WebUI (`/admin/feedback/state`); managed AGENTS.md/CLAUDE.md/Grok AGENTS.md dynamically gain the workflow on the next sync only when usable managed MCP configuration exists. Disabling removes that section on sync without changing canonical authored rules or deleting reports.
 
 Claims are exclusive, token-fenced and renewable for 30 minutes. Updates check the item version and append history. Resolved requires a fix reference and verification evidence; deployment is recorded separately. Host/engine attribution is authenticated; optional agent UUIDs are descriptive. Admin routes use `feedback.read`/`feedback.manage`. No agent is started and no merge or deployment is implied. See [MCP workflow](MCP.md#orchestrator-feedback-workflow) for request/response contracts.
+
+
+## Shared CoCo communicator (cxx 0.9.71)
+
+The optional signed `orchestrator.communicator_protocol: 1` capability routes managed
+CoCo traffic through a per-user Unix socket and one multiplexed server WebSocket.
+Provider traffic, session identities and account/refresh ownership retain their existing
+contracts. See [communicator protocol, lifecycle and rollout](communicator.md).

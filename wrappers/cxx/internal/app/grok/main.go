@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/communicator"
 	"io"
 	"log/slog"
 	"net"
@@ -319,7 +320,7 @@ func newClient(cfg *config.Config, forceIPv4 ...bool) (*orchestrator.Client, err
 	client, err := orchestrator.New(orchestrator.Options{BaseURL: cfg.Orchestrator.BaseURL, APIKey: cfg.Orchestrator.APIKey, CABundlePath: ca, AllowInsecure: cfg.Orchestrator.AllowInsecure})
 	if client != nil {
 		if len(forceIPv4) > 0 && forceIPv4[0] {
-			if transport, ok := client.HTTP.Transport.(*http.Transport); ok {
+			if transport, ok := communicator.Direct(client.HTTP.Transport); ok {
 				dialer := &net.Dialer{Timeout: 30 * time.Second}
 				transport.DialContext = func(ctx context.Context, _, address string) (net.Conn, error) {
 					return dialer.DialContext(ctx, "tcp4", address)

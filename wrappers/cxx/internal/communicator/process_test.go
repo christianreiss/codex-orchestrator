@@ -1,0 +1,221 @@
+package communicator
+
+import (
+	"bufio"
+	"bytes"
+	"crypto/ed25519"
+	cryptorand "crypto/rand"
+	"crypto/x509"
+	"encoding/base64"
+	"encoding/json"
+	"encoding/pem"
+	"fmt"
+	"io"
+	"net/http/httptest"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
+	"golang.org/x/net/websocket"
+)
+
+// Real processes, signed configurations and sockets exercise the first-start
+// race, all three MCP entrypoints, lost transport and a crashed local owner.
+func TestProcessesShareConnectionAndRecover(t *testing.T) {
+	if testing.Short() {
+		t.Skip("builds the real multicall binary")
+	}
+	root := t.TempDir()
+	runtimeRoot, err := os.MkdirTemp("", "cc-test-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(runtimeRoot) })
+	pub, priv, err := ed25519.GenerateKey(cryptorand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	der, _ := x509.MarshalPKIXPublicKey(pub)
+	key := base64.StdEncoding.EncodeToString(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: der}))
+	binary := filepath.Join(root, "cxx")
+	build := exec.Command("go", "build", "-o", binary, "-ldflags", "-X github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/signing.buildPublicKeyB64="+key, "./cmd/cxx")
+	build.Dir = "../.."
+	if out, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("build: %v %s", err, out)
+	}
+	var connected atomic.Int32
+	var total atomic.Int32
+	var peak atomic.Int32
+	var activeMu sync.Mutex
+	var active *websocket.Conn
+	upstream := httptest.NewServer(websocket.Handler(func(ws *websocket.Conn) {
+		count := connected.Add(1)
+		defer connected.Add(-1)
+		total.Add(1)
+		for old := peak.Load(); count > old; old = peak.Load() {
+			if peak.CompareAndSwap(old, count) {
+				break
+			}
+		}
+		activeMu.Lock()
+		active = ws
+		activeMu.Unlock()
+		defer ws.Close()
+		for {
+			var f frame
+			if websocket.JSON.Receive(ws, &f) != nil {
+				return
+			}
+			switch f.Type {
+			case "hello":
+				websocket.JSON.Send(ws, frame{Type: "ready", Protocol: 1})
+			case "heartbeat":
+				websocket.JSON.Send(ws, frame{Type: "heartbeat"})
+			case "request":
+				var req struct {
+					ID json.RawMessage `json:"id"`
+				}
+				json.Unmarshal(f.Body, &req)
+				body, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": req.ID, "result": map[string]any{"engine": f.Headers["x-engine"]}})
+				if err := websocket.JSON.Send(ws, frame{ID: f.ID, Status: 200, Body: body, Headers: map[string]string{"content-type": "application/json"}}); err != nil {
+					return
+				}
+			}
+		}
+	}))
+	defer upstream.Close()
+	env := append(os.Environ(), "XDG_RUNTIME_DIR="+runtimeRoot, "CXX_MCP_BEARER=fixture")
+	for _, engine := range []string{"codex", "claude", "grok"} {
+		cfg := config.Config{SchemaVersion: 1, Engine: engine, IssuedAt: "2026-10-13T00:00:00Z", Orchestrator: config.Orchestrator{BaseURL: upstream.URL, APIKey: "fixture-host-key", InstallationID: "fixture", CommunicatorProtocol: 1}, Host: config.Host{ID: 1, FQDN: "fixture.example", Secure: true}, Wrapper: config.Wrapper{Version: "0.9.71", Track: "stable", BinaryURL: upstream.URL + "/download", BinarySHA256: strings.Repeat("0", 64)}}
+		path := filepath.Join(root, engine+".json")
+		raw, _ := json.Marshal(cfg)
+		os.WriteFile(path, raw, 0600)
+		os.WriteFile(path+".sig", ed25519.Sign(priv, raw), 0600)
+		if _, err := loadSigned(path, pub); err != nil {
+			t.Fatalf("%s first start: %v", engine, err)
+		}
+		name := map[string]string{"codex": "CDX_CONFIG_PATH", "claude": "CLX_CONFIG_PATH", "grok": "CGX_CONFIG_PATH"}[engine]
+		env = append(env, name+"="+path)
+	}
+	type child struct {
+		cmd    *exec.Cmd
+		in     io.WriteCloser
+		out    *bufio.Reader
+		engine string
+		stderr *bytes.Buffer
+	}
+	children := []child{}
+	t.Setenv("XDG_RUNTIME_DIR", runtimeRoot)
+	socket, err := socketPath(upstream.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	readStatus := func() map[string]any {
+		res, err := unixClient(socket, time.Second).Get("http://communicator.local/_comm/status")
+		if err != nil {
+			return nil
+		}
+		defer res.Body.Close()
+		var status map[string]any
+		json.NewDecoder(res.Body).Decode(&status)
+		return status
+	}
+	cleanupOwner := func() {
+		status := readStatus()
+		if pid, ok := status["pid"].(float64); ok {
+			p, _ := os.FindProcess(int(pid))
+			p.Kill()
+		}
+	}
+	defer func() {
+		for _, c := range children {
+			c.in.Close()
+			c.cmd.Wait()
+		}
+		cleanupOwner()
+	}()
+	for i := 0; i < 6; i++ {
+		engine := []string{"grok", "claude", "codex"}[i%3]
+		cmd := exec.Command(binary, "communicator", "mcp", engine)
+		cmd.Env = env
+		in, _ := cmd.StdinPipe()
+		out, _ := cmd.StdoutPipe()
+		stderr := &bytes.Buffer{}
+		cmd.Stderr = stderr
+		if err := cmd.Start(); err != nil {
+			t.Fatal(err)
+		}
+		children = append(children, child{cmd, in, bufio.NewReader(out), engine, stderr})
+	}
+	request := func(c child, id int) {
+		t.Helper()
+		fmt.Fprintf(c.in, "{\"jsonrpc\":\"2.0\",\"id\":%d,\"method\":\"tools/list\"}\n", id)
+		done := make(chan string, 1)
+		go func() {
+			line, err := c.out.ReadString('\n')
+			if err != nil {
+				done <- "read failed: " + err.Error()
+				return
+			}
+			done <- line
+		}()
+		select {
+		case line := <-done:
+			var res struct {
+				Result struct {
+					Engine string `json:"engine"`
+				} `json:"result"`
+			}
+			if json.Unmarshal([]byte(line), &res) != nil || res.Result.Engine != c.engine {
+				t.Errorf("%s: %s", c.engine, line)
+			}
+		case <-time.After(25 * time.Second):
+			t.Fatalf("%s MCP timeout", c.engine)
+		}
+	}
+	// All clients ask before the first communicator owns the socket.
+	var wg sync.WaitGroup
+	for i, c := range children {
+		wg.Add(1)
+		go func(c child, id int) { defer wg.Done(); request(c, id) }(c, i)
+	}
+	wg.Wait()
+	if total.Load() != 1 || peak.Load() != 1 {
+		t.Fatalf("initial connections total=%d peak=%d", total.Load(), peak.Load())
+	}
+	activeMu.Lock()
+	active.Close()
+	activeMu.Unlock()
+	deadlineReconnect := time.Now().Add(20 * time.Second)
+	for total.Load() < 2 {
+		if time.Now().After(deadlineReconnect) {
+			t.Fatal("server reconnect timed out")
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	request(children[0], 20)
+	// Killing only this test's owner must leave every native/MCP client alive.
+	previous := readStatus()["pid"]
+	cleanupOwner()
+	deadline := time.Now().Add(20 * time.Second)
+	for {
+		status := readStatus()
+		if status["pid"] != nil && status["pid"] != previous && status["connected"] == true {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("communicator not restarted by surviving clients")
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	for i, c := range children {
+		request(c, 30+i)
+	}
+	t.Logf("six clients, three engines: initial connections=1, after reconnect/crash=%d", total.Load())
+}

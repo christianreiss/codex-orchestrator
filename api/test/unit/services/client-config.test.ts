@@ -994,3 +994,21 @@ describe('shell_environment_policy.set rendering', () => {
     expect(renderPolicy({ set: { FOO: 'bar' }, exclude: [] })).toContain('set = { FOO = "bar" }');
   });
 });
+
+describe('managed MCP communicator migration', () => {
+  it.each(['codex', 'claude', 'grok'] as const)('uses local stdio for %s only after wrapper upgrade', engine => {
+    const host = { id: 7, fqdn: 'host.example', secure: 1, wrapperVersion: '0.9.71', claudeWrapperVersion: '0.9.71', grokWrapperVersion: '0.9.71' } as never;
+    const options = { settings: { orchestrator_mcp_enabled: true }, host, baseUrl: 'https://orch.example', apiKey: 'fixture-key', engine };
+    if (engine === 'claude') {
+      const result = renderClaudeSettingsPartialForHost(options);
+      expect((result.partial.mcpServers as Record<string, unknown>).clx).toMatchObject({ command: 'cxx', args: ['communicator', 'mcp', 'claude'], env: { CXX_MCP_BEARER: 'fixture-key' } });
+    } else {
+      const result = renderTomlForHost(options);
+      expect(result.content).toContain('communicator');
+      expect(result.content).toContain('CXX_MCP_BEARER');
+      expect(result.content).not.toContain('https://orch.example/mcp');
+    }
+    const legacy = renderTomlForHost({ ...options, host: { ...host as object, wrapperVersion: '0.9.70', claudeWrapperVersion: '0.9.70', grokWrapperVersion: '0.9.70' } as never });
+    expect(legacy.content).toContain('https://orch.example/mcp');
+  });
+});

@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/accountpool"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/communicator"
 	"io"
 	"log/slog"
 	"math/rand"
@@ -87,7 +88,7 @@ func New(opts Options) (*Client, error) {
 	return &Client{
 		BaseURL:   strings.TrimRight(opts.BaseURL, "/"),
 		APIKey:    opts.APIKey,
-		HTTP:      &http.Client{Transport: transport, Timeout: timeout},
+		HTTP:      &http.Client{Transport: communicator.Wrap(transport), Timeout: timeout},
 		UserAgent: userAgent,
 		Logger:    opts.Logger,
 	}, nil

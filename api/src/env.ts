@@ -61,6 +61,8 @@ const schema = z
     NODE_ENV: z.string().default('production'),
     APP_ENV: z.string().default('production'),
 
+    CXX_COMMUNICATOR_ENABLED: boolish.default(false),
+
     LISTEN_HOST: z.string().default('0.0.0.0'),
     LISTEN_PORT: intish(8080),
     LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),

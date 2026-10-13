@@ -11,6 +11,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/communicator"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/updateprogress"
 	"io"
 	"log/slog"
@@ -196,7 +197,7 @@ func HTTPClient(cfg *config.Config) (*http.Client, error) {
 		}
 		tlsConfig.RootCAs = pool
 	}
-	return &http.Client{Timeout: downloadTimeout, Transport: &http.Transport{DialContext: ipv4.PreferDialContext(), TLSClientConfig: tlsConfig}}, nil
+	return &http.Client{Timeout: downloadTimeout, Transport: communicator.Wrap(&http.Transport{DialContext: ipv4.PreferDialContext(), TLSClientConfig: tlsConfig})}, nil
 }
 
 func sameHost(rawURL, baseURL string) bool {

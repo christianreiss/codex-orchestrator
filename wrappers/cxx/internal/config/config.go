@@ -49,11 +49,12 @@ func (c *Config) SourcePath() string {
 }
 
 type Orchestrator struct {
-	BaseURL        string  `json:"base_url"`
-	APIKey         string  `json:"api_key"`
-	CABundlePath   *string `json:"ca_bundle_path,omitempty"`
-	AllowInsecure  bool    `json:"allow_insecure"`
-	InstallationID string  `json:"installation_id"`
+	CommunicatorProtocol int     `json:"communicator_protocol,omitempty"`
+	BaseURL              string  `json:"base_url"`
+	APIKey               string  `json:"api_key"`
+	CABundlePath         *string `json:"ca_bundle_path,omitempty"`
+	AllowInsecure        bool    `json:"allow_insecure"`
+	InstallationID       string  `json:"installation_id"`
 }
 
 type Host struct {

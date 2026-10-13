@@ -19,6 +19,7 @@
         "api_key": { "type": "string", "minLength": 8 },
         "ca_bundle_path": { "type": ["string", "null"] },
         "allow_insecure": { "type": "boolean", "default": false },
+        "communicator_protocol": { "type": "integer", "enum": [1] },
         "installation_id": { "type": "string" }
       }
     },

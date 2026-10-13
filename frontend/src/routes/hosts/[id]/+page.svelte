@@ -1,4 +1,5 @@
 <script lang="ts">
+  import CommunicatorPanel from "$lib/components/hosts/CommunicatorPanel.svelte";
   import SessionHousekeeping from "$lib/components/policies/SessionHousekeeping.svelte";
   import DaemonPanel from "$lib/components/hosts/DaemonPanel.svelte";
   import { page } from "$app/state";
@@ -671,7 +672,7 @@
       </Tabs.Content>
       <Tabs.Content value="operations" hidden={activeTab !== "operations"}>
         <div class="space-y-4">
-          {#key id}<DaemonPanel {id}/><SessionHousekeeping hostId={id}/>{/key}
+          {#key id}<CommunicatorPanel {id}/><DaemonPanel {id}/><SessionHousekeeping hostId={id}/>{/key}
           <DangerZone description="Permanently remove this host from the fleet.">
             <Button variant="destructive" onclick={() => (confirmDeleteOpen = true)}>
               <Trash2 class="h-4 w-4" /> Delete host

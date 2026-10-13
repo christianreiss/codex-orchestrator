@@ -2331,3 +2331,11 @@ Claims are exclusive, token-fenced and renewable for 30 minutes. Updates check t
 - `POST /admin/feedback/:id/claim` — acquire/renew/release; administrative force_release requires reason.
 
 Reads require `feedback.read`; writes require `feedback.manage`. Fields and lifecycle are documented in [MCP.md](MCP.md#orchestrator-feedback-workflow).
+
+
+## Shared CoCo communicator (cxx 0.9.71)
+
+The optional signed `orchestrator.communicator_protocol: 1` capability routes managed
+CoCo traffic through a per-user Unix socket and one multiplexed server WebSocket.
+Provider traffic, session identities and account/refresh ownership retain their existing
+contracts. See [communicator protocol, lifecycle and rollout](communicator.md).

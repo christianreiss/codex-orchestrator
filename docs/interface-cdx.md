@@ -1667,3 +1667,11 @@ native user settings; consult the [official requirements reference](https://lear
 
 See [native configuration scopes](NATIVE_CONFIG_SCOPES.md) for the exact central
 authoring boundary, native version requirements and the Codex profile editor.
+
+
+## Shared CoCo communicator (cxx 0.9.71)
+
+The optional signed `orchestrator.communicator_protocol: 1` capability routes managed
+CoCo traffic through a per-user Unix socket and one multiplexed server WebSocket.
+Provider traffic, session identities and account/refresh ownership retain their existing
+contracts. See [communicator protocol, lifecycle and rollout](communicator.md).

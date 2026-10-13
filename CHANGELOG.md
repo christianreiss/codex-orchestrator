@@ -1,5 +1,7 @@
 # 2026-10-13
 
+- cxx 0.9.71 adds a shared per-user CoCo communicator for Codex, Claude and Grok: a protected local socket, one multiplexed WebSocket, managed MCP stdio adapters, push-triggered content sync, reconnect/crash recovery and host connection status. The server capability is opt-in through `CXX_COMMUNICATOR_ENABLED`; existing account leases, native auth ownership and durable work acknowledgements remain authoritative.
+
 - Dashboard provider accounts now share card spacing, quota meters, status badges and update footers, with three desktop columns and responsive tablet/mobile layouts. ChatGPT window labels follow the reported duration; a supplied 5-hour reading (including 0%) appears, while weekly-only snapshots no longer show an empty short-window placeholder.
 
 - Wrapper 0.9.70 gives the bare-`cxx` launchpad an Obsidian compass: dark engine cards, fine animated light edges, directional paths, segmented effort selection and cached weekly usage bars. Responsive viewports keep selection visible during resize and long catalogs; input never waits for animation. Set `CXX_REDUCED_MOTION=1` for a still interface. ASCII, minimal and no-color output remain supported; launch/auth behavior is unchanged.

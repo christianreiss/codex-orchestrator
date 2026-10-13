@@ -18,6 +18,7 @@ export type WsInvalidationMap = Record<string, QueryKey[]>;
 
 /** Default invalidation map. */
 export const DEFAULT_INVALIDATIONS: WsInvalidationMap = {
+  "communicator.updated": [["communicators"]],
   'feedback.changed': [['feedback'], ['agents']],
   "chatty.settings": [["chatty"]],
  "host.daemon.changed": [["host-daemons"], ["daemon-sessions"]],

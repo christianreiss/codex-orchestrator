@@ -142,7 +142,38 @@ export async function registerHostDaemonRoutes(app: FastifyInstance, ctx: RouteC
         await auth.authenticate(req);
       },
     },
-    (socket, req) => {
+    (socket, req) => attachHostDaemonSocket(socket, req, ctx),
+  );
+  const timer = setInterval(() => {
+    void ctx.db
+      .select()
+      .from(hostDaemons)
+      .then(async (rows) => {
+        for (const row of rows) {
+          await service.sweep(row.hostId);
+          service.changed(row.hostId);
+        }
+      })
+      .catch((err) => app.log.warn({ err }, 'daemon sweep failed'));
+  }, 15_000);
+  timer.unref();
+  app.addHook('onClose', async () => {
+    clearInterval(timer);
+  });
+}
+
+
+export interface DaemonSocket {
+  send(data: string): unknown;
+  close(code?: number, reason?: string): unknown;
+  on(event: 'message', listener: (raw: { toString(): string }) => void): unknown;
+  on(event: 'close', listener: () => void): unknown;
+}
+
+/** Shared by the legacy WebSocket and the communicator multiplexed channel. */
+export function attachHostDaemonSocket(socket: DaemonSocket, req: FastifyRequest, ctx: RouteContext) {
+  const service = new HostDaemonService(ctx), auth = createHostAuthService(ctx);
+
       let hostID = 0,
         generation = '',
         busy = false,
@@ -247,22 +278,4 @@ export async function registerHostDaemonRoutes(app: FastifyInstance, ctx: RouteC
         clearInterval(timer);
         if (generation) void service.disconnect(hostID, generation).catch(() => {});
       });
-    },
-  );
-  const timer = setInterval(() => {
-    void ctx.db
-      .select()
-      .from(hostDaemons)
-      .then(async (rows) => {
-        for (const row of rows) {
-          await service.sweep(row.hostId);
-          service.changed(row.hostId);
-        }
-      })
-      .catch((err) => app.log.warn({ err }, 'daemon sweep failed'));
-  }, 15_000);
-  timer.unref();
-  app.addHook('onClose', async () => {
-    clearInterval(timer);
-  });
 }

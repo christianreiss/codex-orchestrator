@@ -6,6 +6,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/communicator"
 	"io"
 	"os"
 	"path/filepath"
@@ -43,6 +44,12 @@ func run(invokedAs string, args []string, stdout, stderr io.Writer) (code int) {
 		return grok.RunPrivateReaper(args[1:])
 	}
 	setPersonaBuildInfo()
+	if len(args) > 0 && args[0] == "communicator" {
+		return communicator.Command(args[1:], os.Stdin, stdout, stderr, Version)
+	}
+	commCtx, commCancel := context.WithCancel(context.Background())
+	defer commCancel()
+	communicator.Configure(commCtx)
 	defer func() {
 		if code == 0 && shouldReconcileNativeEntries(args) {
 			if err := reconcileNativeEntries(); err != nil {
@@ -357,6 +364,7 @@ func printSelectorHelp(w io.Writer) {
 	fmt.Fprintln(w, "  cxx cron [install|remove|run [--due]]")
 	fmt.Fprintln(w, "  cxx portal [status|notify|resolve|say|ask|wait|accept|leave]")
 	fmt.Fprintln(w, "  cxx agent [list|send|request|wait|reply|message|cancel|status|service]")
+	fmt.Fprintln(w, "  cxx communicator [status|doctor]")
 	fmt.Fprintln(w, "  cxx daemon [install|status|start|stop|uninstall|run]")
 	fmt.Fprintln(w, "  cxx reboot [--request-id UUID --reason TEXT --stdin|status|disarm]")
 	fmt.Fprintln(w, "  cxx --version")
@@ -366,6 +374,7 @@ func printSelectorHelp(w io.Writer) {
 
 // Dispatch only after the first app returns, including all deferred auth cleanup.
 func runPersona(engine string, args []string, stdout, stderr io.Writer) int {
+	communicator.RegisterSync(engine)
 	if len(args) > 0 && args[0] == "reboot" {
 		return agentbus.RunRebootCommand(args[1:], os.Stdin, stdout, stderr)
 	}

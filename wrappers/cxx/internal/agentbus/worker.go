@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/communicator"
 	"io"
 	"log/slog"
 	"net/http"
@@ -237,7 +238,7 @@ func newRelayClient(cfg *config.Config) (*relayClient, error) {
 	transport := &http.Transport{DialContext: ipv4.PreferDialContext(), TLSClientConfig: tlsConfig, MaxIdleConns: 4, IdleConnTimeout: 45 * time.Second, ResponseHeaderTimeout: 35 * time.Second}
 	return &relayClient{
 		baseURL: strings.TrimRight(cfg.Orchestrator.BaseURL, "/"), apiKey: cfg.Orchestrator.APIKey,
-		http: &http.Client{Transport: transport, Timeout: 40 * time.Second},
+		http: &http.Client{Transport: communicator.Wrap(transport), Timeout: 40 * time.Second},
 	}, nil
 }
 

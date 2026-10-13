@@ -1,3 +1,4 @@
+import { registerCommunicatorRoutes } from './communicator.js';
 import { registerAgentChatRoutes } from './agent-chat.js';
 import { registerHostSpawnRoutes } from './host-spawn.js';
 import { registerHousekeepingRoutes } from './session-housekeeping.js';
@@ -55,6 +56,7 @@ export interface RouteContext {
 
 export async function registerAllRoutes(app: FastifyInstance, ctx: RouteContext): Promise<void> {
   await registerHealthRoutes(app, ctx);
+  await registerCommunicatorRoutes(app, ctx);
   await registerHousekeepingRoutes(app, ctx);
   await registerHostDaemonRoutes(app, ctx);
   await registerHostSpawnRoutes(app, ctx);
