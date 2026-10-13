@@ -142,6 +142,12 @@ the original idempotency or claim identifiers. Incomplete or miscorrelated repli
 also return a correlated unknown-outcome error. Error conversion never forwards
 upstream bodies or credentials, and the adapter never replays a failed call.
 
+Request correlation compares JSON ID values rather than serialized spellings,
+including escaped strings and equivalent numbers. Distinct large integer IDs
+remain separate. Grok readiness treats a transport's unknown-outcome 409 as
+retryable uncertainty, preserving the native process; authoritative auth and
+account-session revocations retain their existing termination behavior.
+
 `GET /admin/communicators` is admin-session gated and returns the live connections
 for the API process. This deployment uses one API instance; its connection view
 and invalidation bus are process-local. Restart recovery re-fetches authoritative

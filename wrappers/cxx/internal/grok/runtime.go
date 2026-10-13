@@ -393,7 +393,8 @@ func FatalAuthError(err error) bool {
 	if !errors.As(err, &httpErr) {
 		return false
 	}
-	return httpErr.StatusCode == http.StatusUnauthorized || httpErr.StatusCode == http.StatusNotFound || httpErr.StatusCode == http.StatusConflict
+	return httpErr.StatusCode == http.StatusUnauthorized || httpErr.StatusCode == http.StatusNotFound ||
+		(httpErr.StatusCode == http.StatusConflict && httpErr.Code != "communicator_outcome_unknown")
 }
 
 func (r *Runtime) lock(ctx context.Context) error {

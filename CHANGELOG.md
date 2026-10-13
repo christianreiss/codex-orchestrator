@@ -1,5 +1,7 @@
 # 2026-10-13
 
+- cxx 0.9.76 compares MCP request IDs by their JSON value, including escaped strings and equivalent decimal/exponent spellings, while keeping distinct large integer IDs separate. Grok now treats `409 communicator_outcome_unknown` as a transport interruption and retains its native session; actual auth revocation remains fatal.
+
 - Oversized communicator replies preserve unknown write outcomes: auth-bearing bootstrap and session admission are never repeated over HTTPS, and completed mutations return `409 communicator_outcome_unknown` instead of a retryable 502. Content-only bootstrap and known reads retain their large-reply transfer path.
 
 - cxx 0.9.75 also stops a host-daemon stream whose local reader has stalled: detaching it expires that stream's socket deadlines, so a relay blocked writing to it no longer keeps the stream (and its 64 queued events) alive.

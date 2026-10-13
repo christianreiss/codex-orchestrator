@@ -373,12 +373,7 @@ func (s *server) executeSync(ctx context.Context, in SyncRequest) (out SyncResul
 		case out.Error != nil:
 			state.auth.State = "error"
 			state.auth.Error = "Auth synchronization failed; inspect local doctor"
-			var h struct {
-				StatusCode int
-				Code       string
-			}
-			_ = json.Unmarshal(out.Error.HTTP, &h)
-			state.auth.Fatal = in.Job.Engine == "grok" && (h.StatusCode == 401 || h.StatusCode == 404 || h.StatusCode == 409)
+			state.auth.Fatal = in.Job.Engine == "grok" && revokedGrokAuth(out.Error.HTTP)
 		case out.Deferred:
 			state.auth.State = "deferred"
 		case out.Adopted:
@@ -407,6 +402,19 @@ func (s *server) executeSync(ctx context.Context, in SyncRequest) (out SyncResul
 	return out
 }
 func syncFailure(err error) SyncResult { return SyncResult{Error: &SyncError{Message: err.Error()}} }
+
+func revokedGrokAuth(raw json.RawMessage) bool {
+	var failure struct {
+		StatusCode int
+		Code       string
+	}
+	if json.Unmarshal(raw, &failure) != nil {
+		return false
+	}
+	// A lost control reply is a transport uncertainty, not revoked credentials.
+	return failure.StatusCode == 401 || failure.StatusCode == 404 ||
+		(failure.StatusCode == 409 && failure.Code != "communicator_outcome_unknown")
+}
 
 func fileGeneration(path string) string {
 	if path == "" {
