@@ -36,6 +36,15 @@ Each process holds a local streaming lease; a surviving client restarts a crashe
 owner. The last lease starts a five-minute idle period. Status checks do not
 extend it. A connected persistent host daemon holds a lease too.
 
+A symlinked, missing or non-0700 logind directory is never trusted. An explicit
+custom `XDG_RUNTIME_DIR` is a deliberately separate namespace (isolated tests,
+containers) with its own owner and fences. Upgrading from 0.9.72/0.9.73 does not
+move an existing owner: a `/tmp/cxx-<uid>` owner started by an older Codex MCP
+adapter keeps serving the processes already attached to it until its last lease
+closes and the idle period ends. After installing 0.9.74, end or restart the
+Codex sessions started before the update, then confirm convergence with
+`ss -xlp | grep cxx-comm`: only the `/run/user/<uid>` socket should remain.
+
 ## Data and auth ownership
 
 Session brokers still bind requests to their existing agent/session capabilities.
