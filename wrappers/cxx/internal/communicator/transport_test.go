@@ -543,3 +543,64 @@ func TestRuntimeRootFenceAcrossProcesses(t *testing.T) {
 		t.Fatalf("child without XDG_RUNTIME_DIR: %q, want held %s", out, parent)
 	}
 }
+
+// A local daemon that stops reading blocks the relay inside Send. Overflow
+// must still stop that stream promptly and keep the shared control
+// connection serving other requests.
+func TestStalledDaemonReaderIsDisconnectedPromptly(t *testing.T) {
+	payload := json.RawMessage(`{"blob":"` + strings.Repeat("x", 8192) + `"}`)
+	c := testConnection(t, func(ws *websocket.Conn, f frame) {
+		switch f.Type {
+		case "daemon":
+			go func() {
+				for i := 0; i < 2000; i++ {
+					if websocket.JSON.Send(ws, frame{Type: "daemon_event", Payload: payload}) != nil {
+						return
+					}
+				}
+			}()
+		case "request":
+			_ = websocket.JSON.Send(ws, frame{ID: f.ID, Status: 200})
+		}
+	})
+	s := &server{conn: c, calls: map[string]*sharedCall{}}
+	local := httptest.NewServer(s)
+	defer local.Close()
+	ws, err := websocket.Dial(strings.Replace(local.URL, "http://", "ws://", 1)+"/_comm/daemon", "", local.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ws.Close()
+	if err := websocket.JSON.Send(ws, map[string]any{"type": "heartbeat"}); err != nil {
+		t.Fatal(err)
+	}
+	// Do not read until the communicator has had to give up on this stream.
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		c.mu.Lock()
+		detached := c.daemon == nil && c.daemonClosing == nil
+		c.mu.Unlock()
+		if detached {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("stalled daemon stream was never released")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	ws.SetReadDeadline(time.Now().Add(5 * time.Second))
+	for {
+		var discard json.RawMessage
+		if err := websocket.JSON.Receive(ws, &discard); err != nil {
+			if ne, ok := err.(interface{ Timeout() bool }); ok && ne.Timeout() {
+				t.Fatal("local daemon socket left open after detach")
+			}
+			break
+		}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if result, _, err := c.request(ctx, frame{Method: "GET", Path: "/versions"}); err != nil || result.Status != 200 {
+		t.Fatal("control connection lost with the stalled daemon", result, err)
+	}
+}
