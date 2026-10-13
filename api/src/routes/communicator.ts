@@ -38,6 +38,18 @@ export function communicatorPathAllowed(path: string): boolean {
     pathname.endsWith('/stream')
   )
     return false;
+  // Transfers never belong on the control socket: the wrapper's owner sends them over
+  // their own HTTPS stream. Refusing them before dispatch means the router never
+  // buffers (and base64-encodes) a binary or attachment for a frame, whatever a caller
+  // sends. This is the exact predicate the owner applies (server.go ServeHTTP).
+  if (
+    pathname.startsWith('/wrapper/v2/bin/') ||
+    pathname.startsWith('/wrapper/v2/download') ||
+    pathname.startsWith('/wrapper/download') ||
+    pathname.includes('/download') ||
+    pathname.includes('/attachments/')
+  )
+    return false;
   return /^(?:\/auth(?:\/sessions(?:\/(?:heartbeat|release))?)?|\/versions|\/skills(?:\/[^?]*)?|\/agents\/retrieve|\/config\/retrieve|\/sync\/(?:bootstrap|status)|\/cron\/(?:check|report)|\/mcp(?:\/[^?]*)?|\/host\/[^?]+|\/wrapper\/(?:v2\/)?[^?]+|\/claude\/usage\/report)$/.test(
     pathname,
   );

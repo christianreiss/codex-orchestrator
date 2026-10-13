@@ -90,7 +90,11 @@ use the same transport and retain their engine/session identities. The dispatche
 runs requests through the existing Fastify routes and hooks with the verified
 remote address. It rejects admin/provider routes, path traversal, recursive
 transports, forwarding headers, cookies and replacement host credentials.
-Path checks use the pathname the router dispatches, so a trailing slash cannot
+The server also refuses, before dispatch, every route the owner sends over its own HTTPS
+stream (wrapper artifacts under `/wrapper/v2/bin/`, `/wrapper/v2/download*`,
+`/wrapper/download*`, any `/download` or `/attachments/` path, watchdog and connect
+paths) on every equivalent path form, so the router never buffers a binary or attachment
+for a control frame. Path checks use the pathname the router dispatches, so a trailing slash cannot
 reach a denied stream or skip MCP credential pinning. A malformed or disallowed
 request frame gets its own `400 communicator_invalid_request` reply; only an
 authorization failure closes the shared connection. A `host.*` event that
