@@ -18,7 +18,7 @@ divided between reviewers.
 | Peer messages, calls, conferences, receiver and operator portal | Agentbus and portal HTTP clients wrap the same transport. Session-scoped bridge and relay tokens remain independent. |
 | Persistent host daemon | `DialDaemon` multiplexes the existing daemon protocol over the control connection. Overflow and disconnect fencing isolate this stream from other engines. |
 | Downloads, attachments, large bodies and watchdog streams | The communicator owns separate HTTPS transfers. Route and header checks retain the signed host identity, including normalized trailing-slash MCP paths. |
-| Repair while the owner is unavailable | Only verified signed-config and wrapper metadata/download reads can bypass a failed local owner. Other managed calls fail closed. |
+| Repair while the owner is unavailable | Only verified signed-config and wrapper binary download reads can bypass a failed local owner. Other managed calls, including wrapper metadata, fail closed. |
 | Native provider inference and provider CLI installation downloads | Keep their existing provider connections; these external services are not the orchestrator control transport. |
 
 ## Fixes and corroborating source
@@ -266,3 +266,36 @@ Normal pruning subsequently cleared the ended scopes on all three VMs.
 `doctor-owner-pruned.json` records exit zero, connected control, no HTTPS
 fallback and empty errors on all three, at 148/153/126 requests. Owner PIDs
 8349/25069/21071 were unchanged; no restart or manual error clearing was used.
+
+## Follow-up: recovered and custom config command routing
+
+Dorothea's earlier G1/G2/G3 review arrived after the acceptance above. G3's
+seed-removal fix in `467974da` passed an independent race-enabled rerun of
+`TestSelectSignedConfigKeepsHostBindingAndEnabledScope` and
+`TestProcessesShareConnectionAndRecover`. G2's restricted repair reads and
+nonblocking HTTPS transfer regressions also passed.
+
+G1 still had a narrower command-dispatch gap on `d2371b30`: the real Codex and
+Claude `status` commands sent one direct auth request and zero communicator
+requests after either expired-config recovery or custom `--config` selection.
+Grok passed both cases. The new `TestRecoveredAndCustomConfigsRouteEveryEngineStatus`
+reproduced all four failing cases before the fix. Binding the verified config
+immediately after `LoadOrRecover`, before either app dispatches commands or
+constructs clients, closes the gap for status, auth helpers and startup repair.
+Native lifecycle binding remains in place for direct lifecycle callers.
+
+The full Go race suite, build, vet and canonical `make test` passed with the fix.
+The six-case regression also passed as private real wrapper processes on each
+of test1, test2 and test3 (18 cases total): zero direct control requests, at
+least one communicator request, and exactly one signed repair fetch per expired
+config. The fixture uses controlled upstream services and stub native version
+commands, not provider inference. It does not replace the nine authenticated
+0.9.76 acceptance receipts above with a claim about a later native binary.
+
+VM test source remains in `/opt/coco-comm-audit-elvira/src-recovery`, with
+`/opt/coco-comm-audit-elvira/recovery-tests.log` on each VM. Source archive SHA256:
+`f9efff2698f1e2d785c60832325c37630ef52f0191c3e5f18498918d8710e66f`.
+All temporary test owners were stopped; installed binaries, receiver services
+and peer sessions were unchanged. Host logs are
+`/tmp/elvira-comm-recovery-full-go.log` and
+`/tmp/elvira-comm-recovery-make-test.log`.
