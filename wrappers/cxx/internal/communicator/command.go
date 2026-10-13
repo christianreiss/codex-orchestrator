@@ -208,7 +208,7 @@ func mcpResponseValid(id json.RawMessage, body []byte) bool {
 	}
 	return json.Unmarshal(body, &response) == nil && response.JSONRPC == "2.0" &&
 		sameMCPID(response.ID, id) &&
-		(len(response.Result) > 0 || len(response.Error) > 0)
+		((len(response.Result) > 0) != (len(response.Error) > 0))
 }
 
 func sameMCPID(a, b json.RawMessage) bool {

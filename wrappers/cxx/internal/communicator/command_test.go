@@ -65,6 +65,18 @@ func TestMCPResponsesRequireOriginalCorrelation(t *testing.T) {
 	}
 }
 
+func TestMCPResponsesCannotReportBothResultAndError(t *testing.T) {
+	for _, body := range []string{
+		`{"jsonrpc":"2.0","id":1,"result":{},"error":{"code":-32603,"message":"failed"}}`,
+		`{"jsonrpc":"2.0","id":1,"result":null,"error":{"code":-32603,"message":"failed"}}`,
+		`{"jsonrpc":"2.0","id":1,"result":{},"error":null}`,
+	} {
+		if mcpResponseValid(json.RawMessage(`1`), []byte(body)) {
+			t.Fatalf("accepted contradictory MCP response: %s", body)
+		}
+	}
+}
+
 func TestMCPCorrelationUsesJSONIDValues(t *testing.T) {
 	for _, test := range []struct {
 		request, reply string

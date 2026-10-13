@@ -104,6 +104,11 @@ including auth stores and MCP calls, return `409 communicator_outcome_unknown`
 to prevent existing client retry loops from replaying them. The local allow-list strips
 trailing slashes the same way the API router does.
 
+From cxx 0.9.78, the MCP stdio adapter accepts a correlated response only when
+exactly one of `result` and `error` is present. A lone `result: null` is valid;
+contradictory envelopes return the existing unknown-outcome error with the
+original request ID instead of forwarding an ambiguous result.
+
 Remote control of the owner process is negotiated, so old servers and old owners
 never meet a frame they do not know. A server that can stop an owner lists
 `control: ["terminate"]` in its `ready` frame. Only then does the owner send one

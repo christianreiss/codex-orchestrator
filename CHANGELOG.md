@@ -1,5 +1,7 @@
 # 2026-10-13
 
+- cxx 0.9.78 rejects contradictory MCP replies containing both `result` and `error`, returning the existing correlated unknown-outcome error instead of forwarding an ambiguous result. A lone `result: null` remains valid.
+
 - cxx 0.9.77 keeps the shared communicator available when its original engine config is removed, suspended or disables the transport. Reconnect and owner replacement select another verified engine config for the same host and server, including active sync scopes, and HTTPS transfers adopt that policy. Missing or foreign configs never permit a downgrade; an explicit signed rollback still does.
 
 - cxx's communicator owner can now be stopped from the console as a real process, with the proof the server actually has. The server offers `control: ["terminate"]` in `ready`; an owner that sees it describes itself once (`capabilities`: pid, start time) and then honours a `terminate` frame by acknowledging it, draining in-flight local requests for up to three seconds and exiting through the idle-exit path. `POST /admin/communicators/{id}/terminate` (`agent_portal.manage`, audited as `communicator.terminated`) reports `terminated` only after that acknowledgement and the closing of the connection, `acknowledged`/`unacknowledged`/`refused` otherwise, and never from a frame that was merely sent. Old owners and old servers are unaffected, and an owner that did not announce the capability is not offered the control. A surviving client starts a new owner, which the page shows as a different process.
