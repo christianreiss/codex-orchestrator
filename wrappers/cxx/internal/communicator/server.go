@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math/rand"
@@ -43,11 +44,14 @@ type server struct {
 	lastUsed         time.Time
 	requests, shared uint64
 	lastError        string
-	lastSync         string
-	calls            map[string]*sharedCall
-	dirty            chan struct{}
-	authDirty        chan struct{}
-	jobs             map[string]syncJob
+	// refusal is the server's host-credential verdict (401 / 403 host_*) on the last
+	// refused handshake; nil once a connection succeeds or fails for another reason.
+	refusal   *handshakeRefusal
+	lastSync  string
+	calls     map[string]*sharedCall
+	dirty     chan struct{}
+	authDirty chan struct{}
+	jobs      map[string]syncJob
 	// failures counts consecutive failed connection attempts; zero means the
 	// control connection is either up or still being established for the first time.
 	failures int
@@ -159,6 +163,20 @@ func (s *server) invalidate() {
 	}
 }
 
+// noteFailureLocked records why the last attempt ended. A host-credential verdict
+// from the server is kept only until the next attempt ends, so a stale one is never
+// replayed to a request after the cause is gone. s.mu must be held.
+func (s *server) noteFailureLocked(err error) {
+	if err != nil {
+		s.lastError = err.Error()
+	}
+	s.refusal = nil
+	var refused *handshakeRefusal
+	if errors.As(err, &refused) && refused.hostVerdict() {
+		s.refusal = refused
+	}
+}
+
 // beginAttempt marks a connection attempt in flight and consumes any stale kick.
 func (s *server) beginAttempt() {
 	s.mu.Lock()
@@ -229,6 +247,7 @@ func (s *server) connectLoop(ctx context.Context) {
 			s.conn = c
 			s.fallback = false
 			s.lastError = ""
+			s.refusal = nil
 			s.failures = 0
 			s.attempting = false
 			s.lastAttemptEnd = time.Now()
@@ -268,9 +287,7 @@ func (s *server) connectLoop(ctx context.Context) {
 		s.failures++
 		s.attempting = false
 		s.lastAttemptEnd = time.Now()
-		if err != nil {
-			s.lastError = err.Error()
-		}
+		s.noteFailureLocked(err)
 		s.mu.Unlock()
 		// The policy read may block on a dead network for its whole timeout; it must
 		// not hold back the next (possibly requested) connection attempt.
@@ -434,7 +451,7 @@ func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	c := s.waitConnection(r.Context())
 	if c == nil {
-		s.writeUnavailable(w, false)
+		s.writeControlUnavailable(w)
 		return
 	}
 	f := frame{Method: r.Method, Path: r.URL.RequestURI(), Headers: headers(r.Header), Body: body}

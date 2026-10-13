@@ -166,6 +166,21 @@ IP)`), and local `503 communicator_unavailable` replies carry that text in `mess
 wrapper prints the same actionable diagnosis it would over direct HTTPS (an IP binding
 to release, a revoked key, the capability switched off) instead of "API offline".
 
+A refusal that is a verdict on the host's own credentials keeps its status: `401`
+(`missing_api_key`, `invalid_api_key`, `ip_mismatch`, `reverse_dns_failed`, `host_expired`) and
+`403 host_<status>` are returned for a request that never reached the control channel with the
+server's own status and body, as direct HTTPS answered every route. The wrappers' clients return a
+4xx at once (no retry) and classify it as a verdict (a Grok session whose refresh gets a `401`
+ends, exactly as before the communicator); a `503` they retry for about a second and bridge with
+cached auth. Everything that is the channel being unavailable stays the retryable
+`503 communicator_unavailable`: `403 communicator_disabled`, the `api_disabled` kill switch, 5xx,
+a timeout, a dropped connection. The verdict describes only the last connection attempt; the next
+attempt that succeeds or fails for another reason clears it, and an unknown outcome (`409`) is
+never rewritten into a credential verdict. The local reply carries `X-Cxx-Communicator-Refusal:
+handshake`. The host-daemon channel is unaffected in behaviour: its WebSocket client reports every
+refused upgrade as "bad status" whatever the code, and the daemon retries with backoff either way
+(as it did over direct HTTPS), so there the verdict only reaches diagnostics.
+
 The reconnect delay grows from one to thirty seconds with jitter. A request that finds the
 connection down never sits through that backoff: it asks the connect loop to redial at
 once and waits for that one attempt, up to 20 s for the very first connect. A refused
