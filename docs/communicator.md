@@ -247,7 +247,13 @@ Worker auth transactions keep a mode-0600 digest-only pending marker in the nati
 home. A crashed worker or unknown write outcome requires verified readback before
 reoffering that generation. An exact verified credential pair can be acknowledged
 without replay; unresolved outcomes remain visible and preserve local credentials.
-The marker contains no credential bytes. A new native generation is independent.
+The marker contains no credential bytes. A new native generation is independent. While a marker exists and the
+server's head differs from the local pair, the readback cannot decide which side is
+current: the launch is refused (nothing is replayed or overwritten blindly) with an
+explicit reason naming `.cxx-communicator-pending-auth.json` in the native credential
+directory. After comparing the host's credential with the server's, deleting the marker
+resumes normal arbitration at once (the next sync adopts a newer server head or
+re-offers a newer local credential through the compare-and-swap store).
 
 Local `status`/`doctor` and the host Operations panel show content failures and
 per-scope auth progress. Server confirmation, local writes and native adoption are
