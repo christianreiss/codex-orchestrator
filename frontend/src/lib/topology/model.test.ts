@@ -7,7 +7,7 @@ const { trackGhosts, emptyGhostState, graphModel, matchesQuery, nodeState, commu
   (await import(modelModule)) as typeof import("./model");
 
 const comm = (id: string, overrides: Partial<TopologyCommunicator> = {}): TopologyCommunicator => ({
-  kind: "communicator", id, host_id: 4, host: "web01.example.com", username: "alice", version: "0.9.74",
+  kind: "communicator", id, label: "alice@web01", host_id: 4, host: "web01.example.com", username: "alice", version: "0.9.74",
   connected_at: "2026-10-13T17:00:00Z", last_frame_at: "2026-10-13T17:59:00Z", last_heartbeat_at: null, health: "live", idle_s: 2,
   leases_reported: 1, requests: 3, synced_at: null, sync_scopes: 0, sync_errors: 0, remote_address: null, daemon_attached: false,
   agent_ids: [], process: null, can_terminate: false, ...overrides,
@@ -53,12 +53,12 @@ describe("ghost tracking", () => {
   it("attaches the server's record of how it left, and learns of a successor later", () => {
     const base = trackGhosts(emptyGhostState(), snapshot([comm("c1")], []), 1000);
     const departure = {
-      id: "c1", host_id: 4, host: "web01.example.com", username: "alice", version: "0.9.74", connected_at: "", ended_at: "",
-      reason: "admin_disconnect" as const, actor: "ops", pid: null, affected_agent_ids: [], successor_id: null,
+      id: "c1", label: "alice@web01", host_id: 4, host: "web01.example.com", username: "alice", version: "0.9.74", connected_at: "", ended_at: "",
+      reason: "admin_disconnect" as const, actor: "ops", pid: null, affected_agent_ids: [], successor_id: null, successor_basis: null, candidate_ids: [],
     };
     const gone = trackGhosts(base, snapshot([], [], { recent_disconnects: [departure] }), 2000);
     assert.equal(gone.ghosts.get("c1")!.departure!.reason, "admin_disconnect");
-    const redialled = trackGhosts(gone, snapshot([comm("c2")], [], { recent_disconnects: [{ ...departure, successor_id: "c2" }] }), 3000);
+    const redialled = trackGhosts(gone, snapshot([comm("c2")], [], { recent_disconnects: [{ ...departure, successor_id: "c2", successor_basis: "same_runtime" as const }] }), 3000);
     assert.equal(redialled.ghosts.get("c1")!.departure!.successor_id, "c2");
   });
 });

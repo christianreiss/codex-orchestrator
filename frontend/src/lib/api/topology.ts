@@ -31,6 +31,8 @@ export interface TopologyServer {
 export interface TopologyCommunicator {
   kind: "communicator";
   id: string;
+  /** `user@host`, plus a runtime tag when several connections would read alike. */
+  label: string;
   host_id: number;
   host: string;
   username: string;
@@ -49,7 +51,7 @@ export interface TopologyCommunicator {
   daemon_attached: boolean;
   agent_ids: string[];
   /** The owner process's own account of itself; null if it never gave one. */
-  process: { pid: number; started_at: string | null } | null;
+  process: { pid: number; started_at: string | null; instance_id: string | null; runtime_id: string | null } | null;
   /** True only when the owner said it can be stopped remotely. */
   can_terminate: boolean;
 }
@@ -99,6 +101,7 @@ export interface TopologyAgent {
 
 export interface TopologyDisconnect {
   id: string;
+  label: string;
   host_id: number;
   host: string;
   username: string;
@@ -109,7 +112,11 @@ export interface TopologyDisconnect {
   actor: string | null;
   pid: number | null;
   affected_agent_ids: string[];
+  /** Set only on proof: the same process dialled again, or a replacement in the same runtime. */
   successor_id: string | null;
+  successor_basis: "same_process" | "same_runtime" | null;
+  /** Same host and user, no identity linking them. Unverified. */
+  candidate_ids: string[];
 }
 
 export interface Topology {

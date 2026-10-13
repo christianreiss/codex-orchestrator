@@ -55,7 +55,7 @@ function communicator(
       synced_at: null,
     },
     remote_address: '192.0.2.4',
-    capabilities: { terminate: false, pid: null, started_at: null },
+    capabilities: { terminate: false, pid: null, started_at: null, instance_id: null, runtime_id: null },
     connected_ms: NOW - 1_800_000,
     last_frame_ms: NOW - 3000,
     last_heartbeat_ms: NOW - 3000,
@@ -227,8 +227,12 @@ describe('topology nodes', () => {
             actor: 'ops',
             pid: 4242,
             process_started_at: null,
+            instance_id: null,
+            runtime_id: null,
             session_ids: [S1],
             successor_id: 'back',
+            successor_basis: 'same_runtime',
+            candidate_ids: ['maybe'],
           },
         ],
       }),
@@ -240,6 +244,8 @@ describe('topology nodes', () => {
       actor: 'ops',
       affected_agent_ids: [S1],
       successor_id: 'back',
+      successor_basis: 'same_runtime',
+      candidate_ids: ['maybe'],
     });
   });
 
@@ -289,14 +295,57 @@ describe('what an operator may do to an agent', () => {
   });
 });
 
+describe('labels', () => {
+  const owner = (id: string, runtime: string | null, username = 'alice') =>
+    communicator(id, {}, { username, capabilities: { terminate: true, pid: 1, started_at: null, instance_id: `i-${id}`, runtime_id: runtime } });
+
+  it('keeps plain user@host when there is no ambiguity', () => {
+    const topology = buildTopology(inputs({ communicators: [owner('a', 'aaaa1111'), owner('b', 'bbbb2222', 'bob')] }));
+    expect(topology.communicators.map((c) => c.label).sort()).toEqual(['alice@web01', 'bob@web01']);
+  });
+
+  it('tells apart owners of one user on one host by their runtime, since separate runtime roots can coexist', () => {
+    const topology = buildTopology(inputs({ communicators: [owner('a', 'aaaa1111'), owner('b', 'bbbb2222')] }));
+    expect(Object.fromEntries(topology.communicators.map((c) => [c.id, c.label]))).toEqual({ a: 'alice@web01 · aaaa', b: 'alice@web01 · bbbb' });
+  });
+
+  it('falls back to the connection id for owners that never named their runtime, and keeps tags unique', () => {
+    const topology = buildTopology(inputs({ communicators: [owner('abcd-1', null), owner('efgh-2', null), owner('ijkl-3', 'same0000'), owner('mnop-4', 'same0000')] }));
+    const labels = topology.communicators.map((c) => c.label);
+    expect(new Set(labels).size).toBe(4);
+  });
+
+  it('labels a departed connection the way it was shown while it lived', () => {
+    const tombstone = {
+      id: 'gone', host_id: 4, username: 'alice', version: '0.9.74', connected_at: '2026-10-13T17:00:00.000Z', ended_at: '2026-10-13T17:59:00.000Z',
+      reason: 'admin_terminate' as const, actor: 'ops', pid: 1, process_started_at: null, instance_id: 'i-gone', runtime_id: 'aaaa1111',
+      session_ids: [], successor_id: null, successor_basis: null, candidate_ids: [],
+    };
+    const topology = buildTopology(inputs({ communicators: [owner('b', 'bbbb2222')], tombstones: [tombstone] }));
+    expect(topology.recent_disconnects[0]!.label).toBe('alice@web01 · aaaa');
+    expect(topology.communicators[0]!.label).toBe('alice@web01 · bbbb');
+  });
+
+  it('keeps a lone owner that restarted in its own runtime under one plain name', () => {
+    const tombstone = {
+      id: 'gone', host_id: 4, username: 'alice', version: '0.9.74', connected_at: '2026-10-13T17:00:00.000Z', ended_at: '2026-10-13T17:59:00.000Z',
+      reason: 'admin_terminate' as const, actor: 'ops', pid: 1, process_started_at: null, instance_id: 'i-gone', runtime_id: 'aaaa1111',
+      session_ids: [], successor_id: 'a', successor_basis: 'same_runtime' as const, candidate_ids: [],
+    };
+    const topology = buildTopology(inputs({ communicators: [owner('a', 'aaaa1111')], tombstones: [tombstone] }));
+    expect(topology.recent_disconnects[0]!.label).toBe('alice@web01');
+    expect(topology.communicators[0]!.label).toBe('alice@web01');
+  });
+});
+
 describe('what an owner process says about itself', () => {
   it('can be stopped remotely only when the owner said so, and shows its own pid', () => {
     const silent = communicator('old', {}, { version: '0.9.74' });
-    const capable = communicator('new', {}, { version: '0.9.76', capabilities: { terminate: true, pid: 4242, started_at: '2026-10-13T17:00:00Z' } });
+    const capable = communicator('new', {}, { version: '0.9.76', capabilities: { terminate: true, pid: 4242, started_at: '2026-10-13T17:00:00Z', instance_id: 'inst-1', runtime_id: 'rt-A' } });
     const topology = buildTopology(inputs({ communicators: [silent, capable] }));
     const byId = Object.fromEntries(topology.communicators.map((c) => [c.id, c]));
     expect(byId.old).toMatchObject({ can_terminate: false, process: null });
-    expect(byId.new).toMatchObject({ can_terminate: true, process: { pid: 4242, started_at: '2026-10-13T17:00:00Z' } });
+    expect(byId.new).toMatchObject({ can_terminate: true, process: { pid: 4242, started_at: '2026-10-13T17:00:00Z', instance_id: 'inst-1', runtime_id: 'rt-A' } });
   });
 
   it('never guesses support from a version string', () => {
