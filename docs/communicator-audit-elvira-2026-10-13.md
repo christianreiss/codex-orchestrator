@@ -215,3 +215,54 @@ markers. The supported `cxx agent service install` completed preparation;
 `cxx codex sync` reconciled and cleared the markers against verified matching
 server credentials. No credential file was discarded, and no auth upload was
 blindly replayed. The affected Codex/Grok launches then passed on every VM.
+
+## Combined owner-control acceptance
+
+The final combined runtime source is `6345db38f029c748217f86a081417b26e69470b8`,
+including the console owner-stop feature from `0236049c`, the refusal diagnostic
+and caller-retry regressions. Independent checks passed: full Go race/build/vet,
+API typecheck plus 135 transport/topology/credential/authorization tests,
+frontend check with zero Svelte errors/warnings and 928 unit tests, and all
+eight Playwright topology tests against a freshly built SPA. The browser cases
+cover permission gating, acknowledged/unacknowledged termination, keyboard
+operation and accessibility. Controlled process tests verify real owner exit
+and replacement without signalling the native clients; the production API's
+owner-stop route was not deployed or invoked by this audit.
+
+All three VMs passed the same four communicator/engine suites again, including
+the new control process tests. Each then ran all three authenticated native
+engines again with the exact combined binary. All nine exited zero and returned
+their requested marker and fleet identity. Server identity readback confirmed:
+
+| VM | Engine | Name | Canonical agent UUID |
+| --- | --- | --- | --- |
+| test1 | Codex | Lore | 63f92948-5c2c-455b-ab91-619ee61a23f7 |
+| test1 | Claude | Ute | aaab351f-3d09-48e1-a837-abb7af9bd17b |
+| test1 | Grok | Ingetraut | 507000b8-4df7-4330-8ae8-20aa7074a0f8 |
+| test2 | Codex | Gunhild | 917d3661-5d31-4206-aae9-f8a60d67244c |
+| test2 | Claude | Eva-Maria | 44f82e61-c747-49e4-a267-9721bb2fdab7 |
+| test2 | Grok | Alwine | d1b86c8b-bfd8-4b23-b32c-4b5bf1338543 |
+| test3 | Codex | Dania | 3b6cf223-6f4c-4e91-94c3-10c0c02d8832 |
+| test3 | Claude | Ivana | 15296dd4-3f19-4b70-a1f9-b573b6a5c437 |
+| test3 | Grok | Hedda | 10f09742-c8ef-4212-85f0-7c5a3567e498 |
+
+Installed binary SHA256 on every VM:
+`4c17142deee8f1171eb663c3b7c863e96bf0b909412bb262f13d1481f6d5e994`.
+The `native-076-{codex,claude,grok}.log` files now contain this final run and
+identify its source commit; earlier successful logs are preserved as
+`native-076-57173c66-{codex,claude,grok}.log`. The new VM process evidence is
+`owner-final-tests.log`.
+
+The final repeat also captured nonfatal portal-finalization HTTP 409 warnings
+on test3 and unknown background Grok auth outcomes on test1/test2. The owners
+stayed running and reconnected; all nine native results succeeded. The two
+ended private broker scopes retained their errors for the implementation's
+five-minute diagnostic interval. This is historical scope state rather than
+proof of a currently broken account, and the audit did not discard it or
+restart an owner to hide it. The precise upstream interruption was not
+established by these measurements.
+
+Normal pruning subsequently cleared the ended scopes on all three VMs.
+`doctor-owner-pruned.json` records exit zero, connected control, no HTTPS
+fallback and empty errors on all three, at 148/153/126 requests. Owner PIDs
+8349/25069/21071 were unchanged; no restart or manual error clearing was used.
