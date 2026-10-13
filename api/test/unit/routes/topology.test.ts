@@ -207,7 +207,7 @@ describe('GET /admin/topology', () => {
 
 describe('owner control negotiation and POST /admin/communicators/:id/terminate', () => {
   /** An owner the way cxx behaves: announces itself only to a server that offered control. */
-  async function owner(app: FastifyInstance, behaviour: 'acks-and-exits' | 'silent' | 'refuses' | 'old' | 'wrong-process', identity: { instance?: string; runtime?: string } = {}) {
+  async function owner(app: FastifyInstance, behaviour: 'acks-and-exits' | 'silent' | 'refuses' | 'old' | 'legacy' | 'wrong-process', identity: { instance?: string; runtime?: string } = {}) {
     const instance = identity.instance ?? `proc-${randomUUID().slice(0, 8)}`;
     const ws = await app.injectWS('/host/communicator/connect', { headers: { 'x-api-key': 'host-one' } });
     const frames: Array<Record<string, unknown>> = [];
@@ -230,7 +230,11 @@ describe('owner control negotiation and POST /admin/communicators/:id/terminate'
         ws.send(JSON.stringify({ type: 'terminate_ack', request_id: frame.request_id, accepted: true, pid: 1, instance_id: 'a-different-process' }));
       }
     });
-    if (behaviour !== 'old' && (frames[0]?.control as string[] | undefined)?.includes('terminate')) {
+    if (behaviour === 'legacy' && (frames[0]?.control as string[] | undefined)?.includes('terminate')) {
+      // What a new owner sends when the server only offered `terminate`: the legacy
+      // fields, no identity, and no claim that it can be stopped remotely.
+      ws.send(JSON.stringify({ type: 'capabilities', terminate: false, pid: 4242, started_at: '2026-10-13T17:00:00Z' }));
+    } else if (behaviour !== 'old' && behaviour !== 'legacy' && (frames[0]?.control as string[] | undefined)?.includes('terminate')) {
       ws.send(JSON.stringify({ type: 'capabilities', terminate: true, pid: 4242, started_at: '2026-10-13T17:00:00Z', instance_id: instance, ...(identity.runtime ? { runtime_id: identity.runtime } : {}) }));
     }
     await new Promise((resolve) => setTimeout(resolve, 100));
@@ -242,7 +246,7 @@ describe('owner control negotiation and POST /admin/communicators/:id/terminate'
   it('offers control in `ready` and shows what the owner says about its own process', async () => {
     const app = await build('owner', true);
     const { ws, frames } = await owner(app, 'acks-and-exits');
-    expect(frames[0]).toEqual({ type: 'ready', protocol: 1, control: ['terminate'] });
+    expect(frames[0]).toEqual({ type: 'ready', protocol: 1, control: ['terminate', 'owner_identity'] });
     const { body } = await topology(app);
     expect(body.communicators[0]).toMatchObject({ can_terminate: true, process: { pid: 4242, started_at: '2026-10-13T17:00:00Z', runtime_id: null } });
     expect(body.communicators[0]!.process).toMatchObject({ instance_id: expect.stringMatching(/^proc-/) });
@@ -315,6 +319,18 @@ describe('owner control negotiation and POST /admin/communicators/:id/terminate'
     const res = await post(app, id, { client_message_id: randomUUID() });
     expect(res.statusCode).toBe(409);
     expect(frames.some((f) => f.type === 'terminate')).toBe(false);
+    ws.close();
+  });
+
+  it('accepts the legacy capabilities an owner sends without identity, and offers no stop for it', async () => {
+    const app = await build('owner', true);
+    const { ws, id, frames } = await owner(app, 'legacy');
+    const { body } = await topology(app);
+    expect(body.communicators[0]).toMatchObject({ can_terminate: false, process: { pid: 4242, instance_id: null, runtime_id: null } });
+    const res = await post(app, id, { client_message_id: randomUUID() });
+    expect(res.statusCode).toBe(409);
+    expect(frames.some((f) => f.type === 'terminate')).toBe(false);
+    expect(communicatorRegistry.has(id)).toBe(true);
     ws.close();
   });
 
