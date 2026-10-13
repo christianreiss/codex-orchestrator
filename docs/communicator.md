@@ -18,6 +18,13 @@ because it is older than 0.9.71. Existing tool names, arguments, results and eng
 remain intact. With the capability off, the stdio adapter uses the ordinary HTTPS
 MCP endpoint.
 
+Every config-backed engine command binds its verified selected config before
+creating control clients, including commands outside the native lifecycle.
+From cxx 0.9.78 this also covers Codex and Claude after expired-config recovery
+or custom `--config` selection; Grok already binds at that boundary. The one
+signed-config repair read can run before an owner exists, but subsequent auth
+and control requests use the communicator whenever the recovered config enables it.
+
 `cxx communicator status` reports protocol, version, PID, connected clients,
 forwarded/coalesced requests, last sync and connection error. `doctor` returns
 nonzero when an enabled communicator is absent. The host's Operations tab shows
@@ -27,9 +34,13 @@ The Unix socket lives in a mode-0700 directory below `XDG_RUNTIME_DIR`. When a
 launcher drops that variable (Codex MCP servers, cron), the user's logind
 `/run/user/<uid>` directory is used if present, otherwise a private
 `/tmp/cxx-<uid>` directory, so every process elects the same owner. A runtime root
-deep enough to exceed the platform's socket-path limit (kept under 100 bytes) falls
-back to `/tmp/cxx-<uid>`, while an unsafe root is refused. The owner's startup errors
-go to `serve.log` in that directory and are included in the error a managed command
+deep enough that the socket would exceed the platform's own `sun_path` limit (107 bytes on
+Linux, 103 on macOS and the BSDs) falls back to `/tmp/cxx-<uid>`, independent of `TMPDIR`;
+that fallback directory is keyed by the resolved scope as well as the server, so two
+distinct deep scopes (isolated runs, harnesses) never share an owner, fence or credentials,
+and one scope always maps to one path. An unsafe root is refused. The owner's startup
+errors go to `serve.log` in that directory; the part written during the failed attempt is
+shown, bounded to 400 printable characters on one line, in the error a managed command
 prints. Socket mode is 0600. A filesystem lock elects
 one owner; only that owner removes a stale socket. No TCP listener is exposed.
 Each process holds a local streaming lease; a surviving client restarts a crashed
@@ -196,6 +207,15 @@ An oversized reply rejected after dispatch also carries `outcome_unknown: true`:
 the route may already have committed its effects before the frame limit was
 checked. The bounded `communicator_response_too_large` code remains available
 for diagnosis.
+
+The adapter forwards JSON-RPC batches (MCP 2025-03-26, which the API advertises)
+as one request and writes the server's array reply. Notifications in a batch get
+no reply, and an all-notification batch writes nothing. If the reply is lost,
+malformed or misses a request, each request gets its own unknown-outcome error.
+An unparsable line gets `-32700` with id null, and a JSON value that is neither
+an object nor a non-empty array gets `-32600`; neither ends the session. On SIGTERM or interrupt the adapter stops reading stdin even if the
+native client keeps it open, reports any in-flight request as an unknown
+outcome, releases its owner lease and exits.
 
 Request correlation compares JSON ID values rather than serialized spellings,
 including escaped strings and equivalent numbers. Distinct large integer IDs
