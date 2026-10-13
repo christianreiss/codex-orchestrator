@@ -258,6 +258,93 @@ func TestProcessesShareConnectionAndRecover(t *testing.T) {
 	if err != nil || string(body) != "rotated-host-key" {
 		t.Fatalf("HTTPS transfer did not adopt signed rotation: %q, %v", body, err)
 	}
+	// Downloads continue while reconnect selects a different engine's policy.
+	stopDownloads := make(chan struct{})
+	var downloads sync.WaitGroup
+	for i := 0; i < 3; i++ {
+		downloads.Add(1)
+		go func() {
+			defer downloads.Done()
+			for {
+				select {
+				case <-stopDownloads:
+					return
+				default:
+				}
+				res, err := unixClient(socket, 5*time.Second).Get("http://communicator.local/wrapper/v2/download")
+				if err != nil {
+					t.Error(err)
+					return
+				}
+				body, err := io.ReadAll(res.Body)
+				res.Body.Close()
+				if err != nil || string(body) != "rotated-host-key" {
+					t.Errorf("concurrent transfer adopted wrong policy: %q, %v", body, err)
+					return
+				}
+				time.Sleep(10 * time.Millisecond)
+			}
+		}()
+	}
+	var stopDownloadsOnce sync.Once
+	finishDownloads := func() {
+		stopDownloadsOnce.Do(func() { close(stopDownloads) })
+		downloads.Wait()
+	}
+	defer finishDownloads()
+	// Disable the original Codex transport config while other engines stay on.
+	codexPath := filepath.Join(root, "codex.json")
+	disabled := configs[codexPath]
+	disabled.Orchestrator.CommunicatorProtocol = 0
+	disabled.Orchestrator.APIKey = "disabled-engine-key"
+	rawDisabled, _ := json.Marshal(disabled)
+	if err := os.WriteFile(codexPath, rawDisabled, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(codexPath+".sig", ed25519.Sign(priv, rawDisabled), 0600); err != nil {
+		t.Fatal(err)
+	}
+	activeMu.Lock()
+	active.Close()
+	activeMu.Unlock()
+	deadlineReconnect = time.Now().Add(10 * time.Second)
+	for total.Load() < 3 {
+		if time.Now().After(deadlineReconnect) {
+			t.Fatal("surviving engines did not reconnect after Codex transport disable")
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	request(children[0], 21)
+	res, err = unixClient(socket, 5*time.Second).Get("http://communicator.local/wrapper/v2/download")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err = io.ReadAll(res.Body)
+	res.Body.Close()
+	if err != nil || string(body) != "rotated-host-key" {
+		t.Fatalf("disabled seed still controls HTTPS transfers: %q, %v", body, err)
+	}
+	// Claude is now the selected config. Removing it must leave Grok able to
+	// reconnect, and surviving clients must also replace an owner after a crash.
+	seedPath := filepath.Join(root, "claude.json")
+	if err := os.Remove(seedPath); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(seedPath + ".sig"); err != nil {
+		t.Fatal(err)
+	}
+	activeMu.Lock()
+	active.Close()
+	activeMu.Unlock()
+	deadlineReconnect = time.Now().Add(10 * time.Second)
+	for total.Load() < 4 {
+		if time.Now().After(deadlineReconnect) {
+			t.Fatal("surviving engines did not reconnect after Claude seed removal")
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	request(children[0], 22)
+	finishDownloads()
 	// Killing only this test's owner must leave every native/MCP client alive.
 	previous := readStatus()["pid"]
 	cleanupOwner()

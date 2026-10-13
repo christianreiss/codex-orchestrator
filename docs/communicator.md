@@ -37,6 +37,14 @@ owner. The last lease starts a five-minute idle period, after which the owner
 closes its socket and exits (the next managed call starts a new one). Status checks do not
 extend it. A connected persistent host daemon holds a lease too.
 
+From cxx 0.9.77, reconnect and owner replacement are independent of the engine
+whose config first started the owner. If that file is missing, invalid, suspended
+or disables the transport, another signed config from active sync scopes or the
+user's Codex/Claude/Grok config paths can supply transport policy. Candidates must
+match the original host ID, FQDN and server URL. HTTPS transfers use the selected
+policy as well. Only an explicit verified rollback permits HTTPS fallback; missing
+files and foreign configs do not.
+
 A symlinked, missing or non-0700 logind directory is never trusted. An explicit
 custom `XDG_RUNTIME_DIR` is a deliberately separate namespace (isolated tests,
 containers) with its own owner and fences. Upgrading from a release before 0.9.75 does
