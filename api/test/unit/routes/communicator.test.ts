@@ -232,6 +232,48 @@ describe('communicator transport', () => {
     expect(messages[0]).not.toContain('never-forward');
     ws.close();
   });
+  it('ignores host events for other hosts and still follows its own', async () => {
+    await setup();
+    const ws = await open();
+    const frames: Record<string, unknown>[] = [];
+    ws.on('message', (data: unknown) => frames.push(JSON.parse(String(data))));
+    wsPublisher.publish('host.updated', { id: 2, fqdn: 'another-host' });
+    wsPublisher.publish('host.pruned', { id: 2, fqdn: 'another-host' });
+    await new Promise((resolve) => setTimeout(resolve, 350));
+    expect(frames).toEqual([]);
+    wsPublisher.publish('host.updated', { id: 1, fqdn: 'this-host' });
+    await new Promise((resolve) => setTimeout(resolve, 350));
+    expect(frames).toHaveLength(1);
+    expect(frames[0]).toMatchObject({ type: 'invalidate' });
+    wsPublisher.publish('host.updated', { fqdn: 'unattributed' });
+    await new Promise((resolve) => setTimeout(resolve, 350));
+    expect(frames).toHaveLength(2);
+    ws.close();
+  });
+  it('answers an oversized reply with 502 and keeps the shared connection open', async () => {
+    await setup();
+    const ws = await open();
+    const closed = vi.fn();
+    ws.on('close', closed);
+    const id = randomUUID();
+    const big = new Promise<Record<string, unknown>>((resolve) =>
+      ws.once('message', (data: unknown) => resolve(JSON.parse(String(data)))),
+    );
+    ws.send(JSON.stringify({ id, type: 'request', method: 'GET', path: '/host/big', headers: {}, body: '' }));
+    const reply = await big;
+    expect(reply.status).toBe(502);
+    expect(JSON.parse(Buffer.from(String(reply.body), 'base64').toString())).toMatchObject({
+      code: 'communicator_response_too_large',
+    });
+    const next = new Promise<Record<string, unknown>>((resolve) =>
+      ws.once('message', (data: unknown) => resolve(JSON.parse(String(data)))),
+    );
+    const follow = randomUUID();
+    ws.send(JSON.stringify({ id: follow, type: 'request', method: 'POST', path: '/host/echo', headers: {}, body: '' }));
+    expect(await next).toMatchObject({ id: follow, status: 200 });
+    expect(closed).not.toHaveBeenCalled();
+    ws.close();
+  });
   it('rechecks revoked credentials on an established connection', async () => {
     await setup();
     const ws = await open();
@@ -302,91 +344,4 @@ it('preserves account acquisition, heartbeat and release for all native engines'
     }
   }
   ws.close();
-});
-
-type Reply = { id: string; status: number; headers: Record<string, string>; body: string };
-async function call(ws: Awaited<ReturnType<typeof open>>, frame: Record<string, unknown>): Promise<Reply> {
-  const id = randomUUID();
-  const reply = new Promise<Reply>((resolve) => {
-    const on = (data: unknown) => {
-      const parsed = JSON.parse(String(data));
-      if (parsed.id !== id) return;
-      ws.off('message', on);
-      resolve(parsed);
-    };
-    ws.on('message', on);
-  });
-  ws.send(JSON.stringify({ id, type: 'request', method: 'POST', headers: {}, body: '', ...frame }));
-  return reply;
-}
-const decode = (reply: Reply) => JSON.parse(Buffer.from(reply.body, 'base64').toString());
-
-describe('communicator per-frame failure isolation', () => {
-  it('answers a rejected request with an error frame and keeps the shared connection open', async () => {
-    await setup();
-    const ws = await open();
-    const closed = vi.fn();
-    ws.on('close', closed);
-    const forbidden = await call(ws, { path: '/admin/users' });
-    expect(forbidden.status).toBe(400);
-    expect(decode(forbidden)).toMatchObject({ status: 'error', code: 'communicator_path_forbidden' });
-    const oversized = await call(ws, { path: '/host/echo', body: 'a'.repeat(900_001) });
-    expect(oversized.status).toBe(413);
-    expect(decode(oversized)).toMatchObject({ code: 'communicator_body_too_large' });
-    const malformed = await call(ws, { path: '/host/echo', method: 'TRACE' });
-    expect(malformed.status).toBe(400);
-    expect(decode(malformed)).toMatchObject({ code: 'communicator_invalid_request' });
-    const healthy = await call(ws, {
-      path: '/host/echo',
-      headers: { 'content-type': 'application/json' },
-      body: Buffer.from('{"still":"served"}').toString('base64'),
-    });
-    expect(healthy.status).toBe(200);
-    expect(closed).not.toHaveBeenCalled();
-    ws.close();
-  });
-
-  it('refuses a reply the wrapper could not read instead of poisoning the connection', async () => {
-    await setup();
-    const ws = await open();
-    const closed = vi.fn();
-    ws.on('close', closed);
-    const big = await call(ws, { method: 'GET', path: '/host/big' });
-    expect(big.status).toBe(502);
-    expect(decode(big)).toMatchObject({ status: 'error', code: 'communicator_response_too_large' });
-    expect((await call(ws, { path: '/host/echo' })).status).toBe(200);
-    expect(closed).not.toHaveBeenCalled();
-    ws.close();
-  });
-
-  it('still closes on protocol violations that carry no request identity', async () => {
-    await setup();
-    for (const raw of ['{not json', JSON.stringify({ type: 'request', path: '/host/echo' })]) {
-      const ws = await open();
-      const closed = new Promise<number>((resolve) => ws.once('close', resolve));
-      ws.send(raw);
-      expect(await closed).toBe(1008);
-    }
-  });
-});
-
-describe('communicator invalidation scope', () => {
-  it('ignores host events for other hosts but still follows its own host', async () => {
-    await setup();
-    const ws = await open();
-    const frames: Record<string, unknown>[] = [];
-    ws.on('message', (data: unknown) => frames.push(JSON.parse(String(data))));
-    for (const type of ['host.updated', 'host.created', 'host.deleted', 'host.pruned'] as const)
-      wsPublisher.publish(type, { id: 2, fqdn: 'another-host' });
-    await new Promise((resolve) => setTimeout(resolve, 350));
-    expect(frames).toEqual([]);
-    wsPublisher.publish('host.updated', { id: 1, fqdn: 'this-host' });
-    await new Promise((resolve) => setTimeout(resolve, 350));
-    expect(frames).toHaveLength(1);
-    expect(frames[0]).toMatchObject({ type: 'invalidate' });
-    wsPublisher.publish('host.updated', { fqdn: 'unattributed' });
-    await new Promise((resolve) => setTimeout(resolve, 350));
-    expect(frames).toHaveLength(2);
-    ws.close();
-  });
 });

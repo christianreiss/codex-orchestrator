@@ -369,8 +369,11 @@ func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	// Downloads/large attachments remain inside this process but use independent
 	// HTTP streams, keeping interactive control frames bounded. They never need
-	// the control connection, so they must not wait for it to reconnect.
-	if len(body) > maxFrameBody || strings.Contains(r.URL.Path, "/download") || strings.Contains(r.URL.Path, "/attachments/") || strings.HasSuffix(strings.TrimRight(r.URL.Path, "/"), "/stream") {
+	// the control connection, so they must not wait for it to reconnect. The
+	// path is the one the router dispatches, so a trailing slash still selects
+	// the stream.
+	routed := requestPath(r)
+	if len(body) > maxFrameBody || strings.Contains(routed, "/download") || strings.Contains(routed, "/attachments/") || strings.HasSuffix(routed, "/stream") {
 		s.download(w, r, body)
 		return
 	}
@@ -391,6 +394,12 @@ func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeUnavailable(w, unknown)
 		return
 	}
+	// The handler already finished. Retrying a write would repeat it. Idempotent
+	// reads can move to the unbounded HTTPS transfer and still return one body.
+	if result.Status == http.StatusBadGateway && oversizedResponse(result.Body) && retryOversizedRead(r) {
+		s.download(w, r, body)
+		return
+	}
 	for k, v := range result.Headers {
 		w.Header().Set(k, v)
 	}
@@ -400,6 +409,26 @@ func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	w.WriteHeader(result.Status)
 	w.Write(result.Body)
+}
+
+func oversizedResponse(body []byte) bool {
+	var payload struct {
+		Code string `json:"code"`
+	}
+	return json.Unmarshal(body, &payload) == nil && payload.Code == "communicator_response_too_large"
+}
+
+func retryOversizedRead(r *http.Request) bool {
+	switch r.Method {
+	case http.MethodGet, http.MethodHead:
+		return true
+	case http.MethodPost:
+		switch requestPath(r) {
+		case "/agents/retrieve", "/config/retrieve", "/sync/bootstrap", "/sync/status", "/cron/check":
+			return true
+		}
+	}
+	return false
 }
 
 // Only concurrent identical reads are shared, never cached authorization or

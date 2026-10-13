@@ -385,7 +385,7 @@ func TestHTTPSOperationsRejectForbiddenRoutes(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { calls.Add(1) }))
 	defer upstream.Close()
 	s := &server{cfg: &config.Config{Orchestrator: config.Orchestrator{BaseURL: upstream.URL}}, fallback: true}
-	for _, path := range []string{"/admin/users", "/v1/responses", "/host/../admin/users", "/host/%2e%2e/admin/users", "/host/daemon/connect", "/host/communicator/connect", "/host/daemon/connect/", "/host/daemon/connect//", "/host/echo/stream/"} {
+	for _, path := range []string{"/admin/users", "/admin/users/", "/v1/responses", "/host/../admin/users", "/host/%2e%2e/admin/users", "/host/daemon/connect", "/host/daemon/connect/", "/host/daemon/connect//", "/host/communicator/connect", "/host/communicator/connect/", "/host/agent-sessions/abc/other/stream/", "/host/echo/stream/"} {
 		w := httptest.NewRecorder()
 		s.ServeHTTP(w, httptest.NewRequest("POST", path, nil))
 		if w.Code != http.StatusForbidden {
@@ -394,5 +394,60 @@ func TestHTTPSOperationsRejectForbiddenRoutes(t *testing.T) {
 	}
 	if calls.Load() != 0 {
 		t.Fatalf("forbidden requests reached HTTPS: %d", calls.Load())
+	}
+}
+
+func TestTrailingSlashWatchdogUsesDirectTransfer(t *testing.T) {
+	var frames atomic.Int32
+	var direct atomic.Int32
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		direct.Add(1)
+		if r.URL.Path != "/host/agent-sessions/abc/watchdog/stream/" || r.Header.Get("X-API-Key") != "bound-host" {
+			t.Errorf("transfer %s key %s", r.URL.Path, r.Header.Get("X-API-Key"))
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer upstream.Close()
+	c := testConnection(t, func(ws *websocket.Conn, f frame) {
+		frames.Add(1)
+		_ = websocket.JSON.Send(ws, frame{ID: f.ID, Status: 200})
+	})
+	s := &server{cfg: &config.Config{Orchestrator: config.Orchestrator{BaseURL: upstream.URL, APIKey: "bound-host"}}, conn: c}
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, httptest.NewRequest("GET", "/host/agent-sessions/abc/watchdog/stream/", nil))
+	if w.Code != http.StatusOK || frames.Load() != 0 || direct.Load() != 1 {
+		t.Fatalf("stream slash framed: status=%d frames=%d direct=%d", w.Code, frames.Load(), direct.Load())
+	}
+}
+
+func TestOversizedReadRetriesOverHTTPS(t *testing.T) {
+	var direct atomic.Int32
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		direct.Add(1)
+		if r.Header.Get("X-API-Key") != "bound-host" {
+			t.Errorf("key %s", r.Header.Get("X-API-Key"))
+		}
+		io.WriteString(w, "bulk")
+	}))
+	defer upstream.Close()
+	raw, _ := json.Marshal(map[string]string{"code": "communicator_response_too_large"})
+	c := testConnection(t, func(ws *websocket.Conn, f frame) {
+		_ = websocket.JSON.Send(ws, frame{ID: f.ID, Status: 502, Body: raw})
+	})
+	s := &server{cfg: &config.Config{Orchestrator: config.Orchestrator{BaseURL: upstream.URL, APIKey: "bound-host"}}, conn: c}
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, httptest.NewRequest("GET", "/skills/big", nil))
+	if w.Code != http.StatusOK || w.Body.String() != "bulk" || direct.Load() != 1 {
+		t.Fatalf("read not retried: status=%d body=%q direct=%d", w.Code, w.Body.String(), direct.Load())
+	}
+	posted := httptest.NewRecorder()
+	s.ServeHTTP(posted, httptest.NewRequest("POST", "/auth", strings.NewReader("candidate")))
+	if posted.Code != http.StatusBadGateway || direct.Load() != 1 {
+		t.Fatalf("auth write retried: status=%d direct=%d", posted.Code, direct.Load())
+	}
+	bootstrap := httptest.NewRecorder()
+	s.ServeHTTP(bootstrap, httptest.NewRequest("POST", "/sync/bootstrap/", strings.NewReader(`{"include_auth":false}`)))
+	if bootstrap.Code != http.StatusOK || bootstrap.Body.String() != "bulk" || direct.Load() != 2 {
+		t.Fatalf("bootstrap read not retried: status=%d body=%q direct=%d", bootstrap.Code, bootstrap.Body.String(), direct.Load())
 	}
 }

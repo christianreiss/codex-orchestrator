@@ -67,7 +67,13 @@ transports, forwarding headers, cookies and replacement host credentials.
 Path checks use the pathname the router dispatches, so a trailing slash cannot
 reach a denied stream or skip MCP credential pinning. A malformed or disallowed
 request frame gets its own `400 communicator_invalid_request` reply; only an
-authorization failure closes the shared connection.
+authorization failure closes the shared connection. A `host.*` event that
+names a numeric `id` or `host_id` invalidates only that host's connection.
+Events with no host id still reach every connection. A reply above 11 MiB
+returns `502 communicator_response_too_large` for that request. From cxx
+0.9.75 the local owner retries an idempotent read once on its HTTPS transfer
+and leaves writes such as `POST /auth` on the 502. The local allow-list strips
+trailing slashes the same way the API router does.
 
 Heartbeats report local client count and last successful synchronization every
 15 seconds. Server content invalidations contain only an event ID, never admin
@@ -96,14 +102,6 @@ or reached, `GET` of the signed `/wrapper/v2/config` (signature-verified) and of
 wrapper metadata/downloads (digest-verified) use direct HTTPS, so a broken owner
 can still learn a capability rollback and install a fixed release. HTTPS
 transfers never wait for the control connection to reconnect.
-
-A request frame that names itself but is rejected (path outside the allowlist: 400
-`communicator_path_forbidden`, never 403, which wrappers read as a credential verdict; body over the frame limit: 413
-`communicator_body_too_large`; malformed fields: 400 `communicator_invalid_request`) or
-whose reply exceeds 11 MiB (502 `communicator_response_too_large`; the wrapper reads
-frames up to 16 MiB of base64) gets a standard error frame and the connection stays up.
-Only frames with no usable identity, a missing handshake and revoked authorization close
-it. `host.*` invalidations are delivered only to the host they name.
 
 The reconnect delay grows from one to thirty seconds with jitter. While the connection
 is down, local requests wait for it only as long as is useful: up to 20 s for the first

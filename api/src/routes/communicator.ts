@@ -46,6 +46,10 @@ const requestSchema = z
     body: z.string().max(900_000).default(''),
   })
   .strict();
+// Base64 of a body above this size would exceed the wrapper's 16 MiB frame cap.
+// That one request gets 502 communicator_response_too_large and the socket stays up.
+const MAX_RESPONSE_BYTES = 11 * 1024 * 1024;
+
 const allowedHeaders = new Set([
   'authorization',
   'content-type',
@@ -62,20 +66,6 @@ const allowedHeaders = new Set([
   'mcp-protocol-version',
   'last-event-id',
 ]);
-
-// The wrapper reads a control frame with a 16 MiB payload cap. Base64 inflates the
-// body by a third, so a reply larger than this would make the wrapper drop the
-// shared connection (and every session multiplexed on it) instead of one request.
-const MAX_RESPONSE_BYTES = 11 * 1024 * 1024;
-
-function errorFrame(id: string, status: number, code: string, message: string) {
-  return {
-    id,
-    status,
-    headers: { 'content-type': 'application/json' },
-    body: Buffer.from(JSON.stringify({ status: 'error', message, code })).toString('base64'),
-  };
-}
 
 export interface CommunicatorView {
   host_id: number;
@@ -176,15 +166,13 @@ export async function registerCommunicatorRoutes(app: FastifyInstance, ctx: Rout
         )
           return;
         if (/^host\.daemon\.(?:changed|start_requested|stop_requested)$/.test(event.type)) return;
-        // A host event only changes content for the host it names; another host's
-        // lane change or admin edit must not make this host resynchronize.
-        if (
-          event.type.startsWith('host.') &&
-          typeof payload?.id === 'number' &&
-          hostId !== 0 &&
-          payload.id !== hostId
-        )
-          return;
+        // A named host event changes only that host. Another host's lane change or
+        // admin edit must not make this connection resynchronize. An event with no
+        // numeric id still reaches every connection.
+        if (event.type.startsWith('host.')) {
+          const named = payload?.id ?? payload?.host_id;
+          if (typeof named === 'number' && Number.isInteger(named) && hostId !== 0 && named !== hostId) return;
+        }
         if (
           /^(skill\.|agents\.|config\.|auth\.|accounts\.|host\.|engine\.|version|settings\.|claude_artifact\.)/.test(
             event.type,
@@ -310,24 +298,9 @@ export async function registerCommunicatorRoutes(app: FastifyInstance, ctx: Rout
             send({ type: 'heartbeat' });
             return;
           }
-          const checked = requestSchema.safeParse(parsed);
-          if (!checked.success) {
-            // A request that still names itself is answered, not punished: closing
-            // would fail every other session sharing this connection. A forbidden
-            // path is a 400, not a 403: wrappers read 401/403 as a credential or
-            // policy verdict and must never see one invented by the transport.
-            const id = z.string().uuid().safeParse(parsed?.id);
-            if (!id.success) throw new Error('Invalid communicator frame');
-            const issue = checked.error.issues[0];
-            const field = issue?.path[0];
-            if (field === 'path')
-              send(errorFrame(id.data, 400, 'communicator_path_forbidden', 'Path is not available through the communicator'));
-            else if (field === 'body' && issue?.code === 'too_big')
-              send(errorFrame(id.data, 413, 'communicator_body_too_large', 'Request body exceeds the communicator frame limit'));
-            else send(errorFrame(id.data, 400, 'communicator_invalid_request', 'Malformed communicator request'));
-            return;
-          }
-          const frame = checked.data;
+          if (parsed.type === 'request' && z.string().uuid().safeParse(parsed.id).success)
+            rejectable = parsed.id;
+          const frame = requestSchema.parse(parsed);
           if (inFlight >= 128) {
             send({ id: frame.id, status: 429, headers: {}, body: '', error: 'communicator_busy' });
             return;
@@ -398,6 +371,20 @@ export async function registerCommunicatorRoutes(app: FastifyInstance, ctx: Rout
             }
             const view = connections.get(connectionID);
             if (view) view.requests++;
+            if ((response.rawPayload?.length ?? 0) > MAX_RESPONSE_BYTES) {
+              send({
+                id: frame.id,
+                status: 502,
+                headers: { 'content-type': 'application/json' },
+                body: Buffer.from(
+                  JSON.stringify({
+                    code: 'communicator_response_too_large',
+                    message: 'Response exceeds the communicator frame limit',
+                  }),
+                ).toString('base64'),
+              });
+              return;
+            }
             const replyHeaders: Record<string, string> = {};
             for (const [key, value] of Object.entries(response.headers)) {
               if (
@@ -405,12 +392,6 @@ export async function registerCommunicatorRoutes(app: FastifyInstance, ctx: Rout
                 !['connection', 'transfer-encoding', 'content-length', 'set-cookie'].includes(key)
               )
                 replyHeaders[key] = String(value);
-            }
-            if (response.rawPayload.length > MAX_RESPONSE_BYTES) {
-              send(
-                errorFrame(frame.id, 502, 'communicator_response_too_large', 'Response exceeds the communicator frame limit'),
-              );
-              return;
             }
             send({
               id: frame.id,
