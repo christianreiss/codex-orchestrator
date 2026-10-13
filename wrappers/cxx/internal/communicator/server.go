@@ -370,7 +370,7 @@ func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	f := frame{Method: r.Method, Path: r.URL.RequestURI(), Headers: headers(r.Header), Body: body}
 	// Downloads/large attachments remain inside this process but use independent
 	// HTTP streams, keeping interactive control frames bounded.
-	if len(body) > maxFrameBody || strings.Contains(r.URL.Path, "/download") || strings.Contains(r.URL.Path, "/attachments/") || strings.HasSuffix(r.URL.Path, "/stream") {
+	if len(body) > maxFrameBody || strings.Contains(r.URL.Path, "/download") || strings.Contains(r.URL.Path, "/attachments/") || strings.HasSuffix(strings.TrimRight(r.URL.Path, "/"), "/stream") {
 		s.download(w, r, body)
 		return
 	}
