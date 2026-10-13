@@ -19,9 +19,17 @@ func TestDecideNamesAnUnresolvedUpload(t *testing.T) {
 	if got.Allowed {
 		t.Fatalf("an unresolved upload must refuse the launch, got reason %q", got.Reason)
 	}
-	for _, want := range []string{"upload", "no confirmed outcome", "pending-auth", "delete"} {
+	for _, want := range []string{"upload", "no confirmed outcome", "pending-auth", "cdx login", "explicitly", "intended one"} {
 		if !strings.Contains(strings.ToLower(got.Reason), want) {
 			t.Fatalf("reason %q lacks %q", got.Reason, want)
+		}
+	}
+	// Inspecting a digest or a timestamp is never an instruction to delete the marker, and
+	// there is no shortcut that clears it on the operator's behalf.
+	lower := strings.ToLower(got.Reason)
+	for _, banned := range []string{"then delete the marker", "compare this host", "force", "--clear"} {
+		if strings.Contains(lower, banned) {
+			t.Fatalf("reason %q must not suggest %q", got.Reason, banned)
 		}
 	}
 	if strings.Contains(got.Reason, "Auth unavailable") {
