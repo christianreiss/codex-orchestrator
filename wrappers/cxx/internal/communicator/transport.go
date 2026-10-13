@@ -472,6 +472,31 @@ func (s *server) writeUnavailable(w http.ResponseWriter, unknown bool) {
 	writeUnavailableCause(w, unknown, cause)
 }
 
+// writeControlUnavailable answers a request that never reached the control channel.
+// When the server refused this host's credentials at the handshake (invalid or
+// revoked key, IP binding, reverse DNS, expired temporary host) the answer is that
+// verdict with its real status and body, as direct HTTPS gave it: wrappers read
+// 401/403 as a credential verdict and a 503 as an outage to retry or to bridge with
+// cached auth, which would hide a revoked host. The request was never sent, so
+// replaying nothing is lost; any other failure stays a retryable 503.
+func (s *server) writeControlUnavailable(w http.ResponseWriter) {
+	s.mu.Lock()
+	refusal := s.refusal
+	s.mu.Unlock()
+	if refusal == nil {
+		s.writeUnavailable(w, false)
+		return
+	}
+	body := refusal.Body
+	if !json.Valid(body) {
+		body, _ = json.Marshal(map[string]any{"status": "error", "message": refusal.detail, "code": refusal.Code})
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("X-Cxx-Communicator-Refusal", "handshake")
+	w.WriteHeader(refusal.Status)
+	_, _ = w.Write(body)
+}
+
 // oneLine bounds a diagnostic to a single printable line.
 func oneLine(text string, limit int) string {
 	text = strings.Join(strings.Fields(text), " ")

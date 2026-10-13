@@ -128,9 +128,18 @@ Remote control of the owner process is negotiated, so old servers and old owners
 never meet a frame they do not know. A server that can stop an owner lists
 `control: ["terminate"]` in its `ready` frame. Only then does the owner send one
 `capabilities` frame (`terminate`, `pid`, `started_at`, `instance_id`, `runtime_id`), and only then does it honour
-`{type: "terminate", request_id, reason}`: it answers `terminate_ack` (`accepted`,
-`pid`) first, lets in-flight local requests drain for up to three seconds, and then
-ends through the same path as an idle exit (HTTP server, lock and socket closed). The
+`{type: "terminate", request_id, reason, owner_instance_id}`. The command is aimed at
+one process: `owner_instance_id` must equal the `instance_id` that owner announced, and
+a command for any other process is answered `terminate_ack` with `accepted: false,
+reason: "owner_mismatch"` and acted on by no one. The server likewise refuses an
+acknowledgement whose `instance_id` is not the process it addressed, and does not offer
+the control to an owner that announced no `instance_id`. An accepted command is answered
+`terminate_ack` (`request_id`, `instance_id`, `accepted`, `reason`, `pid`) within a
+bounded write (two seconds), a repeat of the same `request_id` is answered again but
+acted on once, and from that moment the owner admits no new local work (new requests
+get `503`; `/_comm/status` keeps answering). In-flight local requests are given up to
+three seconds to finish, the acknowledgement is allowed to leave the socket, and the
+owner ends through the same path as an idle exit (HTTP server, lock and socket closed). The
 `pid` and start time are the owner's own account; the server cannot observe them.
 `instance_id` is a UUID the owner generates at start, so the same value on a later
 connection proves the same process dialled again. `runtime_id` is a hash of the owner's
@@ -172,6 +181,21 @@ WebSocket library and records the server's own verdict in `last_error` (for exam
 IP)`), and local `503 communicator_unavailable` replies carry that text in `message`, so a
 wrapper prints the same actionable diagnosis it would over direct HTTPS (an IP binding
 to release, a revoked key, the capability switched off) instead of "API offline".
+
+A refusal that is a verdict on the host's own credentials keeps its status: `401`
+(`missing_api_key`, `invalid_api_key`, `ip_mismatch`, `reverse_dns_failed`, `host_expired`) and
+`403 host_<status>` are returned for a request that never reached the control channel with the
+server's own status and body, as direct HTTPS answered every route. The wrappers' clients return a
+4xx at once (no retry) and classify it as a verdict (a Grok session whose refresh gets a `401`
+ends, exactly as before the communicator); a `503` they retry for about a second and bridge with
+cached auth. Everything that is the channel being unavailable stays the retryable
+`503 communicator_unavailable`: `403 communicator_disabled`, the `api_disabled` kill switch, 5xx,
+a timeout, a dropped connection. The verdict describes only the last connection attempt; the next
+attempt that succeeds or fails for another reason clears it, and an unknown outcome (`409`) is
+never rewritten into a credential verdict. The local reply carries `X-Cxx-Communicator-Refusal:
+handshake`. The host-daemon channel is unaffected in behaviour: its WebSocket client reports every
+refused upgrade as "bad status" whatever the code, and the daemon retries with backoff either way
+(as it did over direct HTTPS), so there the verdict only reaches diagnostics.
 
 The reconnect delay grows from one to thirty seconds with jitter. A request that finds the
 connection down never sits through that backoff: it asks the connect loop to redial at
@@ -248,11 +272,16 @@ replayed. Sessions are stopped through their own contracts: cooperative close
 (`POST /admin/agent-sessions/{id}/close`), ending the server-side record
 (`…/close/force`, which does not signal the process) and, only for sessions a host
 daemon launched, a daemon stop (`POST /admin/daemon-sessions/{id}/stop`).
-`POST /admin/communicators/{id}/terminate` stops the owner *process* for an owner that
-announced the capability above, and reports `terminated` only after the owner's own
-acknowledgement followed by the closing of its connection (`acknowledged` while that
-connection is still open, `unacknowledged` when nothing answered); a surviving client
-restarts a new owner, which describes itself with a different pid.
+`POST /admin/communicators/{id}/terminate` asks the owner *process* to stop, for an owner that
+announced the capability above, and says only what the server observed: `acknowledged_closed`
+(the addressed process acknowledged, then its connection closed), `acknowledged` (acknowledged,
+connection still open when the wait ended), `refused` (declined, or the acknowledgement came from
+another process) and `unacknowledged` (nothing answered; the connection is left alone). None of
+these is a process exit: the server has no way to observe the process, and the console says so.
+Exit is verified where the process runs (the owner's lock and socket are released and its pid is
+gone). One `client_message_id` runs once even when two requests arrive together; the second
+receives the first's outcome with `replayed: true`. A surviving client restarts a new owner, which
+describes itself with a different pid and `instance_id`.
 
 The page links a disconnected connection to a later one only on that identity: `same_process`
 (the same `instance_id` dialled again) or `same_runtime` (a different process announcing the

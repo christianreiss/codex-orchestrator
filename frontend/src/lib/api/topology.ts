@@ -140,12 +140,17 @@ export interface DisconnectResult {
 }
 
 export interface TerminateResult {
-  /** What was observed. `terminated` needs the owner's acknowledgement AND its connection closing. */
-  outcome: "terminated" | "acknowledged" | "refused" | "unacknowledged";
+  /**
+   * What the server observed — never a process exit, which it cannot see.
+   * `acknowledged_closed`: the addressed owner process said it will stop, and its
+   * connection then closed. `acknowledged`: it said so but is still connected.
+   */
+  outcome: "acknowledged_closed" | "acknowledged" | "refused" | "unacknowledged";
   connection_id: string;
   host_id: number;
   username: string;
   version: string;
+  /** The owner's own account of itself; the server cannot observe a pid. */
   process: { pid: number | null; started_at: string | null };
   acknowledged: boolean;
   connection_closed: boolean;

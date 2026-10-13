@@ -43,7 +43,7 @@ func DialDaemon(ctx context.Context, base string) (*websocket.Conn, bool, error)
 func (s *server) daemon(w http.ResponseWriter, r *http.Request) {
 	c := s.waitConnection(r.Context())
 	if c == nil {
-		s.writeUnavailable(w, false)
+		s.writeControlUnavailable(w)
 		return
 	}
 	websocket.Handler(func(ws *websocket.Conn) {
