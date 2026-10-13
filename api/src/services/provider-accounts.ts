@@ -322,6 +322,22 @@ export class ProviderAccountsService {
     };
   }
 
+  /**
+   * Accounts a new lease could choose, with no reservation, refresh or credential
+   * read: the candidate filter of `acquire` (enabled, with a verified payload).
+   * Quota only ranks those candidates, it never empties the set.
+   */
+  async countLeasable(engine: Engine): Promise<number> {
+    const accounts = await this.db.select().from(providerAccounts).where(eq(providerAccounts.engine, engine));
+    let count = 0;
+    for (const a of accounts) {
+      if (a.state !== 'enabled' || !a.payloadId) continue;
+      const row = (await this.db.select().from(authPayloads).where(eq(authPayloads.id, a.payloadId)))[0];
+      if (row?.verificationState === 'verified') count++;
+    }
+    return count;
+  }
+
   async acquire(
     hostId: number,
     engine: Engine,

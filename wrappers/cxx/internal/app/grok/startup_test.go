@@ -341,11 +341,15 @@ func TestStartupMetadataLetsPoolChooseHealthyAccountAfterStaleBinding(t *testing
 func TestStatusAcceptsServerMetadataShape(t *testing.T) {
 	for _, tc := range []struct {
 		name, status, verification string
+		pool                       int
 		ok                         bool
 	}{
-		{"available_verified", "available", "verified", true},
-		{"available_unverified", "available", "failed", false},
-		{"missing", "missing", "unknown", false},
+		{"available_verified", "available", "verified", 0, true},
+		{"available_unverified", "available", "failed", 0, false},
+		{"missing", "missing", "unknown", 0, false},
+		// A launch leases from the pool, so an empty account-less head is no outage.
+		{"missing_head_leasable_pool", "missing", "unknown", 1, true},
+		{"failed_head_leasable_pool", "available", "failed", 2, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			in := startupFixture(t)
@@ -362,7 +366,7 @@ func TestStatusAcceptsServerMetadataShape(t *testing.T) {
 					t.Errorf("status made a non-metadata request: %s %v", r.URL.Path, body)
 				}
 				w.Header().Set("Content-Type", "application/json")
-				_ = json.NewEncoder(w).Encode(map[string]any{"account_pool": true, "metadata_only": true, "status": tc.status, "verification_state": tc.verification, "canonical_generation": 3})
+				_ = json.NewEncoder(w).Encode(map[string]any{"account_pool": true, "metadata_only": true, "status": tc.status, "verification_state": tc.verification, "canonical_generation": 3, "pool_verified_accounts": tc.pool})
 			}))
 			defer srv.Close()
 			client := &orchestrator.Client{BaseURL: srv.URL, HTTP: srv.Client()}
@@ -373,6 +377,11 @@ func TestStatusAcceptsServerMetadataShape(t *testing.T) {
 			}
 			if !tc.ok && (err == nil || !strings.Contains(out.String(), "auth=fail")) {
 				t.Fatalf("unusable login reported healthy: %v\n%s", err, out.String())
+			}
+			out.Reset()
+			err = status(context.Background(), in.Config, client, true, options{minimal: true}, &out)
+			if (err == nil) != tc.ok {
+				t.Fatalf("doctor verdict %v disagrees with status (want ok=%v):\n%s", err, tc.ok, out.String())
 			}
 		})
 	}

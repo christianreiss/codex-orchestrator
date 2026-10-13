@@ -585,6 +585,9 @@ async function handleRetrieve(
         canonical_generation: row?.generation ?? null,
         canonical_last_refresh: snapshot?.last_refresh ?? null,
         ...(snapshot ? grokProjectionMetadata(snapshot.auth) : {}),
+        // status/verification_state describe one head; a launch leases from the
+        // pool, so status also needs to know whether any account is leasable.
+        pool_verified_accounts: await new ProviderAccountsService(ctx.db, ctx.keyring).countLeasable(engine),
         usage: { supported: false },
       };
     }

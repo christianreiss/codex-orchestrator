@@ -65,7 +65,9 @@ host/version metadata, `account_pool:true`, `metadata_only:true`, stored
 `verification_state`, nullable `canonical_generation`/`canonical_last_refresh`,
 and `status:"available"|"missing"`. Stored credential metadata may also include
 `access_token_digest` and `expires_at`; no credential bytes are returned.
-`available` describes a stored payload, not a fresh provider validation. This path
+`available` describes a stored payload, not a fresh provider validation.
+`pool_verified_accounts` counts enabled accounts with a verified payload, the
+candidates `/auth/sessions` would choose from; it reserves nothing. This path
 does not call `ensureFresh`, contact xAI or acquire an account lease. Startup
 selects and acquires its actual account grant through `/auth/sessions`; doctor
 remains a metadata inspection. Normal host, engine and access checks still apply.

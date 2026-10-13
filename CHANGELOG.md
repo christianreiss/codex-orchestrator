@@ -1,6 +1,6 @@
 # 2026-10-13
 
-- `cgx status` and `cgx doctor` no longer report "Subscription auth unavailable; run `cgx login`" and exit 1 for a healthy Grok host. Both read the server's metadata-only `/auth` answer, whose `status` is `available` for a stored verified login, and the status screen accepted only the full-retrieve values (`valid`, `outdated`, ...). Launches were never affected because they display the leased grant. A missing or unverified login still fails.
+- `cgx status` and `cgx doctor` no longer report "Subscription auth unavailable; run `cgx login`" and exit 1 for a healthy Grok host. Both read the server's metadata-only `/auth` answer, whose `status` is `available` for a stored verified login, and the status screen accepted only the full-retrieve values (`valid`, `outdated`, ...). Launches were never affected because they display the leased grant. A missing or unverified login still fails. The metadata answer also carries `pool_verified_accounts`, the number of enabled accounts with a verified login that a launch could lease. Status and doctor therefore stay healthy when the account-less head is empty or paused but the pool can still serve a launch. Counting reserves no lease and reads no credential.
 
 - cxx 0.9.78 preserves numeric MCP IDs and result values when writing stdio replies, including integers beyond the exact `float64` range. Single and batch replies no longer round IDs after validating their correlation.
 
