@@ -41,6 +41,8 @@ type frame struct {
 	Control   []string `json:"control,omitempty"`
 	RequestID string   `json:"request_id,omitempty"`
 	Reason    string   `json:"reason,omitempty"`
+	// OwnerInstanceID names the owner process a `terminate` is meant for.
+	OwnerInstanceID string `json:"owner_instance_id,omitempty"`
 }
 
 type connection struct {
@@ -57,8 +59,11 @@ type connection struct {
 	authChanged   func(string, int64)
 	// onTerminate is set when this owner can be stopped remotely; control is
 	// true once the server announced that it may ask.
-	onTerminate func(string)
+	onTerminate func(reason string, acked <-chan struct{})
 	control     bool
+	// terminateSeen remembers request ids already answered, so a repeated
+	// `terminate` is answered again but stops nothing twice.
+	terminateSeen map[string]bool
 	// runtimeID names the local namespace this owner serves (see control.go).
 	runtimeID string
 }
