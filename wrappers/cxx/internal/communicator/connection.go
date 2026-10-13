@@ -59,6 +59,8 @@ type connection struct {
 	// true once the server announced that it may ask.
 	onTerminate func(string)
 	control     bool
+	// runtimeID names the local namespace this owner serves (see control.go).
+	runtimeID string
 }
 
 func directTransport(cfg *config.Config) (*http.Transport, error) {

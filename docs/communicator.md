@@ -37,6 +37,14 @@ owner. The last lease starts a five-minute idle period, after which the owner
 closes its socket and exits (the next managed call starts a new one). Status checks do not
 extend it. A connected persistent host daemon holds a lease too.
 
+From cxx 0.9.77, reconnect and owner replacement are independent of the engine
+whose config first started the owner. If that file is missing, invalid, suspended
+or disables the transport, another signed config from active sync scopes or the
+user's Codex/Claude/Grok config paths can supply transport policy. Candidates must
+match the original host ID, FQDN and server URL. HTTPS transfers use the selected
+policy as well. Only an explicit verified rollback permits HTTPS fallback; missing
+files and foreign configs do not.
+
 A symlinked, missing or non-0700 logind directory is never trusted. An explicit
 custom `XDG_RUNTIME_DIR` is a deliberately separate namespace (isolated tests,
 containers) with its own owner and fences. Upgrading from a release before 0.9.75 does
@@ -82,14 +90,23 @@ use the same transport and retain their engine/session identities. The dispatche
 runs requests through the existing Fastify routes and hooks with the verified
 remote address. It rejects admin/provider routes, path traversal, recursive
 transports, forwarding headers, cookies and replacement host credentials.
-Path checks use the pathname the router dispatches, so a trailing slash cannot
+The server also refuses, before dispatch, every route the owner sends over its own HTTPS
+stream (wrapper artifacts under `/wrapper/v2/bin/`, `/wrapper/v2/download*`,
+`/wrapper/download*`, any `/download` or `/attachments/` path, watchdog and connect
+paths) on every equivalent path form, so the router never buffers a binary or attachment
+for a control frame. Path checks use the pathname the router dispatches, so a trailing slash cannot
 reach a denied stream or skip MCP credential pinning. A malformed or disallowed
 request frame gets its own `400 communicator_invalid_request` reply; only an
 authorization failure closes the shared connection. A `host.*` event that
 names a numeric `id` or `host_id` invalidates only that host's connection.
-Events with no host id still reach every connection. A reply above 11 MiB
-returns `502 communicator_response_too_large` for that request. From cxx
-0.9.75 the local owner retries an idempotent read once on its HTTPS transfer.
+Events with no host id still reach every connection. A reply above 11 MiB, or
+whose whole encoded frame (base64 body, headers, JSON) exceeds 15 MiB, is answered for
+that request only and the socket stays open: `502 communicator_response_too_large` for a
+repeatable read, `409 communicator_outcome_unknown` for anything that may have changed
+state, since the operation has already run. The same rule covers a fault after the
+request was handed to the router (a write is reported as unknown, never as a retryable
+5xx) and topology bookkeeping can no longer replace the reply of a request that already
+ran. From cxx 0.9.75 the local owner retries an idempotent read once on its HTTPS transfer.
 POST bootstrap qualifies only with explicit `include_auth:false`, no auth candidate
 and no session admission. Completed operations that cannot safely be repeated,
 including auth stores and MCP calls, return `409 communicator_outcome_unknown`
@@ -99,11 +116,16 @@ trailing slashes the same way the API router does.
 Remote control of the owner process is negotiated, so old servers and old owners
 never meet a frame they do not know. A server that can stop an owner lists
 `control: ["terminate"]` in its `ready` frame. Only then does the owner send one
-`capabilities` frame (`terminate`, `pid`, `started_at`), and only then does it honour
+`capabilities` frame (`terminate`, `pid`, `started_at`, `instance_id`, `runtime_id`), and only then does it honour
 `{type: "terminate", request_id, reason}`: it answers `terminate_ack` (`accepted`,
 `pid`) first, lets in-flight local requests drain for up to three seconds, and then
 ends through the same path as an idle exit (HTTP server, lock and socket closed). The
 `pid` and start time are the owner's own account; the server cannot observe them.
+`instance_id` is a UUID the owner generates at start, so the same value on a later
+connection proves the same process dialled again. `runtime_id` is a hash of the owner's
+local socket path, so the same value means the same local namespace is served: a
+different process announcing the runtime of a disconnected owner is its replacement,
+while owners in separate runtime roots (which can coexist for one OS user) differ.
 Heartbeats report local client count and last successful synchronization every
 15 seconds. Server content invalidations contain only an event ID, never admin
 payloads or credentials. A multiplexed `daemon` channel reuses the existing
@@ -206,7 +228,14 @@ daemon launched, a daemon stop (`POST /admin/daemon-sessions/{id}/stop`).
 announced the capability above, and reports `terminated` only after the owner's own
 acknowledgement followed by the closing of its connection (`acknowledged` while that
 connection is still open, `unacknowledged` when nothing answered); a surviving client
-restarts a new owner, which describes itself with a different pid. Every
+restarts a new owner, which describes itself with a different pid.
+
+The page links a disconnected connection to a later one only on that identity: `same_process`
+(the same `instance_id` dialled again) or `same_runtime` (a different process announcing the
+same `runtime_id`, with the same host and OS user). A connection from the same host and user
+without a matching identity is listed as an unverified candidate, never as a successor,
+because separate runtime roots can host distinct owners for one user; an owner that predates
+the identity fields can only ever produce candidates. Every
 control requires `agent_portal.manage` (or `agent_messaging.manage` for the daemon
 stop), which stay enforced under `compatible` authorization.
 

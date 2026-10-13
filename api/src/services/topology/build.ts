@@ -9,6 +9,42 @@ import type {
   TopologySnapshot,
 } from './types.js';
 
+const shortHostName = (fqdn: string) => fqdn.split('.')[0] || fqdn;
+
+/**
+ * `user@host`, made unique by the owner's runtime tag where the same name would
+ * otherwise cover different owners. A base name is ambiguous when several live
+ * connections share it, or when it has been worn by owners of more than one
+ * runtime (a departed one included, so a ghost reads like the node it was).
+ * A lone owner restarting in its own runtime stays plain: same name, same owner.
+ * An owner that never named its runtime falls back to the connection id.
+ */
+function communicatorLabels(
+  live: ReadonlyArray<{ id: string; base: string; tag: string | null }>,
+  departed: ReadonlyArray<{ id: string; base: string; tag: string | null }>,
+): Map<string, string> {
+  const labels = new Map<string, string>();
+  const bases = new Set([...live, ...departed].map((item) => item.base));
+  for (const base of bases) {
+    const mine = live.filter((item) => item.base === base);
+    const gone = departed.filter((item) => item.base === base);
+    const tags = new Set([...mine, ...gone].map((item) => item.tag).filter((tag): tag is string => tag !== null));
+    if (mine.length <= 1 && tags.size <= 1) {
+      for (const item of [...mine, ...gone]) labels.set(item.id, base);
+      continue;
+    }
+    const taken = new Set<string>();
+    for (const item of mine) {
+      let tag = item.tag ?? item.id.slice(0, 4);
+      if (taken.has(tag)) tag = item.id.slice(0, 4);
+      taken.add(tag);
+      labels.set(item.id, `${base} · ${tag}`);
+    }
+    for (const item of gone) labels.set(item.id, `${base} · ${item.tag ?? item.id.slice(0, 4)}`);
+  }
+  return labels;
+}
+
 /** A communicator that has not sent any frame for this long is shown as stale. */
 export const COMMUNICATOR_STALE_AFTER_MS = 45_000;
 /** The fields of a portal session projection row this module reads. */
@@ -179,6 +215,11 @@ export function buildTopology(input: TopologyInputs): TopologySnapshot {
       a.id.localeCompare(b.id),
   );
 
+  const baseName = (username: string, hostId: number) => `${username}@${shortHostName(input.hostNames.get(hostId) ?? `host ${hostId}`)}`;
+  const labels = communicatorLabels(
+    input.communicators.map((c) => ({ id: c.view.id, base: baseName(c.view.username, c.view.host_id), tag: c.capabilities.runtime_id?.slice(0, 4) ?? null })),
+    input.tombstones.slice(0, 12).map((t) => ({ id: t.id, base: baseName(t.username, t.host_id), tag: t.runtime_id?.slice(0, 4) ?? null })),
+  );
   const communicators: TopologyCommunicatorNode[] = input.communicators.map((comm) => {
     const view = comm.view;
     const scopes = Array.isArray(view.sync_scopes) ? (view.sync_scopes as Array<Record<string, unknown>>) : [];
@@ -191,6 +232,7 @@ export function buildTopology(input: TopologyInputs): TopologySnapshot {
     return {
       kind: 'communicator',
       id: view.id,
+      label: labels.get(view.id) ?? baseName(view.username, view.host_id),
       host_id: view.host_id,
       host: input.hostNames.get(view.host_id) ?? `host ${view.host_id}`,
       username: view.username,
@@ -208,7 +250,15 @@ export function buildTopology(input: TopologyInputs): TopologySnapshot {
       remote_address: comm.remote_address,
       daemon_attached: comm.daemon_attached,
       agent_ids: children.map((c) => c.id),
-      process: comm.capabilities.pid === null ? null : { pid: comm.capabilities.pid, started_at: comm.capabilities.started_at },
+      process:
+        comm.capabilities.pid === null
+          ? null
+          : {
+              pid: comm.capabilities.pid,
+              started_at: comm.capabilities.started_at,
+              instance_id: comm.capabilities.instance_id,
+              runtime_id: comm.capabilities.runtime_id,
+            },
       can_terminate: comm.capabilities.terminate,
     };
   });
@@ -222,6 +272,7 @@ export function buildTopology(input: TopologyInputs): TopologySnapshot {
 
   const recent: TopologyDisconnect[] = input.tombstones.slice(0, 12).map((t) => ({
     id: t.id,
+    label: labels.get(t.id) ?? baseName(t.username, t.host_id),
     host_id: t.host_id,
     host: input.hostNames.get(t.host_id) ?? `host ${t.host_id}`,
     username: t.username,
@@ -233,6 +284,8 @@ export function buildTopology(input: TopologyInputs): TopologySnapshot {
     pid: t.pid,
     affected_agent_ids: t.session_ids,
     successor_id: t.successor_id,
+    successor_basis: t.successor_basis,
+    candidate_ids: t.candidate_ids,
   }));
 
   const count = (state: AssociationState) => agents.filter((a) => a.association.state === state).length;

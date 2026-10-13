@@ -22,6 +22,11 @@ export interface TopologyCommunicatorNode {
   kind: 'communicator';
   /** Server-generated per-socket UUID. A reconnect is a new node. */
   id: string;
+  /**
+   * `user@host`, with the runtime tag appended when several connections would
+   * otherwise read alike (one user can run owners in separate runtime roots).
+   */
+  label: string;
   host_id: number;
   host: string;
   username: string;
@@ -47,7 +52,7 @@ export interface TopologyCommunicatorNode {
    * The owner process's own account of itself (pid, start time), sent once to a
    * server that announced control. Null for an owner that never sent one.
    */
-  process: { pid: number; started_at: string | null } | null;
+  process: { pid: number; started_at: string | null; instance_id: string | null; runtime_id: string | null } | null;
   /** True only when that owner said it can be stopped remotely. */
   can_terminate: boolean;
 }
@@ -106,6 +111,7 @@ export interface TopologyAgentNode {
 
 export interface TopologyDisconnect {
   id: string;
+  label: string;
   host_id: number;
   host: string;
   username: string;
@@ -117,8 +123,15 @@ export interface TopologyDisconnect {
   /** The owner's self-reported pid at the time, when it reported one. */
   pid: number | null;
   affected_agent_ids: string[];
-  /** Id of the connection that took its place, once one has connected. */
+  /**
+   * Id of the connection that took over, and only on proof: `same_process` (the
+   * same owner process dialled again) or `same_runtime` (a new process serving
+   * the same local namespace). Null when nothing proves it.
+   */
   successor_id: string | null;
+  successor_basis: 'same_process' | 'same_runtime' | null;
+  /** Connections from the same host and user that may or may not be it. Unverified. */
+  candidate_ids: string[];
 }
 
 export interface TopologySnapshot {

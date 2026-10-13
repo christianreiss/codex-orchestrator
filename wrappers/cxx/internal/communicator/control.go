@@ -1,9 +1,13 @@
 package communicator
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 // Remote control of the owner process by the server it is connected to.
@@ -31,6 +35,19 @@ var terminateDrain = 3 * time.Second
 
 var processStarted = time.Now().UTC()
 
+// processInstance names this owner process for as long as it runs. The server
+// uses it to tell "the same owner dialled again" from "another owner".
+var processInstance = uuid.NewString()
+
+// runtimeIdentity names the local namespace an owner serves: the hash of its
+// Unix socket path. Every owner that answers the same local clients has the same
+// one (a replacement started after this one stops included), while owners in
+// separate runtime roots, which may run side by side for one user, differ.
+func runtimeIdentity(socket string) string {
+	sum := sha256.Sum256([]byte(socket))
+	return hex.EncodeToString(sum[:8])
+}
+
 func announces(control []string, name string) bool {
 	for _, c := range control {
 		if c == name {
@@ -43,10 +60,12 @@ func announces(control []string, name string) bool {
 // announceCapabilities tells the server what this owner can be asked to do.
 func (c *connection) announceCapabilities() {
 	_ = c.send(map[string]any{
-		"type":       "capabilities",
-		"terminate":  c.onTerminate != nil,
-		"pid":        os.Getpid(),
-		"started_at": processStarted.Format(time.RFC3339),
+		"type":        "capabilities",
+		"terminate":   c.onTerminate != nil,
+		"pid":         os.Getpid(),
+		"started_at":  processStarted.Format(time.RFC3339),
+		"instance_id": processInstance,
+		"runtime_id":  c.runtimeID,
 	})
 }
 

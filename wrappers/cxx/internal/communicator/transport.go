@@ -17,6 +17,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"syscall"
@@ -40,6 +41,7 @@ type endpoint struct {
 	once               sync.Once
 	leaseCancel        context.CancelFunc
 	setupErr           error
+	anchor             *config.Config
 }
 
 // sessionRuntimeRoot is the logind runtime directory that XDG_RUNTIME_DIR
@@ -143,7 +145,7 @@ func Configure(ctx context.Context) {
 		base := strings.TrimRight(cfg.Orchestrator.BaseURL, "/")
 		// A signed enabled capability remains registered even if local socket
 		// setup fails. Otherwise Wrap would silently send the request directly.
-		registry.LoadOrStore(base, &endpoint{base: base, path: path, socket: socket, setupErr: err, syncProtocol: cfg.Orchestrator.CommunicatorSyncProtocol})
+		registry.LoadOrStore(base, &endpoint{base: base, path: path, socket: socket, setupErr: err, syncProtocol: cfg.Orchestrator.CommunicatorSyncProtocol, anchor: cfg})
 	}
 }
 
@@ -251,7 +253,24 @@ func (ep *endpoint) ensure(ctx context.Context) error {
 	}
 	ep.mu.Lock()
 	path := ep.path
+	anchor := ep.anchor
+	paths := make([]string, 0, len(ep.jobs))
+	for _, job := range ep.jobs {
+		paths = append(paths, job.Config)
+	}
 	ep.mu.Unlock()
+	if anchor != nil {
+		key, err := signing.PublicKey()
+		if err != nil {
+			return err
+		}
+		sort.Strings(paths)
+		cfg, err := selectSignedConfig(anchor, paths, key)
+		if err != nil {
+			return err
+		}
+		path = cfg.SourcePath()
+	}
 	cmd := exec.Command(exe, "communicator", "serve", "--config", path)
 	cmd.Env = communicatorEnvironment(os.Environ())
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
