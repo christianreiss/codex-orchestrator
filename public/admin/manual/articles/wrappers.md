@@ -22,6 +22,29 @@ installer does **not** itself `exec` the wrapper. A separate, shorter
 pre-v2 shell-era hosts: it performs the same config-and-binary fetch, then
 `exec`s `cxx <engine>` with the original argv.
 
+## Quick launch with `cxx`
+
+Run `cxx` without arguments in a terminal to choose an engine, model and reasoning
+level. The Obsidian compass (wrapper 0.9.70) shows Codex on the left, Claude on the
+right and Grok below, filtered to the engines assigned to this host. One engine
+opens directly to its model selection. Dark cards, highlighted paths and a slowly
+moving light edge identify the active engine; small terminals use a compact view.
+
+Use the indicated direction to open an engine, then `↑`/`↓` for its model and
+`←`/`→` for reasoning effort. `Enter` starts a chat, `c` continues the latest
+session, and `r` opens the native resume picker for Codex or Claude. `Esc` returns
+to the compass; `q` quits. Input works immediately, including during transitions.
+The last choice is remembered for the next launch.
+
+Weekly bars show cached **used** quota for Codex and Claude, without fetching
+anything. Observations older than 30 minutes say `stale`; missing or reset data
+has no bar. Grok has no weekly quota bar. Suspended or unavailable engines show
+why they cannot start.
+
+Set `CXX_REDUCED_MOTION=1 cxx` for a still interface. `NO_COLOR=1 cxx` keeps the
+selection markers without color. Minimal/ASCII output remains available; none of
+these presentation options changes authentication, quotas or session handling.
+
 ## What lives where
 
 - **Go sources** — `wrappers/cxx/cmd/cxx` plus common and persona-specific

@@ -808,6 +808,21 @@ TTYs, `TERM` is not `dumb`) opens a full-screen picker instead of printing usage
 Everywhere else (pipes, scripts, CI, no installed engine config) it keeps the old
 behaviour: usage on stderr, exit 2.
 
+- **Obsidian presentation (cxx 0.9.70).** Unicode terminals at 76 columns by
+  23 rows or larger show dark engine cards, directional connecting paths and
+  a marked active engine. Model cards keep the selected row visible and window
+  effort segments around the selected value. Smaller terminals and ASCII/minimal
+  output use a compact viewport with the same keys. Layout uses terminal cell
+  widths and recalculates on resize without changing the selection.
+  Cached weekly usage is also drawn as a bar where space permits; stale/reset
+  semantics remain unchanged, and the Grok card shows no weekly quota.
+  Color depth follows terminal capabilities. `NO_COLOR` keeps structural selection
+  markers without colors; minimal/ASCII output has no decorative animation.
+  Transitions last at most six frames (about 200 ms, 30 fps); the active top edge
+  has a slow traveling highlight while idle (at most 12 fps). Input, including
+  launch and cancellation, is handled immediately. `CXX_REDUCED_MOTION=1`
+  disables all selector animation without changing the layout. This variable is
+  local to the selector and is not part of the signed config or launch arguments.
 - **Engines.** An engine appears when its own signed config verifies and assigns
   it. They sit on a compass in fixed order: Codex left (`←`), Claude right (`→`),
   Grok below (`↓`), filtered to the engines present, so two engines use left and

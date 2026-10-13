@@ -187,7 +187,7 @@ func TestDisabledEngineCannotLaunch(t *testing.T) {
 }
 
 func TestAnimationFramesComplete(t *testing.T) {
-	p := newPicker([]Engine{codexEngine(), claudeEngine()}, nil, terminalui.Caps{IsTTY: true})
+	p := newPicker([]Engine{codexEngine(), claudeEngine()}, nil, terminalui.Caps{IsTTY: true, UTF8: true})
 	p.Update(tea.KeyPressMsg{Code: tea.KeyLeft})
 	if p.frame != 0 {
 		t.Fatalf("frame = %d after entering grid, want 0", p.frame)

@@ -33,19 +33,25 @@ const (
 // Palette is the resolved ANSI colour table. All fields are valid escape
 // strings (or empty when colour is disabled).
 type Palette struct {
-	Bold      string
-	Dim       string
-	Reset     string
-	Green     string
-	Yellow    string
-	Orange    string
-	Pink      string
-	Violet    string
-	Cyan      string
-	Blue      string
-	Magenta   string
-	Red       string
-	ClearLine string
+	Canvas        string
+	Shadow        string
+	Surface       string
+	SurfaceActive string
+	Text          string
+	Border        string
+	Bold          string
+	Dim           string
+	Reset         string
+	Green         string
+	Yellow        string
+	Orange        string
+	Pink          string
+	Violet        string
+	Cyan          string
+	Blue          string
+	Magenta       string
+	Red           string
+	ClearLine     string
 }
 
 // Caps describes terminal capabilities relevant to rendering.
@@ -213,7 +219,11 @@ func colourProfile() colorprofile.Profile {
 
 func richPalette(p colorprofile.Profile) Palette {
 	fg := func(hex string) string { return sgrForeground(p, lipgloss.Color(hex)) }
+	bg := func(hex string) string { return ansi.Style{}.BackgroundColor(p.Convert(lipgloss.Color(hex))).String() }
 	return Palette{
+		Canvas: bg("#0B0E14"), Shadow: fg("#05070B"),
+		Surface: bg("#141820"), SurfaceActive: bg("#252B38"),
+		Text: fg("#E5E9F0"), Border: fg("#485367"),
 		Bold:      "\033[1m",
 		Dim:       fg(hexMuted),
 		Reset:     "\033[0m",
