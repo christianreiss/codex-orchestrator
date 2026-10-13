@@ -147,7 +147,13 @@ func TestSocketDirectoryIsolation(t *testing.T) {
 
 // A launcher that scrubs XDG_RUNTIME_DIR must reach the same owner socket.
 func TestSocketPathIgnoresMissingRuntimeEnvironment(t *testing.T) {
-	session := t.TempDir()
+	// A short root: a long t.TempDir() would legitimately trigger the
+	// socket-length fallback and make the three results indistinguishable.
+	session, err := os.MkdirTemp("", "cc-sess-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(session) })
 	os.Chmod(session, 0700)
 	previous := sessionRuntimeRoot
 	sessionRuntimeRoot = func() string { return session }

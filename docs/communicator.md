@@ -9,8 +9,12 @@ Provider inference still uses each native client's original network path.
 Enable `CXX_COMMUNICATOR_ENABLED=true` in the API environment and recreate the API.
 The signed wrapper config then includes `orchestrator.communicator_protocol: 1`.
 Old wrappers ignore this optional field. Managed MCP rendering changes to
-`cxx communicator mcp <engine>` only once that engine reports wrapper 0.9.71 or
-newer. Existing tool names, arguments, results and engine-specific MCP credentials
+`cxx communicator mcp <engine>` only once that engine reports a cxx release
+version of 0.9.71 or newer. The reported string has to match a bakery release
+(optional leading `v`, optional prerelease or build). A date-versioned shell
+wrapper such as `2025.11.03` or `2025.11.3`, `dev`, and any other non-release
+stay on the HTTPS MCP endpoint. `v0.1.0` is a real version and stays on HTTPS
+because it is older than 0.9.71. Existing tool names, arguments, results and engine-specific MCP credentials
 remain intact. With the capability off, the stdio adapter uses the ordinary HTTPS
 MCP endpoint.
 
@@ -22,7 +26,11 @@ live server connections and their users, versions and sync timestamps.
 The Unix socket lives in a mode-0700 directory below `XDG_RUNTIME_DIR`. When a
 launcher drops that variable (Codex MCP servers, cron), the user's logind
 `/run/user/<uid>` directory is used if present, otherwise a private
-`/tmp/cxx-<uid>` directory, so every process elects the same owner. Socket mode is 0600. A filesystem lock elects
+`/tmp/cxx-<uid>` directory, so every process elects the same owner. A runtime root
+deep enough to exceed the platform's socket-path limit (kept under 100 bytes) falls
+back to `/tmp/cxx-<uid>`, while an unsafe root is refused. The owner's startup errors
+go to `serve.log` in that directory and are included in the error a managed command
+prints. Socket mode is 0600. A filesystem lock elects
 one owner; only that owner removes a stale socket. No TCP listener is exposed.
 Each process holds a local streaming lease; a surviving client restarts a crashed
 owner. The last lease starts a five-minute idle period. Status checks do not
@@ -99,7 +107,12 @@ wrapper metadata/downloads (digest-verified) use direct HTTPS, so a broken owner
 can still learn a capability rollback and install a fixed release. HTTPS
 transfers never wait for the control connection to reconnect.
 
-The reconnect delay grows from one to thirty seconds with jitter. Pending writes
+The reconnect delay grows from one to thirty seconds with jitter. While the connection
+is down, local requests wait for it only as long as is useful: up to 20 s for the first
+connect, 1.5 s after one failed attempt, and not at all from the second consecutive
+failure, when they receive `503 communicator_unavailable` immediately (a definitive
+"not sent", never "outcome unknown"). That keeps an outage as cheap as direct HTTPS and
+leaves no pending-auth marker behind. Pending writes
 whose replies are lost return `communicator_outcome_unknown` with HTTP 409 so
 existing retry loops do not repeat them. Durable message claim IDs and explicit
 work outcomes keep their existing retry contracts. A failed connection alone

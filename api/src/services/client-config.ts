@@ -62,7 +62,7 @@ import {
 } from './config-normalizer.js';
 import { ENGINE_CLAUDE, ENGINE_CODEX, ENGINE_GROK, ENGINE_COMMANDS, type Engine } from '../util/engine.js';
 import { GROK_DEFAULT_MODEL, GROK_DEFAULT_CONTEXT_WINDOW, GROK_MODEL_DEFAULT_REASONING_EFFORTS, normalizeGrokContextWindow, normalizeGrokEffort, normalizeGrokModel } from './grok-models.js';
-import { versionCompare } from './wrapper-bin-registry.js';
+import { isSafeVersion, versionCompare } from './wrapper-bin-registry.js';
 import {
   AGENT_MESSAGING_TOOLS,
   CLAUDE_AGENT_MESSAGING_SERVER,
@@ -768,6 +768,21 @@ function applyHostModelOverrides(
   return out;
 }
 
+const COMMUNICATOR_MCP_MIN_WRAPPER = '0.9.71';
+
+// versionCompare is intentionally loose. A legacy shell wrapper reports a
+// calendar date (`2025.11.03`) or `dev`, and those must not look newer than
+// cxx 0.9.71. Only a bakery release qualifies. A year-sized major is still a
+// date when the day is not zero-padded (`2025.11.3`).
+function communicatorWrapperReady(version: string | null | undefined): boolean {
+  const trimmed = (version ?? '').trim();
+  if (!isSafeVersion(trimmed)) return false;
+  const comparable = trimmed.replace(/^v/, '').split('+')[0] ?? '';
+  const major = Number(comparable.split('.')[0]);
+  if (!Number.isInteger(major) || major > 99) return false;
+  return versionCompare(comparable, COMMUNICATOR_MCP_MIN_WRAPPER) >= 0;
+}
+
 function injectManagedMcp(
   settings: NormalizedSettings,
   opts: {
@@ -796,7 +811,7 @@ function injectManagedMcp(
       const name = ENGINE_COMMANDS[opts.engine];
       const wrapperVersion = opts.engine === ENGINE_CLAUDE ? opts.host?.claudeWrapperVersion
         : opts.engine === ENGINE_GROK ? opts.host?.grokWrapperVersion : opts.host?.wrapperVersion;
-      const communicator = Boolean(wrapperVersion && versionCompare(wrapperVersion, '0.9.71') >= 0);
+      const communicator = communicatorWrapperReady(wrapperVersion);
       managedEntries.push(communicator ? {
         name, command: 'cxx', args: ['communicator', 'mcp', opts.engine],
         env: { CXX_MCP_BEARER: bearerToken }, startup_timeout_sec: 30,

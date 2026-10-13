@@ -1011,4 +1011,42 @@ describe('managed MCP communicator migration', () => {
     const legacy = renderTomlForHost({ ...options, host: { ...host as object, wrapperVersion: '0.9.70', claudeWrapperVersion: '0.9.70', grokWrapperVersion: '0.9.70' } as never });
     expect(legacy.content).toContain('https://orch.example/mcp');
   });
+
+  it.each(['2025.11.03', '2025.11.3', 'dev', 'v0.1.0', 'codex-wrapper', 'test', ''])(
+    'keeps HTTPS MCP for non-release wrapper %j',
+    (wrapperVersion) => {
+      const host = {
+        id: 7,
+        fqdn: 'host.example',
+        secure: 1,
+        wrapperVersion,
+        claudeWrapperVersion: wrapperVersion,
+        grokWrapperVersion: wrapperVersion,
+      } as never;
+      const options = { settings: { orchestrator_mcp_enabled: true }, host, baseUrl: 'https://orch.example', apiKey: 'fixture-key', engine: 'codex' as const };
+      const toml = renderTomlForHost(options);
+      expect(toml.content).toContain('https://orch.example/mcp');
+      expect(toml.content).not.toContain('communicator');
+      const claude = renderClaudeSettingsPartialForHost({ ...options, engine: 'claude' });
+      expect((claude.partial.mcpServers as Record<string, { command?: string; url?: string }>).clx).toMatchObject({ url: 'https://orch.example/mcp' });
+      const grok = renderTomlForHost({ ...options, engine: 'grok' });
+      expect(grok.content).toContain('https://orch.example/mcp');
+      expect(grok.content).not.toContain('communicator');
+    },
+  );
+
+  it('accepts a v-prefixed release and a newer prerelease, and rejects 0.9.71-rc.1', () => {
+    const base = { id: 7, fqdn: 'host.example', secure: 1 } as const;
+    const render = (wrapperVersion: string) => renderTomlForHost({
+      settings: { orchestrator_mcp_enabled: true },
+      host: { ...base, wrapperVersion, claudeWrapperVersion: wrapperVersion, grokWrapperVersion: wrapperVersion } as never,
+      baseUrl: 'https://orch.example',
+      apiKey: 'fixture-key',
+      engine: 'codex',
+    }).content;
+    expect(render('v0.9.71')).toContain('communicator');
+    expect(render('0.9.72-rc.1')).toContain('communicator');
+    expect(render('0.9.71-rc.1')).toContain('https://orch.example/mcp');
+    expect(render('0.9.71-rc.1')).not.toContain('communicator');
+  });
 });
