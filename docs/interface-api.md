@@ -2347,6 +2347,12 @@ contracts. See [communicator protocol, lifecycle and rollout](communicator.md).
 
 See [CoCo Communicator](communicator.md) for the local socket, reconnect and rollout contract.
 
+From cxx 0.9.74, communicator HTTPS transfers use the signed host key and remove
+cookies and forwarding headers. Large `POST /mcp` requests additionally carry
+`X-Cxx-Communicator: 1`: their bearer must resolve to the accompanying host key's
+host and cannot grant operator capability; mismatches return HTTP 401 with
+`communicator_mcp_host_mismatch`. Ordinary MCP credential resolution is unchanged.
+
 
 ### Communicator sync ownership
 

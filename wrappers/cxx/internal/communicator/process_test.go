@@ -11,6 +11,7 @@ import (
 	"encoding/pem"
 	"fmt"
 	"io"
+	"net/http"
 	"net/http/httptest"
 	"os"
 	"os/exec"
@@ -55,7 +56,8 @@ func TestProcessesShareConnectionAndRecover(t *testing.T) {
 	var ambiguousWrites atomic.Int32
 	var activeMu sync.Mutex
 	var active *websocket.Conn
-	upstream := httptest.NewServer(websocket.Handler(func(ws *websocket.Conn) {
+	var directMCP atomic.Int32
+	remoteSocket := websocket.Handler(func(ws *websocket.Conn) {
 		count := connected.Add(1)
 		defer connected.Add(-1)
 		total.Add(1)
@@ -96,20 +98,47 @@ func TestProcessesShareConnectionAndRecover(t *testing.T) {
 				}
 			}
 		}
+	})
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/mcp" {
+			directMCP.Add(1)
+			io.WriteString(w, `{"jsonrpc":"2.0","id":1,"result":{"engine":"codex"}}`)
+			return
+		}
+		if r.URL.Path == "/wrapper/v2/download" {
+			io.WriteString(w, r.Header.Get("X-API-Key"))
+			return
+		}
+		remoteSocket.ServeHTTP(w, r)
 	}))
 	defer upstream.Close()
 	env := append(os.Environ(), "XDG_RUNTIME_DIR="+runtimeRoot, "CXX_MCP_BEARER=fixture")
+	configs := map[string]config.Config{}
 	for _, engine := range []string{"codex", "claude", "grok"} {
 		cfg := config.Config{SchemaVersion: 1, Engine: engine, IssuedAt: "2026-10-13T00:00:00Z", Orchestrator: config.Orchestrator{BaseURL: upstream.URL, APIKey: "fixture-host-key", InstallationID: "fixture", CommunicatorProtocol: 1}, Host: config.Host{ID: 1, FQDN: "fixture.example", Secure: true}, Wrapper: config.Wrapper{Version: "0.9.71", Track: "stable", BinaryURL: upstream.URL + "/download", BinarySHA256: strings.Repeat("0", 64)}}
 		path := filepath.Join(root, engine+".json")
 		raw, _ := json.Marshal(cfg)
 		os.WriteFile(path, raw, 0600)
 		os.WriteFile(path+".sig", ed25519.Sign(priv, raw), 0600)
+		configs[path] = cfg
 		if _, err := loadSigned(path, pub); err != nil {
 			t.Fatalf("%s first start: %v", engine, err)
 		}
 		name := map[string]string{"codex": "CDX_CONFIG_PATH", "claude": "CLX_CONFIG_PATH", "grok": "CGX_CONFIG_PATH"}[engine]
 		env = append(env, name+"="+path)
+	}
+	// An unsafe local runtime directory is a transport failure, never a signed
+	// instruction to send managed traffic directly to HTTPS.
+	unsafeRuntime := t.TempDir()
+	if err := os.Chmod(unsafeRuntime, 0755); err != nil {
+		t.Fatal(err)
+	}
+	blocked := exec.Command(binary, "communicator", "mcp", "codex")
+	blocked.Env = append(append([]string{}, env...), "XDG_RUNTIME_DIR="+unsafeRuntime)
+	blocked.Stdin = strings.NewReader("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\"}\n")
+	result, err := blocked.Output()
+	if err != nil || !bytes.Contains(result, []byte(`"error"`)) || directMCP.Load() != 0 {
+		t.Fatalf("unsafe runtime downgraded transport: calls=%d, result=%s, err=%v", directMCP.Load(), result, err)
 	}
 	type child struct {
 		cmd    *exec.Cmd
@@ -197,6 +226,18 @@ func TestProcessesShareConnectionAndRecover(t *testing.T) {
 	if total.Load() != 1 || peak.Load() != 1 {
 		t.Fatalf("initial connections total=%d peak=%d", total.Load(), peak.Load())
 	}
+	// Rotate signed transport credentials while every MCP process stays alive.
+	// The reconnected owner's independent HTTPS path must adopt the same head.
+	for path, cfg := range configs {
+		cfg.Orchestrator.APIKey = "rotated-host-key"
+		raw, _ := json.Marshal(cfg)
+		if err := os.WriteFile(path, raw, 0600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path+".sig", ed25519.Sign(priv, raw), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
 	activeMu.Lock()
 	active.Close()
 	activeMu.Unlock()
@@ -208,6 +249,15 @@ func TestProcessesShareConnectionAndRecover(t *testing.T) {
 		time.Sleep(50 * time.Millisecond)
 	}
 	request(children[0], 20)
+	res, err := unixClient(socket, 5*time.Second).Get("http://communicator.local/wrapper/v2/download")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err := io.ReadAll(res.Body)
+	res.Body.Close()
+	if err != nil || string(body) != "rotated-host-key" {
+		t.Fatalf("HTTPS transfer did not adopt signed rotation: %q, %v", body, err)
+	}
 	// Killing only this test's owner must leave every native/MCP client alive.
 	previous := readStatus()["pid"]
 	cleanupOwner()

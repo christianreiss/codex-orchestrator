@@ -73,6 +73,17 @@ use separate HTTPS transfers owned by the communicator. Cron checks and sync
 status use the shared control connection. Signed wrapper config
 refresh also remains available over HTTPS for capability rollback.
 
+From cxx 0.9.74, independent HTTPS transfers and signed fallback enforce the
+same managed route inventory and host-key binding as control frames. Watchdog
+streams remain supported. Cookies, forwarding headers and caller replacement
+host keys are removed; engine and session credentials are retained. Large MCP
+uploads carry `X-Cxx-Communicator: 1`; the MCP endpoint checks the bearer against
+the accompanying host key and rejects foreign hosts or operator credentials.
+Reconnect also replaces the owner's transfer configuration with the verified
+signed head, so rotated host keys and TLS policy apply to HTTPS transfers.
+An enabled signed capability also fails closed when local socket setup is
+unsafe or unavailable; a runtime-directory error never enables direct HTTPS.
+
 The reconnect delay grows from one to thirty seconds with jitter. Pending writes
 whose replies are lost return `communicator_outcome_unknown` with HTTP 409 so
 existing retry loops do not repeat them. Durable message claim IDs and explicit

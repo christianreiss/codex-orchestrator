@@ -39,6 +39,7 @@ type endpoint struct {
 	base, path, socket string
 	once               sync.Once
 	leaseCancel        context.CancelFunc
+	setupErr           error
 }
 
 // sessionRuntimeRoot is the logind runtime directory that XDG_RUNTIME_DIR
@@ -110,11 +111,10 @@ func Configure(ctx context.Context) {
 			continue
 		}
 		socket, err := socketPath(cfg.Orchestrator.BaseURL)
-		if err != nil {
-			continue
-		}
 		base := strings.TrimRight(cfg.Orchestrator.BaseURL, "/")
-		registry.LoadOrStore(base, &endpoint{base: base, path: path, socket: socket, syncProtocol: cfg.Orchestrator.CommunicatorSyncProtocol})
+		// A signed enabled capability remains registered even if local socket
+		// setup fails. Otherwise Wrap would silently send the request directly.
+		registry.LoadOrStore(base, &endpoint{base: base, path: path, socket: socket, setupErr: err, syncProtocol: cfg.Orchestrator.CommunicatorSyncProtocol})
 	}
 }
 
@@ -174,6 +174,12 @@ func unixClient(socket string, timeout time.Duration) *http.Client {
 }
 
 func (ep *endpoint) ensure(ctx context.Context) error {
+	ep.mu.Lock()
+	setupErr := ep.setupErr
+	ep.mu.Unlock()
+	if setupErr != nil {
+		return setupErr
+	}
 	conn, err := (&net.Dialer{}).DialContext(ctx, "unix", ep.socket)
 	if err == nil {
 		conn.Close()

@@ -108,12 +108,15 @@ func bindSyncConfig(ctx context.Context, cfg *config.Config) {
 		return
 	}
 	socket, err := socketPath(cfg.Orchestrator.BaseURL)
+	base := strings.TrimRight(cfg.Orchestrator.BaseURL, "/")
+	value, _ := registry.LoadOrStore(base, &endpoint{base: base, socket: socket, setupErr: err})
+	ep := value.(*endpoint)
 	if err != nil {
+		ep.mu.Lock()
+		ep.path, ep.setupErr, ep.syncProtocol = cfg.SourcePath(), err, cfg.Orchestrator.CommunicatorSyncProtocol
+		ep.mu.Unlock()
 		return
 	}
-	base := strings.TrimRight(cfg.Orchestrator.BaseURL, "/")
-	value, _ := registry.LoadOrStore(base, &endpoint{base: base, socket: socket})
-	ep := value.(*endpoint)
 	syncProtocol := cfg.Orchestrator.CommunicatorSyncProtocol
 	// Older owners can outlive an atomic binary update. Keep their clients on
 	// the proven legacy lifecycle until the owner is replaced; never fail a
@@ -135,7 +138,7 @@ func bindSyncConfig(ctx context.Context, cfg *config.Config) {
 		cancel()
 	}
 	ep.mu.Lock()
-	ep.path, ep.syncProtocol = cfg.SourcePath(), syncProtocol
+	ep.path, ep.setupErr, ep.syncProtocol = cfg.SourcePath(), nil, syncProtocol
 	ep.mu.Unlock()
 	job, err := newSyncJob(ctx, base, cfg.Engine, "")
 	if err != nil {

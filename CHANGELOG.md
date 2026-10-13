@@ -1,5 +1,7 @@
 # 2026-10-13
 
+- cxx 0.9.74 keeps large communicator transfers and signed HTTPS fallback bound to the same host as control traffic: managed routes only, no cookies or forwarding headers, and same-host MCP credentials. Reconnect adopts rotated signed host keys and TLS configuration for independent transfers while native sessions stay running. Unsafe local socket setup now fails closed instead of bypassing the communicator.
+
 - cxx 0.9.74 preserves unknown call outcomes through the managed MCP adapter, including the original request ID, HTTP status and bounded machine code. Lost or invalid replies instruct callers to verify the result before retrying with the original work identifiers; malformed replies produce a correlated error instead of leaving the client waiting.
 
 - The communicator dispatcher applies its route deny-list and MCP credential pinning to the pathname the router dispatches, so a trailing slash can no longer reach a watchdog stream through the shared connection. A malformed or disallowed request frame now gets its own 400 reply instead of closing the connection for every engine.

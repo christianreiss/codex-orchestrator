@@ -49,6 +49,12 @@ type server struct {
 	jobs             map[string]syncJob
 }
 
+func (s *server) configSnapshot() *config.Config {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.cfg
+}
+
 func serve(ctx context.Context, path, version string) error {
 	key, err := signing.PublicKey()
 	if err != nil {
@@ -130,7 +136,16 @@ func (s *server) connectLoop(ctx context.Context) {
 	for ctx.Err() == nil {
 		// Reload the signed file on reconnect so a credential rotation is observed.
 		key, _ := signing.PublicKey()
-		cfg, err := loadSigned(s.cfg.SourcePath(), key)
+		seed := s.configSnapshot()
+		cfg, err := loadSigned(seed.SourcePath(), key)
+		if err == nil && (cfg.Host.ID != seed.Host.ID || cfg.Host.FQDN != seed.Host.FQDN || strings.TrimRight(cfg.Orchestrator.BaseURL, "/") != strings.TrimRight(seed.Orchestrator.BaseURL, "/")) {
+			err = fmt.Errorf("communicator config belongs to another host or server")
+		}
+		if err == nil {
+			s.mu.Lock()
+			s.cfg = cfg
+			s.mu.Unlock()
+		}
 		if err == nil && cfg.Orchestrator.CommunicatorProtocol != Protocol {
 			s.mu.Lock()
 			s.fallback = true
@@ -327,6 +342,10 @@ func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	if !managedRequestAllowed(r) {
+		http.Error(w, "communicator route forbidden", http.StatusForbidden)
+		return
+	}
 	body, err := bufferedBody(r, 8*1024*1024)
 	if err != nil {
 		http.Error(w, err.Error(), 413)
@@ -434,25 +453,29 @@ func (s *server) coalesce(ctx context.Context, c *connection, f frame) (frame, b
 	}
 }
 func (s *server) download(w http.ResponseWriter, r *http.Request, body []byte) {
-	transport, err := directTransport(s.cfg)
+	if !managedRequestAllowed(r) {
+		http.Error(w, "communicator route forbidden", http.StatusForbidden)
+		return
+	}
+	cfg := s.configSnapshot()
+	transport, err := directTransport(cfg)
 	if err != nil {
 		writeUnavailable(w, false)
 		return
 	}
-	req, err := http.NewRequestWithContext(r.Context(), r.Method, strings.TrimRight(s.cfg.Orchestrator.BaseURL, "/")+r.URL.RequestURI(), responseBody(body))
+	defer transport.CloseIdleConnections()
+	req, err := http.NewRequestWithContext(r.Context(), r.Method, strings.TrimRight(cfg.Orchestrator.BaseURL, "/")+r.URL.RequestURI(), responseBody(body))
 	if err != nil {
 		writeUnavailable(w, false)
 		return
 	}
-	req.Header = r.Header.Clone()
-	req.Header.Del("Host")
+	req.Header = transferHeaders(r, cfg.Orchestrator.APIKey)
 	res, err := (&http.Client{Transport: transport, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}).Do(req)
 	if err != nil {
 		writeUnavailable(w, r.Method != "GET" && r.Method != "HEAD")
 		return
 	}
 	defer res.Body.Close()
-	defer transport.CloseIdleConnections()
 	for k, v := range res.Header {
 		w.Header()[k] = v
 	}

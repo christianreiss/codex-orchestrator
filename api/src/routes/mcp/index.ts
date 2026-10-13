@@ -218,6 +218,20 @@ export async function registerMcpRoutes(app: FastifyInstance, ctx: RouteContext)
     if (!host) {
       throw new UnauthorizedError('Invalid MCP credential', 'invalid_mcp_credential');
     }
+    // Large communicator MCP uploads use HTTPS rather than control frames.
+    // Bind their bearer to the signed host key just as the WebSocket dispatcher
+    // does; this transport never grants operator capabilities.
+    if (req.headers['x-cxx-communicator'] === '1') {
+      const transportHost = await app.resolveHostFromKey({
+        headers: { ...req.headers, authorization: undefined },
+      } as FastifyRequest);
+      if (!transportHost || transportHost.id !== host.id || detectCapability(req) !== 'host') {
+        throw new UnauthorizedError(
+          'MCP credential does not belong to this communicator host',
+          'communicator_mcp_host_mismatch',
+        );
+      }
+    }
     if (host.status && host.status !== 'active') {
       throw new ForbiddenError(`Host ${host.status}`, `host_${host.status}`);
     }

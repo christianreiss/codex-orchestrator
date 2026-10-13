@@ -335,3 +335,58 @@ func TestDaemonOverflowKeepsControlConnection(t *testing.T) {
 		t.Fatal("stalled daemon stream not detached", detached, drained)
 	}
 }
+
+func TestHTTPSOperationsRetainHostBinding(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(r.Header)
+	}))
+	defer upstream.Close()
+	s := &server{cfg: &config.Config{Orchestrator: config.Orchestrator{BaseURL: upstream.URL, APIKey: "bound-host"}}}
+	for _, path := range []string{"/wrapper/v2/download", "/host/agent-sessions/test/attachments/get", "/host/agent-sessions/test/watchdog/stream", "/mcp"} {
+		t.Run(path, func(t *testing.T) {
+			req := httptest.NewRequest("POST", path, nil)
+			req.Header.Set("X-API-Key", "foreign-host")
+			req.Header.Set("Authorization", "Bearer own-mcp-session")
+			req.Header.Set("Cookie", "admin=secret")
+			req.Header.Set("X-Forwarded-For", "127.0.0.1")
+			req.Header.Set("X-Agent-Bridge-Token", "own-session")
+			req.Header.Set("X-Engine", "claude")
+			w := httptest.NewRecorder()
+			s.download(w, req, nil)
+			var h http.Header
+			if err := json.Unmarshal(w.Body.Bytes(), &h); err != nil {
+				t.Fatal(err)
+			}
+			if h.Get("X-API-Key") != "bound-host" || h.Get("Cookie") != "" || h.Get("X-Forwarded-For") != "" {
+				t.Fatalf("authority changed: %v", h)
+			}
+			if h.Get("X-Engine") != "claude" || h.Get("X-Agent-Bridge-Token") != "own-session" {
+				t.Fatalf("session identity lost: %v", h)
+			}
+			if path == "/mcp" {
+				if h.Get("Authorization") != "Bearer own-mcp-session" || h.Get("X-Cxx-Communicator") != "1" {
+					t.Fatalf("MCP binding missing: %v", h)
+				}
+			} else if h.Get("Authorization") != "" {
+				t.Fatal("non-MCP bearer forwarded")
+			}
+		})
+	}
+}
+
+func TestHTTPSOperationsRejectForbiddenRoutes(t *testing.T) {
+	var calls atomic.Int32
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { calls.Add(1) }))
+	defer upstream.Close()
+	s := &server{cfg: &config.Config{Orchestrator: config.Orchestrator{BaseURL: upstream.URL}}, fallback: true}
+	for _, path := range []string{"/admin/users", "/v1/responses", "/host/../admin/users", "/host/%2e%2e/admin/users", "/host/daemon/connect", "/host/communicator/connect"} {
+		w := httptest.NewRecorder()
+		s.ServeHTTP(w, httptest.NewRequest("POST", path, nil))
+		if w.Code != http.StatusForbidden {
+			t.Errorf("%s accepted: %d", path, w.Code)
+		}
+	}
+	if calls.Load() != 0 {
+		t.Fatalf("forbidden requests reached HTTPS: %d", calls.Load())
+	}
+}

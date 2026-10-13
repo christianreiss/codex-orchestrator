@@ -1116,3 +1116,8 @@ invalidations converge through the existing validated writers. Local materializa
 is reported separately from native adoption. Signed rollback drains auth work and
 hands polling back to the existing wrapper without restarting the native CLI.
 See [Communicator ownership and rollout](communicator.md#central-sync-ownership-cxx-0973).
+
+cxx 0.9.74 applies communicator route and host isolation to HTTPS transfers and
+signed fallback too, including large MCP uploads. Reconnect updates transfer
+credentials and TLS policy from the verified signed configuration without
+restarting native clients.

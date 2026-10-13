@@ -36,7 +36,7 @@ func loadSigned(path string, key ed25519.PublicKey) (*config.Config, error) {
 func (s *server) refreshPolicy(ctx context.Context) {
 	work, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
-	cfg := s.cfg
+	cfg := s.configSnapshot()
 	transport, err := directTransport(cfg)
 	if err != nil {
 		return
