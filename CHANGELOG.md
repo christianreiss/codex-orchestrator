@@ -2,9 +2,13 @@
 
 - cxx 0.9.75 keeps one host's communicator sync on that host: `host.*` events with a numeric `id` or `host_id` invalidate only the matching connection, and events that name no host still reach every connection. A reply above 11 MiB returns `502 communicator_response_too_large` for that request and leaves the shared socket open. Idempotent reads retry once over the communicator's HTTPS transfer; `POST /auth` keeps the 502. Trailing slashes on the local route check match the API router, so `/watchdog/stream/` uses the flushing transfer and `/mcp/` keeps the signed host-key binding.
 
+- Communicator daemon reattachment waits until the previous stream's remote disconnect has been sent, so delayed cleanup cannot disconnect a replacement daemon. Other engines keep using the shared control connection during this handoff.
+
 - cxx 0.9.74 keeps large communicator transfers and signed HTTPS fallback bound to the same host as control traffic: managed routes only, no cookies or forwarding headers, and same-host MCP credentials. Reconnect adopts rotated signed host keys and TLS configuration for independent transfers while native sessions stay running. Unsafe local socket setup now fails closed instead of bypassing the communicator.
 
 - cxx 0.9.74 preserves unknown call outcomes through the managed MCP adapter, including the original request ID, HTTP status and bounded machine code. Lost or invalid replies instruct callers to verify the result before retrying with the original work identifiers; malformed replies produce a correlated error instead of leaving the client waiting.
+
+- cxx 0.9.74 keeps the communicator self-repairable: when no local owner can start or be reached, the signed config refresh and wrapper update downloads fall back to direct HTTPS (both are signature/digest verified), so a broken owner no longer blocks capability rollback or `cxx update`. Downloads and attachments no longer wait up to 20 seconds for a reconnecting control connection.
 
 - The communicator dispatcher applies its route deny-list and MCP credential pinning to the pathname the router dispatches, so a trailing slash can no longer reach a watchdog stream through the shared connection. A malformed or disallowed request frame now gets its own 400 reply instead of closing the connection for every engine.
 

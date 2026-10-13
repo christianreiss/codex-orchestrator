@@ -342,7 +342,7 @@ func TestHTTPSOperationsRetainHostBinding(t *testing.T) {
 	}))
 	defer upstream.Close()
 	s := &server{cfg: &config.Config{Orchestrator: config.Orchestrator{BaseURL: upstream.URL, APIKey: "bound-host"}}}
-	for _, path := range []string{"/wrapper/v2/download", "/host/agent-sessions/test/attachments/get", "/host/agent-sessions/test/watchdog/stream", "/mcp", "/mcp/"} {
+	for _, path := range []string{"/wrapper/v2/download", "/host/agent-sessions/test/attachments/get", "/host/agent-sessions/test/watchdog/stream", "/mcp", "/mcp/", "/mcp//"} {
 		t.Run(path, func(t *testing.T) {
 			req := httptest.NewRequest("POST", path, nil)
 			req.Header.Set("X-API-Key", "foreign-host")
@@ -379,7 +379,7 @@ func TestHTTPSOperationsRejectForbiddenRoutes(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { calls.Add(1) }))
 	defer upstream.Close()
 	s := &server{cfg: &config.Config{Orchestrator: config.Orchestrator{BaseURL: upstream.URL}}, fallback: true}
-	for _, path := range []string{"/admin/users", "/admin/users/", "/v1/responses", "/host/../admin/users", "/host/%2e%2e/admin/users", "/host/daemon/connect", "/host/daemon/connect/", "/host/communicator/connect", "/host/communicator/connect/", "/host/agent-sessions/abc/other/stream/"} {
+	for _, path := range []string{"/admin/users", "/admin/users/", "/v1/responses", "/host/../admin/users", "/host/%2e%2e/admin/users", "/host/daemon/connect", "/host/daemon/connect/", "/host/daemon/connect//", "/host/communicator/connect", "/host/communicator/connect/", "/host/agent-sessions/abc/other/stream/", "/host/echo/stream/"} {
 		w := httptest.NewRecorder()
 		s.ServeHTTP(w, httptest.NewRequest("POST", path, nil))
 		if w.Code != http.StatusForbidden {

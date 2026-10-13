@@ -362,20 +362,22 @@ func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.download(w, r, body)
 		return
 	}
+	// Downloads/large attachments remain inside this process but use independent
+	// HTTP streams, keeping interactive control frames bounded. They never need
+	// the control connection, so they must not wait for it to reconnect. The
+	// path is the one the router dispatches, so a trailing slash still selects
+	// the stream.
+	routed := requestPath(r)
+	if len(body) > maxFrameBody || strings.Contains(routed, "/download") || strings.Contains(routed, "/attachments/") || strings.HasSuffix(routed, "/stream") {
+		s.download(w, r, body)
+		return
+	}
 	c := s.waitConnection(r.Context())
 	if c == nil {
 		writeUnavailable(w, false)
 		return
 	}
 	f := frame{Method: r.Method, Path: r.URL.RequestURI(), Headers: headers(r.Header), Body: body}
-	// Downloads/large attachments remain inside this process but use independent
-	// HTTP streams, keeping interactive control frames bounded. The path is the
-	// one the router dispatches, so a trailing slash still selects the stream.
-	routed := requestPath(r)
-	if len(body) > maxFrameBody || strings.Contains(routed, "/download") || strings.Contains(routed, "/attachments/") || strings.HasSuffix(routed, "/stream") {
-		s.download(w, r, body)
-		return
-	}
 	var result frame
 	var unknown bool
 	if coalescible(f) {
@@ -404,8 +406,6 @@ func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Write(result.Body)
 }
 
-// Only concurrent identical reads are shared, never cached authorization or
-// mutable MCP replies. The complete body/credential/engine is part of the key.
 func oversizedResponse(body []byte) bool {
 	var payload struct {
 		Code string `json:"code"`
@@ -426,6 +426,8 @@ func retryOversizedRead(r *http.Request) bool {
 	return false
 }
 
+// Only concurrent identical reads are shared, never cached authorization or
+// mutable MCP replies. The complete body/credential/engine is part of the key.
 func coalescible(f frame) bool {
 	if f.Method == "GET" {
 		return f.Path == "/versions"

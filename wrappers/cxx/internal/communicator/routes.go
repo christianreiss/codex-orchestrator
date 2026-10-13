@@ -11,7 +11,9 @@ import (
 var managedRoutes = regexp.MustCompile(`^(?:/auth(?:/sessions(?:/(?:heartbeat|release))?)?|/versions|/skills(?:/[^?]*)?|/agents/retrieve|/config/retrieve|/sync/(?:bootstrap|status)|/cron/(?:check|report)|/mcp(?:/[^?]*)?|/host/[^?]+|/wrapper/(?:v2/)?[^?]+|/claude/usage/report)$`)
 
 // requestPath is the pathname the API router dispatches: no query and no
-// trailing slash. Fastify runs with ignoreTrailingSlash.
+// trailing slash. Fastify runs with ignoreTrailingSlash. The raw escaped path
+// is checked first so a leading "//" or an encoded segment is rejected before
+// the slash trim.
 func requestPath(r *http.Request) string {
 	path := r.URL.EscapedPath()
 	if len(path) > 1 {
