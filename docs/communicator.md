@@ -62,7 +62,9 @@ replays auth uploads. Account/session admission and freshness checks remain
 individual operations where their authorization requires it.
 
 Managed content sync runs once per registered engine/home scope after push
-invalidation, after reconnect, and every five minutes while clients are attached.
+invalidation, after reconnect, when a lease registers a scope that is new to
+the owner, and every five minutes while clients are attached. An additional
+lease on an already-registered scope does not force a pass.
 It invokes the existing headless sync machinery with concurrent sync explicitly
 enabled, preserving each scope's environment and signed config path. Scope
 registrations are removed when their last client lease closes. Files update

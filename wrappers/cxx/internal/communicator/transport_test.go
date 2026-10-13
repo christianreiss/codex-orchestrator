@@ -237,7 +237,7 @@ func TestSyncScopesKeepEngineAndEnvironmentBoundaries(t *testing.T) {
 	s := &server{jobs: map[string]syncJob{}, jobRefs: map[string]int{}}
 	for _, engine := range []string{"codex", "claude", "grok"} {
 		req := httptest.NewRequest("POST", "/_comm/lease", strings.NewReader(`[{"engine":"`+engine+`","config":"/signed","env":{"HOME":"/one"}}]`))
-		ids, err := s.registerJobs(req)
+		ids, _, err := s.registerJobs(req)
 		if err != nil || len(ids) != 1 {
 			t.Fatal(ids, err)
 		}
@@ -246,7 +246,7 @@ func TestSyncScopesKeepEngineAndEnvironmentBoundaries(t *testing.T) {
 		t.Fatal("engine scopes collapsed")
 	}
 	bad := httptest.NewRequest("POST", "/_comm/lease", strings.NewReader(`[{"engine":"codex","env":{"LD_PRELOAD":"/bad"}}]`))
-	if _, err := s.registerJobs(bad); err == nil {
+	if _, _, err := s.registerJobs(bad); err == nil {
 		t.Fatal("arbitrary subprocess environment accepted")
 	}
 }
