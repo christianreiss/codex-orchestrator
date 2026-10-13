@@ -204,9 +204,13 @@ as one request and writes the server's array reply. Notifications in a batch get
 no reply, and an all-notification batch writes nothing. If the reply is lost,
 malformed or misses a request, each request gets its own unknown-outcome error.
 An unparsable line gets `-32700` with id null, and a JSON value that is neither
-an object nor a non-empty array gets `-32600`; neither ends the session. On SIGTERM or interrupt the adapter stops reading stdin even if the
+an object nor a non-empty array gets `-32600`; neither ends the session. Input
+the API answers with an id null `-32600` (invalid batch members, objects without
+`jsonrpc` or `method`) gets that answer even when nothing else in the line
+expects a reply; valid notifications stay silent. On SIGTERM or interrupt the adapter stops reading stdin even if the
 native client keeps it open, reports any in-flight request as an unknown
-outcome, releases its owner lease and exits.
+outcome, releases its owner lease and exits. It waits at most three seconds for
+those replies, so a client that has stopped reading stdout cannot keep it alive.
 
 Request correlation compares JSON ID values rather than serialized spellings,
 including escaped strings and equivalent numbers. Distinct large integer IDs
