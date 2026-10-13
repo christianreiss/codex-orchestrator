@@ -2,7 +2,7 @@
 
 - Communicator frame limits count UTF-8 wire bytes, including non-ASCII headers, so an oversized encoded reply returns a correlated failure instead of exceeding the receiver limit and dropping the shared connection.
 
-- cxx 0.9.78 rejects contradictory MCP replies containing both `result` and `error`, returning the existing correlated unknown-outcome error instead of forwarding an ambiguous result. A lone `result: null` remains valid.
+- cxx 0.9.78 rejects contradictory MCP replies containing both `result` and `error`, returning the existing correlated unknown-outcome error instead of forwarding an ambiguous result. Error replies must also contain an object with an integer `code` and string `message`; malformed errors retain unknown-outcome handling without replay. A lone `result: null` remains valid.
 
 - Codex and Claude can recover an interrupted credential upload when a readback supplies a strictly newer verified canonical head for the same account. Recovery uses the existing generation-guarded session writer, preserves concurrent native rotation/logout, and reports adoption without replaying the upload. Equal, older, unverified or wrong-account heads remain unresolved.
 

@@ -406,7 +406,7 @@ func TestOwnerIdentityRequiresServerAnnouncement(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer ws.Close()
-			c := &connection{ws: ws, ready: make(chan struct{}), done: make(chan struct{}), onTerminate: func(string) {}, runtimeID: "fixture-runtime"}
+			c := &connection{ws: ws, ready: make(chan struct{}), done: make(chan struct{}), onTerminate: func(string, <-chan struct{}) {}, runtimeID: "fixture-runtime"}
 			go c.receive()
 			select {
 			case caps := <-got:
