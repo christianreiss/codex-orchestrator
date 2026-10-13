@@ -18,8 +18,10 @@ export interface ProviderAccount {
     stale: boolean;
     short_used_percent: number | null;
     short_resets_at: string | null;
+    short_limit_seconds?: number | null;
     weekly_used_percent: number | null;
     weekly_resets_at: string | null;
+    weekly_limit_seconds?: number | null;
     checked_at?: string | null;
     error_code?: string | null;
     current_window?: {

@@ -1554,6 +1554,15 @@ Operator-consolidated duplicate account IDs remain same-engine compatibility ali
 ChatGPT (`codex`) and Claude (`claude`) have independent account pools. Provider identities identify accounts; access/refresh fingerprints identify credentials and login lineage, not distinct subscriptions. Migrated identities are recovered from their canonical head when `identity_key` is unset. Fresh opaque tokens reuse the sole non-retired engine account or their explicit session/host assignment. A distinct provider identity can enroll another account automatically; additional opaque accounts require explicit `POST /admin/accounts` or an untargeted seed command. With multiple accounts, an unassigned opaque upload returns HTTP 409 `account_assignment_required` without creating an account. Replacing a known account can explicitly supply `account_id`; known cross-account identity/lineage conflicts remain HTTP 409 `account_identity_mismatch`. Existing runner validation, quarantine, generation/CAS, replay protection and secretbox encryption apply within each account.
 
 - `GET /admin/accounts` — session-gated metadata list: `accounts[]` with `id`, `engine`, `label`, lifecycle state, verification verdict/reason/time, generation, normalized short/weekly quota percentages, reset times, observation time/staleness, and active host sessions. Never returns credential bytes or provider identity fingerprints. The same URL serves the Accounts SPA for HTML navigation.
+
+  Codex and Claude usage also include nullable `short_limit_seconds` and
+  `weekly_limit_seconds`. Codex readings, durations and resets are projected
+  together from the latest successful account snapshot, by duration rather than
+  primary/secondary slot: below seven days is short, at least seven days is
+  weekly. Missing readings remain null, including in weekly-only snapshots;
+  zero is a valid reading. Claude durations are 18000/604800 seconds when the
+  corresponding reading exists. These additive display fields need no database
+  migration; older clients can keep using the existing percentages and resets.
 - `POST /admin/accounts` — `{engine, payload, label?}`; `payload` is auth JSON text or a Claude API key. Live-validates enrollment and returns account ID and verdict metadata.
 - `PATCH /admin/accounts/:id` — `{label?, state?: "enabled"|"paused"}`. Paused accounts accept same-account refreshes for existing sessions but receive no new scopes.
 - `POST /admin/accounts/:id/credentials` — `{payload}`; validates replacement for the specified engine/account. Known different account identities cannot overwrite it.

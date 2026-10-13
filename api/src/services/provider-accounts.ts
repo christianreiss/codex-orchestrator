@@ -289,8 +289,10 @@ export class ProviderAccountsService {
         stale: !r || now - Date.parse(r.fetchedAt) > 600_000,
         short_used_percent: r?.fiveHourUsedPercent ?? null,
         short_resets_at: r?.fiveHourResetsAt ?? null,
+        short_limit_seconds: r?.fiveHourUsedPercent != null ? 18000 : null,
         weekly_used_percent: r?.sevenDayUsedPercent ?? null,
         weekly_resets_at: r?.sevenDayResetsAt ?? null,
+        weekly_limit_seconds: r?.sevenDayUsedPercent != null ? 604800 : null,
       };
     }
     const rows = await reader
@@ -300,17 +302,23 @@ export class ProviderAccountsService {
       .orderBy(desc(chatgptUsageSnapshots.id))
       .limit(1);
     const r = rows[0];
-    const secondaryWeekly = (r?.secondaryLimitSeconds ?? 0) >= 604800;
-    const primaryWeekly = (r?.primaryLimitSeconds ?? 0) >= 604800;
+    // Provider slots can swap meaning or disappear. Keep each reading with
+    // its own duration; a second weekly window must never become "short".
+    const windows = [
+      { used: r?.primaryUsedPercent, reset: r?.primaryResetAt, limit: r?.primaryLimitSeconds },
+      { used: r?.secondaryUsedPercent, reset: r?.secondaryResetAt, limit: r?.secondaryLimitSeconds },
+    ];
+    const short = windows.find((window) => window.used != null && (window.limit ?? 0) < 604800);
+    const weekly = windows.find((window) => window.used != null && (window.limit ?? 0) >= 604800);
     return {
       fetched_at: r?.fetchedAt ?? null,
       stale: !r || now - Date.parse(r.fetchedAt) > 600_000,
-      short_used_percent: (primaryWeekly ? r?.secondaryUsedPercent : r?.primaryUsedPercent) ?? null,
-      short_resets_at: (primaryWeekly ? r?.secondaryResetAt : r?.primaryResetAt) ?? null,
-      weekly_used_percent:
-        (secondaryWeekly ? r?.secondaryUsedPercent : primaryWeekly ? r?.primaryUsedPercent : null) ?? null,
-      weekly_resets_at:
-        (secondaryWeekly ? r?.secondaryResetAt : primaryWeekly ? r?.primaryResetAt : null) ?? null,
+      short_used_percent: short?.used ?? null,
+      short_resets_at: short?.reset ?? null,
+      short_limit_seconds: short?.limit ?? null,
+      weekly_used_percent: weekly?.used ?? null,
+      weekly_resets_at: weekly?.reset ?? null,
+      weekly_limit_seconds: weekly?.limit ?? null,
     };
   }
 

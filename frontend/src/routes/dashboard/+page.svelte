@@ -15,6 +15,7 @@
   import Activity from "@lucide/svelte/icons/activity";
   import Plus from "@lucide/svelte/icons/plus";
   import { Button } from "$lib/components/ui/button";
+  import { Skeleton } from "$lib/components/ui/skeleton";
   import { base } from "$app/paths";
   import OnboardingCard from "./OnboardingCard.svelte";
   import FleetCoverage from "./FleetCoverage.svelte";
@@ -198,10 +199,30 @@
   <FleetCoverage totalHosts={$overview.data?.totals.hosts} distribution={$overview.data?.version_distribution} loading={$overview.isPending} />
 
   <!-- Usage + runner cards -->
-  <div class="grid grid-cols-1 gap-4 xl:grid-cols-2">
-    {#if $accounts.data?.accounts?.length}
+  {#if $accounts.isError}
+    <Alert variant={$accounts.data ? "warning" : "destructive"}>
+      <AlertTriangle class="h-4 w-4" />
+      <AlertTitle>Could not load provider accounts</AlertTitle>
+      <AlertDescription>
+        {$accounts.data ? "Showing the last received accounts. " : ""}{$accounts.error?.message}
+        <Button variant="outline" size="sm" class="ml-2 mt-2" onclick={() => $accounts.refetch()} disabled={$accounts.isFetching}>Retry accounts</Button>
+      </AlertDescription>
+    </Alert>
+  {/if}
+  <div class={($accounts.data?.accounts?.length || $accounts.isPending) ? "grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3" : "grid grid-cols-1 gap-4 xl:grid-cols-2"}>
+    {#if $accounts.isPending}
+      {#each ["ChatGPT", "Claude", "Grok"] as provider}
+        <div class="flex flex-col gap-4 rounded-xl border border-t-2 bg-card p-5" aria-label={`Loading ${provider} usage`} aria-busy="true">
+          <Skeleton class="h-4 w-20" />
+          <Skeleton class="h-5 w-1/2" />
+          <Skeleton class="h-3 w-2/3" />
+          <Skeleton class="h-2.5 w-full" />
+          <Skeleton class="h-8 w-full" />
+        </div>
+      {/each}
+    {:else if $accounts.data?.accounts?.length}
       <AccountUsageCards accounts={$accounts.data.accounts} />
-    {:else}
+    {:else if !$accounts.isError}
       <ChatGptUsageCard />
       <ClaudeUsageCard />
     {/if}

@@ -4,37 +4,77 @@
   import { base } from "$app/paths";
   import { Badge } from "$lib/components/ui/badge";
   import { cn } from "$lib/utils/cn";
+  import { relativeTime } from "$lib/utils/format";
   import { useFleetEngines, FLEET_DISABLED_TAG, fleetDisabledTitle } from "$lib/engines/fleet-engines";
   import GrokUsage from "$lib/components/dashboard/GrokUsage.svelte";
+  import UsageMeter from "$lib/components/dashboard/UsageMeter.svelte";
+  import { accountQuotaRows } from "$lib/components/dashboard/account-usage";
+
   let { accounts }: { accounts: ProviderAccount[] } = $props();
-  // Accounts of a fleet-disabled engine are kept but not polled or leased.
   const fleet = useFleetEngines();
+  const borders = {
+    codex: "border-t-persona-codex",
+    claude: "border-t-persona-claude",
+    grok: "border-t-persona-grok",
+  };
 </script>
+
 {#each accounts as account (account.id)}
   {@const off = !$fleet.isEnabled(account.engine)}
-  <a href={`${base}/accounts`} class={cn("rounded-xl border bg-card p-5 text-card-foreground hover:border-primary", off && "opacity-70")}>
-    <div class="flex items-center justify-between gap-3">
-      <h2 class="flex items-center gap-2 font-semibold">
-        {account.label}
-        {#if off}<Badge variant="warning" title={fleetDisabledTitle(ENGINE_META[account.engine].label)}>{FLEET_DISABLED_TAG}</Badge>{/if}
-      </h2>
-      <span class="text-sm text-muted-foreground">{ENGINE_META[account.engine].account} · {account.state}</span>
+  {@const rows = accountQuotaRows(account)}
+  {@const hasReading = account.engine === "grok" ? !!account.usage.current_window : rows.length > 0}
+  <a
+    href={`${base}/accounts`}
+    aria-labelledby={`usage-account-${account.id}`}
+    class={cn(
+      "flex min-w-0 flex-col gap-4 rounded-xl border border-t-2 bg-card p-5 text-card-foreground transition-colors hover:border-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+      borders[account.engine], off && "opacity-70",
+    )}
+  >
+    <div class="space-y-2">
+      <div class="flex items-center justify-between gap-3">
+        <span class="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+          <span class={cn("h-2 w-2 rounded-full", ENGINE_META[account.engine].color)} aria-hidden="true"></span>
+          {ENGINE_META[account.engine].account}
+        </span>
+        <Badge variant="outline">{account.state}</Badge>
+      </div>
+      <h2 id={`usage-account-${account.id}`} class="break-words text-base font-semibold">{account.label}</h2>
+      <p class="text-xs text-muted-foreground">
+        {account.verification_state} · {account.sessions.length} active sessions
+      </p>
+      {#if off}<Badge variant="warning" title={fleetDisabledTitle(ENGINE_META[account.engine].label)}>{FLEET_DISABLED_TAG}</Badge>{/if}
+      {#if account.refresh_state === "login_required"}<p class="text-xs text-destructive">Subscription login needs renewal</p>{/if}
     </div>
-    <p class="mt-2 text-sm text-muted-foreground">{account.verification_state} · {account.sessions.length} active sessions{account.engine !== 'grok' && account.usage.stale ? ' · usage stale or unknown' : ''}</p>
-    {#if account.refresh_state === "login_required"}<p class="mt-2 text-sm text-destructive">Subscription login needs renewal</p>{/if}
-    {#if account.engine === 'grok'}
-      <div class="mt-4"><GrokUsage usage={account.usage} label={account.label} /></div>
-    {:else if account.usage.supported === false}
-      <p class="mt-4 text-sm text-muted-foreground">Subscription quota unavailable</p>
-    {:else}
-    <div class="mt-4 grid grid-cols-2 gap-4 text-sm">
-      {#each [{ label: 'Short window', value: account.usage.short_used_percent }, { label: 'Weekly window', value: account.usage.weekly_used_percent }] as window}
-        <div>
-          <div class="flex justify-between"><span>{window.label}</span><span>{window.value === null ? 'Unknown' : `${window.value}%`}</span></div>
-          {#if window.value !== null}<progress aria-label={`${account.label} ${window.label}`} class="mt-2 h-2 w-full accent-primary" max="100" value={window.value}></progress>{/if}
-        </div>
-      {/each}
+
+    <div class="space-y-3">
+      {#if account.usage.supported === false}
+        <p class="rounded-md border bg-muted/30 p-3 text-sm text-muted-foreground">Subscription quota unavailable</p>
+      {:else if account.engine === "grok"}
+        <GrokUsage usage={account.usage} label={account.label} showStatus={false} showUpdated={false} />
+      {:else if rows.length}
+        {#each rows as row (row.key)}
+          <div class="space-y-2">
+            <UsageMeter label={row.label} usedPercent={row.value} valueLabel={`${row.value}% used`} />
+            {#if relativeTime(row.reset)}
+              <p class="text-xs text-muted-foreground">Resets <time datetime={row.reset ?? undefined} title={row.reset ?? undefined}>{relativeTime(row.reset)}</time></p>
+            {/if}
+          </div>
+        {/each}
+      {:else}
+        <p class="rounded-md border bg-muted/30 p-3 text-sm text-muted-foreground">
+          {account.usage.fetched_at ? "No quota windows reported" : "Waiting for usage data"}
+        </p>
+      {/if}
     </div>
-    {/if}
+
+    <div class="mt-auto flex min-h-9 flex-wrap items-center justify-between gap-2 border-t pt-3 text-xs text-muted-foreground">
+      {#if relativeTime(account.usage.fetched_at)}
+        <span>Updated <time datetime={account.usage.fetched_at ?? undefined} title={account.usage.fetched_at ?? undefined}>{relativeTime(account.usage.fetched_at)}</time></span>
+      {:else}
+        <span>No reading recorded</span>
+      {/if}
+      {#if account.usage.stale && hasReading}<Badge variant="warning">Last known reading</Badge>{/if}
+    </div>
   </a>
 {/each}
