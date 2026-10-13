@@ -63,6 +63,12 @@ type server struct {
 	lastAttemptEnd time.Time
 	kick           chan struct{}
 	policyBusy     atomic.Bool
+	// invalidatedAt is when the newest server invalidation arrived (a pushed
+	// frame or a reconnect). A content exchange that started earlier cannot
+	// satisfy a scheduled pass; everConnected tells a first connection, which has
+	// missed nothing, from a reconnect.
+	invalidatedAt time.Time
+	everConnected bool
 	// stop ends the owner (set by serve); terminating makes a remote terminate
 	// request single-shot.
 	stop        context.CancelFunc
@@ -160,6 +166,15 @@ func (s *server) supervise(ctx context.Context, cancel context.CancelFunc, httpS
 }
 
 func (s *server) invalidate() {
+	s.mu.Lock()
+	s.invalidatedAt = time.Now()
+	s.mu.Unlock()
+	s.signalDirty()
+}
+
+// signalDirty asks the scheduler for a forced pass without recording that the
+// server's state changed.
+func (s *server) signalDirty() {
 	select {
 	case s.dirty <- struct{}{}:
 	default:
@@ -255,9 +270,18 @@ func (s *server) connectLoop(ctx context.Context) {
 			s.failures = 0
 			s.attempting = false
 			s.lastAttemptEnd = time.Now()
+			firstConnect := !s.everConnected
+			s.everConnected = true
 			s.mu.Unlock()
 			delay = time.Second
-			s.invalidate()
+			if firstConnect {
+				// Nothing was missed by an owner that never had a connection, and a
+				// launch's bootstrap that started while this connection was still
+				// being made reads server state only after it: it stays fresh.
+				s.signalDirty()
+			} else {
+				s.invalidate()
+			}
 			timer := time.NewTicker(15 * time.Second)
 		live:
 			for {
