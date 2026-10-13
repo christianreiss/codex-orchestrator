@@ -62,7 +62,9 @@ type server struct {
 	// request single-shot.
 	stop        context.CancelFunc
 	terminating atomic.Bool
-	runtimeID   string
+	// draining is set once a remote stop is accepted: no new application work is admitted.
+	draining  atomic.Bool
+	runtimeID string
 }
 
 func (s *server) configSnapshot() *config.Config {
@@ -296,6 +298,13 @@ func (s *server) connectLoop(ctx context.Context) {
 }
 
 func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	// A stopping owner admits nothing new (status excepted, and the leases and
+	// streams already open run down with the process). This is a definitive
+	// "not sent": callers retry against the owner that replaces this one.
+	if s.draining.Load() && r.URL.Path != "/_comm/status" {
+		writeUnavailableCause(w, false, "communicator is stopping at the server's request")
+		return
+	}
 	s.mu.Lock()
 	if r.URL.Path != "/_comm/status" {
 		s.lastUsed = time.Now()

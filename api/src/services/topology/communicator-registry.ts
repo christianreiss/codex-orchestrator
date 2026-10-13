@@ -85,11 +85,16 @@ export interface TerminateAck {
   accepted: boolean;
   pid: number | null;
   reason: string | null;
+  /** The owner process that answered, echoed from the frame. Must be the one asked. */
+  instance_id: string | null;
 }
 
 export type TerminateOutcome =
-  /** Owner acknowledged and its connection then closed. */
-  | 'terminated'
+  /**
+   * The owner acknowledged and its connection then closed. That is all the server
+   * can observe: it cannot see the process, so this is not proof that it exited.
+   */
+  | 'acknowledged_closed'
   /** Owner acknowledged; the connection was still open when the wait ended. */
   | 'acknowledged'
   /** Owner declined (it cannot stop itself). */
@@ -145,7 +150,7 @@ interface Entry {
   evidence: Map<string, SessionEvidence>;
   closing: { reason: DisconnectReason; actor: string | null } | null;
   capabilities: OwnerCapabilities;
-  terminateRequest: { id: string; resolve: (ack: TerminateAck | null) => void } | null;
+  terminateRequest: { id: string; instance_id: string; resolve: (ack: TerminateAck | null) => void } | null;
 }
 
 export interface CommunicatorSnapshot {
@@ -265,8 +270,16 @@ export class CommunicatorRegistry {
 
   /** The owner's `terminate_ack`. Ignored unless it answers the request in flight. */
   acknowledgeTerminate(id: string, requestId: string, ack: TerminateAck): void {
-    const entry = this.entries.get(id);
-    if (entry?.terminateRequest?.id === requestId) entry.terminateRequest.resolve(ack);
+    const request = this.entries.get(id)?.terminateRequest;
+    if (request?.id !== requestId) return;
+    // An answer from a different process than the one asked is not an answer: the
+    // socket may now belong to a replacement, and its words must not stand for the
+    // owner we targeted.
+    if (ack.instance_id !== request.instance_id) {
+      request.resolve({ accepted: false, pid: ack.pid, reason: 'owner_mismatch', instance_id: ack.instance_id });
+      return;
+    }
+    request.resolve(ack);
   }
 
   setDaemonAttached(id: string, attached: boolean): void {
@@ -384,9 +397,11 @@ export class CommunicatorRegistry {
 
   /**
    * Asks the owner process behind one connection to stop, and reports only what
-   * was observed: the owner's own acknowledgement, then whether its connection
-   * closed. A frame that was sent, or a socket that dropped, proves neither.
-   * Native sessions are not signalled; a surviving client starts a new owner.
+   * was observed: the owner's own acknowledgement (which must come from the
+   * process that was named), then whether its connection closed. A frame that was
+   * sent, or a socket that dropped, proves neither, and even both together do not
+   * prove the process exited: the server cannot see it. Native sessions are not
+   * signalled; a surviving client starts a new owner.
    */
   async terminate(
     id: string,
@@ -396,14 +411,17 @@ export class CommunicatorRegistry {
     const entry = this.entries.get(id);
     if (!entry) return { outcome: 'not_connected', pid: null, started_at: null, reason: null };
     const { pid, started_at } = entry.capabilities;
-    if (!entry.capabilities.terminate || !entry.handle.send) return { outcome: 'unsupported', pid, started_at, reason: null };
+    // An owner that never named its process cannot be addressed: the command would
+    // go to "whatever answers on this socket".
+    const instance = entry.capabilities.instance_id;
+    if (!entry.capabilities.terminate || !entry.handle.send || !instance) return { outcome: 'unsupported', pid, started_at, reason: null };
     if (entry.terminateRequest) return { outcome: 'in_progress', pid, started_at, reason: null };
 
     const requestId = randomUUID();
     const answered = new Promise<TerminateAck | null>((resolve) => {
       const timer = setTimeout(() => resolve(null), options.ackMs ?? 5000);
       timer.unref();
-      entry.terminateRequest = { id: requestId, resolve: (ack) => (clearTimeout(timer), resolve(ack)) };
+      entry.terminateRequest = { id: requestId, instance_id: instance, resolve: (ack) => (clearTimeout(timer), resolve(ack)) };
     });
     const closed = new Promise<void>((resolve) => {
       const list = this.closed.get(id) ?? [];
@@ -411,7 +429,7 @@ export class CommunicatorRegistry {
       this.closed.set(id, list);
     });
     try {
-      entry.handle.send({ type: 'terminate', request_id: requestId, reason: 'admin' });
+      entry.handle.send({ type: 'terminate', request_id: requestId, reason: 'admin', owner_instance_id: instance });
     } catch {
       entry.terminateRequest = null;
       return { outcome: 'unacknowledged', pid, started_at, reason: 'send_failed' };
@@ -426,7 +444,7 @@ export class CommunicatorRegistry {
       closed.then(() => true),
       new Promise<boolean>((resolve) => setTimeout(() => resolve(false), options.closeMs ?? 10_000).unref()),
     ]);
-    return { outcome: didClose ? 'terminated' : 'acknowledged', pid: ack.pid ?? pid, started_at, reason: null };
+    return { outcome: didClose ? 'acknowledged_closed' : 'acknowledged', pid: ack.pid ?? pid, started_at, reason: null };
   }
 
   snapshot(now = Date.now()): CommunicatorSnapshot[] {

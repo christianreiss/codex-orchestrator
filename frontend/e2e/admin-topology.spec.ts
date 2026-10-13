@@ -45,7 +45,7 @@ function tree(): Topology {
 }
 
 async function fixtures(page: Page, capabilities = ["hosts.read", "agent_portal.read", "agent_portal.manage", "agent_messaging.manage"]) {
-  const state = { topology: tree(), posts: [] as Array<{ path: string; body: Record<string, unknown> }>, disconnectStatus: 200, terminateOutcome: "terminated" as string, departure: {} as Record<string, unknown> };
+  const state = { topology: tree(), posts: [] as Array<{ path: string; body: Record<string, unknown> }>, disconnectStatus: 200, terminateOutcome: "acknowledged_closed" as string, departure: {} as Record<string, unknown> };
   await page.route("**/admin/**", async (route) => {
     const request = route.request();
     if (!request.headers().accept?.includes("application/json")) return route.continue();
@@ -57,7 +57,7 @@ async function fixtures(page: Page, capabilities = ["hosts.read", "agent_portal.
     if (path === "/admin/topology") return json(state.topology);
     if (request.method() === "POST" && path.endsWith("/terminate")) {
       state.posts.push({ path, body: request.postDataJSON() });
-      const done = state.terminateOutcome === "terminated";
+      const done = state.terminateOutcome === "acknowledged_closed";
       if (done) state.topology = { ...state.topology, communicators: state.topology.communicators.filter((c) => c.id !== C1) };
       return json({ outcome: state.terminateOutcome, connection_id: C1, host_id: 4, username: "alice", version: "0.9.76", process: { pid: 4242, started_at: null }, acknowledged: done || state.terminateOutcome === "acknowledged", connection_closed: done, affected: { agent_ids: [A1, A2], leases_reported: 2 }, replayed: false });
     }
@@ -187,10 +187,25 @@ test("stopping the communicator process is only offered to an owner that said it
   await expect(dialog.getByText("pid 4242 (self-reported)")).toBeVisible();
   await expect(dialog.getByText(/Native agent sessions are not signalled/)).toBeVisible();
   await dialog.getByRole("button", { name: "Stop process", exact: true }).click();
-  await expect(dialog.getByText("Process stopped")).toBeVisible();
-  await expect(dialog.getByText(/acknowledged the request, and its connection to the server then closed/)).toBeVisible();
+  await expect(dialog.getByText("Stop accepted, connection closed")).toBeVisible();
+  await expect(dialog.getByText(/acknowledged the request and its connection to the server then closed/)).toBeVisible();
+  // Honest about what was not observed: no claim that the process has exited.
+  await expect(dialog.getByText(/not a confirmed exit/)).toBeVisible();
+  await expect(dialog.getByText("Process stopped")).toHaveCount(0);
   expect(state.posts.at(-1)!.path).toBe(`/admin/communicators/${C1}/terminate`);
   expect(state.posts.at(-1)!.body).toMatchObject({ expect: { host_id: 4, username: "alice" } });
+});
+
+test("a process that declines (or was not the one addressed) is a warning, not a success", async ({ page }) => {
+  const state = await fixtures(page);
+  state.terminateOutcome = "refused";
+  await open(page);
+  await page.locator(`[data-node="${C1}"] .hit`).click();
+  await page.getByRole("button", { name: "Stop the communicator process…" }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "Stop process", exact: true }).click();
+  await expect(page.getByRole("dialog").getByText("The process declined")).toBeVisible();
+  await expect(page.getByRole("dialog").getByText(/Nothing was stopped/)).toBeVisible();
+  await expect(page.getByRole("dialog").getByText("Stop accepted, connection closed")).toHaveCount(0);
 });
 
 test("a stop nobody acknowledged is a warning, not a success", async ({ page }) => {
@@ -202,7 +217,7 @@ test("a stop nobody acknowledged is a warning, not a success", async ({ page }) 
   await page.getByRole("dialog").getByRole("button", { name: "Stop process", exact: true }).click();
   await expect(page.getByRole("dialog").getByText("No acknowledgement")).toBeVisible();
   await expect(page.getByRole("dialog").getByText(/still running/)).toBeVisible();
-  await expect(page.getByRole("dialog").getByText("Process stopped")).toHaveCount(0);
+  await expect(page.getByRole("dialog").getByText("Stop accepted, connection closed")).toHaveCount(0);
   // The node is still there: the server did not see it go.
   await page.getByRole("dialog").getByRole("button", { name: "Close", exact: true }).first().click();
   await expect(page.locator(`[data-node="${C1}"]`)).toHaveCount(1);

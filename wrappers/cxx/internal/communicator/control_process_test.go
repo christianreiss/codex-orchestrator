@@ -209,16 +209,33 @@ func TestRemoteTerminateStopsTheRealOwnerAndClientsRestartIt(t *testing.T) {
 		t.Fatalf("capabilities pid %d is not the owner's own pid %v", first, got)
 	}
 
-	// The server asks it to stop.
 	mu.Lock()
 	target := current
 	mu.Unlock()
-	if err := websocket.JSON.Send(target.ws, frame{Type: "terminate", RequestID: "t-1", Reason: "admin"}); err != nil {
+	// A command that names some other owner process stops nothing: the owner
+	// refuses it, says why, and keeps running.
+	if err := websocket.JSON.Send(target.ws, frame{Type: "terminate", RequestID: "t-wrong", Reason: "admin", OwnerInstanceID: "00000000-0000-4000-8000-000000000000"}); err != nil {
 		t.Fatal(err)
 	}
 	select {
 	case ack := <-acks:
-		if ack["request_id"] != "t-1" || ack["accepted"] != true || int(ack["pid"].(float64)) != first {
+		if ack["request_id"] != "t-wrong" || ack["accepted"] != false || ack["reason"] != "owner_mismatch" || ack["instance_id"] != firstIdentity.instanceID {
+			t.Fatalf("a command for another owner was not refused: %v", ack)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("no refusal from the owner")
+	}
+	time.Sleep(500 * time.Millisecond)
+	if !processAlive(first) {
+		t.Fatal("a command naming another owner stopped this one")
+	}
+	// The server asks it to stop, naming it.
+	if err := websocket.JSON.Send(target.ws, frame{Type: "terminate", RequestID: "t-1", Reason: "admin", OwnerInstanceID: firstIdentity.instanceID}); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case ack := <-acks:
+		if ack["request_id"] != "t-1" || ack["accepted"] != true || int(ack["pid"].(float64)) != first || ack["instance_id"] != firstIdentity.instanceID {
 			t.Fatalf("unexpected acknowledgement: %v", ack)
 		}
 	case <-time.After(10 * time.Second):

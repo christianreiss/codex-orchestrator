@@ -342,13 +342,15 @@ export async function registerCommunicatorRoutes(app: FastifyInstance, ctx: Rout
                 accepted: z.boolean(),
                 pid: z.number().int().positive().max(2 ** 31).optional(),
                 reason: z.string().max(64).optional(),
+                instance_id: z.string().max(64).optional(),
               })
               .strict()
               .parse(parsed);
             communicatorRegistry.acknowledgeTerminate(connectionID, ack.request_id, {
               accepted: ack.accepted,
               pid: ack.pid ?? null,
-              reason: ack.reason ?? null,
+              reason: ack.reason || null,
+              instance_id: ack.instance_id ?? null,
             });
             return;
           }
