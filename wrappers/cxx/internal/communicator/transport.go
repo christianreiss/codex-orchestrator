@@ -41,11 +41,41 @@ type endpoint struct {
 	leaseCancel        context.CancelFunc
 }
 
+// sun_path holds 108 bytes on Linux and 104 on the BSDs, terminator included.
+// Stay well under both so the same path binds everywhere.
+const maxSocketPath = 100
+
+// executable is a seam for tests; production always re-executes itself.
+var executable = os.Executable
+
+// socketPath prefers the per-user runtime root. A root so deep that the socket
+// would not bind (a long XDG_RUNTIME_DIR or TMPDIR) falls back to a short
+// private directory under /tmp. Every process derives the same answer from the
+// same environment, so clients and the owner still meet at one path.
 func socketPath(base string) (string, error) {
 	root := os.Getenv("XDG_RUNTIME_DIR")
 	if root == "" {
 		root = filepath.Join(os.TempDir(), fmt.Sprintf("cxx-%d", os.Getuid()))
 	}
+	path, err := socketPathUnder(root, base)
+	if err != nil {
+		// An unsafe or unusable root is a refusal, never a reason to look elsewhere.
+		return "", err
+	}
+	if len(path) <= maxSocketPath {
+		return path, nil
+	}
+	short, err := socketPathUnder(filepath.Join("/tmp", fmt.Sprintf("cxx-%d", os.Getuid())), base)
+	if err != nil {
+		return "", err
+	}
+	if len(short) > maxSocketPath {
+		return "", errors.New("communicator socket path is too long for this platform")
+	}
+	return short, nil
+}
+
+func socketPathUnder(root, base string) (string, error) {
 	if err := os.MkdirAll(root, 0700); err != nil {
 		return "", err
 	}
@@ -160,7 +190,7 @@ func (ep *endpoint) ensure(ctx context.Context) error {
 		conn.Close()
 		return nil
 	}
-	exe, err := os.Executable()
+	exe, err := executable()
 	if err != nil {
 		return err
 	}
@@ -175,11 +205,28 @@ func (ep *endpoint) ensure(ctx context.Context) error {
 		return err
 	}
 	defer null.Close()
-	cmd.Stdin, cmd.Stdout, cmd.Stderr = null, null, null
+	// A startup failure (an unbindable socket, a rejected config) is the one thing
+	// the user needs to see, so the owner's stderr lands in a private log beside
+	// the socket instead of /dev/null. A file descriptor, not a pipe: the owner
+	// outlives this process and must never take SIGPIPE for logging.
+	logPath := filepath.Join(filepath.Dir(ep.socket), "serve.log")
+	logFile, offset := openServeLog(logPath)
+	if logFile != nil {
+		defer logFile.Close()
+		cmd.Stderr = logFile
+	}
+	cmd.Stdin, cmd.Stdout = null, null
 	if err := cmd.Start(); err != nil {
 		return err
 	}
-	go func() { _ = cmd.Wait() }()
+	exited := make(chan error, 1)
+	go func() { exited <- cmd.Wait() }()
+	failure := func(reason string) error {
+		if detail := serveLogTail(logPath, offset); detail != "" {
+			return fmt.Errorf("%s: %s", reason, detail)
+		}
+		return errors.New(reason)
+	}
 	deadline := time.NewTimer(10 * time.Second)
 	defer deadline.Stop()
 	tick := time.NewTicker(30 * time.Millisecond)
@@ -188,8 +235,15 @@ func (ep *endpoint) ensure(ctx context.Context) error {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
+		case err := <-exited:
+			// A clean exit means another owner already holds the lock and is still
+			// binding; keep waiting for its socket. Anything else is final.
+			if err != nil {
+				return failure("communicator exited during startup (" + err.Error() + ")")
+			}
+			exited = nil
 		case <-deadline.C:
-			return errors.New("communicator failed to start; run cxx communicator doctor")
+			return failure("communicator failed to start; run cxx communicator doctor")
 		case <-tick.C:
 			conn, err := (&net.Dialer{}).DialContext(ctx, "unix", ep.socket)
 			if err == nil {
@@ -198,6 +252,38 @@ func (ep *endpoint) ensure(ctx context.Context) error {
 			}
 		}
 	}
+}
+
+const serveLogLimit = 64 * 1024
+
+func openServeLog(path string) (*os.File, int64) {
+	if info, err := os.Lstat(path); err == nil && info.Size() > serveLogLimit {
+		_ = os.Remove(path)
+	}
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
+	if err != nil {
+		return nil, 0
+	}
+	info, err := f.Stat()
+	if err != nil {
+		f.Close()
+		return nil, 0
+	}
+	return f, info.Size()
+}
+
+// serveLogTail returns what the owner wrote since this attempt began,
+// collapsed to one bounded line.
+func serveLogTail(path string, offset int64) string {
+	raw, err := os.ReadFile(path)
+	if err != nil || int64(len(raw)) <= offset {
+		return ""
+	}
+	text := strings.TrimSpace(string(raw[offset:]))
+	if len(text) > 400 {
+		text = text[len(text)-400:]
+	}
+	return strings.Join(strings.Fields(text), " ")
 }
 
 func (ep *endpoint) lease(ctx context.Context) {

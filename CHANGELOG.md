@@ -1,5 +1,7 @@
 # 2026-10-13
 
+- Communicator startup (cxx): the local socket path is kept within the 108-byte `sun_path` limit by falling back to a private `/tmp/cxx-<uid>` directory when a long `XDG_RUNTIME_DIR`/`TMPDIR` would make the bind fail, and the owner's startup error is written to `serve.log` beside the socket and shown by the failing command. A communicator that dies while starting is reported at once instead of after ten seconds as "failed to start".
+
 - Communicator hardening (API): a request frame the server rejects (path outside the allowlist, oversized body, malformed fields) or whose reply would exceed the wrapper's 16 MiB frame cap is now answered with a typed error frame (403/413/400/502) instead of closing the shared WebSocket, so one bad call no longer drops every multiplexed session or turns its in-flight writes into "outcome unknown". Closing stays reserved for protocol violations and revoked authorization. Host events (`host.*`) now invalidate only the connection of the host they name, so one host's admin edit no longer makes every host resynchronize.
 
 - Communicator forwarding now includes provider-account lease acquisition, heartbeat and release, preserving native launches for all three engines over the shared connection.

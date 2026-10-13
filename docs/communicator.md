@@ -20,7 +20,10 @@ nonzero when an enabled communicator is absent. The host's Operations tab shows
 live server connections and their users, versions and sync timestamps.
 
 The Unix socket lives in a mode-0700 directory below `XDG_RUNTIME_DIR` (or a
-private `/tmp/cxx-<uid>` directory). Socket mode is 0600. A filesystem lock elects
+private `/tmp/cxx-<uid>` directory); a runtime root deep enough to exceed the
+platform's socket-path limit (kept under 100 bytes) falls back to `/tmp/cxx-<uid>`,
+while an unsafe root is refused. The owner's startup errors go to `serve.log` in that
+directory and are included in the error a managed command prints. Socket mode is 0600. A filesystem lock elects
 one owner; only that owner removes a stale socket. No TCP listener is exposed.
 Each process holds a local streaming lease; a surviving client restarts a crashed
 owner. The last lease starts a five-minute idle period. Status checks do not
