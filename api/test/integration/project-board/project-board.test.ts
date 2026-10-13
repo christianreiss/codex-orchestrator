@@ -355,18 +355,22 @@ describe.skipIf(!handle)('project board against a real database', () => {
   });
 
   it('renews a claim before the reaper can take it', async () => {
-    await claim(1, 'code', agent('chris', '/srv/a'));
+    // Hold the business clock still while real MySQL commits. Rounding a wall
+    // clock expiry to whole seconds left as little as 1ms for those commits.
+    const at = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
+    const timedBoard = new ProjectBoardService({ db, projects, settings: new SettingsService(db), now: () => at });
+    await timedBoard.claimCard({ slug: SLUG, card: 1, role: 'code', ...agent('chris', '/srv/a') }, host, 'claude');
     // One second of life left. The holder calls; renewal runs before the sweep,
     // so the card survives — the opposite ordering would take a card away in the
     // same transaction that proved its holder was alive.
-    const nearly = new Date(Date.now() + 1000).toISOString().replace(/\.\d{3}Z$/, 'Z');
+    const nearly = new Date(Date.parse(at) + 1000).toISOString().replace(/\.\d{3}Z$/, 'Z');
     await exec(`UPDATE coord_project_cards SET claim_expires_at = '${nearly}' WHERE project_id = ${projectId} AND card_number = 1`);
 
-    await board.getCard({ slug: SLUG, card: 1, username: 'chris', worktree_path: '/srv/a' }, host);
+    await timedBoard.getCard({ slug: SLUG, card: 1, username: 'chris', worktree_path: '/srv/a' }, host);
 
     const row = await cardRow(1);
     expect(row['claim_released_at']).toBeNull();
-    const remaining = new Date(String(row['claim_expires_at'])).getTime() - Date.now();
+    const remaining = new Date(String(row['claim_expires_at'])).getTime() - Date.parse(at);
     expect(remaining).toBeGreaterThan((CARD_CLAIM_TTL_SECONDS - 60) * 1000);
   });
 
