@@ -62,6 +62,16 @@ func shouldReconcileNativeEntries(args []string) bool {
 	return true
 }
 
+// implicitNativeEntryError keeps the after-command reconciliation from turning
+// a successful privileged command (sudo with another user's HOME) into a
+// failure: that home is left alone. Explicit native-entry commands still report it.
+func implicitNativeEntryError(err error) error {
+	if errors.Is(err, nativeentry.ErrForeignHome) {
+		return nil
+	}
+	return err
+}
+
 func reconcileNativeEntries(requireAssignment ...bool) error {
 	exe, err := os.Executable()
 	if err != nil {
