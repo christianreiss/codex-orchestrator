@@ -1,5 +1,7 @@
 # 2026-10-13
 
+- cxx 0.9.74 also stops a host-daemon stream whose local reader has stalled: detaching it expires that stream's socket deadlines, so a relay blocked writing to it no longer keeps the stream (and its 64 queued events) alive.
+
 - cxx 0.9.75 keeps one host's communicator sync on that host: `host.*` events with a numeric `id` or `host_id` invalidate only the matching connection, and events that name no host still reach every connection. A reply above 11 MiB returns `502 communicator_response_too_large` for that request and leaves the shared socket open. Idempotent reads retry once over the communicator's HTTPS transfer; `POST /auth` keeps the 502. Trailing slashes on the local route check match the API router, so `/watchdog/stream/` uses the flushing transfer and `/mcp/` keeps the signed host-key binding.
 
 - Communicator daemon reattachment waits until the previous stream's remote disconnect has been sent, so delayed cleanup cannot disconnect a replacement daemon. Other engines keep using the shared control connection during this handoff.
