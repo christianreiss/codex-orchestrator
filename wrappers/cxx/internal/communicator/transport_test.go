@@ -615,10 +615,13 @@ func TestBlockedDaemonRelayEndsOnTerminalEvents(t *testing.T) {
 	payload := json.RawMessage(`{"blob":"` + strings.Repeat("x", 512*1024) + `"}`)
 	for _, terminal := range []string{"control_lost", "daemon_closed"} {
 		t.Run(terminal, func(t *testing.T) {
+			registered := make(chan struct{})
+			var once sync.Once
 			c := testConnection(t, func(ws *websocket.Conn, f frame) {
 				if f.Type != "daemon" {
 					return
 				}
+				once.Do(func() { close(registered) })
 				go func() {
 					// ~30 MB in 60 events blocks the local Send on loopback buffers
 					// without filling the 64-slot queue.
@@ -646,6 +649,13 @@ func TestBlockedDaemonRelayEndsOnTerminalEvents(t *testing.T) {
 			if err := websocket.JSON.Send(ws, map[string]any{"type": "heartbeat"}); err != nil {
 				t.Fatal(err)
 			}
+			// The stream is attached once its first frame reached the server;
+			// only then can "released" mean the terminal event ended it.
+			select {
+			case <-registered:
+			case <-time.After(5 * time.Second):
+				t.Fatal("daemon stream never registered")
+			}
 			// Stay a stalled reader until the stream has had to end.
 			deadline := time.Now().Add(5 * time.Second)
 			for {
@@ -671,5 +681,43 @@ func TestBlockedDaemonRelayEndsOnTerminalEvents(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// The daemon_closed timer closes the channel from another goroutine; frames
+// arriving at the same time must never send on it (a panic would kill the
+// owner), and the shared connection must keep serving requests.
+func TestDaemonCloseTimerRacesLateFrames(t *testing.T) {
+	previous := daemonCloseGrace
+	daemonCloseGrace = 0
+	t.Cleanup(func() { daemonCloseGrace = previous })
+	c := testConnection(t, func(ws *websocket.Conn, f frame) {
+		if f.Type != "request" {
+			return
+		}
+		switch f.Path {
+		default:
+			_ = websocket.JSON.Send(ws, frame{ID: f.ID, Status: 200})
+		case "/race":
+			_ = websocket.JSON.Send(ws, frame{Type: "daemon_closed"})
+			for i := 0; i < 50; i++ {
+				_ = websocket.JSON.Send(ws, frame{Type: "daemon_event", Payload: json.RawMessage(`{}`)})
+			}
+			_ = websocket.JSON.Send(ws, frame{ID: f.ID, Status: 200})
+		}
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	for i := 0; i < 200; i++ {
+		ch := make(chan json.RawMessage, 64)
+		c.mu.Lock()
+		c.daemon, c.daemonClosing = ch, nil
+		c.mu.Unlock()
+		if _, _, err := c.request(ctx, frame{Method: "GET", Path: "/race"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if result, _, err := c.request(ctx, frame{Method: "GET", Path: "/after"}); err != nil || result.Status != 200 {
+		t.Fatal("control connection unusable after close/frame race", result, err)
 	}
 }

@@ -140,18 +140,27 @@ func (c *connection) receive() {
 				ready = true
 			}
 		case "daemon_event", "daemon_closed":
+			// Enqueue under c.mu: detachDaemon closes the channel under the same
+			// lock (also from the daemon_closed timer), so a late frame can never
+			// send on a closed channel. The send is non-blocking.
 			c.mu.Lock()
 			ch := c.daemon
-			c.mu.Unlock()
+			overflow := false
 			if ch != nil {
 				select {
 				case ch <- f.Payload:
 				default:
-					// A stalled daemon consumer must not tear down the control
-					// connection other engines share. Detach only that stream;
-					// the daemon reconnects under its durable work semantics.
-					c.detachDaemon(ch)
+					overflow = true
 				}
+			}
+			c.mu.Unlock()
+			if overflow {
+				// A stalled daemon consumer must not tear down the control
+				// connection other engines share. Detach only that stream;
+				// the daemon reconnects under its durable work semantics.
+				c.detachDaemon(ch)
+			}
+			if ch != nil {
 				if f.Type == "daemon_closed" {
 					// Queued events still drain to a reading daemon first; a
 					// relay blocked on a stalled reader is stopped after a bound.
