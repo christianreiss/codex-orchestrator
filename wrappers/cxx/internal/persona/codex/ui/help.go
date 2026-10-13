@@ -19,6 +19,7 @@ var cdxHelpCommands = []wrapperHelpItem{
 	{"cdx status", "Host, versions, health and usage."},
 	{"cdx doctor", "Diagnose and show repair steps."},
 	{"cdx auth-upload", "Verify and upload local credentials."},
+	{"cdx auth-reconcile [--accept-server]", "Inspect interrupted uploads; explicitly adopt verified server credentials with a local backup."},
 	{"cdx sync", "Apply managed files without launching."},
 	{"cdx lane [normal|clear]", "Choose a quota lane; clear to inherit."},
 	{"cdx profile <name> [-- args...]", "Launch a synced configuration profile."},

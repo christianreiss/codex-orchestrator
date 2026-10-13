@@ -20,6 +20,7 @@ import (
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/terminalui"
 
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/authreconcile"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/claude"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/communicator"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
@@ -185,7 +186,7 @@ var reservedClaudeSubcommands = map[string]bool{
 var wrapperOwnedSubcommands = map[string]bool{
 	"run": true, "resume": true, "status": true, "doctor": true,
 	"auth-upload": true, "auth-upload-auto": true,
-	"auth-sync": true, "update": true, "uninstall": true,
+	"auth-reconcile": true, "auth-sync": true, "update": true, "uninstall": true,
 	"cron": true, "execute": true, "exec": true, "sync": true,
 }
 
@@ -313,6 +314,10 @@ func run(args []string, stdout, stderr io.Writer, choices ...*quotaadvice.Sessio
 }
 
 func runMode(args []string, stdout, stderr io.Writer, native bool, choices ...*quotaadvice.Session) (code int) {
+	if !native && authreconcile.HelpRequested(args) {
+		authreconcile.PrintHelp(stdout)
+		return 0
+	}
 	depth, _ := strconv.Atoi(os.Getenv("CLAUDE_WRAPPER_RESTART_DEPTH"))
 	if depth > maxRestartDepth {
 		ui.Sayf(stderr, "clx", ui.ToneFail, "", "restart depth %d exceeded cap %d - refusing to continue", depth, maxRestartDepth)
@@ -439,6 +444,9 @@ func runMode(args []string, stdout, stderr io.Writer, native bool, choices ...*q
 	}
 
 	logger := log.Setup(f.silent, f.debug)
+	if sub == "auth-reconcile" {
+		return authreconcile.Command(ctx, cfg, append(subArgs, passthrough...), stdout, stderr)
+	}
 	if sub == "auth-upload-auto" {
 		return cmdAutomaticAuthUpload(ctx, cfg, logger, stderr)
 	}

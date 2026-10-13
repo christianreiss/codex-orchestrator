@@ -38,7 +38,7 @@ func SyncSessionAuth(ctx context.Context, client *orchestrator.Client, logger *s
 	}
 	defer release()
 	if communicator.PendingAuth(client.BaseURL, "codex", fencePath) {
-		return SessionAuthSyncResult{Deferred: true}, errors.New("previous auth upload outcome unresolved; refusing to replay after handoff")
+		return SessionAuthSyncResult{Deferred: true}, errors.New("previous auth upload outcome unresolved; refusing to replay after handoff; inspect with cdx auth-reconcile")
 	}
 
 	if logger == nil {

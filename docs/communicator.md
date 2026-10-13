@@ -396,6 +396,43 @@ An older or equal-but-different head, missing verification, or a changed account
 remains unresolved and refuses launch with the marker's explicit diagnostic. Timestamp
 comparison alone never authorizes re-offering a local credential or deleting its marker.
 
+For an unresolved conflict, `cdx auth-reconcile` and `clx auth-reconcile` perform
+an explicit direct account-scoped readback (using the signed config's existing
+API key and TLS/CA policy) and print metadata only: server, engine, local and
+pending SHA256 generations, account/session binding, verified canonical digest
+and generation, and the conflict reason. The command has a 15-second network
+and lock deadline. It does not start an owner or run startup content sync, maintenance, upload,
+provider refresh or account-lease acquisition. Without an active native child,
+an inherited session ID is omitted, so an expired lease does not prevent the
+same account's readback. An active invalid session binding is reported precisely;
+no replacement account is silently reserved.
+
+`auth-reconcile --accept-server` is an explicit choice to adopt that account's
+verified server credentials, including an older or equal-but-different head.
+It requires a stable positive account binding, an existing pending marker and
+local auth generation, no logout intent, and no active native child. A unique
+0600 copy of the exact observed native bytes is saved and synced beneath the
+native auth directory's private `auth-recovery-backups/` directory before the
+existing guarded writer is called. A native change/deletion/logout during the
+readback or after backup wins. A changed marker is retained: cleanup compares its
+exact bytes after a successful write, while holding the same transaction fence
+as background workers. Success says **adopted server credentials**, never that
+the interrupted upload was acknowledged. Backups remain available for deliberate
+local recovery; restoring one is not permission to replay the interrupted upload.
+
+Credential adoption with a persistent backup is limited to secure hosts. An
+insecure signed config or a readback reporting an insecure host refuses retention;
+inspection still works. Unverified or missing server credentials, changed or
+absent account binding, missing local credentials and logout intent remain fenced
+with diagnostics. There is no cross-account switch or implicit logout recovery.
+Grok rejects this command explicitly: subscription credentials are server-owned.
+
+Malformed pending markers, including valid JSON without a lower-case SHA256
+generation, remain fenced rather than looking absent. The fence survives a
+signed rollback to legacy transport; changing transport does not prove the
+previous store failed. A verified identical Claude readback also supports an
+older API's `digest` field when `canonical_digest` is absent.
+
 Local `status`/`doctor` and the host Operations panel show content failures and
 per-scope auth progress. Server confirmation, local writes and native adoption are
 separate: a local write reports native adoption as unconfirmed. Native processes

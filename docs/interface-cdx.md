@@ -1709,3 +1709,7 @@ Equal, older or unverified heads remain unresolved. Successful recovery reports
 adoption and then clears the matching pending marker, never an upload acknowledgement.
 
 See [Communicator ownership and rollout](communicator.md#central-sync-ownership-cxx-0973).
+
+### Explicit interrupted-upload recovery
+
+`cdx auth-reconcile` inspects the bound account and pending/local generations without upload, startup sync or a new provider lease. `cdx auth-reconcile --accept-server` deliberately adopts verified same-account server credentials on a secure host after saving an exact private local backup. Native changes, logout, active children and changed marker bytes remain protected. Inactive expired session IDs are omitted for account-scoped readback; unverified, absent or changed bindings stay fenced. The result is server adoption, never an acknowledgement of the interrupted upload. See [the recovery contract](communicator.md) for limitations and backup handling.
