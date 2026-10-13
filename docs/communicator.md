@@ -128,6 +128,8 @@ From cxx 0.9.78, the MCP stdio adapter accepts a correlated response only when
 exactly one of `result` and `error` is present. A lone `result: null` is valid;
 contradictory envelopes return the existing unknown-outcome error with the
 original request ID instead of forwarding an ambiguous result.
+The stdio writer also preserves JSON numbers without passing them through
+`float64`, so large integer IDs stay correlated in single and batch replies.
 
 Remote control of the owner process is negotiated, so old servers and old owners
 never meet a frame or a field they do not know. A server that can stop an owner

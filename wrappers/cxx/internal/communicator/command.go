@@ -112,7 +112,9 @@ func mcp(ctx context.Context, engine string, in io.Reader, out io.Writer) error 
 	var writes sync.Mutex
 	write := func(raw []byte) {
 		var value any
-		if json.Unmarshal(raw, &value) == nil {
+		decoder := json.NewDecoder(bytes.NewReader(raw))
+		decoder.UseNumber()
+		if decoder.Decode(&value) == nil {
 			writes.Lock()
 			json.NewEncoder(out).Encode(value)
 			writes.Unlock()

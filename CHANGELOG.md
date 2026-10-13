@@ -1,5 +1,7 @@
 # 2026-10-13
 
+- cxx 0.9.78 preserves numeric MCP IDs and result values when writing stdio replies, including integers beyond the exact `float64` range. Single and batch replies no longer round IDs after validating their correlation.
+
 - Communicator frame limits count UTF-8 wire bytes, including non-ASCII headers, so an oversized encoded reply returns a correlated failure instead of exceeding the receiver limit and dropping the shared connection.
 
 - cxx 0.9.78 rejects contradictory MCP replies containing both `result` and `error`, returning the existing correlated unknown-outcome error instead of forwarding an ambiguous result. A lone `result: null` remains valid.
