@@ -241,7 +241,9 @@ the API answers with an id null `-32600` (invalid batch members, objects without
 expects a reply; valid notifications stay silent. On SIGTERM or interrupt the adapter stops reading stdin even if the
 native client keeps it open, reports any in-flight request as an unknown
 outcome, releases its owner lease and exits. It waits at most three seconds for
-those replies, so a client that has stopped reading stdout cannot keep it alive.
+those replies, so a client that has stopped reading stdout cannot keep it alive;
+a signal after stdin has closed gets the same bound. Replies are relayed as
+compacted raw JSON, never re-encoded, so request IDs keep their exact value.
 
 Request correlation compares JSON ID values rather than serialized spellings,
 including escaped strings and equivalent numbers. Distinct large integer IDs
