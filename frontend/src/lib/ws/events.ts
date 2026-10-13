@@ -22,6 +22,7 @@ export const DEFAULT_INVALIDATIONS: WsInvalidationMap = {
   "auth.invalidated": [["accounts"]],
   "communicator.updated": [["communicators"], ["topology"]],
   "communicator.disconnected": [["communicators"], ["topology"]],
+  "communicator.terminated": [["communicators"], ["topology"]],
   'feedback.changed': [['feedback'], ['agents']],
   "chatty.settings": [["chatty"]],
  "host.daemon.changed": [["host-daemons"], ["daemon-sessions"], ["topology"]],

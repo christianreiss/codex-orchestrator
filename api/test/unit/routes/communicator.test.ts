@@ -56,7 +56,7 @@ async function open() {
     ws.once('message', (data: unknown) => resolve(String(data))),
   );
   ws.send(JSON.stringify({ type: 'hello', protocol: 1, username: 'tester', version: '0.9.71' }));
-  expect(JSON.parse(await ready)).toEqual({ type: 'ready', protocol: 1 });
+  expect(JSON.parse(await ready)).toEqual({ type: 'ready', protocol: 1, control: ['terminate'] });
   return ws;
 }
 describe('communicator transport', () => {

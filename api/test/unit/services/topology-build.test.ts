@@ -1,8 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildTopology,
-  communicatorCanTerminate,
-  parseReleaseVersion,
   type PortalSessionInput,
   type TopologyInputs,
 } from '../../../src/services/topology/build.js';
@@ -57,6 +55,7 @@ function communicator(
       synced_at: null,
     },
     remote_address: '192.0.2.4',
+    capabilities: { terminate: false, pid: null, started_at: null },
     connected_ms: NOW - 1_800_000,
     last_frame_ms: NOW - 3000,
     last_heartbeat_ms: NOW - 3000,
@@ -226,6 +225,8 @@ describe('topology nodes', () => {
             ended_at: '2026-10-13T17:59:00.000Z',
             reason: 'admin_disconnect',
             actor: 'ops',
+            pid: 4242,
+            process_started_at: null,
             session_ids: [S1],
             successor_id: 'back',
           },
@@ -288,16 +289,18 @@ describe('what an operator may do to an agent', () => {
   });
 });
 
-describe('remote terminate support', () => {
-  it('parses cxx release strings', () => {
-    expect(parseReleaseVersion('0.9.74')).toEqual([0, 9, 74]);
-    expect(parseReleaseVersion('v0.9.75-rc1')).toEqual([0, 9, 75]);
-    expect(parseReleaseVersion('2025.11.03')).toEqual([2025, 11, 3]);
-    expect(parseReleaseVersion('dev')).toBeNull();
+describe('what an owner process says about itself', () => {
+  it('can be stopped remotely only when the owner said so, and shows its own pid', () => {
+    const silent = communicator('old', {}, { version: '0.9.74' });
+    const capable = communicator('new', {}, { version: '0.9.76', capabilities: { terminate: true, pid: 4242, started_at: '2026-10-13T17:00:00Z' } });
+    const topology = buildTopology(inputs({ communicators: [silent, capable] }));
+    const byId = Object.fromEntries(topology.communicators.map((c) => [c.id, c]));
+    expect(byId.old).toMatchObject({ can_terminate: false, process: null });
+    expect(byId.new).toMatchObject({ can_terminate: true, process: { pid: 4242, started_at: '2026-10-13T17:00:00Z' } });
   });
 
-  it('is off until a release that understands the control frame is named', () => {
-    expect(communicatorCanTerminate('0.9.74')).toBe(false);
-    expect(communicatorCanTerminate('99.0.0')).toBe(false);
+  it('never guesses support from a version string', () => {
+    const topology = buildTopology(inputs({ communicators: [communicator('c', {}, { version: '99.0.0' })] }));
+    expect(topology.communicators[0]!.can_terminate).toBe(false);
   });
 });

@@ -192,3 +192,66 @@ describe('reconnect correlation', () => {
     expect(registry.tombstones(2000 + 16 * 60_000)).toEqual([]);
   });
 });
+
+describe('acknowledged owner termination', () => {
+  const capable = { terminate: true, pid: 4242, started_at: '2026-10-13T17:00:00Z' };
+  function owner(registry: CommunicatorRegistry, id: string, answer: (frame: { request_id: string }) => void) {
+    const send = vi.fn((frame: unknown) => queueMicrotask(() => answer(frame as { request_id: string })));
+    registry.register(view(id), { close: vi.fn(), send, remoteAddress: null });
+    registry.setCapabilities(id, capable);
+    return send;
+  }
+
+  it('reports terminated only after the owner acknowledged and its connection closed', async () => {
+    const registry = new CommunicatorRegistry();
+    const send = owner(registry, 'c1', (frame) => {
+      registry.acknowledgeTerminate('c1', frame.request_id, { accepted: true, pid: 4242, reason: null });
+      setTimeout(() => registry.unregister('c1'), 20);
+    });
+    const result = await registry.terminate('c1', 'ops', { ackMs: 500, closeMs: 500 });
+    expect(result).toMatchObject({ outcome: 'terminated', pid: 4242 });
+    expect(send).toHaveBeenCalledWith(expect.objectContaining({ type: 'terminate', reason: 'admin' }));
+    expect(registry.tombstones()[0]).toMatchObject({ reason: 'admin_terminate', actor: 'ops', pid: 4242, process_started_at: '2026-10-13T17:00:00Z' });
+  });
+
+  it('says only "acknowledged" while the connection is still open', async () => {
+    const registry = new CommunicatorRegistry();
+    owner(registry, 'c1', (frame) => registry.acknowledgeTerminate('c1', frame.request_id, { accepted: true, pid: 4242, reason: null }));
+    const result = await registry.terminate('c1', 'ops', { ackMs: 500, closeMs: 60 });
+    expect(result.outcome).toBe('acknowledged');
+    expect(registry.has('c1')).toBe(true);
+  });
+
+  it('never claims a stop that nothing acknowledged', async () => {
+    const registry = new CommunicatorRegistry();
+    owner(registry, 'c1', () => undefined);
+    const result = await registry.terminate('c1', 'ops', { ackMs: 60, closeMs: 60 });
+    expect(result.outcome).toBe('unacknowledged');
+    // The connection was not marked as going away: nothing said it was.
+    expect(registry.get('c1')!.closing).toBe(false);
+  });
+
+  it('reports a refusal with the owner\'s reason', async () => {
+    const registry = new CommunicatorRegistry();
+    owner(registry, 'c1', (frame) => registry.acknowledgeTerminate('c1', frame.request_id, { accepted: false, pid: null, reason: 'unsupported' }));
+    expect(await registry.terminate('c1', 'ops', { ackMs: 500 })).toMatchObject({ outcome: 'refused', reason: 'unsupported' });
+  });
+
+  it('ignores an acknowledgement for another request', async () => {
+    const registry = new CommunicatorRegistry();
+    owner(registry, 'c1', () => registry.acknowledgeTerminate('c1', 'someone-elses-request', { accepted: true, pid: 1, reason: null }));
+    expect((await registry.terminate('c1', 'ops', { ackMs: 60 })).outcome).toBe('unacknowledged');
+  });
+
+  it('is unsupported for an owner that never announced the capability, and single-flight otherwise', async () => {
+    const registry = new CommunicatorRegistry();
+    registry.register(view('old'), { close: vi.fn(), send: vi.fn(), remoteAddress: null });
+    expect((await registry.terminate('old', 'ops')).outcome).toBe('unsupported');
+    expect((await registry.terminate('ghost', 'ops')).outcome).toBe('not_connected');
+
+    owner(registry, 'c2', () => undefined);
+    const first = registry.terminate('c2', 'ops', { ackMs: 150 });
+    expect((await registry.terminate('c2', 'ops', { ackMs: 150 })).outcome).toBe('in_progress');
+    expect((await first).outcome).toBe('unacknowledged');
+  });
+});

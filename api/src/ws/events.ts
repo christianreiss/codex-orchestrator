@@ -10,6 +10,7 @@
 export const WS_EVENT_TYPES = [
   'communicator.updated',
   'communicator.disconnected',
+  'communicator.terminated',
   'feedback.changed',
   'host.spawn.state_changed',
   'chatty.settings',

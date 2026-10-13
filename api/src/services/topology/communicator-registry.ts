@@ -16,6 +16,8 @@
  * redials, exactly as `docs/communicator.md` describes.
  */
 
+import { randomUUID } from 'node:crypto';
+
 export interface CommunicatorView {
   /** Server-generated per-socket identity. A reconnect gets a new one. */
   id: string;
@@ -32,6 +34,8 @@ export interface CommunicatorView {
 /** What the route lends the registry so an admin action can end one socket. */
 export interface CommunicatorHandle {
   close(code: number, reason: string): void;
+  /** Writes one control frame to the socket; absent when the transport cannot. */
+  send?(frame: unknown): void;
   /** Hard-stops a socket whose peer ignores the close handshake. */
   terminate?(): void;
   remoteAddress: string | null;
@@ -51,7 +55,39 @@ export interface SessionEvidence {
   last_route: string;
 }
 
-export type DisconnectReason = 'admin_disconnect' | 'peer_closed';
+export type DisconnectReason = 'admin_disconnect' | 'admin_terminate' | 'peer_closed';
+
+/**
+ * What an owner said about itself in its one `capabilities` frame. Self-reported,
+ * and only sent to a server that announced control, so an owner that never sent
+ * one cannot be asked to stop.
+ */
+export interface OwnerCapabilities {
+  terminate: boolean;
+  pid: number | null;
+  started_at: string | null;
+}
+
+export interface TerminateAck {
+  accepted: boolean;
+  pid: number | null;
+  reason: string | null;
+}
+
+export type TerminateOutcome =
+  /** Owner acknowledged and its connection then closed. */
+  | 'terminated'
+  /** Owner acknowledged; the connection was still open when the wait ended. */
+  | 'acknowledged'
+  /** Owner declined (it cannot stop itself). */
+  | 'refused'
+  /** The frame was sent and nothing answered in time. */
+  | 'unacknowledged'
+  /** The owner never announced that it can be stopped remotely. */
+  | 'unsupported'
+  /** Another stop request for this connection is still in flight. */
+  | 'in_progress'
+  | 'not_connected';
 
 export interface ConnectionTombstone {
   id: string;
@@ -63,6 +99,9 @@ export interface ConnectionTombstone {
   reason: DisconnectReason;
   /** Admin who requested the disconnect, when there was one. */
   actor: string | null;
+  /** The owner's own account of its process, when it gave one. */
+  pid: number | null;
+  process_started_at: string | null;
   session_ids: string[];
   /** A later connection from the same host and OS user, once one appears. */
   successor_id: string | null;
@@ -77,6 +116,8 @@ interface Entry {
   daemonAttached: boolean;
   evidence: Map<string, SessionEvidence>;
   closing: { reason: DisconnectReason; actor: string | null } | null;
+  capabilities: OwnerCapabilities;
+  terminateRequest: { id: string; resolve: (ack: TerminateAck | null) => void } | null;
 }
 
 export interface CommunicatorSnapshot {
@@ -87,6 +128,7 @@ export interface CommunicatorSnapshot {
   last_heartbeat_ms: number | null;
   daemon_attached: boolean;
   closing: boolean;
+  capabilities: OwnerCapabilities;
   evidence: ReadonlyMap<string, SessionEvidence>;
 }
 
@@ -132,6 +174,8 @@ export class CommunicatorRegistry {
       daemonAttached: false,
       evidence: new Map(),
       closing: null,
+      capabilities: { terminate: false, pid: null, started_at: null },
+      terminateRequest: null,
     });
     // A connection from the same host and OS user soon after one ended is that
     // communicator coming back. Claim at most one unclaimed tombstone.
@@ -159,6 +203,17 @@ export class CommunicatorRegistry {
     if (!entry) return;
     entry.lastFrameMs = now;
     entry.lastHeartbeatMs = now;
+  }
+
+  setCapabilities(id: string, capabilities: OwnerCapabilities): void {
+    const entry = this.entries.get(id);
+    if (entry) entry.capabilities = capabilities;
+  }
+
+  /** The owner's `terminate_ack`. Ignored unless it answers the request in flight. */
+  acknowledgeTerminate(id: string, requestId: string, ack: TerminateAck): void {
+    const entry = this.entries.get(id);
+    if (entry?.terminateRequest?.id === requestId) entry.terminateRequest.resolve(ack);
   }
 
   setDaemonAttached(id: string, attached: boolean): void {
@@ -219,6 +274,8 @@ export class CommunicatorRegistry {
         ended_at: new Date(now).toISOString(),
         reason: entry.closing?.reason ?? 'peer_closed',
         actor: entry.closing?.actor ?? null,
+        pid: entry.capabilities.pid,
+        process_started_at: entry.capabilities.started_at,
         session_ids: [...entry.evidence.keys()].slice(0, 256),
         successor_id: null,
       };
@@ -268,6 +325,53 @@ export class CommunicatorRegistry {
     return { outcome: (await wait(Math.max(0, timeoutMs - graceMs))) ? 'closed' : 'requested' };
   }
 
+  /**
+   * Asks the owner process behind one connection to stop, and reports only what
+   * was observed: the owner's own acknowledgement, then whether its connection
+   * closed. A frame that was sent, or a socket that dropped, proves neither.
+   * Native sessions are not signalled; a surviving client starts a new owner.
+   */
+  async terminate(
+    id: string,
+    actor: string,
+    options: { ackMs?: number; closeMs?: number } = {},
+  ): Promise<{ outcome: TerminateOutcome; pid: number | null; started_at: string | null; reason: string | null }> {
+    const entry = this.entries.get(id);
+    if (!entry) return { outcome: 'not_connected', pid: null, started_at: null, reason: null };
+    const { pid, started_at } = entry.capabilities;
+    if (!entry.capabilities.terminate || !entry.handle.send) return { outcome: 'unsupported', pid, started_at, reason: null };
+    if (entry.terminateRequest) return { outcome: 'in_progress', pid, started_at, reason: null };
+
+    const requestId = randomUUID();
+    const answered = new Promise<TerminateAck | null>((resolve) => {
+      const timer = setTimeout(() => resolve(null), options.ackMs ?? 5000);
+      timer.unref();
+      entry.terminateRequest = { id: requestId, resolve: (ack) => (clearTimeout(timer), resolve(ack)) };
+    });
+    const closed = new Promise<void>((resolve) => {
+      const list = this.closed.get(id) ?? [];
+      list.push(resolve);
+      this.closed.set(id, list);
+    });
+    try {
+      entry.handle.send({ type: 'terminate', request_id: requestId, reason: 'admin' });
+    } catch {
+      entry.terminateRequest = null;
+      return { outcome: 'unacknowledged', pid, started_at, reason: 'send_failed' };
+    }
+    const ack = await answered;
+    entry.terminateRequest = null;
+    if (!ack) return { outcome: 'unacknowledged', pid, started_at, reason: null };
+    if (!ack.accepted) return { outcome: 'refused', pid: ack.pid ?? pid, started_at, reason: ack.reason };
+    // From here the owner has said it is going: the eventual close is its doing.
+    entry.closing = { reason: 'admin_terminate', actor };
+    const didClose = await Promise.race([
+      closed.then(() => true),
+      new Promise<boolean>((resolve) => setTimeout(() => resolve(false), options.closeMs ?? 10_000).unref()),
+    ]);
+    return { outcome: didClose ? 'terminated' : 'acknowledged', pid: ack.pid ?? pid, started_at, reason: null };
+  }
+
   snapshot(now = Date.now()): CommunicatorSnapshot[] {
     return [...this.entries.values()].map((entry) => {
       for (const [sessionId, evidence] of entry.evidence) {
@@ -281,6 +385,7 @@ export class CommunicatorRegistry {
         last_heartbeat_ms: entry.lastHeartbeatMs,
         daemon_attached: entry.daemonAttached,
         closing: entry.closing !== null,
+        capabilities: entry.capabilities,
         evidence: entry.evidence,
       };
     });

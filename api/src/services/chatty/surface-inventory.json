@@ -350,6 +350,7 @@
       "POST /admin/chatty/runs/:id/answer",
       "POST /admin/chatty/runs/:id/cancel",
       "POST /admin/communicators/:id/disconnect",
+      "POST /admin/communicators/:id/terminate",
       "POST /admin/daemon-sessions",
       "POST /admin/daemon-sessions/:id/messages",
       "POST /admin/daemon-sessions/:id/stop",

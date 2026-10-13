@@ -10,7 +10,7 @@ const comm = (id: string, overrides: Partial<TopologyCommunicator> = {}): Topolo
   kind: "communicator", id, host_id: 4, host: "web01.example.com", username: "alice", version: "0.9.74",
   connected_at: "2026-10-13T17:00:00Z", last_frame_at: "2026-10-13T17:59:00Z", last_heartbeat_at: null, health: "live", idle_s: 2,
   leases_reported: 1, requests: 3, synced_at: null, sync_scopes: 0, sync_errors: 0, remote_address: null, daemon_attached: false,
-  agent_ids: [], can_terminate: false, ...overrides,
+  agent_ids: [], process: null, can_terminate: false, ...overrides,
 });
 const agent = (id: string, overrides: Partial<TopologyAgent> = {}): TopologyAgent => ({
   kind: "agent", id, name: "Raffaela", engine: "claude", host_id: 4, host: "web01.example.com", username: "alice", cwd: "/srv/work",
@@ -54,7 +54,7 @@ describe("ghost tracking", () => {
     const base = trackGhosts(emptyGhostState(), snapshot([comm("c1")], []), 1000);
     const departure = {
       id: "c1", host_id: 4, host: "web01.example.com", username: "alice", version: "0.9.74", connected_at: "", ended_at: "",
-      reason: "admin_disconnect" as const, actor: "ops", affected_agent_ids: [], successor_id: null,
+      reason: "admin_disconnect" as const, actor: "ops", pid: null, affected_agent_ids: [], successor_id: null,
     };
     const gone = trackGhosts(base, snapshot([], [], { recent_disconnects: [departure] }), 2000);
     assert.equal(gone.ghosts.get("c1")!.departure!.reason, "admin_disconnect");

@@ -205,6 +205,112 @@ describe('GET /admin/topology', () => {
   });
 });
 
+describe('owner control negotiation and POST /admin/communicators/:id/terminate', () => {
+  /** An owner the way cxx behaves: announces itself only to a server that offered control. */
+  async function owner(app: FastifyInstance, behaviour: 'acks-and-exits' | 'silent' | 'refuses' | 'old') {
+    const ws = await app.injectWS('/host/communicator/connect', { headers: { 'x-api-key': 'host-one' } });
+    const frames: Array<Record<string, unknown>> = [];
+    const ready = new Promise<void>((resolve) => ws.once('message', (data: unknown) => {
+      frames.push(JSON.parse(String(data)));
+      resolve();
+    }));
+    ws.send(JSON.stringify({ type: 'hello', protocol: 1, username: 'tester', version: '0.9.76' }));
+    await ready;
+    ws.on('message', (data: unknown) => {
+      const frame = JSON.parse(String(data));
+      frames.push(frame);
+      if (frame.type !== 'terminate') return;
+      if (behaviour === 'acks-and-exits') {
+        ws.send(JSON.stringify({ type: 'terminate_ack', request_id: frame.request_id, accepted: true, pid: 4242 }));
+        setTimeout(() => ws.terminate(), 30);
+      } else if (behaviour === 'refuses') {
+        ws.send(JSON.stringify({ type: 'terminate_ack', request_id: frame.request_id, accepted: false, reason: 'unsupported' }));
+      }
+    });
+    if (behaviour !== 'old' && (frames[0]?.control as string[] | undefined)?.includes('terminate')) {
+      ws.send(JSON.stringify({ type: 'capabilities', terminate: true, pid: 4242, started_at: '2026-10-13T17:00:00Z' }));
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    return { ws, frames, id: communicatorRegistry.snapshot()[0]!.view.id };
+  }
+  const post = (app: FastifyInstance, id: string, body: unknown) =>
+    app.inject({ method: 'POST', url: `/admin/communicators/${id}/terminate`, payload: body as object });
+
+  it('offers control in `ready` and shows what the owner says about its own process', async () => {
+    const app = await build('owner', true);
+    const { ws, frames } = await owner(app, 'acks-and-exits');
+    expect(frames[0]).toEqual({ type: 'ready', protocol: 1, control: ['terminate'] });
+    const { body } = await topology(app);
+    expect(body.communicators[0]).toMatchObject({ can_terminate: true, process: { pid: 4242, started_at: '2026-10-13T17:00:00Z' } });
+    ws.close();
+  });
+
+  it('terminates only on the owner\'s acknowledgement, then reports the closed connection and the pid', async () => {
+    const app = await build('owner', true);
+    const { ws, id, frames } = await owner(app, 'acks-and-exits');
+    const res = await post(app, id, { client_message_id: randomUUID(), expect: { host_id: 1, username: 'tester' }, note: 'wedged' });
+    const body = res.json().data ?? res.json();
+    expect(res.statusCode).toBe(200);
+    expect(body).toMatchObject({ outcome: 'terminated', acknowledged: true, connection_closed: true, process: { pid: 4242 }, replayed: false });
+    expect(frames.find((f) => f.type === 'terminate')).toMatchObject({ reason: 'admin' });
+    expect(communicatorRegistry.has(id)).toBe(false);
+    const audit = inserted.find((row) => row.type === 'communicator.terminated') as { payload: Record<string, unknown> } | undefined;
+    expect(audit!.payload).toMatchObject({ connection_id: id, outcome: 'terminated', reported_pid: 4242, note: 'wedged', admin_user_id: 7 });
+    expect((await topology(app)).body.recent_disconnects[0]).toMatchObject({ id, reason: 'admin_terminate', pid: 4242 });
+    ws.close();
+  });
+
+  it('says "unacknowledged" when the owner never answers, and leaves the connection alone', async () => {
+    const app = await build('owner', true);
+    const { ws, id } = await owner(app, 'silent');
+    const res = await post(app, id, { client_message_id: randomUUID() });
+    expect(res.statusCode).toBe(200);
+    expect((res.json().data ?? res.json())).toMatchObject({ outcome: 'unacknowledged', acknowledged: false, connection_closed: false });
+    expect(communicatorRegistry.has(id)).toBe(true);
+    expect(communicatorRegistry.get(id)!.closing).toBe(false);
+    ws.close();
+  }, 15_000);
+
+  it('reports a refusal', async () => {
+    const app = await build('owner', true);
+    const { ws, id } = await owner(app, 'refuses');
+    const res = await post(app, id, { client_message_id: randomUUID() });
+    expect((res.json().data ?? res.json())).toMatchObject({ outcome: 'refused', acknowledged: false });
+    ws.close();
+  });
+
+  it('answers 409 for an owner that never announced the capability, without sending a frame', async () => {
+    const app = await build('owner', true);
+    const { ws, id, frames } = await owner(app, 'old');
+    const res = await post(app, id, { client_message_id: randomUUID() });
+    expect(res.statusCode).toBe(409);
+    expect(frames.some((f) => f.type === 'terminate')).toBe(false);
+    ws.close();
+  });
+
+  it('is gated like the other controls and idempotent', async () => {
+    const owned = await build('owner', true);
+    const { ws, id } = await owner(owned, 'acks-and-exits');
+    for (const role of ['viewer', 'fleet', 'trusted']) {
+      const denied = await build(role, false);
+      expect((await post(denied, id, { client_message_id: randomUUID() })).statusCode).toBe(403);
+    }
+    expect((await post(await build(null, false), id, { client_message_id: randomUUID() })).statusCode).toBe(401);
+    expect(communicatorRegistry.has(id)).toBe(true);
+    const key = randomUUID();
+    expect((await post(owned, id, { client_message_id: key })).statusCode).toBe(200);
+    const again = await post(owned, id, { client_message_id: key });
+    expect((again.json().data ?? again.json()).replayed).toBe(true);
+    expect(inserted.filter((row) => row.type === 'communicator.terminated')).toHaveLength(1);
+    ws.close();
+  });
+
+  it('answers 404 for a connection that is already gone', async () => {
+    const app = await build('owner', true);
+    expect((await post(app, randomUUID(), { client_message_id: randomUUID() })).statusCode).toBe(404);
+  });
+});
+
 describe('POST /admin/communicators/:id/disconnect', () => {
   async function connected(app: FastifyInstance) {
     const ws = await connect(app);

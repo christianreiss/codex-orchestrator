@@ -11,9 +11,6 @@ import type {
 
 /** A communicator that has not sent any frame for this long is shown as stale. */
 export const COMMUNICATOR_STALE_AFTER_MS = 45_000;
-/** First cxx release whose owner understands the remote `terminate` control frame. */
-export const COMMUNICATOR_TERMINATE_MIN_VERSION: readonly [number, number, number] | null = null;
-
 /** The fields of a portal session projection row this module reads. */
 export interface PortalSessionInput {
   id: string;
@@ -58,22 +55,6 @@ export interface TopologyInputs {
 const iso = (ms: number) => new Date(ms).toISOString();
 const ageSeconds = (now: number, then: number | null) =>
   then === null || !Number.isFinite(then) ? null : Math.max(0, Math.round((now - then) / 1000));
-
-/** `0.9.74`, `v0.9.74`, `0.9.74-rc1` → `[0, 9, 74]`; anything else → null. */
-export function parseReleaseVersion(raw: string): [number, number, number] | null {
-  const match = /^v?(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$/.exec(raw.trim());
-  return match ? [Number(match[1]), Number(match[2]), Number(match[3])] : null;
-}
-
-export function communicatorCanTerminate(version: string): boolean {
-  const min = COMMUNICATOR_TERMINATE_MIN_VERSION;
-  const parsed = parseReleaseVersion(version);
-  if (!min || !parsed) return false;
-  for (let i = 0; i < 3; i++) {
-    if (parsed[i]! !== min[i]!) return parsed[i]! > min[i]!;
-  }
-  return true;
-}
 
 function requestCloseAvailability(session: PortalSessionInput): ActionAvailability {
   if (session.ended_at) return { allowed: false, reason: 'session_ended' };
@@ -227,7 +208,8 @@ export function buildTopology(input: TopologyInputs): TopologySnapshot {
       remote_address: comm.remote_address,
       daemon_attached: comm.daemon_attached,
       agent_ids: children.map((c) => c.id),
-      can_terminate: communicatorCanTerminate(view.version),
+      process: comm.capabilities.pid === null ? null : { pid: comm.capabilities.pid, started_at: comm.capabilities.started_at },
+      can_terminate: comm.capabilities.terminate,
     };
   });
   communicators.sort(
@@ -248,6 +230,7 @@ export function buildTopology(input: TopologyInputs): TopologySnapshot {
     ended_at: t.ended_at,
     reason: t.reason,
     actor: t.actor,
+    pid: t.pid,
     affected_agent_ids: t.session_ids,
     successor_id: t.successor_id,
   }));

@@ -93,6 +93,14 @@ returns `502 communicator_response_too_large` for that request. From cxx
 and leaves writes such as `POST /auth` on the 502. The local allow-list strips
 trailing slashes the same way the API router does.
 
+Remote control of the owner process is negotiated, so old servers and old owners
+never meet a frame they do not know. A server that can stop an owner lists
+`control: ["terminate"]` in its `ready` frame. Only then does the owner send one
+`capabilities` frame (`terminate`, `pid`, `started_at`), and only then does it honour
+`{type: "terminate", request_id, reason}`: it answers `terminate_ack` (`accepted`,
+`pid`) first, lets in-flight local requests drain for up to three seconds, and then
+ends through the same path as an idle exit (HTTP server, lock and socket closed). The
+`pid` and start time are the owner's own account; the server cannot observe them.
 Heartbeats report local client count and last successful synchronization every
 15 seconds. Server content invalidations contain only an event ID, never admin
 payloads or credentials. A multiplexed `daemon` channel reuses the existing
@@ -184,7 +192,12 @@ socket finish as `communicator_outcome_unknown`, and no session is stopped or
 replayed. Sessions are stopped through their own contracts: cooperative close
 (`POST /admin/agent-sessions/{id}/close`), ending the server-side record
 (`…/close/force`, which does not signal the process) and, only for sessions a host
-daemon launched, a daemon stop (`POST /admin/daemon-sessions/{id}/stop`). Every
+daemon launched, a daemon stop (`POST /admin/daemon-sessions/{id}/stop`).
+`POST /admin/communicators/{id}/terminate` stops the owner *process* for an owner that
+announced the capability above, and reports `terminated` only after the owner's own
+acknowledgement followed by the closing of its connection (`acknowledged` while that
+connection is still open, `unacknowledged` when nothing answered); a surviving client
+restarts a new owner, which describes itself with a different pid. Every
 control requires `agent_portal.manage` (or `agent_messaging.manage` for the daemon
 stop), which stay enforced under `compatible` authorization.
 
