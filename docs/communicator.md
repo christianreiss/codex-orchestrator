@@ -9,8 +9,12 @@ Provider inference still uses each native client's original network path.
 Enable `CXX_COMMUNICATOR_ENABLED=true` in the API environment and recreate the API.
 The signed wrapper config then includes `orchestrator.communicator_protocol: 1`.
 Old wrappers ignore this optional field. Managed MCP rendering changes to
-`cxx communicator mcp <engine>` only once that engine reports wrapper 0.9.71 or
-newer. Existing tool names, arguments, results and engine-specific MCP credentials
+`cxx communicator mcp <engine>` only once that engine reports a cxx release
+version of 0.9.71 or newer. The reported string has to match a bakery release
+(optional leading `v`, optional prerelease or build). A date-versioned shell
+wrapper such as `2025.11.03` or `2025.11.3`, `dev`, and any other non-release
+stay on the HTTPS MCP endpoint. `v0.1.0` is a real version and stays on HTTPS
+because it is older than 0.9.71. Existing tool names, arguments, results and engine-specific MCP credentials
 remain intact. With the capability off, the stdio adapter uses the ordinary HTTPS
 MCP endpoint.
 
