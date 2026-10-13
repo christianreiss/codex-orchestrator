@@ -10,9 +10,23 @@ import (
 // API. HTTPS transfers additionally carry the existing watchdog stream.
 var managedRoutes = regexp.MustCompile(`^(?:/auth(?:/sessions(?:/(?:heartbeat|release))?)?|/versions|/skills(?:/[^?]*)?|/agents/retrieve|/config/retrieve|/sync/(?:bootstrap|status)|/cron/(?:check|report)|/mcp(?:/[^?]*)?|/host/[^?]+|/wrapper/(?:v2/)?[^?]+|/claude/usage/report)$`)
 
-func managedRequestAllowed(r *http.Request) bool {
+// requestPath is the pathname the API router dispatches: no query and no
+// trailing slash. Fastify runs with ignoreTrailingSlash.
+func requestPath(r *http.Request) string {
 	path := r.URL.EscapedPath()
-	if !strings.HasPrefix(path, "/") || strings.HasPrefix(path, "//") || strings.ContainsAny(path, "%\\#\r\n") || strings.HasPrefix(path, "/host/communicator") || strings.HasSuffix(path, "/connect") {
+	if len(path) > 1 {
+		path = strings.TrimRight(path, "/")
+	}
+	return path
+}
+
+func managedRequestAllowed(r *http.Request) bool {
+	raw := r.URL.EscapedPath()
+	if !strings.HasPrefix(raw, "/") || strings.HasPrefix(raw, "//") || strings.ContainsAny(raw, "%\\#\r\n") {
+		return false
+	}
+	path := requestPath(r)
+	if strings.HasPrefix(path, "/host/communicator") || strings.HasSuffix(path, "/connect") {
 		return false
 	}
 	for _, part := range strings.Split(path, "/") {
@@ -34,7 +48,7 @@ func transferHeaders(r *http.Request, hostKey string) http.Header {
 		}
 	}
 	h.Set("X-API-Key", hostKey)
-	if r.URL.Path == "/mcp" {
+	if requestPath(r) == "/mcp" {
 		h.Set("Authorization", r.Header.Get("Authorization"))
 		// The MCP route checks that the bearer belongs to this host, including
 		// when a large MCP upload travels outside the bounded WebSocket frames.

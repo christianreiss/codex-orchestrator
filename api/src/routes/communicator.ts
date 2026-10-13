@@ -46,6 +46,10 @@ const requestSchema = z
     body: z.string().max(900_000).default(''),
   })
   .strict();
+// Base64 of a body above this size would exceed the wrapper's 16 MiB frame cap.
+// That one request gets 502 communicator_response_too_large and the socket stays up.
+const MAX_RESPONSE_BYTES = 11 * 1024 * 1024;
+
 const allowedHeaders = new Set([
   'authorization',
   'content-type',
@@ -103,7 +107,8 @@ export async function registerCommunicatorRoutes(app: FastifyInstance, ctx: Rout
       const connectionID = randomUUID();
       let closed = false,
         inFlight = 0,
-        greeted = false;
+        greeted = false,
+        hostId = 0;
       const send = (frame: unknown) => {
         if (closed) return;
         if (socket.bufferedAmount > 8 * 1024 * 1024) {
@@ -161,6 +166,13 @@ export async function registerCommunicatorRoutes(app: FastifyInstance, ctx: Rout
         )
           return;
         if (/^host\.daemon\.(?:changed|start_requested|stop_requested)$/.test(event.type)) return;
+        // A named host event changes only that host. Another host's lane change or
+        // admin edit must not make this connection resynchronize. An event with no
+        // numeric id still reaches every connection.
+        if (event.type.startsWith('host.')) {
+          const named = payload?.id ?? payload?.host_id;
+          if (typeof named === 'number' && Number.isInteger(named) && hostId !== 0 && named !== hostId) return;
+        }
         if (
           /^(skill\.|agents\.|config\.|auth\.|accounts\.|host\.|engine\.|version|settings\.|claude_artifact\.)/.test(
             event.type,
@@ -207,6 +219,7 @@ export async function registerCommunicatorRoutes(app: FastifyInstance, ctx: Rout
               .strict()
               .parse(parsed);
             const host = await authorize(req);
+            hostId = host.id;
             connections.set(connectionID, {
               host_id: host.id,
               username: hello.username,
@@ -358,6 +371,20 @@ export async function registerCommunicatorRoutes(app: FastifyInstance, ctx: Rout
             }
             const view = connections.get(connectionID);
             if (view) view.requests++;
+            if ((response.rawPayload?.length ?? 0) > MAX_RESPONSE_BYTES) {
+              send({
+                id: frame.id,
+                status: 502,
+                headers: { 'content-type': 'application/json' },
+                body: Buffer.from(
+                  JSON.stringify({
+                    code: 'communicator_response_too_large',
+                    message: 'Response exceeds the communicator frame limit',
+                  }),
+                ).toString('base64'),
+              });
+              return;
+            }
             const replyHeaders: Record<string, string> = {};
             for (const [key, value] of Object.entries(response.headers)) {
               if (

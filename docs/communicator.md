@@ -63,7 +63,13 @@ transports, forwarding headers, cookies and replacement host credentials.
 Path checks use the pathname the router dispatches, so a trailing slash cannot
 reach a denied stream or skip MCP credential pinning. A malformed or disallowed
 request frame gets its own `400 communicator_invalid_request` reply; only an
-authorization failure closes the shared connection.
+authorization failure closes the shared connection. A `host.*` event that
+names a numeric `id` or `host_id` invalidates only that host's connection.
+Events with no host id still reach every connection. A reply above 11 MiB
+returns `502 communicator_response_too_large` for that request. From cxx
+0.9.75 the local owner retries an idempotent read once on its HTTPS transfer
+and leaves writes such as `POST /auth` on the 502. The local allow-list strips
+trailing slashes the same way the API router does.
 
 Heartbeats report local client count and last successful synchronization every
 15 seconds. Server content invalidations contain only an event ID, never admin

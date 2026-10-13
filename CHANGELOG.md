@@ -1,5 +1,7 @@
 # 2026-10-13
 
+- cxx 0.9.75 keeps one host's communicator sync on that host: `host.*` events with a numeric `id` or `host_id` invalidate only the matching connection, and events that name no host still reach every connection. A reply above 11 MiB returns `502 communicator_response_too_large` for that request and leaves the shared socket open. Idempotent reads retry once over the communicator's HTTPS transfer; `POST /auth` keeps the 502. Trailing slashes on the local route check match the API router, so `/watchdog/stream/` uses the flushing transfer and `/mcp/` keeps the signed host-key binding.
+
 - cxx 0.9.74 keeps large communicator transfers and signed HTTPS fallback bound to the same host as control traffic: managed routes only, no cookies or forwarding headers, and same-host MCP credentials. Reconnect adopts rotated signed host keys and TLS configuration for independent transfers while native sessions stay running. Unsafe local socket setup now fails closed instead of bypassing the communicator.
 
 - cxx 0.9.74 preserves unknown call outcomes through the managed MCP adapter, including the original request ID, HTTP status and bounded machine code. Lost or invalid replies instruct callers to verify the result before retrying with the original work identifiers; malformed replies produce a correlated error instead of leaving the client waiting.
