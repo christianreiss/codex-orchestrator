@@ -7,6 +7,7 @@ import { createAdminEventsService } from '../../../services/admin-events.js';
 import { adminSpaHtmlPreHandler } from '../pages/static.js';
 import { communicatorRegistry, type TerminateOutcome } from '../../../services/topology/communicator-registry.js';
 import { TopologyService } from '../../../services/topology/service.js';
+import { OperationLedger } from './operation-ledger.js';
 
 /**
  * The console's live connection tree and the one control the server itself can
@@ -79,33 +80,10 @@ export async function registerAdminTopologyRoutes(app: FastifyInstance, ctx: Rou
   // browser navigation (text/html) gets the SPA shell, the client's JSON call the data.
   const adminSpa = adminSpaHtmlPreHandler(ctx);
 
-  /**
-   * One execution per `client_message_id`. The slot is taken BEFORE the first
-   * await, so two clicks (or a retry racing its original) that arrive while the
-   * first is still running share its outcome instead of dispatching again. A
-   * failed attempt frees the key, so the operator can retry it.
-   */
-  const operations = new Map<string, { at: number; connectionId: string; kind: Kind; promise: Promise<unknown> }>();
-  async function once<T extends { replayed: boolean }>(key: string, connectionId: string, kind: Kind, run: () => Promise<T>): Promise<T> {
-    const now = Date.now();
-    for (const [k, entry] of operations) if (now - entry.at > IDEMPOTENCY_TTL_MS) operations.delete(k);
-    const existing = operations.get(key);
-    if (existing) {
-      if (existing.connectionId !== connectionId || existing.kind !== kind) {
-        throw new ConflictError('client_message_id was already used for another target', 'client_message_id_reused');
-      }
-      return { ...((await existing.promise) as T), replayed: true };
-    }
-    if (operations.size >= IDEMPOTENCY_MAX) operations.delete(operations.keys().next().value as string);
-    const promise = run();
-    operations.set(key, { at: now, connectionId, kind, promise });
-    try {
-      return await promise;
-    } catch (error) {
-      if (operations.get(key)?.promise === promise) operations.delete(key);
-      throw error;
-    }
-  }
+  /** See OperationLedger: one execution per `client_message_id`, pending slots never evicted. */
+  const ledger = new OperationLedger<Kind>({ ttlMs: IDEMPOTENCY_TTL_MS, max: IDEMPOTENCY_MAX });
+  const once = <T extends { replayed: boolean }>(key: string, connectionId: string, kind: Kind, run: () => Promise<T>) =>
+    ledger.once(key, connectionId, kind, run);
 
   app.get('/admin/topology', { preHandler: [adminSpa, app.requireAdmin] }, async (req) => {
     const snapshot = await topology.snapshot();
