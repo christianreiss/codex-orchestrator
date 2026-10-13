@@ -27,9 +27,13 @@ The Unix socket lives in a mode-0700 directory below `XDG_RUNTIME_DIR`. When a
 launcher drops that variable (Codex MCP servers, cron), the user's logind
 `/run/user/<uid>` directory is used if present, otherwise a private
 `/tmp/cxx-<uid>` directory, so every process elects the same owner. A runtime root
-deep enough to exceed the platform's socket-path limit (kept under 100 bytes) falls
-back to `/tmp/cxx-<uid>`, while an unsafe root is refused. The owner's startup errors
-go to `serve.log` in that directory and are included in the error a managed command
+deep enough that the socket would exceed the platform's own `sun_path` limit (107 bytes on
+Linux, 103 on macOS and the BSDs) falls back to `/tmp/cxx-<uid>`, independent of `TMPDIR`;
+that fallback directory is keyed by the resolved scope as well as the server, so two
+distinct deep scopes (isolated runs, harnesses) never share an owner, fence or credentials,
+and one scope always maps to one path. An unsafe root is refused. The owner's startup
+errors go to `serve.log` in that directory; the part written during the failed attempt is
+shown, bounded to 400 printable characters on one line, in the error a managed command
 prints. Socket mode is 0600. A filesystem lock elects
 one owner; only that owner removes a stale socket. No TCP listener is exposed.
 Each process holds a local streaming lease; a surviving client restarts a crashed
