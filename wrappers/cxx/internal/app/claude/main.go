@@ -21,6 +21,7 @@ import (
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/terminalui"
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/claude"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/communicator"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
 	hostcron "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/cron"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/fleetconfig"
@@ -426,6 +427,9 @@ func runMode(args []string, stdout, stderr io.Writer, native bool, choices ...*q
 	if err != nil {
 		return configLoadFailure(sub, "clx", f.configPath, Version, err, stdout, stderr, f.minimal)
 	}
+	// Every command, including status and auth workers, must use the verified
+	// selected config before constructing clients outside the native lifecycle.
+	ctx = communicator.WithSyncConfig(ctx, cfg)
 	if refreshed {
 		ui.Say(stderr, "clx", ui.ToneOK, "config", "signed config had expired; refreshed it from the orchestrator")
 	}

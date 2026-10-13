@@ -104,60 +104,175 @@ func mcp(ctx context.Context, engine string, in io.Reader, out io.Writer) error 
 		return err
 	}
 	client := &http.Client{Transport: Wrap(direct), Timeout: 120 * time.Second}
-	scanner := bufio.NewScanner(in)
-	scanner.Buffer(make([]byte, 4096), 8*1024*1024)
 	var writes sync.Mutex
+	write := func(raw []byte) {
+		var value any
+		if json.Unmarshal(raw, &value) == nil {
+			writes.Lock()
+			json.NewEncoder(out).Encode(value)
+			writes.Unlock()
+		}
+	}
+	forward := func(raw []byte) (int, []byte, error) {
+		req, _ := http.NewRequestWithContext(ctx, "POST", strings.TrimRight(cfg.Orchestrator.BaseURL, "/")+"/mcp", bytes.NewReader(raw))
+		req.Header.Set("Authorization", "Bearer "+bearer)
+		req.Header.Set("X-Engine", engine)
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Accept", "application/json")
+		res, err := client.Do(req)
+		if err != nil {
+			return 0, nil, err
+		}
+		body, err := io.ReadAll(io.LimitReader(res.Body, 16*1024*1024))
+		res.Body.Close()
+		if err == nil && res.StatusCode >= 400 {
+			err = fmt.Errorf("CoCo MCP HTTP %d", res.StatusCode)
+		}
+		return res.StatusCode, body, err
+	}
+	// The native client may keep stdin open after SIGTERM, so reading must not
+	// hold the process: on cancellation stop accepting input, let in-flight
+	// requests report their (unknown) outcome, then exit.
+	lines := make(chan []byte)
+	scanErr := make(chan error, 1)
+	go func() {
+		scanner := bufio.NewScanner(in)
+		scanner.Buffer(make([]byte, 4096), 8*1024*1024)
+		for scanner.Scan() {
+			select {
+			case lines <- append([]byte(nil), scanner.Bytes()...):
+			case <-ctx.Done():
+				return
+			}
+		}
+		scanErr <- scanner.Err()
+	}()
 	var work sync.WaitGroup
-	for scanner.Scan() {
-		raw := append([]byte(nil), scanner.Bytes()...)
-		if len(bytes.TrimSpace(raw)) == 0 {
+	defer work.Wait()
+	for {
+		var raw []byte
+		select {
+		case <-ctx.Done():
+			return nil
+		case err := <-scanErr:
+			return err
+		case raw = <-lines:
+		}
+		raw = bytes.TrimSpace(raw)
+		if len(raw) == 0 {
 			continue
 		}
-		var request struct {
-			ID json.RawMessage `json:"id"`
+		if !json.Valid(raw) {
+			write([]byte(`{"jsonrpc":"2.0","id":null,"error":{"code":-32700,"message":"Parse error"}}`))
+			continue
 		}
-		if json.Unmarshal(raw, &request) != nil {
-			return fmt.Errorf("invalid MCP JSON")
+		ids, batch, ok := mcpRequestIDs(raw)
+		if !ok {
+			write([]byte(`{"jsonrpc":"2.0","id":null,"error":{"code":-32600,"message":"Invalid Request"}}`))
+			continue
 		}
 		work.Add(1)
 		go func() {
 			defer work.Done()
-			req, _ := http.NewRequestWithContext(ctx, "POST", strings.TrimRight(cfg.Orchestrator.BaseURL, "/")+"/mcp", bytes.NewReader(raw))
-			req.Header.Set("Authorization", "Bearer "+bearer)
-			req.Header.Set("X-Engine", engine)
-			req.Header.Set("Content-Type", "application/json")
-			req.Header.Set("Accept", "application/json")
-			res, err := client.Do(req)
-			var body []byte
-			status := 0
-			if err == nil {
-				status = res.StatusCode
-				body, err = io.ReadAll(io.LimitReader(res.Body, 16*1024*1024))
-				res.Body.Close()
-				if res.StatusCode >= 400 {
-					err = fmt.Errorf("CoCo MCP HTTP %d", res.StatusCode)
-				}
+			status, body, err := forward(raw)
+			if len(ids) == 0 {
+				return
 			}
-			if len(request.ID) == 0 {
+			if !batch {
+				if err != nil {
+					body = mcpFailure(ids[0], status, body)
+				} else if !mcpResponseValid(ids[0], body) {
+					body = mcpFailure(ids[0], status, nil)
+				}
+				write(body)
 				return
 			}
 			if err != nil {
-				body = mcpFailure(request.ID, status, body)
-			} else if !mcpResponseValid(request.ID, body) {
-				body = mcpFailure(request.ID, status, nil)
-			}
-			if len(body) > 0 {
-				var value any
-				if json.Unmarshal(body, &value) == nil {
-					writes.Lock()
-					json.NewEncoder(out).Encode(value)
-					writes.Unlock()
+				failures := make([]json.RawMessage, 0, len(ids))
+				for _, id := range ids {
+					failures = append(failures, mcpFailure(id, status, body))
 				}
+				body, _ = json.Marshal(failures)
+			} else {
+				body = mcpBatchReplies(ids, status, body)
 			}
+			write(body)
 		}()
 	}
-	work.Wait()
-	return scanner.Err()
+}
+
+// mcpRequestIDs returns the IDs that expect a reply. A batch (JSON-RPC 2.0,
+// MCP 2025-03-26) is forwarded whole. Like the API dispatcher, a missing or
+// null id is a notification: it gets no reply, and an all-notification batch
+// is answered with 202. ok is false for input that is neither an object nor a non-empty array.
+func mcpRequestIDs(raw []byte) (ids []json.RawMessage, batch, ok bool) {
+	idOf := func(item json.RawMessage) (json.RawMessage, bool) {
+		var request map[string]json.RawMessage
+		if json.Unmarshal(item, &request) != nil || request == nil {
+			return nil, false
+		}
+		return request["id"], true
+	}
+	if raw[0] != '[' {
+		id, ok := idOf(raw)
+		if !ok {
+			return nil, false, false
+		}
+		if len(id) > 0 && string(id) != "null" {
+			ids = append(ids, id)
+		}
+		return ids, false, true
+	}
+	var items []json.RawMessage
+	if json.Unmarshal(raw, &items) != nil || len(items) == 0 {
+		return nil, true, false
+	}
+	for _, item := range items {
+		// Invalid members still go upstream; the server answers each with id null.
+		if id, ok := idOf(item); ok && len(id) > 0 && string(id) != "null" {
+			ids = append(ids, id)
+		}
+	}
+	return ids, true, true
+}
+
+// mcpBatchReplies keeps each valid reply that answers a request once, and the
+// server's id null Invalid Request answers. Any request left unanswered by a
+// lost, malformed or partial reply gets its own unknown-outcome error; nothing
+// is ever resent.
+func mcpBatchReplies(ids []json.RawMessage, status int, body []byte) []byte {
+	var replies []json.RawMessage
+	_ = json.Unmarshal(body, &replies)
+	answered := make([]bool, len(ids))
+	kept := make([]json.RawMessage, 0, len(ids))
+	for _, reply := range replies {
+		var envelope struct {
+			ID json.RawMessage `json:"id"`
+		}
+		if json.Unmarshal(reply, &envelope) != nil {
+			continue
+		}
+		if string(envelope.ID) == "null" {
+			if mcpResponseValid(envelope.ID, reply) {
+				kept = append(kept, reply)
+			}
+			continue
+		}
+		for i, id := range ids {
+			if !answered[i] && mcpResponseValid(id, reply) {
+				answered[i] = true
+				kept = append(kept, reply)
+				break
+			}
+		}
+	}
+	for i, id := range ids {
+		if !answered[i] {
+			kept = append(kept, mcpFailure(id, status, nil))
+		}
+	}
+	raw, _ := json.Marshal(kept)
+	return raw
 }
 
 // Preserve an ambiguous write's meaning at the model-facing boundary. A generic
