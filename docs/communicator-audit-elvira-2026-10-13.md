@@ -166,3 +166,103 @@ scoped lease-wakeup, host-scoped reply and topology fixes. The full combined Go
 race suite, API typecheck/build/lint and frontend checks passed. Task commits
 made after the signing agent timed out used an explicit per-command unsigned
 override; the existing repository signing configuration was not changed.
+
+## Final 0.9.76 repeat
+
+The final transport snapshot `57173c6662abce48c502a23a8f64b000f226242c`
+passed a fresh full Go race/build/vet run and API typecheck. The affected API
+communicator and MCP credential tests passed 49/49. Each VM again passed all
+four communicator/Codex/Claude/Grok suites against this snapshot. The subsequent
+`f89fc864a6a7a33fdfc4fc6578a297c74767ba1f` change only improves the refusal
+diagnostic for an unresolved auth upload; both engines' lifecycle and
+orchestrator race suites passed after independently reviewing that change.
+The final caller-retry regressions from `0aa3810b` were also reviewed and
+passed independently with `go test -race -p 1 ./internal/communicator
+-run '^TestCallerRetry' -count=1 -timeout=90s`.
+
+The identical private cxx 0.9.76 binary installed on all three VMs has SHA256
+`70d49a28164919d6b01fd62fc6dfcfba2cb697680c020ce8e199a56795a35259`.
+All nine native launches completed with their requested `COMM_076_TEST` marker
+and a fleet `agent_self` call. Server `agent_translate` readback confirmed each
+returned name and UUID:
+
+| VM | Engine | Name | Canonical agent UUID |
+| --- | --- | --- | --- |
+| test1 | Codex | Brunhilda | e1014956-c7e3-49d1-b526-18ae14d13634 |
+| test1 | Claude | Annabella | 9c12bd02-f895-4d2b-a483-5d98dc8a535a |
+| test1 | Grok | Cassandra | 0158c665-87de-42d7-bfb2-633a973be0e5 |
+| test2 | Codex | Anne-Kathrin | 4a995705-32fe-41b2-8e8a-ca6699b11e2b |
+| test2 | Claude | Antonie | f72e5a2c-467c-431c-a815-1e6eb77f676f |
+| test2 | Grok | Margarete | 8a562bd9-900d-492f-9dbb-0fda93bf91f6 |
+| test3 | Codex | Vivien | b1ecb062-ccaa-43e2-acfc-583d04a41300 |
+| test3 | Claude | Irma | 62aa8b1c-1e74-49a4-bf1c-be81aa880382 |
+| test3 | Grok | Heidrun | 4d3d6ead-d93a-4b6a-b8c8-52e327b196c2 |
+
+Final doctors exited zero: `connected: true`, `https_fallback: false`, empty
+transport/local errors, with 140/137/136 requests on test1/test2/test3.
+Logs remain under `/opt/coco-comm-audit-elvira/` on each VM:
+`final-076-tests.log`, `native-076-{codex,claude,grok}.log` and the preparation
+logs. The first interrupted Codex/Grok attempt is preserved separately.
+
+Two test-environment issues were resolved before accepting this repeat.
+test1 rebooted onto DHCP address 10.2.0.215 instead of 10.2.0.213; releasing only
+test host 257's IP binding through the admin endpoint allowed the next real
+sync to bind the new address while retaining secure mode. Also, my manual
+private binary upgrade started the service without refreshing its deployment
+hash. The first native launches then triggered the normal service update,
+interrupting accepted sync and correctly producing unknown outcomes and auth
+markers. The supported `cxx agent service install` completed preparation;
+`cxx codex sync` reconciled and cleared the markers against verified matching
+server credentials. No credential file was discarded, and no auth upload was
+blindly replayed. The affected Codex/Grok launches then passed on every VM.
+
+## Combined owner-control acceptance
+
+The final combined runtime source is `6345db38f029c748217f86a081417b26e69470b8`,
+including the console owner-stop feature from `0236049c`, the refusal diagnostic
+and caller-retry regressions. Independent checks passed: full Go race/build/vet,
+API typecheck plus 135 transport/topology/credential/authorization tests,
+frontend check with zero Svelte errors/warnings and 928 unit tests, and all
+eight Playwright topology tests against a freshly built SPA. The browser cases
+cover permission gating, acknowledged/unacknowledged termination, keyboard
+operation and accessibility. Controlled process tests verify real owner exit
+and replacement without signalling the native clients; the production API's
+owner-stop route was not deployed or invoked by this audit.
+
+All three VMs passed the same four communicator/engine suites again, including
+the new control process tests. Each then ran all three authenticated native
+engines again with the exact combined binary. All nine exited zero and returned
+their requested marker and fleet identity. Server identity readback confirmed:
+
+| VM | Engine | Name | Canonical agent UUID |
+| --- | --- | --- | --- |
+| test1 | Codex | Lore | 63f92948-5c2c-455b-ab91-619ee61a23f7 |
+| test1 | Claude | Ute | aaab351f-3d09-48e1-a837-abb7af9bd17b |
+| test1 | Grok | Ingetraut | 507000b8-4df7-4330-8ae8-20aa7074a0f8 |
+| test2 | Codex | Gunhild | 917d3661-5d31-4206-aae9-f8a60d67244c |
+| test2 | Claude | Eva-Maria | 44f82e61-c747-49e4-a267-9721bb2fdab7 |
+| test2 | Grok | Alwine | d1b86c8b-bfd8-4b23-b32c-4b5bf1338543 |
+| test3 | Codex | Dania | 3b6cf223-6f4c-4e91-94c3-10c0c02d8832 |
+| test3 | Claude | Ivana | 15296dd4-3f19-4b70-a1f9-b573b6a5c437 |
+| test3 | Grok | Hedda | 10f09742-c8ef-4212-85f0-7c5a3567e498 |
+
+Installed binary SHA256 on every VM:
+`4c17142deee8f1171eb663c3b7c863e96bf0b909412bb262f13d1481f6d5e994`.
+The `native-076-{codex,claude,grok}.log` files now contain this final run and
+identify its source commit; earlier successful logs are preserved as
+`native-076-57173c66-{codex,claude,grok}.log`. The new VM process evidence is
+`owner-final-tests.log`.
+
+The final repeat also captured nonfatal portal-finalization HTTP 409 warnings
+on test3 and unknown background Grok auth outcomes on test1/test2. The owners
+stayed running and reconnected; all nine native results succeeded. The two
+ended private broker scopes retained their errors for the implementation's
+five-minute diagnostic interval. This is historical scope state rather than
+proof of a currently broken account, and the audit did not discard it or
+restart an owner to hide it. The precise upstream interruption was not
+established by these measurements.
+
+Normal pruning subsequently cleared the ended scopes on all three VMs.
+`doctor-owner-pruned.json` records exit zero, connected control, no HTTPS
+fallback and empty errors on all three, at 148/153/126 requests. Owner PIDs
+8349/25069/21071 were unchanged; no restart or manual error clearing was used.

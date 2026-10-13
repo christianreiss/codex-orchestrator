@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -29,6 +30,64 @@ func loadSigned(path string, key ed25519.PublicKey) (*config.Config, error) {
 		return nil, err
 	}
 	return config.LoadForEngine(path, key, false, hint.Engine)
+}
+
+// The shared owner outlives any one engine. Keep the current config preferred,
+// but allow another signed scope to supply transport policy after its removal
+// or disablement. Never change the host/server identity that elected the owner.
+func selectSignedConfig(seed *config.Config, paths []string, key ed25519.PublicKey) (*config.Config, error) {
+	paths = append([]string{seed.SourcePath()}, paths...)
+	for _, engine := range []string{"codex", "claude", "grok"} {
+		if path, err := config.DefaultPathForEngine(engine); err == nil {
+			paths = append(paths, path)
+		}
+	}
+	seen := map[string]bool{}
+	var rollback *config.Config
+	var firstErr error
+	for _, path := range paths {
+		if path == "" || seen[path] {
+			continue
+		}
+		seen[path] = true
+		cfg, err := loadSigned(path, key)
+		if err == nil && (cfg.Host.ID != seed.Host.ID || cfg.Host.FQDN != seed.Host.FQDN || strings.TrimRight(cfg.Orchestrator.BaseURL, "/") != strings.TrimRight(seed.Orchestrator.BaseURL, "/")) {
+			err = fmt.Errorf("communicator config belongs to another host or server")
+		}
+		if err != nil {
+			if firstErr == nil {
+				firstErr = err
+			}
+			continue
+		}
+		if cfg.Orchestrator.CommunicatorProtocol == Protocol && !cfg.EngineSuspended(cfg.Engine) {
+			return cfg, nil
+		}
+		if cfg.Orchestrator.CommunicatorProtocol != Protocol && rollback == nil {
+			rollback = cfg
+		}
+	}
+	if rollback != nil {
+		return rollback, nil
+	}
+	if firstErr == nil {
+		firstErr = fmt.Errorf("no enabled signed communicator config for this host")
+	}
+	return nil, firstErr
+}
+
+func (s *server) reloadConfig(key ed25519.PublicKey) (*config.Config, error) {
+	s.mu.Lock()
+	seed := s.cfg
+	paths := make([]string, 0, len(s.jobs))
+	for id, job := range s.jobs {
+		if s.jobRefs[id] > 0 {
+			paths = append(paths, job.Config)
+		}
+	}
+	s.mu.Unlock()
+	sort.Strings(paths)
+	return selectSignedConfig(seed, paths, key)
 }
 
 // A failed WebSocket is never permission to downgrade. Only a freshly verified

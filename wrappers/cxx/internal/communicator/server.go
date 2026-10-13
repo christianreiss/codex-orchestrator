@@ -185,11 +185,7 @@ func (s *server) connectLoop(ctx context.Context) {
 		s.beginAttempt()
 		// Reload the signed file on reconnect so a credential rotation is observed.
 		key, _ := signing.PublicKey()
-		seed := s.configSnapshot()
-		cfg, err := loadSigned(seed.SourcePath(), key)
-		if err == nil && (cfg.Host.ID != seed.Host.ID || cfg.Host.FQDN != seed.Host.FQDN || strings.TrimRight(cfg.Orchestrator.BaseURL, "/") != strings.TrimRight(seed.Orchestrator.BaseURL, "/")) {
-			err = fmt.Errorf("communicator config belongs to another host or server")
-		}
+		cfg, err := s.reloadConfig(key)
 		if err == nil {
 			s.mu.Lock()
 			s.cfg = cfg
@@ -199,6 +195,7 @@ func (s *server) connectLoop(ctx context.Context) {
 			s.mu.Lock()
 			s.fallback = true
 			s.mu.Unlock()
+			err = fmt.Errorf("communicator disabled in signed config")
 		}
 		var c *connection
 		if err == nil {
