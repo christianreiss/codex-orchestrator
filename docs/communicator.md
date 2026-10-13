@@ -174,6 +174,18 @@ the route may already have committed its effects before the frame limit was
 checked. The bounded `communicator_response_too_large` code remains available
 for diagnosis.
 
+The adapter forwards JSON-RPC batches (MCP 2025-03-26, which the API advertises)
+as one request and writes the server's array reply. Notifications in a batch get
+no reply, and an all-notification batch writes nothing. If the reply is lost,
+malformed or misses a request, each request gets its own unknown-outcome error.
+An unparsable line gets `-32700` with id null, and a JSON value that is neither
+an object nor a non-empty array gets `-32600`; neither ends the session. A reply
+must carry exactly one of `result` or an `error` object with an integer `code`
+and a string `message`; anything else (both, `error: null`) is treated as
+incomplete. On SIGTERM or interrupt the adapter stops reading stdin even if the
+native client keeps it open, reports any in-flight request as an unknown
+outcome, releases its owner lease and exits.
+
 Request correlation compares JSON ID values rather than serialized spellings,
 including escaped strings and equivalent numbers. Distinct large integer IDs
 remain separate. Grok readiness treats a transport's unknown-outcome 409 as

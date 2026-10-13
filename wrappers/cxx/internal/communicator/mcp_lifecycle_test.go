@@ -36,6 +36,7 @@ type mcpFixture struct {
 	env     []string
 	socket  string
 	release chan struct{}
+	unblock func()
 	stderr  []*bytes.Buffer
 }
 
@@ -65,7 +66,8 @@ func newMCPFixture(t *testing.T) *mcpFixture {
 	}
 	f := &mcpFixture{t: t, binary: binary, release: make(chan struct{})}
 	var releaseOnce sync.Once
-	t.Cleanup(func() { releaseOnce.Do(func() { close(f.release) }) })
+	f.unblock = func() { releaseOnce.Do(func() { close(f.release) }) }
+	t.Cleanup(f.unblock)
 	remote := websocket.Handler(func(ws *websocket.Conn) {
 		defer ws.Close()
 		var sendMu sync.Mutex
@@ -406,10 +408,8 @@ func TestMCPAdapterBatchParity(t *testing.T) {
 		time.Sleep(300 * time.Millisecond)
 		c.send(`[{"jsonrpc":"2.0","id":2,"method":"ping"}]`)
 		time.Sleep(300 * time.Millisecond)
-		// Release only this child's slow request path; the shared channel is
-		// closed once per fixture, so this subtest must run last.
-		close(f.release)
-		f.release = make(chan struct{})
+		// The slow channel closes once per fixture, so this subtest runs last.
+		f.unblock()
 		var lines []string
 		for {
 			line, ok := c.next(t, 5*time.Second)
