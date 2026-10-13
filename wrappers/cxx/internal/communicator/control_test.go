@@ -179,3 +179,19 @@ func TestServerTerminateWithoutAStopFuncIsHarmless(t *testing.T) {
 	s := &server{calls: map[string]*sharedCall{}}
 	s.terminate("nothing to stop")
 }
+
+func TestRuntimeIdentityIsStablePerSocketAndDistinctAcrossRoots(t *testing.T) {
+	a := runtimeIdentity("/run/user/1000/cxx-comm-abc/control.sock")
+	if a != runtimeIdentity("/run/user/1000/cxx-comm-abc/control.sock") {
+		t.Fatal("the same socket must name the same runtime")
+	}
+	if a == runtimeIdentity("/tmp/custom-root/cxx-comm-abc/control.sock") {
+		t.Fatal("distinct runtime roots must not share an identity")
+	}
+	if len(a) != 16 {
+		t.Fatalf("runtime id %q", a)
+	}
+	if processInstance == "" || len(processInstance) != 36 {
+		t.Fatalf("instance id %q", processInstance)
+	}
+}

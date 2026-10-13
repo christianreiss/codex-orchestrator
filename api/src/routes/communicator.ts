@@ -38,6 +38,18 @@ export function communicatorPathAllowed(path: string): boolean {
     pathname.endsWith('/stream')
   )
     return false;
+  // Transfers never belong on the control socket: the wrapper's owner sends them over
+  // their own HTTPS stream. Refusing them before dispatch means the router never
+  // buffers (and base64-encodes) a binary or attachment for a frame, whatever a caller
+  // sends. This is the exact predicate the owner applies (server.go ServeHTTP).
+  if (
+    pathname.startsWith('/wrapper/v2/bin/') ||
+    pathname.startsWith('/wrapper/v2/download') ||
+    pathname.startsWith('/wrapper/download') ||
+    pathname.includes('/download') ||
+    pathname.includes('/attachments/')
+  )
+    return false;
   return /^(?:\/auth(?:\/sessions(?:\/(?:heartbeat|release))?)?|\/versions|\/skills(?:\/[^?]*)?|\/agents\/retrieve|\/config\/retrieve|\/sync\/(?:bootstrap|status)|\/cron\/(?:check|report)|\/mcp(?:\/[^?]*)?|\/host\/[^?]+|\/wrapper\/(?:v2\/)?[^?]+|\/claude\/usage\/report)$/.test(
     pathname,
   );
@@ -306,6 +318,9 @@ export async function registerCommunicatorRoutes(app: FastifyInstance, ctx: Rout
                 terminate: z.boolean(),
                 pid: z.number().int().positive().max(2 ** 31),
                 started_at: z.string().max(40),
+                // Optional: an owner that predates identity sends neither.
+                instance_id: z.string().max(64).optional(),
+                runtime_id: z.string().max(64).optional(),
               })
               .strict()
               .parse(parsed);
@@ -313,6 +328,8 @@ export async function registerCommunicatorRoutes(app: FastifyInstance, ctx: Rout
               terminate: caps.terminate,
               pid: caps.pid,
               started_at: caps.started_at,
+              instance_id: caps.instance_id ?? null,
+              runtime_id: caps.runtime_id ?? null,
             });
             wsPublisher.publish('communicator.updated', { host_id: hostId });
             return;

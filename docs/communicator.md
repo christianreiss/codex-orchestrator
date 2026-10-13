@@ -34,9 +34,13 @@ The Unix socket lives in a mode-0700 directory below `XDG_RUNTIME_DIR`. When a
 launcher drops that variable (Codex MCP servers, cron), the user's logind
 `/run/user/<uid>` directory is used if present, otherwise a private
 `/tmp/cxx-<uid>` directory, so every process elects the same owner. A runtime root
-deep enough to exceed the platform's socket-path limit (kept under 100 bytes) falls
-back to `/tmp/cxx-<uid>`, while an unsafe root is refused. The owner's startup errors
-go to `serve.log` in that directory and are included in the error a managed command
+deep enough that the socket would exceed the platform's own `sun_path` limit (107 bytes on
+Linux, 103 on macOS and the BSDs) falls back to `/tmp/cxx-<uid>`, independent of `TMPDIR`;
+that fallback directory is keyed by the resolved scope as well as the server, so two
+distinct deep scopes (isolated runs, harnesses) never share an owner, fence or credentials,
+and one scope always maps to one path. An unsafe root is refused. The owner's startup
+errors go to `serve.log` in that directory; the part written during the failed attempt is
+shown, bounded to 400 printable characters on one line, in the error a managed command
 prints. Socket mode is 0600. A filesystem lock elects
 one owner; only that owner removes a stale socket. No TCP listener is exposed.
 Each process holds a local streaming lease; a surviving client restarts a crashed
@@ -97,7 +101,11 @@ use the same transport and retain their engine/session identities. The dispatche
 runs requests through the existing Fastify routes and hooks with the verified
 remote address. It rejects admin/provider routes, path traversal, recursive
 transports, forwarding headers, cookies and replacement host credentials.
-Path checks use the pathname the router dispatches, so a trailing slash cannot
+The server also refuses, before dispatch, every route the owner sends over its own HTTPS
+stream (wrapper artifacts under `/wrapper/v2/bin/`, `/wrapper/v2/download*`,
+`/wrapper/download*`, any `/download` or `/attachments/` path, watchdog and connect
+paths) on every equivalent path form, so the router never buffers a binary or attachment
+for a control frame. Path checks use the pathname the router dispatches, so a trailing slash cannot
 reach a denied stream or skip MCP credential pinning. A malformed or disallowed
 request frame gets its own `400 communicator_invalid_request` reply; only an
 authorization failure closes the shared connection. A `host.*` event that
@@ -119,11 +127,16 @@ trailing slashes the same way the API router does.
 Remote control of the owner process is negotiated, so old servers and old owners
 never meet a frame they do not know. A server that can stop an owner lists
 `control: ["terminate"]` in its `ready` frame. Only then does the owner send one
-`capabilities` frame (`terminate`, `pid`, `started_at`), and only then does it honour
+`capabilities` frame (`terminate`, `pid`, `started_at`, `instance_id`, `runtime_id`), and only then does it honour
 `{type: "terminate", request_id, reason}`: it answers `terminate_ack` (`accepted`,
 `pid`) first, lets in-flight local requests drain for up to three seconds, and then
 ends through the same path as an idle exit (HTTP server, lock and socket closed). The
 `pid` and start time are the owner's own account; the server cannot observe them.
+`instance_id` is a UUID the owner generates at start, so the same value on a later
+connection proves the same process dialled again. `runtime_id` is a hash of the owner's
+local socket path, so the same value means the same local namespace is served: a
+different process announcing the runtime of a disconnected owner is its replacement,
+while owners in separate runtime roots (which can coexist for one OS user) differ.
 Heartbeats report local client count and last successful synchronization every
 15 seconds. Server content invalidations contain only an event ID, never admin
 payloads or credentials. A multiplexed `daemon` channel reuses the existing
@@ -226,7 +239,14 @@ daemon launched, a daemon stop (`POST /admin/daemon-sessions/{id}/stop`).
 announced the capability above, and reports `terminated` only after the owner's own
 acknowledgement followed by the closing of its connection (`acknowledged` while that
 connection is still open, `unacknowledged` when nothing answered); a surviving client
-restarts a new owner, which describes itself with a different pid. Every
+restarts a new owner, which describes itself with a different pid.
+
+The page links a disconnected connection to a later one only on that identity: `same_process`
+(the same `instance_id` dialled again) or `same_runtime` (a different process announcing the
+same `runtime_id`, with the same host and OS user). A connection from the same host and user
+without a matching identity is listed as an unverified candidate, never as a successor,
+because separate runtime roots can host distinct owners for one user; an owner that predates
+the identity fields can only ever produce candidates. Every
 control requires `agent_portal.manage` (or `agent_messaging.manage` for the daemon
 stop), which stay enforced under `compatible` authorization.
 

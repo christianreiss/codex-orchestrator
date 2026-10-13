@@ -66,6 +66,19 @@ export interface OwnerCapabilities {
   terminate: boolean;
   pid: number | null;
   started_at: string | null;
+  /**
+   * Names one owner process for as long as it runs (a UUID it generates at
+   * start). The same value on a later connection proves the same process dialled
+   * again; the per-socket connection id never does.
+   */
+  instance_id: string | null;
+  /**
+   * Names the local namespace the owner serves: a hash of its Unix socket path.
+   * Equal values mean the same local clients are served, so a different process
+   * with the same value is the replacement; owners in separate runtime roots
+   * (which may coexist for one OS user) differ.
+   */
+  runtime_id: string | null;
 }
 
 export interface TerminateAck {
@@ -103,9 +116,24 @@ export interface ConnectionTombstone {
   pid: number | null;
   process_started_at: string | null;
   session_ids: string[];
-  /** A later connection from the same host and OS user, once one appears. */
+  /** The owner's own identity, when it gave one (see {@link OwnerCapabilities}). */
+  instance_id: string | null;
+  runtime_id: string | null;
+  /**
+   * The connection that took over, set ONLY on proof: the same process dialled
+   * again, or a new process announced the same runtime namespace.
+   */
   successor_id: string | null;
+  successor_basis: SuccessorBasis | null;
+  /**
+   * Connections from the same host and OS user that appeared soon after, with no
+   * identity that links them. Unverified: separate runtime roots can host
+   * distinct owners for one user, so this can never be called a reconnect.
+   */
+  candidate_ids: string[];
 }
+
+export type SuccessorBasis = 'same_process' | 'same_runtime';
 
 interface Entry {
   view: CommunicatorView;
@@ -174,19 +202,17 @@ export class CommunicatorRegistry {
       daemonAttached: false,
       evidence: new Map(),
       closing: null,
-      capabilities: { terminate: false, pid: null, started_at: null },
+      capabilities: { terminate: false, pid: null, started_at: null, instance_id: null, runtime_id: null },
       terminateRequest: null,
     });
-    // A connection from the same host and OS user soon after one ended is that
-    // communicator coming back. Claim at most one unclaimed tombstone.
-    const predecessor = this.tombstoneList.find(
-      (t) =>
-        t.successor_id === null &&
-        t.host_id === view.host_id &&
-        t.username === view.username &&
-        now - Date.parse(t.ended_at) <= SUCCESSOR_WINDOW_MS,
-    );
-    if (predecessor) predecessor.successor_id = view.id;
+    // Same host and OS user soon after a disconnect is a hint, not a fact: one user
+    // can run several owners in separate runtime roots. Record it as a candidate
+    // only; identity (`setCapabilities`) is what can promote it to a successor.
+    for (const t of this.tombstoneList) {
+      if (t.successor_id === null && t.host_id === view.host_id && t.username === view.username && now - Date.parse(t.ended_at) <= SUCCESSOR_WINDOW_MS) {
+        t.candidate_ids.push(view.id);
+      }
+    }
   }
 
   has(id: string): boolean {
@@ -205,9 +231,36 @@ export class CommunicatorRegistry {
     entry.lastHeartbeatMs = now;
   }
 
-  setCapabilities(id: string, capabilities: OwnerCapabilities): void {
+  setCapabilities(id: string, capabilities: OwnerCapabilities, now = Date.now()): void {
     const entry = this.entries.get(id);
-    if (entry) entry.capabilities = capabilities;
+    if (!entry) return;
+    entry.capabilities = capabilities;
+    this.linkSuccessor(entry, now);
+  }
+
+  /**
+   * Promotes a new connection from "candidate" to "successor" of an earlier one
+   * only when the owner's identity says so: the very same process dialling again,
+   * or a different process in the same runtime namespace (the replacement for
+   * the clients that namespace serves). Host and OS user must also agree, as a
+   * sanity check on a self-reported identity, never as the proof itself.
+   */
+  private linkSuccessor(entry: Entry, now: number): void {
+    const { instance_id: instance, runtime_id: runtime } = entry.capabilities;
+    if (!instance && !runtime) return;
+    const eligible = (t: ConnectionTombstone) =>
+      t.successor_id === null &&
+      t.host_id === entry.view.host_id &&
+      t.username === entry.view.username &&
+      now - Date.parse(t.ended_at) <= SUCCESSOR_WINDOW_MS;
+    const sameProcess = instance ? this.tombstoneList.find((t) => eligible(t) && t.instance_id === instance) : undefined;
+    const target =
+      sameProcess ?? (runtime ? this.tombstoneList.find((t) => eligible(t) && t.runtime_id === runtime && t.instance_id !== instance) : undefined);
+    if (!target) return;
+    target.successor_id = entry.view.id;
+    target.successor_basis = sameProcess ? 'same_process' : 'same_runtime';
+    // A proven successor is no longer a mere candidate anywhere.
+    for (const t of this.tombstoneList) t.candidate_ids = t.candidate_ids.filter((c) => c !== entry.view.id);
   }
 
   /** The owner's `terminate_ack`. Ignored unless it answers the request in flight. */
@@ -277,7 +330,11 @@ export class CommunicatorRegistry {
         pid: entry.capabilities.pid,
         process_started_at: entry.capabilities.started_at,
         session_ids: [...entry.evidence.keys()].slice(0, 256),
+        instance_id: entry.capabilities.instance_id,
+        runtime_id: entry.capabilities.runtime_id,
         successor_id: null,
+        successor_basis: null,
+        candidate_ids: [],
       };
       this.tombstoneList.unshift(tombstone);
       this.pruneTombstones(now);
@@ -397,7 +454,7 @@ export class CommunicatorRegistry {
 
   tombstones(now = Date.now()): ConnectionTombstone[] {
     this.pruneTombstones(now);
-    return this.tombstoneList.map((t) => ({ ...t }));
+    return this.tombstoneList.map((t) => ({ ...t, candidate_ids: [...t.candidate_ids] }));
   }
 
   /** Test seam: the registry is a singleton because the route table is. */

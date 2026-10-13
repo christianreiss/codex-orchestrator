@@ -7,6 +7,7 @@ import { buildRouteApp } from '../../helpers/build-route-app.js';
 import { createMockDb } from '../../helpers/in-memory-db.js';
 
 const auth = vi.hoisted(() => ({ allowed: true }));
+const transferHits = vi.hoisted(() => ({ count: 0 }));
 vi.mock('../../../src/services/mcp-session.js', () => ({
   McpSessionService: class {
     async verify(token: string) {
@@ -49,6 +50,14 @@ async function setup(enabled = true) {
   app.post('/auth', () => ({ verification_state: 'verified', engine: 'claude', account_id: 7 }));
   app.get('/host/big', () => ({ blob: 'x'.repeat(12 * 1024 * 1024) }));
   app.post('/host/big', () => ({ blob: 'x'.repeat(12 * 1024 * 1024) }));
+  app.get('/wrapper/v2/download/:name', () => {
+    transferHits.count++;
+    return { blob: 'x'.repeat(1024) };
+  });
+  app.get('/host/agent-sessions/:id/agent-messaging/attachments/get', () => {
+    transferHits.count++;
+    return { blob: 'x'.repeat(1024) };
+  });
   app.get('/host/wide', (_req, reply) => reply.header('x-wide', 'h'.repeat(15.5 * 1024 * 1024)).send({ ok: true }));
   await app.ready();
   return app;
@@ -484,5 +493,69 @@ describe('communicator effects that may already have happened', () => {
     expect(two.frames.filter((f) => f.type === 'invalidate')).toHaveLength(1);
     one.ws.close();
     two.ws.close();
+  });
+});
+
+describe('communicator transfer routes stay off the control socket', () => {
+  it('refuses downloads, attachments, streams and connect on every equivalent path form', () => {
+    for (const path of [
+      '/wrapper/v2/download/cdx-linux-amd64',
+      '/wrapper/v2/download/cdx-linux-amd64/',
+      '/wrapper/v2/download',
+      '/wrapper/download',
+      '/wrapper/download///',
+      '/wrapper/v2/bin/cxx/linux-amd64/v0.9.76/cxx',
+      '/host/agent-sessions/abc/agent-messaging/attachments/get',
+      '/host/agent-sessions/abc/watchdog/stream',
+      '/host/agent-sessions/abc/watchdog/stream/',
+      '/host/agent-sessions/abc/watchdog/stream//',
+      '/host/agent-sessions/abc/watchdog/stream/?after=1',
+      '/host/daemon/connect/',
+      '/host/communicator/connect//',
+    ])
+      expect(communicatorPathAllowed(path), path).toBe(false);
+    for (const path of [
+      '/mcp',
+      '/mcp/',
+      '/mcp///',
+      '/mcp?x=/stream',
+      '/wrapper/v2/config?engine=codex',
+      '/wrapper/v2/meta',
+      '/host/agent-sessions/abc/agent-messaging/send',
+    ])
+      expect(communicatorPathAllowed(path), path).toBe(true);
+  });
+
+  it('never dispatches a transfer route, and the socket keeps serving after many refusals', async () => {
+    await setup();
+    transferHits.count = 0;
+    const ws = await open();
+    const closed = vi.fn();
+    ws.on('close', closed);
+    const replies: Array<{ status: number; body: string }> = [];
+    ws.on('message', (data: unknown) => replies.push(JSON.parse(String(data))));
+    // More refusals than the in-flight budget: a leaked slot would starve the follow-up.
+    for (let i = 0; i < 150; i++)
+      ws.send(
+        JSON.stringify({
+          id: randomUUID(),
+          type: 'request',
+          method: 'GET',
+          path: i % 2 ? '/wrapper/v2/download/cdx-linux-amd64/' : '/host/agent-sessions/abc/agent-messaging/attachments/get',
+          headers: {},
+          body: '',
+        }),
+      );
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    expect(transferHits.count).toBe(0);
+    expect(replies).toHaveLength(150);
+    expect(replies.every((r) => r.status === 400)).toBe(true);
+    replies.length = 0;
+    ws.send(JSON.stringify({ id: randomUUID(), type: 'request', method: 'POST', path: '/host/echo', headers: {}, body: '' }));
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(replies).toHaveLength(1);
+    expect(replies[0]!.status).toBe(200);
+    expect(closed).not.toHaveBeenCalled();
+    ws.close();
   });
 });

@@ -207,7 +207,7 @@ describe('GET /admin/topology', () => {
 
 describe('owner control negotiation and POST /admin/communicators/:id/terminate', () => {
   /** An owner the way cxx behaves: announces itself only to a server that offered control. */
-  async function owner(app: FastifyInstance, behaviour: 'acks-and-exits' | 'silent' | 'refuses' | 'old') {
+  async function owner(app: FastifyInstance, behaviour: 'acks-and-exits' | 'silent' | 'refuses' | 'old', identity: { instance?: string; runtime?: string } = {}) {
     const ws = await app.injectWS('/host/communicator/connect', { headers: { 'x-api-key': 'host-one' } });
     const frames: Array<Record<string, unknown>> = [];
     const ready = new Promise<void>((resolve) => ws.once('message', (data: unknown) => {
@@ -228,10 +228,10 @@ describe('owner control negotiation and POST /admin/communicators/:id/terminate'
       }
     });
     if (behaviour !== 'old' && (frames[0]?.control as string[] | undefined)?.includes('terminate')) {
-      ws.send(JSON.stringify({ type: 'capabilities', terminate: true, pid: 4242, started_at: '2026-10-13T17:00:00Z' }));
+      ws.send(JSON.stringify({ type: 'capabilities', terminate: true, pid: 4242, started_at: '2026-10-13T17:00:00Z', ...(identity.instance ? { instance_id: identity.instance } : {}), ...(identity.runtime ? { runtime_id: identity.runtime } : {}) }));
     }
     await new Promise((resolve) => setTimeout(resolve, 100));
-    return { ws, frames, id: communicatorRegistry.snapshot()[0]!.view.id };
+    return { ws, frames, id: communicatorRegistry.snapshot().at(-1)!.view.id };
   }
   const post = (app: FastifyInstance, id: string, body: unknown) =>
     app.inject({ method: 'POST', url: `/admin/communicators/${id}/terminate`, payload: body as object });
@@ -241,7 +241,7 @@ describe('owner control negotiation and POST /admin/communicators/:id/terminate'
     const { ws, frames } = await owner(app, 'acks-and-exits');
     expect(frames[0]).toEqual({ type: 'ready', protocol: 1, control: ['terminate'] });
     const { body } = await topology(app);
-    expect(body.communicators[0]).toMatchObject({ can_terminate: true, process: { pid: 4242, started_at: '2026-10-13T17:00:00Z' } });
+    expect(body.communicators[0]).toMatchObject({ can_terminate: true, process: { pid: 4242, started_at: '2026-10-13T17:00:00Z', instance_id: null, runtime_id: null } });
     ws.close();
   });
 
@@ -436,7 +436,7 @@ describe('POST /admin/communicators/:id/disconnect', () => {
     expect((await post(app, randomUUID(), { client_message_id: randomUUID() })).statusCode).toBe(401);
   });
 
-  it('shows the redial as a new node that replaces the old one', async () => {
+  it('shows a redial as a new node, and calls it a candidate only: nothing proves it is the same owner', async () => {
     const app = await build('owner', true);
     const first = await connected(app);
     await post(app, first.id, { client_message_id: randomUUID() });
@@ -444,7 +444,61 @@ describe('POST /admin/communicators/:id/disconnect', () => {
     const { body } = await topology(app);
     expect(body.communicators).toHaveLength(1);
     expect(body.communicators[0]!.id).not.toBe(first.id);
-    expect(body.recent_disconnects[0]).toMatchObject({ id: first.id, successor_id: body.communicators[0]!.id });
+    expect(body.recent_disconnects[0]).toMatchObject({
+      id: first.id,
+      successor_id: null,
+      successor_basis: null,
+      candidate_ids: [body.communicators[0]!.id],
+    });
     again.close();
+  });
+});
+
+describe('owner identity decides what counts as a successor', () => {
+  const post = (app: FastifyInstance, id: string) =>
+    app.inject({ method: 'POST', url: `/admin/communicators/${id}/disconnect`, payload: { client_message_id: randomUUID() } });
+  async function ownerWith(app: FastifyInstance, instance: string, runtime: string) {
+    const ws = await app.injectWS('/host/communicator/connect', { headers: { 'x-api-key': 'host-one' } });
+    const ready = new Promise<void>((resolve) => ws.once('message', () => resolve()));
+    ws.send(JSON.stringify({ type: 'hello', protocol: 1, username: 'tester', version: '0.9.77' }));
+    await ready;
+    ws.send(JSON.stringify({ type: 'capabilities', terminate: true, pid: 100 + Math.floor(Math.random() * 1000), started_at: '2026-10-13T17:00:00Z', instance_id: instance, runtime_id: runtime }));
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    return { ws, id: communicatorRegistry.snapshot().at(-1)!.view.id };
+  }
+
+  it('the same owner process dialling again is a confirmed reconnect', async () => {
+    const app = await build('owner', true);
+    const first = await ownerWith(app, 'process-1', 'runtime-A');
+    await post(app, first.id);
+    const second = await ownerWith(app, 'process-1', 'runtime-A');
+    const { body } = await topology(app);
+    expect(body.recent_disconnects[0]).toMatchObject({ id: first.id, successor_id: second.id, successor_basis: 'same_process', candidate_ids: [] });
+    second.ws.close();
+  });
+
+  it('a different process serving the same runtime namespace is the replacement', async () => {
+    const app = await build('owner', true);
+    const first = await ownerWith(app, 'process-1', 'runtime-A');
+    await post(app, first.id);
+    const second = await ownerWith(app, 'process-2', 'runtime-A');
+    const { body } = await topology(app);
+    expect(body.recent_disconnects[0]).toMatchObject({ id: first.id, successor_id: second.id, successor_basis: 'same_runtime' });
+    second.ws.close();
+  });
+
+  it('distinct owners of one host and OS user in separate runtime roots never stand in for each other', async () => {
+    const app = await build('owner', true);
+    const a = await ownerWith(app, 'process-A', 'runtime-A');
+    const b = await ownerWith(app, 'process-B', 'runtime-B');
+    // Stopping A must not make B its successor, nor must B's later redial.
+    await post(app, a.id);
+    const c = await ownerWith(app, 'process-C', 'runtime-B');
+    const { body } = await topology(app);
+    expect(body.communicators.map((n) => n.id).sort()).toEqual([b.id, c.id].sort());
+    expect(body.recent_disconnects[0]).toMatchObject({ id: a.id, successor_id: null, successor_basis: null });
+    expect(body.recent_disconnects[0]!.candidate_ids).toEqual([c.id]);
+    b.ws.close();
+    c.ws.close();
   });
 });

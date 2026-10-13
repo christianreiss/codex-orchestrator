@@ -73,7 +73,12 @@ func TestRemoteTerminateStopsTheRealOwnerAndClientsRestartIt(t *testing.T) {
 	}
 	var mu sync.Mutex
 	var current *owner
-	describes := make(chan int, 4)
+	type identity struct {
+		pid        int
+		instanceID string
+		runtimeID  string
+	}
+	describes := make(chan identity, 4)
 	acks := make(chan map[string]any, 4)
 	remote := websocket.Handler(func(ws *websocket.Conn) {
 		defer ws.Close()
@@ -95,10 +100,15 @@ func TestRemoteTerminateStopsTheRealOwnerAndClientsRestartIt(t *testing.T) {
 					t.Errorf("incomplete capabilities frame: %v", f)
 				}
 				me.pid = int(pid)
+				instance, _ := f["instance_id"].(string)
+				runtime, _ := f["runtime_id"].(string)
+				if len(instance) != 36 || len(runtime) != 16 {
+					t.Errorf("capabilities carry no usable owner identity: %v", f)
+				}
 				mu.Lock()
 				current = me
 				mu.Unlock()
-				describes <- me.pid
+				describes <- identity{pid: me.pid, instanceID: instance, runtimeID: runtime}
 			case "terminate_ack":
 				acks <- f
 			case "request":
@@ -188,12 +198,13 @@ func TestRemoteTerminateStopsTheRealOwnerAndClientsRestartIt(t *testing.T) {
 	call(0, 1)
 	call(1, 2)
 
-	var first int
+	var firstIdentity identity
 	select {
-	case first = <-describes:
+	case firstIdentity = <-describes:
 	case <-time.After(10 * time.Second):
 		t.Fatal("the owner never described itself to a server that announced control")
 	}
+	first := firstIdentity.pid
 	if got, _ := status()["pid"].(float64); int(got) != first {
 		t.Fatalf("capabilities pid %d is not the owner's own pid %v", first, got)
 	}
@@ -222,14 +233,23 @@ func TestRemoteTerminateStopsTheRealOwnerAndClientsRestartIt(t *testing.T) {
 	}
 
 	// Surviving clients start a replacement, which says it is a different process.
-	var second int
+	var secondIdentity identity
 	select {
-	case second = <-describes:
+	case secondIdentity = <-describes:
 	case <-time.After(30 * time.Second):
 		t.Fatal("no replacement owner after the stop")
 	}
+	second := secondIdentity.pid
 	if second == first {
 		t.Fatalf("replacement reused pid %d", first)
+	}
+	// A different process, in the same runtime namespace: that pairing is what lets
+	// the server call it the replacement rather than a coincidence.
+	if secondIdentity.instanceID == firstIdentity.instanceID {
+		t.Fatal("a new process reused the old instance id")
+	}
+	if secondIdentity.runtimeID != firstIdentity.runtimeID {
+		t.Fatalf("replacement serves another runtime namespace: %s != %s", secondIdentity.runtimeID, firstIdentity.runtimeID)
 	}
 	call(0, 3)
 	call(1, 4)

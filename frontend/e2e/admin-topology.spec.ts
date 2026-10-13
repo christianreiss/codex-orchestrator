@@ -11,12 +11,12 @@ const A3 = "a3333333-3333-4333-8333-333333333333";
 function communicator(id: string, username: string, host: string, agent_ids: string[]): TopologyCommunicator {
   const now = Date.now();
   return {
-    kind: "communicator", id, host_id: id === C1 ? 4 : 5, host, username, version: "0.9.76",
+    kind: "communicator", id, label: `${username}@${host.split(".")[0]}`, host_id: id === C1 ? 4 : 5, host, username, version: "0.9.76",
     connected_at: new Date(now - 600_000).toISOString(), last_frame_at: new Date(now - 2_000).toISOString(), last_heartbeat_at: new Date(now - 3_000).toISOString(),
     health: "live", idle_s: 2, leases_reported: agent_ids.length, requests: 12, synced_at: null, sync_scopes: 0, sync_errors: 0, remote_address: "192.0.2.4",
     daemon_attached: false, agent_ids,
     // C1's owner announced that it can be stopped remotely; C2's predates the control frame.
-    process: id === C1 ? { pid: 4242, started_at: new Date(now - 600_000).toISOString() } : null, can_terminate: id === C1,
+    process: id === C1 ? { pid: 4242, started_at: new Date(now - 600_000).toISOString(), instance_id: "11111111-aaaa-4aaa-8aaa-111111111111", runtime_id: "rt0123456789abcd" } : null, can_terminate: id === C1,
   };
 }
 function agent(id: string, name: string, engine: string, parent: string, overrides: Partial<TopologyAgent> = {}): TopologyAgent {
@@ -45,7 +45,7 @@ function tree(): Topology {
 }
 
 async function fixtures(page: Page, capabilities = ["hosts.read", "agent_portal.read", "agent_portal.manage", "agent_messaging.manage"]) {
-  const state = { topology: tree(), posts: [] as Array<{ path: string; body: Record<string, unknown> }>, disconnectStatus: 200, terminateOutcome: "terminated" as string };
+  const state = { topology: tree(), posts: [] as Array<{ path: string; body: Record<string, unknown> }>, disconnectStatus: 200, terminateOutcome: "terminated" as string, departure: {} as Record<string, unknown> };
   await page.route("**/admin/**", async (route) => {
     const request = route.request();
     if (!request.headers().accept?.includes("application/json")) return route.continue();
@@ -65,7 +65,7 @@ async function fixtures(page: Page, capabilities = ["hosts.read", "agent_portal.
       state.posts.push({ path, body: request.postDataJSON() });
       if (state.disconnectStatus !== 200) return json({ status: "error", message: "Communicator is not connected", code: "communicator_not_connected" }, state.disconnectStatus);
       // The server closed it: the old node is gone and a successor is listed.
-      state.topology = { ...state.topology, communicators: state.topology.communicators.filter((c) => c.id !== C1), recent_disconnects: [{ id: C1, host_id: 4, host: "web01.example", username: "alice", version: "0.9.76", connected_at: "", ended_at: new Date().toISOString(), reason: "admin_disconnect", actor: "operator", affected_agent_ids: [A1, A2], successor_id: null }] };
+      state.topology = { ...state.topology, communicators: state.topology.communicators.filter((c) => c.id !== C1), recent_disconnects: [{ id: C1, label: "alice@web01", host_id: 4, host: "web01.example", username: "alice", version: "0.9.76", connected_at: "", ended_at: new Date().toISOString(), reason: "admin_disconnect", actor: "operator", affected_agent_ids: [A1, A2], pid: null, successor_id: null, successor_basis: null, candidate_ids: [], ...state.departure }] };
       return json({ outcome: "closed", connection_id: C1, host_id: 4, username: "alice", version: "0.9.76", reconnect_expected: true, affected: { agent_ids: [A1, A2], leases_reported: 2 }, replayed: false });
     }
     return json({});
@@ -206,4 +206,30 @@ test("a stop nobody acknowledged is a warning, not a success", async ({ page }) 
   // The node is still there: the server did not see it go.
   await page.getByRole("dialog").getByRole("button", { name: "Close", exact: true }).first().click();
   await expect(page.locator(`[data-node="${C1}"]`)).toHaveCount(1);
+});
+
+test("a connection that merely shares host and user is an unverified candidate, never a reconnect", async ({ page }) => {
+  const state = await fixtures(page);
+  state.departure = { candidate_ids: [C2] };
+  await open(page);
+  await page.locator(`[data-node="${C1}"] .hit`).click();
+  await page.getByRole("button", { name: "Disconnect this communicator…" }).click();
+  const dialog = page.getByRole("dialog");
+  await dialog.getByRole("button", { name: "Disconnect", exact: true }).click();
+  await expect(dialog.getByText("Connection closed")).toBeVisible();
+  await expect(dialog.getByText("Unverified:")).toBeVisible();
+  await expect(dialog.getByText(/nothing proves it is this owner coming back/)).toBeVisible();
+  await expect(dialog.getByText(/reconnected as/)).toHaveCount(0);
+});
+
+test("a reconnect is stated only when the owner's identity proves it", async ({ page }) => {
+  const state = await fixtures(page);
+  state.departure = { successor_id: C2, successor_basis: "same_process" };
+  await open(page);
+  await page.locator(`[data-node="${C1}"] .hit`).click();
+  await page.getByRole("button", { name: "Disconnect this communicator…" }).click();
+  const dialog = page.getByRole("dialog");
+  await dialog.getByRole("button", { name: "Disconnect", exact: true }).click();
+  await expect(dialog.getByText(/The same process reconnected as/)).toBeVisible();
+  await expect(dialog.getByText("Unverified:")).toHaveCount(0);
 });
