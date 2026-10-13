@@ -67,6 +67,14 @@ use separate HTTPS transfers owned by the communicator. Cron checks and sync
 status use the shared control connection. Signed wrapper config
 refresh also remains available over HTTPS for capability rollback.
 
+A request frame that names itself but is rejected (path outside the allowlist: 403
+`communicator_path_forbidden`; body over the frame limit: 413
+`communicator_body_too_large`; malformed fields: 400 `communicator_invalid_request`) or
+whose reply exceeds 11 MiB (502 `communicator_response_too_large`; the wrapper reads
+frames up to 16 MiB of base64) gets a standard error frame and the connection stays up.
+Only frames with no usable identity, a missing handshake and revoked authorization close
+it. `host.*` invalidations are delivered only to the host they name.
+
 The reconnect delay grows from one to thirty seconds with jitter. Pending writes
 whose replies are lost return `communicator_outcome_unknown` with HTTP 409 so
 existing retry loops do not repeat them. Durable message claim IDs and explicit

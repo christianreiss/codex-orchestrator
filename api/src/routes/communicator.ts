@@ -57,6 +57,20 @@ const allowedHeaders = new Set([
   'last-event-id',
 ]);
 
+// The wrapper reads a control frame with a 16 MiB payload cap. Base64 inflates the
+// body by a third, so a reply larger than this would make the wrapper drop the
+// shared connection (and every session multiplexed on it) instead of one request.
+const MAX_RESPONSE_BYTES = 11 * 1024 * 1024;
+
+function errorFrame(id: string, status: number, code: string, message: string) {
+  return {
+    id,
+    status,
+    headers: { 'content-type': 'application/json' },
+    body: Buffer.from(JSON.stringify({ status: 'error', message, code })).toString('base64'),
+  };
+}
+
 export interface CommunicatorView {
   host_id: number;
   username: string;
@@ -97,7 +111,8 @@ export async function registerCommunicatorRoutes(app: FastifyInstance, ctx: Rout
       const connectionID = randomUUID();
       let closed = false,
         inFlight = 0,
-        greeted = false;
+        greeted = false,
+        hostId = 0;
       const send = (frame: unknown) => {
         if (closed) return;
         if (socket.bufferedAmount > 8 * 1024 * 1024) {
@@ -155,6 +170,15 @@ export async function registerCommunicatorRoutes(app: FastifyInstance, ctx: Rout
         )
           return;
         if (/^host\.daemon\.(?:changed|start_requested|stop_requested)$/.test(event.type)) return;
+        // A host event only changes content for the host it names; another host's
+        // lane change or admin edit must not make this host resynchronize.
+        if (
+          event.type.startsWith('host.') &&
+          typeof payload?.id === 'number' &&
+          hostId !== 0 &&
+          payload.id !== hostId
+        )
+          return;
         if (
           /^(skill\.|agents\.|config\.|auth\.|accounts\.|host\.|engine\.|version|settings\.|claude_artifact\.)/.test(
             event.type,
@@ -197,6 +221,7 @@ export async function registerCommunicatorRoutes(app: FastifyInstance, ctx: Rout
               .strict()
               .parse(parsed);
             const host = await authorize(req);
+            hostId = host.id;
             connections.set(connectionID, {
               host_id: host.id,
               username: hello.username,
@@ -275,7 +300,22 @@ export async function registerCommunicatorRoutes(app: FastifyInstance, ctx: Rout
             send({ type: 'heartbeat' });
             return;
           }
-          const frame = requestSchema.parse(parsed);
+          const checked = requestSchema.safeParse(parsed);
+          if (!checked.success) {
+            // A request that still names itself is answered, not punished: closing
+            // would fail every other session sharing this connection.
+            const id = z.string().uuid().safeParse(parsed?.id);
+            if (!id.success) throw new Error('Invalid communicator frame');
+            const issue = checked.error.issues[0];
+            const field = issue?.path[0];
+            if (field === 'path')
+              send(errorFrame(id.data, 403, 'communicator_path_forbidden', 'Path is not available through the communicator'));
+            else if (field === 'body' && issue?.code === 'too_big')
+              send(errorFrame(id.data, 413, 'communicator_body_too_large', 'Request body exceeds the communicator frame limit'));
+            else send(errorFrame(id.data, 400, 'communicator_invalid_request', 'Malformed communicator request'));
+            return;
+          }
+          const frame = checked.data;
           if (inFlight >= 128) {
             send({ id: frame.id, status: 429, headers: {}, body: '', error: 'communicator_busy' });
             return;
@@ -350,6 +390,12 @@ export async function registerCommunicatorRoutes(app: FastifyInstance, ctx: Rout
                 !['connection', 'transfer-encoding', 'content-length', 'set-cookie'].includes(key)
               )
                 replyHeaders[key] = String(value);
+            }
+            if (response.rawPayload.length > MAX_RESPONSE_BYTES) {
+              send(
+                errorFrame(frame.id, 502, 'communicator_response_too_large', 'Response exceeds the communicator frame limit'),
+              );
+              return;
             }
             send({
               id: frame.id,

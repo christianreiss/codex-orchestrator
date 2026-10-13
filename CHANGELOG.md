@@ -1,5 +1,7 @@
 # 2026-10-13
 
+- Communicator hardening (API): a request frame the server rejects (path outside the allowlist, oversized body, malformed fields) or whose reply would exceed the wrapper's 16 MiB frame cap is now answered with a typed error frame (403/413/400/502) instead of closing the shared WebSocket, so one bad call no longer drops every multiplexed session or turns its in-flight writes into "outcome unknown". Closing stays reserved for protocol violations and revoked authorization. Host events (`host.*`) now invalidate only the connection of the host they name, so one host's admin edit no longer makes every host resynchronize.
+
 - Communicator forwarding now includes provider-account lease acquisition, heartbeat and release, preserving native launches for all three engines over the shared connection.
 
 - cxx 0.9.73 adds opt-in communicator sync ownership: finite engine workers, concurrent content coalescing, native credential watches, post-commit auth invalidations and per-scope status. Existing Codex/Claude auth arbitration and Grok server-owned refresh remain intact. Running sessions no longer pause managed content sync; signed rollback hands auth polling back without restarting native sessions. Unknown uploads retain digest-only recovery state and require readback before replay.
