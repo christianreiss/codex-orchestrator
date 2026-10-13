@@ -254,3 +254,19 @@ func TestLeaseOnCurrentScopeDoesNotForceBackgroundSync(t *testing.T) {
 		t.Fatal("a fresh Grok runtime scope resynced the warm Codex/Claude scopes")
 	}
 }
+
+// A scheduler pass may be satisfied without an exchange, so an explicit caller
+// must never coalesce onto it and receive its empty result.
+func TestScheduledContentPassDoesNotCoalesceWithExplicitCaller(t *testing.T) {
+	job := syncJob{Engine: "grok", Config: "/c/grok.json", Env: map[string]string{"HOME": "/h"}}
+	explicit := SyncRequest{Job: job, Operation: "content"}
+	scheduled := SyncRequest{Job: job, Operation: "content", Scheduled: true}
+	if coalesceKey(explicit) == coalesceKey(scheduled) {
+		t.Fatal("scheduled and explicit content requests share a coalescing key")
+	}
+	other := scheduled
+	other.Job.SessionID = "another-session"
+	if coalesceKey(scheduled) != coalesceKey(other) {
+		t.Fatal("identical scheduled passes must still coalesce regardless of session identity")
+	}
+}
