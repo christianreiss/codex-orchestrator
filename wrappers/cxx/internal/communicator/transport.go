@@ -444,6 +444,7 @@ func (ep *endpoint) lease(ctx context.Context) {
 			ep.mu.Lock()
 			leaseCtx, cancel := context.WithCancel(ctx)
 			ep.leaseCancel = cancel
+			runtimeAware := ep.anchor != nil && ep.anchor.Orchestrator.CommunicatorRuntimeProtocol == residency.Protocol
 			jobs := make([]syncJob, 0, len(ep.jobs))
 			for _, job := range ep.jobs {
 				jobs = append(jobs, job)
@@ -451,7 +452,9 @@ func (ep *endpoint) lease(ctx context.Context) {
 			ep.mu.Unlock()
 			body, _ := json.Marshal(jobs)
 			req, _ := http.NewRequestWithContext(leaseCtx, "POST", "http://communicator.local/_comm/lease", bytes.NewReader(body))
-			req.Header.Set("X-CXX-Runtime-Protocol", "1")
+			if runtimeAware {
+				req.Header.Set("X-CXX-Runtime-Protocol", "1")
+			}
 			res, err := unixClient(ep.localSocket(), 0).Do(req)
 			if err == nil {
 				io.Copy(io.Discard, res.Body)

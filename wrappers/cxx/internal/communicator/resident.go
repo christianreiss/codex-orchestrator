@@ -131,7 +131,7 @@ func (s *server) residentView() map[string]any {
 	state := s.residentState
 	state.mu.Lock()
 	defer state.mu.Unlock()
-	view := map[string]any{"mode": "resident", "runtime_protocol": residency.Protocol, "owner_instance_id": processInstance, "resident_enabled": state.policy.ResidentEnabled, "execution_enabled": state.policy.executionEnabled(), "resident_error": state.lastError, "binary_sha256": executableDigest, "managed": state.managed, "draining": s.draining.Load()}
+	view := map[string]any{"mode": "resident", "runtime_protocol": residency.Protocol, "owner_instance_id": processInstance, "resident_enabled": state.policy.ResidentEnabled, "execution_enabled": state.policy.executionEnabled(), "resident_error": state.lastError, "binary_sha256": processExecutableDigest(), "managed": state.managed, "draining": s.draining.Load()}
 	if !state.managed || !s.resident.Load() {
 		view["mode"] = "on_demand"
 	}

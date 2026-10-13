@@ -104,8 +104,9 @@ func OpenDirectResidentDaemon(ctx context.Context, base string) (residency.Daemo
 	return websocketDaemonStream{ws}, nil
 }
 
-func residentRequested(settings daemonSettings) bool {
-	return settings.ResidentEnabled || settings.Enabled && !deadlineExpired(settings.ExpiresAt, time.Now())
+func residentRequested(settings daemonSettings, runtimeEnabled bool) bool {
+	execution := settings.Enabled || runtimeEnabled && settings.ExecutionRequested
+	return runtimeEnabled && settings.ResidentEnabled || execution && !deadlineExpired(settings.ExpiresAt, time.Now())
 }
 
 // Unit environment belongs to the configured OS user; roots imported from a

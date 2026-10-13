@@ -140,6 +140,13 @@ describe('host daemon service decisions', () => {
     expect(await service.migration(1, requestId, 'release')).toMatchObject({ fenced: false });
     expect((await service.offer(1, generation))?.session_id).toBe(pending.session_id);
   });
+  it('refuses a stale offered launch after migration has fenced admission', async () => {
+    await service.start(request(), 'owner');
+    const operation = (await service.offer(1, generation))!;
+    await service.migration(1, randomUUID(), 'fence');
+    await expect(service.accept(1, operation.operation_id, operation.claim_id)).rejects.toThrow('No work slot');
+    expect((await service.session(operation.session_id)).status).toBe('queued');
+  });
   it('accepted work blocks migration readiness and its result retains the session', async () => {
     const pending = await service.start(request(), 'owner');
     const operation = (await service.offer(1, generation))!;

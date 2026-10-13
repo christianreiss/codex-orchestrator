@@ -1,6 +1,8 @@
 # 2026-10-14
 
-- The private resident communicator composes transport, content sync and remote execution in one owner, with verified namespace discovery, durable idle adoption, migration admission fencing and local mode/hash diagnostics. Compatible systemd upgrades and rollback retain immutable binaries and units, prove process exit and verify the successor before reopening admission. Fleet integration and combined execution acceptance remain gated; the signed runtime capability defaults off.
+- Private resident-runtime admission now rejects already-offered launches after a migration fence commits, while retaining accepted results and resumable sessions. New MySQL regressions cover racing acceptance/fencing and peer leases; composed process tests cover all three native adapters, writer exclusion and lost completion acknowledgements without replay. Owner executable diagnostics are computed lazily, avoiding binary hashing on ordinary CLI launches.
+
+- The private resident communicator composes transport, content sync and remote execution in one owner, with verified namespace discovery, durable idle adoption, migration admission fencing and local mode/hash diagnostics. Compatible systemd upgrades and rollback retain immutable binaries and units, prove process exit and verify the successor before reopening admission. Fleet integration and provider acceptance remain gated; the signed runtime capability defaults off.
 
 # 2026-10-13
 

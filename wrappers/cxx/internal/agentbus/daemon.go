@@ -44,11 +44,12 @@ func ReconcileConfiguredHostDaemon(cfg *config.Config, output io.Writer) {
 }
 
 type daemonSettings struct {
-	Enabled         bool   `json:"enabled"`
-	ResidentEnabled bool   `json:"resident_enabled"`
-	ExpiresAt       string `json:"expires_at"`
-	Username        string `json:"username"`
-	MaxParallel     int    `json:"max_parallel"`
+	Enabled            bool   `json:"enabled"`
+	ResidentEnabled    bool   `json:"resident_enabled"`
+	ExecutionRequested bool   `json:"execution_requested"`
+	ExpiresAt          string `json:"expires_at"`
+	Username           string `json:"username"`
+	MaxParallel        int    `json:"max_parallel"`
 }
 type daemonOperation struct {
 	ID         string `json:"operation_id"`
@@ -185,7 +186,7 @@ func ReconcileHostDaemon(stdout, stderr io.Writer) error {
 	if err != nil {
 		return err
 	}
-	if !residentRequested(settings) {
+	if !residentRequested(settings, residentConfigurationEnabled()) {
 		return nil
 	} // the connected service drains itself
 	if os.Geteuid() != 0 {
@@ -230,7 +231,10 @@ func daemonService(action string, stdout, stderr io.Writer) error {
 		if err != nil {
 			return err
 		}
-		if !residentRequested(settings) {
+		if !residentRequested(settings, residentConfigurationEnabled()) {
+			if settings.ResidentEnabled || settings.ExecutionRequested {
+				return errors.New("resident service requires signed runtime support; migration remains pending")
+			}
 			return errors.New("enable the host daemon in the WebUI first")
 		}
 		account, err := user.Lookup(settings.Username)

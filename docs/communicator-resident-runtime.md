@@ -16,7 +16,8 @@ remote-execution switch. Residence alone never admits a remote session.
 `CXX_COMMUNICATOR_RUNTIME_ENABLED=false` is the default. Enabling it includes
 `orchestrator.communicator_runtime_protocol: 1` in signed wrapper configurations,
 independently of the transport and sync capabilities. Do not enable the flag
-before migration acceptance. Older wrappers ignore this optional field.
+before migration acceptance. Older wrappers ignore this optional field. Residence-only installation waits
+for that signed support; it does not install an inactive legacy execution daemon.
 
 The Operations panel saves residence separately from remote starts. A request
 with runtime support disabled is pending, rather than proof of a running service.
@@ -85,6 +86,11 @@ verified before admission release. Failures retain the same journal and fence;
 retrying install reconciles a previously started target before any further start.
 No fresh native work is replayed to repair an uncertain handoff.
 
+Execution-only residence remains an install/retry intent while migration masks
+effective execution, and expiry still applies. Existing lease clients advertise
+runtime-aware reconnection only under the signed runtime capability; other leases
+remain a legacy-client blocker for handoff.
+
 The automatic service path defers incompatible/unresponsive predecessors and
 custom systemd runtime namespaces instead of guessing their identity or rewriting
 the namespace. `cxx communicator rollback` reverses a completed compatible transition with a separate durable ID, using the retained source binary and unit. Repeating rollback verifies the same restored target; it does not toggle versions. Keep the compatible runtime capability signed until that reverse handoff is verified. Incompatible legacy rollback targets and custom namespace changes remain deferred.
@@ -93,4 +99,15 @@ Do not treat a successful unit install or WebSocket close as a verified migratio
 ## Acceptance and integration
 
 The private branch is based on Dorothea's verified audit source `dc92e547`.
-Dorothea coordinates shared integration and release allocation. The isolated rootless systemd lab verified fresh installation, two compatible updates, reverse rollback, repeated rollback and recovery from a failed admission-release response without restarting the target. It used three signed engine configurations with remote execution disabled and a stub migration API; it does not prove database concurrency or provider execution. Required remaining checks include all-engine execution and receipt recovery through the combined runtime, negotiated dashboard owner metadata, and independent migration/rollback review. Production rollout is a separate action.
+Dorothea coordinates newer dependencies, shared integration and release allocation.
+The isolated systemd lab verified installation, compatible updates, rollback,
+repeated rollback and recovery from failed admission release without restarting
+the target. It used signed configurations with execution disabled and a stub API.
+Separate composed-process race fixtures verify native continuation, writer
+exclusion, busy stop refusal, receipt recovery without replay and actual quiet
+exit for every engine, using provider executables as fixtures. Isolated MySQL
+regressions verify real migration/acceptance ordering and peer lease fencing.
+See [verification evidence](verification/communicator-residency-2026-10-14.md).
+Negotiated dashboard owner metadata, any required real-provider acceptance,
+independent review and Director integration remain pending. Production rollout
+is a separate action.

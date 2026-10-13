@@ -81,10 +81,10 @@ describe.skipIf(!handle)('durable host daemon lifecycle', () => {
     await service.configureEnabled(id, true);
     expect((await service.settings(id)).enabledAt).toBe(enabledAt);
     await service.configureEnabled(id, false);
-    expect((await service.settings(id)).settings).toEqual({ ...custom, enabled: false });
+    expect((await service.settings(id)).settings).toEqual({ ...custom, resident_enabled: false, enabled: false });
     expect((await service.settings(id)).enabledAt).toBeNull();
     await service.configureEnabled(id, true);
-    expect((await service.settings(id)).settings).toEqual(custom);
+    expect((await service.settings(id)).settings).toEqual({ ...custom, resident_enabled: false });
     expect((await service.settings(id)).enabledAt).not.toBeNull();
   });
   it('serializes heartbeat renewal with daemon configuration without lock inversion', async () => {

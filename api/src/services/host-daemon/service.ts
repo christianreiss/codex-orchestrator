@@ -496,7 +496,7 @@ export class HostDaemonService {
         .from(hostDaemons)
         .where(eq(hostDaemons.hostId, row.hostId))
         .for('update');
-      if (!config || !daemonExecutionEnabled(config.settings)) throw new ForbiddenError('Host daemon disabled');
+      if (!config || !daemonAccepting(config.settings)) throw new ForbiddenError('Host daemon disabled');
       const [locked] = await tx.select().from(sessions).where(eq(sessions.id, id)).for('update');
       const [prior] = await tx.select().from(operations).where(eq(operations.clientKey, key));
       if (prior) {
@@ -677,7 +677,7 @@ export class HostDaemonService {
         .select()
         .from(sessions)
         .where(and(eq(sessions.hostId, hostId), inArray(sessions.status, ['running', 'stopping'])));
-      if ((!config || !daemonExecutionEnabled(config.settings)) || running.length >= config.settings.max_parallel)
+      if ((!config || !daemonAccepting(config.settings)) || running.length >= config.settings.max_parallel)
         throw new ConflictError('No work slot available');
       await tx.update(operations).set({ status: 'accepted', updatedAt: now() }).where(eq(operations.id, id));
       await tx

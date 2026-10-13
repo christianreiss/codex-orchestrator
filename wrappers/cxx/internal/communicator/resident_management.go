@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"runtime"
+	"sync"
 	"time"
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/residency"
@@ -17,17 +18,24 @@ import (
 	"github.com/google/uuid"
 )
 
-var executableDigest = func() string {
-	path, err := os.Executable()
-	if err != nil {
-		return ""
-	}
-	if runtime.GOOS == "linux" {
-		path = "/proc/self/exe"
-	}
-	digest, _ := residency.DigestFile(path)
-	return digest
-}()
+var executableDigestOnce sync.Once
+var executableDigest string
+
+// Native clients import this package too. Hash only an actual runtime owner's
+// first diagnostic response, rather than reading the binary on every launch.
+func processExecutableDigest() string {
+	executableDigestOnce.Do(func() {
+		path, err := os.Executable()
+		if err != nil {
+			return
+		}
+		if runtime.GOOS == "linux" {
+			path = "/proc/self/exe"
+		}
+		executableDigest, _ = residency.DigestFile(path)
+	})
+	return executableDigest
+}
 
 // Management is run as the configured service user. Namespace discovery still
 // verifies private files and the kernel peer; root callers receive identity data,

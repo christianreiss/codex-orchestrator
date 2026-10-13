@@ -51,10 +51,42 @@ Both source and target unit artifacts had hash
 `0d59d2923f7826592a0bb51e759c4d253696b044d05ca6df59a0889c1f5bb385`.
 The binary changes alone therefore exercised actual running-byte detection.
 
+## Combined execution and MySQL follow-up
+
+The composed owner/controller runs a signed, isolated test process for Codex,
+Claude and Grok. Both the driver and child are race-instrumented. Each test
+continues one native session using a provider executable fixture, verifies the
+native writer lock excludes another process, and holds accepted work open. Local
+handoff and negotiated remote stop are refused while that work runs. Dropping the
+first completion acknowledgement reconnects the same owner and resends the same
+claim/result without starting the native process again. The recovered receipt is
+removed, the writer lock is free, and quiet remote termination actually exits.
+Two runs passed for all engines. No real provider account or native AI agent was
+used. Ordinary native launches no longer hash their executable at package init;
+only an owner's first runtime diagnostic computes and caches that hash.
+
+The isolated MySQL lab uses cached image `6ea90827b110` (MySQL 8.4.11), a fresh
+`unification_fixture` database and synthetic credentials on a loopback-only port.
+The repository baseline and all 62 migrations were applied. A new negative test
+reproduced stale offered-work acceptance after migration fencing in both the unit
+harness and actual MySQL. The correction restores `daemonAccepting` for new
+acceptance and follow-up admission; requested execution enablement is used only
+when retaining already accepted results and peer-finish session state.
+
+Database regressions cover queued work/claim preservation, accepted-work drainage,
+legacy settings omission, peer leases on idle native sessions, rejection of peer
+acceptance after fencing, and competing acceptance/fence transactions. The native
+writer/process fixtures do not establish provider auth or quota acceptance.
+
+Service intent regressions cover execution-only migration retry with admission
+fenced, expired execution, explicit residence after expiry, unsigned residence
+deferment and unchanged legacy execution support. Runtime-unaware lease clients
+remain a handoff blocker instead of advertising unsupported reconnection.
+
 ## Remaining acceptance
 
-Negotiated actual dashboard owner metadata, combined remote execution/receipt
-recovery for every engine, database concurrency checks, independent migration
-review and Director integration remain outstanding. Incompatible/unresponsive
-legacy owners and custom systemd namespace changes intentionally defer. None of
-these results is a production rollout receipt.
+Negotiated actual dashboard owner metadata, real provider acceptance where needed,
+independent migration review, updated audit dependencies and Director integration
+remain outstanding. Incompatible/unresponsive legacy owners and custom systemd
+namespace changes intentionally defer. None of these results is a production
+rollout receipt.
