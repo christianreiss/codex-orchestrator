@@ -342,7 +342,7 @@ func TestHTTPSOperationsRetainHostBinding(t *testing.T) {
 	}))
 	defer upstream.Close()
 	s := &server{cfg: &config.Config{Orchestrator: config.Orchestrator{BaseURL: upstream.URL, APIKey: "bound-host"}}}
-	for _, path := range []string{"/wrapper/v2/download", "/host/agent-sessions/test/attachments/get", "/host/agent-sessions/test/watchdog/stream", "/mcp"} {
+	for _, path := range []string{"/wrapper/v2/download", "/host/agent-sessions/test/attachments/get", "/host/agent-sessions/test/watchdog/stream", "/mcp", "/mcp/", "/mcp//"} {
 		t.Run(path, func(t *testing.T) {
 			req := httptest.NewRequest("POST", path, nil)
 			req.Header.Set("X-API-Key", "foreign-host")
@@ -363,7 +363,7 @@ func TestHTTPSOperationsRetainHostBinding(t *testing.T) {
 			if h.Get("X-Engine") != "claude" || h.Get("X-Agent-Bridge-Token") != "own-session" {
 				t.Fatalf("session identity lost: %v", h)
 			}
-			if path == "/mcp" {
+			if strings.TrimRight(path, "/") == "/mcp" {
 				if h.Get("Authorization") != "Bearer own-mcp-session" || h.Get("X-Cxx-Communicator") != "1" {
 					t.Fatalf("MCP binding missing: %v", h)
 				}
@@ -379,7 +379,7 @@ func TestHTTPSOperationsRejectForbiddenRoutes(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { calls.Add(1) }))
 	defer upstream.Close()
 	s := &server{cfg: &config.Config{Orchestrator: config.Orchestrator{BaseURL: upstream.URL}}, fallback: true}
-	for _, path := range []string{"/admin/users", "/v1/responses", "/host/../admin/users", "/host/%2e%2e/admin/users", "/host/daemon/connect", "/host/communicator/connect"} {
+	for _, path := range []string{"/admin/users", "/v1/responses", "/host/../admin/users", "/host/%2e%2e/admin/users", "/host/daemon/connect", "/host/communicator/connect", "/host/daemon/connect/", "/host/daemon/connect//", "/host/echo/stream/"} {
 		w := httptest.NewRecorder()
 		s.ServeHTTP(w, httptest.NewRequest("POST", path, nil))
 		if w.Code != http.StatusForbidden {

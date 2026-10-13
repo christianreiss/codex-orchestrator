@@ -60,6 +60,10 @@ use the same transport and retain their engine/session identities. The dispatche
 runs requests through the existing Fastify routes and hooks with the verified
 remote address. It rejects admin/provider routes, path traversal, recursive
 transports, forwarding headers, cookies and replacement host credentials.
+Path checks use the pathname the router dispatches, so a trailing slash cannot
+reach a denied stream or skip MCP credential pinning. A malformed or disallowed
+request frame gets its own `400 communicator_invalid_request` reply; only an
+authorization failure closes the shared connection.
 
 Heartbeats report local client count and last successful synchronization every
 15 seconds. Server content invalidations contain only an event ID, never admin
@@ -83,6 +87,11 @@ Reconnect also replaces the owner's transfer configuration with the verified
 signed head, so rotated host keys and TLS policy apply to HTTPS transfers.
 An enabled signed capability also fails closed when local socket setup is
 unsafe or unavailable; a runtime-directory error never enables direct HTTPS.
+The only exception is the self-repair path: when no local owner can be started
+or reached, `GET` of the signed `/wrapper/v2/config` (signature-verified) and of
+wrapper metadata/downloads (digest-verified) use direct HTTPS, so a broken owner
+can still learn a capability rollback and install a fixed release. HTTPS
+transfers never wait for the control connection to reconnect.
 
 The reconnect delay grows from one to thirty seconds with jitter. Pending writes
 whose replies are lost return `communicator_outcome_unknown` with HTTP 409 so

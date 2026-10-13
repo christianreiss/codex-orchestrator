@@ -149,6 +149,9 @@ func (t *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 		return t.Direct.RoundTrip(req)
 	}
 	if err := ep.ensure(req.Context()); err != nil {
+		if selfHealRequest(req, ep.base) {
+			return t.Direct.RoundTrip(req)
+		}
 		return nil, err
 	}
 	ep.once.Do(func() { go ep.lease(processContext) })
@@ -159,10 +162,31 @@ func (t *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 	local.URL.Path = strings.TrimPrefix(req.URL.Path, strings.TrimRight(original.Path, "/"))
 	local.Host = "communicator.local"
 	res, err := unixClient(ep.socket, 0).Do(local)
+	if err != nil && selfHealRequest(req, ep.base) {
+		return t.Direct.RoundTrip(req)
+	}
 	if err != nil && req.Method != "GET" && req.Method != "HEAD" {
 		return &http.Response{StatusCode: 409, Header: http.Header{"Content-Type": []string{"application/json"}}, Body: responseBody([]byte(`{"error":{"code":"communicator_outcome_unknown","message":"Local communicator disconnected; request outcome unknown"}}`)), Request: req}, nil
 	}
 	return res, err
+}
+
+// selfHealRequest names the reads that repair a broken communicator: the
+// signed config (verified by signature, and the only way to learn the
+// capability was rolled back) and wrapper metadata/downloads (verified by
+// digest). They may use the original transport when no local owner can be
+// started or reached; every other managed request stays fail-closed.
+func selfHealRequest(req *http.Request, base string) bool {
+	if req.Method != "GET" && req.Method != "HEAD" {
+		return false
+	}
+	original, err := url.Parse(base)
+	if err != nil {
+		return false
+	}
+	path := strings.TrimPrefix(req.URL.Path, strings.TrimRight(original.Path, "/"))
+	return path == "/wrapper/v2/config" || path == "/wrapper/v2/meta" ||
+		strings.HasPrefix(path, "/wrapper/v2/download") || strings.HasPrefix(path, "/wrapper/download")
 }
 
 func unixClient(socket string, timeout time.Duration) *http.Client {
