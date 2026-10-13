@@ -67,6 +67,7 @@ describe.skipIf(!handle)('messaging admission linearizability on real MySQL', { 
     await exec(
       `DELETE FROM agent_bus_conversations WHERE address_a_id IN (${addresses}) OR address_b_id IN (${addresses})`,
     );
+    await exec(`DELETE FROM agent_bus_relays WHERE host_id IN (${ids})`);
     await exec(`DELETE FROM agent_sessions WHERE host_id IN (${ids})`);
     await exec(`DELETE FROM agent_bus_addresses WHERE host_id IN (${ids})`);
     await exec(`DELETE FROM logs WHERE host_id IN (${ids})`);
@@ -104,6 +105,7 @@ describe.skipIf(!handle)('messaging admission linearizability on real MySQL', { 
       const result = await service.registerSession(host!, {
         engine,
         sessionId,
+        upstreamSessionId: randomUUID(),
         bridgeToken: token,
         username: `${prefix}-${i}`,
         cwd: `/tmp/${prefix}/${i}`,
@@ -148,31 +150,146 @@ describe.skipIf(!handle)('messaging admission linearizability on real MySQL', { 
     });
   }
 
-  async function waitForFlagWaiter() {
+  async function waitForFlagWaiter(minimum = 1) {
     const deadline = Date.now() + 3000;
     while (Date.now() < deadline) {
       const [rows] = await pool.query(
         `SELECT COUNT(*) AS n FROM performance_schema.data_lock_waits w JOIN performance_schema.data_locks l ON w.REQUESTING_ENGINE_LOCK_ID=l.ENGINE_LOCK_ID WHERE l.OBJECT_SCHEMA=DATABASE() AND l.OBJECT_NAME='versions'`,
       );
-      if (Number((rows as Array<{ n: number }>)[0]!.n) > 0) return;
+      if (Number((rows as Array<{ n: number }>)[0]!.n) >= minimum) return;
       await delay(10);
     }
     throw new Error('No real InnoDB flag lock waiter appeared');
   }
 
-  it('unrelated admitted sends can finish while another sender holds its admission transaction', async () => {
+  async function relayFor(index: number) {
+    const identity = identities[index]!;
+    await service.finishSession(identity.sessionId, identity.token, 'completed');
+    const [host] = await db.select().from(hosts).where(eq(hosts.id, hostIds[index]!));
+    const relay = await service.registerRelay(host!, {
+      username: `${prefix}-${index}`,
+      instanceId: randomUUID(),
+      wrapperVersion: 'test',
+      capabilities: { execution_contract_version: 2 },
+    });
+    return { id: String(relay.relay_id), token: String(relay.relay_token) };
+  }
+
+  it.each(['codex', 'claude', 'grok'] as const)(
+    'empty %s relay poll bypasses a held exclusive flag lock',
+    async (engine) => {
+      const index = { codex: 0, claude: 1, grok: 2 }[engine];
+      const relay = await relayFor(index);
+      const connection = await pool.getConnection();
+      await connection.beginTransaction();
+      await connection.query('SELECT version FROM versions WHERE name=? FOR UPDATE', [
+        AGENT_MESSAGING_ENABLED_KEY,
+      ]);
+      const polling = service.claimForRelay(relay.id, relay.token, randomUUID());
+      let returnedBeforeUnlock = false;
+      try {
+        returnedBeforeUnlock = await Promise.race([
+          polling.then((value) => {
+            expect(value).toBeNull();
+            return true;
+          }),
+          delay(1500).then(() => false),
+        ]);
+      } finally {
+        await connection.rollback();
+        connection.release();
+      }
+      await polling;
+      expect(returnedBeforeUnlock).toBe(true);
+    },
+  );
+
+  it('idle relay preserves master-off rejection', async () => {
+    const relay = await relayFor(1);
+    await service.setEnabled(false);
+    events.length = 0;
+    await expect(service.claimForRelay(relay.id, relay.token, randomUUID())).rejects.toMatchObject({
+      code: 'agent_messaging_disabled',
+    });
+    expect(await currentMessages()).toHaveLength(0);
+    expect(events).toHaveLength(0);
+  });
+
+  it('queued relay work cannot acquire a lease after disable wins the flag lock', async () => {
+    const relay = await relayFor(1);
+    await send(0, 1);
+    events.length = 0;
+    const connection = await pool.getConnection();
+    await connection.beginTransaction();
+    await connection.query('SELECT version FROM versions WHERE name=? FOR UPDATE', [
+      AGENT_MESSAGING_ENABLED_KEY,
+    ]);
+    const disabling = service.setEnabled(false);
+    let polling!: ReturnType<typeof service.claimForRelay>;
+    let settled!: Promise<{ value: unknown } | { error: unknown }>;
+    try {
+      await waitForFlagWaiter();
+      polling = service.claimForRelay(relay.id, relay.token, randomUUID());
+      settled = polling.then(
+        (value) => ({ value }),
+        (error) => ({ error }),
+      );
+      await waitForFlagWaiter(2);
+    } finally {
+      await connection.rollback();
+      connection.release();
+    }
+    await disabling;
+    expect(await settled).toHaveProperty('error.code', 'agent_messaging_disabled');
+    const rows = await currentMessages();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ status: 'canceled', attempts: 0, leaseOwner: null });
+    expect(events).not.toContain('agent_messaging.message.changed');
+  });
+
+  it('concurrent relay polls and idempotent sends preserve one lease and replay its receipt', async () => {
+    const relay = await relayFor(1);
+    const key = randomUUID();
+    const [sends, polls] = await Promise.all([
+      Promise.all(Array.from({ length: 4 }, () => send(0, 1, key))),
+      Promise.all(
+        Array.from({ length: 4 }, () => service.claimForRelay(relay.id, relay.token, randomUUID())),
+      ),
+    ]);
+    expect(sends.filter((r) => r.created)).toHaveLength(1);
+    const deliveries = polls.filter((r) => r !== null);
+    expect(deliveries.length).toBeLessThanOrEqual(1);
+    const delivery = deliveries[0] ?? (await service.claimForRelay(relay.id, relay.token, randomUUID()));
+    expect(delivery).not.toBeNull();
+    if (!delivery) throw new Error('Committed message was not claimable');
+    await expect(service.claimForRelay(relay.id, relay.token, delivery.claim_id)).resolves.toMatchObject({
+      message_id: delivery.message_id,
+      attempts: 1,
+    });
+    const rows = await currentMessages();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ status: 'leased', attempts: 1, claimId: delivery.claim_id });
+    expect(events.filter((e) => e === 'agent_messaging.message.changed')).toHaveLength(1);
+  });
+
+  it('writers retain the exclusive admission mutex while another writer is admitted', async () => {
     const held = holdOneAdmission(service);
     const first = send(0, 1);
     await held.admitted.promise;
     const second = send(2, 3);
     let completedBeforeRelease = false;
+    let finished = false;
     try {
-      completedBeforeRelease = await Promise.race([second.then(() => true), delay(3000).then(() => false)]);
+      void second.then(() => {
+        finished = true;
+      });
+      await waitForFlagWaiter();
+      completedBeforeRelease = finished;
     } finally {
       held.release.resolve();
     }
     await Promise.all([first, second]);
-    expect(completedBeforeRelease).toBe(true);
+    expect(completedBeforeRelease).toBe(false);
   });
 
   it('disable waits for accepted admission, then cancels its exactly-one message', async () => {
