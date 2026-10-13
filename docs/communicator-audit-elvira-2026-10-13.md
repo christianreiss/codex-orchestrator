@@ -40,10 +40,10 @@ isolation and trailing-slash normalization (`69c49491`), verified repair reads
 
 - Host: full Go race suite, `go build ./...`, `go vet ./...`, clean `gofmt -l .`,
   and `make test`, including release manifest and publication tests.
-- API: 4,594 tests passed, 621 database-dependent tests skipped in the plain
+- API: the final combined plain tier passed 4,659 tests, with 627 tests skipped in the plain
   tier; typecheck/build passed and lint had zero errors. The final focused API
-  communicator and MCP credential suite passed all 47 tests after integration.
-- Frontend: `svelte-check` reported zero errors/warnings; 906 tests passed.
+  communicator and MCP credential suite passed all 47 tests after integration; adding config rendering brought the focused tier to 125 passes.
+- Frontend: final `svelte-check` reported zero errors/warnings; 928 tests passed.
 - Real MySQL: disposable MySQL 8.4.11, explicit isolated connection, baseline
   applied and all 62 migrations applied by the repository runner. The full tier
   ran 1,387 tests: 1,385 passed and two timing fixtures failed. After correcting
@@ -61,7 +61,7 @@ go test -count=1 -v ./internal/communicator \
 
 | VM | Verified address | Communicator | Codex lifecycle | Claude lifecycle | Grok application |
 | --- | --- | --- | --- | --- | --- |
-| test1 | 10.2.0.213 | Passed | Passed | Passed | Passed |
+| test1 | 10.2.0.213 at native acceptance; 10.2.0.215 after reboot | Passed | Passed | Passed | Passed |
 | test2 | 10.2.0.212 | Passed | Passed | Passed | Passed |
 | test3 | 10.2.0.214 | Passed | Passed | Passed | Passed |
 
@@ -160,3 +160,9 @@ sessions were left running.
 
 Findings and commits were sent to all available review peers and the
 coordinator. A queued delivery was not counted as a peer acceptance or reply.
+
+The final source also incorporates the peer bakery URL, socket-close, idle-owner,
+scoped lease-wakeup, host-scoped reply and topology fixes. The full combined Go
+race suite, API typecheck/build/lint and frontend checks passed. Task commits
+made after the signing agent timed out used an explicit per-command unsigned
+override; the existing repository signing configuration was not changed.
