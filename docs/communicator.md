@@ -52,7 +52,9 @@ startup become effective on the next launch.
 `GET /host/communicator/connect` upgrades to WebSocket protocol 1, authenticated
 with the host key and the existing IP policy. A `hello` identifies protocol,
 username and cxx version. UUID-correlated `request`/response frames preserve HTTP
-method, relative path, permitted headers, status and base64 body. The dispatcher
+method, relative path, permitted headers, status and base64 body. Account lease
+acquisition and heartbeat/release (`/auth/sessions` and its two lifecycle routes)
+use the same transport and retain their engine/session identities. The dispatcher
 runs requests through the existing Fastify routes and hooks with the verified
 remote address. It rejects admin/provider routes, path traversal, recursive
 transports, forwarding headers, cookies and replacement host credentials.

@@ -42,6 +42,9 @@ async function setup(enabled = true) {
   });
   app.post('/host/echo', (req) => ({ headers: req.headers, body: req.body, ip: req.socket.remoteAddress }));
   app.post('/mcp', () => ({ accepted: true }));
+  for (const path of ['/auth/sessions', '/auth/sessions/heartbeat', '/auth/sessions/release']) {
+    app.post(path, (req) => ({ body: req.body, hostKey: req.headers['x-api-key'] }));
+  }
   app.post('/auth', () => ({ verification_state: 'verified', engine: 'claude', account_id: 7 }));
   await app.ready();
   return app;
@@ -59,6 +62,7 @@ describe('communicator transport', () => {
   it('rejects admin/provider URLs, traversal and recursive connections', () => {
     for (const path of [
       '/admin/users',
+      '/auth/sessions/admin',
       '/v1/responses',
       '//evil/host/a',
       '/host/../admin/users',
@@ -69,6 +73,9 @@ describe('communicator transport', () => {
       expect(communicatorPathAllowed(path)).toBe(false);
     for (const path of [
       '/auth',
+      '/auth/sessions',
+      '/auth/sessions/heartbeat',
+      '/auth/sessions/release',
       '/sync/bootstrap',
       '/sync/status',
       '/cron/check',
@@ -208,5 +215,23 @@ it('targets only previously authorized account metadata', async () => {
   expect(frames).toContainEqual({ type: 'auth_changed' });
   expect(frames).toHaveLength(2);
   expect(JSON.stringify(frames)).not.toContain('never-forward');
+  ws.close();
+});
+
+it('preserves account acquisition, heartbeat and release for all native engines', async () => {
+  await setup();
+  const ws = await open();
+  for (const engine of ['codex', 'claude', 'grok']) {
+    for (const path of ['/auth/sessions', '/auth/sessions/heartbeat', '/auth/sessions/release']) {
+      const id = randomUUID();
+      const body = { engine, session_id: randomUUID(), scope_id: 'isolated-native-home' };
+      const reply = new Promise<string>(resolve => ws.once('message', (data: unknown) => resolve(String(data))));
+      ws.send(JSON.stringify({ id, type: 'request', method: 'POST', path, headers: {'content-type':'application/json'}, body: Buffer.from(JSON.stringify(body)).toString('base64') }));
+      const response = JSON.parse(await reply);
+      expect(response).toMatchObject({ id, status: 200 });
+      const decoded = JSON.parse(Buffer.from(response.body, 'base64').toString());
+      expect(decoded.data ?? decoded).toEqual({ body, hostKey: 'host-one' });
+    }
+  }
   ws.close();
 });
