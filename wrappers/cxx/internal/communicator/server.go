@@ -314,7 +314,7 @@ func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(status)
 		return
 	case "/_comm/lease":
-		ids, err := s.registerJobs(r)
+		ids, fresh, err := s.registerJobs(r)
 		if err != nil {
 			http.Error(w, "invalid client scopes", 400)
 			return
@@ -336,7 +336,7 @@ func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		defer func() { s.mu.Lock(); s.leases--; s.lastUsed = time.Now(); s.mu.Unlock() }()
 		w.WriteHeader(200)
 		w.(http.Flusher).Flush()
-		if len(ids) > 0 {
+		if fresh {
 			s.invalidate()
 		}
 		lastStates := map[string]string{}

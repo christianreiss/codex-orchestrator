@@ -57,7 +57,7 @@ func TestRegistrationIsAtomicAndRejectsWrongAuthSource(t *testing.T) {
 	bad := valid
 	bad.AuthPath = filepath.Join(valid.Env["HOME"], "other-auth")
 	body, _ := json.Marshal([]syncJob{valid, bad})
-	_, err := s.registerJobs(httptest.NewRequest("POST", "/_comm/lease", strings.NewReader(string(body))))
+	_, _, err := s.registerJobs(httptest.NewRequest("POST", "/_comm/lease", strings.NewReader(string(body))))
 	if err == nil || len(s.jobs) > 0 {
 		t.Fatalf("partial registration: %v, %d", err, len(s.jobs))
 	}
@@ -167,5 +167,47 @@ func TestLateConfigBindingAndOlderOwnerCompatibility(t *testing.T) {
 	}
 	if ep.jobs["codex"].Owner {
 		t.Fatal("old owner registered as auth owner")
+	}
+}
+
+// A second session on an already-current scope must not force a fleet of
+// background auth/content workers in front of its own startup bootstrap; a
+// genuinely new scope still gets its initial pass.
+func TestLeaseOnCurrentScopeDoesNotForceBackgroundSync(t *testing.T) {
+	s := &server{jobs: map[string]syncJob{}, jobRefs: map[string]int{}, dirty: make(chan struct{}, 1), calls: map[string]*sharedCall{}}
+	lease := func(job syncJob) {
+		body, _ := json.Marshal([]syncJob{job})
+		ctx, cancel := context.WithCancel(context.Background())
+		req := httptest.NewRequest("POST", "/_comm/lease", strings.NewReader(string(body))).WithContext(ctx)
+		done := make(chan struct{})
+		go func() { defer close(done); s.ServeHTTP(httptest.NewRecorder(), req) }()
+		time.Sleep(50 * time.Millisecond)
+		cancel()
+		<-done
+	}
+	drained := func() bool {
+		select {
+		case <-s.dirty:
+			return true
+		default:
+			return false
+		}
+	}
+	first := fixtureJob(t, "codex")
+	lease(first)
+	if !drained() {
+		t.Fatal("a new scope did not get its initial pass")
+	}
+	second := first
+	second.SessionID = "another-session"
+	second.AccountID = 9
+	lease(second)
+	if drained() {
+		t.Fatal("an extra lease on a current scope forced every scope to resync")
+	}
+	other := fixtureJob(t, "claude")
+	lease(other)
+	if !drained() {
+		t.Fatal("a newly registered engine scope did not get its initial pass")
 	}
 }

@@ -1,5 +1,7 @@
 # 2026-10-13
 
+- cxx 0.9.75 no longer makes every new session wait behind a forced resync of all engines: a communicator lease now schedules an initial pass only for a scope it newly registers. Previously each launch (and each session auth watcher) reset auth and content deadlines for every scope, so on a busy host the launch's own startup bootstrap queued behind several 4–8 s background workers (measured 8.7–16 s `clx sync` on a host with 24 sessions).
+
 - cxx 0.9.75 also ends a host-daemon stream whose relay is blocked on a stalled local reader when the shared control connection drops or the server closes the daemon (not only on queue overflow), so the daemon notices and reconnects instead of hanging on a dead stream.
 
 - cxx 0.9.75 also stops a host-daemon stream whose local reader has stalled: detaching it expires that stream's socket deadlines, so a relay blocked writing to it no longer keeps the stream (and its 64 queued events) alive.
