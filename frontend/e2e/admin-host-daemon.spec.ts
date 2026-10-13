@@ -126,11 +126,11 @@ test('closed-window daemon remains online and can be opened from host details', 
     if(path==='/admin/insecure-approvals/pending') return json({requests:[]});
     return json({});
   });
-  await page.goto('/admin/hosts/1');
+  await page.goto('/admin/hosts/1?tab=operations');
   await expect(page.getByText('Daemon · Online · Zugriff gesperrt')).toBeVisible();
   await expect(page.getByRole('link', {name:'Open remote sessions'})).toHaveAttribute('href', '/admin/clients?view=remote&host=1');
-  await page.getByRole('button',{name:'Fenster öffnen',exact:true}).click();
-  await expect(page.getByText(/^Zugriff bis /)).toBeVisible();
+  await page.getByRole('button',{name:'Open access window',exact:true}).click();
+  await expect(page.getByText(/^Access until /)).toBeVisible();
   expect(grants).toBe(1);
   await expect(page.getByText('Daemon · Bereit')).toBeVisible();
   await page.getByRole('link', {name:'Open remote sessions'}).click();

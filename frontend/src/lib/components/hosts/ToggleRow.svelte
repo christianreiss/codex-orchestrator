@@ -36,7 +36,7 @@
   }
 </script>
 
-<div class="flex items-center justify-between rounded-md border p-2.5">
+<div class="host-toggle flex items-center justify-between rounded-md border p-2.5">
   {#if note}
     <span class="min-w-0">
       <span class="block text-sm">{label}</span>

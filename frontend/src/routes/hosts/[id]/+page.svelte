@@ -1,6 +1,6 @@
 <script lang="ts">
- import SessionHousekeeping from "$lib/components/policies/SessionHousekeeping.svelte";
- import DaemonPanel from "$lib/components/hosts/DaemonPanel.svelte";
+  import SessionHousekeeping from "$lib/components/policies/SessionHousekeeping.svelte";
+  import DaemonPanel from "$lib/components/hosts/DaemonPanel.svelte";
   import { page } from "$app/state";
   import { goto } from "$app/navigation";
   import { base } from "$app/paths";
@@ -13,9 +13,8 @@
   import { Label } from "$lib/components/ui/label";
   import { Skeleton } from "$lib/components/ui/skeleton";
   import * as Collapsible from "$lib/components/ui/collapsible";
-  import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from "$lib/components/ui/card";
   import { Alert, AlertDescription } from "$lib/components/ui/alert";
-  import StatCard from "$lib/components/dashboard/StatCard.svelte";
+  import * as Tabs from "$lib/components/ui/tabs";
   import StatusPill from "$lib/components/hosts/StatusPill.svelte";
   import EngineBadge from "$lib/components/hosts/EngineBadge.svelte";
   import EnginePanel from "$lib/components/hosts/EnginePanel.svelte";
@@ -34,15 +33,6 @@
   import Download from "@lucide/svelte/icons/download";
   import AlertTriangle from "@lucide/svelte/icons/triangle-alert";
   import ChevronDown from "@lucide/svelte/icons/chevron-down";
-  import Package from "@lucide/svelte/icons/package";
-  import ShieldCheck from "@lucide/svelte/icons/shield-check";
-  import Network from "@lucide/svelte/icons/network";
-  import SlidersHorizontal from "@lucide/svelte/icons/sliders-horizontal";
-  import Plug from "@lucide/svelte/icons/plug";
-  import Clock from "@lucide/svelte/icons/clock";
-  import Timer from "@lucide/svelte/icons/timer";
-  import Activity from "@lucide/svelte/icons/activity";
-  import Terminal from "@lucide/svelte/icons/terminal";
   import { relativeTime } from "$lib/utils/format";
   import { autoCopyText } from "$lib/utils/clipboard";
   import { CLAUDE_MODEL_OPTIONS, CODEX_MODELS, GROK_MODEL_OPTIONS, REASONING_EFFORT_OPTIONS } from "$lib/constants/models";
@@ -299,25 +289,24 @@
     await runQuiet($hostEnginesMutation.mutateAsync({ id, engines: next }));
   }
 
-  // Fleet policy overrides — collapsible, auto-expanded once on load only when
-  // it actually contains a non-default value.
-  const policyOverrideCount = $derived.by(() => {
-    if (!host) return 0;
-    let n = 0;
-    if (host.vip) n++;
-    if (host.allow_roaming_ips) n++;
-    if (host.auto_update_override !== null && host.auto_update_override !== undefined) n++;
-    if (host.lane_preference === "exempt") n++;
-    if (reverseDnsValue !== "global") n++;
-    if (host.agents_document_id_override != null) n++;
-    return n;
-  });
-  let policyOpen = $state(false);
-  let policyOpenInitialized = false;
+  const activeTab = $derived(["overview", "settings", "operations"].includes(page.url.searchParams.get("tab") ?? "")
+    ? page.url.searchParams.get("tab")! : "overview");
+  function changeTab(tab: string) {
+    const url = new URL(page.url);
+    url.searchParams.set("tab", tab);
+    void goto(url, { noScroll: true, keepFocus: true });
+  }
+  const modelOverrideCount = $derived(host ? [
+    host.model_override, host.reasoning_effort_override, host.client_version_override,
+    host.claude_model_override, host.claude_client_version_override,
+    host.grok_model_override, host.grok_reasoning_effort_override, host.grok_client_version_override,
+  ].filter(value => value != null && value !== "").length : 0);
+  let modelsOpen = $state(false);
+  let modelsHost = $state<string | null>(null);
   $effect(() => {
-    if (host && !policyOpenInitialized) {
-      policyOpen = policyOverrideCount > 0;
-      policyOpenInitialized = true;
+    if (host && modelsHost !== id) {
+      modelsOpen = modelOverrideCount > 0;
+      modelsHost = id;
     }
   });
 
@@ -348,7 +337,7 @@
 </script>
 
 {#if $detail.isLoading}
-  <div class="flex flex-col gap-6">
+  <div class="flex flex-col gap-3">
     <Skeleton class="h-16 w-full" />
     <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
       <Skeleton class="h-24" />
@@ -382,7 +371,7 @@
     {/snippet}
   </PageHeader>
 
-  <div class="flex flex-col gap-6">
+  <div class="flex flex-col gap-3">
     <!-- Status line: reachability | security | engines. VIP/roaming/auto-update/
          BrowserOS are controls further down, not pills — a pill is for state
          you can't change on this page. -->
@@ -419,311 +408,254 @@
       </div>
     {/if}
 
-    <!-- Vitals at a glance. -->
-    <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-      <StatCard
-        label="Last contact"
-        value={relativeTime(hostLatestRefresh(host)) || "—"}
-        hint={absoluteTime(hostLatestRefresh(host))}
-      >
-        {#snippet icon()}<Clock class="h-4 w-4" />{/snippet}
-      </StatCard>
-      <StatCard
-        label="Last cron check"
-        value={relativeTime(host.last_cron_check) || "—"}
-        hint={absoluteTime(host.last_cron_check)}
-      >
-        {#snippet icon()}<Timer class="h-4 w-4" />{/snippet}
-      </StatCard>
-      <StatCard
-        label="API calls (recent)"
-        value={host.api_calls != null ? String(host.api_calls) : "—"}
-      >
-        {#snippet icon()}<Activity class="h-4 w-4" />{/snippet}
-      </StatCard>
-      <StatCard
-        label="CXX wrapper"
-        value={cxxWrapper.drift ? "Drift" : cxxWrapper.display}
-        hint={cxxWrapper.drift ? cxxWrapper.display : null}
-        class={cxxWrapper.drift ? "border-warning/40" : undefined}
-      >
-        {#snippet icon()}<Terminal class="h-4 w-4" />{/snippet}
-      </StatCard>
-    </div>
-
-    <!-- Engines & versions: per-engine overrides via inline popovers, each
-         showing the effective value and where it came from. -->
-    <Card>
-      <CardHeader class="flex flex-row items-start justify-between gap-3 space-y-0">
-        <div class="space-y-1.5">
-          <CardTitle class="flex items-center gap-2">
-            <Package class="h-4 w-4 text-muted-foreground" /> Engines & versions
-          </CardTitle>
-          <CardDescription>Blank clears an override and inherits the fleet default.</CardDescription>
-        </div>
-        <Button variant="outline" size="sm" onclick={() => doMintInstaller()} disabled={$mintInstaller.isPending}>
-          <Download class="h-3.5 w-3.5" /> {$mintInstaller.isPending ? "Minting…" : "Mint installer"}
-        </Button>
-      </CardHeader>
-      <CardContent>
-        <div class="mb-4 grid grid-cols-1 gap-3 rounded-md border p-2.5 sm:grid-cols-3">
-          <ToggleRow
-            label="Codex engine"
-            checked={codexEngine}
-            disabled={codexSwitchDisabled}
-            note={$fleet.isEnabled("codex") ? undefined : FLEET_DISABLED_TAG}
-            onchange={(v) => setHostEngine("codex", v)}
-          />
-          <ToggleRow
-            label="Claude engine"
-            checked={claudeEngine}
-            disabled={claudeSwitchDisabled}
-            note={$fleet.isEnabled("claude") ? undefined : FLEET_DISABLED_TAG}
-            onchange={(v) => setHostEngine("claude", v)}
-          />
-          <ToggleRow
-            label="Grok engine"
-            checked={grokEngine}
-            disabled={grokSwitchDisabled}
-            note={$fleet.isEnabled("grok") ? undefined : FLEET_DISABLED_TAG}
-            onchange={(v) => setHostEngine("grok", v)}
-          />
-        </div>
-        <p class="mb-4 text-xs text-muted-foreground">
-          Engine changes apply on the host's next <code>cdx</code>/<code>clx</code>/<code>cgx</code> run, or its next
-          scheduled maintenance tick if none runs interactively.
-        </p>
-        <div class="grid gap-3 xl:grid-cols-3">
-          {#if codexEngine}
-            <EnginePanel
-              engine="codex"
-              digest={host.canonical_digest ? host.canonical_digest.slice(0, 16) + "…" : "—"}
-            >
-              <OverridePopover
-                label="Version"
-                override={host.client_version_override}
-                inheritedValue={host.client_version}
-                inheritedLabel="detected"
-                placeholder={overview?.versions.client_version ?? "0.30.0"}
-                pending={$codexVersion.isPending}
-                onSave={saveCodexVersion}
-              />
-              <OverridePopover
-                label="Model"
-                override={host.model_override}
-                options={CODEX_MODELS}
-                pending={$modelOverride.isPending}
-                onSave={saveCodexModel}
-              />
-              <OverridePopover
-                label="Reasoning effort"
-                override={host.reasoning_effort_override}
-                options={REASONING_EFFORT_OPTIONS}
-                pending={$modelOverride.isPending}
-                onSave={saveReasoningEffort}
-              />
-            </EnginePanel>
-          {/if}
-
-          {#if claudeEngine}
-            <EnginePanel
-              engine="claude"
-              digest={host.claude_canonical_digest ? host.claude_canonical_digest.slice(0, 16) + "…" : "—"}
-            >
-              <OverridePopover
-                label="Version"
-                override={host.claude_client_version_override}
-                inheritedValue={host.claude_client_version}
-                inheritedLabel="detected"
-                placeholder={overview?.versions.claude_version ?? "1.0.0"}
-                pending={$claudeVersion.isPending}
-                onSave={saveClaudeVersion}
-              />
-              <OverridePopover
-                label="Model"
-                override={host.claude_model_override}
-                options={CLAUDE_MODEL_OPTIONS}
-                pending={$modelOverride.isPending}
-                onSave={saveClaudeModel}
-              />
-            </EnginePanel>
-          {/if}
-          {#if grokEngine}
-            <EnginePanel engine="grok" digest={host.grok_canonical_digest ? host.grok_canonical_digest.slice(0, 16) + "…" : "—"}>
-              <OverridePopover label="Version" override={host.grok_client_version_override ?? null}
-                inheritedValue={host.grok_client_version} inheritedLabel="detected"
-                placeholder={overview?.versions.grok_version ?? "1.0.50"}
-                pending={$grokVersion.isPending} onSave={saveGrokVersion} />
-              <OverridePopover label="Model" override={host.grok_model_override ?? null}
-                options={GROK_MODEL_OPTIONS} pending={$modelOverride.isPending} onSave={saveGrokModel} />
-              <OverridePopover label="Reasoning effort" override={host.grok_reasoning_effort_override ?? null}
-                options={grokEfforts} pending={$modelOverride.isPending} onSave={saveGrokEffort} />
-            </EnginePanel>
-          {/if}
-        </div>
-      </CardContent>
-    </Card>
-
-    <div class="grid grid-cols-1 gap-4 lg:grid-cols-2">
-      <!-- Identity & network: facts only. -->
-      <Card>
-        <CardHeader class="flex flex-row items-start justify-between gap-3 space-y-0">
-          <div class="space-y-1.5">
-            <CardTitle class="flex items-center gap-2">
-              <Network class="h-4 w-4 text-muted-foreground" /> Identity & network
-            </CardTitle>
-            <CardDescription>Network identity for this host.</CardDescription>
-          </div>
-          {#if host.ip4 || host.ip6}
-            <Button variant="outline" size="sm" onclick={() => (confirmReleaseIpBindingOpen = true)}>
-              Release IP binding
-            </Button>
-          {/if}
-        </CardHeader>
-        <CardContent>
-          <dl class="grid grid-cols-1 gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
-            {@render dt("Host ID", String(host.id))}
-            {@render dt("FQDN", host.fqdn)}
-            {@render dt("IP (v4)", host.ip4 ?? "—")}
-            {@render dt("IP (v6)", host.ip6 ?? "—")}
+    <Tabs.Root value={activeTab} onValueChange={changeTab}>
+      <Tabs.List aria-label="Host sections" class="mb-3">
+        <Tabs.Trigger value="overview">Overview</Tabs.Trigger>
+        <Tabs.Trigger value="settings">Settings</Tabs.Trigger>
+        <Tabs.Trigger value="operations">Operations</Tabs.Trigger>
+      </Tabs.List>
+      <Tabs.Content value="overview" hidden={activeTab !== "overview"}>
+        <div class="space-y-4">
+          <dl class="grid grid-cols-2 gap-x-6 gap-y-3 rounded-lg border bg-card p-4 lg:grid-cols-4">
+            {@render dt("Last contact", relativeTime(hostLatestRefresh(host)) || "—", absoluteTime(hostLatestRefresh(host)))}
+            {@render dt("Last cron check", relativeTime(host.last_cron_check) || "—", absoluteTime(host.last_cron_check))}
+            {@render dt("API calls (recent)", String(host.api_calls ?? "—"))}
+            {@render dt("CXX wrapper", cxxWrapper.display)}
           </dl>
-        </CardContent>
-      </Card>
-
-      <!-- Access & security -->
-      <Card>
-        <CardHeader class="flex flex-row items-start justify-between gap-3 space-y-0">
-          <div class="space-y-1.5">
-            <CardTitle class="flex items-center gap-2">
-              <ShieldCheck class="h-4 w-4 text-muted-foreground" /> Access & security
-            </CardTitle>
-            <CardDescription>How strictly this host's requests are authenticated.</CardDescription>
-          </div>
-          {#if isInsecureWindowActive(host)}
-            <InsecureCountdown until={host.insecure_enabled_until} />
-          {/if}
-        </CardHeader>
-        <CardContent>
-          <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <ToggleRow
-              label="Secure"
-              checked={host.secure}
-              onchange={(v) => runQuiet($secure.mutateAsync({ id, value: v }))}
-            />
-            <ToggleRow
-              label="Curl insecure"
-              checked={host.curl_insecure}
-              onchange={(v) => runQuiet($curlInsecure.mutateAsync({ id, value: v }))}
-            />
-          </div>
-        </CardContent>
-        {#if isInsecureWindowActive(host) || host.secure === false}
-          <CardFooter class="flex flex-wrap gap-2">
-            {#if isInsecureWindowActive(host)}
-              <InsecureWindowPopover
-                label="Extend window"
-                variant="outline"
-                heading="Extend insecure window"
-                confirmLabel="Extend"
-                onConfirm={(duration_minutes) =>
-                  run("Window extended", $insecureEnable.mutateAsync({ id, duration_minutes }))}
-              />
-              <Button
-                variant="ghost"
-                onclick={() => run("Window closed", $insecureDisable.mutateAsync({ id }))}
-              >
-                Close window
+          <section class="rounded-lg border bg-card p-4" aria-labelledby="host-network-heading">
+            <h2 id="host-network-heading" class="mb-3 text-sm font-semibold">Identity & network</h2>
+            <dl class="grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-2 lg:grid-cols-4">
+              {@render dt("Host ID", String(host.id))}
+              {@render dt("FQDN", host.fqdn)}
+              {@render dt("IPv4", host.ip4 ?? "—")}
+              {@render dt("IPv6", host.ip6 ?? "—")}
+            </dl>
+          </section>
+          <section class="rounded-lg border bg-card p-4" aria-labelledby="host-engines-heading">
+            <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
+              <h2 id="host-engines-heading" class="text-sm font-semibold">Engine versions</h2>
+              <Button variant="outline" size="sm" onclick={() => doMintInstaller()} disabled={$mintInstaller.isPending}>
+                <Download class="h-3.5 w-3.5" /> {$mintInstaller.isPending ? "Minting…" : "Mint installer"}
               </Button>
-            {:else if host.secure === false}
-              <InsecureWindowPopover
-                label="Open insecure window"
-                heading="Open insecure window"
-                confirmLabel="Open"
-                onConfirm={(duration_minutes) =>
-                  run("Window opened", $insecureEnable.mutateAsync({ id, duration_minutes }))}
+            </div>
+            <dl class="divide-y">
+              {#each engineList as engine}
+                <div class="flex items-center justify-between gap-3 py-2 text-sm">
+                  <dt><EngineBadge {engine} fleetDisabled={!$fleet.isEnabled(engine)} /></dt>
+                  <dd class="font-mono text-xs">{engine === "codex" ? host.client_version ?? "—" : engine === "claude" ? host.claude_client_version ?? "—" : host.grok_client_version ?? "—"}</dd>
+                </div>
+              {/each}
+            </dl>
+          </section>
+        </div>
+      </Tabs.Content>
+      <Tabs.Content value="settings" hidden={activeTab !== "settings"}>
+        <div class="space-y-4">
+          <section class="host-controls rounded-lg border bg-card p-4" aria-label="Host settings">
+            <h2 class="text-sm font-semibold">Engines</h2>
+            <div class="grid grid-cols-1 gap-x-6 sm:grid-cols-3">
+              <ToggleRow
+                label="Codex engine"
+                checked={codexEngine}
+                disabled={codexSwitchDisabled}
+                note={$fleet.isEnabled("codex") ? undefined : FLEET_DISABLED_TAG}
+                onchange={(v) => setHostEngine("codex", v)}
               />
-            {/if}
-          </CardFooter>
-        {/if}
-      </Card>
-    </div>
+              <ToggleRow
+                label="Claude engine"
+                checked={claudeEngine}
+                disabled={claudeSwitchDisabled}
+                note={$fleet.isEnabled("claude") ? undefined : FLEET_DISABLED_TAG}
+                onchange={(v) => setHostEngine("claude", v)}
+              />
+              <ToggleRow
+                label="Grok engine"
+                checked={grokEngine}
+                disabled={grokSwitchDisabled}
+                note={$fleet.isEnabled("grok") ? undefined : FLEET_DISABLED_TAG}
+                onchange={(v) => setHostEngine("grok", v)}
+              />
+            </div>
+            <p class="mt-2 text-xs text-muted-foreground">
+              Engine changes apply on the host's next <code>cdx</code>/<code>clx</code>/<code>cgx</code> run, or its next
+              scheduled maintenance tick if none runs interactively.
+            </p>
 
-    <!-- Fleet policy overrides: collapsible, trigger states what's inside. -->
-    <Collapsible.Root bind:open={policyOpen}>
-      <Card class="overflow-hidden">
-        <h2 id="host-policy-overrides">
-          <Collapsible.Trigger class="w-full">
-            {#snippet child({ props })}
-              <button
-                {...props}
-                type="button"
-                class="group flex w-full flex-row items-center justify-between gap-3 p-5 text-left sm:p-6"
-              >
-                <div class="space-y-1.5">
-                  <div class="flex items-center gap-2 text-lg font-semibold leading-tight tracking-[-0.02em]">
-                    <SlidersHorizontal class="h-4 w-4 text-muted-foreground" /> Fleet policy overrides
-                  </div>
-                  <div class="text-sm text-muted-foreground">
-                    {policyOverrideCount > 0
-                      ? `${policyOverrideCount} set`
-                      : "All inherit fleet defaults"}
+            <div class="mt-5 grid items-start gap-6 lg:grid-cols-2">
+              <section aria-labelledby="host-access-heading">
+                <h2 id="host-access-heading" class="mb-1 text-sm font-semibold">Access & network</h2>
+                <ToggleRow
+                  label="Secure"
+                  checked={host.secure}
+                  onchange={(v) => runQuiet($secure.mutateAsync({ id, value: v }))}
+                />
+                <ToggleRow
+                  label="Curl insecure"
+                  checked={host.curl_insecure}
+                  onchange={(v) => runQuiet($curlInsecure.mutateAsync({ id, value: v }))}
+                />
+                <ToggleRow
+                  label="Roaming"
+                  checked={host.allow_roaming_ips}
+                  onchange={(v) => runQuiet($roaming.mutateAsync({ id, value: v }))}
+                />
+                <div class="flex flex-wrap items-center justify-between gap-2 border-b py-3">
+                  <span class="text-sm">Reverse DNS</span>
+                  <div class="inline-flex w-fit overflow-hidden rounded-md border border-input text-[11px]">
+                    {#each [
+                      { id: "global", label: "Inherit" },
+                      { id: "enabled", label: "Force on" },
+                      { id: "disabled", label: "Force off" },
+                    ] as opt (opt.id)}
+                      <button
+                        type="button"
+                        class="px-2 py-1 transition-colors hover:bg-accent {reverseDnsValue === opt.id
+                          ? 'bg-foreground text-background'
+                          : 'bg-background text-foreground'}"
+                        disabled={$reverseDns.isPending}
+                        aria-pressed={reverseDnsValue === opt.id}
+                        onclick={() => void setReverseDns(opt.id as ReverseDnsMode)}
+                      >
+                        {opt.label}
+                      </button>
+                    {/each}
                   </div>
                 </div>
-                <ChevronDown
-                  class="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-data-[state=open]:rotate-180"
+                {#if isInsecureWindowActive(host) || host.secure === false}
+                  <div class="flex flex-wrap items-center gap-2 pt-3">
+                    <InsecureCountdown until={host.insecure_enabled_until} />
+                    {#if isInsecureWindowActive(host)}
+                      <InsecureWindowPopover
+                        label="Extend window"
+                        variant="outline"
+                        heading="Extend insecure window"
+                        confirmLabel="Extend"
+                        onConfirm={(duration_minutes) =>
+                          run("Window extended", $insecureEnable.mutateAsync({ id, duration_minutes }))}
+                      />
+                      <Button
+                        variant="ghost"
+                        onclick={() => run("Window closed", $insecureDisable.mutateAsync({ id }))}
+                      >
+                        Close window
+                      </Button>
+                    {:else if host.secure === false}
+                      <InsecureWindowPopover
+                        label="Open insecure window"
+                        heading="Open insecure window"
+                        confirmLabel="Open"
+                        onConfirm={(duration_minutes) =>
+                          run("Window opened", $insecureEnable.mutateAsync({ id, duration_minutes }))}
+                      />
+                    {/if}
+                  </div>
+                {/if}
+                {#if host.ip4 || host.ip6}
+                  <Button class="mt-3" variant="outline" size="sm" onclick={() => (confirmReleaseIpBindingOpen = true)}>Release IP binding</Button>
+                {/if}
+              </section>
+              <section aria-labelledby="host-fleet-heading">
+                <h2 id="host-fleet-heading" class="mb-1 text-sm font-semibold">Fleet & integrations</h2>
+                <ToggleRow
+                  label="VIP"
+                  checked={host.vip}
+                  onchange={(v) => runQuiet($vip.mutateAsync({ id, value: v }))}
                 />
-              </button>
-            {/snippet}
-          </Collapsible.Trigger>
-        </h2>
-        <Collapsible.Content>
-          <CardContent class="space-y-3 pt-0">
-            <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <ToggleRow
-                label="VIP"
-                checked={host.vip}
-                onchange={(v) => runQuiet($vip.mutateAsync({ id, value: v }))}
-              />
-              <ToggleRow
-                label="Roaming"
-                checked={host.allow_roaming_ips}
-                onchange={(v) => runQuiet($roaming.mutateAsync({ id, value: v }))}
-              />
-              <ToggleRow
-                label="Auto-update"
-                checked={host.effective_auto_update_enabled}
-                onchange={(v) => runQuiet($autoUpdate.mutateAsync({ id, value: v }))}
-              />
-              <ToggleRow
-                label="Scaling exempt"
-                checked={host.lane_preference === "exempt"}
-                onchange={(v) => runQuiet($scaling.mutateAsync({ id, value: v }))}
-              />
+                <ToggleRow
+                  label="Auto-update"
+                  checked={host.effective_auto_update_enabled}
+                  onchange={(v) => runQuiet($autoUpdate.mutateAsync({ id, value: v }))}
+                />
+                <ToggleRow
+                  label="Scaling exempt"
+                  checked={host.lane_preference === "exempt"}
+                  onchange={(v) => runQuiet($scaling.mutateAsync({ id, value: v }))}
+                />
+                <ToggleRow
+                  label="BrowserOS MCP"
+                  checked={host.browseros_mcp_enabled}
+                  onchange={(v) => runQuiet($browserOsMcp.mutateAsync({ id, value: v }))}
+                />
+              </section>
             </div>
-
-            <div class="flex flex-col gap-1.5 rounded-md border p-2.5">
-              <span class="text-sm">Reverse DNS</span>
-              <div class="inline-flex w-fit overflow-hidden rounded-md border border-input text-[11px]">
-                {#each [
-                  { id: "global", label: "Inherit" },
-                  { id: "enabled", label: "Force on" },
-                  { id: "disabled", label: "Force off" },
-                ] as opt (opt.id)}
-                  <button
-                    type="button"
-                    class="px-2 py-1 transition-colors hover:bg-accent {reverseDnsValue === opt.id
-                      ? 'bg-foreground text-background'
-                      : 'bg-background text-foreground'}"
-                    disabled={$reverseDns.isPending}
-                    aria-pressed={reverseDnsValue === opt.id}
-                    onclick={() => void setReverseDns(opt.id as ReverseDnsMode)}
+          </section>
+          <Collapsible.Root bind:open={modelsOpen} class="rounded-lg border bg-card">
+            <Collapsible.Trigger class="flex w-full items-center justify-between gap-3 p-4 text-left">
+              <span><span class="block text-sm font-semibold">Model & version overrides</span><span class="text-xs text-muted-foreground">{modelOverrideCount ? `${modelOverrideCount} set` : "All inherit fleet defaults"}</span></span>
+              <ChevronDown class={`h-4 w-4 transition-transform ${modelsOpen ? "rotate-180" : ""}`} />
+            </Collapsible.Trigger>
+            <Collapsible.Content class="px-4 pb-4">
+              <p class="mb-3 text-xs text-muted-foreground">Blank clears an override and inherits the fleet default.</p>
+              <div class="grid gap-3 grid-cols-[repeat(auto-fit,minmax(min(100%,16rem),1fr))]">
+                {#if codexEngine}
+                  <EnginePanel
+                    engine="codex"
+                    digest={host.canonical_digest ? host.canonical_digest.slice(0, 16) + "…" : "—"}
                   >
-                    {opt.label}
-                  </button>
-                {/each}
-              </div>
-            </div>
+                    <OverridePopover
+                      label="Version"
+                      override={host.client_version_override}
+                      inheritedValue={host.client_version}
+                      inheritedLabel="detected"
+                      placeholder={overview?.versions.client_version ?? "0.30.0"}
+                      pending={$codexVersion.isPending}
+                      onSave={saveCodexVersion}
+                    />
+                    <OverridePopover
+                      label="Model"
+                      override={host.model_override}
+                      options={CODEX_MODELS}
+                      pending={$modelOverride.isPending}
+                      onSave={saveCodexModel}
+                    />
+                    <OverridePopover
+                      label="Reasoning effort"
+                      override={host.reasoning_effort_override}
+                      options={REASONING_EFFORT_OPTIONS}
+                      pending={$modelOverride.isPending}
+                      onSave={saveReasoningEffort}
+                    />
+                  </EnginePanel>
+                {/if}
 
+                {#if claudeEngine}
+                  <EnginePanel
+                    engine="claude"
+                    digest={host.claude_canonical_digest ? host.claude_canonical_digest.slice(0, 16) + "…" : "—"}
+                  >
+                    <OverridePopover
+                      label="Version"
+                      override={host.claude_client_version_override}
+                      inheritedValue={host.claude_client_version}
+                      inheritedLabel="detected"
+                      placeholder={overview?.versions.claude_version ?? "1.0.0"}
+                      pending={$claudeVersion.isPending}
+                      onSave={saveClaudeVersion}
+                    />
+                    <OverridePopover
+                      label="Model"
+                      override={host.claude_model_override}
+                      options={CLAUDE_MODEL_OPTIONS}
+                      pending={$modelOverride.isPending}
+                      onSave={saveClaudeModel}
+                    />
+                  </EnginePanel>
+                {/if}
+                {#if grokEngine}
+                  <EnginePanel engine="grok" digest={host.grok_canonical_digest ? host.grok_canonical_digest.slice(0, 16) + "…" : "—"}>
+                    <OverridePopover label="Version" override={host.grok_client_version_override ?? null}
+                      inheritedValue={host.grok_client_version} inheritedLabel="detected"
+                      placeholder={overview?.versions.grok_version ?? "1.0.50"}
+                      pending={$grokVersion.isPending} onSave={saveGrokVersion} />
+                    <OverridePopover label="Model" override={host.grok_model_override ?? null}
+                      options={GROK_MODEL_OPTIONS} pending={$modelOverride.isPending} onSave={saveGrokModel} />
+                    <OverridePopover label="Reasoning effort" override={host.grok_reasoning_effort_override ?? null}
+                      options={grokEfforts} pending={$modelOverride.isPending} onSave={saveGrokEffort} />
+                  </EnginePanel>
+                {/if}
+              </div>
+            </Collapsible.Content>
+          </Collapsible.Root>
             <div class="flex items-center justify-between rounded-md border p-2.5">
               <div class="min-w-0">
                 <div class="text-sm">Agents doc override</div>
@@ -735,35 +667,19 @@
                 Edit
               </Button>
             </div>
-          </CardContent>
-        </Collapsible.Content>
-      </Card>
-    </Collapsible.Root>
-
-    <!-- Integrations -->
-    <Card>
-      <CardHeader>
-        <CardTitle class="flex items-center gap-2">
-          <Plug class="h-4 w-4 text-muted-foreground" /> Integrations
-        </CardTitle>
-      </CardHeader>
-      <CardContent>
-        <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <ToggleRow
-            label="BrowserOS MCP"
-            checked={host.browseros_mcp_enabled}
-            onchange={(v) => runQuiet($browserOsMcp.mutateAsync({ id, value: v }))}
-          />
         </div>
-      </CardContent>
-    </Card>
-
-    {#key id}<SessionHousekeeping hostId={id}/><DaemonPanel {id}/>{/key}
-    <DangerZone description="Permanently remove this host from the fleet.">
-      <Button variant="destructive" onclick={() => (confirmDeleteOpen = true)}>
-        <Trash2 class="h-4 w-4" /> Delete host
-      </Button>
-    </DangerZone>
+      </Tabs.Content>
+      <Tabs.Content value="operations" hidden={activeTab !== "operations"}>
+        <div class="space-y-4">
+          {#key id}<DaemonPanel {id}/><SessionHousekeeping hostId={id}/>{/key}
+          <DangerZone description="Permanently remove this host from the fleet.">
+            <Button variant="destructive" onclick={() => (confirmDeleteOpen = true)}>
+              <Trash2 class="h-4 w-4" /> Delete host
+            </Button>
+          </DangerZone>
+        </div>
+      </Tabs.Content>
+    </Tabs.Root>
   </div>
 
   <ConfirmDialog
@@ -846,9 +762,13 @@
   </Dialog.Root>
 {/if}
 
-{#snippet dt(label: string, value: string)}
-  <div class="flex flex-col">
+{#snippet dt(label: string, value: string, title: string | null = null)}
+  <div class="flex flex-col" title={title ?? undefined}>
     <dt class="text-[11px] uppercase tracking-wide text-muted-foreground">{label}</dt>
-    <dd class="font-mono text-xs">{value}</dd>
+    <dd class="break-all font-mono text-xs">{value}</dd>
   </div>
 {/snippet}
+
+<style>
+  .host-controls :global(.host-toggle) { border: 0; border-bottom: 1px solid hsl(var(--border)); border-radius: 0; padding: 0.75rem 0; gap: 1rem; }
+</style>

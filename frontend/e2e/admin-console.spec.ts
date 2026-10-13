@@ -1703,17 +1703,16 @@ test("project detail and standalone approval keep their task-focused layouts", a
   await expectNoSeriousAxeFindings(page);
 });
 
-test("host detail uses one ordered operational workspace", async ({ page }) => {
+test("host detail uses three ordered operational tabs", async ({ page }) => {
   await page.goto("/admin/hosts/1");
   await expect(page.getByRole("heading", { name: "console.example.test", level: 1 })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Identity & network", level: 2 })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Engines & versions", level: 2 })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Access & security", level: 2 })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Fleet policy overrides", level: 2 })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Integrations", level: 2 })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Engine versions", level: 2 })).toBeVisible();
   await expect(page.getByRole("button", { name: "Mint installer" })).toBeVisible();
-
-  await page.getByRole("button", { name: /Fleet policy overrides/ }).click();
+  await page.getByRole("tab", { name: "Settings", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Access & network", level: 2 })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Fleet & integrations", level: 2 })).toBeVisible();
+  await expect(page.getByRole("button", { name: /Model & version overrides/ })).toBeVisible();
   await expect(page.getByText("Reverse DNS", { exact: true })).toBeVisible();
   await expectNoSeriousAxeFindings(page);
 });
@@ -2474,7 +2473,7 @@ test("host engine switches support all seven combinations and preserve one enabl
     }
     if (path === "/admin/hosts/1/detail") return { ...detail, host };
   });
-  await page.goto("/admin/hosts/1");
+  await page.goto("/admin/hosts/1?tab=settings");
   await expect(page.getByRole("switch", { name: "Grok engine", exact: true })).toBeChecked();
   await expect(page.getByRole("switch", { name: "Grok engine", exact: true })).toBeDisabled();
   const all = ["Codex", "Claude", "Grok"];
@@ -2484,6 +2483,8 @@ test("host engine switches support all seven combinations and preserve one enabl
     if (target.length === 1) await expect(page.getByRole("switch", { name: `${target[0]} engine`, exact: true })).toBeDisabled();
   }
   expect(writes.length).toBeGreaterThanOrEqual(7);
+  const overrides = page.getByRole("button", { name: /Model & version overrides/ });
+  if (await overrides.getAttribute("aria-expanded") === "false") await overrides.click();
   await expect(page.getByRole("region", { name: "Grok engine overrides", exact: true })).toBeVisible();
 });
 
