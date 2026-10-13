@@ -432,6 +432,9 @@ generation, remain fenced rather than looking absent. The fence survives a
 signed rollback to legacy transport; changing transport does not prove the
 previous store failed. A verified identical Claude readback also supports an
 older API's `digest` field when `canonical_digest` is absent.
+Automatic idle uploads also take the recovery transaction fence and check the
+pending marker before any store, including after a signed transport rollback.
+An unresolved candidate is never reoffered by `auth-upload-auto`.
 
 Local `status`/`doctor` and the host Operations panel show content failures and
 per-scope auth progress. Server confirmation, local writes and native adoption are

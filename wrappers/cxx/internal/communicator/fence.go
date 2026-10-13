@@ -50,6 +50,7 @@ func Fence(ctx context.Context, base, engine, authPath string) (func(), error) {
 
 // RecoveryFence also protects an explicit reconciliation after a signed rollback
 // disabled managed sync. Its scope is exactly the worker's engine/native-home.
+// Automatic uploads use it too, even when no transport endpoint is configured.
 func RecoveryFence(ctx context.Context, base, engine, authPath string) (func(), error) {
 	if engine != "codex" && engine != "claude" {
 		return nil, errors.New("explicit credential recovery supports Codex and Claude only")
@@ -75,6 +76,16 @@ func RecoveryFence(ctx context.Context, base, engine, authPath string) (func(), 
 		case <-time.After(25 * time.Millisecond):
 		}
 	}
+}
+
+// AutomaticAuthFence shares explicit recovery's scope on both managed and
+// rolled-back transport. A worker subprocess already holds that scope in its
+// parent owner, so it must not acquire the same exclusive lock recursively.
+func AutomaticAuthFence(ctx context.Context, base, engine, authPath string) (func(), error) {
+	if os.Getenv("CXX_COMMUNICATOR_SYNC") == "1" {
+		return func() {}, nil
+	}
+	return RecoveryFence(ctx, base, engine, authPath)
 }
 
 type pendingAuth struct {
