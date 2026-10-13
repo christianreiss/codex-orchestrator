@@ -18,6 +18,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -31,13 +32,14 @@ import (
 // array of per-item replies with notifications omitted, and an empty result
 // is a 202 without a body. Methods script malformed or slow upstream replies.
 type mcpFixture struct {
-	t       *testing.T
-	binary  string
-	env     []string
-	socket  string
-	release chan struct{}
-	unblock func()
-	stderr  []*bytes.Buffer
+	t          *testing.T
+	binary     string
+	env        []string
+	socket     string
+	release    chan struct{}
+	unblock    func()
+	dispatched atomic.Int32
+	stderr     []*bytes.Buffer
 }
 
 func newMCPFixture(t *testing.T) *mcpFixture {
@@ -134,6 +136,7 @@ func newMCPFixture(t *testing.T) *mcpFixture {
 }
 
 func (f *mcpFixture) dispatch(body []byte) (int, []byte) {
+	f.dispatched.Add(1)
 	trimmed := bytes.TrimSpace(body)
 	if len(trimmed) > 0 && trimmed[0] == '[' {
 		var items []json.RawMessage
@@ -174,10 +177,9 @@ func (f *mcpFixture) one(raw []byte) json.RawMessage {
 	switch req.Method {
 	case "slow":
 		<-f.release
-	case "result_and_error":
-		return json.RawMessage(`{"jsonrpc":"2.0","id":` + id + `,"result":{},"error":{"code":-32000,"message":"x"}}`)
-	case "error_null":
-		return json.RawMessage(`{"jsonrpc":"2.0","id":` + id + `,"error":null}`)
+	case "drop":
+		// A server fault that loses one member's reply after dispatch.
+		return nil
 	}
 	return json.RawMessage(`{"jsonrpc":"2.0","id":` + id + `,"result":{"method":"` + req.Method + `"}}`)
 }
@@ -427,63 +429,99 @@ func TestMCPAdapterBatchParity(t *testing.T) {
 	})
 }
 
-// Adjacent (not in the ledger item): JSON-RPC 2.0 answers unparsable input
-// with -32700 and id null; the adapter currently exits instead.
+// JSON-RPC 2.0 answers unparsable input with -32700 and id null. The adapter
+// used to exit instead, abandoning replies still in flight.
 func TestMCPAdapterParseErrorKeepsSession(t *testing.T) {
 	f := newMCPFixture(t)
 	c := f.start("claude")
+	c.send(`{"jsonrpc":"2.0","id":1,"method":"tools/list"}`)
+	if line, ok := c.next(t, 25*time.Second); !ok {
+		t.Fatalf("warm-up reply: %q", line)
+	}
+	c.send(`{"jsonrpc":"2.0","id":"held","method":"slow"}`)
+	time.Sleep(300 * time.Millisecond)
 	c.send(`{not json`)
+	c.send(`5`)
 	c.send(`{"jsonrpc":"2.0","id":9,"method":"ping"}`)
+	time.Sleep(300 * time.Millisecond)
+	f.unblock()
 	var lines []string
-	for len(lines) < 2 {
-		line, ok := c.next(t, 25*time.Second)
+	for len(lines) < 4 {
+		line, ok := c.next(t, 10*time.Second)
 		if !ok {
 			break
 		}
 		lines = append(lines, line)
 	}
 	joined := strings.Join(lines, "")
-	if !strings.Contains(joined, "-32700") || !strings.Contains(joined, `"id":9`) {
-		t.Errorf("parse error ended the session: %q", lines)
+	for _, want := range []string{"-32700", "-32600", `"id":9`, `"held"`} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("missing %s after invalid input: %q", want, lines)
+		}
 	}
 }
 
-// Malformed upstream envelopes must become the adapter's synthetic error,
-// not be forwarded as if they were valid replies.
-func TestMCPAdapterRejectsMalformedEnvelopes(t *testing.T) {
+// Like the API dispatcher, a null id is a notification and gets no reply.
+func TestMCPAdapterNullIDIsNotification(t *testing.T) {
 	f := newMCPFixture(t)
-	c := f.start("claude")
-	for i, method := range []string{"result_and_error", "error_null"} {
-		c.send(fmt.Sprintf(`{"jsonrpc":"2.0","id":%d,"method":"%s"}`, i+1, method))
-		line, ok := c.next(t, 25*time.Second)
-		if !ok || !strings.Contains(line, "communicator_outcome_unknown") {
-			t.Errorf("%s forwarded verbatim: %q", method, line)
-		}
+	c := f.start("codex")
+	c.send(`{"jsonrpc":"2.0","id":null,"method":"notifications/initialized"}`)
+	c.send(`{"jsonrpc":"2.0","id":9,"method":"ping"}`)
+	line, ok := c.next(t, 25*time.Second)
+	if !ok || !strings.Contains(line, `"id":9`) {
+		t.Errorf("null-id notification produced a reply: %q", line)
 	}
 }
 
-func TestMCPResponseValidRejectsMalformedEnvelopes(t *testing.T) {
-	for _, body := range []string{
-		`{"jsonrpc":"2.0","id":1,"result":{},"error":{"code":-32000,"message":"x"}}`,
-		`{"jsonrpc":"2.0","id":1,"result":null,"error":null}`,
-		`{"jsonrpc":"2.0","id":1,"error":null}`,
-		`{"jsonrpc":"2.0","id":1,"error":{}}`,
-		`{"jsonrpc":"2.0","id":1,"error":"failed"}`,
-		`{"jsonrpc":"2.0","id":1,"error":{"code":"x","message":"y"}}`,
-		`{"jsonrpc":"2.0","id":1,"error":{"code":-32000}}`,
-	} {
-		if mcpResponseValid(json.RawMessage(`1`), []byte(body)) {
-			t.Errorf("accepted malformed envelope: %s", body)
+// A mixed batch passes the server's per-member answers through, including its
+// id null Invalid Request. A reply lost for one member becomes that member's
+// unknown outcome while the others keep their results, and nothing is resent.
+func TestMCPAdapterMixedBatch(t *testing.T) {
+	f := newMCPFixture(t)
+	c := f.start("grok")
+	c.send(`[{"jsonrpc":"2.0","id":1,"method":"tools/list"},5,{"jsonrpc":"2.0","method":"notifications/initialized"},{"jsonrpc":"2.0","id":"x","method":"ping"}]`)
+	line, ok := c.next(t, 25*time.Second)
+	var replies []struct {
+		ID    any
+		Error *struct{ Code int }
+	}
+	if !ok || json.Unmarshal([]byte(line), &replies) != nil || len(replies) != 3 {
+		t.Fatalf("want 3 replies (two requests, one invalid member): %q", line)
+	}
+	invalid := 0
+	for _, reply := range replies {
+		if reply.ID == nil && reply.Error != nil && reply.Error.Code == -32600 {
+			invalid++
 		}
 	}
-	for _, body := range []string{
-		`{"jsonrpc":"2.0","id":1,"result":null}`,
-		`{"jsonrpc":"2.0","id":1,"result":{}}`,
-		`{"jsonrpc":"2.0","id":1,"error":{"code":-32601,"message":"unknown method"}}`,
-		`{"jsonrpc":"2.0","id":1,"error":{"code":-32000,"message":"x","data":{"k":1}}}`,
-	} {
-		if !mcpResponseValid(json.RawMessage(`1`), []byte(body)) {
-			t.Errorf("rejected valid envelope: %s", body)
+	if invalid != 1 {
+		t.Errorf("invalid member answer not passed through: %q", line)
+	}
+	before := f.dispatched.Load()
+	c.send(`[{"jsonrpc":"2.0","id":1,"method":"tools/list"},{"jsonrpc":"2.0","id":2,"method":"drop"}]`)
+	line, ok = c.next(t, 25*time.Second)
+	var partial []struct {
+		ID     int
+		Result json.RawMessage
+		Error  *struct {
+			Data struct {
+				Unknown bool `json:"outcome_unknown"`
+			}
 		}
+	}
+	if !ok || json.Unmarshal([]byte(line), &partial) != nil || len(partial) != 2 {
+		t.Fatalf("partial batch reply: %q", line)
+	}
+	for _, reply := range partial {
+		if reply.ID == 1 && (len(reply.Result) == 0 || reply.Error != nil) {
+			t.Errorf("answered member lost its result: %q", line)
+		}
+		if reply.ID == 2 && (reply.Error == nil || !reply.Error.Data.Unknown) {
+			t.Errorf("unanswered member not reported as unknown outcome: %q", line)
+		}
+	}
+	time.Sleep(500 * time.Millisecond)
+	if got := f.dispatched.Load() - before; got != 1 {
+		t.Errorf("partial batch dispatched %d times, want exactly 1", got)
 	}
 }

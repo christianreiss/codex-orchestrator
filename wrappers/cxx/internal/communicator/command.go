@@ -187,15 +187,14 @@ func mcp(ctx context.Context, engine string, in io.Reader, out io.Writer) error 
 				write(body)
 				return
 			}
-			if err != nil || !mcpBatchResponseValid(ids, body) {
-				if err == nil {
-					body = nil
-				}
+			if err != nil {
 				failures := make([]json.RawMessage, 0, len(ids))
 				for _, id := range ids {
 					failures = append(failures, mcpFailure(id, status, body))
 				}
 				body, _ = json.Marshal(failures)
+			} else {
+				body = mcpBatchReplies(ids, status, body)
 			}
 			write(body)
 		}()
@@ -203,9 +202,9 @@ func mcp(ctx context.Context, engine string, in io.Reader, out io.Writer) error 
 }
 
 // mcpRequestIDs returns the IDs that expect a reply. A batch (JSON-RPC 2.0,
-// MCP 2025-03-26) is forwarded whole; its notifications get no reply, matching
-// the API dispatcher, which omits them and answers an all-notification batch
-// with 202. ok is false for input that is neither an object nor a non-empty array.
+// MCP 2025-03-26) is forwarded whole. Like the API dispatcher, a missing or
+// null id is a notification: it gets no reply, and an all-notification batch
+// is answered with 202. ok is false for input that is neither an object nor a non-empty array.
 func mcpRequestIDs(raw []byte) (ids []json.RawMessage, batch, ok bool) {
 	idOf := func(item json.RawMessage) (json.RawMessage, bool) {
 		var request map[string]json.RawMessage
@@ -219,7 +218,7 @@ func mcpRequestIDs(raw []byte) (ids []json.RawMessage, batch, ok bool) {
 		if !ok {
 			return nil, false, false
 		}
-		if len(id) > 0 {
+		if len(id) > 0 && string(id) != "null" {
 			ids = append(ids, id)
 		}
 		return ids, false, true
@@ -237,44 +236,43 @@ func mcpRequestIDs(raw []byte) (ids []json.RawMessage, batch, ok bool) {
 	return ids, true, true
 }
 
-// A batch reply must be an array of valid envelopes answering every request
-// exactly once; id null entries are the server's Invalid Request answers.
-func mcpBatchResponseValid(ids []json.RawMessage, body []byte) bool {
+// mcpBatchReplies keeps each valid reply that answers a request once, and the
+// server's id null Invalid Request answers. Any request left unanswered by a
+// lost, malformed or partial reply gets its own unknown-outcome error; nothing
+// is ever resent.
+func mcpBatchReplies(ids []json.RawMessage, status int, body []byte) []byte {
 	var replies []json.RawMessage
-	if json.Unmarshal(body, &replies) != nil || len(replies) == 0 {
-		return false
-	}
+	_ = json.Unmarshal(body, &replies)
 	answered := make([]bool, len(ids))
+	kept := make([]json.RawMessage, 0, len(ids))
 	for _, reply := range replies {
 		var envelope struct {
 			ID json.RawMessage `json:"id"`
 		}
 		if json.Unmarshal(reply, &envelope) != nil {
-			return false
+			continue
 		}
 		if string(envelope.ID) == "null" {
-			if !mcpResponseValid(envelope.ID, reply) {
-				return false
+			if mcpResponseValid(envelope.ID, reply) {
+				kept = append(kept, reply)
 			}
 			continue
 		}
-		matched := false
 		for i, id := range ids {
 			if !answered[i] && mcpResponseValid(id, reply) {
-				answered[i], matched = true, true
+				answered[i] = true
+				kept = append(kept, reply)
 				break
 			}
 		}
-		if !matched {
-			return false
+	}
+	for i, id := range ids {
+		if !answered[i] {
+			kept = append(kept, mcpFailure(id, status, nil))
 		}
 	}
-	for _, ok := range answered {
-		if !ok {
-			return false
-		}
-	}
-	return true
+	raw, _ := json.Marshal(kept)
+	return raw
 }
 
 // Preserve an ambiguous write's meaning at the model-facing boundary. A generic
@@ -316,31 +314,16 @@ func mcpFailure(id json.RawMessage, status int, body []byte) []byte {
 	return raw
 }
 
-// A response carries exactly one of result (any value, including null) or an
-// error object with an integer code and a string message.
 func mcpResponseValid(id json.RawMessage, body []byte) bool {
-	var response map[string]json.RawMessage
-	if json.Unmarshal(body, &response) != nil || string(response["jsonrpc"]) != `"2.0"` || !sameMCPID(response["id"], id) {
-		return false
+	var response struct {
+		JSONRPC string          `json:"jsonrpc"`
+		ID      json.RawMessage `json:"id"`
+		Result  json.RawMessage `json:"result"`
+		Error   json.RawMessage `json:"error"`
 	}
-	result, hasResult := response["result"]
-	rawError, hasError := response["error"]
-	if hasResult == hasError || hasResult && len(result) == 0 {
-		return false
-	}
-	if hasError {
-		var failure map[string]json.RawMessage
-		if json.Unmarshal(rawError, &failure) != nil || failure == nil {
-			return false
-		}
-		// int64 rejects 1.0 and 1e3 as well as strings and null.
-		var code int64
-		var message string
-		if json.Unmarshal(failure["code"], &code) != nil || json.Unmarshal(failure["message"], &message) != nil {
-			return false
-		}
-	}
-	return true
+	return json.Unmarshal(body, &response) == nil && response.JSONRPC == "2.0" &&
+		sameMCPID(response.ID, id) &&
+		(len(response.Result) > 0 || len(response.Error) > 0)
 }
 
 func sameMCPID(a, b json.RawMessage) bool {
