@@ -23,13 +23,13 @@ func TestBrokenOwnerAllowsOnlyVerifiedSelfHealReads(t *testing.T) {
 		direct = append(direct, r.Method+" "+r.URL.Path)
 		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader("{}"))}, nil
 	})}
-	for _, path := range []string{"/api/wrapper/v2/config?engine=codex", "/api/wrapper/v2/meta", "/api/wrapper/v2/download?platform=linux-amd64"} {
+	for _, path := range []string{"/api/wrapper/v2/config?engine=codex", "/api/wrapper/v2/bin/cxx/linux-amd64/v0.9.75/cxx", "/api/wrapper/v2/download?platform=linux-amd64"} {
 		req, _ := http.NewRequest("GET", "https://coco.example"+path, nil)
 		if res, err := transport.RoundTrip(req); err != nil || res.StatusCode != 200 {
 			t.Fatalf("self-heal read %s blocked: %v", path, err)
 		}
 	}
-	for _, c := range []struct{ method, path string }{{"GET", "/api/versions"}, {"POST", "/api/auth"}, {"POST", "/api/wrapper/v2/config"}, {"GET", "/api/mcp"}} {
+	for _, c := range []struct{ method, path string }{{"GET", "/api/versions"}, {"POST", "/api/auth"}, {"POST", "/api/wrapper/v2/config"}, {"GET", "/api/mcp"}, {"GET", "/api/wrapper/v2/meta"}} {
 		req, _ := http.NewRequest(c.method, "https://coco.example"+c.path, nil)
 		if _, err := transport.RoundTrip(req); err == nil {
 			t.Fatalf("%s %s bypassed a broken communicator", c.method, c.path)
@@ -52,5 +52,12 @@ func TestTransfersDoNotWaitForControlConnection(t *testing.T) {
 	s.ServeHTTP(w, httptest.NewRequest("GET", "/wrapper/v2/download?platform=linux-amd64", nil))
 	if w.Code != 200 || w.Body.String() != "artifact" || time.Since(started) > 5*time.Second {
 		t.Fatal("transfer waited for the control connection", w.Code, w.Body.String(), time.Since(started))
+	}
+	// The canonical bakery URL a signed config carries is a transfer too.
+	started = time.Now()
+	w = httptest.NewRecorder()
+	s.ServeHTTP(w, httptest.NewRequest("GET", "/wrapper/v2/bin/cxx/linux-amd64/v0.9.75/cxx", nil))
+	if w.Code != 200 || w.Body.String() != "artifact" || time.Since(started) > 5*time.Second {
+		t.Fatal("bakery binary not sent as an HTTPS transfer", w.Code, w.Body.String(), time.Since(started))
 	}
 }

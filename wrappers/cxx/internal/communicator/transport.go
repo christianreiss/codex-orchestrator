@@ -202,8 +202,8 @@ func (t *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 
 // selfHealRequest names the reads that repair a broken communicator: the
 // signed config (verified by signature, and the only way to learn the
-// capability was rolled back) and wrapper metadata/downloads (verified by
-// digest). They may use the original transport when no local owner can be
+// capability was rolled back) and wrapper binary downloads (verified by the
+// signed digest). They may use the original transport when no local owner can be
 // started or reached; every other managed request stays fail-closed.
 func selfHealRequest(req *http.Request, base string) bool {
 	if req.Method != "GET" && req.Method != "HEAD" {
@@ -214,7 +214,14 @@ func selfHealRequest(req *http.Request, base string) bool {
 		return false
 	}
 	path := strings.TrimPrefix(req.URL.Path, strings.TrimRight(original.Path, "/"))
-	return path == "/wrapper/v2/config" || path == "/wrapper/v2/meta" ||
+	return path == "/wrapper/v2/config" || wrapperArtifactPath(path)
+}
+
+// wrapperArtifactPath names wrapper binary downloads, including the bakery's
+// canonical /wrapper/v2/bin/<artifact>/<os>-<arch>/v<version>/<name> URL that
+// signed configs carry. They are digest-verified and always large.
+func wrapperArtifactPath(path string) bool {
+	return strings.HasPrefix(path, "/wrapper/v2/bin/") ||
 		strings.HasPrefix(path, "/wrapper/v2/download") || strings.HasPrefix(path, "/wrapper/download")
 }
 
@@ -365,15 +372,41 @@ func (ep *endpoint) lease(ctx context.Context) {
 // Unknown responses deliberately use 409: existing client retry loops must not
 // turn a lost acknowledgement into another non-idempotent operation.
 func writeUnavailable(w http.ResponseWriter, unknown bool) {
+	writeUnavailableCause(w, unknown, "")
+}
+
+// writeUnavailableCause adds why the control connection is down to a 503, so a
+// wrapper that prints the body shows the server's refusal (an IP binding, a
+// revoked key, a disabled capability) instead of a code that only repeats itself.
+func writeUnavailableCause(w http.ResponseWriter, unknown bool, cause string) {
 	w.Header().Set("Content-Type", "application/json")
 	code := "communicator_unavailable"
+	message := code
 	status := 503
 	if unknown {
-		code = "communicator_outcome_unknown"
+		code, message = "communicator_outcome_unknown", "communicator_outcome_unknown"
 		status = 409
+	} else if cause = oneLine(cause, 240); cause != "" {
+		message = code + ": " + cause
 	}
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]string{"code": code, "message": code}})
+	_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]string{"code": code, "message": message}})
+}
+
+func (s *server) writeUnavailable(w http.ResponseWriter, unknown bool) {
+	s.mu.Lock()
+	cause := s.lastError
+	s.mu.Unlock()
+	writeUnavailableCause(w, unknown, cause)
+}
+
+// oneLine bounds a diagnostic to a single printable line.
+func oneLine(text string, limit int) string {
+	text = strings.Join(strings.Fields(text), " ")
+	if len(text) > limit {
+		text = text[:limit]
+	}
+	return text
 }
 
 func bufferedBody(r *http.Request, limit int64) ([]byte, error) {

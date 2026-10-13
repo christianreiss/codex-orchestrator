@@ -40,6 +40,7 @@ import { registerAdminGitDirectorRoutes } from './admin/git-director/index.js';
 import { registerAdminTransfersRoutes } from './admin/transfers/index.js';
 import { registerAdminFeedbackRoutes } from './admin/feedback/index.js';
 import { registerAdminAgentSessionsRoutes } from './admin/agent-sessions/index.js';
+import { registerAdminTopologyRoutes } from './admin/topology/index.js';
 import { registerAdminProjectBoardRoutes } from './admin/project-board/index.js';
 import { registerAgentPortalRoutes } from './agent-portal/index.js';
 import { registerAgentMessagingRoutes } from './agent-messaging/index.js';
@@ -95,6 +96,7 @@ export async function registerAllRoutes(app: FastifyInstance, ctx: RouteContext)
   await registerAdminTransfersRoutes(app, ctx);
   await registerAdminFeedbackRoutes(app, ctx);
   await registerAdminAgentSessionsRoutes(app, ctx);
+  await registerAdminTopologyRoutes(app, ctx);
   await registerAdminProjectBoardRoutes(app, ctx);
   await registerAdminManualRoutes(app, ctx);
   await registerAdminChattyRoutes(app, ctx);

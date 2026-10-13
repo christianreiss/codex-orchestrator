@@ -1123,6 +1123,11 @@ Audio and video preparation runs locally in the isolated `media-worker` service 
 
 Reads require `feedback.read`; writes require `feedback.manage`. Fields and lifecycle are documented in [MCP.md](MCP.md#orchestrator-feedback-workflow).
 
+### Live topology endpoints
+
+- `GET /admin/topology`: requires `hosts.read`; one snapshot of the live connection tree: the server (root), the communicator sockets connected to this API process, and the live agent sessions. A session's `association.parent_id` names a communicator only with `basis: "session_traffic"`, meaning the API answered a request for that session over that socket within the presence window (`attributed`; older is `stale`). Anything else is `unattributed` and hangs off the server — host, user and engine are never used to guess a parent. Sessions are omitted for a role without `agent_portal.read`.
+- `POST /admin/communicators/{id}/disconnect`: requires `agent_portal.manage`; body `{client_message_id (uuid), expect?: {host_id, username}, note?}`. Closes that one communicator socket (close code 4001) and answers `{outcome: "closed"|"requested", reconnect_expected: true, affected: {agent_ids, leases_reported}}`. It does not stop the communicator process: the owner redials within 1-30 s. `404 communicator_not_connected` means it is already gone; `409 communicator_target_changed` means the selection no longer matches. A repeat with the same `client_message_id` replays the first answer. Audited as `communicator.disconnected`.
+
 ### Communicator transport endpoints
 
 - `GET /host/communicator/connect`: host-key/IP-authenticated WebSocket protocol 1, enabled by the signed communicator capability. Multiplexes existing host routes, MCP and daemon frames with UUID-correlated replies and content invalidations.

@@ -1,0 +1,206 @@
+/**
+ * The live connection tree: server → communicators → agent sessions.
+ *
+ * Mirrors `GET /admin/topology` (see `docs/interface-api.md`). Parentage is the
+ * server's claim, made only from traffic it saw; nothing here infers it.
+ *
+ * Stopping an agent reuses the existing session contracts (`requestCloseMutation`,
+ * `forceCloseMutation` in `agentSessions.ts`, and the daemon stop below), so
+ * their durable-work semantics and idempotency are not restated. The one control
+ * that is new is closing a communicator's socket.
+ */
+import { createMutation, createQuery, useQueryClient } from "@tanstack/svelte-query";
+import { get } from "svelte/store";
+import { api } from "./client";
+import { authStore } from "../stores/auth";
+import { createSessionWriter } from "./session-write";
+
+export type CommunicatorHealth = "live" | "stale" | "closing";
+export type AssociationState = "attributed" | "stale" | "unattributed";
+
+export interface TopologyServer {
+  id: "server";
+  label: string;
+  started_at: string;
+  uptime_s: number;
+  communicator_enabled: boolean;
+  portal_enabled: boolean;
+  scope: "api_process";
+}
+
+export interface TopologyCommunicator {
+  kind: "communicator";
+  id: string;
+  host_id: number;
+  host: string;
+  username: string;
+  version: string;
+  connected_at: string;
+  last_frame_at: string;
+  last_heartbeat_at: string | null;
+  health: CommunicatorHealth;
+  idle_s: number;
+  leases_reported: number;
+  requests: number;
+  synced_at: string | null;
+  sync_scopes: number;
+  sync_errors: number;
+  remote_address: string | null;
+  daemon_attached: boolean;
+  agent_ids: string[];
+  can_terminate: boolean;
+}
+
+export interface ActionAvailability {
+  allowed: boolean;
+  reason: string | null;
+}
+
+export interface TopologyAssociation {
+  state: AssociationState;
+  basis: "session_traffic" | "none";
+  parent_id: string;
+  last_seen_at: string | null;
+  age_s: number | null;
+  also_seen_on: string[];
+}
+
+export interface TopologyAgent {
+  kind: "agent";
+  id: string;
+  name: string;
+  engine: string;
+  host_id: number;
+  host: string;
+  username: string;
+  cwd: string;
+  invocation_kind: string;
+  presence: string;
+  status: string;
+  relay_ready: boolean;
+  started_at: string;
+  heartbeat_at: string;
+  heartbeat_age_s: number | null;
+  address: string | null;
+  address_alias: string | null;
+  binding_generation: number | null;
+  close: { state: string; requested_at: string | null } | null;
+  daemon: { session_id: string; status: string } | null;
+  association: TopologyAssociation;
+  actions: {
+    request_close: ActionAvailability;
+    stop_process: ActionAvailability;
+    end_record: ActionAvailability;
+  };
+}
+
+export interface TopologyDisconnect {
+  id: string;
+  host_id: number;
+  host: string;
+  username: string;
+  version: string;
+  connected_at: string;
+  ended_at: string;
+  reason: "admin_disconnect" | "peer_closed";
+  actor: string | null;
+  affected_agent_ids: string[];
+  successor_id: string | null;
+}
+
+export interface Topology {
+  generated_at: string;
+  server: TopologyServer;
+  communicators: TopologyCommunicator[];
+  agents: TopologyAgent[];
+  recent_disconnects: TopologyDisconnect[];
+  counts: { communicators: number; agents: number; attributed: number; stale: number; unattributed: number };
+}
+
+export interface DisconnectResult {
+  outcome: "closed" | "requested";
+  connection_id: string;
+  host_id: number;
+  username: string;
+  version: string;
+  reconnect_expected: true;
+  affected: { agent_ids: string[]; leases_reported: number };
+  replayed: boolean;
+}
+
+export const topologyKeys = {
+  all: ["topology"] as const,
+};
+
+export function topologyQuery() {
+  return createQuery<Topology>({
+    queryKey: topologyKeys.all,
+    queryFn: ({ signal }) => api.get<Topology>("/admin/topology", { signal }),
+    // WebSocket events invalidate this on every connect, disconnect, heartbeat
+    // and session change; the poll is the net under a dropped socket.
+    refetchInterval: 10_000,
+    // Keep the last tree on screen while a refetch is in flight or has failed.
+    placeholderData: (previous) => previous,
+    retry: 1,
+  });
+}
+
+function writer() {
+  return createSessionWriter({
+    actor: () => {
+      const auth = get(authStore);
+      return auth.authenticated && auth.user ? String(auth.user.id) : null;
+    },
+    confirmed: (result) => {
+      const row = result as Record<string, unknown>;
+      return typeof row.outcome === "string" || typeof row.status === "string" || typeof row.id === "string";
+    },
+  });
+}
+
+/** Closes one communicator socket. The communicator redials by itself. */
+export function disconnectCommunicatorMutation() {
+  const client = useQueryClient();
+  const write = writer();
+  return createMutation<DisconnectResult, Error, { target: TopologyCommunicator; note?: string }>({
+    mutationFn: ({ target, note }) =>
+      write(JSON.stringify(["disconnect", target.id, note ?? null]), (clientMessageId, signal) =>
+        api.post<DisconnectResult>(
+          `/admin/communicators/${encodeURIComponent(target.id)}/disconnect`,
+          {
+            client_message_id: clientMessageId,
+            expect: { host_id: target.host_id, username: target.username },
+            note: note || undefined,
+          },
+          { signal },
+        ),
+      ),
+    onSettled: () => {
+      void client.invalidateQueries({ queryKey: topologyKeys.all });
+      void client.invalidateQueries({ queryKey: ["communicators"] });
+    },
+  });
+}
+
+export interface StopDaemonResult {
+  id: string;
+  status: string;
+}
+
+/** Stops the process the host daemon launched for a session. */
+export function stopDaemonSessionMutation() {
+  const client = useQueryClient();
+  const write = writer();
+  return createMutation<StopDaemonResult, Error, { daemonSessionId: string }>({
+    mutationFn: ({ daemonSessionId }) =>
+      write(JSON.stringify(["stop", daemonSessionId]), (_clientMessageId, signal) =>
+        api.post<StopDaemonResult>(`/admin/daemon-sessions/${encodeURIComponent(daemonSessionId)}/stop`, {}, { signal }),
+      ),
+    onSettled: () => {
+      void client.invalidateQueries({ queryKey: topologyKeys.all });
+      void client.invalidateQueries({ queryKey: ["agent-sessions"] });
+      void client.invalidateQueries({ queryKey: ["daemon-sessions"] });
+      void client.invalidateQueries({ queryKey: ["host-daemons"] });
+    },
+  });
+}

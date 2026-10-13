@@ -116,10 +116,18 @@ signed head, so rotated host keys and TLS policy apply to HTTPS transfers.
 An enabled signed capability also fails closed when local socket setup is
 unsafe or unavailable; a runtime-directory error never enables direct HTTPS.
 The only exception is the self-repair path: when no local owner can be started
-or reached, `GET` of the signed `/wrapper/v2/config` (signature-verified) and of
-wrapper metadata/downloads (digest-verified) use direct HTTPS, so a broken owner
+or reached, `GET` of the signed `/wrapper/v2/config` (signature-verified) and of wrapper
+binary downloads, including the bakery's `/wrapper/v2/bin/...` URLs
+(digest-verified), use direct HTTPS, so a broken owner
 can still learn a capability rollback and install a fixed release. HTTPS
 transfers never wait for the control connection to reconnect.
+
+When the server refuses the WebSocket upgrade, the owner asks once more outside the
+WebSocket library and records the server's own verdict in `last_error` (for example
+`communicator handshake rejected: HTTP 401 ip_mismatch (API key not allowed from this
+IP)`), and local `503 communicator_unavailable` replies carry that text in `message`, so a
+wrapper prints the same actionable diagnosis it would over direct HTTPS (an IP binding
+to release, a revoked key, the capability switched off) instead of "API offline".
 
 The reconnect delay grows from one to thirty seconds with jitter. A request that finds the
 connection down never sits through that backoff: it asks the connect loop to redial at
@@ -151,6 +159,34 @@ for diagnosis.
 for the API process. This deployment uses one API instance; its connection view
 and invalidation bus are process-local. Restart recovery re-fetches authoritative
 content and reuses the existing durable message queues.
+
+## Live topology and control
+
+The console's **Live Topology** page (`GET /admin/topology`) draws the server, the
+communicators connected to it and the agent sessions each one carries. The view is
+the connection set of the API process that answers, never a fleet-wide inference.
+
+A session is shown under a communicator only on evidence: the API answered a
+`/host/agent-sessions/<id>/…` request for it (or its registration) below status 400
+over that socket, which proves the session's bridge token authenticated on that
+host's key through that connection. Evidence older than the presence window (45 s by
+default) marks the link quiet, and a session with none hangs off the server as
+direct. Host, OS user and engine are never used to pick a parent, because one user
+may run several communicators in separate runtime roots and a session may talk to the
+server directly. After a communicator reconnects, its sessions are re-attributed as
+each next speaks to the server (their heartbeats run every 15 s).
+
+`POST /admin/communicators/{id}/disconnect` closes exactly one connection (WebSocket
+close code 4001) and answers `closed` once the socket's close handler has run, or
+`requested` when nothing has confirmed it. It is a transport reset, not a process
+kill: the owner keeps running and redials within 1–30 s, requests in flight on that
+socket finish as `communicator_outcome_unknown`, and no session is stopped or
+replayed. Sessions are stopped through their own contracts: cooperative close
+(`POST /admin/agent-sessions/{id}/close`), ending the server-side record
+(`…/close/force`, which does not signal the process) and, only for sessions a host
+daemon launched, a daemon stop (`POST /admin/daemon-sessions/{id}/stop`). Every
+control requires `agent_portal.manage` (or `agent_messaging.manage` for the daemon
+stop), which stay enforced under `compatible` authorization.
 
 ## Rollout and checks
 

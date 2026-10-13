@@ -311,6 +311,7 @@ describe('the exceptions are exceptions, not holes', () => {
       'POST /admin/agent-sessions/:id/prompts/:promptId/answer',
       'POST /admin/agent-sessions/:id/receiver/verify',
       'POST /admin/authorization',
+      'POST /admin/communicators/:id/disconnect',
       'POST /admin/daemon-sessions',
       'POST /admin/daemon-sessions/:id/messages',
       'POST /admin/daemon-sessions/:id/stop',
