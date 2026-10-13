@@ -11,7 +11,7 @@ import (
 var managedRoutes = regexp.MustCompile(`^(?:/auth(?:/sessions(?:/(?:heartbeat|release))?)?|/versions|/skills(?:/[^?]*)?|/agents/retrieve|/config/retrieve|/sync/(?:bootstrap|status)|/cron/(?:check|report)|/mcp(?:/[^?]*)?|/host/[^?]+|/wrapper/(?:v2/)?[^?]+|/claude/usage/report)$`)
 
 func managedRequestAllowed(r *http.Request) bool {
-	path := r.URL.EscapedPath()
+	path := strings.TrimRight(r.URL.EscapedPath(), "/")
 	if !strings.HasPrefix(path, "/") || strings.HasPrefix(path, "//") || strings.ContainsAny(path, "%\\#\r\n") || strings.HasPrefix(path, "/host/communicator") || strings.HasSuffix(path, "/connect") {
 		return false
 	}
@@ -34,7 +34,7 @@ func transferHeaders(r *http.Request, hostKey string) http.Header {
 		}
 	}
 	h.Set("X-API-Key", hostKey)
-	if r.URL.Path == "/mcp" {
+	if strings.TrimRight(r.URL.Path, "/") == "/mcp" {
 		h.Set("Authorization", r.Header.Get("Authorization"))
 		// The MCP route checks that the bearer belongs to this host, including
 		// when a large MCP upload travels outside the bounded WebSocket frames.
