@@ -334,3 +334,46 @@ func TestStartupMetadataLetsPoolChooseHealthyAccountAfterStaleBinding(t *testing
 		t.Fatal("healthy pool account was unreachable")
 	}
 }
+
+// The server answers status/doctor's metadata_only /auth with
+// status "available"|"missing" (docs/interface-api.md), never "valid": a stored,
+// verified login must read as healthy, and only that.
+func TestStatusAcceptsServerMetadataShape(t *testing.T) {
+	for _, tc := range []struct {
+		name, status, verification string
+		ok                         bool
+	}{
+		{"available_verified", "available", "verified", true},
+		{"available_unverified", "available", "failed", false},
+		{"missing", "missing", "unknown", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			in := startupFixture(t)
+			t.Setenv("GROK_HOME", in.Home)
+			cli := filepath.Join(t.TempDir(), "grok")
+			if err := os.WriteFile(cli, []byte("#!/bin/sh\nprintf 'grok 1.0.46\\n'\n"), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			t.Setenv("CGX_GROK_BIN", cli)
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				var body map[string]any
+				_ = json.NewDecoder(r.Body).Decode(&body)
+				if r.URL.Path != "/auth" || body["metadata_only"] != true {
+					t.Errorf("status made a non-metadata request: %s %v", r.URL.Path, body)
+				}
+				w.Header().Set("Content-Type", "application/json")
+				_ = json.NewEncoder(w).Encode(map[string]any{"account_pool": true, "metadata_only": true, "status": tc.status, "verification_state": tc.verification, "canonical_generation": 3})
+			}))
+			defer srv.Close()
+			client := &orchestrator.Client{BaseURL: srv.URL, HTTP: srv.Client()}
+			var out bytes.Buffer
+			err := status(context.Background(), in.Config, client, false, options{minimal: true}, &out)
+			if tc.ok && (err != nil || !strings.Contains(out.String(), "auth=ok")) {
+				t.Fatalf("stored verified login reported unavailable: %v\n%s", err, out.String())
+			}
+			if !tc.ok && (err == nil || !strings.Contains(out.String(), "auth=fail")) {
+				t.Fatalf("unusable login reported healthy: %v\n%s", err, out.String())
+			}
+		})
+	}
+}

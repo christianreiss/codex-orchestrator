@@ -2,6 +2,8 @@
 
 - cxx reports its running build version with config requests, so a fresh host receives the supported local MCP adapter on its first sync. Rendering uses this request's version for the selected engine; older callers remain compatible and this does not change the stored host version or access policy. Credential updates now say that native-process adoption is unconfirmed, rather than implying that an acknowledgement is still pending.
 
+- `cgx status` and `cgx doctor` no longer report "Subscription auth unavailable; run `cgx login`" and exit 1 for a healthy Grok host. Both read the server's metadata-only `/auth` answer, whose `status` is `available` for a stored verified login, and the status screen accepted only the full-retrieve values (`valid`, `outdated`, ...). Launches were never affected because they display the leased grant. A missing or unverified login still fails.
+
 - cxx 0.9.78 preserves numeric MCP IDs and result values when writing stdio replies, including integers beyond the exact `float64` range. Single and batch replies no longer round IDs after validating their correlation.
 
 - Communicator frame limits count UTF-8 wire bytes, including non-ASCII headers, so an oversized encoded reply returns a correlated failure instead of exceeding the receiver limit and dropping the shared connection.
