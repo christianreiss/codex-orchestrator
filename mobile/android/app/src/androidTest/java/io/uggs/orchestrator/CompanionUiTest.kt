@@ -14,6 +14,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.text.TextLayoutResult
+import androidx.compose.ui.graphics.toPixelMap
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.test.core.app.ActivityScenario
@@ -42,6 +43,62 @@ import java.util.concurrent.TimeUnit
 
 @RunWith(AndroidJUnit4::class)
 class CompanionUiTest {
+    @Test fun importantMessagesShareTheTimelineAndResolveWithoutDeletingHistory() {
+        waitForAgentRows(session)
+        val id = "16ecfa28-ece0-4928-b9d0-05dffb88bac4"
+        val since = "2026-10-13T07:01:00Z"
+        notices.add(JSONObject().put("id", id).put("severity", "important").put("summary", "Please review this result").put("since", since))
+        history.add(JSONObject().put("cursor", 1).put("type", "user_message").put("created_at", "2026-10-13T07:00:00Z")
+            .put("payload", JSONObject().put("text", "Run the checks")))
+        history.add(JSONObject().put("cursor", 2).put("type", "attention").put("created_at", since)
+            .put("payload", JSONObject().put("notice_id", id).put("severity", "important").put("summary", "Please review this result")))
+        history.add(JSONObject().put("cursor", 3).put("type", "assistant_message").put("created_at", "2026-10-13T07:02:00Z")
+            .put("payload", JSONObject().put("text", "The checks passed")))
+        cursor.set(3); changed("agents")
+        compose.waitUntil(10000) { compose.onAllNodesWithContentDescription("Important unread replies").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("chat-filter:needs-you").assertDoesNotExist()
+        assertBadgeColor(important = true)
+        screenshot("important-unread-badge")
+        compose.onNodeWithTag("agent:$session").performClick()
+        compose.waitUntil(10000) { compose.onAllNodesWithText("The checks passed").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("Please review this result").assertIsDisplayed()
+        compose.onNodeWithText("Important").assertIsDisplayed()
+        compose.onNodeWithText("The checks passed").assertIsDisplayed()
+        compose.onNodeWithTag("resolve-notice:$id").assertIsDisplayed()
+        waitForUnread(emptySet())
+        Assert.assertNull("Reading the chat does not resolve the notice", resolvedNotice.get())
+        screenshot("important-inline-message")
+        compose.onNodeWithTag("resolve-notice:$id").performClick()
+        compose.waitUntil(10000) { resolvedNotice.get() == id && compose.onAllNodesWithText("Important · Resolved").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("Please review this result").assertIsDisplayed()
+        compose.onNodeWithTag("resolve-notice:$id").assertDoesNotExist()
+        compose.onNodeWithContentDescription("Back").performClick()
+        history.add(JSONObject().put("cursor", 4).put("type", "assistant_message")
+            .put("payload", JSONObject().put("text", "Next ordinary reply")))
+        cursor.set(4); changed("agents")
+        waitForUnreadBadge(1)
+        compose.onNodeWithContentDescription("Unread replies").assertExists()
+        assertBadgeColor(important = false)
+    }
+
+    @Test fun unresolvedNoticesKeepOfflineAndEndedChatsInTheNormalList() {
+        waitForAgentRows(session)
+        for (state in listOf("offline", "ended")) extraAgents.add(agentFixture("important-$state", "$state review", "worker.uggs.io", "Review needed", "grok")
+            .put("presence", state).put("relay_ready", false).put("read_only", true)
+            .put("attention", JSONObject().put("severity", "blocker").put("summary", "Review needed")))
+        changed("agents")
+        waitForAgentRows("important-offline", "important-ended")
+        compose.onNodeWithTag("chat-filter:all").assertIsSelected()
+        compose.onNodeWithTag("chat-filter:needs-you").assertDoesNotExist()
+        compose.onNodeWithTag("agent:offline").assertDoesNotExist()
+    }
+
+    private fun assertBadgeColor(important: Boolean) {
+        val pixels = compose.onNodeWithTag("unread-badge:$session", useUnmergedTree = true).captureToImage().toPixelMap()
+        val color = pixels[pixels.width / 2, pixels.height / 5]
+        Assert.assertTrue("The unread badge uses the expected red/green color", if (important) color.red > color.green else color.green > color.red)
+    }
+
     @Test fun androidJsonNullNamesFallBackToSessionIdentity() {
         val unnamed = JSONObject("""{"session_name":null,"upstream_session_id":"33333333-cccc","id":"11111111-aaaa"}""")
         Assert.assertEquals("Session 33333333", agentTitle(unnamed))
@@ -228,6 +285,8 @@ class CompanionUiTest {
     private val failWindowClose = AtomicBoolean(false)
     private val holdWindowClose = AtomicBoolean(false)
     private val failFleetClose = AtomicBoolean(false)
+    private val notices = CopyOnWriteArrayList<JSONObject>()
+    private val resolvedNotice = AtomicReference<String?>(null)
     private val questionPending = AtomicBoolean(false)
     private val questionAnswerMode = AtomicReference<String?>(null)
     private val reachable = AtomicBoolean(true)
@@ -350,7 +409,7 @@ class CompanionUiTest {
                         val unreadCount = if (transcriptAllowed.get()) unreadReplies.toString() else "null"
                         val emptyCursor = if (transcriptAllowed.get()) "0" else "null"
                         val pendingPrompt = if (transcriptAllowed.get() && questionPending.get()) JSONObject("""{"id":"question-1","version":1,"question":"Which target?","options":["Staging","Production"]}""").put("answer_mode", questionAnswerMode.get()) else null
-                        val primary = if (!sessionListed.get()) "" else """{"id":"$session","session_name":${JSONObject.quote(fixtureProject)},"host":${JSONObject.quote(fixtureHost)},"engine":${JSONObject.quote(fixtureEngine)},"cwd":${JSONObject.quote("/work/$fixtureProject")},"presence":${JSONObject.quote(presence.get())},"read_only":${readOnly.get()},"relay_ready":${reachable.get()},"reply_cursor":$replyCursor,"unread_reply_count":$unreadCount,"preview":$preview,"pending_prompt":$pendingPrompt},"""
+                        val primary = if (!sessionListed.get()) "" else """{"id":"$session","session_name":${JSONObject.quote(fixtureProject)},"host":${JSONObject.quote(fixtureHost)},"engine":${JSONObject.quote(fixtureEngine)},"cwd":${JSONObject.quote("/work/$fixtureProject")},"presence":${JSONObject.quote(presence.get())},"read_only":${readOnly.get()},"relay_ready":${reachable.get()},"reply_cursor":$replyCursor,"unread_reply_count":$unreadCount,"preview":$preview,"pending_prompt":$pendingPrompt,"notices":${org.json.JSONArray(notices)}},"""
                         val additional = extraAgents.joinToString("") { fixture ->
                             val agent = JSONObject(fixture.toString())
                             if (!transcriptAllowed.get()) {
@@ -389,6 +448,10 @@ class CompanionUiTest {
                         if (failFleetClose.get()) return MockResponse().setResponseCode(503).setHeader("Content-Type", "application/json").setBody("""{"message":"Fleet close unavailable"}""")
                         activeWindows.clear(); fleetWindow.set(null)
                         """{"closed":true,"hosts":1,"domains":0}"""
+                    }
+                    path == "/agents/$session/notices/resolve" -> {
+                        val id = JSONObject(request.body.readUtf8()).getString("notice_id")
+                        resolvedNotice.set(id); notices.removeAll { it.optString("id") == id }; "{}"
                     }
                     path == "/agents/$session/prompts/question-1/answer" -> { answered.set(JSONObject(request.body.readUtf8()).getString("answer")); questionPending.set(false); """{"message_id":"answer-1","status":"queued"}""" }
                     path == "/agents/$session/messages" -> {
@@ -646,9 +709,9 @@ class CompanionUiTest {
         compose.onNodeWithTag("agent:filter-unread").assertIsDisplayed()
         compose.onNodeWithTag("agent:$session").assertDoesNotExist()
         compose.onNodeWithTag("chat-search").performTextReplacement("")
-        compose.onNodeWithTag("chat-filter:needs-you").performClick()
-        compose.onNodeWithTag("agent:$session").assertDoesNotExist()
-        compose.onNodeWithTag("agent:filter-unread").assertDoesNotExist()
+        compose.onNodeWithTag("chat-filter:all").performClick()
+        compose.onNodeWithTag("chat-filter:needs-you").assertDoesNotExist()
+        waitForAgentRows(session, "filter-unread", "filter-read")
         compose.onNodeWithText("waiting.uggs.io").assertDoesNotExist()
         Assert.assertEquals("Changing filters is local", requests, agentsRequested.get())
         Assert.assertFalse("Filtering does not load a transcript", transcriptRequested.get())
@@ -656,16 +719,16 @@ class CompanionUiTest {
 
         questionPending.set(true)
         changed("agents")
-        waitForAgentRows(session)
+        compose.waitUntil(10000) { compose.onAllNodesWithText("Choose a target.").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithText("Choose a target.").assertIsDisplayed()
-        compose.onNodeWithTag("agent:filter-unread").assertDoesNotExist()
+        compose.onNodeWithTag("agent:filter-unread").assertIsDisplayed()
         compose.onNodeWithText("waiting.uggs.io").assertDoesNotExist()
         Assert.assertEquals("An incoming decision does not acknowledge its reply", ledger, unreadLedger())
         compose.onNodeWithTag("chat-filter:all").performClick()
         waitForAgentRows(session, "filter-unread", "filter-read")
-        compose.onNodeWithTag("chat-filter:needs-you").performClick()
+        compose.onNodeWithTag("chat-filter:needs-you").assertDoesNotExist()
         compose.onNodeWithText("Choose a target.").assertIsDisplayed()
-        screenshot("chat-home-needs-you")
+        screenshot("chat-home-decisions")
         compose.onNodeWithTag("agent:$session").performClick()
         compose.onNodeWithText("Staging").performClick()
         compose.waitUntil(10000) { answered.get() != null }

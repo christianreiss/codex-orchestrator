@@ -12,6 +12,19 @@ class ChatHistoryCacheTest {
     private fun event(cursor: Long, text: String = "Reply $cursor") = JSONObject().put("cursor", cursor)
         .put("type", "assistant_message").put("payload", JSONObject().put("text", text))
 
+    @Test fun savesClassifiedNoticesWithoutRestoringLiveAttentionOrLifecycleChatter() {
+        val notice = event(2).put("type", "attention").put("payload",
+            JSONObject().put("severity", "important").put("notice_id", "notice-id").put("summary", "Check this"))
+        val cache = ChatHistoryCache(owner)
+        cache.remember(agent().put("attention", notice.getJSONObject("payload")),
+            listOf(event(1), notice, event(3).put("type", "attention"), event(4).put("type", "receiver_ready")))
+        val restored = ChatHistoryCache(owner, cache.json())
+        assertEquals(listOf(1L, 2L), restored.events("chat").map { it.getLong("cursor") })
+        assertEquals("Check this", messageText(restored.events("chat").last()))
+        assertFalse(hasUrgentNotice(restored.agents().single()))
+        assertEquals(4L, restored.cursor("chat"))
+    }
+
     @Test fun restoresConfirmedHistoryWithoutLivePermissionsOrUnreadState() {
         val cache = ChatHistoryCache(owner)
         cache.remember(agent().put("pending_prompt", JSONObject().put("id", "question"))

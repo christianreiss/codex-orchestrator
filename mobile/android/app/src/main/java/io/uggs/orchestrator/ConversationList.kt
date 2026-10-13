@@ -36,6 +36,7 @@ import java.time.Instant
 @Composable internal fun NowScreen(model: CompanionModel, agents: List<JSONObject>, fresh: Boolean, now: Long = System.currentTimeMillis()) {
     var query by rememberSaveable { mutableStateOf("") }
     var filter by rememberSaveable { mutableStateOf("all") }
+    LaunchedEffect(filter) { if (filter == "needs-you") filter = "all" }
     val keyboard = LocalSoftwareKeyboardController.current
     val search = query.trim()
     fun attention(agent: JSONObject) = fresh && model.can("agent_portal.manage") && needsReply(agent) && (hasUrgentNotice(agent) || isReachable(agent))
@@ -44,9 +45,8 @@ import java.time.Instant
     val visible = agents.filter { agent ->
         val matchesFilter = when (filter) {
             "unread" -> model.unreadReplyCount(agent.getString("id")) > 0
-            "needs-you" -> attention(agent)
             "working", "idle", "waiting", "unknown" -> isOnlineActiveAgent(agent) && nativeActivity(agent, now) == filter
-            else -> isOnlineActiveAgent(agent)
+            else -> isOnlineActiveAgent(agent) || hasUrgentNotice(agent)
         }
         matchesFilter && (search.isEmpty() || listOf(agentTitle(agent), agent.optString("cwd"),
             agentHost(agent).orEmpty(), agentSummary(agent).orEmpty(), agent.optString("engine"))
@@ -72,7 +72,7 @@ import java.time.Instant
                 keyboardActions = KeyboardActions(onSearch = { keyboard?.hide() }),
             )
             Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf("all" to "All", "unread" to "Unread", "needs-you" to "Needs you", "working" to "Working", "idle" to "Idle", "waiting" to "Waiting", "unknown" to "Unknown").forEach { (id, label) ->
+                listOf("all" to "All", "unread" to "Unread", "working" to "Working", "idle" to "Idle", "waiting" to "Waiting", "unknown" to "Unknown").forEach { (id, label) ->
                     FilterChip(
                         selected = filter == id, onClick = { filter = id },
                         modifier = Modifier.heightIn(min = 48.dp).testTag("chat-filter:$id"),
@@ -103,7 +103,6 @@ import java.time.Instant
                         model.connecting -> "Loading your chats…"
                         search.isNotEmpty() -> "No chats found"
                         filter == "unread" -> "No unread chats"
-                        filter == "needs-you" -> "No chats need you"
                         fresh -> "All caught up"
                         else -> "Waiting for chats"
                     }
@@ -118,6 +117,9 @@ import java.time.Instant
 }
 
 @Composable private fun AgentRow(agent: JSONObject, now: Long, attention: Boolean, unreadCount: Int, divider: Boolean, onClick: () -> Unit) {
+    val important = hasUrgentNotice(agent)
+    val badgeColor = if (important) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
+    val badgeContentColor = if (important) MaterialTheme.colorScheme.onError else MaterialTheme.colorScheme.onPrimary
     val timestamp = runCatching { Instant.parse(agent.optJSONObject("preview")?.optString("created_at").orEmpty().ifBlank { agent.optString("last_event_at") }) }.getOrNull()
     val host = agentHost(agent)
     val shortHost = host?.let { if (it.contains(':') || it.all { char -> char.isDigit() || char == '.' }) it else it.substringBefore('.') }
@@ -143,16 +145,18 @@ import java.time.Instant
                     Text(activityDetail(agent, now), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     if (summary != null) Text(summary, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     if (agent.optBoolean("daemon_session") && summary == null) Text(remoteStatus(agent.optString("remote_status")), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    if (attention) Text(agent.optJSONObject("attention")?.optString("severity")?.takeIf { it.isNotBlank() } ?: "Reply needed", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                    if (attention || important) Text(agent.optJSONObject("attention")?.optString("severity")?.takeIf { it.isNotBlank() } ?: if (important) "Important" else "Reply needed", style = MaterialTheme.typography.labelSmall, color = badgeColor)
                 }
                 Column(Modifier.align(Alignment.Top).padding(top = 2.dp), horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(5.dp)) {
                     Box(Modifier.heightIn(min = 18.dp)) {
                         timestamp?.let { Text(timeLabel(it, DateFormat.is24HourFormat(LocalContext.current)), style = MaterialTheme.typography.labelSmall,
                             color = if (unreadCount > 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1) }
                     }
-                    if (unreadCount > 0) Surface(Modifier.clearAndSetSemantics {}.defaultMinSize(minWidth = 24.dp, minHeight = 24.dp), shape = CircleShape, color = MaterialTheme.colorScheme.primary) {
+                    if (unreadCount > 0) Surface(Modifier.testTag("unread-badge:" + agent.optString("id")).semantics {
+                        contentDescription = if (important) "Important unread replies" else "Unread replies"
+                    }.defaultMinSize(minWidth = 24.dp, minHeight = 24.dp), shape = CircleShape, color = badgeColor) {
                         Box(Modifier.padding(horizontal = 6.dp, vertical = 3.dp), contentAlignment = Alignment.Center) {
-                            Text(if (unreadCount > 99) "99+" else unreadCount.toString(), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimary)
+                            Text(if (unreadCount > 99) "99+" else unreadCount.toString(), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = badgeContentColor)
                         }
                     }
                 }

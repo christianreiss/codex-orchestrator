@@ -1,6 +1,7 @@
 package io.uggs.orchestrator
 
 import android.text.format.DateFormat
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -42,7 +43,9 @@ import org.json.JSONObject
     val sessionId = remember { model.selected }
     val prompt = agent?.optJSONObject("pending_prompt")
     val chatEvents = model.chatEvents
-    val rows = remember(chatEvents) { chatRows(chatEvents) }
+    val notices = agent?.optJSONArray("notices")?.objects().orEmpty()
+    val rows = remember(chatEvents, agent) { chatRows(chatEvents, notices = notices) }
+    val activeNoticeIds = notices.map { it.optString("id") }.toSet()
     val receipts = remember(chatEvents) { deliveryIndex(chatEvents) }
     val latestAssistant = rows.filterIsInstance<ChatRow.Message>().lastOrNull { it.event.optString("type") == "assistant_message" }
     val latestReplyCursor = latestAssistant?.event?.optLong("cursor") ?: 0
@@ -126,7 +129,8 @@ import org.json.JSONObject
                                 Text(dayLabel(row.date), Modifier.padding(horizontal = 12.dp, vertical = 5.dp), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         }
-                        is ChatRow.Message -> MessageBubble(model, sessionId ?: "", row, deliveryLabel(row.event, receipts, agent, fresh && !model.showingCachedTranscript), agent?.let(::agentTitle) ?: "Agent", writable)
+                        is ChatRow.Message -> MessageBubble(model, sessionId ?: "", row, deliveryLabel(row.event, receipts, agent, fresh && !model.showingCachedTranscript), agent?.let(::agentTitle) ?: "Agent", writable,
+                            if (fresh && !model.showingCachedTranscript) activeNoticeIds else null, fresh)
                     }
                 }
                 if (prompt != null) item(key = "question:" + prompt.optString("id")) {
@@ -158,12 +162,6 @@ import org.json.JSONObject
             Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        agent?.optJSONArray("notices")?.objects()?.forEach { notice ->
-            Row(Modifier.fillMaxWidth().padding(horizontal=12.dp), verticalAlignment=Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) { Text("Needs you · ${notice.optString("severity")}",style=MaterialTheme.typography.labelMedium); Text(notice.optString("summary"),style=MaterialTheme.typography.bodySmall) }
-                TextButton(onClick={ model.resolveChatNotice(sessionId ?: "",notice.getString("id")) },enabled=fresh && model.can("agent_portal.manage") && !model.busy) { Text("Resolve") }
-            }
-        }
         Column(Modifier.imePadding()) {
             val buttonsOnly = prompt?.optString("answer_mode") == "buttons"
             if (!buttonsOnly) {
@@ -203,11 +201,15 @@ import org.json.JSONObject
 }
 
 @OptIn(ExperimentalFoundationApi::class)
-@Composable private fun MessageBubble(model: CompanionModel, session: String, row: ChatRow.Message, delivery: String?, agentName: String, writable: Boolean) {
+@Composable private fun MessageBubble(model: CompanionModel, session: String, row: ChatRow.Message, delivery: String?, agentName: String, writable: Boolean, activeNoticeIds: Set<String>?, fresh: Boolean) {
     val own = row.event.optString("type") == "user_message"
     val payload = row.event.getJSONObject("payload")
-    val text = payload.optString("text")
+    val text = messageText(row.event)
+    val severity = noticeSeverity(payload)
+    val noticeId = payload.optString("notice_id").takeIf { severity != null && it.isNotBlank() }
+    val resolved = noticeId != null && activeNoticeIds != null && noticeId !in activeNoticeIds
     val cursor = row.event.optLong("cursor")
+    val replyable = writable && cursor > 0
     val shape = RoundedCornerShape(
         topStart = if (!own && !row.joinsPrevious) 3.dp else 14.dp,
         topEnd = if (own && !row.joinsPrevious) 3.dp else 14.dp,
@@ -225,15 +227,21 @@ import org.json.JSONObject
                 Surface(
                     modifier = Modifier.testTag("bubble:$cursor").combinedClickable(onClick = {}, onLongClickLabel = "Message actions", onLongClick = { actions = true })
                         .semantics { customActions = buildList {
-                            if (writable && cursor > 0) add(CustomAccessibilityAction("Reply") { model.replyTo(cursor); true })
+                            if (replyable) add(CustomAccessibilityAction("Reply") { model.replyTo(cursor); true })
                             if (text.isNotBlank()) add(CustomAccessibilityAction("Copy") { copy(); true })
                         } },
                     shape = shape,
-                    color = if (own) (if (dark) Color(0xFF144D37) else Color(0xFFD9FDD3)) else MaterialTheme.colorScheme.surfaceContainerLow,
-                    contentColor = MaterialTheme.colorScheme.onSurface,
+                    color = if (severity != null) MaterialTheme.colorScheme.errorContainer else if (own) (if (dark) Color(0xFF144D37) else Color(0xFFD9FDD3)) else MaterialTheme.colorScheme.surfaceContainerLow,
+                    contentColor = if (severity != null) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.onSurface,
+                    border = if (severity != null) BorderStroke(1.dp, MaterialTheme.colorScheme.error) else null,
                     shadowElevation = 1.dp,
                 ) {
                     Column(Modifier.padding(4.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                        if (severity != null) Text(
+                            severity.replaceFirstChar { it.uppercase() } + if (resolved) " · Resolved" else "",
+                            Modifier.padding(horizontal = 8.dp, vertical = 4.dp).testTag("message-severity:$cursor"),
+                            style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onErrorContainer,
+                        )
                         payload.optLong("reply_to").takeIf { it > 0 }?.let {
                             ReplyQuote(replyPreview(model.events, it, agentName))
                         }
@@ -245,6 +253,11 @@ import org.json.JSONObject
                         if (payload.optString("delivery_status") == "unconfirmed" && cursor < 0) {
                             TextButton(onClick = { model.retryChat(payload.getString("local_send_id")) }, enabled = writable && !model.busy) { Text("Retry") }
                         }
+                        if (noticeId != null && !resolved) TextButton(
+                            onClick = { model.resolveChatNotice(session, noticeId) },
+                            enabled = fresh && activeNoticeIds?.contains(noticeId) == true && model.can("agent_portal.manage") && !model.busy,
+                            modifier = Modifier.align(Alignment.End).testTag("resolve-notice:$noticeId"),
+                        ) { Text("Resolve", color = MaterialTheme.colorScheme.onErrorContainer) }
                         Row(Modifier.align(Alignment.End).padding(horizontal = 5.dp, vertical = 2.dp),
                             horizontalArrangement = Arrangement.spacedBy(5.dp), verticalAlignment = Alignment.CenterVertically) {
                             eventTime(row.event)?.let { Text(timeLabel(it, use24Hour), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
@@ -255,7 +268,7 @@ import org.json.JSONObject
                     }
                 }
                 DropdownMenu(expanded = actions, onDismissRequest = { actions = false }) {
-                    DropdownMenuItem(text = { Text("Reply") }, leadingIcon = { CompanionIcon(CompanionSymbol.Reply) }, enabled = writable && cursor > 0,
+                    DropdownMenuItem(text = { Text("Reply") }, leadingIcon = { CompanionIcon(CompanionSymbol.Reply) }, enabled = replyable,
                         onClick = { actions = false; model.replyTo(cursor) })
                     if (text.isNotBlank()) DropdownMenuItem(text = { Text("Copy") }, onClick = { actions = false; copy() })
                 }

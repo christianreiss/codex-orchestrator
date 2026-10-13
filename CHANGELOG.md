@@ -1,3 +1,7 @@
+# 2026-10-13
+
+- Android 0.4.18 removes the separate Needs you filter and shows important, critical and blocker notices as highlighted messages in the regular chat timeline, with inline Resolve actions and retained resolved history. Unread reply counters are red for unresolved important notices and green otherwise. Chats with unresolved notices remain in All even when offline or ended; older notices outside the loaded tail appear once from the existing overview.
+
 # 2026-10-12
 
 - Wrapper 0.9.69 updates cxx first, then checks and installs Codex, Claude and Grok concurrently during manual `cxx update`. A shared terminal progress block keeps engine rows stable, shows measured download bars with transfer labels, and marks completed installs as waiting for sync. Credential guards, content/auth sync and version reports stay sequential; partial failures remain visible and cancellation joins workers before cursor/lock cleanup. Minimal, redirected and dumb-terminal output remains plain.

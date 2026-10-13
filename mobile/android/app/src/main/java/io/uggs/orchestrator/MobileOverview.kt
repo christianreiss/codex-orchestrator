@@ -19,7 +19,11 @@ fun isOnlineActiveAgent(agent: JSONObject): Boolean =
 fun retainedChats(agents: List<JSONObject>): List<JSONObject> =
     agents.sortedByDescending { it.optString("last_event_at") }
 
-fun hasUrgentNotice(agent: JSONObject) = agent.optJSONObject("attention")?.optString("severity") in listOf("important","critical","blocker")
+internal fun noticeSeverity(payload: JSONObject?): String? = payload?.optString("severity")
+    ?.takeIf { it in setOf("important", "critical", "blocker") }
+
+fun hasUrgentNotice(agent: JSONObject) = noticeSeverity(agent.optJSONObject("attention")) != null ||
+    agent.optJSONArray("notices")?.objects()?.any { noticeSeverity(it) != null } == true
 fun needsReply(agent: JSONObject) = agent.optJSONObject("attention") != null || (agent.optJSONObject("pending_prompt")?.let { !it.has("answer_mode") } ?: false)
 
 fun readyAgents(agents: List<JSONObject>) = agents.filter(::isReachable)
@@ -73,7 +77,16 @@ fun agentSummary(agent: JSONObject): String? = compactSummary(agent.optJSONObjec
 
 fun durationLabel(minutes: Int) = if (minutes >= 60 && minutes % 60 == 0) "${minutes / 60}h" else "${minutes}m"
 
+internal fun messageText(event: JSONObject): String {
+    val payload = event.optJSONObject("payload") ?: return ""
+    return payload.optString("text").takeIf { it.isNotBlank() }
+        ?: if (noticeSeverity(payload) != null) payload.optString("summary").ifBlank { payload.optString("question") } else ""
+}
+
 fun conversationEvents(events: List<JSONObject>) = events.filter {
-    it.optString("type") in setOf("user_message", "assistant_message") &&
-        (!it.optJSONObject("payload")?.optString("text").isNullOrBlank() || (it.optJSONObject("payload")?.optJSONArray("attachments")?.length() ?: 0) > 0)
+    val payload = it.optJSONObject("payload")
+    val type = it.optString("type")
+    (type in setOf("user_message", "assistant_message") ||
+        (type in setOf("attention", "waiting_input") && noticeSeverity(payload) != null)) &&
+        (messageText(it).isNotBlank() || (payload?.optJSONArray("attachments")?.length() ?: 0) > 0)
 }

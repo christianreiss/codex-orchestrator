@@ -771,6 +771,13 @@ Fleet → Accounts manages any number of ChatGPT and Claude subscriptions indepe
 
 ## Android companion
 
+Android 0.4.18 places important, critical and blocker notices in the regular chat
+timeline with a red highlight, severity label and inline Resolve action. The separate
+Needs you filter is removed. Unread reply counters are red for unresolved classified
+notices and green otherwise; notice resolution keeps the message in history. Chats
+with unresolved notices stay in All even when offline or ended. This APK-only update
+uses the existing server API.
+
 Android 0.4.17 adds **Authorizations** as the third tab: live access requests, active host windows and the fleet window, with individual close and confirmed fleet-wide close. It reuses the existing approval and window services; offline actions are disabled and access-window changes use the Companion live channel.
 
 Android 0.4.14 presents agent chats with green message bubbles, inline photos,

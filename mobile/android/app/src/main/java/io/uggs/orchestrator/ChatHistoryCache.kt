@@ -59,7 +59,10 @@ internal class ChatHistoryCache(private val owner: String, saved: String? = null
         val id = agent.optString("id")
         if (id.isBlank()) return
         if (!active(agent)) { chats.remove(id); return }
-        val confirmed = mergeChatEvents(emptyList(), events).filter { it.optString("type") in cachedTypes }.takeLast(MAX_EVENTS)
+        val confirmed = mergeChatEvents(emptyList(), events).filter {
+            it.optString("type") in cachedTypes ||
+                (it.optString("type") in setOf("attention", "waiting_input") && noticeSeverity(it.optJSONObject("payload")) != null)
+        }.takeLast(MAX_EVENTS)
         if (confirmed.isEmpty()) { chats.remove(id); return }
         chats.remove(id)
         chats[id] = JSONObject().put("agent", card(agent)).put("events", JSONArray(confirmed))

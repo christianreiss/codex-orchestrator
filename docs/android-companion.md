@@ -110,10 +110,13 @@ push. No Analytics SDK is included.
 ## On-the-move interface
 
 Chats retain the server-provided history, including offline and ended conversations.
-The default **All** filter shows only online, active agents across all engines:
-listening, working and idle sessions, excluding read-only or closed sessions.
-**Unread** and **Needs you** keep their own filters; hiding a row in All does not
-delete its conversation or change read markers.
+The default **All** filter shows online, active agents across all engines:
+listening, working and idle sessions, plus chats with unresolved important,
+critical or blocker notices, including offline/ended or read-only chats.
+**Unread** and the activity filters narrow this same list; there is no separate
+important/Needs you filter. Hiding a row does not delete its conversation or
+change read markers. Unread reply counters are red for chats with unresolved
+classified notices and green otherwise; the exact reply count is unchanged.
 Server history lasts for the session lifetime plus 24 hours by default. Closing
 the app or losing agent connectivity does not remove the conversation. Closure
 still clears unread counters and reply alerts; delayed pushes cannot recreate them.
@@ -147,8 +150,11 @@ action targets while respecting Android text size settings.
 Host decisions use a bottom sheet with requesting host/IP, expiry, duration
 presets, and large **Deny** / **Allow** buttons. Requests are rechecked by the
 server; expired requests and connection snapshots older than 30 seconds cannot
-be acted on. Chat shows messages and the current question, with direct option
-buttons; status/lifecycle events stay off the mobile timeline. Sending follows
+be acted on. Chat shows messages, classified notices and the current question, with direct
+option buttons; status/lifecycle events stay off the mobile timeline. Notices
+use their event timestamp and remain highlighted after resolution with a Resolved
+label. An unresolved notice outside the loaded history appears once from its
+overview summary; its preview never advances a read cursor. Sending follows
 replies automatically. Connection, alert controls, and confirmed sign-out live
 under **More**. Desktop retains the full session inventory and administration.
 
@@ -518,7 +524,7 @@ Receipt events do not generate push notifications or release the operator instru
 
 ## Agent chat in Android 0.4.13
 
-Chats use the existing paired operator/daemon identity and history. Questions support buttons, text or both; button labels may differ from stable answer values. Needs you means explicitly important, critical or blocker, with one Resolve action per notice. An unresolved notice stays visible for offline/ended agents; viewing or answering never clears it.
+Chats use the existing paired operator/daemon identity and history. Questions support buttons, text or both; button labels may differ from stable answer values. From 0.4.18, important, critical and blocker notices appear as red-highlighted messages in the regular chat timeline, with a severity label and one Resolve action per unresolved notice. An unresolved notice stays visible for offline/ended agents; viewing or answering never clears it.
 
 Attach files/photos through Android's document picker, capture a photo/video, or record audio after microphone permission. Uploads show progress and support cancel/retry with the same upload ID. Defaults are ten files, 100 MiB/file, 250 MiB total and 15 minutes per recording. Incoming pictures have a full-image viewer; audio/video play locally and files can open in another installed app. Automatic local ASR and video frames are prepared by the server worker for agent inspection. Failures retain the original. Drafts and upload intent survive switching conversations; confirmed sends clear their own draft and attachments. Agent replies render native Markdown text/code and offer Copy/Reply with an event reference. No Pixel installation was performed for this release.
 

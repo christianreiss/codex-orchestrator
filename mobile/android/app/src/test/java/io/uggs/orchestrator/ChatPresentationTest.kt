@@ -12,6 +12,41 @@ class ChatPresentationTest {
         .put("cursor", cursor).put("type", type).put("created_at", time)
         .put("payload", JSONObject().put("text", "Message " + cursor))
 
+    @Test fun importantNoticesAppearBetweenMessagesWithoutLifecycleNoiseOrDuplicatePreviews() {
+        val notice = JSONObject().put("id", "notice-id").put("severity", "important")
+            .put("summary", "Review the result").put("since", "2026-10-07T10:01:00Z")
+        val event = JSONObject().put("cursor", 2).put("type", "attention").put("created_at", notice.getString("since"))
+            .put("payload", JSONObject().put("notice_id", "notice-id").put("severity", "important").put("summary", "Review the result"))
+        val events = listOf(message(1, "assistant_message", "2026-10-07T10:00:00Z"), event,
+            message(3, "receiver_ready", "2026-10-07T10:01:30Z"),
+            message(4, "assistant_message", "2026-10-07T10:02:00Z"))
+        val messages = chatRows(events, zone, listOf(notice)).filterIsInstance<ChatRow.Message>()
+        assertEquals(listOf(1L, 2L, 4L), messages.map { it.event.getLong("cursor") })
+        assertEquals("Review the result", messageText(messages[1].event))
+        assertEquals("important", noticeSeverity(messages[1].event.optJSONObject("payload")))
+        assertFalse(messages[0].joinsNext)
+        assertEquals(ReplyPreview("Agent", "Review the result"), replyPreview(events, 2, "Agent"))
+
+        val outsideTail = chatRows(listOf(events.first(), events.last()), zone, listOf(notice, notice)).filterIsInstance<ChatRow.Message>()
+        assertEquals(listOf("message:1", "notice:notice-id", "message:4"), outsideTail.map { it.key })
+        assertEquals(0, outsideTail[1].event.optLong("cursor"))
+    }
+
+    @Test fun importantRepliesAndQuestionsKeepTheirContentAndClassification() {
+        val normal = message(1, "assistant_message", "2026-10-07T10:00:00Z")
+        val important = message(2, "assistant_message", "2026-10-07T10:01:00Z").apply {
+            getJSONObject("payload").put("severity", "critical").put("notice_id", "critical-id").put("summary", "Short reason")
+        }
+        val question = message(3, "waiting_input", "2026-10-07T10:02:00Z").put("payload",
+            JSONObject().put("severity", "blocker").put("notice_id", "blocker-id").put("summary", "Choose a target"))
+        assertEquals(3, conversationEvents(listOf(normal, important, question)).size)
+        assertEquals("Message 2", messageText(important))
+        assertEquals("Choose a target", messageText(question))
+        assertFalse(messagesGrouped(normal, important, zone))
+        question.getJSONObject("payload").remove("severity")
+        assertEquals(listOf(normal, important), conversationEvents(listOf(normal, important, question)))
+    }
+
     @Test fun groupingRequiresSameSenderWithinFiveMinutesOnTheSameLocalDay() {
         val first = message(1, "assistant_message", "2026-10-07T10:00:00Z")
         assertTrue(messagesGrouped(first, message(2, "assistant_message", "2026-10-07T10:05:00Z"), zone))

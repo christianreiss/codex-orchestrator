@@ -12,6 +12,7 @@ internal fun eventTime(event: JSONObject): Instant? = runCatching { Instant.pars
 
 internal fun messagesGrouped(first: JSONObject?, second: JSONObject?, zone: ZoneId = ZoneId.systemDefault()): Boolean {
     if (first == null || second == null || first.optString("type") != second.optString("type")) return false
+    if (noticeSeverity(first.optJSONObject("payload")) != noticeSeverity(second.optJSONObject("payload"))) return false
     val start = eventTime(first) ?: return false
     val end = eventTime(second) ?: return false
     return Duration.between(start, end).seconds in 0..300 && start.atZone(zone).toLocalDate() == end.atZone(zone).toLocalDate()
@@ -21,12 +22,25 @@ internal sealed interface ChatRow {
     val key: String
     data class Day(val date: LocalDate, val cursor: Long) : ChatRow { override val key = "day:" + date + ":" + cursor }
     data class Message(val event: JSONObject, val joinsPrevious: Boolean, val joinsNext: Boolean) : ChatRow {
-        override val key = "message:" + event.optLong("cursor")
+        override val key = if (event.optBoolean("notice_preview")) "notice:" + event.getJSONObject("payload").optString("notice_id") else "message:" + event.optLong("cursor")
     }
 }
 
-internal fun chatRows(events: List<JSONObject>, zone: ZoneId = ZoneId.systemDefault()): List<ChatRow> = buildList {
-    val messages = conversationEvents(events)
+internal fun chatRows(events: List<JSONObject>, zone: ZoneId = ZoneId.systemDefault(), notices: List<JSONObject> = emptyList()): List<ChatRow> = buildList {
+    val messages = conversationEvents(events).toMutableList()
+    // The server tail can omit an older unresolved notice. Keep it in the chat
+    // using its timestamp, without inventing a transcript cursor or duplicating it.
+    val retainedNotices = messages.mapNotNull { it.optJSONObject("payload")?.receiptString("notice_id") }.toMutableSet()
+    notices.forEach { notice ->
+        val id = notice.receiptString("id") ?: return@forEach
+        if (noticeSeverity(notice) == null || !retainedNotices.add(id)) return@forEach
+        val event = JSONObject().put("type", "attention").put("notice_preview", true)
+            .put("created_at", notice.optString("since"))
+            .put("payload", JSONObject().put("notice_id", id).put("severity", notice.optString("severity")).put("summary", notice.optString("summary")))
+        val time = eventTime(event)
+        val index = if (time == null) -1 else messages.indexOfFirst { eventTime(it)?.isAfter(time) == true }
+        messages.add(if (index < 0) messages.size else index, event)
+    }
     var priorDay: LocalDate? = null
     messages.forEachIndexed { index, event ->
         val date = eventTime(event)?.atZone(zone)?.toLocalDate()
@@ -95,7 +109,7 @@ internal fun replyPreview(events: List<JSONObject>, cursor: Long, agentName: Str
     val event = conversationEvents(events).firstOrNull { it.optLong("cursor") == cursor }
         ?: return ReplyPreview("Earlier message", "Message is no longer in this history")
     val payload = event.optJSONObject("payload")
-    val text = payload?.optString("text")?.trim().orEmpty()
+    val text = messageText(event).trim()
     val attachments = payload?.optJSONArray("attachments")?.length() ?: 0
     return ReplyPreview(if (event.optString("type") == "user_message") "You" else agentName,
         text.ifBlank { if (attachments == 1) "Attachment" else if (attachments > 1) "$attachments attachments" else "Message" })
