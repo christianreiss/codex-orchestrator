@@ -56,6 +56,10 @@ const requestSchema = z
 // Base64 of a body above this size would exceed the wrapper's 16 MiB frame cap.
 // That request gets a small correlated failure and the socket stays up.
 const MAX_RESPONSE_BYTES = 11 * 1024 * 1024;
+// The wrapper rejects a control frame above 16 MiB. The payload cap above keeps
+// the common case cheap; this one measures the encoded frame as it will travel
+// (base64 body + headers + JSON), with a 1 MiB margin.
+const MAX_FRAME_BYTES = 15 * 1024 * 1024;
 
 // A lost result is retryable only when the operation itself was a known read.
 // In particular, bootstrap may carry auth or admit a native session. Keep this
@@ -131,13 +135,36 @@ export async function registerCommunicatorRoutes(app: FastifyInstance, ctx: Rout
         inFlight = 0,
         greeted = false,
         hostId = 0;
-      const send = (frame: unknown) => {
+      const sendText = (text: string) => {
         if (closed) return;
         if (socket.bufferedAmount > 8 * 1024 * 1024) {
           socket.close(1013, 'Slow consumer');
           return;
         }
-        socket.send(JSON.stringify(frame));
+        socket.send(text);
+      };
+      const send = (frame: unknown) => sendText(JSON.stringify(frame));
+      // What a reply that cannot travel, or a failure after dispatch, tells the caller.
+      // A read may be repeated; anything that may have changed state is reported as
+      // unknown (409) so no caller replays it.
+      const uncertainReply = (id: string, frame: { method: string; path: string; body: string }, why: 'oversize' | 'fault') => {
+        const mayRepeat = communicatorResponseMayRepeat(frame);
+        const code = mayRepeat
+          ? why === 'oversize'
+            ? 'communicator_response_too_large'
+            : 'communicator_invalid_request'
+          : 'communicator_outcome_unknown';
+        const message = mayRepeat
+          ? why === 'oversize'
+            ? 'Response exceeds the communicator frame limit'
+            : 'Request could not be completed'
+          : 'The operation may have completed but its reply could not be delivered; verify the result before retrying';
+        return {
+          id,
+          status: mayRepeat ? (why === 'oversize' ? 502 : 500) : 409,
+          headers: { 'content-type': 'application/json' },
+          body: Buffer.from(JSON.stringify({ code, message })).toString('base64'),
+        };
       };
       const daemonEvents = new EventEmitter();
       let daemonAttached = false;
@@ -228,6 +255,9 @@ export async function registerCommunicatorRoutes(app: FastifyInstance, ctx: Rout
         // contents then fail only that request, never the shared connection.
         let rejectable: string | undefined;
         let rejectStatus = 400;
+        // Set the moment the request is handed to the router: from then on a fault
+        // cannot be taken to mean "nothing happened".
+        let dispatched: { method: string; path: string; body: string } | undefined;
         void (async () => {
           const parsed = JSON.parse(raw.toString());
           if (parsed.type === 'hello') {
@@ -416,6 +446,7 @@ export async function registerCommunicatorRoutes(app: FastifyInstance, ctx: Rout
               }
             }
 
+            dispatched = { method: frame.method, path: frame.path, body: frame.body };
             const response = await app.inject({
               method: frame.method,
               url: frame.path,
@@ -444,28 +475,19 @@ export async function registerCommunicatorRoutes(app: FastifyInstance, ctx: Rout
             }
             const view = connections.get(connectionID);
             if (view) view.requests++;
-            communicatorRegistry.observeDispatch(
-              connectionID,
-              frame.method,
-              communicatorPathname(frame.path),
-              response.statusCode,
-              response.rawPayload,
-            );
+            try {
+              communicatorRegistry.observeDispatch(
+                connectionID,
+                frame.method,
+                communicatorPathname(frame.path),
+                response.statusCode,
+                response.rawPayload,
+              );
+            } catch {
+              /* Topology bookkeeping must never replace the reply of a request that already ran. */
+            }
             if ((response.rawPayload?.length ?? 0) > MAX_RESPONSE_BYTES) {
-              const mayRepeat = communicatorResponseMayRepeat(frame);
-              send({
-                id: frame.id,
-                status: mayRepeat ? 502 : 409,
-                headers: { 'content-type': 'application/json' },
-                body: Buffer.from(
-                  JSON.stringify({
-                    code: mayRepeat ? 'communicator_response_too_large' : 'communicator_outcome_unknown',
-                    message: mayRepeat
-                      ? 'Response exceeds the communicator frame limit'
-                      : 'Operation completed but its reply exceeds the frame limit; verify the result before retrying',
-                  }),
-                ).toString('base64'),
-              });
+              send(uncertainReply(frame.id, frame, 'oversize'));
               return;
             }
             const replyHeaders: Record<string, string> = {};
@@ -476,16 +498,25 @@ export async function registerCommunicatorRoutes(app: FastifyInstance, ctx: Rout
               )
                 replyHeaders[key] = String(value);
             }
-            send({
+            const encoded = JSON.stringify({
               id: frame.id,
               status: response.statusCode,
               headers: replyHeaders,
               body: response.rawPayload.toString('base64'),
             });
+            if (encoded.length > MAX_FRAME_BYTES) {
+              send(uncertainReply(frame.id, frame, 'oversize'));
+              return;
+            }
+            sendText(encoded);
           } finally {
             inFlight--;
           }
         })().catch(() => {
+          if (rejectable && dispatched && !closed) {
+            send(uncertainReply(rejectable, dispatched, 'fault'));
+            return;
+          }
           if (rejectable && !closed) {
             send({
               id: rejectable,
