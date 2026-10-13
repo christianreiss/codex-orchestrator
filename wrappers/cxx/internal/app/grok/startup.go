@@ -20,9 +20,12 @@ import (
 // part of the native credential file or an auth upload.
 type startupAuth struct {
 	native.Projection
-	APICalls int64                        `json:"api_calls"`
-	Versions *orchestrator.VersionSummary `json:"versions"`
-	Host     *startupHost                 `json:"host"`
+	// PoolVerifiedAccounts counts accounts a launch could lease (metadata_only
+	// answers only; older servers omit it). Status/verification describe one head.
+	PoolVerifiedAccounts int64                        `json:"pool_verified_accounts"`
+	APICalls             int64                        `json:"api_calls"`
+	Versions             *orchestrator.VersionSummary `json:"versions"`
+	Host                 *startupHost                 `json:"host"`
 }
 
 type startupHost struct {
@@ -123,10 +126,7 @@ func startupScreen(in startupInput) terminalui.ScreenInput {
 	if !answered && (in.Auth == nil || in.AuthErr != nil || in.Auth.Status == "") {
 		apiTone = terminalui.ToneFail
 	}
-	// "available" is the metadata_only answer status/doctor read: a stored,
-	// verified login. A launch replaces it with its leased grant before this.
-	if in.Auth == nil || in.AuthErr != nil || in.Auth.VerificationState != "verified" ||
-		!hasArg([]string{in.Auth.Status}, "valid", "outdated", "updated", "ok", "unchanged", "available") {
+	if !authUsable(in.Auth, in.AuthErr) {
 		authTone = terminalui.ToneFail
 		ui.ResultLabel, ui.ResultTone = "Subscription auth unavailable; run `cgx login`.", terminalui.ToneFail
 		if status := orchestrator.InsecureStatusFromError(in.AuthErr); status == "insecure" {
@@ -189,9 +189,26 @@ func startupScreen(in startupInput) terminalui.ScreenInput {
 	return ui
 }
 
+// authUsable: "available" is the metadata_only answer status/doctor read (a
+// stored, verified login); a launch replaces it with its leased grant first. A
+// missing or unverified account-less head is still fine when a lease could pick
+// another verified pool account.
+func authUsable(auth *startupAuth, err error) bool {
+	if auth == nil || err != nil {
+		return false
+	}
+	if auth.VerificationState == "verified" && hasArg([]string{auth.Status}, "valid", "outdated", "updated", "ok", "unchanged", "available") {
+		return true
+	}
+	return auth.PoolVerifiedAccounts > 0
+}
+
 func leasedStartupAuth(initial startupAuth, lease *accountpool.LeaseResponse) startupAuth {
 	if lease != nil {
 		initial.Projection = native.Projection{Status: "valid", Auth: lease.Auth, AccountID: lease.AccountID, VerificationState: lease.VerificationState, AccountPool: true}
+		// The concrete grant now decides; pool availability must not paper over
+		// an unexpected unverified lease.
+		initial.PoolVerifiedAccounts = 0
 	}
 	return initial
 }

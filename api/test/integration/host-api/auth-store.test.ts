@@ -7,6 +7,8 @@ import {
   authEntries,
   authPayloads,
   chatgptUsageSnapshots,
+  providerAccounts,
+  providerAccountSessions,
   hostAuthDigests,
   hostAuthStates,
   hosts as hostsTable,
@@ -19,6 +21,7 @@ import { encrypt } from '../../../src/security/secret-box.js';
 import { hashApiKey } from '../../../src/util/api-key-helpers.js';
 import { createRunnerValidationService } from '../../../src/services/runner-validation.js';
 import { assertContract } from '../../helpers/contract-schema.js';
+import { ProviderAccountsService } from '../../../src/services/provider-accounts.js';
 
 const baseEnv = {
   INSTALLATION_ID: 'inst',
@@ -725,17 +728,40 @@ describe('Grok metadata-only probes', () => {
   it('reports missing account metadata without refreshing or returning credentials', async () => {
     const apiKey = 'sk-grok-metadata'; const db = seedDb(apiKey);
     db.tables.set(hostsTable, [hostRow(apiKey, { engines: 'grok' })]);
+    const leasable = vi.spyOn(ProviderAccountsService.prototype, 'countLeasable').mockResolvedValue(0);
     const fetch = vi.fn(async () => { throw new Error('metadata probe must not call provider'); });
     vi.stubGlobal('fetch', fetch);
     const app = await buildHostApiTestApp({ db: db as any, env: baseEnv, keyring: makeKeyring() });
     try {
       const response = await app.inject({ method: 'POST', url: '/auth', headers: { authorization: `Bearer ${apiKey}` }, payload: { engine: 'grok', command: 'retrieve', metadata_only: true } });
       expect(response.statusCode).toBe(200);
-      expect(response.json()).toMatchObject({ account_pool: true, metadata_only: true, status: 'missing', verification_state: 'unknown' });
+      expect(response.json()).toMatchObject({ account_pool: true, metadata_only: true, status: 'missing', verification_state: 'unknown', pool_verified_accounts: 0 });
       expect(response.json()).not.toHaveProperty('auth');
       expect(fetch).not.toHaveBeenCalled();
       expect(db.updates.filter(entry => entry.table === authPayloads)).toEqual([]);
       expect(db.inserts.filter(entry => entry.table === hostAuthStates)).toEqual([]);
-    } finally { await app.close(); }
+    } finally { leasable.mockRestore(); await app.close(); }
+  });
+
+  it('reports the leasable pool count beside a missing account-less head, without leasing', async () => {
+    const apiKey = 'sk-grok-metadata-pool'; const db = seedDb(apiKey);
+    db.tables.set(hostsTable, [hostRow(apiKey, { engines: 'grok' })]);
+    // The enabled+verified filter is pinned on MySQL (provider-accounts/db.test.ts);
+    // the fake has no joins, so this pins the route wiring and that it stays read-only.
+    const leasable = vi.spyOn(ProviderAccountsService.prototype, 'countLeasable').mockResolvedValueOnce(2).mockResolvedValueOnce(0);
+    const fetch = vi.fn(async () => { throw new Error('metadata probe must not call provider'); });
+    vi.stubGlobal('fetch', fetch);
+    const app = await buildHostApiTestApp({ db: db as any, env: baseEnv, keyring: makeKeyring() });
+    try {
+      const probe = async () => (await app.inject({ method: 'POST', url: '/auth', headers: { authorization: `Bearer ${apiKey}` }, payload: { engine: 'grok', command: 'retrieve', metadata_only: true } })).json();
+      const body = await probe();
+      expect(body).toMatchObject({ metadata_only: true, status: 'missing', pool_verified_accounts: 2 });
+      expect(body).not.toHaveProperty('auth');
+      expect(await probe()).toMatchObject({ status: 'missing', pool_verified_accounts: 0 });
+      expect(leasable).toHaveBeenCalledWith('grok');
+      expect(fetch).not.toHaveBeenCalled();
+      expect(db.inserts.map(entry => entry.table)).not.toContain(providerAccountSessions);
+      expect(db.updates.map(entry => entry.table)).not.toContain(providerAccounts);
+    } finally { leasable.mockRestore(); await app.close(); }
   });
 });
