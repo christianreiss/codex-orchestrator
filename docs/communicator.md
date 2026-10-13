@@ -27,7 +27,9 @@ and control requests use the communicator whenever the recovered config enables 
 
 `cxx communicator status` reports protocol, version, PID, connected clients,
 forwarded/coalesced requests, last sync and connection error. `doctor` returns
-nonzero when an enabled communicator is absent. The host's Operations tab shows
+nonzero when an enabled communicator is absent. When the wrapper refuses the local socket
+(for example a leaked `XDG_RUNTIME_DIR=/run/user/0` that is not private to the user), the line for that
+server carries `"error"` with the refusal instead of an empty `"socket"`, and `doctor` fails. The host's Operations tab shows
 live server connections and their users, versions and sync timestamps.
 
 The Unix socket lives in a mode-0700 directory below `XDG_RUNTIME_DIR`. When a
