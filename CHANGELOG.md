@@ -1,5 +1,9 @@
 # 2026-10-13
 
+- cxx 0.9.75 also stops a host-daemon stream whose local reader has stalled: detaching it expires that stream's socket deadlines, so a relay blocked writing to it no longer keeps the stream (and its 64 queued events) alive.
+
+- Managed MCP renders `cxx communicator mcp` only when that engine's wrapper version is a bakery cxx release at or above 0.9.71. Date-versioned shell wrappers (`2025.11.03`, `2025.11.3`), `dev`, and other non-releases stay on the HTTPS MCP endpoint. `v0.1.0` is a real version and stays on HTTPS because it is older than 0.9.71.
+
 - Communicator outage behavior (cxx): while the control connection is down the local communicator now answers `503 communicator_unavailable` at once after the second consecutive failed connect (a single blip still waits 1.5 s, the very first connect still waits up to 20 s). Previously every request waited 20 s, so a server outage turned one managed launch into minutes: measured `cdx` launch with the API stopped went from 1 m 28 s and exit 1 ("final credential sync failed ... upload outcome unresolved", with a stale pending-auth marker) to 1.3 s and exit 0, matching direct HTTPS; Claude MCP health went from 20 s to 0.7 s.
 
 - Communicator startup (cxx): the local socket path is kept within the 108-byte `sun_path` limit by falling back to a private `/tmp/cxx-<uid>` directory when a long `XDG_RUNTIME_DIR`/`TMPDIR` would make the bind fail, and the owner's startup error is written to `serve.log` beside the socket and shown by the failing command. A communicator that dies while starting is reported at once instead of after ten seconds as "failed to start".

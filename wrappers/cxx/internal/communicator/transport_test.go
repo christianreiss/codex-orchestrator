@@ -3,10 +3,13 @@ package communicator
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -15,6 +18,7 @@ import (
 	"time"
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/ipc"
 	"golang.org/x/net/websocket"
 )
 
@@ -449,5 +453,154 @@ func TestOversizedReadRetriesOverHTTPS(t *testing.T) {
 	s.ServeHTTP(bootstrap, httptest.NewRequest("POST", "/sync/bootstrap/", strings.NewReader(`{"include_auth":false}`)))
 	if bootstrap.Code != http.StatusOK || bootstrap.Body.String() != "bulk" || direct.Load() != 2 {
 		t.Fatalf("bootstrap read not retried: status=%d body=%q direct=%d", bootstrap.Code, bootstrap.Body.String(), direct.Load())
+	}
+}
+
+// Processes that do and do not inherit XDG_RUNTIME_DIR must share one owner
+// socket and mutually exclusive sync fences; unsafe or symlinked session roots
+// fall back to the private /tmp namespace instead of being trusted.
+func TestRuntimeRootConvergesFencesAndRejectsUnsafeRoots(t *testing.T) {
+	session := t.TempDir()
+	os.Chmod(session, 0700)
+	previous := sessionRuntimeRoot
+	t.Cleanup(func() { sessionRuntimeRoot = previous })
+	sessionRuntimeRoot = func() string { return session }
+	t.Setenv("XDG_RUNTIME_DIR", session)
+	withEnv, err := socketPath("https://one.example")
+	if err != nil {
+		t.Fatal(err)
+	}
+	held, err := ipc.TryAcquireExclusivePath(filepath.Join(filepath.Dir(withEnv), "sync-scope.lock"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("XDG_RUNTIME_DIR", "")
+	withoutEnv, err := socketPath("https://one.example")
+	if err != nil || withoutEnv != withEnv {
+		t.Fatal("scrubbed environment chose another owner", withEnv, withoutEnv, err)
+	}
+	if _, err := ipc.TryAcquireExclusivePath(filepath.Join(filepath.Dir(withoutEnv), "sync-scope.lock")); !errors.Is(err, ipc.ErrHeld) {
+		t.Fatal("fence not exclusive across environments", err)
+	}
+	held.Release()
+
+	link := filepath.Join(t.TempDir(), "runtime-link")
+	if err := os.Symlink(session, link); err != nil {
+		t.Fatal(err)
+	}
+	private := filepath.Join(os.TempDir(), fmt.Sprintf("cxx-%d", os.Getuid()))
+	for name, root := range map[string]string{"symlink": link, "missing": filepath.Join(session, "absent"), "empty": ""} {
+		sessionRuntimeRoot = func() string { return root }
+		if got := runtimeRoot(); got != private {
+			t.Fatalf("%s session root trusted: %s", name, got)
+		}
+	}
+}
+
+// A child process launched without XDG_RUNTIME_DIR (as Codex starts MCP
+// servers) must resolve the parent's socket and be excluded by its fence.
+func TestRuntimeRootFenceAcrossProcesses(t *testing.T) {
+	if root := os.Getenv("CXX_TEST_FENCE_CHILD_ROOT"); root != "" {
+		sessionRuntimeRoot = func() string { return root }
+		socket, err := socketPath("https://one.example")
+		if err != nil {
+			fmt.Println("error", err)
+			os.Exit(0)
+		}
+		_, err = ipc.TryAcquireExclusivePath(filepath.Join(filepath.Dir(socket), "sync-scope.lock"))
+		state := "acquired"
+		if errors.Is(err, ipc.ErrHeld) {
+			state = "held"
+		}
+		fmt.Println(state, socket)
+		os.Exit(0)
+	}
+	session := t.TempDir()
+	os.Chmod(session, 0700)
+	t.Setenv("XDG_RUNTIME_DIR", session)
+	parent, err := socketPath("https://one.example")
+	if err != nil {
+		t.Fatal(err)
+	}
+	lock, err := ipc.TryAcquireExclusivePath(filepath.Join(filepath.Dir(parent), "sync-scope.lock"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lock.Release()
+	child := exec.Command(os.Args[0], "-test.run=^TestRuntimeRootFenceAcrossProcesses$")
+	env := []string{"CXX_TEST_FENCE_CHILD_ROOT=" + session}
+	for _, entry := range os.Environ() {
+		if !strings.HasPrefix(entry, "XDG_RUNTIME_DIR=") {
+			env = append(env, entry)
+		}
+	}
+	child.Env = env
+	out, err := child.Output()
+	if err != nil {
+		t.Fatal(err, string(out))
+	}
+	if got := strings.Fields(string(out)); len(got) < 2 || got[0] != "held" || got[1] != parent {
+		t.Fatalf("child without XDG_RUNTIME_DIR: %q, want held %s", out, parent)
+	}
+}
+
+// A local daemon that stops reading blocks the relay inside Send. Overflow
+// must still stop that stream promptly and keep the shared control
+// connection serving other requests.
+func TestStalledDaemonReaderIsDisconnectedPromptly(t *testing.T) {
+	payload := json.RawMessage(`{"blob":"` + strings.Repeat("x", 8192) + `"}`)
+	c := testConnection(t, func(ws *websocket.Conn, f frame) {
+		switch f.Type {
+		case "daemon":
+			go func() {
+				for i := 0; i < 2000; i++ {
+					if websocket.JSON.Send(ws, frame{Type: "daemon_event", Payload: payload}) != nil {
+						return
+					}
+				}
+			}()
+		case "request":
+			_ = websocket.JSON.Send(ws, frame{ID: f.ID, Status: 200})
+		}
+	})
+	s := &server{conn: c, calls: map[string]*sharedCall{}}
+	local := httptest.NewServer(s)
+	defer local.Close()
+	ws, err := websocket.Dial(strings.Replace(local.URL, "http://", "ws://", 1)+"/_comm/daemon", "", local.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ws.Close()
+	if err := websocket.JSON.Send(ws, map[string]any{"type": "heartbeat"}); err != nil {
+		t.Fatal(err)
+	}
+	// Do not read until the communicator has had to give up on this stream.
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		c.mu.Lock()
+		detached := c.daemon == nil && c.daemonClosing == nil
+		c.mu.Unlock()
+		if detached {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("stalled daemon stream was never released")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	ws.SetReadDeadline(time.Now().Add(5 * time.Second))
+	for {
+		var discard json.RawMessage
+		if err := websocket.JSON.Receive(ws, &discard); err != nil {
+			if ne, ok := err.(interface{ Timeout() bool }); ok && ne.Timeout() {
+				t.Fatal("local daemon socket left open after detach")
+			}
+			break
+		}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if result, _, err := c.request(ctx, frame{Method: "GET", Path: "/versions"}); err != nil || result.Status != 200 {
+		t.Fatal("control connection lost with the stalled daemon", result, err)
 	}
 }

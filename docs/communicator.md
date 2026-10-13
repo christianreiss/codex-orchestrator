@@ -9,8 +9,12 @@ Provider inference still uses each native client's original network path.
 Enable `CXX_COMMUNICATOR_ENABLED=true` in the API environment and recreate the API.
 The signed wrapper config then includes `orchestrator.communicator_protocol: 1`.
 Old wrappers ignore this optional field. Managed MCP rendering changes to
-`cxx communicator mcp <engine>` only once that engine reports wrapper 0.9.71 or
-newer. Existing tool names, arguments, results and engine-specific MCP credentials
+`cxx communicator mcp <engine>` only once that engine reports a cxx release
+version of 0.9.71 or newer. The reported string has to match a bakery release
+(optional leading `v`, optional prerelease or build). A date-versioned shell
+wrapper such as `2025.11.03` or `2025.11.3`, `dev`, and any other non-release
+stay on the HTTPS MCP endpoint. `v0.1.0` is a real version and stays on HTTPS
+because it is older than 0.9.71. Existing tool names, arguments, results and engine-specific MCP credentials
 remain intact. With the capability off, the stdio adapter uses the ordinary HTTPS
 MCP endpoint.
 
@@ -31,6 +35,15 @@ one owner; only that owner removes a stale socket. No TCP listener is exposed.
 Each process holds a local streaming lease; a surviving client restarts a crashed
 owner. The last lease starts a five-minute idle period. Status checks do not
 extend it. A connected persistent host daemon holds a lease too.
+
+A symlinked, missing or non-0700 logind directory is never trusted. An explicit
+custom `XDG_RUNTIME_DIR` is a deliberately separate namespace (isolated tests,
+containers) with its own owner and fences. Upgrading from 0.9.72/0.9.73 does not
+move an existing owner: a `/tmp/cxx-<uid>` owner started by an older Codex MCP
+adapter keeps serving the processes already attached to it until its last lease
+closes and the idle period ends. After installing 0.9.74, end or restart the
+Codex sessions started before the update, then confirm convergence with
+`ss -xlp | grep cxx-comm`: only the `/run/user/<uid>` socket should remain.
 
 ## Data and auth ownership
 

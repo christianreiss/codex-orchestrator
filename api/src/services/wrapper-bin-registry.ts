@@ -593,7 +593,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
-function isSafeVersion(value: unknown): value is string {
+export function isSafeVersion(value: unknown): value is string {
   return (
     typeof value === 'string' &&
     value.length <= MAX_VERSION_LENGTH &&
