@@ -302,7 +302,7 @@
             <path
               d={edgePath(layout.nodes.get(SERVER_ID)!, placed)}
               stroke={healthColor(state)}
-              stroke-width={2.25 + edgeBoost(item.node.id, SERVER_ID)}
+              stroke-width={4 + edgeBoost(item.node.id, SERVER_ID)}
               stroke-linecap="round"
               stroke-dasharray={state === "live" ? undefined : "5 6"}
               opacity={(state === "live" ? 0.55 : 0.8) * item.strength * edgeFocus(item.node.id, SERVER_ID)}
@@ -320,7 +320,7 @@
             <path
               d={edgePath(parent, placed)}
               stroke={direct ? "hsl(var(--muted-foreground))" : link.state === "stale" ? "hsl(var(--warning))" : "hsl(var(--success))"}
-              stroke-width={(direct ? 1 : 1.5) + edgeBoost(item.node.id, parent.id)}
+              stroke-width={(direct ? 2.5 : 3) + edgeBoost(item.node.id, parent.id)}
               stroke-linecap="round"
               stroke-dasharray={direct ? "1 6" : link.state === "stale" ? "4 5" : undefined}
               opacity={(direct ? 0.55 : 0.6) * item.strength * edgeFocus(item.node.id, parent.id)}

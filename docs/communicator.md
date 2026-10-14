@@ -327,6 +327,10 @@ The console's **Live Topology** page (`GET /admin/topology`) draws the server, t
 communicators connected to it and the agent sessions each one carries. The view is
 the connection set of the API process that answers, never a fleet-wide inference.
 
+Connection lines keep their screen width while zooming: 4 px from server to
+communicator, 3 px to carried agents and 2.5 px to direct agents. Selecting a path
+adds 1 px of emphasis; status colors and dashed patterns distinguish link states.
+
 A session is shown under a communicator only on evidence: the API answered a
 `/host/agent-sessions/<id>/…` request for it (or its registration) below status 400
 over that socket, which proves the session's bridge token authenticated on that
