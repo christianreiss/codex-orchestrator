@@ -56,7 +56,11 @@ type connection struct {
 	done          chan struct{}
 	ready         chan struct{}
 	invalidated   func()
-	authChanged   func(string, int64)
+	// updateAvailable wakes the updater; updateAnnounced records that the
+	// server offered the wrapper_update trigger.
+	updateAvailable func()
+	updateAnnounced bool
+	authChanged     func(string, int64)
 	// onTerminate is set when this owner can be stopped remotely; control is
 	// true once the server announced that it may ask.
 	onTerminate  func(reason string, acked <-chan struct{})
@@ -167,6 +171,15 @@ func (c *connection) receive() {
 			if !ready {
 				close(c.ready)
 				ready = true
+				if announces(f.Control, controlWrapperUpdate) {
+					c.mu.Lock()
+					c.updateAnnounced = true
+					c.mu.Unlock()
+					if c.updateAvailable != nil {
+						// A (re)connect may have missed a publish.
+						c.updateAvailable()
+					}
+				}
 				if announces(f.Control, controlTerminate) {
 					// Remote stop needs a server that can aim it at this process;
 					// one that only knows "terminate" is told nothing it cannot parse.
@@ -219,6 +232,14 @@ func (c *connection) receive() {
 		case "invalidate":
 			if c.invalidated != nil {
 				c.invalidated()
+			}
+		case "update_available":
+			// Only from a server that announced the trigger; it carries no target.
+			c.mu.Lock()
+			announced := c.updateAnnounced
+			c.mu.Unlock()
+			if announced && c.updateAvailable != nil {
+				c.updateAvailable()
 			}
 		default:
 			c.mu.Lock()

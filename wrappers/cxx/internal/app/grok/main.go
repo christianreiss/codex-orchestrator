@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/agentquiet"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/communicator"
 	"io"
 	"log/slog"
@@ -987,6 +988,11 @@ func maintenance(ctx context.Context, cfg *config.Config, client *orchestrator.C
 	check, err := client.CronCheck(ctx, orchestrator.CronCheckRequest{Engine: "grok", ClientVersion: before, WrapperVersion: Version})
 	if err != nil {
 		return err
+	}
+	// A scheduled tick leaves binaries to the communicator updater while agents
+	// run; an explicit update (force) always applies.
+	if !force && path != "" && agentquiet.DeferScheduledUpdates(cfg.Orchestrator.CommunicatorUpdateProtocol) {
+		check.Action, check.Wrapper = "disable", nil
 	}
 	if check.Action != "disable" && check.Wrapper != nil && check.Wrapper.Action == "update" {
 		if os.Getenv(wrapperRestartedEnv) == "1" {

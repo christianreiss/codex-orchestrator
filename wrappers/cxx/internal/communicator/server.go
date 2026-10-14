@@ -74,6 +74,9 @@ type server struct {
 	// completed a content pass. Pushed invalidations keep primed scopes current,
 	// so a warm-cache launch takes content from disk without an exchange.
 	primed map[string]bool
+	// updateTrigger wakes the injected updater; updateStatus is its report.
+	updateTrigger chan struct{}
+	updateStatus  *UpdateStatus
 	// stop ends the owner (set by serve); terminating makes a remote terminate
 	// request single-shot.
 	stop        context.CancelFunc
@@ -167,6 +170,7 @@ func serveWithResident(ctx context.Context, path, version string, options *Resid
 	defer httpServer.Close()
 	go s.connectLoop(ctx)
 	go s.syncLoop(ctx)
+	s.startUpdater(ctx, path)
 	s.supervise(ctx, cancel, httpServer, 5*time.Second, 5*time.Minute)
 	err = httpServer.Serve(listener)
 	if err == http.ErrServerClosed {
@@ -291,7 +295,7 @@ func (s *server) connectLoop(ctx context.Context) {
 				cancel()
 				err = e
 				if err == nil {
-					c = &connection{ws: ws, pending: map[string]chan frame{}, done: make(chan struct{}), ready: make(chan struct{}), invalidated: s.invalidate, authChanged: s.invalidateAuth, onTerminate: s.terminate, runtimeID: s.runtimeID, preTerminate: s.preflightStop, residentReport: s.sampleResidentReport}
+					c = &connection{ws: ws, pending: map[string]chan frame{}, done: make(chan struct{}), ready: make(chan struct{}), invalidated: s.invalidate, updateAvailable: s.triggerUpdate, authChanged: s.invalidateAuth, onTerminate: s.terminate, runtimeID: s.runtimeID, preTerminate: s.preflightStop, residentReport: s.sampleResidentReport}
 					go c.receive()
 					err = c.send(map[string]any{"type": "hello", "protocol": Protocol, "username": communicatorUsername(), "version": s.version})
 					if err == nil {
@@ -415,6 +419,9 @@ func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		residentView := s.residentView()
 		s.mu.Lock()
 		status := map[string]any{"protocol": Protocol, "version": s.version, "pid": os.Getpid(), "connected": s.conn != nil, "https_fallback": s.fallback, "sessions": s.leases, "requests": s.requests, "coalesced": s.shared, "last_error": s.lastError, "synced_at": s.lastSync, "sync_protocol": SyncProtocol, "sync_scopes": s.scopeViewsLocked(), "local_errors": s.localErrorsLocked()}
+		if s.updateStatus != nil {
+			status["update"] = *s.updateStatus
+		}
 		s.mu.Unlock()
 		for key, value := range residentView {
 			status[key] = value

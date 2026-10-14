@@ -19,6 +19,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"time"
@@ -49,6 +50,23 @@ func Install(ctx context.Context, cfg *config.Config, binaryURL, expectedSHA, ta
 		return "", fmt.Errorf("resolve canonical wrapper path: %w", err)
 	}
 	logger.Info("cxx update starting", "target_version", targetVersion, "url", binaryURL, "platform", runtime.GOOS+"/"+runtime.GOARCH)
+
+	// The communicator updater prefetches the verified artifact while agents
+	// run; applying it later is then a local swap.
+	if staged, err := StagedPath(expectedSHA); err == nil && VerifyChecksum(staged, expectedSHA) == nil {
+		if err := verifyExecutable(ctx, staged); err == nil {
+			if err := layout.WithTargetLock(ctx, dest, func() error {
+				if VerifyChecksum(dest, expectedSHA) == nil {
+					return nil
+				}
+				return InstallVerifiedBinary(staged, dest)
+			}); err != nil {
+				return "", err
+			}
+			logger.Info("cxx update complete from staged artifact", "version", targetVersion, "path", dest)
+			return dest, nil
+		}
+	}
 
 	downloadCtx, cancel := context.WithTimeout(ctx, downloadTimeout)
 	defer cancel()
@@ -114,6 +132,105 @@ func Install(ctx context.Context, cfg *config.Config, binaryURL, expectedSHA, ta
 		return "", err
 	}
 	logger.Info("cxx update complete", "version", targetVersion, "path", dest)
+	return dest, nil
+}
+
+// StagedPath names the prefetch location of an artifact: per user, private,
+// never under a shared temporary directory.
+func StagedPath(expectedSHA string) (string, error) {
+	if err := validateExpectedSHA(expectedSHA); err != nil {
+		return "", err
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, ".cxx", "staging", "cxx-"+strings.ToLower(strings.TrimSpace(expectedSHA))), nil
+}
+
+// Prefetch downloads and verifies an artifact into its staged path without
+// installing it. An already staged, verified copy is reused. Older staged
+// artifacts are removed once a new one is in place.
+func Prefetch(ctx context.Context, cfg *config.Config, binaryURL, expectedSHA, targetVersion string) (string, error) {
+	if cfg == nil {
+		return "", errors.New("nil wrapper config")
+	}
+	dest, err := StagedPath(expectedSHA)
+	if err != nil {
+		return "", err
+	}
+	if VerifyChecksum(dest, expectedSHA) == nil {
+		return dest, nil
+	}
+	dir := filepath.Dir(dest)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", err
+	}
+	if err := os.Chmod(dir, 0o700); err != nil {
+		return "", err
+	}
+	downloadCtx, cancel := context.WithTimeout(ctx, downloadTimeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(downloadCtx, http.MethodGet, binaryURL, nil)
+	if err != nil {
+		return "", err
+	}
+	if cfg.Orchestrator.APIKey != "" && sameHost(binaryURL, cfg.Orchestrator.BaseURL) {
+		req.Header.Set("X-API-Key", cfg.Orchestrator.APIKey)
+	}
+	req.Header.Set("User-Agent", "cxx-update/"+targetVersion)
+	client, err := HTTPClient(cfg)
+	if err != nil {
+		return "", err
+	}
+	client.CheckRedirect = safeRedirect
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("download binary: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		return "", fmt.Errorf("download binary: HTTP %d", resp.StatusCode)
+	}
+	tmp, err := os.CreateTemp(dir, ".cxx-*.part")
+	if err != nil {
+		return "", err
+	}
+	tmpPath := tmp.Name()
+	defer os.Remove(tmpPath)
+	if err := tmp.Chmod(0o755); err != nil {
+		_ = tmp.Close()
+		return "", err
+	}
+	written, err := io.Copy(tmp, io.LimitReader(resp.Body, maxBinarySize+1))
+	if err == nil && written > maxBinarySize {
+		err = fmt.Errorf("download binary exceeds %d bytes", maxBinarySize)
+	}
+	if err == nil {
+		err = tmp.Sync()
+	}
+	if cerr := tmp.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		return "", err
+	}
+	if err := VerifyChecksum(tmpPath, expectedSHA); err != nil {
+		return "", err
+	}
+	if err := verifyExecutable(downloadCtx, tmpPath); err != nil {
+		return "", err
+	}
+	if err := os.Rename(tmpPath, dest); err != nil {
+		return "", err
+	}
+	if entries, err := os.ReadDir(dir); err == nil {
+		for _, entry := range entries {
+			if name := entry.Name(); strings.HasPrefix(name, "cxx-") && filepath.Join(dir, name) != dest {
+				_ = os.Remove(filepath.Join(dir, name))
+			}
+		}
+	}
 	return dest, nil
 }
 
