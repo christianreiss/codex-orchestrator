@@ -1,5 +1,7 @@
 # 2026-10-14
 
+- Communicators running cxx 0.9.81 no longer reconnect every ~17 seconds. Their heartbeat reports `primed` for each sync scope (warm-cache launches), a field the server's strict heartbeat schema did not know: the server closed the socket with 1008 after the first heartbeat, the owner redialled, and Live Topology filled with short-lived connections and tombstones. The server now accepts the optional boolean. No wrapper release is needed.
+
 - Hosts stuck on cxx 0.9.71–0.9.74 can self-update again. Their communicator sent the update download as a control frame, which the server refused with `400 communicator_invalid_request` on every cron tick. The server now answers that one request with a redirect to an exact-version `/wrapper/v2/download/...` URL that those owners fetch over direct HTTPS; the SHA-256 check is unchanged. No new wrapper release is needed.
 
 - cxx 0.9.81 adds warm-cache launches. With `CXX_COMMUNICATOR_CACHE_ENABLED` (signed `communicator_cache_protocol`, on top of transport + sync), a launch whose engine/home scope the running communicator has already synchronized skips the content exchange: cdx/clx send only an auth-only `/sync/bootstrap` (`include_content:false`), and cgx sends nothing for content. Pushed invalidations keep the owner current. A fresh owner, a new scope and insecure hosts keep the full bootstrap. The auth-only bootstrap no longer waits behind background content passes, and Grok runtime brokers sharing a home run one content pass.
