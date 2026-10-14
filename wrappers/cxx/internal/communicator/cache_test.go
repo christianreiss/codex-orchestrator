@@ -73,7 +73,9 @@ func TestAuthOnlyBootstrapDoesNotWaitOnContentGate(t *testing.T) {
 	blocked := make(chan SyncResult, 1)
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer cancel()
-	go func() { blocked <- s.executeSync(ctx, SyncRequest{Job: job, Operation: "bootstrap", IncludeAuth: true}) }()
+	go func() {
+		blocked <- s.executeSync(ctx, SyncRequest{Job: job, Operation: "bootstrap", IncludeAuth: true})
+	}()
 	if out := <-blocked; out.Error == nil || out.Error.Message != context.DeadlineExceeded.Error() {
 		t.Fatalf("a full bootstrap must still serialize with content work, got %+v", out.Error)
 	}
