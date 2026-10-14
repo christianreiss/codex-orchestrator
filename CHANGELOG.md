@@ -1,5 +1,7 @@
 # 2026-10-14
 
+- Live Topology communicator labels now show the full FQDN instead of username and shortened host. Graph labels retain the complete domain; lists, details and action targets use the same label, including existing runtime disambiguation suffixes.
+
 - Live Topology connection lines are thicker: server-to-communicator links use 4 px, carried-agent links 3 px and direct-agent links 2.5 px. Widths stay readable while zooming; status colors, dashed patterns and focus emphasis are preserved.
 
 - Chatty replaces engine and model dropdowns with compact selection buttons. Automatic engine selection and the default model remain one click away, the selected choice is highlighted, and model choices scroll on narrow screens.

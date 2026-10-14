@@ -326,6 +326,8 @@ content and reuses the existing durable message queues.
 The console's **Live Topology** page (`GET /admin/topology`) draws the server, the
 communicators connected to it and the agent sessions each one carries. The view is
 the connection set of the API process that answers, never a fleet-wide inference.
+Communicator labels show the full FQDN, without a username prefix or hostname
+shortening, and retain any runtime suffix used to distinguish connections.
 
 Connection lines keep their screen width while zooming: 4 px from server to
 communicator, 3 px to carried agents and 2.5 px to direct agents. Selecting a path

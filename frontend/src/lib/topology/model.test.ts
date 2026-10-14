@@ -84,7 +84,10 @@ describe("search", () => {
 });
 
 describe("labels and summaries", () => {
-  it("labels a communicator user@host", () => assert.equal(communicatorLabel(comm("c1")), "alice@web01"));
+  it("labels a communicator by full FQDN and retains runtime disambiguation", () => {
+    assert.equal(communicatorLabel(comm("c1")), "web01.example.com");
+    assert.equal(communicatorLabel(comm("c2", { label: "alice@web01 · rt0123" })), "web01.example.com · rt0123");
+  });
   it("summarises the tree", () => {
     const s = summarize(snapshot([comm("c1"), comm("c2", { health: "stale" })], [agent("a1", { presence: "working" }), agent("a2")]));
     assert.deepEqual(s, { communicators: 2, liveCommunicators: 1, agents: 2, attributed: 2, stale: 0, unattributed: 0, working: 1, listening: 1 });

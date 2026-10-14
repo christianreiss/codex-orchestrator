@@ -12,13 +12,10 @@ export const GHOST_TTL_MS = 12_000;
 
 export type GraphNodeState = "live" | "stale" | "closing" | "gone";
 
-export function shortHost(fqdn: string): string {
-  const first = fqdn.split(".")[0];
-  return first && first.length > 0 ? first : fqdn;
-}
-
-export function communicatorLabel(c: Pick<TopologyCommunicator, "username" | "host"> & { label?: string }): string {
-  return c.label ?? `${c.username}@${shortHost(c.host)}`;
+/** Host labels use the full FQDN; keep the server's runtime disambiguation. */
+export function communicatorLabel(c: Pick<TopologyCommunicator, "host"> & { label?: string }): string {
+  const suffix = c.label?.indexOf(" · ") ?? -1;
+  return c.host + (suffix >= 0 ? c.label!.slice(suffix) : "");
 }
 
 export function shortId(id: string): string {

@@ -378,7 +378,7 @@
             </g>
           {/if}
           {#if scale >= 0.35 || lit}
-            <text y="46" text-anchor="middle" class="node-label node-label--strong">{truncate(communicatorLabel(item.node), 24)}</text>
+            <text y="46" text-anchor="middle" class="node-label node-label--strong">{communicatorLabel(item.node)}</text>
             <text y="59" text-anchor="middle" class="node-label node-label--muted">{item.ghost ? "disconnected" : `cxx ${item.node.version}`}</text>
           {/if}
         </g>

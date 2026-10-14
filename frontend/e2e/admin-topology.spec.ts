@@ -81,15 +81,17 @@ async function open(page: Page) {
 }
 
 test("draws the server, communicators and agents and says who carries whom", async ({ page }) => {
-  await fixtures(page);
+  const state = await fixtures(page);
+  state.topology.communicators[0].host = "web01.office.long-domain.example";
   await open(page);
   await expect(page.getByText("2 communicators", { exact: true })).toBeVisible();
   await expect(page.getByText("2 via a communicator")).toBeVisible();
   await expect(page.getByText("1 direct", { exact: true })).toBeVisible();
 
   await page.locator(`[data-node="${C1}"] .hit`).click();
+  await expect(page.locator(`[data-node="${C1}"] .node-label--strong`)).toHaveText("web01.office.long-domain.example");
   const details = page.getByRole("complementary", { name: "Selection details" });
-  await expect(details.getByRole("heading", { name: "alice@web01" })).toBeVisible();
+  await expect(details.getByRole("heading", { name: "web01.office.long-domain.example" })).toBeVisible();
   await expect(details.getByText("Agents on this connection (2)")).toBeVisible();
   await expect(details.getByRole("button", { name: /Raffaela/ })).toBeVisible();
   await expect(details.getByRole("button", { name: /Lisanne/ })).toHaveCount(0);
@@ -108,7 +110,7 @@ test("disconnecting a communicator names the target and its agents, then reports
   await page.locator(`[data-node="${C1}"] .hit`).click();
   await page.getByRole("button", { name: "Disconnect this communicator…" }).click();
   const dialog = page.getByRole("dialog");
-  await expect(dialog.getByText("alice@web01")).toBeVisible();
+  await expect(dialog.getByText("web01.example").first()).toBeVisible();
   await expect(dialog.getByText("Raffaela · Claude · listening")).toBeVisible();
   await expect(dialog.getByText("Britta · Codex · listening")).toBeVisible();
   await expect(dialog.getByText(/redials within 1–30 s/)).toBeVisible();
@@ -155,7 +157,7 @@ test("works from the keyboard and offers the same tree as a list", async ({ page
   await expect(page.getByRole("complementary", { name: "Selection details" }).getByRole("heading", { name: "Server" })).toBeVisible();
 
   await page.getByRole("button", { name: "List", exact: true }).click();
-  await expect(page.getByRole("region", { name: "Communicator alice@web01" })).toContainText("Raffaela");
+  await expect(page.getByRole("region", { name: "Communicator web01.example" })).toContainText("Raffaela");
   await expect(page.getByRole("region", { name: "Agents with no communicator" })).toContainText("Lisanne");
   await page.getByLabel("Find a node").fill("britta");
   await expect(page.getByRole("button", { name: /Raffaela/ })).toHaveCount(0);
