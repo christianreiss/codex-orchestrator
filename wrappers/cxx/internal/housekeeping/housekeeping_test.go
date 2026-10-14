@@ -212,9 +212,14 @@ func TestRejectUnknownSchemaAndSymlinks(t *testing.T) {
 	root := t.TempDir()
 	old := fileAt(t, root, "sessions/x/rollout-date-"+idOld+".jsonl", 40)
 	_ = fileAt(t, root, "state_999.sqlite", 1)
-	_, err := Run(context.Background(), opts(root, "codex", testServer()))
-	if err == nil || !strings.Contains(err.Error(), "unsupported native database") {
-		t.Fatal(err)
+	f := testServer()
+	r, err := Run(context.Background(), opts(root, "codex", f))
+	// An unknown layout is a fail-closed skip, not a maintenance failure.
+	if err != nil || r.Outcome != "skipped" || r.Reason != "unsupported_native_database" || !strings.Contains(r.Detail, "state_999.sqlite") {
+		t.Fatalf("%+v %v", r, err)
+	}
+	if f.reports != 1 || f.reservations != 0 {
+		t.Fatalf("skip not reported centrally or reserved: %+v", f)
 	}
 	exists(t, old, true)
 	_ = os.Remove(filepath.Join(root, "state_999.sqlite"))

@@ -93,6 +93,10 @@ func Automatic(ctx context.Context, cfg *config.Config, w io.Writer) error {
 }
 func render(w io.Writer, r Result) {
 	if r.Outcome == "skipped" && r.BytesBefore == 0 {
+		if r.Detail != "" {
+			fmt.Fprintf(w, "housekeeping %s: skipped (%s: %s; inventory deferred)\n", r.Engine, r.Reason, r.Detail)
+			return
+		}
 		fmt.Fprintf(w, "housekeeping %s: skipped (%s; inventory deferred)\n", r.Engine, r.Reason)
 		return
 	}

@@ -51,6 +51,7 @@ type Result struct {
 	Candidates  int      `json:"candidates"`
 	Outcome     string   `json:"outcome"`
 	Reason      string   `json:"reason,omitempty"`
+	Detail      string   `json:"detail,omitempty"`
 	IDs         []string `json:"candidate_ids,omitempty"`
 }
 type Options struct {
@@ -236,6 +237,18 @@ func Run(ctx context.Context, o Options) (r Result, err error) {
 		return r, e
 	}
 	dbs, e := nativeDatabases(o.Root, o.Engine)
+	if errors.Is(e, errUnsupportedNative) {
+		// Fail closed for deletion, but an unknown native layout is an expected
+		// state after a provider upgrade, not a maintenance fault: report the
+		// skip (locally and centrally) and let the maintenance run succeed.
+		r.Outcome = "skipped"
+		r.Reason = "unsupported_native_database"
+		r.Detail = e.Error()
+		if !o.DryRun {
+			_ = o.Server.Report(ctx, r)
+		}
+		return r, nil
+	}
 	if e != nil {
 		r.Outcome = "skipped"
 		r.Reason = "unsupported_or_locked_native_database"

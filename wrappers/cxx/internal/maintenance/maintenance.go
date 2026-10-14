@@ -113,6 +113,15 @@ func (r *Run) finishAt(runErr error, now time.Time) error {
 	return err
 }
 
+// Outcome is the outcome Finish recorded in maintenance.json ("running" before
+// Finish). Callers print it verbatim so cron.log and the state file agree.
+func (r *Run) Outcome() string {
+	if r == nil {
+		return ""
+	}
+	return r.state.Outcome
+}
+
 // Request queues a detached coordinator, returning after local process creation.
 // It never fetches config, probes a CLI, waits on a lock, or waits for the child.
 // All personas share one queue and one coordinator lease in the user's home.

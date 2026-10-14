@@ -218,7 +218,7 @@ cxx --version                # wrapper version, commit, and signing-key status
 cxx sync                     # sync every installed engine, nothing launched
 cxx update                   # self-update the wrapper, then re-exec into `cxx sync`
 cxx cron run --minimal       # run the shared maintenance tick now (bypasses the cooldown)
-cat ~/.cxx/maintenance.json  # last outcome and next eligible time
+cat ~/.cxx/maintenance.json  # last outcome and next eligible time (matches the final `maintenance:` line in ~/.cxx/cron.log)
 
 # Wrapper-owned command reference (`--help` remains upstream Codex help)
 cdx --wrapper-help
