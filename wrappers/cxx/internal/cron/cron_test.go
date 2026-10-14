@@ -1312,3 +1312,51 @@ func TestCoordinatorSummaryMatchesRecordedMaintenanceOutcome(t *testing.T) {
 		t.Fatalf("failure summary %q recorded %q", out.String(), recorded())
 	}
 }
+
+func TestNonRootKeepsAnotherAccountsSystemSchedule(t *testing.T) {
+	dir := t.TempDir()
+	foreign := filepath.Join(dir, "cxx-managed")
+	own := filepath.Join(dir, "cdx-managed")
+	body := func(user string) string {
+		return buildSystemCronBody("/usr/local/bin/cxx", "/c/cdx.json", "/c/clx.json", "/var/log/cxx-cron.log", user, "/home/"+user, "/home/"+user+"/.codex", 30, 4)
+	}
+	if err := os.WriteFile(foreign, []byte(body("root")), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(own, []byte(body("chris")), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	oldUID, oldCurrent, oldRemove := effectiveUID, currentCrontabUser, removeSystemSchedule
+	var removed []string
+	effectiveUID = func() int { return 1000 }
+	currentCrontabUser = func() (*user.User, error) { return &user.User{Username: "chris"}, nil }
+	removeSystemSchedule = func(path string) error { removed = append(removed, path); return nil }
+	t.Cleanup(func() { effectiveUID, currentCrontabUser, removeSystemSchedule = oldUID, oldCurrent, oldRemove })
+
+	for _, path := range []string{foreign, own, filepath.Join(dir, "missing")} {
+		if err := removeOwnedSystemSchedule(path); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if want := []string{own, filepath.Join(dir, "missing")}; !reflect.DeepEqual(removed, want) {
+		t.Fatalf("removed=%q want=%q (root's schedule must survive a chris run)", removed, want)
+	}
+
+	removed = nil
+	effectiveUID = func() int { return 0 }
+	if err := removeOwnedSystemSchedule(foreign); err != nil || !reflect.DeepEqual(removed, []string{foreign}) {
+		t.Fatalf("root must still replace any schedule: removed=%q err=%v", removed, err)
+	}
+}
+
+func TestSystemScheduleUser(t *testing.T) {
+	for body, want := range map[string]string{
+		buildSystemCronBody("/x/cxx", "/c", "/d", "/l", "chris", "/home/chris", "/home/chris/.codex", 1, 2): "chris",
+		"# c\nSHELL=/bin/sh\n@daily root /x/cxx cron run\n":                                          "root",
+		"# only comments\nHOME=/root\n":                                                              "",
+	} {
+		if got := systemScheduleUser(body); got != want {
+			t.Fatalf("systemScheduleUser(%q)=%q want %q", body, got, want)
+		}
+	}
+}

@@ -131,7 +131,7 @@ func removeSchedulesLocked(allUsers bool) error {
 
 	var errs []error
 	for _, path := range append([]string{systemCronPath}, legacySystemPaths...) {
-		if err := removeSystemSchedule(path); err != nil {
+		if err := removeOwnedSystemSchedule(path); err != nil {
 			errs = append(errs, err)
 		}
 	}
@@ -641,7 +641,7 @@ func reconcileSchedule(ctx context.Context, canonical string, nightly bool) erro
 			}
 			var errs []error
 			for _, path := range append([]string{systemCronPath}, legacySystemPaths...) {
-				if err := removeSystemSchedule(path); err != nil {
+				if err := removeOwnedSystemSchedule(path); err != nil {
 					errs = append(errs, err)
 				}
 			}
@@ -1264,6 +1264,67 @@ func removeLegacySystemSchedules() error {
 		}
 	}
 	return errors.Join(errs...)
+}
+
+// removeOwnedSystemSchedule removes a host-wide schedule unless a non-root
+// caller would displace another account's job: a private install updated as
+// chris must not delete the root-enrolled /etc/cron.d line, whose run
+// maintains root's configs, not chris's. Only root decides about another
+// account's host-wide schedule.
+func removeOwnedSystemSchedule(path string) error {
+	if owner, foreign := foreignSystemSchedule(path); foreign {
+		fmt.Fprintf(os.Stderr, "cron: keeping %s, it runs as %s, not this account\n", path, owner)
+		return nil
+	}
+	return removeSystemSchedule(path)
+}
+
+var effectiveUID = os.Geteuid
+
+// foreignSystemSchedule reports the cron user of a host-wide schedule when it
+// is not the calling account. An unreadable file or an unknown caller counts
+// as foreign, so a non-root run keeps what it cannot attribute.
+func foreignSystemSchedule(path string) (string, bool) {
+	if effectiveUID() == 0 {
+		return "", false
+	}
+	data, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return "", false
+	}
+	if err != nil {
+		return "unknown", true
+	}
+	owner := systemScheduleUser(string(data))
+	if owner == "" {
+		return "", false
+	}
+	current, err := currentCrontabUser()
+	if err != nil {
+		return owner, true
+	}
+	return owner, owner != current.Username
+}
+
+// systemScheduleUser returns the user field of the first job line of an
+// /etc/cron.d file ("m h dom mon dow user cmd" or "@nickname user cmd").
+func systemScheduleUser(body string) string {
+	for _, line := range strings.Split(body, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) == 0 || strings.HasPrefix(fields[0], "#") || strings.Contains(fields[0], "=") {
+			continue
+		}
+		if strings.HasPrefix(fields[0], "@") {
+			if len(fields) >= 3 {
+				return fields[1]
+			}
+			continue
+		}
+		if len(fields) >= 7 {
+			return fields[5]
+		}
+	}
+	return ""
 }
 
 func removeSystemFile(path string) error {
